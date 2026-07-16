@@ -12,6 +12,12 @@ export class FixedClock implements Clock {
   public now(): Date { return new Date(this.value); }
 }
 
+export class MutableClock implements Clock {
+  public constructor(private value = new Date('2026-07-16T00:00:00.000Z')) {}
+  public now(): Date { return new Date(this.value); }
+  public advance(milliseconds: number): void { this.value = new Date(this.value.getTime() + milliseconds); }
+}
+
 export class SequenceIds implements IdGenerator {
   #value = 0;
   public next(): string {
@@ -38,6 +44,7 @@ export function createTestContext(prefix = 'wenmai-test-'): TestContext {
     databasePath: resolve(dataDir, 'database', 'wenmai.sqlite'),
     projectRoot: process.cwd(),
     releaseId: 'wm-v1-20260716-220959-d5dd704d',
+    ownerId: 'owner-local-boss',
     webOrigin: 'http://127.0.0.1:43110'
   };
   const database = openDatabase(config.databasePath);
@@ -53,4 +60,3 @@ export function createTestContext(prefix = 'wenmai-test-'): TestContext {
     }
   };
 }
-

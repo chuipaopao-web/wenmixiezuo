@@ -4,6 +4,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { SCHEMA_VERSION, success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
+import { SystemClock, UuidGenerator } from '../domain/ids.js';
+import { EventStore } from '../application/events/event-store.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 
 interface WorkerHealthRow {
@@ -19,6 +21,7 @@ interface WorkerHealthRow {
 export async function createServer(config: RuntimeConfig, database: DatabaseSync): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: process.env.WENMAI_LOG_LEVEL ?? 'info' } });
   await app.register(cors, { origin: config.webOrigin, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  const events = new EventStore(database, new UuidGenerator(), new SystemClock());
 
   app.get('/health', async (request) => {
     const integrity = database.prepare('PRAGMA quick_check').get() as { quick_check: string };
@@ -56,6 +59,33 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     const row = database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1').get() as { heartbeat_at: string } | undefined;
     const workerReady = row !== undefined && Date.now() - Date.parse(row.heartbeat_at) <= 15_000;
     return success({ api: 'ready', worker: workerReady ? 'ready' : 'possibly_offline', canStartModelTasks: workerReady }, request.id);
+  });
+
+  app.get<{ Querystring: { after?: string; bookId?: string } }>('/api/v1/events', async (request, reply) => {
+    const after = Number(request.query.after ?? '0');
+    if (!Number.isInteger(after) || after < 0) throw new DomainError('VALIDATION_ERROR', 'after必须是非负整数');
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'content-type': 'text/event-stream; charset=utf-8',
+      'x-accel-buffering': 'no'
+    });
+    let cursor = after;
+    const writePending = (): void => {
+      const pending = events.replay({ ownerId: config.ownerId, bookId: request.query.bookId ?? null }, cursor);
+      for (const event of pending) {
+        reply.raw.write(`id: ${event.eventSeq}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`);
+        cursor = event.eventSeq;
+      }
+    };
+    writePending();
+    const poll = setInterval(writePending, 1_000);
+    const heartbeat = setInterval(() => reply.raw.write(': keepalive\n\n'), 10_000);
+    request.raw.once('close', () => {
+      clearInterval(poll);
+      clearInterval(heartbeat);
+    });
   });
 
   app.setErrorHandler((error, request, reply) => {

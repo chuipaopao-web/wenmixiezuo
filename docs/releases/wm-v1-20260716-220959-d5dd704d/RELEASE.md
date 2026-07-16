@@ -19,8 +19,8 @@
 | 开工基线 | 已通过 | `stages/00-baseline.md` |
 | 1 | 已通过 | `stages/01-foundation.md` |
 | 2 | 已通过 | `stages/02-data-safety.md` |
-| 3 | 进行中 | `stages/03-runtime.md` |
-| 4 | 待开始 | `stages/04-domain.md` |
+| 3 | 已通过 | `stages/03-runtime.md` |
+| 4 | 进行中 | `stages/04-domain.md` |
 | 5 | 待开始 | `stages/05-memory-canon.md` |
 | 6 | 待开始 | `stages/06-creation.md` |
 | 7 | 待开始 | `stages/07-experience.md` |

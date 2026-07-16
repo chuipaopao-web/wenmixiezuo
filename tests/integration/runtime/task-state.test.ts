@@ -1,0 +1,53 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { EventStore } from '../../../apps/api/src/application/events/event-store.js';
+import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
+
+let context: TestContext | undefined;
+afterEach(() => { context?.close(); context = undefined; });
+
+describe('持久任务状态机', () => {
+  it('依赖、幂等、全局单并发、检查点、暂停和继续可恢复', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const events = new EventStore(context.database, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock, events);
+    const input = { taskId: 'task-first', taskType: 'runtime_probe', assignedAgentId: agents[0]!.agentId, idempotencyKey: 'idem-first', initialPhase: 'read_context', brief: { goal: '探测' } };
+    const first = tasks.create(scope, input);
+    expect(tasks.create(scope, { ...input, taskId: 'different-id' }).taskId).toBe(first.taskId);
+    tasks.create(scope, { taskId: 'task-second', taskType: 'runtime_probe', assignedAgentId: agents[1]!.agentId, idempotencyKey: 'idem-second', initialPhase: 'execute', brief: { goal: '第二项' } });
+    tasks.addDependency(scope, 'task-second', 'task-first');
+    tasks.queue(scope, 'task-first');
+    tasks.queue(scope, 'task-second');
+    expect(tasks.claimNext('worker-one')?.taskId).toBe('task-first');
+    expect(tasks.claimNext('worker-two')).toBeNull();
+    tasks.checkpoint(scope, 'task-first', 'worker-one', 'write_draft', { offset: 12 });
+    tasks.requestPause(scope, 'task-first');
+    expect(tasks.pauseAtCheckpoint(scope, 'task-first', 'worker-one').checkpoint).toEqual({ offset: 12 });
+    tasks.queue(scope, 'task-first');
+    expect(tasks.claimNext('worker-one')?.attemptCount).toBe(2);
+    tasks.complete(scope, 'task-first', 'worker-one');
+    expect(tasks.claimNext('worker-one')?.taskId).toBe('task-second');
+    expect(events.replay(scope, 0).map((event) => event.eventSeq)).toEqual([...events.replay(scope, 0).map((event) => event.eventSeq)].sort((a, b) => a - b));
+  });
+
+  it('跨书不能读取、依赖或控制任务', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const firstScope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    const secondScope = { ownerId: 'owner-one', bookId: 'book-beta' };
+    initializeRuntimeBook(context, firstScope, ids, clock, '甲书');
+    initializeRuntimeBook(context, secondScope, ids, clock, '乙书');
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(firstScope, { taskId: 'task-alpha', taskType: 'runtime_probe', idempotencyKey: 'idem-alpha', initialPhase: 'execute', brief: {} });
+    tasks.create(secondScope, { taskId: 'task-beta', taskType: 'runtime_probe', idempotencyKey: 'idem-beta', initialPhase: 'execute', brief: {} });
+    expect(() => tasks.require(secondScope, 'task-alpha')).toThrow('越权');
+    expect(() => tasks.addDependency(firstScope, 'task-alpha', 'task-beta')).toThrow('越权');
+  });
+});
+

@@ -1,0 +1,44 @@
+import type { WorkerHeartbeat } from '../health/heartbeat.js';
+import type { TaskClaimer } from '../scheduler/task-claimer.js';
+
+export class WorkerLoop {
+  #timer: NodeJS.Timeout | undefined;
+  #working = false;
+
+  public constructor(
+    private readonly claimer: TaskClaimer,
+    private readonly heartbeat: WorkerHeartbeat
+  ) {}
+
+  public start(): void {
+    void this.tick();
+    this.#timer = setInterval(() => void this.tick(), 1_000);
+    this.#timer.unref();
+  }
+
+  public stop(): void {
+    if (this.#timer !== undefined) clearInterval(this.#timer);
+    this.#timer = undefined;
+  }
+
+  private async tick(): Promise<void> {
+    if (this.#working) return;
+    this.#working = true;
+    try {
+      const task = this.claimer.claimNext();
+      if (task === null) return;
+      this.heartbeat.setCurrentTask(task.taskId);
+      if (task.taskType === 'runtime_probe') {
+        this.claimer.complete(task, { workerExecuted: true, deterministic: true });
+      } else {
+        this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
+      }
+    } catch (error) {
+      console.error(JSON.stringify({ service: 'wenmai-worker', error: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      this.heartbeat.setCurrentTask(null);
+      this.#working = false;
+    }
+  }
+}
+

@@ -10,6 +10,7 @@ export interface RuntimeConfig {
   databasePath: string;
   projectRoot: string;
   releaseId: string;
+  ownerId: string;
   webOrigin: string;
 }
 
@@ -40,7 +41,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     databasePath: resolve(databaseDir, 'wenmai.sqlite'),
     projectRoot,
     releaseId: readReleaseId(projectRoot),
+    ownerId: env.WENMAI_OWNER_ID ?? 'owner-local-boss',
     webOrigin: env.WENMAI_WEB_ORIGIN ?? 'http://127.0.0.1:43110'
   };
 }
-

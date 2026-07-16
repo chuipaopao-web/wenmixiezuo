@@ -4,6 +4,7 @@ import type { WorkerConfig } from '../runtime/config.js';
 export class WorkerHeartbeat {
   readonly #startedAt = new Date().toISOString();
   #timer: NodeJS.Timeout | undefined;
+  #currentTaskId: string | null = null;
 
   public constructor(
     private readonly database: DatabaseSync,
@@ -23,25 +24,31 @@ export class WorkerHeartbeat {
     }
   }
 
+  public setCurrentTask(taskId: string | null): void {
+    this.#currentTaskId = taskId;
+    this.write();
+  }
+
   private write(): void {
     this.database.prepare(`
       INSERT INTO worker_health (
         worker_id, release_id, process_id, started_at, heartbeat_at, capabilities_json, current_task_id
-      ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(worker_id) DO UPDATE SET
         release_id = excluded.release_id,
         process_id = excluded.process_id,
         started_at = excluded.started_at,
         heartbeat_at = excluded.heartbeat_at,
-        capabilities_json = excluded.capabilities_json
+        capabilities_json = excluded.capabilities_json,
+        current_task_id = excluded.current_task_id
     `).run(
       this.config.workerId,
       this.config.releaseId,
       process.pid,
       this.#startedAt,
       new Date().toISOString(),
-      JSON.stringify(['deterministic-model', 'task-heartbeat'])
+      JSON.stringify(['deterministic-model', 'task-heartbeat', 'persistent-task-claim']),
+      this.#currentTaskId
     );
   }
 }
-

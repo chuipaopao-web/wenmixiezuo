@@ -23,6 +23,7 @@ describe('API健康检查', () => {
       databasePath: resolve(tempDirectory, 'database.sqlite'),
       projectRoot: process.cwd(),
       releaseId: 'wm-v1-20260716-220959-d5dd704d',
+      ownerId: 'owner-local-boss',
       webOrigin: 'http://127.0.0.1:43110'
     };
     const database = openDatabase(config.databasePath);
@@ -32,7 +33,7 @@ describe('API健康检查', () => {
       const response = await app.inject({ method: 'GET', url: '/health' });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
-        data: { status: 'ok', releaseId: config.releaseId, schemaVersion: 2 },
+        data: { status: 'ok', releaseId: config.releaseId, schemaVersion: 3 },
         meta: { version: 1 }
       });
     } finally {
