@@ -17,6 +17,7 @@ export interface WorkerConfig {
   databasePath: string;
   releaseId: string;
   workerId: string;
+  apiBaseUrl: string;
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -26,7 +27,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
   return {
     databasePath: resolve(dataDir, 'database', 'wenmai.sqlite'),
     releaseId: readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim(),
-    workerId: env.WENMAI_WORKER_ID ?? 'local-worker-1'
+    workerId: env.WENMAI_WORKER_ID ?? 'local-worker-1',
+    apiBaseUrl: env.WENMAI_API_BASE_URL ?? 'http://127.0.0.1:43111'
   };
 }
-

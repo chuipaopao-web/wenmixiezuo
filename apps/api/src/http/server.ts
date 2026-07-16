@@ -8,6 +8,7 @@ import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { EventStore } from '../application/events/event-store.js';
 import { registerDomainRoutes } from './domain-routes.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
+import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -61,6 +62,19 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     const row = database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1').get() as { heartbeat_at: string } | undefined;
     const workerReady = row !== undefined && Date.now() - Date.parse(row.heartbeat_at) <= 15_000;
     return success({ api: 'ready', worker: workerReady ? 'ready' : 'possibly_offline', canStartModelTasks: workerReady }, request.id);
+  });
+
+  app.post<{
+    Params: { taskId: string };
+    Headers: { 'x-wenmai-worker-id'?: string };
+    Body: { ownerId: string; bookId: string };
+  }>('/api/v1/internal/worker/tasks/:taskId/execute', async (request) => {
+    const workerId = request.headers['x-wenmai-worker-id'];
+    if (workerId === undefined || workerId.length === 0) throw new DomainError('VALIDATION_ERROR', '缺少Worker身份');
+    const recorded = database.prepare(`SELECT 1 FROM worker_health WHERE worker_id = ?`).get(workerId);
+    if (recorded === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker身份未登记');
+    const pipeline = new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock());
+    return success(await pipeline.executeClaimed({ ownerId: request.body.ownerId, bookId: request.body.bookId }, request.params.taskId, workerId), request.id);
   });
 
   app.get<{ Querystring: { after?: string; bookId?: string } }>('/api/v1/events', async (request, reply) => {

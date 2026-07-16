@@ -17,6 +17,7 @@ export interface BeginModelCall {
   input: string;
   parameters: string;
   reservationId: string;
+  contextPackId?: string | null;
 }
 
 export class ModelCallService {
@@ -51,12 +52,12 @@ export class ModelCallService {
       INSERT INTO model_calls (
         request_id, owner_id, book_id, task_id, phase_key, agent_id, provider,
         model_id, model_snapshot_id, input_hash, parameters_hash, reservation_id,
-        state, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        context_pack_id, state, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     `).run(
       call.requestId, scope.ownerId, scope.bookId, call.taskId, call.phaseKey, call.agentId,
       call.provider, call.modelId, call.modelSnapshotId, inputHash, parametersHash,
-      call.reservationId, this.clock.now().toISOString()
+      call.reservationId, call.contextPackId ?? null, this.clock.now().toISOString()
     );
     return call.requestId;
   }
@@ -113,4 +114,3 @@ export class ModelCallService {
     return true;
   }
 }
-

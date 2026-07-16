@@ -22,8 +22,8 @@
 | 3 | 已通过 | `stages/03-runtime.md` |
 | 4 | 已通过 | `stages/04-domain.md` |
 | 5 | 已通过 | `stages/05-memory-canon.md` |
-| 6 | 进行中 | `stages/06-creation.md` |
-| 7 | 待开始 | `stages/07-experience.md` |
+| 6 | 已通过 | `stages/06-creation.md` |
+| 7 | 进行中 | `stages/07-experience.md` |
 | 8 | 待开始 | `stages/08-release.md` |
 
 阶段状态只有在对应验收证据与当前提交一致后才更新。整个首版是否达到完成标准只以 `docs/ACCEPTANCE.md` 和最终签署为准。

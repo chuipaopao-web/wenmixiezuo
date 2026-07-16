@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
 import { success } from '../contracts/api.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { PositioningService } from '../application/books/positioning-service.js';
@@ -14,6 +15,8 @@ import { CanonService, type FactInput } from '../application/knowledge/canon-ser
 import { MemoryService, type MemoryLayer } from '../application/memory/memory-service.js';
 import { RetrievalService } from '../application/memory/retrieval-service.js';
 import { ContextPackService, type ContextPackInput } from '../application/memory/context-pack-service.js';
+import { ChapterBatchService } from '../application/creation/chapter-batch-service.js';
+import { resolveInside } from '../infrastructure/files/file-utils.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -30,6 +33,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const memory = new MemoryService(database, ids, clock);
   const retrieval = new RetrievalService(database, ids, clock);
   const contextPacks = new ContextPackService(database, ids, clock);
+  const chapterBatches = new ChapterBatchService(database, config.dataDir, config.releaseId, ids, clock);
 
   app.post<{ Body: { title?: string; text: string; category?: string; tags?: string[]; style?: string } }>('/api/v1/books/drafts', async (request) => {
     return success(positioning.createDraft(owner, request.body), request.id);
@@ -111,6 +115,53 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/chapters', async (request) => {
     return success(chapters.list({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { count: 1 | 3 | 4 | 5; volumeTitle?: string; firstChapterTitle?: string } }>('/api/v1/books/:bookId/chapter-batches', async (request) => {
+    const options = {
+      ...(request.body.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
+      ...(request.body.firstChapterTitle === undefined ? {} : { firstChapterTitle: request.body.firstChapterTitle })
+    };
+    return success(chapterBatches.scheduleNewChapters({ ...owner, bookId: request.params.bookId }, request.body.count, options), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; batchId: string } }>('/api/v1/books/:bookId/chapter-batches/:batchId', async (request) => {
+    return success(chapterBatches.require({ ...owner, bookId: request.params.bookId }, request.params.batchId), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const chapter = chapters.requireChapter(scope, request.params.chapterId);
+    const manuscripts = database.prepare(`SELECT * FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at, manuscript_version_id`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    const facts = canon.listFacts(scope, request.params.chapterId);
+    const reviews = database.prepare(`SELECT * FROM review_rounds WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY round_number`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    return success({ chapter, manuscripts, facts, reviews }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts', async (request) => {
+    return success(database.prepare(`SELECT * FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at, manuscript_version_id`)
+      .all(config.ownerId, request.params.bookId, request.params.chapterId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/select-manuscript', async (request) => {
+    chapters.selectManuscript({ ...owner, bookId: request.params.bookId }, request.params.chapterId, request.body.manuscriptVersionId);
+    return success({ manuscriptVersionId: request.body.manuscriptVersionId, status: 'approved' }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string; chapterId: string }; Querystring: { start?: number; end?: number } }>('/api/v1/books/:bookId/chapters/:chapterId/content', async (request) => {
+    const row = database.prepare(`
+      SELECT f.relative_path, m.manuscript_version_id, m.content_hash
+      FROM chapters c JOIN manuscript_versions m ON m.manuscript_version_id = COALESCE(c.canon_manuscript_version_id, c.current_manuscript_version_id)
+      JOIN file_registry f ON f.file_id = m.file_id
+      WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_id = ? AND f.status = 'active'
+    `).get(config.ownerId, request.params.bookId, request.params.chapterId) as { relative_path: string; manuscript_version_id: string; content_hash: string } | undefined;
+    if (row === undefined) throw new Error('章节尚无可读取的正文或越权');
+    const content = readFileSync(resolveInside(config.dataDir, row.relative_path), 'utf8');
+    const start = Math.max(0, request.query.start ?? 0);
+    const end = Math.min(content.length, request.query.end ?? content.length, start + 100_000);
+    return success({ manuscriptVersionId: row.manuscript_version_id, contentHash: row.content_hash, start, end, totalLength: content.length, content: content.slice(start, end) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {

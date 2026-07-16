@@ -1,5 +1,6 @@
 import type { WorkerHeartbeat } from '../health/heartbeat.js';
 import type { TaskClaimer } from '../scheduler/task-claimer.js';
+import type { ChapterTaskExecutor } from '../executors/chapter-task-executor.js';
 
 export class WorkerLoop {
   #timer: NodeJS.Timeout | undefined;
@@ -7,7 +8,8 @@ export class WorkerLoop {
 
   public constructor(
     private readonly claimer: TaskClaimer,
-    private readonly heartbeat: WorkerHeartbeat
+    private readonly heartbeat: WorkerHeartbeat,
+    private readonly chapterTasks?: ChapterTaskExecutor
   ) {}
 
   public start(): void {
@@ -30,6 +32,8 @@ export class WorkerLoop {
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
         this.claimer.complete(task, { workerExecuted: true, deterministic: true });
+      } else if (task.taskType === 'chapter_creation' && this.chapterTasks !== undefined) {
+        await this.chapterTasks.execute(task);
       } else {
         this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
       }
@@ -41,4 +45,3 @@ export class WorkerLoop {
     }
   }
 }
-
