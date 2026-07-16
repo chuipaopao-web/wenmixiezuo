@@ -14,12 +14,11 @@ import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { resolveInside } from '../../infrastructure/files/file-utils.js';
 import {
   countNovelCharacters,
-  DeterministicNovelCandidateBAdapter,
-  DeterministicNovelReviewerAdapter,
-  DeterministicNovelWriterAdapter,
   type StructuredReview
 } from '../../infrastructure/models/deterministic-novel-models.js';
 import type { ModelAdapter } from '../../infrastructure/models/model-adapter.js';
+import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
 import { WriterSelectionService, type WriterSelection } from './writer-selection-service.js';
 import { CopyrightService } from '../copyright/copyright-service.js';
@@ -64,7 +63,8 @@ export class ChapterPipelineService {
     private readonly dataDir: string,
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
   ) {}
 
   public async executeClaimed(
@@ -224,9 +224,8 @@ export class ChapterPipelineService {
       ORDER BY c.chapter_number DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as { state_json: string } | undefined;
     const prompt = JSON.stringify({ operation: 'draft', chapterNumber: chapter.chapter_number, title: chapter.title, previousState: previous?.state_json ?? '故事刚刚开始' });
-    const adapter: ModelAdapter = this.modelIdentity(run.writer_model_snapshot_id).modelId.includes('candidate-b')
-      ? new DeterministicNovelCandidateBAdapter()
-      : new DeterministicNovelWriterAdapter();
+    const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
+    const adapter = this.modelAdapters.resolve(writerModel.provider, writerModel.modelId, 'novel_writer', 'writer');
     const output = await this.executeModel(scope, run, 'draft', run.writer_agent_id, run.writer_model_snapshot_id, adapter, prompt, run.context_pack_id);
     const manuscriptVersionId = this.promoteManuscript(scope, run, output, null, adapter, 'candidate');
     this.database.prepare(`UPDATE chapter_pipeline_runs SET current_manuscript_version_id = ?, phase = 'hard_check', updated_at = ? WHERE pipeline_run_id = ?`)
@@ -271,9 +270,10 @@ export class ChapterPipelineService {
       hardSources: [{ sourceType: 'current_manuscript', sourceId: run.current_manuscript_version_id, content, reason: '当前完整正文', priority: 100 }],
       optionalSources: []
     });
-    const adapter = new DeterministicNovelReviewerAdapter();
+    const reviewerModel = this.modelIdentity(scope, run.reviewer_model_snapshot_id);
+    const adapter = this.modelAdapters.resolve(reviewerModel.provider, reviewerModel.modelId, 'novel_reviewer', 'reviewer');
     const output = await this.executeModel(scope, run, `review-${run.rewrite_count + 1}`, run.reviewer_agent_id, run.reviewer_model_snapshot_id, adapter, JSON.stringify({ content }), pack.contextPackId);
-    const review = JSON.parse(output) as StructuredReview;
+    const review = parseStructuredReview(output);
     this.persistReview(scope, run, review);
     if (review.verdict === 'blocked') throw new DomainError(errorCodes.validation, '异模型审校发现阻断问题', { issues: review.issues }, false, 409);
     if (review.verdict === 'rewrite') {
@@ -300,9 +300,8 @@ export class ChapterPipelineService {
         { sourceType: 'review_issues', sourceId: `review:${run.rewrite_count + 1}`, content: JSON.stringify(requiredActions), reason: '结构化修改要求', priority: 100 }
       ], optionalSources: []
     });
-    const adapter: ModelAdapter = this.modelIdentity(run.writer_model_snapshot_id).modelId.includes('candidate-b')
-      ? new DeterministicNovelCandidateBAdapter()
-      : new DeterministicNovelWriterAdapter();
+    const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
+    const adapter = this.modelAdapters.resolve(writerModel.provider, writerModel.modelId, 'novel_writer', 'writer');
     const output = await this.executeModel(
       scope, run, `rewrite-${run.rewrite_count + 1}`, run.writer_agent_id, run.writer_model_snapshot_id,
       adapter, JSON.stringify({ operation: 'rewrite', content, requiredActions }), pack.contextPackId
@@ -415,7 +414,10 @@ export class ChapterPipelineService {
     if (budget === undefined) throw new Error('书籍没有活动预算');
     const requestId = this.ids.next();
     const budgets = new BudgetService(this.database, this.ids, this.clock);
-    const reservationId = budgets.reserve(scope, budget.budget_id, requestId, 20_000, 0);
+    const reservationId = budgets.reserve(scope, budget.budget_id, requestId, 50_000, 0);
+    const modelPrompt = adapter.provider.startsWith('local-deterministic')
+      ? prompt
+      : this.promptWithContext(scope, contextPackId, phaseKey, prompt);
     const result = await new ModelCallService(this.database, this.clock, budgets).execute(scope, {
       requestId,
       taskId: run.task_id,
@@ -424,13 +426,17 @@ export class ChapterPipelineService {
       modelSnapshotId,
       provider: adapter.provider,
       modelId: adapter.modelId,
-      input: prompt,
-      parameters: JSON.stringify({ deterministic: true, maxOutputTokens: 8_000 }),
+      input: modelPrompt,
+      parameters: JSON.stringify({
+        maxOutputTokens: 8_000,
+        planOnly: !adapter.provider.startsWith('local-deterministic'),
+        cashFallbackAllowed: false
+      }),
       reservationId,
       contextPackId
     }, adapter, {
       requestId, taskId: run.task_id, ownerId: scope.ownerId, bookId: scope.bookId,
-      agentId, prompt, maxOutputTokens: 8_000
+      agentId, prompt: modelPrompt, maxOutputTokens: 8_000
     });
     return result.output;
   }
@@ -533,9 +539,32 @@ export class ChapterPipelineService {
     return readFileSync(resolveInside(this.dataDir, row.relative_path), 'utf8');
   }
 
-  private modelIdentity(snapshotId: string): { provider: string; modelId: string } {
-    const row = this.database.prepare(`SELECT provider, model_id FROM model_config_snapshots WHERE model_snapshot_id = ?`)
-      .get(snapshotId) as { provider: string; model_id: string };
+  private promptWithContext(scope: BookScope, contextPackId: string, phaseKey: string, taskInput: string): string {
+    const row = this.database.prepare(`
+      SELECT source_manifest_json, content_hash FROM context_packs
+      WHERE context_pack_id = ? AND owner_id = ? AND book_id = ? AND status = 'active'
+    `).get(contextPackId, scope.ownerId, scope.bookId) as { source_manifest_json: string; content_hash: string } | undefined;
+    if (row === undefined) throw new Error('模型上下文包不存在、已失效或越权');
+    const parsedTaskInput = JSON.parse(taskInput) as unknown;
+    const compactTaskInput = phaseKey.startsWith('review-')
+      ? { operation: 'review' }
+      : phaseKey.startsWith('rewrite-')
+        ? { operation: 'rewrite' }
+        : parsedTaskInput;
+    return JSON.stringify({
+      phase: phaseKey,
+      contextPackHash: row.content_hash,
+      sources: JSON.parse(row.source_manifest_json) as unknown,
+      taskInput: compactTaskInput
+    });
+  }
+
+  private modelIdentity(scope: BookScope, snapshotId: string): { provider: string; modelId: string } {
+    const row = this.database.prepare(`
+      SELECT provider, model_id FROM model_config_snapshots
+      WHERE model_snapshot_id = ? AND owner_id = ? AND book_id = ?
+    `).get(snapshotId, scope.ownerId, scope.bookId) as { provider: string; model_id: string } | undefined;
+    if (row === undefined) throw new Error('模型快照不存在或越权');
     return { provider: row.provider, modelId: row.model_id };
   }
 
@@ -562,4 +591,55 @@ export class ChapterPipelineService {
       rewriteCount: run.rewrite_count
     };
   }
+}
+
+export function parseStructuredReview(raw: string): StructuredReview {
+  const trimmed = raw.trim().replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '').trim();
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('审校模型未返回JSON对象');
+  let value: unknown;
+  try {
+    value = JSON.parse(trimmed.slice(start, end + 1));
+  } catch {
+    throw new Error('审校模型返回的JSON无法解析');
+  }
+  if (!isRecord(value)) throw new Error('审校结果必须是JSON对象');
+  const verdicts = new Set(['pass', 'rewrite', 'blocked']);
+  if (typeof value.verdict !== 'string' || !verdicts.has(value.verdict)) throw new Error('审校结果verdict无效');
+  if (typeof value.summary !== 'string' || value.summary.trim().length === 0) throw new Error('审校结果summary缺失');
+  if (!Array.isArray(value.issues)) throw new Error('审校结果issues必须是数组');
+  const severities = new Set(['blocker', 'major', 'minor', 'observation']);
+  const issues = value.issues.map((issue) => {
+    if (!isRecord(issue)) throw new Error('审校问题必须是对象');
+    for (const field of ['location', 'issueType', 'severity', 'evidence', 'requiredAction'] as const) {
+      if (typeof issue[field] !== 'string' || issue[field].trim().length === 0) throw new Error(`审校问题字段${field}无效`);
+    }
+    if (!severities.has(issue.severity as string)) throw new Error('审校问题severity无效');
+    return {
+      location: (issue.location as string).trim(),
+      issueType: (issue.issueType as string).trim(),
+      severity: issue.severity as StructuredReview['issues'][number]['severity'],
+      evidence: (issue.evidence as string).trim(),
+      requiredAction: (issue.requiredAction as string).trim()
+    };
+  });
+  if (!isRecord(value.scores)) throw new Error('审校结果scores必须是对象');
+  const rawScores = value.scores;
+  const scoreKeys = ['continuity', 'character', 'pacing', 'style', 'hook'] as const;
+  const scores = Object.fromEntries(scoreKeys.map((key) => {
+    const score = rawScores[key];
+    if (!Number.isInteger(score) || (score as number) < 0 || (score as number) > 100) throw new Error(`审校评分${key}无效`);
+    return [key, score as number];
+  })) as StructuredReview['scores'];
+  return {
+    verdict: value.verdict as StructuredReview['verdict'],
+    summary: value.summary,
+    issues,
+    scores
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

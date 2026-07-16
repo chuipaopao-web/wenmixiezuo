@@ -50,6 +50,8 @@ export class WriterSelectionService {
     if (existing !== undefined) return this.require(scope, existing.writer_selection_id);
     const writer = this.requireRole(scope, 'role-writer');
     const reviewer = this.requireRole(scope, 'role-reviewer');
+    const usesAssignedRuntimeModels = !writer.provider.startsWith('local-deterministic') || !reviewer.provider.startsWith('local-deterministic');
+    if (usesAssignedRuntimeModels) return this.selectOwnerAssignedModels(scope, writer, reviewer);
     const writerProfile = ownerChoice === 'writer_b'
       ? { provider: 'local-deterministic-candidate-b', modelId: 'wenmi-novel-candidate-b-v1' }
       : { provider: 'local-deterministic-writer', modelId: 'wenmi-novel-writer-v1' };
@@ -85,6 +87,49 @@ export class WriterSelectionService {
       JSON.stringify(candidates), JSON.stringify({ selectedBlindLabel: selected.blindLabel, scoring: 'deterministic-fixture-v1', ownerChoice: mode === 'owner_specified' ? ownerChoice : null }), now
     );
     return this.require(scope, selectionId, reviewer.agent_id, reviewerSnapshotId);
+  }
+
+  private selectOwnerAssignedModels(scope: BookScope, writer: AgentModelRow, reviewer: AgentModelRow): WriterSelection {
+    if (writer.provider === reviewer.provider && writer.model_id === reviewer.model_id) {
+      throw new Error('老板指定的主笔和审校模型相同，不能进行独立复核');
+    }
+    const assignment = JSON.stringify({
+      source: 'owner_assignment',
+      writer: `${writer.provider}/${writer.model_id}`,
+      reviewer: `${reviewer.provider}/${reviewer.model_id}`
+    });
+    const candidate = {
+      blindLabel: 'OWNER',
+      provider: writer.provider,
+      modelId: writer.model_id,
+      score: 100,
+      sampleText: '',
+      sampleHash: createHash('sha256').update('').digest('hex'),
+      equalContextHash: createHash('sha256').update(assignment).digest('hex'),
+      revisionOpportunity: 0
+    };
+    const selectionId = this.ids.next();
+    this.database.prepare(`
+      INSERT INTO writer_selections (
+        writer_selection_id, owner_id, book_id, mode, selected_agent_id,
+        selected_model_snapshot_id, candidates_json, decision_json, status, created_at
+      ) VALUES (?, ?, ?, 'owner_specified', ?, ?, ?, ?, 'selected', ?)
+    `).run(
+      selectionId,
+      scope.ownerId,
+      scope.bookId,
+      writer.agent_id,
+      writer.model_snapshot_id,
+      JSON.stringify([candidate]),
+      JSON.stringify({
+        selectedBlindLabel: 'OWNER',
+        scoring: null,
+        ownerChoice: 'explicit_model_assignment',
+        independentReviewer: `${reviewer.provider}/${reviewer.model_id}`
+      }),
+      this.clock.now().toISOString()
+    );
+    return this.require(scope, selectionId, reviewer.agent_id, reviewer.model_snapshot_id);
   }
 
   public require(scope: BookScope, selectionId: string, reviewerAgentId?: string, reviewerModelSnapshotId?: string): WriterSelection {

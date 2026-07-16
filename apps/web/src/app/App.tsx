@@ -388,7 +388,7 @@ export function App(): React.JSX.Element {
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
-      {settingsOpen && <SettingsDialog preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog preferences={preferences} health={health} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTask !== null && workspace !== null && (
         <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
       )}
@@ -708,8 +708,9 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
   );
 }
 
-function SettingsDialog({ preferences, onChange, onClose }: {
+function SettingsDialog({ preferences, health, onChange, onClose }: {
   preferences: WorkspacePreferences;
+  health: HealthData | null;
   onChange: (preferences: WorkspacePreferences) => void;
   onClose: () => void;
 }): React.JSX.Element {
@@ -752,10 +753,43 @@ function SettingsDialog({ preferences, onChange, onClose }: {
             ))}
           </div>
         </fieldset>
+        <fieldset>
+          <legend>成员模型</legend>
+          <div className="model-runtime-summary">
+            <div className={health?.modelRuntime?.activeMode === 'subscription-plan' ? 'runtime-state active' : 'runtime-state'}>
+              <span aria-hidden="true" />
+              <strong>{health?.modelRuntime?.activeMode === 'subscription-plan' ? '订阅与套餐模型已启用' : '确定性测试模型'}</strong>
+              <small>{health?.modelRuntime?.cashFallbackAllowed === false ? '禁止按量付费回退' : '运行状态待连接'}</small>
+            </div>
+            <div className="model-profile-list">
+              {(health?.modelRuntime?.profiles ?? []).map((profile) => (
+                <div className="model-profile" key={`${profile.provider}/${profile.modelId}`}>
+                  <span><strong>{profile.modelId}</strong><small>{profile.provider}</small></span>
+                  <span><small>{profile.roles.map(roleLabel).join('、')}</small><em>{profile.credentialConfigured ? planLabel(profile.plan) : '缺少凭证'}</em></span>
+                </div>
+              ))}
+              {health?.modelRuntime === undefined && <p>连接本地服务后显示九岗位的真实模型来源。</p>}
+            </div>
+          </div>
+        </fieldset>
         <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
       </section>
     </div>
   );
+}
+
+function planLabel(plan: 'deterministic' | 'codex' | 'coding' | 'agent'): string {
+  if (plan === 'codex') return 'Codex 登录态';
+  if (plan === 'coding') return 'Coding Plan';
+  if (plan === 'agent') return 'Agent Plan';
+  return '本地测试';
+}
+
+function roleLabel(role: string): string {
+  return ({
+    chief_editor: '主编', plot_architect: '编剧', continuity: '设定师', writer: '主笔', reviewer: '审校',
+    reader_experience: '体验官', style_editor: '文编', researcher: '研究员', copyright: '版权顾问'
+  } as Record<string, string>)[role] ?? role;
 }
 
 function CreateBookDialog({ busy, onCancel, onCreate }: { busy: boolean; onCancel: () => void; onCreate: (title: string, text: string) => Promise<void> }): React.JSX.Element {

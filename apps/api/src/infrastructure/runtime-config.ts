@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DomainError, errorCodes } from '../domain/errors.js';
 import { findProjectRoot, readReleaseId } from './project-root.js';
+import { loadModelRuntimeConfig, type ModelRuntimeConfig } from './models/model-runtime-config.js';
 
 export interface RuntimeConfig {
   apiHost: '127.0.0.1';
@@ -12,6 +13,7 @@ export interface RuntimeConfig {
   releaseId: string;
   ownerId: string;
   webOrigin: string;
+  modelRuntime: ModelRuntimeConfig;
 }
 
 function parsePort(raw: string | undefined, fallback: number): number {
@@ -42,6 +44,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     projectRoot,
     releaseId: readReleaseId(projectRoot),
     ownerId: env.WENMI_OWNER_ID ?? 'owner-local-boss',
-    webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110'
+    webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110',
+    modelRuntime: loadModelRuntimeConfig(env, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })
   };
 }

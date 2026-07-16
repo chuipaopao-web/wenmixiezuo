@@ -1,8 +1,9 @@
 export type RoleCategory = 'core' | 'specialist';
+export type RoleKey = 'chief_editor' | 'plot_architect' | 'continuity' | 'writer' | 'reviewer' | 'reader_experience' | 'style_editor' | 'researcher' | 'copyright';
 
 export interface RoleDefinition {
   roleTemplateId: string;
-  roleKey: string;
+  roleKey: RoleKey;
   displayName: string;
   memberName: string;
   category: RoleCategory;

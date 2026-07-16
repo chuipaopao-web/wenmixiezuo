@@ -4,8 +4,10 @@ import { ModelCallService } from '../calls/model-call-service.js';
 import { ContextPackService } from '../memory/context-pack-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import type { RoleKey } from '../../domain/roles.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
-import { DeterministicModelAdapter } from '../../infrastructure/models/deterministic-model.js';
+import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 import { DiscussionService } from './discussion-service.js';
 
 interface DiscussionTaskRow {
@@ -19,7 +21,7 @@ interface DiscussionTaskRow {
 interface ParticipantRow {
   agent_id: string;
   display_name: string;
-  role_key: string;
+  role_key: RoleKey;
   category: 'core' | 'specialist';
   model_snapshot_id: string;
   provider: string;
@@ -31,7 +33,8 @@ export class DiscussionPipelineService {
     private readonly database: DatabaseSync,
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
   ) {}
 
   public async executeClaimed(scope: BookScope, taskId: string, workerId: string): Promise<{ discussionId: string; decisionId: string; opinionCount: number }> {
@@ -75,19 +78,35 @@ export class DiscussionPipelineService {
         });
         const prompt = `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。给出推荐、理由、风险和一项可执行建议。`;
         const requestId = this.ids.next();
-        const reservationId = budgets.reserve(scope, budget.budget_id, requestId, 4_000, 0);
+        const adapter = this.modelAdapters.resolve(participant.provider, participant.model_id, 'discussion', participant.role_key);
+        const reservationId = budgets.reserve(
+          scope,
+          budget.budget_id,
+          requestId,
+          adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000,
+          0
+        );
         const result = await calls.execute(scope, {
           requestId, taskId, phaseKey: `opinion:${participant.role_key}`, agentId: participant.agent_id,
           modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
-          input: prompt, parameters: JSON.stringify({ deterministic: true, maxOutputTokens: 1_000 }),
+          input: prompt,
+          parameters: JSON.stringify({
+            maxOutputTokens: 1_000,
+            planOnly: !participant.provider.startsWith('local-deterministic'),
+            cashFallbackAllowed: false
+          }),
           reservationId, contextPackId: pack.contextPackId
-        }, new DeterministicModelAdapter(), {
+        }, adapter, {
           requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
           agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
         });
         discussions.addOpinion(scope, brief.discussionId, {
           agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id, phase: 'independent',
-          content: { role: participant.role_key, recommendation: result.output, basis: `来自${participant.display_name}的真实确定性模型调用` },
+          content: {
+            role: participant.role_key,
+            recommendation: result.output,
+            basis: `来自${participant.display_name}（${result.provider}/${result.modelId}）的可追溯模型调用`
+          },
           tokens: result.inputTokens + result.outputTokens
         });
         opinions.push({ role: participant.display_name, output: result.output });

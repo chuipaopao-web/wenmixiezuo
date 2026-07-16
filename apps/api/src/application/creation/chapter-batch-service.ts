@@ -5,6 +5,8 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ChapterPipelineService, type PipelinePhase, type PipelineResult } from './chapter-pipeline-service.js';
 import { WriterSelectionService } from './writer-selection-service.js';
+import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 
 export interface ChapterBatchRecord {
   batchId: string;
@@ -30,7 +32,8 @@ export class ChapterBatchService {
     private readonly dataDir: string,
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
   ) {}
 
   public scheduleNewChapters(
@@ -105,7 +108,7 @@ export class ChapterBatchService {
     if (batch.status === 'completed') return { batch, results: [] };
     const workerId = options.workerId ?? `batch-worker:${batchId}`;
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
-    const pipeline = new ChapterPipelineService(this.database, this.dataDir, this.releaseId, this.ids, this.clock);
+    const pipeline = new ChapterPipelineService(this.database, this.dataDir, this.releaseId, this.ids, this.clock, this.modelAdapters);
     const results: PipelineResult[] = [];
     this.database.prepare(`UPDATE chapter_batches SET status = 'working', updated_at = ? WHERE batch_id = ? AND owner_id = ? AND book_id = ?`)
       .run(this.clock.now().toISOString(), batchId, scope.ownerId, scope.bookId);

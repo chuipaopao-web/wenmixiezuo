@@ -1667,6 +1667,81 @@ svg {
   font-weight: 700;
 }
 
+.model-runtime-summary {
+  display: grid;
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.runtime-state,
+.model-profile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 9px 10px;
+  background: var(--panel);
+}
+
+.runtime-state > span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.runtime-state.active > span {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.runtime-state strong {
+  margin-right: auto;
+  color: var(--ink);
+  font-size: calc(11px * var(--font-scale));
+}
+
+.runtime-state small,
+.model-profile small,
+.model-profile-list p {
+  color: var(--ink-faint);
+  font-size: calc(9px * var(--font-scale));
+}
+
+.model-profile-list {
+  display: grid;
+  gap: 6px;
+}
+
+.model-profile > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-profile > span:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.model-profile strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: calc(10px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-profile em {
+  color: var(--accent-hover);
+  font-size: calc(9px * var(--font-scale));
+  font-style: normal;
+  font-weight: 700;
+}
+
 .drawer-header,
 .drawer-scrim,
 .mobile-only {

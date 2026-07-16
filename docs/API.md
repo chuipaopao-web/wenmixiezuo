@@ -44,11 +44,13 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/health` | API、数据库、目录和迁移状态 |
+| GET | `/health` | API、数据库、目录、迁移及脱敏模型运行状态 |
 | GET | `/runtime/readiness` | 汇总API和Worker是否可用 |
 | GET | `/runtime/worker` | Worker真实心跳、能力和最近任务 |
 
 未通过健康检查时，查看、导出和恢复入口可以保持可用，但不能领取新的模型任务。
+
+`/health` 的 `modelRuntime` 只返回请求模式、活动模式、缺失凭证名称、是否禁止现金回退，以及模型/岗位/套餐的公开映射；不得返回API Key、Codex认证材料或供应商请求头。
 
 ## 3. 书籍与定位
 

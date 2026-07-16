@@ -8,6 +8,7 @@ describe('最终交付入口', () => {
     const start = readFileSync(resolve(root, '文秘写作-启动.cmd'), 'utf8');
     const stop = readFileSync(resolve(root, '文秘写作-停止.cmd'), 'utf8');
     const launcher = readFileSync(resolve(root, 'scripts/start-desktop.ps1'), 'utf8');
+    const processLauncher = readFileSync(resolve(root, 'scripts/start.mjs'), 'utf8');
     const stopper = readFileSync(resolve(root, 'scripts/stop-desktop.ps1'), 'utf8');
     const guide = readFileSync(resolve(root, 'docs/USER_GUIDE.md'), 'utf8');
     expect(start).toContain('start-desktop.ps1');
@@ -17,6 +18,12 @@ describe('最终交付入口', () => {
     expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
     expect(launcher).toContain('*<div id="root"></div>*');
     expect(launcher).toContain('Test-WenmiReady');
+    expect(launcher).toContain("[Environment]::SetEnvironmentVariable($name, $value, 'Process')");
+    expect(processLauncher).toContain("execFileSync('reg.exe'");
+    expect(processLauncher).toContain("'HKCU\\\\Environment'");
+    expect(processLauncher).not.toContain('console.log(value)');
+    expect(processLauncher).toContain('delete nonModelEnvironment[name]');
+    expect(processLauncher).toContain("spawnService('API', process.execPath, ['apps/api/dist/main.js'], apiEnvironment)");
     expect(stopper).toContain("scripts/start.mjs");
     expect(stopper).toContain('Refusing to stop');
     expect(guide).toContain('双击项目根目录');

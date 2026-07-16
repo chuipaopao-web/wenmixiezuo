@@ -26,16 +26,18 @@ import { TaskService } from '../application/tasks/task-service.js';
 import { BackupService } from '../infrastructure/recovery/backup-service.js';
 import { cancelActiveModelCall } from '../application/calls/model-call-service.js';
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
+import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
   const clock = new SystemClock();
+  const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   const owner = { ownerId: config.ownerId };
   const positioning = new PositioningService(database, ids, clock);
-  const onboarding = new BookOnboardingService(database, ids, clock);
+  const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles);
   const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
   const books = new BookRepository(database);
-  const agents = new AgentTeamService(database, ids, clock);
+  const agents = new AgentTeamService(database, ids, clock, config.modelRuntime.roleProfiles);
   const artifacts = new ArtifactService(database, ids, clock);
   const discussions = new DiscussionService(database, ids, clock);
   const chapters = new ChapterCatalogService(database, ids, clock);
@@ -43,7 +45,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const memory = new MemoryService(database, ids, clock);
   const retrieval = new RetrievalService(database, ids, clock);
   const contextPacks = new ContextPackService(database, ids, clock);
-  const chapterBatches = new ChapterBatchService(database, config.dataDir, config.releaseId, ids, clock);
+  const chapterBatches = new ChapterBatchService(database, config.dataDir, config.releaseId, ids, clock, modelAdapters);
   const projections = new NarrativeProjectionService(database, ids, clock);
   const copyright = new CopyrightService(database, ids, clock);
   const research = new ResearchService(database, ids, clock);

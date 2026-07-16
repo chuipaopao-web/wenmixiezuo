@@ -5,6 +5,14 @@ $logDirectory = Join-Path $projectRoot 'data\logs'
 $pidPath = Join-Path $controlDirectory 'desktop-launcher.pid'
 $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_ID') -Raw).Trim()
 
+# Explorer可能尚未继承新写入的用户环境变量；只装载文秘写作允许使用的配置名，
+# 不打印值，也不创建.env或把凭证写入项目文件。
+$wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL'
+foreach ($name in $wenmiEnvironmentNames) {
+  $value = [Environment]::GetEnvironmentVariable($name, 'User')
+  if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
+}
+
 Set-Location -LiteralPath $projectRoot
 New-Item -ItemType Directory -Force -Path $controlDirectory, $logDirectory | Out-Null
 

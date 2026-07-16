@@ -135,6 +135,12 @@ describe('完整创作工作台', () => {
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'mist');
     expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
     expect(JSON.parse(localStorage.getItem('wenmi:workspace-preferences') ?? '{}')).toMatchObject({ theme: 'mist', fontSize: 'large' });
+    expect(screen.getByText('订阅与套餐模型已启用')).toBeInTheDocument();
+    expect(screen.getByText('禁止按量付费回退')).toBeInTheDocument();
+    expect(screen.getByText('gpt-5.6-sol')).toBeInTheDocument();
+    expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument();
+    expect(screen.getByText('glm-5-2')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/api[_-]?key|bearer/i);
   });
 
   it('加载三千字正文且可进入沉浸阅读', async () => {
@@ -208,7 +214,20 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
   return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
-    if (path === '/health') return apiResponse({ service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 9 });
+    if (path === '/health') return apiResponse({
+      service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 9,
+      modelRuntime: {
+        requestedMode: 'subscription-plan', activeMode: 'subscription-plan', strictPlanOnly: true,
+        cashFallbackAllowed: false, missingCredentials: [],
+        profiles: [
+          { provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol', plan: 'codex', roles: ['chief_editor', 'writer'], credentialConfigured: true },
+          { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding', roles: ['screenwriter', 'copyright'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2', plan: 'agent', roles: ['worldbuilder', 'researcher'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.6', plan: 'agent', roles: ['reviewer', 'line_editor'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'doubao-seed-2-0-pro-260215', plan: 'agent', roles: ['reader_experience'], credentialConfigured: true }
+        ]
+      }
+    });
     if (path === '/api/v1/books') return apiResponse([book]);
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }

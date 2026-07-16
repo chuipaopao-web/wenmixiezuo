@@ -10,6 +10,7 @@ import { registerDomainRoutes } from './domain-routes.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
+import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -25,6 +26,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   const app = Fastify({ logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' } });
   await app.register(cors, { origin: config.webOrigin, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
+  const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   await registerDomainRoutes(app, database, config);
 
   app.get('/health', async (request) => {
@@ -35,7 +37,15 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       database: integrity.quick_check,
       releaseId: config.releaseId,
       schemaVersion: SCHEMA_VERSION,
-      dataDirectoryReady: true
+      dataDirectoryReady: true,
+      modelRuntime: {
+        requestedMode: config.modelRuntime.requestedMode,
+        activeMode: config.modelRuntime.activeMode,
+        strictPlanOnly: config.modelRuntime.strictPlanOnly,
+        cashFallbackAllowed: config.modelRuntime.cashFallbackAllowed,
+        missingCredentials: config.modelRuntime.missingCredentials,
+        profiles: config.modelRuntime.publicProfiles
+      }
     }, request.id);
   });
 
@@ -79,9 +89,9 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     if (task === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker任务不存在或范围不匹配');
     const scope = { ownerId: request.body.ownerId, bookId: request.body.bookId };
     const result = task.task_type === 'chapter_creation'
-      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock()).executeClaimed(scope, request.params.taskId, workerId)
+      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
       : task.task_type === 'discussion'
-        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock()).executeClaimed(scope, request.params.taskId, workerId)
+        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });

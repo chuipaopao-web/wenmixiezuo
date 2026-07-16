@@ -7,6 +7,8 @@ import { AgentTeamService } from '../agents/agent-team-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
+import type { RoleKey } from '../../domain/roles.js';
+import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -23,7 +25,8 @@ export class BookOnboardingService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>
   ) {}
 
   public confirmDraft(scope: OwnerScope, draftId: string, expectedVersion: number, failAt?: 'after_book' | 'after_team' | 'after_artifact'): OnboardingResult {
@@ -35,7 +38,7 @@ export class BookOnboardingService {
     const tombstone = this.database.prepare('SELECT 1 FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?')
       .get(scope.ownerId, draft.proposedBookId);
     if (tombstone !== undefined) throw new Error('删除墓碑禁止旧书籍ID复活');
-    const team = new AgentTeamService(this.database, this.ids, this.clock);
+    const team = new AgentTeamService(this.database, this.ids, this.clock, this.roleProfiles);
     team.seedRoleTemplates();
     const now = this.clock.now().toISOString();
     const positioningVersionId = this.ids.next();
@@ -168,4 +171,3 @@ function storyBibleSkeleton(title: string, fields: PositioningField[], tags: Pos
     openQuestions: fields.filter((field) => field.sourceStatus === 'unspecified' || field.sourceStatus === 'conflict').map((field) => field.key)
   };
 }
-

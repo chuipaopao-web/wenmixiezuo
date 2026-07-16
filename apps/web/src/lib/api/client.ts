@@ -3,6 +3,20 @@ export interface HealthData {
   status: string;
   releaseId: string;
   schemaVersion: number;
+  modelRuntime?: {
+    requestedMode: 'deterministic' | 'subscription-plan';
+    activeMode: 'deterministic' | 'subscription-plan';
+    strictPlanOnly: boolean;
+    cashFallbackAllowed: boolean;
+    missingCredentials: Array<'coding-plan' | 'agent-plan'>;
+    profiles: Array<{
+      provider: string;
+      modelId: string;
+      plan: 'deterministic' | 'codex' | 'coding' | 'agent';
+      roles: string[];
+      credentialConfigured: boolean;
+    }>;
+  };
 }
 
 export interface BookData {

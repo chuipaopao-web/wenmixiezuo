@@ -6,6 +6,7 @@ import { bootstrapDatabase } from '../../apps/api/src/infrastructure/db/bootstra
 import { openDatabase } from '../../apps/api/src/infrastructure/db/database.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 import { createServer } from '../../apps/api/src/http/server.js';
+import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 const tempDirectories: string[] = [];
 afterEach(() => {
@@ -24,7 +25,8 @@ describe('API健康检查', () => {
       projectRoot: process.cwd(),
       releaseId: 'wm-v1-20260716-220959-d5dd704d',
       ownerId: 'owner-local-boss',
-      webOrigin: 'http://127.0.0.1:43110'
+      webOrigin: 'http://127.0.0.1:43110',
+      modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(tempDirectory, 'cache', 'codex-runtime') })
     };
     const database = openDatabase(config.databasePath);
     bootstrapDatabase(database, config);
@@ -33,9 +35,19 @@ describe('API健康检查', () => {
       const response = await app.inject({ method: 'GET', url: '/health' });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
-        data: { status: 'ok', releaseId: config.releaseId, schemaVersion: 9 },
+        data: {
+          status: 'ok', releaseId: config.releaseId, schemaVersion: 9,
+          modelRuntime: {
+            requestedMode: 'deterministic', activeMode: 'deterministic', strictPlanOnly: true,
+            cashFallbackAllowed: false, missingCredentials: ['coding-plan', 'agent-plan']
+          }
+        },
         meta: { version: 1 }
       });
+      const body = response.body.toLowerCase();
+      expect(body).not.toContain('authorization');
+      expect(body).not.toContain('bearer ');
+      expect(body).not.toContain('api_key');
     } finally {
       await app.close();
       database.close();

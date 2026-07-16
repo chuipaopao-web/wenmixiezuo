@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
-import { roleDefinitions } from '../../domain/roles.js';
+import { roleDefinitions, type RoleKey } from '../../domain/roles.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
+import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 
 export interface AgentRecord {
   agentId: string;
   roleTemplateId: string;
-  roleKey: string;
+  roleKey: RoleKey;
   roleName: string;
   category: 'core' | 'specialist';
   displayName: string;
@@ -20,7 +21,7 @@ export interface AgentRecord {
 interface AgentRow {
   agent_id: string;
   role_template_id: string;
-  role_key: string;
+  role_key: RoleKey;
   role_name: string;
   category: AgentRecord['category'];
   display_name: string;
@@ -34,7 +35,8 @@ export class AgentTeamService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>
   ) {}
 
   public seedRoleTemplates(): void {
@@ -81,12 +83,32 @@ export class AgentTeamService {
       const snapshotId = this.ids.next();
       const agentId = this.ids.next();
       const capabilities = role.requiredCapabilities.includes('research') ? ['text'] : ['text'];
+      const profile = this.roleProfiles?.[role.roleKey] ?? {
+        provider: 'local-deterministic',
+        modelId: 'wenmi-fixture-v1',
+        plan: 'deterministic' as const
+      };
       this.database.prepare(`
         INSERT INTO model_config_snapshots (
           model_snapshot_id, owner_id, book_id, provider, model_id,
           parameters_json, capabilities_json, validated_at, created_at
-        ) VALUES (?, ?, ?, 'local-deterministic', 'wenmi-fixture-v1', '{}', ?, ?, ?)
-      `).run(snapshotId, scope.ownerId, scope.bookId, JSON.stringify(capabilities), now, now);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        snapshotId,
+        scope.ownerId,
+        scope.bookId,
+        profile.provider,
+        profile.modelId,
+        JSON.stringify({
+          plan: profile.plan,
+          strictSubscriptionOnly: profile.plan !== 'deterministic',
+          cashFallbackAllowed: false,
+          cashCostCny: 0
+        }),
+        JSON.stringify(capabilities),
+        now,
+        now
+      );
       this.database.prepare(`
         INSERT INTO agent_instances (
           agent_id, owner_id, book_id, role_template_id, role_template_version,

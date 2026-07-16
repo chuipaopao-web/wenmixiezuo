@@ -16,6 +16,7 @@
 8. `docs/API.md`：首版接口和事件契约。
 9. `docs/DEVELOPMENT_ROADMAP.md`：八阶段实施顺序。
 10. `docs/ACCEPTANCE.md`：阶段门禁和最终验收。
+11. `docs/ROLE_PROMPTS.md`：九岗位实际模型、定位、输入输出、记忆、边界和完整提示词规则。
 
 需要核对讨论原文时，再读取：
 
@@ -33,4 +34,4 @@
 
 ## 发布状态
 
-首版八阶段已通过，最终证据见 `docs/releases/wm-v1-20260716-220959-d5dd704d/ACCEPTANCE_MATRIX.md`。默认Web端口为 `43110`，API端口为 `43111`，均只监听 `127.0.0.1`；未配置真实模型凭证时使用明确标注的确定性假模型，且未获单次明确授权前不产生现金费用。当前版本只保存在本地Git，未配置远程仓库；第二物理备份位置也未配置。
+首版八阶段已通过，最终证据见 `docs/releases/wm-v1-20260716-220959-d5dd704d/ACCEPTANCE_MATRIX.md`。默认Web端口为 `43110`，API端口为 `43111`，均只监听 `127.0.0.1`。当前增量使用Codex的ChatGPT登录态以及火山方舟Coding Plan/Agent Plan，禁止回退到按量计费；缺少套餐凭证时只启用明确标注的确定性测试模型。私有远程仓库为 `chuipaopao-web/wenmixiezuo`；第二物理备份位置仍未配置。
