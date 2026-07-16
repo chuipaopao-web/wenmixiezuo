@@ -35,7 +35,7 @@ describe('自然语言讨论运行闭环', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 2 });
     const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; model_provider: string | null; model_id: string | null }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
-    expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmai-fixture-v1' });
+    expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v1' });
     expect(summary?.content).toContain(`确认方案 ${result.decisionId}`);
 
     const callsBeforeConfirmation = (context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId) as { count: number }).count;

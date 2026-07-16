@@ -17,7 +17,7 @@ describe('Worker 24小时逻辑稳定性', () => {
   });
 
   it('以每分钟一个调度周期覆盖24小时，无僵尸任务、暂存残留或无界状态增长', async () => {
-    context = createTestContext('wenmai-worker-soak-');
+    context = createTestContext('wenmi-worker-soak-');
     const ids = new SequenceIds();
     const clock = new MutableClock();
     const scope = { ownerId: 'owner-soak', bookId: 'book-soak' };

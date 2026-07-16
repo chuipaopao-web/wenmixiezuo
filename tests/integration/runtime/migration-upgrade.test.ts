@@ -7,7 +7,7 @@ import { runMigrations } from '../../../apps/api/src/infrastructure/db/migration
 
 describe('阶段3从Schema 2升级', () => {
   it('保留已有书籍并新增运行表', () => {
-    const root = mkdtempSync(resolve(tmpdir(), 'wenmai-runtime-upgrade-'));
+    const root = mkdtempSync(resolve(tmpdir(), 'wenmi-runtime-upgrade-'));
     const migrations = resolve(root, 'migrations');
     const source = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
     mkdirSync(migrations);
@@ -17,7 +17,7 @@ describe('阶段3从Schema 2升级', () => {
     const database = openDatabase(resolve(root, 'database.sqlite'));
     try {
       runMigrations(database, migrations);
-      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文脉写作', 2, 'v1', '2026-07-16T00:00:00Z')").run();
+      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文秘写作', 2, 'v1', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO owners VALUES ('owner-one', '老板', 1, '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO books (book_id, owner_id, title, status, created_at, updated_at) VALUES ('book-alpha', 'owner-one', '旧书', 'draft', '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       writeFileSync(resolve(migrations, '0003_runtime.sql'), readFileSync(resolve(source, '0003_runtime.sql')));

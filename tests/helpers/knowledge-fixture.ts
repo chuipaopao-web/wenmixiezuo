@@ -59,7 +59,7 @@ export function createKnowledgeFixture(
     manuscriptVersionId,
     chapterId: chapter.chapterId,
     authorAgentId: agent.agent_id,
-    modelProvider: 'wenmai-deterministic',
+    modelProvider: 'wenmi-deterministic',
     modelId: 'fake-novel-v1',
     sourceTaskId: taskId,
     fileId,
@@ -100,7 +100,7 @@ export function addApprovedChapter(
   });
   catalog.registerManuscript(fixture.scope, {
     manuscriptVersionId, chapterId: chapter.chapterId, authorAgentId: fixture.agentId,
-    modelProvider: 'wenmai-deterministic', modelId: 'fake-novel-v1', sourceTaskId: taskId,
+    modelProvider: 'wenmi-deterministic', modelId: 'fake-novel-v1', sourceTaskId: taskId,
     fileId, contentHash: staged.contentHash, wordCount: [...content].length, status: 'approved'
   });
   return { chapterId: chapter.chapterId, manuscriptVersionId, taskId };

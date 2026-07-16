@@ -25,7 +25,7 @@ describe('Worker失联与结果不明恢复', () => {
     tasks.queue(scope, 'task-unknown');
     tasks.claimNext('worker-one', 1_000);
     const calls = new ModelCallService(context.database, clock, budgets);
-    calls.begin(scope, { requestId: 'request-unknown', taskId: 'task-unknown', phaseKey: 'draft', agentId: agent.agentId, modelSnapshotId: snapshot.model_snapshot_id, provider: 'local-deterministic', modelId: 'wenmai-fixture-v1', input: '结果未知故障注入', parameters: '{}', reservationId });
+    calls.begin(scope, { requestId: 'request-unknown', taskId: 'task-unknown', phaseKey: 'draft', agentId: agent.agentId, modelSnapshotId: snapshot.model_snapshot_id, provider: 'local-deterministic', modelId: 'wenmi-fixture-v1', input: '结果未知故障注入', parameters: '{}', reservationId });
     context.database.prepare("UPDATE model_calls SET state = 'working' WHERE request_id = 'request-unknown'").run();
     clock.advance(2_000);
     expect(tasks.recoverExpired()[0]?.status).toBe('interrupted');

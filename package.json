@@ -1,8 +1,8 @@
 {
-  "name": "wenmai-writing",
+  "name": "wenmi-writing",
   "version": "1.0.0",
   "private": true,
-  "description": "文脉写作：本地优先的多Agent协同小说创作平台",
+  "description": "文秘写作：本地优先的多Agent协同小说创作平台",
   "type": "module",
   "packageManager": "npm@11.13.0",
   "engines": {
@@ -16,10 +16,10 @@
     "acceptance": "vitest run tests/acceptance && node scripts/acceptance-audit.mjs",
     "build": "npm run build --workspaces --if-present",
     "clean": "node scripts/clean.mjs",
-    "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmai/api\" \"npm run dev -w @wenmai/worker\" \"npm run dev -w @wenmai/web\"",
+    "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
     "ledger:init": "node scripts/release-ledger.mjs init",
     "ledger:status": "node scripts/release-ledger.mjs status",
-    "migrate": "npm run migrate -w @wenmai/api",
+    "migrate": "npm run migrate -w @wenmi/api",
     "start": "node scripts/start.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

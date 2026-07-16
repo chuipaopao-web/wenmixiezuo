@@ -51,10 +51,10 @@ export class WriterSelectionService {
     const writer = this.requireRole(scope, 'role-writer');
     const reviewer = this.requireRole(scope, 'role-reviewer');
     const writerProfile = ownerChoice === 'writer_b'
-      ? { provider: 'local-deterministic-candidate-b', modelId: 'wenmai-novel-candidate-b-v1' }
-      : { provider: 'local-deterministic-writer', modelId: 'wenmai-novel-writer-v1' };
+      ? { provider: 'local-deterministic-candidate-b', modelId: 'wenmi-novel-candidate-b-v1' }
+      : { provider: 'local-deterministic-writer', modelId: 'wenmi-novel-writer-v1' };
     const writerSnapshotId = this.configureAgent(scope, writer.agent_id, writerProfile.provider, writerProfile.modelId);
-    const reviewerSnapshotId = this.configureAgent(scope, reviewer.agent_id, 'local-deterministic-reviewer', 'wenmai-novel-reviewer-v1');
+    const reviewerSnapshotId = this.configureAgent(scope, reviewer.agent_id, 'local-deterministic-reviewer', 'wenmi-novel-reviewer-v1');
     const blindBrief = JSON.stringify({ premise: '雨夜进入北塔调查导师失踪', targetCharacters: 700, revisionOpportunity: 1 });
     const equalContextHash = createHash('sha256').update(blindBrief).digest('hex');
     const makeCandidate = (blindLabel: string, provider: string, modelId: string, score: number) => {
@@ -69,8 +69,8 @@ export class WriterSelectionService {
     const candidates = mode === 'quick'
       ? [makeCandidate('A', writerProfile.provider, writerProfile.modelId, 90)]
       : [
-          makeCandidate('A', 'local-deterministic-writer', 'wenmai-novel-writer-v1', 91),
-          makeCandidate('B', 'local-deterministic-candidate-b', 'wenmai-novel-candidate-b-v1', 88)
+          makeCandidate('A', 'local-deterministic-writer', 'wenmi-novel-writer-v1', 91),
+          makeCandidate('B', 'local-deterministic-candidate-b', 'wenmi-novel-candidate-b-v1', 88)
         ];
     const selected = ownerChoice === 'writer_b' ? candidates.find((candidate) => candidate.modelId.includes('candidate-b')) ?? candidates[0]! : candidates[0]!;
     const selectionId = this.ids.next();

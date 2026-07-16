@@ -8,7 +8,7 @@ export function bootstrapDatabase(database: DatabaseSync, config: RuntimeConfig)
   const result = runMigrations(database, resolve(config.projectRoot, 'apps/api/src/infrastructure/db/migrations'));
   database.prepare(`
     INSERT INTO release_runs (release_id, product_name, schema_version, api_version, created_at)
-    VALUES (?, '文脉写作', ?, ?, ?)
+    VALUES (?, '文秘写作', ?, ?, ?)
     ON CONFLICT(release_id) DO UPDATE SET
       schema_version = excluded.schema_version,
       api_version = excluded.api_version

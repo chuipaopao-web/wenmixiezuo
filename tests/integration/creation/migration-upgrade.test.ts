@@ -7,7 +7,7 @@ import { runMigrations } from '../../../apps/api/src/infrastructure/db/migration
 
 describe('阶段6从Schema 5升级', () => {
   it('保留已有正史并新增可恢复创作流水线表', () => {
-    const root = mkdtempSync(resolve(tmpdir(), 'wenmai-creation-upgrade-'));
+    const root = mkdtempSync(resolve(tmpdir(), 'wenmi-creation-upgrade-'));
     const migrations = resolve(root, 'migrations');
     const source = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
     mkdirSync(migrations);
@@ -17,7 +17,7 @@ describe('阶段6从Schema 5升级', () => {
     const database = openDatabase(resolve(root, 'database.sqlite'));
     try {
       runMigrations(database, migrations);
-      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文脉写作', 5, 'v1', '2026-07-16T00:00:00Z')").run();
+      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文秘写作', 5, 'v1', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO owners VALUES ('owner-one', '老板', 1, '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO books (book_id, owner_id, title, status, canon_revision, created_at, updated_at) VALUES ('book-alpha', 'owner-one', '正史书', 'active', 0, '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO canon_revisions (canon_revision_id, owner_id, book_id, revision, reason, content_hash, created_at) VALUES ('canon-zero', 'owner-one', 'book-alpha', 0, 'initial', ?, '2026-07-16T00:00:00Z')").run('0'.repeat(64));

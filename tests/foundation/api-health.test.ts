@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe('API健康检查', () => {
   it('返回发布、Schema和数据库真实状态', async () => {
-    const tempDirectory = mkdtempSync(resolve(tmpdir(), 'wenmai-health-'));
+    const tempDirectory = mkdtempSync(resolve(tmpdir(), 'wenmi-health-'));
     tempDirectories.push(tempDirectory);
     const config: RuntimeConfig = {
       apiHost: '127.0.0.1',

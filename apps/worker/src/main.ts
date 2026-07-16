@@ -20,7 +20,7 @@ const loop = new WorkerLoop(
   new ChapterTaskExecutor(config.apiBaseUrl, config.workerId)
 );
 loop.start();
-console.log(JSON.stringify({ service: 'wenmai-worker', status: 'ready', workerId: config.workerId }));
+console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId }));
 
 const shutdown = (): void => {
   loop.stop();

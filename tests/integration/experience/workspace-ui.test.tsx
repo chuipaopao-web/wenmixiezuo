@@ -23,7 +23,7 @@ const agents: WorkspaceData['agents'] = Array.from({ length: 9 }, (_, index) => 
   roleName: index === 0 ? '主编' : index === 1 ? '主笔' : `岗位${index + 1}`,
   displayName: index === 0 ? '主编' : index === 1 ? '主笔' : `岗位${index + 1}`,
   category: index < 5 ? 'core' : 'specialist',
-  provider: 'local-deterministic', modelId: 'wenmai-fixture-v1', activationState: index < 5 ? 'idle' : 'standby'
+  provider: 'local-deterministic', modelId: 'wenmi-fixture-v1', activationState: index < 5 ? 'idle' : 'standby'
 }));
 
 const workspace: WorkspaceData = {
@@ -57,7 +57,7 @@ describe('完整创作工作台', () => {
     expect(await screen.findByText('9 个岗位')).toBeInTheDocument();
     expect(screen.getByText('生成完整初稿')).toBeInTheDocument();
     expect(screen.getByText('工作中')).toBeInTheDocument();
-    expect(screen.getAllByText('local-deterministic/wenmai-fixture-v1')).toHaveLength(9);
+    expect(screen.getAllByText('local-deterministic/wenmi-fixture-v1')).toHaveLength(9);
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
@@ -114,7 +114,7 @@ describe('完整创作工作台', () => {
       sender_agent_id: index % 2 === 0 ? null : 'agent-1',
       role_key: index % 2 === 0 ? null : 'editor_in_chief',
       model_provider: index % 2 === 0 ? null : 'local-deterministic',
-      model_id: index % 2 === 0 ? null : 'wenmai-fixture-v1',
+      model_id: index % 2 === 0 ? null : 'wenmi-fixture-v1',
       message_type: 'text', content: `消息 ${index + 1}`, references_json: '{}',
       created_at: '2026-07-16T12:00:00.000Z'
     }));
@@ -132,7 +132,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
   return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
-    if (path === '/health') return apiResponse({ service: 'wenmai-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 7 });
+    if (path === '/health') return apiResponse({ service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 7 });
     if (path === '/api/v1/books') return apiResponse([book]);
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }

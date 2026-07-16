@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'wenmai-shell-v1';
+const STATIC_CACHE = 'wenmi-shell-v1';
 const SHELL_FILES = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {

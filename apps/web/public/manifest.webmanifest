@@ -1,6 +1,6 @@
 {
-  "name": "文脉写作",
-  "short_name": "文脉写作",
+  "name": "文秘写作",
+  "short_name": "文秘写作",
   "description": "本地优先的多Agent协同小说创作工作台",
   "lang": "zh-CN",
   "start_url": "/",

@@ -264,7 +264,7 @@ export function App(): React.JSX.Element {
         <div className="brand-lockup">
           <button className="icon-button mobile-only" type="button" aria-label="打开书籍与目录" onClick={() => setLeftOpen(true)}><ListIcon /></button>
           <div className="brand-mark" aria-hidden="true">文</div>
-          <div><h1>文脉写作</h1><span>本地小说工作台</span></div>
+          <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
         <div className="topbar-center">
           {selectedBook === null ? '尚未选择书籍' : <><strong>{selectedBook.title}</strong><span>正史 {selectedBook.canonRevision}</span></>}
@@ -563,7 +563,7 @@ function shortId(value: string): string {
 
 function readSelectedBook(): string | null {
   try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem('wenmai:selected-book');
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem('wenmi:selected-book');
   } catch {
     return null;
   }
@@ -572,8 +572,8 @@ function readSelectedBook(): string | null {
 function persistSelectedBook(bookId: string | null): void {
   try {
     if (typeof localStorage === 'undefined') return;
-    if (bookId === null) localStorage.removeItem('wenmai:selected-book');
-    else localStorage.setItem('wenmai:selected-book', bookId);
+    if (bookId === null) localStorage.removeItem('wenmi:selected-book');
+    else localStorage.setItem('wenmi:selected-book', bookId);
   } catch {
     // 无痕模式或受限WebView可能禁用本地存储；工作区仍可在当前会话使用。
   }

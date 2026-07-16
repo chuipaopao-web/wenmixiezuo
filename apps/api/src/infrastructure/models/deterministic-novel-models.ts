@@ -31,7 +31,7 @@ export interface StructuredReview {
 
 export class DeterministicNovelWriterAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic-writer';
-  public readonly modelId = 'wenmai-novel-writer-v1';
+  public readonly modelId = 'wenmi-novel-writer-v1';
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
@@ -45,7 +45,7 @@ export class DeterministicNovelWriterAdapter implements ModelAdapter {
 
 export class DeterministicNovelCandidateBAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic-candidate-b';
-  public readonly modelId = 'wenmai-novel-candidate-b-v1';
+  public readonly modelId = 'wenmi-novel-candidate-b-v1';
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
@@ -59,7 +59,7 @@ export class DeterministicNovelCandidateBAdapter implements ModelAdapter {
 
 export class DeterministicNovelReviewerAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic-reviewer';
-  public readonly modelId = 'wenmai-novel-reviewer-v1';
+  public readonly modelId = 'wenmi-novel-reviewer-v1';
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);

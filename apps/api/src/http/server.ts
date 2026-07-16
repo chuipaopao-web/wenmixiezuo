@@ -22,7 +22,7 @@ interface WorkerHealthRow {
 }
 
 export async function createServer(config: RuntimeConfig, database: DatabaseSync): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: process.env.WENMAI_LOG_LEVEL ?? 'info' } });
+  const app = Fastify({ logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' } });
   await app.register(cors, { origin: config.webOrigin, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   await registerDomainRoutes(app, database, config);
@@ -30,7 +30,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   app.get('/health', async (request) => {
     const integrity = database.prepare('PRAGMA quick_check').get() as { quick_check: string };
     return success({
-      service: 'wenmai-api',
+      service: 'wenmi-api',
       status: integrity.quick_check === 'ok' ? 'ok' : 'degraded',
       database: integrity.quick_check,
       releaseId: config.releaseId,
@@ -67,10 +67,10 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
 
   app.post<{
     Params: { taskId: string };
-    Headers: { 'x-wenmai-worker-id'?: string };
+    Headers: { 'x-wenmi-worker-id'?: string };
     Body: { ownerId: string; bookId: string };
   }>('/api/v1/internal/worker/tasks/:taskId/execute', async (request) => {
-    const workerId = request.headers['x-wenmai-worker-id'];
+    const workerId = request.headers['x-wenmi-worker-id'];
     if (workerId === undefined || workerId.length === 0) throw new DomainError('VALIDATION_ERROR', '缺少Worker身份');
     const recorded = database.prepare(`SELECT 1 FROM worker_health WHERE worker_id = ?`).get(workerId);
     if (recorded === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker身份未登记');

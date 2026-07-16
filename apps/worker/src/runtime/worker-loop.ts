@@ -41,7 +41,7 @@ export class WorkerLoop {
         this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
       }
     } catch (error) {
-      console.error(JSON.stringify({ service: 'wenmai-worker', error: error instanceof Error ? error.message : String(error) }));
+      console.error(JSON.stringify({ service: 'wenmi-worker', error: error instanceof Error ? error.message : String(error) }));
     } finally {
       this.heartbeat.setCurrentTask(null);
       this.#working = false;

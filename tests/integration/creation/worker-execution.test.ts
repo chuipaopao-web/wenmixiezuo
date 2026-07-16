@@ -19,7 +19,7 @@ describe('独立Worker章节执行', () => {
   });
 
   it('Worker只领取任务并通过API应用服务完成章节流水线', async () => {
-    context = createTestContext('wenmai-creation-worker-');
+    context = createTestContext('wenmi-creation-worker-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: 'Worker创作书', text: '独立Worker执行完整章节任务' });
@@ -33,10 +33,10 @@ describe('独立Worker章节执行', () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        WENMAI_PROJECT_ROOT: process.cwd(),
-        WENMAI_DATA_DIR: context.dataDir,
-        WENMAI_WORKER_ID: 'creation-worker-test',
-        WENMAI_API_BASE_URL: `http://127.0.0.1:${address.port}`
+        WENMI_PROJECT_ROOT: process.cwd(),
+        WENMI_DATA_DIR: context.dataDir,
+        WENMI_WORKER_ID: 'creation-worker-test',
+        WENMI_API_BASE_URL: `http://127.0.0.1:${address.port}`
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });

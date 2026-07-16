@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 const projectRoot = process.cwd();
 if (!existsSync(resolve(projectRoot, 'RELEASE_ID'))) {
-  throw new Error('拒绝在文脉写作项目根目录之外执行清理');
+  throw new Error('拒绝在文秘写作项目根目录之外执行清理');
 }
 
 for (const relativePath of ['apps/api/dist', 'apps/worker/dist', 'apps/web/dist', 'coverage']) {

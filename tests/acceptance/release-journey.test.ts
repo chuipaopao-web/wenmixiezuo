@@ -20,7 +20,7 @@ describe('首版全链路验收旅程', () => {
   afterEach(() => context?.close());
 
   it('两书严格隔离，主测试书中断接管后连续完成5章并可干净恢复', async () => {
-    context = createTestContext('wenmai-acceptance-journey-');
+    context = createTestContext('wenmi-acceptance-journey-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const ownerId = context.config.ownerId;

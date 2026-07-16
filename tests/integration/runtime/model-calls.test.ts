@@ -31,7 +31,7 @@ describe('模型调用账本、幂等与真实取消', () => {
     const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
     const call = {
       requestId: 'request-model', taskId: 'task-model', phaseKey: 'draft', agentId: fixture.agent.agentId,
-      modelSnapshotId: fixture.snapshotId, provider: 'local-deterministic', modelId: 'wenmai-fixture-v1',
+      modelSnapshotId: fixture.snapshotId, provider: 'local-deterministic', modelId: 'wenmi-fixture-v1',
       input: '相同输入', parameters: '{}', reservationId
     };
     const request: ModelRequest = { requestId: call.requestId, taskId: call.taskId, ownerId: fixture.scope.ownerId, bookId: fixture.scope.bookId, agentId: fixture.agent.agentId, prompt: call.input, maxOutputTokens: 100 };

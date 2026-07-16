@@ -20,7 +20,7 @@ describe('9岗位团队与运行时能力', () => {
     expect(agents).toHaveLength(9);
     expect(agents.filter((agent) => agent.category === 'core' && agent.activationState === 'idle')).toHaveLength(5);
     expect(agents.filter((agent) => agent.category === 'specialist' && agent.activationState === 'standby')).toHaveLength(4);
-    expect(new Set(agents.map((agent) => `${agent.provider}/${agent.modelId}`))).toEqual(new Set(['local-deterministic/wenmai-fixture-v1']));
+    expect(new Set(agents.map((agent) => `${agent.provider}/${agent.modelId}`))).toEqual(new Set(['local-deterministic/wenmi-fixture-v1']));
     expect(() => service.assertIndependentReview(agents[0]!, agents[1]!)).toThrow('真实不同模型');
     const researcher = agents.find((agent) => agent.roleKey === 'researcher')!;
     expect(() => service.activate(scope, researcher.agentId, 'research')).toThrow('运行时能力不可用');

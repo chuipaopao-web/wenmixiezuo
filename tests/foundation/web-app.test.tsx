@@ -15,14 +15,14 @@ describe('Web基础入口', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
       const data = path === '/health'
-        ? { service: 'wenmai-api', status: 'ok', releaseId: 'wm-v1-20260716-220959-d5dd704d', schemaVersion: 7 }
+        ? { service: 'wenmi-api', status: 'ok', releaseId: 'wm-v1-20260716-220959-d5dd704d', schemaVersion: 7 }
         : path === '/api/v1/books'
           ? []
           : { status: 'ready', worker: null };
       return apiResponse(data);
     }));
     render(<App />);
-    expect(screen.getByRole('heading', { name: '文脉写作' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '文秘写作' })).toBeInTheDocument();
     expect(await screen.findByText(/本地服务已就绪/)).toBeInTheDocument();
   });
 });

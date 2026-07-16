@@ -23,7 +23,7 @@ describe('PWA与离线数据', () => {
       name: string; display: string; icons: unknown[]
     };
     const worker = readFileSync(resolve(publicDir, 'sw.js'), 'utf8');
-    expect(manifest).toMatchObject({ name: '文脉写作', display: 'standalone' });
+    expect(manifest).toMatchObject({ name: '文秘写作', display: 'standalone' });
     expect(manifest.icons).not.toHaveLength(0);
     expect(readFileSync(resolve(publicDir, 'icon.svg'), 'utf8')).toContain('<svg');
     expect(worker).toContain("requestUrl.pathname.startsWith('/api/')");

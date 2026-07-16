@@ -27,8 +27,8 @@ describe('主笔选择与真实模型来源', () => {
       WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('writer', 'reviewer') ORDER BY r.role_key
     `).all(scope.ownerId, scope.bookId);
     expect(agents).toEqual([
-      { role_key: 'reviewer', provider: 'local-deterministic-reviewer', model_id: 'wenmai-novel-reviewer-v1' },
-      { role_key: 'writer', provider: 'local-deterministic-writer', model_id: 'wenmai-novel-writer-v1' }
+      { role_key: 'reviewer', provider: 'local-deterministic-reviewer', model_id: 'wenmi-novel-reviewer-v1' },
+      { role_key: 'writer', provider: 'local-deterministic-writer', model_id: 'wenmi-novel-writer-v1' }
     ]);
   });
 });

@@ -23,12 +23,12 @@ function parsePort(raw: string | undefined, fallback: number): number {
 }
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
-  const projectRoot = findProjectRoot(env.WENMAI_PROJECT_ROOT ?? process.cwd());
-  const apiHost = env.WENMAI_API_HOST ?? '127.0.0.1';
+  const projectRoot = findProjectRoot(env.WENMI_PROJECT_ROOT ?? process.cwd());
+  const apiHost = env.WENMI_API_HOST ?? '127.0.0.1';
   if (apiHost !== '127.0.0.1') {
     throw new DomainError(errorCodes.validation, '首版API只允许监听127.0.0.1');
   }
-  const dataDir = resolve(env.WENMAI_DATA_DIR ?? resolve(projectRoot, 'data'));
+  const dataDir = resolve(env.WENMI_DATA_DIR ?? resolve(projectRoot, 'data'));
   const databaseDir = resolve(dataDir, 'database');
   mkdirSync(databaseDir, { recursive: true });
   for (const directory of ['books', 'staging', 'archives', 'imports', 'exports', 'backups', 'quarantine', 'logs', 'cache', 'indexes', 'control']) {
@@ -36,12 +36,12 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   }
   return {
     apiHost,
-    apiPort: parsePort(env.WENMAI_API_PORT, 43111),
+    apiPort: parsePort(env.WENMI_API_PORT, 43111),
     dataDir,
-    databasePath: resolve(databaseDir, 'wenmai.sqlite'),
+    databasePath: resolve(databaseDir, 'wenmi.sqlite'),
     projectRoot,
     releaseId: readReleaseId(projectRoot),
-    ownerId: env.WENMAI_OWNER_ID ?? 'owner-local-boss',
-    webOrigin: env.WENMAI_WEB_ORIGIN ?? 'http://127.0.0.1:43110'
+    ownerId: env.WENMI_OWNER_ID ?? 'owner-local-boss',
+    webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110'
   };
 }

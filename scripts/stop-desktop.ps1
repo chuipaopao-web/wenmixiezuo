@@ -3,7 +3,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $pidPath = Join-Path $projectRoot 'data\control\desktop-launcher.pid'
 
 if (-not (Test-Path -LiteralPath $pidPath)) {
-  Write-Host 'No Wenmai desktop process was found.'
+  Write-Host 'No Wenmi desktop process was found.'
   exit 0
 }
 
@@ -11,11 +11,11 @@ $rootProcessId = [int](Get-Content -LiteralPath $pidPath -Raw)
 $rootProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$rootProcessId"
 if ($null -eq $rootProcess) {
   Remove-Item -LiteralPath $pidPath -Force
-  Write-Host 'Wenmai Writing is already stopped.'
+  Write-Host 'Wenmi Writing is already stopped.'
   exit 0
 }
 if ($rootProcess.Name -ne 'node.exe' -or $rootProcess.CommandLine -notlike '*scripts/start.mjs*') {
-  throw "The PID file does not point to Wenmai. Refusing to stop process $rootProcessId"
+  throw "The PID file does not point to Wenmi. Refusing to stop process $rootProcessId"
 }
 
 $allProcesses = Get-CimInstance Win32_Process
@@ -34,12 +34,12 @@ while ($frontier.Count -gt 0) {
 }
 
 foreach ($process in $descendants) {
-  $isWenmai = $process.CommandLine -like "*$projectRoot*" -or
+  $isWenmi = $process.CommandLine -like "*$projectRoot*" -or
     $process.CommandLine -like '*apps/api/dist/main.js*' -or
     $process.CommandLine -like '*apps/worker/dist/main.js*' -or
     $process.Name -eq 'conhost.exe'
-  if (-not $isWenmai) {
-    throw "A non-Wenmai child process was found. Refusing to stop process $($process.ProcessId)"
+  if (-not $isWenmi) {
+    throw "A non-Wenmi child process was found. Refusing to stop process $($process.ProcessId)"
   }
 }
 foreach ($process in ($descendants | Sort-Object ProcessId -Descending)) {
@@ -47,4 +47,4 @@ foreach ($process in ($descendants | Sort-Object ProcessId -Descending)) {
 }
 Stop-Process -Id $rootProcessId -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $pidPath -Force
-Write-Host 'Wenmai Writing has stopped.'
+Write-Host 'Wenmi Writing has stopped.'

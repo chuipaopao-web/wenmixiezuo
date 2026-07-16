@@ -8,7 +8,7 @@ $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_
 Set-Location -LiteralPath $projectRoot
 New-Item -ItemType Directory -Force -Path $controlDirectory, $logDirectory | Out-Null
 
-function Test-WenmaiReady {
+function Test-WenmiReady {
   try {
     $health = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/health' -TimeoutSec 2
     $web = Invoke-WebRequest -Uri 'http://127.0.0.1:43110' -UseBasicParsing -TimeoutSec 2
@@ -23,9 +23,9 @@ function Test-WenmaiReady {
   }
 }
 
-if (Test-WenmaiReady) {
-  if ($env:WENMAI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
-  Write-Host 'Wenmai Writing is already running. The workspace is open.'
+if (Test-WenmiReady) {
+  if ($env:WENMI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
+  Write-Host 'Wenmi Writing is already running. The workspace is open.'
   exit 0
 }
 
@@ -33,7 +33,7 @@ $occupied = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
   Where-Object { $_.LocalPort -in 43110, 43111 }
 if ($occupied) {
   $details = ($occupied | ForEach-Object { "port $($_.LocalPort), process $($_.OwningProcess)" }) -join '; '
-  throw "Wenmai ports are occupied: $details"
+  throw "Wenmi ports are occupied: $details"
 }
 
 & npm.cmd run migrate
@@ -51,12 +51,12 @@ $process = Start-Process -FilePath $nodePath -ArgumentList @('scripts/start.mjs'
 Set-Content -LiteralPath $pidPath -Value $process.Id -Encoding ascii
 
 $deadline = (Get-Date).AddSeconds(30)
-while ((Get-Date) -lt $deadline -and -not (Test-WenmaiReady)) {
+while ((Get-Date) -lt $deadline -and -not (Test-WenmiReady)) {
   Start-Sleep -Milliseconds 250
 }
-if (-not (Test-WenmaiReady)) {
+if (-not (Test-WenmiReady)) {
   & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
-  throw "Wenmai did not start within 30 seconds. See $stderrPath"
+  throw "Wenmi did not start within 30 seconds. See $stderrPath"
 }
 
 $workerDeadline = (Get-Date).AddSeconds(15)
@@ -75,6 +75,6 @@ if ($null -eq $worker -or $worker.data.status -ne 'ready') {
   throw 'The Worker did not become ready. Startup stopped safely.'
 }
 
-if ($env:WENMAI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
-Write-Host 'Wenmai Writing is ready at http://127.0.0.1:43110'
+if ($env:WENMI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
+Write-Host 'Wenmi Writing is ready at http://127.0.0.1:43110'
 Write-Host 'Double-click the stop entry when you want to stop the app.'

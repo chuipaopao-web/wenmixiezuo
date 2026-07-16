@@ -46,14 +46,30 @@ const todoPattern = /(?:\/\/|#|<!--)\s*(?:TODO|FIXME|HACK)\b/iu;
 const todoHit = trackedText.find(({ content }) => todoPattern.test(content));
 check('无未说明代码占位', todoHit === undefined, todoHit?.file ?? '未发现');
 
-const ignoreResult = execFileSync('git', ['check-ignore', 'data/database/wenmai.sqlite'], { cwd: root, encoding: 'utf8' }).trim();
+const ignoreResult = execFileSync('git', ['check-ignore', 'data/database/wenmi.sqlite'], { cwd: root, encoding: 'utf8' }).trim();
 check('运行数据不入Git', ignoreResult.length > 0, ignoreResult || '未忽略');
 const status = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
 check('工作树干净', status.length === 0, status || 'clean');
 const remotes = execFileSync('git', ['remote'], { cwd: root, encoding: 'utf8' }).trim();
 const releaseDoc = readFileSync(resolve(root, `docs/releases/${releaseId}/RELEASE.md`), 'utf8');
 check('本地版本边界', remotes.length > 0 || releaseDoc.includes('未配置远程'), remotes || '未配置远程且文档已说明');
-check('桌面入口', existsSync(resolve(root, '文脉写作-启动.cmd')) && existsSync(resolve(root, '文脉写作-停止.cmd')), '启动与停止入口');
+check('产品显示名称', packageJson.productName === '文秘写作', String(packageJson.productName));
+const oldNameAllowed = new Set([
+  'docs/DECISIONS.md',
+  'docs/FINAL_SOLUTION.md',
+  'docs/SOURCE_REQUIREMENTS.md',
+  'docs/CONSENSUS_LEDGER.md',
+  'docs/superpowers/plans/2026-07-17-product-rename.md'
+]);
+const retiredNames = [
+  ['文', '脉写作'].join(''),
+  ['文', '脉'].join(''),
+  ['wen', 'mai'].join('')
+];
+const oldNameHit = trackedText.find(({ file, content }) =>
+  !oldNameAllowed.has(file) && retiredNames.some((name) => content.toLocaleLowerCase('en-US').includes(name)));
+check('旧产品名已清除', oldNameHit === undefined, oldNameHit?.file ?? '未发现');
+check('桌面入口', existsSync(resolve(root, '文秘写作-启动.cmd')) && existsSync(resolve(root, '文秘写作-停止.cmd')), '启动与停止入口');
 check('老板使用说明', existsSync(resolve(root, 'docs/USER_GUIDE.md')), 'docs/USER_GUIDE.md');
 
 console.log(JSON.stringify({ releaseId, checks, failures }, null, 2));

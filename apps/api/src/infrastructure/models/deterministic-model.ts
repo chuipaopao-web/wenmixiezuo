@@ -3,7 +3,7 @@ import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js
 
 export class DeterministicModelAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic';
-  public readonly modelId = 'wenmai-fixture-v1';
+  public readonly modelId = 'wenmi-fixture-v1';
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     if (signal?.aborted === true) {

@@ -61,4 +61,4 @@ spawnService('WEB', process.execPath, [
   resolve(projectRoot, 'apps/web'),
   '--config', resolve(projectRoot, 'apps/web/vite.config.ts')
 ]);
-console.log('文脉写作已启动：http://127.0.0.1:43110');
+console.log('文秘写作已启动：http://127.0.0.1:43110');

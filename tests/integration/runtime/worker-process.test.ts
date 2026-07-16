@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe('独立Worker进程', () => {
   it('从共享SQLite领取runtime_probe并持久完成', async () => {
-    context = createTestContext('wenmai-worker-process-');
+    context = createTestContext('wenmi-worker-process-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
@@ -32,9 +32,9 @@ describe('独立Worker进程', () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        WENMAI_DATA_DIR: context.dataDir,
-        WENMAI_PROJECT_ROOT: process.cwd(),
-        WENMAI_WORKER_ID: 'worker-process-test'
+        WENMI_DATA_DIR: context.dataDir,
+        WENMI_PROJECT_ROOT: process.cwd(),
+        WENMI_WORKER_ID: 'worker-process-test'
       },
       stdio: 'ignore'
     });

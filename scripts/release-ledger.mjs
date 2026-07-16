@@ -66,7 +66,7 @@ const stageDefinitions = [
 function initialize() {
   const now = new Date().toISOString();
   database.prepare(`INSERT INTO releases (release_id, product_name, started_at, status)
-    VALUES (?, '文脉写作', ?, 'active') ON CONFLICT(release_id) DO NOTHING`).run(releaseId, now);
+    VALUES (?, '文秘写作', ?, 'active') ON CONFLICT(release_id) DO NOTHING`).run(releaseId, now);
   const insert = database.prepare(`
     INSERT INTO stage_tasks (
       task_id, release_id, stage, goal, exclusions, owner, allowed_files, forbidden_files,

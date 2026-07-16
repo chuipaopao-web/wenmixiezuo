@@ -22,10 +22,10 @@ describe('Worker生产进程生命周期', () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        WENMAI_PROJECT_ROOT: process.cwd(),
-        WENMAI_DATA_DIR: context.dataDir,
-        WENMAI_WORKER_ID: workerId,
-        WENMAI_API_BASE_URL: 'http://127.0.0.1:1'
+        WENMI_PROJECT_ROOT: process.cwd(),
+        WENMI_DATA_DIR: context.dataDir,
+        WENMI_WORKER_ID: workerId,
+        WENMI_API_BASE_URL: 'http://127.0.0.1:1'
       },
       stdio: 'ignore'
     });

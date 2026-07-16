@@ -7,7 +7,7 @@ import { runMigrations } from '../../../apps/api/src/infrastructure/db/migration
 
 describe('阶段5从Schema 4升级', () => {
   it('保留已有书籍与领域数据并新增记忆正史表', () => {
-    const root = mkdtempSync(resolve(tmpdir(), 'wenmai-memory-upgrade-'));
+    const root = mkdtempSync(resolve(tmpdir(), 'wenmi-memory-upgrade-'));
     const migrations = resolve(root, 'migrations');
     const source = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
     mkdirSync(migrations);
@@ -17,7 +17,7 @@ describe('阶段5从Schema 4升级', () => {
     const database = openDatabase(resolve(root, 'database.sqlite'));
     try {
       runMigrations(database, migrations);
-      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文脉写作', 4, 'v1', '2026-07-16T00:00:00Z')").run();
+      database.prepare("INSERT INTO release_runs VALUES ('release-old', '文秘写作', 4, 'v1', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO owners VALUES ('owner-one', '老板', 1, '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO books (book_id, owner_id, title, status, created_at, updated_at) VALUES ('book-alpha', 'owner-one', '旧书', 'draft', '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();
       database.prepare("INSERT INTO positioning_drafts (draft_id, owner_id, proposed_book_id, title, input_text, fields_json, tags_json, status, version, created_at, updated_at) VALUES ('draft-old', 'owner-one', 'book-beta', '旧定位', '文本', '[]', '[]', 'editing', 1, '2026-07-16T00:00:00Z', '2026-07-16T00:00:00Z')").run();

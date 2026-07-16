@@ -1,4 +1,4 @@
-const DATABASE_NAME = 'wenmai-writing-offline';
+const DATABASE_NAME = 'wenmi-writing-offline';
 const DATABASE_VERSION = 1;
 
 interface CachedSnapshot<T> {

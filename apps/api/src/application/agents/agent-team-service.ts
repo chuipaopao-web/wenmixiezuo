@@ -85,7 +85,7 @@ export class AgentTeamService {
         INSERT INTO model_config_snapshots (
           model_snapshot_id, owner_id, book_id, provider, model_id,
           parameters_json, capabilities_json, validated_at, created_at
-        ) VALUES (?, ?, ?, 'local-deterministic', 'wenmai-fixture-v1', '{}', ?, ?, ?)
+        ) VALUES (?, ?, ?, 'local-deterministic', 'wenmi-fixture-v1', '{}', ?, ?, ?)
       `).run(snapshotId, scope.ownerId, scope.bookId, JSON.stringify(capabilities), now, now);
       this.database.prepare(`
         INSERT INTO agent_instances (

@@ -7,7 +7,7 @@ import { runMigrations } from '../../apps/api/src/infrastructure/db/migrations.j
 
 const tempDirectories: string[] = [];
 function createTempDirectory(): string {
-  const directory = mkdtempSync(resolve(tmpdir(), 'wenmai-migration-'));
+  const directory = mkdtempSync(resolve(tmpdir(), 'wenmi-migration-'));
   tempDirectories.push(directory);
   return directory;
 }

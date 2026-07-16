@@ -34,14 +34,14 @@ export interface TestContext {
   close(): void;
 }
 
-export function createTestContext(prefix = 'wenmai-test-'): TestContext {
+export function createTestContext(prefix = 'wenmi-test-'): TestContext {
   const root = mkdtempSync(resolve(tmpdir(), prefix));
   const dataDir = resolve(root, 'data');
   const config: RuntimeConfig = {
     apiHost: '127.0.0.1',
     apiPort: 43111,
     dataDir,
-    databasePath: resolve(dataDir, 'database', 'wenmai.sqlite'),
+    databasePath: resolve(dataDir, 'database', 'wenmi.sqlite'),
     projectRoot: process.cwd(),
     releaseId: 'wm-v1-20260716-220959-d5dd704d',
     ownerId: 'owner-local-boss',
