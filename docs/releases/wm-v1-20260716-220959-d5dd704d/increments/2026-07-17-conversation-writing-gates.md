@@ -6,7 +6,7 @@
 - 决定：`DEC-008`
 - 实施计划：`docs/superpowers/plans/2026-07-17-correct-conversation-and-writing-gates.md`
 - 唯一开发与复核人：当前Codex；按老板规则未调用其他开发Agent。
-- 功能提交：完成提交后以本文件后续证据提交补录，不改写阶段0至8历史。
+- 功能提交：`a560272 fix: require planning before chapter writing`，不改写阶段0至8历史。
 
 ## 根因与生产处置
 
@@ -39,7 +39,7 @@
 | 取消状态恢复 | `chapter-state-recovery.test.ts` | 启动时把无正文、无活动任务且最新任务已取消的章节壳归位 |
 | 成果可见性 | `workspace-api.test.ts` | 成果列表返回活动内容、内容哈希和版本状态 |
 | 全量类型/测试/构建 | `npm run verify` | 类型检查通过；62个测试文件、126项测试全部通过；API/Web/Worker生产构建成功 |
-| 发布验收 | `npm run acceptance` | 干净工作树提交后执行并补录 |
+| 发布验收 | `npm run acceptance` | 3个文件、3项通过；发布审计全部通过，`failures: []` |
 
 ## 迁移、完整性、备份与恢复
 
@@ -57,6 +57,7 @@
 - 两本实机验证书完成后均只做普通归档，没有永久删除。
 - 正式书籍当前第1章为 `planned/not_started`、正文指针为空、活动任务0。
 - 本增量只停止/启动文秘写作自身登记进程，未读取、修改、停止或重启 `D:\AI智囊团`。
+- 功能提交已推送私有远程仓库；`origin/main` 核对为 `a5602720da8375724b81c09ad113177e8b5ac9c4`。
 
 ## 回滚与限制
 
