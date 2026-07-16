@@ -34,4 +34,9 @@
 | 决定 | 覆盖内容 | 生效文件 |
 |---|---|---|
 | DEC-001 | 从5个固定岗位调整为5个核心加4个按需专家，共9个岗位 | `DECISIONS.md`、`PRODUCT.md`、`AGENT_SYSTEM.md`、`DATA_MODEL.md`、`ACCEPTANCE.md` |
+| DEC-002 | 正式授权八阶段开发并锁定名称、端口、数据、零现金、Git与备份边界 | `DECISIONS.md`、`KNOWLEDGE.md`、`TASKS.md`、`README.md`、发布验收包 |
 
+## 当前发布执行证据
+
+- 开工基线与阶段1已覆盖共识1、3、23、24的工程底座部分，证据见 `docs/releases/wm-v1-20260716-220959-d5dd704d/stages/00-baseline.md` 与 `01-foundation.md`。
+- 其余共识继续按“主要开发阶段”列推进；阶段通过不改变尚未实现条目的状态。

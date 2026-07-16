@@ -1,0 +1,44 @@
+{
+  "name": "wenmai-writing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "文脉写作：本地优先的多Agent协同小说创作平台",
+  "type": "module",
+  "packageManager": "npm@11.13.0",
+  "engines": {
+    "node": ">=24.16.0 <25",
+    "npm": ">=11.13.0 <12"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "clean": "node scripts/clean.mjs",
+    "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmai/api\" \"npm run dev -w @wenmai/worker\" \"npm run dev -w @wenmai/web\"",
+    "ledger:init": "node scripts/release-ledger.mjs init",
+    "ledger:status": "node scripts/release-ledger.mjs status",
+    "migrate": "npm run migrate -w @wenmai/api",
+    "start": "node scripts/start.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.tests.json --noEmit",
+    "verify": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "axe-core": "4.12.1",
+    "concurrently": "10.0.3",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "29.1.1",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
+

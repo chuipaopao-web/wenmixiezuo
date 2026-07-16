@@ -16,9 +16,9 @@
 
 | 阶段 | 状态 | 验收包 |
 |---:|---|---|
-| 开工基线 | 进行中 | `stages/00-baseline.md` |
-| 1 | 待开始 | `stages/01-foundation.md` |
-| 2 | 待开始 | `stages/02-data-safety.md` |
+| 开工基线 | 已通过 | `stages/00-baseline.md` |
+| 1 | 已通过 | `stages/01-foundation.md` |
+| 2 | 进行中 | `stages/02-data-safety.md` |
 | 3 | 待开始 | `stages/03-runtime.md` |
 | 4 | 待开始 | `stages/04-domain.md` |
 | 5 | 待开始 | `stages/05-memory-canon.md` |
@@ -27,4 +27,3 @@
 | 8 | 待开始 | `stages/08-release.md` |
 
 阶段状态只有在对应验收证据与当前提交一致后才更新。整个首版是否达到完成标准只以 `docs/ACCEPTANCE.md` 和最终签署为准。
-
