@@ -363,7 +363,7 @@ export function App(): React.JSX.Element {
               <TabButton active={view === 'rights'} onClick={() => setView('rights')} icon={<ShieldCheckIcon />} label="版权" />
             </nav>
             {view === 'chat' && (
-              <ChatWorkspace messages={messages} totalMessageCount={workspace?.messageCount ?? messages.length} onWrite={startWriting} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
+              <ChatWorkspace messages={messages} agents={workspace?.agents ?? []} totalMessageCount={workspace?.messageCount ?? messages.length} onWrite={startWriting} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
             )}
             {view === 'manuscript' && <ManuscriptView chapter={workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null} reader={reader} />}
             {view === 'outline' && <ReferenceView kind="outline" data={referenceData} />}
@@ -404,6 +404,7 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 function ChatWorkspace(props: {
   messages: MessageData[];
+  agents: AgentData[];
   totalMessageCount: number;
   onWrite: (count: 1 | 3 | 5) => Promise<void>;
   busy: boolean;
@@ -430,7 +431,7 @@ function ChatWorkspace(props: {
         ) : (
           <>
             {hiddenMessageCount > 0 && <p className="history-window-note">为保持工作区流畅，当前显示最近 200 条消息；更早的 {hiddenMessageCount} 条仍保存在本地记录中。</p>}
-            {visibleMessages.map((message) => <MessageBubble key={message.message_id} message={message} />)}
+            {visibleMessages.map((message) => <MessageBubble key={message.message_id} message={message} agents={props.agents} />)}
           </>
         )}
       </div>
@@ -446,8 +447,13 @@ function ChatWorkspace(props: {
   );
 }
 
-function MessageBubble({ message }: { message: MessageData }): React.JSX.Element {
-  const source = message.sender_type === 'boss' ? '老板' : message.sender_type === 'agent' ? message.role_key ?? 'Agent' : '系统';
+function MessageBubble({ message, agents }: { message: MessageData; agents: AgentData[] }): React.JSX.Element {
+  const speakingAgent = message.role_key === null ? null : agents.find((agent) => agent.roleKey === message.role_key) ?? null;
+  const source = message.sender_type === 'boss'
+    ? '老板'
+    : message.sender_type === 'agent'
+      ? speakingAgent === null ? message.role_key ?? '成员' : memberIdentity(speakingAgent)
+      : '系统';
   return (
     <article className={`message ${message.sender_type}`}>
       <header><strong>{source}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></header>
@@ -529,18 +535,15 @@ function Inspector({ workspace, worker, busy, onDecide }: {
   busy: boolean;
   onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
 }): React.JSX.Element {
-  const coreAgents = workspace?.agents.filter((agent) => agent.category === 'core') ?? [];
-  const specialists = workspace?.agents.filter((agent) => agent.category === 'specialist') ?? [];
-  const currentTask = workspace?.tasks.find((task) => task.status === 'working') ?? workspace?.tasks.find((task) => task.status === 'queued') ?? null;
+  const agents = workspace?.agents ?? [];
   const budgetRatio = workspace?.budget === null || workspace?.budget === undefined || workspace.budget.token_limit === 0
     ? 0
     : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
   return (
     <div className="inspector-content">
       <section className="inspector-section">
-        <div className="inspector-heading"><h2>团队</h2><span>{workspace?.agents.length ?? 0} 个岗位</span></div>
-        <div className="agent-list">{coreAgents.map((agent) => <AgentRow key={agent.agentId} agent={agent} working={isAgentWorking(agent, currentTask, worker)} />)}</div>
-        {specialists.length > 0 && <details><summary>按需专家 {specialists.length}</summary><div className="agent-list">{specialists.map((agent) => <AgentRow key={agent.agentId} agent={agent} working={isAgentWorking(agent, currentTask, worker)} />)}</div></details>}
+        <div className="inspector-heading"><h2>团队</h2><span>{agents.length} 名成员</span></div>
+        <div className="agent-list">{agents.map((agent) => <AgentRow key={agent.agentId} agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} worker={worker} />)}</div>
       </section>
       <section className="inspector-section budget-section">
         <div className="inspector-heading"><h2>预算</h2><span>{budgetRatio}%</span></div>
@@ -565,17 +568,44 @@ function Inspector({ workspace, worker, busy, onDecide }: {
   );
 }
 
-function AgentRow({ agent, working }: { agent: AgentData; working: boolean }): React.JSX.Element {
-  const state = working ? '工作中' : agent.activationState === 'standby' ? '待命' : agent.activationState === 'paused' ? '已暂停' : '空闲';
-  return <div className="agent-row"><AgentAvatar roleKey={agent.roleKey} roleName={agent.roleName} /><div><strong>{agent.roleName}</strong><small>{agent.provider}/{agent.modelId}</small></div><em className={working ? 'working' : agent.activationState}><span className="agent-state" aria-hidden="true" />{state}</em></div>;
+function AgentRow({ agent, task, worker }: { agent: AgentData; task: TaskData | null; worker: WorkerData | null }): React.JSX.Element {
+  const presence = agentPresence(agent, task, worker);
+  const identity = memberIdentity(agent);
+  return (
+    <div className="agent-row" title={`${identity}，模型 ${agent.provider}/${agent.modelId}`} aria-label={`${identity}，${presence.label}，模型 ${agent.provider}/${agent.modelId}`}>
+      <AgentAvatar roleKey={agent.roleKey} roleName={identity} />
+      <strong>{identity}</strong>
+      <em className={presence.className}><span className="agent-state" aria-hidden="true" />{presence.label}</em>
+    </div>
+  );
 }
 
 function AgentAvatar({ roleKey, roleName }: { roleKey: string; roleName: string }): React.JSX.Element {
   return <span className="agent-avatar" role="img" aria-label={`${roleName}头像`} style={{ backgroundPosition: avatarPosition(roleKey) }} />;
 }
 
-function isAgentWorking(agent: AgentData, task: WorkspaceData['tasks'][number] | null, worker: WorkerData | null): boolean {
-  return task?.status === 'working' && task.assignedAgentId === agent.agentId && worker?.worker?.currentTaskId === task.taskId;
+function memberIdentity(agent: Pick<AgentData, 'displayName' | 'roleName'>): string {
+  return `${agent.displayName}（${agent.roleName}）`;
+}
+
+function activeTaskForAgent(workspace: WorkspaceData | null, agentId: string): TaskData | null {
+  if (workspace === null) return null;
+  const tasks = workspace.tasks.filter((task) => task.assignedAgentId === agentId && isActiveTask(task.status));
+  return tasks.find((task) => task.status === 'working')
+    ?? tasks.find((task) => task.status === 'queued' || task.status === 'pending')
+    ?? tasks[0]
+    ?? null;
+}
+
+function agentPresence(agent: AgentData, task: TaskData | null, worker: WorkerData | null): { label: string; className: string } {
+  if (agent.activationState === 'disabled') return { label: '离线', className: 'offline' };
+  if (agent.activationState === 'paused') return { label: '需要处理', className: 'blocked' };
+  if (task === null) return { label: '空闲', className: 'standby' };
+  if (task.status === 'queued' || task.status === 'pending') return { label: '排队中', className: 'queued' };
+  if (task.status === 'working' && worker?.status === 'ready' && worker.worker?.currentTaskId === task.taskId) {
+    return { label: '后台工作中', className: 'working' };
+  }
+  return { label: '需要处理', className: 'blocked' };
 }
 
 function EmptyLibrary({ onCreate }: { onCreate: () => void }): React.JSX.Element {
@@ -606,7 +636,7 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
         <dl className="task-detail-grid">
           <div><dt>当前状态</dt><dd><span className={`task-status-dot ${task.status}`} aria-hidden="true" />{task.cancelRequested ? '取消处理中' : statusLabel(task.status)}</dd></div>
           <div><dt>创作阶段</dt><dd>{phaseLabel(task.currentPhase)}</dd></div>
-          <div><dt>执行岗位</dt><dd>{agent?.roleName ?? '等待分派'}</dd></div>
+          <div><dt>执行成员</dt><dd>{agent === null ? '等待分派' : memberIdentity(agent)}</dd></div>
           <div><dt>已尝试</dt><dd>{task.attemptCount} 次</dd></div>
           <div className="task-detail-wide"><dt>任务目标</dt><dd>完成{chapter}的{taskLabel(task.taskType)}，按阶段检查后进入正史结算。</dd></div>
           <div className="task-detail-wide"><dt>最近检查点</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>

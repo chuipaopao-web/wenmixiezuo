@@ -15,7 +15,7 @@ describe('Web基础入口', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
       const data = path === '/health'
-        ? { service: 'wenmi-api', status: 'ok', releaseId: 'wm-v1-20260716-220959-d5dd704d', schemaVersion: 7 }
+        ? { service: 'wenmi-api', status: 'ok', releaseId: 'wm-v1-20260716-220959-d5dd704d', schemaVersion: 9 }
         : path === '/api/v1/books'
           ? []
           : { status: 'ready', worker: null };

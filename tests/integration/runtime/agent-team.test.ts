@@ -20,6 +20,17 @@ describe('9岗位团队与运行时能力', () => {
     expect(agents).toHaveLength(9);
     expect(agents.filter((agent) => agent.category === 'core' && agent.activationState === 'idle')).toHaveLength(5);
     expect(agents.filter((agent) => agent.category === 'specialist' && agent.activationState === 'standby')).toHaveLength(4);
+    expect(agents.map((agent) => [agent.roleKey, agent.displayName, agent.roleName])).toEqual([
+      ['chief_editor', '貂蝉', '主编'],
+      ['plot_architect', '婉儿', '编剧'],
+      ['continuity', '文姬', '设定师'],
+      ['writer', '秋香', '主笔'],
+      ['reviewer', '妲己', '审校'],
+      ['reader_experience', '昭君', '体验官'],
+      ['style_editor', '清照', '文编'],
+      ['researcher', '道韫', '研究员'],
+      ['copyright', '弄玉', '版权顾问']
+    ]);
     expect(new Set(agents.map((agent) => `${agent.provider}/${agent.modelId}`))).toEqual(new Set(['local-deterministic/wenmi-fixture-v1']));
     expect(() => service.assertIndependentReview(agents[0]!, agents[1]!)).toThrow('真实不同模型');
     const researcher = agents.find((agent) => agent.roleKey === 'researcher')!;
@@ -41,4 +52,3 @@ describe('9岗位团队与运行时能力', () => {
       .toEqual({ count: 0 });
   });
 });
-

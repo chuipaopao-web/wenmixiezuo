@@ -18,22 +18,22 @@ const chapter = {
 };
 
 const agentRoles = [
-  ['chief_editor', '总编与编排'],
-  ['plot_architect', '剧情架构师'],
-  ['continuity', '设定与连续性统筹'],
-  ['writer', '主笔'],
-  ['reviewer', '审校'],
-  ['reader_experience', '读者体验与情绪专家'],
-  ['style_editor', '文风编辑与去AI味专家'],
-  ['researcher', '资料研究与考据专家'],
-  ['copyright', '版权与原创安全专家']
+  ['chief_editor', '主编', '貂蝉'],
+  ['plot_architect', '编剧', '婉儿'],
+  ['continuity', '设定师', '文姬'],
+  ['writer', '主笔', '秋香'],
+  ['reviewer', '审校', '妲己'],
+  ['reader_experience', '体验官', '昭君'],
+  ['style_editor', '文编', '清照'],
+  ['researcher', '研究员', '道韫'],
+  ['copyright', '版权顾问', '弄玉']
 ] as const;
 
-const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName], index) => ({
+const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, displayName], index) => ({
   agentId: `agent-${index + 1}`,
   roleKey,
   roleName,
-  displayName: roleName,
+  displayName,
   category: index < 5 ? 'core' : 'specialist',
   provider: 'local-deterministic', modelId: 'wenmi-fixture-v1', activationState: index < 5 ? 'idle' : 'standby'
 }));
@@ -46,6 +46,11 @@ const workspace: WorkspaceData = {
     pauseRequested: false, cancelRequested: false, attemptCount: 1, assignedAgentId: 'agent-4',
     chapterId: 'chapter-ui-1', brief: { chapterId: 'chapter-ui-1', chapterNumber: 1, batchIndex: 0 },
     checkpoint: { completedPhase: 'context' }
+  }, {
+    taskId: 'task-ui-2', taskType: 'discussion', status: 'queued', currentPhase: 'queued',
+    pauseRequested: false, cancelRequested: false, attemptCount: 0, assignedAgentId: 'agent-2',
+    chapterId: 'chapter-ui-1', brief: { chapterId: 'chapter-ui-1', chapterNumber: 1, summary: '讨论剧情转折' },
+    checkpoint: {}
   }],
   budget: {
     mode: 'standard', token_limit: 100_000, spent_tokens: 12_000, reserved_tokens: 4_000,
@@ -68,10 +73,16 @@ describe('完整创作工作台', () => {
     expect((await screen.findAllByText('雾钟档案')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('complementary', { name: '书籍与章节' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
-    expect(await screen.findByText('9 个岗位')).toBeInTheDocument();
+    expect(await screen.findByText('9 名成员')).toBeInTheDocument();
     expect(await screen.findByText(/生成完整初稿/)).toBeInTheDocument();
-    expect(screen.getByText('工作中')).toBeInTheDocument();
-    expect(screen.getAllByText('local-deterministic/wenmi-fixture-v1')).toHaveLength(9);
+    expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
+    expect(screen.getByText('后台工作中')).toBeInTheDocument();
+    expect(screen.getByText('排队中')).toBeInTheDocument();
+    expect(screen.getAllByText('空闲')).toHaveLength(7);
+    expect(screen.getByText('弄玉（版权顾问）')).toBeInTheDocument();
+    expect(screen.queryByText('按需专家 4')).not.toBeInTheDocument();
+    expect(screen.queryByText('设定与连续性统筹')).not.toBeInTheDocument();
+    expect(screen.queryByText('local-deterministic/wenmi-fixture-v1')).not.toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(9);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
 
@@ -157,7 +168,7 @@ describe('完整创作工作台', () => {
       message_id: `message-${index + 1}`,
       sender_type: index % 2 === 0 ? 'boss' as const : 'agent' as const,
       sender_agent_id: index % 2 === 0 ? null : 'agent-1',
-      role_key: index % 2 === 0 ? null : 'editor_in_chief',
+      role_key: index % 2 === 0 ? null : 'chief_editor',
       model_provider: index % 2 === 0 ? null : 'local-deterministic',
       model_id: index % 2 === 0 ? null : 'wenmi-fixture-v1',
       message_type: 'text', content: `消息 ${index + 1}`, references_json: '{}',
@@ -177,7 +188,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
   return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
-    if (path === '/health') return apiResponse({ service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 7 });
+    if (path === '/health') return apiResponse({ service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 9 });
     if (path === '/api/v1/books') return apiResponse([book]);
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }

@@ -34,11 +34,11 @@ draft → active → paused → archived
 
 ### `role_templates`
 
-保存9个岗位模板的职责、提示、能力要求、工具、数据范围和确认门禁。模板版本化。
+保存9个岗位模板的简短职业名称、职责、提示、能力要求、工具、数据范围和确认门禁。模板版本化；完整职责不得塞入岗位显示名。
 
 ### `agent_instances`
 
-保存 `agent_id`、`owner_id`、`book_id`、岗位模板、显示身份、模型配置快照、权限、启用状态和健康状态。
+保存 `agent_id`、`owner_id`、`book_id`、岗位模板、女性成员姓名、模型配置快照、权限、启用状态和健康状态。`display_name` 是成员姓名，岗位短名来自版本化岗位模板。
 
 ### `model_config_snapshots`
 
@@ -213,4 +213,3 @@ pending → queued → working → waiting_confirmation → succeeded
 - D级事实未确认时不能结算；
 - 旧 `editor_epoch`、旧 `canon_revision` 和旧定位版本的写入被拒绝；
 - 迁移空库、重复执行和已有数据升级安全。
-

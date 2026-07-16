@@ -98,7 +98,7 @@ export class AgentTeamService {
         scope.ownerId,
         scope.bookId,
         role.roleTemplateId,
-        role.displayName,
+        role.memberName,
         snapshotId,
         JSON.stringify({ bookScoped: true, tools: [], network: false }),
         role.defaultActivation === 'resident' ? 'idle' : 'standby',
@@ -119,7 +119,17 @@ export class AgentTeamService {
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
       WHERE a.owner_id = ? AND a.book_id = ?
-      ORDER BY CASE r.category WHEN 'core' THEN 0 ELSE 1 END, r.role_template_id
+      ORDER BY CASE r.role_key
+        WHEN 'chief_editor' THEN 1
+        WHEN 'plot_architect' THEN 2
+        WHEN 'continuity' THEN 3
+        WHEN 'writer' THEN 4
+        WHEN 'reviewer' THEN 5
+        WHEN 'reader_experience' THEN 6
+        WHEN 'style_editor' THEN 7
+        WHEN 'researcher' THEN 8
+        WHEN 'copyright' THEN 9
+        ELSE 10 END
     `).all(scope.ownerId, scope.bookId) as unknown as AgentRow[];
     return rows.map((row) => ({
       agentId: row.agent_id,
