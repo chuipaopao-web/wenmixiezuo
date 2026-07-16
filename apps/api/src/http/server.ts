@@ -6,6 +6,7 @@ import { SCHEMA_VERSION, success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { EventStore } from '../application/events/event-store.js';
+import { registerDomainRoutes } from './domain-routes.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 
 interface WorkerHealthRow {
@@ -22,6 +23,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   const app = Fastify({ logger: { level: process.env.WENMAI_LOG_LEVEL ?? 'info' } });
   await app.register(cors, { origin: config.webOrigin, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
+  await registerDomainRoutes(app, database, config);
 
   app.get('/health', async (request) => {
     const integrity = database.prepare('PRAGMA quick_check').get() as { quick_check: string };

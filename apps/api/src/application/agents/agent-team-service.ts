@@ -63,45 +63,50 @@ export class AgentTeamService {
   public createTeam(scope: BookScope, injectFailureAfter?: number): AgentRecord[] {
     assertBookScope(scope);
     this.seedRoleTemplates();
-    const now = this.clock.now().toISOString();
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      roleDefinitions.forEach((role, index) => {
-        const snapshotId = this.ids.next();
-        const agentId = this.ids.next();
-        const capabilities = role.requiredCapabilities.includes('research') ? ['text'] : ['text'];
-        this.database.prepare(`
-          INSERT INTO model_config_snapshots (
-            model_snapshot_id, owner_id, book_id, provider, model_id,
-            parameters_json, capabilities_json, validated_at, created_at
-          ) VALUES (?, ?, ?, 'local-deterministic', 'wenmai-fixture-v1', '{}', ?, ?, ?)
-        `).run(snapshotId, scope.ownerId, scope.bookId, JSON.stringify(capabilities), now, now);
-        this.database.prepare(`
-          INSERT INTO agent_instances (
-            agent_id, owner_id, book_id, role_template_id, role_template_version,
-            display_name, model_snapshot_id, permissions_json, enabled,
-            activation_state, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 1, ?, ?, ?)
-        `).run(
-          agentId,
-          scope.ownerId,
-          scope.bookId,
-          role.roleTemplateId,
-          role.displayName,
-          snapshotId,
-          JSON.stringify({ bookScoped: true, tools: [], network: false }),
-          role.defaultActivation === 'resident' ? 'idle' : 'standby',
-          now,
-          now
-        );
-        if (injectFailureAfter === index + 1) throw new Error('simulated-team-creation-failure');
-      });
+      this.insertTeamWithinTransaction(scope, injectFailureAfter);
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
     }
     return this.list(scope);
+  }
+
+  public insertTeamWithinTransaction(scope: BookScope, injectFailureAfter?: number): void {
+    assertBookScope(scope);
+    const now = this.clock.now().toISOString();
+    roleDefinitions.forEach((role, index) => {
+      const snapshotId = this.ids.next();
+      const agentId = this.ids.next();
+      const capabilities = role.requiredCapabilities.includes('research') ? ['text'] : ['text'];
+      this.database.prepare(`
+        INSERT INTO model_config_snapshots (
+          model_snapshot_id, owner_id, book_id, provider, model_id,
+          parameters_json, capabilities_json, validated_at, created_at
+        ) VALUES (?, ?, ?, 'local-deterministic', 'wenmai-fixture-v1', '{}', ?, ?, ?)
+      `).run(snapshotId, scope.ownerId, scope.bookId, JSON.stringify(capabilities), now, now);
+      this.database.prepare(`
+        INSERT INTO agent_instances (
+          agent_id, owner_id, book_id, role_template_id, role_template_version,
+          display_name, model_snapshot_id, permissions_json, enabled,
+          activation_state, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 1, ?, ?, ?)
+      `).run(
+        agentId,
+        scope.ownerId,
+        scope.bookId,
+        role.roleTemplateId,
+        role.displayName,
+        snapshotId,
+        JSON.stringify({ bookScoped: true, tools: [], network: false }),
+        role.defaultActivation === 'resident' ? 'idle' : 'standby',
+        now,
+        now
+      );
+      if (injectFailureAfter === index + 1) throw new Error('simulated-team-creation-failure');
+    });
   }
 
   public list(scope: BookScope): AgentRecord[] {
@@ -152,4 +157,3 @@ export class AgentTeamService {
     }
   }
 }
-
