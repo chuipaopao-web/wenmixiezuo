@@ -1,0 +1,19 @@
+{
+  "name": "文脉写作",
+  "short_name": "文脉写作",
+  "description": "本地优先的多Agent协同小说创作工作台",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#285d45",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

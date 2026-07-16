@@ -7,8 +7,11 @@ import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
 
 let context: TestContext | undefined;
 let child: ChildProcess | undefined;
-afterEach(() => {
-  child?.kill('SIGTERM');
+afterEach(async () => {
+  if (child !== undefined && child.exitCode === null) {
+    child.kill('SIGTERM');
+    await new Promise<void>((resolvePromise) => child!.once('exit', () => resolvePromise()));
+  }
   child = undefined;
   context?.close();
   context = undefined;
@@ -47,4 +50,3 @@ describe('独立Worker进程', () => {
       .toEqual({ current_task_id: null });
   });
 });
-

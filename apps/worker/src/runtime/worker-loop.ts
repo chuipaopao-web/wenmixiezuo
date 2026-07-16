@@ -15,7 +15,6 @@ export class WorkerLoop {
   public start(): void {
     void this.tick();
     this.#timer = setInterval(() => void this.tick(), 1_000);
-    this.#timer.unref();
   }
 
   public stop(): void {

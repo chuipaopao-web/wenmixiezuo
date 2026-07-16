@@ -27,7 +27,7 @@ describe('向前迁移器', () => {
       const first = runMigrations(database, migrationsDir);
       const second = runMigrations(database, migrationsDir);
       const tables = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
-      expect(first.applied).toEqual(['0001_foundation.sql', '0002_data_safety.sql', '0003_runtime.sql', '0004_novel_domain.sql', '0005_memory_canon.sql', '0006_creation_pipeline.sql']);
+      expect(first.applied).toEqual(['0001_foundation.sql', '0002_data_safety.sql', '0003_runtime.sql', '0004_novel_domain.sql', '0005_memory_canon.sql', '0006_creation_pipeline.sql', '0007_experience_copyright.sql']);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });

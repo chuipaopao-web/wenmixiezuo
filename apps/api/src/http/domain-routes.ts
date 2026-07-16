@@ -17,6 +17,11 @@ import { RetrievalService } from '../application/memory/retrieval-service.js';
 import { ContextPackService, type ContextPackInput } from '../application/memory/context-pack-service.js';
 import { ChapterBatchService } from '../application/creation/chapter-batch-service.js';
 import { resolveInside } from '../infrastructure/files/file-utils.js';
+import { NarrativeProjectionService, type NarrativeProjectionType } from '../application/projections/narrative-projection-service.js';
+import { CopyrightService, type RightsPath } from '../application/copyright/copyright-service.js';
+import { ResearchService } from '../application/research/research-service.js';
+import { ConversationService } from '../application/chat/conversation-service.js';
+import { TaskService } from '../application/tasks/task-service.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -34,6 +39,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const retrieval = new RetrievalService(database, ids, clock);
   const contextPacks = new ContextPackService(database, ids, clock);
   const chapterBatches = new ChapterBatchService(database, config.dataDir, config.releaseId, ids, clock);
+  const projections = new NarrativeProjectionService(database, ids, clock);
+  const copyright = new CopyrightService(database, ids, clock);
+  const research = new ResearchService(database, ids, clock);
+  const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock);
+  const tasks = new TaskService(database, config.releaseId, clock);
 
   app.post<{ Body: { title?: string; text: string; category?: string; tags?: string[]; style?: string } }>('/api/v1/books/drafts', async (request) => {
     return success(positioning.createDraft(owner, request.body), request.id);
@@ -57,6 +67,25 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId', async (request) => {
     return success(books.require({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workspace', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const book = books.require(scope);
+    const budget = database.prepare(`
+      SELECT mode, token_limit, spent_tokens, reserved_tokens, cash_limit_micros, spent_cash_micros, status
+      FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at LIMIT 1
+    `).get(scope.ownerId, scope.bookId);
+    const confirmations = database.prepare(`SELECT COUNT(*) AS count FROM confirmations WHERE owner_id = ? AND book_id = ? AND status = 'pending'`)
+      .get(scope.ownerId, scope.bookId);
+    return success({
+      book,
+      chapters: chapters.list(scope),
+      agents: agents.list(scope),
+      tasks: tasks.list(scope),
+      budget,
+      confirmations
+    }, request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/agents', async (request) => {
@@ -246,6 +275,93 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/confirmations', async (request) => {
     return success(database.prepare(`SELECT * FROM confirmations WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC`)
       .all(config.ownerId, request.params.bookId), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/messages', async (request) => {
+    return success(conversations.listMessages({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { content: string } }>('/api/v1/books/:bookId/messages', async (request) => {
+    return success(conversations.sendBossMessage({ ...owner, bookId: request.params.bookId }, request.body.content), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {
+    return success(tasks.list({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/pause', async (request) => {
+    tasks.requestPause({ ...owner, bookId: request.params.bookId }, request.params.taskId);
+    return success({ taskId: request.params.taskId, pauseRequested: true }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/resume', async (request) => {
+    return success(tasks.queue({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {
+    return success(tasks.requestCancel({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/projections/rebuild', async (request) => {
+    return success({ rebuilt: projections.rebuild({ ...owner, bookId: request.params.bookId }) }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { type?: NarrativeProjectionType } }>('/api/v1/books/:bookId/projections', async (request) => {
+    return success(projections.list({ ...owner, bookId: request.params.bookId }, request.query.type), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { title: string; content: string; rightsPath: RightsPath; authorization?: Record<string, unknown> } }>('/api/v1/books/:bookId/copyright/sources', async (request) => {
+    return success({ copyrightSourceId: copyright.registerSource({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { sourceId: string; abstraction: Record<string, unknown>; prohibitedTerms: string[] } }>('/api/v1/books/:bookId/copyright/structure-cards', async (request) => {
+    return success({ structureCardId: copyright.createStructureCard({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.abstraction, request.body.prohibitedTerms) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { structureCardId: string } }>('/api/v1/books/:bookId/copyright/cleanroom-packages', async (request) => {
+    return success({ cleanroomPackageId: copyright.buildCleanroomPackage({ ...owner, bookId: request.params.bookId }, request.body.structureCardId) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { sourceId: string; targetType: string; targetId: string; targetContent: string } }>('/api/v1/books/:bookId/copyright/checks', async (request) => {
+    return success(copyright.checkTarget({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.targetType, request.body.targetId, request.body.targetContent), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { title: string; content: string; url?: string | null; publisher?: string | null; publishedAt?: string | null; region?: string | null; language: string; credibility: number } }>('/api/v1/books/:bookId/research/sources', async (request) => {
+    return success({ researchSourceId: research.addProvidedSource({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/research/sources', async (request) => {
+    return success(research.listSources({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { sourceId: string; claim: string; evidence: string } }>('/api/v1/books/:bookId/research/claims', async (request) => {
+    return success({ researchClaimId: research.addCandidateClaim({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.claim, request.body.evidence) }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/research/claims', async (request) => {
+    return success(research.listClaims({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/copyright/summary', async (request) => {
+    books.require({ ...owner, bookId: request.params.bookId });
+    const count = (table: string): unknown => database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE owner_id = ? AND book_id = ?`)
+      .get(config.ownerId, request.params.bookId);
+    return success({
+      sources: count('copyright_sources'),
+      structureCards: count('abstract_structure_cards'),
+      cleanroomPackages: count('cleanroom_packages'),
+      checks: count('copyright_checks'),
+      recentChecks: database.prepare(`
+        SELECT target_type, target_id, risk_level, decision, created_at
+        FROM copyright_checks WHERE owner_id = ? AND book_id = ?
+        ORDER BY created_at DESC, copyright_check_id DESC LIMIT 20
+      `).all(config.ownerId, request.params.bookId)
+    }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { query: string } }>('/api/v1/books/:bookId/research/offline-status', async (request) => {
+    books.require({ ...owner, bookId: request.params.bookId });
+    return success(research.offlineStatus(request.query.query), request.id);
   });
 
   app.post<{ Params: { bookId: string; factId: string }; Body: Omit<FactInput, 'grade'> }>('/api/v1/books/:bookId/facts/:factId/correct-request', async (request) => {
