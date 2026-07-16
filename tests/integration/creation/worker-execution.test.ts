@@ -13,9 +13,15 @@ describe('独立Worker章节执行', () => {
   let worker: ChildProcess | undefined;
 
   afterEach(async () => {
-    worker?.kill('SIGTERM');
+    if (worker !== undefined && worker.exitCode === null) {
+      worker.kill('SIGTERM');
+      await new Promise<void>((resolvePromise) => worker!.once('exit', () => resolvePromise()));
+    }
     await app?.close();
     context?.close();
+    worker = undefined;
+    app = undefined;
+    context = undefined;
   });
 
   it('Worker只领取任务并通过API应用服务完成章节流水线', async () => {

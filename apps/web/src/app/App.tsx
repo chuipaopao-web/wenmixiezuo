@@ -57,7 +57,7 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type WorkspaceView = 'chat' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
+type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
 
 export function App(): React.JSX.Element {
   const [health, setHealth] = useState<HealthData | null>(null);
@@ -330,7 +330,11 @@ export function App(): React.JSX.Element {
           ))}
           {!loading && books.length === 0 && <p className="rail-empty">还没有书。创建后会在这里形成独立工作区。</p>}
         </nav>
-        <TaskCenter workspace={workspace} onSelect={(task) => setSelectedTaskId(task.taskId)} />
+        <TaskCenter
+          workspace={workspace}
+          onOpen={() => { setView('tasks'); setLeftOpen(false); }}
+          onSelect={(task) => setSelectedTaskId(task.taskId)}
+        />
         {workspace !== null && (
           <div className="chapter-tree">
             <div className="rail-heading"><span>第一卷</span><small>{workspace.chapters.length} 章</small></div>
@@ -365,6 +369,9 @@ export function App(): React.JSX.Element {
             {view === 'chat' && (
               <ChatWorkspace messages={messages} agents={workspace?.agents ?? []} totalMessageCount={workspace?.messageCount ?? messages.length} onWrite={startWriting} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
             )}
+            {view === 'tasks' && (
+              <TaskWorkspace workspace={workspace} busy={busy} onSelect={(task) => setSelectedTaskId(task.taskId)} onDecide={decideConfirmation} />
+            )}
             {view === 'manuscript' && <ManuscriptView chapter={workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null} reader={reader} />}
             {view === 'outline' && <ReferenceView kind="outline" data={referenceData} />}
             {view === 'knowledge' && <ReferenceView kind="knowledge" data={referenceData} />}
@@ -376,7 +383,7 @@ export function App(): React.JSX.Element {
 
       <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="创作团队">
         <DrawerHeader title="创作团队" onClose={() => setRightOpen(false)} />
-        <Inspector workspace={workspace} worker={worker} busy={busy} onDecide={decideConfirmation} />
+        <TeamInspector workspace={workspace} worker={worker} />
       </aside>
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
@@ -491,15 +498,19 @@ function ReferenceView({ kind, data }: { kind: 'outline' | 'knowledge' | 'projec
   );
 }
 
-function TaskCenter({ workspace, onSelect }: { workspace: WorkspaceData | null; onSelect: (task: TaskData) => void }): React.JSX.Element {
+function TaskCenter({ workspace, onOpen, onSelect }: {
+  workspace: WorkspaceData | null;
+  onOpen: () => void;
+  onSelect: (task: TaskData) => void;
+}): React.JSX.Element {
   const activeTasks = workspace?.tasks.filter((task) => isActiveTask(task.status)) ?? [];
   const historyTasks = workspace?.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse() ?? [];
   return (
     <section className="task-center" aria-labelledby="current-tasks-title">
-      <div className="rail-heading task-center-heading">
-        <h2 id="current-tasks-title">当前任务</h2>
-        <small>{activeTasks.length}</small>
-      </div>
+      <button className="rail-heading task-center-heading task-center-entry" type="button" aria-label={`打开任务中心，${activeTasks.length}项当前任务`} onClick={onOpen}>
+        <span><FileTextIcon /><strong id="current-tasks-title">当前任务</strong></span>
+        <span><small>{activeTasks.length}</small><CaretRightIcon /></span>
+      </button>
       {activeTasks.length === 0 ? <p className="rail-empty">当前没有进行中的创作任务。</p> : (
         <div className="task-list">
           {activeTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}
@@ -529,40 +540,86 @@ function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: 
   );
 }
 
-function Inspector({ workspace, worker, busy, onDecide }: {
+function TaskWorkspace({ workspace, busy, onSelect, onDecide }: {
   workspace: WorkspaceData | null;
-  worker: WorkerData | null;
   busy: boolean;
+  onSelect: (task: TaskData) => void;
   onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
 }): React.JSX.Element {
-  const agents = workspace?.agents ?? [];
+  const activeTasks = workspace?.tasks.filter((task) => isActiveTask(task.status)) ?? [];
+  const historyTasks = workspace?.tasks.filter((task) => !isActiveTask(task.status)).slice(-12).reverse() ?? [];
   const budgetRatio = workspace?.budget === null || workspace?.budget === undefined || workspace.budget.token_limit === 0
     ? 0
     : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
   return (
-    <div className="inspector-content">
+    <section className="task-workspace" aria-labelledby="task-workspace-title">
+      <header className="task-workspace-header">
+        <div><h2 id="task-workspace-title">任务中心</h2><p>集中查看创作进度、预算和需要您决定的事项。</p></div>
+        <div className="task-workspace-count"><strong>{activeTasks.length}</strong><span>项进行中</span></div>
+      </header>
+      <div className="task-workspace-layout">
+        <div className="task-workspace-primary">
+          <section className="task-workspace-section" aria-labelledby="active-task-list-title">
+            <div className="task-workspace-heading"><h3 id="active-task-list-title">进行中的任务</h3><span>{activeTasks.length}</span></div>
+            {activeTasks.length === 0 ? <p className="task-workspace-empty">当前没有进行中的创作任务。</p> : (
+              <div className="task-list">{activeTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
+            )}
+          </section>
+          <section className="task-workspace-section" aria-labelledby="recent-task-list-title">
+            <div className="task-workspace-heading"><h3 id="recent-task-list-title">最近任务</h3><span>{historyTasks.length}</span></div>
+            {historyTasks.length === 0 ? <p className="task-workspace-empty">还没有已结束的任务记录。</p> : (
+              <div className="task-list">{historyTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
+            )}
+          </section>
+        </div>
+        <div className="task-workspace-secondary">
+          <section className="task-workspace-section budget-section" aria-labelledby="task-budget-title">
+            <div className="task-workspace-heading"><h3 id="task-budget-title">预算</h3><span>{budgetRatio}%</span></div>
+            <div className="budget-numbers"><strong>{formatNumber(workspace?.budget?.spent_tokens ?? 0)}</strong><span> / {formatNumber(workspace?.budget?.token_limit ?? 0)} Token</span></div>
+            <dl className="budget-details">
+              <div><dt>已预留</dt><dd>{formatNumber(workspace?.budget?.reserved_tokens ?? 0)} Token</dd></div>
+              <div><dt>模式</dt><dd>{budgetModeLabel(workspace?.budget?.mode)}</dd></div>
+            </dl>
+            <p>现金保护线 {((workspace?.budget?.cash_limit_micros ?? 0) / 1_000_000).toFixed(2)} 元</p>
+          </section>
+          <ConfirmationsPanel workspace={workspace} busy={busy} onDecide={onDecide} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ConfirmationsPanel({ workspace, busy, onDecide }: {
+  workspace: WorkspaceData | null;
+  busy: boolean;
+  onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
+}): React.JSX.Element {
+  const confirmations = workspace?.confirmations.items ?? [];
+  return (
+    <section className="task-workspace-section" aria-labelledby="task-confirmations-title">
+      <div className="task-workspace-heading"><h3 id="task-confirmations-title">待确认</h3><span>{workspace?.confirmations.count ?? 0}</span></div>
+      {confirmations.length === 0 ? <p className="task-workspace-empty">当前没有需要老板确认的重大事项。</p> : (
+        <div className="confirmation-list">{confirmations.map((confirmation) => (
+          <article className="confirmation-card" key={confirmation.confirmationId}>
+            <strong>{confirmationLabel(confirmation.targetType)}</strong>
+            <span>对象 {shortId(confirmation.targetId)}，绑定正史 {confirmation.expectedCanonRevision}</span>
+            <details><summary>查看范围与影响</summary><pre>{JSON.stringify({ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: 0 }, null, 2)}</pre></details>
+            <p>接受会解除相关门禁；模糊回复不会生效。</p>
+            <div><button type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
+          </article>
+        ))}</div>
+      )}
+    </section>
+  );
+}
+
+function TeamInspector({ workspace, worker }: { workspace: WorkspaceData | null; worker: WorkerData | null }): React.JSX.Element {
+  const agents = workspace?.agents ?? [];
+  return (
+    <div className="inspector-content team-inspector">
       <section className="inspector-section">
         <div className="inspector-heading"><h2>团队</h2><span>{agents.length} 名成员</span></div>
         <div className="agent-list">{agents.map((agent) => <AgentRow key={agent.agentId} agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} worker={worker} />)}</div>
-      </section>
-      <section className="inspector-section budget-section">
-        <div className="inspector-heading"><h2>预算</h2><span>{budgetRatio}%</span></div>
-        <div className="budget-numbers"><strong>{formatNumber(workspace?.budget?.spent_tokens ?? 0)}</strong><span> / {formatNumber(workspace?.budget?.token_limit ?? 0)} Token</span></div>
-        <p>现金保护线 {((workspace?.budget?.cash_limit_micros ?? 0) / 1_000_000).toFixed(2)} 元</p>
-      </section>
-      <section className="inspector-section">
-        <div className="inspector-heading"><h2>待确认</h2><span>{workspace?.confirmations.count ?? 0}</span></div>
-        {(workspace?.confirmations.count ?? 0) === 0 ? <p className="inspector-empty">当前没有需要老板确认的重大事项。</p> : (
-          <div className="confirmation-list">{workspace!.confirmations.items.map((confirmation) => (
-            <article className="confirmation-card" key={confirmation.confirmationId}>
-              <strong>{confirmationLabel(confirmation.targetType)}</strong>
-              <span>对象 {shortId(confirmation.targetId)}，绑定正史 {confirmation.expectedCanonRevision}</span>
-              <details><summary>查看范围与影响</summary><pre>{JSON.stringify({ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: 0 }, null, 2)}</pre></details>
-              <p>接受会解除相关门禁；模糊回复不会生效。</p>
-              <div><button type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
-            </article>
-          ))}</div>
-        )}
       </section>
     </div>
   );
@@ -765,6 +822,11 @@ function formatTime(value: string): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function budgetModeLabel(mode: string | undefined): string {
+  const labels: Record<string, string> = { saving: '省钱', standard: '标准', fine: '精细' };
+  return mode === undefined ? '未建立' : labels[mode] ?? mode;
 }
 
 function confirmationLabel(targetType: string): string {

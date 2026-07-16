@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../../apps/web/src/app/App';
@@ -90,12 +90,30 @@ describe('完整创作工作台', () => {
     expect(results.violations).toEqual([]);
   });
 
+  it('任务按钮打开二级页面承载预算与待确认，右栏只显示团队成员', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+
+    const teamRail = await screen.findByRole('complementary', { name: '创作团队' });
+    expect(within(teamRail).getByRole('heading', { name: '团队' })).toBeInTheDocument();
+    expect(within(teamRail).queryByRole('heading', { name: '预算' })).not.toBeInTheDocument();
+    expect(within(teamRail).queryByRole('heading', { name: '待确认' })).not.toBeInTheDocument();
+    expect(screen.queryByText('现金保护线 0.00 元')).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /打开任务中心/ }));
+    expect(screen.getByRole('heading', { name: '任务中心' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '预算' })).toBeInTheDocument();
+    expect(screen.getByText('现金保护线 0.00 元')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '待确认' })).toBeInTheDocument();
+    expect(screen.getByText('当前没有需要老板确认的重大事项。')).toBeInTheDocument();
+  });
+
   it('左栏任务显示章节与阶段，可查看详情并调用真实取消接口', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '当前任务' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /打开任务中心/ })).toHaveTextContent('当前任务');
     const taskButton = await screen.findByRole('button', { name: /第1章.*章节创作.*生成完整初稿/ });
     fireEvent.click(taskButton);
     expect(screen.getByRole('dialog', { name: '任务详情' })).toBeInTheDocument();
@@ -154,6 +172,8 @@ describe('完整创作工作台', () => {
     const fetchMock = vi.fn(createFetchRouter('正文内容', confirmationWorkspace));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /打开任务中心/ }));
     expect(await screen.findByText('重大正史事实')).toBeInTheDocument();
     expect(screen.getByText(/绑定正史 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('查看范围与影响'));
