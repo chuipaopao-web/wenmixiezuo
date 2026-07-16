@@ -9,6 +9,11 @@ import { AgentTeamService } from '../application/agents/agent-team-service.js';
 import { ArtifactService, type ArtifactType } from '../application/artifacts/artifact-service.js';
 import { DiscussionService, type DiscussionType } from '../application/discussions/discussion-service.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
+import { ChapterCatalogService } from '../application/chapters/chapter-catalog-service.js';
+import { CanonService, type FactInput } from '../application/knowledge/canon-service.js';
+import { MemoryService, type MemoryLayer } from '../application/memory/memory-service.js';
+import { RetrievalService } from '../application/memory/retrieval-service.js';
+import { ContextPackService, type ContextPackInput } from '../application/memory/context-pack-service.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -20,6 +25,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const agents = new AgentTeamService(database, ids, clock);
   const artifacts = new ArtifactService(database, ids, clock);
   const discussions = new DiscussionService(database, ids, clock);
+  const chapters = new ChapterCatalogService(database, ids, clock);
+  const canon = new CanonService(database, ids, clock);
+  const memory = new MemoryService(database, ids, clock);
+  const retrieval = new RetrievalService(database, ids, clock);
+  const contextPacks = new ContextPackService(database, ids, clock);
 
   app.post<{ Body: { title?: string; text: string; category?: string; tags?: string[]; style?: string } }>('/api/v1/books/drafts', async (request) => {
     return success(positioning.createDraft(owner, request.body), request.id);
@@ -87,5 +97,110 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; discussionId: string }; Body: { decisionId: string } }>('/api/v1/books/:bookId/discussions/:discussionId/confirm', async (request) => {
     return success(discussions.confirm({ ...owner, bookId: request.params.bookId }, request.params.discussionId, request.body.decisionId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { volumeNumber: number; title: string } }>('/api/v1/books/:bookId/volumes', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    return success({ volumeId: chapters.createVolume(scope, request.body.volumeNumber, request.body.title) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { volumeId: string; chapterNumber: number; title: string } }>('/api/v1/books/:bookId/chapters', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    return success(chapters.createChapter(scope, request.body.volumeId, request.body.chapterNumber, request.body.title), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/chapters', async (request) => {
+    return success(chapters.list({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {
+    return success({ entityId: canon.createEntity({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: FactInput }>('/api/v1/books/:bookId/facts', async (request) => {
+    return success(canon.proposeFact({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { chapterId?: string } }>('/api/v1/books/:bookId/facts', async (request) => {
+    return success(canon.listFacts({ ...owner, bookId: request.params.bookId }, request.query.chapterId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; factId: string }; Body: { accept: boolean; resolution?: Record<string, unknown> } }>('/api/v1/books/:bookId/facts/:factId/review', async (request) => {
+    canon.reviewFact({ ...owner, bookId: request.params.bookId }, request.params.factId, request.body.accept, request.body.resolution ?? {});
+    return success({ factId: request.params.factId, reviewed: true }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/accept', async (request) => {
+    canon.resolveConfirmation({ ...owner, bookId: request.params.bookId }, request.params.confirmationId, request.body.expectedCanonRevision, true);
+    return success({ confirmationId: request.params.confirmationId, status: 'accepted' }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/reject', async (request) => {
+    canon.resolveConfirmation({ ...owner, bookId: request.params.bookId }, request.params.confirmationId, request.body.expectedCanonRevision, false);
+    return success({ confirmationId: request.params.confirmationId, status: 'rejected' }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; chapterEndState: Record<string, unknown> } }>('/api/v1/books/:bookId/chapters/:chapterId/settle', async (request) => {
+    return success(canon.settleChapter({ ...owner, bookId: request.params.bookId }, request.params.chapterId, request.body.manuscriptVersionId, request.body.chapterEndState), request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { layer?: MemoryLayer; agentId?: string; chapter?: number; canonRevision?: number } }>('/api/v1/books/:bookId/memories', async (request) => {
+    return success(memory.listActive({ ...owner, bookId: request.params.bookId }, request.query), request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { layer?: MemoryLayer; agentId?: string; chapter?: number; canonRevision?: number } }>('/api/v1/books/:bookId/memory', async (request) => {
+    return success(memory.listActive({ ...owner, bookId: request.params.bookId }, request.query), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { query: string; taskId?: string; limit?: number; sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number } }>('/api/v1/books/:bookId/retrievals', async (request) => {
+    const { query, ...options } = request.body;
+    return success(retrieval.search({ ...owner, bookId: request.params.bookId }, query, options), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { query: string; taskId?: string; limit?: number; sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number } }>('/api/v1/books/:bookId/retrieval/preview', async (request) => {
+    const { query, ...options } = request.body;
+    return success(retrieval.search({ ...owner, bookId: request.params.bookId }, query, options), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: ContextPackInput }>('/api/v1/books/:bookId/context-packs', async (request) => {
+    return success(contextPacks.build({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; contextPackId: string } }>('/api/v1/books/:bookId/context-packs/:contextPackId', async (request) => {
+    const row = database.prepare(`
+      SELECT * FROM context_packs WHERE context_pack_id = ? AND owner_id = ? AND book_id = ?
+    `).get(request.params.contextPackId, config.ownerId, request.params.bookId);
+    if (row === undefined) throw new Error('上下文包不存在或越权');
+    return success(row, request.id);
+  });
+
+  app.get<{ Params: { bookId: string; entityId: string } }>('/api/v1/books/:bookId/entities/:entityId', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const entity = database.prepare(`SELECT * FROM entities WHERE entity_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.entityId, scope.ownerId, scope.bookId);
+    if (entity === undefined) throw new Error('实体不存在或越权');
+    const facts = database.prepare(`SELECT * FROM fact_assertions WHERE subject_entity_id = ? AND owner_id = ? AND book_id = ? ORDER BY created_at, fact_id`)
+      .all(request.params.entityId, scope.ownerId, scope.bookId);
+    return success({ entity, facts }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/canon', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const book = database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId);
+    const revisions = database.prepare(`SELECT * FROM canon_revisions WHERE owner_id = ? AND book_id = ? ORDER BY revision DESC`).all(scope.ownerId, scope.bookId);
+    const changes = database.prepare(`SELECT * FROM canon_revisions_log WHERE owner_id = ? AND book_id = ? ORDER BY to_revision DESC`).all(scope.ownerId, scope.bookId);
+    return success({ book, revisions, changes }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/confirmations', async (request) => {
+    return success(database.prepare(`SELECT * FROM confirmations WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC`)
+      .all(config.ownerId, request.params.bookId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; factId: string }; Body: Omit<FactInput, 'grade'> }>('/api/v1/books/:bookId/facts/:factId/correct-request', async (request) => {
+    const existing = database.prepare(`SELECT 1 FROM fact_assertions WHERE fact_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.factId, config.ownerId, request.params.bookId);
+    if (existing === undefined) throw new Error('待纠正事实不存在或越权');
+    return success(canon.proposeFact({ ...owner, bookId: request.params.bookId }, { ...request.body, grade: 'D' }), request.id);
   });
 }
