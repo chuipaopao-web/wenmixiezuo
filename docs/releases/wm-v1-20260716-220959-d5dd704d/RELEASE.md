@@ -24,6 +24,13 @@
 | 5 | 已通过 | `stages/05-memory-canon.md` |
 | 6 | 已通过 | `stages/06-creation.md` |
 | 7 | 已通过 | `stages/07-experience.md` |
-| 8 | 进行中 | `stages/08-release.md` |
+| 8 | 已通过 | `stages/08-release.md` |
 
-阶段状态只有在对应验收证据与当前提交一致后才更新。整个首版是否达到完成标准只以 `docs/ACCEPTANCE.md` 和最终签署为准。
+## 最终指针
+
+- 阶段8实现提交：`fdfcb8a`
+- 最终验收矩阵：`ACCEPTANCE_MATRIX.md`
+- 最终代码复核：`CODE_REVIEW.md`
+- 老板使用说明：`../../USER_GUIDE.md`
+
+阶段状态只有在对应验收证据与当前提交一致后才更新。本首版已经由项目经理复核角色依据 `docs/ACCEPTANCE.md` 和上述证据签署通过。
