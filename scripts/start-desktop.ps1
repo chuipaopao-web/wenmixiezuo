@@ -12,10 +12,12 @@ function Test-WenmaiReady {
   try {
     $health = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/health' -TimeoutSec 2
     $web = Invoke-WebRequest -Uri 'http://127.0.0.1:43110' -UseBasicParsing -TimeoutSec 2
-    return $health.data.status -eq 'ok' -and
+    return (
+      $health.data.status -eq 'ok' -and
       $health.data.releaseId -eq $expectedReleaseId -and
       $web.StatusCode -eq 200 -and
-      $web.Content -like '*文脉写作*'
+      $web.Content -like '*<div id="root"></div>*'
+    )
   } catch {
     return $false
   }

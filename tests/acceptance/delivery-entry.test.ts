@@ -14,6 +14,8 @@ describe('最终交付入口', () => {
     expect(stop).toContain('stop-desktop.ps1');
     expect(launcher).toContain("Start-Process 'http://127.0.0.1:43110'");
     expect(launcher).toContain('npm.cmd run migrate');
+    expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
+    expect(launcher).toContain('*<div id="root"></div>*');
     expect(stopper).toContain("scripts/start.mjs");
     expect(stopper).toContain('Refusing to stop');
     expect(guide).toContain('双击项目根目录');
