@@ -1,5 +1,5 @@
 export const API_VERSION = 'v1' as const;
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 
 export interface ApiMeta {
   requestId: string;
@@ -34,4 +34,3 @@ export interface EventEnvelope<T = Record<string, unknown>> {
 export function success<T>(data: T, requestId: string, version = 1): ApiSuccess<T> {
   return { data, meta: { requestId, version } };
 }
-

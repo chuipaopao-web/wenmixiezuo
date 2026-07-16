@@ -32,7 +32,7 @@ describe('API健康检查', () => {
       const response = await app.inject({ method: 'GET', url: '/health' });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
-        data: { status: 'ok', releaseId: config.releaseId, schemaVersion: 1 },
+        data: { status: 'ok', releaseId: config.releaseId, schemaVersion: 2 },
         meta: { version: 1 }
       });
     } finally {
@@ -41,4 +41,3 @@ describe('API健康检查', () => {
     }
   });
 });
-

@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { success } from '../contracts/api.js';
+import { SCHEMA_VERSION, success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 
@@ -27,7 +27,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       status: integrity.quick_check === 'ok' ? 'ok' : 'degraded',
       database: integrity.quick_check,
       releaseId: config.releaseId,
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
       dataDirectoryReady: true
     }, request.id);
   });
@@ -76,4 +76,3 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
 
   return app;
 }
-

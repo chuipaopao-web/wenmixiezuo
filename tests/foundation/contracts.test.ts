@@ -5,7 +5,7 @@ import { errorCodes } from '../../apps/api/src/domain/errors.js';
 describe('公共契约', () => {
   it('返回固定API与Schema版本', () => {
     expect(API_VERSION).toBe('v1');
-    expect(SCHEMA_VERSION).toBe(1);
+    expect(SCHEMA_VERSION).toBe(2);
   });
 
   it('生成统一成功信封', () => {
@@ -29,4 +29,3 @@ describe('公共契约', () => {
     expect(errorCodes.bookScopeViolation).toBe('BOOK_SCOPE_VIOLATION');
   });
 });
-
