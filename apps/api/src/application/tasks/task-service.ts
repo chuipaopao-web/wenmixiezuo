@@ -10,6 +10,7 @@ export interface TaskRecord {
   taskId: string;
   ownerId: string;
   bookId: string;
+  chapterId: string | null;
   taskType: string;
   assignedAgentId: string | null;
   status: TaskStatus;
@@ -20,6 +21,7 @@ export interface TaskRecord {
   leaseOwner: string | null;
   leaseExpiresAt: string | null;
   checkpoint: Record<string, unknown>;
+  brief: Record<string, unknown>;
   pauseRequested: boolean;
   cancelRequested: boolean;
   attemptCount: number;
@@ -29,6 +31,7 @@ interface TaskRow {
   task_id: string;
   owner_id: string;
   book_id: string;
+  chapter_id: string | null;
   task_type: string;
   assigned_agent_id: string | null;
   status: TaskStatus;
@@ -39,6 +42,7 @@ interface TaskRow {
   lease_owner: string | null;
   lease_expires_at: string | null;
   checkpoint_json: string;
+  task_brief_json: string;
   pause_requested: number;
   cancel_requested: number;
   attempt_count: number;
@@ -295,6 +299,7 @@ function mapTask(row: TaskRow): TaskRecord {
     taskId: row.task_id,
     ownerId: row.owner_id,
     bookId: row.book_id,
+    chapterId: row.chapter_id,
     taskType: row.task_type,
     assignedAgentId: row.assigned_agent_id,
     status: row.status,
@@ -305,6 +310,7 @@ function mapTask(row: TaskRow): TaskRecord {
     leaseOwner: row.lease_owner,
     leaseExpiresAt: row.lease_expires_at,
     checkpoint: JSON.parse(row.checkpoint_json) as Record<string, unknown>,
+    brief: JSON.parse(row.task_brief_json) as Record<string, unknown>,
     pauseRequested: row.pause_requested === 1,
     cancelRequested: row.cancel_requested === 1,
     attemptCount: row.attempt_count

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import {
   ArrowsInSimpleIcon,
   ArrowsOutSimpleIcon,
@@ -11,17 +11,18 @@ import {
   ClockCountdownIcon,
   DatabaseIcon,
   FileTextIcon,
+  GearSixIcon,
   ListIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
   ShieldCheckIcon,
-  SidebarSimpleIcon,
   UsersThreeIcon,
   WifiHighIcon,
   WifiSlashIcon,
   XIcon
 } from '@phosphor-icons/react';
 import {
+  cancelTask,
   createBook,
   fetchArtifacts,
   fetchBooks,
@@ -41,10 +42,19 @@ import {
   type ChapterData,
   type HealthData,
   type MessageData,
+  type TaskData,
   type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
 import { cacheSnapshot, loadDraft, loadSnapshot, saveDraft } from '../lib/offline/offline-store';
+import { avatarPosition } from './role-avatars';
+import {
+  DEFAULT_WORKSPACE_PREFERENCES,
+  FONT_SCALE,
+  readWorkspacePreferences,
+  saveWorkspacePreferences,
+  type WorkspacePreferences
+} from './workspace-preferences';
 import './app.css';
 
 type WorkspaceView = 'chat' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
@@ -65,11 +75,15 @@ export function App(): React.JSX.Element {
   const [rightOpen, setRightOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [preferences, setPreferences] = useState<WorkspacePreferences>(() => readWorkspacePreferences());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const selectedBook = books.find((book) => book.bookId === selectedBookId) ?? null;
+  const selectedTask = workspace?.tasks.find((task) => task.taskId === selectedTaskId) ?? null;
 
   const loadBooks = useCallback(async (signal?: AbortSignal) => {
     const nextBooks = await fetchBooks(signal);
@@ -146,6 +160,10 @@ export function App(): React.JSX.Element {
   }, [composer, selectedBookId]);
 
   useEffect(() => {
+    saveWorkspacePreferences(preferences);
+  }, [preferences]);
+
+  useEffect(() => {
     setReader(null);
     if (selectedBookId === null || selectedChapterId === null || workspace === null) return;
     const cacheKey = `chapter:${selectedBookId}:${selectedChapterId}`;
@@ -186,6 +204,7 @@ export function App(): React.JSX.Element {
     setSelectedBookId(bookId);
     persistSelectedBook(bookId);
     setSelectedChapterId(null);
+    setSelectedTaskId(null);
     setView('chat');
     setLeftOpen(false);
   };
@@ -258,8 +277,27 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const cancelSelectedTask = async (taskId: string): Promise<void> => {
+    if (selectedBookId === null || busy) return;
+    setBusy(true);
+    try {
+      await cancelTask(selectedBookId, taskId);
+      await refreshWorkspace(selectedBookId);
+      setSelectedTaskId(null);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '任务取消失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className={`app-shell ${readerMode ? 'reader-mode' : ''}`}>
+    <div
+      className={`app-shell ${readerMode ? 'reader-mode' : ''}`}
+      data-theme={preferences.theme}
+      style={{ '--font-scale': String(FONT_SCALE[preferences.fontSize]) } as CSSProperties}
+    >
       <header className="topbar">
         <div className="brand-lockup">
           <button className="icon-button mobile-only" type="button" aria-label="打开书籍与目录" onClick={() => setLeftOpen(true)}><ListIcon /></button>
@@ -271,12 +309,13 @@ export function App(): React.JSX.Element {
         </div>
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
+          <button className="icon-button settings-button" type="button" aria-label="界面设置" onClick={() => setSettingsOpen(true)}><GearSixIcon /></button>
           {selectedBook !== null && (
             <button className="icon-button" type="button" aria-label={readerMode ? '退出沉浸阅读' : '进入沉浸阅读'} onClick={() => setReaderMode((value) => !value)}>
               {readerMode ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
             </button>
           )}
-          <button className="icon-button mobile-only" type="button" aria-label="打开团队与任务" onClick={() => setRightOpen(true)}><UsersThreeIcon /></button>
+          <button className="icon-button mobile-only" type="button" aria-label="打开创作团队" onClick={() => setRightOpen(true)}><UsersThreeIcon /></button>
         </div>
       </header>
 
@@ -291,6 +330,7 @@ export function App(): React.JSX.Element {
           ))}
           {!loading && books.length === 0 && <p className="rail-empty">还没有书。创建后会在这里形成独立工作区。</p>}
         </nav>
+        <TaskCenter workspace={workspace} onSelect={(task) => setSelectedTaskId(task.taskId)} />
         {workspace !== null && (
           <div className="chapter-tree">
             <div className="rail-heading"><span>第一卷</span><small>{workspace.chapters.length} 章</small></div>
@@ -334,13 +374,17 @@ export function App(): React.JSX.Element {
         )}
       </main>
 
-      <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="团队与任务">
-        <DrawerHeader title="团队与任务" onClose={() => setRightOpen(false)} />
+      <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="创作团队">
+        <DrawerHeader title="创作团队" onClose={() => setRightOpen(false)} />
         <Inspector workspace={workspace} worker={worker} busy={busy} onDecide={decideConfirmation} />
       </aside>
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
+      {settingsOpen && <SettingsDialog preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
+      {selectedTask !== null && workspace !== null && (
+        <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
+      )}
     </div>
   );
 }
@@ -441,6 +485,44 @@ function ReferenceView({ kind, data }: { kind: 'outline' | 'knowledge' | 'projec
   );
 }
 
+function TaskCenter({ workspace, onSelect }: { workspace: WorkspaceData | null; onSelect: (task: TaskData) => void }): React.JSX.Element {
+  const activeTasks = workspace?.tasks.filter((task) => isActiveTask(task.status)) ?? [];
+  const historyTasks = workspace?.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse() ?? [];
+  return (
+    <section className="task-center" aria-labelledby="current-tasks-title">
+      <div className="rail-heading task-center-heading">
+        <h2 id="current-tasks-title">当前任务</h2>
+        <small>{activeTasks.length}</small>
+      </div>
+      {activeTasks.length === 0 ? <p className="rail-empty">当前没有进行中的创作任务。</p> : (
+        <div className="task-list">
+          {activeTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}
+        </div>
+      )}
+      {historyTasks.length > 0 && (
+        <details className="task-history">
+          <summary>最近任务 {historyTasks.length}</summary>
+          <div className="task-list history">{historyTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: WorkspaceData; onSelect: (task: TaskData) => void }): React.JSX.Element {
+  const chapter = taskChapterLabel(task, workspace);
+  return (
+    <button className="task-button" type="button" aria-label={`${chapter} ${taskLabel(task.taskType)} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
+      <span className={`task-status-dot ${task.status}`} aria-hidden="true" />
+      <span>
+        <strong>{chapter} · {taskLabel(task.taskType)}</strong>
+        <small>{phaseLabel(task.currentPhase)} · {statusLabel(task.status)}</small>
+      </span>
+      <CaretRightIcon />
+    </button>
+  );
+}
+
 function Inspector({ workspace, worker, busy, onDecide }: {
   workspace: WorkspaceData | null;
   worker: WorkerData | null;
@@ -459,10 +541,6 @@ function Inspector({ workspace, worker, busy, onDecide }: {
         <div className="inspector-heading"><h2>团队</h2><span>{workspace?.agents.length ?? 0} 个岗位</span></div>
         <div className="agent-list">{coreAgents.map((agent) => <AgentRow key={agent.agentId} agent={agent} working={isAgentWorking(agent, currentTask, worker)} />)}</div>
         {specialists.length > 0 && <details><summary>按需专家 {specialists.length}</summary><div className="agent-list">{specialists.map((agent) => <AgentRow key={agent.agentId} agent={agent} working={isAgentWorking(agent, currentTask, worker)} />)}</div></details>}
-      </section>
-      <section className="inspector-section">
-        <div className="inspector-heading"><h2>当前任务</h2><span>{workspace?.tasks.length ?? 0} 条记录</span></div>
-        {currentTask === null ? <p className="inspector-empty">当前没有运行中的任务。</p> : <div className="task-summary"><strong>{taskLabel(currentTask.taskType)}</strong><span>{phaseLabel(currentTask.currentPhase)}</span><small>{statusLabel(currentTask.status)}，尝试 {currentTask.attemptCount} 次</small></div>}
       </section>
       <section className="inspector-section budget-section">
         <div className="inspector-heading"><h2>预算</h2><span>{budgetRatio}%</span></div>
@@ -489,7 +567,11 @@ function Inspector({ workspace, worker, busy, onDecide }: {
 
 function AgentRow({ agent, working }: { agent: AgentData; working: boolean }): React.JSX.Element {
   const state = working ? '工作中' : agent.activationState === 'standby' ? '待命' : agent.activationState === 'paused' ? '已暂停' : '空闲';
-  return <div className="agent-row"><span className={`agent-state ${working ? 'working' : agent.activationState}`} aria-hidden="true" /><div><strong>{agent.roleName}</strong><small>{agent.provider}/{agent.modelId}</small></div><em>{state}</em></div>;
+  return <div className="agent-row"><AgentAvatar roleKey={agent.roleKey} roleName={agent.roleName} /><div><strong>{agent.roleName}</strong><small>{agent.provider}/{agent.modelId}</small></div><em className={working ? 'working' : agent.activationState}><span className="agent-state" aria-hidden="true" />{state}</em></div>;
+}
+
+function AgentAvatar({ roleKey, roleName }: { roleKey: string; roleName: string }): React.JSX.Element {
+  return <span className="agent-avatar" role="img" aria-label={`${roleName}头像`} style={{ backgroundPosition: avatarPosition(roleKey) }} />;
 }
 
 function isAgentWorking(agent: AgentData, task: WorkspaceData['tasks'][number] | null, worker: WorkerData | null): boolean {
@@ -502,6 +584,91 @@ function EmptyLibrary({ onCreate }: { onCreate: () => void }): React.JSX.Element
 
 function WorkspaceSkeleton(): React.JSX.Element {
   return <div className="workspace-skeleton" aria-label="正在加载工作区"><span /><span /><span /><span /></div>;
+}
+
+function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
+  task: TaskData;
+  workspace: WorkspaceData;
+  busy: boolean;
+  onCancelTask: (taskId: string) => Promise<void>;
+  onClose: () => void;
+}): React.JSX.Element {
+  const agent = workspace.agents.find((item) => item.agentId === task.assignedAgentId) ?? null;
+  const canCancel = isActiveTask(task.status) && !task.cancelRequested;
+  const chapter = taskChapterLabel(task, workspace).replace(/^第(\d+)章$/u, '第 $1 章');
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="dialog task-dialog" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+        <header>
+          <div><h2 id="task-detail-title">任务详情</h2><p>{chapter} · {taskLabel(task.taskType)}</p></div>
+          <button className="icon-button" type="button" aria-label="关闭任务详情" disabled={busy} onClick={onClose}><XIcon /></button>
+        </header>
+        <dl className="task-detail-grid">
+          <div><dt>当前状态</dt><dd><span className={`task-status-dot ${task.status}`} aria-hidden="true" />{task.cancelRequested ? '取消处理中' : statusLabel(task.status)}</dd></div>
+          <div><dt>创作阶段</dt><dd>{phaseLabel(task.currentPhase)}</dd></div>
+          <div><dt>执行岗位</dt><dd>{agent?.roleName ?? '等待分派'}</dd></div>
+          <div><dt>已尝试</dt><dd>{task.attemptCount} 次</dd></div>
+          <div className="task-detail-wide"><dt>任务目标</dt><dd>完成{chapter}的{taskLabel(task.taskType)}，按阶段检查后进入正史结算。</dd></div>
+          <div className="task-detail-wide"><dt>最近检查点</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>
+          <div className="task-detail-wide"><dt>任务 ID</dt><dd><code>{task.taskId}</code></dd></div>
+        </dl>
+        <footer>
+          <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>关闭</button>
+          {canCancel && <button className="danger-button" type="button" disabled={busy} onClick={() => void onCancelTask(task.taskId)}>{busy ? '正在取消' : '取消任务'}</button>}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function SettingsDialog({ preferences, onChange, onClose }: {
+  preferences: WorkspacePreferences;
+  onChange: (preferences: WorkspacePreferences) => void;
+  onClose: () => void;
+}): React.JSX.Element {
+  const themes = [
+    { value: 'sage', label: '浅绿', description: '接近智囊团的舒缓工作底色' },
+    { value: 'paper', label: '米白', description: '适合长时间阅读正文' },
+    { value: 'mist', label: '雾蓝', description: '冷静、低饱和的创作环境' },
+    { value: 'night', label: '夜间', description: '低亮度深色工作台' }
+  ] as const;
+  const fonts = [
+    { value: 'small', label: '小' },
+    { value: 'standard', label: '标准' },
+    { value: 'large', label: '大' },
+    { value: 'xlarge', label: '特大' }
+  ] as const;
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header><div><h2 id="settings-title">界面设置</h2><p>调整会立即生效，并只保存在这台电脑上。</p></div><button className="icon-button" type="button" aria-label="关闭界面设置" onClick={onClose}><XIcon /></button></header>
+        <fieldset>
+          <legend>工作台底色</legend>
+          <div className="theme-options">
+            {themes.map((theme) => (
+              <label className="theme-option" key={theme.value}>
+                <input type="radio" name="workspace-theme" value={theme.value} aria-label={theme.label} checked={preferences.theme === theme.value} onChange={() => onChange({ ...preferences, theme: theme.value })} />
+                <span className={`theme-preview ${theme.value}`} aria-hidden="true" />
+                <span><strong>{theme.label}</strong><small>{theme.description}</small></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>字体大小</legend>
+          <div className="font-options">
+            {fonts.map((font) => (
+              <label key={font.value} className={preferences.fontSize === font.value ? 'font-option active' : 'font-option'}>
+                <input type="radio" name="workspace-font" value={font.value} aria-label={font.label} checked={preferences.fontSize === font.value} onChange={() => onChange({ ...preferences, fontSize: font.value })} />
+                <span>{font.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
+      </section>
+    </div>
+  );
 }
 
 function CreateBookDialog({ busy, onCancel, onCreate }: { busy: boolean; onCancel: () => void; onCreate: (title: string, text: string) => Promise<void> }): React.JSX.Element {
@@ -543,6 +710,23 @@ function statusLabel(status: string): string {
 function phaseLabel(phase: string): string {
   const labels: Record<string, string> = { preflight: '预检', context: '组装上下文', draft: '生成完整初稿', hard_check: '硬规则检查', review: '异模型审校', rewrite: '定点重写', facts: '事实提取', settlement: '正史结算', completed: '已完成' };
   return labels[phase] ?? phase;
+}
+
+function isActiveTask(status: string): boolean {
+  return ['pending', 'queued', 'working', 'waiting_confirmation', 'paused', 'blocked', 'interrupted'].includes(status);
+}
+
+function taskChapterLabel(task: TaskData, workspace: WorkspaceData): string {
+  const chapter = workspace.chapters.find((item) => item.chapterId === task.chapterId);
+  const briefNumber = task.brief !== undefined && typeof task.brief.chapterNumber === 'number' ? task.brief.chapterNumber : null;
+  const chapterNumber = chapter?.chapterNumber ?? briefNumber;
+  return chapterNumber === null || chapterNumber === undefined ? '全书' : `第${chapterNumber}章`;
+}
+
+function taskCheckpointLabel(checkpoint: Record<string, unknown>): string {
+  if (Object.keys(checkpoint).length === 0) return '尚未写入检查点';
+  const completedPhase = typeof checkpoint.completedPhase === 'string' ? phaseLabel(checkpoint.completedPhase) : null;
+  return completedPhase === null ? '已保存可恢复检查点' : `已完成：${completedPhase}`;
 }
 
 function formatTime(value: string): string {

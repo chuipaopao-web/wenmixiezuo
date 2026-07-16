@@ -42,8 +42,12 @@ export interface TaskData {
   status: string;
   currentPhase: string;
   pauseRequested: boolean;
+  cancelRequested: boolean;
   attemptCount: number;
   assignedAgentId: string | null;
+  chapterId: string | null;
+  brief: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
 }
 
 export interface WorkspaceData {
@@ -151,6 +155,12 @@ export function sendMessage(bookId: string, content: string): Promise<{ messageI
 export function scheduleChapters(bookId: string, count: 1 | 3 | 4 | 5): Promise<{ batchId: string }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapter-batches`, {
     method: 'POST', body: JSON.stringify({ count })
+  });
+}
+
+export function cancelTask(bookId: string, taskId: string): Promise<TaskData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: 'POST', body: JSON.stringify({})
   });
 }
 

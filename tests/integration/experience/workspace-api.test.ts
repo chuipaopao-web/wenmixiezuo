@@ -31,6 +31,15 @@ describe('工作台API', () => {
     });
     expect(commandResponse.statusCode).toBe(200);
     expect(commandResponse.json().data.action).toMatchObject({ kind: 'chapter_batch_scheduled', count: 1 });
+    const scheduledWorkspace = (await app.inject({
+      method: 'GET', url: `/api/v1/books/${book.bookId}/workspace`
+    })).json().data;
+    expect(scheduledWorkspace.tasks[0]).toMatchObject({
+      chapterId: scheduledWorkspace.chapters[0].chapterId,
+      brief: { chapterNumber: 1 },
+      checkpoint: {},
+      cancelRequested: false
+    });
     const prepareResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '准备接管' }
     });
