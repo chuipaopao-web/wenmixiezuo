@@ -35,6 +35,7 @@ import {
   fetchWorkspace,
   scheduleChapters,
   sendMessage,
+  resolveConfirmation,
   type AgentData,
   type BookData,
   type ChapterData,
@@ -191,6 +192,18 @@ export function App(): React.JSX.Element {
 
   const submitMessage = async (): Promise<void> => {
     if (selectedBookId === null || composer.trim().length === 0 || busy) return;
+    const switchMatch = /^(?:切书|切换到)\s*[《「]?(.+?)[》」]?$/u.exec(composer.trim());
+    if (switchMatch !== null) {
+      const target = books.find((book) => book.title === switchMatch[1]!.trim());
+      if (target === undefined) {
+        setError(`没有找到书籍“${switchMatch[1]!.trim()}”`);
+        return;
+      }
+      setComposer('');
+      await saveDraft(selectedBookId, '');
+      selectBook(target.bookId);
+      return;
+    }
     setBusy(true);
     try {
       await sendMessage(selectedBookId, composer);
@@ -227,6 +240,19 @@ export function App(): React.JSX.Element {
       await refreshWorkspace(selectedBookId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '章节安排失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decideConfirmation = async (confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<void> => {
+    if (selectedBookId === null || busy) return;
+    setBusy(true);
+    try {
+      await resolveConfirmation(selectedBookId, confirmationId, expectedCanonRevision, accept);
+      await refreshWorkspace(selectedBookId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '确认操作失败');
     } finally {
       setBusy(false);
     }
@@ -297,7 +323,7 @@ export function App(): React.JSX.Element {
               <TabButton active={view === 'rights'} onClick={() => setView('rights')} icon={<ShieldCheckIcon />} label="版权" />
             </nav>
             {view === 'chat' && (
-              <ChatWorkspace messages={messages} onWrite={startWriting} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
+              <ChatWorkspace messages={messages} totalMessageCount={workspace?.messageCount ?? messages.length} onWrite={startWriting} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
             )}
             {view === 'manuscript' && <ManuscriptView chapter={workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null} reader={reader} />}
             {view === 'outline' && <ReferenceView kind="outline" data={referenceData} />}
@@ -310,7 +336,7 @@ export function App(): React.JSX.Element {
 
       <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="团队与任务">
         <DrawerHeader title="团队与任务" onClose={() => setRightOpen(false)} />
-        <Inspector workspace={workspace} worker={worker} />
+        <Inspector workspace={workspace} worker={worker} busy={busy} onDecide={decideConfirmation} />
       </aside>
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
@@ -334,12 +360,15 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 function ChatWorkspace(props: {
   messages: MessageData[];
+  totalMessageCount: number;
   onWrite: (count: 1 | 3 | 5) => Promise<void>;
   busy: boolean;
   composer: string;
   setComposer: (value: string) => void;
   onSubmit: () => Promise<void>;
 }): React.JSX.Element {
+  const visibleMessages = props.messages.slice(-200);
+  const hiddenMessageCount = Math.max(0, props.totalMessageCount - visibleMessages.length);
   return (
     <section className="chat-workspace" aria-label="主创作对话">
       <div className="conversation-stream" aria-live="polite">
@@ -354,7 +383,12 @@ function ChatWorkspace(props: {
               <button type="button" disabled={props.busy} onClick={() => void props.onWrite(5)}>连续写5章</button>
             </div>
           </div>
-        ) : props.messages.map((message) => <MessageBubble key={message.message_id} message={message} />)}
+        ) : (
+          <>
+            {hiddenMessageCount > 0 && <p className="history-window-note">为保持工作区流畅，当前显示最近 200 条消息；更早的 {hiddenMessageCount} 条仍保存在本地记录中。</p>}
+            {visibleMessages.map((message) => <MessageBubble key={message.message_id} message={message} />)}
+          </>
+        )}
       </div>
       <div className="composer-wrap">
         <label htmlFor="boss-message">给主编的消息</label>
@@ -407,7 +441,12 @@ function ReferenceView({ kind, data }: { kind: 'outline' | 'knowledge' | 'projec
   );
 }
 
-function Inspector({ workspace, worker }: { workspace: WorkspaceData | null; worker: WorkerData | null }): React.JSX.Element {
+function Inspector({ workspace, worker, busy, onDecide }: {
+  workspace: WorkspaceData | null;
+  worker: WorkerData | null;
+  busy: boolean;
+  onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
+}): React.JSX.Element {
   const coreAgents = workspace?.agents.filter((agent) => agent.category === 'core') ?? [];
   const specialists = workspace?.agents.filter((agent) => agent.category === 'specialist') ?? [];
   const currentTask = workspace?.tasks.find((task) => task.status === 'working') ?? workspace?.tasks.find((task) => task.status === 'queued') ?? null;
@@ -432,7 +471,17 @@ function Inspector({ workspace, worker }: { workspace: WorkspaceData | null; wor
       </section>
       <section className="inspector-section">
         <div className="inspector-heading"><h2>待确认</h2><span>{workspace?.confirmations.count ?? 0}</span></div>
-        <p className="inspector-empty">{(workspace?.confirmations.count ?? 0) === 0 ? '当前没有需要老板确认的重大事项。' : '存在会阻断正史结算的确认单。'}</p>
+        {(workspace?.confirmations.count ?? 0) === 0 ? <p className="inspector-empty">当前没有需要老板确认的重大事项。</p> : (
+          <div className="confirmation-list">{workspace!.confirmations.items.map((confirmation) => (
+            <article className="confirmation-card" key={confirmation.confirmationId}>
+              <strong>{confirmationLabel(confirmation.targetType)}</strong>
+              <span>对象 {shortId(confirmation.targetId)}，绑定正史 {confirmation.expectedCanonRevision}</span>
+              <details><summary>查看范围与影响</summary><pre>{JSON.stringify({ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: 0 }, null, 2)}</pre></details>
+              <p>接受会解除相关门禁；模糊回复不会生效。</p>
+              <div><button type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
+            </article>
+          ))}</div>
+        )}
       </section>
     </div>
   );
@@ -502,6 +551,14 @@ function formatTime(value: string): string {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function confirmationLabel(targetType: string): string {
+  return targetType === 'fact' ? '重大正史事实' : `重大确认：${targetType}`;
+}
+
+function shortId(value: string): string {
+  return value.length <= 10 ? value : value.slice(0, 8);
 }
 
 function readSelectedBook(): string | null {

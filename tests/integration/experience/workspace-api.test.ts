@@ -31,6 +31,15 @@ describe('工作台API', () => {
     });
     expect(commandResponse.statusCode).toBe(200);
     expect(commandResponse.json().data.action).toMatchObject({ kind: 'chapter_batch_scheduled', count: 1 });
+    const prepareResponse = await app.inject({
+      method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '准备接管' }
+    });
+    expect(prepareResponse.json().data.action).toMatchObject({ kind: 'takeover_prepared', fromEpoch: 1 });
+    const takeoverId = prepareResponse.json().data.action.takeoverId as string;
+    const takeoverResponse = await app.inject({
+      method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: `确认接管 ${takeoverId}` }
+    });
+    expect(takeoverResponse.json().data.action).toMatchObject({ kind: 'takeover_completed', editorEpoch: 2 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?`)
       .get(context.config.ownerId, book.bookId)).toEqual({ count: 0 });
   });

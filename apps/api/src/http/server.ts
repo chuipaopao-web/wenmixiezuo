@@ -9,6 +9,7 @@ import { EventStore } from '../application/events/event-store.js';
 import { registerDomainRoutes } from './domain-routes.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
+import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -73,8 +74,16 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     if (workerId === undefined || workerId.length === 0) throw new DomainError('VALIDATION_ERROR', '缺少Worker身份');
     const recorded = database.prepare(`SELECT 1 FROM worker_health WHERE worker_id = ?`).get(workerId);
     if (recorded === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker身份未登记');
-    const pipeline = new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock());
-    return success(await pipeline.executeClaimed({ ownerId: request.body.ownerId, bookId: request.body.bookId }, request.params.taskId, workerId), request.id);
+    const task = database.prepare(`SELECT task_type FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.taskId, request.body.ownerId, request.body.bookId) as { task_type: string } | undefined;
+    if (task === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker任务不存在或范围不匹配');
+    const scope = { ownerId: request.body.ownerId, bookId: request.body.bookId };
+    const result = task.task_type === 'chapter_creation'
+      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock()).executeClaimed(scope, request.params.taskId, workerId)
+      : task.task_type === 'discussion'
+        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock()).executeClaimed(scope, request.params.taskId, workerId)
+        : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
+    return success(result, request.id);
   });
 
   app.get<{ Querystring: { after?: string; bookId?: string } }>('/api/v1/events', async (request, reply) => {

@@ -13,6 +13,7 @@
     "apps/*"
   ],
   "scripts": {
+    "acceptance": "vitest run tests/acceptance && node scripts/acceptance-audit.mjs",
     "build": "npm run build --workspaces --if-present",
     "clean": "node scripts/clean.mjs",
     "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmai/api\" \"npm run dev -w @wenmai/worker\" \"npm run dev -w @wenmai/web\"",
@@ -41,4 +42,3 @@
     "vitest": "4.1.10"
   }
 }
-

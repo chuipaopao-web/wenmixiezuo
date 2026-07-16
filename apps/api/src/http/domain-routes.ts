@@ -5,6 +5,7 @@ import { success } from '../contracts/api.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { PositioningService } from '../application/books/positioning-service.js';
 import { BookOnboardingService } from '../application/books/book-onboarding-service.js';
+import { BookLifecycleService } from '../application/books/book-lifecycle-service.js';
 import { BookRepository } from '../infrastructure/db/repositories/book-repository.js';
 import { AgentTeamService } from '../application/agents/agent-team-service.js';
 import { ArtifactService, type ArtifactType } from '../application/artifacts/artifact-service.js';
@@ -22,6 +23,9 @@ import { CopyrightService, type RightsPath } from '../application/copyright/copy
 import { ResearchService } from '../application/research/research-service.js';
 import { ConversationService } from '../application/chat/conversation-service.js';
 import { TaskService } from '../application/tasks/task-service.js';
+import { BackupService } from '../infrastructure/recovery/backup-service.js';
+import { cancelActiveModelCall } from '../application/calls/model-call-service.js';
+import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -29,6 +33,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const owner = { ownerId: config.ownerId };
   const positioning = new PositioningService(database, ids, clock);
   const onboarding = new BookOnboardingService(database, ids, clock);
+  const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
   const books = new BookRepository(database);
   const agents = new AgentTeamService(database, ids, clock);
   const artifacts = new ArtifactService(database, ids, clock);
@@ -44,6 +49,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const research = new ResearchService(database, ids, clock);
   const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
+  const backups = new BackupService(database, config);
 
   app.post<{ Body: { title?: string; text: string; category?: string; tags?: string[]; style?: string } }>('/api/v1/books/drafts', async (request) => {
     return success(positioning.createDraft(owner, request.body), request.id);
@@ -69,6 +75,19 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(books.require({ ...owner, bookId: request.params.bookId }), request.id);
   });
 
+  app.post<{ Params: { bookId: string }; Body: { expectedVersion: number } }>('/api/v1/books/:bookId/archive', async (request) => {
+    return success(lifecycle.archive({ ...owner, bookId: request.params.bookId }, request.body.expectedVersion), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { expectedVersion: number } }>('/api/v1/books/:bookId/restore', async (request) => {
+    return success(lifecycle.restoreFromArchive({ ...owner, bookId: request.params.bookId }, request.body.expectedVersion), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { confirmationText: string } }>('/api/v1/books/:bookId/purge', async (request) => {
+    lifecycle.permanentlyDelete({ ...owner, bookId: request.params.bookId }, request.body.confirmationText);
+    return success({ bookId: request.params.bookId, status: 'purged', tombstoneWritten: true }, request.id);
+  });
+
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workspace', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
     const book = books.require(scope);
@@ -76,15 +95,37 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       SELECT mode, token_limit, spent_tokens, reserved_tokens, cash_limit_micros, spent_cash_micros, status
       FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at LIMIT 1
     `).get(scope.ownerId, scope.bookId);
-    const confirmations = database.prepare(`SELECT COUNT(*) AS count FROM confirmations WHERE owner_id = ? AND book_id = ? AND status = 'pending'`)
-      .get(scope.ownerId, scope.bookId);
+    const confirmationRows = database.prepare(`
+      SELECT confirmation_id, target_type, target_id, expected_canon_revision,
+             scope_json, impact_json, created_at
+      FROM confirmations WHERE owner_id = ? AND book_id = ? AND status = 'pending'
+      ORDER BY created_at, confirmation_id
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{
+      confirmation_id: string; target_type: string; target_id: string;
+      expected_canon_revision: number; scope_json: string; impact_json: string; created_at: string;
+    }>;
+    const confirmations = {
+      count: confirmationRows.length,
+      items: confirmationRows.map((row) => ({
+        confirmationId: row.confirmation_id,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        expectedCanonRevision: row.expected_canon_revision,
+        scope: JSON.parse(row.scope_json) as unknown,
+        impact: JSON.parse(row.impact_json) as unknown,
+        createdAt: row.created_at
+      }))
+    };
+    const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count;
     return success({
       book,
       chapters: chapters.list(scope),
       agents: agents.list(scope),
       tasks: tasks.list(scope),
       budget,
-      confirmations
+      confirmations,
+      messageCount
     }, request.id);
   });
 
@@ -277,8 +318,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(config.ownerId, request.params.bookId), request.id);
   });
 
-  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/messages', async (request) => {
-    return success(conversations.listMessages({ ...owner, bookId: request.params.bookId }), request.id);
+  app.get<{ Params: { bookId: string }; Querystring: { limit?: number; before?: string } }>('/api/v1/books/:bookId/messages', async (request) => {
+    return success(conversations.listMessages(
+      { ...owner, bookId: request.params.bookId },
+      { ...(request.query.limit === undefined ? {} : { limit: request.query.limit }), ...(request.query.before === undefined ? {} : { before: request.query.before }) }
+    ), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { content: string } }>('/api/v1/books/:bookId/messages', async (request) => {
@@ -287,6 +331,18 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {
     return success(tasks.list({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const task = tasks.require(scope, request.params.taskId);
+    const phases = database.prepare(`SELECT * FROM task_phases WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY entered_at, phase_key`)
+      .all(scope.ownerId, scope.bookId, request.params.taskId);
+    const modelCalls = database.prepare(`SELECT * FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, request_id`)
+      .all(scope.ownerId, scope.bookId, request.params.taskId);
+    const toolCalls = database.prepare(`SELECT * FROM tool_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, tool_call_id`)
+      .all(scope.ownerId, scope.bookId, request.params.taskId);
+    return success({ task, phases, modelCalls, toolCalls }, request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/pause', async (request) => {
@@ -299,7 +355,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {
-    return success(tasks.requestCancel({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+    const scope = { ...owner, bookId: request.params.bookId };
+    tasks.requestCancel(scope, request.params.taskId);
+    const modelCalls = database.prepare(`SELECT request_id FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
+      .all(scope.ownerId, scope.bookId, request.params.taskId) as unknown as Array<{ request_id: string }>;
+    const toolCalls = database.prepare(`SELECT tool_call_id FROM tool_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
+      .all(scope.ownerId, scope.bookId, request.params.taskId) as unknown as Array<{ tool_call_id: string }>;
+    const cancelledModelCalls = modelCalls.filter((call) => cancelActiveModelCall(call.request_id)).length;
+    const cancelledToolCalls = toolCalls.filter((call) => cancelActiveToolCall(call.tool_call_id)).length;
+    return success({ ...tasks.require(scope, request.params.taskId), cancelledModelCalls, cancelledToolCalls }, request.id);
   });
 
   app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/projections/rebuild', async (request) => {
@@ -369,5 +433,35 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .get(request.params.factId, config.ownerId, request.params.bookId);
     if (existing === undefined) throw new Error('待纠正事实不存在或越权');
     return success(canon.proposeFact({ ...owner, bookId: request.params.bookId }, { ...request.body, grade: 'D' }), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/budgets', async (request) => {
+    return success(database.prepare(`
+      SELECT budget_id, mode, token_limit, cash_limit_micros, reserved_tokens,
+             reserved_cash_micros, spent_tokens, spent_cash_micros, status, created_at, updated_at
+      FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at, budget_id
+    `).all(config.ownerId, request.params.bookId), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/usage', async (request) => {
+    return success(database.prepare(`
+      SELECT provider, model_id, SUM(input_tokens) AS input_tokens,
+             SUM(output_tokens) AS output_tokens, SUM(cash_micros) AS cash_micros,
+             COUNT(*) AS call_count
+      FROM usage_ledger WHERE owner_id = ? AND book_id = ?
+      GROUP BY provider, model_id ORDER BY provider, model_id
+    `).all(config.ownerId, request.params.bookId), request.id);
+  });
+
+  app.post('/api/v1/backups', async (request) => success(backups.create(), request.id));
+
+  app.get('/api/v1/backups', async (request) => success(database.prepare(`
+    SELECT backup_id, release_id, status, backup_path, database_hash, manifest_hash,
+           file_count, created_at, verified_at, verification_json
+    FROM backups ORDER BY created_at DESC, backup_id DESC
+  `).all(), request.id));
+
+  app.post<{ Params: { backupId: string } }>('/api/v1/backups/:backupId/verify', async (request) => {
+    return success(backups.verify(request.params.backupId), request.id);
   });
 }

@@ -89,15 +89,28 @@ export class EditorLeaseService {
              reserved_cash_micros, spent_cash_micros, status
       FROM budgets WHERE owner_id = ? AND book_id = ? AND status <> 'closed'
     `).all(scope.ownerId, scope.bookId);
+    const chapters = this.database.prepare(`
+      SELECT chapter_id, chapter_number, title, generation_status, settlement_status,
+             current_manuscript_version_id, canon_manuscript_version_id
+      FROM chapters WHERE owner_id = ? AND book_id = ? ORDER BY chapter_number
+    `).all(scope.ownerId, scope.bookId);
+    const pendingDecisions = this.database.prepare(`
+      SELECT confirmation_id, target_type, target_id, old_value_json,
+             new_value_json, scope_json, impact_json, expected_canon_revision,
+             status, created_at
+      FROM confirmations WHERE owner_id = ? AND book_id = ? AND status = 'pending'
+      ORDER BY created_at, confirmation_id
+    `).all(scope.ownerId, scope.bookId);
     const packageData = {
       bookId: scope.bookId,
       fromEpoch: lease.editorEpoch,
       canonRevision: book.canon_revision,
       positioningVersion: book.positioning_version,
+      chapters,
       tasks,
       modelCalls: calls,
       budgets,
-      pendingDecisions: []
+      pendingDecisions
     };
     this.database.exec('BEGIN IMMEDIATE');
     try {
@@ -190,4 +203,3 @@ export class EditorLeaseService {
     if (agent === undefined) throw new Error('主编Agent不存在、停用或跨书');
   }
 }
-

@@ -5,9 +5,9 @@
 - 基础路径：`/api/v1`。
 - 传输：JSON；文件上传和导出使用明确的文件接口。
 - 所有书籍范围接口从路径或令牌上下文获得 `owner_id` 与 `book_id`，服务端Repository再次验证。
-- 所有改变状态的命令接受 `requestId` 或 `Idempotency-Key`。
+- 任务、模型调用和工具调用等可重试操作使用持久幂等键；带乐观锁的资源命令使用明确版本号。
 - 所有资源返回稳定ID、版本、创建时间和修改时间。
-- 重大命令必须携带服务端创建的 `confirmationId`；不能用自由文本绕过确认。
+- 正史等重大命令必须携带服务端创建的 `confirmationId`；永久删除则只接受服务端给出的完整严格确认词。
 - 供应商专属字段只能存在模型适配器配置，不进入领域API。
 
 成功响应：
@@ -40,6 +40,8 @@
 
 ## 2. 健康与启动
 
+除根级 `/health` 外，下表路径均位于 `/api/v1`。本文件只列当前首版已经注册并通过契约测试的接口。
+
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/health` | API、数据库、目录和迁移状态 |
@@ -57,10 +59,8 @@
 | POST | `/book-drafts/{draftId}/confirm` | 原子创建书籍、9个Agent和基础配置 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
-| POST | `/books/{bookId}/switch` | 创建前端书籍切换会话 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
-| POST | `/books/{bookId}/restore-request` | 创建恢复确认单 |
-| POST | `/books/{bookId}/purge-request` | 创建永久删除确认单 |
+| POST | `/books/{bookId}/restore` | 使用乐观版本恢复已归档书籍 |
 | POST | `/books/{bookId}/purge` | 严格确认后永久删除并写墓碑 |
 
 建书确认必须包含定位草稿版本，防止确认旧版本。
@@ -70,11 +70,7 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/agents` | 返回9个Agent、岗位、模型和真实状态 |
-| GET | `/books/{bookId}/agents/{agentId}` | 查询能力、权限、健康和当前任务 |
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
-| POST | `/books/{bookId}/agents/{agentId}/pause` | 暂停领取新任务 |
-| GET | `/role-templates` | 查询版本化岗位模板 |
-| GET | `/model-capabilities` | 查询已经运行时验证的模型能力 |
 
 岗位和模型调整必须生成新的配置快照，不能修改历史任务使用的快照。
 
@@ -86,12 +82,10 @@
 | POST | `/books/{bookId}/messages` | 老板发送自然语言消息 |
 | POST | `/books/{bookId}/discussions` | 建立有范围和预算的讨论 |
 | GET | `/books/{bookId}/discussions/{discussionId}` | 查询阶段、参与者、意见和草案 |
-| POST | `/books/{bookId}/discussions/{discussionId}/pause` | 暂停讨论 |
-| POST | `/books/{bookId}/discussions/{discussionId}/resume` | 继续讨论 |
-| POST | `/books/{bookId}/discussions/{discussionId}/abandon` | 放弃，不形成决定 |
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
+老板在主对话输入 `讨论 <问题>` 时，系统会创建同一套持久讨论与任务记录；Worker完成真实调用和汇总后，再以 `确认方案 <decisionId>` 零Token确认。
 
 ## 6. 规划成果
 
@@ -114,9 +108,8 @@
 | GET | `/books/{bookId}/chapters/{chapterId}` | 查询章纲、稿件、事实和结算 |
 | GET | `/books/{bookId}/chapters/{chapterId}/manuscripts` | 查询不可变完整稿件版本 |
 | POST | `/books/{bookId}/chapters/{chapterId}/select-manuscript` | 选定候选稿 |
-| POST | `/books/{bookId}/chapters/{chapterId}/rewrite` | 创建定点重写任务 |
 | POST | `/books/{bookId}/chapters/{chapterId}/settle` | 触发事实与正史结算 |
-| GET | `/books/{bookId}/chapters/{chapterId}/content` | 流式或范围读取正文 |
+| GET | `/books/{bookId}/chapters/{chapterId}/content` | 按字符范围读取正文，单次最多100000字符 |
 
 创建后章任务时，服务端必须检查前章 `settled` 状态。
 
@@ -129,7 +122,6 @@
 | POST | `/books/{bookId}/tasks/{taskId}/pause` | 在安全检查点暂停 |
 | POST | `/books/{bookId}/tasks/{taskId}/resume` | 版本校验后继续 |
 | POST | `/books/{bookId}/tasks/{taskId}/cancel` | 真实取消底层调用并收口 |
-| POST | `/books/{bookId}/tasks/{taskId}/retry` | 只对允许的技术故障有限重试 |
 
 结果不明的调用不能通过普通重试接口重新调用，必须先由活动主编处理。
 
@@ -154,7 +146,6 @@
 | GET | `/books/{bookId}/confirmations` | 查询待确认和历史确认单 |
 | POST | `/books/{bookId}/confirmations/{confirmationId}/accept` | 严格确认指定对象和版本 |
 | POST | `/books/{bookId}/confirmations/{confirmationId}/reject` | 拒绝并解除相应任务 |
-| POST | `/books/{bookId}/confirmations/{confirmationId}/revise` | 提交老板修改意见 |
 
 D级事实未确认时，当前章节不能结算，依赖该事实的任务暂停；无关的只读研究和其他书籍不受影响。
 
@@ -162,11 +153,14 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/books/{bookId}/research` | 创建有预算和范围的研究任务 |
-| GET | `/books/{bookId}/research/{researchId}` | 查询来源、证据和候选建议 |
-| POST | `/books/{bookId}/source-imports` | 导入拆书或参考资料到隔离区 |
-| GET | `/books/{bookId}/source-imports/{importId}/structure` | 查询抽象结构卡 |
-| GET | `/books/{bookId}/copyright-reviews/{reviewId}` | 查询分维度版权风险和证据 |
+| POST/GET | `/books/{bookId}/research/sources` | 保存并查询带时间、地区、语言和哈希的研究来源 |
+| POST/GET | `/books/{bookId}/research/claims` | 保存并查询只处于候选态的证据主张 |
+| GET | `/books/{bookId}/research/offline-status` | 明确返回离线研究不可用边界 |
+| POST | `/books/{bookId}/copyright/sources` | 将参考原文登记到隔离区 |
+| POST | `/books/{bookId}/copyright/structure-cards` | 生成去专名、去原事件顺序的结构卡 |
+| POST | `/books/{bookId}/copyright/cleanroom-packages` | 构建主笔可用的干净室包 |
+| POST | `/books/{bookId}/copyright/checks` | 执行文本与结构分维度检查 |
+| GET | `/books/{bookId}/copyright/summary` | 查询隔离数量与审查结果，不返回原文 |
 
 主笔接口不能读取原文区、详细逐章摘要、人物映射或拆书FTS。
 
@@ -174,10 +168,8 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/usage/summary` | 全局滚动窗口用量 |
 | GET | `/books/{bookId}/usage` | 单书、任务和模型用量 |
 | GET | `/books/{bookId}/budgets` | 当前预算模式、冻结和保护线 |
-| POST | `/books/{bookId}/budgets/mode` | 明确切换标准、省钱或精细模式 |
 
 费用未知且可能产生按量现金支出时，任务暂停或切换费用明确路线，不能只提示后继续。
 
@@ -188,10 +180,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 | POST | `/backups` | 创建一致性备份任务 |
 | GET | `/backups` | 查询快照、哈希和验证状态 |
 | POST | `/backups/{backupId}/verify` | 在隔离目录执行真实恢复验证 |
-| POST | `/backups/{backupId}/restore-request` | 创建恢复影响确认单 |
-| POST | `/exports` | 创建书籍或全系统导出 |
-| POST | `/imports` | 导入到隔离区并验证 |
-| POST | `/indexes/{bookId}/rebuild` | 重建FTS和分析投影 |
+| POST | `/books/{bookId}/projections/rebuild` | 按书重建叙事投影 |
 
 ## 14. SSE事件
 
@@ -251,4 +240,3 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `OPERATION_INCOMPLETE`
 - `BACKUP_NOT_VERIFIED`
 - `PERMANENT_DELETE_CONFIRMATION_INVALID`
-

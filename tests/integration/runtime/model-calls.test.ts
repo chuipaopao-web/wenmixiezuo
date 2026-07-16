@@ -45,6 +45,8 @@ describe('模型调用账本、幂等与真实取消', () => {
 
   it('取消信号真实传到底层适配器并保留interrupted不自动重试', async () => {
     const fixture = setup();
+    context!.database.prepare(`UPDATE model_config_snapshots SET provider = 'slow-test', model_id = 'slow-v1' WHERE model_snapshot_id = ?`)
+      .run(fixture.snapshotId);
     const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-slow', 200, 0);
     const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
     const slowAdapter: ModelAdapter = {
@@ -66,4 +68,3 @@ describe('模型调用账本、幂等与真实取消', () => {
     expect(context!.database.prepare('SELECT status FROM budget_reservations WHERE reservation_id = ?').get(reservationId)).toEqual({ status: 'reserved' });
   });
 });
-

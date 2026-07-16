@@ -22,6 +22,7 @@ import {
 import type { ModelAdapter } from '../../infrastructure/models/model-adapter.js';
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
 import { WriterSelectionService, type WriterSelection } from './writer-selection-service.js';
+import { CopyrightService } from '../copyright/copyright-service.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -100,12 +101,15 @@ export class ChapterPipelineService {
       return this.mapResult(run, 'completed');
     } catch (error) {
       const now = this.clock.now().toISOString();
+      const cancelRequested = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
+        .get(taskId, scope.ownerId, scope.bookId) as { cancel_requested: number } | undefined)?.cancel_requested === 1;
+      const errorCode = cancelRequested ? 'TASK_CANCELLED' : error instanceof DomainError ? error.code : 'PIPELINE_FAILED';
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'failed', error_code = ?, updated_at = ? WHERE pipeline_run_id = ?`)
-        .run(error instanceof DomainError ? error.code : 'PIPELINE_FAILED', now, run.pipeline_run_id);
+        .run(errorCode, now, run.pipeline_run_id);
       this.database.prepare(`
-        UPDATE tasks SET status = 'failed', error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
+        UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
           heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
-      `).run(error instanceof DomainError ? error.code : 'PIPELINE_FAILED', now, taskId, scope.ownerId, scope.bookId, workerId);
+      `).run(cancelRequested ? 'cancelled' : 'failed', errorCode, now, taskId, scope.ownerId, scope.bookId, workerId);
       throw error;
     }
   }
@@ -132,6 +136,7 @@ export class ChapterPipelineService {
   }
 
   private preflight(scope: BookScope, run: PipelineRow): PipelineRow {
+    new CopyrightService(this.database, this.ids, this.clock).validatePreGeneration(scope);
     const chapter = this.requireChapter(scope, run.chapter_id);
     if (chapter.settlement_status === 'settled') return this.advance(run, 'completed');
     const previous = this.database.prepare(`
@@ -247,6 +252,11 @@ export class ChapterPipelineService {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(this.ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.current_manuscript_version_id, passed ? 1 : 0, JSON.stringify(checks), this.clock.now().toISOString());
     if (!passed) throw new DomainError(errorCodes.validation, '正文硬检查未通过', { checks }, false, 409);
+    const copyright = new CopyrightService(this.database, this.ids, this.clock)
+      .checkTargetAgainstAllSources(scope, 'manuscript', run.current_manuscript_version_id, content);
+    if (copyright.decision !== 'pass') {
+      throw new DomainError(errorCodes.copyrightBlocked, '正文版权检查未通过，必须重新设计', { copyright }, false, 409);
+    }
     return this.advance(run, 'review');
   }
 

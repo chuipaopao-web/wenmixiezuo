@@ -20,9 +20,16 @@ export interface BeginModelCall {
   contextPackId?: string | null;
 }
 
-export class ModelCallService {
-  readonly #controllers = new Map<string, AbortController>();
+const activeModelCallControllers = new Map<string, AbortController>();
 
+export function cancelActiveModelCall(requestId: string): boolean {
+  const controller = activeModelCallControllers.get(requestId);
+  if (controller === undefined) return false;
+  controller.abort(new DOMException('模型调用已取消', 'AbortError'));
+  return true;
+}
+
+export class ModelCallService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly clock: Clock,
@@ -44,9 +51,10 @@ export class ModelCallService {
       FROM tasks t
       JOIN agent_instances a ON a.agent_id = ? AND a.owner_id = t.owner_id AND a.book_id = t.book_id
       JOIN model_config_snapshots m ON m.model_snapshot_id = ? AND m.owner_id = t.owner_id AND m.book_id = t.book_id
+        AND m.provider = ? AND m.model_id = ?
       JOIN budget_reservations r ON r.reservation_id = ? AND r.owner_id = t.owner_id AND r.book_id = t.book_id
       WHERE t.task_id = ? AND t.owner_id = ? AND t.book_id = ?
-    `).get(call.agentId, call.modelSnapshotId, call.reservationId, call.taskId, scope.ownerId, scope.bookId);
+    `).get(call.agentId, call.modelSnapshotId, call.provider, call.modelId, call.reservationId, call.taskId, scope.ownerId, scope.bookId);
     if (valid === undefined) throw new Error('模型调用引用越权或不完整');
     this.database.prepare(`
       INSERT INTO model_calls (
@@ -63,16 +71,20 @@ export class ModelCallService {
   }
 
   public async execute(scope: BookScope, call: BeginModelCall, adapter: ModelAdapter, request: ModelRequest): Promise<ModelResult> {
+    if (adapter.provider !== call.provider || adapter.modelId !== call.modelId) throw new Error('模型适配器与配置快照来源不匹配');
     const requestId = this.begin(scope, call);
     if (requestId !== call.requestId) throw new Error('相同输入的模型调用已经存在，拒绝重复调用');
     const controller = new AbortController();
-    this.#controllers.set(requestId, controller);
+    activeModelCallControllers.set(requestId, controller);
     const startedAt = Date.now();
     this.database.prepare(`UPDATE model_calls SET state = 'working', started_at = ? WHERE request_id = ? AND state = 'pending'`)
       .run(this.clock.now().toISOString(), requestId);
     this.events?.append(scope, 'model_call.started', { requestId, taskId: call.taskId, provider: adapter.provider, modelId: adapter.modelId });
     try {
       const result = await adapter.generate(request, controller.signal);
+      if (result.provider !== adapter.provider || result.modelId !== adapter.modelId) {
+        throw new Error('模型返回来源与已验证适配器不一致');
+      }
       const durationMs = Math.max(0, Date.now() - startedAt);
       this.database.prepare(`
         UPDATE model_calls SET input_tokens = ?, output_tokens = ?, cash_micros = ?,
@@ -103,14 +115,11 @@ export class ModelCallService {
       if (interrupted) this.events?.append(scope, 'model_call.interrupted', { requestId, taskId: call.taskId });
       throw error;
     } finally {
-      this.#controllers.delete(requestId);
+      activeModelCallControllers.delete(requestId);
     }
   }
 
   public cancel(requestId: string): boolean {
-    const controller = this.#controllers.get(requestId);
-    if (controller === undefined) return false;
-    controller.abort(new DOMException('模型调用已取消', 'AbortError'));
-    return true;
+    return cancelActiveModelCall(requestId);
   }
 }

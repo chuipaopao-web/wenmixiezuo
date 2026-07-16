@@ -60,7 +60,19 @@ export interface WorkspaceData {
     spent_cash_micros: number;
     status: string;
   } | null;
-  confirmations: { count: number };
+  confirmations: {
+    count: number;
+    items: Array<{
+      confirmationId: string;
+      targetType: string;
+      targetId: string;
+      expectedCanonRevision: number;
+      scope: unknown;
+      impact: unknown;
+      createdAt: string;
+    }>;
+  };
+  messageCount: number;
 }
 
 export interface MessageData {
@@ -114,7 +126,7 @@ export function fetchWorkspace(bookId: string, signal?: AbortSignal): Promise<Wo
 }
 
 export function fetchMessages(bookId: string, signal?: AbortSignal): Promise<MessageData[]> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages`, signal === undefined ? {} : { signal });
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages?limit=500`, signal === undefined ? {} : { signal });
 }
 
 export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
@@ -139,6 +151,12 @@ export function sendMessage(bookId: string, content: string): Promise<{ messageI
 export function scheduleChapters(bookId: string, count: 1 | 3 | 4 | 5): Promise<{ batchId: string }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapter-batches`, {
     method: 'POST', body: JSON.stringify({ count })
+  });
+}
+
+export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<unknown> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/confirmations/${encodeURIComponent(confirmationId)}/${accept ? 'accept' : 'reject'}`, {
+    method: 'POST', body: JSON.stringify({ expectedCanonRevision })
   });
 }
 

@@ -21,7 +21,11 @@ describe('预算冻结与结算', () => {
     expect(() => service.reserve(scope, budget.budgetId, 'request-over', 50, 0)).toThrow('预算不足');
     const second = service.reserve(scope, budget.budgetId, 'request-second', 20, 0);
     expect(service.require(scope, budget.budgetId).reservedTokens).toBe(80);
-    expect(events.replay(scope, 0).some((event) => event.eventType === 'budget.threshold.reached')).toBe(true);
+    const threshold = events.replay(scope, 0).find((event) => event.eventType === 'budget.threshold.reached');
+    expect(threshold?.data).toMatchObject({
+      exhausted: false,
+      forecast: { remainingTokens: 20, recommendedAction: 'reduce_optional_agents_and_retrieval' }
+    });
     service.settle(scope, first, { taskId: null, provider: 'local-deterministic', modelId: 'fixture', inputTokens: 30, outputTokens: 20, cashMicros: 0, durationMs: 5 });
     service.release(scope, second);
     const settled = service.require(scope, budget.budgetId);
@@ -41,4 +45,3 @@ describe('预算冻结与结算', () => {
     expect(() => service.reserve(scope, budget.budgetId, 'unknown-cost', 10, null)).toThrow('现金费用未知');
   });
 });
-

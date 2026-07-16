@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CopyrightService } from '../../../apps/api/src/application/copyright/copyright-service.js';
+import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { DomainError, errorCodes } from '../../../apps/api/src/domain/errors.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -70,5 +71,52 @@ describe('版权隔离与干净室门禁', () => {
       title: '已授权', content: '这是具有明确书面授权凭证的改编来源文本内容。', rightsPath: 'authorized_adaptation', authorization: { licenseId: 'license-fixture-001', scope: 'test-only' }
     });
     expect(copyright.checkTarget(scope, sourceId, 'plan', 'authorized-plan', '这是具有明确书面授权凭证的改编来源文本内容。').decision).toBe('authorized');
+  });
+
+  it('跨语言规避和多来源拼接均触发重新设计', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '复合规避测试书', text: '验证跨语言和多来源版权门禁' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const copyright = new CopyrightService(context.database, ids, clock);
+    const firstId = copyright.registerSource(scope, {
+      title: '中文事件链', rightsPath: 'quick_reference',
+      content: '调查者发现密信后进入钟楼，观察窗边灰尘并确认暗门位置，最终取回被藏起的名册。'
+    });
+    copyright.registerSource(scope, {
+      title: '第二来源', rightsPath: 'quick_reference',
+      content: '守门人诱使追踪者走入旧桥，随后修正错误路标并逃离封锁，桥下还隐藏着交换记录。'
+    });
+    const translated = copyright.checkTarget(scope, firstId, 'manuscript', 'translated-1',
+      'The investigator discovers a secret letter, enters the bell tower, observes the dust, confirms the hidden door, and retrieves the concealed register.');
+    expect(translated).toMatchObject({ riskLevel: 'blocked', decision: 'redesign' });
+    expect(translated.dimensions.translationRisk).toBe(1);
+
+    const spliced = copyright.checkTargetAgainstAllSources(scope, 'manuscript', 'spliced-1',
+      '调查者发现密信后进入钟楼，观察窗边灰尘。守门人诱使追踪者走入旧桥，随后修正错误路标并逃离封锁。');
+    expect(spliced.sourceCount).toBe(2);
+    expect(spliced.decision).toBe('redesign');
+    expect(spliced.dimensions.combinedText).toBeGreaterThan(0.5);
+  });
+
+  it('创作流水线会在预检阶段自动阻止缺少干净室包的版权来源', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '流水线版权门禁', text: '完全独立的原创故事定位' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    new CopyrightService(context.database, ids, clock).registerSource(scope, {
+      title: '尚未完成抽象的受保护参考', rightsPath: 'cleanroom',
+      content: '受保护作品原文只用于生成结构卡，未构建干净室包前不得启动任何正式章节创作。'
+    });
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 1);
+
+    await expect(batches.run(scope, batch.batchId)).rejects.toMatchObject({ code: errorCodes.copyrightBlocked });
+    expect(context.database.prepare(`SELECT status, error_code FROM tasks WHERE task_id = ?`).get(batch.taskIds[0]!))
+      .toEqual({ status: 'failed', error_code: errorCodes.copyrightBlocked });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId))
+      .toEqual({ count: 0 });
   });
 });

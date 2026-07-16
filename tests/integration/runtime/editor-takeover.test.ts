@@ -4,6 +4,7 @@ import { EditorLeaseService } from '../../../apps/api/src/application/editors/ed
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
+import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -21,10 +22,22 @@ describe('双主编租约与接管', () => {
     const budget = budgets.create(scope, 'standard', 100, 0);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     tasks.create(scope, { taskId: 'task-handoff', taskType: 'runtime_probe', assignedAgentId: agents[0]!.agentId, idempotencyKey: 'handoff', budgetId: budget.budgetId, requiredEditorEpoch: initial.editorEpoch, initialPhase: 'execute', brief: {} });
+    const chapters = new ChapterCatalogService(context.database, ids, clock);
+    const volumeId = chapters.createVolume(scope, 1, '第一卷');
+    chapters.createChapter(scope, volumeId, 1, '接管章');
+    context.database.prepare(`
+      INSERT INTO confirmations (
+        confirmation_id, owner_id, book_id, target_type, target_id,
+        old_value_json, new_value_json, scope_json, impact_json,
+        expected_canon_revision, status, created_at
+      ) VALUES ('confirmation-handoff', ?, ?, 'chapter', 'chapter-handoff', '{}', '{}', '{}', '{}', 0, 'pending', ?)
+    `).run(scope.ownerId, scope.bookId, clock.now().toISOString());
     const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
     expect(prepared.package).toMatchObject({ bookId: scope.bookId, fromEpoch: 1, canonRevision: 0 });
     expect((prepared.package.tasks as unknown[]).length).toBe(1);
     expect((prepared.package.budgets as unknown[]).length).toBe(1);
+    expect((prepared.package.chapters as unknown[])).toHaveLength(1);
+    expect((prepared.package.pendingDecisions as unknown[])).toHaveLength(1);
     const completed = editors.completeTakeover(scope, prepared.takeoverId);
     expect(completed.editorEpoch).toBe(2);
     expect(completed.activeEditorAgentId).toBe(agents[1]!.agentId);
@@ -32,4 +45,3 @@ describe('双主编租约与接管', () => {
     expect(tasks.require(scope, 'task-handoff').requiredEditorEpoch).toBe(2);
   });
 });
-

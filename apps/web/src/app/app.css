@@ -554,6 +554,18 @@ svg {
   background: var(--panel);
 }
 
+.history-window-note {
+  max-width: 720px;
+  margin: 0 auto 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--control-radius);
+  padding: 9px 12px;
+  color: var(--ink-faint);
+  background: var(--panel-raised);
+  text-align: center;
+  font-size: 11px;
+}
+
 .message.boss {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
   background: var(--accent-soft);
@@ -979,6 +991,70 @@ svg {
   margin: 5px 0 0;
   color: var(--ink-faint);
   font-size: 10px;
+}
+
+.confirmation-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.confirmation-card {
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--line));
+  border-radius: var(--control-radius);
+  padding: 10px;
+  background: var(--warning-soft);
+}
+
+.confirmation-card > strong,
+.confirmation-card > span {
+  display: block;
+}
+
+.confirmation-card > strong {
+  font-size: 11px;
+}
+
+.confirmation-card > span,
+.confirmation-card > p,
+.confirmation-card summary {
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.confirmation-card summary {
+  cursor: pointer;
+}
+
+.confirmation-card pre {
+  max-height: 130px;
+  overflow: auto;
+  font: 8px/1.5 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.confirmation-card > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.confirmation-card button {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--ink-soft);
+  background: var(--panel-raised);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.confirmation-card .confirm-button {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent-hover);
 }
 
 .dialog-backdrop {

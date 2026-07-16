@@ -206,6 +206,21 @@ export class BudgetService {
     const tokenRatio = budget.tokenLimit === 0 ? 1 : (budget.spentTokens + budget.reservedTokens) / budget.tokenLimit;
     const cashRatio = budget.cashLimitMicros === 0 ? (budget.spentCashMicros + budget.reservedCashMicros > 0 ? 1 : 0) : (budget.spentCashMicros + budget.reservedCashMicros) / budget.cashLimitMicros;
     const ratio = Math.max(tokenRatio, cashRatio);
-    if (ratio >= 0.7) this.events?.append(scope, 'budget.threshold.reached', { budgetId: budget.budgetId, ratio, exhausted: ratio >= 1 });
+    if (ratio >= 0.7) {
+      const remainingTokens = Math.max(0, budget.tokenLimit - budget.spentTokens - budget.reservedTokens);
+      const remainingCashMicros = Math.max(0, budget.cashLimitMicros - budget.spentCashMicros - budget.reservedCashMicros);
+      this.events?.append(scope, 'budget.threshold.reached', {
+        budgetId: budget.budgetId,
+        ratio,
+        exhausted: ratio >= 1,
+        forecast: {
+          basedOnSpentTokens: budget.spentTokens,
+          basedOnReservedTokens: budget.reservedTokens,
+          remainingTokens,
+          remainingCashMicros,
+          recommendedAction: ratio >= 1 ? 'stop_new_calls' : 'reduce_optional_agents_and_retrieval'
+        }
+      });
+    }
   }
 }

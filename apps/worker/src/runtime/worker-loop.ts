@@ -22,6 +22,10 @@ export class WorkerLoop {
     this.#timer = undefined;
   }
 
+  public async runOnce(): Promise<void> {
+    await this.tick();
+  }
+
   private async tick(): Promise<void> {
     if (this.#working) return;
     this.#working = true;
@@ -31,7 +35,7 @@ export class WorkerLoop {
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
         this.claimer.complete(task, { workerExecuted: true, deterministic: true });
-      } else if (task.taskType === 'chapter_creation' && this.chapterTasks !== undefined) {
+      } else if (['chapter_creation', 'discussion'].includes(task.taskType) && this.chapterTasks !== undefined) {
         await this.chapterTasks.execute(task);
       } else {
         this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
