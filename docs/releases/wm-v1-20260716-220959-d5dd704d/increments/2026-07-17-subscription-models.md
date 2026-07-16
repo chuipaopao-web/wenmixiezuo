@@ -6,6 +6,7 @@
 - 决定：`DEC-007`
 - 实施计划：`docs/superpowers/plans/2026-07-17-ark-plan-models.md`
 - 岗位提示词：`docs/ROLE_PROMPTS.md`
+- 功能提交：`e95a0a7 feat: connect novel roles to subscription models`
 - 唯一开发与复核人：当前Codex；未调用其他开发Agent。
 
 ## 生效模型映射
@@ -43,7 +44,7 @@
 | 模型与提示词目标测试 | `npm test -- tests/foundation/role-prompts.test.ts tests/foundation/structured-review-parser.test.ts tests/integration/runtime/subscription-model-pipelines.test.ts` | 3个文件、6项通过 |
 | 设置页、健康与Codex目标测试 | `npm test -- tests/integration/experience/workspace-ui.test.tsx tests/foundation/api-health.test.ts tests/foundation/codex-subscription-model.test.ts` | 3个文件、11项通过 |
 | 类型检查、全量测试、构建 | `npm run verify` | 通过；59个测试文件、117项测试全部通过；API、Web、Worker构建成功 |
-| 发布验收测试 | `npm run acceptance` | 3/3通过；提交前审计仅按设计提示“工作树未提交”，其余检查通过；干净树终验在功能提交后记录 |
+| 发布验收测试 | `npm run acceptance` | 功能提交后干净工作树3/3通过，审计 `failures: []` |
 | 差异格式 | `git diff --check` | 通过 |
 
 ## 真实通道与桌面冷启动

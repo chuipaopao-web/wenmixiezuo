@@ -249,7 +249,7 @@ Expected: 全部 PASS；Schema 仍为9且无已合并迁移被修改。
 
 运行现有备份恢复测试和数据库 `PRAGMA integrity_check` / `foreign_key_check`；记录 Git 回滚方式为对本增量提交执行 `git revert`。环境回滚只需把 `WENMI_MODEL_MODE` 改为 `deterministic`，不会删除模型调用、正文或快照历史。
 
-- [ ] **Step 5: 自检、提交和推送**
+- [x] **Step 5: 自检、提交和推送**
 
 Run: `git diff --check`
 
