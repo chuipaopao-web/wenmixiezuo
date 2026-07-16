@@ -129,3 +129,17 @@
 | 24条无跳过 | `docs/COVERAGE_MATRIX.md` | 齐全 |
 | 老板无需技术命令 | 根目录启动/停止入口、`docs/USER_GUIDE.md` | 通过 |
 | 项目经理签署 | 当前Codex基于本矩阵、代码复核、测试和实机证据签署 | 通过 |
+
+## 14 流程纠错增量（DEC-008）
+
+阶段0至8的不可变历史证据保持不变。开放对话、规划确认和写作准备门禁的当前实现与验证，见 `increments/2026-07-17-conversation-writing-gates.md`。
+
+| 验收项 | 证据 | 结果 |
+|---|---|---|
+| 普通消息产生真实主编回复 | `open-conversation-runtime.test.ts`、订阅通道实机调用 | GPT-5.6 Sol真实回复，来源、上下文包、调用和0现金账本齐全 |
+| 自然创作意图激活相关岗位 | `open-conversation-runtime.test.ts`、`discussion-runtime.test.ts` | 专家先回复、主编读取后汇总，不要求命令前缀 |
+| 写作准备门禁覆盖全部入口 | `writing-readiness.test.ts`、`workspace-api.test.ts` | 未确认方案/故事圣经/总纲/章纲时零章节、零主笔任务 |
+| 规划确认形成可追溯资料 | `discussion-runtime.test.ts`、成果接口断言 | 方案、故事圣经、总纲和章纲携带讨论/决定来源ID |
+| 取消章节可恢复 | `chapter-state-recovery.test.ts`、`writing-readiness.test.ts`、生产工作区探针 | 无正文章节壳回到未开始，资料齐备后仍复用第1章 |
+| 无固定测试剧情泄漏 | 章节事实/结算/叙事投影回归 | 仅使用活动章纲和选中正文来源；固定人物、地点、钩子已移除 |
+| 迁移、备份、运行和隔离 | 空库/现有库Schema 9、验证备份、桌面冷启动、隔离测试书 | 完整性与外键通过；仅监听回环；未触碰AI智囊团 |

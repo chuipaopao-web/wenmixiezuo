@@ -6,6 +6,10 @@ import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { DiscussionService } from '../discussions/discussion-service.js';
 import { AgentTeamService } from '../agents/agent-team-service.js';
+import { WritingReadinessService, type ChapterRequestCount } from '../creation/writing-readiness-service.js';
+import { PlanningArtifactService } from '../artifacts/planning-artifact-service.js';
+
+type DiscussionPurpose = 'open_discussion' | 'creative_planning';
 
 export class ConversationService {
   public constructor(
@@ -52,20 +56,35 @@ export class ConversationService {
       ) VALUES (?, ?, ?, ?, 'boss', 'text', ?, '[]', ?)
     `).run(messageId, conversationId, scope.ownerId, scope.bookId, trimmed, now);
     this.database.prepare(`UPDATE conversations SET updated_at = ? WHERE conversation_id = ?`).run(now, conversationId);
-    const action = this.executeDeterministicCommand(scope, trimmed, messageId, conversationId);
-    if (action.kind === 'message_saved') {
-      this.addSystemMessage(scope, conversationId, '消息已保存。当前使用确定性离线适配器，不会把开放式创作对话伪装成真实模型回复。你可以使用“写一章”“写3章”“暂停”“继续”或“取消”等明确命令。');
-    } else {
-      this.addSystemMessage(scope, conversationId, actionNotice(action));
-    }
+    const action = this.routeMessage(scope, trimmed, messageId, conversationId);
+    this.addSystemMessage(scope, conversationId, actionNotice(action));
     return { messageId, action };
   }
 
-  private executeDeterministicCommand(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
+  private routeMessage(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
     const write = /^写([一1]|[三3]|[四4]|[五5])章$/u.exec(content);
     if (write !== null) {
-      const countMap: Record<string, 1 | 3 | 4 | 5> = { 一: 1, '1': 1, 三: 3, '3': 3, 四: 4, '4': 4, 五: 5, '5': 5 };
+      const countMap: Record<string, ChapterRequestCount> = { 一: 1, '1': 1, 三: 3, '3': 3, 四: 4, '4': 4, 五: 5, '5': 5 };
       const count = countMap[write[1]!]!;
+      const readiness = new WritingReadinessService(this.database).inspect(scope, count);
+      if (!readiness.ready) {
+        const existing = this.findActivePlanningDiscussion(scope, count);
+        if (existing !== undefined) {
+          return {
+            kind: 'planning_discussion_existing', discussionId: existing.discussion_id,
+            taskId: existing.task_id, requestedChapterCount: count, missing: readiness.missing
+          };
+        }
+        const premise = this.currentPremise(scope);
+        const scopeText = [
+          `为创作第${readiness.chapterNumbers[0]}至${readiness.chapterNumbers.at(-1)}章，先完成可执行创作方案。`,
+          `当前核心创意：${premise}`,
+          '请明确主角与开局处境、核心冲突、各章推进节点、第一章视角与文风、章末钩子，以及仍需老板决定的问题。',
+          `当前缺少：${readiness.missing.join('、')}`
+        ].join('\n');
+        const scheduled = this.scheduleDiscussion(scope, scopeText, messageId, conversationId, 'creative_planning', count);
+        return { ...scheduled, kind: 'planning_discussion_scheduled', requestedChapterCount: count, missing: readiness.missing };
+      }
       const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock).scheduleNewChapters(scope, count);
       return { kind: 'chapter_batch_scheduled', batchId: batch.batchId, count };
     }
@@ -73,39 +92,8 @@ export class ConversationService {
     if (discussionMatch !== null) {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
-      const lease = this.database.prepare(`SELECT active_editor_agent_id, editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
-        .get(scope.ownerId, scope.bookId) as { active_editor_agent_id: string; editor_epoch: number } | undefined;
-      if (lease === undefined) throw new Error('当前书籍没有活动主编租约');
-      const roleKey = relevantDiscussionRole(scopeText);
-      const secondary = this.database.prepare(`
-        SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
-          ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-        WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
-          AND r.role_key IN (?, 'plot_architect', 'reviewer')
-        ORDER BY CASE r.role_key WHEN ? THEN 0 WHEN 'plot_architect' THEN 1 ELSE 2 END LIMIT 1
-      `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id, roleKey, roleKey) as { agent_id: string; role_key: string } | undefined;
-      if (secondary === undefined) throw new Error('没有与讨论范围匹配的岗位');
-      new AgentTeamService(this.database, this.ids, this.clock).activate(scope, secondary.agent_id, 'text');
-      const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
-        type: 'quick', scopeText, createdByAgentId: lease.active_editor_agent_id,
-        participants: [
-          { agentId: lease.active_editor_agent_id, reason: '活动主编负责主持、取舍和汇总' },
-          { agentId: secondary.agent_id, reason: `问题由${secondary.role_key}岗位提供专项视角` }
-        ]
-      });
-      const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
-        .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
-      if (budget === undefined) throw new Error('当前书籍没有活动预算');
-      const taskId = this.ids.next();
-      const tasks = new TaskService(this.database, this.releaseId, this.clock);
-      tasks.create(scope, {
-        taskId, taskType: 'discussion', assignedAgentId: lease.active_editor_agent_id,
-        idempotencyKey: `discussion-message:${messageId}`, budgetId: budget.budget_id,
-        requiredEditorEpoch: lease.editor_epoch, initialPhase: 'collecting',
-        brief: { discussionId: discussion.discussionId, scopeText, conversationId }
-      });
-      tasks.queue(scope, taskId);
-      return { kind: 'discussion_scheduled', discussionId: discussion.discussionId, taskId, participants: discussion.participants.map((item) => item.agentId) };
+      const planning = isCreativeIntent(scopeText);
+      return this.scheduleDiscussion(scope, scopeText, messageId, conversationId, planning ? 'creative_planning' : 'open_discussion', planning ? 1 : null);
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     if (content === '暂停') {
@@ -151,9 +139,122 @@ export class ConversationService {
       `).get(confirmDecision[1]!, scope.ownerId, scope.bookId) as { discussion_id: string } | undefined;
       if (decision === undefined) throw new Error('待确认方案不存在、已处理或不属于当前书籍');
       new DiscussionService(this.database, this.ids, this.clock).confirm(scope, decision.discussion_id, confirmDecision[1]!);
-      return { kind: 'discussion_confirmed', discussionId: decision.discussion_id, decisionId: confirmDecision[1] };
+      const prepared = new PlanningArtifactService(this.database, this.ids, this.clock)
+        .promoteIfPlanningTask(scope, decision.discussion_id, confirmDecision[1]!);
+      return {
+        kind: 'discussion_confirmed', discussionId: decision.discussion_id, decisionId: confirmDecision[1],
+        planningPrepared: prepared !== null, chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
+      };
     }
-    return { kind: 'message_saved', modelCalled: false };
+    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', 1);
+    return this.scheduleConversationReply(scope, content, messageId, conversationId);
+  }
+
+  private scheduleConversationReply(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
+    const lease = this.requireEditorLease(scope);
+    const budget = this.requireBudget(scope);
+    const taskId = this.ids.next();
+    const tasks = new TaskService(this.database, this.releaseId, this.clock);
+    tasks.create(scope, {
+      taskId,
+      taskType: 'conversation_reply',
+      assignedAgentId: lease.active_editor_agent_id,
+      idempotencyKey: `conversation-reply:${messageId}`,
+      budgetId: budget.budget_id,
+      requiredEditorEpoch: lease.editor_epoch,
+      initialPhase: 'reply',
+      brief: { conversationId, messageId, content }
+    });
+    tasks.queue(scope, taskId);
+    return { kind: 'conversation_reply_scheduled', taskId, agentId: lease.active_editor_agent_id };
+  }
+
+  private scheduleDiscussion(
+    scope: BookScope,
+    scopeText: string,
+    messageId: string,
+    conversationId: string,
+    purpose: DiscussionPurpose,
+    requestedChapterCount: ChapterRequestCount | null
+  ): Record<string, unknown> {
+    const lease = this.requireEditorLease(scope);
+    const roleKey = relevantDiscussionRole(scopeText);
+    const secondary = this.database.prepare(`
+      SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
+        AND r.role_key IN (?, 'plot_architect', 'reviewer')
+      ORDER BY CASE r.role_key WHEN ? THEN 0 WHEN 'plot_architect' THEN 1 ELSE 2 END LIMIT 1
+    `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id, roleKey, roleKey) as { agent_id: string; role_key: string } | undefined;
+    if (secondary === undefined) throw new Error('没有与讨论范围匹配的岗位');
+    new AgentTeamService(this.database, this.ids, this.clock).activate(scope, secondary.agent_id, 'text');
+    const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
+      type: 'quick',
+      scopeText,
+      createdByAgentId: lease.active_editor_agent_id,
+      participants: [
+        { agentId: lease.active_editor_agent_id, reason: '活动主编负责主持、取舍和汇总' },
+        { agentId: secondary.agent_id, reason: `问题由${secondary.role_key}岗位提供专项视角` }
+      ]
+    });
+    const budget = this.requireBudget(scope);
+    const taskId = this.ids.next();
+    const tasks = new TaskService(this.database, this.releaseId, this.clock);
+    tasks.create(scope, {
+      taskId,
+      taskType: 'discussion',
+      assignedAgentId: lease.active_editor_agent_id,
+      idempotencyKey: `discussion-message:${messageId}`,
+      budgetId: budget.budget_id,
+      requiredEditorEpoch: lease.editor_epoch,
+      initialPhase: 'collecting',
+      brief: { discussionId: discussion.discussionId, scopeText, conversationId, purpose, requestedChapterCount }
+    });
+    tasks.queue(scope, taskId);
+    return {
+      kind: 'discussion_scheduled',
+      purpose,
+      discussionId: discussion.discussionId,
+      taskId,
+      participants: discussion.participants.map((item) => item.agentId)
+    };
+  }
+
+  private requireEditorLease(scope: BookScope): { active_editor_agent_id: string; editor_epoch: number } {
+    const lease = this.database.prepare(`SELECT active_editor_agent_id, editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId) as { active_editor_agent_id: string; editor_epoch: number } | undefined;
+    if (lease === undefined) throw new Error('当前书籍没有活动主编租约');
+    return lease;
+  }
+
+  private requireBudget(scope: BookScope): { budget_id: string } {
+    const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
+    if (budget === undefined) throw new Error('当前书籍没有活动预算');
+    return budget;
+  }
+
+  private findActivePlanningDiscussion(scope: BookScope, count: ChapterRequestCount): { discussion_id: string; task_id: string } | undefined {
+    return this.database.prepare(`
+      SELECT json_extract(t.task_brief_json, '$.discussionId') AS discussion_id, t.task_id
+      FROM tasks t JOIN discussions d ON d.discussion_id = json_extract(t.task_brief_json, '$.discussionId')
+      WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion'
+        AND json_extract(t.task_brief_json, '$.purpose') = 'creative_planning'
+        AND CAST(json_extract(t.task_brief_json, '$.requestedChapterCount') AS INTEGER) >= ?
+        AND t.status IN ('pending', 'queued', 'working', 'waiting_confirmation', 'succeeded')
+        AND d.status IN ('collecting', 'cross_review', 'synthesizing', 'reviewing_draft', 'awaiting_boss')
+      ORDER BY t.created_at DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, count) as { discussion_id: string; task_id: string } | undefined;
+  }
+
+  private currentPremise(scope: BookScope): string {
+    const row = this.database.prepare(`
+      SELECT json_extract(value, '$.value') AS premise FROM positioning_versions,
+        json_each(positioning_versions.fields_json)
+      WHERE owner_id = ? AND book_id = ? AND json_extract(value, '$.key') = 'premise'
+      ORDER BY version DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as { premise: string | null } | undefined;
+    return row?.premise?.trim() || '尚未形成明确核心创意';
   }
 
   private addSystemMessage(scope: BookScope, conversationId: string, content: string): void {
@@ -183,16 +284,25 @@ function relevantDiscussionRole(content: string): string {
   return 'plot_architect';
 }
 
+function isCreativeIntent(content: string): boolean {
+  return /小说|故事|剧情|情节|题材|游戏文|主角|角色|人物|设定|世界观|开局|结局|冲突|转折|节奏|文风|大纲|章纲|第一章|下一章|钩子|我想写|怎么写/u.test(content);
+}
+
 function actionNotice(action: Record<string, unknown>): string {
   switch (action.kind) {
     case 'chapter_batch_scheduled': return `已安排连续创作 ${String(action.count)} 章，批次ID：${String(action.batchId)}。`;
     case 'discussion_scheduled': return `讨论任务已安排，讨论ID：${String(action.discussionId)}。Worker完成真实岗位意见后，主编会在这里汇总并给出确认方案。`;
+    case 'planning_discussion_scheduled': return `资料不足，未启动主笔。已请主编和相关成员先完成 ${String(action.requestedChapterCount)} 章所需的剧情方案，讨论ID：${String(action.discussionId)}。`;
+    case 'planning_discussion_existing': return `资料仍未齐备，未启动主笔。已有规划讨论 ${String(action.discussionId)} 正在进行或等待你确认，请先完成该讨论。`;
+    case 'conversation_reply_scheduled': return '主编已收到，正在根据当前书籍资料回复。';
     case 'pause_requested': return `已向 ${String((action.taskIds as unknown[]).length)} 个运行任务发出安全检查点暂停请求。`;
     case 'tasks_resumed': return `已将 ${String((action.taskIds as unknown[]).length)} 个暂停任务重新入队。`;
     case 'cancel_requested': return `已向 ${String((action.taskIds as unknown[]).length)} 个任务发出真实取消请求。`;
     case 'takeover_prepared': return `接管包已准备。完整接管ID：${String(action.takeoverId)}。确认无误后输入“确认接管 ${String(action.takeoverId)}”。`;
     case 'takeover_completed': return `主编接管已完成，新 editor_epoch 为 ${String(action.editorEpoch)}；旧epoch指令已失效。`;
-    case 'discussion_confirmed': return `方案 ${String(action.decisionId)} 已由老板明确确认。`;
+    case 'discussion_confirmed': return action.planningPrepared === true
+      ? `方案 ${String(action.decisionId)} 已由老板明确确认，并已形成 ${String(action.chapterOutlineCount)} 章可追溯章纲。`
+      : `方案 ${String(action.decisionId)} 已由老板明确确认。`;
     default: return '明确控制命令已执行。';
   }
 }

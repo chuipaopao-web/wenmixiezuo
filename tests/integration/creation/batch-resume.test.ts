@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('连续多章串行与断点续跑', () => {
@@ -13,6 +13,7 @@ describe('连续多章串行与断点续跑', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '五章续跑书', text: '围绕北塔与三个日期展开连续剧情' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 5);
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 5);
     const firstRun = await batches.run(scope, batch.batchId, { pauseAfterCompletedChapters: 2 });
@@ -44,6 +45,7 @@ describe('连续多章串行与断点续跑', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '章内检查点书', text: '测试安全暂停与继续' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     const paused = await batches.run(scope, batch.batchId, { pauseAfterPhase: 'review' });

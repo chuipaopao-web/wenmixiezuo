@@ -4,11 +4,14 @@ import { loadRuntimeConfig } from './infrastructure/runtime-config.js';
 import { createServer } from './http/server.js';
 import { ModelBindingService } from './application/agents/model-binding-service.js';
 import { SystemClock, UuidGenerator } from './domain/ids.js';
+import { ChapterStateRecoveryService } from './application/creation/chapter-state-recovery-service.js';
 
 const config = loadRuntimeConfig();
 const database = openDatabase(config.databasePath);
 bootstrapDatabase(database, config);
-new ModelBindingService(database, new UuidGenerator(), new SystemClock(), config.modelRuntime.roleProfiles).bindAllBooks();
+const clock = new SystemClock();
+new ChapterStateRecoveryService(database, clock).reconcileAllCancelledShells();
+new ModelBindingService(database, new UuidGenerator(), clock, config.modelRuntime.roleProfiles).bindAllBooks();
 const app = await createServer(config, database);
 
 const shutdown = async (): Promise<void> => {

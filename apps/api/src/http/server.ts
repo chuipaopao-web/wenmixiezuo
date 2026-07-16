@@ -11,6 +11,7 @@ import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
+import { ConversationReplyPipelineService } from '../application/chat/conversation-reply-pipeline-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -92,6 +93,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
       : task.task_type === 'discussion'
         ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
+        : task.task_type === 'conversation_reply'
+          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });

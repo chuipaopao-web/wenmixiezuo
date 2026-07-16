@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { NarrativeProjectionService } from '../../../apps/api/src/application/projections/narrative-projection-service.js';
 import { ResearchService } from '../../../apps/api/src/application/research/research-service.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('叙事投影与研究候选边界', () => {
@@ -15,6 +15,7 @@ describe('叙事投影与研究候选边界', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '投影测试书', text: '测试五类叙事投影' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     await batches.run(scope, batch.batchId);

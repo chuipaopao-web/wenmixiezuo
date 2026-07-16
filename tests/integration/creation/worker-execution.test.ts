@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('独立Worker章节执行', () => {
@@ -30,6 +30,7 @@ describe('独立Worker章节执行', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: 'Worker创作书', text: '独立Worker执行完整章节任务' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     const batch = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock).scheduleNewChapters(scope, 1);
     app = await createServer(context.config, context.database);
     await app.listen({ host: '127.0.0.1', port: 0 });

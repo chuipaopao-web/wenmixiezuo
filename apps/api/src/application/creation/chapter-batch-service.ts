@@ -7,6 +7,7 @@ import { ChapterPipelineService, type PipelinePhase, type PipelineResult } from 
 import { WriterSelectionService } from './writer-selection-service.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
+import { WritingReadinessService, type ChapterRequestCount } from './writing-readiness-service.js';
 
 export interface ChapterBatchRecord {
   batchId: string;
@@ -43,17 +44,31 @@ export class ChapterBatchService {
   ): ChapterBatchRecord {
     assertBookScope(scope);
     if (![1, 3, 4, 5].includes(count)) throw new Error('首版批次只能安排1章或连续3至5章');
+    const readiness = new WritingReadinessService(this.database).assertReady(scope, count);
     const catalog = new ChapterCatalogService(this.database, this.ids, this.clock);
     let volume = this.database.prepare(`
       SELECT volume_id FROM volumes WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY volume_number LIMIT 1
     `).get(scope.ownerId, scope.bookId) as { volume_id: string } | undefined;
     if (volume === undefined) volume = { volume_id: catalog.createVolume(scope, 1, options.volumeTitle ?? '第一卷') };
-    const start = this.database.prepare(`SELECT COALESCE(MAX(chapter_number), 0) + 1 AS next FROM chapters WHERE owner_id = ? AND book_id = ?`)
-      .get(scope.ownerId, scope.bookId) as { next: number };
     const chapterIds: string[] = [];
-    for (let index = 0; index < count; index += 1) {
-      const number = start.next + index;
-      chapterIds.push(catalog.createChapter(scope, volume.volume_id, number, index === 0 && options.firstChapterTitle !== undefined ? options.firstChapterTitle : `第${number}章`).chapterId);
+    for (const [index, number] of readiness.chapterNumbers.entries()) {
+      const existing = this.database.prepare(`
+        SELECT c.chapter_id,
+          (SELECT COUNT(*) FROM manuscript_versions m WHERE m.owner_id = c.owner_id AND m.book_id = c.book_id AND m.chapter_id = c.chapter_id) AS manuscript_count,
+          (SELECT COUNT(*) FROM tasks t WHERE t.owner_id = c.owner_id AND t.book_id = c.book_id AND t.chapter_id = c.chapter_id
+            AND t.status IN ('pending','queued','working','waiting_confirmation','paused','blocked','interrupted')) AS active_task_count
+        FROM chapters c WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number = ? AND c.settlement_status = 'unsettled'
+      `).get(scope.ownerId, scope.bookId, number) as { chapter_id: string; manuscript_count: number; active_task_count: number } | undefined;
+      if (existing !== undefined) {
+        if (existing.manuscript_count !== 0 || existing.active_task_count !== 0) throw new Error(`第${number}章已有正文或活动任务，不能重复安排`);
+        this.database.prepare(`
+          UPDATE chapters SET plan_status = 'planned', generation_status = 'not_started', updated_at = ?
+          WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+        `).run(this.clock.now().toISOString(), existing.chapter_id, scope.ownerId, scope.bookId);
+        chapterIds.push(existing.chapter_id);
+      } else {
+        chapterIds.push(catalog.createChapter(scope, volume.volume_id, number, index === 0 && options.firstChapterTitle !== undefined ? options.firstChapterTitle : `第${number}章`).chapterId);
+      }
     }
     return this.scheduleExisting(scope, chapterIds);
   }
@@ -61,6 +76,7 @@ export class ChapterBatchService {
   public scheduleExisting(scope: BookScope, chapterIds: string[]): ChapterBatchRecord {
     assertBookScope(scope);
     if (chapterIds.length !== 1 && (chapterIds.length < 3 || chapterIds.length > 5)) throw new Error('首版批次只能安排1章或连续3至5章');
+    new WritingReadinessService(this.database).assertReady(scope, chapterIds.length as ChapterRequestCount);
     const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
     const book = this.database.prepare(`SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { editor_epoch: number };
@@ -73,12 +89,14 @@ export class ChapterBatchService {
         .get(chapterId, scope.ownerId, scope.bookId) as { chapter_number: number } | undefined;
       if (chapter === undefined) throw new Error('批次章节不存在或越权');
       const taskId = this.ids.next();
+      const attempt = this.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND task_type = 'chapter_creation'`)
+        .get(scope.ownerId, scope.bookId, chapterId) as { count: number };
       tasks.create(scope, {
         taskId,
         taskType: 'chapter_creation',
         assignedAgentId: selection.writerAgentId,
         chapterId,
-        idempotencyKey: `chapter-creation:${chapterId}`,
+        idempotencyKey: `chapter-creation:${chapterId}:attempt:${attempt.count + 1}`,
         budgetId: budget.budget_id,
         requiredEditorEpoch: book.editor_epoch,
         initialPhase: 'preflight',

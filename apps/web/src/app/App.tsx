@@ -34,7 +34,6 @@ import {
   fetchRightsWorkspace,
   fetchWorker,
   fetchWorkspace,
-  scheduleChapters,
   sendMessage,
   resolveConfirmation,
   type AgentData,
@@ -255,7 +254,7 @@ export function App(): React.JSX.Element {
     if (selectedBookId === null || busy) return;
     setBusy(true);
     try {
-      await scheduleChapters(selectedBookId, count);
+      await sendMessage(selectedBookId, `写${count}章`);
       await refreshWorkspace(selectedBookId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '章节安排失败');
@@ -427,8 +426,8 @@ function ChatWorkspace(props: {
         {props.messages.length === 0 ? (
           <div className="conversation-empty">
             <ChatsCircleIcon />
-            <h2>从一句明确的指令开始</h2>
-            <p>当前没有伪造的Agent发言。明确命令会零Token执行，开放式消息会保存并显示能力边界。</p>
+            <h2>先和主创团队把故事聊清楚</h2>
+            <p>直接说你的想法即可。主编会回复，涉及剧情、人物或设定时会邀请相关成员讨论；资料未确认前不会让主笔盲写。</p>
             <div className="quick-actions">
               <button type="button" disabled={props.busy} onClick={() => void props.onWrite(1)}>写1章</button>
               <button type="button" disabled={props.busy} onClick={() => void props.onWrite(3)}>连续写3章</button>
@@ -445,10 +444,10 @@ function ChatWorkspace(props: {
       <div className="composer-wrap">
         <label htmlFor="boss-message">给主编的消息</label>
         <div className="composer-box">
-          <textarea id="boss-message" value={props.composer} onChange={(event) => props.setComposer(event.target.value)} placeholder="例如：写3章，或记录一个新的创作要求" rows={3} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void props.onSubmit(); }} />
+          <textarea id="boss-message" value={props.composer} onChange={(event) => props.setComposer(event.target.value)} placeholder="例如：我想先讨论主角、核心冲突和第一章开局" rows={3} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void props.onSubmit(); }} />
           <button className="send-button" type="button" disabled={props.busy || props.composer.trim().length === 0} onClick={() => void props.onSubmit()}><PaperPlaneTiltIcon />发送</button>
         </div>
-        <small>草稿保存在本机。Ctrl + Enter 发送。</small>
+        <small>聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。</small>
       </div>
     </section>
   );
@@ -463,7 +462,13 @@ function MessageBubble({ message, agents }: { message: MessageData; agents: Agen
       : '系统';
   return (
     <article className={`message ${message.sender_type}`}>
-      <header><strong>{source}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></header>
+      <header>
+        <span className="message-speaker">
+          {message.sender_type === 'agent' && <AgentAvatar roleKey={message.role_key ?? 'chief_editor'} roleName={source} />}
+          <strong>{source}</strong>
+        </span>
+        <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
+      </header>
       <p>{message.content}</p>
       {message.sender_type === 'agent' && <footer>{message.model_provider}/{message.model_id}</footer>}
     </article>
@@ -695,7 +700,7 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
           <div><dt>创作阶段</dt><dd>{phaseLabel(task.currentPhase)}</dd></div>
           <div><dt>执行成员</dt><dd>{agent === null ? '等待分派' : memberIdentity(agent)}</dd></div>
           <div><dt>已尝试</dt><dd>{task.attemptCount} 次</dd></div>
-          <div className="task-detail-wide"><dt>任务目标</dt><dd>完成{chapter}的{taskLabel(task.taskType)}，按阶段检查后进入正史结算。</dd></div>
+          <div className="task-detail-wide"><dt>任务目标</dt><dd>{taskGoal(task, chapter)}</dd></div>
           <div className="task-detail-wide"><dt>最近检查点</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>
           <div className="task-detail-wide"><dt>任务 ID</dt><dd><code>{task.taskId}</code></dd></div>
         </dl>
@@ -820,7 +825,20 @@ function chapterStatus(chapter: ChapterData): string {
 }
 
 function taskLabel(type: string): string {
-  return type === 'chapter_creation' ? '章节创作' : type === 'chapter_write' ? '正文写作' : type;
+  if (type === 'chapter_creation') return '章节创作';
+  if (type === 'chapter_write') return '正文写作';
+  if (type === 'discussion') return '团队讨论';
+  if (type === 'conversation_reply') return '主编回复';
+  return type;
+}
+
+function taskGoal(task: TaskData, chapter: string): string {
+  if (task.taskType === 'conversation_reply') return '由活动主编读取当前书籍的有界上下文并真实回复老板；不自动修改长期记忆或正史。';
+  if (task.taskType === 'discussion') {
+    const scopeText = typeof task.brief.scopeText === 'string' ? task.brief.scopeText : '当前创作问题';
+    return `围绕“${scopeText}”收集相关岗位真实意见，由主编汇总后等待老板明确确认。`;
+  }
+  return `完成${chapter}的${taskLabel(task.taskType)}，按阶段检查后进入正史结算。`;
 }
 
 function statusLabel(status: string): string {
@@ -829,7 +847,7 @@ function statusLabel(status: string): string {
 }
 
 function phaseLabel(phase: string): string {
-  const labels: Record<string, string> = { preflight: '预检', context: '组装上下文', draft: '生成完整初稿', hard_check: '硬规则检查', review: '异模型审校', rewrite: '定点重写', facts: '事实提取', settlement: '正史结算', completed: '已完成' };
+  const labels: Record<string, string> = { reply: '组织回复', collecting: '收集岗位意见', preflight: '预检', context: '组装上下文', draft: '生成完整初稿', hard_check: '硬规则检查', review: '异模型审校', rewrite: '定点重写', facts: '事实提取', settlement: '正史结算', completed: '已完成' };
   return labels[phase] ?? phase;
 }
 

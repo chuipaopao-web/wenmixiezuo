@@ -59,12 +59,14 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const adapters = new ModelAdapterFactory(runtime, fetchImpl, codexRunner);
 
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
-    const scheduled = conversations.sendBossMessage(scope, '讨论 下一章的读者情绪和结尾钩子');
+    const scheduled = conversations.sendBossMessage(scope, '我想讨论下一章的读者情绪和结尾钩子');
     const discussionTaskId = String(scheduled.action.taskId);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     expect(tasks.claimNext('subscription-discussion-worker')?.taskId).toBe(discussionTaskId);
-    await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
+    const discussionResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, discussionTaskId, 'subscription-discussion-worker');
+    expect(conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`).action)
+      .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 1 });
 
     const batchService = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, adapters);
     const batch = batchService.scheduleNewChapters(scope, 1, { firstChapterTitle: '雾中的选择' });

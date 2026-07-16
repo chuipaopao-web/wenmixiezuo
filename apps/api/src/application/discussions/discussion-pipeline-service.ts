@@ -44,7 +44,13 @@ export class DiscussionPipelineService {
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND task_type = 'discussion'
     `).get(taskId, scope.ownerId, scope.bookId) as DiscussionTaskRow | undefined;
     if (task === undefined || task.status !== 'working' || task.lease_owner !== workerId) throw new Error('讨论任务未由指定Worker持有');
-    const brief = JSON.parse(task.task_brief_json) as { discussionId: string; scopeText: string; conversationId: string };
+    const brief = JSON.parse(task.task_brief_json) as {
+      discussionId: string;
+      scopeText: string;
+      conversationId: string;
+      purpose?: 'open_discussion' | 'creative_planning';
+      requestedChapterCount?: 1 | 3 | 4 | 5 | null;
+    };
     const discussions = new DiscussionService(this.database, this.ids, this.clock);
     const discussion = discussions.require(scope, brief.discussionId);
     if (discussion.status !== 'collecting') throw new Error('讨论任务状态与讨论阶段不一致');
@@ -57,7 +63,7 @@ export class DiscussionPipelineService {
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
       WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ?
-      ORDER BY CASE WHEN a.agent_id = ? THEN 0 ELSE 1 END, p.agent_id
+      ORDER BY CASE WHEN a.agent_id = ? THEN 1 ELSE 0 END, p.agent_id
     `).all(brief.discussionId, scope.ownerId, scope.bookId, task.assigned_agent_id) as unknown as ParticipantRow[];
     const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
       .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
@@ -65,18 +71,39 @@ export class DiscussionPipelineService {
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const calls = new ModelCallService(this.database, this.clock, budgets);
     const contextPacks = new ContextPackService(this.database, this.ids, this.clock);
-    const opinions: Array<{ role: string; output: string }> = [];
+    const opinions: Array<{ agentId: string; role: string; roleKey: RoleKey; output: string }> = [];
     try {
       for (const participant of participants) {
         const currentTask = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
         if (currentTask.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
+        const isEditor = participant.agent_id === task.assigned_agent_id;
+        const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
+        if (isEditor && opinions.length > 0) {
+          hardSources.push({
+            sourceType: 'specialist_opinions',
+            sourceId: `opinions:${brief.discussionId}`,
+            content: JSON.stringify(opinions.map((opinion) => ({ role: opinion.role, opinion: opinion.output }))),
+            reason: '主编必须基于已经真实返回的岗位意见汇总',
+            priority: 100
+          });
+        }
         const pack = contextPacks.build(scope, {
           taskId, agentId: participant.agent_id, canonRevision: book.canon_revision,
           positioningVersion: book.positioning_version, tokenBudget: 8_000,
-          hardSources: [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }],
+          hardSources,
           optionalSources: []
         });
-        const prompt = `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。给出推荐、理由、风险和一项可执行建议。`;
+        const prompt = isEditor
+          ? [
+              `你是${participant.display_name}，是当前书籍的活动主编。`,
+              `老板的问题：${brief.scopeText}`,
+              `已收到的真实岗位意见：${JSON.stringify(opinions.map((opinion) => ({ role: opinion.role, opinion: opinion.output })))}`,
+              brief.purpose === 'creative_planning'
+                ? `请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、${brief.requestedChapterCount ?? 1}章推进节点、视角与文风、章末钩子和仍需决定的问题。`
+                : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+              '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。'
+            ].join('\n')
+          : `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。给出推荐、理由、风险和一项可执行建议。`;
         const requestId = this.ids.next();
         const adapter = this.modelAdapters.resolve(participant.provider, participant.model_id, 'discussion', participant.role_key);
         const reservationId = budgets.reserve(
@@ -109,16 +136,19 @@ export class DiscussionPipelineService {
           },
           tokens: result.inputTokens + result.outputTokens
         });
-        opinions.push({ role: participant.display_name, output: result.output });
+        opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output: result.output });
       }
       discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
+      const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
+      const editorOpinion = opinions.find((opinion) => opinion.agentId === task.assigned_agent_id);
+      if (editor === undefined || editorOpinion === undefined) throw new Error('活动主编没有完成真实汇总，不能生成讨论决定');
       const decisionId = discussions.synthesize(scope, brief.discussionId, {
-        recommendation: { summary: `围绕“${brief.scopeText}”采用可逆的小步方案，并在写作后以正史和读者体验复核。`, evidence: opinions },
-        alternatives: opinions.map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
+        recommendation: { summary: editorOpinion.output, evidence: opinions },
+        alternatives: opinions.filter((opinion) => opinion.agentId !== task.assigned_agent_id).map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
         disagreements: opinions.length > 1 ? [{ status: '保留岗位视角差异', roles: opinions.map((opinion) => opinion.role) }] : [],
         impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
       });
-      this.addEditorMessage(scope, brief.conversationId, participants[0]!, brief.discussionId, brief.scopeText, decisionId, opinions);
+      this.addEditorMessage(scope, brief.conversationId, editor, brief.discussionId, brief.scopeText, decisionId, opinions, editorOpinion.output);
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, participant.agent_id);
@@ -147,12 +177,16 @@ export class DiscussionPipelineService {
     discussionId: string,
     scopeText: string,
     decisionId: string,
-    opinions: Array<{ role: string; output: string }>
+    opinions: Array<{ agentId: string; role: string; roleKey: RoleKey; output: string }>,
+    editorSummary: string
   ): void {
+    const specialistSections = opinions
+      .filter((opinion) => opinion.agentId !== editor.agent_id)
+      .map((opinion) => `【${opinion.role}】\n${opinion.output}`);
     const summary = [
-      `讨论“${scopeText}”已完成，收到 ${opinions.length} 个真实岗位意见。`,
-      '推荐：先采用可逆的小步方案，写作后再用正史一致性和读者体验复核。',
-      `岗位来源：${opinions.map((opinion) => opinion.role).join('、')}。`,
+      `讨论“${scopeText}”已完成。`,
+      ...specialistSections,
+      `【${editor.display_name}汇总】\n${editorSummary}`,
       `如接受，请输入：确认方案 ${decisionId}`
     ].join('\n');
     this.database.prepare(`

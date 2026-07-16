@@ -27,6 +27,7 @@ import { BackupService } from '../infrastructure/recovery/backup-service.js';
 import { cancelActiveModelCall } from '../application/calls/model-call-service.js';
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
+import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -141,10 +142,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/artifacts', async (request) => {
     const rows = database.prepare(`
-      SELECT artifact_id, artifact_type, title, active_version_id, status, version, updated_at
-      FROM artifacts WHERE owner_id = ? AND book_id = ? ORDER BY artifact_type, title
-    `).all(config.ownerId, request.params.bookId);
-    return success(rows, request.id);
+      SELECT a.artifact_id, a.artifact_type, a.title, a.active_version_id, a.status,
+        a.version, a.updated_at, v.content_json, v.content_hash, v.status AS active_version_status
+      FROM artifacts a LEFT JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? ORDER BY a.artifact_type, a.title
+    `).all(config.ownerId, request.params.bookId) as unknown as Array<Record<string, unknown> & { content_json: string | null }>;
+    return success(rows.map(({ content_json: contentJson, ...row }) => ({
+      ...row,
+      active_content: contentJson === null ? null : JSON.parse(contentJson) as unknown
+    })), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { type: ArtifactType; title: string; content: Record<string, unknown> } }>('/api/v1/books/:bookId/artifacts/generate', async (request) => {
@@ -172,7 +178,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; discussionId: string }; Body: { decisionId: string } }>('/api/v1/books/:bookId/discussions/:discussionId/confirm', async (request) => {
-    return success(discussions.confirm({ ...owner, bookId: request.params.bookId }, request.params.discussionId, request.body.decisionId), request.id);
+    const scope = { ...owner, bookId: request.params.bookId };
+    const discussion = discussions.confirm(scope, request.params.discussionId, request.body.decisionId);
+    const planning = new PlanningArtifactService(database, ids, clock)
+      .promoteIfPlanningTask(scope, request.params.discussionId, request.body.decisionId);
+    return success({ discussion, planning }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { volumeNumber: number; title: string } }>('/api/v1/books/:bookId/volumes', async (request) => {

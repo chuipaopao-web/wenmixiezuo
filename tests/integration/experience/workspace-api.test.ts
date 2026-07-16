@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { createServer } from '../../../apps/api/src/http/server.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('工作台API', () => {
@@ -14,9 +14,12 @@ describe('工作台API', () => {
 
   it('工作区按书聚合真实状态，明确命令零模型调用', async () => {
     context = createTestContext();
-    const book = initializeDomainBook(context, context.config.ownerId, new SequenceIds(), new FixedClock(), {
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
       title: '工作台接口书', text: '聚合工作区并执行确定性命令'
     });
+    prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
     app = await createServer(context.config, context.database);
     const workspaceResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/workspace` });
     expect(workspaceResponse.statusCode).toBe(200);
@@ -25,6 +28,12 @@ describe('工作台API', () => {
       confirmations: { count: 0 }
     });
     expect(workspaceResponse.json().data.agents).toHaveLength(9);
+    const artifactsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/artifacts` });
+    expect(artifactsResponse.statusCode).toBe(200);
+    expect(artifactsResponse.json().data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ artifact_type: 'story_bible', status: 'active', active_content: expect.objectContaining({ mainPlot: expect.any(Object) }) }),
+      expect.objectContaining({ artifact_type: 'chapter_outline', status: 'active', active_content: expect.objectContaining({ sourceDecisionId: expect.any(String) }) })
+    ]));
 
     const commandResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }

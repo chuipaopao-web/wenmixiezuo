@@ -22,6 +22,8 @@ import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtim
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
 import { WriterSelectionService, type WriterSelection } from './writer-selection-service.js';
 import { CopyrightService } from '../copyright/copyright-service.js';
+import { WritingReadinessService } from './writing-readiness-service.js';
+import { ChapterStateRecoveryService } from './chapter-state-recovery-service.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -110,6 +112,9 @@ export class ChapterPipelineService {
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
           heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
       `).run(cancelRequested ? 'cancelled' : 'failed', errorCode, now, taskId, scope.ownerId, scope.bookId, workerId);
+      if (cancelRequested) {
+        new ChapterStateRecoveryService(this.database, this.clock).reconcileCancelledChapter(scope, task.chapter_id);
+      }
       throw error;
     }
   }
@@ -152,21 +157,22 @@ export class ChapterPipelineService {
       throw new DomainError(errorCodes.canonRevisionConflict, '流水线输入版本已经失效', { expectedCanonRevision: run.expected_canon_revision, actualCanonRevision: book.canon_revision }, false, 409);
     }
     const artifacts = new ArtifactService(this.database, this.ids, this.clock);
-    const outline = artifacts.create(scope, 'chapter_outline', `第${chapter.chapter_number}章章纲`, {
-      chapterNumber: chapter.chapter_number,
-      goal: '沿线索进入新场景并留下可验证的章末钩子',
-      beats: ['观察异常', '验证线索', '做出选择', '形成新钩子'],
-      hook: '更高层的灯重新亮起'
-    }, 'candidate');
-    artifacts.select(scope, outline.artifactId, outline.artifactVersionId);
-    const contract = artifacts.create(scope, 'writing_contract', `第${chapter.chapter_number}章写作契约`, {
+    const outlineVersionId = new WritingReadinessService(this.database).outlineVersionId(scope, chapter.chapter_number);
+    const outline = artifacts.requireVersion(scope, outlineVersionId);
+    const contractContent = {
       chapterId: run.chapter_id,
-      pov: '第三人称限知',
-      tense: '过去时叙事',
+      pov: '服从老板已确认的创作方案；未明确时采用第三人称限知',
+      tense: '服从老板已确认的创作方案；未明确时采用现代中文小说常用叙事时态',
       targetWords: 2_900,
-      hardConstraints: ['2500至3500字', '不得占位', '服从当前正史', '结尾保留具体钩子']
-    }, 'candidate');
-    artifacts.select(scope, contract.artifactId, contract.artifactVersionId);
+      hardConstraints: ['2500至3500字', '不得占位', '服从当前正史', '不得脱离已确认章纲补造关键设定', `章纲版本：${outlineVersionId}`]
+    };
+    const existingContract = this.database.prepare(`
+      SELECT artifact_id FROM artifacts WHERE owner_id = ? AND book_id = ? AND artifact_type = 'writing_contract' AND title = ?
+    `).get(scope.ownerId, scope.bookId, `第${chapter.chapter_number}章写作契约`) as { artifact_id: string } | undefined;
+    const contract = existingContract === undefined
+      ? artifacts.create(scope, 'writing_contract', `第${chapter.chapter_number}章写作契约`, contractContent, 'candidate')
+      : artifacts.addVersion(scope, existingContract.artifact_id, contractContent);
+    const selectedContract = artifacts.select(scope, contract.artifactId, contract.artifactVersionId);
     this.database.prepare(`
       UPDATE chapters SET plan_status = 'ready', generation_status = 'working', updated_at = ?
       WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
@@ -174,7 +180,7 @@ export class ChapterPipelineService {
     this.database.prepare(`
       UPDATE chapter_pipeline_runs SET outline_version_id = ?, writing_contract_version_id = ?,
         phase = 'context', status = 'working', updated_at = ? WHERE pipeline_run_id = ?
-    `).run(outline.artifactVersionId, contract.artifactVersionId, this.clock.now().toISOString(), run.pipeline_run_id);
+    `).run(outline.artifactVersionId, selectedContract.artifactVersionId, this.clock.now().toISOString(), run.pipeline_run_id);
     return this.reload(run.pipeline_run_id);
   }
 
@@ -189,8 +195,23 @@ export class ChapterPipelineService {
       WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ? AND c.settlement_status = 'settled'
       ORDER BY c.chapter_number DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as { state_json: string } | undefined;
+    const planningSources = this.database.prepare(`
+      SELECT a.artifact_type, v.artifact_version_id, v.version, v.content_json
+      FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.status = 'active'
+        AND a.artifact_type IN ('creative_plan', 'story_bible', 'master_outline')
+      ORDER BY CASE a.artifact_type WHEN 'creative_plan' THEN 0 WHEN 'story_bible' THEN 1 ELSE 2 END
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ artifact_type: string; artifact_version_id: string; version: number; content_json: string }>;
     const hardSources: ContextSource[] = [
       { sourceType: 'system_rule', sourceId: 'writing-safety-v1', content: '正文必须完整、原创、服从正史；不得静默覆盖旧版本；不得包含占位符。', reason: '系统与老板硬规则', priority: 100 },
+      ...planningSources.map((source) => ({
+        sourceType: source.artifact_type,
+        sourceId: source.artifact_version_id,
+        content: source.content_json,
+        reason: '老板确认后选中的全书创作资料',
+        priority: 100,
+        version: source.version
+      })),
       { sourceType: 'chapter_outline', sourceId: run.outline_version_id, content: JSON.stringify(outline.content), reason: '当前章纲', priority: 100, version: outline.version },
       { sourceType: 'writing_contract', sourceId: run.writing_contract_version_id, content: JSON.stringify(contract.content), reason: '当前写作契约', priority: 100, version: contract.version }
     ];
@@ -206,7 +227,7 @@ export class ChapterPipelineService {
       positioningVersion: run.expected_positioning_version,
       outlineVersionId: run.outline_version_id,
       writingContractVersionId: run.writing_contract_version_id,
-      tokenBudget: 8_000,
+      tokenBudget: 24_000,
       hardSources,
       optionalSources
     });
@@ -322,13 +343,15 @@ export class ChapterPipelineService {
   private extractFacts(scope: BookScope, run: PipelineRow): PipelineRow {
     if (run.current_manuscript_version_id === null) throw new Error('事实提取缺少正文版本');
     const chapter = this.requireChapter(scope, run.chapter_id);
+    const content = this.loadManuscript(scope, run.current_manuscript_version_id);
+    const endingExcerpt = manuscriptEndingExcerpt(content);
     new ChapterCatalogService(this.database, this.ids, this.clock).selectManuscript(scope, run.chapter_id, run.current_manuscript_version_id);
     const canon = new CanonService(this.database, this.ids, this.clock);
     const entityId = canon.createEntity(scope, { entityType: 'event', canonicalName: `第${chapter.chapter_number}章已发生事件` });
     canon.proposeFact(scope, {
       subjectEntityId: entityId,
       relationKey: 'event',
-      value: { chapterNumber: chapter.chapter_number, outcome: '林澈取得新线索并确认下一处目标' },
+      value: { chapterNumber: chapter.chapter_number, endingExcerpt, source: 'selected_manuscript' },
       evidence: [{ manuscriptVersionId: run.current_manuscript_version_id, location: '章末' }],
       grade: 'B',
       sourceChapterId: run.chapter_id,
@@ -341,11 +364,12 @@ export class ChapterPipelineService {
   private settle(scope: BookScope, run: PipelineRow): PipelineRow {
     if (run.current_manuscript_version_id === null) throw new Error('结算缺少正文版本');
     const chapter = this.requireChapter(scope, run.chapter_id);
+    const content = this.loadManuscript(scope, run.current_manuscript_version_id);
     new CanonService(this.database, this.ids, this.clock).settleChapter(scope, run.chapter_id, run.current_manuscript_version_id, {
       chapterNumber: chapter.chapter_number,
-      location: '北塔线索链',
-      protagonist: { name: '林澈', alive: true, nextGoal: '找到写下第三个日期的人' },
-      hook: '北塔最高层重新亮灯'
+      manuscriptVersionId: run.current_manuscript_version_id,
+      endingExcerpt: manuscriptEndingExcerpt(content),
+      source: 'selected_manuscript'
     });
     const latestReview = this.database.prepare(`
       SELECT summary FROM review_rounds WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY round_number DESC LIMIT 1
@@ -378,6 +402,18 @@ export class ChapterPipelineService {
           .run(this.clock.now().toISOString(), existing.pipeline_run_id);
         return this.reload(existing.pipeline_run_id);
       }
+      if (existing.status === 'failed' && existing.current_manuscript_version_id === null) {
+        const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
+          .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
+        this.database.prepare(`
+          UPDATE chapter_pipeline_runs SET task_id = ?, outline_version_id = NULL,
+            writing_contract_version_id = NULL, context_pack_id = NULL, phase = 'preflight',
+            status = 'working', error_code = NULL, expected_canon_revision = ?,
+            expected_positioning_version = ?, updated_at = ? WHERE pipeline_run_id = ?
+        `).run(taskId, book.canon_revision, book.positioning_version, this.clock.now().toISOString(), existing.pipeline_run_id);
+        return this.reload(existing.pipeline_run_id);
+      }
+      if (existing.task_id !== taskId) throw new Error('章节已有不可安全复用的流水线运行记录');
       return existing;
     }
     const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
@@ -642,4 +678,10 @@ export function parseStructuredReview(raw: string): StructuredReview {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function manuscriptEndingExcerpt(content: string): string {
+  const normalized = content.trim();
+  if (normalized.length === 0) throw new Error('正文为空，不能提取章末状态');
+  return normalized.slice(-600);
 }

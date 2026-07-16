@@ -15,6 +15,7 @@ describe('Codex订阅模型适配器', () => {
       expect(input.args).toEqual(expect.arrayContaining([
         'exec', '--ephemeral', '--ignore-user-config', '--model', 'gpt-5.6-sol', '--sandbox', 'read-only', '--json', '-'
       ]));
+      expect(input.args).toContain('model_reasoning_effort="xhigh"');
       expect(input.prompt).toContain('秋香（主笔）');
       expect(input.prompt).toContain('2500至3500');
       expect(input.prompt).toContain('不得调用工具');
@@ -32,6 +33,22 @@ describe('Codex订阅模型适配器', () => {
     });
   });
 
+  it('开放对话使用中等推理强度而不是按整章最高强度运行', async () => {
+    const run = vi.fn<CodexProcessRunner['run']>(async (input) => {
+      expect(input.args).toContain('model_reasoning_effort="medium"');
+      return { output: '请先确认主角、机制和首副本。', inputTokens: 80, outputTokens: 30 };
+    });
+    const adapter = new CodexSubscriptionModelAdapter({
+      executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
+      workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
+      purpose: 'discussion', roleKey: 'chief_editor'
+    }, { run });
+
+    await expect(adapter.generate(request)).resolves.toMatchObject({
+      output: '请先确认主角、机制和首副本。', cashCostCny: 0
+    });
+  });
+
   it('调用前已取消时不启动Codex进程', async () => {
     const run = vi.fn<CodexProcessRunner['run']>();
     const adapter = new CodexSubscriptionModelAdapter({
@@ -46,4 +63,3 @@ describe('Codex订阅模型适配器', () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
-

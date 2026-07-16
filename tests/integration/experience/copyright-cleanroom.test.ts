@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CopyrightService } from '../../../apps/api/src/application/copyright/copyright-service.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { DomainError, errorCodes } from '../../../apps/api/src/domain/errors.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('版权隔离与干净室门禁', () => {
@@ -15,6 +15,7 @@ describe('版权隔离与干净室门禁', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '干净室测试书', text: '重新设计人物因果和世界规则' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     const copyright = new CopyrightService(context.database, ids, clock);
     const sourceId = copyright.registerSource(scope, {
       title: '受保护参考文本', rightsPath: 'cleanroom',
@@ -106,6 +107,7 @@ describe('版权隔离与干净室门禁', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '流水线版权门禁', text: '完全独立的原创故事定位' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     new CopyrightService(context.database, ids, clock).registerSource(scope, {
       title: '尚未完成抽象的受保护参考', rightsPath: 'cleanroom',
       content: '受保护作品原文只用于生成结构卡，未构建干净室包前不得启动任何正式章节创作。'

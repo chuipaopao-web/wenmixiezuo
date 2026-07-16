@@ -12,7 +12,8 @@ import { RetrievalService } from '../../apps/api/src/application/memory/retrieva
 import { NarrativeProjectionService } from '../../apps/api/src/application/projections/narrative-projection-service.js';
 import { sha256File } from '../../apps/api/src/infrastructure/files/file-utils.js';
 import { BackupService } from '../../apps/api/src/infrastructure/recovery/backup-service.js';
-import { initializeDomainBook } from '../helpers/domain-fixture.js';
+import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
+import { initializeDomainBook, prepareBookForWriting } from '../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../helpers/test-context.js';
 
 describe('首版全链路验收旅程', () => {
@@ -28,12 +29,18 @@ describe('首版全链路验收旅程', () => {
     const secondBook = initializeDomainBook(context, ownerId, ids, clock, { title: '隔离验收书', text: '海岛药师追查潮汐改变的原因' });
     const mainScope = { ownerId, bookId: mainBook.bookId };
     const secondScope = { ownerId, bookId: secondBook.bookId };
+    prepareBookForWriting(context, mainScope, ids, clock, 5);
+    prepareBookForWriting(context, secondScope, ids, clock, 1);
 
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     conversations.sendBossMessage(mainScope, '主书秘密 MAIN-ONLY-MESSAGE');
     conversations.sendBossMessage(secondScope, '乙书秘密 SECOND-ONLY-MESSAGE');
     expect(JSON.stringify(conversations.listMessages(mainScope))).not.toContain('SECOND-ONLY-MESSAGE');
     expect(JSON.stringify(conversations.listMessages(secondScope))).not.toContain('MAIN-ONLY-MESSAGE');
+    const taskService = new TaskService(context.database, context.config.releaseId, clock);
+    for (const scope of [mainScope, secondScope]) {
+      for (const task of taskService.list(scope).filter((item) => item.taskType === 'conversation_reply')) taskService.requestCancel(scope, task.taskId);
+    }
 
     const memory = new MemoryService(context.database, ids, clock);
     memory.remember(mainScope, { layer: 'story_bible', content: '主书硬锚 MAIN-ONLY-ANCHOR', sourceType: 'acceptance', sourceId: 'main-anchor', canonRevision: 0, positioningVersion: 1 });

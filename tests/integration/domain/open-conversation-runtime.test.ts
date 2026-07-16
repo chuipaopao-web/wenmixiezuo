@@ -1,0 +1,100 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
+import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
+import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+
+describe('开放式主创对话', () => {
+  let context: TestContext | undefined;
+  afterEach(() => context?.close());
+
+  it('普通消息由主编真实回复且不会写入长期记忆', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '开放对话测试书', text: '玩家进入历史战役副本改变命运'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    const scheduled = conversations.sendBossMessage(scope, '你好啊');
+    expect(scheduled.action).toMatchObject({ kind: 'conversation_reply_scheduled' });
+    const taskId = String(scheduled.action.taskId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    expect(tasks.claimNext('worker-chat')?.taskId).toBe(taskId);
+
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, taskId, 'worker-chat');
+
+    const messages = conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null; content: string; model_provider: string | null }>;
+    expect(messages.some((message) => message.sender_type === 'agent' && message.role_key === 'chief_editor')).toBe(true);
+    expect(messages.find((message) => message.sender_type === 'agent')).toMatchObject({ model_provider: 'local-deterministic' });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND context_pack_id IS NOT NULL AND state = 'succeeded'`).get(taskId)).toEqual({ count: 1 });
+
+    const followup = conversations.sendBossMessage(scope, '补充一句：先讨论，不要写正文');
+    const followupTaskId = String(followup.action.taskId);
+    expect(tasks.claimNext('worker-chat')?.taskId).toBe(followupTaskId);
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, followupTaskId, 'worker-chat');
+    const pack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
+      .get(followupTaskId) as { source_manifest_json: string };
+    expect(pack.source_manifest_json).toContain('你好啊');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM memories WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('自然创作意图自动进入相关岗位讨论而不要求命令前缀', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '自然讨论书', text: '一部待讨论的游戏小说' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const result = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock)
+      .sendBossMessage(scope, '我想写一本游戏文');
+
+    expect(result.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
+    const task = new TaskService(context.database, context.config.releaseId, clock).require(scope, String(result.action.taskId));
+    expect(task.brief).toMatchObject({ purpose: 'creative_planning', requestedChapterCount: 1 });
+  });
+
+  it('未准备好时写一章只发起规划讨论，不创建章节或正文任务', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '门禁测试书', text: '游戏副本题材，但尚未讨论角色与第一章' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const result = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock)
+      .sendBossMessage(scope, '写一章');
+
+    expect(result.action).toMatchObject({ kind: 'planning_discussion_scheduled', requestedChapterCount: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'chapter_creation'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('连续问候、表达创意再要求写作时会排队回复和讨论，绝不抢跑主笔', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '真实复现书', text: '玩家进入历史战役副本' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    expect(conversations.sendBossMessage(scope, '你好啊').action.kind).toBe('conversation_reply_scheduled');
+    expect(conversations.sendBossMessage(scope, '没人在吗').action.kind).toBe('conversation_reply_scheduled');
+    const planning = conversations.sendBossMessage(scope, '我想写一本游戏文');
+    expect(planning.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
+    expect(conversations.sendBossMessage(scope, '写一章').action).toMatchObject({
+      kind: 'planning_discussion_existing', discussionId: planning.action.discussionId
+    });
+
+    const taskCounts = context.database.prepare(`
+      SELECT task_type, COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? GROUP BY task_type ORDER BY task_type
+    `).all(scope.ownerId, scope.bookId);
+    expect(taskCounts).toEqual([
+      { task_type: 'conversation_reply', count: 2 },
+      { task_type: 'discussion', count: 1 }
+    ]);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+});

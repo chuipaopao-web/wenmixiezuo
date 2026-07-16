@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
-import { createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { prepareBookForWriting } from '../../helpers/domain-fixture.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -33,6 +34,13 @@ describe('生命周期、任务审计与备份REST入口', () => {
         method: 'POST', url: `/api/v1/books/${created.bookId}/restore`, payload: { expectedVersion: archived.version }
       });
       expect(restored.json().data).toMatchObject({ status: 'active', version: archived.version + 1 });
+      prepareBookForWriting(
+        context,
+        { ownerId: context.config.ownerId, bookId: created.bookId },
+        new SequenceIds(),
+        new FixedClock(),
+        1
+      );
 
       const batch = (await app.inject({
         method: 'POST', url: `/api/v1/books/${created.bookId}/chapter-batches`, payload: { count: 1 }

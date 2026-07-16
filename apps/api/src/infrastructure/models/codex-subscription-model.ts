@@ -157,7 +157,7 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
     const args = [
       'exec', '--ephemeral', '--ignore-user-config',
       '--model', this.modelId,
-      '--config', 'model_reasoning_effort="xhigh"',
+      '--config', `model_reasoning_effort="${reasoningEffort(this.options.purpose)}"`,
       '--sandbox', 'read-only',
       '--skip-git-repo-check',
       '--cd', this.options.workingDirectory,
@@ -181,6 +181,12 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function reasoningEffort(purpose: ModelPurpose): 'medium' | 'high' | 'xhigh' {
+  if (purpose === 'discussion') return 'medium';
+  if (purpose === 'novel_reviewer') return 'high';
+  return 'xhigh';
 }
 
 function validTokenCount(value: number | undefined): number {

@@ -742,6 +742,18 @@ svg {
   font-size: calc(11px * var(--font-scale));
 }
 
+.message-speaker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-speaker .agent-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+
 .message p {
   margin: 8px 0 2px;
   white-space: pre-wrap;

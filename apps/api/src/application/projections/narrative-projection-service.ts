@@ -44,19 +44,19 @@ export class NarrativeProjectionService {
         const content = JSON.parse(outline.content_json) as { goal?: unknown; beats?: unknown; hook?: unknown };
         this.insert(scope, 'mainline', 'planned', outline.chapter_number, book.canon_revision, { goal: content.goal, beats: content.beats }, [outline.artifact_version_id], now);
         this.insert(scope, 'hook', 'planned', outline.chapter_number, book.canon_revision, { hook: content.hook }, [outline.artifact_version_id], now);
-        this.insert(scope, 'emotion', 'planned', outline.chapter_number, book.canon_revision, { arc: ['警觉', '受压', '确认', '决断'] }, [outline.artifact_version_id], now);
-        this.insert(scope, 'subplot', 'planned', outline.chapter_number, book.canon_revision, { openThreads: ['导师失踪', '第三个日期'] }, [outline.artifact_version_id], now);
-        this.insert(scope, 'information_gap', 'planned', outline.chapter_number, book.canon_revision, { readerKnows: ['北塔有人设局'], protagonistKnows: ['钥匙关联账册'] }, [outline.artifact_version_id], now);
+        this.insert(scope, 'emotion', 'planned', outline.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'chapter_outline' }, [outline.artifact_version_id], now);
+        this.insert(scope, 'subplot', 'planned', outline.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'chapter_outline' }, [outline.artifact_version_id], now);
+        this.insert(scope, 'information_gap', 'planned', outline.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'chapter_outline' }, [outline.artifact_version_id], now);
       }
       for (const chapter of chapters.filter((candidate) => candidate.settlement_status === 'settled' && candidate.state_json !== null)) {
         const state = JSON.parse(chapter.state_json!) as Record<string, unknown>;
         const quality = chapter.scores_json === null ? {} : JSON.parse(chapter.scores_json) as Record<string, unknown>;
         const sources = [chapter.chapter_id];
-        this.insert(scope, 'mainline', 'actual', chapter.chapter_number, book.canon_revision, { chapterTitle: chapter.title, outcome: state.protagonist, location: state.location }, sources, now);
-        this.insert(scope, 'hook', 'actual', chapter.chapter_number, book.canon_revision, { hook: state.hook }, sources, now);
-        this.insert(scope, 'emotion', 'actual', chapter.chapter_number, book.canon_revision, { start: '警觉', peak: '受压', end: '决断', quality }, sources, now);
-        this.insert(scope, 'subplot', 'actual', chapter.chapter_number, book.canon_revision, { advanced: ['导师失踪'], pending: ['第三个日期'] }, sources, now);
-        this.insert(scope, 'information_gap', 'actual', chapter.chapter_number, book.canon_revision, { readerKnows: ['顾衡仍在留下线索'], protagonistKnows: ['第三个日期不可信'] }, sources, now);
+        this.insert(scope, 'mainline', 'actual', chapter.chapter_number, book.canon_revision, { chapterTitle: chapter.title, chapterState: state }, sources, now);
+        this.insert(scope, 'hook', 'actual', chapter.chapter_number, book.canon_revision, { endingExcerpt: state.endingExcerpt ?? null }, sources, now);
+        this.insert(scope, 'emotion', 'actual', chapter.chapter_number, book.canon_revision, { status: 'not_extracted', quality, source: 'selected_manuscript' }, sources, now);
+        this.insert(scope, 'subplot', 'actual', chapter.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'selected_manuscript' }, sources, now);
+        this.insert(scope, 'information_gap', 'actual', chapter.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'selected_manuscript' }, sources, now);
       }
       this.database.exec('COMMIT');
     } catch (error) {

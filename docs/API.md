@@ -87,7 +87,9 @@
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
-老板在主对话输入 `讨论 <问题>` 时，系统会创建同一套持久讨论与任务记录；Worker完成真实调用和汇总后，再以 `确认方案 <decisionId>` 零Token确认。
+普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；聊天不会自动写入长期记忆。自然创作意图会创建 `discussion` 任务并自动选择相关岗位，`讨论 <问题>` 仍可作为显式快捷方式。相关岗位先回复，主编读取真实意见后汇总，再以 `确认方案 <decisionId>` 零Token确认。
+
+标记为 `creative_planning` 的确认会生成或新增版本并选择 `creative_plan`、`story_bible`、`master_outline` 和请求范围内的 `chapter_outline`。普通讨论确认不自动改写规划成果。
 
 ## 6. 规划成果
 
@@ -102,6 +104,8 @@
 返回历史版本时不能直接改旧文件或旧记录。
 
 ## 7. 章节与稿件
+
+`POST /books/{bookId}/chapter-batches` 与对话中的 `写N章` 共用准备门禁。若创作方案、活动故事圣经、总纲或任一请求章节的老板确认章纲缺失，接口返回 `409 OPERATION_INCOMPLETE`，且不会创建章节或章节任务。对话入口会在这种情况下改为发起或复用创作规划讨论。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|

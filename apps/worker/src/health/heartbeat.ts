@@ -47,7 +47,7 @@ export class WorkerHeartbeat {
       process.pid,
       this.#startedAt,
       new Date().toISOString(),
-      JSON.stringify(['deterministic-model', 'task-heartbeat', 'persistent-task-claim']),
+      JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim']),
       this.#currentTaskId
     );
   }
