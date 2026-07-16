@@ -12,7 +12,7 @@ function check(name, condition, details) {
   if (!condition) failures.push(`${name}：${details}`);
 }
 
-const trackedFiles = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
+const trackedFiles = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files'], { cwd: root, encoding: 'utf8' })
   .split(/\r?\n/u).filter(Boolean);
 const runtimeFiles = trackedFiles.filter((file) => file.startsWith('apps/') || file.startsWith('scripts/'));
 const trackedText = trackedFiles
