@@ -40,11 +40,12 @@
 14. `TASKS.md`
 
 只在需要核对细节或争议时读取 `docs/CONSENSUS_LEDGER.md` 对应条目，禁止把24条全文默认注入每次模型调用。
+涉及记忆、切片、Wiki、检索、上下文或混合RAG的设计与实现还必须完整读取 `docs/HYBRID_RAG_DESIGN.md`。
 
 ## 开发原则
 
-- 技术栈固定为 React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、REST与SSE。
-- 采用本地模块化单体加独立Worker，不使用微服务、WebSocket或需要独立运维的向量/图数据库服务；混合RAG所需向量、关系和Wiki投影必须本地嵌入、可重建且不成为正史源。
+- 技术栈固定为 React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、LanceDB OSS TypeScript本地嵌入投影、REST与SSE。
+- 采用本地模块化单体加独立Worker，不使用微服务、WebSocket或需要独立运维的向量/图数据库服务；按DEC-012使用LanceDB OSS TypeScript本地嵌入模式保存可重建向量投影，关系和Wiki继续由SQLite正式源派生，任何投影都不得成为正史源。
 - 服务只监听 `127.0.0.1`。
 - 业务层只通过Repository访问数据；Worker不得直接修改核心业务表或正式正文。
 - 所有核心记录从第一天携带 `owner_id` 和 `book_id`；跨书查询必须显式携带隔离键。

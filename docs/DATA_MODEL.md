@@ -143,6 +143,18 @@ pending → queued → working → waiting_confirmation → succeeded
 
 保存查询、过滤条件、召回结果、版本、分数、来源和采用情况，便于复现遗漏或错误引用。
 
+### `content_chunks` / `chunk_entities`
+
+保存所有可检索块的权威元数据和来源指针，不在SQLite重复保存正式正文全文。块至少包含：来源类型/ID/版本、父块、顺序、字符偏移、块哈希、权限域、故事时间、正史版本、切片策略版本、状态和可选实体绑定。正文使用场景父块与段落组合子块；设定、规划、事实、Wiki、人物声音和任务临时内容使用各自切片类型。
+
+### `embedding_model_snapshots` / `vector_index_manifests`
+
+记录本地嵌入模型ID、版本、文件哈希、维度、归一化、查询指令、量化方式和验证时间，以及每书LanceDB索引的路径、块策略、来源正史版本、完成水位和状态。模型或维度改变时创建新快照并重建，不允许在同一索引混用向量空间。
+
+### `projection_jobs` / `projection_watermarks`
+
+权威事务在SQLite内写入幂等投影任务；Worker据此构建FTS、LanceDB、关系和Wiki。水位按书、投影类型和正史版本记录 `pending/building/ready/failed/stale`，正式生产只能使用满足所需正史版本的投影。
+
 ## 8. 知识与正史
 
 ### `entities`
@@ -175,6 +187,8 @@ pending → queued → working → waiting_confirmation → succeeded
 ## 9. 分析投影
 
 人物档案、时间线、关系图、情绪曲线、主支线、钩子和信息差图谱从正史事实和正式正文重建。投影携带来源 `canon_revision`，不能反向成为第二套正史。
+
+关系投影必须同时保存来源事实、起止实体、关系类型、有效故事时间、观点主体/知情范围和正史版本；关系遍历使用有限深度和岗位边类型白名单。派生Wiki的每条结论必须回链事实或正文，人物谎言、认知、计划和客观事实不得合并。
 
 ## 10. 研究与版权
 
@@ -221,3 +235,5 @@ pending → queued → working → waiting_confirmation → succeeded
 - D级事实未确认时不能结算；
 - 旧 `editor_epoch`、旧 `canon_revision` 和旧定位版本的写入被拒绝；
 - 迁移空库、重复执行和已有数据升级安全。
+- 正式与临时LanceDB索引零串线；向量目录全部删除后能够从权威源按书重建。
+- 投影任务中断可幂等恢复；落后、失败、混合模型或错误正史水位的索引不会驱动正式生产。
