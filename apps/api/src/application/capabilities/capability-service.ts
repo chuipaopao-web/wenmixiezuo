@@ -13,7 +13,11 @@ export class CapabilityService {
   public async snapshot() {
     const runtime = this.runtimeProbe.snapshot();
     const modelAssets = await this.assetRegistry.inspect();
-    const missingDependencies = runtime.dependencies.filter((dependency) => dependency.status === 'missing').map((dependency) => dependency.capability);
+    const missingDependencies: string[] = runtime.dependencies.filter((dependency) => dependency.status === 'missing').map((dependency) => dependency.capability);
+    const embeddingAssetReady = modelAssets.some((asset) => asset.kind === 'embedding' && asset.status === 'verified');
+    const vectorRuntimeReady = runtime.dependencies.find((dependency) => dependency.capability === 'vector-store')?.status === 'available'
+      && runtime.dependencies.find((dependency) => dependency.capability === 'embedding-runtime')?.status === 'available';
+    if (!embeddingAssetReady) missingDependencies.push('embedding-asset');
     return {
       releaseId: this.releaseId,
       checkedAt: new Date().toISOString(),
@@ -30,7 +34,9 @@ export class CapabilityService {
       degradation: {
         active: missingDependencies.length > 0 || modelAssets.some((asset) => asset.status !== 'verified'),
         missingCapabilities: missingDependencies,
-        vectorSearchAvailable: runtime.dependencies.find((dependency) => dependency.capability === 'vector-store')?.status === 'available',
+        vectorSearchAvailable: vectorRuntimeReady && embeddingAssetReady,
+        vectorRuntimeReady,
+        embeddingAssetReady,
         localModelAssetsReady: modelAssets.some((asset) => asset.kind === 'local-utility' && asset.status === 'verified')
       }
     };

@@ -31,7 +31,7 @@ describe('向前迁移器', () => {
         '0001_foundation.sql', '0002_data_safety.sql', '0003_runtime.sql', '0004_novel_domain.sql',
         '0005_memory_canon.sql', '0006_creation_pipeline.sql', '0007_experience_copyright.sql',
         '0008_agent_personas.sql', '0009_role_titles.sql', '0010_expression_taxonomy.sql',
-        '0011_knowledge_lifecycle_time.sql'
+        '0011_knowledge_lifecycle_time.sql', '0012_chunk_projection_snapshots.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');

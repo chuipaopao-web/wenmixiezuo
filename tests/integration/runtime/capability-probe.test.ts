@@ -39,6 +39,7 @@ describe('本机能力探针', () => {
       expect.objectContaining({ capability: 'local-inference', packageName: 'onnxruntime-node', status: expect.stringMatching(/available|missing/) })
     ]));
     expect(snapshot.modelAssets).toContainEqual(expect.objectContaining({ assetId: 'embedding-mini', status: 'verified', filesVerified: 1 }));
+    expect(snapshot.degradation).toMatchObject({ vectorSearchAvailable: true, vectorRuntimeReady: true, embeddingAssetReady: true });
     expect(JSON.stringify(snapshot)).not.toContain(context.dataDir);
     expect(JSON.stringify(snapshot)).not.toContain(context.config.workerToken);
   });

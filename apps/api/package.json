@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
+    "@huggingface/transformers": "3.8.1",
+    "@lancedb/lancedb": "0.22.3",
     "fastify": "5.10.0"
   }
 }
-

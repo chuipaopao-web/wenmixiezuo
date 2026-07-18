@@ -4,6 +4,8 @@ import { loadWorkerConfig } from './runtime/config.js';
 import { TaskClaimer } from './scheduler/task-claimer.js';
 import { WorkerLoop } from './runtime/worker-loop.js';
 import { ChapterTaskExecutor } from './executors/chapter-task-executor.js';
+import { ProjectionTaskExecutor } from './executors/projection-task-executor.js';
+import { ProjectionLoop } from './runtime/projection-loop.js';
 
 const config = loadWorkerConfig();
 const database = new DatabaseSync(config.databasePath);
@@ -20,10 +22,13 @@ const loop = new WorkerLoop(
   new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken)
 );
 loop.start();
+const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId));
+projectionLoop.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId }));
 
 const shutdown = (): void => {
   loop.stop();
+  projectionLoop.stop();
   heartbeat.stop();
   database.close();
 };
