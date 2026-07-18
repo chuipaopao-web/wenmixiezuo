@@ -196,3 +196,17 @@ LanceDB、Wiki和关系投影不承担数据恢复权威。备份可以携带投
 - 目标电脑必须实测500万字符/1500章的增量索引、全量重建、P50/P95查询、磁盘、内存、冷启动、备份恢复和中断继续。只有该证据证明嵌入式架构不达标时，才评估独立数据库或分布式架构。
 - 已结算旧阶段通过卷/故事弧阶段结算退出默认活动工作集，但不可变正文和正式索引继续保留。`RetrievalProvider` 识别实体、开放线程、规则、因果、冲突和老板回顾等触发后，按卷→故事弧→章节/场景→原文有界下钻；摘要仅作路由投影。
 - 活跃度、阶段结算、探针和下钻路径保存在SQLite可重建/可审计结构中；一次初始检索后最多一次补充周期，正式上下文只注入最小证据。查询扫描量与模型注入Token分别计量，防止把本地检索范围误当上下文成本或退化为整书加载。
+
+## 13. DEC-020安全入口与逐书切换
+
+- 历史首版保持可运行；长篇增量使用新release和Schema 0010至0016，只向前新增。
+- 权威事务与投影outbox同事务；Worker在非活动快照构建、校验后原子切换。迁移事务内不运行模型、嵌入或全量回填。
+- 每本书维护活动检索策略、切片/FTS/Wiki/关系/向量/摘要快照和水位；新能力按回填、探针、影子读、逐书指针切换，不全库一次替换。
+- API除最小health外使用每启动轮换的本机会话；精确Host、Origin和Fetch Metadata；SSE不通过URL传Token。Worker使用独立短期最小权限Token。
+- 可移植复制导入和生产恢复是两个架构边界；导入在隔离区预检并生成新书ID，恢复需要恢复前备份和老板确认。
+- 结构日志、指标、磁盘/队列/投影水位和降级状态只留本机；秘密、正文全文和思维链默认不进日志。
+- 完整安全、故障和资源合同见 `docs/SECURITY_AND_OPERATIONS.md`，状态机见 `docs/RUNTIME_WORKFLOWS.md`，逐任务实施见 `docs/superpowers/plans/2026-07-19-final-longform-platform-implementation.md`。
+
+## 14. 目标实现模块
+
+长篇增量在现有模块化单体内新增 `application/continuity`、`application/workflows`、`application/portability`、`application/operations`、`infrastructure/security`、`infrastructure/capabilities`、`infrastructure/retrieval` 和 `infrastructure/observability`；不新增服务端口或独立数据库服务。Web按聊天、任务、规划、正文、资料、连续性、检索诊断和设置拆分功能组件，但仍构建为同一Vite应用。

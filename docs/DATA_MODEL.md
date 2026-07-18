@@ -321,3 +321,19 @@ pending → queued → working → waiting_confirmation → succeeded
 数据库与Repository测试另覆盖500万字符、1500章下的分页、范围查询、增量结算、投影水位、按书重建、备份恢复和Agent跨重启接续；不得用单行百万字符或集中前缀锚点代替分布式满规模测试。
 
 还必须覆盖：第500/1000/1500章触发第30/120/280章等早期正史；无关旧块不注入；开放线程与全局硬事实不随距离丢失；摘要探针失败可从原文重建；下钻记录和上下文包一致；所有投影跨书隔离且删除后可重建。
+
+## 14. DEC-020新增Schema分组与切换元数据
+
+长篇增量只通过0010至0016向前新增，不修改0001至0009。表名、顺序和职责冻结如下：
+
+- 0010：`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
+- 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
+- 0012：`content_nodes`、`content_chunks`、`chunk_entities`、`chunk_snapshots`、`chunk_snapshot_sources`、`projection_outbox`、`projection_jobs`、`projection_watermarks`、`embedding_model_snapshots`、`vector_index_manifests`、`book_capability_states`。
+- 0013：`retrieval_query_plans`、`retrieval_channel_runs`、`retrieval_candidates`、`retrieval_evidence_clusters`、`retrieval_evidence_checks`、`retrieval_drilldowns`、`retrieval_context_selections`。
+- 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`quality_windows`、`retrieval_activity_projections`。
+- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`。
+- 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
+
+所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。
+
+旧事实迁移不伪造世界有效、人物知情或系统修订时间。原权威等级保留，并写 `temporal_completeness=partial`；补全任务只生成候选和来源指针。完整迁移、状态机和回滚见 `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md` 与最终实施计划。

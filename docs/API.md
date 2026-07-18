@@ -290,3 +290,79 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 阶段结算响应必须区分 `narratively_closed` 与 `technical_checkpoint`，逐项返回正史版本、来源范围和探针状态。下钻预览必须返回 `triggerReasons`、`activityClass`、`path`、`maxDepth`、`localCandidateCount`、`injectedItemCount`、`injectedTokens`、采用/排除理由和是否取得原文证据；不得返回原始向量或未授权整段正文。正式生产遇到失败探针、错误水位或关键依据不足时返回明确降级/阻断状态，不能用摘要猜测。
 
 切片诊断响应还必须区分原始证据范围与 `indexText/embeddingText` 策略，只返回可解释的短上下文头及其版本，不返回嵌入向量。历史或失败快照只用于诊断，不能通过普通参数成为正式检索当前指针。
+
+## 17. DEC-020冻结增量接口（E0，尚未注册）
+
+所有路径位于 `/api/v1`。除health外，接口需要每启动轮换的本机会话；写请求还验证精确Origin和Fetch Metadata。以下接口在对应E1实现和契约测试完成前不得对外宣称可用。
+
+### 17.1 会话、能力和运维
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/runtime/session` | 精确Origin下建立短期HttpOnly本机会话 |
+| GET | `/capabilities` | SQLite、模型、向量、离线资产和降级能力快照 |
+| GET | `/operations/status` | 磁盘、队列、投影、备份、模型和Worker水位 |
+| POST | `/operations/projections/{projectionId}/retry` | 幂等重试失败投影，不切换活动快照 |
+
+### 17.2 资料、检索和连续性
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/books/{bookId}/library` | 按实体类型、标签、层级、时间、冲突和水位分页查询资料 |
+| GET | `/books/{bookId}/library/entities/{entityId}` | 实体、别名、事实、关系、情绪、来源和三轴时间详情 |
+| GET | `/books/{bookId}/library/graph` | 受节点/边/跳数限制的关系、情绪、势力或空间子图 |
+| GET | `/books/{bookId}/library/gaps` | 与当前任务相关的资料缺口，不把有意未知当错误 |
+| POST | `/books/{bookId}/library/tag-commands` | 主编受限自然语言标签治理；歧义/高影响生成候选确认 |
+| POST | `/books/{bookId}/retrieval/query-plans` | 创建不可变检索计划并返回歧义/门禁 |
+| GET | `/books/{bookId}/retrieval/{retrievalId}` | 查询四通道、H/E/I、证据簇、下钻、闭环和Token注入 |
+| POST | `/books/{bookId}/retrieval/{retrievalId}/drilldowns` | 执行唯一一次有界补充检索 |
+| POST | `/books/{bookId}/projection-snapshots/{snapshotId}/activate` | 仅在探针通过后原子切换单书活动快照 |
+
+`library/graph` 默认最多200节点/500边、最多3跳；响应包含被截断和下一步筛选提示。检索响应不返回原始向量、隐藏提示或思维链。
+
+### 17.3 工作流与写作
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/books/{bookId}/writing-orders` | 从已确认规划创建版本化工单和岗位资料包 |
+| GET | `/books/{bookId}/writing-orders/{orderId}` | 查询门禁、H约束、自由区、来源和执行状态 |
+| POST | `/books/{bookId}/writing-orders/{orderId}/start` | 通过准备门禁后启动主笔 |
+| POST | `/tasks/{taskId}/cancel` | 持久化新epoch并传播真实取消 |
+| POST | `/tasks/{taskId}/resume` | 从有效检查点新attempt恢复 |
+| POST | `/manuscripts/{manuscriptId}/confirm` | 老板确认正式不可变正文并触发结算 |
+
+所有状态变更支持 `Idempotency-Key`，响应返回 `operationId/taskId/attemptId/epoch`。取消成功只表示提交栅栏建立；适配器确认和晚到结果处理通过SSE继续报告。
+
+### 17.4 可移植和恢复
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/books/{bookId}/exports` | 创建版本化 `.wenmi-book` 复制导出 |
+| GET | `/portable-operations/{operationId}` | 查询清单、哈希、阶段、失败和下载就绪 |
+| POST | `/imports/quarantine` | 上传到隔离区并执行结构/哈希/限额扫描 |
+| GET | `/imports/{importId}/impact` | 预览新ID、来源、Schema和重建影响 |
+| POST | `/imports/{importId}/confirm-copy` | 确认以新 `book_id` 复制导入 |
+| POST | `/backups/{backupId}/restore-dry-run` | 在隔离区预演生产恢复和影响 |
+| POST | `/backups/{backupId}/restore-confirm` | 严格确认后创建恢复前备份并生产恢复 |
+
+普通导入接口永远不接受覆盖书籍参数。生产恢复确认契约与永久删除同级严格，且只能在本机设置/恢复页发起。
+
+### 17.5 新增错误码
+
+- `RUNTIME_SESSION_REQUIRED`
+- `REQUEST_ORIGIN_REJECTED`
+- `ENTITY_DISAMBIGUATION_REQUIRED`
+- `TEMPORAL_SCOPE_INCOMPLETE`
+- `RETRIEVAL_EVIDENCE_INSUFFICIENT`
+- `RETRIEVAL_DRILLDOWN_EXHAUSTED`
+- `PROJECTION_STALE`
+- `PROJECTION_VALIDATION_FAILED`
+- `VECTOR_CAPABILITY_UNAVAILABLE`
+- `CONTEXT_BUDGET_EXCEEDED`
+- `CANCEL_COMMIT_FENCE_REJECTED`
+- `IMPORT_QUARANTINE_FAILED`
+- `PORTABLE_MANIFEST_INVALID`
+- `RESTORE_IMPACT_CONFIRMATION_REQUIRED`
+- `DISK_SAFETY_LINE_REACHED`
+
+具体状态机、请求限额、Cookie、导入和错误脱敏见 `docs/RUNTIME_WORKFLOWS.md` 与 `docs/SECURITY_AND_OPERATIONS.md`。
