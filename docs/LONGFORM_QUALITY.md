@@ -52,6 +52,8 @@
 
 按DEC-012采用SQLite权威源、SQLite FTS5、LanceDB OSS TypeScript本地嵌入式向量投影、SQLite时间关系/Wiki投影和应用层融合重排。LanceDB不开放端口、只保存按书可重建投影；不引入云数据库或需要独立运维的向量/图服务。切片按DEC-017使用不可变原文、结构节点、父子检索块、原子事实和版本化快照；完整合同见 `docs/HYBRID_RAG_DESIGN.md` 与 `docs/CHUNKING_DESIGN.md`。
 
+按DEC-019，四路不直接加分：结构化事实承担硬状态，FTS定位原词原句，向量只产生语义/声音/主题候选，关系/Wiki有界扩展已消歧实体。结果分为H硬约束、E证据、I灵感；H不参加RRF，E/I分车道融合，派生副本按来源血缘去重，确定性结论闭环到正式事实或原文。完整编排见 `docs/HYBRID_RETRIEVAL_ORCHESTRATION.md`。
+
 ## 5. 岗位专用上下文与创作模式
 
 - 主编：老板最新要求、活动决定、岗位意见、任务和必要正史；不读取整本正文。

@@ -141,7 +141,19 @@ pending → queued → working → waiting_confirmation → succeeded
 
 ### `retrieval_records`
 
-保存查询、过滤条件、实体候选ID与别名依据、歧义状态、受Schema验证的查询计划、召回结果、版本、分数、来源和采用情况，便于复现遗漏或错误引用。同名/多候选未消歧时不得静默固化为单一实体；模型查询计划不得保存或执行任意SQL、文件路径或工具命令。
+作为一次检索执行的不可变总信封，保存任务、岗位、创作模式、正史版本、故事时点、观点主体、策略版本、各通道水位、最终状态、上下文包和总候选/延迟/Token，便于复现遗漏或错误引用。
+
+### `retrieval_query_plans` / `retrieval_channel_runs`
+
+`retrieval_query_plans` 保存受Schema验证的主意图/子意图、实体候选ID与别名依据、歧义状态、活动工作集、允许下钻、四路开关、关系路径白名单、候选和注入预算，以及切片/嵌入/融合/重排版本。模型查询计划不得保存或执行任意SQL、文件路径或工具命令。同名/多候选未消歧时不得静默固化为单一实体或成为关系种子。
+
+`retrieval_channel_runs` 按结构化、FTS、向量、关系/Wiki分别保存实际查询、硬过滤、Top-K、投影水位、原始排名/距离或路径、本地扫描与候选量、延迟、降级和错误。原始通道分数不可直接相加，也不等于事实置信度。
+
+### `retrieval_candidate_clusters` / `retrieval_evidence_checks`
+
+`retrieval_candidate_clusters` 按事实ID、实体、原始UTF-8范围、父子血缘和摘要/Wiki来源聚合重复候选，保存H硬约束/E证据/I灵感车道、各路名次、RRF分量、权威/三轴时间/岗位调整、冲突组、重排结果及采用/排除原因。派生副本只能形成一个证据簇，不能冒充多源一致。
+
+`retrieval_evidence_checks` 保存选中断言到当前正式事实或最小原文的解引用、来源版本/哈希、否定/叙事模式/观点主体/三轴时间检查和 `closed/degraded/conflicted/unknown` 结果。H和确定性结论未闭环时不得进入正式生产硬约束。
 
 ### `content_chunks` / `chunk_entities`
 
