@@ -43,33 +43,33 @@ Skill 不以“检查得全面”为目标，而以阻止以下长篇创作失�
 
 ## 二、文件结构
 
-- 创建：`.agents/skills/wenmi-longform-quality/SKILL.md`  
+- 创建：`.agents/skills/wenmi-longform-quality/SKILL.md`
   负责触发条件、能力追踪工作流、两轮反证、输出契约和停止条件。
-- 创建：`.agents/skills/wenmi-longform-quality/agents/openai.yaml`  
+- 创建：`.agents/skills/wenmi-longform-quality/agents/openai.yaml`
   负责 UI 名称、说明和默认调用提示。
-- 创建：`.agents/skills/wenmi-longform-quality/references/longform-failure-model.md`  
+- 创建：`.agents/skills/wenmi-longform-quality/references/longform-failure-model.md`
   负责长篇创作失败分类、症状、根因、反例和严重度。
-- 创建：`.agents/skills/wenmi-longform-quality/references/runtime-quality-loops.md`  
+- 创建：`.agents/skills/wenmi-longform-quality/references/runtime-quality-loops.md`
   负责讨论、规划、检索、写作、审校、结算和长期质量反馈的运行闭环。
-- 创建：`.agents/skills/wenmi-longform-quality/references/context-and-rag.md`  
+- 创建：`.agents/skills/wenmi-longform-quality/references/context-and-rag.md`
   负责正史/临时区、知识编译、混合检索、岗位专用上下文和注意力预算。
-- 创建：`.agents/skills/wenmi-longform-quality/references/evaluation-contract.md`  
+- 创建：`.agents/skills/wenmi-longform-quality/references/evaluation-contract.md`
   负责系统正确性、检索质量、创作质量、人工盲评和“不得宣布已解决”的证据门槛。
-- 创建：`.agents/skills/wenmi-longform-quality/scripts/validate-audit.mjs`  
+- 创建：`.agents/skills/wenmi-longform-quality/scripts/validate-audit.mjs`
   确定性检查审计产物是否包含完整能力链、反例、指标、证据等级和剩余风险；不判断文学质量。
-- 创建：`tests/skill-evals/wenmi-longform-quality/cases.md`  
+- 创建：`tests/skill-evals/wenmi-longform-quality/cases.md`
   保存触发、反触发、对抗和回归案例及逐项通过标准。
-- 创建：`tests/skill-evals/wenmi-longform-quality/fixtures/`  
+- 创建：`tests/skill-evals/wenmi-longform-quality/fixtures/`
   保存不泄露预期答案的产品提案、测试声明和故障报告原始夹具。
-- 创建：`docs/LONGFORM_QUALITY.md`  
+- 创建：`docs/LONGFORM_QUALITY.md`
   成为文秘写作“长篇写得好”的当前产品能力规格和边界说明。
-- 创建：`docs/LONGFORM_QUALITY_GAP.md`  
+- 创建：`docs/LONGFORM_QUALITY_GAP.md`
   记录当前实现证据、已具备基础、未解决问题、错误验收和后续工作流，不修改历史发布证据。
-- 修改：`AGENTS.md`  
+- 修改：`AGENTS.md`
   将该 Skill 加入重要创作系统决策的强制门禁和开工前按需阅读规则。
-- 修改：`docs/DECISIONS.md`  
+- 修改：`docs/DECISIONS.md`
   登记“以长篇质量失败为中心设计、证据分级、反对自证式测试”的老板决定。
-- 修改：`docs/MEMORY.md`、`docs/PRODUCT.md`、`docs/AGENT_SYSTEM.md`、`docs/ACCEPTANCE.md`  
+- 修改：`docs/MEMORY.md`、`docs/PRODUCT.md`、`docs/AGENT_SYSTEM.md`、`docs/ACCEPTANCE.md`
   在 Skill 首次审计后同步纠正当前规格，明确混合RAG、岗位上下文、纵向质量和真实模型评测要求。
 
 ## 三、Skill 核心工作流
