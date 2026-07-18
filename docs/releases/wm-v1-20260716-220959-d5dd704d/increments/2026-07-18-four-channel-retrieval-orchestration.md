@@ -38,6 +38,7 @@ Skill文件哈希和两轮设计审查保存在 `docs/HYBRID_RETRIEVAL_ORCHESTRA
 | 全量门禁 | `npm.cmd run verify` | 类型检查通过；63个测试文件、132项测试通过；API/Web/Worker构建通过 |
 | 迁移/隔离/恢复 | 迁移、Repository、任务/正文恢复和备份恢复11个目标测试文件 | 11个文件、19项测试通过；本增量无Schema变化 |
 | 提交前发布功能验收 | `npm.cmd run acceptance` | 3个文件、3项功能测试通过；审计仅按预期报告工作树未提交 |
+| 提交后发布验收 | `npm.cmd run acceptance` | 3个文件、3项测试通过；审计 `failures: []`、工作树 `clean` |
 
 第一次受限环境全量测试中，SSE、HTTP真实取消和Worker等待三项失败；错误分别直接或连带指向临时 `127.0.0.1` 连接被拒绝，核心错误码为 `EACCES`。相同代码和相同 `npm.cmd run verify` 在允许本机回环后63/63文件、132/132测试和三应用构建全部通过，确认根因是执行环境权限而非业务回归。
 

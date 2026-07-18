@@ -289,4 +289,4 @@
 - 停止条件：需要业务代码、迁移、真实付费、密钥、独立数据库服务、生产恢复、永久删除或无法裁决的重大架构变化时停止；本任务未触发。
 - 回滚方法：对本任务文档提交执行非破坏性 `git revert`；未来运行时按不可变策略/索引快照回滚RRF、Top-K、关系预算、重排和灵感模板，不回滚正史、安全、版权和隔离门禁。
 - 复核人：当前Codex依据三套Skill完成两轮审查；受“不调用其他开发Agent”约束，本次E0审查不声称人员独立，后续E3/E4必须使用独立金标、隐藏对抗集、盲评和真实作者验收。
-- 当前证据：核心提交 `b10630c`；专项审计器返回 `PASS: docs\HYBRID_RETRIEVAL_ORCHESTRATION.md`；官方Skill校验返回 `Skill is valid!`；`git diff --check` 和规格扫描通过；相同代码在允许 `127.0.0.1` 回环后类型检查、63个测试文件/132项测试和API/Web/Worker构建全部通过；迁移/Repository/恢复目标集11个文件/19项通过；提交前发布功能验收3/3通过，审计只按预期报告工作树尚未提交。完整记录见 `docs/releases/wm-v1-20260716-220959-d5dd704d/increments/2026-07-18-four-channel-retrieval-orchestration.md`。
+- 当前证据：核心提交 `b10630c`；专项审计器返回 `PASS: docs\HYBRID_RETRIEVAL_ORCHESTRATION.md`；官方Skill校验返回 `Skill is valid!`；`git diff --check` 和规格扫描通过；相同代码在允许 `127.0.0.1` 回环后类型检查、63个测试文件/132项测试和API/Web/Worker构建全部通过；迁移/Repository/恢复目标集11个文件/19项通过；提交前发布功能验收3/3通过，提交后复跑3/3通过且审计 `failures: []`、工作树clean。完整记录见 `docs/releases/wm-v1-20260716-220959-d5dd704d/increments/2026-07-18-four-channel-retrieval-orchestration.md`。
