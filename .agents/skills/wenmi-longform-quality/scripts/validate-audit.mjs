@@ -25,6 +25,7 @@ const requiredSections = [
   ['最强替代方案与取舍', heading('最强替代方案与取舍')],
   ['预先验尸与反例', heading('预先验尸与反例')],
   ['修正后的最终设计', heading('修正后的最终设计')],
+  ['创造性与输出质量保护', heading('创造性与输出质量保护')],
   ['测试与证据等级', heading('测试与证据等级')],
   ['剩余风险与未知项', heading('剩余风险与未知项')],
   ['停止、回滚和升级条件', heading('停止、回滚和升级条件')]
@@ -35,6 +36,13 @@ for (const [name, pattern] of requiredSections) {
 }
 
 const lines = content.split(/\r?\n/u);
+const sectionBody = (title) => {
+  const pattern = heading(title);
+  const start = lines.findIndex((line) => pattern.test(line));
+  if (start === -1) return '';
+  const next = lines.findIndex((line, index) => index > start && /^#{1,6}\s+/u.test(line));
+  return lines.slice(start + 1, next === -1 ? lines.length : next).join('\n');
+};
 const hasMarkdownTable = lines.some((line, index) =>
   /^\s*\|.+\|\s*$/u.test(line) &&
   /^\s*\|(?:\s*:?-{3,}:?\s*\|){2,}\s*$/u.test(lines[index + 1] ?? '')
@@ -44,6 +52,18 @@ if (!hasMarkdownTable) failures.push('缺少能力追踪表');
 if (!/反例/u.test(content)) failures.push('缺少反例');
 if (!/测试/u.test(content)) failures.push('缺少测试');
 if (!/剩余风险/u.test(content)) failures.push('缺少剩余风险');
+
+const creativitySection = sectionBody('创造性与输出质量保护');
+const creativityRequirements = [
+  ['自由创作区', /自由创作区/u],
+  ['非劣效', /非劣效/u],
+  ['基线', /基线/u],
+  ['盲评', /盲评/u]
+];
+
+for (const [name, pattern] of creativityRequirements) {
+  if (!pattern.test(creativitySection)) failures.push(`缺少创造性保护字段: ${name}`);
+}
 
 for (const level of ['E0', 'E1', 'E2', 'E3', 'E4']) {
   if (!content.includes(level)) failures.push(`缺少证据等级: ${level}`);
@@ -66,8 +86,18 @@ const overclaims = [
   /百分之百解决长篇/u
 ];
 
-if (overclaims.some((pattern) => pattern.test(content))) {
+const claimSections = [sectionBody('明确结论与置信度'), sectionBody('修正后的最终设计')].join('\n');
+if (overclaims.some((pattern) => pattern.test(claimSections))) {
   failures.push('存在越界声明');
+}
+
+const overconstraints = [
+  /所有(?:章节|创作|写作).{0,20}(?:必须)?严格遵守(?:章纲|大纲).{0,20}不得偏离/su,
+  /创造性.{0,12}(?:服从|让位于)(?:一致性|规则|大纲)/su
+];
+
+if (overconstraints.some((pattern) => pattern.test(sectionBody('修正后的最终设计')))) {
+  failures.push('存在压制创造性的绝对约束');
 }
 
 if (failures.length > 0) {

@@ -1,4 +1,4 @@
 interface:
   display_name: "文秘写作长篇质量审查"
-  short_description: "针对长篇小说记忆、检索、Agent与创作闭环的证据审查"
-  default_prompt: "使用 $wenmi-longform-quality 审查这个方案是否真正降低长篇小说创作失败，并给出可验证的修正设计。"
+  short_description: "保护创造性的长篇记忆、检索、Agent与创作闭环审查"
+  default_prompt: "使用 $wenmi-longform-quality 审查这个方案能否降低长篇失败且不削弱创造性和输出质量，并给出可验证的修正设计。"

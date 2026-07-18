@@ -42,6 +42,7 @@
 | DEC-007 | 九岗位使用Codex登录态与火山方舟套餐模型 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、模型适配器、任务流水线和模型测试 |
 | DEC-008 | 开放对话与写作准备门禁先于主笔生成 | `PRODUCT.md`、`API.md`、聊天/讨论/规划/章节服务和增量验收 |
 | DEC-009 | 长篇创作失败、反迎合、混合RAG目标和E0—E4独立证据门禁 | `LONGFORM_QUALITY.md`、`LONGFORM_QUALITY_GAP.md`、`MEMORY.md`、`ACCEPTANCE.md`、项目级Skill和评测夹具 |
+| DEC-010 | 长篇治理不得削弱创造性和输出质量；四种模式、创作自由区、九岗位、延后软审校、经验防固化与非劣效评测 | 项目级Skill、`LONGFORM_QUALITY.md`、`PRODUCT.md`、`AGENT_SYSTEM.md`、`MEMORY.md`、`ACCEPTANCE.md`和创造性对抗夹具 |
 
 ## 当前发布执行证据
 

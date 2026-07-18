@@ -14,7 +14,7 @@ function validate(fixture: string) {
 }
 
 describe('wenmi-longform-quality审计格式门禁', () => {
-  it('接受包含完整能力链和E0至E4证据的审计', () => {
+  it('接受包含完整能力链、创造性保护和E0至E4证据的审计', () => {
     const result = validate('audit-complete.md');
 
     expect(result.status).toBe(0);
@@ -34,5 +34,26 @@ describe('wenmi-longform-quality审计格式门禁', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('存在越界声明');
+  });
+
+  it('拒绝缺少创造性与输出质量保护的审计', () => {
+    const result = validate('audit-missing-creativity.md');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('缺少章节: 创造性与输出质量保护');
+  });
+
+  it('拒绝把所有创作机械锁死在章纲中的方案', () => {
+    const result = validate('audit-overconstrained.md');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('存在压制创造性的绝对约束');
+  });
+
+  it('允许在反例章节引用过度约束主张，只审查最终设计是否采用', () => {
+    const result = validate('audit-quotes-overconstraint.md');
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('PASS:');
   });
 });
