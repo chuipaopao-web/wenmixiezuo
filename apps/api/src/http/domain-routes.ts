@@ -54,7 +54,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const tasks = new TaskService(database, config.releaseId, clock);
   const backups = new BackupService(database, config);
 
-  app.post<{ Body: { title?: string; text: string; category?: string; tags?: string[]; style?: string } }>('/api/v1/books/drafts', async (request) => {
+  app.post<{ Body: {
+    title?: string; text: string; category?: string; classification?: string;
+    targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string;
+    tags?: string[]; style?: string;
+  } }>('/api/v1/books/drafts', async (request) => {
     return success(positioning.createDraft(owner, request.body), request.id);
   });
 

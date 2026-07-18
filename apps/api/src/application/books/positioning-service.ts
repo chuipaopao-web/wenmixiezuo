@@ -25,12 +25,29 @@ export class PositioningService {
 
   public createDraft(
     scope: OwnerScope,
-    input: { title?: string; text: string; category?: string; tags?: string[]; style?: string }
+    input: {
+      title?: string;
+      text: string;
+      category?: string;
+      classification?: string;
+      targetAudience?: string;
+      expectedScaleChars?: number;
+      initialExpressionBaseline?: string;
+      tags?: string[];
+      style?: string;
+    }
   ): PositioningDraft {
     assertOwnerScope(scope);
     new OwnerRepository(this.database).ensure(scope, '老板', this.clock.now().toISOString());
     const text = input.text.trim();
     if (text.length < 2) throw new Error('定位描述至少需要2个字符');
+    if (input.expectedScaleChars !== undefined && (
+      !Number.isInteger(input.expectedScaleChars)
+      || input.expectedScaleChars < 1_000
+      || input.expectedScaleChars > 10_000_000
+    )) {
+      throw new Error('预计规模必须是1,000至10,000,000之间的整数');
+    }
     const inferredGenre = inferGenre(text);
     const explicitGenre = input.category?.trim() || null;
     const genreStatus: SourceStatus = explicitGenre !== null && inferredGenre !== null && explicitGenre !== inferredGenre
@@ -39,9 +56,22 @@ export class PositioningService {
     const fields: PositioningField[] = [
       { key: 'premise', label: '核心创意', value: text, sourceStatus: 'explicit', evidence: text },
       { key: 'genre', label: '题材', value: explicitGenre ?? inferredGenre, sourceStatus: genreStatus, evidence: explicitGenre === null ? inferredGenre : explicitGenre },
-      { key: 'style', label: '文风', value: input.style?.trim() || null, sourceStatus: input.style ? 'explicit' : 'unspecified', evidence: input.style ?? null },
-      { key: 'audience', label: '目标读者', value: null, sourceStatus: 'unspecified', evidence: null },
-      { key: 'ending', label: '结局倾向', value: null, sourceStatus: 'unspecified', evidence: null }
+      { key: 'classification', label: '分类', value: input.classification?.trim() || null, sourceStatus: input.classification ? 'explicit' : 'unspecified', evidence: input.classification ?? null },
+      { key: 'audience', label: '目标读者', value: input.targetAudience?.trim() || null, sourceStatus: input.targetAudience ? 'explicit' : 'unspecified', evidence: input.targetAudience ?? null },
+      {
+        key: 'expected_scale_chars',
+        label: '预计规模',
+        value: input.expectedScaleChars === undefined ? null : String(input.expectedScaleChars),
+        sourceStatus: input.expectedScaleChars === undefined ? 'unspecified' : 'explicit',
+        evidence: input.expectedScaleChars === undefined ? null : String(input.expectedScaleChars)
+      },
+      {
+        key: 'expression_baseline',
+        label: '初始表达基线',
+        value: input.initialExpressionBaseline?.trim() || input.style?.trim() || null,
+        sourceStatus: input.initialExpressionBaseline || input.style ? 'explicit' : 'unspecified',
+        evidence: input.initialExpressionBaseline ?? input.style ?? null
+      }
     ];
     const tags: PositioningTag[] = (input.tags ?? []).map((name): PositioningTag => ({ name: name.trim(), category: 'dynamic', sourceStatus: 'explicit' }))
       .filter((tag) => tag.name.length > 0);

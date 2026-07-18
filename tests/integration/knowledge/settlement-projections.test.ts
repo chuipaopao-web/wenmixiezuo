@@ -36,6 +36,12 @@ describe('正史投影与冲突', () => {
     expect(JSON.parse(character.state_json)).toEqual({ alive: true, location: '北塔', 'relationship:mentor': '顾衡' });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM knowledge_revisions
+      WHERE owner_id = ? AND book_id = ? AND lifecycle_layer = 'canon' AND status = 'active'
+    `).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM canon_source_bindings WHERE owner_id = ? AND book_id = ? AND binding_status = 'active'`)
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
   });
 
   it('冲突B级事实转主编复核，选中新值后旧事实被替代', () => {

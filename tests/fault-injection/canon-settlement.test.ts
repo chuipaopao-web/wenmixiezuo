@@ -25,5 +25,11 @@ describe('正史结算故障恢复', () => {
     expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(fixture.chapterId)).toEqual({ settlement_status: 'unsettled' });
     expect(context.database.prepare(`SELECT status FROM manuscript_versions WHERE manuscript_version_id = ?`).get(fixture.manuscriptVersionId)).toEqual({ status: 'approved' });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM canon_revisions WHERE owner_id = ? AND book_id = ? AND revision = 1`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM knowledge_revisions WHERE owner_id = ? AND book_id = ? AND lifecycle_layer = 'canon'`)
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT r.status FROM knowledge_revisions r JOIN knowledge_items i ON i.knowledge_item_id = r.knowledge_item_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND i.canonical_key = ? AND r.lifecycle_layer = 'candidate'
+    `).get(fixture.scope.ownerId, fixture.scope.bookId, fact.factId)).toEqual({ status: 'active' });
   });
 });

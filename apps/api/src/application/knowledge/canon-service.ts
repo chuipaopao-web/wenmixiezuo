@@ -3,6 +3,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
+import type { EpistemicStatus } from '../../contracts/knowledge-lifecycle.js';
+import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowledge-repository.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { KnowledgeLifecycleService } from './knowledge-lifecycle-service.js';
 
 export type FactGrade = 'A' | 'B' | 'C' | 'D';
 export type FactStatus = 'candidate' | 'awaiting_editor' | 'awaiting_boss' | 'approved' | 'active' | 'rejected' | 'superseded' | 'withdrawn';
@@ -17,6 +21,13 @@ export interface FactInput {
   sourceManuscriptVersionId?: string | null;
   storyTimeStart?: string | null;
   storyTimeEnd?: string | null;
+  epistemicStatus?: EpistemicStatus;
+  negated?: boolean;
+  viewpointEntityId?: string | null;
+  knowledgeSubjectId?: string | null;
+  knowledgeTimeStart?: string | null;
+  knowledgeTimeEnd?: string | null;
+  temporalCompleteness?: 'complete' | 'partial' | 'unknown';
 }
 
 export interface ProposedFact {
@@ -73,6 +84,9 @@ export class CanonService {
     const factId = this.ids.next();
     const now = this.clock.now().toISOString();
     const conflict = this.findConflictingFact(scope, input);
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
+    try {
     let status: FactStatus = input.grade === 'A' ? 'candidate' : input.grade === 'B' ? 'approved' : input.grade === 'C' ? 'awaiting_editor' : 'awaiting_boss';
     if (conflict !== undefined && input.grade === 'B') status = 'awaiting_editor';
     this.database.prepare(`
@@ -122,7 +136,53 @@ export class CanonService {
         book.canon_revision, now
       );
     }
-    return { factId, grade: input.grade, status, confirmationId, conflictId };
+      const manuscript = input.sourceManuscriptVersionId === null || input.sourceManuscriptVersionId === undefined
+        ? undefined
+        : this.database.prepare(`
+          SELECT content_hash FROM manuscript_versions
+          WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ?
+        `).get(input.sourceManuscriptVersionId, scope.ownerId, scope.bookId) as { content_hash: string } | undefined;
+      new KnowledgeLifecycleService(
+        new KnowledgeRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
+      ).create(scope, {
+        knowledgeType: 'fact_assertion',
+        canonicalKey: factId,
+        layer: 'candidate',
+        authorityGrade: input.grade,
+        epistemicStatus: input.epistemicStatus ?? 'objective',
+        negated: input.negated ?? false,
+        viewpointEntityId: input.viewpointEntityId ?? null,
+        temporal: {
+          worldTimeStart: input.storyTimeStart ?? null,
+          worldTimeEnd: input.storyTimeEnd ?? null,
+          knowledgeSubjectType: input.knowledgeSubjectId === undefined || input.knowledgeSubjectId === null ? null : 'entity',
+          knowledgeSubjectId: input.knowledgeSubjectId ?? null,
+          knowledgeTimeStart: input.knowledgeTimeStart ?? null,
+          knowledgeTimeEnd: input.knowledgeTimeEnd ?? null,
+          canonRevision: this.requireBook(scope).canon_revision,
+          completeness: input.temporalCompleteness ?? 'partial'
+        },
+        content: { subjectEntityId: input.subjectEntityId, relationKey: input.relationKey, value: input.value },
+        contentText: `${input.subjectEntityId} ${input.relationKey} ${stableJson(input.value)}`,
+        evidence: input.evidence,
+        sourceType: manuscript === undefined ? 'fact_assertion' : 'confirmed_manuscript',
+        sourceId: input.sourceManuscriptVersionId ?? factId,
+        sourceHash: manuscript?.content_hash ?? null,
+        sourceLocator: {
+          factId,
+          chapterId: input.sourceChapterId ?? null,
+          manuscriptVersionId: input.sourceManuscriptVersionId ?? null,
+          evidence: input.evidence
+        },
+        extractorVersion: 'fact-bridge-v1',
+        createdByType: 'system'
+      });
+      if (ownsTransaction) this.database.exec('COMMIT');
+      return { factId, grade: input.grade, status, confirmationId, conflictId };
+    } catch (error) {
+      if (ownsTransaction) this.database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   public reviewFact(scope: BookScope, factId: string, accept: boolean, resolution: Record<string, unknown> = {}): void {
@@ -266,6 +326,21 @@ export class CanonService {
           INSERT INTO canon_bindings (canon_revision_id, fact_id, owner_id, book_id, active, bound_at)
           VALUES (?, ?, ?, ?, 1, ?)
         `).run(canonRevisionId, fact.fact_id, scope.ownerId, scope.bookId, now);
+      }
+      const lifecycle = new KnowledgeLifecycleService(
+        new KnowledgeRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
+      );
+      const knowledge = new KnowledgeRepository(this.database);
+      for (const fact of additions) {
+        const candidate = knowledge.findActiveCandidateByKey(scope, 'fact_assertion', fact.fact_id);
+        if (candidate === null || candidate.sourceHash === null) continue;
+        lifecycle.promote(scope, candidate.knowledgeRevisionId, {
+          decisionType: fact.grade === 'D' ? 'boss_confirmed' : fact.grade === 'C' ? 'chief_editor_approved' : 'graded_settlement',
+          decisionSourceType: 'chapter_settlement',
+          decisionSourceId: chapterId,
+          canonRevision: nextRevision,
+          canonRevisionId
+        });
       }
       if (failAt === 'after_revision') throw new Error('simulated-settlement-failure');
       this.database.prepare(`

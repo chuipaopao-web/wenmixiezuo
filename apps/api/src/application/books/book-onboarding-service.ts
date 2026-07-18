@@ -17,6 +17,8 @@ export interface OnboardingResult {
   adaptationSnapshotId: string;
   budgetId: string;
   storyBibleArtifactId: string;
+  onboardingProfileId: string;
+  expressionProfileId: string;
   activeEditorAgentId: string;
   agentCount: number;
 }
@@ -42,6 +44,8 @@ export class BookOnboardingService {
     team.seedRoleTemplates();
     const now = this.clock.now().toISOString();
     const positioningVersionId = this.ids.next();
+    const onboardingProfileId = this.ids.next();
+    const expressionProfileId = this.ids.next();
     const configVersionId = this.ids.next();
     const adaptationSnapshotId = this.ids.next();
     const budgetId = this.ids.next();
@@ -54,6 +58,40 @@ export class BookOnboardingService {
     try {
       new BookRepository(this.database).create(bookScope, draft.title, now, 'active');
       if (failAt === 'after_book') throw new Error('simulated-onboarding-failure');
+      const genre = fieldValue(draft.fields, 'genre');
+      const classification = fieldValue(draft.fields, 'classification');
+      const targetAudience = fieldValue(draft.fields, 'audience');
+      const expectedScale = fieldValue(draft.fields, 'expected_scale_chars');
+      const expressionBaseline = fieldValue(draft.fields, 'expression_baseline');
+      this.database.prepare(`
+        INSERT INTO book_onboarding_profiles (
+          onboarding_profile_id, owner_id, book_id, version, genre, classification,
+          target_audience, expected_scale_chars, initial_expression_baseline,
+          field_sources_json, status, created_at
+        ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'provisional', ?)
+      `).run(
+        onboardingProfileId, scope.ownerId, draft.proposedBookId,
+        asNullableString(genre), asNullableString(classification), asNullableString(targetAudience),
+        typeof expectedScale === 'string' && /^\d+$/u.test(expectedScale) ? Number(expectedScale) : null,
+        asNullableString(expressionBaseline),
+        JSON.stringify(Object.fromEntries(draft.fields.map((field) => [field.key, field.sourceStatus]))),
+        now
+      );
+      this.database.prepare(`
+        INSERT INTO book_expression_profiles (
+          expression_profile_id, owner_id, book_id, version, narrative_person,
+          viewpoint_distance, language_tone_json, text_density, target_audience,
+          content_boundaries_json, humor_seriousness, voice_evidence_json,
+          impact_scope_json, status, created_at
+        ) VALUES (?, ?, ?, 1, NULL, NULL, ?, 'adaptive', ?, '{}', 'adaptive', ?, ?, 'provisional', ?)
+      `).run(
+        expressionProfileId, scope.ownerId, draft.proposedBookId,
+        JSON.stringify(expressionBaseline === null ? [] : [expressionBaseline]),
+        asNullableString(targetAudience),
+        JSON.stringify(expressionBaseline === null ? [] : [{ source: 'onboarding', text: expressionBaseline }]),
+        JSON.stringify({ appliesFrom: 'first_formal_work_order', narrativeViewpointRequiresConfirmation: true }),
+        now
+      );
       this.database.prepare(`
         INSERT INTO positioning_versions (
           positioning_version_id, owner_id, book_id, version, fields_json, tags_json,
@@ -134,6 +172,8 @@ export class BookOnboardingService {
         adaptationSnapshotId,
         budgetId,
         storyBibleArtifactId,
+        onboardingProfileId,
+        expressionProfileId,
         activeEditorAgentId: editor.agent_id,
         agentCount: 9
       };
@@ -156,6 +196,14 @@ export class BookOnboardingService {
       `).run(scope.ownerId, scope.bookId, positioningVersion, tagKey, tag.sourceStatus);
     }
   }
+}
+
+function fieldValue(fields: PositioningField[], key: string): unknown {
+  return fields.find((field) => field.key === key)?.value ?? null;
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 function storyBibleSkeleton(title: string, fields: PositioningField[], tags: PositioningTag[]): Record<string, unknown> {

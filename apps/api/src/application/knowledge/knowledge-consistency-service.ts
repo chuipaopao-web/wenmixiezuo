@@ -43,6 +43,37 @@ export class KnowledgeConsistencyService {
       WHERE b.owner_id = ? AND b.book_id = ? AND (f.owner_id <> b.owner_id OR f.book_id <> b.book_id)
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ fact_id: string }>;
     for (const binding of foreignBindings) issues.push({ code: 'CANON_BINDING_SCOPE_MISMATCH', targetId: binding.fact_id, details: {} });
+    const brokenKnowledge = this.database.prepare(`
+      SELECT r.knowledge_revision_id, r.temporal_scope_id
+      FROM knowledge_revisions r
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.lifecycle_layer = 'canon' AND r.status = 'active'
+        AND (NOT EXISTS (
+          SELECT 1 FROM temporal_scopes t
+          WHERE t.owner_id = r.owner_id AND t.book_id = r.book_id
+            AND t.temporal_scope_id = r.temporal_scope_id
+        ) OR NOT EXISTS (
+          SELECT 1 FROM canon_source_bindings b
+          WHERE b.owner_id = r.owner_id AND b.book_id = r.book_id
+            AND b.knowledge_revision_id = r.knowledge_revision_id AND b.binding_status = 'active'
+        ))
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ knowledge_revision_id: string; temporal_scope_id: string }>;
+    for (const revision of brokenKnowledge) {
+      issues.push({ code: 'CANON_KNOWLEDGE_EVIDENCE_INCOMPLETE', targetId: revision.knowledge_revision_id, details: { temporalScopeId: revision.temporal_scope_id } });
+    }
+    const currentRevisionMismatches = this.database.prepare(`
+      SELECT i.knowledge_item_id, i.current_revision_id
+      FROM knowledge_items i
+      WHERE i.owner_id = ? AND i.book_id = ? AND i.current_revision_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM knowledge_revisions r
+          WHERE r.owner_id = i.owner_id AND r.book_id = i.book_id
+            AND r.knowledge_item_id = i.knowledge_item_id
+            AND r.knowledge_revision_id = i.current_revision_id
+        )
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ knowledge_item_id: string; current_revision_id: string }>;
+    for (const item of currentRevisionMismatches) {
+      issues.push({ code: 'KNOWLEDGE_CURRENT_REVISION_MISMATCH', targetId: item.knowledge_item_id, details: { currentRevisionId: item.current_revision_id } });
+    }
     return issues;
   }
 }
