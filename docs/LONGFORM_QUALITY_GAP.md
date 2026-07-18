@@ -1,6 +1,6 @@
 # 文秘写作长篇创作质量当前审计
 
-> DEC-021修订：本文中历史首版“9岗位/Kimi单审校”事实仍保留；下一release目标已经更新为11名成员、双异模型编剧、单活动写手和GLM/Kimi/豆包固定三异模型全文点评。相关E0最终合同见 `docs/AGENT_TEAM_REVIEW_AUDIT.md`。
+> DEC-021/DEC-026修订：本文中历史首版“9岗位/Kimi单审校”事实仍保留；下一release目标为11名成员、默认DeepSeek＋GLM双编剧、单活动写手和事实/文学/体验三职责异模型点评。具体模型兼容与替补合同见 `docs/ONBOARDING_MODEL_FLOW_AUDIT.md`；旧固定模型审计只保留追溯价值。
 
 ## 1. 明确结论与置信度
 

@@ -2,7 +2,7 @@
 
 > 执行者：当前Codex单独开发。老板未授权其他开发Agent，禁止委派代码任务。
 
-**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、DEC-021十一人团队最小上下文、双异模型编剧、主编/主笔接管、GLM/Kimi/豆包固定三异模型全文点评、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
+**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、最小开书卡与自由聊天、DEC-021十一人团队最小上下文、双异模型剧情/跨度评估、主编/主笔接管、DEC-026可版本化模型绑定与三职责/三异模型全文点评、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
 
 **架构：** SQLite和登记的不可变文件保持唯一权威；FTS5、结构化事实、Wiki/关系、阶段摘要和本地LanceDB只是带水位的可重建投影。Fastify应用服务执行状态机，Worker幂等处理模型和投影，Web是窄侧栏内容优先工作台。新能力通过向前迁移、outbox、影子读和每书能力指针上线。
 
@@ -127,10 +127,11 @@ npm run verify
 - `apps/api/src/infrastructure/db/migrations/0010_expression_taxonomy.sql`
 - `apps/api/src/application/knowledge/taxonomy-service.ts`
 - `apps/api/src/application/books/expression-profile-service.ts`
+- `apps/api/src/application/books/book-onboarding-service.ts`
 - `tests/integration/knowledge/expression-taxonomy.test.ts`
 - `tests/integration/knowledge/migration-0010-upgrade.test.ts`
 
-表：`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。所有版本、归档、适用范围和来源约束进入数据库测试。
+表：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。开书最小字段、临时表达基线、首个正式工单前视角确认，以及所有版本/归档/适用范围/来源约束进入数据库测试。
 
 ### 任务2.3：Schema 11生命周期与三轴时间
 
@@ -319,10 +320,11 @@ npm run verify
 - `apps/api/src/application/continuity/commitment-service.ts`
 - `apps/api/src/application/continuity/stage-settlement-service.ts`
 - `apps/api/src/application/continuity/rolling-plan-service.ts`
+- `apps/api/src/application/discussions/plot-span-estimate-service.ts`
 - `tests/integration/continuity/stage-settlement.test.ts`
 - `tests/integration/continuity/rolling-plan.test.ts`
 
-表：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`quality_windows`、`retrieval_activity_projections`。
+表：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`plot_span_estimates`、`quality_windows`、`retrieval_activity_projections`。
 
 ### 任务5.2：Schema 15岗位、提示和压缩快照
 
@@ -333,14 +335,18 @@ npm run verify
 - `apps/api/src/application/agents/prompt-compiler.ts`
 - `apps/api/src/application/agents/model-capability-service.ts`
 - `apps/api/src/application/agents/team-template-service.ts`
+- `apps/api/src/application/agents/model-binding-service.ts`
+- `apps/api/src/application/agents/review-model-compatibility-service.ts`
 - `apps/api/src/application/agents/editor-lease-service.ts`
 - `apps/api/src/application/agents/writer-lease-service.ts`
 - `tests/integration/agents/agent-continuity.test.ts`
 - `tests/integration/agents/prompt-compiler.test.ts`
 - `tests/integration/agents/eleven-member-team.test.ts`
+- `tests/integration/agents/model-binding-revisions.test.ts`
+- `tests/integration/agents/review-model-compatibility.test.ts`
 - `tests/fault-injection/agents/editor-writer-takeover.test.ts`
 
-表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`review_panels`、`review_reports`、`revision_orders`。历史9实例保持不变；下一release 11名成员及三点评席原子创建。岗位日志只存任务步骤、依据、异议、结论和接管信息，不存思维链或迎合规则。
+表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`review_panels`、`review_reports`、`revision_orders`。历史9实例保持不变；下一release 11名成员、默认模型绑定修订和三点评职责原子创建。岗位日志只存任务步骤、依据、异议、结论和接管信息，不存思维链或迎合规则。
 
 ### 任务5.3：结算、审计和恢复调度
 
@@ -367,7 +373,7 @@ npm run verify
 
 ### 目标
 
-把开放聊天→双异模型编剧独立讨论→设定硬矛盾检查→主编确认→工单/资料包→单活动写手检索/生成→GLM/Kimi/豆包三异模型全文点评→主编合并修改单→老板确认→结算完整串联，消除“只有书名就写章”。
+把最小开书→自由聊天→双异模型编剧独立讨论/跨度评估→设定硬矛盾检查→主编推荐→老板确认方向→滚动章纲/工单/资料包→单活动写手逐章检索/生成→事实/文学/体验三异模型全文点评→主编合并修改单→老板确认→结算完整串联，消除“开书填满设定”“首页选择1/3/5章”和“只有书名就写章”。
 
 ### 任务6.1：统一运行状态机
 
@@ -397,10 +403,12 @@ npm run verify
 - `apps/api/src/application/artifacts/planning-artifact-service.ts`
 - `tests/integration/domain/open-conversation-runtime.test.ts`
 - `tests/integration/domain/discussion-runtime.test.ts`
+- `tests/integration/domain/minimal-book-onboarding.test.ts`
+- `tests/integration/domain/plot-span-estimate.test.ts`
 
-普通消息主编必答；点名岗位真实创建任务；岗位先独立意见再汇总；确认生成不可变规划和分歧记录。
+开书卡只收书名、题材、分类、目标读者、预计规模和初始表达基线；世界观、力量体系、结局和情绪引擎不阻断。进入书籍默认自由聊天；普通消息主编必答；点名岗位真实创建任务；岗位先独立意见再汇总；确认生成不可变规划和分歧记录。叙事视角允许试写推断，但首个正式工单前必须确认版本。
 
-剧情任务固定创建婉儿（DeepSeek）与红玉（豆包）两个互不可见的初始意见任务；提交后才允许一轮有界交叉质疑。两者实际模型相同、任一缺席或提前共享答案时，不得标记为“异模型剧情讨论完成”。
+剧情任务按活动绑定创建两个互不可见的初始意见任务，默认婉儿（DeepSeek）与红玉（GLM），Kimi可替换任一席，豆包必须被配置校验拒绝。两席分别提交方案及最小/推荐/最大章节跨度、剧情单元、前提和不确定性后才允许一轮有界交叉质疑。实际模型相同、任一缺席、提前共享答案/数字时，不得标记为“异模型剧情讨论完成”。主编的跨度推荐只更新滚动规划，不创建多章并行任务。
 
 ### 任务6.3：写作门禁、工单和岗位资料包
 
@@ -409,9 +417,11 @@ npm run verify
 - `apps/api/src/application/creation/writing-order-service.ts`
 - `apps/api/src/application/creation/creative-mode-service.ts`
 - `apps/api/src/application/creation/writer-lease-service.ts`
+- `apps/api/src/application/creation/writing-run-service.ts`
 - `apps/api/src/contracts/writing-order.ts`
 - `tests/integration/creation/writing-order.test.ts`
 - `tests/integration/creation/creative-modes.test.ts`
+- `tests/integration/creation/natural-start-writing.test.ts`
 
 **修改：**
 
@@ -419,15 +429,16 @@ npm run verify
 - `apps/api/src/application/creation/chapter-pipeline-service.ts`
 - `apps/worker/src/executors/chapter-task-executor.ts`
 
-四模式、五级输入、岗位最小包和“只有书名/一句写章”负面门禁进入测试。
+四模式、五级输入、岗位最小包、“只有书名/一句写章”负面门禁和自然“开始写/继续写”路由进入测试。删除新UI的1/3/5章选择，旧 `chapter-batches` 只保留弃用迁移入口且不得调度多章；新 `writing-runs` 只启动已准备好的唯一下一章。
 
-工单冻结唯一活动写手（默认秋香Codex；接管时湘君DeepSeek）和 `writer_epoch`。副笔不默认生成第二份全文；接管或明确A/B任务才调用，晚到旧写手结果不能登记。
+工单冻结唯一活动写手（默认秋香/Codex；接管时湘君/GLM）和 `writer_epoch`。副笔不默认生成第二份全文；接管或明确A/B任务才调用，晚到旧写手结果不能登记。
 
 ### 任务6.4：完整生成后三异模型全文点评
 
 **新增：**
 
 - `apps/api/src/application/creation/three-model-review-service.ts`
+- `apps/api/src/application/creation/review-panel-selector.ts`
 - `apps/api/src/application/creation/review-report-validator.ts`
 - `apps/api/src/application/creation/review-report-merge-service.ts`
 - `apps/api/src/application/creation/targeted-revision-service.ts`
@@ -438,13 +449,13 @@ npm run verify
 - `tests/integration/creation/content-compliance-review.test.ts`
 - `tests/integration/creation/revision-limit.test.ts`
 
-完整草稿先持久化并哈希，再为同一版本并行调用文姬（GLM）、妲己（Kimi）和昭君（豆包）。三席模型快照彼此不同且与活动写手不同，报告提交前互不可见：GLM检查正史/时间/状态/知情/规则/伏笔；Kimi检查文学/人物/语言/节奏并返回 `ai_style_risk_score` 与实际标记段落占比；豆包检查体验并返回政治/情色风险的位置、证据、建议动作和策略版本。AI腔指标不是AI作者概率，合规筛查不是法律或平台保证。
+完整草稿先持久化并哈希，再为同一版本冻结事实、文学、体验三个点评职责。默认调用文姬（GLM）、妲己（Kimi）和昭君（豆包）；活动写手为湘君/GLM时，事实席改由婉儿/DeepSeek承担。三席模型快照彼此不同且均与活动写手不同，报告提交前互不可见：事实席检查正史/时间/状态/知情/规则/伏笔；Kimi检查文学/人物/语言/节奏并返回 `ai_style_risk_score` 与实际标记段落占比；豆包检查体验并返回政治/情色风险的位置、证据、建议动作和策略版本。AI腔指标不是AI作者概率，合规筛查不是法律或平台保证。
 
 三份报告齐全后主编只读取报告与引用片段，合并一张修改单；硬证据不按二比一投票，文学软意见保留分歧。最多两次定点修订，每个新稿重新跑三席；旧稿和旧报告不覆盖。任一席有限重试后仍不可用则明确受阻，不生成空报告、假模型结果或按量付费fallback。
 
 ### 阶段门禁与回滚
 
-- 流程负面、取消竞态、三类坏JSON、模型超时、三席缺失/重复/错版本、与写手同模型、AI腔无证据/伪作者概率、政治情色无位置/错策略版本和预算竞争全部通过。
+- 流程负面、取消竞态、三类坏JSON、模型超时、豆包进入剧情池、双编剧同模型/共享跨度、三席缺失/重复/错版本、与写手同模型、GLM写手未触发DeepSeek事实席、AI腔无证据/伪作者概率、政治情色无位置/错策略版本和预算竞争全部通过。
 - 确定性假模型完成工程E2；真实模型没有凭证时明确停在相应证据等级，不伪造回复。
 - 回滚创作策略指针，保留新增草稿和调用记录。
 
@@ -454,7 +465,7 @@ npm run verify
 
 ### 目标
 
-实现最终信息架构、设定框架/总纲/卷纲/章纲/章节列表、真实卷章树、作者可见资料/图谱/缺口/水位、任务二级页、检索诊断、安全导入导出和设置诊断。
+实现最小开书卡、默认自由聊天首页、无1/3/5章批次按钮的自然写作入口、最终信息架构、设定框架/总纲/卷纲/章纲/章节列表、真实卷章树、作者可见资料/计划与实际情绪图谱/缺口/水位、模型绑定设置、任务二级页、检索诊断、安全导入导出和设置诊断。
 
 ### 任务7.1：Web组件化与类型路由
 
@@ -463,6 +474,7 @@ npm run verify
 - `apps/web/src/app/workspace-route.ts`
 - `apps/web/src/app/WorkspaceShell.tsx`
 - `apps/web/src/features/chat/ChatWorkspace.tsx`
+- `apps/web/src/features/books/MinimalBookOnboarding.tsx`
 - `apps/web/src/features/tasks/TaskCenter.tsx`
 - `apps/web/src/features/planning/PlanningWorkspace.tsx`
 - `apps/web/src/features/planning/PlanningVersionPanel.tsx`
@@ -474,18 +486,22 @@ npm run verify
 - `apps/web/src/features/continuity/ContinuityWorkspace.tsx`
 - `apps/web/src/features/retrieval/RetrievalDiagnostics.tsx`
 - `apps/web/src/features/settings/SettingsWorkspace.tsx`
+- `apps/web/src/features/settings/ModelBindingSettings.tsx`
 - `tests/integration/experience/workspace-navigation.test.tsx`
 - `tests/integration/experience/planning-workspace.test.tsx`
 - `tests/integration/experience/long-chapter-index.test.tsx`
+- `tests/integration/experience/minimal-onboarding.test.tsx`
+- `tests/integration/experience/natural-writing-entry.test.tsx`
+- `tests/integration/experience/model-binding-settings.test.tsx`
 
 **修改：**
 
 - `apps/web/src/app/App.tsx`
 - `apps/web/src/app/app.css`
 
-逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。先用失败测试锁定历史首版“所有章节硬编码在第一卷”和“规划成果只显示原始JSON”的缺陷，再实现真实可折叠卷章树以及设定框架、总纲、卷纲、章纲、章节列表五页签。章节列表区分计划章与已有正文，显示真实流水线状态；1500章按卷加载、虚拟滚动和搜索，不一次渲染或获取全部章纲。候选/正式、来源、版本比较、确认/否决和影响范围都必须可见，设定框架与资料库引用同一底层事实而不复制权威。
+逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。先用失败测试锁定历史首版“所有章节硬编码在第一卷”“规划成果只显示原始JSON”“首页固定1/3/5章按钮”和开书信息语义混乱的缺陷。实现只含六项的开书卡，进入书籍默认显示自由聊天；“开始写/继续写”自然路由到规划或唯一下一章。再实现真实可折叠卷章树以及设定框架、总纲、卷纲、章纲、章节列表五页签。章节列表区分计划章与已有正文，显示真实流水线状态；1500章按卷加载、虚拟滚动和搜索，不一次渲染或获取全部章纲。候选/正式、来源、版本比较、确认/否决和影响范围都必须可见，设定框架与资料库引用同一底层事实而不复制权威。
 
-成员卡直接显示一句话职责；点击后打开公开岗位详情，展示职责/边界/激活条件/交付物/模型来源/当前任务/最后有效贡献/证据，但不返回原始系统提示或隐藏规则。道韫在无现实事实任务时必须显示待命且零调用。正文二级页展示三席真实状态、模型来源、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。去AI味默认只显示Kimi的可定位检测证据和主编定点修改单，不把第三方Skill作为前端黑盒按钮或自动整章改写器。
+成员卡直接显示一句话职责；点击后打开公开岗位详情，展示职责/边界/激活条件/交付物/模型来源/当前任务/最后有效贡献/证据，但不返回原始系统提示或隐藏规则。道韫在无现实事实任务时必须显示待命且零调用。模型设置页显示剧情/写手允许池、三点评实际组合、共享来源、GLM写手时DeepSeek事实席、未来任务生效范围和历史回滚；不允许运行中途换模型。正文二级页展示三席真实状态、实际成员/模型、替补原因、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。去AI味默认只显示Kimi的可定位检测证据和主编定点修改单，不把第三方Skill作为前端黑盒按钮或自动整章改写器。
 
 ### 任务7.2：资料API和有界图谱
 
@@ -502,7 +518,7 @@ npm run verify
 
 - `apps/api/src/http/domain-routes.ts`
 
-先拆知识/检索路由，减少巨型路由文件。关系/情绪/势力图只加载≤200节点/500边；地图使用作者坐标。Cytoscape按需动态导入并先做包体/键盘/销毁测试。
+先拆知识/检索路由，减少巨型路由文件。关系/情绪/势力图只加载≤200节点/500边；情绪图谱分开计划/实际曲线、证据和置信度，明确不作为自动剧情引擎；地图使用作者坐标。Cytoscape按需动态导入并先做包体/键盘/销毁测试。
 
 ### 任务7.3：Schema 16与可移植包
 
@@ -569,7 +585,7 @@ npm run verify
 
 ### 任务8.3：创造性消融与真实模型闸门
 
-在已有登录态/套餐且不产生未授权现金费用时运行E3盲化A/B和可完成的E4门禁。另运行固定三点评相对单Kimi、全员点评和只有确定性检查的缺陷检出/误报/漏报/创造性非劣效/Token/延迟对照，并验证AI腔风险不冒充作者概率、政治情色筛查不冒充法律或平台保证。缺少任一真实席位凭证或能力时停止该证据项，工程功能继续用假模型验证；发布报告明确最高等级。不得把假模型结果写成文学质量或真实三异模型点评。
+在已有登录态/套餐且不产生未授权现金费用时运行E3盲化A/B和可完成的E4门禁。另运行三职责/三异模型点评相对单Kimi、全员点评和只有确定性检查的缺陷检出/误报/漏报/创造性非劣效/Token/延迟对照；覆盖Codex主笔的默认GLM/Kimi/豆包组合及GLM副笔触发DeepSeek/Kimi/豆包组合，并验证AI腔风险不冒充作者概率、政治情色筛查不冒充法律或平台保证。缺少任一真实席位凭证或能力时停止该证据项，工程功能继续用假模型验证；发布报告明确最高等级。不得把假模型结果写成文学质量或真实三异模型点评。
 
 ### 任务8.4：最终发布门禁
 

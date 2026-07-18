@@ -40,7 +40,7 @@
 
 ## 2. 健康与启动
 
-除根级 `/health` 外，下表路径均位于 `/api/v1`。本文件只列当前首版已经注册并通过契约测试的接口。
+除根级 `/health` 外，下表路径均位于 `/api/v1`。历史首版已注册接口与下一release目标接口在用途栏明确区分；目标接口在取得E1契约测试前不得描述为当前可用。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -56,16 +56,16 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/books/drafts` | 从自然语言或标签创建定位草稿 |
-| PATCH | `/book-drafts/{draftId}` | 修改定位草稿 |
-| POST | `/book-drafts/{draftId}/confirm` | 下一release原子创建书籍、11个Agent、固定三点评席和基础配置；旧运行时保持9实例兼容 |
+| POST | `/books/drafts` | 从最小表单或自然语言创建开书草稿：书名、题材、分类、目标读者、预计规模、初始表达基线 |
+| PATCH | `/book-drafts/{draftId}` | 修改开书草稿；世界观、力量体系、主线等不是必填字段 |
+| POST | `/book-drafts/{draftId}/confirm` | 下一release原子创建书籍、11个Agent、默认模型绑定修订和空规划入口；旧运行时保持9实例兼容 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
 | POST | `/books/{bookId}/restore` | 使用乐观版本恢复已归档书籍 |
 | POST | `/books/{bookId}/purge` | 严格确认后永久删除并写墓碑 |
 
-建书确认必须包含定位草稿版本，防止确认旧版本。
+建书确认必须包含开书草稿版本，防止确认旧版本。叙事视角允许在初始表达基线中保持 `provisional`，但首个正式写作工单前必须确认版本；“情绪引擎”不属于开书API。
 
 ## 4. Agent与岗位
 
@@ -76,6 +76,9 @@
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
 | GET | `/books/{bookId}/editor-lease` | 返回活动主编、副编、epoch和可验证接管状态 |
 | POST | `/books/{bookId}/editor-handoffs` | 在老板指定、正式交接或故障条件下原子接管 |
+| GET | `/books/{bookId}/model-bindings` | 查询活动绑定、历史修订、允许模型池和实际共同来源 |
+| POST | `/books/{bookId}/model-bindings/preview` | 预览未来剧情席、写手和三点评独立性及套餐影响，不改变当前配置 |
+| POST | `/books/{bookId}/model-bindings/{revisionId}/activate` | 能力、独立性和现金保护检查通过后原子激活未来任务配置 |
 
 岗位和模型调整必须生成新的配置快照，不能修改历史任务使用的快照。
 
@@ -92,7 +95,7 @@
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
-普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；聊天不会自动写入长期记忆。剧情创作意图固定创建婉儿和红玉两个异模型独立意见任务，`讨论 <问题>` 仍可作为显式快捷方式。二者提交前互不可见，随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。
+普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；进入书籍默认即自由聊天，聊天不会自动写入长期记忆。剧情创作意图按活动绑定创建两个异模型独立意见任务，默认DeepSeek＋GLM，Kimi可替换一席，豆包禁止进入。二者提交前互不可见，并各自返回最小/推荐/最大章节跨度、剧情单元、前提和不确定性；随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。
 
 普通消息若被识别为明确的资料治理命令，例如“增加隐藏身份标签”“给张三增加隐藏身份标签”或“把暗线作为伏笔的别名”，由活动主编调用受限知识工具。单书、对象明确且可撤销的操作直接执行，消息回复包含变更ID、对象、前后值、正史/候选状态、投影状态和撤销入口；歧义、同名、跨书或批量影响只产生一个必要澄清问题。其他Agent提出的标签只能进入候选。
 
@@ -110,6 +113,7 @@
 | GET | `/books/{bookId}/artifacts/{artifactId}/versions` | 查询版本历史 |
 | POST | `/books/{bookId}/artifacts/{artifactId}/select` | 选择活动版本 |
 | POST | `/books/{bookId}/artifacts/{artifactId}/revert` | 从历史版本创建新版本 |
+| GET | `/books/{bookId}/plot-span-estimates` | 查询两名编剧独立估算、主编推荐、前提、不确定性和历史版本 |
 
 返回历史版本时不能直接改旧文件或旧记录。
 
@@ -117,12 +121,12 @@
 
 ## 7. 章节与稿件
 
-`POST /books/{bookId}/chapter-batches` 与对话中的 `写N章` 共用准备门禁。若创作方案、活动故事圣经、总纲或任一请求章节的老板确认章纲缺失，接口返回 `409 OPERATION_INCOMPLETE`，且不会创建章节或章节任务。对话入口会在这种情况下改为发起或复用创作规划讨论。
+下一release使用 `POST /books/{bookId}/writing-runs` 从已确认规划启动“下一章”，不要求作者提交1/3/5批次数。若创作方案、活动故事圣经、总纲或下一章的老板确认章纲缺失，接口返回结构化 `409 OPERATION_INCOMPLETE`，且不会创建章节或章节任务；对话入口不会把错误直接展示给作者，而是在当前自由聊天中发起或复用规划讨论。历史 `/chapter-batches` 在迁移期仅作为弃用兼容入口，不能在新UI出现，也不能调度多章；带 `count > 1` 的旧请求返回迁移提示。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/chapters` | 查询卷章、阶段和结算状态 |
-| POST | `/books/{bookId}/chapter-batches` | 安排1章或连续3至5章 |
+| POST | `/books/{bookId}/writing-runs` | 依据活动规划决定启动唯一下一章；不接受批次数 |
 | GET | `/books/{bookId}/chapters/{chapterId}` | 查询章纲、稿件、事实和结算 |
 | GET | `/books/{bookId}/chapters/{chapterId}/manuscripts` | 查询不可变完整稿件版本 |
 | POST | `/books/{bookId}/chapters/{chapterId}/select-manuscript` | 选定候选稿 |
@@ -151,7 +155,7 @@
 | GET | `/books/{bookId}/library/entities` | 按角色、势力、地点、道具、事件、规则等类型查询实体卡 |
 | GET | `/books/{bookId}/library/timeline` | 查询带证据和正史版本的故事时间线 |
 | GET | `/books/{bookId}/library/graphs/relationships` | 查询有向、带时间和观点主体的关系图谱 |
-| GET | `/books/{bookId}/library/graphs/emotions` | 查询按人物和场景组织的情绪图谱与证据状态 |
+| GET | `/books/{bookId}/library/graphs/emotions` | 查询按人物和场景组织的计划/实际情绪曲线、证据与推断状态；只读分析投影 |
 | GET | `/books/{bookId}/library/map` | 查询地点事实、空间关系、移动约束和可重建布局 |
 | GET | `/books/{bookId}/library/gaps` | 查询与任务/章节相关的硬缺口、建议和可选灵感 |
 | GET/POST | `/books/{bookId}/library/tags` | 查询或创建版本化标签定义 |
@@ -337,7 +341,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 | POST | `/books/{bookId}/writing-orders/{orderId}/start` | 通过准备门禁后启动唯一活动写手（主笔或副笔） |
 | POST | `/tasks/{taskId}/cancel` | 持久化新epoch并传播真实取消 |
 | POST | `/tasks/{taskId}/resume` | 从有效检查点新attempt恢复 |
-| GET | `/manuscripts/{manuscriptId}/review-panel` | 查询冻结的GLM/Kimi/豆包模型快照、稿件哈希、轮次、预算和三席状态 |
+| GET | `/manuscripts/{manuscriptId}/review-panel` | 查询冻结的三职责、实际成员/模型快照、选择原因、稿件哈希、轮次、预算和状态 |
 | GET | `/manuscripts/{manuscriptId}/review-reports` | 查询三份结构化点评、证据、AI腔指标和政治/情色风险，不返回思维链 |
 | POST | `/manuscripts/{manuscriptId}/review-rounds` | 为同一不可变稿件原子创建三席并行点评；缺席或重复模型返回409 |
 | GET | `/manuscripts/{manuscriptId}/revision-order` | 查询主编合并后的单一定点修改单、分歧和阻断项 |
@@ -345,7 +349,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 
 所有状态变更支持 `Idempotency-Key`，响应返回 `operationId/taskId/attemptId/epoch`。取消成功只表示提交栅栏建立；适配器确认和晚到结果处理通过SSE继续报告。
 
-点评接口必须满足：三份报告绑定同一 `manuscriptVersionId`；模型快照固定且彼此不同，并与活动写手模型不同；每席都返回位置、严重度、证据和修改目标。Kimi报告额外返回 `aiStyleRiskScore`、`flaggedParagraphCount`、`totalParagraphCount`、`flaggedParagraphRatio`，并明确 `isAuthorshipProbability: false`。豆包报告额外返回 `politicalRisk`、`sexualContentRisk` 和 `policyVersion`。任一席有限重试后仍失败时返回可恢复的受阻状态，不能生成空报告或自动降为按量付费调用。
+点评接口必须满足：三份报告绑定同一 `manuscriptVersionId`；模型快照固定、彼此不同并均与活动写手模型不同；GLM写手时事实席选择DeepSeek；每席都返回位置、严重度、证据和修改目标。Kimi文学报告额外返回 `aiStyleRiskScore`、`flaggedParagraphCount`、`totalParagraphCount`、`flaggedParagraphRatio`，并明确 `isAuthorshipProbability: false`。豆包体验报告额外返回 `politicalRisk`、`sexualContentRisk` 和 `policyVersion`。任一席有限重试后仍失败时返回可恢复的受阻状态，不能生成空报告或自动降为按量付费调用。
 
 ### 17.4 可移植和恢复
 

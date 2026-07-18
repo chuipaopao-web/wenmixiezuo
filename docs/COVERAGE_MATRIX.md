@@ -53,8 +53,12 @@
 | DEC-018 | 重要方案在推荐形成前执行并留痕适用Skill；修正偏好硬化、自动事实权威、三轴时间、候选老化、压缩、下钻、Token预算和同名消歧缺口 | `DESIGN_GOVERNANCE_AUDIT.md`、项目规则、决定/记忆/数据/RAG/超长篇/实施/验收/知识/任务文档与后续E1—E4证据 |
 | DEC-019 | 四路检索先做硬门禁和意图路由，按H硬约束/E证据/I灵感三车道融合，同源聚类、冲突保留、有界关系和正式来源闭环 | `HYBRID_RETRIEVAL_ORCHESTRATION.md`、RAG/架构/数据/记忆/Agent/超长篇/API/实施/验收与后续E1—E4证据 |
 | DEC-020 | 冻结长篇终局设计，以新release、Schema 10—16、真实状态机、本机安全、可移植、逐书影子切换和E0—E4分层验收开发 | `PRE_DEVELOPMENT_DESIGN_FREEZE.md`、`RUNTIME_WORKFLOWS.md`、`SECURITY_AND_OPERATIONS.md`、`EVALUATION_PROTOCOL.md`、最终八阶段实施计划及所有当前规格 |
-| DEC-021 | 下一release固定11人团队；双异模型编剧、主编/副编、主笔/副笔；每个完整稿由GLM、Kimi、豆包三异模型全文点评，并包含可解释AI腔、政治与情色风险 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`RUNTIME_WORKFLOWS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、八阶段实施计划和 `AGENT_TEAM_REVIEW_AUDIT.md` |
+| DEC-021 | 下一release固定11人团队、双异模型编剧、主编/副编、主笔/副笔和三异模型点评；固定模型名单已由DEC-026修订 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`RUNTIME_WORKFLOWS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、八阶段实施计划和团队审计 |
 | DEC-022 | 前端显示一句话职责和可点击公开岗位合同；研究员作为零空转的按需现实事实专家保留，不参与固定三评 | `PRODUCT.md`、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、Web实施计划和任务账本 |
+| DEC-023 | 前端结构化显示设定框架、总纲、卷纲、章纲、章节列表和真实卷章树 | `PRODUCT.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和功能总表 |
+| DEC-024 | 去AI味采用带证据检测与定点修订，不安装第三方黑盒运行时Skill或默认整章改写 | `PRODUCT.md`、`ROLE_PROMPTS.md`、`EVALUATION_PROTOCOL.md`、`ACCEPTANCE.md`和最终实施计划 |
+| DEC-025 | 开书只收最小资料；进入书籍即自由聊天；移除1/3/5章批次选择；双编剧估算剧情跨度，正文仍逐章执行；情绪图谱是计划/实际分析投影 | `PRODUCT.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、功能总表、最终实施计划和专项审计 |
+| DEC-026 | 默认DeepSeek＋GLM剧情席，Kimi可替换一席，豆包不讨论剧情；副笔为GLM；模型绑定可版本化配置；GLM写手时DeepSeek承担事实点评 | 项目长篇质量Skill、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和专项审计 |
 
 ## 当前发布执行证据
 
@@ -66,4 +70,4 @@
 - 阶段6已覆盖共识6、12、13和21的创作主体，包括匿名样章选择、单章全流水线、异模型结构化审校、完整版本重写、5章串行续跑和逐调用预算/上下文审计，证据见 `06-creation.md`。
 - 阶段7已覆盖共识2、18、19和20，包括五类双轨投影、版权原文隔离/干净室、研究候选边界、桌面/移动/PWA、IndexedDB与真实Worker状态，证据见 `07-experience.md`。
 - 阶段8已对全部1至24条执行交叉回归：两书五章、中断接管、真实讨论、工具取消、预算预测、版权绕过、长对话、备份恢复、逻辑24小时Worker和桌面实机入口均通过，证据见 `08-release.md` 和 `ACCEPTANCE_MATRIX.md`。
-- 本首版24条共识没有未说明跳过项。真实外部模型和第二物理数据备份仍按实际状态报告；远程Git后来已配置私有仓库，但只备代码/文档，不冒充小说数据备份。DEC-011至024的长篇终局能力当前仍以E0为主，只有新release取得的E1—E4证据才可升级结论。
+- 本首版24条共识没有未说明跳过项。真实外部模型和第二物理数据备份仍按实际状态报告；远程Git后来已配置私有仓库，但只备代码/文档，不冒充小说数据备份。DEC-011至026的长篇终局能力当前仍以E0为主，只有新release取得的E1—E4证据才可升级结论。

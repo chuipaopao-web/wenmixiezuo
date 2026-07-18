@@ -26,11 +26,11 @@ draft → active → paused → archived
                          ↘ purging → purged
 ```
 
-### `book_configs` / `positioning_versions` / `book_expression_profiles`
+### `book_configs` / `book_onboarding_profiles` / `positioning_versions` / `book_expression_profiles`
 
-保存题材、分类、标签、文风、质量规则、预算模式和适配快照。字段来源标记为老板明确、系统推断、未指定或冲突。
+`book_onboarding_profiles` 只保存开书最小卡：题材、分类、目标读者、预计规模和初始表达基线状态；书名仍在 `books`。世界观、力量体系、核心冲突、主角、主线、结局和具体技法不作为建书必填字段，后续通过讨论候选与正式规划版本保存。字段来源标记为老板明确、系统建议、未指定或冲突。
 
-`book_expression_profiles` 单独版本化保存全书表达基线，包括叙事人称与视角距离、语言气质、文字密度、目标读者、内容尺度、幽默或严肃倾向和作者声音证据。它与场景技法分离；默认属于软倾向，不能作为逐句模板或角色声音统一器。
+`book_expression_profiles` 单独版本化保存全书表达基线，包括叙事人称与视角距离、语言气质、文字密度、目标读者、内容尺度、幽默或严肃倾向和作者声音证据。初始版本允许 `provisional`，叙事视角可由样文/试写推断后在首章正式工单前确认；后续变更创建新版本并保存影响范围。它与场景技法分离；默认属于软倾向，不能作为逐句模板或角色声音统一器。
 
 ## 3. 岗位、Agent和主编
 
@@ -46,9 +46,13 @@ draft → active → paused → archived
 
 保存供应商、模型、参数、支持模态、工具能力和验证时间。不得保存API Key。
 
+### `agent_model_binding_revisions` / `agent_model_bindings`
+
+每书保存不可变的模型绑定修订和活动指针。修订包含每个成员/岗位的允许模型快照、用途、通道、默认/替补优先级、创建原因、能力探针和现金保护线结果。状态为 `draft/validated/active/superseded/rejected`；激活只影响未来任务，运行中任务继续引用旧修订。剧情席校验为DeepSeek/GLM/Kimi池内两个不同模型，豆包不在剧情池；写手池为Codex/GLM。预览记录独立性冲突和受影响任务类型，回滚通过重新激活旧兼容修订完成。
+
 ### `review_panels` / `review_reports`
 
-`review_panels` 为每个稿件版本冻结三个不同模型快照：GLM 5.2、Kimi和豆包，以及稿件哈希、活动写手快照、工单版本、最小正史版本、轮次、预算和状态。唯一约束保证同一 `manuscript_version_id + review_round + reviewer_slot` 只有一席；应用服务在同一事务中断言三席快照彼此不同且不能等于活动写手快照，并由Repository契约测试覆盖，不能依赖跨行 `CHECK`。每轮状态只有 `frozen/running/complete/blocked/superseded`，三个有效报告齐全前不能 `complete`。
+`review_panels` 为每个稿件版本冻结事实/连续性、文学/AI腔、体验/政治情色三个职责席及实际成员/模型快照、选择原因、稿件哈希、活动写手快照、绑定修订、工单版本、最小正史版本、轮次、预算和状态。默认事实席为GLM、文学席为Kimi、体验席为豆包；活动写手为GLM时事实席选择DeepSeek。唯一约束保证同一 `manuscript_version_id + review_round + reviewer_slot` 只有一席；应用服务在同一事务中断言三席快照彼此不同且均不能等于活动写手快照，并由Repository契约测试覆盖，不能依赖跨行 `CHECK`。每轮状态只有 `frozen/running/complete/blocked/superseded`，三个有效报告齐全前不能 `complete`。
 
 `review_reports` 分别保存连续性点评、综合质量/AI腔点评和读者体验/政治情色风险点评；每项问题携带段落/字符位置、正文证据、严重度、修改目标和策略版本。Kimi报告保存 `ai_style_risk_score`、`flagged_paragraph_count`、`total_paragraph_count` 与按二者计算的 `flagged_paragraph_ratio`，并固定 `is_authorship_probability = 0`。豆包报告将 `political_risk` 与 `sexual_content_risk` 分开保存级别、位置、证据、建议动作和 `policy_version`。AI腔分数不是AI作者概率，内容风险也不是法律意见或平台保证。
 
@@ -86,6 +90,10 @@ collecting
 ### `discussion_opinions` / `discussion_decisions`
 
 每条意见记录真实Agent和模型来源。决定记录候选、推荐、分歧、老板确认、影响范围和替代关系。
+
+### `plot_span_estimates`
+
+剧情方向趋稳时，两名异模型编剧各自保存最小、推荐、最大章节数、剧情单元拆分、估算前提、不确定性、规划版本和模型快照；独立意见提交前不能读取对方数字。主编综合产生新的推荐版本并保留差异。估算不是写作批次，也不创建多个正文任务；重大改向、卷结算或约束变化时生成新版本。
 
 ## 5. 规划与稿件
 
@@ -242,7 +250,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 关系投影必须同时保存来源事实、起止实体、关系类型、有效故事时间、观点主体/知情范围和正史版本；关系遍历使用有限深度和岗位边类型白名单。派生Wiki的每条结论必须回链事实或正文，人物谎言、认知、计划和客观事实不得合并。
 
-情绪投影按人物、对象、章节/场景、故事时间、情绪类型、强度、明确/推断状态和证据保存；推断情绪不能自动升级为人物客观状态。地点投影分别保存地点事实、包含/相邻/距离/通行/旅行约束和可重建视觉布局，画布坐标不具有正史权威。
+情绪投影分开保存规划中的 `planned_curve` 与正式正文结算出的 `actual_curve`，按人物、对象、章节/场景、故事时间、情绪类型、强度、明确/推断状态、置信度和证据记录。两条曲线用于诊断偏差和支持后续规划，不是“情绪引擎”，不能自动改剧情、强制达到数值或升级为正史；推断情绪也不能自动升级为人物客观状态。地点投影分别保存地点事实、包含/相邻/距离/通行/旅行约束和可重建视觉布局，画布坐标不具有正史权威。
 
 作者可见资料库从实体、事实、标签、语义标注、Wiki和分析投影建立只读模型；前端不得直接读取LanceDB或把原始向量暴露为知识。标签作为检索过滤/重排元数据投影时，必须携带来源版本和水位。
 
@@ -338,12 +346,12 @@ pending → queued → working → waiting_confirmation → succeeded
 
 长篇增量只通过0010至0016向前新增，不修改0001至0009。表名、顺序和职责冻结如下：
 
-- 0010：`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
+- 0010：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
 - 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
 - 0012：`content_nodes`、`content_chunks`、`chunk_entities`、`chunk_snapshots`、`chunk_snapshot_sources`、`projection_outbox`、`projection_jobs`、`projection_watermarks`、`embedding_model_snapshots`、`vector_index_manifests`、`book_capability_states`。
 - 0013：`retrieval_query_plans`、`retrieval_channel_runs`、`retrieval_candidates`、`retrieval_evidence_clusters`、`retrieval_evidence_checks`、`retrieval_drilldowns`、`retrieval_context_selections`。
-- 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`quality_windows`、`retrieval_activity_projections`。
-- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`。
+- 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`plot_span_estimates`、`quality_windows`、`retrieval_activity_projections`。
+- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`。
 - 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。

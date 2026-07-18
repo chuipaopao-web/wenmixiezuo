@@ -1,5 +1,7 @@
 # 十一人团队与三异模型点评设计审计
 
+> 历史审计说明：本文记录DEC-021形成时的固定模型方案。DEC-026已替代其中“豆包编剧、DeepSeek副笔、GLM永远固定为事实点评”的条款；当前模型与流程结论以 `docs/ONBOARDING_MODEL_FLOW_AUDIT.md`、`docs/AGENT_SYSTEM.md` 和 `docs/DECISIONS.md` 为准。本文不再单独驱动开发。
+
 - `design_review_id`：`DR-20260719-02`
 - 决定：DEC-021
 - 适用release：`wm-longform-r1-20260719-003435-e4d7b8b7`
