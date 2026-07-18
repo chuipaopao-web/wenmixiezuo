@@ -13,6 +13,7 @@ Fastify API
 ├─ 书籍与章节
 ├─ Agent与岗位
 ├─ 对话与讨论
+├─ 本地受理、路由与小文秘书
 ├─ 创作流水线
 ├─ 正史与知识
 ├─ 上下文组装与检索
@@ -25,7 +26,7 @@ Repository与基础设施
 ├─ SQLite FTS/BM25
 ├─ LanceDB OSS本地可重建向量投影
 ├─ SQLite时间关系与Wiki投影
-├─ 模型/工具/联网适配器
+├─ 本地工具模型/创作模型/工具/联网适配器
 └─ 持久任务与恢复账本
      ↑
 独立Worker
@@ -82,7 +83,7 @@ data/
   indexes/
 ```
 
-`indexes/lance/<book_id>/canon` 保存每书正式向量投影，`indexes/lance/<book_id>/tasks/<task_id>` 保存任务级临时向量投影。两者物理隔离；正式检索默认没有访问临时表的路径。`cache/models` 保存本地嵌入和重排模型、许可/来源/哈希清单，模型快照与向量索引绑定。模型只在安装或显式升级阶段下载；正常Web/API/Worker运行禁用远程模型加载，不在首次查询、`node_modules`、公共缓存或其他产品目录写入模型。
+`indexes/lance/<book_id>/canon` 保存每书正式向量投影，`indexes/lance/<book_id>/tasks/<task_id>` 保存任务级临时向量投影。两者物理隔离；正式检索默认没有访问临时表的路径。`cache/models` 保存本地嵌入、重排和经验证的工具模型资产及许可/来源/哈希清单；嵌入模型快照与向量索引绑定，工具模型快照与路由/任务策略绑定。模型只在安装或显式升级阶段下载；正常Web/API/Worker运行禁用远程模型加载，不在首次查询、`node_modules`、公共缓存或其他产品目录写入模型。
 
 ### 5.1 正文三层结构
 
@@ -133,6 +134,22 @@ pending → working → succeeded
 
 运行时模式只有 `deterministic` 与 `subscription-plan`。真实模式缺少任一套餐凭证时明确退回测试模式，不把测试结果冒充真实调用；一旦真实任务开始，则不允许按量付费回退。岗位换模创建新 `model_config_snapshots`，旧调用、选择和正文继续引用旧快照。历史9岗位与下一release 11人团队的详细提示词见 `docs/ROLE_PROMPTS.md`。
 
+### 7.1 本地受理与工具模型
+
+小文秘书不新增进程、端口或微服务；它由API中的确定性路由应用服务、Worker中的 `LocalUtilityModelAdapter`、现有检索/上下文编译器和持久任务共同组成。处理顺序固定为：
+
+```text
+原始消息持久化
+→ 确定性控制命令、点名和活动会话
+→ 可选本地意图/实体/别名/重排/压缩候选
+→ 风险、权限、置信和书籍隔离策略
+→ 本地直接结果、专项岗位、剧情会话或活动主编升级
+```
+
+确定性代码负责精确查询、权限、任务状态、幂等、取消和去重。工具模型只能返回受限Schema候选，不能执行任意SQL/路径/工具，也不能直接写正史、正式正文、确认规划、模型绑定或永久操作。老板原始消息以不可变文本和哈希进入后续岗位包；本地摘要只能附加，不能替代。
+
+通用工具模型与嵌入模型分开选型和快照。E0不指定一个“万能小模型”；阶段1探测CPU、内存、加速、磁盘和许可，阶段3/4以冻结中文路由/实体/否定/压缩任务集验证后才激活。模型缺失、哈希不符、内存不足或低置信时，使用确定性/结构化/FTS/关系允许路径或升级现有套餐岗位，并公开 `degraded`，禁止运行时远程下载和现金fallback。
+
 ## 8. REST与SSE
 
 - REST用于查询、命令、确认、暂停、继续、取消、导入导出和恢复请求。
@@ -154,6 +171,8 @@ AI智囊团与小说平台只通过显式、版本化、可审计的导入导出
 - FileStorage；
 - RetrievalProvider；
 - ModelAdapter；
+- LocalUtilityModelAdapter；
+- MessageRoutingPolicy；
 - ToolAdapter；
 - WebResearchAdapter；
 - TaskScheduler；

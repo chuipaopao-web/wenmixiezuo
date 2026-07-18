@@ -50,7 +50,7 @@
 
 未通过健康检查时，查看、导出和恢复入口可以保持可用，但不能领取新的模型任务。
 
-`/health` 的 `modelRuntime` 只返回请求模式、活动模式、缺失凭证名称、是否禁止现金回退，以及模型/岗位/套餐的公开映射；不得返回API Key、Codex认证材料或供应商请求头。
+`/health` 的 `modelRuntime` 只返回请求模式、活动模式、缺失凭证名称、是否禁止现金回退，以及模型/岗位/套餐的公开映射；`localUtilityRuntime` 只返回资产/哈希/设备/能力/降级状态和策略版本。不得返回API Key、Codex认证材料、供应商请求头或本地模型文件绝对路径。
 
 ## 3. 书籍与定位
 
@@ -58,7 +58,7 @@
 |---|---|---|
 | POST | `/books/drafts` | 从最小表单或自然语言创建开书草稿：书名、题材、分类、目标读者、预计规模、初始表达基线 |
 | PATCH | `/book-drafts/{draftId}` | 修改开书草稿；世界观、力量体系、主线等不是必填字段 |
-| POST | `/book-drafts/{draftId}/confirm` | 下一release原子创建书籍、11个Agent、默认模型绑定修订和空规划入口；旧运行时保持9实例兼容 |
+| POST | `/book-drafts/{draftId}/confirm` | 下一release原子创建书籍、11个创作Agent、默认模型绑定修订、小文秘书按书会话状态和空规划入口；旧运行时保持9实例兼容 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
@@ -71,7 +71,7 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/books/{bookId}/agents` | 返回团队模板版本、11个Agent、公开岗位合同、模型和真实状态；旧书可返回历史9实例 |
+| GET | `/books/{bookId}/agents` | 分开返回 `utilityAssistant` 与 `creativeAgents`：小文秘书工具角色、团队模板版本、11个创作Agent、公开合同、模型和真实状态；旧书可返回历史9实例 |
 | GET | `/books/{bookId}/agents/{agentId}` | 返回公开职责、边界、激活条件、交付物、模型来源、当前任务、最后有效贡献和证据，不返回原始系统提示或思维链 |
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
 | GET | `/books/{bookId}/editor-lease` | 返回活动主编、副编、epoch和可验证接管状态 |
@@ -79,6 +79,7 @@
 | GET | `/books/{bookId}/model-bindings` | 查询活动绑定、历史修订、允许模型池和实际共同来源 |
 | POST | `/books/{bookId}/model-bindings/preview` | 预览未来剧情席、写手和三点评独立性及套餐影响，不改变当前配置 |
 | POST | `/books/{bookId}/model-bindings/{revisionId}/activate` | 能力、独立性和现金保护检查通过后原子激活未来任务配置 |
+| GET | `/books/{bookId}/local-assistant` | 返回小文秘书公开合同、真实状态、当前受理/检索任务、降级原因和本地策略版本，不返回隐藏提示或绝对模型路径 |
 
 岗位和模型调整必须生成新的配置快照，不能修改历史任务使用的快照。
 
@@ -89,13 +90,18 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/messages` | 分页查询书籍消息 |
-| POST | `/books/{bookId}/messages` | 老板发送自然语言消息 |
+| POST | `/books/{bookId}/messages` | 原样持久化老板消息并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文 |
 | POST | `/books/{bookId}/discussions` | 建立有范围和预算的讨论 |
 | GET | `/books/{bookId}/discussions/{discussionId}` | 查询阶段、参与者、意见和草案 |
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
+| GET | `/books/{bookId}/routing-decisions/{routingDecisionId}` | 查询路由类别、风险/置信、点名、实体、所用规则/本地模型、选择/排除原因、任务和改派结果 |
+| POST | `/books/{bookId}/routing-decisions/{routingDecisionId}/correct` | 老板显式改派或纠正路由；保留原决定并创建纠正事件 |
+| GET | `/books/{bookId}/local-assistant/experiences` | 查询当前书的工具/路由经验候选、活动版本、反例、到期和回滚状态 |
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
-普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；进入书籍默认即自由聊天，聊天不会自动写入长期记忆。剧情创作意图按活动绑定创建两个异模型独立意见任务，默认DeepSeek＋GLM，Kimi可替换一席，豆包禁止进入。二者提交前互不可见，并各自返回最小/推荐/最大章节跨度、剧情单元、前提和不确定性；随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。
+普通消息先按“确定性命令→显式点名→活动会话续接→低风险本地处理→专项岗位→剧情会话→主编升级”路由。低风险结果可以由小文秘书基于确定性查询或有来源的本地模型候选回复；点名消息直接创建对应成员任务；低置信或需要创作判断时创建 `conversation_reply` 持久任务。进入书籍默认即自由聊天，聊天不会自动写入长期记忆。
+
+剧情创作意图不由小文秘书回答。接口保留老板完整原话，建立/续接活动剧情讨论，并按活动绑定创建两个异模型独立意见任务，默认DeepSeek＋GLM，Kimi可替换一席，豆包禁止进入。二者直接面向老板、提交前互不可见，并各自返回最小/推荐/最大章节跨度、剧情单元、前提和不确定性；随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。只有重大改向创建新独立轮次，普通追问不重复初始化全套会话。
 
 普通消息若被识别为明确的资料治理命令，例如“增加隐藏身份标签”“给张三增加隐藏身份标签”或“把暗线作为伏笔的别名”，由活动主编调用受限知识工具。单书、对象明确且可撤销的操作直接执行，消息回复包含变更ID、对象、前后值、正史/候选状态、投影状态和撤销入口；歧义、同名、跨书或批量影响只产生一个必要澄清问题。其他Agent提出的标签只能进入候选。
 
@@ -382,5 +388,9 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `PORTABLE_MANIFEST_INVALID`
 - `RESTORE_IMPACT_CONFIRMATION_REQUIRED`
 - `DISK_SAFETY_LINE_REACHED`
+- `LOCAL_UTILITY_MODEL_UNAVAILABLE`
+- `MESSAGE_ROUTING_LOW_CONFIDENCE`
+- `MESSAGE_ROUTING_POLICY_REJECTED`
+- `ACTIVE_DISCUSSION_ROUTE_CONFLICT`
 
 具体状态机、请求限额、Cookie、导入和错误脱敏见 `docs/RUNTIME_WORKFLOWS.md` 与 `docs/SECURITY_AND_OPERATIONS.md`。

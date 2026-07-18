@@ -42,6 +42,8 @@ draft → active → paused → archived
 
 保存 `agent_id`、`owner_id`、`book_id`、岗位模板、女性成员姓名、模型配置快照、权限、启用状态和健康状态。`display_name` 是成员姓名，岗位短名来自版本化岗位模板。
 
+小文秘书不写入 `agent_instances`，避免被误算为第12名创作成员或异模型意见。它使用版本化工具角色模板和下述按书会话/路由记录；前端聚合接口明确返回 `utilityAssistant` 与 `creativeAgents` 两个字段。
+
 ### `model_config_snapshots`
 
 保存供应商、模型、参数、支持模态、工具能力和验证时间。不得保存API Key。
@@ -70,11 +72,23 @@ draft → active → paused → archived
 
 ### `conversations` / `messages`
 
-消息绑定书籍、发送者Agent实例、岗位、真实模型来源、消息类型、引用、版本和创建时间。聊天意见默认不属于正史。
+消息绑定书籍、发送者类型/Agent实例、岗位、真实模型来源、消息类型、引用、版本和创建时间。老板消息额外保存原始UTF-8文本哈希、显式点名和客户端幂等键；路由摘要、实体候选和压缩文本存到独立表，禁止覆盖原始消息。聊天意见默认不属于正史。
+
+### `local_assistant_sessions` / `message_routing_decisions`
+
+`local_assistant_sessions` 保存 `owner_id/book_id`、会话类型、当前主题、活动讨论/任务、路由策略版本、状态、最后原始消息、到期和降级原因；它是工作状态，不是创作Agent实例或正史。
+
+`message_routing_decisions` 是每次受理的不可变裁决信封，至少保存原始 `message_id/content_hash`、显式点名、活动会话、`route_class`、风险级别、置信带、实体/别名候选、确定性规则版本、本地模型快照、检索/上下文包、选中动作/岗位、排除理由、是否升级、改派结果、延迟、本地资源和最终云端Token。摘要只能作为附加字段，不能替代原文。所有行携带 `owner_id/book_id`，跨书复用必须被Repository拒绝。
+
+### `utility_experience_candidates` / `utility_experience_revisions`
+
+只保存当前书范围内的工具、路由和故障处理经验，不保存剧情喜好。候选记录来源案例、失败/成功差异、反例、禁止外推、适用任务、金标版本、影子结果和状态；修订记录版本、启用/到期时间、回滚目标、激活人和监控指标。单次成功、聊天采纳或模型自评分不能直接激活。通用系统路由规则仍随产品版本发布，不从某本书静默扩散到其他书。
 
 ### `discussions`
 
 保存 `discussion_id`、范围、参与岗位、讨论类型、`discussion_epoch`、状态、预算、当前阶段和来源版本。
+
+剧情讨论额外保存原始触发消息、活动主编、两个独立编剧任务、会话粘性、重大改向轮次和收口原因。小文秘书只作为受理/资料准备来源，不进入参与创作成员、意见或投票字段。
 
 讨论状态：
 
@@ -191,6 +205,8 @@ pending → queued → working → waiting_confirmation → succeeded
 
 记录本地嵌入模型ID、版本、来源、许可、文件清单/哈希、数据根内缓存路径、Tokenizer、维度、归一化、查询指令、量化方式和验证时间，以及每书LanceDB索引的路径、块策略、来源正史版本、完成水位和状态。模型或维度改变时创建新快照并重建，不允许在同一索引混用向量空间；正常运行禁止远程模型加载。
 
+通用本地工具模型复用 `model_capability_snapshots`，另保存量化/运行时、许可/哈希、可用设备、峰值内存、冷启动、支持任务、冻结路由金标结果和激活策略版本。工具模型快照不能绑定向量索引，也不能因“本地”跳过模型调用、来源和资源审计。
+
 ### `projection_jobs` / `projection_watermarks`
 
 权威事务在SQLite内写入幂等投影任务；Worker据此构建FTS、LanceDB、关系和Wiki。水位按书、投影类型和正史版本记录 `pending/building/ready/failed/stale`，正式生产只能使用满足所需正史版本的投影。
@@ -292,8 +308,10 @@ pending → queued → working → waiting_confirmation → succeeded
 
 - 所有Repository查询自动携带 `owner_id` 和 `book_id`；
 - 两本书的消息、任务、正文、记忆、FTS、预算、租约和缓存零串线；
-- 历史首版新书仍按9实例解释；下一release新书11个Agent实例和三评审模型快照原子创建；
+- 两本书的小文秘书会话、路由决定、实体候选和经验零串线；原始消息哈希与路由前后文本一致；
+- 历史首版新书仍按9实例解释；下一release新书11个创作Agent实例、三评审模型快照和小文秘书按书会话原子创建；
 - 同书只能有一个活动主编租约；
+- 小文秘书不能写入创作Agent、剧情意见、点评报告、正史或正式正文表；
 - 前章未结算时后章不能启动；
 - 正文哈希、文件清单和数据库指针一致；
 - D级事实未确认时不能结算；
@@ -351,7 +369,7 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0012：`content_nodes`、`content_chunks`、`chunk_entities`、`chunk_snapshots`、`chunk_snapshot_sources`、`projection_outbox`、`projection_jobs`、`projection_watermarks`、`embedding_model_snapshots`、`vector_index_manifests`、`book_capability_states`。
 - 0013：`retrieval_query_plans`、`retrieval_channel_runs`、`retrieval_candidates`、`retrieval_evidence_clusters`、`retrieval_evidence_checks`、`retrieval_drilldowns`、`retrieval_context_selections`。
 - 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`plot_span_estimates`、`quality_windows`、`retrieval_activity_projections`。
-- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`。
+- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`、`local_assistant_sessions`、`message_routing_decisions`、`utility_experience_candidates`、`utility_experience_revisions`。
 - 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。

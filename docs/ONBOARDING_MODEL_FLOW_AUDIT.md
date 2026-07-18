@@ -1,5 +1,7 @@
 # 最小开书、自然规划与模型绑定设计审计
 
+> 后续修订：DEC-027在不改变本审计最小开书、双编剧和模型绑定结论的前提下，增加小文秘书本地受理、点名直达和持续剧情会话；路由细节以 `docs/LOCAL_SECRETARY_ROUTING_AUDIT.md` 为准。
+
 - `design_review_id`：`DR-20260719-06`、`DR-20260719-07`
 - 决定：DEC-025、DEC-026
 - 适用release：`wm-longform-r1-20260719-003435-e4d7b8b7`

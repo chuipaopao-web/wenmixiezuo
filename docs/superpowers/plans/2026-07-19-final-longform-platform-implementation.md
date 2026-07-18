@@ -2,9 +2,9 @@
 
 > 执行者：当前Codex单独开发。老板未授权其他开发Agent，禁止委派代码任务。
 
-**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、最小开书卡与自由聊天、DEC-021十一人团队最小上下文、双异模型剧情/跨度评估、主编/主笔接管、DEC-026可版本化模型绑定与三职责/三异模型全文点评、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
+**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、最小开书卡与自由聊天、DEC-021十一人团队最小上下文、DEC-027小文秘书与本地分层路由、双异模型剧情/跨度评估、主编/主笔接管、DEC-026可版本化模型绑定与三职责/三异模型全文点评、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
 
-**架构：** SQLite和登记的不可变文件保持唯一权威；FTS5、结构化事实、Wiki/关系、阶段摘要和本地LanceDB只是带水位的可重建投影。Fastify应用服务执行状态机，Worker幂等处理模型和投影，Web是窄侧栏内容优先工作台。新能力通过向前迁移、outbox、影子读和每书能力指针上线。
+**架构：** SQLite和登记的不可变文件保持唯一权威；FTS5、结构化事实、Wiki/关系、阶段摘要和本地LanceDB只是带水位的可重建投影。Fastify应用服务执行状态机和确定性路由，Worker幂等处理本地工具模型、创作模型和投影，Web是窄侧栏内容优先工作台。小文秘书不新增服务/端口或创作Agent实例；新能力通过向前迁移、outbox、影子读和每书能力指针上线。
 
 **固定技术栈：** React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、REST、SSE；新增依赖仅限本地LanceDB、Transformers.js/ONNX运行时所需包及懒加载Cytoscape.js，必须在对应阶段先通过许可证、锁文件、目标电脑和离线探针。
 
@@ -89,7 +89,7 @@ npm run verify
 - `apps/api/src/http/domain-routes.ts`
 - `apps/web/src/app/App.tsx`
 
-探测SQLite defensive/authorizer/limits、LanceDB/ONNX可加载性、CPU/RAM/磁盘可读信息、离线模型资产、许可/哈希和端口。无权限读取硬件详情时记录 `unknown`，不得填0冒充实测。此阶段只探测，不下载模型。
+探测SQLite defensive/authorizer/limits、LanceDB/ONNX可加载性、CPU/RAM/可用加速/磁盘可读信息、离线嵌入/重排/工具模型资产、许可/哈希和端口。无权限读取硬件详情时记录 `unknown`，不得填0冒充实测。此阶段只探测，不下载模型，也不凭经验固定通用工具模型。
 
 ### 阶段门禁与回滚
 
@@ -213,7 +213,7 @@ npm run verify
 
 每种投影有独立水位和失败状态；活动快照在全部探针通过后切换。
 
-### 任务3.4：本地嵌入与LanceDB适配器
+### 任务3.4：本地嵌入、LanceDB与工具模型适配器
 
 **新增：**
 
@@ -221,15 +221,21 @@ npm run verify
 - `apps/api/src/infrastructure/retrieval/local-transformers-embedding.ts`
 - `apps/api/src/infrastructure/retrieval/lancedb-vector-store.ts`
 - `apps/api/src/infrastructure/retrieval/null-vector-store.ts`
+- `apps/worker/src/adapters/local-utility-model-adapter.ts`
+- `apps/worker/src/adapters/null-local-utility-model.ts`
+- `apps/api/src/contracts/local-utility-model.ts`
 - `tests/integration/retrieval/vector-projection.test.ts`
 - `tests/fault-injection/vector-degraded-mode.test.ts`
+- `tests/integration/local-assistant/local-utility-model.test.ts`
+- `tests/fault-injection/local-assistant/local-utility-degraded-mode.test.ts`
 
-先固定接口和假向量测试，再安装锁定依赖；禁止远程模型，校验资产哈希。运行LanceDB本地路径、崩溃重开、删库重建、跨书过滤和目标电脑吞吐探针。失败自动选择 `null-vector-store` 并显示降级。
+先固定接口、假向量和确定性工具模型测试，再安装锁定依赖；禁止远程模型，校验资产哈希。运行LanceDB本地路径、崩溃重开、删库重建、跨书过滤和目标电脑吞吐探针；工具模型按中文意图、实体/别名、否定、严格Schema、压缩候选、冷启动和峰值内存探针选型。失败自动选择 `null-vector-store`/`null-local-utility-model` 并显示降级，不调用云端按量服务。
 
 ### 阶段门禁与回滚
 
 - 构建中断时旧快照继续服务；删除派生目录可完整重建。
 - 向量查询必须有书籍过滤且不能单独产生H结论。
+- 本地工具模型只返回Schema候选，不得执行SQL/路径/工具或写正式业务表；禁用时确定性控制与查看仍可用。
 - 回滚每书活动快照/策略指针；不删除新快照和旧权威。
 
 ---
@@ -298,11 +304,14 @@ npm run verify
 
 先预留输出和20%安全边界；Tokenizer可用则精确计数，否则使用校准上界。记录注入/排除，压缩探针失败回到上版。
 
+同时建立与生产实现分离的 `gold-routing` 清单和影子评测入口，覆盖点名、活动会话、低风险本地、高影响短句、低风险长资料、否定、歧义和跨书。此阶段只证明本地候选与正式上下文编译合同；真正消息状态机在阶段6接线。
+
 ### 阶段门禁与回滚
 
 - 冻结检索集阻断项100%；跨书0；来源闭环100%。
 - 新策略先影子运行，逐书指针切换；回滚指针恢复首版检索。
 - 上下文溢出不得删安全/任务/H；无法满足则阻断调用。
+- 路由金标中原话哈希、跨书、点名和高影响升级阻断项100%；本地模型低置信或坏Schema必须进入确定性降级/后续岗位升级。
 
 ---
 
@@ -337,6 +346,8 @@ npm run verify
 - `apps/api/src/application/agents/team-template-service.ts`
 - `apps/api/src/application/agents/model-binding-service.ts`
 - `apps/api/src/application/agents/review-model-compatibility-service.ts`
+- `apps/api/src/application/local-assistant/local-assistant-session-service.ts`
+- `apps/api/src/application/local-assistant/utility-experience-service.ts`
 - `apps/api/src/application/agents/editor-lease-service.ts`
 - `apps/api/src/application/agents/writer-lease-service.ts`
 - `tests/integration/agents/agent-continuity.test.ts`
@@ -344,9 +355,10 @@ npm run verify
 - `tests/integration/agents/eleven-member-team.test.ts`
 - `tests/integration/agents/model-binding-revisions.test.ts`
 - `tests/integration/agents/review-model-compatibility.test.ts`
+- `tests/integration/local-assistant/session-experience.test.ts`
 - `tests/fault-injection/agents/editor-writer-takeover.test.ts`
 
-表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`review_panels`、`review_reports`、`revision_orders`。历史9实例保持不变；下一release 11名成员、默认模型绑定修订和三点评职责原子创建。岗位日志只存任务步骤、依据、异议、结论和接管信息，不存思维链或迎合规则。
+表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`review_panels`、`review_reports`、`revision_orders`、`local_assistant_sessions`、`message_routing_decisions`、`utility_experience_candidates`、`utility_experience_revisions`。历史9实例保持不变；下一release 11名创作成员、默认模型绑定修订和三点评职责原子创建，小文秘书保持独立工具类型。岗位日志只存任务步骤、依据、异议、结论和接管信息；秘书经验只存工具/路由/故障处理，不存思维链、剧情喜好或迎合规则。
 
 ### 任务5.3：结算、审计和恢复调度
 
@@ -373,7 +385,7 @@ npm run verify
 
 ### 目标
 
-把最小开书→自由聊天→双异模型编剧独立讨论/跨度评估→设定硬矛盾检查→主编推荐→老板确认方向→滚动章纲/工单/资料包→单活动写手逐章检索/生成→事实/文学/体验三异模型全文点评→主编合并修改单→老板确认→结算完整串联，消除“开书填满设定”“首页选择1/3/5章”和“只有书名就写章”。
+把最小开书→自由聊天原话持久化→确定性/本地小文秘书受理→点名直达或主编主持的双异模型剧情会话/跨度评估→设定硬矛盾检查→主编推荐→老板确认方向→滚动章纲/工单/资料包→单活动写手逐章检索/生成→事实/文学/体验三异模型全文点评→主编合并修改单→老板确认→结算完整串联，消除“开书填满设定”“首页选择1/3/5章”“秘书代答剧情”和“只有书名就写章”。
 
 ### 任务6.1：统一运行状态机
 
@@ -395,6 +407,15 @@ npm run verify
 
 ### 任务6.2：开放讨论和规划收口
 
+**新增：**
+
+- `apps/api/src/application/local-assistant/message-routing-service.ts`
+- `apps/api/src/application/local-assistant/routing-policy.ts`
+- `apps/api/src/contracts/message-routing.ts`
+- `tests/integration/local-assistant/message-routing.test.ts`
+- `tests/integration/local-assistant/plot-session-routing.test.ts`
+- `tests/fault-injection/local-assistant/local-model-degradation.test.ts`
+
 **修改：**
 
 - `apps/api/src/application/chat/conversation-reply-pipeline-service.ts`
@@ -406,9 +427,11 @@ npm run verify
 - `tests/integration/domain/minimal-book-onboarding.test.ts`
 - `tests/integration/domain/plot-span-estimate.test.ts`
 
-开书卡只收书名、题材、分类、目标读者、预计规模和初始表达基线；世界观、力量体系、结局和情绪引擎不阻断。进入书籍默认自由聊天；普通消息主编必答；点名岗位真实创建任务；岗位先独立意见再汇总；确认生成不可变规划和分歧记录。叙事视角允许试写推断，但首个正式工单前必须确认版本。
+开书卡只收书名、题材、分类、目标读者、预计规模和初始表达基线；世界观、力量体系、结局和情绪引擎不阻断。进入书籍默认自由聊天；每条老板消息先原样持久化和哈希，再按确定性命令、显式点名、活动会话、低风险本地、专项岗位、剧情会话和主编升级路由。点名岗位真实创建任务；小文秘书只处理低风险本地结果或受理/检索，不以摘要替代原话；岗位先独立意见再汇总；确认生成不可变规划和分歧记录。叙事视角允许试写推断，但首个正式工单前必须确认版本。
 
 剧情任务按活动绑定创建两个互不可见的初始意见任务，默认婉儿（DeepSeek）与红玉（GLM），Kimi可替换任一席，豆包必须被配置校验拒绝。两席分别提交方案及最小/推荐/最大章节跨度、剧情单元、前提和不确定性后才允许一轮有界交叉质疑。实际模型相同、任一缺席、提前共享答案/数字时，不得标记为“异模型剧情讨论完成”。主编的跨度推荐只更新滚动规划，不创建多章并行任务。
+
+明确剧情意图建立持续 `discussion`：小文秘书准备实体、时间、来源和两个互不锚定的岗位包后退出前台主导，主编和编剧直接面向老板回复。普通追问续接当前轮次；主线/人物命运/核心规则/目标重大改变才重开独立轮次。测试覆盖短高风险、长低风险、否定、点名、低置信、跨书、原话哈希、改派、离线模型、坏Schema、运行时无远程下载和无现金fallback。
 
 ### 任务6.3：写作门禁、工单和岗位资料包
 
@@ -455,7 +478,7 @@ npm run verify
 
 ### 阶段门禁与回滚
 
-- 流程负面、取消竞态、三类坏JSON、模型超时、豆包进入剧情池、双编剧同模型/共享跨度、三席缺失/重复/错版本、与写手同模型、GLM写手未触发DeepSeek事实席、AI腔无证据/伪作者概率、政治情色无位置/错策略版本和预算竞争全部通过。
+- 流程负面、取消竞态、三类坏JSON、模型超时、点名误路由、秘书剧情直答、原话变化、高影响漏升级、活动会话重复初始化、本地模型降级/越权/跨书/现金fallback、豆包进入剧情池、双编剧同模型/共享跨度、三席缺失/重复/错版本、与写手同模型、GLM写手未触发DeepSeek事实席、AI腔无证据/伪作者概率、政治情色无位置/错策略版本和预算竞争全部通过。
 - 确定性假模型完成工程E2；真实模型没有凭证时明确停在相应证据等级，不伪造回复。
 - 回滚创作策略指针，保留新增草稿和调用记录。
 
@@ -465,7 +488,7 @@ npm run verify
 
 ### 目标
 
-实现最小开书卡、默认自由聊天首页、无1/3/5章批次按钮的自然写作入口、最终信息架构、设定框架/总纲/卷纲/章纲/章节列表、真实卷章树、作者可见资料/计划与实际情绪图谱/缺口/水位、模型绑定设置、任务二级页、检索诊断、安全导入导出和设置诊断。
+实现最小开书卡、默认自由聊天首页、小文秘书与11名创作成员分组、无1/3/5章批次按钮的自然写作入口、最终信息架构、设定框架/总纲/卷纲/章纲/章节列表、真实卷章树、作者可见资料/计划与实际情绪图谱/缺口/水位、模型绑定设置、任务二级页、检索/路由诊断、安全导入导出和设置诊断。
 
 ### 任务7.1：Web组件化与类型路由
 
@@ -474,6 +497,8 @@ npm run verify
 - `apps/web/src/app/workspace-route.ts`
 - `apps/web/src/app/WorkspaceShell.tsx`
 - `apps/web/src/features/chat/ChatWorkspace.tsx`
+- `apps/web/src/features/chat/LocalAssistantCard.tsx`
+- `apps/web/src/features/chat/RoutingReceipt.tsx`
 - `apps/web/src/features/books/MinimalBookOnboarding.tsx`
 - `apps/web/src/features/tasks/TaskCenter.tsx`
 - `apps/web/src/features/planning/PlanningWorkspace.tsx`
@@ -492,6 +517,7 @@ npm run verify
 - `tests/integration/experience/long-chapter-index.test.tsx`
 - `tests/integration/experience/minimal-onboarding.test.tsx`
 - `tests/integration/experience/natural-writing-entry.test.tsx`
+- `tests/integration/experience/local-assistant-ui.test.tsx`
 - `tests/integration/experience/model-binding-settings.test.tsx`
 
 **修改：**
@@ -499,7 +525,7 @@ npm run verify
 - `apps/web/src/app/App.tsx`
 - `apps/web/src/app/app.css`
 
-逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。先用失败测试锁定历史首版“所有章节硬编码在第一卷”“规划成果只显示原始JSON”“首页固定1/3/5章按钮”和开书信息语义混乱的缺陷。实现只含六项的开书卡，进入书籍默认显示自由聊天；“开始写/继续写”自然路由到规划或唯一下一章。再实现真实可折叠卷章树以及设定框架、总纲、卷纲、章纲、章节列表五页签。章节列表区分计划章与已有正文，显示真实流水线状态；1500章按卷加载、虚拟滚动和搜索，不一次渲染或获取全部章纲。候选/正式、来源、版本比较、确认/否决和影响范围都必须可见，设定框架与资料库引用同一底层事实而不复制权威。
+逐页从现有单体App提取，不一次重写。保持176/190px窄栏，右侧顶部显示独立“本地工具”小文秘书卡并滚动显示11名创作成员，不因角色增加加宽；中心优先和移动抽屉不变。先用失败测试锁定历史首版“所有章节硬编码在第一卷”“规划成果只显示原始JSON”“首页固定1/3/5章按钮”和开书信息语义混乱的缺陷。实现只含六项的开书卡，进入书籍默认显示自由聊天；路由回执仅显示简短动作/成员/降级，详细原因进入诊断；“开始写/继续写”自然路由到规划或唯一下一章。再实现真实可折叠卷章树以及设定框架、总纲、卷纲、章纲、章节列表五页签。章节列表区分计划章与已有正文，显示真实流水线状态；1500章按卷加载、虚拟滚动和搜索，不一次渲染或获取全部章纲。候选/正式、来源、版本比较、确认/否决和影响范围都必须可见，设定框架与资料库引用同一底层事实而不复制权威。
 
 成员卡直接显示一句话职责；点击后打开公开岗位详情，展示职责/边界/激活条件/交付物/模型来源/当前任务/最后有效贡献/证据，但不返回原始系统提示或隐藏规则。道韫在无现实事实任务时必须显示待命且零调用。模型设置页显示剧情/写手允许池、三点评实际组合、共享来源、GLM写手时DeepSeek事实席、未来任务生效范围和历史回滚；不允许运行中途换模型。正文二级页展示三席真实状态、实际成员/模型、替补原因、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。去AI味默认只显示Kimi的可定位检测证据和主编定点修改单，不把第三方Skill作为前端黑盒按钮或自动整章改写器。
 
@@ -587,6 +613,8 @@ npm run verify
 
 在已有登录态/套餐且不产生未授权现金费用时运行E3盲化A/B和可完成的E4门禁。另运行三职责/三异模型点评相对单Kimi、全员点评和只有确定性检查的缺陷检出/误报/漏报/创造性非劣效/Token/延迟对照；覆盖Codex主笔的默认GLM/Kimi/豆包组合及GLM副笔触发DeepSeek/Kimi/豆包组合，并验证AI腔风险不冒充作者概率、政治情色筛查不冒充法律或平台保证。缺少任一真实席位凭证或能力时停止该证据项，工程功能继续用假模型验证；发布报告明确最高等级。不得把假模型结果写成文学质量或真实三异模型点评。
 
+同时运行小文秘书三臂评测：全部交主编、纯确定性规则、确定性＋本地工具模型＋创作岗位分层。冻结点名/剧情/短高影响/长低风险/否定/歧义/活动会话/跨书金标，分别报告直达、升级、误直答、原话保真、改派、云Token、本地资源、总延迟和剧情/整体输出非劣效。工具经验在20/50/100—200章观察漂移、过期与迎合；未达到E3/E4不得声称“越用越聪明”。
+
 ### 任务8.4：最终发布门禁
 
 **修改：**
@@ -620,7 +648,7 @@ npm run eval:capacity
 ### 阶段门禁与完成措辞
 
 - E2全部阻断门槛必须通过；E3工程检索金标必须通过。
-- 11人团队、双编剧、主编/主笔接管和三点评席的运行时/恢复/独立性/严格Schema门禁必须通过；三席不可用时的诚实受阻也必须通过。
+- 小文秘书工具边界、点名直达、剧情持续会话、原话保真、路由恢复/降级和经验回滚必须通过；11人团队、双编剧、主编/主笔接管和三点评席的运行时/恢复/独立性/严格Schema门禁必须通过；三席不可用时的诚实受阻也必须通过。
 - 真实模型/文学质量只声明实际达到的E3/E4跨度。
 - 第二物理数据备份未配置时继续显示部署边界；远程Git只备代码，不冒充小说数据备份。
 - 任一跨书、权威、迁移、恢复、秘密、取消提交、恶意导入或硬事实错误阻断release。
