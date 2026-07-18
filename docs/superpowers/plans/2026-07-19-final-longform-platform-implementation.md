@@ -454,7 +454,7 @@ npm run verify
 
 ### 目标
 
-实现最终信息架构、作者可见资料/图谱/缺口/水位、任务二级页、检索诊断、安全导入导出和设置诊断。
+实现最终信息架构、设定框架/总纲/卷纲/章纲/章节列表、真实卷章树、作者可见资料/图谱/缺口/水位、任务二级页、检索诊断、安全导入导出和设置诊断。
 
 ### 任务7.1：Web组件化与类型路由
 
@@ -465,6 +465,9 @@ npm run verify
 - `apps/web/src/features/chat/ChatWorkspace.tsx`
 - `apps/web/src/features/tasks/TaskCenter.tsx`
 - `apps/web/src/features/planning/PlanningWorkspace.tsx`
+- `apps/web/src/features/planning/PlanningVersionPanel.tsx`
+- `apps/web/src/features/planning/VolumeChapterTree.tsx`
+- `apps/web/src/features/planning/ChapterIndex.tsx`
 - `apps/web/src/features/manuscript/ManuscriptWorkspace.tsx`
 - `apps/web/src/features/manuscript/ReviewPanel.tsx`
 - `apps/web/src/features/library/LibraryWorkspace.tsx`
@@ -472,13 +475,17 @@ npm run verify
 - `apps/web/src/features/retrieval/RetrievalDiagnostics.tsx`
 - `apps/web/src/features/settings/SettingsWorkspace.tsx`
 - `tests/integration/experience/workspace-navigation.test.tsx`
+- `tests/integration/experience/planning-workspace.test.tsx`
+- `tests/integration/experience/long-chapter-index.test.tsx`
 
 **修改：**
 
 - `apps/web/src/app/App.tsx`
 - `apps/web/src/app/app.css`
 
-逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。成员卡直接显示一句话职责；点击后打开公开岗位详情，展示职责/边界/激活条件/交付物/模型来源/当前任务/最后有效贡献/证据，但不返回原始系统提示或隐藏规则。道韫在无现实事实任务时必须显示待命且零调用。正文二级页展示三席真实状态、模型来源、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。
+逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。先用失败测试锁定历史首版“所有章节硬编码在第一卷”和“规划成果只显示原始JSON”的缺陷，再实现真实可折叠卷章树以及设定框架、总纲、卷纲、章纲、章节列表五页签。章节列表区分计划章与已有正文，显示真实流水线状态；1500章按卷加载、虚拟滚动和搜索，不一次渲染或获取全部章纲。候选/正式、来源、版本比较、确认/否决和影响范围都必须可见，设定框架与资料库引用同一底层事实而不复制权威。
+
+成员卡直接显示一句话职责；点击后打开公开岗位详情，展示职责/边界/激活条件/交付物/模型来源/当前任务/最后有效贡献/证据，但不返回原始系统提示或隐藏规则。道韫在无现实事实任务时必须显示待命且零调用。正文二级页展示三席真实状态、模型来源、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。去AI味默认只显示Kimi的可定位检测证据和主编定点修改单，不把第三方Skill作为前端黑盒按钮或自动整章改写器。
 
 ### 任务7.2：资料API和有界图谱
 
@@ -527,6 +534,7 @@ npm run verify
 ### 阶段门禁与回滚
 
 - 桌面1600×1000、窄屏500×844、键盘、200%缩放、空/错/降级/过期状态视觉证据。
+- 设定框架/总纲/卷纲/章纲/章节列表均能从左栏和中心页到达；1500章卷树性能、虚拟列表、搜索、候选/正式状态和版本操作通过。
 - 恶意导入、路径、ZIP、SSRF、密钥扫描和复制导入零覆盖。
 - UI可按路由/组件提交逐步revert；Schema只加不删。
 

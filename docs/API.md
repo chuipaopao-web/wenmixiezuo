@@ -104,6 +104,7 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
+| GET | `/books/{bookId}/planning-workspace` | 查询设定框架、总纲、真实卷树、章纲索引、章节状态、活动/候选版本和资料缺口 |
 | GET | `/books/{bookId}/artifacts` | 按类型查询创作方案、故事圣经和大纲 |
 | POST | `/books/{bookId}/artifacts/generate` | 创建规划任务 |
 | GET | `/books/{bookId}/artifacts/{artifactId}/versions` | 查询版本历史 |
@@ -111,6 +112,8 @@
 | POST | `/books/{bookId}/artifacts/{artifactId}/revert` | 从历史版本创建新版本 |
 
 返回历史版本时不能直接改旧文件或旧记录。
+
+`planning-workspace` 是前端专用的有界聚合读模型，不创建第二份权威数据。默认只返回卷摘要、章索引和当前选择状态；具体成果内容按页签/卷/章节继续请求。1500章必须支持 `volumeId`、状态筛选、搜索和游标分页，不能一次返回全书全部章纲。每个节点至少携带稳定ID、父级、顺序、标题、类型、状态、活动版本、候选数量、来源和更新时间；设定框架与资料库通过来源ID关联，不能复制并各自修改同一事实。
 
 ## 7. 章节与稿件
 
