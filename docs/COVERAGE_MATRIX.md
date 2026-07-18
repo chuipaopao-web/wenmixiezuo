@@ -48,6 +48,7 @@
 | DEC-013 | 建立作者可见的实体/图谱/标签资料库，并允许活动主编按老板自然语言可逆治理标签 | `PRODUCT.md`、`DATA_MODEL.md`、`AGENT_SYSTEM.md`、`MEMORY.md`、`API.md`、`ACCEPTANCE.md`与后续运行时证据 |
 | DEC-014 | 最终容量按500万字符、1500章设计，九成员在全书生命周期内通过岗位连续性长期陪伴 | `ULTRA_LONGFORM_CONTINUITY.md`、`PROJECT_CHARTER.md`、产品/架构/数据/Agent/记忆/质量/API/路线图/验收与后续运行时证据 |
 | DEC-015 | 旧阶段摘要优先；实体、开放线程、规则、因果、冲突等关键触发按卷→故事弧→章节/场景→正史原文有界下钻 | `ULTRA_LONGFORM_CONTINUITY.md`、`HYBRID_RAG_DESIGN.md`、记忆/数据/Agent/产品/API/质量/实施/验收、项目级Skill与后续运行时证据 |
+| DEC-016 | 单一权威库采用临时、候选、正史、派生四层；原始资产归档优先，只有可重建投影自动清理 | `HYBRID_RAG_DESIGN.md`、数据/记忆/产品/API/实施/验收、任务账本与后续迁移/恢复证据 |
 
 ## 当前发布执行证据
 
