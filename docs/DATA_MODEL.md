@@ -183,9 +183,9 @@ pending → queued → working → waiting_confirmation → succeeded
 
 `retrieval_channel_runs` 按结构化、FTS、向量、关系/Wiki分别保存实际查询、硬过滤、Top-K、投影水位、原始排名/距离或路径、本地扫描与候选量、延迟、降级和错误。原始通道分数不可直接相加，也不等于事实置信度。
 
-### `retrieval_candidate_clusters` / `retrieval_evidence_checks`
+### `retrieval_evidence_clusters` / `retrieval_evidence_checks`
 
-`retrieval_candidate_clusters` 按事实ID、实体、原始UTF-8范围、父子血缘和摘要/Wiki来源聚合重复候选，保存H硬约束/E证据/I灵感车道、各路名次、RRF分量、权威/三轴时间/岗位调整、冲突组、重排结果及采用/排除原因。派生副本只能形成一个证据簇，不能冒充多源一致。
+`retrieval_evidence_clusters` 按事实ID、实体、原始UTF-8范围、父子血缘和摘要/Wiki来源聚合重复候选，保存H硬约束/E证据/I灵感车道、各路名次、RRF分量、权威/三轴时间/岗位调整、冲突组、重排结果及采用/排除原因。派生副本只能形成一个证据簇，不能冒充多源一致。
 
 `retrieval_evidence_checks` 保存选中断言到当前正式事实或最小原文的解引用、来源版本/哈希、否定/叙事模式/观点主体/三轴时间检查和 `closed/degraded/conflicted/unknown` 结果。H和确定性结论未闭环时不得进入正式生产硬约束。
 

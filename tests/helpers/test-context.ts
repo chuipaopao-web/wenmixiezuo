@@ -7,6 +7,7 @@ import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-co
 import { openDatabase } from '../../apps/api/src/infrastructure/db/database.js';
 import { bootstrapDatabase } from '../../apps/api/src/infrastructure/db/bootstrap.js';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import { readReleaseId } from '../../apps/api/src/infrastructure/project-root.js';
 
 export class FixedClock implements Clock {
   public constructor(private readonly value = new Date('2026-07-16T00:00:00.000Z')) {}
@@ -44,7 +45,7 @@ export function createTestContext(prefix = 'wenmi-test-'): TestContext {
     dataDir,
     databasePath: resolve(dataDir, 'database', 'wenmi.sqlite'),
     projectRoot: process.cwd(),
-    releaseId: 'wm-v1-20260716-220959-d5dd704d',
+    releaseId: readReleaseId(process.cwd()),
     ownerId: 'owner-local-boss',
     webOrigin: 'http://127.0.0.1:43110',
     modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })

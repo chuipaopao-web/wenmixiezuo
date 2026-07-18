@@ -48,4 +48,4 @@
 
 DEC-020以新release开发长篇终局能力，DEC-021补充十一人团队，DEC-025/026进一步冻结最小开书、自然讨论、双编剧跨度评估、模型可配置和三职责独立点评，DEC-027冻结小文秘书、本地分层处理和透明路由；历史首版证据保持不可变。新能力必须采用单一SQLite权威、向前迁移、可重建投影、逐书影子验证和可回滚策略指针；不得为500万字符目标直接引入微服务、独立向量/图数据库、云运行依赖或未授权费用。
 
-容量、检索正确性、运行可靠性、创造性非劣效和真实纵向文学质量分别按E0至E4验收。完整设计和开工入口见 `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md` 与 `docs/superpowers/plans/2026-07-19-final-longform-platform-implementation.md`；当前只授权E0文档冻结，下一条明确开工指令前不创建源码、迁移、依赖或运行任务。
+容量、检索正确性、运行可靠性、创造性非劣效和真实纵向文学质量分别按E0至E4验收。完整设计和施工合同见 `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md` 与 `docs/superpowers/plans/2026-07-19-final-longform-platform-implementation.md`。老板已于2026-07-19明确开工，长篇终局release现按八阶段连续实施；真实模型凭证缺失时只取得允许的工程证据，绝不伪造E4文学质量。

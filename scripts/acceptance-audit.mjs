@@ -19,7 +19,7 @@ const trackedText = trackedFiles
   .filter((file) => !file.endsWith('.sqlite') && !file.endsWith('.png'))
   .map((file) => ({ file, content: readFileSync(resolve(root, file), 'utf8') }));
 
-check('release_id格式', /^wm-v1-\d{8}-\d{6}-[a-f0-9]{8}$/u.test(releaseId), releaseId);
+check('release_id格式', /^wm-(?:v[1-9]\d*|[a-z][a-z0-9-]*-r[1-9]\d*)-\d{8}-\d{6}-[a-f0-9]{8}$/u.test(releaseId), releaseId);
 for (let stage = 0; stage <= 8; stage += 1) {
   const prefix = String(stage).padStart(2, '0');
   const found = trackedFiles.some((file) => file.startsWith(`docs/releases/${releaseId}/stages/${prefix}-`));

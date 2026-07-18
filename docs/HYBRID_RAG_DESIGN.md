@@ -139,7 +139,7 @@ data/
 
 ### 6.6 索引一致性与生命周期
 
-1. 正式正文或事实结算时，SQLite权威事务同时写入 `projection_jobs`。
+1. 正式正文或事实结算时，SQLite权威事务同时写入 `projection_outbox`；Worker幂等领取后才创建/更新 `projection_jobs` 执行记录。
 2. FTS可在同一数据库事务更新；Wiki、关系和LanceDB由Worker按任务构建。
 3. 每个投影保存 `source_canon_revision`、构建版本、嵌入模型、切片策略和完成水位。
 4. 正式生产使用投影前检查水位。落后时等待、定向补建或明确降级；不得静默使用旧向量。
