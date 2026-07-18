@@ -82,7 +82,7 @@ data/
   indexes/
 ```
 
-`indexes/lance/<book_id>/canon` 保存每书正式向量投影，`indexes/lance/<book_id>/tasks/<task_id>` 保存任务级临时向量投影。两者物理隔离；正式检索默认没有访问临时表的路径。`cache/models` 保存本地嵌入和重排模型，模型快照与向量索引绑定。
+`indexes/lance/<book_id>/canon` 保存每书正式向量投影，`indexes/lance/<book_id>/tasks/<task_id>` 保存任务级临时向量投影。两者物理隔离；正式检索默认没有访问临时表的路径。`cache/models` 保存本地嵌入和重排模型、许可/来源/哈希清单，模型快照与向量索引绑定。模型只在安装或显式升级阶段下载；正常Web/API/Worker运行禁用远程模型加载，不在首次查询、`node_modules`、公共缓存或其他产品目录写入模型。
 
 ### 5.1 正文三层结构
 
