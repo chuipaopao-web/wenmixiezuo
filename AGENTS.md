@@ -32,18 +32,19 @@
 6. `docs/DATA_MODEL.md`
 7. `docs/AGENT_SYSTEM.md`
 8. `docs/MEMORY.md`
-9. `docs/API.md`
-10. `docs/DEVELOPMENT_ROADMAP.md`
-11. `docs/ACCEPTANCE.md`
-12. `KNOWLEDGE.md`
-13. `TASKS.md`
+9. `docs/LONGFORM_QUALITY.md`
+10. `docs/API.md`
+11. `docs/DEVELOPMENT_ROADMAP.md`
+12. `docs/ACCEPTANCE.md`
+13. `KNOWLEDGE.md`
+14. `TASKS.md`
 
 只在需要核对细节或争议时读取 `docs/CONSENSUS_LEDGER.md` 对应条目，禁止把24条全文默认注入每次模型调用。
 
 ## 开发原则
 
 - 技术栈固定为 React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、REST与SSE。
-- 首版采用本地模块化单体加独立Worker，不使用微服务、WebSocket、独立向量库或图数据库。
+- 采用本地模块化单体加独立Worker，不使用微服务、WebSocket或需要独立运维的向量/图数据库服务；混合RAG所需向量、关系和Wiki投影必须本地嵌入、可重建且不成为正史源。
 - 服务只监听 `127.0.0.1`。
 - 业务层只通过Repository访问数据；Worker不得直接修改核心业务表或正式正文。
 - 所有核心记录从第一天携带 `owner_id` 和 `book_id`；跨书查询必须显式携带隔离键。
@@ -60,6 +61,15 @@
 - Agent状态必须由真实任务、心跳、模型调用和工具事件驱动，禁止根据口头回复伪造“工作中”。
 - 任何模型调用都必须生成可追溯的上下文包、调用记录和预算记录。
 - 不保存或展示模型内部思维链，只保存任务步骤、依据、检查结论和结果。
+
+## 长篇创作质量Skill门禁
+
+- 设计、比较、修改或复盘记忆、正史、RAG、Wiki、上下文、分层规划、Agent协作、章节生成、审校、作者偏好和长篇质量验收前，必须完整读取并执行 `.agents/skills/wenmi-longform-quality/SKILL.md`。
+- 发生人物漂移、剧情失控、检索错误、文风同质、重复、迎合或跨章质量下降时，必须用该Skill从真实代码、数据、上下文包和调用证据建立故障基线。
+- 普通事实问答、纯文案修改、低风险样式调整和明确机械修复不触发完整审查，避免分析瘫痪。
+- 每项重要方案必须建立“痛点—症状—根因—机制—反例—指标—证据—停止条件”追踪链；禁止以“使用向量库、多Agent、长上下文或更强模型”替代根因分析。
+- 固定同义词及同源测试不能证明语义或混合RAG；连续5章只能证明短流程运行。长篇质量表述遵守 `docs/LONGFORM_QUALITY.md` 的E0—E4证据门禁。
+- Skill发现重大规格缺口时先更新当前规格，再修改业务代码；安装Skill本身不得冒充产品运行时能力完成。
 
 ## 任务与文件规则
 
@@ -83,6 +93,7 @@
 - 本地运行验证；
 - Repository契约测试；
 - 与该阶段相关的故障恢复和跨书隔离测试；
+- 与长篇质量相关的独立金标、对抗查询、消融、上下文位置、纵向缺陷和反迎合测试；
 - 文档和覆盖矩阵同步。
 
 最终完成标准只以 `docs/ACCEPTANCE.md` 为准。执行者不能自行宣布整个产品完成。

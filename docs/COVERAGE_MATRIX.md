@@ -35,6 +35,13 @@
 |---|---|---|
 | DEC-001 | 从5个固定岗位调整为5个核心加4个按需专家，共9个岗位 | `DECISIONS.md`、`PRODUCT.md`、`AGENT_SYSTEM.md`、`DATA_MODEL.md`、`ACCEPTANCE.md` |
 | DEC-002 | 正式授权八阶段开发并锁定名称、端口、数据、零现金、Git与备份边界 | `DECISIONS.md`、`KNOWLEDGE.md`、`TASKS.md`、`README.md`、发布验收包 |
+| DEC-003 | 产品名称、技术标识、桌面入口和数据库统一为“文秘写作” | 当前代码、入口、数据迁移、使用说明和验收 |
+| DEC-004 | 工作台采用内容优先、浅绿可调、窄侧栏和原型头像 | `PRODUCT.md`、Web工作台、UI测试和使用说明 |
+| DEC-005 | 九岗位使用女性成员身份和短岗位名 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、Agent领域、迁移和界面 |
+| DEC-006 | 预算与待确认移入任务中心，右栏只显示成员 | `PRODUCT.md`、Web任务中心、工作区API和体验测试 |
+| DEC-007 | 九岗位使用Codex登录态与火山方舟套餐模型 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、模型适配器、任务流水线和模型测试 |
+| DEC-008 | 开放对话与写作准备门禁先于主笔生成 | `PRODUCT.md`、`API.md`、聊天/讨论/规划/章节服务和增量验收 |
+| DEC-009 | 长篇创作失败、反迎合、混合RAG目标和E0—E4独立证据门禁 | `LONGFORM_QUALITY.md`、`LONGFORM_QUALITY_GAP.md`、`MEMORY.md`、`ACCEPTANCE.md`、项目级Skill和评测夹具 |
 
 ## 当前发布执行证据
 
