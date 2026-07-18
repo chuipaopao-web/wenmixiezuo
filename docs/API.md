@@ -89,6 +89,8 @@
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
 普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；聊天不会自动写入长期记忆。自然创作意图会创建 `discussion` 任务并自动选择相关岗位，`讨论 <问题>` 仍可作为显式快捷方式。相关岗位先回复，主编读取真实意见后汇总，再以 `确认方案 <decisionId>` 零Token确认。
 
+普通消息若被识别为明确的资料治理命令，例如“增加隐藏身份标签”“给张三增加隐藏身份标签”或“把暗线作为伏笔的别名”，由活动主编调用受限知识工具。单书、对象明确且可撤销的操作直接执行，消息回复包含变更ID、对象、前后值、正史/候选状态、投影状态和撤销入口；歧义、同名、跨书或批量影响只产生一个必要澄清问题。其他Agent提出的标签只能进入候选。
+
 标记为 `creative_planning` 的确认会生成或新增版本并选择 `creative_plan`、`story_bible`、`master_outline` 和请求范围内的 `chapter_outline`。普通讨论确认不自动改写规划成果。
 
 ## 6. 规划成果
@@ -135,6 +137,17 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
+| GET | `/books/{bookId}/library/overview` | 查询资料库总览、类型数量、冲突和任务相关缺口 |
+| GET | `/books/{bookId}/library/entities` | 按角色、势力、地点、道具、事件、规则等类型查询实体卡 |
+| GET | `/books/{bookId}/library/timeline` | 查询带证据和正史版本的故事时间线 |
+| GET | `/books/{bookId}/library/graphs/relationships` | 查询有向、带时间和观点主体的关系图谱 |
+| GET | `/books/{bookId}/library/graphs/emotions` | 查询按人物和场景组织的情绪图谱与证据状态 |
+| GET | `/books/{bookId}/library/map` | 查询地点事实、空间关系、移动约束和可重建布局 |
+| GET | `/books/{bookId}/library/gaps` | 查询与任务/章节相关的硬缺口、建议和可选灵感 |
+| GET/POST | `/books/{bookId}/library/tags` | 查询或创建版本化标签定义 |
+| PATCH | `/books/{bookId}/library/tags/{tagId}` | 改名、增加别名、调整展示或归档标签 |
+| POST | `/books/{bookId}/library/tag-assignments` | 给明确对象增加带故事时间、证据和状态的标签 |
+| POST | `/books/{bookId}/library/tag-assignments/{assignmentId}/archive` | 可逆归档标签赋值 |
 | GET | `/books/{bookId}/memory` | 按层级、实体、章节和状态查询记忆 |
 | GET | `/books/{bookId}/facts` | 查询事实、证据、故事时间和正史状态 |
 | GET | `/books/{bookId}/entities/{entityId}` | 查询实体历史和当前状态 |
@@ -142,7 +155,7 @@
 | GET | `/books/{bookId}/context-packs/{contextPackId}` | 查询模型调用的资料来源和预算 |
 | POST | `/books/{bookId}/facts/{factId}/correct-request` | 创建事实纠正确认单 |
 
-接口不得返回模型内部思维链；只返回来源、采用原因、检查结果和可审计产物。
+接口不得返回模型内部思维链或原始嵌入向量；只返回人类可读语义、来源、采用原因、检查结果和可审计产物。标签定义不等于事实，候选/派生标注必须与老板确认标注分开返回；带生死、知情、归属、核心关系或世界规则含义的赋值必须携带对应事实与确认状态。资料缺口必须携带任务相关理由，不返回要求填满所有可选字段的虚假总完成率。
 
 ## 10. 正史与确认
 
@@ -222,6 +235,8 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `manuscript.version.created`
 - `chapter.settled`
 - `canon.revision.changed`
+- `library.changed`
+- `tag.changed`
 - `budget.threshold.reached`
 - `backup.changed`
 - `worker.health.changed`
@@ -244,5 +259,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `MODEL_CALL_INTERRUPTED`
 - `TASK_ALREADY_RUNNING`
 - `OPERATION_INCOMPLETE`
+- `TAG_DEFINITION_CONFLICT`
+- `TAG_ASSIGNMENT_AMBIGUOUS`
 - `BACKUP_NOT_VERIFIED`
 - `PERMANENT_DELETE_CONFIRMATION_INVALID`
