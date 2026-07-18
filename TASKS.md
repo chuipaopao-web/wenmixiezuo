@@ -270,4 +270,4 @@
 - 停止条件：需要业务代码、迁移、真实付费、密钥、独立数据库服务、生产恢复、永久删除或无法裁决的重大架构变化时停止；本任务未触发。
 - 回滚方法：对本任务文档提交执行非破坏性 `git revert`；未来运行时分别回滚Skill影响决定、投影快照、软偏好/压缩/检索策略，不回滚正史、安全、版权和隔离门禁。
 - 复核人：当前Codex依据三套Skill完成两轮审查；受“不调用其他开发Agent”约束，本次E0审查不声称人员独立，后续E3/E4必须使用独立金标、盲评和真实作者验收。
-- 当前证据（提交前）：项目审计器返回 `PASS: docs\DESIGN_GOVERNANCE_AUDIT.md`；官方Skill校验返回 `Skill is valid!`；Markdown引用与 `git diff --check` 通过；受限环境首次全量测试因临时回环 `EACCES` 产生3项连锁失败，同一代码在允许 `127.0.0.1` 后类型检查、63个测试文件/132项测试和API/Web/Worker构建全部通过；迁移/Repository/恢复目标集11个文件/19项通过；发布验收3/3功能用例通过，提交前审计仅按预期报告工作树未提交。
+- 最终证据：核心提交 `47e6089`；项目审计器返回 `PASS: docs\DESIGN_GOVERNANCE_AUDIT.md`；官方Skill校验返回 `Skill is valid!`；Markdown引用、冲突/占位扫描与 `git diff --check` 通过；受限环境首次全量测试因临时回环 `EACCES` 产生3项连锁失败，同一代码在允许 `127.0.0.1` 后类型检查、63个测试文件/132项测试和API/Web/Worker构建全部通过；迁移/Repository/恢复目标集11个文件/19项通过；核心提交后发布验收3/3通过且审计 `failures: []`、工作树clean。完整记录见 `docs/releases/wm-v1-20260716-220959-d5dd704d/increments/2026-07-18-skill-first-design-governance.md`。
