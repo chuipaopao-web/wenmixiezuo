@@ -26,6 +26,7 @@ import {
   createBook,
   fetchArtifacts,
   fetchBooks,
+  fetchCapabilities,
   fetchChapterContent,
   fetchHealth,
   fetchMemory,
@@ -38,6 +39,7 @@ import {
   resolveConfirmation,
   type AgentData,
   type BookData,
+  type CapabilityData,
   type ChapterData,
   type HealthData,
   type MessageData,
@@ -60,6 +62,7 @@ type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections'
 
 export function App(): React.JSX.Element {
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilityData | null>(null);
   const [worker, setWorker] = useState<WorkerData | null>(null);
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
@@ -106,10 +109,11 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal), fetchWorker(controller.signal)])
-      .then(([nextHealth, , nextWorker]) => {
+    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal), fetchWorker(controller.signal), fetchCapabilities(controller.signal)])
+      .then(([nextHealth, , nextWorker, nextCapabilities]) => {
         setHealth(nextHealth);
         setWorker(nextWorker);
+        setCapabilities(nextCapabilities);
         setError(null);
       })
       .catch((reason: unknown) => {
@@ -387,7 +391,7 @@ export function App(): React.JSX.Element {
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
-      {settingsOpen && <SettingsDialog preferences={preferences} health={health} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTask !== null && workspace !== null && (
         <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
       )}
@@ -713,9 +717,9 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
   );
 }
 
-function SettingsDialog({ preferences, health, onChange, onClose }: {
+function SettingsDialog({ preferences, capabilities, onChange, onClose }: {
   preferences: WorkspacePreferences;
-  health: HealthData | null;
+  capabilities: CapabilityData | null;
   onChange: (preferences: WorkspacePreferences) => void;
   onClose: () => void;
 }): React.JSX.Element {
@@ -761,20 +765,21 @@ function SettingsDialog({ preferences, health, onChange, onClose }: {
         <fieldset>
           <legend>成员模型</legend>
           <div className="model-runtime-summary">
-            <div className={health?.modelRuntime?.activeMode === 'subscription-plan' ? 'runtime-state active' : 'runtime-state'}>
+            <div className={capabilities?.modelRuntime.activeMode === 'subscription-plan' ? 'runtime-state active' : 'runtime-state'}>
               <span aria-hidden="true" />
-              <strong>{health?.modelRuntime?.activeMode === 'subscription-plan' ? '订阅与套餐模型已启用' : '确定性测试模型'}</strong>
-              <small>{health?.modelRuntime?.cashFallbackAllowed === false ? '禁止按量付费回退' : '运行状态待连接'}</small>
+              <strong>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '订阅与套餐模型已启用' : '确定性测试模型'}</strong>
+              <small>{capabilities?.modelRuntime.cashFallbackAllowed === false ? '禁止按量付费回退' : '运行状态待连接'}</small>
             </div>
             <div className="model-profile-list">
-              {(health?.modelRuntime?.profiles ?? []).map((profile) => (
+              {(capabilities?.modelRuntime.profiles ?? []).map((profile) => (
                 <div className="model-profile" key={`${profile.provider}/${profile.modelId}`}>
                   <span><strong>{profile.modelId}</strong><small>{profile.provider}</small></span>
                   <span><small>{profile.roles.map(roleLabel).join('、')}</small><em>{profile.credentialConfigured ? planLabel(profile.plan) : '缺少凭证'}</em></span>
                 </div>
               ))}
-              {health?.modelRuntime === undefined && <p>连接本地服务后显示九岗位的真实模型来源。</p>}
+              {capabilities === null && <p>连接本地服务后显示创作团队的真实模型来源。</p>}
             </div>
+            {capabilities !== null && <p className="capability-note">Node {capabilities.runtime.nodeVersion} · SQLite {capabilities.sqlite.version} · FTS5 {capabilities.sqlite.fts5 ? '可用' : '缺失'} · 向量检索 {capabilities.degradation.vectorSearchAvailable ? '可用' : '待安装'}</p>}
           </div>
         </fieldset>
         <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>

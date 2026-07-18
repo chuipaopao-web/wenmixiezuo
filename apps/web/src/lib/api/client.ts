@@ -2,8 +2,25 @@ export interface HealthData {
   service: string;
   status: string;
   releaseId: string;
-  schemaVersion: number;
-  modelRuntime?: {
+  time: string;
+}
+
+export interface CapabilityData {
+  releaseId: string;
+  checkedAt: string;
+  runtime: {
+    platform: string;
+    architecture: string;
+    nodeVersion: string;
+    logicalCpuCount: number;
+    totalMemoryBytes: number;
+    freeMemoryBytes: number;
+    dataVolumeFreeBytes: number;
+  };
+  sqlite: { version: string; foreignKeys: boolean; trustedSchema: boolean; json: boolean; fts5: boolean };
+  dependencies: Array<{ capability: string; packageName: string; status: 'available' | 'missing' }>;
+  modelAssets: Array<{ assetId: string; kind: string; modelId: string; status: 'verified' | 'missing' | 'invalid' }>;
+  modelRuntime: {
     requestedMode: 'deterministic' | 'subscription-plan';
     activeMode: 'deterministic' | 'subscription-plan';
     strictPlanOnly: boolean;
@@ -17,6 +34,7 @@ export interface HealthData {
       credentialConfigured: boolean;
     }>;
   };
+  degradation: { active: boolean; missingCapabilities: string[]; vectorSearchAvailable: boolean; localModelAssetsReady: boolean };
 }
 
 export interface BookData {
@@ -117,12 +135,42 @@ interface ApiResponse<T> {
 }
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? 'http://127.0.0.1:43111';
+let sessionPromise: Promise<void> | null = null;
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_ORIGIN}${path}`, {
+async function establishRuntimeSession(): Promise<void> {
+  const response = await fetch(`${API_ORIGIN}/api/v1/runtime/session`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: '{}'
+  });
+  if (!response.ok) throw new Error('无法建立文秘写作本机会话');
+}
+
+function ensureRuntimeSession(): Promise<void> {
+  sessionPromise ??= establishRuntimeSession().catch((error: unknown) => {
+    sessionPromise = null;
+    throw error;
+  });
+  return sessionPromise;
+}
+
+async function performRequest(path: string, init: RequestInit): Promise<Response> {
+  return fetch(`${API_ORIGIN}${path}`, {
     ...init,
+    credentials: 'include',
     headers: { 'content-type': 'application/json', ...init.headers }
   });
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (path.startsWith('/api/v1/')) await ensureRuntimeSession();
+  let response = await performRequest(path, init);
+  if (response.status === 401 && path.startsWith('/api/v1/')) {
+    sessionPromise = null;
+    await ensureRuntimeSession();
+    response = await performRequest(path, init);
+  }
   const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
   if (!response.ok) {
     const message = 'error' in body ? body.error?.message : undefined;
@@ -133,6 +181,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function fetchHealth(signal?: AbortSignal): Promise<HealthData> {
   return request('/health', signal === undefined ? {} : { signal });
+}
+
+export function fetchCapabilities(signal?: AbortSignal): Promise<CapabilityData> {
+  return request('/api/v1/capabilities', signal === undefined ? {} : { signal });
 }
 
 export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {

@@ -24,7 +24,7 @@ describe('长对话分页窗口', () => {
       const suffix = String(index).padStart(4, '0');
       insert.run(`history-${suffix}`, conversation.conversation_id, context.config.ownerId, book.bookId, `历史消息 ${suffix}`, clock.now().toISOString());
     }
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, { trustedTest: true });
     try {
       const latest = (await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/messages?limit=10` })).json().data as Array<{ message_id: string }>;
       expect(latest.map((message) => message.message_id)).toEqual(Array.from({ length: 10 }, (_, index) => `history-${String(index + 511).padStart(4, '0')}`));

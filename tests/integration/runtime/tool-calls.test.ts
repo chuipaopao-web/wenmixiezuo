@@ -81,7 +81,7 @@ describe('工具调用账本与底层真实取消', () => {
     };
     const pending = fixture.calls.execute(fixture.scope, call, adapter);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const app = await createApiServer(context!.config, context!.database);
+    const app = await createApiServer(context!.config, context!.database, { trustedTest: true });
     try {
       const response = await app.inject({ method: 'POST', url: `/api/v1/books/${fixture.scope.bookId}/tasks/task-tools/cancel` });
       expect(response.statusCode).toBe(200);

@@ -26,21 +26,18 @@ describe('API健康检查', () => {
       releaseId: 'wm-v1-20260716-220959-d5dd704d',
       ownerId: 'owner-local-boss',
       webOrigin: 'http://127.0.0.1:43110',
+      workerToken: 'test-worker-token-00000000000000000000000000000000',
       modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(tempDirectory, 'cache', 'codex-runtime') })
     };
     const database = openDatabase(config.databasePath);
     bootstrapDatabase(database, config);
     const app = await createServer(config, database);
     try {
-      const response = await app.inject({ method: 'GET', url: '/health' });
+      const response = await app.inject({ method: 'GET', url: '/health', headers: { host: '127.0.0.1:43111' } });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
         data: {
-          status: 'ok', releaseId: config.releaseId, schemaVersion: 9,
-          modelRuntime: {
-            requestedMode: 'deterministic', activeMode: 'deterministic', strictPlanOnly: true,
-            cashFallbackAllowed: false, missingCredentials: ['coding-plan', 'agent-plan']
-          }
+          status: 'ok', releaseId: config.releaseId, time: expect.any(String)
         },
         meta: { version: 1 }
       });

@@ -32,7 +32,7 @@ describe('独立Worker章节执行', () => {
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     prepareBookForWriting(context, scope, ids, clock, 1);
     const batch = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock).scheduleNewChapters(scope, 1);
-    app = await createServer(context.config, context.database);
+    app = await createServer(context.config, context.database, { trustedTest: true });
     await app.listen({ host: '127.0.0.1', port: 0 });
     const address = app.server.address();
     if (address === null || typeof address === 'string') throw new Error('测试API地址不可用');
@@ -43,6 +43,7 @@ describe('独立Worker章节执行', () => {
         WENMI_PROJECT_ROOT: process.cwd(),
         WENMI_DATA_DIR: context.dataDir,
         WENMI_WORKER_ID: 'creation-worker-test',
+        WENMI_WORKER_TOKEN: context.config.workerToken,
         WENMI_API_BASE_URL: `http://127.0.0.1:${address.port}`
       },
       stdio: ['ignore', 'pipe', 'pipe']

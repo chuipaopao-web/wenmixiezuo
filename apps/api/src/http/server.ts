@@ -1,8 +1,8 @@
 import cors from '@fastify/cors';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { SCHEMA_VERSION, success } from '../contracts/api.js';
+import { success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { EventStore } from '../application/events/event-store.js';
@@ -12,6 +12,12 @@ import { ChapterPipelineService } from '../application/creation/chapter-pipeline
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ConversationReplyPipelineService } from '../application/chat/conversation-reply-pipeline-service.js';
+import { RuntimeSessionService } from '../infrastructure/security/runtime-session.js';
+import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
+import { registerRuntimeRoutes } from './runtime-routes.js';
+import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
+import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
+import { CapabilityService } from '../application/capabilities/capability-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -23,11 +29,23 @@ interface WorkerHealthRow {
   current_task_id: string | null;
 }
 
-export async function createServer(config: RuntimeConfig, database: DatabaseSync): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' } });
-  await app.register(cors, { origin: config.webOrigin, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+export async function createServer(config: RuntimeConfig, database: DatabaseSync, options: RequestPolicyOptions = {}): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' },
+    logController: new LogController({ disableRequestLogging: true })
+  });
+  await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  const sessions = new RuntimeSessionService();
+  registerRequestPolicy(app, config, sessions, options);
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
+  const capabilities = new CapabilityService(
+    new RuntimeCapabilityProbe(database, config.dataDir),
+    new ModelAssetRegistry(config.dataDir),
+    config.modelRuntime,
+    config.releaseId
+  );
+  await registerRuntimeRoutes(app, sessions, capabilities);
   await registerDomainRoutes(app, database, config);
 
   app.get('/health', async (request) => {
@@ -35,18 +53,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     return success({
       service: 'wenmi-api',
       status: integrity.quick_check === 'ok' ? 'ok' : 'degraded',
-      database: integrity.quick_check,
       releaseId: config.releaseId,
-      schemaVersion: SCHEMA_VERSION,
-      dataDirectoryReady: true,
-      modelRuntime: {
-        requestedMode: config.modelRuntime.requestedMode,
-        activeMode: config.modelRuntime.activeMode,
-        strictPlanOnly: config.modelRuntime.strictPlanOnly,
-        cashFallbackAllowed: config.modelRuntime.cashFallbackAllowed,
-        missingCredentials: config.modelRuntime.missingCredentials,
-        profiles: config.modelRuntime.publicProfiles
-      }
+      time: new Date().toISOString()
     }, request.id);
   });
 
@@ -78,7 +86,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
 
   app.post<{
     Params: { taskId: string };
-    Headers: { 'x-wenmi-worker-id'?: string };
+    Headers: { 'x-wenmi-worker-id'?: string; 'x-wenmi-worker-token'?: string };
     Body: { ownerId: string; bookId: string };
   }>('/api/v1/internal/worker/tasks/:taskId/execute', async (request) => {
     const workerId = request.headers['x-wenmi-worker-id'];
@@ -135,7 +143,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       });
       return;
     }
-    request.log.error({ err: error }, 'unhandled request error');
+    request.log.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'unhandled request error');
     void reply.status(500).send({
       error: { code: 'INTERNAL_ERROR', message: '内部错误', details: {}, retryable: false },
       meta: { requestId }

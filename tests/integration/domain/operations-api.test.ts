@@ -10,7 +10,7 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('生命周期、任务审计与备份REST入口', () => {
   it('归档/恢复遵守版本，任务可追溯，备份可在隔离目录真实验证', async () => {
     context = createTestContext();
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, { trustedTest: true });
     try {
       const draft = (await app.inject({
         method: 'POST', url: '/api/v1/books/drafts', payload: { title: '运维入口测试书', text: '验证本地安全运维入口' }

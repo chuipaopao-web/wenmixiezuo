@@ -20,7 +20,7 @@ describe('工作台API', () => {
       title: '工作台接口书', text: '聚合工作区并执行确定性命令'
     });
     prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
-    app = await createServer(context.config, context.database);
+    app = await createServer(context.config, context.database, { trustedTest: true });
     const workspaceResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/workspace` });
     expect(workspaceResponse.statusCode).toBe(200);
     expect(workspaceResponse.json().data).toMatchObject({
@@ -67,7 +67,7 @@ describe('工作台API', () => {
     const book = initializeDomainBook(context, context.config.ownerId, new SequenceIds(), new FixedClock(), {
       title: '研究接口书', text: '验证研究来源隔离'
     });
-    app = await createServer(context.config, context.database);
+    app = await createServer(context.config, context.database, { trustedTest: true });
     const sourceResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/research/sources`, payload: {
         title: '历史公开资料', content: '原始研究材料只存储在研究缓存，不应由列表接口直接返回。',

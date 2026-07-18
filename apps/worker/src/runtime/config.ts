@@ -18,6 +18,7 @@ export interface WorkerConfig {
   releaseId: string;
   workerId: string;
   apiBaseUrl: string;
+  workerToken: string;
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -28,6 +29,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     databasePath: resolve(dataDir, 'database', 'wenmi.sqlite'),
     releaseId: readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim(),
     workerId: env.WENMI_WORKER_ID ?? 'local-worker-1',
-    apiBaseUrl: env.WENMI_API_BASE_URL ?? 'http://127.0.0.1:43111'
+    apiBaseUrl: env.WENMI_API_BASE_URL ?? 'http://127.0.0.1:43111',
+    workerToken: env.WENMI_WORKER_TOKEN ?? ''
   };
 }

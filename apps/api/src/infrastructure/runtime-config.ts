@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { DomainError, errorCodes } from '../domain/errors.js';
 import { findProjectRoot, readReleaseId } from './project-root.js';
@@ -13,6 +14,7 @@ export interface RuntimeConfig {
   releaseId: string;
   ownerId: string;
   webOrigin: string;
+  workerToken: string;
   modelRuntime: ModelRuntimeConfig;
 }
 
@@ -45,6 +47,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     releaseId: readReleaseId(projectRoot),
     ownerId: env.WENMI_OWNER_ID ?? 'owner-local-boss',
     webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110',
+    workerToken: env.WENMI_WORKER_TOKEN?.trim() || randomBytes(32).toString('base64url'),
     modelRuntime: loadModelRuntimeConfig(env, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })
   };
 }

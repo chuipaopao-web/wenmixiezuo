@@ -214,6 +214,25 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
   return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
+    if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
+    if (path === '/api/v1/capabilities') return apiResponse({
+      releaseId: 'release-ui', checkedAt: new Date().toISOString(),
+      runtime: { platform: 'win32', architecture: 'x64', nodeVersion: process.version, logicalCpuCount: 16, totalMemoryBytes: 1, freeMemoryBytes: 1, dataVolumeFreeBytes: 1 },
+      sqlite: { version: '3.50.0', foreignKeys: true, trustedSchema: false, json: true, fts5: true },
+      dependencies: [], modelAssets: [],
+      modelRuntime: {
+        requestedMode: 'subscription-plan', activeMode: 'subscription-plan', strictPlanOnly: true,
+        cashFallbackAllowed: false, missingCredentials: [],
+        profiles: [
+          { provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol', plan: 'codex', roles: ['chief_editor', 'writer'], credentialConfigured: true },
+          { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding', roles: ['screenwriter', 'copyright'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2', plan: 'agent', roles: ['worldbuilder', 'researcher'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.6', plan: 'agent', roles: ['reviewer', 'line_editor'], credentialConfigured: true },
+          { provider: 'volcengine-ark-agent-plan', modelId: 'doubao-seed-2-0-pro-260215', plan: 'agent', roles: ['reader_experience'], credentialConfigured: true }
+        ]
+      },
+      degradation: { active: false, missingCapabilities: [], vectorSearchAvailable: true, localModelAssetsReady: true }
+    });
     if (path === '/health') return apiResponse({
       service: 'wenmi-api', status: 'ok', releaseId: 'release-ui', schemaVersion: 9,
       modelRuntime: {

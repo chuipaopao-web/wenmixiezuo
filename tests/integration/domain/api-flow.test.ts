@@ -8,7 +8,7 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('建书REST流程', () => {
   it('从自然语言定位草稿到确认建书并查询9岗位', async () => {
     context = createTestContext();
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, { trustedTest: true });
     try {
       const draftResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts',
@@ -30,4 +30,3 @@ describe('建书REST流程', () => {
     }
   });
 });
-

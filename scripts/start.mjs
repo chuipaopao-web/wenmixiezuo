@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -40,8 +41,9 @@ for (const relativePath of required) {
   }
 }
 
-const apiEnvironment = { ...process.env };
-const nonModelEnvironment = { ...process.env };
+const workerToken = randomBytes(32).toString('base64url');
+const apiEnvironment = { ...process.env, WENMI_WORKER_TOKEN: workerToken };
+const nonModelEnvironment = { ...process.env, WENMI_WORKER_TOKEN: workerToken };
 for (const name of modelCredentialNames) delete nonModelEnvironment[name];
 
 const children = [];
@@ -83,6 +85,59 @@ async function waitForApi() {
   throw new Error('API在20秒内未通过健康检查');
 }
 
+async function verifyRuntimeSmoke() {
+  const sessionResponse = await fetch('http://127.0.0.1:43111/api/v1/runtime/session', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://127.0.0.1:43110',
+      'sec-fetch-site': 'same-site'
+    },
+    body: '{}'
+  });
+  if (!sessionResponse.ok) throw new Error(`runtime session smoke failed: ${sessionResponse.status}`);
+  const cookie = sessionResponse.headers.get('set-cookie')?.split(';', 1)[0];
+  if (!cookie) throw new Error('runtime session smoke did not receive a cookie');
+
+  const deadline = Date.now() + 15_000;
+  let readiness;
+  while (Date.now() < deadline) {
+    const response = await fetch('http://127.0.0.1:43111/api/v1/runtime/readiness', { headers: { cookie } });
+    if (response.ok) {
+      readiness = (await response.json()).data;
+      if (readiness.worker === 'ready') break;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  if (readiness?.worker !== 'ready') throw new Error('runtime worker smoke did not become ready');
+
+  const capabilityResponse = await fetch('http://127.0.0.1:43111/api/v1/capabilities', { headers: { cookie } });
+  if (!capabilityResponse.ok) throw new Error(`runtime capability smoke failed: ${capabilityResponse.status}`);
+  const capabilities = (await capabilityResponse.json()).data;
+
+  let webReady = false;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch('http://127.0.0.1:43110');
+      webReady = response.ok;
+      if (webReady) break;
+    } catch {
+      // Vite preview is still starting.
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  if (!webReady) throw new Error('runtime web smoke did not become ready');
+  console.log(JSON.stringify({
+    smoke: 'passed',
+    session: 'http-only-cookie',
+    worker: readiness.worker,
+    nodeVersion: capabilities.runtime.nodeVersion,
+    sqliteFts5: capabilities.sqlite.fts5,
+    vectorSearchAvailable: capabilities.degradation.vectorSearchAvailable,
+    web: 'ready'
+  }));
+}
+
 process.once('SIGINT', () => stopAll(0));
 process.once('SIGTERM', () => stopAll(0));
 
@@ -96,3 +151,14 @@ spawnService('WEB', process.execPath, [
   '--config', resolve(projectRoot, 'apps/web/vite.config.ts')
 ]);
 console.log('文秘写作已启动：http://127.0.0.1:43110');
+
+if (process.env.WENMI_RUNTIME_SMOKE === '1') {
+  try {
+    await verifyRuntimeSmoke();
+    stopAll(0);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    stopAll(1);
+  }
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_000));
+}

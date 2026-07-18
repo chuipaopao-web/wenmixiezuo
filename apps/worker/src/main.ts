@@ -17,7 +17,7 @@ heartbeat.start();
 const loop = new WorkerLoop(
   new TaskClaimer(database, config.workerId),
   heartbeat,
-  new ChapterTaskExecutor(config.apiBaseUrl, config.workerId)
+  new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken)
 );
 loop.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId }));

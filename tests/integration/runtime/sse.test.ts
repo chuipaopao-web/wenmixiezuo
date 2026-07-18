@@ -11,7 +11,7 @@ describe('SSE持久回放', () => {
     context = createTestContext();
     const events = new EventStore(context.database, new SequenceIds(), new FixedClock());
     const event = events.append({ ownerId: context.config.ownerId }, 'worker.health.changed', { status: 'ready' });
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, { trustedTest: true });
     const address = await app.listen({ host: '127.0.0.1', port: 0 });
     const controller = new AbortController();
     try {
@@ -29,4 +29,3 @@ describe('SSE持久回放', () => {
     }
   });
 });
-
