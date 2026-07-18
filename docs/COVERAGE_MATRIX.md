@@ -54,6 +54,7 @@
 | DEC-019 | 四路检索先做硬门禁和意图路由，按H硬约束/E证据/I灵感三车道融合，同源聚类、冲突保留、有界关系和正式来源闭环 | `HYBRID_RETRIEVAL_ORCHESTRATION.md`、RAG/架构/数据/记忆/Agent/超长篇/API/实施/验收与后续E1—E4证据 |
 | DEC-020 | 冻结长篇终局设计，以新release、Schema 10—16、真实状态机、本机安全、可移植、逐书影子切换和E0—E4分层验收开发 | `PRE_DEVELOPMENT_DESIGN_FREEZE.md`、`RUNTIME_WORKFLOWS.md`、`SECURITY_AND_OPERATIONS.md`、`EVALUATION_PROTOCOL.md`、最终八阶段实施计划及所有当前规格 |
 | DEC-021 | 下一release固定11人团队；双异模型编剧、主编/副编、主笔/副笔；每个完整稿由GLM、Kimi、豆包三异模型全文点评，并包含可解释AI腔、政治与情色风险 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`RUNTIME_WORKFLOWS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、八阶段实施计划和 `AGENT_TEAM_REVIEW_AUDIT.md` |
+| DEC-022 | 前端显示一句话职责和可点击公开岗位合同；研究员作为零空转的按需现实事实专家保留，不参与固定三评 | `PRODUCT.md`、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、Web实施计划和任务账本 |
 
 ## 当前发布执行证据
 

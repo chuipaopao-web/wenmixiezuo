@@ -71,12 +71,15 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/books/{bookId}/agents` | 返回团队模板版本、11个Agent、岗位、模型和真实状态；旧书可返回历史9实例 |
+| GET | `/books/{bookId}/agents` | 返回团队模板版本、11个Agent、公开岗位合同、模型和真实状态；旧书可返回历史9实例 |
+| GET | `/books/{bookId}/agents/{agentId}` | 返回公开职责、边界、激活条件、交付物、模型来源、当前任务、最后有效贡献和证据，不返回原始系统提示或思维链 |
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
 | GET | `/books/{bookId}/editor-lease` | 返回活动主编、副编、epoch和可验证接管状态 |
 | POST | `/books/{bookId}/editor-handoffs` | 在老板指定、正式交接或故障条件下原子接管 |
 
 岗位和模型调整必须生成新的配置快照，不能修改历史任务使用的快照。
+
+团队列表的每项必须至少包含 `publicSummary`，供190像素成员栏直接显示；详细接口返回 `publicResponsibilities`、`publicBoundaries`、`activationTriggers` 和 `deliverables`。内部提示、安全规则、密钥和隐藏工具参数不属于任何前端响应。研究员未激活时返回真实待命状态且没有伪造任务；激活必须绑定明确研究问题和来源预算。
 
 ## 5. 对话与讨论
 
