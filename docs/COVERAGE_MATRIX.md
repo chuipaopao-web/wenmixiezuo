@@ -45,6 +45,8 @@
 | DEC-010 | 长篇治理不得削弱创造性和输出质量；四种模式、创作自由区、九岗位、延后软审校、经验防固化与非劣效评测 | 项目级Skill、`LONGFORM_QUALITY.md`、`PRODUCT.md`、`AGENT_SYSTEM.md`、`MEMORY.md`、`ACCEPTANCE.md`和创造性对抗夹具 |
 | DEC-011 | 全书表达基线保持稳定，具体写作技法按场景叙事目标动态选择；内部技法库是软工具箱而非固定模板 | `PRODUCT.md`、`DATA_MODEL.md`、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`MEMORY.md`、`LONGFORM_QUALITY.md`与`ACCEPTANCE.md` |
 | DEC-012 | SQLite与不可变文件保持唯一权威，LanceDB作为本地嵌入式可重建向量投影；FTS5、时间关系、Wiki、融合重排和原文回查构成混合RAG | `HYBRID_RAG_DESIGN.md`、`ARCHITECTURE.md`、`DATA_MODEL.md`、`MEMORY.md`、`LONGFORM_QUALITY.md`、`ACCEPTANCE.md`与后续运行时证据 |
+| DEC-013 | 建立作者可见的实体/图谱/标签资料库，并允许活动主编按老板自然语言可逆治理标签 | `PRODUCT.md`、`DATA_MODEL.md`、`AGENT_SYSTEM.md`、`MEMORY.md`、`API.md`、`ACCEPTANCE.md`与后续运行时证据 |
+| DEC-014 | 最终容量按500万字符、1500章设计，九成员在全书生命周期内通过岗位连续性长期陪伴 | `ULTRA_LONGFORM_CONTINUITY.md`、`PROJECT_CHARTER.md`、产品/架构/数据/Agent/记忆/质量/API/路线图/验收与后续运行时证据 |
 
 ## 当前发布执行证据
 

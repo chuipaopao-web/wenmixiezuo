@@ -36,8 +36,9 @@
 10. `docs/API.md`
 11. `docs/DEVELOPMENT_ROADMAP.md`
 12. `docs/ACCEPTANCE.md`
-13. `KNOWLEDGE.md`
-14. `TASKS.md`
+13. `docs/ULTRA_LONGFORM_CONTINUITY.md`
+14. `KNOWLEDGE.md`
+15. `TASKS.md`
 
 只在需要核对细节或争议时读取 `docs/CONSENSUS_LEDGER.md` 对应条目，禁止把24条全文默认注入每次模型调用。
 涉及记忆、切片、Wiki、检索、上下文或混合RAG的设计与实现还必须完整读取 `docs/HYBRID_RAG_DESIGN.md`。
@@ -46,6 +47,7 @@
 
 - 技术栈固定为 React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、LanceDB OSS TypeScript本地嵌入投影、REST与SSE。
 - 采用本地模块化单体加独立Worker，不使用微服务、WebSocket或需要独立运维的向量/图数据库服务；按DEC-012使用LanceDB OSS TypeScript本地嵌入模式保存可重建向量投影，关系和Wiki继续由SQLite正式源派生，任何投影都不得成为正史源。
+- 最终单书规模按500万规范化中文字符、1500章设计；模型上下文必须与全书总字数解耦，Agent长期陪伴不得依赖全量聊天或常驻模型进程。
 - 服务只监听 `127.0.0.1`。
 - 业务层只通过Repository访问数据；Worker不得直接修改核心业务表或正式正文。
 - 所有核心记录从第一天携带 `owner_id` 和 `book_id`；跨书查询必须显式携带隔离键。

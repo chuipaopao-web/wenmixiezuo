@@ -263,3 +263,17 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `TAG_ASSIGNMENT_AMBIGUOUS`
 - `BACKUP_NOT_VERIFIED`
 - `PERMANENT_DELETE_CONFIRMATION_INVALID`
+
+## 16. 超长篇连续性目标增量（E0，尚未注册）
+
+下列接口属于DEC-014运行时目标，目前没有注册或契约测试，不能冒充可用API：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/books/{bookId}/longform-status` | 总字数/章节、当前卷/故事弧、正史与索引水位、滚动质量窗口 |
+| GET | `/books/{bookId}/commitments` | 查询主支线承诺、伏笔、人物目标、预计窗口和证据 |
+| GET | `/books/{bookId}/continuity` | 查询场景/章节/故事弧/卷/全书主脊节点及来源 |
+| GET | `/books/{bookId}/agents/{agentId}/continuity` | 查询成员当前关注、最后有效贡献和可审计岗位日志 |
+| GET | `/books/{bookId}/quality-windows` | 查询20/50/100/200章滚动趋势和证据，不返回自动文学裁决 |
+
+成员连续性接口不得返回模型思维链、完整隐藏提示词、全部聊天或其他书籍日志。主编治理岗位日志必须使用版本、当前 `editor_epoch`、幂等键和可撤销操作；模型生成的日志只能先成为候选。
