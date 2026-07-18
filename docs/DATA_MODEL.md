@@ -36,7 +36,7 @@ draft → active → paused → archived
 
 ### `role_templates`
 
-保存9个岗位模板的简短职业名称、职责、提示、能力要求、工具、数据范围和确认门禁。模板版本化；完整职责不得塞入岗位显示名。
+保存历史九岗位模板和DEC-021十一成员模板的简短职业名称、职责、提示、能力要求、工具、数据范围和确认门禁。模板版本化；完整职责不得塞入岗位显示名。十一成员固定包含主编/副编、两个编剧实例、设定、主笔/副笔、审校、体验、研究和版权；清照原文编职责由妲己综合审校模板吸收。
 
 ### `agent_instances`
 
@@ -46,9 +46,21 @@ draft → active → paused → archived
 
 保存供应商、模型、参数、支持模态、工具能力和验证时间。不得保存API Key。
 
+### `review_panels` / `review_reports`
+
+`review_panels` 为每个稿件版本冻结三个不同模型快照：GLM 5.2、Kimi和豆包，以及稿件哈希、活动写手快照、工单版本、最小正史版本、轮次、预算和状态。唯一约束保证同一 `manuscript_version_id + review_round + reviewer_slot` 只有一席；应用服务在同一事务中断言三席快照彼此不同且不能等于活动写手快照，并由Repository契约测试覆盖，不能依赖跨行 `CHECK`。每轮状态只有 `frozen/running/complete/blocked/superseded`，三个有效报告齐全前不能 `complete`。
+
+`review_reports` 分别保存连续性点评、综合质量/AI腔点评和读者体验/政治情色风险点评；每项问题携带段落/字符位置、正文证据、严重度、修改目标和策略版本。Kimi报告保存 `ai_style_risk_score`、`flagged_paragraph_count`、`total_paragraph_count` 与按二者计算的 `flagged_paragraph_ratio`，并固定 `is_authorship_probability = 0`。豆包报告将 `political_risk` 与 `sexual_content_risk` 分开保存级别、位置、证据、建议动作和 `policy_version`。AI腔分数不是AI作者概率，内容风险也不是法律意见或平台保证。
+
+三份报告属于当前稿临时质量记录，不自动成为正史或长期经验。每个新修订稿产生新的 `review_panel`；旧报告不可覆盖，主编合并结果另存 `revision_orders` 并保留采用、否决、分歧、来源报告和最多两轮计数。
+
 ### `editor_leases`
 
 每书只有一条有效活动租约，包含活动主编、候任主编、`editor_epoch`、过期时间、接管状态和接管ID。旧epoch的命令在应用服务层拒绝。
+
+### `writer_leases`
+
+每个正式写作工单只有一个活动写手租约，保存主笔或副笔Agent、`writer_epoch`、稿件父版本、检查点、接管原因、过期时间和状态。副笔接管或显式A/B任务创建新epoch；旧写手的晚到正文只能作为诊断附件，不能登记为当前候选或触发点评。A/B候选使用不同工单分支和稿件版本，不允许两个写手争用同一租约或逐句混剪。
 
 ## 4. 对话、讨论和决定
 
@@ -272,7 +284,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 - 所有Repository查询自动携带 `owner_id` 和 `book_id`；
 - 两本书的消息、任务、正文、记忆、FTS、预算、租约和缓存零串线；
-- 新书9个Agent实例原子创建；
+- 历史首版新书仍按9实例解释；下一release新书11个Agent实例和三评审模型快照原子创建；
 - 同书只能有一个活动主编租约；
 - 前章未结算时后章不能启动；
 - 正文哈希、文件清单和数据库指针一致；
@@ -331,7 +343,7 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0012：`content_nodes`、`content_chunks`、`chunk_entities`、`chunk_snapshots`、`chunk_snapshot_sources`、`projection_outbox`、`projection_jobs`、`projection_watermarks`、`embedding_model_snapshots`、`vector_index_manifests`、`book_capability_states`。
 - 0013：`retrieval_query_plans`、`retrieval_channel_runs`、`retrieval_candidates`、`retrieval_evidence_clusters`、`retrieval_evidence_checks`、`retrieval_drilldowns`、`retrieval_context_selections`。
 - 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`quality_windows`、`retrieval_activity_projections`。
-- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`。
+- 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`。
 - 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。

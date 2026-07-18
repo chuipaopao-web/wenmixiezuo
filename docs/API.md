@@ -58,7 +58,7 @@
 |---|---|---|
 | POST | `/books/drafts` | 从自然语言或标签创建定位草稿 |
 | PATCH | `/book-drafts/{draftId}` | 修改定位草稿 |
-| POST | `/book-drafts/{draftId}/confirm` | 原子创建书籍、9个Agent和基础配置 |
+| POST | `/book-drafts/{draftId}/confirm` | 下一release原子创建书籍、11个Agent、固定三点评席和基础配置；旧运行时保持9实例兼容 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
@@ -71,8 +71,10 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/books/{bookId}/agents` | 返回9个Agent、岗位、模型和真实状态 |
+| GET | `/books/{bookId}/agents` | 返回团队模板版本、11个Agent、岗位、模型和真实状态；旧书可返回历史9实例 |
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
+| GET | `/books/{bookId}/editor-lease` | 返回活动主编、副编、epoch和可验证接管状态 |
+| POST | `/books/{bookId}/editor-handoffs` | 在老板指定、正式交接或故障条件下原子接管 |
 
 岗位和模型调整必须生成新的配置快照，不能修改历史任务使用的快照。
 
@@ -87,7 +89,7 @@
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
-普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；聊天不会自动写入长期记忆。自然创作意图会创建 `discussion` 任务并自动选择相关岗位，`讨论 <问题>` 仍可作为显式快捷方式。相关岗位先回复，主编读取真实意见后汇总，再以 `确认方案 <decisionId>` 零Token确认。
+普通消息会创建 `conversation_reply` 持久任务，由活动主编在最多12条近期消息、活动故事圣经和已确认决定组成的有界上下文中真实回复；聊天不会自动写入长期记忆。剧情创作意图固定创建婉儿和红玉两个异模型独立意见任务，`讨论 <问题>` 仍可作为显式快捷方式。二者提交前互不可见，随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。
 
 普通消息若被识别为明确的资料治理命令，例如“增加隐藏身份标签”“给张三增加隐藏身份标签”或“把暗线作为伏笔的别名”，由活动主编调用受限知识工具。单书、对象明确且可撤销的操作直接执行，消息回复包含变更ID、对象、前后值、正史/候选状态、投影状态和撤销入口；歧义、同名、跨书或批量影响只产生一个必要澄清问题。其他Agent提出的标签只能进入候选。
 
@@ -326,12 +328,18 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 |---|---|---|
 | POST | `/books/{bookId}/writing-orders` | 从已确认规划创建版本化工单和岗位资料包 |
 | GET | `/books/{bookId}/writing-orders/{orderId}` | 查询门禁、H约束、自由区、来源和执行状态 |
-| POST | `/books/{bookId}/writing-orders/{orderId}/start` | 通过准备门禁后启动主笔 |
+| POST | `/books/{bookId}/writing-orders/{orderId}/start` | 通过准备门禁后启动唯一活动写手（主笔或副笔） |
 | POST | `/tasks/{taskId}/cancel` | 持久化新epoch并传播真实取消 |
 | POST | `/tasks/{taskId}/resume` | 从有效检查点新attempt恢复 |
+| GET | `/manuscripts/{manuscriptId}/review-panel` | 查询冻结的GLM/Kimi/豆包模型快照、稿件哈希、轮次、预算和三席状态 |
+| GET | `/manuscripts/{manuscriptId}/review-reports` | 查询三份结构化点评、证据、AI腔指标和政治/情色风险，不返回思维链 |
+| POST | `/manuscripts/{manuscriptId}/review-rounds` | 为同一不可变稿件原子创建三席并行点评；缺席或重复模型返回409 |
+| GET | `/manuscripts/{manuscriptId}/revision-order` | 查询主编合并后的单一定点修改单、分歧和阻断项 |
 | POST | `/manuscripts/{manuscriptId}/confirm` | 老板确认正式不可变正文并触发结算 |
 
 所有状态变更支持 `Idempotency-Key`，响应返回 `operationId/taskId/attemptId/epoch`。取消成功只表示提交栅栏建立；适配器确认和晚到结果处理通过SSE继续报告。
+
+点评接口必须满足：三份报告绑定同一 `manuscriptVersionId`；模型快照固定且彼此不同，并与活动写手模型不同；每席都返回位置、严重度、证据和修改目标。Kimi报告额外返回 `aiStyleRiskScore`、`flaggedParagraphCount`、`totalParagraphCount`、`flaggedParagraphRatio`，并明确 `isAuthorshipProbability: false`。豆包报告额外返回 `politicalRisk`、`sexualContentRisk` 和 `policyVersion`。任一席有限重试后仍失败时返回可恢复的受阻状态，不能生成空报告或自动降为按量付费调用。
 
 ### 17.4 可移植和恢复
 

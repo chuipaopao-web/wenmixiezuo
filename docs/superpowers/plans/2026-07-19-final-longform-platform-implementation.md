@@ -2,7 +2,7 @@
 
 > 执行者：当前Codex单独开发。老板未授权其他开发Agent，禁止委派代码任务。
 
-**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、九岗位最小上下文、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
+**目标：** 在历史首版之上连续完成500万字符/1500章、四层知识生命周期、父子切片、本地混合RAG、阶段连续性、DEC-021十一人团队最小上下文、双异模型编剧、主编/主笔接管、GLM/Kimi/豆包固定三异模型全文点评、作者资料库、安全可移植和独立评测，并保留旧书逐书可回滚能力。
 
 **架构：** SQLite和登记的不可变文件保持唯一权威；FTS5、结构化事实、Wiki/关系、阶段摘要和本地LanceDB只是带水位的可重建投影。Fastify应用服务执行状态机，Worker幂等处理模型和投影，Web是窄侧栏内容优先工作台。新能力通过向前迁移、outbox、影子读和每书能力指针上线。
 
@@ -305,7 +305,7 @@ npm run verify
 
 ---
 
-## 阶段5：长篇连续性、九岗位连续性与滚动规划
+## 阶段5：长篇连续性、十一人团队连续性与滚动规划
 
 ### 目标
 
@@ -332,10 +332,15 @@ npm run verify
 - `apps/api/src/application/agents/agent-continuity-service.ts`
 - `apps/api/src/application/agents/prompt-compiler.ts`
 - `apps/api/src/application/agents/model-capability-service.ts`
+- `apps/api/src/application/agents/team-template-service.ts`
+- `apps/api/src/application/agents/editor-lease-service.ts`
+- `apps/api/src/application/agents/writer-lease-service.ts`
 - `tests/integration/agents/agent-continuity.test.ts`
 - `tests/integration/agents/prompt-compiler.test.ts`
+- `tests/integration/agents/eleven-member-team.test.ts`
+- `tests/fault-injection/agents/editor-writer-takeover.test.ts`
 
-表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`。岗位日志只存任务步骤、依据、异议、结论和接管信息，不存思维链或迎合规则。
+表：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`review_panels`、`review_reports`、`revision_orders`。历史9实例保持不变；下一release 11名成员及三点评席原子创建。岗位日志只存任务步骤、依据、异议、结论和接管信息，不存思维链或迎合规则。
 
 ### 任务5.3：结算、审计和恢复调度
 
@@ -351,6 +356,8 @@ npm run verify
 ### 阶段门禁与回滚
 
 - 摘要探针失败保留上一有效节点；硬事实和开放线程不按距离休眠。
+- 主编/副编和主笔/副笔接管均通过租约、epoch、检查点和晚到提交阻断；同一正式稿只有一个活动写手。
+- 双编剧、三点评的模型快照独立性由应用服务事务和Repository契约测试证明，不能以岗位名称替代模型验证。
 - 1000章确定性连续性夹具先做缩小版，再在阶段8跑全量。
 - 回滚停用新连续性策略，原正史/正文不变。
 
@@ -360,7 +367,7 @@ npm run verify
 
 ### 目标
 
-把开放聊天→独立岗位讨论→主编确认→工单/资料包→主笔检索/生成→软审校→老板确认→结算完整串联，消除“只有书名就写章”。
+把开放聊天→双异模型编剧独立讨论→设定硬矛盾检查→主编确认→工单/资料包→单活动写手检索/生成→GLM/Kimi/豆包三异模型全文点评→主编合并修改单→老板确认→结算完整串联，消除“只有书名就写章”。
 
 ### 任务6.1：统一运行状态机
 
@@ -393,12 +400,15 @@ npm run verify
 
 普通消息主编必答；点名岗位真实创建任务；岗位先独立意见再汇总；确认生成不可变规划和分歧记录。
 
+剧情任务固定创建婉儿（DeepSeek）与红玉（豆包）两个互不可见的初始意见任务；提交后才允许一轮有界交叉质疑。两者实际模型相同、任一缺席或提前共享答案时，不得标记为“异模型剧情讨论完成”。
+
 ### 任务6.3：写作门禁、工单和岗位资料包
 
 **新增：**
 
 - `apps/api/src/application/creation/writing-order-service.ts`
 - `apps/api/src/application/creation/creative-mode-service.ts`
+- `apps/api/src/application/creation/writer-lease-service.ts`
 - `apps/api/src/contracts/writing-order.ts`
 - `tests/integration/creation/writing-order.test.ts`
 - `tests/integration/creation/creative-modes.test.ts`
@@ -411,20 +421,30 @@ npm run verify
 
 四模式、五级输入、岗位最小包和“只有书名/一句写章”负面门禁进入测试。
 
-### 任务6.4：完整生成后软审校
+工单冻结唯一活动写手（默认秋香Codex；接管时湘君DeepSeek）和 `writer_epoch`。副笔不默认生成第二份全文；接管或明确A/B任务才调用，晚到旧写手结果不能登记。
+
+### 任务6.4：完整生成后三异模型全文点评
 
 **新增：**
 
-- `apps/api/src/application/creation/post-draft-review-service.ts`
+- `apps/api/src/application/creation/three-model-review-service.ts`
+- `apps/api/src/application/creation/review-report-validator.ts`
+- `apps/api/src/application/creation/review-report-merge-service.ts`
 - `apps/api/src/application/creation/targeted-revision-service.ts`
-- `tests/integration/creation/post-draft-review.test.ts`
+- `apps/api/src/contracts/review-reports.ts`
+- `tests/integration/creation/three-model-review.test.ts`
+- `tests/integration/creation/review-independence.test.ts`
+- `tests/integration/creation/ai-style-risk.test.ts`
+- `tests/integration/creation/content-compliance-review.test.ts`
 - `tests/integration/creation/revision-limit.test.ts`
 
-完整草稿先持久化，再结构审校；最多两次定点修订；旧稿不覆盖；非阻断建议不自动重写。
+完整草稿先持久化并哈希，再为同一版本并行调用文姬（GLM）、妲己（Kimi）和昭君（豆包）。三席模型快照彼此不同且与活动写手不同，报告提交前互不可见：GLM检查正史/时间/状态/知情/规则/伏笔；Kimi检查文学/人物/语言/节奏并返回 `ai_style_risk_score` 与实际标记段落占比；豆包检查体验并返回政治/情色风险的位置、证据、建议动作和策略版本。AI腔指标不是AI作者概率，合规筛查不是法律或平台保证。
+
+三份报告齐全后主编只读取报告与引用片段，合并一张修改单；硬证据不按二比一投票，文学软意见保留分歧。最多两次定点修订，每个新稿重新跑三席；旧稿和旧报告不覆盖。任一席有限重试后仍不可用则明确受阻，不生成空报告、假模型结果或按量付费fallback。
 
 ### 阶段门禁与回滚
 
-- 流程负面、取消竞态、坏JSON、模型超时、同模型复核和预算竞争全部通过。
+- 流程负面、取消竞态、三类坏JSON、模型超时、三席缺失/重复/错版本、与写手同模型、AI腔无证据/伪作者概率、政治情色无位置/错策略版本和预算竞争全部通过。
 - 确定性假模型完成工程E2；真实模型没有凭证时明确停在相应证据等级，不伪造回复。
 - 回滚创作策略指针，保留新增草稿和调用记录。
 
@@ -446,6 +466,7 @@ npm run verify
 - `apps/web/src/features/tasks/TaskCenter.tsx`
 - `apps/web/src/features/planning/PlanningWorkspace.tsx`
 - `apps/web/src/features/manuscript/ManuscriptWorkspace.tsx`
+- `apps/web/src/features/manuscript/ReviewPanel.tsx`
 - `apps/web/src/features/library/LibraryWorkspace.tsx`
 - `apps/web/src/features/continuity/ContinuityWorkspace.tsx`
 - `apps/web/src/features/retrieval/RetrievalDiagnostics.tsx`
@@ -457,7 +478,7 @@ npm run verify
 - `apps/web/src/app/App.tsx`
 - `apps/web/src/app/app.css`
 
-逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧仅成员、中心优先和移动抽屉。
+逐页从现有单体App提取，不一次重写。保持176/190px窄栏、右侧滚动显示11名成员且不因人数增加加宽、中心优先和移动抽屉。正文二级页展示三席真实状态、模型来源、证据问题、AI腔风险/标记段落占比和政治/情色风险免责声明。
 
 ### 任务7.2：资料API和有界图谱
 
@@ -525,6 +546,8 @@ npm run verify
 - `tests/evaluation/gold-retrieval/`
 - `tests/evaluation/adversarial-hidden/`
 - `tests/evaluation/creative-pairs/`
+- `tests/evaluation/review-panel/`
+- `tests/evaluation/content-risk/`
 - `tests/evaluation/capacity/`
 - `scripts/evaluation/run-retrieval-eval.mjs`
 - `scripts/evaluation/run-capacity-replay.mjs`
@@ -538,7 +561,7 @@ npm run verify
 
 ### 任务8.3：创造性消融与真实模型闸门
 
-在已有登录态/套餐且不产生未授权现金费用时运行E3盲化A/B和可完成的E4门禁。缺少密钥或模型能力时停止该证据项，工程功能继续用假模型验证；发布报告明确最高等级。不得把假模型结果写成文学质量。
+在已有登录态/套餐且不产生未授权现金费用时运行E3盲化A/B和可完成的E4门禁。另运行固定三点评相对单Kimi、全员点评和只有确定性检查的缺陷检出/误报/漏报/创造性非劣效/Token/延迟对照，并验证AI腔风险不冒充作者概率、政治情色筛查不冒充法律或平台保证。缺少任一真实席位凭证或能力时停止该证据项，工程功能继续用假模型验证；发布报告明确最高等级。不得把假模型结果写成文学质量或真实三异模型点评。
 
 ### 任务8.4：最终发布门禁
 
@@ -573,6 +596,7 @@ npm run eval:capacity
 ### 阶段门禁与完成措辞
 
 - E2全部阻断门槛必须通过；E3工程检索金标必须通过。
+- 11人团队、双编剧、主编/主笔接管和三点评席的运行时/恢复/独立性/严格Schema门禁必须通过；三席不可用时的诚实受阻也必须通过。
 - 真实模型/文学质量只声明实际达到的E3/E4跨度。
 - 第二物理数据备份未配置时继续显示部署边界；远程Git只备代码，不冒充小说数据备份。
 - 任一跨书、权威、迁移、恢复、秘密、取消提交、恶意导入或硬事实错误阻断release。
