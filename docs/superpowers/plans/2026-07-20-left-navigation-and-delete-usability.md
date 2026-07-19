@@ -140,7 +140,7 @@ Expected: 0退出；Schema仍为19且 `applied: []`。
 
 只重启文秘写作自身服务，验证API 43111、Web 43110、Worker和1600×900页面；不得触碰智囊团。
 
-- [ ] **Step 5: 提交后正式验收与备份**
+- [x] **Step 5: 提交后正式验收与备份**
 
 Run: `npm run acceptance`，提交并推送 `origin/main`，最后核对 `git status --porcelain` 为空且 `git rev-parse HEAD` 等于 `git rev-parse origin/main`。
 
