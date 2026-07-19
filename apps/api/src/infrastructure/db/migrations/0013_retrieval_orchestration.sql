@@ -1,0 +1,171 @@
+CREATE TABLE retrieval_query_plans (
+  retrieval_query_plan_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  task_id TEXT,
+  role_key TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('open_discussion', 'creative_exploration', 'drafting', 'formal_production', 'review')),
+  original_query TEXT NOT NULL,
+  normalized_query TEXT NOT NULL,
+  query_hash TEXT NOT NULL CHECK (length(query_hash) = 64),
+  intent_json TEXT NOT NULL CHECK (json_valid(intent_json)),
+  entity_seeds_json TEXT NOT NULL CHECK (json_valid(entity_seeds_json)),
+  ambiguity_json TEXT NOT NULL CHECK (json_valid(ambiguity_json)),
+  channel_plan_json TEXT NOT NULL CHECK (json_valid(channel_plan_json)),
+  canon_revision INTEGER NOT NULL CHECK (canon_revision >= 0),
+  world_time TEXT,
+  knowledge_time TEXT,
+  viewpoint_entity_id TEXT,
+  policy_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('planned', 'running', 'completed', 'blocked', 'failed')),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id)
+) STRICT;
+
+CREATE TABLE retrieval_channel_runs (
+  retrieval_channel_run_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('structured', 'fts', 'vector', 'relation')),
+  projection_snapshot_id TEXT,
+  projection_canon_revision INTEGER,
+  candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+  adopted_count INTEGER NOT NULL DEFAULT 0 CHECK (adopted_count >= 0),
+  duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+  status TEXT NOT NULL CHECK (status IN ('ready', 'degraded', 'skipped', 'failed')),
+  reason_code TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id)
+) STRICT;
+
+CREATE TABLE retrieval_candidates (
+  retrieval_candidate_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  channel_rank INTEGER NOT NULL CHECK (channel_rank >= 1),
+  lane TEXT NOT NULL CHECK (lane IN ('H', 'E', 'I')),
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  source_version TEXT,
+  source_hash TEXT,
+  source_locator_json TEXT NOT NULL CHECK (json_valid(source_locator_json)),
+  provenance_key TEXT NOT NULL,
+  assertion_key TEXT,
+  content TEXT NOT NULL,
+  authority_grade TEXT CHECK (authority_grade IS NULL OR authority_grade IN ('A', 'B', 'C', 'D')),
+  epistemic_status TEXT,
+  conflict_group TEXT,
+  metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json)),
+  status TEXT NOT NULL CHECK (status IN ('candidate', 'adopted', 'excluded')),
+  exclusion_reason TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id)
+) STRICT;
+
+CREATE INDEX retrieval_candidates_plan_idx ON retrieval_candidates(owner_id, book_id, retrieval_query_plan_id, lane, channel_rank);
+
+CREATE TABLE retrieval_evidence_clusters (
+  retrieval_evidence_cluster_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  lane TEXT NOT NULL CHECK (lane IN ('H', 'E', 'I')),
+  cluster_key TEXT NOT NULL,
+  primary_candidate_id TEXT NOT NULL,
+  candidate_ids_json TEXT NOT NULL CHECK (json_valid(candidate_ids_json)),
+  channel_ranks_json TEXT NOT NULL CHECK (json_valid(channel_ranks_json)),
+  rrf_score REAL NOT NULL DEFAULT 0,
+  conflict_group TEXT,
+  adopted INTEGER NOT NULL CHECK (adopted IN (0, 1)),
+  adoption_reason TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id),
+  FOREIGN KEY (primary_candidate_id) REFERENCES retrieval_candidates(retrieval_candidate_id),
+  UNIQUE(owner_id, book_id, retrieval_query_plan_id, cluster_key)
+) STRICT;
+
+CREATE TABLE retrieval_evidence_checks (
+  retrieval_evidence_check_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  retrieval_evidence_cluster_id TEXT NOT NULL,
+  source_resolved INTEGER NOT NULL CHECK (source_resolved IN (0, 1)),
+  hash_verified INTEGER NOT NULL CHECK (hash_verified IN (0, 1)),
+  canon_verified INTEGER NOT NULL CHECK (canon_verified IN (0, 1)),
+  time_verified INTEGER NOT NULL CHECK (time_verified IN (0, 1)),
+  viewpoint_verified INTEGER NOT NULL CHECK (viewpoint_verified IN (0, 1)),
+  negation_checked INTEGER NOT NULL CHECK (negation_checked IN (0, 1)),
+  epistemic_checked INTEGER NOT NULL CHECK (epistemic_checked IN (0, 1)),
+  result TEXT NOT NULL CHECK (result IN ('closed', 'degraded', 'conflicted', 'unknown')),
+  details_json TEXT NOT NULL CHECK (json_valid(details_json)),
+  checked_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id),
+  FOREIGN KEY (retrieval_evidence_cluster_id) REFERENCES retrieval_evidence_clusters(retrieval_evidence_cluster_id)
+) STRICT;
+
+CREATE TABLE retrieval_drilldowns (
+  retrieval_drilldown_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  cycle INTEGER NOT NULL CHECK (cycle IN (0, 1)),
+  level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
+  trigger_type TEXT NOT NULL,
+  source_scope_json TEXT NOT NULL CHECK (json_valid(source_scope_json)),
+  candidate_count INTEGER NOT NULL CHECK (candidate_count >= 0),
+  adopted_count INTEGER NOT NULL CHECK (adopted_count >= 0),
+  token_cost INTEGER NOT NULL CHECK (token_cost >= 0),
+  stop_reason TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id)
+) STRICT;
+
+CREATE TABLE retrieval_context_selections (
+  retrieval_context_selection_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  retrieval_query_plan_id TEXT NOT NULL,
+  role_key TEXT NOT NULL,
+  hard_cluster_ids_json TEXT NOT NULL CHECK (json_valid(hard_cluster_ids_json)),
+  evidence_cluster_ids_json TEXT NOT NULL CHECK (json_valid(evidence_cluster_ids_json)),
+  inspiration_cluster_ids_json TEXT NOT NULL CHECK (json_valid(inspiration_cluster_ids_json)),
+  excluded_json TEXT NOT NULL CHECK (json_valid(excluded_json)),
+  input_token_budget INTEGER NOT NULL CHECK (input_token_budget >= 0),
+  selected_tokens INTEGER NOT NULL CHECK (selected_tokens >= 0),
+  output_tokens_reserved INTEGER NOT NULL CHECK (output_tokens_reserved >= 0),
+  safety_tokens_reserved INTEGER NOT NULL CHECK (safety_tokens_reserved >= 0),
+  policy_version TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (retrieval_query_plan_id) REFERENCES retrieval_query_plans(retrieval_query_plan_id)
+) STRICT;
+
+CREATE TABLE context_compression_snapshots (
+  context_compression_snapshot_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  previous_snapshot_id TEXT,
+  source_message_start_id TEXT NOT NULL,
+  source_message_end_id TEXT NOT NULL,
+  source_range_hash TEXT NOT NULL CHECK (length(source_range_hash) = 64),
+  schema_version TEXT NOT NULL,
+  compressor_snapshot_id TEXT NOT NULL,
+  anchors_json TEXT NOT NULL CHECK (json_valid(anchors_json)),
+  summary_json TEXT NOT NULL CHECK (json_valid(summary_json)),
+  probes_json TEXT NOT NULL CHECK (json_valid(probes_json)),
+  status TEXT NOT NULL CHECK (status IN ('building', 'active', 'failed', 'superseded')),
+  created_at TEXT NOT NULL,
+  activated_at TEXT,
+  FOREIGN KEY (owner_id, book_id) REFERENCES books(owner_id, book_id),
+  FOREIGN KEY (previous_snapshot_id) REFERENCES context_compression_snapshots(context_compression_snapshot_id)
+) STRICT;
