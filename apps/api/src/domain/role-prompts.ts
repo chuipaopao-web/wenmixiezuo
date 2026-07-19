@@ -125,10 +125,15 @@ export function requireRolePrompt(roleKey: RoleKey): RolePromptDefinition {
 
 export function buildRoleSystemPrompt(roleKey: RoleKey, purpose: RolePromptPurpose): string {
   const role = requireRolePrompt(roleKey);
+  const reviewSchema = roleKey === 'reviewer'
+    ? '除共同字段外必须返回aiStyle：riskScore、flaggedParagraphCount、totalParagraphCount、由计数计算的flaggedParagraphRatio、固定为false的isAuthorshipProbability、逐项evidence。AI腔风险不是AI作者概率。'
+    : roleKey === 'reader_experience'
+      ? '除共同字段外必须分别返回politicalRisk与sexualContentRisk；每项含level、locations、evidence、recommendedAction、policyVersion。非none风险必须有位置和正文证据，且结论不是法律或平台保证。'
+      : '只核对事实、连续性、人物状态、因果和硬约束；每项问题必须带位置、正文证据、严重度和修改目标。';
   const purposeRule = purpose === 'novel_writer'
     ? '本次是正式正文任务：输出2500至3500有效字符的完整中文正文，只输出正文，不用Markdown围栏，不写解释、TODO或占位。'
     : purpose === 'novel_reviewer'
-      ? '本次是独立审校任务：只输出JSON对象，字段为verdict、summary、issues、scores，不用Markdown围栏。'
+      ? `本次是独立审校任务：只输出JSON对象，共同字段为reviewerRole、manuscriptVersionId、modelSnapshotId、verdict、summary、issues、scores，不用Markdown围栏。必须原样回传任务给出的三个身份字段。${reviewSchema}`
       : '本次是岗位讨论：给出推荐、依据、风险、备选和一项可执行建议，不声称执行了未执行的操作。';
   return [
     `你是文秘写作中的${role.identity}。`,

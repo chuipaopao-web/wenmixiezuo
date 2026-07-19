@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { DomainError, errorCodes } from '../../../apps/api/src/domain/errors.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { CopyrightService } from '../../../apps/api/src/application/copyright/copyright-service.js';
 
@@ -49,6 +49,8 @@ describe('写作准备门禁', () => {
     const second = batches.scheduleNewChapters(scope, 1);
     expect(second.chapterIds[0]).toBe(first.chapterIds[0]);
     expect(second.taskIds[0]).not.toBe(first.taskIds[0]);
+    expect((await batches.run(scope, second.batchId)).batch.status).toBe('paused');
+    approvePendingManuscript(context, scope, ids, clock);
     expect((await batches.run(scope, second.batchId)).batch.status).toBe('completed');
     expect(context.database.prepare(`SELECT chapter_number FROM chapters WHERE chapter_id = ?`).get(second.chapterIds[0]!)).toEqual({ chapter_number: 1 });
   });

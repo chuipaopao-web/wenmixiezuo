@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { NarrativeProjectionService } from '../../../apps/api/src/application/projections/narrative-projection-service.js';
 import { ResearchService } from '../../../apps/api/src/application/research/research-service.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('叙事投影与研究候选边界', () => {
@@ -19,6 +19,7 @@ describe('叙事投影与研究候选边界', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     await batches.run(scope, batch.batchId);
+    approvePendingManuscript(context, scope, ids, clock);
     const projections = new NarrativeProjectionService(context.database, ids, clock);
     expect(projections.rebuild(scope)).toBe(10);
     const firstSnapshot = context.database.prepare(`

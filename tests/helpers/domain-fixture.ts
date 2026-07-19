@@ -6,6 +6,11 @@ import { DiscussionService } from '../../apps/api/src/application/discussions/di
 import { PlanningArtifactService } from '../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import type { BookScope } from '../../apps/api/src/domain/scope.js';
 import type { ChapterRequestCount } from '../../apps/api/src/application/creation/writing-readiness-service.js';
+import { ChapterApprovalService } from '../../apps/api/src/application/creation/chapter-approval-service.js';
+import { ProductionWorkflowRepository } from '../../apps/api/src/infrastructure/db/repositories/production-workflow-repository.js';
+import { ChapterCatalogService } from '../../apps/api/src/application/chapters/chapter-catalog-service.js';
+import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
+import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
 
 export function initializeDomainBook(
   context: TestContext,
@@ -77,4 +82,22 @@ export function prepareBookForWriting(
   discussions.confirm(scope, discussion.discussionId, decisionId);
   new PlanningArtifactService(context.database, ids, clock).promoteConfirmedDecision(scope, discussion.discussionId, decisionId, count);
   return { discussionId: discussion.discussionId, decisionId };
+}
+
+export function approvePendingManuscript(
+  context: TestContext,
+  scope: BookScope,
+  ids: IdGenerator,
+  clock: Clock,
+  accept = true
+): { status: 'settled' | 'rejected'; canonRevision?: number } {
+  const confirmation = context.database.prepare(`SELECT confirmation_id, expected_canon_revision FROM confirmations
+    WHERE owner_id = ? AND book_id = ? AND target_type = 'manuscript' AND status = 'pending'
+    ORDER BY created_at, confirmation_id LIMIT 1`).get(scope.ownerId, scope.bookId) as { confirmation_id: string; expected_canon_revision: number } | undefined;
+  if (confirmation === undefined) throw new Error('测试未找到待确认正文');
+  return new ChapterApprovalService(
+    new ProductionWorkflowRepository(context.database), context.dataDir, context.config.releaseId, ids, clock,
+    new ChapterCatalogService(context.database, ids, clock), new CanonService(context.database, ids, clock),
+    new TaskService(context.database, context.config.releaseId, clock)
+  ).resolve(scope, confirmation.confirmation_id, confirmation.expected_canon_revision, accept);
 }

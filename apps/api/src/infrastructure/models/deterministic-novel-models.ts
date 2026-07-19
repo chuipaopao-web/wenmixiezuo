@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
+import type { ReviewerRole } from '../../contracts/production-review.js';
 
 interface DraftPrompt {
   operation: 'draft';
@@ -63,9 +64,24 @@ export class DeterministicNovelReviewerAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
-    const input = JSON.parse(request.prompt) as { content: string };
+    const input = JSON.parse(request.prompt) as { content: string; reviewerRole?: ReviewerRole; manuscriptVersionId?: string; modelSnapshotId?: string };
     const review = reviewNovel(input.content);
-    const output = JSON.stringify(review);
+    const output = JSON.stringify(input.reviewerRole === undefined
+      ? review
+      : productionReview(input.reviewerRole, input.manuscriptVersionId ?? '', input.modelSnapshotId ?? '', input.content, review));
+    return result(this.provider, this.modelId, request.prompt, output);
+  }
+}
+
+export class DeterministicProductionReviewerAdapter implements ModelAdapter {
+  public readonly provider = 'local-deterministic';
+  public constructor(public readonly modelId: string, private readonly reviewerRole: ReviewerRole) {}
+
+  public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
+    assertNotAborted(signal);
+    const input = JSON.parse(request.prompt) as { content: string; manuscriptVersionId: string; modelSnapshotId: string };
+    const review = reviewNovel(input.content);
+    const output = JSON.stringify(productionReview(this.reviewerRole, input.manuscriptVersionId, input.modelSnapshotId, input.content, review));
     return result(this.provider, this.modelId, request.prompt, output);
   }
 }
@@ -111,6 +127,49 @@ export function reviewNovel(content: string): StructuredReview {
   };
 }
 
+function productionReview(
+  reviewerRole: ReviewerRole,
+  manuscriptVersionId: string,
+  modelSnapshotId: string,
+  content: string,
+  review: StructuredReview
+): Record<string, unknown> {
+  const paragraphs = content.split(/\n\s*\n/u).filter((paragraph) => paragraph.trim().length > 0);
+  const repeated = content.includes('就在这时，就在这时');
+  const common = {
+    reviewerRole,
+    manuscriptVersionId,
+    modelSnapshotId,
+    verdict: review.verdict,
+    summary: reviewerRole === 'fact' ? '已核对当前正文的连续性、人物行动因果与硬约束。' : review.summary,
+    issues: review.issues,
+    scores: reviewerRole === 'fact'
+      ? { continuity: review.scores.continuity, character: review.scores.character, causality: 91 }
+      : reviewerRole === 'literary'
+        ? { literary: 89, characterVoice: 90, rhythm: review.scores.pacing, aiStyle: repeated ? 68 : 92 }
+        : { immersion: 90, hook: review.scores.hook, emotionalForce: 88, compliance: 96 }
+  };
+  if (reviewerRole === 'literary') {
+    const flagged = repeated ? 1 : 0;
+    return {
+      ...common,
+      aiStyle: {
+        riskScore: repeated ? 32 : 8,
+        flaggedParagraphCount: flagged,
+        totalParagraphCount: Math.max(1, paragraphs.length),
+        flaggedParagraphRatio: flagged / Math.max(1, paragraphs.length),
+        isAuthorshipProbability: false,
+        evidence: repeated ? ['首段重复使用“就在这时”，形成可定位的机械转折。'] : []
+      }
+    };
+  }
+  if (reviewerRole === 'experience') {
+    const none = (policyVersion: string) => ({ level: 'none', locations: [], evidence: [], recommendedAction: '无需修改，继续保持基于正文证据复核。', policyVersion });
+    return { ...common, politicalRisk: none('wenmi-content-policy-2026-07'), sexualContentRisk: none('wenmi-content-policy-2026-07') };
+  }
+  return common;
+}
+
 function buildNovel(bookId: string, chapterNumber: number, title: string, previousState: string): string {
   const digest = createHash('sha256').update(`${bookId}:${chapterNumber}:${title}`).digest('hex');
   const weathers = ['细雨', '北风', '薄雾', '晚霞'];
@@ -153,8 +212,14 @@ function buildNovel(bookId: string, chapterNumber: number, title: string, previo
 
 function rewriteNovel(content: string, requiredActions: string[]): string {
   let rewritten = content.replace('就在这时，就在这时，他把手从门环上收回', '转折来得很轻：他把手从门环上收回');
+  if (requiredActions.some((action) => action.includes('老板拒绝'))) {
+    rewritten = rewritten.replace('他没有立刻追问答案。', '他把先前的判断全部推倒，重新核对每一处能被证实的痕迹。');
+  }
   if (requiredActions.some((action) => action.includes('2500至3500')) && countNovelCharacters(rewritten) < 2_500) {
     rewritten += '\n\n林澈重新核对了每一道痕迹，直到行动、证据和判断能够彼此印证。';
+  }
+  if (rewritten === content && requiredActions.length > 0) {
+    rewritten = rewritten.replace('林澈没有急着往前', '林澈收回先前的判断，没有急着往前');
   }
   return rewritten;
 }

@@ -40,5 +40,9 @@ describe('十一人创作团队', () => {
     const panel = new ReviewModelCompatibilityService().select(writer, rows);
     expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).toHaveLength(4);
     expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).size).toBe(4);
+    const glmWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
+    const glmPanel = new ReviewModelCompatibilityService().select(glmWriter, rows);
+    expect(glmPanel.fact.roleKey).toBe('lead_screenwriter');
+    expect(glmPanel.fact.modelId).toContain('deepseek');
   });
 });

@@ -61,10 +61,8 @@ export class ConversationService {
   }
 
   private routeMessage(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
-    const write = /^写([一1]|[三3]|[四4]|[五5])章$/u.exec(content);
-    if (write !== null) {
-      const countMap: Record<string, ChapterRequestCount> = { 一: 1, '1': 1, 三: 3, '3': 3, 四: 4, '4': 4, 五: 5, '5': 5 };
-      const count = countMap[write[1]!]!;
+    if (/^(?:写[一1]章|开始写|继续写)$/u.test(content)) {
+      const count: ChapterRequestCount = 1;
       const readiness = new WritingReadinessService(this.database).inspect(scope, count);
       if (!readiness.ready) {
         const existing = this.findActivePlanningDiscussion(scope, count);
@@ -86,6 +84,21 @@ export class ConversationService {
       }
       const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock).scheduleNewChapters(scope, count);
       return { kind: 'chapter_batch_scheduled', batchId: batch.batchId, count };
+    }
+    if (/^写[三四五345]章$/u.test(content)) {
+      return {
+        ...this.scheduleDiscussion(
+          scope,
+          `老板希望连续推进多章，但正式正文必须逐章点评、逐章确认和逐章结算。请先评估合理章节跨度并细化唯一下一章。原话：${content}`,
+          messageId,
+          conversationId,
+          'creative_planning',
+          null
+        ),
+        kind: 'planning_discussion_scheduled',
+        requestedChapterCount: null,
+        missing: ['逐章规划与确认']
+      };
     }
     const discussionMatch = /^讨论\s+(.+)$/u.exec(content);
     if (discussionMatch !== null) {
@@ -296,9 +309,11 @@ function isCreativeIntent(content: string): boolean {
 
 function actionNotice(action: Record<string, unknown>): string {
   switch (action.kind) {
-    case 'chapter_batch_scheduled': return `已安排连续创作 ${String(action.count)} 章，批次ID：${String(action.batchId)}。`;
+    case 'chapter_batch_scheduled': return `已签发唯一下一章写作任务，批次ID：${String(action.batchId)}。正文完成三异模型点评后会等待你确认，不会自动进入正史。`;
     case 'discussion_scheduled': return `讨论任务已安排，讨论ID：${String(action.discussionId)}。Worker完成真实岗位意见后，主编会在这里汇总并给出确认方案。`;
-    case 'planning_discussion_scheduled': return `资料不足，未启动主笔。已请主编和相关成员先完成 ${String(action.requestedChapterCount)} 章所需的剧情方案，讨论ID：${String(action.discussionId)}。`;
+    case 'planning_discussion_scheduled': return action.requestedChapterCount === null
+      ? `未批量启动主笔。已请主编与双编剧先评估剧情跨度并细化唯一下一章，讨论ID：${String(action.discussionId)}。`
+      : `资料不足，未启动主笔。已请主编和相关成员先完成下一章所需的剧情方案，讨论ID：${String(action.discussionId)}。`;
     case 'planning_discussion_existing': return `资料仍未齐备，未启动主笔。已有规划讨论 ${String(action.discussionId)} 正在进行或等待你确认，请先完成该讨论。`;
     case 'conversation_reply_scheduled': return '主编已收到，正在根据当前书籍资料回复。';
     case 'pause_requested': return `已向 ${String((action.taskIds as unknown[]).length)} 个运行任务发出安全检查点暂停请求。`;

@@ -8,7 +8,7 @@ import { countNovelCharacters } from '../../../apps/api/src/infrastructure/model
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import type { CodexProcessRunner } from '../../../apps/api/src/infrastructure/models/codex-subscription-model.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('订阅与套餐模型真实流水线接线', () => {
@@ -41,16 +41,14 @@ describe('订阅与套餐模型真实流水线接线', () => {
     };
     const calls: Array<{ url: string; model: string }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
-      const body = JSON.parse(String(init?.body)) as { model: string };
+      const body = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> };
       calls.push({ url: String(input), model: body.model });
-      const text = body.model === 'kimi-k2-6-modelhub'
-        ? JSON.stringify({
-            verdict: 'pass',
-            summary: '连续性、人物行动、节奏、文风和钩子均通过。',
-            issues: [],
-            scores: { continuity: 92, character: 91, pacing: 89, style: 90, hook: 93 }
-          })
-        : '从体验官角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
+      const prompt = parseObject(body.messages[0]?.content);
+      const taskInput = parseObject(prompt?.taskInput);
+      const role = taskInput?.reviewerRole;
+      const text = typeof role === 'string'
+        ? JSON.stringify(reviewResult(role, taskInput?.manuscriptVersionId, taskInput?.modelSnapshotId))
+        : '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
       return new Response(JSON.stringify({ content: [{ type: 'text', text }], usage: { input_tokens: 50, output_tokens: 35 } }), {
         status: 200,
         headers: { 'content-type': 'application/json' }
@@ -71,7 +69,9 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const batchService = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, adapters);
     const batch = batchService.scheduleNewChapters(scope, 1, { firstChapterTitle: '雾中的选择' });
     const chapterResult = await batchService.run(scope, batch.batchId);
-    expect(chapterResult.batch.status).toBe('completed');
+    expect(chapterResult.batch.status).toBe('paused');
+    approvePendingManuscript(context, scope, ids, clock);
+    expect((await batchService.run(scope, batch.batchId)).batch.status).toBe('completed');
 
     const modelCalls = context.database.prepare(`
       SELECT provider, model_id, cash_micros, state FROM model_calls
@@ -97,4 +97,31 @@ function buildValidNovel(): string {
   while (countNovelCharacters(paragraphs.join('\n\n')) < 2_700) paragraphs.push(sentence);
   paragraphs.push('钟楼的灯忽然亮起，林澈看见窗后的人举起了导师失踪前留下的那枚钥匙。');
   return paragraphs.join('\n\n');
+}
+
+function reviewResult(role: string, manuscriptVersionId: unknown, modelSnapshotId: unknown): Record<string, unknown> {
+  const common = {
+    reviewerRole: role,
+    manuscriptVersionId,
+    modelSnapshotId,
+    verdict: 'pass',
+    summary: '基于同一完整正文完成独立点评。',
+    issues: [],
+    scores: { continuity: 92, character: 91, pacing: 89, style: 90, hook: 93 }
+  };
+  if (role === 'literary') return { ...common, aiStyle: { riskScore: 5, flaggedParagraphCount: 0, totalParagraphCount: 20, flaggedParagraphRatio: 0, isAuthorshipProbability: false, evidence: [] } };
+  if (role === 'experience') {
+    const none = { level: 'none', locations: [], evidence: [], recommendedAction: '无需修改', policyVersion: 'test-policy-v1' };
+    return { ...common, politicalRisk: none, sexualContentRisk: none };
+  }
+  return common;
+}
+
+function parseObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch { return null; }
 }

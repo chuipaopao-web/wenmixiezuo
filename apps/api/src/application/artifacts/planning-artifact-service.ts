@@ -4,6 +4,9 @@ import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { ArtifactType } from '../../domain/artifact-schemas.js';
 import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.js';
 import type { ChapterRequestCount } from '../creation/writing-readiness-service.js';
+import { ExpressionProfileService } from '../books/expression-profile-service.js';
+import { ExpressionProfileRepository } from '../../infrastructure/db/repositories/expression-profile-repository.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 
 interface DecisionRow {
   scope_text: string;
@@ -60,6 +63,24 @@ export class PlanningArtifactService {
     const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
     const positioning = this.positioning(scope);
+    const expressionProfiles = new ExpressionProfileService(
+      new ExpressionProfileRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
+    );
+    const currentExpression = expressionProfiles.active(scope);
+    if (currentExpression?.status !== 'confirmed' || currentExpression.narrativePerson === null || currentExpression.viewpointDistance === null) {
+      expressionProfiles.revise(scope, {
+        narrativePerson: currentExpression?.narrativePerson ?? 'third',
+        viewpointDistance: currentExpression?.viewpointDistance ?? 'close',
+        languageTone: stringArray(currentExpression?.languageTone),
+        textDensity: currentExpression?.textDensity ?? 'adaptive',
+        targetAudience: currentExpression?.targetAudience ?? stringValue(positioning.audience?.value),
+        contentBoundaries: isRecord(currentExpression?.contentBoundaries) ? currentExpression.contentBoundaries : {},
+        humorSeriousness: currentExpression?.humorSeriousness ?? 'adaptive',
+        voiceEvidence: Array.isArray(currentExpression?.voiceEvidence) ? currentExpression.voiceEvidence : [],
+        impactScope: { appliesFrom: 'first_formal_work_order', sourceDecisionId: decisionId, ownerConfirmed: true },
+        confirm: true
+      });
+    }
     const premise = stringValue(positioning.premise?.value) ?? decision.scope_text;
     const audience = stringValue(positioning.audience?.value) ?? '后续对话继续细化';
     const tone = stringValue(positioning.style?.value) ?? '服从老板确认的方案与后续修订';
@@ -184,4 +205,12 @@ function stringValue(value: unknown): string | null {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

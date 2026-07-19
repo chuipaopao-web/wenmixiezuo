@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('独立Worker章节执行', () => {
@@ -52,11 +52,14 @@ describe('独立Worker章节执行', () => {
     await waitUntil(() => {
       const row = context!.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId) as { status: string };
       const heartbeat = context!.database.prepare(`SELECT current_task_id FROM worker_health WHERE worker_id = 'creation-worker-test'`).get() as { current_task_id: string | null } | undefined;
-      return row.status === 'succeeded' && heartbeat?.current_task_id === null;
+      return row.status === 'waiting_confirmation' && heartbeat?.current_task_id === null;
     }, 20_000);
+    expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ settlement_status: 'awaiting_confirmation' });
+    approvePendingManuscript(context, scope, ids, clock);
+    expect(context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId)).toEqual({ status: 'succeeded' });
     expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ settlement_status: 'settled' });
     expect(context.database.prepare(`SELECT current_task_id FROM worker_health WHERE worker_id = 'creation-worker-test'`).get()).toEqual({ current_task_id: null });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded'`).get(taskId)).toEqual({ count: 4 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded'`).get(taskId)).toEqual({ count: 8 });
     const contentResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${scope.bookId}/chapters/${batch.chapterIds[0]!}/content?start=0&end=120` });
     expect(contentResponse.statusCode).toBe(200);
     expect(contentResponse.json().data).toEqual(expect.objectContaining({ start: 0, end: 120, totalLength: expect.any(Number), content: expect.any(String) }));

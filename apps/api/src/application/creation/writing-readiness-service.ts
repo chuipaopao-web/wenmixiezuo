@@ -28,6 +28,12 @@ export class WritingReadinessService {
     const firstNumber = this.nextChapterNumber(scope);
     const chapterNumbers = Array.from({ length: count }, (_, index) => firstNumber + index);
     const missing: string[] = [];
+    const expression = this.database.prepare(`SELECT status, narrative_person, viewpoint_distance
+      FROM book_expression_profiles WHERE owner_id = ? AND book_id = ? AND status IN ('provisional', 'confirmed')
+      ORDER BY version DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { status: string; narrative_person: string | null; viewpoint_distance: string | null } | undefined;
+    if (expression?.status !== 'confirmed' || expression.narrative_person === null || expression.viewpoint_distance === null) {
+      missing.push('confirmed_expression_viewpoint');
+    }
     for (const type of ['creative_plan', 'story_bible', 'master_outline']) {
       const active = this.database.prepare(`
         SELECT 1 FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id

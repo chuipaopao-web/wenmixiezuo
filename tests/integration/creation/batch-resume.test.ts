@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('连续多章串行与断点续跑', () => {
@@ -16,19 +16,29 @@ describe('连续多章串行与断点续跑', () => {
     prepareBookForWriting(context, scope, ids, clock, 5);
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 5);
-    const firstRun = await batches.run(scope, batch.batchId, { pauseAfterCompletedChapters: 2 });
+    const firstRun = await batches.run(scope, batch.batchId);
     expect(firstRun.batch.status).toBe('paused');
-    expect(firstRun.batch.nextIndex).toBe(2);
-    expect(firstRun.results).toHaveLength(2);
+    expect(firstRun.batch.nextIndex).toBe(0);
+    expect(firstRun.results).toHaveLength(1);
+    approvePendingManuscript(context, scope, ids, clock);
+    const secondChapter = await batches.run(scope, batch.batchId);
+    expect(secondChapter.batch.nextIndex).toBe(1);
+    approvePendingManuscript(context, scope, ids, clock);
+    const checkpoint = await batches.run(scope, batch.batchId);
+    expect(checkpoint.batch.nextIndex).toBe(2);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
     const firstTwoHashes = context.database.prepare(`
       SELECT content_hash FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND status = 'canon' ORDER BY chapter_id
     `).all(scope.ownerId, scope.bookId);
 
-    const resumed = await batches.run(scope, batch.batchId);
+    for (let chapter = 3; chapter <= 5; chapter += 1) {
+      approvePendingManuscript(context, scope, ids, clock);
+      await batches.run(scope, batch.batchId);
+    }
+    const resumed = { batch: batches.require(scope, batch.batchId), results: [] };
     expect(resumed.batch.status).toBe('completed');
     expect(resumed.batch.nextIndex).toBe(5);
-    expect(resumed.results).toHaveLength(3);
+    expect(resumed.results).toHaveLength(0);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 5 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND status = 'canon'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 5 });
     expect(context.database.prepare(`SELECT content_hash FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND status = 'canon' ORDER BY chapter_id LIMIT 2`).all(scope.ownerId, scope.bookId)).toEqual(firstTwoHashes);
@@ -53,8 +63,10 @@ describe('连续多章串行与断点续跑', () => {
     expect(paused.results[0]).toEqual(expect.objectContaining({ status: 'paused', phase: 'rewrite' }));
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ count: 1 });
     const resumed = await batches.run(scope, batch.batchId);
-    expect(resumed.batch.status).toBe('completed');
+    expect(resumed.batch.status).toBe('paused');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ count: 2 });
     expect(context.database.prepare(`SELECT attempt_count FROM tasks WHERE task_id = ?`).get(batch.taskIds[0]!)).toEqual({ attempt_count: 2 });
+    approvePendingManuscript(context, scope, ids, clock);
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
   });
 });

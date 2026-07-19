@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { ArtifactService } from '../artifacts/artifact-service.js';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
-import { ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
+import { ContextPackService, estimateTokens, type ContextSource } from '../memory/context-pack-service.js';
 import { MemoryService } from '../memory/memory-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
@@ -24,6 +25,12 @@ import { WriterSelectionService, type WriterSelection } from './writer-selection
 import { CopyrightService } from '../copyright/copyright-service.js';
 import { WritingReadinessService } from './writing-readiness-service.js';
 import { ChapterStateRecoveryService } from './chapter-state-recovery-service.js';
+import { WritingOrderService } from './writing-order-service.js';
+import { ProductionReviewService } from './production-review-service.js';
+import { ProductionWorkflowRepository } from '../../infrastructure/db/repositories/production-workflow-repository.js';
+import { WriterLeaseRepository } from '../../infrastructure/db/repositories/writer-lease-repository.js';
+import { WriterLeaseService } from '../agents/writer-lease-service.js';
+import type { ProductionReview } from '../../contracts/production-review.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -31,7 +38,7 @@ export interface PipelineResult {
   pipelineRunId: string;
   chapterId: string;
   taskId: string;
-  status: 'paused' | 'completed';
+  status: 'paused' | 'awaiting_confirmation' | 'blocked' | 'completed';
   phase: PipelinePhase;
   manuscriptVersionId: string | null;
   rewriteCount: number;
@@ -55,6 +62,10 @@ interface PipelineRow {
   phase: PipelinePhase;
   rewrite_count: number;
   status: string;
+  writing_order_id: string | null;
+  writer_epoch: number | null;
+  review_panel_id: string | null;
+  confirmation_id: string | null;
 }
 
 interface ChapterRow { chapter_number: number; title: string; settlement_status: string }
@@ -99,22 +110,28 @@ export class ChapterPipelineService {
       }
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'completed', updated_at = ? WHERE pipeline_run_id = ?`)
         .run(this.clock.now().toISOString(), run.pipeline_run_id);
+      if (run.confirmation_id !== null) {
+        tasks.waitForConfirmation(scope, taskId, workerId);
+        return this.mapResult(run, 'awaiting_confirmation');
+      }
       tasks.complete(scope, taskId, workerId);
       return this.mapResult(run, 'completed');
     } catch (error) {
       const now = this.clock.now().toISOString();
       const cancelRequested = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
         .get(taskId, scope.ownerId, scope.bookId) as { cancel_requested: number } | undefined)?.cancel_requested === 1;
-      const errorCode = cancelRequested ? 'TASK_CANCELLED' : error instanceof DomainError ? error.code : 'PIPELINE_FAILED';
+      const qualityBlocked = error instanceof QualityBlockedError;
+      const errorCode = cancelRequested ? 'TASK_CANCELLED' : qualityBlocked ? 'QUALITY_BLOCKED' : error instanceof DomainError ? error.code : 'PIPELINE_FAILED';
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'failed', error_code = ?, updated_at = ? WHERE pipeline_run_id = ?`)
         .run(errorCode, now, run.pipeline_run_id);
       this.database.prepare(`
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
           heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
-      `).run(cancelRequested ? 'cancelled' : 'failed', errorCode, now, taskId, scope.ownerId, scope.bookId, workerId);
+      `).run(cancelRequested ? 'cancelled' : qualityBlocked ? 'blocked' : 'failed', errorCode, now, taskId, scope.ownerId, scope.bookId, workerId);
       if (cancelRequested) {
         new ChapterStateRecoveryService(this.database, this.clock).reconcileCancelledChapter(scope, task.chapter_id);
       }
+      if (qualityBlocked) return this.mapResult(this.reload(run.pipeline_run_id), 'blocked');
       throw error;
     }
   }
@@ -123,7 +140,7 @@ export class ChapterPipelineService {
     const row = this.database.prepare(`SELECT * FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, chapterId) as PipelineRow | undefined;
     if (row === undefined) throw new Error('章节流水线不存在或越权');
-    return this.mapResult(row, row.status === 'completed' ? 'completed' : 'paused');
+    return this.mapResult(row, row.confirmation_id !== null ? 'awaiting_confirmation' : row.status === 'completed' ? 'completed' : 'paused');
   }
 
   private async executePhase(scope: BookScope, run: PipelineRow): Promise<PipelineRow> {
@@ -173,14 +190,44 @@ export class ChapterPipelineService {
       ? artifacts.create(scope, 'writing_contract', `第${chapter.chapter_number}章写作契约`, contractContent, 'candidate')
       : artifacts.addVersion(scope, existingContract.artifact_id, contractContent);
     const selectedContract = artifacts.select(scope, contract.artifactId, contract.artifactVersionId);
+    const outlineContent = asObject(outline.content);
+    const sourceDecisionId = requiredString(outlineContent.sourceDecisionId, '章纲缺少老板确认决定来源');
+    const objective = firstString(outlineContent.goal, outlineContent.objective) ?? `完成第${chapter.chapter_number}章已确认章纲`;
+    const order = new WritingOrderService(new ProductionWorkflowRepository(this.database), this.ids, this.clock).create(scope, {
+      chapterId: run.chapter_id,
+      taskId: run.task_id,
+      sourceDecisionId,
+      outlineVersionId: outline.artifactVersionId,
+      contractVersionId: selectedContract.artifactVersionId,
+      objective,
+      sceneScope: {
+        chapterNumber: chapter.chapter_number,
+        title: chapter.title,
+        pov: contractContent.pov,
+        timeAndPlace: firstString(outlineContent.time, outlineContent.place) ?? '服从已确认章纲与前章结算状态',
+        participants: Array.isArray(outlineContent.participants) ? outlineContent.participants : [],
+        endingInterface: firstString(outlineContent.hook) ?? '形成可追踪的章末状态'
+      },
+      hardConstraints: contractContent.hardConstraints,
+      creativeFreedom: ['具体动作、意象、对白和节奏由活动主笔创造', '软风格建议可按场景目的调整', '不得为提高审校分数抹平人物声音'],
+      canonRevision: run.expected_canon_revision,
+      positioningVersion: run.expected_positioning_version,
+      sources: [
+        { sourceClass: 'hard', sourceType: 'chapter_outline', sourceId: outline.artifactVersionId, reason: '老板确认的当前章纲', content: JSON.stringify(outline.content) },
+        { sourceClass: 'hard', sourceType: 'writing_contract', sourceId: selectedContract.artifactVersionId, reason: '主编签发的当前写作契约', content: JSON.stringify(selectedContract.content) }
+      ]
+    });
+    const lease = new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock)
+      .beginOrder(scope, run.writer_agent_id, order.writingOrderId, { taskId: run.task_id, chapterId: run.chapter_id, phase: 'preflight' });
     this.database.prepare(`
       UPDATE chapters SET plan_status = 'ready', generation_status = 'working', updated_at = ?
       WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
     `).run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
     this.database.prepare(`
       UPDATE chapter_pipeline_runs SET outline_version_id = ?, writing_contract_version_id = ?,
-        phase = 'context', status = 'working', updated_at = ? WHERE pipeline_run_id = ?
-    `).run(outline.artifactVersionId, selectedContract.artifactVersionId, this.clock.now().toISOString(), run.pipeline_run_id);
+        writing_order_id = ?, writer_epoch = ?, phase = 'context', status = 'working', updated_at = ? WHERE pipeline_run_id = ?
+    `).run(outline.artifactVersionId, selectedContract.artifactVersionId, order.writingOrderId, lease.epoch,
+      this.clock.now().toISOString(), run.pipeline_run_id);
     return this.reload(run.pipeline_run_id);
   }
 
@@ -282,23 +329,65 @@ export class ChapterPipelineService {
 
   private async review(scope: BookScope, run: PipelineRow): Promise<PipelineRow> {
     if (run.current_manuscript_version_id === null) throw new Error('审校缺少正文版本');
-    new WriterSelectionService(this.database, this.ids, this.clock).assertDistinctModels(scope, this.selectionFromRun(run));
+    if (run.writing_order_id === null || run.writer_epoch === null) throw new Error('审校缺少冻结工单或写手epoch');
+    new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock)
+      .assertCanCommit(scope, run.writer_agent_id, run.writer_epoch);
     const content = this.loadManuscript(scope, run.current_manuscript_version_id);
-    const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
-      taskId: run.task_id, agentId: run.reviewer_agent_id, chapterId: run.chapter_id,
-      canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-      tokenBudget: 10_000,
-      hardSources: [{ sourceType: 'current_manuscript', sourceId: run.current_manuscript_version_id, content, reason: '当前完整正文', priority: 100 }],
-      optionalSources: []
+    const manuscriptHash = createHash('sha256').update(content).digest('hex');
+    const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
+    const reviews = new ProductionReviewService(new ProductionWorkflowRepository(this.database), this.ids, this.clock);
+    const panel = reviews.openPanel(scope, {
+      chapterId: run.chapter_id, manuscriptVersionId: run.current_manuscript_version_id, manuscriptHash,
+      reviewRound: run.rewrite_count + 1, writerAgentId: run.writer_agent_id, writerProvider: writerModel.provider,
+      writerModelId: writerModel.modelId, writerModelSnapshotId: run.writer_model_snapshot_id, writerEpoch: run.writer_epoch,
+      writingOrderId: run.writing_order_id, canonRevision: run.expected_canon_revision
     });
-    const reviewerModel = this.modelIdentity(scope, run.reviewer_model_snapshot_id);
-    const adapter = this.modelAdapters.resolve(reviewerModel.provider, reviewerModel.modelId, 'novel_reviewer', 'reviewer');
-    const output = await this.executeModel(scope, run, `review-${run.rewrite_count + 1}`, run.reviewer_agent_id, run.reviewer_model_snapshot_id, adapter, JSON.stringify({ content }), pack.contextPackId);
-    const review = parseStructuredReview(output);
-    this.persistReview(scope, run, review);
-    if (review.verdict === 'blocked') throw new DomainError(errorCodes.validation, '异模型审校发现阻断问题', { issues: review.issues }, false, 409);
-    if (review.verdict === 'rewrite') {
-      if (run.rewrite_count >= 2) throw new DomainError(errorCodes.operationIncomplete, '定点重写两次后仍未通过，停止机械重写', {}, false, 409);
+    this.database.prepare(`UPDATE chapter_pipeline_runs SET review_panel_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
+      .run(panel.panelId, this.clock.now().toISOString(), run.pipeline_run_id);
+    const reports: ProductionReview[] = [];
+    for (const reviewer of panel.reviewers) {
+      const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
+        taskId: run.task_id, agentId: reviewer.agent.agentId, chapterId: run.chapter_id,
+        canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
+        tokenBudget: 12_000,
+        hardSources: [{ sourceType: 'current_manuscript', sourceId: run.current_manuscript_version_id, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 }],
+        optionalSources: []
+      });
+      const adapter = this.modelAdapters.resolve(reviewer.agent.provider, reviewer.agent.modelId, 'novel_reviewer', reviewer.agent.roleKey as never);
+      const output = await this.executeModel(
+        scope, run, `review-${run.rewrite_count + 1}-${reviewer.role}-${panel.panelId}`, reviewer.agent.agentId,
+        reviewer.agent.modelSnapshotId, adapter,
+        JSON.stringify({
+          reviewerRole: reviewer.role,
+          manuscriptVersionId: run.current_manuscript_version_id,
+          modelSnapshotId: reviewer.agent.modelSnapshotId,
+          content,
+          contract: reviewer.role === 'literary'
+            ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
+            : reviewer.role === 'experience'
+              ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
+              : '核对连续性、人物状态、因果与硬约束'
+        }),
+        pack.contextPackId
+      );
+      try {
+        reports.push(reviews.persist(scope, {
+          panelId: panel.panelId, role: reviewer.role, manuscriptVersionId: run.current_manuscript_version_id,
+          modelSnapshotId: reviewer.agent.modelSnapshotId, agentId: reviewer.agent.agentId, raw: output,
+          inputTokens: estimateTokens(content)
+        }));
+      } catch (error) {
+        new ProductionWorkflowRepository(this.database).blockReviewPanel(scope, panel.panelId);
+        throw new QualityBlockedError(`点评报告未通过结构校验：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const merged = reviews.merge(scope, {
+      panelId: panel.panelId, manuscriptVersionId: run.current_manuscript_version_id,
+      revisionRound: run.rewrite_count + 1, reports
+    });
+    if (merged.verdict === 'blocked') throw new QualityBlockedError('三异模型点评发现阻断问题，已保留稿件和证据');
+    if (merged.verdict === 'rewrite') {
+      if (run.rewrite_count >= 2) throw new QualityBlockedError('两轮定点重写后仍未通过，已停止机械重写');
       return this.advance(run, 'rewrite');
     }
     return this.advance(run, 'facts');
@@ -308,9 +397,10 @@ export class ChapterPipelineService {
     if (run.current_manuscript_version_id === null) throw new Error('定点重写缺少正文版本');
     const content = this.loadManuscript(scope, run.current_manuscript_version_id);
     const issues = this.database.prepare(`
-      SELECT required_action FROM review_issues WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND status = 'open'
-      ORDER BY created_at, review_issue_id
-    `).all(scope.ownerId, scope.bookId, run.chapter_id) as unknown as Array<{ required_action: string }>;
+      SELECT j.value AS required_action FROM revision_orders r, json_each(r.hard_actions_json) j
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.manuscript_version_id = ? AND r.status = 'active'
+      ORDER BY r.created_at, j.key
+    `).all(scope.ownerId, scope.bookId, run.current_manuscript_version_id) as unknown as Array<{ required_action: string }>;
     const requiredActions = issues.map((issue) => issue.required_action);
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id, agentId: run.writer_agent_id, chapterId: run.chapter_id,
@@ -329,10 +419,9 @@ export class ChapterPipelineService {
     );
     const nextVersionId = this.promoteManuscript(scope, run, output, run.current_manuscript_version_id, adapter, 'candidate');
     const now = this.clock.now().toISOString();
-    this.database.prepare(`
-      UPDATE review_issues SET status = 'resolved', resolved_by_manuscript_version_id = ?, resolved_at = ?
-      WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND status = 'open'
-    `).run(nextVersionId, now, scope.ownerId, scope.bookId, run.chapter_id);
+    this.database.prepare(`UPDATE revision_orders SET status = 'completed'
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND status = 'active'`)
+      .run(scope.ownerId, scope.bookId, run.current_manuscript_version_id);
     this.database.prepare(`
       UPDATE chapter_pipeline_runs SET current_manuscript_version_id = ?, rewrite_count = rewrite_count + 1,
         phase = 'hard_check', updated_at = ? WHERE pipeline_run_id = ?
@@ -341,55 +430,26 @@ export class ChapterPipelineService {
   }
 
   private extractFacts(scope: BookScope, run: PipelineRow): PipelineRow {
-    if (run.current_manuscript_version_id === null) throw new Error('事实提取缺少正文版本');
+    if (run.current_manuscript_version_id === null || run.review_panel_id === null) throw new Error('正文确认门禁缺少稿件或三点评轮次');
     const chapter = this.requireChapter(scope, run.chapter_id);
-    const content = this.loadManuscript(scope, run.current_manuscript_version_id);
-    const endingExcerpt = manuscriptEndingExcerpt(content);
-    new ChapterCatalogService(this.database, this.ids, this.clock).selectManuscript(scope, run.chapter_id, run.current_manuscript_version_id);
-    const canon = new CanonService(this.database, this.ids, this.clock);
-    const entityId = canon.createEntity(scope, { entityType: 'event', canonicalName: `第${chapter.chapter_number}章已发生事件` });
-    canon.proposeFact(scope, {
-      subjectEntityId: entityId,
-      relationKey: 'event',
-      value: { chapterNumber: chapter.chapter_number, endingExcerpt, source: 'selected_manuscript' },
-      evidence: [{ manuscriptVersionId: run.current_manuscript_version_id, location: '章末' }],
-      grade: 'B',
-      sourceChapterId: run.chapter_id,
-      sourceManuscriptVersionId: run.current_manuscript_version_id,
-      storyTimeStart: `第${chapter.chapter_number}章`
+    const confirmationId = this.ids.next();
+    new ProductionWorkflowRepository(this.database).createApprovalGate(scope, {
+      gateId: this.ids.next(), confirmationId, chapterId: run.chapter_id, taskId: run.task_id,
+      manuscriptVersionId: run.current_manuscript_version_id, reviewPanelId: run.review_panel_id,
+      expectedCanonRevision: run.expected_canon_revision,
+      scopeData: { chapterNumber: chapter.chapter_number, chapterTitle: chapter.title, manuscriptVersionId: run.current_manuscript_version_id },
+      impact: { onAccept: ['选中当前不可变正文', '抽取带来源的事实候选', '章节结算并创建新正史版本'], onReject: ['保留临时稿和点评证据', '不进入正史'], cashCostCny: 0 },
+      now: this.clock.now().toISOString()
     });
+    this.database.prepare(`UPDATE chapters SET settlement_status = 'awaiting_confirmation', updated_at = ? WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+      .run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
+    this.database.prepare(`UPDATE chapter_pipeline_runs SET confirmation_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
+      .run(confirmationId, this.clock.now().toISOString(), run.pipeline_run_id);
     return this.advance(run, 'settlement');
   }
 
   private settle(scope: BookScope, run: PipelineRow): PipelineRow {
-    if (run.current_manuscript_version_id === null) throw new Error('结算缺少正文版本');
-    const chapter = this.requireChapter(scope, run.chapter_id);
-    const content = this.loadManuscript(scope, run.current_manuscript_version_id);
-    new CanonService(this.database, this.ids, this.clock).settleChapter(scope, run.chapter_id, run.current_manuscript_version_id, {
-      chapterNumber: chapter.chapter_number,
-      manuscriptVersionId: run.current_manuscript_version_id,
-      endingExcerpt: manuscriptEndingExcerpt(content),
-      source: 'selected_manuscript'
-    });
-    const latestReview = this.database.prepare(`
-      SELECT summary FROM review_rounds WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY round_number DESC LIMIT 1
-    `).get(scope.ownerId, scope.bookId, run.chapter_id) as { summary: string };
-    const recentMajor = this.database.prepare(`
-      SELECT COUNT(DISTINCT chapter_id) AS count FROM review_issues
-      WHERE owner_id = ? AND book_id = ? AND issue_type = 'style_repetition' AND severity = 'major'
-        AND chapter_id IN (SELECT chapter_id FROM chapters WHERE owner_id = ? AND book_id = ? ORDER BY chapter_number DESC LIMIT 2)
-    `).get(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId) as { count: number };
-    const switchSuggested = recentMajor.count >= 2 && run.rewrite_count >= 2;
-    this.database.prepare(`
-      INSERT INTO chapter_quality_metrics (
-        quality_metric_id, owner_id, book_id, chapter_id, manuscript_version_id,
-        scores_json, rewrite_count, repeated_major_style_issue, switch_writer_suggested, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      this.ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.current_manuscript_version_id,
-      JSON.stringify({ finalReview: latestReview.summary, hardChecksPassed: true, independentModelReview: true }),
-      run.rewrite_count, recentMajor.count >= 2 ? 1 : 0, switchSuggested ? 1 : 0, this.clock.now().toISOString()
-    );
+    if (run.confirmation_id === null) throw new Error('结算阶段缺少老板确认单');
     return this.advance(run, 'completed');
   }
 
@@ -407,7 +467,8 @@ export class ChapterPipelineService {
           .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
         this.database.prepare(`
           UPDATE chapter_pipeline_runs SET task_id = ?, outline_version_id = NULL,
-            writing_contract_version_id = NULL, context_pack_id = NULL, phase = 'preflight',
+            writing_contract_version_id = NULL, context_pack_id = NULL, writing_order_id = NULL,
+            writer_epoch = NULL, review_panel_id = NULL, confirmation_id = NULL, phase = 'preflight',
             status = 'working', error_code = NULL, expected_canon_revision = ?,
             expected_positioning_version = ?, updated_at = ? WHERE pipeline_run_id = ?
         `).run(taskId, book.canon_revision, book.positioning_version, this.clock.now().toISOString(), existing.pipeline_run_id);
@@ -583,7 +644,15 @@ export class ChapterPipelineService {
     if (row === undefined) throw new Error('模型上下文包不存在、已失效或越权');
     const parsedTaskInput = JSON.parse(taskInput) as unknown;
     const compactTaskInput = phaseKey.startsWith('review-')
-      ? { operation: 'review' }
+      ? isRecordValue(parsedTaskInput)
+        ? {
+            operation: 'review',
+            reviewerRole: parsedTaskInput.reviewerRole,
+            manuscriptVersionId: parsedTaskInput.manuscriptVersionId,
+            modelSnapshotId: parsedTaskInput.modelSnapshotId,
+            contract: parsedTaskInput.contract
+          }
+        : { operation: 'review' }
       : phaseKey.startsWith('rewrite-')
         ? { operation: 'rewrite' }
         : parsedTaskInput;
@@ -616,7 +685,7 @@ export class ChapterPipelineService {
     };
   }
 
-  private mapResult(run: PipelineRow, status: 'paused' | 'completed'): PipelineResult {
+  private mapResult(run: PipelineRow, status: PipelineResult['status']): PipelineResult {
     return {
       pipelineRunId: run.pipeline_run_id,
       chapterId: run.chapter_id,
@@ -626,6 +695,13 @@ export class ChapterPipelineService {
       manuscriptVersionId: run.current_manuscript_version_id,
       rewriteCount: run.rewrite_count
     };
+  }
+}
+
+class QualityBlockedError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = 'QualityBlockedError';
   }
 }
 
@@ -678,6 +754,25 @@ export function parseStructuredReview(raw: string): StructuredReview {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (!isRecordValue(value)) throw new Error('规划成果内容必须是对象');
+  return value;
+}
+
+function requiredString(value: unknown, message: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(message);
+  return value.trim();
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  return null;
 }
 
 function manuscriptEndingExcerpt(content: string): string {

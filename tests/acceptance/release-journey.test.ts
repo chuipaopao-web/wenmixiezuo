@@ -13,7 +13,7 @@ import { NarrativeProjectionService } from '../../apps/api/src/application/proje
 import { sha256File } from '../../apps/api/src/infrastructure/files/file-utils.js';
 import { BackupService } from '../../apps/api/src/infrastructure/recovery/backup-service.js';
 import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
-import { initializeDomainBook, prepareBookForWriting } from '../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../helpers/test-context.js';
 
 describe('首版全链路验收旅程', () => {
@@ -51,7 +51,11 @@ describe('首版全链路验收旅程', () => {
 
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const mainBatch = batches.scheduleNewChapters(mainScope, 5, { firstChapterTitle: '第一声雾钟' });
-    const interrupted = await batches.run(mainScope, mainBatch.batchId, { pauseAfterCompletedChapters: 2 });
+    const firstGenerated = await batches.run(mainScope, mainBatch.batchId);
+    approvePendingManuscript(context, mainScope, ids, clock);
+    const secondGenerated = await batches.run(mainScope, mainBatch.batchId);
+    approvePendingManuscript(context, mainScope, ids, clock);
+    const interrupted = await batches.run(mainScope, mainBatch.batchId);
     expect(interrupted.batch).toMatchObject({ status: 'paused', nextIndex: 2 });
 
     const canon = new CanonService(context.database, ids, clock);
@@ -59,7 +63,7 @@ describe('首版全链路验收旅程', () => {
     const pending = canon.proposeFact(mainScope, {
       subjectEntityId: decisionEntityId, relationKey: 'destroyed', value: true,
       evidence: [{ chapter: 2, location: '章末' }], grade: 'D',
-      sourceChapterId: mainBatch.chapterIds[1]!, sourceManuscriptVersionId: interrupted.results[1]!.manuscriptVersionId
+      sourceChapterId: mainBatch.chapterIds[1]!, sourceManuscriptVersionId: secondGenerated.results[0]!.manuscriptVersionId
     });
     const team = new AgentTeamService(context.database, ids, clock).list(mainScope);
     const editors = new EditorLeaseService(context.database, ids, clock);
@@ -67,16 +71,24 @@ describe('首版全链路验收旅程', () => {
     const candidate = team.find((agent) => agent.category === 'core' && agent.agentId !== beforeTakeover.activeEditorAgentId)!;
     const takeover = editors.prepareTakeover(mainScope, candidate.agentId);
     expect((takeover.package.chapters as unknown[])).toHaveLength(5);
-    expect((takeover.package.pendingDecisions as unknown[])).toHaveLength(1);
+    expect((takeover.package.pendingDecisions as unknown[])).toHaveLength(2);
     const afterTakeover = editors.completeTakeover(mainScope, takeover.takeoverId);
     expect(afterTakeover.editorEpoch).toBe(beforeTakeover.editorEpoch + 1);
     expect(() => editors.assertEpoch(mainScope, beforeTakeover.activeEditorAgentId, beforeTakeover.editorEpoch)).toThrow('旧指令被拒绝');
     canon.resolveConfirmation(mainScope, pending.confirmationId!, 2, false);
 
-    const resumed = await batches.run(mainScope, mainBatch.batchId);
+    const laterResults = [...firstGenerated.results, ...secondGenerated.results, ...interrupted.results];
+    for (let chapter = 3; chapter <= 5; chapter += 1) {
+      approvePendingManuscript(context, mainScope, ids, clock);
+      const next = await batches.run(mainScope, mainBatch.batchId);
+      laterResults.push(...next.results);
+    }
+    const resumed = { batch: batches.require(mainScope, mainBatch.batchId), results: laterResults };
     expect(resumed.batch).toMatchObject({ status: 'completed', nextIndex: 5 });
-    expect(resumed.results).toHaveLength(3);
+    expect(resumed.results).toHaveLength(5);
     const secondBatch = batches.scheduleNewChapters(secondScope, 1, { firstChapterTitle: '潮线之外' });
+    expect((await batches.run(secondScope, secondBatch.batchId)).batch.status).toBe('paused');
+    approvePendingManuscript(context, secondScope, ids, clock);
     expect((await batches.run(secondScope, secondBatch.batchId)).batch.status).toBe('completed');
 
     const settled = context.database.prepare(`

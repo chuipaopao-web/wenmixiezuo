@@ -28,6 +28,11 @@ import { cancelActiveModelCall } from '../application/calls/model-call-service.j
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
+import { ChapterApprovalService } from '../application/creation/chapter-approval-service.js';
+import { ProductionWorkflowRepository } from '../infrastructure/db/repositories/production-workflow-repository.js';
+import { ExpressionProfileService } from '../application/books/expression-profile-service.js';
+import { ExpressionProfileRepository } from '../infrastructure/db/repositories/expression-profile-repository.js';
+import { UnitOfWork } from '../infrastructure/db/unit-of-work.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -52,7 +57,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const research = new ResearchService(database, ids, clock);
   const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
+  const chapterApprovals = new ChapterApprovalService(
+    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks
+  );
   const backups = new BackupService(database, config);
+  const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
 
   app.post<{ Body: {
     title?: string; text: string; category?: string; classification?: string;
@@ -77,6 +86,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get('/api/v1/books', async (request) => success(books.list(owner), request.id));
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/expression-profile', async (request) => {
+    return success(expressionProfiles.active({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: Parameters<ExpressionProfileService['revise']>[1] }>('/api/v1/books/:bookId/expression-profile', async (request) => {
+    return success(expressionProfiles.revise({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+  });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId', async (request) => {
     return success(books.require({ ...owner, bookId: request.params.bookId }), request.id);
@@ -223,7 +240,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const facts = canon.listFacts(scope, request.params.chapterId);
     const reviews = database.prepare(`SELECT * FROM review_rounds WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY round_number`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
-    return success({ chapter, manuscripts, facts, reviews }, request.id);
+    const writingOrders = database.prepare(`SELECT * FROM writing_orders WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY version DESC`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    const reviewPanels = database.prepare(`SELECT * FROM review_panels WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY review_round`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    const reviewReports = database.prepare(`SELECT r.* FROM review_reports r JOIN review_panels p ON p.review_panel_id = r.review_panel_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND p.chapter_id = ? ORDER BY p.review_round, r.reviewer_role`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    const approvalGates = database.prepare(`SELECT * FROM chapter_approval_gates WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at DESC`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    return success({ chapter, manuscripts, facts, reviews, production: { writingOrders, reviewPanels, reviewReports, approvalGates } }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string; writingOrderId: string } }>('/api/v1/books/:bookId/writing-orders/:writingOrderId', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const order = database.prepare(`SELECT * FROM writing_orders WHERE writing_order_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.writingOrderId, scope.ownerId, scope.bookId);
+    if (order === undefined) throw new Error('写作工单不存在或越权');
+    const sources = database.prepare(`SELECT source_class, source_type, source_id, reason, content_hash, character_count, ordinal
+      FROM writing_order_sources WHERE writing_order_id = ? AND owner_id = ? AND book_id = ? ORDER BY ordinal`)
+      .all(request.params.writingOrderId, scope.ownerId, scope.bookId);
+    return success({ order, sources }, request.id);
   });
 
   app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts', async (request) => {
@@ -268,12 +305,24 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/accept', async (request) => {
-    canon.resolveConfirmation({ ...owner, bookId: request.params.bookId }, request.params.confirmationId, request.body.expectedCanonRevision, true);
+    const scope = { ...owner, bookId: request.params.bookId };
+    const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
+    if (target?.target_type === 'manuscript') {
+      return success({ confirmationId: request.params.confirmationId, ...chapterApprovals.resolve(scope, request.params.confirmationId, request.body.expectedCanonRevision, true) }, request.id);
+    }
+    canon.resolveConfirmation(scope, request.params.confirmationId, request.body.expectedCanonRevision, true);
     return success({ confirmationId: request.params.confirmationId, status: 'accepted' }, request.id);
   });
 
-  app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/reject', async (request) => {
-    canon.resolveConfirmation({ ...owner, bookId: request.params.bookId }, request.params.confirmationId, request.body.expectedCanonRevision, false);
+  app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number; note?: string } }>('/api/v1/books/:bookId/confirmations/:confirmationId/reject', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
+    if (target?.target_type === 'manuscript') {
+      return success({ confirmationId: request.params.confirmationId, ...chapterApprovals.resolve(scope, request.params.confirmationId, request.body.expectedCanonRevision, false, request.body.note ?? null) }, request.id);
+    }
+    canon.resolveConfirmation(scope, request.params.confirmationId, request.body.expectedCanonRevision, false);
     return success({ confirmationId: request.params.confirmationId, status: 'rejected' }, request.id);
   });
 

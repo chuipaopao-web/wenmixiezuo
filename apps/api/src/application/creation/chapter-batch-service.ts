@@ -134,6 +134,21 @@ export class ChapterBatchService {
       while (batch.nextIndex < batch.chapterIds.length) {
         const taskId = batch.taskIds[batch.nextIndex]!;
         const task = tasks.require(scope, taskId);
+        if (task.status === 'succeeded') {
+          const nextIndex = batch.nextIndex + 1;
+          this.database.prepare(`UPDATE chapter_batches SET next_index = ?, checkpoint_json = ?, updated_at = ?
+            WHERE batch_id = ? AND owner_id = ? AND book_id = ?`)
+            .run(nextIndex, JSON.stringify({ confirmedChapterId: batch.chapterIds[batch.nextIndex], completedTaskId: taskId }),
+              this.clock.now().toISOString(), batchId, scope.ownerId, scope.bookId);
+          batch = this.require(scope, batchId);
+          continue;
+        }
+        if (task.status === 'cancelled') {
+          this.database.prepare(`UPDATE chapter_batches SET status = 'cancelled', checkpoint_json = ?, updated_at = ?
+            WHERE batch_id = ? AND owner_id = ? AND book_id = ?`)
+            .run(JSON.stringify({ reason: 'owner_rejected', taskId }), this.clock.now().toISOString(), batchId, scope.ownerId, scope.bookId);
+          return { batch: this.require(scope, batchId), results };
+        }
         if (task.status === 'paused') tasks.queue(scope, taskId);
         const claimed = tasks.claimNext(workerId, 120_000);
         if (claimed === null || claimed.taskId !== taskId) throw new Error('批次下一章节任务未能按依赖顺序领取');
@@ -141,6 +156,17 @@ export class ChapterBatchService {
         results.push(result);
         if (result.status === 'paused') {
           this.pause(scope, batchId, batch.nextIndex, { reason: 'phase_checkpoint', phase: result.phase, taskId });
+          return { batch: this.require(scope, batchId), results };
+        }
+        if (result.status === 'awaiting_confirmation') {
+          this.pause(scope, batchId, batch.nextIndex, { reason: 'owner_confirmation', taskId, manuscriptVersionId: result.manuscriptVersionId });
+          return { batch: this.require(scope, batchId), results };
+        }
+        if (result.status === 'blocked') {
+          this.database.prepare(`UPDATE chapter_batches SET status = 'failed', checkpoint_json = ?, updated_at = ?
+            WHERE batch_id = ? AND owner_id = ? AND book_id = ?`)
+            .run(JSON.stringify({ reason: 'quality_blocked', taskId, manuscriptVersionId: result.manuscriptVersionId }),
+              this.clock.now().toISOString(), batchId, scope.ownerId, scope.bookId);
           return { batch: this.require(scope, batchId), results };
         }
         const nextIndex = batch.nextIndex + 1;

@@ -242,6 +242,30 @@ export class TaskService {
     return task;
   }
 
+  public waitForConfirmation(scope: BookScope, taskId: string, workerId: string): TaskRecord {
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      UPDATE tasks SET status = 'waiting_confirmation', current_phase = 'owner_confirmation',
+        lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
+    `).run(now, taskId, scope.ownerId, scope.bookId, workerId);
+    if (result.changes !== 1) throw new Error('任务等待确认转换被租约门禁拒绝');
+    this.events?.append(scope, 'task.phase.changed', { taskId, status: 'waiting_confirmation', phase: 'owner_confirmation' });
+    return this.require(scope, taskId);
+  }
+
+  public resolveWaitingConfirmation(scope: BookScope, taskId: string, accept: boolean): TaskRecord {
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      UPDATE tasks SET status = ?, current_phase = ?, updated_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'waiting_confirmation'
+    `).run(accept ? 'succeeded' : 'cancelled', accept ? 'completed' : 'owner_rejected', now,
+      taskId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) throw new Error('等待确认任务不存在或状态冲突');
+    this.events?.append(scope, accept ? 'task.completed' : 'task.phase.changed', { taskId, status: accept ? 'succeeded' : 'cancelled' });
+    return this.require(scope, taskId);
+  }
+
   public recoverExpired(): TaskRecord[] {
     const now = this.clock.now().toISOString();
     const expired = this.database.prepare(`SELECT * FROM tasks WHERE status = 'working' AND lease_expires_at <= ? ORDER BY task_id`)

@@ -9,6 +9,11 @@ export class WriterLeaseService {
     const now = this.clock.now(); this.repository.initialize(scope, { agentId, writingOrderId, checkpoint,
       expiresAt: new Date(now.getTime() + 60_000).toISOString(), now: now.toISOString() }); return this.repository.get(scope)!;
   }
+  public beginOrder(scope: BookScope, agentId: string, writingOrderId: string, checkpoint: unknown = {}): WriterLeaseRecord {
+    const current = this.repository.get(scope);
+    if (current === null) return this.initialize(scope, agentId, writingOrderId, checkpoint);
+    return this.takeover(scope, current.epoch, agentId, writingOrderId, checkpoint);
+  }
   public takeover(scope: BookScope, expectedEpoch: number, newAgentId: string, writingOrderId: string, checkpoint: unknown): WriterLeaseRecord {
     const now = this.clock.now();
     if (!this.repository.takeover(scope, { expectedEpoch, agentId: newAgentId, writingOrderId, checkpoint,

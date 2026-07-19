@@ -370,6 +370,7 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0013：`retrieval_query_plans`、`retrieval_channel_runs`、`retrieval_candidates`、`retrieval_evidence_clusters`、`retrieval_evidence_checks`、`retrieval_drilldowns`、`retrieval_context_selections`。
 - 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`plot_span_estimates`、`quality_windows`、`retrieval_activity_projections`。
 - 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`、`local_assistant_sessions`、`message_routing_decisions`、`utility_experience_candidates`、`utility_experience_revisions`。
+- 0016：`writing_orders`、`writing_order_sources`、`chapter_approval_gates`，并为章节流水线和三点评面板追加冻结工单、写手epoch、稿件哈希、点评轮次、绑定修订、正史版本和Token预算字段。旧的单点评表只保留历史兼容；Schema 16正式生产以三点评面板和正文确认门禁为准。
 - 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。

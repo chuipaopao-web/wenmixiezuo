@@ -2,6 +2,7 @@ import { ArkPlanModelAdapter } from './ark-plan-model.js';
 import { DeterministicModelAdapter } from './deterministic-model.js';
 import {
   DeterministicNovelCandidateBAdapter,
+  DeterministicProductionReviewerAdapter,
   DeterministicNovelReviewerAdapter,
   DeterministicNovelWriterAdapter
 } from './deterministic-novel-models.js';
@@ -20,7 +21,10 @@ export class ModelAdapterFactory {
   ) {}
 
   public resolve(provider: string, modelId: string, purpose: ModelPurpose, roleKey?: RoleKey | CreativeRoleKey): ModelAdapter {
-    if (provider === 'local-deterministic' && (modelId === 'wenmi-fixture-v1' || modelId.startsWith('wenmi-fixture-v2'))) return new DeterministicModelAdapter(modelId);
+    if (provider === 'local-deterministic' && (modelId === 'wenmi-fixture-v1' || modelId.startsWith('wenmi-fixture-v2'))) {
+      if (purpose === 'novel_reviewer') return new DeterministicProductionReviewerAdapter(modelId, reviewerRoleFor(roleKey));
+      return new DeterministicModelAdapter(modelId);
+    }
     if (provider === 'local-deterministic-writer' && modelId === 'wenmi-novel-writer-v1') return new DeterministicNovelWriterAdapter();
     if (provider === 'local-deterministic-candidate-b' && modelId === 'wenmi-novel-candidate-b-v1') return new DeterministicNovelCandidateBAdapter();
     if (provider === 'local-deterministic-reviewer' && modelId === 'wenmi-novel-reviewer-v1') return new DeterministicNovelReviewerAdapter();
@@ -61,6 +65,12 @@ export class ModelAdapterFactory {
       ...(roleKey === undefined ? {} : { systemPrompt: buildRoleSystemPrompt(legacyPromptRole(roleKey), purpose) })
     }, this.fetchImpl);
   }
+}
+
+function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literary' | 'experience' {
+  if (roleKey === 'setting' || roleKey === 'continuity' || roleKey === 'lead_screenwriter' || roleKey === 'plot_architect') return 'fact';
+  if (roleKey === 'experience_reviewer' || roleKey === 'reader_experience') return 'experience';
+  return 'literary';
 }
 
 function legacyPromptRole(roleKey: RoleKey | CreativeRoleKey): RoleKey {

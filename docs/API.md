@@ -187,8 +187,13 @@
 | GET | `/books/{bookId}/confirmations` | 查询待确认和历史确认单 |
 | POST | `/books/{bookId}/confirmations/{confirmationId}/accept` | 严格确认指定对象和版本 |
 | POST | `/books/{bookId}/confirmations/{confirmationId}/reject` | 拒绝并解除相应任务 |
+| GET/POST | `/books/{bookId}/expression-profile` | 查询或创建版本化表达/视角基线；首个正式工单前必须为confirmed |
+| GET | `/books/{bookId}/writing-orders/{writingOrderId}` | 查询冻结工单及其最小来源清单，不返回内部思维链 |
+| GET | `/books/{bookId}/chapters/{chapterId}` | 同时返回不可变稿件、三点评面板/报告、修订单和正文确认门禁 |
 
 D级事实未确认时，当前章节不能结算，依赖该事实的任务暂停；无关的只读研究和其他书籍不受影响。
+
+正式正文还有独立于事实确认的正文确认门禁：三点评通过后任务进入 `waiting_confirmation`，接受才选择该不可变稿、抽取带原文指针的候选并结算；拒绝不改变正史，轮次允许时使用同一任务和新完整版本定点重写。确认单严格绑定 `manuscript_version_id + expected_canon_revision`，不能把对旧稿的确认复用于新稿。
 
 ## 11. 研究与版权
 

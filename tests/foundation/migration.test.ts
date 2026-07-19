@@ -33,7 +33,7 @@ describe('向前迁移器', () => {
         '0008_agent_personas.sql', '0009_role_titles.sql', '0010_expression_taxonomy.sql',
         '0011_knowledge_lifecycle_time.sql', '0012_chunk_projection_snapshots.sql',
         '0013_retrieval_orchestration.sql', '0014_longform_continuity.sql',
-        '0015_agent_compression_prompts.sql'
+        '0015_agent_compression_prompts.sql', '0016_production_workflow.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
