@@ -7,6 +7,8 @@ import { ChapterTaskExecutor } from './executors/chapter-task-executor.js';
 import { ProjectionTaskExecutor } from './executors/projection-task-executor.js';
 import { ProjectionLoop } from './runtime/projection-loop.js';
 import { loadLocalVectorRuntime } from './adapters/local-vector-runtime.js';
+import { CanonIndexTaskExecutor } from './executors/canon-index-task-executor.js';
+import { CanonIndexLoop } from './runtime/canon-index-loop.js';
 
 const config = loadWorkerConfig();
 const database = new DatabaseSync(config.databasePath);
@@ -36,12 +38,17 @@ const loop = new WorkerLoop(
 loop.start();
 const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId, vectorRuntime));
 projectionLoop.start();
+const canonIndexLoop = new CanonIndexLoop(new CanonIndexTaskExecutor(
+  database, config.apiBaseUrl, config.workerId, config.workerToken
+));
+canonIndexLoop.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId,
   vectorProjection: vectorRuntime === undefined ? 'degraded' : 'ready' }));
 
 const shutdown = (): void => {
   loop.stop();
   projectionLoop.stop();
+  canonIndexLoop.stop();
   heartbeat.stop();
   database.close();
 };

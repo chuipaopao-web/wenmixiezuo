@@ -30,11 +30,17 @@ export class ChapterApprovalService {
       this.repository.prepareOwnerRejectedRewrite(scope, gate, note ?? '当前正文未获老板确认，需要按意见定点重写', this.ids.next(), this.clock.now().toISOString());
       return { status: 'rejected' };
     }
-    if (!retrySettlement) this.repository.resolveGate(scope, confirmationId, true, note, this.clock.now().toISOString());
-    try {
-      const reference = this.repository.manuscriptReference(scope, gate.manuscriptVersionId);
-      const chapter = this.repository.chapter(scope, gate.chapterId);
-      const content = readFileSync(resolveInside(this.dataDir, reference.relativePath), 'utf8');
+    const reference = this.repository.manuscriptReference(scope, gate.manuscriptVersionId);
+    const chapter = this.repository.chapter(scope, gate.chapterId);
+    const content = readFileSync(resolveInside(this.dataDir, reference.relativePath), 'utf8');
+    const now = this.clock.now().toISOString();
+    return this.repository.runInTransaction(() => {
+      const liveGate = this.repository.requireGate(scope, confirmationId);
+      const liveRetry = (liveGate.status === 'accepted' || liveGate.status === 'settlement_failed') && accept;
+      if (liveGate.status !== 'awaiting_owner' && !liveRetry) throw new Error('正文确认单已经处理');
+      if (liveGate.expectedCanonRevision !== expectedCanonRevision) throw new Error('正文确认单绑定的正史版本不匹配');
+      if (this.repository.canonRevision(scope) !== expectedCanonRevision) throw new Error('正史修订已经变化，正文确认必须重新生成');
+      if (!liveRetry) this.repository.resolveGate(scope, confirmationId, true, note, now);
       this.chapters.selectManuscript(scope, gate.chapterId, gate.manuscriptVersionId);
       const canonicalName = `第${chapter.chapterNumber}章已发生事件`;
       const entityId = this.repository.findChapterEventEntity(scope, canonicalName) ?? this.canon.createEntity(scope, { entityType: 'event', canonicalName });
@@ -55,18 +61,15 @@ export class ChapterApprovalService {
         manuscriptVersionId: gate.manuscriptVersionId,
         endingExcerpt: endingExcerpt(content),
         source: 'owner_confirmed_manuscript'
-      });
+      }, undefined, expectedCanonRevision);
       this.repository.recordQualityMetric(scope, {
         id: this.ids.next(), chapterId: gate.chapterId, manuscriptVersionId: gate.manuscriptVersionId,
-        rewriteCount: this.repository.rewriteCount(scope, gate.chapterId, gate.taskId), now: this.clock.now().toISOString()
+        rewriteCount: this.repository.rewriteCount(scope, gate.chapterId, gate.taskId), now
       });
-      this.repository.markGateSettlement(scope, confirmationId, true, this.clock.now().toISOString());
+      this.repository.markGateSettlement(scope, confirmationId, true, now);
       this.tasks.resolveWaitingConfirmation(scope, gate.taskId, true);
       return { status: 'settled', canonRevision: result.canonRevision };
-    } catch (error) {
-      this.repository.markGateSettlement(scope, confirmationId, false, this.clock.now().toISOString());
-      throw error;
-    }
+    });
   }
 }
 

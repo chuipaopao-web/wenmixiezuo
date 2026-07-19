@@ -42,6 +42,26 @@ export interface ApprovalGateRecord {
 export class ProductionWorkflowRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
+  public runInTransaction<T>(work: () => T): T {
+    if (this.database.isTransaction) return work();
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.database.exec('COMMIT');
+      return result;
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  public canonRevision(scope: BookScope): number {
+    const row = this.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId) as { canon_revision: number } | undefined;
+    if (row === undefined) throw new Error('书籍不存在或越权');
+    return row.canon_revision;
+  }
+
   public currentTeam(scope: BookScope, bindingRevisionId?: string | null): TeamAgentRow[] {
     assertBookScope(scope);
     const rows = bindingRevisionId === undefined || bindingRevisionId === null
@@ -219,7 +239,8 @@ export class ProductionWorkflowRepository {
   }
 
   public resolveGate(scope: BookScope, confirmationId: string, accept: boolean, note: string | null, now: string): ApprovalGateRecord {
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       const confirmation = this.database.prepare(`SELECT status FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
         .get(confirmationId, scope.ownerId, scope.bookId) as { status: string } | undefined;
@@ -228,24 +249,28 @@ export class ProductionWorkflowRepository {
         WHERE confirmation_id = ? AND owner_id = ? AND book_id = ? AND status = 'awaiting_owner'`)
         .run(accept ? 'accepted' : 'rejected', note, now, confirmationId, scope.ownerId, scope.bookId);
       if (result.changes !== 1) throw new Error('正文确认门禁状态冲突');
-      this.database.prepare(`UPDATE confirmations SET status = ?, resolved_at = ? WHERE confirmation_id = ?`)
-        .run(accept ? 'accepted' : 'rejected', now, confirmationId);
-      this.database.exec('COMMIT');
+      const confirmationResult = this.database.prepare(`UPDATE confirmations SET status = ?, resolved_at = ?
+        WHERE confirmation_id = ? AND owner_id = ? AND book_id = ? AND status = 'pending'`)
+        .run(accept ? 'accepted' : 'rejected', now, confirmationId, scope.ownerId, scope.bookId);
+      if (confirmationResult.changes !== 1) throw new Error('正文确认状态冲突');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireGate(scope, confirmationId);
   }
 
   public markGateSettlement(scope: BookScope, confirmationId: string, succeeded: boolean, now: string): void {
-    this.database.prepare(`UPDATE chapter_approval_gates SET status = ?, resolved_at = ?
+    const result = this.database.prepare(`UPDATE chapter_approval_gates SET status = ?, resolved_at = ?
       WHERE confirmation_id = ? AND owner_id = ? AND book_id = ? AND status IN ('accepted', 'settlement_failed')`)
       .run(succeeded ? 'settled' : 'settlement_failed', now, confirmationId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) throw new Error('正文结算门禁状态冲突');
   }
 
   public prepareOwnerRejectedRewrite(scope: BookScope, gate: ApprovalGateRecord, note: string, revisionOrderId: string, now: string): 'paused' | 'blocked' {
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       const confirmation = this.database.prepare(`SELECT status FROM confirmations
         WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
@@ -284,10 +309,10 @@ export class ProductionWorkflowRepository {
           WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'waiting_confirmation'`)
           .run(now, gate.taskId, scope.ownerId, scope.bookId);
       }
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
       return canRewrite ? 'paused' : 'blocked';
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
   }

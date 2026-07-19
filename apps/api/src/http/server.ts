@@ -19,6 +19,7 @@ import { registerRuntimeRoutes } from './runtime-routes.js';
 import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
 import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
 import { CapabilityService } from '../application/capabilities/capability-service.js';
+import { CanonIndexService } from '../application/projections/canon-index-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -112,6 +113,20 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
         : task.task_type === 'conversation_reply'
           ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
+    return success(result, request.id);
+  });
+
+  app.post<{
+    Params: { requestId: string };
+    Headers: { 'x-wenmi-worker-id'?: string; 'x-wenmi-worker-token'?: string };
+    Body: { ownerId: string; bookId: string };
+  }>('/api/v1/internal/worker/canon-index/:requestId/execute', async (request) => {
+    const workerId = request.headers['x-wenmi-worker-id'];
+    if (workerId === undefined || workerId.length === 0) throw new DomainError('VALIDATION_ERROR', '缺少Worker身份');
+    const recorded = database.prepare(`SELECT 1 FROM worker_health WHERE worker_id = ?`).get(workerId);
+    if (recorded === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker身份未登记');
+    const result = new CanonIndexService(database, config.dataDir, new UuidGenerator(), new SystemClock())
+      .executeClaimed({ ownerId: request.body.ownerId, bookId: request.body.bookId }, request.params.requestId, workerId);
     return success(result, request.id);
   });
 

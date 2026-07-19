@@ -32,4 +32,29 @@ describe('正史结算故障恢复', () => {
       WHERE r.owner_id = ? AND r.book_id = ? AND i.canonical_key = ? AND r.lifecycle_layer = 'candidate'
     `).get(fixture.scope.ownerId, fixture.scope.bookId, fact.factId)).toEqual({ status: 'active' });
   });
+
+  it('拒绝陈旧正史修订且不留下部分结算状态', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const canon = new CanonService(context.database, ids, clock);
+
+    expect(() => canon.settleChapter(
+      fixture.scope,
+      fixture.chapterId,
+      fixture.manuscriptVersionId,
+      {},
+      undefined,
+      1
+    )).toThrow();
+    expect(context.database.prepare(`SELECT canon_revision FROM books WHERE book_id = ?`).get(fixture.scope.bookId))
+      .toEqual({ canon_revision: 0 });
+    expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(fixture.chapterId))
+      .toEqual({ settlement_status: 'unsettled' });
+    expect(context.database.prepare(`SELECT status FROM manuscript_versions WHERE manuscript_version_id = ?`).get(fixture.manuscriptVersionId))
+      .toEqual({ status: 'approved' });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM canon_index_requests WHERE owner_id = ? AND book_id = ?`)
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 0 });
+  });
 });

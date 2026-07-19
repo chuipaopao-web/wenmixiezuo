@@ -35,7 +35,8 @@ describe('向前迁移器', () => {
         '0013_retrieval_orchestration.sql', '0014_longform_continuity.sql',
         '0015_agent_compression_prompts.sql', '0016_production_workflow.sql',
         '0017_experience_freeze.sql', '0018_portability_operations.sql', '0019_chat_attachments.sql',
-        '0020_runtime_integrity.sql'
+        '0020_runtime_integrity.sql',
+        '0021_canon_index_requests.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');

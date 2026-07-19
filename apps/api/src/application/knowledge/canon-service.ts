@@ -249,40 +249,48 @@ export class CanonService {
     chapterId: string,
     manuscriptVersionId: string,
     chapterEndState: Record<string, unknown>,
-    failAt?: 'after_fact_activation' | 'after_revision'
+    failAt?: 'after_fact_activation' | 'after_revision',
+    expectedCanonRevision?: number
   ): { canonRevision: number; canonRevisionId: string; chapterEndStateId: string } {
     assertBookScope(scope);
-    const book = this.requireBook(scope);
-    const manuscript = this.database.prepare(`
-      SELECT status, content_hash FROM manuscript_versions
-      WHERE manuscript_version_id = ? AND chapter_id = ? AND owner_id = ? AND book_id = ?
-    `).get(manuscriptVersionId, chapterId, scope.ownerId, scope.bookId) as { status: string; content_hash: string } | undefined;
-    if (manuscript === undefined || manuscript.status !== 'approved') throw new Error('只有已选定的完整正文可以结算');
-    const pending = this.database.prepare(`
-      SELECT fact_id, grade, status FROM fact_assertions
-      WHERE owner_id = ? AND book_id = ? AND source_chapter_id = ? AND grade <> 'A'
-        AND status NOT IN ('approved', 'active', 'rejected', 'superseded', 'withdrawn')
-      ORDER BY fact_id
-    `).all(scope.ownerId, scope.bookId, chapterId) as unknown as Array<{ fact_id: string; grade: FactGrade; status: FactStatus }>;
-    if (pending.length > 0) {
-      const hasBoss = pending.some((fact) => fact.grade === 'D');
-      throw new DomainError(
-        hasBoss ? errorCodes.confirmationRequired : errorCodes.operationIncomplete,
-        hasBoss ? 'D级事实尚未确认，章节不能结算' : '章节事实门禁尚未完成',
-        { pending }, false, 409
-      );
-    }
-    const nextRevision = book.canon_revision + 1;
-    const parent = this.database.prepare(`
-      SELECT canon_revision_id FROM canon_revisions WHERE owner_id = ? AND book_id = ? AND revision = ?
-    `).get(scope.ownerId, scope.bookId, book.canon_revision) as { canon_revision_id: string } | undefined;
     const canonRevisionId = this.ids.next();
     const chapterEndStateId = this.ids.next();
     const changeId = this.ids.next();
     const now = this.clock.now().toISOString();
 
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
+      const book = this.requireBook(scope);
+      if (expectedCanonRevision !== undefined && book.canon_revision !== expectedCanonRevision) {
+        throw new DomainError(errorCodes.canonRevisionConflict, '正史修订已经变化，拒绝陈旧章节结算', {
+          expectedCanonRevision,
+          actualCanonRevision: book.canon_revision
+        }, false, 409);
+      }
+      const manuscript = this.database.prepare(`
+        SELECT status, content_hash FROM manuscript_versions
+        WHERE manuscript_version_id = ? AND chapter_id = ? AND owner_id = ? AND book_id = ?
+      `).get(manuscriptVersionId, chapterId, scope.ownerId, scope.bookId) as { status: string; content_hash: string } | undefined;
+      if (manuscript === undefined || manuscript.status !== 'approved') throw new Error('只有已选定的完整正文可以结算');
+      const pending = this.database.prepare(`
+        SELECT fact_id, grade, status FROM fact_assertions
+        WHERE owner_id = ? AND book_id = ? AND source_chapter_id = ? AND grade <> 'A'
+          AND status NOT IN ('approved', 'active', 'rejected', 'superseded', 'withdrawn')
+        ORDER BY fact_id
+      `).all(scope.ownerId, scope.bookId, chapterId) as unknown as Array<{ fact_id: string; grade: FactGrade; status: FactStatus }>;
+      if (pending.length > 0) {
+        const hasBoss = pending.some((fact) => fact.grade === 'D');
+        throw new DomainError(
+          hasBoss ? errorCodes.confirmationRequired : errorCodes.operationIncomplete,
+          hasBoss ? 'D级事实尚未确认，章节不能结算' : '章节事实门禁尚未完成',
+          { pending }, false, 409
+        );
+      }
+      const nextRevision = book.canon_revision + 1;
+      const parent = this.database.prepare(`
+        SELECT canon_revision_id FROM canon_revisions WHERE owner_id = ? AND book_id = ? AND revision = ?
+      `).get(scope.ownerId, scope.bookId, book.canon_revision) as { canon_revision_id: string } | undefined;
       let parentRevisionId = parent?.canon_revision_id;
       if (parentRevisionId === undefined && book.canon_revision === 0) {
         parentRevisionId = this.ids.next();
@@ -349,19 +357,24 @@ export class CanonService {
           state_json, content_hash, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(chapterEndStateId, scope.ownerId, scope.bookId, chapterId, nextRevision, stableJson(chapterEndState), sha256(stableJson(chapterEndState)), now);
-      this.database.prepare(`
+      const manuscriptUpdate = this.database.prepare(`
         UPDATE manuscript_versions SET status = 'canon', confirmed_at = ?
-        WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ?
-      `).run(now, manuscriptVersionId, scope.ownerId, scope.bookId);
-      this.database.prepare(`
+        WHERE manuscript_version_id = ? AND chapter_id = ? AND owner_id = ? AND book_id = ? AND status = 'approved'
+      `).run(now, manuscriptVersionId, chapterId, scope.ownerId, scope.bookId);
+      if (manuscriptUpdate.changes !== 1) throw new Error('正文版本状态在结算期间发生变化');
+      const chapterUpdate = this.database.prepare(`
         UPDATE chapters SET settlement_status = 'settled', canon_manuscript_version_id = ?,
           chapter_end_state_id = ?, updated_at = ?, version = version + 1
-        WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+        WHERE chapter_id = ? AND owner_id = ? AND book_id = ? AND settlement_status <> 'settled'
       `).run(manuscriptVersionId, chapterEndStateId, now, chapterId, scope.ownerId, scope.bookId);
-      this.database.prepare(`
+      if (chapterUpdate.changes !== 1) throw new Error('章节已经结算或状态发生变化');
+      const bookUpdate = this.database.prepare(`
         UPDATE books SET canon_revision = ?, updated_at = ?, version = version + 1
         WHERE owner_id = ? AND book_id = ? AND canon_revision = ?
       `).run(nextRevision, now, scope.ownerId, scope.bookId, book.canon_revision);
+      if (bookUpdate.changes !== 1) throw new DomainError(errorCodes.canonRevisionConflict, '正史修订并发变化，结算已回滚', {
+        expectedCanonRevision: book.canon_revision
+      }, false, 409);
       this.database.prepare(`
         INSERT INTO canon_revisions_log (
           canon_change_id, owner_id, book_id, from_revision, to_revision,
@@ -379,10 +392,17 @@ export class CanonService {
       this.insertDerivedMemory(scope, endMemoryId, 'chapter_end', stableJson(chapterEndState), 'chapter_end_state', chapterEndStateId, nextRevision, book.positioning_version, now);
       this.invalidateDerivedState(scope, nextRevision, now);
       this.rebuildProjectionsWithinTransaction(scope, nextRevision, activeFacts, now);
-      this.database.exec('COMMIT');
+      this.database.prepare(`
+        INSERT INTO canon_index_requests (
+          canon_index_request_id, owner_id, book_id, canon_revision, source_chapter_id,
+          status, attempts, available_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+        ON CONFLICT(owner_id, book_id, canon_revision) DO NOTHING
+      `).run(this.ids.next(), scope.ownerId, scope.bookId, nextRevision, chapterId, now, now, now);
+      if (ownsTransaction) this.database.exec('COMMIT');
       return { canonRevision: nextRevision, canonRevisionId, chapterEndStateId };
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
   }
