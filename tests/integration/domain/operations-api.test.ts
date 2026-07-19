@@ -33,7 +33,8 @@ describe('生命周期、任务审计与备份REST入口', () => {
       const restored = await app.inject({
         method: 'POST', url: `/api/v1/books/${created.bookId}/restore`, payload: { expectedVersion: archived.version }
       });
-      expect(restored.json().data).toMatchObject({ status: 'active', version: archived.version + 1 });
+      const restoredBook = restored.json().data as { status: string; version: number };
+      expect(restoredBook).toMatchObject({ status: 'active', version: archived.version + 1 });
       prepareBookForWriting(
         context,
         { ownerId: context.config.ownerId, bookId: created.bookId },
@@ -64,6 +65,18 @@ describe('生命周期、任务审计与备份REST入口', () => {
       expect(verified.json().data).toMatchObject({ verified: true });
       expect(((await app.inject({ method: 'GET', url: '/api/v1/backups' })).json().data as Array<{ status: string }>)[0]?.status).toBe('verified');
 
+      const activePurge = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/purge`,
+        payload: { confirmationText: requiredPermanentDeleteText('运维入口测试书', created.bookId) }
+      });
+      expect(activePurge.statusCode).toBe(409);
+      expect(activePurge.json().error.code).toBe('BOOK_STATUS_CONFLICT');
+
+      const current = (await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}` })).json().data as { version: number };
+      const finalArchive = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/archive`, payload: { expectedVersion: current.version }
+      });
+      expect(finalArchive.statusCode).toBe(200);
       const invalidPurge = await app.inject({
         method: 'POST', url: `/api/v1/books/${created.bookId}/purge`, payload: { confirmationText: '继续' }
       });

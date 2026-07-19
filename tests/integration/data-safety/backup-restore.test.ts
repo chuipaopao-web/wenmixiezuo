@@ -41,6 +41,7 @@ describe('一致性备份与临时恢复验证', () => {
     lifecycle.createDraft(scope, '甲书');
     const backups = new BackupService(context.database, context.config);
     const created = backups.create();
+    lifecycle.archive(scope, 1);
     lifecycle.permanentlyDelete(scope, requiredPermanentDeleteText('甲书', scope.bookId));
     expect(() => backups.verify(created.backupId)).toThrow('墓碑禁止备份复活');
   });

@@ -26,7 +26,8 @@ describe('书籍生命周期与删除墓碑', () => {
     const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
     const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
     service.ensureOwner(scope);
-    service.createDraft(scope, '甲书');
+    const created = service.createDraft(scope, '甲书');
+    service.archive(scope, created.version);
     expect(() => service.permanentlyDelete(scope, '好')).toThrow('确认词不匹配');
     expect(new BookRepository(context.database).require(scope).title).toBe('甲书');
   });
@@ -36,12 +37,24 @@ describe('书籍生命周期与删除墓碑', () => {
     const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
     const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
     service.ensureOwner(scope);
-    service.createDraft(scope, '甲书');
+    const created = service.createDraft(scope, '甲书');
+    service.archive(scope, created.version);
     service.permanentlyDelete(scope, requiredPermanentDeleteText('甲书', scope.bookId));
     expect(new BookRepository(context.database).find(scope)).toBeNull();
     const tombstone = context.database.prepare('SELECT deleted_book_id, deleted_book_title FROM deletion_tombstones WHERE owner_id = ?')
       .get(scope.ownerId);
     expect(tombstone).toEqual({ deleted_book_id: 'book-alpha', deleted_book_title: '甲书' });
     expect(() => service.createDraft(scope, '甲书复活')).toThrow('墓碑禁止');
+  });
+
+  it('活动书即使确认词正确也不能永久删除', () => {
+    context = createTestContext();
+    const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
+    const scope = { ownerId: 'owner-one', bookId: 'book-active' };
+    service.ensureOwner(scope);
+    service.createDraft(scope, '活动书');
+    expect(() => service.permanentlyDelete(scope, requiredPermanentDeleteText('活动书', scope.bookId)))
+      .toThrow('只有已归档书籍可以永久删除');
+    expect(new BookRepository(context.database).require(scope).title).toBe('活动书');
   });
 });

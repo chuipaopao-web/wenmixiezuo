@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { validatePermanentDeleteText } from '../../domain/permanent-delete.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { BookRecord } from '../../domain/books.js';
 import { assertBookScope, type BookScope, type OwnerScope } from '../../domain/scope.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
@@ -52,6 +53,9 @@ export class BookLifecycleService {
   public permanentlyDelete(scope: BookScope, confirmationText: string): void {
     assertBookScope(scope);
     const book = this.#books.require(scope);
+    if (book.status !== 'archived') {
+      throw new DomainError(errorCodes.bookStatusConflict, '只有已归档书籍可以永久删除', { currentStatus: book.status }, false, 409);
+    }
     const confirmationHash = validatePermanentDeleteText(book.title, book.bookId, confirmationText);
     const operationId = this.ids.next();
     const tombstoneId = this.ids.next();
@@ -68,6 +72,7 @@ export class BookLifecycleService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(tombstoneId, scope.ownerId, scope.bookId, book.title, operationId, confirmationHash, now);
       this.database.prepare('DELETE FROM file_registry WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
+      this.database.prepare('DELETE FROM chat_attachments WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
       this.database.prepare('DELETE FROM recovery_log WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
       this.database.prepare('DELETE FROM operations WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
       this.database.prepare('DELETE FROM books WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);

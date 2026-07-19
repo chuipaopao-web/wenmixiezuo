@@ -16,6 +16,7 @@ export const errorCodes = {
   backupNotVerified: 'BACKUP_NOT_VERIFIED',
   bookNotFound: 'BOOK_NOT_FOUND',
   bookScopeViolation: 'BOOK_SCOPE_VIOLATION',
+  bookStatusConflict: 'BOOK_STATUS_CONFLICT',
   bookVersionConflict: 'BOOK_VERSION_CONFLICT',
   budgetExhausted: 'BUDGET_EXHAUSTED',
   canonRevisionConflict: 'CANON_REVISION_CONFLICT',
@@ -31,4 +32,3 @@ export const errorCodes = {
   taskAlreadyRunning: 'TASK_ALREADY_RUNNING',
   validation: 'VALIDATION_ERROR'
 } as const;
-

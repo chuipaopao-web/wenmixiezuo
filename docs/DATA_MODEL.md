@@ -360,9 +360,9 @@ pending → queued → working → waiting_confirmation → succeeded
 
 还必须覆盖：第500/1000/1500章触发第30/120/280章等早期正史；无关旧块不注入；开放线程与全局硬事实不随距离丢失；摘要探针失败可从原文重建；下钻记录和上下文包一致；所有投影跨书隔离且删除后可重建。
 
-## 14. DEC-020新增Schema分组与切换元数据
+## 14. 长篇release新增Schema分组与切换元数据
 
-长篇增量只通过0010至0016向前新增，不修改0001至0009。表名、顺序和职责冻结如下：
+长篇增量只通过0010至0019向前新增，不修改0001至0009。表名、顺序和职责如下：
 
 - 0010：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
 - 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
@@ -371,7 +371,9 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0014：`narrative_commitments`、`continuity_nodes`、`continuity_node_sources`、`stage_settlements`、`stage_settlement_sources`、`stage_settlement_probes`、`rolling_plan_windows`、`plot_span_estimates`、`quality_windows`、`retrieval_activity_projections`。
 - 0015：`agent_continuity_journals`、`agent_focus_snapshots`、`compression_snapshots`、`compression_probes`、`prompt_template_snapshots`、`model_capability_snapshots`、`team_template_snapshots`、`agent_model_binding_revisions`、`agent_model_bindings`、`writer_leases`、`review_panels`、`review_reports`、`revision_orders`、`local_assistant_sessions`、`message_routing_decisions`、`utility_experience_candidates`、`utility_experience_revisions`。
 - 0016：`writing_orders`、`writing_order_sources`、`chapter_approval_gates`，并为章节流水线和三点评面板追加冻结工单、写手epoch、稿件哈希、点评轮次、绑定修订、正史版本和Token预算字段。旧的单点评表只保留历史兼容；Schema 16正式生产以三点评面板和正文确认门禁为准。
-- 0016：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
+- 0017：冻结运行中讨论、写作与点评所用模型绑定和书籍体验修订，保证未来配置不污染既有任务。
+- 0018：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
+- 0019：`chat_attachments`，保存按书隔离的原文件身份、哈希、MIME、大小、本地相对路径、消息绑定、解析状态、有界上下文摘录和固定 `temporary` 生命周期。原文件与解析文本同时登记 `file_registry`；附件不能成为正史权威或正式向量投影源。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。
 

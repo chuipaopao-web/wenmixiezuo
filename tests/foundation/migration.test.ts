@@ -34,10 +34,11 @@ describe('向前迁移器', () => {
         '0011_knowledge_lifecycle_time.sql', '0012_chunk_projection_snapshots.sql',
         '0013_retrieval_orchestration.sql', '0014_longform_continuity.sql',
         '0015_agent_compression_prompts.sql', '0016_production_workflow.sql',
-        '0017_experience_freeze.sql', '0018_portability_operations.sql'
+        '0017_experience_freeze.sql', '0018_portability_operations.sql', '0019_chat_attachments.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
+      expect(tables.map((row) => row.name)).toContain('chat_attachments');
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(database.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 });
     } finally {

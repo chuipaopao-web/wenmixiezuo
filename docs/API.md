@@ -90,7 +90,10 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/messages` | 分页查询书籍消息 |
-| POST | `/books/{bookId}/messages` | 原样持久化老板消息并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文 |
+| POST | `/books/{bookId}/messages` | 原样持久化老板消息，可携带同书临时 `attachmentIds`，并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文 |
+| POST | `/books/{bookId}/chat-attachments` | `multipart/form-data` 上传单个图片或文件，本地保存并返回真实解析状态；单文件最多20 MiB |
+| GET | `/books/{bookId}/chat-attachments/{attachmentId}/content` | 读取同书原附件内容，用于图片预览或文件查看 |
+| POST | `/books/{bookId}/chat-attachments/{attachmentId}/discard` | 丢弃未发送附件；已绑定消息的附件不得移除 |
 | POST | `/books/{bookId}/discussions` | 建立有范围和预算的讨论 |
 | GET | `/books/{bookId}/discussions/{discussionId}` | 查询阶段、参与者、意见和草案 |
 | POST | `/books/{bookId}/discussions/{discussionId}/confirm` | 确认候选方案为项目决定 |
@@ -105,7 +108,9 @@
 
 普通消息若被识别为明确的资料治理命令，例如“增加隐藏身份标签”“给张三增加隐藏身份标签”或“把暗线作为伏笔的别名”，由活动主编调用受限知识工具。单书、对象明确且可撤销的操作直接执行，消息回复包含变更ID、对象、前后值、正史/候选状态、投影状态和撤销入口；歧义、同名、跨书或批量影响只产生一个必要澄清问题。其他Agent提出的标签只能进入候选。
 
-聊天消息默认持久归档但不进入正式向量索引。后续DEC-016运行时接口必须把 `authorityState`（临时/候选/正史/派生）、`lifecycleState`、来源版本和保留类别分开返回；归档、恢复和清理操作必须幂等，永久删除继续走严格确认接口。
+聊天消息默认持久归档但不进入正式向量索引。对话附件固定属于临时层：同一消息最多6个，图片只预览，TXT/Markdown/JSON/CSV/LOG、可提取文字PDF和DOCX返回真实解析状态；扫描PDF返回无文本而不是伪造OCR结果。附件上下文合计最多12,000字符，保留文件名、哈希和附件ID回链，不自动进入正史、正式正文或正式向量投影。后续DEC-016运行时接口必须把 `authorityState`（临时/候选/正史/派生）、`lifecycleState`、来源版本和保留类别分开返回；归档、恢复和清理操作必须幂等，永久删除继续走严格确认接口。
+
+`POST /books/{bookId}/purge` 仅接受已归档书籍；活动书返回冲突。客户端必须显示并逐字校验服务端同规则的 `YES <书名> <短ID>`，但服务端仍是最终门禁，成功后写墓碑防止旧备份静默复活。
 
 标记为 `creative_planning` 的确认会生成或新增版本并选择 `creative_plan`、`story_bible`、`master_outline` 和请求范围内的 `chapter_outline`。普通讨论确认不自动改写规划成果。
 
@@ -400,5 +405,6 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `MESSAGE_ROUTING_LOW_CONFIDENCE`
 - `MESSAGE_ROUTING_POLICY_REJECTED`
 - `ACTIVE_DISCUSSION_ROUTE_CONFLICT`
+- `BOOK_STATUS_CONFLICT`
 
 具体状态机、请求限额、Cookie、导入和错误脱敏见 `docs/RUNTIME_WORKFLOWS.md` 与 `docs/SECURITY_AND_OPERATIONS.md`。

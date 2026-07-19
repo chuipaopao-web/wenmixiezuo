@@ -201,6 +201,19 @@ export interface MessageData {
   created_at: string;
 }
 
+export interface ChatAttachmentData {
+  attachmentId: string;
+  originalName: string;
+  mediaKind: 'image' | 'text' | 'pdf' | 'docx';
+  mimeType: string;
+  sizeBytes: number;
+  parseStatus: 'parsed' | 'truncated' | 'preview_only' | 'no_text' | 'failed' | 'discarded';
+  parsedCharCount: number;
+  parseError: string | null;
+  lifecycleLayer: 'temporary';
+  createdAt: string;
+}
+
 export interface WorkerData {
   status: string;
   worker: null | { workerId: string; heartbeatAt: string; currentTaskId: string | null };
@@ -233,10 +246,12 @@ function ensureRuntimeSession(): Promise<void> {
 }
 
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (!(init.body instanceof FormData) && !headers.has('content-type')) headers.set('content-type', 'application/json');
   return fetch(`${API_ORIGIN}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { 'content-type': 'application/json', ...init.headers }
+    headers
   });
 }
 
@@ -301,9 +316,31 @@ export function restoreBook(bookId: string, expectedVersion: number): Promise<Bo
   });
 }
 
-export function sendMessage(bookId: string, content: string): Promise<{ messageId: string; action: Record<string, unknown> }> {
+export function purgeBook(bookId: string, confirmationText: string): Promise<{ bookId: string; status: 'purged'; tombstoneWritten: boolean }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/purge`, {
+    method: 'POST', body: JSON.stringify({ confirmationText })
+  });
+}
+
+export function uploadChatAttachment(bookId: string, file: File): Promise<ChatAttachmentData> {
+  const body = new FormData();
+  body.append('file', file, file.name);
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments`, { method: 'POST', body });
+}
+
+export function discardChatAttachment(bookId: string, attachmentId: string): Promise<ChatAttachmentData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments/${encodeURIComponent(attachmentId)}/discard`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
+export function chatAttachmentContentUrl(bookId: string, attachmentId: string): string {
+  return `${API_ORIGIN}/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments/${encodeURIComponent(attachmentId)}/content`;
+}
+
+export function sendMessage(bookId: string, content: string, attachmentIds: string[] = []): Promise<{ messageId: string; action: Record<string, unknown> }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages`, {
-    method: 'POST', body: JSON.stringify({ content })
+    method: 'POST', body: JSON.stringify({ content, attachmentIds })
   });
 }
 

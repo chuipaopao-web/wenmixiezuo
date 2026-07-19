@@ -16,14 +16,17 @@ import {
   EyeIcon,
   FileTextIcon,
   GearSixIcon,
+  ImageIcon,
   MagnifyingGlassIcon,
   MapTrifoldIcon,
   TagIcon,
+  TrashIcon,
   TreeStructureIcon,
   ListIcon,
   PaperPlaneTiltIcon,
   PlusIcon,
   ShieldCheckIcon,
+  UserCircleIcon,
   UsersThreeIcon,
   WifiHighIcon,
   WifiSlashIcon,
@@ -60,6 +63,10 @@ import {
   selectArtifactVersion,
   rejectArtifactVersion,
   restoreBook,
+  purgeBook,
+  uploadChatAttachment,
+  discardChatAttachment,
+  chatAttachmentContentUrl,
   compareArtifactVersions,
   createLibraryTag,
   type AgentData,
@@ -68,6 +75,7 @@ import {
   type CapabilityData,
   type ChapterData,
   type ChapterPageData,
+  type ChatAttachmentData,
   type HealthData,
   type LibraryData,
   type MessageData,
@@ -101,15 +109,13 @@ import './app.css';
 
 type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
 
-const WORKSPACE_VIEW_LABELS: Record<WorkspaceView, string> = {
-  chat: '对话',
-  tasks: '任务中心',
-  outline: '规划',
-  manuscript: '正文',
-  projections: '图谱',
-  knowledge: '资料库',
-  rights: '版权与研究'
-};
+interface PendingChatAttachment {
+  localId: string;
+  fileName: string;
+  status: 'uploading' | 'ready' | 'failed';
+  data: ChatAttachmentData | null;
+  error: string | null;
+}
 
 export function App(): React.JSX.Element {
   const [health, setHealth] = useState<HealthData | null>(null);
@@ -135,6 +141,8 @@ export function App(): React.JSX.Element {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [bookMenuId, setBookMenuId] = useState<string | null>(null);
   const [archiveCandidate, setArchiveCandidate] = useState<BookData | null>(null);
+  const [purgeCandidate, setPurgeCandidate] = useState<BookData | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -207,6 +215,7 @@ export function App(): React.JSX.Element {
   }, [refreshWorkspace, selectedBookId]);
 
   useEffect(() => {
+    setPendingAttachments([]);
     if (selectedBookId === null) {
       setComposer('');
       return;
@@ -283,6 +292,10 @@ export function App(): React.JSX.Element {
   }, [selectedBookId, settingsOpen]);
 
   const selectBook = (bookId: string): void => {
+    if (bookId !== selectedBookId && pendingAttachments.length > 0) {
+      setError('切换书籍前请先发送或移除当前附件，避免留下未引用资料。');
+      return;
+    }
     setSelectedBookId(bookId);
     persistSelectedBook(bookId);
     setSelectedChapterId(null);
@@ -293,9 +306,14 @@ export function App(): React.JSX.Element {
   };
 
   const submitMessage = async (): Promise<void> => {
-    if (selectedBookId === null || composer.trim().length === 0 || busy) return;
+    const readyAttachments = pendingAttachments.filter((item) => item.status === 'ready' && item.data !== null);
+    if (selectedBookId === null || (composer.trim().length === 0 && readyAttachments.length === 0) || busy) return;
     const switchMatch = /^(?:切书|切换到)\s*[《「]?(.+?)[》」]?$/u.exec(composer.trim());
     if (switchMatch !== null) {
+      if (pendingAttachments.length > 0) {
+        setError('切换书籍前请先发送或移除当前附件，避免资料进入错误书籍。');
+        return;
+      }
       const target = books.find((book) => book.title === switchMatch[1]!.trim());
       if (target === undefined) {
         setError(`没有找到书籍“${switchMatch[1]!.trim()}”`);
@@ -308,8 +326,9 @@ export function App(): React.JSX.Element {
     }
     setBusy(true);
     try {
-      await sendMessage(selectedBookId, composer);
+      await sendMessage(selectedBookId, composer, readyAttachments.map((item) => item.data!.attachmentId));
       setComposer('');
+      setPendingAttachments([]);
       await saveDraft(selectedBookId, '');
       await refreshWorkspace(selectedBookId);
     } catch (reason) {
@@ -320,6 +339,10 @@ export function App(): React.JSX.Element {
   };
 
   const createNewBook = async (input: Parameters<typeof createBook>[0]): Promise<void> => {
+    if (pendingAttachments.length > 0) {
+      setError('创建并切换新书前请先发送或移除当前附件。');
+      return;
+    }
     setBusy(true);
     try {
       const created = await createBook(input);
@@ -364,6 +387,10 @@ export function App(): React.JSX.Element {
 
   const archiveSelectedBook = async (): Promise<void> => {
     if (archiveCandidate === null || busy) return;
+    if (pendingAttachments.length > 0) {
+      setError('归档当前书籍前请先发送或移除待发附件。');
+      return;
+    }
     setBusy(true);
     try {
       await archiveBook(archiveCandidate.bookId, archiveCandidate.version);
@@ -380,6 +407,10 @@ export function App(): React.JSX.Element {
 
   const restoreArchivedBook = async (book: BookData): Promise<void> => {
     if (busy) return;
+    if (pendingAttachments.length > 0) {
+      setError('恢复并切换书籍前请先发送或移除当前附件。');
+      return;
+    }
     setBusy(true);
     try {
       await restoreBook(book.bookId, book.version);
@@ -389,6 +420,51 @@ export function App(): React.JSX.Element {
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '恢复书籍失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadSelectedFiles = async (files: File[]): Promise<void> => {
+    if (selectedBookId === null || files.length === 0) return;
+    const slots = Math.max(0, 6 - pendingAttachments.length);
+    const selected = files.slice(0, slots);
+    if (selected.length < files.length) setError('每条消息最多附加6个文件。');
+    const bookId = selectedBookId;
+    for (const file of selected) {
+      const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setPendingAttachments((current) => [...current, {
+        localId, fileName: file.name, status: 'uploading', data: null, error: null
+      }]);
+      void uploadChatAttachment(bookId, file).then((data) => {
+        setPendingAttachments((current) => current.map((item) => item.localId === localId
+          ? { ...item, status: 'ready', data, error: data.parseError }
+          : item));
+      }).catch((reason: unknown) => {
+        setPendingAttachments((current) => current.map((item) => item.localId === localId
+          ? { ...item, status: 'failed', error: reason instanceof Error ? reason.message : '附件上传失败' }
+          : item));
+      });
+    }
+  };
+
+  const removePendingAttachment = (attachment: PendingChatAttachment): void => {
+    setPendingAttachments((current) => current.filter((item) => item.localId !== attachment.localId));
+    if (selectedBookId !== null && attachment.data !== null) {
+      void discardChatAttachment(selectedBookId, attachment.data.attachmentId).catch(() => undefined);
+    }
+  };
+
+  const permanentlyDeleteArchivedBook = async (confirmationText: string): Promise<void> => {
+    if (purgeCandidate === null || busy) return;
+    setBusy(true);
+    try {
+      await purgeBook(purgeCandidate.bookId, confirmationText);
+      setPurgeCandidate(null);
+      await loadBooks();
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '永久删除书籍失败');
     } finally {
       setBusy(false);
     }
@@ -405,9 +481,6 @@ export function App(): React.JSX.Element {
           <button className="icon-button mobile-only" type="button" aria-label="打开书籍与目录" onClick={() => setLeftOpen(true)}><ListIcon /></button>
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
-        </div>
-        <div className="topbar-center">
-          {selectedBook === null ? '尚未选择书籍' : <><strong>{WORKSPACE_VIEW_LABELS[view]}</strong>{selectedChapter !== null && view === 'manuscript' && <span>第 {selectedChapter.chapterNumber} 章</span>}</>}
         </div>
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
@@ -448,7 +521,10 @@ export function App(): React.JSX.Element {
               {archiveOpen && <div className="archived-book-list">{archivedBooks.map((book) => (
                 <div className="archived-book-row" key={book.bookId}>
                   <span><strong>{book.title}</strong><small>不参与当前创作</small></span>
-                  <button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void restoreArchivedBook(book)}><ArrowCounterClockwiseIcon /></button>
+                  <div className="archived-book-actions">
+                    <button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void restoreArchivedBook(book)}><ArrowCounterClockwiseIcon /></button>
+                    <button className="danger-icon-button" type="button" disabled={busy} aria-label={`彻底删除《${book.title}》`} onClick={() => setPurgeCandidate(book)}><TrashIcon /></button>
+                  </div>
                 </div>
               ))}</div>}
             </div>
@@ -480,9 +556,20 @@ export function App(): React.JSX.Element {
         {error !== null && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
         {loading ? <WorkspaceSkeleton /> : selectedBook === null ? <EmptyLibrary onCreate={() => setCreateOpen(true)} /> : (
           <>
-            <WorkspaceBookSummary book={selectedBook} workspace={workspace} />
             {view === 'chat' && (
-              <ChatWorkspace messages={messages} agents={workspace?.agents ?? []} totalMessageCount={workspace?.messageCount ?? messages.length} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
+              <ChatWorkspace
+                bookId={selectedBook.bookId}
+                messages={messages}
+                agents={workspace?.agents ?? []}
+                totalMessageCount={workspace?.messageCount ?? messages.length}
+                busy={busy}
+                composer={composer}
+                setComposer={setComposer}
+                pendingAttachments={pendingAttachments}
+                onFilesSelected={uploadSelectedFiles}
+                onRemoveAttachment={removePendingAttachment}
+                onSubmit={submitMessage}
+              />
             )}
             {view === 'tasks' && (
               <TaskWorkspace workspace={workspace} busy={busy} onSelect={(task) => setSelectedTaskId(task.taskId)} onDecide={decideConfirmation} />
@@ -504,6 +591,7 @@ export function App(): React.JSX.Element {
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
+      {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
       {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTask !== null && workspace !== null && (
         <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
@@ -531,35 +619,25 @@ function RailViewButton({ active, onClick, icon, label, accessibleLabel }: {
   return <button className={active ? 'active' : ''} type="button" aria-current={active ? 'page' : undefined} aria-label={accessibleLabel} onClick={onClick}>{icon}<span>{label}</span></button>;
 }
 
-function WorkspaceBookSummary({ book, workspace }: { book: BookData; workspace: WorkspaceData | null }): React.JSX.Element {
-  const volumeCount = workspace?.volumes?.length ?? 0;
-  const chapterCount = volumeCount > 0
-    ? workspace?.volumes?.reduce((total, volume) => total + volume.chapterCount, 0) ?? 0
-    : workspace?.chapters.length ?? 0;
-  return (
-    <header className="workspace-book-summary" aria-label="当前书籍信息">
-      <div className="book-summary-title"><BooksIcon /><strong>{book.title}</strong></div>
-      <div className="book-summary-meta" aria-label="书籍状态">
-        <span>{bookStatusLabel(book.status)}</span>
-        <span>{volumeCount} 卷</span>
-        <span>{chapterCount} 章</span>
-        <span>正史 {book.canonRevision}</span>
-      </div>
-    </header>
-  );
-}
-
 function ChatWorkspace(props: {
+  bookId: string;
   messages: MessageData[];
   agents: AgentData[];
   totalMessageCount: number;
   busy: boolean;
   composer: string;
   setComposer: (value: string) => void;
+  pendingAttachments: PendingChatAttachment[];
+  onFilesSelected: (files: File[]) => Promise<void>;
+  onRemoveAttachment: (attachment: PendingChatAttachment) => void;
   onSubmit: () => Promise<void>;
 }): React.JSX.Element {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const visibleMessages = props.messages.slice(-200);
   const hiddenMessageCount = Math.max(0, props.totalMessageCount - visibleMessages.length);
+  const readyAttachmentCount = props.pendingAttachments.filter((item) => item.status === 'ready').length;
+  const uploading = props.pendingAttachments.some((item) => item.status === 'uploading');
+  const canSend = !props.busy && !uploading && (props.composer.trim().length > 0 || readyAttachmentCount > 0);
   return (
     <section className="chat-workspace" aria-label="主创作对话">
       <div className="conversation-stream" aria-live="polite">
@@ -572,42 +650,112 @@ function ChatWorkspace(props: {
         ) : (
           <>
             {hiddenMessageCount > 0 && <p className="history-window-note">为保持工作区流畅，当前显示最近 200 条消息；更早的 {hiddenMessageCount} 条仍保存在本地记录中。</p>}
-            {visibleMessages.map((message) => <MessageBubble key={message.message_id} message={message} agents={props.agents} />)}
+            {visibleMessages.map((message) => <MessageBubble key={message.message_id} bookId={props.bookId} message={message} agents={props.agents} />)}
           </>
         )}
       </div>
       <div className="composer-wrap">
         <label htmlFor="boss-message">和创作团队说</label>
+        {props.pendingAttachments.length > 0 && <div className="pending-attachments" aria-label="待发送附件">
+          {props.pendingAttachments.map((attachment) => <div className={`pending-attachment ${attachment.status}`} key={attachment.localId}>
+            <span className="pending-attachment-icon">{attachment.data?.mediaKind === 'image' ? <ImageIcon /> : <FileTextIcon />}</span>
+            <span className="pending-attachment-copy">
+              <strong>{attachment.fileName}</strong>
+              <small>{pendingAttachmentStatus(attachment)}</small>
+            </span>
+            <button type="button" aria-label={`移除附件 ${attachment.fileName}`} disabled={attachment.status === 'uploading'} onClick={() => props.onRemoveAttachment(attachment)}><XIcon /></button>
+          </div>)}
+        </div>}
         <div className="composer-box">
+          <input
+            ref={fileInputRef}
+            className="visually-hidden"
+            type="file"
+            aria-label="选择图片或文件"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.markdown,.json,.csv,.log,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = '';
+              void props.onFilesSelected(files);
+            }}
+          />
+          <button className="attachment-button" type="button" aria-label="添加图片或文件" disabled={props.busy || props.pendingAttachments.length >= 6} onClick={() => fileInputRef.current?.click()}><PlusIcon /></button>
           <textarea id="boss-message" value={props.composer} onChange={(event) => props.setComposer(event.target.value)} placeholder="例如：我想先讨论主角、核心冲突和第一章开局" rows={3} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void props.onSubmit(); }} />
-          <button className="send-button" type="button" disabled={props.busy || props.composer.trim().length === 0} onClick={() => void props.onSubmit()}><PaperPlaneTiltIcon />发送</button>
+          <button className="send-button" type="button" disabled={!canSend} onClick={() => void props.onSubmit()}><PaperPlaneTiltIcon />发送</button>
         </div>
-        <small>聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。</small>
       </div>
     </section>
   );
 }
 
-function MessageBubble({ message, agents }: { message: MessageData; agents: AgentData[] }): React.JSX.Element {
+function MessageBubble({ bookId, message, agents }: { bookId: string; message: MessageData; agents: AgentData[] }): React.JSX.Element {
   const speakingAgent = message.role_key === null ? null : agents.find((agent) => agent.roleKey === message.role_key) ?? null;
+  const attachments = messageAttachmentReferences(message.references_json);
   const source = message.sender_type === 'boss'
     ? '老板'
     : message.sender_type === 'agent'
       ? speakingAgent === null ? message.role_key ?? '成员' : memberIdentity(speakingAgent)
       : '系统';
+  const alignment = message.sender_type === 'boss' ? 'align-right' : 'align-left';
   return (
-    <article className={`message ${message.sender_type}`}>
-      <header>
-        <span className="message-speaker">
-          {message.sender_type === 'agent' && <AgentAvatar roleKey={message.role_key ?? 'chief_editor'} roleName={source} />}
-          <strong>{source}</strong>
-        </span>
-        <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
-      </header>
-      <p>{message.content}</p>
-      {message.sender_type === 'agent' && <footer>{message.model_provider}/{message.model_id}</footer>}
+    <article className={`message ${message.sender_type} ${alignment}`}>
+      {message.sender_type === 'agent' && <span className="message-avatar"><AgentAvatar roleKey={message.role_key ?? 'chief_editor'} roleName={source} /></span>}
+      {message.sender_type === 'system' && <span className="message-avatar" role="img" aria-label="系统头像"><GearSixIcon /></span>}
+      <div className="message-card">
+        <header><strong>{source}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></header>
+        <p>{message.content}</p>
+        {attachments.length > 0 && <div className="message-attachments">{attachments.map((attachment) => (
+          attachment.mediaKind === 'image'
+            ? <a className="message-image-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><img src={chatAttachmentContentUrl(bookId, attachment.attachmentId)} alt={attachment.originalName} /><span>{attachment.originalName}</span></a>
+            : <a className="message-file-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><FileTextIcon /><span><strong>{attachment.originalName}</strong><small>{attachmentStatusLabel(attachment.parseStatus, attachment.parsedCharCount)}</small></span></a>
+        ))}</div>}
+        {message.sender_type === 'agent' && <footer>{message.model_provider}/{message.model_id}</footer>}
+      </div>
+      {message.sender_type === 'boss' && <span className="message-avatar boss-avatar" role="img" aria-label="老板头像"><UserCircleIcon /></span>}
     </article>
   );
+}
+
+interface MessageAttachmentReference {
+  type: 'chat_attachment';
+  attachmentId: string;
+  originalName: string;
+  mediaKind: 'image' | 'text' | 'pdf' | 'docx';
+  parseStatus: ChatAttachmentData['parseStatus'];
+  parsedCharCount: number;
+}
+
+function messageAttachmentReferences(value: string): MessageAttachmentReference[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is MessageAttachmentReference => isRecord(item)
+      && item.type === 'chat_attachment'
+      && typeof item.attachmentId === 'string'
+      && typeof item.originalName === 'string'
+      && typeof item.mediaKind === 'string'
+      && typeof item.parseStatus === 'string'
+      && typeof item.parsedCharCount === 'number');
+  } catch {
+    return [];
+  }
+}
+
+function pendingAttachmentStatus(attachment: PendingChatAttachment): string {
+  if (attachment.status === 'uploading') return '正在上传并解析';
+  if (attachment.status === 'failed') return attachment.error ?? '上传失败';
+  if (attachment.data === null) return '状态未知';
+  return attachmentStatusLabel(attachment.data.parseStatus, attachment.data.parsedCharCount, attachment.error);
+}
+
+function attachmentStatusLabel(status: ChatAttachmentData['parseStatus'], charCount: number, detail?: string | null): string {
+  if (status === 'parsed') return `已解析 ${charCount.toLocaleString('zh-CN')} 字符`;
+  if (status === 'truncated') return `已解析 ${charCount.toLocaleString('zh-CN')} 字符，超长部分未进入对话`;
+  if (status === 'preview_only') return '图片可预览，未识别图片内容';
+  if (status === 'no_text') return detail ?? '未提取到文字';
+  if (status === 'failed') return detail ?? '解析失败';
+  return '已从待发送列表移除';
 }
 
 function ManuscriptView({ chapter, reader, detail }: { chapter: ChapterData | null; reader: { content: string; offline: boolean } | null; detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null }): React.JSX.Element {
@@ -1406,6 +1554,25 @@ function ArchiveBookDialog({ book, busy, onCancel, onConfirm }: { book: BookData
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="dialog archive-dialog" role="dialog" aria-modal="true" aria-labelledby="archive-book-title"><div className="dialog-heading"><div><span className="dialog-eyebrow">整理书架</span><h2 id="archive-book-title">归档《{book.title}》</h2><p>归档后会从主书架收起，不会删除正文、正史或资料，可以随时恢复。</p></div><button className="icon-button" type="button" aria-label="关闭归档确认" onClick={onCancel}><XIcon /></button></div><div className="archive-impact"><ArchiveBoxIcon /><span><strong>本次操作可逆</strong><small>书籍停止作为当前创作对象，数据原样保留。</small></span></div><footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={() => void onConfirm()}>{busy ? '正在归档' : '确认归档'}</button></footer></section></div>;
 }
 
+function PurgeBookDialog({ book, busy, onCancel, onConfirm }: {
+  book: BookData;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (confirmationText: string) => Promise<void>;
+}): React.JSX.Element {
+  const required = `YES ${book.title} ${permanentDeleteShortId(book.bookId)}`;
+  const [confirmation, setConfirmation] = useState('');
+  const valid = confirmation === required;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <section className="dialog purge-dialog" role="dialog" aria-modal="true" aria-labelledby="purge-book-title">
+      <div className="dialog-heading"><div><span className="dialog-eyebrow danger">不可恢复</span><h2 id="purge-book-title">彻底删除《{book.title}》</h2><p>这会永久删除本书的正文、正史、资料、任务、对话与附件，并写入删除墓碑。删除后无法恢复。</p></div><button className="icon-button" type="button" aria-label="关闭永久删除确认" onClick={onCancel}><XIcon /></button></div>
+      <div className="purge-impact"><TrashIcon /><span><strong>只删除这一本已归档书</strong><small>其他书籍不会受到影响；本操作不提供撤销。</small></span></div>
+      <label className="purge-confirmation"><span>请逐字输入确认词</span><code>{required}</code><input autoComplete="off" spellCheck={false} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="永久删除确认词" /></label>
+      <footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="danger-button" type="button" disabled={busy || !valid} onClick={() => void onConfirm(confirmation)}>{busy ? '正在彻底删除' : '彻底删除'}</button></footer>
+    </section>
+  </div>;
+}
+
 function chapterStatus(chapter: ChapterData, tasks: TaskData[] = []): string {
   const task = tasks.find((item) => item.chapterId === chapter.chapterId && isActiveTask(item.status));
   if (task?.status === 'waiting_confirmation') return '待老板确认';
@@ -1610,6 +1777,10 @@ function emptyLibraryData(): LibraryData {
 
 function shortId(value: string): string {
   return value.length <= 10 ? value : value.slice(0, 8);
+}
+
+function permanentDeleteShortId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, '').slice(-6);
 }
 
 function readSelectedBook(): string | null {

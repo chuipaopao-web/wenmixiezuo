@@ -10,8 +10,67 @@ import { PlanningArtifactService } from '../artifacts/planning-artifact-service.
 import { LocalAssistantService, type RoutingDecision } from '../local-assistant/local-assistant-service.js';
 import { LocalAssistantRepository } from '../../infrastructure/db/repositories/local-assistant-repository.js';
 import type { LocalUtilityModel } from '../local-assistant/local-utility-model.js';
+import {
+  ChatAttachmentRepository,
+  type ChatAttachmentRecord
+} from '../../infrastructure/db/repositories/chat-attachment-repository.js';
 
 type DiscussionPurpose = 'open_discussion' | 'creative_planning';
+
+interface AttachmentReference {
+  type: 'chat_attachment';
+  attachmentId: string;
+  originalName: string;
+  mediaKind: ChatAttachmentRecord['mediaKind'];
+  mimeType: string;
+  sizeBytes: number;
+  parseStatus: ChatAttachmentRecord['parseStatus'];
+  parsedCharCount: number;
+  contentHash: string;
+  contextExcerpt: string;
+}
+
+const MAX_ATTACHMENT_CONTEXT_CHARS = 12_000;
+
+function buildAttachmentReferences(attachments: ChatAttachmentRecord[]): AttachmentReference[] {
+  let remaining = MAX_ATTACHMENT_CONTEXT_CHARS;
+  return attachments.map((attachment) => {
+    const headerReserve = Math.min(remaining, attachment.originalName.length + 80);
+    const excerptBudget = Math.max(0, remaining - headerReserve);
+    const contextExcerpt = attachment.contextExcerpt.slice(0, excerptBudget);
+    remaining = Math.max(0, remaining - headerReserve - contextExcerpt.length);
+    return {
+      type: 'chat_attachment',
+      attachmentId: attachment.attachmentId,
+      originalName: attachment.originalName,
+      mediaKind: attachment.mediaKind,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      parseStatus: attachment.parseStatus,
+      parsedCharCount: attachment.parsedCharCount,
+      contentHash: attachment.contentHash,
+      contextExcerpt
+    };
+  });
+}
+
+function renderAttachmentContext(references: AttachmentReference[]): string {
+  return references.map((reference) => {
+    const status = reference.parseStatus === 'preview_only'
+      ? '仅预览，未识别图片内容'
+      : reference.parseStatus === 'no_text' || reference.parseStatus === 'failed'
+        ? '没有可用解析文本'
+        : `已解析${reference.parsedCharCount}字符`;
+    const excerpt = reference.contextExcerpt.length === 0 ? '' : `\n${reference.contextExcerpt}`;
+    return `[临时对话附件｜${reference.originalName}｜${status}｜attachment_id=${reference.attachmentId}]${excerpt}`;
+  }).join('\n\n').slice(0, MAX_ATTACHMENT_CONTEXT_CHARS);
+}
+
+function appendAttachmentContext(content: string, attachmentContext: string): string {
+  return attachmentContext.length === 0
+    ? content
+    : `${content}\n\n以下附件只属于当前对话临时资料，不是正史；引用时保留不确定性：\n${attachmentContext}`;
+}
 
 export class ConversationService {
   public constructor(
@@ -45,51 +104,96 @@ export class ConversationService {
     return rows.reverse();
   }
 
-  public sendBossMessage(scope: BookScope, content: string): { messageId: string; action: Record<string, unknown> } {
-    const stored = this.storeBossMessage(scope, content);
-    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId);
+  public sendBossMessage(scope: BookScope, content: string, attachmentIds: string[] = []): { messageId: string; action: Record<string, unknown> } {
+    const stored = this.storeBossMessage(scope, content, attachmentIds);
+    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, undefined, stored.attachmentContext);
     this.addSystemMessage(scope, stored.conversationId, actionNotice(action));
     return { messageId: stored.messageId, action };
   }
 
-  public async sendBossMessageWithLocalAssistant(scope: BookScope, content: string): Promise<{ messageId: string; action: Record<string, unknown> }> {
-    const stored = this.storeBossMessage(scope, content);
+  public async sendBossMessageWithLocalAssistant(scope: BookScope, content: string, attachmentIds: string[] = []): Promise<{ messageId: string; action: Record<string, unknown> }> {
+    const stored = this.storeBossMessage(scope, content, attachmentIds);
     const intake = await new LocalAssistantService(new LocalAssistantRepository(this.database), this.ids, this.clock, this.localUtilityModel)
       .routeWithSemantic(scope, { conversationId: stored.conversationId, messageId: stored.messageId, original: stored.trimmed });
-    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, intake);
+    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, intake, stored.attachmentContext);
     const result = { ...action, intake: { routeClass: intake.routeClass, riskLevel: intake.riskLevel,
       confidenceBand: intake.confidenceBand, selectedAction: intake.selectedAction } };
     this.addSystemMessage(scope, stored.conversationId, actionNotice(result));
     return { messageId: stored.messageId, action: result };
   }
 
-  private storeBossMessage(scope: BookScope, content: string): { conversationId: string; messageId: string; trimmed: string } {
+  private storeBossMessage(scope: BookScope, content: string, attachmentIds: string[]): {
+    conversationId: string;
+    messageId: string;
+    trimmed: string;
+    attachmentContext: string;
+  } {
     assertBookScope(scope);
-    const trimmed = content.trim();
-    if (trimmed.length === 0 || trimmed.length > 20_000) throw new Error('消息长度必须在1至20000字符之间');
+    const attachmentRepository = new ChatAttachmentRepository(this.database, scope);
+    const attachments = attachmentRepository.requireBindable(attachmentIds);
+    const rawTrimmed = content.trim();
+    const trimmed = rawTrimmed.length === 0 && attachments.length > 0
+      ? `分享附件：${attachments.map((item) => item.originalName).join('、')}`
+      : rawTrimmed;
+    if (trimmed.length === 0 || trimmed.length > 20_000) throw new Error('消息长度必须在1至20000字符之间，或至少附加一个文件');
     const conversationId = this.requireConversation(scope);
     const messageId = this.ids.next();
     const now = this.clock.now().toISOString();
-    this.database.prepare(`
-      INSERT INTO messages (
-        message_id, conversation_id, owner_id, book_id, sender_type,
-        message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'boss', 'text', ?, '[]', ?)
-    `).run(messageId, conversationId, scope.ownerId, scope.bookId, trimmed, now);
-    this.database.prepare(`UPDATE conversations SET updated_at = ? WHERE conversation_id = ?`).run(now, conversationId);
-    return { conversationId, messageId, trimmed };
+    const references = buildAttachmentReferences(attachments);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare(`
+        INSERT INTO messages (
+          message_id, conversation_id, owner_id, book_id, sender_type,
+          message_type, content, references_json, created_at
+        ) VALUES (?, ?, ?, ?, 'boss', ?, ?, ?, ?)
+      `).run(
+        messageId, conversationId, scope.ownerId, scope.bookId,
+        references.length > 0 ? 'text_with_attachments' : 'text', trimmed, JSON.stringify(references), now
+      );
+      attachmentRepository.bindToMessage(attachmentIds, messageId, now);
+      this.database.prepare(`UPDATE conversations SET updated_at = ? WHERE conversation_id = ?`).run(now, conversationId);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+    return { conversationId, messageId, trimmed, attachmentContext: renderAttachmentContext(references) };
   }
 
-  private routeMessage(scope: BookScope, content: string, messageId: string, conversationId: string, intake?: RoutingDecision): Record<string, unknown> {
+  private routeMessage(
+    scope: BookScope,
+    content: string,
+    messageId: string,
+    conversationId: string,
+    intake?: RoutingDecision,
+    attachmentContext = ''
+  ): Record<string, unknown> {
+    const modelContent = appendAttachmentContext(content, attachmentContext);
     if (intake?.routeClass === 'protected_operation') {
       return { kind: 'protected_operation_blocked', selectedAction: intake.selectedAction, receiptText: intake.receiptText };
     }
     if (intake?.routeClass === 'named_member') {
       const memberName = intake.selectedRoles[0];
       if (memberName === undefined) throw new Error('点名成员路由缺少成员名称');
-      return this.scheduleNamedConversationReply(scope, content, messageId, conversationId, memberName);
+      return this.scheduleNamedConversationReply(scope, modelContent, messageId, conversationId, memberName);
     }
     if (/^(?:写[一1]章|开始写|继续写)$/u.test(content)) {
+      if (attachmentContext.length > 0) {
+        return {
+          ...this.scheduleDiscussion(
+            scope,
+            `老板要求开始创作并附加了临时资料。先核对附件与当前正史、明确其用途，再细化唯一下一章；附件未确认，不能写入正史。\n\n${modelContent}`,
+            messageId,
+            conversationId,
+            'creative_planning',
+            null
+          ),
+          kind: 'planning_discussion_scheduled',
+          requestedChapterCount: null,
+          missing: ['附件用途与唯一下一章规划']
+        };
+      }
       const count: ChapterRequestCount = 1;
       const readiness = new WritingReadinessService(this.database).inspect(scope, count);
       if (!readiness.ready) {
@@ -107,7 +211,9 @@ export class ConversationService {
           '请明确主角与开局处境、核心冲突、各章推进节点、第一章视角与文风、章末钩子，以及仍需老板决定的问题。',
           `当前缺少：${readiness.missing.join('、')}`
         ].join('\n');
-        const scheduled = this.scheduleDiscussion(scope, scopeText, messageId, conversationId, 'creative_planning', null);
+        const scheduled = this.scheduleDiscussion(
+          scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, 'creative_planning', null
+        );
         return { ...scheduled, kind: 'planning_discussion_scheduled', requestedChapterCount: null, missing: readiness.missing };
       }
       const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock).scheduleNewChapters(scope, count);
@@ -117,7 +223,10 @@ export class ConversationService {
       return {
         ...this.scheduleDiscussion(
           scope,
-          `老板希望连续推进多章，但正式正文必须逐章点评、逐章确认和逐章结算。请先评估合理章节跨度并细化唯一下一章。原话：${content}`,
+          appendAttachmentContext(
+            `老板希望连续推进多章，但正式正文必须逐章点评、逐章确认和逐章结算。请先评估合理章节跨度并细化唯一下一章。原话：${content}`,
+            attachmentContext
+          ),
           messageId,
           conversationId,
           'creative_planning',
@@ -133,7 +242,10 @@ export class ConversationService {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
       const planning = isCreativeIntent(scopeText);
-      return this.scheduleDiscussion(scope, scopeText, messageId, conversationId, planning ? 'creative_planning' : 'open_discussion', null);
+      return this.scheduleDiscussion(
+        scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId,
+        planning ? 'creative_planning' : 'open_discussion', null
+      );
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     if (content === '暂停') {
@@ -186,9 +298,9 @@ export class ConversationService {
         planningPrepared: prepared !== null, chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
       };
     }
-    if (intake?.routeClass === 'plot_discussion') return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', null);
-    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', null);
-    return this.scheduleConversationReply(scope, content, messageId, conversationId);
+    if (intake?.routeClass === 'plot_discussion') return this.scheduleDiscussion(scope, modelContent, messageId, conversationId, 'creative_planning', null);
+    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, modelContent, messageId, conversationId, 'creative_planning', null);
+    return this.scheduleConversationReply(scope, modelContent, messageId, conversationId);
   }
 
   private scheduleConversationReply(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {

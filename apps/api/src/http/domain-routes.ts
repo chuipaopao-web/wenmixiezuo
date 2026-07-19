@@ -22,6 +22,7 @@ import { NarrativeProjectionService, type NarrativeProjectionType } from '../app
 import { CopyrightService, type RightsPath } from '../application/copyright/copyright-service.js';
 import { ResearchService } from '../application/research/research-service.js';
 import { ConversationService } from '../application/chat/conversation-service.js';
+import { ChatAttachmentService } from '../application/chat/chat-attachment-service.js';
 import { TaskService } from '../application/tasks/task-service.js';
 import { BackupService } from '../infrastructure/recovery/backup-service.js';
 import { cancelActiveModelCall } from '../application/calls/model-call-service.js';
@@ -46,6 +47,22 @@ import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk
 import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
 import { LocalSemanticUtilityModel } from '../infrastructure/retrieval/local-semantic-utility-model.js';
 import type { RetrievalMode } from '../contracts/retrieval-plan.js';
+import type { ChatAttachmentRecord } from '../infrastructure/db/repositories/chat-attachment-repository.js';
+
+function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
+  return {
+    attachmentId: record.attachmentId,
+    originalName: record.originalName,
+    mediaKind: record.mediaKind,
+    mimeType: record.mimeType,
+    sizeBytes: record.sizeBytes,
+    parseStatus: record.parseStatus,
+    parsedCharCount: record.parsedCharCount,
+    parseError: record.parseError,
+    lifecycleLayer: record.lifecycleLayer,
+    createdAt: record.createdAt
+  };
+}
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -74,6 +91,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const research = new ResearchService(database, ids, clock);
   const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock,
     localRetrievalRuntime === undefined ? undefined : new LocalSemanticUtilityModel(localRetrievalRuntime.embedding));
+  const chatAttachments = new ChatAttachmentService(database, config.dataDir, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
   const chapterApprovals = new ChapterApprovalService(
     new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks
@@ -629,8 +647,49 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     ), request.id);
   });
 
-  app.post<{ Params: { bookId: string }; Body: { content: string } }>('/api/v1/books/:bookId/messages', async (request) => {
-    return success(await conversations.sendBossMessageWithLocalAssistant({ ...owner, bookId: request.params.bookId }, request.body.content), request.id);
+  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/chat-attachments', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    try {
+      const part = await request.file();
+      if (part === undefined) throw new DomainError(errorCodes.validation, '请选择一个附件');
+      const record = await chatAttachments.upload(scope, {
+        filename: part.filename,
+        mimeType: part.mimetype,
+        buffer: await part.toBuffer()
+      });
+      return success(chatAttachmentView(record), request.id);
+    } catch (error) {
+      if (error instanceof DomainError) throw error;
+      const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
+        ? Number((error as { statusCode: unknown }).statusCode)
+        : 400;
+      const message = statusCode === 413
+        ? '单个附件不能超过20 MiB'
+        : error instanceof Error ? error.message : '附件上传失败';
+      throw new DomainError(errorCodes.validation, message, {}, false, statusCode === 413 ? 413 : 400);
+    }
+  });
+
+  app.get<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/chat-attachments/:attachmentId/content', async (request, reply) => {
+    const { record, buffer } = chatAttachments.readSource(
+      { ...owner, bookId: request.params.bookId }, request.params.attachmentId
+    );
+    reply.header('content-type', record.mimeType);
+    reply.header('content-disposition', 'inline');
+    reply.header('x-content-type-options', 'nosniff');
+    return reply.send(buffer);
+  });
+
+  app.post<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/chat-attachments/:attachmentId/discard', async (request) => {
+    return success(chatAttachmentView(chatAttachments.discard(
+      { ...owner, bookId: request.params.bookId }, request.params.attachmentId
+    )), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { content: string; attachmentIds?: string[] } }>('/api/v1/books/:bookId/messages', async (request) => {
+    return success(await conversations.sendBossMessageWithLocalAssistant(
+      { ...owner, bookId: request.params.bookId }, request.body.content, request.body.attachmentIds ?? []
+    ), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {

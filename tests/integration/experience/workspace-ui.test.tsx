@@ -99,12 +99,8 @@ describe('完整创作工作台', () => {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
     expect(document.querySelector('.workspace-tabs')).toBeNull();
-    const bookSummary = screen.getByLabelText('当前书籍信息');
-    expect(bookSummary).toHaveTextContent('雾钟档案');
-    expect(bookSummary).toHaveTextContent('创作中');
-    expect(bookSummary).toHaveTextContent('1 卷');
-    expect(bookSummary).toHaveTextContent('1 章');
-    expect(bookSummary).toHaveTextContent('正史 3');
+    expect(document.querySelector('.topbar-center')).toBeNull();
+    expect(document.querySelector('.workspace-book-summary')).toBeNull();
     expect(screen.queryByText('规划成果')).not.toBeInTheDocument();
     expect(screen.queryByText('知识与正史')).not.toBeInTheDocument();
 
@@ -129,6 +125,7 @@ describe('完整创作工作台', () => {
     fireEvent.click(archiveToggle);
     expect(screen.getByText('雾钟档案')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '恢复《雾钟档案》' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '彻底删除《雾钟档案》' })).toBeInTheDocument();
     expect(screen.queryByText('archived')).not.toBeInTheDocument();
   });
 
@@ -198,6 +195,28 @@ describe('完整创作工作台', () => {
       String(input).endsWith('/api/v1/books/book-ui-1/restore')
       && (init as RequestInit | undefined)?.method === 'POST'
       && JSON.parse(String((init as RequestInit).body)).expectedVersion === 2)).toBe(true));
+  });
+
+  it('归档书只有逐字输入严格确认词后才能彻底删除', async () => {
+    const archivedWorkspace = { ...workspace, book: { ...book, status: 'archived' } };
+    const fetchMock = vi.fn(createFetchRouter('正文内容', archivedWorkspace));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看已归档书籍，共 1 本' }));
+    fireEvent.click(screen.getByRole('button', { name: '彻底删除《雾钟档案》' }));
+    const dialog = screen.getByRole('dialog', { name: '彻底删除《雾钟档案》' });
+    expect(dialog).toHaveTextContent('删除后无法恢复');
+    expect(within(dialog).getByRole('button', { name: '彻底删除' })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('永久删除确认词'), { target: { value: 'YES 雾钟档案 错误' } });
+    expect(within(dialog).getByRole('button', { name: '彻底删除' })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('永久删除确认词'), { target: { value: 'YES 雾钟档案 ookui1' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '彻底删除' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/api/v1/books/book-ui-1/purge')
+      && (init as RequestInit | undefined)?.method === 'POST'
+      && JSON.parse(String((init as RequestInit).body)).confirmationText === 'YES 雾钟档案 ookui1')).toBe(true));
   });
 
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
@@ -347,10 +366,47 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('消息 1')).not.toBeInTheDocument();
     expect(screen.getByText('消息 500')).toBeInTheDocument();
   });
+
+  it('聊天按成员左老板右显示，并可通过加号上传解析附件后发送引用', async () => {
+    const chatMessages = [{
+      message_id: 'boss-message', sender_type: 'boss' as const, sender_agent_id: null, role_key: null,
+      model_provider: null, model_id: null, message_type: 'text', content: '老板消息', references_json: '[]',
+      created_at: '2026-07-16T12:00:00.000Z'
+    }, {
+      message_id: 'agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
+      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'text', content: '主编回复', references_json: '[]',
+      created_at: '2026-07-16T12:01:00.000Z'
+    }];
+    const fetchMock = vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: chatMessages.length }, chatMessages));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText('老板消息')).toBeInTheDocument();
+    expect(document.querySelector('.message.boss')).toHaveClass('align-right');
+    expect(document.querySelector('.message.agent')).toHaveClass('align-left');
+    expect(screen.getByRole('img', { name: '老板头像' })).toBeInTheDocument();
+    expect(within(document.querySelector('.message.agent') as HTMLElement).getByRole('img', { name: /貂蝉（主编）头像/ })).toBeInTheDocument();
+    expect(screen.queryByText('聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。')).not.toBeInTheDocument();
+
+    const addButton = screen.getByRole('button', { name: '添加图片或文件' });
+    expect(addButton).toBeInTheDocument();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['张三与天安城'], 'plot.txt', { type: 'text/plain' });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(await screen.findByText('已解析 7 字符')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('和创作团队说'), { target: { value: '讨论附件剧情' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([inputUrl, init]) => {
+      if (!String(inputUrl).endsWith('/api/v1/books/book-ui-1/messages') || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((init as RequestInit).body)) as { content: string; attachmentIds: string[] };
+      return payload.content === '讨论附件剧情' && payload.attachmentIds[0] === 'attachment-ui-1';
+    })).toBe(true));
+  });
 });
 
 function createFetchRouter(chapterContent = '正文内容', workspaceData = workspace, messages: unknown[] = []) {
-  return async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
     if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
@@ -391,6 +447,12 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     if (path === '/api/v1/book-drafts/draft-ui-1/confirm') return apiResponse({ bookId: workspaceData.book.bookId });
     if (path === `/api/v1/books/${workspaceData.book.bookId}/archive`) return apiResponse({ ...workspaceData.book, status: 'archived', version: workspaceData.book.version + 1 });
     if (path === `/api/v1/books/${workspaceData.book.bookId}/restore`) return apiResponse({ ...workspaceData.book, status: 'active', version: workspaceData.book.version + 1 });
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/purge`) return apiResponse({ bookId: workspaceData.book.bookId, status: 'purged', tombstoneWritten: true });
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/chat-attachments` && init?.method === 'POST') return apiResponse({
+      attachmentId: 'attachment-ui-1', originalName: 'plot.txt', mediaKind: 'text', mimeType: 'text/plain', sizeBytes: 21,
+      parseStatus: 'parsed', parsedCharCount: 7, parseError: null, lifecycleLayer: 'temporary', createdAt: '2026-07-16T12:00:00.000Z'
+    });
+    if (path.endsWith('/chat-attachments/attachment-ui-1/discard')) return apiResponse({ attachmentId: 'attachment-ui-1', parseStatus: 'discarded' });
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }
     });
@@ -402,6 +464,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       offset: Number(url.searchParams.get('offset') ?? 0),
       limit: Number(url.searchParams.get('limit') ?? 80)
     });
+    if (path.endsWith('/messages') && init?.method === 'POST') return apiResponse({ messageId: 'message-ui-new', action: { kind: 'conversation_reply_scheduled' } });
     if (path.endsWith('/messages')) return apiResponse(messages);
     if (path.endsWith('/content')) return apiResponse({
       manuscriptVersionId: 'manuscript-1', contentHash: 'hash-1', totalLength: chapterContent.length, content: chapterContent

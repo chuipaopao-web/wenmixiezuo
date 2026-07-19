@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +36,9 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     logController: new LogController({ disableRequestLogging: true })
   });
   await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  await app.register(multipart, {
+    limits: { files: 1, fileSize: 20 * 1024 * 1024, fields: 0, parts: 1 }
+  });
   const sessions = new RuntimeSessionService();
   registerRequestPolicy(app, config, sessions, options);
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
