@@ -54,7 +54,7 @@ export class ModelBindingService {
     this.database.exec('BEGIN IMMEDIATE');
     try {
       for (const row of rows) {
-        const profile = this.roleProfiles[row.role_key];
+        const profile = this.roleProfiles[legacyProfileRole(row.role_key as string)];
         if (row.provider === profile.provider && row.model_id === profile.modelId) continue;
         const snapshotId = this.ids.next();
         this.database.prepare(`
@@ -85,7 +85,7 @@ export class ModelBindingService {
         `).run(snapshotId, now, row.agent_id, row.owner_id, row.book_id);
         updatedAgents += 1;
 
-        if (row.role_key === 'writer') {
+        if (row.role_key === 'writer' || row.role_key as string === 'lead_writer') {
           const result = this.database.prepare(`
             UPDATE writer_selections
             SET status = 'superseded'
@@ -103,4 +103,17 @@ export class ModelBindingService {
 
     return { booksVisited: books.size, updatedAgents, supersededWriterSelections };
   }
+}
+
+function legacyProfileRole(roleKey: string): RoleKey {
+  const aliases: Record<string, RoleKey> = {
+    chief_editor: 'chief_editor', deputy_editor: 'reviewer', lead_screenwriter: 'plot_architect',
+    second_screenwriter: 'continuity', setting: 'continuity', lead_writer: 'writer', backup_writer: 'continuity',
+    literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright',
+    plot_architect: 'plot_architect', continuity: 'continuity', writer: 'writer', reviewer: 'reviewer',
+    reader_experience: 'reader_experience', style_editor: 'style_editor'
+  };
+  const mapped = aliases[roleKey];
+  if (mapped === undefined) throw new Error(`未配置的岗位模型绑定：${roleKey}`);
+  return mapped;
 }

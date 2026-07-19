@@ -24,11 +24,11 @@ describe('主笔选择与真实模型来源', () => {
       SELECT r.role_key, m.provider, m.model_id FROM agent_instances a
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('writer', 'reviewer') ORDER BY r.role_key
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('lead_writer', 'literary_reviewer') ORDER BY r.role_key
     `).all(scope.ownerId, scope.bookId);
     expect(agents).toEqual([
-      { role_key: 'reviewer', provider: 'local-deterministic-reviewer', model_id: 'wenmi-novel-reviewer-v1' },
-      { role_key: 'writer', provider: 'local-deterministic-writer', model_id: 'wenmi-novel-writer-v1' }
+      { role_key: 'lead_writer', provider: 'local-deterministic-writer', model_id: 'wenmi-novel-writer-v1' },
+      { role_key: 'literary_reviewer', provider: 'local-deterministic-reviewer', model_id: 'wenmi-novel-reviewer-v1' }
     ]);
   });
 });

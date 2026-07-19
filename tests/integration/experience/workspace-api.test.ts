@@ -27,7 +27,7 @@ describe('工作台API', () => {
       book: { bookId: book.bookId, title: '工作台接口书' },
       confirmations: { count: 0 }
     });
-    expect(workspaceResponse.json().data.agents).toHaveLength(9);
+    expect(workspaceResponse.json().data.agents).toHaveLength(11);
     const artifactsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/artifacts` });
     expect(artifactsResponse.statusCode).toBe(200);
     expect(artifactsResponse.json().data).toEqual(expect.arrayContaining([

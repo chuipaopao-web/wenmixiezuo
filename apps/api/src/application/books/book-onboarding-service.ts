@@ -3,12 +3,18 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningField, PositioningTag } from '../../domain/positioning.js';
 import type { OwnerScope } from '../../domain/scope.js';
-import { AgentTeamService } from '../agents/agent-team-service.js';
+import { TeamTemplateService } from '../agents/team-template-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import type { CreativeRoleKey, TeamModelProfile } from '../../contracts/agent-team-v2.js';
+import { creativeRoleKeys } from '../../contracts/agent-team-v2.js';
+import { PromptCompiler } from '../agents/prompt-compiler.js';
+import { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -40,8 +46,9 @@ export class BookOnboardingService {
     const tombstone = this.database.prepare('SELECT 1 FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?')
       .get(scope.ownerId, draft.proposedBookId);
     if (tombstone !== undefined) throw new Error('删除墓碑禁止旧书籍ID复活');
-    const team = new AgentTeamService(this.database, this.ids, this.clock, this.roleProfiles);
-    team.seedRoleTemplates();
+    const team = new TeamTemplateService(
+      new AgentGovernanceRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
+    );
     const now = this.clock.now().toISOString();
     const positioningVersionId = this.ids.next();
     const onboardingProfileId = this.ids.next();
@@ -115,7 +122,14 @@ export class BookOnboardingService {
           rules_json, content_hash, active, created_at
         ) VALUES (?, ?, ?, 1, 1, ?, ?, 1, ?)
       `).run(adaptationSnapshotId, scope.ownerId, draft.proposedBookId, JSON.stringify(rules), hashJson(rules), now);
-      team.insertTeamWithinTransaction(bookScope);
+      const createdTeam = team.createTeam(bookScope, {
+        deterministic: this.roleProfiles === undefined || Object.values(this.roleProfiles).every((profile) => profile.plan === 'deterministic'),
+        profiles: this.roleProfiles === undefined ? undefined : toCreativeProfiles(this.roleProfiles)
+      });
+      const promptCompiler = new PromptCompiler(new PromptTemplateRepository(this.database), this.ids, this.clock);
+      for (const roleKey of creativeRoleKeys) {
+        promptCompiler.compile(roleKey, { objective: '岗位默认运行合同', mode: 'discussion', contextManifest: [], outputSchema: { type: 'object' } });
+      }
       if (failAt === 'after_team') throw new Error('simulated-onboarding-failure');
       this.database.prepare(`
         INSERT INTO budgets (
@@ -148,7 +162,7 @@ export class BookOnboardingService {
       `).run(conversationId, scope.ownerId, draft.proposedBookId, now, now);
       const editor = this.database.prepare(`
         SELECT agent_id FROM agent_instances
-        WHERE owner_id = ? AND book_id = ? AND role_template_id = 'role-chief-editor'
+        WHERE owner_id = ? AND book_id = ? AND role_template_id = 'role-v2-chief-editor'
       `).get(scope.ownerId, draft.proposedBookId) as { agent_id: string };
       this.database.prepare(`
         INSERT INTO editor_leases (
@@ -175,7 +189,7 @@ export class BookOnboardingService {
         onboardingProfileId,
         expressionProfileId,
         activeEditorAgentId: editor.agent_id,
-        agentCount: 9
+        agentCount: createdTeam.length
       };
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -196,6 +210,22 @@ export class BookOnboardingService {
       `).run(scope.ownerId, scope.bookId, positioningVersion, tagKey, tag.sourceStatus);
     }
   }
+}
+
+function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
+  return {
+    chief_editor: profiles.chief_editor,
+    deputy_editor: profiles.reviewer,
+    lead_screenwriter: profiles.plot_architect,
+    second_screenwriter: profiles.continuity,
+    setting: profiles.continuity,
+    lead_writer: profiles.writer,
+    backup_writer: profiles.continuity,
+    literary_reviewer: profiles.reviewer,
+    experience_reviewer: profiles.reader_experience,
+    researcher: profiles.researcher,
+    copyright: profiles.copyright
+  };
 }
 
 function fieldValue(fields: PositioningField[], key: string): unknown {

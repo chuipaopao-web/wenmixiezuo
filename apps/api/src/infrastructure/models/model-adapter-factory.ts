@@ -10,6 +10,7 @@ import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
+import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 
 export class ModelAdapterFactory {
   public constructor(
@@ -18,8 +19,8 @@ export class ModelAdapterFactory {
     private readonly codexRunner?: CodexProcessRunner
   ) {}
 
-  public resolve(provider: string, modelId: string, purpose: ModelPurpose, roleKey?: RoleKey): ModelAdapter {
-    if (provider === 'local-deterministic' && modelId === 'wenmi-fixture-v1') return new DeterministicModelAdapter();
+  public resolve(provider: string, modelId: string, purpose: ModelPurpose, roleKey?: RoleKey | CreativeRoleKey): ModelAdapter {
+    if (provider === 'local-deterministic' && (modelId === 'wenmi-fixture-v1' || modelId.startsWith('wenmi-fixture-v2'))) return new DeterministicModelAdapter(modelId);
     if (provider === 'local-deterministic-writer' && modelId === 'wenmi-novel-writer-v1') return new DeterministicNovelWriterAdapter();
     if (provider === 'local-deterministic-candidate-b' && modelId === 'wenmi-novel-candidate-b-v1') return new DeterministicNovelCandidateBAdapter();
     if (provider === 'local-deterministic-reviewer' && modelId === 'wenmi-novel-reviewer-v1') return new DeterministicNovelReviewerAdapter();
@@ -35,7 +36,7 @@ export class ModelAdapterFactory {
         workingDirectory: this.config.codex.workingDirectory,
         timeoutMs: this.config.codex.timeoutMs,
         purpose,
-        roleKey
+        roleKey: legacyPromptRole(roleKey)
       }, this.codexRunner);
     }
     const endpoint = provider === this.config.endpoints.coding.provider
@@ -57,7 +58,16 @@ export class ModelAdapterFactory {
       baseUrl: endpoint.baseUrl,
       apiKey: endpoint.apiKey,
       purpose,
-      ...(roleKey === undefined ? {} : { systemPrompt: buildRoleSystemPrompt(roleKey, purpose) })
+      ...(roleKey === undefined ? {} : { systemPrompt: buildRoleSystemPrompt(legacyPromptRole(roleKey), purpose) })
     }, this.fetchImpl);
   }
+}
+
+function legacyPromptRole(roleKey: RoleKey | CreativeRoleKey): RoleKey {
+  const map: Partial<Record<CreativeRoleKey, RoleKey>> = {
+    chief_editor: 'chief_editor', deputy_editor: 'chief_editor', lead_screenwriter: 'plot_architect',
+    second_screenwriter: 'plot_architect', setting: 'continuity', lead_writer: 'writer', backup_writer: 'writer',
+    literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright'
+  };
+  return map[roleKey as CreativeRoleKey] ?? roleKey as RoleKey;
 }

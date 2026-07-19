@@ -29,7 +29,7 @@ interface DiscussionRow {
 }
 
 const limits = {
-  quick: { calls: 2, tokens: 40_000, min: 2, max: 3 },
+  quick: { calls: 3, tokens: 40_000, min: 2, max: 3 },
   collaborative: { calls: 7, tokens: 160_000, min: 4, max: 6 },
   formal: { calls: 12, tokens: 320_000, min: 3, max: 7 }
 } as const;
@@ -208,4 +208,3 @@ export class DiscussionService {
     };
   }
 }
-

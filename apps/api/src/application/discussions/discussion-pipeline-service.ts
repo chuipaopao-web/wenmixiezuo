@@ -5,10 +5,13 @@ import { ContextPackService } from '../memory/context-pack-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
+import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 import { DiscussionService } from './discussion-service.js';
+import { PlotSpanEstimateService } from '../continuity/plot-span-estimate-service.js';
+import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 
 interface DiscussionTaskRow {
   status: string;
@@ -21,7 +24,7 @@ interface DiscussionTaskRow {
 interface ParticipantRow {
   agent_id: string;
   display_name: string;
-  role_key: RoleKey;
+  role_key: RoleKey | CreativeRoleKey;
   category: 'core' | 'specialist';
   model_snapshot_id: string;
   provider: string;
@@ -71,7 +74,8 @@ export class DiscussionPipelineService {
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const calls = new ModelCallService(this.database, this.clock, budgets);
     const contextPacks = new ContextPackService(this.database, this.ids, this.clock);
-    const opinions: Array<{ agentId: string; role: string; roleKey: RoleKey; output: string }> = [];
+    const opinions: Array<{ agentId: string; role: string; roleKey: RoleKey | CreativeRoleKey; output: string }> = [];
+    const spanEstimates = new PlotSpanEstimateService(new LongformContinuityRepository(this.database), this.ids, this.clock);
     try {
       for (const participant of participants) {
         const currentTask = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
@@ -136,6 +140,15 @@ export class DiscussionPipelineService {
           },
           tokens: result.inputTokens + result.outputTokens
         });
+        if (brief.purpose === 'creative_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)) {
+          const recommended = brief.requestedChapterCount ?? 3;
+          spanEstimates.submit(scope, {
+            discussionId: brief.discussionId, round: 1, agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id,
+            minimum: Math.max(1, recommended - 1), recommended, maximum: recommended + Math.max(1, Math.ceil(recommended / 2)),
+            units: [{ unit: '剧情推进单元', suggestedChapters: recommended }], assumptions: ['基于当前老板原话和最小正史资料包'],
+            uncertainty: ['老板确认后按新增信息重估'], sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: brief.requestedChapterCount ?? null }
+          });
+        }
         opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output: result.output });
       }
       discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
@@ -177,7 +190,7 @@ export class DiscussionPipelineService {
     discussionId: string,
     scopeText: string,
     decisionId: string,
-    opinions: Array<{ agentId: string; role: string; roleKey: RoleKey; output: string }>,
+    opinions: Array<{ agentId: string; role: string; roleKey: RoleKey | CreativeRoleKey; output: string }>,
     editorSummary: string
   ): void {
     const specialistSections = opinions

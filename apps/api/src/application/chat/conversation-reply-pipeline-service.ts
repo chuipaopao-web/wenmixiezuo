@@ -5,6 +5,7 @@ import { ContextPackService, type ContextSource } from '../memory/context-pack-s
 import { TaskService } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
+import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
@@ -20,7 +21,7 @@ interface ReplyTaskRow {
 interface EditorRow {
   agent_id: string;
   display_name: string;
-  role_key: RoleKey;
+  role_key: RoleKey | CreativeRoleKey;
   model_snapshot_id: string;
   provider: string;
   model_id: string;

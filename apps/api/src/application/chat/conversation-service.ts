@@ -5,7 +5,6 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { DiscussionService } from '../discussions/discussion-service.js';
-import { AgentTeamService } from '../agents/agent-team-service.js';
 import { WritingReadinessService, type ChapterRequestCount } from '../creation/writing-readiness-service.js';
 import { PlanningArtifactService } from '../artifacts/planning-artifact-service.js';
 
@@ -178,23 +177,30 @@ export class ConversationService {
     requestedChapterCount: ChapterRequestCount | null
   ): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
-    const roleKey = relevantDiscussionRole(scopeText);
-    const secondary = this.database.prepare(`
+    const roleKeys = purpose === 'creative_planning'
+      ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']
+      : discussionRoleCandidates(scopeText);
+    const placeholders = roleKeys.map(() => '?').join(', ');
+    const specialists = this.database.prepare(`
       SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
-        AND r.role_key IN (?, 'plot_architect', 'reviewer')
-      ORDER BY CASE r.role_key WHEN ? THEN 0 WHEN 'plot_architect' THEN 1 ELSE 2 END LIMIT 1
-    `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id, roleKey, roleKey) as { agent_id: string; role_key: string } | undefined;
-    if (secondary === undefined) throw new Error('没有与讨论范围匹配的岗位');
-    new AgentTeamService(this.database, this.ids, this.clock).activate(scope, secondary.agent_id, 'text');
+        AND r.role_key IN (${placeholders})
+      ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, r.role_key
+      LIMIT ?
+    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, purpose === 'creative_planning' ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
+    if (specialists.length === 0) throw new Error('没有与讨论范围匹配的岗位');
+    for (const specialist of specialists) {
+      this.database.prepare(`UPDATE agent_instances SET activation_state = 'idle', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
+        .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, specialist.agent_id);
+    }
     const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
       type: 'quick',
       scopeText,
       createdByAgentId: lease.active_editor_agent_id,
       participants: [
         { agentId: lease.active_editor_agent_id, reason: '活动主编负责主持、取舍和汇总' },
-        { agentId: secondary.agent_id, reason: `问题由${secondary.role_key}岗位提供专项视角` }
+        ...specialists.map((specialist) => ({ agentId: specialist.agent_id, reason: `问题由${specialist.role_key}岗位独立提供专项视角` }))
       ]
     });
     const budget = this.requireBudget(scope);
@@ -275,13 +281,13 @@ export class ConversationService {
   }
 }
 
-function relevantDiscussionRole(content: string): string {
-  if (/版权|原创|仿写|改编/u.test(content)) return 'copyright';
-  if (/考据|资料|史实|历史/u.test(content)) return 'researcher';
-  if (/文风|语言|对白|去AI/u.test(content)) return 'style_editor';
-  if (/读者|节奏|情绪|钩子|爽点/u.test(content)) return 'reader_experience';
-  if (/设定|连续|时间线|人物状态/u.test(content)) return 'continuity';
-  return 'plot_architect';
+function discussionRoleCandidates(content: string): string[] {
+  if (/版权|原创|仿写|改编/u.test(content)) return ['copyright'];
+  if (/考据|资料|史实|历史/u.test(content)) return ['researcher'];
+  if (/文风|语言|对白|去AI/u.test(content)) return ['literary_reviewer', 'reviewer', 'style_editor'];
+  if (/读者|节奏|情绪|钩子|爽点/u.test(content)) return ['experience_reviewer', 'reader_experience'];
+  if (/设定|连续|时间线|人物状态/u.test(content)) return ['setting', 'continuity'];
+  return ['lead_screenwriter', 'second_screenwriter', 'plot_architect'];
 }
 
 function isCreativeIntent(content: string): boolean {

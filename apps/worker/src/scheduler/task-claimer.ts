@@ -83,6 +83,8 @@ export class TaskClaimer {
           checkpoint_json = ?, lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
         WHERE task_id = ? AND lease_owner = ? AND status = 'working'
       `).run(JSON.stringify({ completedPhase: task.currentPhase }), now, task.taskId, this.workerId);
+      this.database.prepare(`UPDATE worker_health SET current_task_id = NULL, heartbeat_at = ? WHERE worker_id = ? AND current_task_id = ?`)
+        .run(now, this.workerId, task.taskId);
       this.appendEvent(task, 'task.completed', { taskId: task.taskId });
       this.database.exec('COMMIT');
     } catch (error) {
@@ -93,12 +95,21 @@ export class TaskClaimer {
 
   public block(task: ClaimedTask, reason: string): void {
     const now = new Date().toISOString();
-    this.database.prepare(`
-      UPDATE tasks SET status = 'blocked', error_code = ?, lease_owner = NULL,
-        lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
-      WHERE task_id = ? AND lease_owner = ? AND status = 'working'
-    `).run(reason, now, task.taskId, this.workerId);
-    this.appendEvent(task, 'task.blocked', { taskId: task.taskId, reason });
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare(`
+        UPDATE tasks SET status = 'blocked', error_code = ?, lease_owner = NULL,
+          lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND lease_owner = ? AND status = 'working'
+      `).run(reason, now, task.taskId, this.workerId);
+      this.database.prepare(`UPDATE worker_health SET current_task_id = NULL, heartbeat_at = ? WHERE worker_id = ? AND current_task_id = ?`)
+        .run(now, this.workerId, task.taskId);
+      this.appendEvent(task, 'task.blocked', { taskId: task.taskId, reason });
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   private appendEvent(task: ClaimedTask, eventType: string, data: Record<string, unknown>): void {
@@ -108,4 +119,3 @@ export class TaskClaimer {
     `).run(`worker-${crypto.randomUUID()}`, eventType, task.ownerId, task.bookId, new Date().toISOString(), JSON.stringify(data));
   }
 }
-

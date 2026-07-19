@@ -25,17 +25,16 @@ describe('自然语言讨论运行闭环', () => {
 
     const result = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, taskId, 'worker-discussion');
-    expect(result).toMatchObject({ discussionId, opinionCount: 2 });
+    expect(result).toMatchObject({ discussionId, opinionCount: 3 });
     expect(tasks.require(scope, taskId).status).toBe('succeeded');
     const discussion = context.database.prepare(`SELECT status, calls_used FROM discussions WHERE discussion_id = ?`).get(discussionId);
-    expect(discussion).toEqual({ status: 'awaiting_boss', calls_used: 2 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants WHERE discussion_id = ? AND responded = 1`).get(discussionId)).toEqual({ count: 2 });
-    expect(context.database.prepare(`SELECT activation_state FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key = 'reader_experience'`)
-      .get(scope.ownerId, scope.bookId)).toEqual({ activation_state: 'standby' });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 2 });
+    expect(discussion).toEqual({ status: 'awaiting_boss', calls_used: 3 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants WHERE discussion_id = ? AND responded = 1`).get(discussionId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates WHERE discussion_id = ? AND independence_attested = 1`).get(discussionId)).toEqual({ count: 2 });
     const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; model_provider: string | null; model_id: string | null }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
-    expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v1' });
+    expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v2-chief_editor' });
     expect(summary?.content).toContain(`确认方案 ${result.decisionId}`);
 
     const callsBeforeConfirmation = (context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId) as { count: number }).count;

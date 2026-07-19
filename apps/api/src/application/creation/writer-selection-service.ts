@@ -48,8 +48,8 @@ export class WriterSelectionService {
       ORDER BY created_at DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId) as { writer_selection_id: string } | undefined;
     if (existing !== undefined) return this.require(scope, existing.writer_selection_id);
-    const writer = this.requireRole(scope, 'role-writer');
-    const reviewer = this.requireRole(scope, 'role-reviewer');
+    const writer = this.requireAnyRole(scope, ['role-v2-lead-writer', 'role-writer']);
+    const reviewer = this.requireAnyRole(scope, ['role-v2-literary-reviewer', 'role-reviewer']);
     const usesAssignedRuntimeModels = !writer.provider.startsWith('local-deterministic') || !reviewer.provider.startsWith('local-deterministic');
     if (usesAssignedRuntimeModels) return this.selectOwnerAssignedModels(scope, writer, reviewer);
     const writerProfile = ownerChoice === 'writer_b'
@@ -144,7 +144,7 @@ export class WriterSelectionService {
       candidates_json: string;
     } | undefined;
     if (row === undefined) throw new Error('主笔选择不存在或越权');
-    const reviewer = reviewerAgentId === undefined ? this.requireRole(scope, 'role-reviewer') : undefined;
+    const reviewer = reviewerAgentId === undefined ? this.requireAnyRole(scope, ['role-v2-literary-reviewer', 'role-reviewer']) : undefined;
     return {
       writerSelectionId: row.writer_selection_id,
       mode: row.mode,
@@ -199,6 +199,13 @@ export class WriterSelectionService {
     `).get(scope.ownerId, scope.bookId, roleTemplateId) as AgentModelRow | undefined;
     if (row === undefined) throw new Error(`岗位不存在：${roleTemplateId}`);
     return row;
+  }
+
+  private requireAnyRole(scope: BookScope, roleTemplateIds: string[]): AgentModelRow {
+    for (const roleTemplateId of roleTemplateIds) {
+      try { return this.requireRole(scope, roleTemplateId); } catch { /* try the historical fallback */ }
+    }
+    throw new Error(`岗位不存在：${roleTemplateIds.join(' / ')}`);
   }
 }
 

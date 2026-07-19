@@ -22,8 +22,8 @@
 | 2 Repository与生命周期 | 通过 | `stages/02-repository-lifecycle.md` |
 | 3 切片与本地语义 | 通过 | `stages/03-chunking-local-semantics.md` |
 | 4 四路检索与上下文 | 通过 | `stages/04-hybrid-retrieval-context.md` |
-| 5 连续性与11人团队 | 进行中 | 阶段4通过后已自动进入 |
-| 6 正确创作闭环 | 未开始 | 前置阶段未通过前不实施 |
+| 5 连续性与11人团队 | 通过 | `stages/05-continuity-eleven-agent-team.md` |
+| 6 正确创作闭环 | 进行中 | 阶段5通过后已自动进入 |
 | 7 最终工作台与可移植 | 未开始 | 前置阶段未通过前不实施 |
 | 8 全规模验收与发布 | 未开始 | 前置阶段未通过前不实施 |
 

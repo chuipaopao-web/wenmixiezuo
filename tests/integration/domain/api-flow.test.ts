@@ -22,7 +22,7 @@ describe('建书REST流程', () => {
       expect(confirmResponse.statusCode).toBe(200);
       const book = confirmResponse.json().data as { bookId: string };
       const agents = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/agents` });
-      expect((agents.json().data as unknown[])).toHaveLength(9);
+      expect((agents.json().data as unknown[])).toHaveLength(11);
       const books = await app.inject({ method: 'GET', url: '/api/v1/books' });
       expect(books.json().data).toHaveLength(1);
     } finally {

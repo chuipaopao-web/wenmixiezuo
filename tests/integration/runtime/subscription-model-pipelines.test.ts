@@ -15,7 +15,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('开放讨论使用GPT主编和豆包体验官，章节使用GPT主笔和Kimi独立审校', async () => {
+  it('剧情讨论使用GPT主编与DeepSeek、GLM双编剧，章节使用GPT主笔和Kimi审校', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -79,10 +79,12 @@ describe('订阅与套餐模型真实流水线接线', () => {
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ provider: string; model_id: string; cash_micros: number; state: string }>;
     expect(modelCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ provider: 'openai-codex-subscription', model_id: 'gpt-5.6-sol', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'doubao-seed-2-0-pro-260215', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-coding-plan', model_id: 'deepseek-v4-pro', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5-2-260617', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2-6-modelhub', cash_micros: 0, state: 'succeeded' })
     ]));
-    expect(calls.every((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
+    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
+    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
     expect(codexPrompts.some((prompt) => prompt.includes('chapter_outline') && prompt.includes('writing_contract'))).toBe(true);

@@ -38,11 +38,11 @@ export function prepareBookForWriting(
   const agents = context.database.prepare(`
     SELECT a.agent_id, a.model_snapshot_id, r.role_key FROM agent_instances a
     JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-    WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('chief_editor', 'plot_architect')
+    WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('chief_editor', 'lead_screenwriter')
     ORDER BY CASE r.role_key WHEN 'chief_editor' THEN 0 ELSE 1 END
   `).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; model_snapshot_id: string; role_key: string }>;
   const editor = agents.find((agent) => agent.role_key === 'chief_editor')!;
-  const plot = agents.find((agent) => agent.role_key === 'plot_architect')!;
+  const plot = agents.find((agent) => agent.role_key === 'lead_screenwriter')!;
   const discussions = new DiscussionService(context.database, ids, clock);
   const discussion = discussions.create(scope, {
     type: 'quick',

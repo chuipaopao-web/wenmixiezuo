@@ -1,0 +1,57 @@
+import type { Clock, IdGenerator } from '../../domain/ids.js';
+import type { BookScope } from '../../domain/scope.js';
+import { deterministicTeamProfile, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
+import type { AgentGovernanceRepository, TeamAgentRow } from '../../infrastructure/db/repositories/agent-governance-repository.js';
+import type { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+
+export class ModelBindingV2Service {
+  public constructor(private readonly repository: AgentGovernanceRepository, private readonly unitOfWork: UnitOfWork, private readonly ids: IdGenerator, private readonly clock: Clock) {}
+
+  public validate(profiles: Record<CreativeRoleKey, TeamModelProfile>): void {
+    const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
+    if (signature('lead_screenwriter') === signature('second_screenwriter')) throw new Error('两名编剧必须使用不同模型');
+    for (const role of ['lead_screenwriter', 'second_screenwriter'] as const) {
+      if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
+    }
+    for (const role of ['lead_writer', 'backup_writer'] as const) {
+      if (profiles[role].plan !== 'deterministic' && !/(gpt-5\.6|glm-5-2)/iu.test(profiles[role].modelId)) throw new Error('写手仅允许Codex GPT-5.6或GLM 5.2');
+    }
+  }
+
+  public reviseFuture(scope: BookScope, profiles: Record<CreativeRoleKey, TeamModelProfile>, reason: string): number {
+    this.validate(profiles);
+    const agents = this.repository.listTeam(scope);
+    const now = this.clock.now().toISOString();
+    const version = this.repository.nextBindingVersion(scope);
+    this.unitOfWork.run(() => {
+      const revisionId = this.ids.next();
+      this.repository.insertBindingRevision(scope, { id: revisionId, version, effectiveFrom: now, reason, now });
+      for (const agent of agents) {
+        const role = agent.roleKey as CreativeRoleKey;
+        const profile = profiles[role] ?? deterministicTeamProfile;
+        const snapshotId = this.ids.next();
+        this.repository.insertModelSnapshot(scope, { id: snapshotId, ...profile, capabilities: ['text'], now });
+        this.repository.insertBinding(scope, { id: this.ids.next(), revisionId, roleKey: role, agentId: agent.agentId, snapshotId,
+          provider: profile.provider, modelId: profile.modelId, plan: profile.plan, purposes: [], now });
+      }
+    });
+    return version;
+  }
+}
+
+export class ReviewModelCompatibilityService {
+  public select(activeWriter: TeamAgentRow, team: TeamAgentRow[]): { fact: TeamAgentRow; literary: TeamAgentRow; experience: TeamAgentRow } {
+    const signature = (agent: TeamAgentRow): string => `${agent.provider}/${agent.modelId}`;
+    const byRole = (role: string): TeamAgentRow => {
+      const found = team.find((agent) => agent.roleKey === role);
+      if (found === undefined) throw new Error(`缺少点评岗位：${role}`);
+      return found;
+    };
+    const fact = /glm/iu.test(activeWriter.modelId) ? byRole('lead_screenwriter') : byRole('setting');
+    const literary = byRole('literary_reviewer');
+    const experience = byRole('experience_reviewer');
+    const all = [activeWriter, fact, literary, experience].map(signature);
+    if (new Set(all).size !== all.length) throw new Error('三名点评者必须彼此异模型并与活动写手异模型');
+    return { fact, literary, experience };
+  }
+}
