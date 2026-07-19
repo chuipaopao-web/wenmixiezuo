@@ -27,9 +27,12 @@
 | 正式备份隔离恢复 | `npm run verify:backup` | `integrity_check=ok`、外键0、哈希一致，隔离副本验证后清理 |
 | 本地运行 | 重启文秘写作并探测127.0.0.1 | health=ok、HttpOnly会话200、Worker ready、Web 200、运行时Schema 19 |
 | 视觉 | `chat-attachments-purge-ui-20260719.png` | 1600×900真实Edge截图，确认顶部重复区消失、左右气泡和加号存在 |
-| 发布测试 | `npm run acceptance` | 3/3功能验收通过；提交前仅“工作树未提交”门禁按设计未通过，提交后复跑 |
+| 发布测试 | `npm run acceptance` | 功能提交后3/3通过；Schema 0019、无密钥/占位、桌面入口和clean工作树审计失败0 |
+| Git与远程备份 | `45cf3c9`、`git push origin main` | 私有远程 `origin/main` 已更新到功能提交 |
 
 最新备份ID：`backup-2026-07-19T15-33-29-460Z-1b12c331`；数据库哈希：`d4da6e6bf94c22e82375b11fe3f5d365f3b4be1fa3598f7ebcf544780e9b62c3`；清单哈希：`6dd94e2d89bc970df5afb83195d30b7625f5204c6f0ac58e931da327a1e2b062`。
+
+提交前代码复核受“不得调用其他开发Agent”项目规则约束，由当前Codex按代码复核清单完成，不声称人员独立。复核发现并修复了附件应用服务越过Repository、活动书删除返回500、运行时Schema仍标18、跨书/重复附件返回500、切书或上传中移除留下未引用资料，以及已移除组件残留CSS六类问题；修复后重新执行完整门禁。
 
 ## 边界与回滚
 

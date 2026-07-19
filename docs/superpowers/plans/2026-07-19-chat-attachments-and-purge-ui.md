@@ -1,6 +1,6 @@
 # Chat Attachments and Purge UI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **执行记录：** 依据老板与AGENTS.md的单人开发约束，本计划由当前Codex独立实施，未调用其他开发Agent。步骤使用复选框记录实际完成状态。
 
 **Goal:** 让工作台移除重复顶部信息、以左右对话气泡充分利用中间区域、支持可解析的图片/文件附件，并为归档书提供严格确认的永久删除入口。
 
@@ -31,19 +31,19 @@
 - Consumes: `BookScope`、SQLite `messages`/`books`/`operations`/`file_registry` 表和现有迁移执行器。
 - Produces: `ChatAttachmentRepository.create/get/listForMessage/bindToMessage/discard`，所有读取都强制 `owner_id + book_id`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 expect(uploaded).toMatchObject({ lifecycleLayer: 'temporary', parseStatus: 'parsed' });
 expect(() => otherBookRepository.get(uploaded.attachmentId)).toThrow('附件不存在或不属于当前书籍');
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `npx vitest run tests/integration/experience/chat-attachments-api.test.ts`
 Expected: FAIL，原因是迁移、Repository或接口尚不存在。
 
-- [ ] **Step 3: 新增向前迁移与Repository**
+- [x] **Step 3: 新增向前迁移与Repository**
 
 ```sql
 CREATE TABLE chat_attachments (
@@ -70,7 +70,7 @@ CREATE TABLE chat_attachments (
 ) STRICT;
 ```
 
-- [ ] **Step 4: 运行Repository与迁移测试**
+- [x] **Step 4: 运行Repository与迁移测试**
 
 Run: `npx vitest run tests/foundation/migration.test.ts tests/integration/experience/chat-attachments-api.test.ts`
 Expected: PASS，空库到19号迁移成功，跨书读取失败。
@@ -89,7 +89,7 @@ Expected: PASS，空库到19号迁移成功，跨书读取失败。
 - Consumes: multipart单文件流、`RuntimeConfig.dataDir`、`ChatAttachmentRepository`。
 - Produces: `POST /api/v1/books/:bookId/chat-attachments`、`GET .../:attachmentId/content`、`POST .../:attachmentId/discard`。
 
-- [ ] **Step 1: 写上传、解析、限制和跨书测试**
+- [x] **Step 1: 写上传、解析、限制和跨书测试**
 
 ```ts
 expect(textUpload.json().data).toMatchObject({ mediaKind: 'text', parseStatus: 'parsed' });
@@ -98,12 +98,12 @@ expect(oversize.statusCode).toBe(413);
 expect(crossBookRead.statusCode).toBe(500);
 ```
 
-- [ ] **Step 2: 安装锁定依赖**
+- [x] **Step 2: 安装锁定依赖**
 
 Run: `npm install -w @wenmi/api @fastify/multipart@10.1.0 mammoth@1.12.0 pdfjs-dist@6.1.200`
 Expected: `package-lock.json` 更新且npm退出码为0。
 
-- [ ] **Step 3: 实现白名单解析器与安全存储**
+- [x] **Step 3: 实现白名单解析器与安全存储**
 
 ```ts
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -114,7 +114,7 @@ const MAX_CONTEXT_EXCERPT_CHARS = 12_000;
 
 原文件写入 `data/books/<bookId>/attachments/<attachmentId>/source.<safeExt>`，提取文本写入同目录 `extracted.txt`；路径不使用原始文件名。解析失败保留明确状态和错误摘要，不伪造成功。
 
-- [ ] **Step 4: 运行接口测试**
+- [x] **Step 4: 运行接口测试**
 
 Run: `npx vitest run tests/integration/experience/chat-attachments-api.test.ts`
 Expected: PASS，文本可解析、图片可预览、错误透明、大小与书籍隔离生效。
@@ -132,7 +132,7 @@ Expected: PASS，文本可解析、图片可预览、错误透明、大小与书
 - Consumes: `attachmentIds: string[]`，每个附件必须是同书、未丢弃且未绑定其他消息。
 - Produces: `sendBossMessageWithLocalAssistant(scope, content, attachmentIds)`；消息 `references_json` 保存附件证据；模型只收到合计不超过12,000字符的附件资料段。
 
-- [ ] **Step 1: 写消息绑定失败测试**
+- [x] **Step 1: 写消息绑定失败测试**
 
 ```ts
 expect(crossBookSend.statusCode).toBe(500);
@@ -140,7 +140,7 @@ expect(JSON.parse(saved.references_json)[0]).toMatchObject({ type: 'chat_attachm
 expect(context.database.prepare('SELECT canon_revision FROM books WHERE book_id = ?').get(bookId)).toEqual({ canon_revision: 0 });
 ```
 
-- [ ] **Step 2: 实现原子绑定和有界上下文**
+- [x] **Step 2: 实现原子绑定和有界上下文**
 
 ```ts
 const attachmentContext = attachments
@@ -151,7 +151,7 @@ const attachmentContext = attachments
 
 消息显示内容保持老板原话；附件上下文只供当前路由出的创作讨论/成员回复使用。附件不调用正史晋升、知识生命周期或向量投影接口。
 
-- [ ] **Step 3: 运行消息与正史隔离测试**
+- [x] **Step 3: 运行消息与正史隔离测试**
 
 Run: `npx vitest run tests/integration/experience/chat-attachments-api.test.ts tests/integration/experience/workspace-api.test.ts`
 Expected: PASS，跨书为零、附件可回链、正史修订不变化、上下文不超预算。
@@ -168,7 +168,7 @@ Expected: PASS，跨书为零、附件可回链、正史修订不变化、上下
 - Consumes: `ChatAttachmentData`、上传/丢弃API和消息 `attachmentIds`。
 - Produces: 左侧成员头像＋气泡、右侧老板头像＋气泡、全宽消息区、附件加号、上传状态、图片缩略图和文件解析状态。
 
-- [ ] **Step 1: 修改UI测试为新验收**
+- [x] **Step 1: 修改UI测试为新验收**
 
 ```ts
 expect(screen.queryByText('聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。')).not.toBeInTheDocument();
@@ -177,11 +177,11 @@ expect(document.querySelector('.message.boss')).toHaveClass('align-right');
 expect(document.querySelector('.message.agent')).toHaveClass('align-left');
 ```
 
-- [ ] **Step 2: 移除顶部重复信息**
+- [x] **Step 2: 移除顶部重复信息**
 
 删除 `WORKSPACE_VIEW_LABELS`、`.topbar-center` 和 `WorkspaceBookSummary` 渲染；所有工作区视图高度改为 `100%`，错误条位置移到主区顶部浮层。
 
-- [ ] **Step 3: 实现附件加号和状态条**
+- [x] **Step 3: 实现附件加号和状态条**
 
 ```tsx
 <input hidden multiple type="file" accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.json,.csv,.log,.pdf,.docx" />
@@ -190,11 +190,11 @@ expect(document.querySelector('.message.agent')).toHaveClass('align-left');
 
 选择文件后立即显示上传中状态；成功后显示图片预览或文件名、解析状态和字符数；失败显示原因并不冒充可用。发送成功清空附件，切书时不跨书保留附件。
 
-- [ ] **Step 4: 实现左右聊天气泡**
+- [x] **Step 4: 实现左右聊天气泡**
 
 老板消息使用右侧头像与气泡，Agent使用岗位原型头像和左侧气泡；系统通知保留中性左侧样式。消息最大宽度使用主区的78%，不再固定720px居中。
 
-- [ ] **Step 5: 运行UI与无障碍测试**
+- [x] **Step 5: 运行UI与无障碍测试**
 
 Run: `npx vitest run tests/integration/experience/workspace-ui.test.tsx`
 Expected: PASS，顶部重复区不存在、左右布局和附件控件存在、axe无新增违规。
@@ -213,7 +213,7 @@ Expected: PASS，顶部重复区不存在、左右布局和附件控件存在、
 - Consumes: 已归档 `BookData` 和后端现有确认词 `YES <title> <shortId>`。
 - Produces: `purgeBook(bookId, confirmationText)` 与 `PurgeBookDialog`；后端拒绝对非归档书永久删除。
 
-- [ ] **Step 1: 写严格确认测试**
+- [x] **Step 1: 写严格确认测试**
 
 ```ts
 expect(screen.getByRole('button', { name: '彻底删除' })).toBeDisabled();
@@ -221,17 +221,17 @@ fireEvent.change(input, { target: { value: 'YES 雾钟档案 bookui1' } });
 expect(screen.getByRole('button', { name: '彻底删除' })).toBeEnabled();
 ```
 
-- [ ] **Step 2: 加固后端状态门禁**
+- [x] **Step 2: 加固后端状态门禁**
 
 ```ts
 if (book.status !== 'archived') throw new Error('只有已归档书籍可以永久删除');
 ```
 
-- [ ] **Step 3: 实现危险操作对话框**
+- [x] **Step 3: 实现危险操作对话框**
 
 对话框明确列出书名、不可恢复影响和逐字确认词；按钮在完全匹配前禁用。成功后重新加载书架，不自动选择或删除其他书。
 
-- [ ] **Step 4: 运行删除测试**
+- [x] **Step 4: 运行删除测试**
 
 Run: `npx vitest run tests/integration/data-safety/book-lifecycle.test.ts tests/integration/experience/workspace-ui.test.tsx`
 Expected: PASS，活动书不能永久删除，错误确认词不能调用接口，正确确认词只删除目标测试书。
@@ -251,27 +251,27 @@ Expected: PASS，活动书不能永久删除，错误确认词不能调用接口
 - Consumes: 全部实现与测试结果。
 - Produces: DEC-034、`DR-20260719-12`、阶段验收证据和可回滚Git提交。
 
-- [ ] **Step 1: 运行审计格式验证**
+- [x] **Step 1: 运行审计格式验证**
 
 Run: `node .agents/skills/wenmi-longform-quality/scripts/validate-audit.mjs docs/CHAT_ATTACHMENTS_UI_AUDIT.md`
 Expected: PASS。
 
-- [ ] **Step 2: 运行质量门禁**
+- [x] **Step 2: 运行质量门禁**
 
 Run: `npm run typecheck && npm run test && npm run build`
 Expected: 全部退出码0。
 
-- [ ] **Step 3: 运行迁移、启动和恢复验证**
+- [x] **Step 3: 运行迁移、启动和恢复验证**
 
 Run: `npm run migrate && npm run verify:backup`
 Expected: Schema 19，升级/空库/备份恢复验证全部通过。
 
-- [ ] **Step 4: 检查秘密、占位和范围**
+- [x] **Step 4: 检查秘密、占位和范围**
 
 Run: `git diff --check && rg -n "TODO|FIXME|AIza|sk-[A-Za-z0-9]" apps docs tests`
 Expected: 无新占位、无密钥、无空白错误。
 
-- [ ] **Step 5: 提交并推送**
+- [x] **Step 5: 提交并推送**
 
 ```powershell
 git add apps tests docs TASKS.md package-lock.json
