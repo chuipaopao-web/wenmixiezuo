@@ -10,7 +10,7 @@ import type { WorkspaceData } from '../../../apps/web/src/lib/api/client';
 
 const book = {
   bookId: 'book-ui-1', title: '雾钟档案', status: 'active', canonRevision: 3,
-  positioningVersion: 1, updatedAt: '2026-07-16T12:00:00.000Z'
+  version: 2, positioningVersion: 1, updatedAt: '2026-07-16T12:00:00.000Z'
 };
 
 const chapter = {
@@ -121,11 +121,83 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
   });
 
-  it('在书籍信息栏用中文显示归档状态', async () => {
+  it('把归档书移出主书架并放入可恢复的归档区', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', { ...workspace, book: { ...book, status: 'archived' } })));
     render(<App />);
-    expect(await screen.findByLabelText('当前书籍信息')).toHaveTextContent('已归档');
+    const archiveToggle = await screen.findByRole('button', { name: '查看已归档书籍，共 1 本' });
+    expect(screen.queryByRole('button', { name: /打开《雾钟档案》/ })).not.toBeInTheDocument();
+    fireEvent.click(archiveToggle);
+    expect(screen.getByText('雾钟档案')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '恢复《雾钟档案》' })).toBeInTheDocument();
     expect(screen.queryByText('archived')).not.toBeInTheDocument();
+  });
+
+  it('新建书只要求书名和频道，主要标签不限制其他自由发挥', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    expect(within(dialog).getByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
+    expect(within(dialog).getByText(/标签只确定主要方向，不是每章清单/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('预计规模')).not.toBeInTheDocument();
+    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+
+    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主类型：古代言情' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择故事特点：群像' }));
+    fireEvent.change(within(dialog).getByLabelText('自定义主要标签'), { target: { value: '轻悬疑' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
+    fireEvent.click(within(dialog).getByText('必须遵守（可不选）'));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
+    expect(within(dialog).getByText(/当前 3 个主要标签/)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认建书' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!String(input).endsWith('/api/v1/books/drafts') || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+      return payload.title === '长安簪影'
+        && payload.classification === '女频'
+        && Array.isArray(payload.tags)
+        && payload.tags.includes('古代言情')
+        && payload.tags.includes('群像')
+        && payload.tags.includes('轻悬疑')
+        && payload.tags.includes('必须遵守：不写后宫');
+    })).toBe(true));
+  });
+
+  it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '管理《雾钟档案》' }));
+    fireEvent.click(screen.getByRole('button', { name: '移到归档' }));
+    expect(screen.getByRole('dialog', { name: '归档《雾钟档案》' })).toHaveTextContent('可以随时恢复');
+    expect(screen.queryByRole('button', { name: /永久删除/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认归档' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/api/v1/books/book-ui-1/archive')
+      && (init as RequestInit | undefined)?.method === 'POST'
+      && JSON.parse(String((init as RequestInit).body)).expectedVersion === 2)).toBe(true));
+  });
+
+  it('归档区可以恢复书籍', async () => {
+    const archivedWorkspace = { ...workspace, book: { ...book, status: 'archived' } };
+    const fetchMock = vi.fn(createFetchRouter('正文内容', archivedWorkspace));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看已归档书籍，共 1 本' }));
+    fireEvent.click(screen.getByRole('button', { name: '恢复《雾钟档案》' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/api/v1/books/book-ui-1/restore')
+      && (init as RequestInit | undefined)?.method === 'POST'
+      && JSON.parse(String((init as RequestInit).body)).expectedVersion === 2)).toBe(true));
   });
 
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
@@ -315,6 +387,10 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       }
     });
     if (path === '/api/v1/books') return apiResponse([workspaceData.book]);
+    if (path === '/api/v1/books/drafts') return apiResponse({ draftId: 'draft-ui-1', version: 1 });
+    if (path === '/api/v1/book-drafts/draft-ui-1/confirm') return apiResponse({ bookId: workspaceData.book.bookId });
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/archive`) return apiResponse({ ...workspaceData.book, status: 'archived', version: workspaceData.book.version + 1 });
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/restore`) return apiResponse({ ...workspaceData.book, status: 'active', version: workspaceData.book.version + 1 });
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }
     });

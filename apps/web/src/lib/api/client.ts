@@ -41,6 +41,7 @@ export interface BookData {
   bookId: string;
   title: string;
   status: string;
+  version: number;
   canonRevision: number;
   positioningVersion: number;
   updatedAt: string;
@@ -279,12 +280,24 @@ export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
   return request('/api/v1/runtime/worker', signal === undefined ? {} : { signal });
 }
 
-export async function createBook(input: { title: string; text: string; category?: string; classification?: string; targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string }): Promise<{ bookId: string }> {
+export async function createBook(input: { title: string; text: string; category?: string; classification?: string; targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string; tags?: string[] }): Promise<{ bookId: string }> {
   const draft = await request<{ draftId: string; version: number }>('/api/v1/books/drafts', {
     method: 'POST', body: JSON.stringify(input)
   });
   return request(`/api/v1/book-drafts/${encodeURIComponent(draft.draftId)}/confirm`, {
     method: 'POST', body: JSON.stringify({ expectedVersion: draft.version })
+  });
+}
+
+export function archiveBook(bookId: string, expectedVersion: number): Promise<BookData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/archive`, {
+    method: 'POST', body: JSON.stringify({ expectedVersion })
+  });
+}
+
+export function restoreBook(bookId: string, expectedVersion: number): Promise<BookData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/restore`, {
+    method: 'POST', body: JSON.stringify({ expectedVersion })
   });
 }
 

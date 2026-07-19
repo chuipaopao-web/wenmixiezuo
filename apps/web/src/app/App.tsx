@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
+  ArchiveBoxIcon,
+  ArrowCounterClockwiseIcon,
   ArrowsInSimpleIcon,
   ArrowsOutSimpleIcon,
   BookOpenTextIcon,
@@ -10,6 +12,7 @@ import {
   CheckCircleIcon,
   ClockCountdownIcon,
   DatabaseIcon,
+  DotsThreeVerticalIcon,
   EyeIcon,
   FileTextIcon,
   GearSixIcon,
@@ -27,6 +30,7 @@ import {
   XIcon
 } from '@phosphor-icons/react';
 import {
+  archiveBook,
   cancelTask,
   createBook,
   fetchArtifacts,
@@ -55,6 +59,7 @@ import {
   addArtifactVersion,
   selectArtifactVersion,
   rejectArtifactVersion,
+  restoreBook,
   compareArtifactVersions,
   createLibraryTag,
   type AgentData,
@@ -82,6 +87,16 @@ import {
   saveWorkspacePreferences,
   type WorkspacePreferences
 } from './workspace-preferences';
+import {
+  BOOK_CHANNELS,
+  BOUNDARY_GROUPS,
+  PRIMARY_GENRES,
+  SECONDARY_GENRES,
+  STORY_TRAITS,
+  channelLabel,
+  sortTagsForChannel,
+  type BookChannel
+} from './onboarding-tags';
 import './app.css';
 
 type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
@@ -116,7 +131,10 @@ export function App(): React.JSX.Element {
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => new URLSearchParams(window.location.search).get('newBook') === '1');
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [bookMenuId, setBookMenuId] = useState<string | null>(null);
+  const [archiveCandidate, setArchiveCandidate] = useState<BookData | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -125,14 +143,17 @@ export function App(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedBook = books.find((book) => book.bookId === selectedBookId) ?? null;
+  const activeBooks = books.filter((book) => book.status !== 'archived');
+  const archivedBooks = books.filter((book) => book.status === 'archived');
+  const selectedBook = activeBooks.find((book) => book.bookId === selectedBookId) ?? null;
   const selectedTask = workspace?.tasks.find((task) => task.taskId === selectedTaskId) ?? null;
 
   const loadBooks = useCallback(async (signal?: AbortSignal) => {
     const nextBooks = await fetchBooks(signal);
     setBooks(nextBooks);
     setSelectedBookId((current) => {
-      const next = current !== null && nextBooks.some((book) => book.bookId === current) ? current : nextBooks[0]?.bookId ?? null;
+      const nextActiveBooks = nextBooks.filter((book) => book.status !== 'archived');
+      const next = current !== null && nextActiveBooks.some((book) => book.bookId === current) ? current : nextActiveBooks[0]?.bookId ?? null;
       persistSelectedBook(next);
       return next;
     });
@@ -341,6 +362,38 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const archiveSelectedBook = async (): Promise<void> => {
+    if (archiveCandidate === null || busy) return;
+    setBusy(true);
+    try {
+      await archiveBook(archiveCandidate.bookId, archiveCandidate.version);
+      setArchiveCandidate(null);
+      setBookMenuId(null);
+      await loadBooks();
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '归档书籍失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreArchivedBook = async (book: BookData): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await restoreBook(book.bookId, book.version);
+      await loadBooks();
+      selectBook(book.bookId);
+      setArchiveOpen(false);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '恢复书籍失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className={`app-shell ${readerMode ? 'reader-mode' : ''}`}
@@ -372,12 +425,34 @@ export function App(): React.JSX.Element {
         <DrawerHeader title="书籍与目录" onClose={() => setLeftOpen(false)} />
         <div className="rail-heading"><span>我的书</span><button className="small-icon-button" type="button" aria-label="创建新书" onClick={() => setCreateOpen(true)}><PlusIcon /></button></div>
         <nav className="book-switcher" aria-label="书籍列表">
-          {books.map((book) => (
-            <button className={book.bookId === selectedBookId ? 'book-button active' : 'book-button'} type="button" key={book.bookId} onClick={() => selectBook(book.bookId)}>
-              <BooksIcon /><span><strong>{book.title}</strong><small>{bookStatusLabel(book.status)}</small></span><CaretRightIcon />
-            </button>
+          {activeBooks.map((book) => (
+            <div className="book-row" key={book.bookId}>
+              <button aria-label={`打开《${book.title}》`} className={book.bookId === selectedBookId ? 'book-button active' : 'book-button'} type="button" onClick={() => selectBook(book.bookId)}>
+                <BooksIcon /><span><strong>{book.title}</strong><small>{bookStatusLabel(book.status)}</small></span><CaretRightIcon />
+              </button>
+              <button className="book-menu-button" type="button" aria-label={`管理《${book.title}》`} aria-expanded={bookMenuId === book.bookId} onClick={() => setBookMenuId((current) => current === book.bookId ? null : book.bookId)}><DotsThreeVerticalIcon /></button>
+              {bookMenuId === book.bookId && (
+                <div className="book-action-popover">
+                  <button type="button" onClick={() => setArchiveCandidate(book)}><ArchiveBoxIcon />移到归档</button>
+                  <small>从主书架收起，可以恢复</small>
+                </div>
+              )}
+            </div>
           ))}
-          {!loading && books.length === 0 && <p className="rail-empty">还没有书。创建后会在这里形成独立工作区。</p>}
+          {!loading && activeBooks.length === 0 && <p className="rail-empty">主书架还没有书。创建新书或从归档区恢复。</p>}
+          {archivedBooks.length > 0 && (
+            <div className="archive-shelf">
+              <button className="archive-shelf-toggle" type="button" aria-expanded={archiveOpen} aria-label={`查看已归档书籍，共 ${archivedBooks.length} 本`} onClick={() => setArchiveOpen((value) => !value)}>
+                <ArchiveBoxIcon /><span>已归档</span><small>{archivedBooks.length}</small><CaretRightIcon />
+              </button>
+              {archiveOpen && <div className="archived-book-list">{archivedBooks.map((book) => (
+                <div className="archived-book-row" key={book.bookId}>
+                  <span><strong>{book.title}</strong><small>不参与当前创作</small></span>
+                  <button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void restoreArchivedBook(book)}><ArrowCounterClockwiseIcon /></button>
+                </div>
+              ))}</div>}
+            </div>
+          )}
         </nav>
         {selectedBook !== null && (
           <nav className="rail-navigation" aria-label="创作功能">
@@ -428,6 +503,7 @@ export function App(): React.JSX.Element {
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
+      {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
       {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTask !== null && workspace !== null && (
         <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
@@ -1196,25 +1272,138 @@ function roleLabel(role: string): string {
 
 function CreateBookDialog({ busy, onCancel, onCreate }: { busy: boolean; onCancel: () => void; onCreate: (input: Parameters<typeof createBook>[0]) => Promise<void> }): React.JSX.Element {
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [classification, setClassification] = useState('');
-  const [audience, setAudience] = useState('');
-  const [scale, setScale] = useState('3000000');
-  const [baseline, setBaseline] = useState('');
-  const valid = title.trim().length >= 1 && category.trim().length >= 1 && classification.trim().length >= 1 && audience.trim().length >= 1 && Number(scale) >= 10000;
+  const [channel, setChannel] = useState<BookChannel | null>(null);
+  const [primaryGenre, setPrimaryGenre] = useState<string | null>(null);
+  const [secondaryGenres, setSecondaryGenres] = useState<string[]>([]);
+  const [storyTraits, setStoryTraits] = useState<string[]>([]);
+  const [customTags, setCustomTags] = useState<string[]>([]);
+  const [boundaries, setBoundaries] = useState<string[]>([]);
+  const [customTag, setCustomTag] = useState('');
+  const [tagQuery, setTagQuery] = useState('');
+  const [showAllTags, setShowAllTags] = useState(false);
+  const [idea, setIdea] = useState('');
+  const effectiveChannel = channel ?? 'undecided';
+  const selectedMainTags = [primaryGenre, ...secondaryGenres, ...storyTraits, ...customTags].filter((tag): tag is string => tag !== null);
+  const selectedMainSet = new Set(selectedMainTags);
+  const valid = title.trim().length > 0 && channel !== null;
+  const matchesQuery = (name: string): boolean => tagQuery.trim().length === 0 || name.toLocaleLowerCase('zh-CN').includes(tagQuery.trim().toLocaleLowerCase('zh-CN'));
+  const visibleTags = (options: typeof PRIMARY_GENRES): typeof PRIMARY_GENRES => {
+    const matching = sortTagsForChannel(options, effectiveChannel).filter((option) => matchesQuery(option.name));
+    return showAllTags || tagQuery.trim().length > 0 ? matching : matching.slice(0, 10);
+  };
+  const toggleListTag = (name: string, current: string[], setCurrent: (next: string[]) => void, limit?: number): void => {
+    if (current.includes(name)) {
+      setCurrent(current.filter((item) => item !== name));
+      return;
+    }
+    if (limit !== undefined && current.length >= limit) setCurrent([...current.slice(1), name]);
+    else setCurrent([...current, name]);
+  };
+  const addCustomTag = (): void => {
+    const next = customTag.trim().replace(/^#+/u, '');
+    if (next.length === 0 || selectedMainSet.has(next)) return;
+    const channelAllows = (option: (typeof PRIMARY_GENRES)[number]): boolean => option.channels === undefined || option.channels.includes(effectiveChannel);
+    if (PRIMARY_GENRES.some((option) => option.name === next && channelAllows(option))) {
+      setPrimaryGenre(next);
+      setCustomTag('');
+      return;
+    }
+    if (SECONDARY_GENRES.some((option) => option.name === next && channelAllows(option))) {
+      toggleListTag(next, secondaryGenres, setSecondaryGenres, 2);
+      setCustomTag('');
+      return;
+    }
+    if (STORY_TRAITS.some((option) => option.name === next && channelAllows(option))) {
+      toggleListTag(next, storyTraits, setStoryTraits);
+      setCustomTag('');
+      return;
+    }
+    setCustomTags([...customTags, next]);
+    setCustomTag('');
+  };
+  const submit = (): void => {
+    if (!valid || channel === null) return;
+    const cleanTitle = title.trim();
+    const channelName = channelLabel(channel);
+    const premise = idea.trim() || `《${cleanTitle}》已建立，具体剧情、人物和设定将在团队讨论中确认。`;
+    void onCreate({
+      title: cleanTitle,
+      text: premise,
+      category: primaryGenre ?? '待讨论',
+      classification: channelName,
+      tags: [...selectedMainTags, ...boundaries.map((boundary) => `必须遵守：${boundary}`)]
+    });
+  };
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="create-book-title">
-        <header><div><h2 id="create-book-title">创建一本新书</h2><p>这里只确认作品定位。人物、世界观、力量体系和剧情会在团队讨论中逐步决定。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></header>
-        <label htmlFor="book-title">书名</label>
-        <input id="book-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雾钟档案" />
-        <div className="create-book-grid"><label>题材<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：东方玄幻" /></label><label>分类<input value={classification} onChange={(event) => setClassification(event.target.value)} placeholder="例如：长篇连载" /></label><label>目标读者<input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="例如：喜欢成长与权谋的读者" /></label><label>预计规模<input type="number" min="10000" step="10000" value={scale} onChange={(event) => setScale(event.target.value)} aria-describedby="scale-help" /><small id="scale-help">规范化中文字符，默认300万</small></label></div>
-        <label htmlFor="expression-baseline">表达基线（可留空）</label>
-        <textarea id="expression-baseline" value={baseline} onChange={(event) => setBaseline(event.target.value)} placeholder="例如：第三人称近距离，节奏明快；具体手法随场景调整" rows={3} />
-        <footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={() => void onCreate({ title: title.trim(), text: `${category}；${classification}；面向${audience}`, category: category.trim(), classification: classification.trim(), targetAudience: audience.trim(), expectedScaleChars: Number(scale), ...(baseline.trim() ? { initialExpressionBaseline: baseline.trim() } : {}) })}>{busy ? '正在创建' : '确认建书'}</button></footer>
+      <section className="dialog create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="create-book-title">
+        <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">新作品</span><h2 id="create-book-title">创建一本新书</h2><p>先确定最少的信息。人物、世界观、力量体系和剧情，进入书内后再和团队自然讨论。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
+        <div className="create-book-body">
+          <section className="create-book-basics" aria-labelledby="book-basics-title">
+            <div className="section-heading"><div><span>01</span><h3 id="book-basics-title">基本信息</h3></div><small>仅两项必填</small></div>
+            <label htmlFor="book-title">书名</label>
+            <input id="book-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
+            <fieldset className="channel-fieldset">
+              <legend>创作频道</legend>
+              <div className="channel-options">{BOOK_CHANNELS.map((option) => (
+                <label className={channel === option.id ? 'channel-option selected' : 'channel-option'} key={option.id}>
+                  <input type="radio" name="book-channel" value={option.id} aria-label={option.label} checked={channel === option.id} onChange={() => setChannel(option.id)} />
+                  <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                </label>
+              ))}</div>
+            </fieldset>
+            <label htmlFor="book-idea">一句想法（可不填）</label>
+            <textarea id="book-idea" value={idea} onChange={(event) => setIdea(event.target.value)} rows={2} placeholder="有想法就写下来；没有也可以建书后再讨论。" />
+          </section>
+
+          <section className="create-book-direction" aria-labelledby="book-direction-title">
+            <div className="section-heading"><div><span>02</span><h3 id="book-direction-title">主要方向（可不选）</h3></div><small>{selectedMainTags.length} 个</small></div>
+            <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向，不是每章清单。未选择的元素也可以按剧情自然加入。</p></div></div>
+            <div className="tag-toolbar">
+              <label htmlFor="tag-search">搜索标签</label>
+              <div><MagnifyingGlassIcon /><input id="tag-search" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></div>
+              <button className="text-button" type="button" onClick={() => setShowAllTags((value) => !value)}>{showAllTags ? '只看推荐' : '展开完整标签库'}</button>
+            </div>
+            <TagPicker title="主类型" hint="最多 1 个" kind="主类型" options={visibleTags(PRIMARY_GENRES)} selected={primaryGenre === null ? [] : [primaryGenre]} onToggle={(name) => setPrimaryGenre((current) => current === name ? null : name)} />
+            <TagPicker title="辅助题材" hint="建议 0—2 个" kind="辅助题材" options={visibleTags(SECONDARY_GENRES)} selected={secondaryGenres} onToggle={(name) => toggleListTag(name, secondaryGenres, setSecondaryGenres, 2)} />
+            <TagPicker title="故事特点" hint="按剧情灵活调整" kind="故事特点" options={visibleTags(STORY_TRAITS)} selected={storyTraits} onToggle={(name) => toggleListTag(name, storyTraits, setStoryTraits)} />
+            <div className="custom-tag-row">
+              <label htmlFor="custom-main-tag">自定义主要标签</label>
+              <div><input id="custom-main-tag" value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} placeholder="输入目录里没有的标签" /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div>
+            </div>
+            {selectedMainTags.length > 0 && <div className="selected-tag-strip" aria-label="已选主要标签">{selectedMainTags.map((tag) => <button type="button" key={tag} aria-label={`移除主要标签：${tag}`} onClick={() => {
+              if (primaryGenre === tag) setPrimaryGenre(null);
+              setSecondaryGenres((items) => items.filter((item) => item !== tag));
+              setStoryTraits((items) => items.filter((item) => item !== tag));
+              setCustomTags((items) => items.filter((item) => item !== tag));
+            }}>{tag}<XIcon /></button>)}</div>}
+            <p className={selectedMainTags.length > 8 ? 'selection-guidance warning' : 'selection-guidance'}>当前 {selectedMainTags.length} 个主要标签。建议选 4—7 个；超过 8 个也能继续，但可能让早期方向分散。</p>
+            <details className="boundary-panel">
+              <summary><span><ShieldCheckIcon /><strong>必须遵守（可不选）</strong></span><small>{boundaries.length === 0 ? '默认没有额外限制' : `${boundaries.length} 条边界`}</small></summary>
+              <p>这里只放您明确不能接受的内容。自由发挥不能越过这些边界；当前先保存到定位卡，在您确认这套界面前不自动启用新的章节硬门禁。</p>
+              {BOUNDARY_GROUPS.map((group) => <section key={group.name}><header><strong>{group.name}</strong><small>{group.description}</small></header><div className="tag-options">{group.options.map((name) => {
+                const selected = boundaries.includes(name);
+                return <button className={selected ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selected} aria-label={`${selected ? '取消' : '选择'}必须遵守：${name}`} key={name} onClick={() => toggleListTag(name, boundaries, setBoundaries)}>{selected && <CheckCircleIcon />}{name}</button>;
+              })}</div></section>)}
+            </details>
+            <div className="candidate-tag-note"><BrainIcon /><div><strong>候选标签</strong><p>开书后，讨论中出现的新方向先作为候选；老板确认前不会变成主要标签。</p></div></div>
+          </section>
+        </div>
+        <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : `${channelLabel(channel)} · ${selectedMainTags.length} 个主要标签 · ${boundaries.length} 条边界`}</span></div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={submit}>{busy ? '正在创建' : '确认建书'}</button></div></footer>
       </section>
     </div>
   );
+}
+
+function TagPicker({ title, hint, kind, options, selected, onToggle }: { title: string; hint: string; kind: string; options: typeof PRIMARY_GENRES; selected: string[]; onToggle: (name: string) => void }): React.JSX.Element {
+  return <section className="tag-picker"><header><strong>{title}</strong><small>{hint}</small></header><div className="tag-options">{options.map((option) => {
+    const active = selected.includes(option.name);
+    return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}${kind}：${option.name}`} key={option.name} onClick={() => onToggle(option.name)}>{active && <CheckCircleIcon />}{option.name}</button>;
+  })}</div></section>;
+}
+
+function ArchiveBookDialog({ book, busy, onCancel, onConfirm }: { book: BookData; busy: boolean; onCancel: () => void; onConfirm: () => Promise<void> }): React.JSX.Element {
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="dialog archive-dialog" role="dialog" aria-modal="true" aria-labelledby="archive-book-title"><div className="dialog-heading"><div><span className="dialog-eyebrow">整理书架</span><h2 id="archive-book-title">归档《{book.title}》</h2><p>归档后会从主书架收起，不会删除正文、正史或资料，可以随时恢复。</p></div><button className="icon-button" type="button" aria-label="关闭归档确认" onClick={onCancel}><XIcon /></button></div><div className="archive-impact"><ArchiveBoxIcon /><span><strong>本次操作可逆</strong><small>书籍停止作为当前创作对象，数据原样保留。</small></span></div><footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={() => void onConfirm()}>{busy ? '正在归档' : '确认归档'}</button></footer></section></div>;
 }
 
 function chapterStatus(chapter: ChapterData, tasks: TaskData[] = []): string {
