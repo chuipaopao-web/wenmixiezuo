@@ -24,7 +24,7 @@
 | 全量类型/测试/构建 | `npm run verify` | 三工作区类型通过；100文件、214项测试通过；API/Web/Worker构建通过 |
 | 生命周期恢复专项 | `npm test -- tests/integration/data-safety/book-lifecycle.test.ts tests/integration/experience/workspace-ui.test.tsx` | 2文件、18项通过 |
 | 正式库迁移 | `npm run migrate` | Schema 18，`applied: []`，重复运行安全 |
-| 发布验收 | `npm run acceptance` | 提交前功能3/3通过；唯一预期失败为工作树尚未提交，提交后复跑 |
+| 发布验收 | `npm run acceptance` | 核心提交 `4c47b8fa85c6fd982d572cbbb93b754f22e78193` 后3文件/3项通过，审计 `failures: []`、工作树clean |
 | 实机视觉 | Chrome 1600×900，`http://127.0.0.1:43110/?newBook=1` | 固定一屏、双区滚动、按钮未截断 |
 
 ## 故障与修复
