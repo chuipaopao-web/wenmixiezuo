@@ -10,6 +10,7 @@ export interface LocalEmbeddingConfig {
   expectedAssetHash: string;
   dimension: number;
   cacheDir: string;
+  queryInstruction?: string;
 }
 
 type FeatureExtractor = (text: string, options: { pooling: 'mean'; normalize: true }) => Promise<{ data: ArrayLike<number> }>;
@@ -37,7 +38,8 @@ export class LocalTransformersEmbedding implements EmbeddingAdapter {
 
   public async embedQuery(text: string): Promise<number[]> {
     if (!this.available) throw new Error(this.degradationReason!);
-    return this.embed(text);
+    const instruction = this.config.queryInstruction?.trim() ?? '';
+    return this.embed(instruction.length === 0 ? text : `${instruction}${text}`);
   }
 
   private async embed(text: string): Promise<number[]> {
@@ -47,9 +49,9 @@ export class LocalTransformersEmbedding implements EmbeddingAdapter {
       env.localModelPath = resolve(this.config.modelPath, '..');
       env.cacheDir = this.config.cacheDir;
       const createFeaturePipeline = pipeline as unknown as (
-        task: 'feature-extraction', model: string, options: { local_files_only: true }
+        task: 'feature-extraction', model: string, options: { local_files_only: true; dtype: 'q8' }
       ) => Promise<FeatureExtractor>;
-      this.#extractor = await createFeaturePipeline('feature-extraction', this.config.modelPath, { local_files_only: true });
+      this.#extractor = await createFeaturePipeline('feature-extraction', this.config.modelPath, { local_files_only: true, dtype: 'q8' });
     }
     const output = await this.#extractor(text, { pooling: 'mean', normalize: true });
     const vector = Array.from(output.data);
@@ -61,10 +63,10 @@ export class LocalTransformersEmbedding implements EmbeddingAdapter {
 export function hashDirectory(directory: string): string {
   if (!existsSync(directory)) return '';
   const hash = createHash('sha256');
-  for (const path of listFiles(directory)) {
-    const relative = path.slice(directory.length).replaceAll('\\', '/');
+  for (const path of listFiles(directory).sort((left, right) => left.localeCompare(right))) {
+    const relative = path.slice(directory.length).replaceAll('\\', '/').replace(/^\/+/, '');
     hash.update(relative);
-    hash.update(readFileSync(path));
+    hash.update(createHash('sha256').update(readFileSync(path)).digest('hex'));
   }
   return hash.digest('hex');
 }
@@ -74,7 +76,7 @@ function listFiles(directory: string): string[] {
   for (const entry of readdirSync(directory).sort()) {
     const path = resolve(directory, entry);
     if (statSync(path).isDirectory()) result.push(...listFiles(path));
-    else result.push(path);
+    else if (entry !== 'asset.json') result.push(path);
   }
   return result;
 }

@@ -154,10 +154,13 @@ export class ChunkSnapshotRepository {
   public searchFts(scope: BookScope, snapshotId: string, query: string, limit: number): Array<{
     chunkId: string; rank: number; text: string; sourceType: string; sourceId: string; sourceVersion: string;
     sourceHash: string; contentHash: string; byteStart: number; byteEnd: number; lifecycleLayer: 'temporary' | 'candidate' | 'canon' | 'derived';
+    matchedTerms: number; queryTerms: number;
   }> {
     assertBookScope(scope);
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('FTS返回数量无效');
-    return this.database.prepare(`
+    const terms = lexicalQueryTerms(query);
+    const minimumMatches = terms.length <= 2 ? 1 : 2;
+    const rows = this.database.prepare(`
       SELECT f.content_chunk_id AS chunkId, bm25(content_chunks_fts) AS rank, c.index_text AS text,
              c.source_type AS sourceType, c.source_id AS sourceId, c.source_version AS sourceVersion,
              c.source_hash AS sourceHash, c.content_hash AS contentHash, c.byte_start AS byteStart,
@@ -166,10 +169,12 @@ export class ChunkSnapshotRepository {
         AND c.owner_id = f.owner_id AND c.book_id = f.book_id AND c.chunk_snapshot_id = f.chunk_snapshot_id
       WHERE content_chunks_fts MATCH ? AND f.owner_id = ? AND f.book_id = ? AND f.chunk_snapshot_id = ?
       ORDER BY rank LIMIT ?
-    `).all(ftsQuery(query), scope.ownerId, scope.bookId, snapshotId, limit) as unknown as Array<{
+    `).all(ftsQuery(query), scope.ownerId, scope.bookId, snapshotId, Math.min(400, limit * 4)) as unknown as Array<{
       chunkId: string; rank: number; text: string; sourceType: string; sourceId: string; sourceVersion: string;
       sourceHash: string; contentHash: string; byteStart: number; byteEnd: number; lifecycleLayer: 'temporary' | 'candidate' | 'canon' | 'derived';
     }>;
+    return rows.map((row) => ({ ...row, matchedTerms: terms.filter((term) => row.text.includes(term)).length, queryTerms: terms.length }))
+      .filter((row) => row.matchedTerms >= minimumMatches).slice(0, limit);
   }
 
   public requireChunk(scope: BookScope, snapshotId: string, chunkId: string): {
@@ -205,9 +210,20 @@ function lexicalizeChinese(text: string): string {
 }
 
 function ftsQuery(query: string): string {
+  const tokens = lexicalQueryTerms(query);
+  if (tokens.length === 0) throw new Error('FTS查询没有有效词元');
+  return [...new Set(tokens)].map((token) => `"${token.replaceAll('"', '""')}"`).join(' OR ');
+}
+
+function lexicalQueryTerms(query: string): string[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) throw new Error('FTS查询不能为空');
-  const tokens = trimmed.match(/[\p{Script=Han}]{1,2}|[\p{L}\p{N}_]+/gu) ?? [];
-  if (tokens.length === 0) throw new Error('FTS查询没有有效词元');
-  return [...new Set(tokens)].map((token) => `"${token.replaceAll('"', '""')}"`).join(' AND ');
+  const tokens: string[] = [];
+  for (const run of trimmed.match(/[\p{Script=Han}]+/gu) ?? []) {
+    const characters = [...run];
+    if (characters.length === 1) tokens.push(characters[0]!);
+    else for (let index = 0; index + 1 < characters.length; index += 1) tokens.push(`${characters[index]}${characters[index + 1]}`);
+  }
+  tokens.push(...(trimmed.match(/[\p{L}\p{N}_]{2,}/gu) ?? []).filter((token) => !/[\p{Script=Han}]/u.test(token)));
+  return [...new Set(tokens)];
 }

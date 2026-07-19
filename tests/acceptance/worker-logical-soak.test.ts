@@ -24,6 +24,7 @@ describe('Worker 24小时逻辑稳定性', () => {
     initializeRuntimeBook(context, scope, ids, clock, '24小时稳定性书');
     const workerId = 'worker-logical-24h';
     heartbeat = new WorkerHeartbeat(context.database, {
+      dataDir: context.dataDir,
       databasePath: context.config.databasePath,
       releaseId: context.config.releaseId,
       workerId,

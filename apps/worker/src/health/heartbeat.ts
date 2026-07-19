@@ -5,11 +5,13 @@ export class WorkerHeartbeat {
   readonly #startedAt = new Date().toISOString();
   #timer: NodeJS.Timeout | undefined;
   #currentTaskId: string | null = null;
+  #extraCapabilities: string[];
 
   public constructor(
     private readonly database: DatabaseSync,
-    private readonly config: WorkerConfig
-  ) {}
+    private readonly config: WorkerConfig,
+    extraCapabilities: string[] = []
+  ) { this.#extraCapabilities = [...extraCapabilities]; }
 
   public start(): void {
     this.write();
@@ -26,6 +28,11 @@ export class WorkerHeartbeat {
 
   public setCurrentTask(taskId: string | null): void {
     this.#currentTaskId = taskId;
+    this.write();
+  }
+
+  public setExtraCapabilities(capabilities: string[]): void {
+    this.#extraCapabilities = [...capabilities];
     this.write();
   }
 
@@ -47,7 +54,7 @@ export class WorkerHeartbeat {
       process.pid,
       this.#startedAt,
       new Date().toISOString(),
-      JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim']),
+      JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim', ...this.#extraCapabilities]),
       this.#currentTaskId
     );
   }

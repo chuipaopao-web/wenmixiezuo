@@ -14,6 +14,7 @@ function findProjectRoot(start = process.cwd()): string {
 }
 
 export interface WorkerConfig {
+  dataDir: string;
   databasePath: string;
   releaseId: string;
   workerId: string;
@@ -26,6 +27,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
   const dataDir = resolve(env.WENMI_DATA_DIR ?? resolve(projectRoot, 'data'));
   mkdirSync(resolve(dataDir, 'database'), { recursive: true });
   return {
+    dataDir,
     databasePath: resolve(dataDir, 'database', 'wenmi.sqlite'),
     releaseId: readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim(),
     workerId: env.WENMI_WORKER_ID ?? 'local-worker-1',

@@ -1,9 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const projectRoot = process.cwd();
+const launcherRecordPath = resolve(projectRoot, 'data', 'control', 'desktop-launcher.pid');
+const stopRequestPath = resolve(projectRoot, 'data', 'control', 'desktop-stop.request.json');
 const userEnvironmentNames = [
   'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS',
   'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL',
@@ -62,14 +64,40 @@ const spawnService = (name, command, args, environment = nonModelEnvironment) =>
 };
 
 let stopping = false;
+let stopRequestTimer;
 function stopAll(exitCode = 0) {
   if (stopping) return;
   stopping = true;
+  if (stopRequestTimer !== undefined) clearInterval(stopRequestTimer);
+  rmSync(stopRequestPath, { force: true });
   for (const child of children) {
     if (!child.killed) child.kill('SIGTERM');
   }
   setTimeout(() => process.exit(exitCode), 800).unref();
 }
+
+function consumeVerifiedStopRequest() {
+  if (stopping || !existsSync(stopRequestPath) || !existsSync(launcherRecordPath)) return;
+  try {
+    const request = readControlJson(stopRequestPath);
+    const launcher = readControlJson(launcherRecordPath);
+    if (request.schemaVersion !== 1 || launcher.schemaVersion !== 1
+      || request.processId !== process.pid || launcher.processId !== process.pid
+      || request.startedAtUtc !== launcher.startedAtUtc
+      || request.projectRoot.toLocaleLowerCase('en-US') !== projectRoot.toLocaleLowerCase('en-US')
+      || launcher.entryPoint !== 'scripts/start.mjs') return;
+    stopAll(0);
+  } catch {
+    // 不完整或被篡改的控制文件不能触发任何进程操作。
+  }
+}
+
+function readControlJson(path) {
+  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/u, ''));
+}
+
+stopRequestTimer = setInterval(consumeVerifiedStopRequest, 200);
+stopRequestTimer.unref();
 
 async function waitForApi() {
   const deadline = Date.now() + 20_000;

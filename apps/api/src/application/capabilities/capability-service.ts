@@ -37,7 +37,8 @@ export class CapabilityService {
         vectorSearchAvailable: vectorRuntimeReady && embeddingAssetReady,
         vectorRuntimeReady,
         embeddingAssetReady,
-        localModelAssetsReady: modelAssets.some((asset) => asset.kind === 'local-utility' && asset.status === 'verified')
+        localModelAssetsReady: modelAssets.some((asset) => asset.status === 'verified'
+          && (asset.kind === 'local-utility' || asset.capabilities.includes('local-utility')))
       }
     };
   }

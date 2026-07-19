@@ -1,0 +1,38 @@
+{
+  "version": "retrieval-gold-v1",
+  "frozenBeforeEvaluation": true,
+  "documents": [
+    { "sourceId": "canon-war", "content": "张三依照王国宣战规则，向天安城递交战书。守军粮草只够七日。" },
+    { "sourceId": "canon-healer", "content": "苏瑶用三枚银针压住旧伤复发的经脉，终于让昏迷的沈砚睁开眼睛。" },
+    { "sourceId": "canon-ring", "content": "青铜戒指并非饰物，而是月蚀之夜开启王宫地下石门的唯一钥匙。" },
+    { "sourceId": "canon-well", "content": "只有叶宁能在暴雨夜听见古井里的歌声，其他人靠近时只听到风声。" },
+    { "sourceId": "canon-truce", "content": "北境停战协议规定，双方必须在日落后的第三天以前撤出灰河谷。" },
+    { "sourceId": "canon-voice", "content": "顾川说话很少使用完整长句；他紧张时会先重复对方最后两个字，再给出回答。" },
+    { "sourceId": "canon-omen", "content": "白羽落在窗台不是吉兆，而是失踪斥候留下的联络暗号。" },
+    { "sourceId": "canon-port", "content": "雾港通往内陆只有盐桥和北侧旧水道两条路线，涨潮时旧水道无法通行。" },
+    { "sourceId": "canon-magic", "content": "任何连续施放三次以上的燃魂术都会反噬施术者的短期记忆，休息不能立即恢复。" },
+    { "sourceId": "canon-debt", "content": "韩七曾替林澈承担罪名，因此林澈承诺在王都审判前救出韩七的妹妹。" }
+  ],
+  "queries": [
+    { "id": "exact-1", "kind": "exact", "query": "张三依照什么规则向天安城递交战书？", "relevant": ["canon-war"] },
+    { "id": "exact-2", "kind": "exact", "query": "北境停战协议要求什么时候撤出灰河谷？", "relevant": ["canon-truce"] },
+    { "id": "exact-3", "kind": "exact", "query": "顾川紧张时说话有什么习惯？", "relevant": ["canon-voice"] },
+    { "id": "exact-4", "kind": "exact", "query": "雾港通往内陆有哪些路线？", "relevant": ["canon-port"] },
+    { "id": "semantic-1", "kind": "semantic", "query": "谁用针术救醒了昏迷的人？", "relevant": ["canon-healer"] },
+    { "id": "semantic-2", "kind": "semantic", "query": "月蚀发生时，打开地下入口需要哪件东西？", "relevant": ["canon-ring"] },
+    { "id": "semantic-3", "kind": "semantic", "query": "雨夜井中歌声只有谁能够听到？", "relevant": ["canon-well"] },
+    { "id": "semantic-4", "kind": "semantic", "query": "反复使用燃魂术会付出什么代价？", "relevant": ["canon-magic"] },
+    { "id": "semantic-5", "kind": "semantic", "query": "林澈为什么必须营救韩七的妹妹？", "relevant": ["canon-debt"] },
+    { "id": "semantic-6", "kind": "semantic", "query": "窗边出现白色羽毛代表什么秘密信号？", "relevant": ["canon-omen"] },
+    { "id": "none-1", "kind": "no_answer", "query": "草莓蛋糕应该用多少度烘焙？", "relevant": [] },
+    { "id": "none-2", "kind": "no_answer", "query": "量子芯片需要怎样的超导材料？", "relevant": [] },
+    { "id": "none-3", "kind": "no_answer", "query": "棒球比赛第九局采用什么换人规则？", "relevant": [] }
+  ],
+  "thresholds": {
+    "hybridRecallAt5": 0.9,
+    "hybridMrr": 0.75,
+    "semanticRecallAt5": 0.8,
+    "noAnswerAccuracy": 1.0,
+    "crossBookLeakage": 0
+  }
+}

@@ -20,7 +20,7 @@ describe('本机能力探针', () => {
     writeFileSync(resolve(assetDirectory, 'model.bin'), bytes);
     writeFileSync(resolve(assetDirectory, 'asset.json'), JSON.stringify({
       assetId: 'embedding-mini', kind: 'embedding', modelId: 'fixture-embedding', revision: '1',
-      license: 'test-only', capabilities: ['embedding'],
+      license: 'test-only', capabilities: ['embedding', 'local-utility'],
       files: [{ path: 'model.bin', sha256: createHash('sha256').update(bytes).digest('hex') }]
     }));
 
@@ -39,7 +39,8 @@ describe('本机能力探针', () => {
       expect.objectContaining({ capability: 'local-inference', packageName: 'onnxruntime-node', status: expect.stringMatching(/available|missing/) })
     ]));
     expect(snapshot.modelAssets).toContainEqual(expect.objectContaining({ assetId: 'embedding-mini', status: 'verified', filesVerified: 1 }));
-    expect(snapshot.degradation).toMatchObject({ vectorSearchAvailable: true, vectorRuntimeReady: true, embeddingAssetReady: true });
+    expect(snapshot.degradation).toMatchObject({ vectorSearchAvailable: true, vectorRuntimeReady: true,
+      embeddingAssetReady: true, localModelAssetsReady: true });
     expect(JSON.stringify(snapshot)).not.toContain(context.dataDir);
     expect(JSON.stringify(snapshot)).not.toContain(context.config.workerToken);
   });

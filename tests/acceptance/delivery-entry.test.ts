@@ -18,6 +18,7 @@ describe('最终交付入口', () => {
     expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
     expect(launcher).toContain('*<div id="root"></div>*');
     expect(launcher).toContain('Test-WenmiReady');
+    expect(launcher).toContain('startedAtUtc');
     expect(launcher).toContain("[Environment]::SetEnvironmentVariable($name, $value, 'Process')");
     expect(processLauncher).toContain("execFileSync('reg.exe'");
     expect(processLauncher).toContain("'HKCU\\\\Environment'");
@@ -26,6 +27,9 @@ describe('最终交付入口', () => {
     expect(processLauncher).toContain("spawnService('API', process.execPath, ['apps/api/dist/main.js'], apiEnvironment)");
     expect(stopper).toContain("scripts/start.mjs");
     expect(stopper).toContain('Refusing to stop');
+    expect(stopper).toContain('desktop-stop.request.json');
+    expect(stopper).not.toContain('Get-CimInstance');
+    expect(processLauncher).toContain('consumeVerifiedStopRequest');
     expect(guide).toContain('双击项目根目录');
     expect(guide).toContain('确定性假模型');
     expect(guide).toContain('第二物理备份');

@@ -529,3 +529,21 @@
 - 回滚方法：对本任务文档提交执行非破坏性 `git revert`；未来运行时按不可变策略/索引快照回滚RRF、Top-K、关系预算、重排和灵感模板，不回滚正史、安全、版权和隔离门禁。
 - 复核人：当前Codex依据三套Skill完成两轮审查；受“不调用其他开发Agent”约束，本次E0审查不声称人员独立，后续E3/E4必须使用独立金标、隐藏对抗集、盲评和真实作者验收。
 - 当前证据：核心提交 `b10630c`；专项审计器返回 `PASS: docs\HYBRID_RETRIEVAL_ORCHESTRATION.md`；官方Skill校验返回 `Skill is valid!`；`git diff --check` 和规格扫描通过；相同代码在允许 `127.0.0.1` 回环后类型检查、63个测试文件/132项测试和API/Web/Worker构建全部通过；迁移/Repository/恢复目标集11个文件/19项通过；提交前发布功能验收3/3通过，提交后复跑3/3通过且审计 `failures: []`、工作树clean。完整记录见 `docs/releases/wm-v1-20260716-220959-d5dd704d/increments/2026-07-18-four-channel-retrieval-orchestration.md`。
+
+## 实现任务 LONGFORM-RUNTIME-20260719-01：运行闭环补缺
+
+- `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`；`design_review_id`：`DR-20260719-10`。
+- 状态：实现与新鲜验证完成，等待最终提交/远程备份。
+- 目标：把发布账本、本地语义资产、LanceDB向量投影、公开混合RAG、小文秘书语义候选、点名直达和五模型套餐连通从“已有Schema/适配器”补成真实运行链。
+- 不做什么：不新增独立数据库服务，不把本地模型变成创作Agent，不生成/结算小说正史，不执行按量付费，不触碰 `D:\AI智囊团`，不伪造独立E3或纵向E4。
+- 唯一负责人：当前Codex；未调用其他开发Agent。
+- 允许文件：当前release账本/证据、API/Worker检索与聊天运行时、模型安装/评测脚本、回归测试、当前规格；模型权重只进入被Git忽略的 `data/cache/models`。
+- 禁止文件：来源快照文档、既有迁移改写、API Key、智囊团目录、未经确认的正式正文/正史。
+- 依赖：DEC-031、DR-20260719-10、Schema 18、固定Node/SQLite/LanceDB/Transformers.js和环境变量中的订阅套餐凭证。
+- 实现约束：资产固定revision和哈希、运行时禁远程下载；向量表自检后短事务切水位；四通道独立降级；同源聚类；无答案不强填；保护/点名先于语义模型；所有真实模型调用strict plan-only且现金fallback=false。
+- 验收标准：本地模型/向量/混合检索/秘书/点名/五模型均有真实证据；类型、全量测试、构建、迁移、启动、满规模、正式备份隔离恢复和release账本通过；无跨书、秘密或现金回退。
+- 测试命令：`npm run models:verify`、`npm run models:probe`、`npm run runtime:vector-e2e`、`npm run evaluate:retrieval-gold`、`npm run runtime:model-connectivity`、`npm run verify`、`npm run migrate`、`npm run evaluate:scale`、`npm run verify:backup`、`npm run acceptance`。
+- 停止条件：实际现金请求、新密钥/登录、永久删除、生产恢复、重大架构变化、跨书泄漏或无法解释的来源闭环失败；本任务未触发。
+- 回滚方法：关闭语义候选回到确定性路由；禁用向量通道并保留FTS/结构/关系；切回上一投影水位；代码使用向前修复或非破坏性revert；不回滚正史。
+- 复核人：当前Codex依据项目长篇质量Skill两轮自审；单人限制如实记录，冻结检索集只标记 `E3-retrieval-candidate`。
+- 当前证据：见当前release `evidence/runtime-completion-evidence.md`；五模型真实通道现金0，实际BGE/LanceDB/四路检索通过，无答案和同源重复在失败样本驱动下修复，500万字符/1500章回放和正式备份隔离恢复通过。

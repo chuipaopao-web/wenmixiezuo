@@ -27,4 +27,4 @@
 | 7 最终工作台与可移植 | 通过 | `stages/07-experience-portability.md` |
 | 8 全规模验收与发布 | 通过 | `stages/08-scale-recovery-release.md`、`evidence/final-scale-e2.json` |
 
-八阶段E2工程证据已冻结。E3独立评测和E4真实文学质量尚未取得并分别报告，不能与E2互相冒充。
+八阶段E2工程证据已冻结，DR-20260719-10又补齐真实本地语义资产、LanceDB向量投影、公开四路检索、小文秘书语义候选、点名直达和五个订阅模型最小真实连通。冻结检索集取得 `E3-retrieval-candidate`，但因没有独立人类评测者不冒充完整E3；E4真实纵向文学质量仍未取得，不能与工程容量或连通性互相冒充。

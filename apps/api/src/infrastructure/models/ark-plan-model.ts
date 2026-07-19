@@ -62,7 +62,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         body: JSON.stringify({
           model: this.modelId,
           max_tokens: request.maxOutputTokens,
-          ...(this.modelId.startsWith('glm-') ? { thinking: { type: 'disabled' } } : {}),
+          ...(requiresVisibleOutput(this.modelId) ? { thinking: { type: 'disabled' } } : {}),
           system: this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
           messages: [{ role: 'user', content: request.prompt }]
         }),
@@ -93,6 +93,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function requiresVisibleOutput(modelId: string): boolean {
+  return modelId.startsWith('glm-') || modelId.startsWith('kimi-');
 }
 
 function finiteTokenCount(value: number | undefined): number {

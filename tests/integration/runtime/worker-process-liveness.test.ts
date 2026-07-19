@@ -29,9 +29,8 @@ describe('Worker生产进程生命周期', () => {
       },
       stdio: 'ignore'
     });
-    await delay(1_300);
+    const first = await waitForHeartbeat(context.database, workerId, 5_000);
     expect(child.exitCode).toBeNull();
-    const first = context.database.prepare(`SELECT heartbeat_at FROM worker_health WHERE worker_id = ?`).get(workerId) as { heartbeat_at: string } | undefined;
     expect(first).toBeDefined();
     await delay(5_200);
     const second = context.database.prepare(`SELECT heartbeat_at FROM worker_health WHERE worker_id = ?`).get(workerId) as { heartbeat_at: string };
@@ -41,4 +40,14 @@ describe('Worker生产进程生命周期', () => {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
+async function waitForHeartbeat(database: TestContext['database'], workerId: string, timeoutMs: number): Promise<{ heartbeat_at: string } | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const row = database.prepare(`SELECT heartbeat_at FROM worker_health WHERE worker_id = ?`).get(workerId) as { heartbeat_at: string } | undefined;
+    if (row !== undefined) return row;
+    await delay(50);
+  }
+  return undefined;
 }

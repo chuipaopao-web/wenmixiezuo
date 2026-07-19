@@ -10,7 +10,7 @@ export class ProjectionLoop {
   private async tick(): Promise<void> {
     if (this.#working) return;
     this.#working = true;
-    try { this.executor.runNext(); }
+    try { await this.executor.runNext(); }
     catch (error) { console.error(JSON.stringify({ service: 'wenmi-worker', component: 'projection-loop', errorType: error instanceof Error ? error.name : 'UnknownError' })); }
     finally { this.#working = false; }
   }

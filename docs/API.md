@@ -171,6 +171,7 @@
 | GET | `/books/{bookId}/memory` | 按层级、实体、章节和状态查询记忆 |
 | GET | `/books/{bookId}/facts` | 查询事实、证据、故事时间和正史状态 |
 | GET | `/books/{bookId}/entities/{entityId}` | 查询实体历史和当前状态 |
+| POST | `/books/{bookId}/retrievals` | 执行并持久化四通道混合检索，返回计划、通道状态、融合命中和证据闭环 |
 | POST | `/books/{bookId}/retrieval/preview` | 预览某任务将召回的资料 |
 | GET | `/books/{bookId}/context-packs/{contextPackId}` | 查询模型调用的资料来源和预算 |
 | POST | `/books/{bookId}/facts/{factId}/correct-request` | 创建事实纠正确认单 |
@@ -178,6 +179,8 @@
 接口不得返回模型内部思维链或原始嵌入向量；只返回人类可读语义、来源、采用原因、检查结果和可审计产物。标签定义不等于事实，候选/派生标注必须与老板确认标注分开返回；带生死、知情、归属、核心关系或世界规则含义的赋值必须携带对应事实与确认状态。资料缺口必须携带任务相关理由，不返回要求填满所有可选字段的虚假总完成率。
 
 检索预览响应必须包含查询意图/子意图、正史版本、故事时点、观点主体、实体消歧、活动工作集、各通道水位和本地候选量；结果按H硬约束、E证据、I灵感分组，并返回同源证据簇、冲突组、RRF分量/岗位调整、正式事实或最小原文闭环、采用/排除原因、实际注入资料与Token。普通模式可以把底层数值折叠为可读原因，高级诊断可查看版本化分量，但不能把融合分展示为事实置信度。
+
+当前执行接口请求至少包含 `query`、`canonRevision`，可选 `roleKey`、`mode`、`taskId`、`limit`、`sourceTypes`、`worldTime`、`knowledgeTime` 和 `viewpointEntityId`。响应的 `channels` 固定公开 `structured/fts/vector/relation` 各自的 `ready/degraded/skipped`、原因、候选/采用数和耗时；`hits` 不返回原始向量，包含车道、来源版本/哈希/最小定位、同源簇、闭环结果和融合排序。BGE向量使用版本化保守距离门槛拒绝无关近邻；命中不足时返回空结果，不以最像片段强填答案。
 
 ## 10. 正史与确认
 

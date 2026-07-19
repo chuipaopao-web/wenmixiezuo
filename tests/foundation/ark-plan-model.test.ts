@@ -17,8 +17,9 @@ describe('火山方舟严格套餐适配器', () => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/plan/v1/messages');
       expect(init?.method).toBe('POST');
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer agent-test-key');
-      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[] };
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string } };
       expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 });
+      expect(body.thinking).toEqual({ type: 'disabled' });
       expect(body.messages).toHaveLength(1);
       return Response.json({
         model: 'kimi-k2.6',

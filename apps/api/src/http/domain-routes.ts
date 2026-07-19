@@ -14,7 +14,7 @@ import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterCatalogService } from '../application/chapters/chapter-catalog-service.js';
 import { CanonService, type FactInput } from '../application/knowledge/canon-service.js';
 import { MemoryService, type MemoryLayer } from '../application/memory/memory-service.js';
-import { RetrievalService } from '../application/memory/retrieval-service.js';
+import { HybridRetrievalService } from '../application/memory/hybrid-retrieval-service.js';
 import { ContextPackService, type ContextPackInput } from '../application/memory/context-pack-service.js';
 import { ChapterBatchService } from '../application/creation/chapter-batch-service.js';
 import { resolveInside } from '../infrastructure/files/file-utils.js';
@@ -40,6 +40,12 @@ import { ModelBindingV2Service } from '../application/agents/model-binding-v2-se
 import { BookPortabilityService } from '../application/portability/book-portability-service.js';
 import { TaxonomyService } from '../application/knowledge/taxonomy-service.js';
 import { TaxonomyRepository } from '../infrastructure/db/repositories/taxonomy-repository.js';
+import { RetrievalOrchestrationRepository } from '../infrastructure/db/repositories/retrieval-orchestration-repository.js';
+import { KnowledgeRepository } from '../infrastructure/db/repositories/knowledge-repository.js';
+import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk-snapshot-repository.js';
+import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
+import { LocalSemanticUtilityModel } from '../infrastructure/retrieval/local-semantic-utility-model.js';
+import type { RetrievalMode } from '../contracts/retrieval-plan.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -56,13 +62,18 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const chapters = new ChapterCatalogService(database, ids, clock);
   const canon = new CanonService(database, ids, clock);
   const memory = new MemoryService(database, ids, clock);
-  const retrieval = new RetrievalService(database, ids, clock);
+  const localRetrievalRuntime = loadLocalRetrievalRuntime(config.dataDir);
+  const retrieval = new HybridRetrievalService(
+    new RetrievalOrchestrationRepository(database), new KnowledgeRepository(database),
+    new ChunkSnapshotRepository(database), ids, clock, localRetrievalRuntime
+  );
   const contextPacks = new ContextPackService(database, ids, clock);
   const chapterBatches = new ChapterBatchService(database, config.dataDir, config.releaseId, ids, clock, modelAdapters);
   const projections = new NarrativeProjectionService(database, ids, clock);
   const copyright = new CopyrightService(database, ids, clock);
   const research = new ResearchService(database, ids, clock);
-  const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock);
+  const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock,
+    localRetrievalRuntime === undefined ? undefined : new LocalSemanticUtilityModel(localRetrievalRuntime.embedding));
   const tasks = new TaskService(database, config.releaseId, clock);
   const chapterApprovals = new ChapterApprovalService(
     new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks
@@ -562,14 +573,18 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(memory.listActive({ ...owner, bookId: request.params.bookId }, request.query), request.id);
   });
 
-  app.post<{ Params: { bookId: string }; Body: { query: string; taskId?: string; limit?: number; sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number } }>('/api/v1/books/:bookId/retrievals', async (request) => {
-    const { query, ...options } = request.body;
-    return success(retrieval.search({ ...owner, bookId: request.params.bookId }, query, options), request.id);
+  app.post<{ Params: { bookId: string }; Body: { query: string; roleKey?: string; mode?: RetrievalMode; taskId?: string; limit?: number;
+    sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number; worldTime?: string | null; knowledgeTime?: string | null;
+    viewpointEntityId?: string | null } }>('/api/v1/books/:bookId/retrievals', async (request) => {
+    const { query, roleKey = 'chief_editor', mode = 'open_discussion', ...options } = request.body;
+    return success(await retrieval.search({ ...owner, bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
   });
 
-  app.post<{ Params: { bookId: string }; Body: { query: string; taskId?: string; limit?: number; sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number } }>('/api/v1/books/:bookId/retrieval/preview', async (request) => {
-    const { query, ...options } = request.body;
-    return success(retrieval.search({ ...owner, bookId: request.params.bookId }, query, options), request.id);
+  app.post<{ Params: { bookId: string }; Body: { query: string; roleKey?: string; mode?: RetrievalMode; taskId?: string; limit?: number;
+    sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number; worldTime?: string | null; knowledgeTime?: string | null;
+    viewpointEntityId?: string | null } }>('/api/v1/books/:bookId/retrieval/preview', async (request) => {
+    const { query, roleKey = 'chief_editor', mode = 'open_discussion', ...options } = request.body;
+    return success(await retrieval.search({ ...owner, bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: ContextPackInput }>('/api/v1/books/:bookId/context-packs', async (request) => {
@@ -615,7 +630,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { content: string } }>('/api/v1/books/:bookId/messages', async (request) => {
-    return success(conversations.sendBossMessage({ ...owner, bookId: request.params.bookId }, request.body.content), request.id);
+    return success(await conversations.sendBossMessageWithLocalAssistant({ ...owner, bookId: request.params.bookId }, request.body.content), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {

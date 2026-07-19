@@ -14,7 +14,7 @@
 - 记忆：短期会话状态、可重建书籍导航缓存、老板明确的操作/UI偏好、经验证的工具/路由经验；不自动记忆创作喜好，不另建私人正史。
 - 输出Schema：`routeClass`、`riskLevel`、`confidenceBand`、`entities`、`sourcePointers`、`selectedAction`、`selectedRoles`、`excludedActions`、`receiptText`；不得输出内部思维链。
 - 停止条件：点名冲突、实体歧义、高影响、低置信、权限不足、来源不足、本地模型降级或可能产生现金/不可逆影响。
-- 本地模型：E0不固定型号；确定性代码优先，模型输出只是Schema候选。正常运行不得远程下载或静默按量付费。
+- 本地模型：使用已登记并校验哈希的BGE small中文语义资产；确定性代码优先，模型输出只是Schema候选。正常运行不得远程下载或静默按量付费。
 
 ## 1. 模型分配
 

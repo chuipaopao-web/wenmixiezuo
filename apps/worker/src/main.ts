@@ -6,6 +6,7 @@ import { WorkerLoop } from './runtime/worker-loop.js';
 import { ChapterTaskExecutor } from './executors/chapter-task-executor.js';
 import { ProjectionTaskExecutor } from './executors/projection-task-executor.js';
 import { ProjectionLoop } from './runtime/projection-loop.js';
+import { loadLocalVectorRuntime } from './adapters/local-vector-runtime.js';
 
 const config = loadWorkerConfig();
 const database = new DatabaseSync(config.databasePath);
@@ -14,17 +15,29 @@ database.exec('PRAGMA journal_mode = WAL');
 database.exec('PRAGMA synchronous = FULL');
 database.exec('PRAGMA busy_timeout = 5000');
 
-const heartbeat = new WorkerHeartbeat(database, config);
+const heartbeat = new WorkerHeartbeat(database, config, ['vector-projection-starting']);
 heartbeat.start();
+let vectorRuntime;
+try {
+  vectorRuntime = await loadLocalVectorRuntime(config.dataDir);
+} catch (error) {
+  vectorRuntime = undefined;
+  console.error(JSON.stringify({ service: 'wenmi-worker', capability: 'vector-projection', status: 'degraded',
+    reason: error instanceof Error ? error.name : 'UnknownError' }));
+}
+heartbeat.setExtraCapabilities(vectorRuntime === undefined
+  ? ['vector-projection-degraded']
+  : ['vector-projection', 'local-semantic']);
 const loop = new WorkerLoop(
   new TaskClaimer(database, config.workerId),
   heartbeat,
   new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken)
 );
 loop.start();
-const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId));
+const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId, vectorRuntime));
 projectionLoop.start();
-console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId }));
+console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId,
+  vectorProjection: vectorRuntime === undefined ? 'degraded' : 'ready' }));
 
 const shutdown = (): void => {
   loop.stop();

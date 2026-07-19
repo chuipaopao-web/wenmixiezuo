@@ -3,6 +3,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $controlDirectory = Join-Path $projectRoot 'data\control'
 $logDirectory = Join-Path $projectRoot 'data\logs'
 $pidPath = Join-Path $controlDirectory 'desktop-launcher.pid'
+$stopRequestPath = Join-Path $controlDirectory 'desktop-stop.request.json'
 $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_ID') -Raw).Trim()
 
 # Explorer可能尚未继承新写入的用户环境变量；只装载文秘写作允许使用的配置名，
@@ -15,6 +16,7 @@ foreach ($name in $wenmiEnvironmentNames) {
 
 Set-Location -LiteralPath $projectRoot
 New-Item -ItemType Directory -Force -Path $controlDirectory, $logDirectory | Out-Null
+Remove-Item -LiteralPath $stopRequestPath -Force -ErrorAction SilentlyContinue
 
 function Test-WenmiReady {
   try {
@@ -37,11 +39,10 @@ if (Test-WenmiReady) {
   exit 0
 }
 
-$occupied = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-  Where-Object { $_.LocalPort -in 43110, 43111 }
-if ($occupied) {
-  $details = ($occupied | ForEach-Object { "port $($_.LocalPort), process $($_.OwningProcess)" }) -join '; '
-  throw "Wenmi ports are occupied: $details"
+$occupiedPorts = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
+  Where-Object { $_.Port -in 43110, 43111 } | Select-Object -ExpandProperty Port -Unique
+if ($occupiedPorts) {
+  throw "Wenmi ports are occupied: $($occupiedPorts -join ', ')"
 }
 
 & npm.cmd run migrate
@@ -56,7 +57,16 @@ $nodePath = (Get-Command node.exe).Source
 $process = Start-Process -FilePath $nodePath -ArgumentList @('scripts/start.mjs') `
   -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
   -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-Set-Content -LiteralPath $pidPath -Value $process.Id -Encoding ascii
+$process.Refresh()
+$launcherRecord = [ordered]@{
+  schemaVersion = 1
+  processId = $process.Id
+  executablePath = $nodePath
+  projectRoot = $projectRoot
+  entryPoint = 'scripts/start.mjs'
+  startedAtUtc = $process.StartTime.ToUniversalTime().ToString('o')
+}
+$launcherRecord | ConvertTo-Json -Compress | Set-Content -LiteralPath $pidPath -Encoding utf8
 
 $deadline = (Get-Date).AddSeconds(30)
 while ((Get-Date) -lt $deadline -and -not (Test-WenmiReady)) {

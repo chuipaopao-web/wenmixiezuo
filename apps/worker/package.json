@@ -8,6 +8,9 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "@lancedb/lancedb": "0.22.3"
   }
 }
-

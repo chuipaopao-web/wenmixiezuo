@@ -1,7 +1,7 @@
 {
   "evidenceLevel": "E2",
   "evaluationMode": "deterministic-offline-scale-replay",
-  "generatedAt": "2026-07-19T03:27:26.542Z",
+  "generatedAt": "2026-07-19T12:13:08.514Z",
   "releaseId": "wm-longform-r1-20260719-003435-e4d7b8b7",
   "corpus": {
     "bookCount": 5,
@@ -17,25 +17,25 @@
     "recallAt5": 1,
     "crossBookLeakageCount": 0,
     "restoredRecallAt5": 1,
-    "p50Milliseconds": 0.26,
-    "p95Milliseconds": 0.34
+    "p50Milliseconds": 0.49,
+    "p95Milliseconds": 0.66
   },
   "recovery": {
     "deliberatelyDeletedFtsRows": 7500,
     "rebuiltFtsRows": 7500,
     "rebuildRecallAt5": 1,
-    "backupId": "backup-2026-07-19T03-27-22-477Z-2d91b5c6",
-    "backupDatabaseHash": "8593200baf646c1d71741e990392c9e019e47b8a511cbf72393c797ad2bbc3b9",
+    "backupId": "backup-2026-07-19T12-13-02-374Z-4f44ff58",
+    "backupDatabaseHash": "d80f82f9a9f452cfb0ad1221117dede7001221487c7f61a85897eed28419ba75",
     "restoredIntegrity": "ok",
     "restoredForeignKeyViolations": 0
   },
   "performance": {
-    "fixtureMilliseconds": 3033.08,
-    "snapshotBuildMilliseconds": 6169.95,
-    "ftsRebuildMilliseconds": 17781.02,
-    "backupAndRestoreMilliseconds": 4034.22,
+    "fixtureMilliseconds": 3030.51,
+    "snapshotBuildMilliseconds": 9940.38,
+    "ftsRebuildMilliseconds": 21752.14,
+    "backupAndRestoreMilliseconds": 6096.62,
     "databaseBytes": 114270208,
-    "residentSetBytesAtReport": 369299456
+    "residentSetBytesAtReport": 353951744
   },
   "assertions": [
     "500万NFC规范化字符与1500章同书共存",

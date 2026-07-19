@@ -7,6 +7,9 @@ import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { DiscussionService } from '../discussions/discussion-service.js';
 import { WritingReadinessService, type ChapterRequestCount } from '../creation/writing-readiness-service.js';
 import { PlanningArtifactService } from '../artifacts/planning-artifact-service.js';
+import { LocalAssistantService, type RoutingDecision } from '../local-assistant/local-assistant-service.js';
+import { LocalAssistantRepository } from '../../infrastructure/db/repositories/local-assistant-repository.js';
+import type { LocalUtilityModel } from '../local-assistant/local-utility-model.js';
 
 type DiscussionPurpose = 'open_discussion' | 'creative_planning';
 
@@ -16,7 +19,8 @@ export class ConversationService {
     private readonly dataDir: string,
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly localUtilityModel?: LocalUtilityModel
   ) {}
 
   public listMessages(scope: BookScope, options: { limit?: number; before?: string } = {}): unknown[] {
@@ -42,6 +46,24 @@ export class ConversationService {
   }
 
   public sendBossMessage(scope: BookScope, content: string): { messageId: string; action: Record<string, unknown> } {
+    const stored = this.storeBossMessage(scope, content);
+    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId);
+    this.addSystemMessage(scope, stored.conversationId, actionNotice(action));
+    return { messageId: stored.messageId, action };
+  }
+
+  public async sendBossMessageWithLocalAssistant(scope: BookScope, content: string): Promise<{ messageId: string; action: Record<string, unknown> }> {
+    const stored = this.storeBossMessage(scope, content);
+    const intake = await new LocalAssistantService(new LocalAssistantRepository(this.database), this.ids, this.clock, this.localUtilityModel)
+      .routeWithSemantic(scope, { conversationId: stored.conversationId, messageId: stored.messageId, original: stored.trimmed });
+    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, intake);
+    const result = { ...action, intake: { routeClass: intake.routeClass, riskLevel: intake.riskLevel,
+      confidenceBand: intake.confidenceBand, selectedAction: intake.selectedAction } };
+    this.addSystemMessage(scope, stored.conversationId, actionNotice(result));
+    return { messageId: stored.messageId, action: result };
+  }
+
+  private storeBossMessage(scope: BookScope, content: string): { conversationId: string; messageId: string; trimmed: string } {
     assertBookScope(scope);
     const trimmed = content.trim();
     if (trimmed.length === 0 || trimmed.length > 20_000) throw new Error('消息长度必须在1至20000字符之间');
@@ -55,12 +77,18 @@ export class ConversationService {
       ) VALUES (?, ?, ?, ?, 'boss', 'text', ?, '[]', ?)
     `).run(messageId, conversationId, scope.ownerId, scope.bookId, trimmed, now);
     this.database.prepare(`UPDATE conversations SET updated_at = ? WHERE conversation_id = ?`).run(now, conversationId);
-    const action = this.routeMessage(scope, trimmed, messageId, conversationId);
-    this.addSystemMessage(scope, conversationId, actionNotice(action));
-    return { messageId, action };
+    return { conversationId, messageId, trimmed };
   }
 
-  private routeMessage(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
+  private routeMessage(scope: BookScope, content: string, messageId: string, conversationId: string, intake?: RoutingDecision): Record<string, unknown> {
+    if (intake?.routeClass === 'protected_operation') {
+      return { kind: 'protected_operation_blocked', selectedAction: intake.selectedAction, receiptText: intake.receiptText };
+    }
+    if (intake?.routeClass === 'named_member') {
+      const memberName = intake.selectedRoles[0];
+      if (memberName === undefined) throw new Error('点名成员路由缺少成员名称');
+      return this.scheduleNamedConversationReply(scope, content, messageId, conversationId, memberName);
+    }
     if (/^(?:写[一1]章|开始写|继续写)$/u.test(content)) {
       const count: ChapterRequestCount = 1;
       const readiness = new WritingReadinessService(this.database).inspect(scope, count);
@@ -158,6 +186,7 @@ export class ConversationService {
         planningPrepared: prepared !== null, chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
       };
     }
+    if (intake?.routeClass === 'plot_discussion') return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', null);
     if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', null);
     return this.scheduleConversationReply(scope, content, messageId, conversationId);
   }
@@ -183,6 +212,58 @@ export class ConversationService {
     });
     tasks.queue(scope, taskId);
     return { kind: 'conversation_reply_scheduled', taskId, agentId: lease.active_editor_agent_id };
+  }
+
+  private scheduleNamedConversationReply(
+    scope: BookScope,
+    content: string,
+    messageId: string,
+    conversationId: string,
+    memberName: string
+  ): Record<string, unknown> {
+    const lease = this.requireEditorLease(scope);
+    const member = this.database.prepare(`
+      SELECT a.agent_id, a.model_snapshot_id, r.role_key
+      FROM agent_instances a
+      JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.display_name = ? AND a.enabled = 1
+      ORDER BY r.version DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, memberName) as {
+      agent_id: string;
+      model_snapshot_id: string;
+      role_key: string;
+    } | undefined;
+    if (member === undefined) throw new Error(`点名成员不存在、已停用或不属于当前书籍：${memberName}`);
+    const budget = this.requireBudget(scope);
+    const taskId = this.ids.next();
+    const tasks = new TaskService(this.database, this.releaseId, this.clock);
+    tasks.create(scope, {
+      taskId,
+      taskType: 'conversation_reply',
+      assignedAgentId: member.agent_id,
+      idempotencyKey: `named-conversation-reply:${messageId}:${member.agent_id}`,
+      budgetId: budget.budget_id,
+      requiredEditorEpoch: lease.editor_epoch,
+      initialPhase: 'reply',
+      brief: {
+        conversationId,
+        messageId,
+        content,
+        modelSnapshotId: member.model_snapshot_id,
+        directNamedMember: true,
+        requestedMemberName: memberName,
+        requestedRoleKey: member.role_key
+      }
+    });
+    tasks.queue(scope, taskId);
+    return {
+      kind: 'named_member_reply_scheduled',
+      taskId,
+      agentId: member.agent_id,
+      memberName,
+      roleKey: member.role_key
+    };
   }
 
   private scheduleDiscussion(
@@ -329,6 +410,7 @@ function actionNotice(action: Record<string, unknown>): string {
     case 'discussion_confirmed': return action.planningPrepared === true
       ? `方案 ${String(action.decisionId)} 已由老板明确确认，并已形成 ${String(action.chapterOutlineCount)} 章可追溯章纲。`
       : `方案 ${String(action.decisionId)} 已由老板明确确认。`;
+    case 'protected_operation_blocked': return String(action.receiptText ?? '受保护操作已停止，等待老板确认。');
     default: return '明确控制命令已执行。';
   }
 }

@@ -18,7 +18,7 @@ interface ReplyTaskRow {
   assigned_agent_id: string | null;
 }
 
-interface EditorRow {
+interface ReplyAgentRow {
   agent_id: string;
   display_name: string;
   role_key: RoleKey | CreativeRoleKey;
@@ -46,15 +46,25 @@ export class ConversationReplyPipelineService {
       throw new Error('对话回复任务未由指定Worker持有');
     }
     try {
-      const brief = JSON.parse(task.task_brief_json) as { conversationId: string; messageId: string; content: string; modelSnapshotId?: string };
-      const editor = this.database.prepare(`
+      const brief = JSON.parse(task.task_brief_json) as {
+        conversationId: string;
+        messageId: string;
+        content: string;
+        modelSnapshotId?: string;
+        directNamedMember?: boolean;
+        requestedMemberName?: string;
+      };
+      const replyAgent = this.database.prepare(`
         SELECT a.agent_id, a.display_name, r.role_key, m.model_snapshot_id, m.provider, m.model_id
         FROM agent_instances a
         JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
         JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(?, a.model_snapshot_id)
-        WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND r.role_key = 'chief_editor'
-      `).get(brief.modelSnapshotId ?? null, task.assigned_agent_id, scope.ownerId, scope.bookId) as EditorRow | undefined;
-      if (editor === undefined) throw new Error('活动主编或主编模型快照不存在');
+        WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+      `).get(brief.modelSnapshotId ?? null, task.assigned_agent_id, scope.ownerId, scope.bookId) as ReplyAgentRow | undefined;
+      if (replyAgent === undefined) throw new Error('回复成员或其模型快照不存在');
+      if (brief.directNamedMember === true && brief.requestedMemberName !== replyAgent.display_name) {
+        throw new Error('点名成员与任务实际分配成员不一致');
+      }
       const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
         .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
       const targetMessage = this.database.prepare(`
@@ -96,7 +106,7 @@ export class ConversationReplyPipelineService {
       ];
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId,
-        agentId: editor.agent_id,
+        agentId: replyAgent.agent_id,
         canonRevision: book.canon_revision,
         positioningVersion: book.positioning_version,
         tokenBudget: 24_000,
@@ -108,9 +118,10 @@ export class ConversationReplyPipelineService {
       if (budget === undefined) throw new Error('当前书籍没有活动预算');
       const prompt = JSON.stringify({
         operation: 'open_conversation_reply',
-        identity: editor.display_name,
+        identity: `${replyAgent.display_name}（${replyAgent.role_key}）`,
         rules: [
           '直接回应老板，不要声称其他成员已经回复或已完成未执行的工作',
+          brief.directNamedMember === true ? '老板明确点名了你；只以自己的岗位身份回答，不转交给主编代答' : '你是当前活动主编，负责回应并判断下一步',
           '如果创作资料不足，指出缺口并提出一至三个具体问题',
           '不要在没有确认方案和章纲时直接创作正文',
           '回答使用自然中文，可讨论但不得把闲聊写入正史'
@@ -123,18 +134,18 @@ export class ConversationReplyPipelineService {
       });
       const requestId = this.ids.next();
       const budgets = new BudgetService(this.database, this.ids, this.clock);
-      const adapter = this.modelAdapters.resolve(editor.provider, editor.model_id, 'discussion', editor.role_key);
+      const adapter = this.modelAdapters.resolve(replyAgent.provider, replyAgent.model_id, 'discussion', replyAgent.role_key);
       const reservationId = budgets.reserve(scope, budget.budget_id, requestId, adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000, 0);
       const result = await new ModelCallService(this.database, this.clock, budgets).execute(scope, {
         requestId,
         taskId,
-        phaseKey: 'reply:chief_editor',
-        agentId: editor.agent_id,
-        modelSnapshotId: editor.model_snapshot_id,
-        provider: editor.provider,
-        modelId: editor.model_id,
+        phaseKey: `reply:${replyAgent.role_key}`,
+        agentId: replyAgent.agent_id,
+        modelSnapshotId: replyAgent.model_snapshot_id,
+        provider: replyAgent.provider,
+        modelId: replyAgent.model_id,
         input: prompt,
-        parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !editor.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
+        parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
         reservationId,
         contextPackId: pack.contextPackId
       }, adapter, {
@@ -142,7 +153,7 @@ export class ConversationReplyPipelineService {
         taskId,
         ownerId: scope.ownerId,
         bookId: scope.bookId,
-        agentId: editor.agent_id,
+        agentId: replyAgent.agent_id,
         prompt,
         maxOutputTokens: 1_200
       });
@@ -153,8 +164,8 @@ export class ConversationReplyPipelineService {
           role_key, model_provider, model_id, message_type, content, references_json, created_at
         ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'conversation_reply', ?, ?, ?)
       `).run(
-        messageId, brief.conversationId, scope.ownerId, scope.bookId, editor.agent_id,
-        editor.role_key, result.provider, result.modelId, result.output,
+        messageId, brief.conversationId, scope.ownerId, scope.bookId, replyAgent.agent_id,
+        replyAgent.role_key, result.provider, result.modelId, result.output,
         JSON.stringify([{ replyToMessageId: brief.messageId, contextPackId: pack.contextPackId }]), this.clock.now().toISOString()
       );
       new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId);
