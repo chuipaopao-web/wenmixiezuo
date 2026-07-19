@@ -86,6 +86,16 @@ import './app.css';
 
 type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
 
+const WORKSPACE_VIEW_LABELS: Record<WorkspaceView, string> = {
+  chat: '对话',
+  tasks: '任务中心',
+  outline: '规划',
+  manuscript: '正文',
+  projections: '图谱',
+  knowledge: '资料库',
+  rights: '版权与研究'
+};
+
 export function App(): React.JSX.Element {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilityData | null>(null);
@@ -344,7 +354,7 @@ export function App(): React.JSX.Element {
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
         <div className="topbar-center">
-          {selectedBook === null ? '尚未选择书籍' : <><strong>{selectedBook.title}</strong><span>正史 {selectedBook.canonRevision}</span></>}
+          {selectedBook === null ? '尚未选择书籍' : <><strong>{WORKSPACE_VIEW_LABELS[view]}</strong>{selectedChapter !== null && view === 'manuscript' && <span>第 {selectedChapter.chapterNumber} 章</span>}</>}
         </div>
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
@@ -364,11 +374,21 @@ export function App(): React.JSX.Element {
         <nav className="book-switcher" aria-label="书籍列表">
           {books.map((book) => (
             <button className={book.bookId === selectedBookId ? 'book-button active' : 'book-button'} type="button" key={book.bookId} onClick={() => selectBook(book.bookId)}>
-              <BooksIcon /><span><strong>{book.title}</strong><small>{book.status === 'active' ? '创作中' : book.status}</small></span><CaretRightIcon />
+              <BooksIcon /><span><strong>{book.title}</strong><small>{bookStatusLabel(book.status)}</small></span><CaretRightIcon />
             </button>
           ))}
           {!loading && books.length === 0 && <p className="rail-empty">还没有书。创建后会在这里形成独立工作区。</p>}
         </nav>
+        {selectedBook !== null && (
+          <nav className="rail-navigation" aria-label="创作功能">
+            <RailViewButton active={view === 'chat'} onClick={() => { setView('chat'); setLeftOpen(false); }} icon={<ChatsCircleIcon />} label="对话" />
+            <RailViewButton active={view === 'outline'} onClick={() => { setView('outline'); setLeftOpen(false); }} icon={<FileTextIcon />} label="规划" />
+            <RailViewButton active={view === 'manuscript'} onClick={() => { setView('manuscript'); setLeftOpen(false); }} icon={<BookOpenTextIcon />} label="正文" />
+            <RailViewButton active={view === 'projections'} onClick={() => { setView('projections'); setLeftOpen(false); }} icon={<DatabaseIcon />} label="图谱" />
+            <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
+            <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
+          </nav>
+        )}
         <TaskCenter
           workspace={workspace}
           onOpen={() => { setView('tasks'); setLeftOpen(false); }}
@@ -379,25 +399,13 @@ export function App(): React.JSX.Element {
             setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); setView('manuscript'); setLeftOpen(false);
           }} />
         )}
-        <div className="rail-links">
-          <button type="button" onClick={() => { setView('outline'); setLeftOpen(false); }}><FileTextIcon />规划成果</button>
-          <button type="button" onClick={() => { setView('knowledge'); setLeftOpen(false); }}><BrainIcon />知识与正史</button>
-          <button type="button" onClick={() => { setView('rights'); setLeftOpen(false); }}><ShieldCheckIcon />版权与研究</button>
-        </div>
       </aside>
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
         {loading ? <WorkspaceSkeleton /> : selectedBook === null ? <EmptyLibrary onCreate={() => setCreateOpen(true)} /> : (
           <>
-            <nav className="workspace-tabs" aria-label="工作区视图">
-              <TabButton active={view === 'chat'} onClick={() => setView('chat')} icon={<ChatsCircleIcon />} label="对话" />
-              <TabButton active={view === 'outline'} onClick={() => setView('outline')} icon={<FileTextIcon />} label="规划" />
-              <TabButton active={view === 'manuscript'} onClick={() => setView('manuscript')} icon={<BookOpenTextIcon />} label="正文" />
-              <TabButton active={view === 'projections'} onClick={() => setView('projections')} icon={<DatabaseIcon />} label="图谱" />
-              <TabButton active={view === 'knowledge'} onClick={() => setView('knowledge')} icon={<BrainIcon />} label="资料库" />
-              <TabButton active={view === 'rights'} onClick={() => setView('rights')} icon={<ShieldCheckIcon />} label="版权" />
-            </nav>
+            <WorkspaceBookSummary book={selectedBook} workspace={workspace} />
             {view === 'chat' && (
               <ChatWorkspace messages={messages} agents={workspace?.agents ?? []} totalMessageCount={workspace?.messageCount ?? messages.length} busy={busy} composer={composer} setComposer={setComposer} onSubmit={submitMessage} />
             )}
@@ -441,8 +449,28 @@ function DrawerHeader({ title, onClose }: { title: string; onClose: () => void }
   return <div className="drawer-header mobile-only"><strong>{title}</strong><button className="icon-button" type="button" aria-label={`关闭${title}`} onClick={onClose}><XIcon /></button></div>;
 }
 
-function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }): React.JSX.Element {
-  return <button className={active ? 'tab-button active' : 'tab-button'} type="button" onClick={onClick}>{icon}<span>{label}</span></button>;
+function RailViewButton({ active, onClick, icon, label, accessibleLabel }: {
+  active: boolean; onClick: () => void; icon: React.ReactNode; label: string; accessibleLabel?: string;
+}): React.JSX.Element {
+  return <button className={active ? 'active' : ''} type="button" aria-current={active ? 'page' : undefined} aria-label={accessibleLabel} onClick={onClick}>{icon}<span>{label}</span></button>;
+}
+
+function WorkspaceBookSummary({ book, workspace }: { book: BookData; workspace: WorkspaceData | null }): React.JSX.Element {
+  const volumeCount = workspace?.volumes?.length ?? 0;
+  const chapterCount = volumeCount > 0
+    ? workspace?.volumes?.reduce((total, volume) => total + volume.chapterCount, 0) ?? 0
+    : workspace?.chapters.length ?? 0;
+  return (
+    <header className="workspace-book-summary" aria-label="当前书籍信息">
+      <div className="book-summary-title"><BooksIcon /><strong>{book.title}</strong></div>
+      <div className="book-summary-meta" aria-label="书籍状态">
+        <span>{bookStatusLabel(book.status)}</span>
+        <span>{volumeCount} 卷</span>
+        <span>{chapterCount} 章</span>
+        <span>正史 {book.canonRevision}</span>
+      </div>
+    </header>
+  );
 }
 
 function ChatWorkspace(props: {
@@ -1223,6 +1251,10 @@ function taskGoal(task: TaskData, chapter: string): string {
 function statusLabel(status: string): string {
   const labels: Record<string, string> = { pending: '待执行', queued: '排队中', working: '工作中', waiting_confirmation: '待老板确认', paused: '已暂停', failed: '失败', succeeded: '已完成', cancelled: '已取消', blocked: '已阻断', interrupted: '已中断' };
   return labels[status] ?? status;
+}
+
+function bookStatusLabel(status: string): string {
+  return ({ active: '创作中', archived: '已归档' } as Record<string, string>)[status] ?? status;
 }
 
 function phaseLabel(phase: string): string {

@@ -83,16 +83,27 @@
 
 html {
   min-width: 320px;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   background: var(--canvas);
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  width: 100%;
+  height: 100dvh;
   min-height: 100dvh;
+  overflow: hidden;
   color: var(--ink);
   background: var(--canvas);
+}
+
+#root {
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 button,
@@ -126,7 +137,10 @@ svg {
 }
 
 .app-shell {
-  min-height: 100dvh;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100dvh;
   display: grid;
   grid-template: 48px minmax(0, 1fr) / 176px minmax(480px, 1fr) 190px;
   overflow: hidden;
@@ -523,29 +537,46 @@ svg {
   padding: 2px 0 0;
 }
 
-.rail-links {
+.rail-navigation {
   display: grid;
-  gap: 2px;
-  border-top: 1px solid var(--line);
-  padding: 10px 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border-block: 1px solid var(--line);
+  padding: 8px;
 }
 
-.rail-links button {
+.rail-navigation button {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
+  justify-content: flex-start;
+  gap: 6px;
   border-radius: var(--control-radius);
-  padding: 8px 9px;
+  padding: 7px 6px;
   color: var(--ink-soft);
   background: transparent;
-  font-size: calc(12px * var(--font-scale));
+  font-size: calc(11px * var(--font-scale));
   text-align: left;
   cursor: pointer;
 }
 
-.rail-links button:hover {
+.rail-navigation button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-navigation button:hover {
   color: var(--ink);
   background: var(--panel-muted);
+}
+
+.rail-navigation button.active {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 700;
 }
 
 .workspace-main {
@@ -557,43 +588,51 @@ svg {
   background: var(--canvas);
 }
 
-.workspace-tabs {
+.workspace-book-summary {
   height: 43px;
   display: flex;
-  gap: 4px;
-  align-items: end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
   border-bottom: 1px solid var(--line);
   padding: 0 18px;
   background: var(--panel);
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: hidden;
 }
 
-.workspace-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tab-button {
-  height: 42px;
+.book-summary-title {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  border-bottom: 2px solid transparent;
-  padding: 0 12px;
-  color: var(--ink-faint);
-  background: transparent;
-  font-size: calc(12px * var(--font-scale));
-  cursor: pointer;
-}
-
-.tab-button:hover,
-.tab-button.active {
+  gap: 8px;
   color: var(--ink);
 }
 
-.tab-button.active {
-  border-bottom-color: var(--accent);
-  font-weight: 650;
+.book-summary-title svg {
+  color: var(--accent);
+}
+
+.book-summary-title strong {
+  min-width: 0;
+  overflow: hidden;
+  font-family: "Noto Serif SC", STSong, SimSun, serif;
+  font-size: calc(14px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-summary-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--font-scale));
+  white-space: nowrap;
+}
+
+.book-summary-meta span {
+  padding: 0 9px;
+  border-left: 1px solid var(--line);
 }
 
 .error-banner {
@@ -1789,7 +1828,7 @@ svg {
 
 .reader-mode .left-rail,
 .reader-mode .right-rail,
-.reader-mode .workspace-tabs,
+.reader-mode .workspace-book-summary,
 .reader-mode .topbar-center,
 .reader-mode .service-state {
   display: none;
@@ -1941,7 +1980,7 @@ svg {
     padding-inline: max(12px, env(safe-area-inset-left));
   }
 
-  .reader-mode .workspace-tabs {
+  .reader-mode .workspace-book-summary {
     display: none;
   }
 }
@@ -1973,16 +2012,18 @@ svg {
     display: none;
   }
 
-  .workspace-tabs {
-    height: 42px;
-    justify-content: flex-start;
-    padding: 0 4px;
+  .workspace-book-summary {
+    gap: 8px;
+    padding: 0 12px;
   }
 
-  .tab-button {
-    min-width: 60px;
-    justify-content: center;
-    padding-inline: 7px;
+  .book-summary-meta span {
+    padding-inline: 6px;
+  }
+
+  .book-summary-meta span:nth-child(1),
+  .book-summary-meta span:nth-child(2) {
+    display: none;
   }
 
   .composer-box textarea {
@@ -2069,7 +2110,7 @@ svg {
 
 @media (forced-colors: active) {
   .book-button.active,
-  .tab-button.active {
+  .rail-navigation button.active {
     outline: 2px solid Highlight;
   }
 }

@@ -2,6 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../../apps/web/src/app/App';
 import type { WorkspaceData } from '../../../apps/web/src/lib/api/client';
@@ -91,8 +93,39 @@ describe('完整创作工作台', () => {
     expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(11);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
 
+    const bookRail = screen.getByRole('complementary', { name: '书籍与章节' });
+    const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
+    for (const name of ['对话', '规划', '正文', '图谱', '资料库', '版权与研究']) {
+      expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(document.querySelector('.workspace-tabs')).toBeNull();
+    const bookSummary = screen.getByLabelText('当前书籍信息');
+    expect(bookSummary).toHaveTextContent('雾钟档案');
+    expect(bookSummary).toHaveTextContent('创作中');
+    expect(bookSummary).toHaveTextContent('1 卷');
+    expect(bookSummary).toHaveTextContent('1 章');
+    expect(bookSummary).toHaveTextContent('正史 3');
+    expect(screen.queryByText('规划成果')).not.toBeInTheDocument();
+    expect(screen.queryByText('知识与正史')).not.toBeInTheDocument();
+
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('把应用壳固定在动态视口并只让内容区独立滚动', () => {
+    const css = readFileSync(resolve('apps/web/src/app/app.css'), 'utf8');
+    expect(css).toMatch(/html\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/su);
+    expect(css).toMatch(/#root\s*\{[^}]*height:\s*100dvh[^}]*overflow:\s*hidden/su);
+    expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/su);
+    expect(css).toMatch(/\.conversation-stream\s*\{[^}]*overflow:\s*auto/su);
+    expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
+  });
+
+  it('在书籍信息栏用中文显示归档状态', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', { ...workspace, book: { ...book, status: 'archived' } })));
+    render(<App />);
+    expect(await screen.findByLabelText('当前书籍信息')).toHaveTextContent('已归档');
+    expect(screen.queryByText('archived')).not.toBeInTheDocument();
   });
 
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
@@ -281,7 +314,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         ]
       }
     });
-    if (path === '/api/v1/books') return apiResponse([book]);
+    if (path === '/api/v1/books') return apiResponse([workspaceData.book]);
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }
     });
