@@ -129,7 +129,7 @@ Expected: 0退出；Schema 19、`applied: []`。
 
 使用 `scripts/stop-desktop.ps1` 和 `scripts/start-desktop.ps1`，验证Web 43110、API 43111、Worker ready；不触碰智囊团。
 
-- [ ] **Step 3: 提交、验收和远程备份**
+- [x] **Step 3: 提交、验收和远程备份**
 
 提交后运行 `npm run acceptance`，推送 `origin/main`，核对工作树干净且本地HEAD等于远程main。
 
