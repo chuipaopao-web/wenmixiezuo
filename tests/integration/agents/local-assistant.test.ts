@@ -23,6 +23,18 @@ describe('小文秘书', () => {
     expect(service.route(scope, { conversationId: 'c', messageId: 'm1', original: '永久删除这本书' }).selectedAction).toBe('require_owner_confirmation');
     expect(service.route(scope, { conversationId: 'c', messageId: 'm2', original: '查看任务' }).excludedActions).toContain('remote_model_call');
   });
+  it('问候和身份询问由小文秘书本地回应，不升级创作成员', () => {
+    context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
+    const book = initializeDomainBook(context, 'owner-one', ids, clock); const scope = { ownerId: 'owner-one', bookId: book.bookId };
+    const service = new LocalAssistantService(new LocalAssistantRepository(context.database), ids, clock);
+    expect(service.route(scope, { conversationId: 'c', messageId: 'm1', original: '你好啊' })).toMatchObject({
+      routeClass: 'local_assistant_conversation', selectedAction: 'reply_as_local_assistant',
+      excludedActions: expect.arrayContaining(['remote_model_call', 'creative_conclusion'])
+    });
+    expect(service.route(scope, { conversationId: 'c', messageId: 'm2', original: '小文秘书，你是做什么的？' })).toMatchObject({
+      routeClass: 'local_assistant_conversation', selectedAction: 'explain_local_assistant_role'
+    });
+  });
   it('只学习工具、路由和故障恢复经验，且必须带反例', () => {
     context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
     const book = initializeDomainBook(context, 'owner-one', ids, clock); const scope = { ownerId: 'owner-one', bookId: book.bookId };

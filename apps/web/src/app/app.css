@@ -893,6 +893,16 @@ svg {
   background: color-mix(in srgb, var(--accent-soft) 88%, var(--panel));
 }
 
+.message.local-assistant .message-card {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 42%, var(--panel));
+}
+
+.secretary-message-avatar {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+}
+
 .message-card header {
   display: flex;
   justify-content: space-between;

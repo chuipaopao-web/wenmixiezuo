@@ -33,6 +33,9 @@ describe('API健康检查', () => {
     bootstrapDatabase(database, config);
     const app = await createServer(config, database);
     try {
+      app.get('/__test/unhandled-error', async () => {
+        throw new Error('SQL failure at C:\\private\\secret.sqlite');
+      });
       const response = await app.inject({ method: 'GET', url: '/health', headers: { host: '127.0.0.1:43111' } });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
@@ -45,6 +48,19 @@ describe('API健康检查', () => {
       expect(body).not.toContain('authorization');
       expect(body).not.toContain('bearer ');
       expect(body).not.toContain('api_key');
+
+      const failed = await app.inject({ method: 'GET', url: '/__test/unhandled-error', headers: { host: '127.0.0.1:43111' } });
+      expect(failed.statusCode).toBe(500);
+      expect(failed.json()).toMatchObject({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: '这次没有顺利完成，请稍后再试。问题已经留下本地追踪信息，方便继续排查。'
+        },
+        meta: { requestId: expect.any(String) }
+      });
+      expect(failed.body).not.toContain('SQL failure');
+      expect(failed.body).not.toContain('secret.sqlite');
+      expect(failed.body).not.toContain('内部错误');
     } finally {
       await app.close();
       database.close();

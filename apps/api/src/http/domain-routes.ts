@@ -212,8 +212,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       confirmations,
       messageCount,
       localAssistant: {
-        displayName: '小文秘书', roleName: '本地工具', status: 'ready', sessionCount: localAssistantSessions,
-        summary: '处理确定性本地小任务并把创作请求原样转交主编，不替创作成员作决定。'
+        displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: localAssistantSessions,
+        summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'
       }
     }, request.id);
   });

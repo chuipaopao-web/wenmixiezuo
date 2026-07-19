@@ -326,11 +326,14 @@ export function App(): React.JSX.Element {
     }
     setBusy(true);
     try {
-      await sendMessage(selectedBookId, composer, readyAttachments.map((item) => item.data!.attachmentId));
+      const sent = await sendMessage(selectedBookId, composer, readyAttachments.map((item) => item.data!.attachmentId));
+      if (sent.action.kind === 'task_overview') setView('tasks');
+      if (sent.action.kind === 'knowledge_workspace_opened') setView('knowledge');
       setComposer('');
       setPendingAttachments([]);
       await saveDraft(selectedBookId, '');
       await refreshWorkspace(selectedBookId);
+      setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '消息发送失败');
     } finally {
@@ -545,7 +548,7 @@ export function App(): React.JSX.Element {
       </aside>
 
       <main className="workspace-main">
-        {error !== null && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
+        {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
         {loading ? <WorkspaceSkeleton /> : selectedBook === null ? <EmptyLibrary onCreate={() => setCreateOpen(true)} /> : (
           <>
             {view === 'chat' && (
@@ -715,19 +718,21 @@ function ChatWorkspace(props: {
 function MessageBubble({ bookId, message, agents }: { bookId: string; message: MessageData; agents: AgentData[] }): React.JSX.Element {
   const speakingAgent = message.role_key === null ? null : agents.find((agent) => agent.roleKey === message.role_key) ?? null;
   const attachments = messageAttachmentReferences(message.references_json);
+  const displayContent = localAssistantDisplayContent(message);
   const source = message.sender_type === 'boss'
     ? '老板'
     : message.sender_type === 'agent'
       ? speakingAgent === null ? message.role_key ?? '成员' : memberIdentity(speakingAgent)
-      : '系统';
+      : '小文秘书';
   const alignment = message.sender_type === 'boss' ? 'align-right' : 'align-left';
+  const visualType = message.sender_type === 'system' ? 'local-assistant' : message.sender_type;
   return (
-    <article className={`message ${message.sender_type} ${alignment}`}>
+    <article className={`message ${visualType} ${alignment}`}>
       {message.sender_type === 'agent' && <span className="message-avatar"><AgentAvatar roleKey={message.role_key ?? 'chief_editor'} roleName={source} /></span>}
-      {message.sender_type === 'system' && <span className="message-avatar" role="img" aria-label="系统头像"><GearSixIcon /></span>}
+      {message.sender_type === 'system' && <span className="message-avatar secretary-message-avatar" role="img" aria-label="小文秘书头像"><ChatsCircleIcon /></span>}
       <div className="message-card">
         <header><strong>{source}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></header>
-        <p>{message.content}</p>
+        <p>{displayContent}</p>
         {attachments.length > 0 && <div className="message-attachments">{attachments.map((attachment) => (
           attachment.mediaKind === 'image'
             ? <a className="message-image-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><img src={chatAttachmentContentUrl(bookId, attachment.attachmentId)} alt={attachment.originalName} /><span>{attachment.originalName}</span></a>
@@ -738,6 +743,17 @@ function MessageBubble({ bookId, message, agents }: { bookId: string; message: M
       {message.sender_type === 'boss' && <span className="message-avatar boss-avatar" role="img" aria-label="老板头像"><UserCircleIcon /></span>}
     </article>
   );
+}
+
+function localAssistantDisplayContent(message: MessageData): string {
+  if (message.sender_type !== 'system') return message.content;
+  const content = message.content.trim();
+  if (content.startsWith('消息已保存。当前使用确定性离线适配器')) {
+    return '您的消息我已经收好。现在可以直接聊天、讨论剧情、点名成员，也可以查看任务和资料；需要创作判断时，我会安排对应成员回复。';
+  }
+  if (content === '明确控制命令已执行。') return '这条请求已经处理好了；如果还需要下一步，直接告诉我。';
+  if (content === '内部错误') return '这次没有顺利完成，请稍后再试。问题已经留下本地追踪信息，方便继续排查。';
+  return message.content;
 }
 
 interface MessageAttachmentReference {
@@ -1166,10 +1182,10 @@ function TeamInspector({ workspace, worker, onSelectAgent }: { workspace: Worksp
   return (
     <div className="inspector-content team-inspector">
       <section className="inspector-section local-tool-section">
-        <div className="inspector-heading"><h2>本地工具</h2></div>
+        <div className="inspector-heading"><h2>小文秘书</h2></div>
         <article className="local-assistant-card">
-          <span className="local-assistant-avatar" aria-hidden="true"><GearSixIcon /></span>
-          <span><strong>{workspace?.localAssistant?.displayName ?? '小文秘书'}（本地工具）</strong><small>{workspace?.localAssistant?.summary ?? '处理确定性本地任务并将创作请求转交主编。'}</small><em><span className="agent-state" aria-hidden="true" />{workspace?.localAssistant?.status === 'offline' ? '离线' : '本地就绪'}</em></span>
+          <span className="local-assistant-avatar" aria-hidden="true"><ChatsCircleIcon /></span>
+          <span><strong>{workspace?.localAssistant?.displayName ?? '小文秘书'}（{workspace?.localAssistant?.roleName ?? '本地秘书'}）</strong><small>{workspace?.localAssistant?.summary ?? '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'}</small><em><span className="agent-state" aria-hidden="true" />{workspace?.localAssistant?.status === 'offline' ? '离线' : '本地就绪'}</em></span>
         </article>
       </section>
       <section className="inspector-section">

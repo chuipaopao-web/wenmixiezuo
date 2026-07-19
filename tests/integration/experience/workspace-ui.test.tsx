@@ -62,7 +62,7 @@ const workspace: WorkspaceData = {
     cash_limit_micros: 0, spent_cash_micros: 0, status: 'active'
   },
   confirmations: { count: 0, items: [] },
-  localAssistant: { displayName: '小文秘书', roleName: '本地工具', status: 'ready', sessionCount: 1, summary: '处理确定性本地任务并转交创作请求。' }
+  localAssistant: { displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: 1, summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。' }
 };
 
 afterEach(() => {
@@ -80,7 +80,7 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('complementary', { name: '书籍与功能' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
     expect(await screen.findByText('11 名成员')).toBeInTheDocument();
-    expect(screen.getByText('小文秘书（本地工具）')).toBeInTheDocument();
+    expect(screen.getByText('小文秘书（本地秘书）')).toBeInTheDocument();
     expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
     expect(screen.getByText('后台工作中')).toBeInTheDocument();
@@ -399,6 +399,10 @@ describe('完整创作工作台', () => {
       message_id: 'agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
       model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'text', content: '主编回复', references_json: '[]',
       created_at: '2026-07-16T12:01:00.000Z'
+    }, {
+      message_id: 'legacy-system-message', sender_type: 'system' as const, sender_agent_id: null, role_key: null,
+      model_provider: null, model_id: null, message_type: 'capability_notice', content: '消息已保存。当前使用确定性离线适配器，不会把开放式创作对话伪装成真实模型回复。你可以使用“写一章”等明确命令。', references_json: '[]',
+      created_at: '2026-07-16T12:02:00.000Z'
     }];
     const fetchMock = vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: chatMessages.length }, chatMessages));
     vi.stubGlobal('fetch', fetchMock);
@@ -409,6 +413,12 @@ describe('完整创作工作台', () => {
     expect(document.querySelector('.message.agent')).toHaveClass('align-left');
     expect(screen.getByRole('img', { name: '老板头像' })).toBeInTheDocument();
     expect(within(document.querySelector('.message.agent') as HTMLElement).getByRole('img', { name: /貂蝉（主编）头像/ })).toBeInTheDocument();
+    const legacyNotice = screen.getByText(/您的消息我已经收好/).closest('.message') as HTMLElement;
+    expect(within(legacyNotice).getByText('小文秘书')).toBeInTheDocument();
+    expect(within(legacyNotice).getByRole('img', { name: '小文秘书头像' })).toBeInTheDocument();
+    expect(within(legacyNotice).queryByText('系统')).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: '系统头像' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/确定性离线适配器/)).not.toBeInTheDocument();
     expect(screen.queryByText('聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。')).not.toBeInTheDocument();
 
     const addButton = screen.getByRole('button', { name: '添加图片或文件' });

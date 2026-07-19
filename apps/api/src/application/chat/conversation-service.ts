@@ -106,9 +106,13 @@ export class ConversationService {
 
   public sendBossMessage(scope: BookScope, content: string, attachmentIds: string[] = []): { messageId: string; action: Record<string, unknown> } {
     const stored = this.storeBossMessage(scope, content, attachmentIds);
-    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, undefined, stored.attachmentContext);
-    this.addSystemMessage(scope, stored.conversationId, actionNotice(action));
-    return { messageId: stored.messageId, action };
+    const intake = new LocalAssistantService(new LocalAssistantRepository(this.database), this.ids, this.clock)
+      .route(scope, { conversationId: stored.conversationId, messageId: stored.messageId, original: stored.trimmed });
+    const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, intake, stored.attachmentContext);
+    const result = { ...action, intake: { routeClass: intake.routeClass, riskLevel: intake.riskLevel,
+      confidenceBand: intake.confidenceBand, selectedAction: intake.selectedAction } };
+    this.addLocalAssistantMessage(scope, stored.conversationId, actionNotice(result));
+    return { messageId: stored.messageId, action: result };
   }
 
   public async sendBossMessageWithLocalAssistant(scope: BookScope, content: string, attachmentIds: string[] = []): Promise<{ messageId: string; action: Record<string, unknown> }> {
@@ -118,7 +122,7 @@ export class ConversationService {
     const action = this.routeMessage(scope, stored.trimmed, stored.messageId, stored.conversationId, intake, stored.attachmentContext);
     const result = { ...action, intake: { routeClass: intake.routeClass, riskLevel: intake.riskLevel,
       confidenceBand: intake.confidenceBand, selectedAction: intake.selectedAction } };
-    this.addSystemMessage(scope, stored.conversationId, actionNotice(result));
+    this.addLocalAssistantMessage(scope, stored.conversationId, actionNotice(result));
     return { messageId: stored.messageId, action: result };
   }
 
@@ -177,6 +181,12 @@ export class ConversationService {
       const memberName = intake.selectedRoles[0];
       if (memberName === undefined) throw new Error('点名成员路由缺少成员名称');
       return this.scheduleNamedConversationReply(scope, modelContent, messageId, conversationId, memberName);
+    }
+    if (intake?.routeClass === 'local_assistant_conversation') {
+      return {
+        kind: 'local_assistant_reply',
+        topic: intake.selectedAction === 'explain_local_assistant_role' ? 'identity' : 'greeting'
+      };
     }
     if (/^(?:写[一1]章|开始写|继续写)$/u.test(content)) {
       if (attachmentContext.length > 0) {
@@ -248,20 +258,33 @@ export class ConversationService {
       );
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
-    if (content === '暂停') {
+    if (content === '暂停' || intake?.selectedAction === 'pause_tasks') {
       const working = tasks.list(scope).filter((task) => task.status === 'working');
       for (const task of working) tasks.requestPause(scope, task.taskId);
       return { kind: 'pause_requested', taskIds: working.map((task) => task.taskId) };
     }
-    if (content === '继续') {
+    if (content === '继续' || intake?.selectedAction === 'resume_tasks') {
       const paused = tasks.list(scope).filter((task) => task.status === 'paused');
       for (const task of paused) tasks.queue(scope, task.taskId);
       return { kind: 'tasks_resumed', taskIds: paused.map((task) => task.taskId) };
     }
-    if (content === '取消') {
+    if (content === '取消' || intake?.selectedAction === 'cancel_tasks') {
       const cancellable = tasks.list(scope).filter((task) => ['pending', 'queued', 'working', 'paused', 'blocked'].includes(task.status));
       for (const task of cancellable) tasks.requestCancel(scope, task.taskId);
       return { kind: 'cancel_requested', taskIds: cancellable.map((task) => task.taskId) };
+    }
+    if (intake?.selectedAction === 'show_task_overview' || /^查看任务[！!。.？?\s]*$/u.test(content)) {
+      const allTasks = tasks.list(scope);
+      const active = allTasks.filter((task) => ['pending', 'queued', 'working', 'paused', 'blocked', 'waiting_confirmation'].includes(task.status));
+      return {
+        kind: 'task_overview',
+        activeCount: active.length,
+        waitingConfirmationCount: active.filter((task) => task.status === 'waiting_confirmation').length,
+        latestTaskId: active[0]?.taskId ?? null
+      };
+    }
+    if (intake?.selectedAction === 'open_knowledge_workspace' || /^打开资料库[！!。.？?\s]*$/u.test(content)) {
+      return { kind: 'knowledge_workspace_opened' };
     }
     if (content === '准备接管') {
       const lease = this.database.prepare(`SELECT active_editor_agent_id, editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
@@ -474,12 +497,12 @@ export class ConversationService {
     return row?.premise?.trim() || '尚未形成明确核心创意';
   }
 
-  private addSystemMessage(scope: BookScope, conversationId: string, content: string): void {
+  private addLocalAssistantMessage(scope: BookScope, conversationId: string, content: string): void {
     this.database.prepare(`
       INSERT INTO messages (
         message_id, conversation_id, owner_id, book_id, sender_type,
         message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'system', 'capability_notice', ?, '[]', ?)
+      ) VALUES (?, ?, ?, ?, 'system', 'local_assistant_notice', ?, '[]', ?)
     `).run(this.ids.next(), conversationId, scope.ownerId, scope.bookId, content, this.clock.now().toISOString());
   }
 
@@ -507,22 +530,36 @@ function isCreativeIntent(content: string): boolean {
 
 function actionNotice(action: Record<string, unknown>): string {
   switch (action.kind) {
-    case 'chapter_batch_scheduled': return `已签发唯一下一章写作任务，批次ID：${String(action.batchId)}。正文完成三异模型点评后会等待你确认，不会自动进入正史。`;
-    case 'discussion_scheduled': return `讨论任务已安排，讨论ID：${String(action.discussionId)}。Worker完成真实岗位意见后，主编会在这里汇总并给出确认方案。`;
+    case 'local_assistant_reply': return action.topic === 'identity'
+      ? '我是小文秘书，负责接收消息、整理附件、查看任务和安排合适的成员。剧情、正文和正史仍由创作成员与您确认，我不会替她们作答。'
+      : '我在。您可以直接说想聊的剧情、点名成员，或者让我查看任务和资料；需要创作判断时，我会把您的原话交给合适的成员。';
+    case 'chapter_batch_scheduled': return '好的，下一章已经交给主笔。完成三轮独立点评后，我会把稿件带回来请您确认；在您确认前，它不会进入正史。';
+    case 'discussion_scheduled': return '收到，我已经把您的原话交给貂蝉，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。';
     case 'planning_discussion_scheduled': return action.requestedChapterCount === null
-      ? `未批量启动主笔。已请主编与双编剧先评估剧情跨度并细化唯一下一章，讨论ID：${String(action.discussionId)}。`
-      : `资料不足，未启动主笔。已请主编和相关成员先完成下一章所需的剧情方案，讨论ID：${String(action.discussionId)}。`;
-    case 'planning_discussion_existing': return `资料仍未齐备，未启动主笔。已有规划讨论 ${String(action.discussionId)} 正在进行或等待你确认，请先完成该讨论。`;
-    case 'conversation_reply_scheduled': return '主编已收到，正在根据当前书籍资料回复。';
-    case 'pause_requested': return `已向 ${String((action.taskIds as unknown[]).length)} 个运行任务发出安全检查点暂停请求。`;
-    case 'tasks_resumed': return `已将 ${String((action.taskIds as unknown[]).length)} 个暂停任务重新入队。`;
-    case 'cancel_requested': return `已向 ${String((action.taskIds as unknown[]).length)} 个任务发出真实取消请求。`;
-    case 'takeover_prepared': return `接管包已准备。完整接管ID：${String(action.takeoverId)}。确认无误后输入“确认接管 ${String(action.takeoverId)}”。`;
-    case 'takeover_completed': return `主编接管已完成，新 editor_epoch 为 ${String(action.editorEpoch)}；旧epoch指令已失效。`;
+      ? '我没有让主笔贸然批量开写。貂蝉和两位编剧会先评估这段剧情适合展开多少章，并把唯一下一章理清后请您确认。'
+      : '目前还缺少可执行的下一章方案，我没有启动主笔。貂蝉会先和相关成员补齐剧情与章纲，再回来请您确认。';
+    case 'planning_discussion_existing': return '前面的剧情方案还在讨论或等您确认，我没有重复开启新任务。您可以在左侧“任务”里查看进度。';
+    case 'conversation_reply_scheduled': return '收到，我已经把您的原话交给貂蝉。她会结合这本书现有的资料直接回复您。';
+    case 'named_member_reply_scheduled': return `好的，我已经把您的原话直接交给${String(action.memberName)}，由她本人回复。`;
+    case 'pause_requested': return (action.taskIds as unknown[]).length === 0
+      ? '目前没有正在运行的任务，不需要暂停。'
+      : `收到，正在让 ${String((action.taskIds as unknown[]).length)} 个任务停在安全检查点，已经完成的内容不会丢失。`;
+    case 'tasks_resumed': return (action.taskIds as unknown[]).length === 0
+      ? '目前没有暂停中的任务。'
+      : `好的，${String((action.taskIds as unknown[]).length)} 个暂停任务已经重新排队，会从保存的检查点继续。`;
+    case 'cancel_requested': return (action.taskIds as unknown[]).length === 0
+      ? '目前没有可以取消的任务。'
+      : `已经向 ${String((action.taskIds as unknown[]).length)} 个任务发出取消请求；正在运行的任务会先安全收尾。`;
+    case 'task_overview': return Number(action.activeCount) === 0
+      ? '目前没有进行中的任务。需要开始讨论或创作时，直接告诉我就好。'
+      : `目前有 ${String(action.activeCount)} 个任务正在进行或等待处理${Number(action.waitingConfirmationCount) > 0 ? `，其中 ${String(action.waitingConfirmationCount)} 个等您确认` : ''}。我已经为您打开左侧“任务”。`;
+    case 'knowledge_workspace_opened': return '资料库已经为您打开。这里能看到角色、地点、势力、规则、标签和正史资料；缺什么可以直接告诉我。';
+    case 'takeover_prepared': return `接管资料已经准备好。确认无误后，请输入“确认接管 ${String(action.takeoverId)}”。`;
+    case 'takeover_completed': return '主编接管已经完成，旧主编的未完成指令不会继续生效。';
     case 'discussion_confirmed': return action.planningPrepared === true
-      ? `方案 ${String(action.decisionId)} 已由老板明确确认，并已形成 ${String(action.chapterOutlineCount)} 章可追溯章纲。`
-      : `方案 ${String(action.decisionId)} 已由老板明确确认。`;
-    case 'protected_operation_blocked': return String(action.receiptText ?? '受保护操作已停止，等待老板确认。');
-    default: return '明确控制命令已执行。';
+      ? `方案已经按您的确认保存，并形成 ${String(action.chapterOutlineCount)} 章可追溯章纲。`
+      : '方案已经按您的确认保存。';
+    case 'protected_operation_blocked': return String(action.receiptText ?? '这一步需要您亲自确认，我先停在这里，没有执行任何不可逆操作。');
+    default: return '这条请求已经记录，但我暂时没有可显示的处理结果。您可以在左侧“任务”查看，或换一种说法告诉我。';
   }
 }

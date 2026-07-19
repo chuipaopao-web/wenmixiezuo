@@ -90,7 +90,7 @@
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/messages` | 分页查询书籍消息 |
-| POST | `/books/{bookId}/messages` | 原样持久化老板消息，可携带同书临时 `attachmentIds`，并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文 |
+| POST | `/books/{bookId}/messages` | 原样持久化老板消息，可携带同书临时 `attachmentIds`，并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文，本地回执统一以小文秘书身份呈现 |
 | POST | `/books/{bookId}/chat-attachments` | `multipart/form-data` 上传单个图片或文件，本地保存并返回真实解析状态；单文件最多20 MiB |
 | GET | `/books/{bookId}/chat-attachments/{attachmentId}/content` | 读取同书原附件内容，用于图片预览或文件查看 |
 | POST | `/books/{bookId}/chat-attachments/{attachmentId}/discard` | 丢弃未发送附件；已绑定消息的附件不得移除 |
@@ -103,6 +103,8 @@
 
 每条意见返回真实 `agentId`、岗位、`modelProvider` 和 `modelId`。离线或未回复成员不生成伪造意见。
 普通消息先按“确定性命令→显式点名→活动会话续接→低风险本地处理→专项岗位→剧情会话→主编升级”路由。低风险结果可以由小文秘书基于确定性查询或有来源的本地模型候选回复；点名消息直接创建对应成员任务；低置信或需要创作判断时创建 `conversation_reply` 持久任务。进入书籍默认即自由聊天，聊天不会自动写入长期记忆。
+
+公开消息不再返回独立“系统”说话者。历史 `sender_type=system` 作为兼容来源保留，但客户端必须显示为小文秘书；新回执使用 `message_type=local_assistant_notice`。问候、身份说明、任务概览和资料库导航由确定性本地路径处理且不创建模型调用；未处理错误返回安全、自然的说明和请求追踪信息，不回显堆栈、SQL、绝对路径或秘密。
 
 剧情创作意图不由小文秘书回答。接口保留老板完整原话，建立/续接活动剧情讨论，并按活动绑定创建两个异模型独立意见任务，默认DeepSeek＋GLM，Kimi可替换一席，豆包禁止进入。二者直接面向老板、提交前互不可见，并各自返回最小/推荐/最大章节跨度、剧情单元、前提和不确定性；随后主编读取真实意见、设定硬约束和有界交叉质疑后汇总，再以 `确认方案 <decisionId>` 零Token确认。只有重大改向创建新独立轮次，普通追问不重复初始化全套会话。
 

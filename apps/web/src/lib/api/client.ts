@@ -266,7 +266,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
   if (!response.ok) {
     const message = 'error' in body ? body.error?.message : undefined;
-    throw new Error(message ?? `本地接口请求失败：${response.status}`);
+    throw new Error(message ?? `这次没有顺利完成（状态 ${response.status}），请稍后再试。`);
   }
   return (body as ApiResponse<T>).data;
 }

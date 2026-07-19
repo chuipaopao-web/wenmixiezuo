@@ -9,7 +9,7 @@ describe('开放式主创对话', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('普通消息由主编真实回复且不会写入长期记忆', async () => {
+  it('需要判断的普通消息由主编真实回复且不会写入长期记忆', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -19,7 +19,7 @@ describe('开放式主创对话', () => {
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
 
-    const scheduled = conversations.sendBossMessage(scope, '你好啊');
+    const scheduled = conversations.sendBossMessage(scope, '请告诉我现在还缺哪些准备信息');
     expect(scheduled.action).toMatchObject({ kind: 'conversation_reply_scheduled' });
     const taskId = String(scheduled.action.taskId);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
@@ -33,15 +33,37 @@ describe('开放式主创对话', () => {
     expect(messages.find((message) => message.sender_type === 'agent')).toMatchObject({ model_provider: 'local-deterministic' });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND context_pack_id IS NOT NULL AND state = 'succeeded'`).get(taskId)).toEqual({ count: 1 });
 
-    const followup = conversations.sendBossMessage(scope, '补充一句：先讨论，不要写正文');
+    const followup = conversations.sendBossMessage(scope, '补充一句：只说明缺口，不要写正文');
     const followupTaskId = String(followup.action.taskId);
     expect(tasks.claimNext('worker-chat')?.taskId).toBe(followupTaskId);
     await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, followupTaskId, 'worker-chat');
     const pack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
       .get(followupTaskId) as { source_manifest_json: string };
-    expect(pack.source_manifest_json).toContain('你好啊');
+    expect(pack.source_manifest_json).toContain('请告诉我现在还缺哪些准备信息');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM memories WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('问候、身份说明和任务查看由小文秘书本地完成且不创建模型任务', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '秘书本地对话书', text: '一部待讨论的小说' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    expect(conversations.sendBossMessage(scope, '你好啊').action).toMatchObject({ kind: 'local_assistant_reply', topic: 'greeting' });
+    expect(conversations.sendBossMessage(scope, '小文秘书，你是做什么的？').action).toMatchObject({ kind: 'local_assistant_reply', topic: 'identity' });
+    expect(conversations.sendBossMessage(scope, '查看任务').action).toMatchObject({ kind: 'task_overview', activeCount: 0 });
+    expect(conversations.sendBossMessage(scope, '暂停。').action).toMatchObject({ kind: 'pause_requested', taskIds: [] });
+
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    const notices = conversations.listMessages(scope) as Array<{ sender_type: string; message_type: string; content: string }>;
+    expect(notices.filter((message) => message.message_type === 'local_assistant_notice')).toHaveLength(4);
+    expect(notices.some((message) => message.content.includes('目前没有进行中的任务'))).toBe(true);
+    expect(notices.at(-1)?.content).toContain('不需要暂停');
+    expect(notices.some((message) => /明确控制命令已执行|内部错误/u.test(message.content))).toBe(false);
   });
 
   it('自然创作意图自动进入相关岗位讨论而不要求命令前缀', () => {
@@ -72,7 +94,7 @@ describe('开放式主创对话', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'chapter_creation'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
   });
 
-  it('连续问候、表达创意再要求写作时会排队回复和讨论，绝不抢跑主笔', () => {
+  it('连续问候由秘书本地回应，表达创意再要求写作时只排队讨论，绝不抢跑主笔', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -80,8 +102,8 @@ describe('开放式主创对话', () => {
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
 
-    expect(conversations.sendBossMessage(scope, '你好啊').action.kind).toBe('conversation_reply_scheduled');
-    expect(conversations.sendBossMessage(scope, '没人在吗').action.kind).toBe('conversation_reply_scheduled');
+    expect(conversations.sendBossMessage(scope, '你好啊').action.kind).toBe('local_assistant_reply');
+    expect(conversations.sendBossMessage(scope, '没人在吗').action.kind).toBe('local_assistant_reply');
     const planning = conversations.sendBossMessage(scope, '我想写一本游戏文');
     expect(planning.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
     expect(conversations.sendBossMessage(scope, '写一章').action).toMatchObject({
@@ -91,10 +113,7 @@ describe('开放式主创对话', () => {
     const taskCounts = context.database.prepare(`
       SELECT task_type, COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? GROUP BY task_type ORDER BY task_type
     `).all(scope.ownerId, scope.bookId);
-    expect(taskCounts).toEqual([
-      { task_type: 'conversation_reply', count: 2 },
-      { task_type: 'discussion', count: 1 }
-    ]);
+    expect(taskCounts).toEqual([{ task_type: 'discussion', count: 1 }]);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
   });
 });

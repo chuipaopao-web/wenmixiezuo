@@ -149,7 +149,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     }
     request.log.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'unhandled request error');
     void reply.status(500).send({
-      error: { code: 'INTERNAL_ERROR', message: '内部错误', details: {}, retryable: false },
+      error: { code: 'INTERNAL_ERROR', message: '这次没有顺利完成，请稍后再试。问题已经留下本地追踪信息，方便继续排查。', details: {}, retryable: false },
       meta: { requestId }
     });
   });

@@ -44,15 +44,26 @@ export class LocalAssistantService {
 }
 function decide(text: string): RoutingDecision {
   if (/(永久删除|付费|购买|密钥|api\s*key)/iu.test(text)) return { routeClass: 'protected_operation', riskLevel: 'irreversible', confidenceBand: 'high',
-    selectedAction: 'require_owner_confirmation', selectedRoles: [], excludedActions: ['automatic_execution'], receiptText: '这是受保护操作，已停止自动执行并等待老板确认。' };
+    selectedAction: 'require_owner_confirmation', selectedRoles: [], excludedActions: ['automatic_execution'], receiptText: '这一步需要您亲自确认，我先停在这里，没有执行任何不可逆操作。' };
   const named = ['貂蝉', '西施', '婉儿', '红玉', '文姬', '秋香', '湘君', '妲己', '昭君', '道韫', '弄玉'].find((name) => text.includes(name));
   if (named !== undefined) return { routeClass: 'named_member', riskLevel: 'medium', confidenceBand: 'high', selectedAction: 'route_directly_to_named_member',
-    selectedRoles: [named], excludedActions: ['local_assistant_answer_on_behalf'], receiptText: `已直接转交${named}。` };
+    selectedRoles: [named], excludedActions: ['local_assistant_answer_on_behalf'], receiptText: `好的，我会把您的原话直接交给${named}，由她本人回复。` };
   if (/(讨论|聊聊|推演).*(剧情|情节|人物命运)|(剧情|情节).*(讨论|推演)/u.test(text)) return { routeClass: 'plot_discussion', riskLevel: 'medium', confidenceBand: 'high',
     selectedAction: 'start_editor_hosted_dual_screenwriter_session', selectedRoles: ['chief_editor', 'lead_screenwriter', 'second_screenwriter'],
-    excludedActions: ['local_assistant_story_conclusion', 'doubao_plot_seat'], receiptText: '已保留老板原话，正在请主编主持两名异模型编剧讨论。' };
-  if (/^(暂停|继续|取消|查看任务|打开资料库)/u.test(text)) return { routeClass: 'deterministic_utility', riskLevel: 'low', confidenceBand: 'high',
-    selectedAction: 'execute_local_utility', selectedRoles: [], excludedActions: ['remote_model_call'], receiptText: '小文秘书已处理该本地操作。' };
+    excludedActions: ['local_assistant_story_conclusion', 'doubao_plot_seat'], receiptText: '收到，我已经保留您的原话，并请貂蝉主持两位编剧一起讨论。' };
+  const utility = text.match(/^(暂停|继续|取消|查看任务|打开资料库)[！!。.？?\s]*$/u)?.[1];
+  if (utility !== undefined) return { routeClass: 'deterministic_utility', riskLevel: 'low', confidenceBand: 'high',
+    selectedAction: ({ 暂停: 'pause_tasks', 继续: 'resume_tasks', 取消: 'cancel_tasks', 查看任务: 'show_task_overview', 打开资料库: 'open_knowledge_workspace' } as Record<string, string>)[utility]!,
+    selectedRoles: [], excludedActions: ['remote_model_call'], receiptText: '我会在本地处理，不需要调用创作模型。' };
+  if (/^(?:小文秘书[，,：:\s]*)?(?:你好(?:啊|呀|嘛)?|您好|在吗|有人吗|没人在吗)[！!。.？?\s]*$/u.test(text)) {
+    return { routeClass: 'local_assistant_conversation', riskLevel: 'low', confidenceBand: 'high', selectedAction: 'reply_as_local_assistant',
+      selectedRoles: [], excludedActions: ['remote_model_call', 'creative_conclusion'], receiptText: '我在，您可以直接告诉我想做什么。' };
+  }
+  if (/^(?:小文秘书[，,：:\s]*)?(?:你是谁|你是做什么的|你能做什么|怎么用|能帮我做什么)[？?。.！!\s]*$/u.test(text)
+    || /^小文秘书[？?。.！!\s]*$/u.test(text)) {
+    return { routeClass: 'local_assistant_conversation', riskLevel: 'low', confidenceBand: 'high', selectedAction: 'explain_local_assistant_role',
+      selectedRoles: [], excludedActions: ['remote_model_call', 'creative_conclusion'], receiptText: '我是小文秘书，负责本地受理、整理和安排。' };
+  }
   return { routeClass: 'editor_handoff', riskLevel: 'medium', confidenceBand: 'medium', selectedAction: 'preserve_original_and_handoff_to_editor',
-    selectedRoles: ['chief_editor'], excludedActions: ['automatic_canon_promotion'], receiptText: '已保留原话并转交主编判断下一步。' };
+    selectedRoles: ['chief_editor'], excludedActions: ['automatic_canon_promotion'], receiptText: '收到，我会保留您的原话，并交给貂蝉判断下一步。' };
 }

@@ -72,6 +72,8 @@ draft → active → paused → archived
 
 ### `conversations` / `messages`
 
+`messages.sender_type='system'` 是既有Schema中的内部事件来源和历史兼容值，不再代表一个面向老板的独立角色。新本地受理回执使用 `message_type='local_assistant_notice'`；公开API和前端把新旧系统来源统一解释为“小文秘书”，但保留原始来源值用于审计和无损回滚。该兼容策略不增加第12名创作Agent，也不需要改写历史消息。
+
 消息绑定书籍、发送者类型/Agent实例、岗位、真实模型来源、消息类型、引用、版本和创建时间。老板消息额外保存原始UTF-8文本哈希、显式点名和客户端幂等键；路由摘要、实体候选和压缩文本存到独立表，禁止覆盖原始消息。聊天意见默认不属于正史。
 
 ### `local_assistant_sessions` / `message_routing_decisions`
