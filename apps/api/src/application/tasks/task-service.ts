@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
@@ -25,6 +26,13 @@ export interface TaskRecord {
   pauseRequested: boolean;
   cancelRequested: boolean;
   attemptCount: number;
+  leaseToken: string | null;
+  currentAttemptNo: number;
+}
+
+export interface TaskLeaseFence {
+  leaseToken: string;
+  attemptNo: number;
 }
 
 interface TaskRow {
@@ -46,6 +54,8 @@ interface TaskRow {
   pause_requested: number;
   cancel_requested: number;
   attempt_count: number;
+  lease_token: string | null;
+  current_attempt_no: number;
 }
 
 export interface CreateTaskInput {
@@ -117,6 +127,7 @@ export class TaskService {
     const nowDate = this.clock.now();
     const now = nowDate.toISOString();
     const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
+    const leaseToken = randomUUID();
     this.database.exec('BEGIN IMMEDIATE');
     try {
       const active = this.database.prepare(`
@@ -127,8 +138,9 @@ export class TaskService {
         return null;
       }
       const row = this.database.prepare(`
-        SELECT t.* FROM tasks t
+        SELECT t.* FROM tasks t JOIN books b ON b.owner_id = t.owner_id AND b.book_id = t.book_id
         WHERE t.status = 'queued' AND t.cancel_requested = 0
+          AND (t.required_editor_epoch = 0 OR t.required_editor_epoch = b.editor_epoch)
           AND NOT EXISTS (
             SELECT 1 FROM task_dependencies d
             JOIN tasks dependency ON dependency.task_id = d.depends_on_task_id
@@ -141,10 +153,19 @@ export class TaskService {
         return null;
       }
       this.database.prepare(`
-        UPDATE tasks SET status = 'working', lease_owner = ?, lease_expires_at = ?,
-          heartbeat_at = ?, attempt_count = attempt_count + 1, updated_at = ?
+        UPDATE tasks SET status = 'working', lease_owner = ?, lease_expires_at = ?, lease_token = ?,
+          heartbeat_at = ?, attempt_count = attempt_count + 1, current_attempt_no = attempt_count + 1, updated_at = ?
         WHERE task_id = ? AND status = 'queued'
-      `).run(workerId, leaseExpiresAt, now, now, row.task_id);
+      `).run(workerId, leaseExpiresAt, leaseToken, now, now, row.task_id);
+      const attempt = this.database.prepare(`SELECT current_attempt_no FROM tasks WHERE task_id = ?`)
+        .get(row.task_id) as { current_attempt_no: number };
+      this.database.prepare(`
+        INSERT INTO task_attempts (
+          task_attempt_id, task_id, owner_id, book_id, attempt_no, worker_id, lease_token,
+          required_editor_epoch, status, lease_expires_at, started_at, heartbeat_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'working', ?, ?, ?)
+      `).run(`attempt-${randomUUID()}`, row.task_id, row.owner_id, row.book_id, attempt.current_attempt_no,
+        workerId, leaseToken, row.required_editor_epoch, leaseExpiresAt, now, now);
       this.database.prepare(`
         INSERT INTO task_phases (
           task_id, owner_id, book_id, phase_key, status, input_version_json,
@@ -155,35 +176,47 @@ export class TaskService {
           heartbeat_at = excluded.heartbeat_at
       `).run(row.task_id, row.owner_id, row.book_id, row.current_phase, row.checkpoint_json, now, now);
       this.database.exec('COMMIT');
-      const claimed = this.require({ ownerId: row.owner_id, bookId: row.book_id }, row.task_id);
+      const claimedTask = this.require({ ownerId: row.owner_id, bookId: row.book_id }, row.task_id);
       this.events?.append({ ownerId: row.owner_id, bookId: row.book_id }, 'task.phase.changed', { taskId: row.task_id, status: 'working', phase: row.current_phase });
-      return claimed;
+      return claimedTask;
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
     }
   }
 
-  public heartbeat(scope: BookScope, taskId: string, workerId: string, leaseMs = 15_000): TaskRecord {
+  public heartbeat(scope: BookScope, taskId: string, workerId: string, leaseMs = 15_000, fence?: TaskLeaseFence): TaskRecord {
     const nowDate = this.clock.now();
     const result = this.database.prepare(`
       UPDATE tasks SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
         AND lease_expires_at > ?
+        AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+        AND (required_editor_epoch = 0 OR required_editor_epoch = (
+          SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+        ))
     `).run(
       nowDate.toISOString(), new Date(nowDate.getTime() + leaseMs).toISOString(), nowDate.toISOString(),
-      taskId, scope.ownerId, scope.bookId, workerId, nowDate.toISOString()
+      taskId, scope.ownerId, scope.bookId, workerId, nowDate.toISOString(),
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0,
+      scope.ownerId, scope.bookId
     );
     if (result.changes !== 1) throw new Error('任务租约不存在、已过期或不属于当前Worker');
     return this.require(scope, taskId);
   }
 
-  public checkpoint(scope: BookScope, taskId: string, workerId: string, phase: string, checkpoint: Record<string, unknown>): TaskRecord {
+  public checkpoint(scope: BookScope, taskId: string, workerId: string, phase: string, checkpoint: Record<string, unknown>, fence?: TaskLeaseFence): TaskRecord {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE tasks SET current_phase = ?, checkpoint_json = ?, heartbeat_at = ?, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
-    `).run(phase, JSON.stringify(checkpoint), now, now, taskId, scope.ownerId, scope.bookId, workerId);
+        AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+        AND (required_editor_epoch = 0 OR required_editor_epoch = (
+          SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+        ))
+    `).run(phase, JSON.stringify(checkpoint), now, now, taskId, scope.ownerId, scope.bookId, workerId,
+      now, fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0,
+      scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('检查点写入被租约门禁拒绝');
     this.database.prepare(`
       INSERT INTO task_phases (
@@ -202,14 +235,17 @@ export class TaskService {
       .run(this.clock.now().toISOString(), taskId, scope.ownerId, scope.bookId);
   }
 
-  public pauseAtCheckpoint(scope: BookScope, taskId: string, workerId: string): TaskRecord {
+  public pauseAtCheckpoint(scope: BookScope, taskId: string, workerId: string, fence?: TaskLeaseFence): TaskRecord {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
-      UPDATE tasks SET status = 'paused', lease_owner = NULL, lease_expires_at = NULL,
+      UPDATE tasks SET status = 'paused', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
         heartbeat_at = NULL, pause_requested = 0, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ? AND pause_requested = 1
-    `).run(now, taskId, scope.ownerId, scope.bookId, workerId);
+        AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+    `).run(now, taskId, scope.ownerId, scope.bookId, workerId, now,
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0);
     if (result.changes !== 1) throw new Error('任务不在可暂停检查点');
+    this.finishCurrentAttempt(scope, taskId, 'paused', now);
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'paused' });
     return this.require(scope, taskId);
   }
@@ -230,27 +266,41 @@ export class TaskService {
     return this.require(scope, taskId);
   }
 
-  public complete(scope: BookScope, taskId: string, workerId: string): TaskRecord {
+  public complete(scope: BookScope, taskId: string, workerId: string, fence?: TaskLeaseFence): TaskRecord {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE tasks SET status = CASE WHEN cancel_requested = 1 THEN 'cancelled' ELSE 'succeeded' END,
-        lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
+        lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
-    `).run(now, taskId, scope.ownerId, scope.bookId, workerId);
+        AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+        AND (required_editor_epoch = 0 OR required_editor_epoch = (
+          SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+        ))
+    `).run(now, taskId, scope.ownerId, scope.bookId, workerId, now,
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0,
+      scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('任务完成被租约门禁拒绝');
     const task = this.require(scope, taskId);
+    this.finishCurrentAttempt(scope, taskId, task.status === 'cancelled' ? 'cancelled' : 'succeeded', now);
     this.events?.append(scope, task.status === 'succeeded' ? 'task.completed' : 'task.phase.changed', { taskId, status: task.status });
     return task;
   }
 
-  public waitForConfirmation(scope: BookScope, taskId: string, workerId: string): TaskRecord {
+  public waitForConfirmation(scope: BookScope, taskId: string, workerId: string, fence?: TaskLeaseFence): TaskRecord {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE tasks SET status = 'waiting_confirmation', current_phase = 'owner_confirmation',
-        lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
+        lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
-    `).run(now, taskId, scope.ownerId, scope.bookId, workerId);
+        AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+        AND (required_editor_epoch = 0 OR required_editor_epoch = (
+          SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+        ))
+    `).run(now, taskId, scope.ownerId, scope.bookId, workerId, now,
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0,
+      scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('任务等待确认转换被租约门禁拒绝');
+    this.finishCurrentAttempt(scope, taskId, 'waiting_confirmation', now);
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'waiting_confirmation', phase: 'owner_confirmation' });
     return this.require(scope, taskId);
   }
@@ -275,22 +325,43 @@ export class TaskService {
     for (const row of expired) {
       const scope = { ownerId: row.owner_id, bookId: row.book_id };
       const workingCall = this.database.prepare(`
-        SELECT m.request_id, m.result_reference, r.status AS reservation_status
+        SELECT m.request_id, x.model_call_result_id, r.status AS reservation_status
         FROM model_calls m JOIN budget_reservations r ON r.reservation_id = m.reservation_id
+        LEFT JOIN model_call_results x ON x.request_id = m.request_id
         WHERE m.task_id = ? AND m.state = 'working' LIMIT 1
-      `).get(row.task_id) as { request_id: string; result_reference: string | null; reservation_status: string } | undefined;
-      const reusableResult = workingCall !== undefined && workingCall.result_reference !== null && workingCall.reservation_status === 'settled';
-      const nextStatus: TaskStatus = row.cancel_requested === 1 ? 'cancelled' : workingCall === undefined || reusableResult ? 'queued' : 'interrupted';
+      `).get(row.task_id) as { request_id: string; model_call_result_id: string | null; reservation_status: string } | undefined;
+      const reusableResult = workingCall !== undefined && workingCall.model_call_result_id !== null && workingCall.reservation_status === 'settled';
+      const unresolvedCall = this.database.prepare(`
+        SELECT 1 FROM model_calls m JOIN model_call_reconciliations r ON r.request_id = m.request_id
+        WHERE m.task_id = ? AND m.owner_id = ? AND m.book_id = ?
+          AND r.state IN ('awaiting_provider', 'discarded') LIMIT 1
+      `).get(row.task_id, row.owner_id, row.book_id);
+      const nextStatus: TaskStatus = row.cancel_requested === 1 ? 'cancelled'
+        : (workingCall === undefined || reusableResult) && unresolvedCall === undefined ? 'queued' : 'interrupted';
       this.database.exec('BEGIN IMMEDIATE');
       try {
         if (workingCall !== undefined) {
           this.database.prepare(`UPDATE model_calls SET state = ?, error_class = ?, completed_at = ? WHERE request_id = ? AND state = 'working'`)
             .run(reusableResult ? 'succeeded' : 'interrupted', reusableResult ? null : 'lease_expired', now, workingCall.request_id);
+          if (!reusableResult) {
+            this.database.prepare(`
+              INSERT INTO model_call_reconciliations (
+                request_id, owner_id, book_id, state, reason_code, details_json, created_at
+              ) VALUES (?, ?, ?, 'awaiting_provider', 'LEASE_EXPIRED_RESULT_UNKNOWN', '{}', ?)
+              ON CONFLICT(request_id) DO NOTHING
+            `).run(workingCall.request_id, row.owner_id, row.book_id, now);
+          }
         }
         this.database.prepare(`
-          UPDATE tasks SET status = ?, lease_owner = NULL, lease_expires_at = NULL,
+          UPDATE tasks SET status = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
             heartbeat_at = NULL, error_code = ?, updated_at = ? WHERE task_id = ?
         `).run(nextStatus, nextStatus === 'interrupted' ? errorCodes.modelCallInterrupted : null, now, row.task_id);
+        this.database.prepare(`
+          UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
+          WHERE task_id = ? AND attempt_no = ? AND status = 'working'
+        `).run(nextStatus === 'queued' ? 'expired' : nextStatus,
+          nextStatus === 'interrupted' ? errorCodes.modelCallInterrupted : null,
+          now, row.task_id, row.current_attempt_no);
         this.database.exec('COMMIT');
       } catch (error) {
         this.database.exec('ROLLBACK');
@@ -317,6 +388,21 @@ export class TaskService {
       .all(scope.ownerId, scope.bookId) as unknown as TaskRow[];
     return rows.map(mapTask);
   }
+
+  private finishCurrentAttempt(
+    scope: BookScope,
+    taskId: string,
+    status: 'succeeded' | 'paused' | 'waiting_confirmation' | 'blocked' | 'interrupted' | 'failed' | 'cancelled',
+    now: string,
+    errorCode: string | null = null
+  ): void {
+    this.database.prepare(`
+      UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?, heartbeat_at = ?
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+        AND attempt_no = (SELECT current_attempt_no FROM tasks WHERE task_id = ?)
+        AND status = 'working'
+    `).run(status, errorCode, now, now, scope.ownerId, scope.bookId, taskId, taskId);
+  }
 }
 
 function mapTask(row: TaskRow): TaskRecord {
@@ -338,6 +424,8 @@ function mapTask(row: TaskRow): TaskRecord {
     brief: JSON.parse(row.task_brief_json) as Record<string, unknown>,
     pauseRequested: row.pause_requested === 1,
     cancelRequested: row.cancel_requested === 1,
-    attemptCount: row.attempt_count
+    attemptCount: row.attempt_count,
+    leaseToken: row.lease_token,
+    currentAttemptNo: row.current_attempt_no
   };
 }

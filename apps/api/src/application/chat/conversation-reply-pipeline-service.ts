@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
-import { TaskService } from '../tasks/task-service.js';
+import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
@@ -41,13 +41,15 @@ export class ConversationReplyPipelineService {
     private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
   ) {}
 
-  public async executeClaimed(scope: BookScope, taskId: string, workerId: string): Promise<{ messageId: string }> {
+  public async executeClaimed(scope: BookScope, taskId: string, workerId: string, leaseFence?: TaskLeaseFence): Promise<{ messageId: string }> {
     assertBookScope(scope);
     const task = this.database.prepare(`
       SELECT status, lease_owner, task_brief_json, cancel_requested, assigned_agent_id FROM tasks
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND task_type = 'conversation_reply'
     `).get(taskId, scope.ownerId, scope.bookId) as ReplyTaskRow | undefined;
-    if (task === undefined || task.status !== 'working' || task.lease_owner !== workerId || task.assigned_agent_id === null) {
+    const currentTask = new TaskService(this.database, this.releaseId, this.clock).require(scope, taskId);
+    if (task === undefined || task.status !== 'working' || task.lease_owner !== workerId || task.assigned_agent_id === null
+      || (leaseFence !== undefined && (currentTask.leaseToken !== leaseFence.leaseToken || currentTask.currentAttemptNo !== leaseFence.attemptNo))) {
       throw new Error('对话回复任务未由指定Worker持有');
     }
     try {
@@ -154,7 +156,9 @@ export class ConversationReplyPipelineService {
         input: prompt,
         parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
         reservationId,
-        contextPackId: pack.contextPackId
+        contextPackId: pack.contextPackId,
+        leaseToken: leaseFence?.leaseToken ?? currentTask.leaseToken,
+        attemptNo: leaseFence?.attemptNo ?? currentTask.currentAttemptNo
       }, adapter, {
         requestId,
         taskId,
@@ -179,15 +183,25 @@ export class ConversationReplyPipelineService {
         replyAgent.role_key, result.provider, result.modelId, effective.visibleContent,
         JSON.stringify(references), this.clock.now().toISOString()
       );
-      new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId);
+      new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
       return { messageId };
     } catch (error) {
       const now = this.clock.now().toISOString();
       const cancelled = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number }).cancel_requested === 1;
-      this.database.prepare(`
+      const failure = this.database.prepare(`
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
-          heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
-      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'CONVERSATION_REPLY_FAILED', now, taskId, scope.ownerId, scope.bookId, workerId);
+          lease_token = NULL, heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
+          AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'CONVERSATION_REPLY_FAILED', now,
+        taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
+        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0);
+      if (failure.changes !== 1) throw error;
+      this.database.prepare(`
+        UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
+      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'CONVERSATION_REPLY_FAILED', now,
+        scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? currentTask.currentAttemptNo);
       throw error;
     }
   }

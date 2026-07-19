@@ -7,7 +7,7 @@ export class ChapterTaskExecutor {
     private readonly workerToken: string
   ) {}
 
-  public async execute(task: ClaimedTask): Promise<void> {
+  public async execute(task: ClaimedTask, signal?: AbortSignal): Promise<void> {
     const response = await fetch(`${this.apiBaseUrl}/api/v1/internal/worker/tasks/${encodeURIComponent(task.taskId)}/execute`, {
       method: 'POST',
       headers: {
@@ -15,7 +15,13 @@ export class ChapterTaskExecutor {
         'x-wenmi-worker-id': this.workerId,
         'x-wenmi-worker-token': this.workerToken
       },
-      body: JSON.stringify({ ownerId: task.ownerId, bookId: task.bookId })
+      body: JSON.stringify({
+        ownerId: task.ownerId,
+        bookId: task.bookId,
+        leaseToken: task.leaseToken,
+        attemptNo: task.attemptNo
+      }),
+      ...(signal === undefined ? {} : { signal })
     });
     if (!response.ok) {
       const body = await response.text();

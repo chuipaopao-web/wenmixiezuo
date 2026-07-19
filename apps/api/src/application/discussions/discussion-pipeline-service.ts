@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ContextPackService } from '../memory/context-pack-service.js';
-import { TaskService } from '../tasks/task-service.js';
+import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
@@ -46,13 +46,17 @@ export class DiscussionPipelineService {
     private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
   ) {}
 
-  public async executeClaimed(scope: BookScope, taskId: string, workerId: string): Promise<{ discussionId: string; decisionId: string; opinionCount: number }> {
+  public async executeClaimed(scope: BookScope, taskId: string, workerId: string, leaseFence?: TaskLeaseFence): Promise<{ discussionId: string; decisionId: string; opinionCount: number }> {
     assertBookScope(scope);
     const task = this.database.prepare(`
       SELECT status, lease_owner, task_brief_json, cancel_requested, assigned_agent_id FROM tasks
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND task_type = 'discussion'
     `).get(taskId, scope.ownerId, scope.bookId) as DiscussionTaskRow | undefined;
-    if (task === undefined || task.status !== 'working' || task.lease_owner !== workerId) throw new Error('讨论任务未由指定Worker持有');
+    const claimedTask = new TaskService(this.database, this.releaseId, this.clock).require(scope, taskId);
+    if (task === undefined || task.status !== 'working' || task.lease_owner !== workerId
+      || (leaseFence !== undefined && (claimedTask.leaseToken !== leaseFence.leaseToken || claimedTask.currentAttemptNo !== leaseFence.attemptNo))) {
+      throw new Error('讨论任务未由指定Worker持有');
+    }
     const brief = JSON.parse(task.task_brief_json) as {
       discussionId: string;
       scopeText: string;
@@ -91,8 +95,8 @@ export class DiscussionPipelineService {
     const spanEstimates = new PlotSpanEstimateService(new LongformContinuityRepository(this.database), this.ids, this.clock);
     try {
       for (const participant of participants) {
-        const currentTask = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
-        if (currentTask.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
+        const cancellation = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
+        if (cancellation.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
         const isEditor = participant.agent_id === task.assigned_agent_id;
         const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
         if (isEditor && opinions.length > 0) {
@@ -147,7 +151,9 @@ export class DiscussionPipelineService {
             planOnly: !participant.provider.startsWith('local-deterministic'),
             cashFallbackAllowed: false
           }),
-          reservationId, contextPackId: pack.contextPackId
+          reservationId, contextPackId: pack.contextPackId,
+          leaseToken: leaseFence?.leaseToken ?? claimedTask.leaseToken,
+          attemptNo: leaseFence?.attemptNo ?? claimedTask.currentAttemptNo
         }, adapter, {
           requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
           agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
@@ -191,7 +197,7 @@ export class DiscussionPipelineService {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, participant.agent_id);
       }
-      new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId);
+      new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
       return { discussionId: brief.discussionId, decisionId, opinionCount: opinions.length };
     } catch (error) {
       const now = this.clock.now().toISOString();
@@ -200,10 +206,20 @@ export class DiscussionPipelineService {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(now, scope.ownerId, scope.bookId, participant.agent_id);
       }
-      this.database.prepare(`
+      const failure = this.database.prepare(`
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
-          heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
-      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now, taskId, scope.ownerId, scope.bookId, workerId);
+          lease_token = NULL, heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
+          AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
+        taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
+        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0);
+      if (failure.changes !== 1) throw error;
+      this.database.prepare(`
+        UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
+      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
+        scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? claimedTask.currentAttemptNo);
       throw error;
     }
   }

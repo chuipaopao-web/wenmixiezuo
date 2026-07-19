@@ -152,7 +152,10 @@ export class ChapterBatchService {
         if (task.status === 'paused') tasks.queue(scope, taskId);
         const claimed = tasks.claimNext(workerId, 120_000);
         if (claimed === null || claimed.taskId !== taskId) throw new Error('批次下一章节任务未能按依赖顺序领取');
-        const result = await pipeline.executeClaimed(scope, taskId, workerId, options.pauseAfterPhase);
+        const result = await pipeline.executeClaimed(scope, taskId, workerId, options.pauseAfterPhase, {
+          leaseToken: claimed.leaseToken!,
+          attemptNo: claimed.currentAttemptNo
+        });
         results.push(result);
         if (result.status === 'paused') {
           this.pause(scope, batchId, batch.nextIndex, { reason: 'phase_checkpoint', phase: result.phase, taskId });

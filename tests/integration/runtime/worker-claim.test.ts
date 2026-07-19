@@ -17,7 +17,7 @@ describe('Worker受限Repository', () => {
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     tasks.create(scope, { taskId: 'task-worker', taskType: 'runtime_probe', idempotencyKey: 'worker', initialPhase: 'execute', brief: {} });
     tasks.queue(scope, 'task-worker');
-    const claimer = new TaskClaimer(context.database, 'worker-test');
+    const claimer = new TaskClaimer(context.database, 'worker-test', () => clock.now());
     const claimed = claimer.claimNext(clock.now())!;
     claimer.complete(claimed, { deterministic: true });
     expect(tasks.require(scope, 'task-worker').status).toBe('succeeded');
@@ -25,4 +25,3 @@ describe('Worker受限Repository', () => {
     expect(context.database.prepare("SELECT COUNT(*) AS count FROM persistent_events WHERE event_type = 'task.completed'").get()).toEqual({ count: 1 });
   });
 });
-

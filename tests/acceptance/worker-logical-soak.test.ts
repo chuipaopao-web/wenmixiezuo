@@ -32,7 +32,7 @@ describe('Worker 24小时逻辑稳定性', () => {
       workerToken: context.config.workerToken
     });
     heartbeat.start();
-    const loop = new WorkerLoop(new TaskClaimer(context.database, workerId), heartbeat);
+    const loop = new WorkerLoop(new TaskClaimer(context.database, workerId, () => clock.now()), heartbeat);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     const heapBefore = process.memoryUsage().heapUsed;
 

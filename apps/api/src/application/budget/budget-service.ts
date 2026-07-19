@@ -105,18 +105,21 @@ export class BudgetService {
     } | undefined;
     if (reservation === undefined) throw new Error('预算冻结不存在或越权');
     if (reservation.status === 'settled') return this.require(scope, reservation.budget_id);
+    if (reservation.status === 'released') throw new Error('预算冻结已经释放，拒绝晚到结算');
     const actualTokens = usage.inputTokens + usage.outputTokens;
     if (actualTokens > reservation.frozen_tokens || usage.cashMicros > reservation.frozen_cash_micros) {
       throw new Error('实际用量超过冻结上限，拒绝不受控结算');
     }
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
-      this.database.prepare(`
+      const settled = this.database.prepare(`
         UPDATE budget_reservations SET actual_tokens = ?, actual_cash_micros = ?, status = 'settled', settled_at = ?
         WHERE reservation_id = ? AND status = 'reserved'
       `).run(actualTokens, usage.cashMicros, now, reservationId);
-      this.database.prepare(`
+      if (settled.changes !== 1) throw new Error('预算冻结状态已变化，拒绝重复或晚到结算');
+      const budgetUpdated = this.database.prepare(`
         UPDATE budgets SET
           reserved_tokens = reserved_tokens - ?, reserved_cash_micros = reserved_cash_micros - ?,
           spent_tokens = spent_tokens + ?, spent_cash_micros = spent_cash_micros + ?,
@@ -131,6 +134,7 @@ export class BudgetService {
         actualTokens, usage.cashMicros, actualTokens, usage.cashMicros,
         now, reservation.budget_id, scope.ownerId, scope.bookId
       );
+      if (budgetUpdated.changes !== 1) throw new Error('预算不存在或越权，结算已拒绝');
       this.database.prepare(`
         INSERT INTO usage_ledger (
           budget_id, reservation_id, owner_id, book_id, task_id, request_id,
@@ -141,9 +145,9 @@ export class BudgetService {
         reservation.request_id, usage.provider, usage.modelId, usage.inputTokens,
         usage.outputTokens, usage.cashMicros, usage.durationMs, now
       );
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     const budget = this.require(scope, reservation.budget_id);

@@ -30,13 +30,29 @@ export class WorkerLoop {
     if (this.#working) return;
     this.#working = true;
     try {
+      this.claimer.recoverExpired();
       const task = this.claimer.claimNext();
       if (task === null) return;
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
         this.claimer.complete(task, { workerExecuted: true, deterministic: true });
       } else if (['chapter_creation', 'discussion', 'conversation_reply'].includes(task.taskType) && this.chapterTasks !== undefined) {
-        await this.chapterTasks.execute(task);
+        const controller = new AbortController();
+        let leaseError: Error | null = null;
+        const renewal = setInterval(() => {
+          try {
+            this.claimer.renew(task);
+          } catch (error) {
+            leaseError = error instanceof Error ? error : new Error(String(error));
+            controller.abort(leaseError);
+          }
+        }, 5_000);
+        try {
+          await this.chapterTasks.execute(task, controller.signal);
+          if (leaseError !== null) throw leaseError;
+        } finally {
+          clearInterval(renewal);
+        }
       } else {
         this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
       }

@@ -39,8 +39,10 @@ describe('模型调用账本、幂等与真实取消', () => {
     expect(result.cashCostCny).toBe(0);
     expect(context!.database.prepare('SELECT state FROM model_calls WHERE request_id = ?').get(call.requestId)).toEqual({ state: 'succeeded' });
     expect(context!.database.prepare('SELECT COUNT(*) AS count FROM usage_ledger').get()).toEqual({ count: 1 });
-    await expect(calls.execute(fixture.scope, { ...call, requestId: 'request-duplicate' }, new DeterministicModelAdapter(), { ...request, requestId: 'request-duplicate' }))
-      .rejects.toThrow('拒绝重复调用');
+    const replay = await calls.execute(fixture.scope, { ...call, requestId: 'request-duplicate' }, new DeterministicModelAdapter(), { ...request, requestId: 'request-duplicate' });
+    expect(replay.output).toBe(result.output);
+    expect(context!.database.prepare('SELECT COUNT(*) AS count FROM usage_ledger').get()).toEqual({ count: 1 });
+    expect(context!.database.prepare('SELECT COUNT(*) AS count FROM model_call_results').get()).toEqual({ count: 1 });
   });
 
   it('取消信号真实传到底层适配器并保留interrupted不自动重试', async () => {

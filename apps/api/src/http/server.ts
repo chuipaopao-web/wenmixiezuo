@@ -91,22 +91,26 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   app.post<{
     Params: { taskId: string };
     Headers: { 'x-wenmi-worker-id'?: string; 'x-wenmi-worker-token'?: string };
-    Body: { ownerId: string; bookId: string };
+    Body: { ownerId: string; bookId: string; leaseToken: string; attemptNo: number };
   }>('/api/v1/internal/worker/tasks/:taskId/execute', async (request) => {
     const workerId = request.headers['x-wenmi-worker-id'];
     if (workerId === undefined || workerId.length === 0) throw new DomainError('VALIDATION_ERROR', '缺少Worker身份');
     const recorded = database.prepare(`SELECT 1 FROM worker_health WHERE worker_id = ?`).get(workerId);
     if (recorded === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker身份未登记');
+    if (typeof request.body.leaseToken !== 'string' || request.body.leaseToken.length < 16
+      || !Number.isInteger(request.body.attemptNo) || request.body.attemptNo < 1) {
+      throw new DomainError('VALIDATION_ERROR', 'Worker任务租约栅栏缺失');
+    }
     const task = database.prepare(`SELECT task_type FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
       .get(request.params.taskId, request.body.ownerId, request.body.bookId) as { task_type: string } | undefined;
     if (task === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker任务不存在或范围不匹配');
     const scope = { ownerId: request.body.ownerId, bookId: request.body.bookId };
     const result = task.task_type === 'chapter_creation'
-      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
+      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, undefined, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
       : task.task_type === 'discussion'
-        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
+        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : task.task_type === 'conversation_reply'
-          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId)
+          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });

@@ -8,7 +8,7 @@ import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
 import { ContextPackService, estimateTokens, type ContextSource } from '../memory/context-pack-service.js';
 import { MemoryService } from '../memory/memory-service.js';
-import { TaskService } from '../tasks/task-service.js';
+import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
@@ -85,13 +85,16 @@ export class ChapterPipelineService {
     scope: BookScope,
     taskId: string,
     workerId: string,
-    pauseAfterPhase?: PipelinePhase
+    pauseAfterPhase?: PipelinePhase,
+    leaseFence?: TaskLeaseFence
   ): Promise<PipelineResult> {
     assertBookScope(scope);
     const task = this.database.prepare(`
       SELECT chapter_id, status, lease_owner FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?
     `).get(taskId, scope.ownerId, scope.bookId) as { chapter_id: string | null; status: string; lease_owner: string | null } | undefined;
-    if (task === undefined || task.chapter_id === null || task.status !== 'working' || task.lease_owner !== workerId) {
+    const currentTask = new TaskService(this.database, this.releaseId, this.clock).require(scope, taskId);
+    if (task === undefined || task.chapter_id === null || task.status !== 'working' || task.lease_owner !== workerId
+      || (leaseFence !== undefined && (currentTask.leaseToken !== leaseFence.leaseToken || currentTask.currentAttemptNo !== leaseFence.attemptNo))) {
       throw new Error('章节任务未由指定Worker持有');
     }
     let run = this.findOrCreateRun(scope, taskId, task.chapter_id);
@@ -100,22 +103,22 @@ export class ChapterPipelineService {
       while (run.phase !== 'completed') {
         const completedPhase = run.phase;
         run = await this.executePhase(scope, run);
-        tasks.checkpoint(scope, taskId, workerId, run.phase, { completedPhase, pipelineRunId: run.pipeline_run_id, manuscriptVersionId: run.current_manuscript_version_id, rewriteCount: run.rewrite_count });
+        tasks.checkpoint(scope, taskId, workerId, run.phase, { completedPhase, pipelineRunId: run.pipeline_run_id, manuscriptVersionId: run.current_manuscript_version_id, rewriteCount: run.rewrite_count }, leaseFence);
         if (pauseAfterPhase === completedPhase) {
           this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'paused', updated_at = ? WHERE pipeline_run_id = ?`)
             .run(this.clock.now().toISOString(), run.pipeline_run_id);
           tasks.requestPause(scope, taskId);
-          tasks.pauseAtCheckpoint(scope, taskId, workerId);
+          tasks.pauseAtCheckpoint(scope, taskId, workerId, leaseFence);
           return this.mapResult(run, 'paused');
         }
       }
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'completed', updated_at = ? WHERE pipeline_run_id = ?`)
         .run(this.clock.now().toISOString(), run.pipeline_run_id);
       if (run.confirmation_id !== null) {
-        tasks.waitForConfirmation(scope, taskId, workerId);
+        tasks.waitForConfirmation(scope, taskId, workerId, leaseFence);
         return this.mapResult(run, 'awaiting_confirmation');
       }
-      tasks.complete(scope, taskId, workerId);
+      tasks.complete(scope, taskId, workerId, leaseFence);
       return this.mapResult(run, 'completed');
     } catch (error) {
       const now = this.clock.now().toISOString();
@@ -125,10 +128,20 @@ export class ChapterPipelineService {
       const errorCode = cancelRequested ? 'TASK_CANCELLED' : qualityBlocked ? 'QUALITY_BLOCKED' : error instanceof DomainError ? error.code : 'PIPELINE_FAILED';
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'failed', error_code = ?, updated_at = ? WHERE pipeline_run_id = ?`)
         .run(errorCode, now, run.pipeline_run_id);
-      this.database.prepare(`
+      const failure = this.database.prepare(`
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
-          heartbeat_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ?
-      `).run(cancelRequested ? 'cancelled' : qualityBlocked ? 'blocked' : 'failed', errorCode, now, taskId, scope.ownerId, scope.bookId, workerId);
+          lease_token = NULL, heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
+          AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+      `).run(cancelRequested ? 'cancelled' : qualityBlocked ? 'blocked' : 'failed', errorCode, now,
+        taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
+        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0);
+      if (failure.changes !== 1) throw error;
+      this.database.prepare(`
+        UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
+      `).run(cancelRequested ? 'cancelled' : qualityBlocked ? 'blocked' : 'failed', errorCode, now,
+        scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? currentTask.currentAttemptNo);
       if (cancelRequested) {
         new ChapterStateRecoveryService(this.database, this.clock).reconcileCancelledChapter(scope, task.chapter_id);
       }
@@ -516,6 +529,11 @@ export class ChapterPipelineService {
       .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
     if (budget === undefined) throw new Error('书籍没有活动预算');
     const requestId = this.ids.next();
+    const lease = this.database.prepare(`
+      SELECT lease_token, current_attempt_no FROM tasks
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'
+    `).get(run.task_id, scope.ownerId, scope.bookId) as { lease_token: string | null; current_attempt_no: number } | undefined;
+    if (lease === undefined || lease.lease_token === null) throw new Error('模型调用缺少活动任务租约');
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const reservationId = budgets.reserve(scope, budget.budget_id, requestId, 50_000, 0);
     const modelPrompt = adapter.provider.startsWith('local-deterministic')
@@ -536,7 +554,9 @@ export class ChapterPipelineService {
         cashFallbackAllowed: false
       }),
       reservationId,
-      contextPackId
+      contextPackId,
+      leaseToken: lease.lease_token,
+      attemptNo: lease.current_attempt_no
     }, adapter, {
       requestId, taskId: run.task_id, ownerId: scope.ownerId, bookId: scope.bookId,
       agentId, prompt: modelPrompt, maxOutputTokens: 8_000
