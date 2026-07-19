@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
 import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -42,6 +43,50 @@ describe('开放式主创对话', () => {
       .get(followupTaskId) as { source_manifest_json: string };
     expect(pack.source_manifest_json).toContain('请告诉我现在还缺哪些准备信息');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM memories WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('岗位回复在同一次模型调用中生成有效内容并可展开完整依据', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '有效回复测试书', text: '张三准备向天安城宣战'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(scope, '张三现在是否应该直接宣战？');
+    const taskId = String(scheduled.action.taskId);
+    expect(new TaskService(context.database, context.config.releaseId, clock).claimNext('worker-effective')?.taskId).toBe(taskId);
+
+    let capturedPrompt = '';
+    const structuredFactory = {
+      resolve: () => ({
+        provider: 'local-deterministic', modelId: 'wenmi-fixture-v2-chief_editor',
+        generate: async (request: { prompt: string }) => {
+          capturedPrompt = request.prompt;
+          const output = JSON.stringify({
+            answer: '不建议立即宣战。', keyPoints: ['双方实力尚未核实'], alternatives: [],
+            risks: ['旧盟约可能触发援军'], questions: ['宣战是否需要公开？'],
+            nextStep: '先让两名编剧分别推演。', details: '完整依据包含张三旧伤和天安城盟约记录。'
+          });
+          return { provider: 'local-deterministic', modelId: 'wenmi-fixture-v2-chief_editor', output,
+            inputTokens: 120, outputTokens: 60, cashCostCny: 0, state: 'succeeded' as const };
+        }
+      })
+    } as unknown as ModelAdapterFactory;
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, structuredFactory)
+      .executeClaimed(scope, taskId, 'worker-effective');
+
+    const reply = (conversations.listMessages(scope) as Array<{ sender_type: string; content: string; references_json: string }>)
+      .find((message) => message.sender_type === 'agent');
+    expect(reply?.content).toContain('不建议立即宣战');
+    expect(reply?.content).toContain('旧盟约可能触发援军');
+    expect(reply?.content).not.toContain('完整依据包含张三旧伤');
+    expect(JSON.parse(reply?.references_json ?? '[]')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'effective_output', version: 1, fullContent: expect.stringContaining('完整依据包含张三旧伤') })
+    ]));
+    expect(capturedPrompt).toContain('outputContract');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ?`).get(taskId)).toEqual({ count: 1 });
   });
 
   it('问候、身份说明和任务查看由小文秘书本地完成且不创建模型任务', async () => {

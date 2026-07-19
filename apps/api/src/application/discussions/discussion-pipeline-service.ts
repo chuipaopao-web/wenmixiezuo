@@ -12,6 +12,12 @@ import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtim
 import { DiscussionService } from './discussion-service.js';
 import { PlotSpanEstimateService } from '../continuity/plot-span-estimate-service.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
+import {
+  createEffectiveOutputReference,
+  EFFECTIVE_OUTPUT_CONTRACT,
+  prepareEffectiveOutput,
+  type EffectiveOutputResult
+} from '../chat/effective-output-service.js';
 
 interface DiscussionTaskRow {
   status: string;
@@ -75,7 +81,13 @@ export class DiscussionPipelineService {
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const calls = new ModelCallService(this.database, this.clock, budgets);
     const contextPacks = new ContextPackService(this.database, this.ids, this.clock);
-    const opinions: Array<{ agentId: string; role: string; roleKey: RoleKey | CreativeRoleKey; output: string }> = [];
+    const opinions: Array<{
+      agentId: string;
+      role: string;
+      roleKey: RoleKey | CreativeRoleKey;
+      output: string;
+      effective?: EffectiveOutputResult;
+    }> = [];
     const spanEstimates = new PlotSpanEstimateService(new LongformContinuityRepository(this.database), this.ids, this.clock);
     try {
       for (const participant of participants) {
@@ -106,11 +118,13 @@ export class DiscussionPipelineService {
               brief.purpose === 'creative_planning'
                 ? '请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、双编剧建议的剧情跨度与推进节点、视角与文风、章末钩子和仍需决定的问题。'
                 : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
-              '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。'
+              '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
+              '必须保留结构不同的高潜少数方案、关键分歧、风险和未知；不要把岗位意见压成没有代价的安全折中。',
+              `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
             ].join('\n')
           : [
               `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。`,
-              '给出推荐、理由、风险和一项可执行建议。',
+              '给出推荐、理由、风险和一项可执行建议；不要客套、自我介绍、复述老板原话或重复结论。',
               brief.purpose === 'creative_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
                 ? '最后必须另起一行输出：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。章数必须为1至30的整数，且最少≤建议≤最多。'
                 : ''
@@ -138,11 +152,13 @@ export class DiscussionPipelineService {
           requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
           agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
         });
+        const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
+        const output = effective?.fullContent ?? result.output;
         discussions.addOpinion(scope, brief.discussionId, {
           agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id, phase: 'independent',
           content: {
             role: participant.role_key,
-            recommendation: result.output,
+            recommendation: output,
             basis: `来自${participant.display_name}（${result.provider}/${result.modelId}）的可追溯模型调用`
           },
           tokens: result.inputTokens + result.outputTokens
@@ -156,7 +172,8 @@ export class DiscussionPipelineService {
             uncertainty: estimate.uncertainty, sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: null }
           });
         }
-        opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output: result.output });
+        opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output,
+          ...(effective === undefined ? {} : { effective }) });
       }
       discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
@@ -168,7 +185,8 @@ export class DiscussionPipelineService {
         disagreements: opinions.length > 1 ? [{ status: '保留岗位视角差异', roles: opinions.map((opinion) => opinion.role) }] : [],
         impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
       });
-      this.addEditorMessage(scope, brief.conversationId, editor, brief.discussionId, brief.scopeText, decisionId, opinions, editorOpinion.output);
+      this.addEditorMessage(scope, brief.conversationId, editor, brief.discussionId, brief.scopeText, decisionId, opinions,
+        editorOpinion.effective ?? prepareEffectiveOutput(editorOpinion.output));
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, participant.agent_id);
@@ -198,17 +216,27 @@ export class DiscussionPipelineService {
     scopeText: string,
     decisionId: string,
     opinions: Array<{ agentId: string; role: string; roleKey: RoleKey | CreativeRoleKey; output: string }>,
-    editorSummary: string
+    editorSummary: EffectiveOutputResult
   ): void {
     const specialistSections = opinions
       .filter((opinion) => opinion.agentId !== editor.agent_id)
       .map((opinion) => `【${opinion.role}】\n${opinion.output}`);
+    const confirmation = `如接受，请输入：确认方案 ${decisionId}`;
     const summary = [
       `讨论“${scopeText}”已完成。`,
+      editorSummary.visibleContent,
+      specialistSections.length > 0 ? `已保留 ${specialistSections.length} 份独立岗位意见，可展开查看。` : '',
+      confirmation
+    ].filter(Boolean).join('\n\n');
+    const fullSummary = [
+      `讨论“${scopeText}”已完成。`,
       ...specialistSections,
-      `【${editor.display_name}汇总】\n${editorSummary}`,
-      `如接受，请输入：确认方案 ${decisionId}`
+      `【${editor.display_name}汇总】\n${editorSummary.fullContent}`,
+      confirmation
     ].join('\n');
+    const references: unknown[] = [{ discussionId, decisionId }];
+    const effectiveReference = createEffectiveOutputReference(editorSummary, fullSummary);
+    if (effectiveReference !== null) references.push(effectiveReference);
     this.database.prepare(`
       INSERT INTO messages (
         message_id, conversation_id, owner_id, book_id, sender_type, sender_agent_id,
@@ -217,7 +245,7 @@ export class DiscussionPipelineService {
     `).run(
       this.ids.next(), conversationId, scope.ownerId, scope.bookId, editor.agent_id,
       editor.role_key, editor.provider, editor.model_id, summary,
-      JSON.stringify([{ discussionId, decisionId }]), this.clock.now().toISOString()
+      JSON.stringify(references), this.clock.now().toISOString()
     );
   }
 }

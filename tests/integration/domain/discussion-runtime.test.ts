@@ -32,10 +32,18 @@ describe('自然语言讨论运行闭环', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants WHERE discussion_id = ? AND responded = 1`).get(discussionId)).toEqual({ count: 3 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 3 });
     expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates WHERE discussion_id = ? AND independence_attested = 1`).get(discussionId)).toEqual({ count: 2 });
-    const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; model_provider: string | null; model_id: string | null }>;
+    const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; references_json: string; model_provider: string | null; model_id: string | null }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
     expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v2-chief_editor' });
     expect(summary?.content).toContain(`确认方案 ${result.decisionId}`);
+    expect(summary?.content).toContain('份独立岗位意见');
+    expect(summary?.content).not.toContain('【婉儿】');
+    const effectiveReference = (JSON.parse(summary?.references_json ?? '[]') as Array<Record<string, unknown>>)
+      .find((reference) => reference.type === 'effective_output');
+    expect(effectiveReference).toMatchObject({ type: 'effective_output', version: 1 });
+    expect(String(effectiveReference?.fullContent)).toContain('【婉儿】');
+    expect(String(effectiveReference?.fullContent)).toContain('【红玉】');
+    expect(String(effectiveReference?.fullContent)).toContain(`确认方案 ${result.decisionId}`);
 
     const callsBeforeConfirmation = (context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId) as { count: number }).count;
     expect(conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`).action).toMatchObject({ kind: 'discussion_confirmed', decisionId: result.decisionId });

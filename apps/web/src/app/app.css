@@ -949,6 +949,25 @@ svg {
   line-height: 1.65;
 }
 
+.message-detail-toggle {
+  margin: 7px 0 0;
+  border: 0;
+  padding: 2px 0;
+  color: var(--accent-hover);
+  background: transparent;
+  font: inherit;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.message-detail-toggle:hover,
+.message-detail-toggle:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .message-card footer {
   margin-top: 8px;
   color: var(--ink-faint);

@@ -9,6 +9,11 @@ import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
+import {
+  createEffectiveOutputReference,
+  EFFECTIVE_OUTPUT_CONTRACT,
+  prepareEffectiveOutput
+} from './effective-output-service.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -124,8 +129,10 @@ export class ConversationReplyPipelineService {
           brief.directNamedMember === true ? '老板明确点名了你；只以自己的岗位身份回答，不转交给主编代答' : '你是当前活动主编，负责回应并判断下一步',
           '如果创作资料不足，指出缺口并提出一至三个具体问题',
           '不要在没有确认方案和章纲时直接创作正文',
-          '回答使用自然中文，可讨论但不得把闲聊写入正史'
+          '回答使用自然中文，可讨论但不得把闲聊写入正史',
+          '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
         ],
+        outputContract: EFFECTIVE_OUTPUT_CONTRACT,
         currentMessage: brief.content,
         recentConversation: history,
         storyBible: storyBible === undefined ? null : JSON.parse(storyBible.content_json),
@@ -157,6 +164,10 @@ export class ConversationReplyPipelineService {
         prompt,
         maxOutputTokens: 1_200
       });
+      const effective = prepareEffectiveOutput(result.output);
+      const references: unknown[] = [{ replyToMessageId: brief.messageId, contextPackId: pack.contextPackId }];
+      const effectiveReference = createEffectiveOutputReference(effective);
+      if (effectiveReference !== null) references.push(effectiveReference);
       const messageId = this.ids.next();
       this.database.prepare(`
         INSERT INTO messages (
@@ -165,8 +176,8 @@ export class ConversationReplyPipelineService {
         ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'conversation_reply', ?, ?, ?)
       `).run(
         messageId, brief.conversationId, scope.ownerId, scope.bookId, replyAgent.agent_id,
-        replyAgent.role_key, result.provider, result.modelId, result.output,
-        JSON.stringify([{ replyToMessageId: brief.messageId, contextPackId: pack.contextPackId }]), this.clock.now().toISOString()
+        replyAgent.role_key, result.provider, result.modelId, effective.visibleContent,
+        JSON.stringify(references), this.clock.now().toISOString()
       );
       new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId);
       return { messageId };

@@ -716,9 +716,12 @@ function ChatWorkspace(props: {
 }
 
 function MessageBubble({ bookId, message, agents }: { bookId: string; message: MessageData; agents: AgentData[] }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
   const speakingAgent = message.role_key === null ? null : agents.find((agent) => agent.roleKey === message.role_key) ?? null;
   const attachments = messageAttachmentReferences(message.references_json);
-  const displayContent = localAssistantDisplayContent(message);
+  const effectiveOutput = effectiveOutputReference(message.references_json);
+  const conciseContent = localAssistantDisplayContent(message);
+  const displayContent = expanded && effectiveOutput !== null ? effectiveOutput.fullContent : conciseContent;
   const source = message.sender_type === 'boss'
     ? '老板'
     : message.sender_type === 'agent'
@@ -733,6 +736,16 @@ function MessageBubble({ bookId, message, agents }: { bookId: string; message: M
       <div className="message-card">
         <header><strong>{source}</strong><time dateTime={message.created_at}>{formatTime(message.created_at)}</time></header>
         <p>{displayContent}</p>
+        {effectiveOutput !== null && effectiveOutput.fullContent.trim() !== conciseContent.trim() && (
+          <button
+            className="message-detail-toggle"
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? '收起完整回复' : '查看完整回复'}
+          </button>
+        )}
         {attachments.length > 0 && <div className="message-attachments">{attachments.map((attachment) => (
           attachment.mediaKind === 'image'
             ? <a className="message-image-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><img src={chatAttachmentContentUrl(bookId, attachment.attachmentId)} alt={attachment.originalName} /><span>{attachment.originalName}</span></a>
@@ -763,6 +776,30 @@ interface MessageAttachmentReference {
   mediaKind: 'image' | 'text' | 'pdf' | 'docx';
   parseStatus: ChatAttachmentData['parseStatus'];
   parsedCharCount: number;
+}
+
+interface EffectiveOutputMessageReference {
+  type: 'effective_output';
+  version: 1;
+  fullContent: string;
+  contentHash: string;
+}
+
+function effectiveOutputReference(value: string): EffectiveOutputMessageReference | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const reference = parsed.find((item): item is EffectiveOutputMessageReference => isRecord(item)
+      && item.type === 'effective_output'
+      && item.version === 1
+      && typeof item.fullContent === 'string'
+      && item.fullContent.trim().length > 0
+      && typeof item.contentHash === 'string'
+      && /^[a-f0-9]{64}$/u.test(item.contentHash));
+    return reference ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function messageAttachmentReferences(value: string): MessageAttachmentReference[] {

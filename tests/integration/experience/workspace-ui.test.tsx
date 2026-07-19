@@ -403,6 +403,18 @@ describe('完整创作工作台', () => {
       message_id: 'legacy-system-message', sender_type: 'system' as const, sender_agent_id: null, role_key: null,
       model_provider: null, model_id: null, message_type: 'capability_notice', content: '消息已保存。当前使用确定性离线适配器，不会把开放式创作对话伪装成真实模型回复。你可以使用“写一章”等明确命令。', references_json: '[]',
       created_at: '2026-07-16T12:02:00.000Z'
+    }, {
+      message_id: 'effective-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
+      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'conversation_reply', content: '精简结论：先核对双方实力。',
+      references_json: JSON.stringify([{ type: 'effective_output', version: 1, format: 'structured',
+        fullContent: '精简结论：先核对双方实力。\n\n完整依据：旧盟约仍然有效。', contentHash: 'a'.repeat(64) }]),
+      created_at: '2026-07-16T12:03:00.000Z'
+    }, {
+      message_id: 'invalid-effective-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
+      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'conversation_reply', content: '损坏引用安全降级。',
+      references_json: JSON.stringify([{ type: 'effective_output', version: 1,
+        fullContent: '这段损坏引用不得展示。', contentHash: 'invalid' }]),
+      created_at: '2026-07-16T12:04:00.000Z'
     }];
     const fetchMock = vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: chatMessages.length }, chatMessages));
     vi.stubGlobal('fetch', fetchMock);
@@ -420,6 +432,15 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('img', { name: '系统头像' })).not.toBeInTheDocument();
     expect(screen.queryByText(/确定性离线适配器/)).not.toBeInTheDocument();
     expect(screen.queryByText('聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。')).not.toBeInTheDocument();
+    expect(screen.getByText('精简结论：先核对双方实力。')).toBeInTheDocument();
+    expect(screen.queryByText(/完整依据：旧盟约仍然有效/u)).not.toBeInTheDocument();
+    const expandReply = screen.getByRole('button', { name: '查看完整回复' });
+    expect(expandReply).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(expandReply);
+    expect(screen.getByText(/完整依据：旧盟约仍然有效/u)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '收起完整回复' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('损坏引用安全降级。')).toBeInTheDocument();
+    expect(screen.queryByText('这段损坏引用不得展示。')).not.toBeInTheDocument();
 
     const addButton = screen.getByRole('button', { name: '添加图片或文件' });
     expect(addButton).toBeInTheDocument();
