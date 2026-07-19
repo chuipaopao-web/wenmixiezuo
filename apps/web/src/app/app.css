@@ -168,6 +168,7 @@ svg {
 }
 
 .brand-lockup,
+.topbar-book-summary,
 .topbar-actions {
   min-width: 0;
   height: 100%;
@@ -207,6 +208,54 @@ svg {
   margin-top: 2px;
   color: var(--ink-faint);
   font-size: calc(10px * var(--font-scale));
+}
+
+.topbar-book-summary {
+  grid-column: 2;
+  justify-content: space-between;
+  gap: 18px;
+  overflow: hidden;
+  padding: 0 20px;
+}
+
+.topbar-book-summary.empty {
+  color: var(--ink-faint);
+  font-size: calc(11px * var(--font-scale));
+}
+
+.topbar-book-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.topbar-book-title svg {
+  color: var(--accent);
+}
+
+.topbar-book-title strong {
+  min-width: 0;
+  overflow: hidden;
+  font-family: "Noto Serif SC", STSong, SimSun, serif;
+  font-size: calc(14px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-book-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--font-scale));
+  white-space: nowrap;
+}
+
+.topbar-book-meta span {
+  padding: 0 9px;
+  border-left: 1px solid var(--line-strong);
 }
 
 .topbar-actions {
@@ -2162,6 +2211,7 @@ svg {
 
 .reader-mode .left-rail,
 .reader-mode .right-rail,
+.reader-mode .topbar-book-summary,
 .reader-mode .service-state {
   display: none;
 }
@@ -2225,6 +2275,10 @@ svg {
   }
 
   .service-state {
+    display: none;
+  }
+
+  .topbar-book-summary {
     display: none;
   }
 

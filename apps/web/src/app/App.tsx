@@ -482,6 +482,7 @@ export function App(): React.JSX.Element {
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
+        <TopbarBookSummary book={selectedBook} workspace={workspace} />
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
           <button className="icon-button settings-button" type="button" aria-label="界面设置" onClick={() => setSettingsOpen(true)}><GearSixIcon /></button>
@@ -607,6 +608,27 @@ export function App(): React.JSX.Element {
 function ServiceState({ health, worker, error }: { health: HealthData | null; worker: WorkerData | null; error: string | null }): React.JSX.Element {
   const ready = health?.status === 'ok' && worker?.status === 'ready' && error === null;
   return <div className={ready ? 'service-state ready' : 'service-state'} role="status" aria-live="polite">{ready ? <WifiHighIcon /> : <WifiSlashIcon />}<span>{ready ? '本地服务已就绪' : error === null ? '正在连接' : '服务不可用'}</span></div>;
+}
+
+function TopbarBookSummary({ book, workspace }: { book: BookData | null; workspace: WorkspaceData | null }): React.JSX.Element {
+  if (book === null) {
+    return <div className="topbar-book-summary empty" aria-label="当前书籍"><span>请选择一本书</span></div>;
+  }
+  const volumeCount = workspace?.volumes?.length ?? 0;
+  const chapterCount = volumeCount > 0
+    ? workspace?.volumes?.reduce((total, volume) => total + volume.chapterCount, 0) ?? 0
+    : workspace?.chapters.length ?? 0;
+  return (
+    <div className="topbar-book-summary" aria-label={`当前书籍：《${book.title}》`}>
+      <div className="topbar-book-title"><BooksIcon /><strong>{book.title}</strong></div>
+      <div className="topbar-book-meta" aria-label="书籍进度">
+        <span>{bookStatusLabel(book.status)}</span>
+        <span>{volumeCount} 卷</span>
+        <span>{chapterCount} 章</span>
+        <span>正史修订 {book.canonRevision}</span>
+      </div>
+    </div>
+  );
 }
 
 function DrawerHeader({ title, onClose }: { title: string; onClose: () => void }): React.JSX.Element {

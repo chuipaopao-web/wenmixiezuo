@@ -99,6 +99,13 @@ describe('完整创作工作台', () => {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
     expect(document.querySelector('.workspace-tabs')).toBeNull();
+    const bookSummary = document.querySelector('.topbar-book-summary') as HTMLElement;
+    expect(bookSummary).toBeInTheDocument();
+    expect(within(bookSummary).getByText('雾钟档案')).toBeInTheDocument();
+    expect(within(bookSummary).getByText('创作中')).toBeInTheDocument();
+    expect(within(bookSummary).getByText('1 卷')).toBeInTheDocument();
+    expect(within(bookSummary).getByText('1 章')).toBeInTheDocument();
+    expect(within(bookSummary).getByText('正史修订 3')).toBeInTheDocument();
     expect(document.querySelector('.topbar-center')).toBeNull();
     expect(document.querySelector('.workspace-book-summary')).toBeNull();
     expect(screen.queryByText('规划成果')).not.toBeInTheDocument();
