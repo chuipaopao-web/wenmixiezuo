@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statfsSync } from 'node:fs';
 import { success } from '../contracts/api.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { PositioningService } from '../application/books/positioning-service.js';
@@ -33,6 +33,13 @@ import { ProductionWorkflowRepository } from '../infrastructure/db/repositories/
 import { ExpressionProfileService } from '../application/books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../infrastructure/db/repositories/expression-profile-repository.js';
 import { UnitOfWork } from '../infrastructure/db/unit-of-work.js';
+import { DomainError, errorCodes } from '../domain/errors.js';
+import { creativeMemberContracts, creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../contracts/agent-team-v2.js';
+import { AgentGovernanceRepository } from '../infrastructure/db/repositories/agent-governance-repository.js';
+import { ModelBindingV2Service } from '../application/agents/model-binding-v2-service.js';
+import { BookPortabilityService } from '../application/portability/book-portability-service.js';
+import { TaxonomyService } from '../application/knowledge/taxonomy-service.js';
+import { TaxonomyRepository } from '../infrastructure/db/repositories/taxonomy-repository.js';
 
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
@@ -62,6 +69,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
   const backups = new BackupService(database, config);
   const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
+  const agentGovernance = new AgentGovernanceRepository(database);
+  const modelBindings = new ModelBindingV2Service(agentGovernance, new UnitOfWork(database), ids, clock);
+  const portability = new BookPortabilityService(database, config, ids, clock);
+  const taxonomy = new TaxonomyService(new TaxonomyRepository(database), ids, clock);
 
   app.post<{ Body: {
     title?: string; text: string; category?: string; classification?: string;
@@ -142,15 +153,189 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     };
     const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { count: number }).count;
+    const volumes = database.prepare(`
+      SELECT v.volume_id AS volumeId, v.volume_number AS volumeNumber, v.title, v.status,
+        COUNT(c.chapter_id) AS chapterCount,
+        SUM(CASE WHEN c.settlement_status = 'settled' THEN 1 ELSE 0 END) AS settledCount
+      FROM volumes v LEFT JOIN chapters c ON c.owner_id = v.owner_id AND c.book_id = v.book_id AND c.volume_id = v.volume_id
+      WHERE v.owner_id = ? AND v.book_id = ? GROUP BY v.volume_id ORDER BY v.volume_number
+    `).all(scope.ownerId, scope.bookId);
+    const localAssistantSessions = (database.prepare(`SELECT COUNT(*) AS count FROM local_assistant_sessions
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'`).get(scope.ownerId, scope.bookId) as { count: number }).count;
+    const liveAgents = agents.list(scope).map((agent) => {
+      const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
+      return {
+        ...agent,
+        publicSummary: contract?.publicSummary ?? agent.roleName,
+        responsibilities: contract?.responsibilities ?? [],
+        boundaries: contract?.boundaries ?? [],
+        retrievalFocus: contract?.retrievalFocus ?? [],
+        outputKinds: contract?.outputKinds ?? []
+      };
+    });
     return success({
       book,
-      chapters: chapters.list(scope),
-      agents: agents.list(scope),
+      chapters: chapters.listWorkspaceWindow(scope),
+      volumes,
+      agents: liveAgents,
       tasks: tasks.list(scope),
       budget,
       confirmations,
-      messageCount
+      messageCount,
+      localAssistant: {
+        displayName: '小文秘书', roleName: '本地工具', status: 'ready', sessionCount: localAssistantSessions,
+        summary: '处理确定性本地小任务并把创作请求原样转交主编，不替创作成员作决定。'
+      }
     }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string }; Querystring: { offset?: number; limit?: number } }>('/api/v1/books/:bookId/volumes', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const offset = Math.max(0, Number(request.query.offset ?? 0));
+    const limit = Math.min(100, Math.max(1, Number(request.query.limit ?? 30)));
+    const total = (database.prepare(`SELECT COUNT(*) AS count FROM volumes WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count;
+    const items = database.prepare(`SELECT volume_id AS volumeId, volume_number AS volumeNumber, title, status
+      FROM volumes WHERE owner_id = ? AND book_id = ? ORDER BY volume_number LIMIT ? OFFSET ?`)
+      .all(scope.ownerId, scope.bookId, limit, offset);
+    return success({ items, total, offset, limit }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string; volumeId: string }; Querystring: { offset?: number; limit?: number; query?: string; status?: string } }>('/api/v1/books/:bookId/volumes/:volumeId/chapters', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const offset = Math.max(0, Number(request.query.offset ?? 0));
+    const limit = Math.min(200, Math.max(1, Number(request.query.limit ?? 80)));
+    const query = String(request.query.query ?? '').trim();
+    const status = String(request.query.status ?? '').trim();
+    const pattern = `%${query.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+    const where = `c.owner_id = ? AND c.book_id = ? AND (? = 'all' OR c.volume_id = ?)
+      AND (? = '' OR c.plan_status = ? OR c.generation_status = ? OR c.settlement_status = ?
+        OR (? = 'review' AND c.generation_status = 'completed' AND c.settlement_status <> 'settled')
+        OR (? = 'blocked' AND c.generation_status = 'failed'))
+      AND (? = '%%' OR CAST(c.chapter_number AS TEXT) LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\'
+        OR EXISTS (
+          SELECT 1 FROM fact_assertions f JOIN entities e ON e.entity_id = f.subject_entity_id
+          WHERE f.owner_id = c.owner_id AND f.book_id = c.book_id AND f.source_chapter_id = c.chapter_id
+            AND (e.canonical_name LIKE ? ESCAPE '\\' OR e.aliases_json LIKE ? ESCAPE '\\')
+        ))`;
+    const countParameters = [
+      scope.ownerId, scope.bookId, request.params.volumeId, request.params.volumeId,
+      status, status, status, status, status, status,
+      pattern, pattern, pattern, pattern, pattern
+    ];
+    const total = (database.prepare(`SELECT COUNT(*) AS count FROM chapters c WHERE ${where}`)
+      .get(...countParameters) as { count: number }).count;
+    const items = database.prepare(`SELECT chapter_id AS chapterId, volume_id AS volumeId, chapter_number AS chapterNumber,
+      title, plan_status AS planStatus, generation_status AS generationStatus, settlement_status AS settlementStatus,
+      current_manuscript_version_id AS currentManuscriptVersionId, canon_manuscript_version_id AS canonManuscriptVersionId
+      FROM chapters c WHERE ${where} ORDER BY c.chapter_number LIMIT ? OFFSET ?`)
+      .all(...countParameters, limit, offset);
+    return success({ items, total, offset, limit }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/library', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    const book = books.require(scope);
+    const entities = (database.prepare(`SELECT entity_id, entity_type, canonical_name, aliases_json, schema_version, status, updated_at
+      FROM entities WHERE owner_id = ? AND book_id = ? ORDER BY entity_type, canonical_name LIMIT 500`)
+      .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { aliases_json: string }>).map(({ aliases_json: aliasesJson, ...row }) => ({ ...row, aliases: parseStoredJson(aliasesJson) }));
+    const facts = (database.prepare(`SELECT f.fact_id, f.subject_entity_id, e.canonical_name, f.relation_key, f.value_json,
+      f.story_time_start, f.story_time_end, f.evidence_json, f.grade, f.status, f.source_chapter_id, f.source_manuscript_version_id
+      FROM fact_assertions f JOIN entities e ON e.entity_id = f.subject_entity_id
+      WHERE f.owner_id = ? AND f.book_id = ? AND f.status NOT IN ('withdrawn', 'rejected')
+      ORDER BY CASE f.status WHEN 'active' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, e.canonical_name LIMIT 1000`)
+      .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { value_json: string; evidence_json: string }>).map(({ value_json: valueJson, evidence_json: evidenceJson, ...row }) => ({
+        ...row, value: parseStoredJson(valueJson), evidence: parseStoredJson(evidenceJson)
+      }));
+    const relations = (database.prepare(`SELECT r.relationship_id, r.canon_revision, r.from_entity_id,
+      e.canonical_name AS from_name, r.relation_key, r.to_value_json, r.source_fact_id
+      FROM relationship_projection r JOIN entities e ON e.entity_id = r.from_entity_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.canon_revision = ? ORDER BY e.canonical_name, r.relation_key LIMIT 500`)
+      .all(scope.ownerId, scope.bookId, book.canonRevision) as unknown as Array<Record<string, unknown> & { to_value_json: string }>).map(({ to_value_json: toValueJson, ...row }) => ({ ...row, toValue: parseStoredJson(toValueJson) }));
+    const tags = database.prepare(`SELECT d.tag_definition_id, d.namespace, d.name, d.description, d.color, d.icon,
+      d.created_source, d.version, d.status, COUNT(a.tag_assignment_id) AS assignment_count
+      FROM tag_definitions d LEFT JOIN tag_assignments a ON a.owner_id = d.owner_id AND a.book_id = d.book_id
+        AND a.tag_definition_id = d.tag_definition_id AND a.status = 'active'
+      WHERE d.owner_id = ? AND d.book_id = ? GROUP BY d.tag_definition_id ORDER BY d.namespace, d.name LIMIT 500`)
+      .all(scope.ownerId, scope.bookId);
+    const projections = (database.prepare(`SELECT projection_id, projection_type, track, chapter_number,
+      canon_revision, content_json, source_ids_json, rebuilt_at FROM narrative_projections
+      WHERE owner_id = ? AND book_id = ? ORDER BY projection_type, track, chapter_number LIMIT 1000`)
+      .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { content_json: string; source_ids_json: string }>).map(({ content_json: contentJson, source_ids_json: sourceIdsJson, ...row }) => ({
+        ...row, content: parseStoredJson(contentJson), sourceIds: parseStoredJson(sourceIdsJson)
+      }));
+    const gaps = database.prepare(`SELECT knowledge_gap_id, target_type, target_id, narrative_goal, gap_type,
+      diagnosis, severity, intentional_unknown, source_task_id, status, created_at, resolved_at
+      FROM knowledge_gap_findings WHERE owner_id = ? AND book_id = ? ORDER BY
+      CASE severity WHEN 'blocking' THEN 0 WHEN 'important' THEN 1 WHEN 'optional' THEN 2 ELSE 3 END, created_at DESC LIMIT 500`)
+      .all(scope.ownerId, scope.bookId);
+    const scopedCount = (table: string, extra = '', parameters: Array<string | number> = []): number =>
+      (database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE owner_id = ? AND book_id = ? ${extra}`)
+        .get(scope.ownerId, scope.bookId, ...parameters) as { count: number }).count;
+    return success({
+      canonRevision: book.canonRevision,
+      entities,
+      facts,
+      relations,
+      tags,
+      projections,
+      gaps,
+      summary: {
+        entityCount: scopedCount('entities'),
+        factCount: scopedCount('fact_assertions', `AND status NOT IN ('withdrawn', 'rejected')`),
+        relationCount: scopedCount('relationship_projection', 'AND canon_revision = ?', [book.canonRevision]),
+        tagCount: scopedCount('tag_definitions'),
+        projectionCount: scopedCount('narrative_projections'),
+        openGapCount: scopedCount('knowledge_gap_findings', `AND status = 'open'`)
+      }
+    }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/model-bindings', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const revisions = database.prepare(`SELECT agent_model_binding_revision_id AS revisionId, version, effective_from AS effectiveFrom,
+      reason, status, created_at AS createdAt FROM agent_model_binding_revisions
+      WHERE owner_id = ? AND book_id = ? ORDER BY version DESC`).all(scope.ownerId, scope.bookId);
+    return success({ active: agentGovernance.activeBindings(scope), revisions, contracts: creativeMemberContracts }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile> } }>('/api/v1/books/:bookId/model-bindings/preview', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const profiles = normalizeTeamProfiles(request.body.profiles);
+    modelBindings.validate(profiles);
+    return success({
+      valid: true,
+      futureTasksOnly: true,
+      roleCount: creativeRoleKeys.length,
+      compatibility: {
+        plotModelsDiffer: modelSignature(profiles.lead_screenwriter) !== modelSignature(profiles.second_screenwriter),
+        glmWriterUsesDeepseekFactSeat: true,
+        cashFallbackAllowed: false
+      }
+    }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile>; reason?: string } }>('/api/v1/books/:bookId/model-bindings/activate', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const profiles = normalizeTeamProfiles(request.body.profiles);
+    const version = modelBindings.reviseFuture(scope, profiles, request.body.reason?.trim() || '老板在设置页激活未来任务模型绑定');
+    return success({ version, futureTasksOnly: true, active: agentGovernance.activeBindings(scope) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string; revisionId: string } }>('/api/v1/books/:bookId/model-bindings/:revisionId/restore', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const version = modelBindings.restoreFuture(
+      scope,
+      request.params.revisionId,
+      `从历史修订 ${request.params.revisionId} 创建新的未来任务绑定`
+    );
+    return success({ version, futureTasksOnly: true, restoredFrom: request.params.revisionId, active: agentGovernance.activeBindings(scope) }, request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/agents', async (request) => {
@@ -184,6 +369,20 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; artifactId: string }; Body: { versionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/select', async (request) => {
     return success(artifacts.select({ ...owner, bookId: request.params.bookId }, request.params.artifactId, request.body.versionId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; artifactId: string }; Body: { content: Record<string, unknown>; parentVersionId?: string | null } }>('/api/v1/books/:bookId/artifacts/:artifactId/versions', async (request) => {
+    return success(artifacts.addVersion(
+      { ...owner, bookId: request.params.bookId }, request.params.artifactId, request.body.content, request.body.parentVersionId ?? null
+    ), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; artifactId: string; versionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/versions/:versionId/reject', async (request) => {
+    return success(artifacts.reject({ ...owner, bookId: request.params.bookId }, request.params.artifactId, request.params.versionId), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; artifactId: string }; Querystring: { left: string; right: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/compare', async (request) => {
+    return success(artifacts.compare({ ...owner, bookId: request.params.bookId }, request.query.left, request.query.right), request.id);
   });
 
   app.post<{ Params: { bookId: string; artifactId: string }; Body: { historicalVersionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/revert', async (request) => {
@@ -221,11 +420,28 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { count: 1 | 3 | 4 | 5; volumeTitle?: string; firstChapterTitle?: string } }>('/api/v1/books/:bookId/chapter-batches', async (request) => {
+    if (request.body.count !== 1) {
+      throw new DomainError(
+        errorCodes.operationIncomplete,
+        '正式正文必须逐章生成、逐章点评、逐章确认和逐章结算；旧批量入口不再调度多章',
+        { replacement: `/api/v1/books/${request.params.bookId}/writing-runs`, requestedCount: request.body.count },
+        false,
+        409
+      );
+    }
     const options = {
       ...(request.body.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
       ...(request.body.firstChapterTitle === undefined ? {} : { firstChapterTitle: request.body.firstChapterTitle })
     };
     return success(chapterBatches.scheduleNewChapters({ ...owner, bookId: request.params.bookId }, request.body.count, options), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { volumeTitle?: string; chapterTitle?: string } }>('/api/v1/books/:bookId/writing-runs', async (request) => {
+    const options = {
+      ...(request.body?.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
+      ...(request.body?.chapterTitle === undefined ? {} : { firstChapterTitle: request.body.chapterTitle })
+    };
+    return success(chapterBatches.scheduleNewChapters({ ...owner, bookId: request.params.bookId }, 1, options), request.id);
   });
 
   app.get<{ Params: { bookId: string; batchId: string } }>('/api/v1/books/:bookId/chapter-batches/:batchId', async (request) => {
@@ -244,7 +460,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
     const reviewPanels = database.prepare(`SELECT * FROM review_panels WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY review_round`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
-    const reviewReports = database.prepare(`SELECT r.* FROM review_reports r JOIN review_panels p ON p.review_panel_id = r.review_panel_id
+    const reviewReports = database.prepare(`SELECT r.*, m.provider, m.model_id FROM review_reports r
+      JOIN review_panels p ON p.review_panel_id = r.review_panel_id
+      JOIN model_config_snapshots m ON m.model_snapshot_id = r.model_snapshot_id
       WHERE r.owner_id = ? AND r.book_id = ? AND p.chapter_id = ? ORDER BY p.review_round, r.reviewer_role`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
     const approvalGates = database.prepare(`SELECT * FROM chapter_approval_gates WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at DESC`)
@@ -289,6 +507,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {
     return success({ entityId: canon.createEntity({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { namespace: string; name: string; description?: string; appliesTo: string[]; color?: string | null } }>('/api/v1/books/:bookId/tags', async (request) => {
+    return success(taxonomy.createTag({ ...owner, bookId: request.params.bookId }, {
+      ...request.body, createdSource: 'boss', changesStoryFact: false
+    }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: FactInput }>('/api/v1/books/:bookId/facts', async (request) => {
@@ -520,6 +744,40 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post('/api/v1/backups', async (request) => success(backups.create(), request.id));
 
+  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/export', async (request) => {
+    return success(portability.exportBook({ ...owner, bookId: request.params.bookId }), request.id);
+  });
+
+  app.post<{ Body: { packageName: string } }>('/api/v1/imports/copy', async (request) => {
+    return success(portability.importCopy(owner, request.body.packageName), request.id);
+  });
+
+  app.get('/api/v1/portability/operations', async (request) => success(portability.listOperations(owner.ownerId), request.id));
+
+  app.get('/api/v1/operations/status', async (request) => {
+    const volume = statfsSync(config.dataDir);
+    const count = (table: string, where = ''): number => (database.prepare(`SELECT COUNT(*) AS count FROM ${table} ${where}`).get() as { count: number }).count;
+    const activeSnapshot = database.prepare(`SELECT status, canon_revision AS canonRevision, source_count AS sourceCount,
+      chunk_count AS chunkCount, ready_at AS readyAt, failure_code AS failureCode
+      FROM chunk_snapshots WHERE status = 'ready' ORDER BY ready_at DESC LIMIT 1`).get();
+    const latestBackup = database.prepare(`SELECT backup_id AS backupId, status, verified_at AS verifiedAt, created_at AS createdAt
+      FROM backups ORDER BY created_at DESC LIMIT 1`).get();
+    return success({
+      releaseId: config.releaseId,
+      schemaVersion: Number((database.prepare(`SELECT value FROM schema_meta WHERE key = 'schema_version'`).get() as { value: string }).value),
+      disk: { totalBytes: Number(volume.blocks) * Number(volume.bsize), freeBytes: Number(volume.bavail) * Number(volume.bsize) },
+      queue: {
+        queued: count('tasks', `WHERE status = 'queued'`),
+        working: count('tasks', `WHERE status = 'working'`),
+        blocked: count('tasks', `WHERE status IN ('blocked', 'failed', 'interrupted')`)
+      },
+      projection: activeSnapshot ?? { status: 'missing' },
+      latestBackup: latestBackup ?? null,
+      portability: { completed: count('portable_operations', `WHERE status = 'completed'`), failed: count('portable_operations', `WHERE status = 'failed'`) },
+      diagnostics: { telemetrySent: false, secretsIncluded: false, listeningHost: config.apiHost }
+    }, request.id);
+  });
+
   app.get('/api/v1/backups', async (request) => success(database.prepare(`
     SELECT backup_id, release_id, status, backup_path, database_hash, manifest_hash,
            file_count, created_at, verified_at, verification_json
@@ -529,4 +787,26 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { backupId: string } }>('/api/v1/backups/:backupId/verify', async (request) => {
     return success(backups.verify(request.params.backupId), request.id);
   });
+}
+
+function parseStoredJson(value: string): unknown {
+  return JSON.parse(value) as unknown;
+}
+
+function modelSignature(profile: TeamModelProfile): string {
+  return `${profile.provider}/${profile.modelId}`;
+}
+
+function normalizeTeamProfiles(input: Record<string, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
+  const result = {} as Record<CreativeRoleKey, TeamModelProfile>;
+  for (const role of creativeRoleKeys) {
+    const profile = input[role];
+    if (profile === undefined || typeof profile.provider !== 'string' || typeof profile.modelId !== 'string'
+      || !['deterministic', 'codex', 'coding', 'agent'].includes(profile.plan)) {
+      throw new Error(`岗位${role}缺少有效模型绑定`);
+    }
+    result[role] = { provider: profile.provider.trim(), modelId: profile.modelId.trim(), plan: profile.plan };
+    if (result[role].provider.length === 0 || result[role].modelId.length === 0) throw new Error(`岗位${role}缺少有效模型绑定`);
+  }
+  return result;
 }

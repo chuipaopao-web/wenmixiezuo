@@ -79,8 +79,8 @@ export class ConversationService {
           '请明确主角与开局处境、核心冲突、各章推进节点、第一章视角与文风、章末钩子，以及仍需老板决定的问题。',
           `当前缺少：${readiness.missing.join('、')}`
         ].join('\n');
-        const scheduled = this.scheduleDiscussion(scope, scopeText, messageId, conversationId, 'creative_planning', count);
-        return { ...scheduled, kind: 'planning_discussion_scheduled', requestedChapterCount: count, missing: readiness.missing };
+        const scheduled = this.scheduleDiscussion(scope, scopeText, messageId, conversationId, 'creative_planning', null);
+        return { ...scheduled, kind: 'planning_discussion_scheduled', requestedChapterCount: null, missing: readiness.missing };
       }
       const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock).scheduleNewChapters(scope, count);
       return { kind: 'chapter_batch_scheduled', batchId: batch.batchId, count };
@@ -105,7 +105,7 @@ export class ConversationService {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
       const planning = isCreativeIntent(scopeText);
-      return this.scheduleDiscussion(scope, scopeText, messageId, conversationId, planning ? 'creative_planning' : 'open_discussion', planning ? 1 : null);
+      return this.scheduleDiscussion(scope, scopeText, messageId, conversationId, planning ? 'creative_planning' : 'open_discussion', null);
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     if (content === '暂停') {
@@ -158,12 +158,16 @@ export class ConversationService {
         planningPrepared: prepared !== null, chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
       };
     }
-    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', 1);
+    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, content, messageId, conversationId, 'creative_planning', null);
     return this.scheduleConversationReply(scope, content, messageId, conversationId);
   }
 
   private scheduleConversationReply(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
+    const editor = this.database.prepare(`SELECT model_snapshot_id FROM agent_instances
+      WHERE owner_id = ? AND book_id = ? AND agent_id = ? AND enabled = 1`)
+      .get(scope.ownerId, scope.bookId, lease.active_editor_agent_id) as { model_snapshot_id: string } | undefined;
+    if (editor === undefined) throw new Error('活动主编不存在、已停用或不属于当前书籍');
     const budget = this.requireBudget(scope);
     const taskId = this.ids.next();
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
@@ -175,7 +179,7 @@ export class ConversationService {
       budgetId: budget.budget_id,
       requiredEditorEpoch: lease.editor_epoch,
       initialPhase: 'reply',
-      brief: { conversationId, messageId, content }
+      brief: { conversationId, messageId, content, modelSnapshotId: editor.model_snapshot_id }
     });
     tasks.queue(scope, taskId);
     return { kind: 'conversation_reply_scheduled', taskId, agentId: lease.active_editor_agent_id };
@@ -259,7 +263,8 @@ export class ConversationService {
       FROM tasks t JOIN discussions d ON d.discussion_id = json_extract(t.task_brief_json, '$.discussionId')
       WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion'
         AND json_extract(t.task_brief_json, '$.purpose') = 'creative_planning'
-        AND CAST(json_extract(t.task_brief_json, '$.requestedChapterCount') AS INTEGER) >= ?
+        AND (json_extract(t.task_brief_json, '$.requestedChapterCount') IS NULL
+          OR CAST(json_extract(t.task_brief_json, '$.requestedChapterCount') AS INTEGER) >= ?)
         AND t.status IN ('pending', 'queued', 'working', 'waiting_confirmation', 'succeeded')
         AND d.status IN ('collecting', 'cross_review', 'synthesizing', 'reviewing_draft', 'awaiting_boss')
       ORDER BY t.created_at DESC LIMIT 1

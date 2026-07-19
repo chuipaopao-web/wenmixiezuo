@@ -19,14 +19,16 @@ const chapter = {
 
 const agentRoles = [
   ['chief_editor', '主编', '貂蝉'],
-  ['plot_architect', '编剧', '婉儿'],
-  ['continuity', '设定师', '文姬'],
-  ['writer', '主笔', '秋香'],
-  ['reviewer', '审校', '妲己'],
-  ['reader_experience', '体验官', '昭君'],
-  ['style_editor', '文编', '清照'],
+  ['deputy_editor', '副编', '西施'],
+  ['lead_screenwriter', '编剧', '婉儿'],
+  ['second_screenwriter', '编剧', '红玉'],
+  ['setting', '设定', '文姬'],
+  ['lead_writer', '主笔', '秋香'],
+  ['backup_writer', '副笔', '湘君'],
+  ['literary_reviewer', '审校', '妲己'],
+  ['experience_reviewer', '体验', '昭君'],
   ['researcher', '研究员', '道韫'],
-  ['copyright', '版权顾问', '弄玉']
+  ['copyright', '版权', '弄玉']
 ] as const;
 
 const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, displayName], index) => ({
@@ -35,20 +37,21 @@ const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, disp
   roleName,
   displayName,
   category: index < 5 ? 'core' : 'specialist',
-  provider: 'local-deterministic', modelId: 'wenmi-fixture-v1', activationState: index < 5 ? 'idle' : 'standby'
+  provider: 'local-deterministic', modelId: `wenmi-fixture-v2-${roleKey}`, activationState: index < 6 ? 'idle' : 'standby',
+  publicSummary: `${roleName}公开职责`, responsibilities: ['完成岗位任务'], boundaries: ['不越权修改正史'], retrievalFocus: ['当前任务证据'], outputKinds: ['结构化结果']
 }));
 
 const workspace: WorkspaceData = {
-  book, chapters: [chapter], agents,
+  book, chapters: [{ ...chapter, volumeId: 'volume-ui-1' }], volumes: [{ volumeId: 'volume-ui-1', volumeNumber: 1, title: '雾城卷', status: 'active', chapterCount: 1, settledCount: 1 }], agents,
   messageCount: 0,
   tasks: [{
     taskId: 'task-ui-1', taskType: 'chapter_creation', status: 'working', currentPhase: 'draft',
-    pauseRequested: false, cancelRequested: false, attemptCount: 1, assignedAgentId: 'agent-4',
+    pauseRequested: false, cancelRequested: false, attemptCount: 1, assignedAgentId: 'agent-6',
     chapterId: 'chapter-ui-1', brief: { chapterId: 'chapter-ui-1', chapterNumber: 1, batchIndex: 0 },
     checkpoint: { completedPhase: 'context' }
   }, {
     taskId: 'task-ui-2', taskType: 'discussion', status: 'queued', currentPhase: 'queued',
-    pauseRequested: false, cancelRequested: false, attemptCount: 0, assignedAgentId: 'agent-2',
+    pauseRequested: false, cancelRequested: false, attemptCount: 0, assignedAgentId: 'agent-3',
     chapterId: 'chapter-ui-1', brief: { chapterId: 'chapter-ui-1', chapterNumber: 1, summary: '讨论剧情转折' },
     checkpoint: {}
   }],
@@ -56,7 +59,8 @@ const workspace: WorkspaceData = {
     mode: 'standard', token_limit: 100_000, spent_tokens: 12_000, reserved_tokens: 4_000,
     cash_limit_micros: 0, spent_cash_micros: 0, status: 'active'
   },
-  confirmations: { count: 0, items: [] }
+  confirmations: { count: 0, items: [] },
+  localAssistant: { displayName: '小文秘书', roleName: '本地工具', status: 'ready', sessionCount: 1, summary: '处理确定性本地任务并转交创作请求。' }
 };
 
 afterEach(() => {
@@ -66,28 +70,40 @@ afterEach(() => {
 });
 
 describe('完整创作工作台', () => {
-  it('显示内容优先三栏、九个原型头像与真实状态并通过自动无障碍检查', async () => {
+  it('显示内容优先三栏、小文秘书、十一名女性成员原型头像与真实状态并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
     expect((await screen.findAllByText('雾钟档案')).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('complementary', { name: '书籍与章节' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
-    expect(await screen.findByText('9 名成员')).toBeInTheDocument();
+    expect(await screen.findByText('11 名成员')).toBeInTheDocument();
+    expect(screen.getByText('小文秘书（本地工具）')).toBeInTheDocument();
     expect(await screen.findByText(/生成完整初稿/)).toBeInTheDocument();
     expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
     expect(screen.getByText('后台工作中')).toBeInTheDocument();
     expect(screen.getByText('排队中')).toBeInTheDocument();
-    expect(screen.getAllByText('空闲')).toHaveLength(7);
-    expect(screen.getByText('弄玉（版权顾问）')).toBeInTheDocument();
+    expect(screen.getAllByText('空闲')).toHaveLength(9);
+    expect(screen.getByText('弄玉（版权）')).toBeInTheDocument();
     expect(screen.queryByText('按需专家 4')).not.toBeInTheDocument();
     expect(screen.queryByText('设定与连续性统筹')).not.toBeInTheDocument();
     expect(screen.queryByText('local-deterministic/wenmi-fixture-v1')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(9);
+    expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(11);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /貂蝉（主编），空闲，打开岗位详情/ }));
+    expect(screen.getByRole('dialog', { name: /貂蝉（主编）/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '负责' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '不负责' })).toBeInTheDocument();
+    expect(screen.getByText(/local-deterministic\/wenmi-fixture-v2-chief_editor/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/chain.of.thought|system prompt|api key/i);
   });
 
   it('任务按钮打开二级页面承载预算与待确认，右栏只显示团队成员', async () => {
@@ -150,8 +166,26 @@ describe('完整创作工作台', () => {
     const chapterButton = await screen.findByRole('button', { name: /1\. 雾城初响/ });
     fireEvent.click(chapterButton);
     await waitFor(() => expect(document.querySelector('.novel-text')?.textContent).toBe(longText));
+    expect(await screen.findByRole('heading', { name: '工单与三席点评' })).toBeInTheDocument();
+    expect(screen.getByText('文学与AI腔席')).toBeInTheDocument();
+    expect(screen.getByText(/10%/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '进入沉浸阅读' }));
     expect(document.querySelector('.app-shell')).toHaveClass('reader-mode');
+  });
+
+  it('规划工作台显示五个层级且资料库使用结构化卡片而非原始JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '规划' }));
+    expect(await screen.findByRole('heading', { name: '规划工作台' })).toBeInTheDocument();
+    for (const name of ['设定框架', '总纲', '卷纲', '章纲', '章节列表']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
+    expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '资料库' }));
+    expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '角色' }));
+    expect(await screen.findByText('张三')).toBeInTheDocument();
+    expect(document.querySelector('.library-workspace pre')).toBeNull();
   });
 
   it('版权与研究入口只展示隔离后的真实摘要', async () => {
@@ -251,17 +285,44 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     if (path === '/api/v1/runtime/worker') return apiResponse({
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }
     });
+    if (path === '/api/v1/operations/status') return apiResponse({ releaseId: 'release-ui', schemaVersion: 18, disk: { totalBytes: 1000, freeBytes: 800 }, queue: { queued: 0, working: 1, blocked: 0 }, projection: { status: 'ready' }, latestBackup: null, portability: { completed: 0, failed: 0 }, diagnostics: { telemetrySent: false, secretsIncluded: false, listeningHost: '127.0.0.1' } });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
+    if (path.includes('/volumes/') && path.endsWith('/chapters')) return apiResponse({
+      items: workspaceData.chapters,
+      total: workspaceData.chapters.length,
+      offset: Number(url.searchParams.get('offset') ?? 0),
+      limit: Number(url.searchParams.get('limit') ?? 80)
+    });
     if (path.endsWith('/messages')) return apiResponse(messages);
     if (path.endsWith('/content')) return apiResponse({
       manuscriptVersionId: 'manuscript-1', contentHash: 'hash-1', totalLength: chapterContent.length, content: chapterContent
+    });
+    if (/\/chapters\/chapter-ui-1$/u.test(path)) return apiResponse({
+      chapter, manuscripts: [], facts: [], reviews: [], production: {
+        writingOrders: [{ objective: '让钟声第一次改变主角选择', version: 1, canon_revision: 2, status: 'active' }], reviewPanels: [], approvalGates: [],
+        reviewReports: [
+          { review_report_id: 'report-fact', reviewer_role: 'fact', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'glm-5-2', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '事实与前文一致', issues: [], scores: { continuity: 95 } }) },
+          { review_report_id: 'report-literary', reviewer_role: 'literary', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2.6', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'rewrite', summary: '一处表达过于模板化', issues: [{ location: '第3段', issueType: 'ai_style', severity: 'minor', evidence: '连续同句式', requiredAction: '定点调整句式' }], scores: { literary: 88 }, aiStyle: { riskScore: 18, flaggedParagraphCount: 1, totalParagraphCount: 10, flaggedParagraphRatio: 0.1, isAuthorshipProbability: false, evidence: ['第3段'] } }) },
+          { review_report_id: 'report-experience', reviewer_role: 'experience', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'doubao', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '追读动力清晰', issues: [], scores: { engagement: 91 }, politicalRisk: { level: 'none' }, sexualContentRisk: { level: 'none' } }) }
+        ]
+      }
     });
     if (path.endsWith('/copyright/summary')) return apiResponse({
       sources: { count: 1 }, structureCards: { count: 1 }, cleanroomPackages: { count: 1 }, checks: { count: 1 }, recentChecks: []
     });
     if (path.endsWith('/research/sources')) return apiResponse([{ title: '公开资料', source_status: 'provided' }]);
     if (path.endsWith('/research/claims')) return apiResponse([{ claim_text: '候选判断', candidate_status: 'candidate' }]);
-    if (path.endsWith('/artifacts') || path.endsWith('/memory') || path.endsWith('/projections')) return apiResponse([]);
+    if (path.endsWith('/artifacts')) return apiResponse([
+      { artifact_id: 'story-1', artifact_type: 'story_bible', title: '设定框架', status: 'active', version: 1, active_version_status: 'active', active_content: { worldRules: ['钟响后可见未来一天'], characters: ['张三'] } },
+      { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见', acts: ['雾城危机'], endingDirection: '待确认' } },
+      { artifact_id: 'volume-1', artifact_type: 'volume_outline', title: '第一卷卷纲', status: 'active', version: 1, active_version_status: 'active', active_content: { volumeNumber: 1, goal: '揭开钟声来源', arcs: ['雾城危机'], endingState: '城门失守' } },
+      { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第一章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, goal: '听见钟声', beats: ['登城'], hook: '未来罪案出现' } }
+    ]);
+    if (path.endsWith('/library')) return apiResponse({ canonRevision: 3, entities: [{ entity_id: 'entity-1', entity_type: 'character', canonical_name: '张三', aliases: [], schema_version: 1, status: 'active' }], facts: [], relations: [], tags: [], projections: [], gaps: [], summary: { entityCount: 1, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } });
+    if (path.endsWith('/memory') || path.endsWith('/projections')) return apiResponse([]);
+    if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十一人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
+    if (path.endsWith('/model-bindings/preview') || path.endsWith('/model-bindings/activate')) return apiResponse({ valid: true, futureTasksOnly: true });
+    if (path.includes('/model-bindings/') && path.endsWith('/restore')) return apiResponse({ version: 2, futureTasksOnly: true });
     if (path.includes('/confirmations/') && path.endsWith('/accept')) return apiResponse({ status: 'accepted' });
     if (path.endsWith('/tasks/task-ui-1/cancel')) return apiResponse({ taskId: 'task-ui-1', status: 'working', cancelRequested: true });
     return new Response(JSON.stringify({ error: { message: `未配置测试接口 ${path}` } }), { status: 404 });

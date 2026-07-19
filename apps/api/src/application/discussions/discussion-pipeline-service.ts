@@ -60,11 +60,12 @@ export class DiscussionPipelineService {
     const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
     const participants = this.database.prepare(`
-      SELECT a.agent_id, a.display_name, r.role_key, r.category, a.model_snapshot_id, m.provider, m.model_id
+      SELECT a.agent_id, a.display_name, r.role_key, r.category,
+        COALESCE(p.model_snapshot_id, a.model_snapshot_id) AS model_snapshot_id, m.provider, m.model_id
       FROM discussion_participants p
       JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-      JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
+      JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id)
       WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ?
       ORDER BY CASE WHEN a.agent_id = ? THEN 1 ELSE 0 END, p.agent_id
     `).all(brief.discussionId, scope.ownerId, scope.bookId, task.assigned_agent_id) as unknown as ParticipantRow[];
@@ -103,11 +104,17 @@ export class DiscussionPipelineService {
               `老板的问题：${brief.scopeText}`,
               `已收到的真实岗位意见：${JSON.stringify(opinions.map((opinion) => ({ role: opinion.role, opinion: opinion.output })))}`,
               brief.purpose === 'creative_planning'
-                ? `请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、${brief.requestedChapterCount ?? 1}章推进节点、视角与文风、章末钩子和仍需决定的问题。`
+                ? '请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、双编剧建议的剧情跨度与推进节点、视角与文风、章末钩子和仍需决定的问题。'
                 : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
               '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。'
             ].join('\n')
-          : `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。给出推荐、理由、风险和一项可执行建议。`;
+          : [
+              `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。`,
+              '给出推荐、理由、风险和一项可执行建议。',
+              brief.purpose === 'creative_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
+                ? '最后必须另起一行输出：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。章数必须为1至30的整数，且最少≤建议≤最多。'
+                : ''
+            ].filter(Boolean).join('\n');
         const requestId = this.ids.next();
         const adapter = this.modelAdapters.resolve(participant.provider, participant.model_id, 'discussion', participant.role_key);
         const reservationId = budgets.reserve(
@@ -141,12 +148,12 @@ export class DiscussionPipelineService {
           tokens: result.inputTokens + result.outputTokens
         });
         if (brief.purpose === 'creative_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)) {
-          const recommended = brief.requestedChapterCount ?? 3;
+          const estimate = parseSpanEstimate(result.output, result.provider.startsWith('local-deterministic'));
           spanEstimates.submit(scope, {
             discussionId: brief.discussionId, round: 1, agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id,
-            minimum: Math.max(1, recommended - 1), recommended, maximum: recommended + Math.max(1, Math.ceil(recommended / 2)),
-            units: [{ unit: '剧情推进单元', suggestedChapters: recommended }], assumptions: ['基于当前老板原话和最小正史资料包'],
-            uncertainty: ['老板确认后按新增信息重估'], sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: brief.requestedChapterCount ?? null }
+            minimum: estimate.minimum, recommended: estimate.recommended, maximum: estimate.maximum,
+            units: estimate.units, assumptions: estimate.assumptions,
+            uncertainty: estimate.uncertainty, sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: null }
           });
         }
         opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output: result.output });
@@ -213,4 +220,44 @@ export class DiscussionPipelineService {
       JSON.stringify([{ discussionId, decisionId }]), this.clock.now().toISOString()
     );
   }
+}
+
+interface SpanEstimate {
+  minimum: number;
+  recommended: number;
+  maximum: number;
+  units: unknown[];
+  assumptions: unknown[];
+  uncertainty: unknown[];
+}
+
+function parseSpanEstimate(output: string, deterministicFallback: boolean): SpanEstimate {
+  const match = /章节跨度估算\s*(\{[^\r\n]+\})/u.exec(output);
+  if (match !== null) {
+    try {
+      const value = JSON.parse(match[1]!) as Partial<SpanEstimate>;
+      if (
+        Number.isInteger(value.minimum) && Number.isInteger(value.recommended) && Number.isInteger(value.maximum)
+        && value.minimum! >= 1 && value.minimum! <= value.recommended! && value.recommended! <= value.maximum! && value.maximum! <= 30
+      ) {
+        return {
+          minimum: value.minimum!, recommended: value.recommended!, maximum: value.maximum!,
+          units: Array.isArray(value.units) ? value.units : [],
+          assumptions: Array.isArray(value.assumptions) ? value.assumptions : [],
+          uncertainty: Array.isArray(value.uncertainty) ? value.uncertainty : []
+        };
+      }
+    } catch {
+      // The explicit validation error below is more useful than leaking a JSON parser message.
+    }
+  }
+  if (deterministicFallback) {
+    return {
+      minimum: 2, recommended: 3, maximum: 5,
+      units: [{ unit: '确定性测试推进单元', suggestedChapters: 3 }],
+      assumptions: ['仅用于无真实凭证时的确定性自动测试'],
+      uncertainty: ['真实模型接入后必须独立重新估算']
+    };
+  }
+  throw new Error('编剧回复缺少有效的结构化章节跨度估算，不能伪造或代填估算');
 }

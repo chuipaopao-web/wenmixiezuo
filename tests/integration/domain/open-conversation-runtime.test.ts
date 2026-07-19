@@ -55,7 +55,7 @@ describe('开放式主创对话', () => {
 
     expect(result.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
     const task = new TaskService(context.database, context.config.releaseId, clock).require(scope, String(result.action.taskId));
-    expect(task.brief).toMatchObject({ purpose: 'creative_planning', requestedChapterCount: 1 });
+    expect(task.brief).toMatchObject({ purpose: 'creative_planning', requestedChapterCount: null });
   });
 
   it('未准备好时写一章只发起规划讨论，不创建章节或正文任务', () => {
@@ -67,7 +67,7 @@ describe('开放式主创对话', () => {
     const result = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock)
       .sendBossMessage(scope, '写一章');
 
-    expect(result.action).toMatchObject({ kind: 'planning_discussion_scheduled', requestedChapterCount: 1 });
+    expect(result.action).toMatchObject({ kind: 'planning_discussion_scheduled', requestedChapterCount: null });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'chapter_creation'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
   });

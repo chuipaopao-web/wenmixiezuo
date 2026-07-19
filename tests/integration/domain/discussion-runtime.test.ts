@@ -58,12 +58,12 @@ describe('自然语言讨论运行闭环', () => {
       .executeClaimed(scope, taskId, 'worker-planning');
 
     const confirmed = conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`);
-    expect(confirmed.action).toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 1 });
+    expect(confirmed.action).toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM artifacts
       WHERE owner_id = ? AND book_id = ? AND status = 'active'
         AND artifact_type IN ('creative_plan','story_bible','master_outline','chapter_outline')
-    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 4 });
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 6 });
 
     const write = conversations.sendBossMessage(scope, '写一章');
     expect(write.action).toMatchObject({ kind: 'chapter_batch_scheduled', count: 1 });

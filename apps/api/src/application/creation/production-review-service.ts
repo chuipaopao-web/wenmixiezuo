@@ -19,7 +19,7 @@ export class ProductionReviewService {
     writerAgentId: string; writerProvider: string; writerModelId: string; writerModelSnapshotId: string;
     writerEpoch: number; writingOrderId: string; canonRevision: number; bindingRevisionId?: string | null;
   }): { panelId: string; reviewers: FrozenReviewer[] } {
-    const team = this.repository.currentTeam(scope);
+    const team = this.repository.currentTeam(scope, input.bindingRevisionId);
     const writerBase = team.find((agent) => agent.agentId === input.writerAgentId);
     if (writerBase === undefined) throw new Error('活动写手不在当前创作团队中');
     const writer: TeamAgentRow = { ...writerBase, provider: input.writerProvider, modelId: input.writerModelId, modelSnapshotId: input.writerModelSnapshotId };

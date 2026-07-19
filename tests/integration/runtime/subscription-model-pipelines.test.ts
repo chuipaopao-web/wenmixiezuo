@@ -46,9 +46,12 @@ describe('订阅与套餐模型真实流水线接线', () => {
       const prompt = parseObject(body.messages[0]?.content);
       const taskInput = parseObject(prompt?.taskInput);
       const role = taskInput?.reviewerRole;
+      const discussionPrompt = body.messages[0]?.content ?? '';
       const text = typeof role === 'string'
         ? JSON.stringify(reviewResult(role, taskInput?.manuscriptVersionId, taskInput?.modelSnapshotId))
-        : '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
+        : discussionPrompt.includes('章节跨度估算')
+          ? '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。\n章节跨度估算 {"minimum":2,"recommended":3,"maximum":5,"units":[{"unit":"推进单元","suggestedChapters":3}],"assumptions":["基于当前简报"],"uncertainty":["后续信息可能改变跨度"]}'
+          : '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
       return new Response(JSON.stringify({ content: [{ type: 'text', text }], usage: { input_tokens: 50, output_tokens: 35 } }), {
         status: 200,
         headers: { 'content-type': 'application/json' }
@@ -64,7 +67,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const discussionResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, discussionTaskId, 'subscription-discussion-worker');
     expect(conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`).action)
-      .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 1 });
+      .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
 
     const batchService = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, adapters);
     const batch = batchService.scheduleNewChapters(scope, 1, { firstChapterTitle: '雾中的选择' });

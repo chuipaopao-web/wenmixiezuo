@@ -129,6 +129,27 @@ export class ChapterCatalogService {
     `).all(scope.ownerId, scope.bookId) as unknown as ChapterRow[];
     return rows.map(mapChapter);
   }
+
+  public listWorkspaceWindow(scope: BookScope, limit = 80): ChapterRecord[] {
+    assertBookScope(scope);
+    const rows = this.database.prepare(`
+      SELECT c.* FROM chapters c
+      WHERE c.owner_id = ? AND c.book_id = ? AND (
+        EXISTS (
+          SELECT 1 FROM tasks t WHERE t.owner_id = c.owner_id AND t.book_id = c.book_id
+            AND t.chapter_id = c.chapter_id
+            AND t.status IN ('pending', 'queued', 'working', 'waiting_confirmation', 'paused', 'blocked', 'interrupted')
+        )
+        OR c.chapter_id IN (
+          SELECT recent.chapter_id FROM chapters recent
+          WHERE recent.owner_id = ? AND recent.book_id = ?
+          ORDER BY recent.chapter_number DESC LIMIT ?
+        )
+      )
+      ORDER BY c.chapter_number
+    `).all(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId, Math.max(1, Math.min(200, limit))) as unknown as ChapterRow[];
+    return rows.map(mapChapter);
+  }
 }
 
 function mapChapter(row: ChapterRow): ChapterRecord {

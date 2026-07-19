@@ -3,7 +3,6 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { ArtifactType } from '../../domain/artifact-schemas.js';
 import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.js';
-import type { ChapterRequestCount } from '../creation/writing-readiness-service.js';
 import { ExpressionProfileService } from '../books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../../infrastructure/db/repositories/expression-profile-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
@@ -19,6 +18,7 @@ export interface PreparedPlanningArtifacts {
   creativePlanVersionId: string;
   storyBibleVersionId: string;
   masterOutlineVersionId: string;
+  volumeOutlineVersionId: string;
   chapterOutlineVersionIds: string[];
 }
 
@@ -41,18 +41,19 @@ export class PlanningArtifactService {
       ORDER BY created_at DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId, discussionId) as { task_brief_json: string } | undefined;
     if (sourceTask === undefined) return null;
-    const brief = JSON.parse(sourceTask.task_brief_json) as { purpose?: string; requestedChapterCount?: ChapterRequestCount | null };
+    const brief = JSON.parse(sourceTask.task_brief_json) as { purpose?: string };
     if (brief.purpose !== 'creative_planning') return null;
-    return this.promoteConfirmedDecision(scope, discussionId, decisionId, brief.requestedChapterCount ?? 1);
+    return this.promoteConfirmedDecision(scope, discussionId, decisionId, this.recommendedChapterCount(scope, discussionId));
   }
 
   public promoteConfirmedDecision(
     scope: BookScope,
     discussionId: string,
     decisionId: string,
-    chapterCount: ChapterRequestCount
+    chapterCount: number
   ): PreparedPlanningArtifacts {
     assertBookScope(scope);
+    if (!Number.isInteger(chapterCount) || chapterCount < 1 || chapterCount > 30) throw new Error('剧情跨度必须是1至30章的整数；更长跨度应拆为故事弧并滚动规划');
     const decision = this.database.prepare(`
       SELECT x.scope_text, d.recommendation_json, d.alternatives_json, d.boss_confirmed
       FROM discussion_decisions d JOIN discussions x ON x.discussion_id = d.discussion_id
@@ -118,6 +119,20 @@ export class PlanningArtifactService {
       endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定；后续由老板确认',
       ...source
     });
+    const volumeNumber = this.currentVolumeNumber(scope);
+    const volumeOutline = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
+      volumeNumber,
+      goal: summary,
+      arcs: [{
+        title: '当前故事弧',
+        chapterStart: firstChapterNumber,
+        chapterEnd: firstChapterNumber + chapterCount - 1,
+        objective: summary,
+        status: 'active'
+      }],
+      endingState: extractHook(summary, decision.scope_text),
+      ...source
+    });
     const chapterOutlineVersionIds = Array.from({ length: chapterCount }, (_, index) => {
       const chapterNumber = firstChapterNumber + index;
       const outline = this.upsert(scope, 'chapter_outline', `第${chapterNumber}章章纲`, {
@@ -133,6 +148,7 @@ export class PlanningArtifactService {
       creativePlanVersionId: creativePlan.artifactVersionId,
       storyBibleVersionId: storyBible.artifactVersionId,
       masterOutlineVersionId: masterOutline.artifactVersionId,
+      volumeOutlineVersionId: volumeOutline.artifactVersionId,
       chapterOutlineVersionIds
     };
   }
@@ -175,6 +191,26 @@ export class PlanningArtifactService {
       WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'
     `).get(scope.ownerId, scope.bookId) as { last: number };
     return row.last + 1;
+  }
+
+  private currentVolumeNumber(scope: BookScope): number {
+    const row = this.database.prepare(`
+      SELECT COALESCE(MAX(volume_number), 1) AS volume_number FROM volumes
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'
+    `).get(scope.ownerId, scope.bookId) as { volume_number: number };
+    return row.volume_number;
+  }
+
+  private recommendedChapterCount(scope: BookScope, discussionId: string): number {
+    const rows = this.database.prepare(`
+      SELECT recommended_chapters FROM plot_span_estimates
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?
+        AND round = (SELECT MAX(round) FROM plot_span_estimates WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND status = 'submitted')
+        AND status = 'submitted' AND independence_attested = 1
+      ORDER BY plot_span_estimate_id
+    `).all(scope.ownerId, scope.bookId, discussionId, scope.ownerId, scope.bookId, discussionId) as unknown as Array<{ recommended_chapters: number }>;
+    if (rows.length < 2) throw new Error('创作方案缺少双异模型编剧的独立章节跨度估算');
+    return Math.max(1, Math.min(30, Math.round(rows.reduce((sum, row) => sum + row.recommended_chapters, 0) / rows.length)));
   }
 }
 

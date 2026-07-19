@@ -42,13 +42,20 @@ export class WriterSelectionService {
     ownerChoice: 'writer_a' | 'writer_b' = 'writer_a'
   ): WriterSelection {
     assertBookScope(scope);
+    const writer = this.requireAnyRole(scope, ['role-v2-lead-writer', 'role-writer']);
     const existing = this.database.prepare(`
-      SELECT writer_selection_id FROM writer_selections
+      SELECT writer_selection_id, selected_agent_id, selected_model_snapshot_id FROM writer_selections
       WHERE owner_id = ? AND book_id = ? AND status = 'selected'
       ORDER BY created_at DESC LIMIT 1
-    `).get(scope.ownerId, scope.bookId) as { writer_selection_id: string } | undefined;
-    if (existing !== undefined) return this.require(scope, existing.writer_selection_id);
-    const writer = this.requireAnyRole(scope, ['role-v2-lead-writer', 'role-writer']);
+    `).get(scope.ownerId, scope.bookId) as { writer_selection_id: string; selected_agent_id: string; selected_model_snapshot_id: string } | undefined;
+    if (existing !== undefined && existing.selected_agent_id === writer.agent_id && existing.selected_model_snapshot_id === writer.model_snapshot_id) {
+      return this.require(scope, existing.writer_selection_id);
+    }
+    if (existing !== undefined) {
+      this.database.prepare(`UPDATE writer_selections SET status = 'superseded'
+        WHERE writer_selection_id = ? AND owner_id = ? AND book_id = ? AND status = 'selected'`)
+        .run(existing.writer_selection_id, scope.ownerId, scope.bookId);
+    }
     const reviewer = this.requireAnyRole(scope, ['role-v2-literary-reviewer', 'role-reviewer']);
     const usesAssignedRuntimeModels = !writer.provider.startsWith('local-deterministic') || !reviewer.provider.startsWith('local-deterministic');
     if (usesAssignedRuntimeModels) return this.selectOwnerAssignedModels(scope, writer, reviewer);

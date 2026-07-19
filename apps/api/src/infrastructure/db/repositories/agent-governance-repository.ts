@@ -4,7 +4,7 @@ import { assertBookScope } from '../../../domain/scope.js';
 
 export interface TeamAgentRow {
   agentId: string; roleKey: string; roleTemplateId: string; memberName: string; shortTitle: string;
-  provider: string; modelId: string; modelSnapshotId: string; activationState: string;
+  provider: string; modelId: string; modelSnapshotId: string; activationState: string; plan?: string;
 }
 
 export class AgentGovernanceRepository {
@@ -66,10 +66,33 @@ export class AgentGovernanceRepository {
     );
   }
 
+  public updateAgentModelSnapshot(scope: BookScope, agentId: string, snapshotId: string, now: string): void {
+    assertBookScope(scope);
+    const result = this.database.prepare(`UPDATE agent_instances SET model_snapshot_id = ?, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND agent_id = ? AND enabled = 1`)
+      .run(snapshotId, now, scope.ownerId, scope.bookId, agentId);
+    if (result.changes !== 1) throw new Error('模型绑定对应的创作成员不存在、已停用或不属于当前书籍');
+  }
+
+  public activeWriterSelectionCount(scope: BookScope): number {
+    assertBookScope(scope);
+    return (this.database.prepare(`SELECT COUNT(*) AS count FROM writer_selections
+      WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count;
+  }
+
+  public supersedeWriterSelections(scope: BookScope, selectedModelSnapshotId: string): number {
+    assertBookScope(scope);
+    return Number(this.database.prepare(`UPDATE writer_selections SET status = 'superseded'
+      WHERE owner_id = ? AND book_id = ? AND status = 'selected' AND selected_model_snapshot_id <> ?`)
+      .run(scope.ownerId, scope.bookId, selectedModelSnapshotId).changes);
+  }
+
   public listTeam(scope: BookScope): TeamAgentRow[] {
     assertBookScope(scope);
     const rows = this.database.prepare(`SELECT a.agent_id, a.role_template_id, r.role_key, r.display_name AS short_title,
-      a.display_name, a.activation_state, m.provider, m.model_id, m.model_snapshot_id
+      a.display_name, a.activation_state, m.provider, m.model_id, m.model_snapshot_id,
+      json_extract(m.parameters_json, '$.plan') AS plan_type
       FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
       WHERE a.owner_id = ? AND a.book_id = ? AND a.role_template_version = 2 ORDER BY a.created_at, a.agent_id`)
@@ -77,7 +100,7 @@ export class AgentGovernanceRepository {
     return rows.map((row) => ({
       agentId: row.agent_id!, roleKey: row.role_key!, roleTemplateId: row.role_template_id!, memberName: row.display_name!,
       shortTitle: row.short_title!, provider: row.provider!, modelId: row.model_id!, modelSnapshotId: row.model_snapshot_id!,
-      activationState: row.activation_state!
+      activationState: row.activation_state!, plan: row.plan_type ?? 'deterministic'
     }));
   }
 
@@ -89,13 +112,30 @@ export class AgentGovernanceRepository {
 
   public activeBindings(scope: BookScope): TeamAgentRow[] {
     const rows = this.database.prepare(`SELECT b.agent_id, b.role_key, a.role_template_id, a.display_name,
-      r.display_name AS short_title, b.provider, b.model_id, b.model_snapshot_id, a.activation_state
+      r.display_name AS short_title, b.provider, b.model_id, b.model_snapshot_id, b.plan_type, a.activation_state
       FROM agent_model_bindings b JOIN agent_model_binding_revisions v ON v.agent_model_binding_revision_id = b.agent_model_binding_revision_id
       JOIN agent_instances a ON a.agent_id = b.agent_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE b.owner_id = ? AND b.book_id = ? AND v.status = 'active' AND b.status = 'active'`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, string>>;
     return rows.map((row) => ({ agentId: row.agent_id!, roleKey: row.role_key!, roleTemplateId: row.role_template_id!,
       memberName: row.display_name!, shortTitle: row.short_title!, provider: row.provider!, modelId: row.model_id!,
-      modelSnapshotId: row.model_snapshot_id!, activationState: row.activation_state! }));
+      modelSnapshotId: row.model_snapshot_id!, activationState: row.activation_state!, plan: row.plan_type! }));
+  }
+
+  public revisionBindings(scope: BookScope, revisionId: string): TeamAgentRow[] {
+    assertBookScope(scope);
+    const rows = this.database.prepare(`SELECT b.agent_id, b.role_key, a.role_template_id, a.display_name,
+      r.display_name AS short_title, b.provider, b.model_id, b.model_snapshot_id, b.plan_type, a.activation_state
+      FROM agent_model_bindings b
+      JOIN agent_model_binding_revisions v ON v.agent_model_binding_revision_id = b.agent_model_binding_revision_id
+        AND v.owner_id = b.owner_id AND v.book_id = b.book_id
+      JOIN agent_instances a ON a.agent_id = b.agent_id AND a.owner_id = b.owner_id AND a.book_id = b.book_id
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE b.owner_id = ? AND b.book_id = ? AND b.agent_model_binding_revision_id = ? AND b.status = 'active'
+      ORDER BY b.role_key`)
+      .all(scope.ownerId, scope.bookId, revisionId) as unknown as Array<Record<string, string>>;
+    return rows.map((row) => ({ agentId: row.agent_id!, roleKey: row.role_key!, roleTemplateId: row.role_template_id!,
+      memberName: row.display_name!, shortTitle: row.short_title!, provider: row.provider!, modelId: row.model_id!,
+      modelSnapshotId: row.model_snapshot_id!, activationState: row.activation_state!, plan: row.plan_type! }));
   }
 }

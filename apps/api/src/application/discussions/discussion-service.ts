@@ -49,10 +49,11 @@ export class DiscussionService {
     if (!unique.some((participant) => participant.agentId === input.createdByAgentId)) throw new Error('主持主编必须在参与者中');
     const placeholders = unique.map(() => '?').join(',');
     const valid = this.database.prepare(`
-      SELECT COUNT(*) AS count FROM agent_instances
+      SELECT agent_id, model_snapshot_id FROM agent_instances
       WHERE owner_id = ? AND book_id = ? AND enabled = 1 AND agent_id IN (${placeholders})
-    `).get(scope.ownerId, scope.bookId, ...unique.map((participant) => participant.agentId)) as { count: number };
-    if (valid.count !== unique.length) throw new Error('讨论参与者包含跨书、停用或不存在Agent');
+    `).all(scope.ownerId, scope.bookId, ...unique.map((participant) => participant.agentId)) as unknown as Array<{ agent_id: string; model_snapshot_id: string }>;
+    if (valid.length !== unique.length) throw new Error('讨论参与者包含跨书、停用或不存在Agent');
+    const snapshots = new Map(valid.map((agent) => [agent.agent_id, agent.model_snapshot_id]));
     const discussionId = this.ids.next();
     const now = this.clock.now().toISOString();
     this.database.exec('BEGIN IMMEDIATE');
@@ -64,10 +65,12 @@ export class DiscussionService {
         ) VALUES (?, ?, ?, ?, ?, 'collecting', ?, ?, ?, ?, ?)
       `).run(discussionId, scope.ownerId, scope.bookId, input.type, input.scopeText, policy.calls, policy.tokens, input.createdByAgentId, now, now);
       const insert = this.database.prepare(`
-        INSERT INTO discussion_participants (discussion_id, owner_id, book_id, agent_id, invited_reason)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO discussion_participants (discussion_id, owner_id, book_id, agent_id, invited_reason, model_snapshot_id)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
-      for (const participant of unique) insert.run(discussionId, scope.ownerId, scope.bookId, participant.agentId, participant.reason);
+      for (const participant of unique) insert.run(
+        discussionId, scope.ownerId, scope.bookId, participant.agentId, participant.reason, snapshots.get(participant.agentId)!
+      );
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -87,7 +90,8 @@ export class DiscussionService {
     const participant = this.database.prepare(`
       SELECT 1 FROM discussion_participants p
       JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id
-      WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ? AND p.agent_id = ? AND a.model_snapshot_id = ?
+      WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ? AND p.agent_id = ?
+        AND COALESCE(p.model_snapshot_id, a.model_snapshot_id) = ?
     `).get(discussionId, scope.ownerId, scope.bookId, input.agentId, input.modelSnapshotId);
     if (participant === undefined) throw new Error('意见来源不是本讨论真实参与者或模型快照不匹配');
     const opinionId = this.ids.next();

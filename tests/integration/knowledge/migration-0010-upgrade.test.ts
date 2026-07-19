@@ -34,7 +34,7 @@ describe('Schema 9升级到表达、知识生命周期与切片投影', () => {
         VALUES ('book-1', 'owner-1', '旧书', 'active', 1, 0, 0, 0, '2026-01-01', '2026-01-01')
       `).run();
       const upgraded = runMigrations(database, source);
-      expect(upgraded.applied).toEqual(['0010_expression_taxonomy.sql', '0011_knowledge_lifecycle_time.sql', '0012_chunk_projection_snapshots.sql', '0013_retrieval_orchestration.sql', '0014_longform_continuity.sql', '0015_agent_compression_prompts.sql', '0016_production_workflow.sql']);
+      expect(upgraded.applied).toEqual(['0010_expression_taxonomy.sql', '0011_knowledge_lifecycle_time.sql', '0012_chunk_projection_snapshots.sql', '0013_retrieval_orchestration.sql', '0014_longform_continuity.sql', '0015_agent_compression_prompts.sql', '0016_production_workflow.sql', '0017_experience_freeze.sql', '0018_portability_operations.sql']);
       expect(database.prepare(`SELECT title, canon_revision FROM books WHERE book_id = 'book-1'`).get()).toEqual({ title: '旧书', canon_revision: 0 });
       expect(database.prepare(`SELECT COUNT(*) AS count FROM pragma_table_info('knowledge_revisions')`).get()).toEqual({ count: expect.any(Number) });
       expect(runMigrations(database, source).applied).toEqual([]);

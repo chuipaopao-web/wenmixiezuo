@@ -66,6 +66,7 @@ interface PipelineRow {
   writer_epoch: number | null;
   review_panel_id: string | null;
   confirmation_id: string | null;
+  binding_revision_id: string | null;
 }
 
 interface ChapterRow { chapter_number: number; title: string; settlement_status: string }
@@ -340,7 +341,8 @@ export class ChapterPipelineService {
       chapterId: run.chapter_id, manuscriptVersionId: run.current_manuscript_version_id, manuscriptHash,
       reviewRound: run.rewrite_count + 1, writerAgentId: run.writer_agent_id, writerProvider: writerModel.provider,
       writerModelId: writerModel.modelId, writerModelSnapshotId: run.writer_model_snapshot_id, writerEpoch: run.writer_epoch,
-      writingOrderId: run.writing_order_id, canonRevision: run.expected_canon_revision
+      writingOrderId: run.writing_order_id, canonRevision: run.expected_canon_revision,
+      bindingRevisionId: run.binding_revision_id
     });
     this.database.prepare(`UPDATE chapter_pipeline_runs SET review_panel_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
       .run(panel.panelId, this.clock.now().toISOString(), run.pipeline_run_id);
@@ -480,18 +482,22 @@ export class ChapterPipelineService {
     const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
     const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
+    const bindingRevision = this.database.prepare(`SELECT agent_model_binding_revision_id FROM agent_model_binding_revisions
+      WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY version DESC LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { agent_model_binding_revision_id: string } | undefined;
     const pipelineRunId = this.ids.next();
     const now = this.clock.now().toISOString();
     this.database.prepare(`
       INSERT INTO chapter_pipeline_runs (
         pipeline_run_id, owner_id, book_id, chapter_id, task_id, writer_selection_id,
         writer_agent_id, writer_model_snapshot_id, reviewer_agent_id, reviewer_model_snapshot_id,
-        expected_canon_revision, expected_positioning_version, phase, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preflight', 'working', ?, ?)
+        expected_canon_revision, expected_positioning_version, binding_revision_id, phase, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preflight', 'working', ?, ?)
     `).run(
       pipelineRunId, scope.ownerId, scope.bookId, chapterId, taskId, selection.writerSelectionId,
       selection.writerAgentId, selection.writerModelSnapshotId, selection.reviewerAgentId,
-      selection.reviewerModelSnapshotId, book.canon_revision, book.positioning_version, now, now
+      selection.reviewerModelSnapshotId, book.canon_revision, book.positioning_version,
+      bindingRevision?.agent_model_binding_revision_id ?? null, now, now
     );
     return this.reload(pipelineRunId);
   }

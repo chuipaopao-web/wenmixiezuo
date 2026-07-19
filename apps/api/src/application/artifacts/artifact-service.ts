@@ -127,6 +127,18 @@ export class ArtifactService {
     return { same: left.contentHash === right.contentHash, leftHash: left.contentHash, rightHash: right.contentHash, changedTopLevelKeys };
   }
 
+  public reject(scope: BookScope, artifactId: string, versionId: string): ArtifactVersionRecord {
+    const artifact = this.requireArtifact(scope, artifactId);
+    const version = this.requireVersion(scope, versionId);
+    if (version.artifactId !== artifactId) throw new Error('成果版本不属于指定成果');
+    if (artifact.active_version_id === versionId || version.status === 'selected') throw new Error('活动正式版本不能直接否决，请先选定其他版本');
+    const result = this.database.prepare(`UPDATE artifact_versions SET status = 'invalidated'
+      WHERE artifact_version_id = ? AND artifact_id = ? AND owner_id = ? AND book_id = ? AND status IN ('draft', 'candidate')`)
+      .run(versionId, artifactId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) throw new Error('该成果版本当前不能否决');
+    return this.requireVersion(scope, versionId);
+  }
+
   public versions(scope: BookScope, artifactId: string): ArtifactVersionRecord[] {
     this.requireArtifact(scope, artifactId);
     const rows = this.database.prepare(`

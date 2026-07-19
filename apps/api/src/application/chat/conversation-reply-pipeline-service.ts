@@ -46,14 +46,14 @@ export class ConversationReplyPipelineService {
       throw new Error('对话回复任务未由指定Worker持有');
     }
     try {
-      const brief = JSON.parse(task.task_brief_json) as { conversationId: string; messageId: string; content: string };
+      const brief = JSON.parse(task.task_brief_json) as { conversationId: string; messageId: string; content: string; modelSnapshotId?: string };
       const editor = this.database.prepare(`
-        SELECT a.agent_id, a.display_name, r.role_key, a.model_snapshot_id, m.provider, m.model_id
+        SELECT a.agent_id, a.display_name, r.role_key, m.model_snapshot_id, m.provider, m.model_id
         FROM agent_instances a
         JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-        JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
+        JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(?, a.model_snapshot_id)
         WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND r.role_key = 'chief_editor'
-      `).get(task.assigned_agent_id, scope.ownerId, scope.bookId) as EditorRow | undefined;
+      `).get(brief.modelSnapshotId ?? null, task.assigned_agent_id, scope.ownerId, scope.bookId) as EditorRow | undefined;
       if (editor === undefined) throw new Error('活动主编或主编模型快照不存在');
       const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
         .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };

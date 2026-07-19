@@ -2,6 +2,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
+import { ModelBindingV2Service } from './model-binding-v2-service.js';
 
 interface AgentBindingRow {
   agent_id: string;
@@ -33,6 +37,34 @@ export class ModelBindingService {
   ) {}
 
   public bindAllBooks(): ModelBindingResult {
+    const v2Books = this.database.prepare(`
+      SELECT DISTINCT a.owner_id, a.book_id
+      FROM agent_instances a JOIN books b ON b.owner_id = a.owner_id AND b.book_id = a.book_id
+      WHERE a.role_template_version = 2 AND b.status IN ('draft', 'active', 'paused')
+      ORDER BY a.owner_id, a.book_id
+    `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
+    const creativeProfiles = toCreativeProfiles(this.roleProfiles);
+    let updatedV2Agents = 0;
+    let supersededV2WriterSelections = 0;
+    for (const book of v2Books) {
+      const scope = { ownerId: book.owner_id, bookId: book.book_id };
+      const repository = new AgentGovernanceRepository(this.database);
+      const current = repository.listTeam(scope);
+      const requiresRevision = creativeRoleKeys.some((role) => {
+        const agent = current.find((item) => item.roleKey === role);
+        const profile = creativeProfiles[role];
+        return agent === undefined || agent.provider !== profile.provider || agent.modelId !== profile.modelId;
+      });
+      if (requiresRevision) {
+        const currentWriter = current.find((item) => item.roleKey === 'lead_writer');
+        if (currentWriter === undefined || currentWriter.provider !== creativeProfiles.lead_writer.provider || currentWriter.modelId !== creativeProfiles.lead_writer.modelId) {
+          supersededV2WriterSelections += repository.activeWriterSelectionCount(scope);
+        }
+        new ModelBindingV2Service(repository, new UnitOfWork(this.database), this.ids, this.clock)
+          .reviseFuture(scope, creativeProfiles, '运行时模型策略更新；只影响未来任务');
+        updatedV2Agents += creativeRoleKeys.length;
+      }
+    }
     const rows = this.database.prepare(`
       SELECT a.agent_id, a.owner_id, a.book_id, r.role_key,
              a.model_snapshot_id, m.provider, m.model_id, m.capabilities_json
@@ -42,7 +74,7 @@ export class ModelBindingService {
         ON r.role_template_id = a.role_template_id
        AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      WHERE b.status IN ('draft', 'active', 'paused')
+      WHERE b.status IN ('draft', 'active', 'paused') AND a.role_template_version = 1
       ORDER BY a.owner_id, a.book_id, r.role_key
     `).all() as unknown as AgentBindingRow[];
 
@@ -101,8 +133,31 @@ export class ModelBindingService {
       throw error;
     }
 
-    return { booksVisited: books.size, updatedAgents, supersededWriterSelections };
+    return {
+      booksVisited: new Set([...books, ...v2Books.map((row) => `${row.owner_id}\n${row.book_id}`)]).size,
+      updatedAgents: updatedAgents + updatedV2Agents,
+      supersededWriterSelections: supersededWriterSelections + supersededV2WriterSelections
+    };
   }
+}
+
+function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
+  const profile = (role: CreativeRoleKey, value: RoleModelProfile): TeamModelProfile => value.plan === 'deterministic'
+    ? { ...value, modelId: `wenmi-fixture-v2-${role}` }
+    : value;
+  return {
+    chief_editor: profile('chief_editor', profiles.chief_editor),
+    deputy_editor: profile('deputy_editor', profiles.reviewer),
+    lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
+    second_screenwriter: profile('second_screenwriter', profiles.continuity),
+    setting: profile('setting', profiles.continuity),
+    lead_writer: profile('lead_writer', profiles.writer),
+    backup_writer: profile('backup_writer', profiles.continuity),
+    literary_reviewer: profile('literary_reviewer', profiles.reviewer),
+    experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
+    researcher: profile('researcher', profiles.researcher),
+    copyright: profile('copyright', profiles.copyright)
+  };
 }
 
 function legacyProfileRole(roleKey: string): RoleKey {

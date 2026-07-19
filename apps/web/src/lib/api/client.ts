@@ -48,6 +48,7 @@ export interface BookData {
 
 export interface ChapterData {
   chapterId: string;
+  volumeId?: string;
   chapterNumber: number;
   title: string;
   planStatus: string;
@@ -55,6 +56,22 @@ export interface ChapterData {
   settlementStatus: string;
   currentManuscriptVersionId: string | null;
   canonManuscriptVersionId: string | null;
+}
+
+export interface VolumeData {
+  volumeId: string;
+  volumeNumber: number;
+  title: string;
+  status: string;
+  chapterCount: number;
+  settledCount: number;
+}
+
+export interface ChapterPageData {
+  items: ChapterData[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 export interface AgentData {
@@ -66,6 +83,11 @@ export interface AgentData {
   provider: string;
   modelId: string;
   activationState: string;
+  publicSummary?: string;
+  responsibilities?: string[];
+  boundaries?: string[];
+  retrievalFocus?: string[];
+  outputKinds?: string[];
 }
 
 export interface TaskData {
@@ -84,6 +106,7 @@ export interface TaskData {
 
 export interface WorkspaceData {
   book: BookData;
+  volumes?: VolumeData[];
   chapters: ChapterData[];
   agents: AgentData[];
   tasks: TaskData[];
@@ -109,6 +132,59 @@ export interface WorkspaceData {
     }>;
   };
   messageCount: number;
+  localAssistant?: {
+    displayName: string;
+    roleName: string;
+    status: 'ready' | 'degraded' | 'offline';
+    sessionCount: number;
+    summary: string;
+  };
+}
+
+export interface LibraryData {
+  canonRevision: number;
+  entities: Array<Record<string, unknown>>;
+  facts: Array<Record<string, unknown>>;
+  relations: Array<Record<string, unknown>>;
+  tags: Array<Record<string, unknown>>;
+  projections: Array<Record<string, unknown>>;
+  gaps: Array<Record<string, unknown>>;
+  summary: { entityCount: number; factCount: number; relationCount: number; tagCount: number; projectionCount: number; openGapCount: number };
+}
+
+export interface TeamModelProfileData {
+  provider: string;
+  modelId: string;
+  plan: 'deterministic' | 'codex' | 'coding' | 'agent';
+}
+
+export interface ModelBindingsData {
+  active: Array<{ agentId: string; roleKey: string; memberName: string; shortTitle: string; provider: string; modelId: string; modelSnapshotId: string; plan: TeamModelProfileData['plan'] }>;
+  revisions: Array<{ revisionId: string; version: number; effectiveFrom: string; reason: string; status: string; createdAt: string }>;
+  contracts: Array<{ roleKey: string; memberName: string; shortTitle: string; publicSummary: string }>;
+}
+
+export interface OperationsStatusData {
+  releaseId: string;
+  schemaVersion: number;
+  disk: { totalBytes: number; freeBytes: number };
+  queue: { queued: number; working: number; blocked: number };
+  projection: Record<string, unknown>;
+  latestBackup: Record<string, unknown> | null;
+  portability: { completed: number; failed: number };
+  diagnostics: { telemetrySent: boolean; secretsIncluded: boolean; listeningHost: string };
+}
+
+export interface ArtifactVersionData {
+  artifactVersionId: string;
+  artifactId: string;
+  version: number;
+  parentVersionId: string | null;
+  positioningVersion: number;
+  content: Record<string, unknown>;
+  contentHash: string;
+  status: 'draft' | 'candidate' | 'selected' | 'superseded' | 'invalidated';
+  createdAt: string;
 }
 
 export interface MessageData {
@@ -203,7 +279,7 @@ export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
   return request('/api/v1/runtime/worker', signal === undefined ? {} : { signal });
 }
 
-export async function createBook(input: { title: string; text: string }): Promise<{ bookId: string }> {
+export async function createBook(input: { title: string; text: string; category?: string; classification?: string; targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string }): Promise<{ bookId: string }> {
   const draft = await request<{ draftId: string; version: number }>('/api/v1/books/drafts', {
     method: 'POST', body: JSON.stringify(input)
   });
@@ -245,12 +321,111 @@ export function fetchChapterContent(bookId: string, chapterId: string, signal?: 
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/content`, signal === undefined ? {} : { signal });
 }
 
+export function fetchChapterDetail(bookId: string, chapterId: string, signal?: AbortSignal): Promise<{
+  chapter: ChapterData;
+  manuscripts: Array<Record<string, unknown>>;
+  facts: Array<Record<string, unknown>>;
+  reviews: Array<Record<string, unknown>>;
+  production: {
+    writingOrders: Array<Record<string, unknown>>;
+    reviewPanels: Array<Record<string, unknown>>;
+    reviewReports: Array<Record<string, unknown>>;
+    approvalGates: Array<Record<string, unknown>>;
+  };
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}`, signal === undefined ? {} : { signal });
+}
+
 export function fetchArtifacts(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts`, signal === undefined ? {} : { signal });
 }
 
+export function fetchArtifactVersions(bookId: string, artifactId: string): Promise<ArtifactVersionData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}/versions`);
+}
+
+export function addArtifactVersion(bookId: string, artifactId: string, content: Record<string, unknown>, parentVersionId: string | null): Promise<ArtifactVersionData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}/versions`, {
+    method: 'POST', body: JSON.stringify({ content, parentVersionId })
+  });
+}
+
+export function selectArtifactVersion(bookId: string, artifactId: string, versionId: string): Promise<ArtifactVersionData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}/select`, {
+    method: 'POST', body: JSON.stringify({ versionId })
+  });
+}
+
+export function rejectArtifactVersion(bookId: string, artifactId: string, versionId: string): Promise<ArtifactVersionData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/reject`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
+export function compareArtifactVersions(bookId: string, artifactId: string, left: string, right: string): Promise<{ same: boolean; changedTopLevelKeys: string[] }> {
+  const query = new URLSearchParams({ left, right });
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}/compare?${query.toString()}`);
+}
+
 export function fetchMemory(bookId: string, canonRevision: number, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/memory?canonRevision=${canonRevision}`, signal === undefined ? {} : { signal });
+}
+
+export function fetchLibrary(bookId: string, signal?: AbortSignal): Promise<LibraryData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/library`, signal === undefined ? {} : { signal });
+}
+
+export function createLibraryTag(bookId: string, input: { namespace: string; name: string; description?: string; appliesTo: string[]; color?: string | null }): Promise<{ tagId: string; status: 'proposed' | 'active' }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/tags`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function fetchVolumeChapters(
+  bookId: string,
+  volumeId: string,
+  options: { offset?: number; limit?: number; query?: string; status?: string; signal?: AbortSignal } = {}
+): Promise<ChapterPageData> {
+  const parameters = new URLSearchParams({
+    offset: String(options.offset ?? 0),
+    limit: String(options.limit ?? 80)
+  });
+  if (options.query?.trim()) parameters.set('query', options.query.trim());
+  if (options.status?.trim()) parameters.set('status', options.status.trim());
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volumes/${encodeURIComponent(volumeId)}/chapters?${parameters.toString()}`,
+    options.signal === undefined ? {} : { signal: options.signal });
+}
+
+export function fetchModelBindings(bookId: string, signal?: AbortSignal): Promise<ModelBindingsData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/model-bindings`, signal === undefined ? {} : { signal });
+}
+
+export function previewModelBindings(bookId: string, profiles: Record<string, TeamModelProfileData>): Promise<unknown> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/model-bindings/preview`, {
+    method: 'POST', body: JSON.stringify({ profiles })
+  });
+}
+
+export function activateModelBindings(bookId: string, profiles: Record<string, TeamModelProfileData>, reason: string): Promise<unknown> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/model-bindings/activate`, {
+    method: 'POST', body: JSON.stringify({ profiles, reason })
+  });
+}
+
+export function restoreModelBindingRevision(bookId: string, revisionId: string): Promise<unknown> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/model-bindings/${encodeURIComponent(revisionId)}/restore`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
+export function fetchOperationsStatus(signal?: AbortSignal): Promise<OperationsStatusData> {
+  return request('/api/v1/operations/status', signal === undefined ? {} : { signal });
+}
+
+export function exportBookPackage(bookId: string): Promise<{ packageName: string; packagePath: string; manifestHash: string; rowCount: number; fileCount: number; byteCount: number }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/export`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function importBookCopy(packageName: string): Promise<{ bookId: string; title: string; sourceBookId: string; importedRows: number; importedFiles: number }> {
+  return request('/api/v1/imports/copy', { method: 'POST', body: JSON.stringify({ packageName }) });
 }
 
 export function fetchProjections(bookId: string, signal?: AbortSignal): Promise<unknown[]> {

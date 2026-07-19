@@ -42,8 +42,16 @@ describe('生命周期、任务审计与备份REST入口', () => {
         1
       );
 
+      const rejectedBatch = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/chapter-batches`, payload: { count: 3 }
+      });
+      expect(rejectedBatch.statusCode).toBe(409);
+      expect(rejectedBatch.json().error).toMatchObject({
+        code: 'OPERATION_INCOMPLETE', details: { requestedCount: 3, replacement: `/api/v1/books/${created.bookId}/writing-runs` }
+      });
+
       const batch = (await app.inject({
-        method: 'POST', url: `/api/v1/books/${created.bookId}/chapter-batches`, payload: { count: 1 }
+        method: 'POST', url: `/api/v1/books/${created.bookId}/writing-runs`, payload: {}
       })).json().data as { taskIds: string[] };
       const taskDetail = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/tasks/${batch.taskIds[0]!}` });
       expect(taskDetail.statusCode).toBe(200);

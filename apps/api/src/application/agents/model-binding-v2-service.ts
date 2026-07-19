@@ -15,6 +15,11 @@ export class ModelBindingV2Service {
     }
     for (const role of ['lead_writer', 'backup_writer'] as const) {
       if (profiles[role].plan !== 'deterministic' && !/(gpt-5\.6|glm-5-2)/iu.test(profiles[role].modelId)) throw new Error('写手仅允许Codex GPT-5.6或GLM 5.2');
+      const factRole: CreativeRoleKey = /glm/iu.test(profiles[role].modelId) ? 'lead_screenwriter' : 'setting';
+      const reviewSignatures = [signature(role), signature(factRole), signature('literary_reviewer'), signature('experience_reviewer')];
+      if (new Set(reviewSignatures).size !== reviewSignatures.length) {
+        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验三席必须使用四个不同模型来源`);
+      }
     }
   }
 
@@ -33,9 +38,22 @@ export class ModelBindingV2Service {
         this.repository.insertModelSnapshot(scope, { id: snapshotId, ...profile, capabilities: ['text'], now });
         this.repository.insertBinding(scope, { id: this.ids.next(), revisionId, roleKey: role, agentId: agent.agentId, snapshotId,
           provider: profile.provider, modelId: profile.modelId, plan: profile.plan, purposes: [], now });
+        this.repository.updateAgentModelSnapshot(scope, agent.agentId, snapshotId, now);
+        if (role === 'lead_writer') this.repository.supersedeWriterSelections(scope, snapshotId);
       }
     });
     return version;
+  }
+
+  public restoreFuture(scope: BookScope, revisionId: string, reason: string): number {
+    const historical = this.repository.revisionBindings(scope, revisionId);
+    if (historical.length === 0) throw new Error('待恢复的模型绑定修订不存在或不属于当前书籍');
+    const profiles = Object.fromEntries(historical.map((binding) => [binding.roleKey, {
+      provider: binding.provider,
+      modelId: binding.modelId,
+      plan: binding.plan ?? 'deterministic'
+    }])) as Record<CreativeRoleKey, TeamModelProfile>;
+    return this.reviseFuture(scope, profiles, reason);
   }
 }
 

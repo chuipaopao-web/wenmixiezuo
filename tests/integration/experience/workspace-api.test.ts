@@ -28,12 +28,46 @@ describe('工作台API', () => {
       confirmations: { count: 0 }
     });
     expect(workspaceResponse.json().data.agents).toHaveLength(11);
+    expect(workspaceResponse.json().data).toMatchObject({
+      volumes: [],
+      localAssistant: expect.objectContaining({ displayName: '小文秘书', status: 'ready' })
+    });
+    expect(workspaceResponse.json().data.agents[0]).toEqual(expect.objectContaining({ publicSummary: expect.any(String), responsibilities: expect.any(Array) }));
     const artifactsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/artifacts` });
     expect(artifactsResponse.statusCode).toBe(200);
     expect(artifactsResponse.json().data).toEqual(expect.arrayContaining([
       expect.objectContaining({ artifact_type: 'story_bible', status: 'active', active_content: expect.objectContaining({ mainPlot: expect.any(Object) }) }),
+      expect.objectContaining({ artifact_type: 'volume_outline', status: 'active', active_content: expect.objectContaining({ volumeNumber: 1 }) }),
       expect.objectContaining({ artifact_type: 'chapter_outline', status: 'active', active_content: expect.objectContaining({ sourceDecisionId: expect.any(String) }) })
     ]));
+    const storyArtifact = artifactsResponse.json().data.find((item: Record<string, unknown>) => item.artifact_type === 'story_bible') as Record<string, unknown>;
+    const candidate = (await app.inject({
+      method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/versions`,
+      payload: { content: storyArtifact.active_content, parentVersionId: storyArtifact.active_version_id }
+    })).json().data as { artifactVersionId: string; status: string };
+    const compared = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/compare?left=${storyArtifact.active_version_id}&right=${candidate.artifactVersionId}` });
+    expect(compared.json().data).toMatchObject({ same: true, changedTopLevelKeys: [] });
+    const rejected = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/versions/${candidate.artifactVersionId}/reject`, payload: {} });
+    expect(rejected.json().data.status).toBe('invalidated');
+    const replacement = (await app.inject({
+      method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/versions`,
+      payload: { content: storyArtifact.active_content, parentVersionId: storyArtifact.active_version_id }
+    })).json().data as { artifactVersionId: string };
+    const selectedPlanning = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/select`, payload: { versionId: replacement.artifactVersionId } });
+    expect(selectedPlanning.json().data.status).toBe('selected');
+
+    const libraryResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/library` });
+    expect(libraryResponse.statusCode).toBe(200);
+    expect(libraryResponse.json().data).toEqual(expect.objectContaining({ canonRevision: 0, entities: expect.any(Array), summary: expect.any(Object) }));
+    const bindingsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/model-bindings` });
+    expect(bindingsResponse.statusCode).toBe(200);
+    expect(bindingsResponse.json().data.active).toHaveLength(11);
+    const profiles = Object.fromEntries(bindingsResponse.json().data.active.map((binding: Record<string, unknown>) => [binding.roleKey, {
+      provider: binding.provider, modelId: binding.modelId, plan: binding.plan
+    }]));
+    const previewResponse = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/model-bindings/preview`, payload: { profiles } });
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 11 });
 
     const commandResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }
@@ -49,6 +83,18 @@ describe('工作台API', () => {
       checkpoint: {},
       cancelRequested: false
     });
+    expect(scheduledWorkspace.volumes).toEqual([
+      expect.objectContaining({ volumeNumber: 1, chapterCount: 1 })
+    ]);
+    expect(scheduledWorkspace.chapters[0].volumeId).toBe(scheduledWorkspace.volumes[0].volumeId);
+    const chapterPage = await app.inject({
+      method: 'GET',
+      url: `/api/v1/books/${book.bookId}/volumes/${scheduledWorkspace.volumes[0].volumeId}/chapters?limit=1&query=1&status=planned`
+    });
+    expect(chapterPage.statusCode).toBe(200);
+    expect(chapterPage.json().data).toMatchObject({ total: 1, offset: 0, limit: 1, items: [
+      expect.objectContaining({ chapterId: scheduledWorkspace.chapters[0].chapterId, chapterNumber: 1 })
+    ] });
     const prepareResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '准备接管' }
     });
