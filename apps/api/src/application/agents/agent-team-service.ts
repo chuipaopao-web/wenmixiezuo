@@ -4,11 +4,12 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { roleDefinitions, type RoleKey } from '../../domain/roles.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 
 export interface AgentRecord {
   agentId: string;
   roleTemplateId: string;
-  roleKey: RoleKey;
+  roleKey: RoleKey | CreativeRoleKey;
   roleName: string;
   category: 'core' | 'specialist';
   displayName: string;
@@ -21,7 +22,7 @@ export interface AgentRecord {
 interface AgentRow {
   agent_id: string;
   role_template_id: string;
-  role_key: RoleKey;
+  role_key: RoleKey | CreativeRoleKey;
   role_name: string;
   category: AgentRecord['category'];
   display_name: string;
@@ -140,18 +141,31 @@ export class AgentTeamService {
       FROM agent_instances a
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      WHERE a.owner_id = ? AND a.book_id = ?
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+        AND (a.role_template_version = 2 OR NOT EXISTS (
+          SELECT 1 FROM agent_instances current_team
+          WHERE current_team.owner_id = a.owner_id AND current_team.book_id = a.book_id
+            AND current_team.role_template_version = 2 AND current_team.enabled = 1
+        ))
       ORDER BY CASE r.role_key
         WHEN 'chief_editor' THEN 1
-        WHEN 'plot_architect' THEN 2
-        WHEN 'continuity' THEN 3
-        WHEN 'writer' THEN 4
-        WHEN 'reviewer' THEN 5
-        WHEN 'reader_experience' THEN 6
-        WHEN 'style_editor' THEN 7
-        WHEN 'researcher' THEN 8
-        WHEN 'copyright' THEN 9
-        ELSE 10 END
+        WHEN 'deputy_editor' THEN 2
+        WHEN 'lead_screenwriter' THEN 3
+        WHEN 'second_screenwriter' THEN 4
+        WHEN 'plot_architect' THEN 4
+        WHEN 'setting' THEN 5
+        WHEN 'continuity' THEN 5
+        WHEN 'lead_writer' THEN 6
+        WHEN 'writer' THEN 6
+        WHEN 'backup_writer' THEN 7
+        WHEN 'literary_reviewer' THEN 8
+        WHEN 'reviewer' THEN 8
+        WHEN 'experience_reviewer' THEN 9
+        WHEN 'reader_experience' THEN 9
+        WHEN 'style_editor' THEN 10
+        WHEN 'researcher' THEN 10
+        WHEN 'copyright' THEN 11
+        ELSE 12 END
     `).all(scope.ownerId, scope.bookId) as unknown as AgentRow[];
     return rows.map((row) => ({
       agentId: row.agent_id,

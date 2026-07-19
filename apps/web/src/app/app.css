@@ -766,6 +766,8 @@ svg {
   margin-top: 8px;
   color: var(--ink-faint);
   font-size: calc(10px * var(--font-scale));
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .composer-wrap {

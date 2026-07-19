@@ -169,9 +169,10 @@ export class TaskService {
     const result = this.database.prepare(`
       UPDATE tasks SET heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
+        AND lease_expires_at > ?
     `).run(
       nowDate.toISOString(), new Date(nowDate.getTime() + leaseMs).toISOString(), nowDate.toISOString(),
-      taskId, scope.ownerId, scope.bookId, workerId
+      taskId, scope.ownerId, scope.bookId, workerId, nowDate.toISOString()
     );
     if (result.changes !== 1) throw new Error('任务租约不存在、已过期或不属于当前Worker');
     return this.require(scope, taskId);

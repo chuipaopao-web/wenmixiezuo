@@ -24,7 +24,7 @@
 | 4 四路检索与上下文 | 通过 | `stages/04-hybrid-retrieval-context.md` |
 | 5 连续性与11人团队 | 通过 | `stages/05-continuity-eleven-agent-team.md` |
 | 6 正确创作闭环 | 通过 | `stages/06-creation-production-loop.md` |
-| 7 最终工作台与可移植 | 进行中 | 阶段6已通过，实施工作台、资料库、设置和可移植入口 |
-| 8 全规模验收与发布 | 未开始 | 前置阶段未通过前不实施 |
+| 7 最终工作台与可移植 | 通过 | `stages/07-experience-portability.md` |
+| 8 全规模验收与发布 | 通过 | `stages/08-scale-recovery-release.md`、`evidence/final-scale-e2.json` |
 
-状态只能由与当前提交一致的类型、测试、构建、迁移、运行、隔离和恢复证据更新。E2工程能力、E3独立评测和E4真实文学质量分别报告，不能互相冒充。
+八阶段E2工程证据已冻结。E3独立评测和E4真实文学质量尚未取得并分别报告，不能与E2互相冒充。

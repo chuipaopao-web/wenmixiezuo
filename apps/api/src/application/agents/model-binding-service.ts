@@ -40,7 +40,7 @@ export class ModelBindingService {
     const v2Books = this.database.prepare(`
       SELECT DISTINCT a.owner_id, a.book_id
       FROM agent_instances a JOIN books b ON b.owner_id = a.owner_id AND b.book_id = a.book_id
-      WHERE a.role_template_version = 2 AND b.status IN ('draft', 'active', 'paused')
+      WHERE a.role_template_version = 2 AND a.enabled = 1 AND b.status <> 'purged'
       ORDER BY a.owner_id, a.book_id
     `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
     const creativeProfiles = toCreativeProfiles(this.roleProfiles);
@@ -74,7 +74,7 @@ export class ModelBindingService {
         ON r.role_template_id = a.role_template_id
        AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      WHERE b.status IN ('draft', 'active', 'paused') AND a.role_template_version = 1
+      WHERE b.status <> 'purged' AND a.role_template_version = 1 AND a.enabled = 1
       ORDER BY a.owner_id, a.book_id, r.role_key
     `).all() as unknown as AgentBindingRow[];
 

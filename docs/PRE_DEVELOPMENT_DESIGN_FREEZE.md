@@ -9,7 +9,7 @@
 - 老板审阅入口：`docs/OWNER_DEVELOPMENT_SCOPE_REVIEW.md`；老板已于2026-07-19确认并明确开工
 - 设计冻结日期：2026-07-19
 - 活动 `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`
-- 当前证据等级：E0（规格完整，尚未以本 release 的Schema、运行时、测试或真实模型证明）
+- 冻结时证据等级：E0；当前实现已取得E2工程证据，详见活动release矩阵，真实模型E3/E4仍未取得
 - 历史基线：`wm-v1-20260716-220959-d5dd704d`，只读保留其阶段0至8证据，不重写历史结论
 - 适用Skill：`wenmi-longform-quality`、`memory-systems`、`context-compression`、`writing-plans`；界面部分仅采用 `design-taste-frontend` 的改版审计、状态完整性、无障碍和克制动效规则，不把面向营销页的视觉规则套到工作台
 

@@ -67,18 +67,30 @@ if (-not (Test-WenmiReady)) {
   throw "Wenmi did not start within 30 seconds. See $stderrPath"
 }
 
+$runtimeSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$browserHeaders = @{ Origin = 'http://127.0.0.1:43110'; 'Sec-Fetch-Site' = 'same-site' }
+try {
+  Invoke-WebRequest -Uri 'http://127.0.0.1:43111/api/v1/runtime/session' -Method Post `
+    -Headers $browserHeaders -ContentType 'application/json' -Body '{}' -WebSession $runtimeSession `
+    -UseBasicParsing -TimeoutSec 3 | Out-Null
+} catch {
+  & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
+  throw 'The local runtime session could not be established. Startup stopped safely.'
+}
+
 $workerDeadline = (Get-Date).AddSeconds(15)
 do {
   try {
-    $worker = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/api/v1/runtime/worker' -TimeoutSec 2
+    $readiness = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/api/v1/runtime/readiness' `
+      -Headers $browserHeaders -WebSession $runtimeSession -TimeoutSec 2
   } catch {
-    $worker = $null
+    $readiness = $null
   }
-  if ($worker.data.status -eq 'ready') { break }
+  if ($readiness.data.worker -eq 'ready') { break }
   Start-Sleep -Milliseconds 250
 } while ((Get-Date) -lt $workerDeadline)
 
-if ($null -eq $worker -or $worker.data.status -ne 'ready') {
+if ($null -eq $readiness -or $readiness.data.worker -ne 'ready') {
   & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
   throw 'The Worker did not become ready. Startup stopped safely.'
 }

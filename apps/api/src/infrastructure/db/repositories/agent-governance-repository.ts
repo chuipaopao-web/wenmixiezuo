@@ -95,7 +95,8 @@ export class AgentGovernanceRepository {
       json_extract(m.parameters_json, '$.plan') AS plan_type
       FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      WHERE a.owner_id = ? AND a.book_id = ? AND a.role_template_version = 2 ORDER BY a.created_at, a.agent_id`)
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.role_template_version = 2 AND a.enabled = 1
+      ORDER BY a.created_at, a.agent_id`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, string>>;
     return rows.map((row) => ({
       agentId: row.agent_id!, roleKey: row.role_key!, roleTemplateId: row.role_template_id!, memberName: row.display_name!,

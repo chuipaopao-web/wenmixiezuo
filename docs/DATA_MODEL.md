@@ -36,7 +36,7 @@ draft → active → paused → archived
 
 ### `role_templates`
 
-保存历史九岗位模板和DEC-021十一成员模板的简短职业名称、职责、提示、能力要求、工具、数据范围和确认门禁。下一release把面向老板的 `public_summary`、`public_responsibilities`、`public_boundaries`、`activation_triggers` 和 `deliverables` 与内部系统提示、隐藏安全规则和工具参数分开版本化；公开字段可以进入API，内部字段不得因前端展示而泄露。完整职责不得塞入岗位显示名。十一成员固定包含主编/副编、两个编剧实例、设定、主笔/副笔、审校、体验、研究和版权；清照原文编职责由妲己综合审校模板吸收。
+保存历史九岗位模板和DEC-021十一成员模板的简短职业名称、职责、提示、能力要求、工具、数据范围和确认门禁。当前长篇release把面向老板的 `public_summary`、`public_responsibilities`、`public_boundaries`、`activation_triggers` 和 `deliverables` 与内部系统提示、隐藏安全规则和工具参数分开版本化；公开字段可以进入API，内部字段不得因前端展示而泄露。完整职责不得塞入岗位显示名。十一成员固定包含主编/副编、两个编剧实例、设定、主笔/副笔、审校、体验、研究和版权；清照原文编职责由妲己综合审校模板吸收。
 
 ### `agent_instances`
 
@@ -309,7 +309,7 @@ pending → queued → working → waiting_confirmation → succeeded
 - 所有Repository查询自动携带 `owner_id` 和 `book_id`；
 - 两本书的消息、任务、正文、记忆、FTS、预算、租约和缓存零串线；
 - 两本书的小文秘书会话、路由决定、实体候选和经验零串线；原始消息哈希与路由前后文本一致；
-- 历史首版新书仍按9实例解释；下一release新书11个创作Agent实例、三评审模型快照和小文秘书按书会话原子创建；
+- 历史首版书的9实例作为停用审计记录解释；当前新书11个创作Agent实例、三评审模型快照和小文秘书按书会话原子创建，旧书通过幂等升级补齐且不删除历史实例；
 - 同书只能有一个活动主编租约；
 - 小文秘书不能写入创作Agent、剧情意见、点评报告、正史或正式正文表；
 - 前章未结算时后章不能启动；

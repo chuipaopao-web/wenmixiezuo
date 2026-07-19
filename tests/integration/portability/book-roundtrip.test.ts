@@ -45,7 +45,7 @@ describe('书籍可移植包复制导入', () => {
     expect(() => service.importCopy({ ownerId }, '../outside.wenmi-book')).toThrow(/文件名无效/u);
     const imports = resolve(context.dataDir, 'imports');
     mkdirSync(imports, { recursive: true });
-    writeFileSync(resolve(imports, 'bad.wenmi-book'), JSON.stringify({ apiKey: 'sk-12345678901234567890' }));
+    writeFileSync(resolve(imports, 'bad.wenmi-book'), JSON.stringify({ apiKey: 'forbidden-secret-fixture' }));
     expect(() => service.importCopy({ ownerId }, 'bad.wenmi-book')).toThrow(/API Key/u);
   });
 });

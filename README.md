@@ -2,7 +2,7 @@
 
 这是一个与“AI智囊团”完全独立的、本地优先的小说创作平台。目标是让老板只需要通过自然语言表达想法，由多个真实Agent完成讨论、规划、写作、审校、知识沉淀、正史结算和长期一致性维护。
 
-项目已于2026-07-16按唯一 `release_id` 完成八个阶段的连续实现和验收。运行数据固定保存在 `D:\wenmixiezuo\data`，与 `D:\AI智囊团` 完全独立。
+历史首版于2026-07-16完成；当前长篇终局release `wm-longform-r1-20260719-003435-e4d7b8b7` 已按八阶段完成工程实现与E2验收。运行数据固定保存在 `D:\wenmixiezuo\data`，与 `D:\AI智囊团` 完全独立。
 
 ## 文档阅读顺序
 
@@ -11,13 +11,13 @@
 3. `docs/PRODUCT.md`：用户体验、功能范围和业务流程。
 4. `docs/ARCHITECTURE.md`：系统架构与模块边界。
 5. `docs/DATA_MODEL.md`：数据实体、隔离键和状态机。
-6. `docs/AGENT_SYSTEM.md`：9个岗位、Agent运行循环与权限。
+6. `docs/AGENT_SYSTEM.md`：11名创作成员、小文秘书、Agent运行循环与权限。
 7. `docs/MEMORY.md`：长篇小说的分层记忆和上下文组装。
 8. `docs/API.md`：首版接口和事件契约。
 9. `docs/DEVELOPMENT_ROADMAP.md`：八阶段实施顺序。
 10. `docs/ACCEPTANCE.md`：阶段门禁和最终验收。
-11. `docs/ROLE_PROMPTS.md`：九岗位实际模型、定位、输入输出、记忆、边界和完整提示词规则。
-12. `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md`：下一轮长篇终局能力的完整开工设计冻结。
+11. `docs/ROLE_PROMPTS.md`：11个岗位实际模型、定位、输入输出、记忆、边界和完整提示词规则。
+12. `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md`：本次长篇终局能力的开工设计冻结与追溯基线。
 13. `docs/RUNTIME_WORKFLOWS.md`、`docs/SECURITY_AND_OPERATIONS.md`、`docs/EVALUATION_PROTOCOL.md`：状态机、安全运维与E0—E4评测合同。
 
 需要核对讨论原文时，再读取：
@@ -36,6 +36,6 @@
 
 ## 发布状态
 
-首版八阶段已通过，最终证据见 `docs/releases/wm-v1-20260716-220959-d5dd704d/ACCEPTANCE_MATRIX.md`。默认Web端口为 `43110`，API端口为 `43111`，均只监听 `127.0.0.1`。当前增量使用Codex的ChatGPT登录态以及火山方舟Coding Plan/Agent Plan，禁止回退到按量计费；缺少套餐凭证时只启用明确标注的确定性测试模型。私有远程仓库为 `chuipaopao-web/wenmixiezuo`；第二物理备份位置仍未配置。
+当前长篇release的最终证据见 `docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/ACCEPTANCE_MATRIX.md`。默认Web端口为 `43110`，API端口为 `43111`，均只监听 `127.0.0.1`。系统支持Codex登录态以及火山方舟Coding Plan/Agent Plan，禁止回退到按量计费；缺少套餐凭证时只启用明确标注的确定性测试模型。私有远程仓库为 `chuipaopao-web/wenmixiezuo`；第二物理小说数据备份位置仍未配置。
 
-长篇终局增量当前只完成E0设计冻结，预留release为 `wm-longform-r1-20260719-003435-e4d7b8b7`，尚未激活，也不能描述为Schema、LanceDB、500万字或纵向文学质量已经实现。老板明确开工后，按 `docs/superpowers/plans/2026-07-19-final-longform-platform-implementation.md` 的新八阶段连续施工。
+本次已取得E2工程容量证据：500万NFC规范化字符、1500章、5本并存、索引重建和隔离恢复均通过。没有用确定性假模型冒充E3独立金标或E4真实模型长期文学质量；真实纵向质量只按以后实际创作跨度追加证据。

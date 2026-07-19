@@ -56,4 +56,30 @@ describe('现有书籍模型快照绑定', () => {
     const runtime = loadModelRuntimeConfig({ WENMI_MODEL_MODE: 'subscription-plan', WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key', WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key' });
     expect(new ModelBindingService(context.database, ids, clock, runtime.roleProfiles).bindAllBooks()).toMatchObject({ booksVisited: 2, updatedAgents: 20 });
   });
+
+  it('不会给已经停用的历史九人审计实例重新绑定模型', () => {
+    context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
+    initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '当前十一人书' });
+    const legacyScope = { ownerId: context.config.ownerId, bookId: 'retired-nine-book' };
+    new BookRepository(context.database).create(legacyScope, '停用历史团队', clock.now().toISOString(), 'active');
+    new AgentTeamService(context.database, ids, clock).createTeam(legacyScope);
+    const before = context.database.prepare(`
+      SELECT agent_id, model_snapshot_id FROM agent_instances
+      WHERE owner_id = ? AND book_id = ? ORDER BY agent_id
+    `).all(legacyScope.ownerId, legacyScope.bookId);
+    context.database.prepare(`UPDATE agent_instances SET enabled = 0 WHERE owner_id = ? AND book_id = ?`)
+      .run(legacyScope.ownerId, legacyScope.bookId);
+    const runtime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+
+    expect(new ModelBindingService(context.database, ids, clock, runtime.roleProfiles).bindAllBooks())
+      .toMatchObject({ booksVisited: 1, updatedAgents: 11 });
+    expect(context.database.prepare(`
+      SELECT agent_id, model_snapshot_id FROM agent_instances
+      WHERE owner_id = ? AND book_id = ? ORDER BY agent_id
+    `).all(legacyScope.ownerId, legacyScope.bookId)).toEqual(before);
+  });
 });

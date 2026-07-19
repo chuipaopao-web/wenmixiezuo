@@ -46,7 +46,7 @@ export class PresenceService {
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
       LEFT JOIN tasks t ON t.assigned_agent_id = a.agent_id AND t.status IN ('working', 'paused', 'blocked', 'waiting_confirmation')
-      WHERE a.owner_id = ? AND a.book_id = ?
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
       ORDER BY r.category, r.role_template_id
     `).all(scope.ownerId, scope.bookId) as unknown as PresenceRow[];
     return rows.map((row) => ({
@@ -75,4 +75,3 @@ function deriveStatus(row: PresenceRow, now: Date): PresenceStatus {
   if (row.current_phase?.includes('read') === true || row.current_phase?.includes('context') === true) return '读取资料';
   return '思考方案';
 }
-

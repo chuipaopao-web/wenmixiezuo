@@ -18,6 +18,7 @@
     "build": "npm run build --workspaces --if-present",
     "clean": "node scripts/clean.mjs",
     "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
+    "evaluate:scale": "tsx scripts/evaluation/final-scale-replay.ts",
     "ledger:init": "node scripts/release-ledger.mjs init",
     "ledger:status": "node scripts/release-ledger.mjs status",
     "migrate": "npm run migrate -w @wenmi/api",
