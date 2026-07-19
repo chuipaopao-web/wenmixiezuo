@@ -207,7 +207,7 @@ describe('完整创作工作台', () => {
       && JSON.parse(String((init as RequestInit).body)).expectedVersion === 2)).toBe(true));
   });
 
-  it('归档书只有逐字输入严格确认词后才能彻底删除', async () => {
+  it('归档书输入YES并再次点击后才能彻底删除', async () => {
     const archivedWorkspace = { ...workspace, book: { ...book, status: 'archived' } };
     const fetchMock = vi.fn(createFetchRouter('正文内容', archivedWorkspace));
     vi.stubGlobal('fetch', fetchMock);
@@ -218,19 +218,17 @@ describe('完整创作工作台', () => {
     const dialog = screen.getByRole('dialog', { name: '彻底删除《雾钟档案》' });
     expect(dialog).toHaveTextContent('删除后无法恢复');
     expect(within(dialog).getByRole('button', { name: '彻底删除' })).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText('永久删除确认词'), { target: { value: 'YES 雾钟档案 错误' } });
-    expect(within(dialog).getByRole('button', { name: '彻底删除' })).toBeDisabled();
     fireEvent.change(within(dialog).getByLabelText('永久删除确认词'), { target: { value: 'YSE' } });
     expect(within(dialog).getByRole('alert')).toHaveTextContent('确认词不匹配');
-    fireEvent.click(within(dialog).getByRole('button', { name: '填入完整确认词' }));
-    expect(within(dialog).getByLabelText('永久删除确认词')).toHaveValue('YES 雾钟档案 ookui1');
+    expect(within(dialog).queryByRole('button', { name: '填入完整确认词' })).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('永久删除确认词'), { target: { value: 'YES' } });
     expect(within(dialog).getByRole('button', { name: '彻底删除' })).toBeEnabled();
     fireEvent.click(within(dialog).getByRole('button', { name: '彻底删除' }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith('/api/v1/books/book-ui-1/purge')
       && (init as RequestInit | undefined)?.method === 'POST'
-      && JSON.parse(String((init as RequestInit).body)).confirmationText === 'YES 雾钟档案 ookui1')).toBe(true));
+      && JSON.parse(String((init as RequestInit).body)).confirmationText === 'YES')).toBe(true));
   });
 
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {

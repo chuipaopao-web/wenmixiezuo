@@ -3,6 +3,7 @@ import { BookLifecycleService } from '../../../apps/api/src/application/books/bo
 import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -21,7 +22,7 @@ describe('书籍生命周期与删除墓碑', () => {
     expect(() => service.archive(scope, created.version)).toThrow('版本已经变化');
   });
 
-  it('模糊或错误确认词不能永久删除', () => {
+  it('非YES确认词不能永久删除', () => {
     context = createTestContext();
     const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
     const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
@@ -32,14 +33,14 @@ describe('书籍生命周期与删除墓碑', () => {
     expect(new BookRepository(context.database).require(scope).title).toBe('甲书');
   });
 
-  it('严格确认后删除临时测试书并留下不可变墓碑', () => {
+  it('YES确认后删除临时测试书并留下不可变墓碑', () => {
     context = createTestContext();
     const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
     const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
     service.ensureOwner(scope);
     const created = service.createDraft(scope, '甲书');
     service.archive(scope, created.version);
-    service.permanentlyDelete(scope, requiredPermanentDeleteText('甲书', scope.bookId));
+    service.permanentlyDelete(scope, ' yes ');
     expect(new BookRepository(context.database).find(scope)).toBeNull();
     const tombstone = context.database.prepare('SELECT deleted_book_id, deleted_book_title FROM deletion_tombstones WHERE owner_id = ?')
       .get(scope.ownerId);
@@ -56,5 +57,121 @@ describe('书籍生命周期与删除墓碑', () => {
     expect(() => service.permanentlyDelete(scope, requiredPermanentDeleteText('活动书', scope.bookId)))
       .toThrow('只有已归档书籍可以永久删除');
     expect(new BookRepository(context.database).require(scope).title).toBe('活动书');
+  });
+
+  it('真实开书产生的全部书内数据可在归档后原子删除', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const lifecycle = new BookLifecycleService(context.database, context.dataDir, ids, clock);
+    lifecycle.ensureOwner({ ownerId: 'owner-one' });
+    const created = initializeDomainBook(context, 'owner-one', ids, clock, { title: '完整测试书' });
+    const survivor = initializeDomainBook(context, 'owner-one', ids, clock, { title: '隔离保留书' });
+    const scope = { ownerId: 'owner-one', bookId: created.bookId };
+    const survivorScope = { ownerId: 'owner-one', bookId: survivor.bookId };
+    const active = new BookRepository(context.database).require(scope);
+    lifecycle.archive(scope, active.version);
+    context.database.prepare(`
+      INSERT INTO quarantine_items (
+        quarantine_id, owner_id, intended_book_id, kind, source_path, source_hash,
+        status, validation_json, created_at, updated_at
+      ) VALUES (?, ?, ?, 'import', ?, ?, 'pending', '{}', ?, ?)
+    `).run('quarantine-target', scope.ownerId, scope.bookId, 'incoming/test.txt', 'a'.repeat(64), clock.now().toISOString(), clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO portable_operations (
+        portable_operation_id, owner_id, book_id, operation_type, status, package_name,
+        source_book_id, target_book_id, summary_json, created_at, completed_at
+      ) VALUES (?, ?, ?, 'export', 'completed', ?, ?, NULL, '{}', ?, ?)
+    `).run('portable-operation-target', scope.ownerId, scope.bookId, 'target.wenmi', scope.bookId, clock.now().toISOString(), clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO portable_manifests (
+        portable_manifest_id, portable_operation_id, owner_id, book_id, format_version,
+        schema_version, manifest_hash, table_count, row_count, file_count, byte_count, created_at
+      ) VALUES (?, ?, ?, ?, 1, 19, ?, 1, 1, 1, 1, ?)
+    `).run('portable-manifest-target', 'portable-operation-target', scope.ownerId, scope.bookId, 'b'.repeat(64), clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO portable_files (
+        portable_file_id, portable_manifest_id, relative_path, content_hash, byte_count, media_type, created_at
+      ) VALUES (?, ?, ?, ?, 1, 'text/plain', ?)
+    `).run('portable-file-target', 'portable-manifest-target', 'payload/test.txt', 'c'.repeat(64), clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO import_quarantine_checks (
+        import_quarantine_check_id, portable_operation_id, check_key, status, details_json, created_at
+      ) VALUES (?, ?, 'scope', 'passed', '{}', ?)
+    `).run('portable-check-target', 'portable-operation-target', clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO restore_impact_reports (
+        restore_impact_report_id, portable_operation_id, target_book_id, current_schema_version,
+        package_schema_version, affected_json, status, created_at
+      ) VALUES (?, ?, ?, 19, 19, '{}', 'preview', ?)
+    `).run('portable-report-target', 'portable-operation-target', scope.bookId, clock.now().toISOString());
+
+    lifecycle.permanentlyDelete(scope, requiredPermanentDeleteText('完整测试书', scope.bookId));
+
+    expect(new BookRepository(context.database).find(scope)).toBeNull();
+    expect(new BookRepository(context.database).require(survivorScope).title).toBe('隔离保留书');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM book_configs WHERE owner_id = ? AND book_id = ?`)
+      .get(survivorScope.ownerId, survivorScope.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM book_configs WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    const scopedTables = context.database.prepare(`
+      SELECT name FROM sqlite_schema
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'books'
+      ORDER BY name
+    `).all() as unknown as Array<{ name: string }>;
+    for (const table of scopedTables) {
+      const identifier = `"${table.name.replaceAll('"', '""')}"`;
+      const columns = context.database.prepare(`PRAGMA table_info(${identifier})`).all() as unknown as Array<{ name: string }>;
+      const names = new Set(columns.map((column) => column.name));
+      if (!names.has('owner_id') || !names.has('book_id')) continue;
+      expect(
+        context.database.prepare(`SELECT COUNT(*) AS count FROM ${identifier} WHERE owner_id = ? AND book_id = ?`)
+          .get(scope.ownerId, scope.bookId),
+        `${table.name} 仍留有被删除书籍的数据`
+      ).toEqual({ count: 0 });
+    }
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM positioning_drafts
+      WHERE owner_id = ? AND (proposed_book_id = ? OR confirmed_book_id = ?)
+    `).get(scope.ownerId, scope.bookId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM quarantine_items WHERE owner_id = ? AND intended_book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM portable_operations WHERE portable_operation_id = 'portable-operation-target'
+    `).get()).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM portable_files WHERE portable_file_id = 'portable-file-target'
+    `).get()).toEqual({ count: 0 });
+    expect(context.database.prepare(`PRAGMA foreign_key_check`).all()).toEqual([]);
+  });
+
+  it('清理中发现未处理引用时整个事务回滚', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const lifecycle = new BookLifecycleService(context.database, context.dataDir, ids, clock);
+    lifecycle.ensureOwner({ ownerId: 'owner-one' });
+    const created = initializeDomainBook(context, 'owner-one', ids, clock, { title: '回滚测试书' });
+    const scope = { ownerId: 'owner-one', bookId: created.bookId };
+    const active = new BookRepository(context.database).require(scope);
+    lifecycle.archive(scope, active.version);
+    context.database.exec(`
+      CREATE TABLE purge_test_blockers (
+        blocker_id TEXT PRIMARY KEY,
+        referenced_book_id TEXT NOT NULL REFERENCES books(book_id)
+      ) STRICT;
+    `);
+    context.database.prepare('INSERT INTO purge_test_blockers (blocker_id, referenced_book_id) VALUES (?, ?)')
+      .run('blocker-one', scope.bookId);
+
+    expect(() => lifecycle.permanentlyDelete(scope, 'YES')).toThrow('FOREIGN KEY constraint failed');
+
+    expect(new BookRepository(context.database).require(scope).title).toBe('回滚测试书');
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM book_configs WHERE owner_id = ? AND book_id = ?')
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?')
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 });

@@ -1574,15 +1574,15 @@ function PurgeBookDialog({ book, busy, onCancel, onConfirm }: {
   onCancel: () => void;
   onConfirm: (confirmationText: string) => Promise<void>;
 }): React.JSX.Element {
-  const required = `YES ${book.title} ${permanentDeleteShortId(book.bookId)}`;
+  const required = 'YES';
   const [confirmation, setConfirmation] = useState('');
-  const valid = confirmation === required;
+  const valid = confirmation.trim().toUpperCase() === required;
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog purge-dialog" role="dialog" aria-modal="true" aria-labelledby="purge-book-title">
       <div className="dialog-heading"><div><span className="dialog-eyebrow danger">不可恢复</span><h2 id="purge-book-title">彻底删除《{book.title}》</h2><p>这会永久删除本书的正文、正史、资料、任务、对话与附件，并写入删除墓碑。删除后无法恢复。</p></div><button className="icon-button" type="button" aria-label="关闭永久删除确认" onClick={onCancel}><XIcon /></button></div>
       <div className="purge-impact"><TrashIcon /><span><strong>只删除这一本已归档书</strong><small>其他书籍不会受到影响；本操作不提供撤销。</small></span></div>
-      <label className="purge-confirmation"><span>请确认完整删除口令</span><code>{required}</code><div className="purge-confirmation-controls"><input autoComplete="off" spellCheck={false} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="永久删除确认词" /><button className="secondary-button" type="button" onClick={() => setConfirmation(required)}>填入完整确认词</button></div>{confirmation.length > 0 && !valid && <small className="purge-confirmation-error" role="alert">确认词不匹配，请使用上方完整口令。</small>}</label>
-      <footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="danger-button" type="button" disabled={busy || !valid} onClick={() => void onConfirm(confirmation)}>{busy ? '正在彻底删除' : '彻底删除'}</button></footer>
+      <label className="purge-confirmation"><span>请输入 YES 确认</span><code>{required}</code><input autoComplete="off" spellCheck={false} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="永久删除确认词" />{confirmation.length > 0 && !valid && <small className="purge-confirmation-error" role="alert">确认词不匹配，请输入 YES。</small>}</label>
+      <footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="danger-button" type="button" disabled={busy || !valid} onClick={() => void onConfirm(required)}>{busy ? '正在彻底删除' : '彻底删除'}</button></footer>
     </section>
   </div>;
 }
@@ -1791,10 +1791,6 @@ function emptyLibraryData(): LibraryData {
 
 function shortId(value: string): string {
   return value.length <= 10 ? value : value.slice(0, 8);
-}
-
-function permanentDeleteShortId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, '').slice(-6);
 }
 
 function readSelectedBook(): string | null {

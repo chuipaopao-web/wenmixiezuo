@@ -2016,17 +2016,6 @@ svg {
   user-select: all;
 }
 
-.purge-confirmation-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.purge-confirmation-controls .secondary-button {
-  white-space: nowrap;
-}
-
 .purge-confirmation-error {
   display: block;
   margin-top: 7px;
@@ -2457,10 +2446,6 @@ svg {
   .manuscript-list-button {
     position: static;
     margin-bottom: 18px;
-  }
-
-  .purge-confirmation-controls {
-    grid-template-columns: 1fr;
   }
 
   .novel-text {

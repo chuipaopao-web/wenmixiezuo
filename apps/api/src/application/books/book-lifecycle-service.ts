@@ -7,20 +7,23 @@ import type { BookRecord } from '../../domain/books.js';
 import { assertBookScope, type BookScope, type OwnerScope } from '../../domain/scope.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
 import { OwnerRepository } from '../../infrastructure/db/repositories/owner-repository.js';
+import { BookPurgeRepository } from '../../infrastructure/db/repositories/book-purge-repository.js';
 import { resolveInside } from '../../infrastructure/files/file-utils.js';
 
 export class BookLifecycleService {
   readonly #books: BookRepository;
   readonly #owners: OwnerRepository;
+  readonly #purge: BookPurgeRepository;
 
   public constructor(
-    private readonly database: DatabaseSync,
+    database: DatabaseSync,
     private readonly dataDir: string,
     private readonly ids: IdGenerator,
     private readonly clock: Clock
   ) {
     this.#books = new BookRepository(database);
     this.#owners = new OwnerRepository(database);
+    this.#purge = new BookPurgeRepository(database);
   }
 
   public ensureOwner(scope: OwnerScope, displayName = '老板'): void {
@@ -33,10 +36,7 @@ export class BookLifecycleService {
     if (normalizedTitle.length < 1 || normalizedTitle.length > 120) {
       throw new Error('书名长度必须为1至120个字符');
     }
-    const tombstone = this.database.prepare(`
-      SELECT 1 FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?
-    `).get(scope.ownerId, scope.bookId);
-    if (tombstone !== undefined) throw new Error('删除墓碑禁止旧书籍ID复活');
+    if (this.#purge.hasTombstone(scope)) throw new Error('删除墓碑禁止旧书籍ID复活');
     return this.#books.create(scope, normalizedTitle, this.clock.now().toISOString(), 'draft');
   }
 
@@ -56,34 +56,21 @@ export class BookLifecycleService {
     if (book.status !== 'archived') {
       throw new DomainError(errorCodes.bookStatusConflict, '只有已归档书籍可以永久删除', { currentStatus: book.status }, false, 409);
     }
-    const confirmationHash = validatePermanentDeleteText(book.title, book.bookId, confirmationText);
+    const confirmationHash = validatePermanentDeleteText(confirmationText);
     const operationId = this.ids.next();
     const tombstoneId = this.ids.next();
     const now = this.clock.now().toISOString();
-    const rows = this.database.prepare('SELECT relative_path FROM file_registry WHERE owner_id = ? AND book_id = ?')
-      .all(scope.ownerId, scope.bookId) as unknown as Array<{ relative_path: string }>;
+    const paths = this.#purge.listRegisteredPaths(scope);
+    this.#purge.permanentlyDelete(scope, {
+      bookTitle: book.title,
+      operationId,
+      tombstoneId,
+      confirmationHash,
+      deletedAt: now
+    });
 
-    this.database.exec('BEGIN IMMEDIATE');
-    try {
-      this.database.prepare(`
-        INSERT INTO deletion_tombstones (
-          tombstone_id, owner_id, deleted_book_id, deleted_book_title,
-          deletion_operation_id, confirmation_text_hash, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(tombstoneId, scope.ownerId, scope.bookId, book.title, operationId, confirmationHash, now);
-      this.database.prepare('DELETE FROM file_registry WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
-      this.database.prepare('DELETE FROM chat_attachments WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
-      this.database.prepare('DELETE FROM recovery_log WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
-      this.database.prepare('DELETE FROM operations WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
-      this.database.prepare('DELETE FROM books WHERE owner_id = ? AND book_id = ?').run(scope.ownerId, scope.bookId);
-      this.database.exec('COMMIT');
-    } catch (error) {
-      this.database.exec('ROLLBACK');
-      throw error;
-    }
-
-    for (const row of rows) {
-      rmSync(resolveInside(this.dataDir, row.relative_path), { force: true });
+    for (const path of paths) {
+      rmSync(resolveInside(this.dataDir, path), { force: true });
     }
     rmSync(resolveInside(this.dataDir, `books/${scope.bookId}`), { force: true, recursive: true });
   }

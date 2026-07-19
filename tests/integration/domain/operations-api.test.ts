@@ -82,7 +82,18 @@ describe('生命周期、任务审计与备份REST入口', () => {
       });
       expect(invalidPurge.statusCode).toBe(409);
       expect(invalidPurge.json().error.code).toBe('PERMANENT_DELETE_CONFIRMATION_INVALID');
-      expect(requiredPermanentDeleteText('运维入口测试书', created.bookId)).toMatch(/^YES 运维入口测试书 [A-Za-z0-9]{6}$/u);
+      expect(requiredPermanentDeleteText('运维入口测试书', created.bookId)).toBe('YES');
+      const validPurge = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/purge`, payload: { confirmationText: 'YES' }
+      });
+      expect(validPurge.statusCode).toBe(200);
+      expect(validPurge.json().data).toMatchObject({
+        bookId: created.bookId,
+        status: 'purged',
+        tombstoneWritten: true
+      });
+      expect((await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}` })).statusCode).toBe(404);
+      expect(context.database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     } finally {
       await app.close();
     }
