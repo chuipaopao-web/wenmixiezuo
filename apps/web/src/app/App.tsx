@@ -478,7 +478,7 @@ export function App(): React.JSX.Element {
     >
       <header className="topbar">
         <div className="brand-lockup">
-          <button className="icon-button mobile-only" type="button" aria-label="打开书籍与目录" onClick={() => setLeftOpen(true)}><ListIcon /></button>
+          <button className="icon-button mobile-only" type="button" aria-label="打开书籍与功能" onClick={() => setLeftOpen(true)}><ListIcon /></button>
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
@@ -495,8 +495,8 @@ export function App(): React.JSX.Element {
         </div>
       </header>
 
-      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍与章节">
-        <DrawerHeader title="书籍与目录" onClose={() => setLeftOpen(false)} />
+      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍与功能">
+        <DrawerHeader title="书籍与功能" onClose={() => setLeftOpen(false)} />
         <div className="rail-heading"><span>我的书</span><button className="small-icon-button" type="button" aria-label="创建新书" onClick={() => setCreateOpen(true)}><PlusIcon /></button></div>
         <nav className="book-switcher" aria-label="书籍列表">
           {activeBooks.map((book) => (
@@ -539,17 +539,8 @@ export function App(): React.JSX.Element {
             <RailViewButton active={view === 'projections'} onClick={() => { setView('projections'); setLeftOpen(false); }} icon={<DatabaseIcon />} label="图谱" />
             <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
             <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
+            <RailViewButton active={view === 'tasks'} onClick={() => { setView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
           </nav>
-        )}
-        <TaskCenter
-          workspace={workspace}
-          onOpen={() => { setView('tasks'); setLeftOpen(false); }}
-          onSelect={(task) => setSelectedTaskId(task.taskId)}
-        />
-        {workspace !== null && (
-          <VolumeChapterTree workspace={workspace} selectedChapterId={selectedChapterId} onSelect={(chapter) => {
-            setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); setView('manuscript'); setLeftOpen(false);
-          }} />
         )}
       </aside>
 
@@ -575,7 +566,17 @@ export function App(): React.JSX.Element {
             {view === 'tasks' && (
               <TaskWorkspace workspace={workspace} busy={busy} onSelect={(task) => setSelectedTaskId(task.taskId)} onDecide={decideConfirmation} />
             )}
-            {view === 'manuscript' && <ManuscriptView chapter={selectedChapter ?? workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null} reader={reader} detail={chapterDetail} />}
+            {view === 'manuscript' && (
+              <ManuscriptWorkspace
+                key={selectedBook.bookId}
+                workspace={workspace}
+                selectedChapterId={selectedChapterId}
+                chapter={selectedChapter ?? workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null}
+                reader={reader}
+                detail={chapterDetail}
+                onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
+              />
+            )}
             {view === 'outline' && <PlanningWorkspace data={referenceData} workspace={workspace} onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); setView('manuscript'); }} />}
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
@@ -780,11 +781,29 @@ function attachmentStatusLabel(status: ChatAttachmentData['parseStatus'], charCo
   return '已从待发送列表移除';
 }
 
-function ManuscriptView({ chapter, reader, detail }: { chapter: ChapterData | null; reader: { content: string; offline: boolean } | null; detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null }): React.JSX.Element {
-  if (chapter === null) return <div className="view-empty"><BookOpenTextIcon /><h2>选择一章开始阅读</h2><p>左侧目录只显示当前书籍的不可变正文版本。</p></div>;
+function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter }: {
+  workspace: WorkspaceData | null;
+  selectedChapterId: string | null;
+  chapter: ChapterData | null;
+  reader: { content: string; offline: boolean } | null;
+  detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null;
+  onSelectChapter: (chapter: ChapterData) => void;
+}): React.JSX.Element {
+  const [browsing, setBrowsing] = useState(chapter === null);
+  if (workspace === null) return <div className="text-skeleton" aria-label="正在加载章节列表" />;
+  if (browsing || chapter === null) {
+    return <section className="manuscript-browser-view">
+      <header className="manuscript-browser-header"><div><h2>正文</h2><p>在这里选择章节并阅读正式正文，左栏只保留功能入口。</p></div>{chapter !== null && <button className="secondary-button" type="button" onClick={() => setBrowsing(false)}>返回第 {chapter.chapterNumber} 章</button>}</header>
+      <ManuscriptChapterBrowser workspace={workspace} selectedChapterId={selectedChapterId} onSelect={(selected) => { onSelectChapter(selected); setBrowsing(false); }} />
+    </section>;
+  }
+  return <ManuscriptView chapter={chapter} reader={reader} detail={detail} onBrowse={() => setBrowsing(true)} />;
+}
+
+function ManuscriptView({ chapter, reader, detail, onBrowse }: { chapter: ChapterData; reader: { content: string; offline: boolean } | null; detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null; onBrowse: () => void }): React.JSX.Element {
   return (
     <article className="manuscript-view">
-      <header><span>第 {chapter.chapterNumber} 章</span><h2>{chapter.title}</h2><div>{chapter.settlementStatus === 'settled' ? <><CheckCircleIcon />正史已结算</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</div></header>
+      <header><button className="manuscript-list-button" type="button" onClick={onBrowse}><ListIcon />章节列表</button><span>第 {chapter.chapterNumber} 章</span><h2>{chapter.title}</h2><div>{chapter.settlementStatus === 'settled' ? <><CheckCircleIcon />正史已结算</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</div></header>
       {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <><p className="offline-note">{reader.offline ? <><WifiSlashIcon />离线缓存，正史版本已校验</> : <><WifiHighIcon />当前正史正文</>}</p><div className="novel-text">{reader.content}</div></>}
       {detail !== null && <ChapterProductionEvidence detail={detail} />}
     </article>
@@ -879,8 +898,9 @@ function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<stri
 
 function ChapterCatalog({ workspace, onSelect }: { workspace: WorkspaceData | null; onSelect: (chapter: ChapterData) => void }): React.JSX.Element {
   const chapters = workspace?.chapters ?? [];
+  const totalChapters = Math.max(chapters.length, (workspace?.volumes ?? []).reduce((total, volume) => total + volume.chapterCount, 0));
   if (chapters.length === 0) return <EmptyReference icon={<BookOpenTextIcon />} title="尚未规划章节" description="剧情方向确认后，编剧会评估跨度并形成滚动章纲。" />;
-  return <div className="chapter-catalog">{chapters.slice(0, 300).map((chapter) => <button type="button" key={chapter.chapterId} onClick={() => onSelect(chapter)}><span><strong>第 {chapter.chapterNumber} 章</strong><small>{chapter.title}</small></span><em>{chapterStatus(chapter, workspace?.tasks)}</em><CaretRightIcon /></button>)}{chapters.length > 300 && <p className="window-note">当前窗口显示300章，可在左侧按卷和标题定位其余章节。</p>}</div>;
+  return <div className="chapter-catalog">{chapters.slice(0, 300).map((chapter) => <button type="button" key={chapter.chapterId} onClick={() => onSelect(chapter)}><span><strong>第 {chapter.chapterNumber} 章</strong><small>{chapter.title}</small></span><em>{chapterStatus(chapter, workspace?.tasks)}</em><CaretRightIcon /></button>)}{totalChapters > chapters.length && <p className="window-note">规划页显示最近 {chapters.length} 章；完整目录请在正文页按卷和标题定位。</p>}</div>;
 }
 
 type LibraryTab = 'overview' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'foreshadowing' | 'relations' | 'emotion' | 'tags' | 'gaps' | 'evidence';
@@ -993,7 +1013,7 @@ function EmptyReference({ icon, title, description }: { icon: React.ReactNode; t
   return <div className="view-empty compact">{icon}<h3>{title}</h3><p>{description}</p></div>;
 }
 
-function VolumeChapterTree({ workspace, selectedChapterId, onSelect }: {
+function ManuscriptChapterBrowser({ workspace, selectedChapterId, onSelect }: {
   workspace: WorkspaceData; selectedChapterId: string | null; onSelect: (chapter: ChapterData) => void;
 }): React.JSX.Element {
   const [query, setQuery] = useState('');
@@ -1040,8 +1060,8 @@ function VolumeChapterTree({ workspace, selectedChapterId, onSelect }: {
     <span>{page.offset + 1}-{Math.min(page.total, page.offset + page.items.length)} / {page.total}</span>
     <button type="button" disabled={page.offset + page.items.length >= page.total || loadingPage !== null} onClick={() => loadPage(volumeId, page.offset + page.limit)}>下一页</button>
   </div>;
-  return <section className="chapter-tree" aria-label="卷章目录">
-    <div className="rail-heading"><span>卷章目录</span><small>{totalChapters} 章</small></div>
+  return <section className="manuscript-chapter-browser" aria-label="正文章节列表">
+    <div className="manuscript-chapter-browser-heading"><span>章节列表</span><small>{totalChapters} 章</small></div>
     {totalChapters > 20 && <div className="chapter-filter"><label className="chapter-search"><MagnifyingGlassIcon /><span className="sr-only">搜索章节、人物或状态</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="章节、人物或标题" /></label><select aria-label="按章节状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="planned">已规划</option><option value="working">写作中</option><option value="review">待点评</option><option value="settled">已结算</option><option value="blocked">受阻</option></select></div>}
     {searchMode ? <div className="chapter-search-results">{loadingPage === 'search' && <p className="rail-empty">正在定位章节</p>}{pages.search?.items.map(chapterButton)}{pages.search !== undefined && pages.search.items.length === 0 && <p className="rail-empty">没有符合条件的章节。</p>}{pager('all', pages.search)}</div> : derivedVolumes.map((volume) => {
       const page = pages[volume.volumeId];
@@ -1050,36 +1070,8 @@ function VolumeChapterTree({ workspace, selectedChapterId, onSelect }: {
         <div className="volume-chapters">{loadingPage === volume.volumeId && page === undefined ? <p className="rail-empty">正在加载本卷</p> : page?.items.map(chapterButton)}{pager(volume.volumeId, page)}</div>
       </details>;
     })}
-    {totalChapters === 0 && <p className="rail-empty">章节尚未规划。先在对话中自然讨论剧情与跨度。</p>}
+    {totalChapters === 0 && <p className="record-empty">章节尚未规划。先在对话中自然讨论剧情与跨度。</p>}
   </section>;
-}
-
-function TaskCenter({ workspace, onOpen, onSelect }: {
-  workspace: WorkspaceData | null;
-  onOpen: () => void;
-  onSelect: (task: TaskData) => void;
-}): React.JSX.Element {
-  const activeTasks = workspace?.tasks.filter((task) => isActiveTask(task.status)) ?? [];
-  const historyTasks = workspace?.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse() ?? [];
-  return (
-    <section className="task-center" aria-labelledby="current-tasks-title">
-      <button className="rail-heading task-center-heading task-center-entry" type="button" aria-label={`打开任务中心，${activeTasks.length}项当前任务`} onClick={onOpen}>
-        <span><FileTextIcon /><strong id="current-tasks-title">当前任务</strong></span>
-        <span><small>{activeTasks.length}</small><CaretRightIcon /></span>
-      </button>
-      {activeTasks.length === 0 ? <p className="rail-empty">当前没有进行中的创作任务。</p> : (
-        <div className="task-list">
-          {activeTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}
-        </div>
-      )}
-      {historyTasks.length > 0 && (
-        <details className="task-history">
-          <summary>最近任务 {historyTasks.length}</summary>
-          <div className="task-list history">{historyTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
-        </details>
-      )}
-    </section>
-  );
 }
 
 function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: WorkspaceData; onSelect: (task: TaskData) => void }): React.JSX.Element {
@@ -1589,7 +1581,7 @@ function PurgeBookDialog({ book, busy, onCancel, onConfirm }: {
     <section className="dialog purge-dialog" role="dialog" aria-modal="true" aria-labelledby="purge-book-title">
       <div className="dialog-heading"><div><span className="dialog-eyebrow danger">不可恢复</span><h2 id="purge-book-title">彻底删除《{book.title}》</h2><p>这会永久删除本书的正文、正史、资料、任务、对话与附件，并写入删除墓碑。删除后无法恢复。</p></div><button className="icon-button" type="button" aria-label="关闭永久删除确认" onClick={onCancel}><XIcon /></button></div>
       <div className="purge-impact"><TrashIcon /><span><strong>只删除这一本已归档书</strong><small>其他书籍不会受到影响；本操作不提供撤销。</small></span></div>
-      <label className="purge-confirmation"><span>请逐字输入确认词</span><code>{required}</code><input autoComplete="off" spellCheck={false} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="永久删除确认词" /></label>
+      <label className="purge-confirmation"><span>请确认完整删除口令</span><code>{required}</code><div className="purge-confirmation-controls"><input autoComplete="off" spellCheck={false} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} aria-label="永久删除确认词" /><button className="secondary-button" type="button" onClick={() => setConfirmation(required)}>填入完整确认词</button></div>{confirmation.length > 0 && !valid && <small className="purge-confirmation-error" role="alert">确认词不匹配，请使用上方完整口令。</small>}</label>
       <footer><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="danger-button" type="button" disabled={busy || !valid} onClick={() => void onConfirm(confirmation)}>{busy ? '正在彻底删除' : '彻底删除'}</button></footer>
     </section>
   </div>;
