@@ -33,4 +33,6 @@
 
 ## 提交后门禁
 
-功能提交后在干净工作树执行 `npm run acceptance`，再核对本地HEAD与私有远程 `origin/main` 一致；结果记录在任务账本和最终交付回执中。
+- 功能提交：`087a39c`（`feat: restore compact book summary in topbar`）。
+- 功能提交后在干净工作树执行 `npm run acceptance`：3/3通过；审计 `failures: []`；工作树为clean。
+- 证据提交推送后再次执行正式验收，并核对本地HEAD与私有远程 `origin/main` 一致；最终值记录在交付回执中。
