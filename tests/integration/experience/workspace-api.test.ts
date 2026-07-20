@@ -134,4 +134,41 @@ describe('工作台API', () => {
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(context.config.ownerId, book.bookId)).toEqual({ canon_revision: 0 });
   });
+
+  it('主角资料和属性公式可维护、保留历史并按书隔离', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const first = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '主角接口书', text: '领主经营与军队属性' });
+    const second = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '隔离书', text: '验证跨书隔离' });
+    app = await createServer(context.config, context.database, { trustedTest: true });
+    const profileResponse = await app.inject({ method: 'POST', url: `/api/v1/books/${first.bookId}/protagonists`, payload: { displayName: '林澈', isPrimary: true } });
+    expect(profileResponse.statusCode).toBe(200);
+    const profileId = profileResponse.json().data.profileId as string;
+    const stateResponse = await app.inject({
+      method: 'POST', url: `/api/v1/books/${first.bookId}/protagonists/${profileId}/state`,
+      payload: { category: '城池', logicalKey: '主城等级', label: '主城等级', valueType: 'number', value: 3, unit: '级', confirmed: true }
+    });
+    expect(stateResponse.json().data).toMatchObject({ value: 3, authorityLayer: 'canon', revision: 1 });
+    const formulaResponse = await app.inject({
+      method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas`,
+      payload: { formulaKey: '总兵力', label: '总兵力', expression: '步兵 + 弓兵', variables: [{ key: '步兵', label: '步兵' }, { key: '弓兵', label: '弓兵' }], unit: '人' }
+    });
+    const formulaId = formulaResponse.json().data.formulaId as string;
+    const evaluated = await app.inject({
+      method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas/${formulaId}/evaluate`, payload: { values: { 步兵: 120, 弓兵: 80 } }
+    });
+    expect(evaluated.json().data).toMatchObject({ result: 200, formula: { unit: '人' } });
+    const library = await app.inject({ method: 'GET', url: `/api/v1/books/${first.bookId}/library` });
+    expect(library.json().data).toMatchObject({
+      protagonists: { profiles: [expect.objectContaining({ displayName: '林澈', current: [expect.objectContaining({ value: 3 })] })] },
+      attributeFormulas: [expect.objectContaining({ formulaKey: '总兵力' })]
+    });
+    const crossBook = await app.inject({
+      method: 'POST', url: `/api/v1/books/${second.bookId}/protagonists/${profileId}/state`,
+      payload: { category: '资源', logicalKey: '金币', label: '金币', valueType: 'resource', value: 1 }
+    });
+    expect(crossBook.statusCode).toBeGreaterThanOrEqual(400);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/books/${second.bookId}/protagonists` })).json().data.profiles).toEqual([]);
+  });
 });

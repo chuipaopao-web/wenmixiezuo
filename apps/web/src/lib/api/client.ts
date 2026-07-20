@@ -150,7 +150,54 @@ export interface LibraryData {
   tags: Array<Record<string, unknown>>;
   projections: Array<Record<string, unknown>>;
   gaps: Array<Record<string, unknown>>;
+  protagonists?: ProtagonistDashboardData;
+  attributeFormulas?: AttributeFormulaData[];
   summary: { entityCount: number; factCount: number; relationCount: number; tagCount: number; projectionCount: number; openGapCount: number };
+}
+
+export interface ProtagonistStateData {
+  entryId: string;
+  profileId: string;
+  category: string;
+  logicalKey: string;
+  label: string;
+  valueType: 'number' | 'text' | 'enum' | 'list' | 'resource' | 'derived';
+  value: unknown;
+  unit: string | null;
+  stateStatus: 'active' | 'consumed' | 'lost' | 'dead' | 'retired' | 'archived';
+  authorityLayer: 'candidate' | 'canon' | 'derived';
+  effectiveChapterNumber: number | null;
+  revision: number;
+  note: string | null;
+}
+
+export interface ProtagonistProfileData {
+  profileId: string;
+  entityId: string | null;
+  displayName: string;
+  isPrimary: boolean;
+  status: 'active' | 'archived';
+  current: ProtagonistStateData[];
+  pending: ProtagonistStateData[];
+  historyCount: number;
+}
+
+export interface ProtagonistDashboardData { profiles: ProtagonistProfileData[] }
+
+export interface AttributeFormulaData {
+  formulaId: string;
+  formulaKey: string;
+  label: string;
+  expression: string;
+  variables: Array<{ key: string; label: string; defaultValue?: number }>;
+  unit: string | null;
+  version: number;
+  status: 'active' | 'superseded' | 'archived';
+}
+
+export interface GraphWorkspaceData {
+  relations: Array<Record<string, unknown>>;
+  projections: Array<Record<string, unknown>>;
 }
 
 export interface TeamModelProfileData {
@@ -386,6 +433,26 @@ export function fetchChapterDetail(bookId: string, chapterId: string, signal?: A
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}`, signal === undefined ? {} : { signal });
 }
 
+export function saveOwnerManuscript(bookId: string, chapterId: string, input: {
+  baseManuscriptVersionId: string | null; content: string; note?: string | null;
+}): Promise<{ manuscriptVersionId: string; parentVersionId: string | null; contentHash: string; wordCount: number; status: 'candidate'; unchanged: boolean }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/manuscripts/owner-drafts`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function rewriteChapter(bookId: string, chapterId: string, manuscriptVersionId: string, instruction: string): Promise<{ taskId: string; operation: string; manuscriptVersionId: string }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/rewrite`, {
+    method: 'POST', body: JSON.stringify({ manuscriptVersionId, instruction })
+  });
+}
+
+export function finalizeChapter(bookId: string, chapterId: string, manuscriptVersionId: string): Promise<{ taskId: string; operation: string; confirmationId?: string }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/finalize`, {
+    method: 'POST', body: JSON.stringify({ manuscriptVersionId })
+  });
+}
+
 export function fetchArtifacts(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts`, signal === undefined ? {} : { signal });
 }
@@ -425,8 +492,62 @@ export function fetchLibrary(bookId: string, signal?: AbortSignal): Promise<Libr
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/library`, signal === undefined ? {} : { signal });
 }
 
+export async function fetchGraphWorkspace(bookId: string, signal?: AbortSignal): Promise<GraphWorkspaceData> {
+  const [projections, library] = await Promise.all([
+    fetchProjections(bookId, signal),
+    fetchLibrary(bookId, signal)
+  ]);
+  return {
+    relations: library.relations,
+    projections: projections.filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value))
+  };
+}
+
 export function createLibraryTag(bookId: string, input: { namespace: string; name: string; description?: string; appliesTo: string[]; color?: string | null }): Promise<{ tagId: string; status: 'proposed' | 'active' }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/tags`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function saveProtagonistProfile(bookId: string, input: { profileId?: string; displayName: string; entityId?: string | null; isPrimary?: boolean }): Promise<ProtagonistProfileData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/protagonists`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function fetchProtagonists(bookId: string, signal?: AbortSignal): Promise<ProtagonistDashboardData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/protagonists`, signal === undefined ? {} : { signal });
+}
+
+export function fetchAttributeFormulas(bookId: string, signal?: AbortSignal): Promise<AttributeFormulaData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/attribute-formulas`, signal === undefined ? {} : { signal });
+}
+
+export function appendProtagonistState(bookId: string, profileId: string, input: {
+  category: string; logicalKey: string; label: string; valueType: ProtagonistStateData['valueType']; value: unknown;
+  unit?: string | null; stateStatus?: ProtagonistStateData['stateStatus']; confirmed?: boolean;
+  effectiveChapterNumber?: number | null; note?: string | null;
+}): Promise<ProtagonistStateData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/protagonists/${encodeURIComponent(profileId)}/state`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function archiveProtagonistState(bookId: string, entryId: string): Promise<ProtagonistStateData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/protagonist-state/${encodeURIComponent(entryId)}/archive`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
+export function createAttributeFormula(bookId: string, input: {
+  formulaKey: string; label: string; expression: string;
+  variables: Array<{ key: string; label: string; defaultValue?: number }>; unit?: string | null;
+}): Promise<AttributeFormulaData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/attribute-formulas`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function evaluateAttributeFormula(bookId: string, formulaId: string, values: Record<string, number>): Promise<{
+  formula: AttributeFormulaData; values: Record<string, number>; result: number;
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/attribute-formulas/${encodeURIComponent(formulaId)}/evaluate`, {
+    method: 'POST', body: JSON.stringify({ values })
+  });
 }
 
 export function fetchVolumeChapters(

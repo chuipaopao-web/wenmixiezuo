@@ -43,12 +43,14 @@ import {
   fetchChapterContent,
   fetchChapterDetail,
   fetchHealth,
+  fetchGraphWorkspace,
   fetchLibrary,
   fetchMessages,
   fetchModelBindings,
   fetchVolumeChapters,
   fetchOperationsStatus,
-  fetchProjections,
+  fetchProtagonists,
+  fetchAttributeFormulas,
   fetchRightsWorkspace,
   fetchWorker,
   fetchWorkspace,
@@ -69,6 +71,14 @@ import {
   chatAttachmentContentUrl,
   compareArtifactVersions,
   createLibraryTag,
+  saveOwnerManuscript,
+  rewriteChapter,
+  finalizeChapter,
+  saveProtagonistProfile,
+  appendProtagonistState,
+  archiveProtagonistState,
+  createAttributeFormula,
+  evaluateAttributeFormula,
   type AgentData,
   type ArtifactVersionData,
   type BookData,
@@ -78,6 +88,11 @@ import {
   type ChatAttachmentData,
   type HealthData,
   type LibraryData,
+  type GraphWorkspaceData,
+  type ProtagonistDashboardData,
+  type ProtagonistProfileData,
+  type ProtagonistStateData,
+  type AttributeFormulaData,
   type MessageData,
   type ModelBindingsData,
   type OperationsStatusData,
@@ -128,7 +143,7 @@ export function App(): React.JSX.Element {
   const [view, setView] = useState<WorkspaceView>('chat');
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterData | null>(null);
-  const [reader, setReader] = useState<{ content: string; offline: boolean } | null>(null);
+  const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
   const [chapterDetail, setChapterDetail] = useState<Awaited<ReturnType<typeof fetchChapterDetail>> | null>(null);
   const [referenceData, setReferenceData] = useState<unknown>([]);
   const [modelBindings, setModelBindings] = useState<ModelBindingsData | null>(null);
@@ -155,6 +170,7 @@ export function App(): React.JSX.Element {
   const archivedBooks = books.filter((book) => book.status === 'archived');
   const selectedBook = activeBooks.find((book) => book.bookId === selectedBookId) ?? null;
   const selectedTask = workspace?.tasks.find((task) => task.taskId === selectedTaskId) ?? null;
+  const selectedWorkspaceChapter = workspace?.chapters.find((chapter) => chapter.chapterId === selectedChapterId) ?? null;
 
   const loadBooks = useCallback(async (signal?: AbortSignal) => {
     const nextBooks = await fetchBooks(signal);
@@ -246,15 +262,15 @@ export function App(): React.JSX.Element {
     void fetchChapterDetail(selectedBookId, selectedChapterId, controller.signal).then(setChapterDetail).catch(() => undefined);
     void fetchChapterContent(selectedBookId, selectedChapterId, controller.signal)
       .then(async (content) => {
-        setReader({ content: content.content, offline: false });
+        setReader({ content: content.content, offline: false, manuscriptVersionId: content.manuscriptVersionId });
         await cacheSnapshot(cacheKey, selectedBookId, workspace.book.canonRevision, content.content);
       })
       .catch(async () => {
         const cached = await loadSnapshot<string>(cacheKey, workspace.book.canonRevision);
-        if (cached !== null) setReader({ content: cached, offline: true });
+        if (cached !== null) setReader({ content: cached, offline: true, manuscriptVersionId: selectedWorkspaceChapter?.currentManuscriptVersionId ?? selectedWorkspaceChapter?.canonManuscriptVersionId ?? null });
       });
     return () => controller.abort();
-  }, [selectedBookId, selectedChapterId, workspace?.book.canonRevision]);
+  }, [selectedBookId, selectedChapterId, selectedWorkspaceChapter?.currentManuscriptVersionId, selectedWorkspaceChapter?.canonManuscriptVersionId, workspace?.book.canonRevision]);
 
   useEffect(() => {
     if (selectedBookId === null || workspace === null || !['outline', 'knowledge', 'projections', 'rights'].includes(view)) return;
@@ -265,7 +281,7 @@ export function App(): React.JSX.Element {
       : view === 'knowledge'
         ? fetchLibrary(selectedBookId, controller.signal)
         : view === 'projections'
-          ? fetchProjections(selectedBookId, controller.signal)
+          ? fetchGraphWorkspace(selectedBookId, controller.signal)
           : fetchRightsWorkspace(selectedBookId, controller.signal);
     void request.then(async (data) => {
       setReferenceData(data);
@@ -574,13 +590,14 @@ export function App(): React.JSX.Element {
                 key={selectedBook.bookId}
                 workspace={workspace}
                 selectedChapterId={selectedChapterId}
-                chapter={selectedChapter ?? workspace?.chapters.find((item) => item.chapterId === selectedChapterId) ?? null}
+                chapter={selectedWorkspaceChapter ?? selectedChapter}
                 reader={reader}
                 detail={chapterDetail}
                 onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
+                onChanged={() => void refreshWorkspace(selectedBook.bookId)}
               />
             )}
-            {view === 'outline' && <PlanningWorkspace data={referenceData} workspace={workspace} onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); setView('manuscript'); }} />}
+            {view === 'outline' && <PlanningWorkspace data={referenceData} workspace={workspace} />}
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
             {view === 'rights' && <RightsWorkspace data={referenceData} />}
@@ -834,30 +851,87 @@ function attachmentStatusLabel(status: ChatAttachmentData['parseStatus'], charCo
   return '已从待发送列表移除';
 }
 
-function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter }: {
+function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged }: {
   workspace: WorkspaceData | null;
   selectedChapterId: string | null;
   chapter: ChapterData | null;
-  reader: { content: string; offline: boolean } | null;
+  reader: { content: string; offline: boolean; manuscriptVersionId: string | null } | null;
   detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null;
   onSelectChapter: (chapter: ChapterData) => void;
+  onChanged: () => void;
 }): React.JSX.Element {
-  const [browsing, setBrowsing] = useState(chapter === null);
   if (workspace === null) return <div className="text-skeleton" aria-label="正在加载章节列表" />;
-  if (browsing || chapter === null) {
-    return <section className="manuscript-browser-view">
-      <header className="manuscript-browser-header"><div><h2>正文</h2><p>在这里选择章节并阅读正式正文，左栏只保留功能入口。</p></div>{chapter !== null && <button className="secondary-button" type="button" onClick={() => setBrowsing(false)}>返回第 {chapter.chapterNumber} 章</button>}</header>
-      <ManuscriptChapterBrowser workspace={workspace} selectedChapterId={selectedChapterId} onSelect={(selected) => { onSelectChapter(selected); setBrowsing(false); }} />
-    </section>;
-  }
-  return <ManuscriptView chapter={chapter} reader={reader} detail={detail} onBrowse={() => setBrowsing(true)} />;
+  return <section className="manuscript-workspace">
+    <aside className="manuscript-workspace-sidebar"><ManuscriptChapterBrowser workspace={workspace} selectedChapterId={selectedChapterId} onSelect={onSelectChapter} /></aside>
+    <div className="manuscript-workspace-editor">{chapter === null
+      ? <EmptyReference icon={<BookOpenTextIcon />} title="选择一章正文" description="左侧章节列表是正文的唯一目录；选中章节后可阅读或修改未定稿版本。" />
+      : <ManuscriptView bookId={workspace.book.bookId} chapter={chapter} reader={reader} detail={detail} onChanged={onChanged} />}
+    </div>
+  </section>;
 }
 
-function ManuscriptView({ chapter, reader, detail, onBrowse }: { chapter: ChapterData; reader: { content: string; offline: boolean } | null; detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null; onBrowse: () => void }): React.JSX.Element {
+function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
+  bookId: string;
+  chapter: ChapterData;
+  reader: { content: string; offline: boolean; manuscriptVersionId: string | null } | null;
+  detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null;
+  onChanged: () => void;
+}): React.JSX.Element {
+  const [draft, setDraft] = useState('');
+  const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
+  const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [rewriteInstruction, setRewriteInstruction] = useState('保留已确认事实和人物声音，重新组织本章正文。');
+  const [busyAction, setBusyAction] = useState<'save' | 'rewrite' | 'finalize' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(reader?.content ?? '');
+    setBaseVersionId(reader?.manuscriptVersionId ?? chapter.currentManuscriptVersionId ?? chapter.canonManuscriptVersionId);
+    setNotice(null);
+    setRewriteOpen(false);
+  }, [chapter.chapterId, chapter.currentManuscriptVersionId, chapter.canonManuscriptVersionId, reader?.content, reader?.manuscriptVersionId]);
+  const settled = chapter.settlementStatus === 'settled';
+  const editable = !settled && reader !== null && !reader.offline && baseVersionId !== null;
+  const changed = reader !== null && draft !== reader.content;
+  const perform = async (kind: 'save' | 'rewrite' | 'finalize'): Promise<void> => {
+    if (baseVersionId === null || busyAction !== null) return;
+    setBusyAction(kind); setNotice(null);
+    try {
+      if (kind === 'save') {
+        const result = await saveOwnerManuscript(bookId, chapter.chapterId, { baseManuscriptVersionId: baseVersionId, content: draft, note: '作者在正文工作台修改' });
+        setBaseVersionId(result.manuscriptVersionId);
+        setNotice(result.unchanged ? '正文没有变化。' : '修改已保存为新的不可变草稿版本，旧版本仍可追溯。');
+      } else if (kind === 'rewrite') {
+        const result = await rewriteChapter(bookId, chapter.chapterId, baseVersionId, rewriteInstruction.trim());
+        setRewriteOpen(false);
+        setNotice(`重写任务已进入队列（${shortId(result.taskId)}），完成后会生成新草稿，不覆盖当前版本。`);
+      } else {
+        const result = await finalizeChapter(bookId, chapter.chapterId, baseVersionId);
+        setNotice(result.confirmationId === undefined
+          ? `定稿审校任务已进入队列（${shortId(result.taskId)}）。通过三席点评后仍需你确认，才会进入正史。`
+          : '本章已完成审校，正在等待你的最终确认。');
+      }
+      onChanged();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '这次操作没有完成，请稍后重试。');
+    } finally {
+      setBusyAction(null);
+    }
+  };
   return (
     <article className="manuscript-view">
-      <header><button className="manuscript-list-button" type="button" onClick={onBrowse}><ListIcon />章节列表</button><span>第 {chapter.chapterNumber} 章</span><h2>{chapter.title}</h2><div>{chapter.settlementStatus === 'settled' ? <><CheckCircleIcon />正史已结算</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</div></header>
-      {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <><p className="offline-note">{reader.offline ? <><WifiSlashIcon />离线缓存，正史版本已校验</> : <><WifiHighIcon />当前正史正文</>}</p><div className="novel-text">{reader.content}</div></>}
+      <header><span>第 {chapter.chapterNumber} 章</span><h2>{chapter.title}</h2><div>{settled ? <><CheckCircleIcon />正史已定稿</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</div></header>
+      {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
+        <p className="offline-note">{reader.offline ? <><WifiSlashIcon />离线缓存，只读</> : settled ? <><WifiHighIcon />已确认正史正文，只读</> : <><WifiHighIcon />当前草稿，可修改</>}</p>
+        {settled ? <div className="novel-text">{reader.content}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
+        {!settled && <div className="manuscript-actions">
+          <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : '保存修改'}</button>
+          <button className="secondary-button" type="button" disabled={!editable || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>重写</button>
+          <button className="primary-button" type="button" disabled={!editable || changed || busyAction !== null} onClick={() => void perform('finalize')}>{busyAction === 'finalize' ? '提交中…' : '定稿'}</button>
+        </div>}
+        {rewriteOpen && <div className="rewrite-panel"><label>重写要求<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '开始重写'}</button></div></div>}
+        {changed && <p className="manuscript-unsaved">正文有未保存修改。保存后才能重写或提交定稿审校。</p>}
+        {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+      </>}
       {detail !== null && <ChapterProductionEvidence detail={detail} />}
     </article>
   );
@@ -878,25 +952,26 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   </section>;
 }
 
-type PlanningTab = 'setting' | 'master' | 'volume' | 'chapter' | 'catalog';
+type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
 
-function PlanningWorkspace({ data, workspace, onSelectChapter }: {
-  data: unknown; workspace: WorkspaceData | null; onSelectChapter: (chapter: ChapterData) => void;
+function PlanningWorkspace({ data, workspace }: {
+  data: unknown; workspace: WorkspaceData | null;
 }): React.JSX.Element {
-  const [tab, setTab] = useState<PlanningTab>('setting');
+  const [tab, setTab] = useState<PlanningTab>('framework');
   const artifacts = Array.isArray(data) ? data.filter(isRecord) : [];
-  const typeByTab: Record<Exclude<PlanningTab, 'catalog'>, string[]> = {
-    setting: ['story_bible', 'creative_plan'], master: ['master_outline'], volume: ['volume_outline'], chapter: ['chapter_outline']
+  const typeByTab: Record<PlanningTab, string[]> = {
+    framework: ['creative_plan'], basic: ['story_bible'], master: ['master_outline'], volume: ['volume_outline'], chapter: ['chapter_outline']
   };
-  const visible = tab === 'catalog' ? [] : artifacts.filter((artifact) => typeByTab[tab].includes(String(artifact.artifact_type)));
-  const tabs: Array<[PlanningTab, string]> = [['setting', '设定框架'], ['master', '总纲'], ['volume', '卷纲'], ['chapter', '章纲'], ['catalog', '章节列表']];
+  const visible = artifacts.filter((artifact) => typeByTab[tab].includes(String(artifact.artifact_type)));
+  const tabs: Array<[PlanningTab, string]> = [['framework', '全书框架'], ['basic', '基本设定'], ['master', '总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
   return (
     <section className="reference-view planning-workspace" aria-labelledby="planning-title">
       <header><h2 id="planning-title">规划工作台</h2><p>这里说明准备怎样写；资料库记录已经确认或发生的正史，两者通过来源相连。</p></header>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
-      {tab === 'catalog' ? <ChapterCatalog workspace={workspace} onSelect={onSelectChapter} /> : visible.length === 0 ? (
+      {visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{visible.map((artifact) => <ArtifactCard key={String(artifact.artifact_id)} bookId={workspace?.book.bookId ?? null} artifact={artifact} />)}</div>}
+      {tab === 'basic' && <AttributeFormulaManager bookId={workspace?.book.bookId ?? null} />}
     </section>
   );
 }
@@ -949,35 +1024,27 @@ function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<stri
   })}</div>;
 }
 
-function ChapterCatalog({ workspace, onSelect }: { workspace: WorkspaceData | null; onSelect: (chapter: ChapterData) => void }): React.JSX.Element {
-  const chapters = workspace?.chapters ?? [];
-  const totalChapters = Math.max(chapters.length, (workspace?.volumes ?? []).reduce((total, volume) => total + volume.chapterCount, 0));
-  if (chapters.length === 0) return <EmptyReference icon={<BookOpenTextIcon />} title="尚未规划章节" description="剧情方向确认后，编剧会评估跨度并形成滚动章纲。" />;
-  return <div className="chapter-catalog">{chapters.slice(0, 300).map((chapter) => <button type="button" key={chapter.chapterId} onClick={() => onSelect(chapter)}><span><strong>第 {chapter.chapterNumber} 章</strong><small>{chapter.title}</small></span><em>{chapterStatus(chapter, workspace?.tasks)}</em><CaretRightIcon /></button>)}{totalChapters > chapters.length && <p className="window-note">规划页显示最近 {chapters.length} 章；完整目录请在正文页按卷和标题定位。</p>}</div>;
-}
-
-type LibraryTab = 'overview' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'foreshadowing' | 'relations' | 'emotion' | 'tags' | 'gaps' | 'evidence';
+type LibraryTab = 'overview' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
 
 function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | null }): React.JSX.Element {
   const [tab, setTab] = useState<LibraryTab>('overview');
   const library = isLibraryData(data) ? data : emptyLibraryData();
   const tabs: Array<[LibraryTab, string]> = [
-    ['overview', '总览'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
-    ['rules', '规则'], ['foreshadowing', '伏笔钩子'], ['relations', '关系'], ['emotion', '情绪'], ['tags', '标签'], ['gaps', '缺口'], ['evidence', '证据']
+    ['overview', '总览'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
+    ['rules', '规则'], ['tags', '标签'], ['gaps', '缺口'], ['evidence', '证据']
   ];
   const entityTypes: Partial<Record<LibraryTab, string[]>> = {
     characters: ['character'], organizations: ['organization'], locations: ['location'], items: ['item', 'resource', 'skill', 'stat_panel'],
-    events: ['event'], rules: ['world_rule'], foreshadowing: ['foreshadowing', 'hook']
+    events: ['event'], rules: ['world_rule']
   };
   return (
     <section className="reference-view library-workspace" aria-labelledby="library-title">
       <header><h2 id="library-title">资料库</h2><p>正史修订 {library.canonRevision}。标签、图谱和地图是可重建视图，不会反向改写正史。</p></header>
       <nav className="secondary-tabs scrollable" aria-label="资料分类">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       {tab === 'overview' && <LibraryOverview data={library} />}
+      {tab === 'protagonist' && <ProtagonistWorkspace bookId={bookId} initialDashboard={library.protagonists} initialFormulas={library.attributeFormulas} />}
       {entityTypes[tab] !== undefined && tab !== 'locations' && <EntityGrid entities={library.entities.filter((entity) => entityTypes[tab]!.includes(String(entity.entity_type)))} />}
       {tab === 'locations' && <LocationLibrary entities={library.entities.filter((entity) => entity.entity_type === 'location')} facts={library.facts} />}
-      {tab === 'relations' && <KnowledgeGraph records={library.relations} />}
-      {tab === 'emotion' && <ProjectionTracks records={library.projections.filter((item) => item.projection_type === 'emotion')} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
       {tab === 'evidence' && <RecordCollection records={library.facts} empty="章节经老板确认并结算后，事实证据会出现在这里。" />}
@@ -991,6 +1058,98 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
     ['标签', data.summary.tagCount], ['分析投影', data.summary.projectionCount], ['待补缺口', data.summary.openGapCount]
   ];
   return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div><div className="library-explainer"><TreeStructureIcon /><div><h3>权威与投影分开</h3><p>正文、确认设定和事实是正史来源。关系、情绪、地图位置和向量只是可重建视图，冲突时必须回查来源。</p></div></div></div>;
+}
+
+const PROTAGONIST_CATEGORIES: Array<[string, string]> = [
+  ['overview', '身份与状态'], ['attribute', '属性面板'], ['resource', '资源'], ['equipment', '装备道具'],
+  ['skill', '技能能力'], ['territory', '城池领地'], ['general', '将领随从'], ['army', '士兵军队']
+];
+
+function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
+  bookId: string | null; initialDashboard?: ProtagonistDashboardData | undefined; initialFormulas?: AttributeFormulaData[] | undefined;
+}): React.JSX.Element {
+  const [dashboard, setDashboard] = useState<ProtagonistDashboardData>(initialDashboard ?? { profiles: [] });
+  const [formulas, setFormulas] = useState<AttributeFormulaData[]>(initialFormulas ?? []);
+  const [selectedProfileId, setSelectedProfileId] = useState(initialDashboard?.profiles[0]?.profileId ?? '');
+  const [profileName, setProfileName] = useState('');
+  const [category, setCategory] = useState('overview');
+  const [label, setLabel] = useState('');
+  const [rawValue, setRawValue] = useState('');
+  const [unit, setUnit] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    if (bookId === null) return;
+    const [nextDashboard, nextFormulas] = await Promise.all([fetchProtagonists(bookId), fetchAttributeFormulas(bookId)]);
+    setDashboard(nextDashboard); setFormulas(nextFormulas);
+    setSelectedProfileId((current) => nextDashboard.profiles.some((profile) => profile.profileId === current) ? current : nextDashboard.profiles[0]?.profileId ?? '');
+  }, [bookId]);
+  useEffect(() => { void refresh().catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角面板加载失败')); }, [refresh]);
+  const selected = dashboard.profiles.find((profile) => profile.profileId === selectedProfileId) ?? dashboard.profiles[0] ?? null;
+  const addState = async (): Promise<void> => {
+    if (bookId === null || selected === null || !label.trim() || !rawValue.trim()) return;
+    const numeric = Number(rawValue);
+    const valueType: ProtagonistStateData['valueType'] = Number.isFinite(numeric) && rawValue.trim() !== '' ? (category === 'resource' || category === 'army' ? 'resource' : 'number') : 'text';
+    const value: unknown = valueType === 'number' || valueType === 'resource' ? numeric : rawValue.trim();
+    const logicalKey = normalizeStateKey(`${category}_${label}`);
+    setBusy(true); setNotice(null);
+    try {
+      await appendProtagonistState(bookId, selected.profileId, { category, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, confirmed });
+      setLabel(''); setRawValue(''); setUnit(''); setConfirmed(false);
+      await refresh();
+      setNotice(confirmed ? '已按作者确认保存到当前主角面板；旧状态版本仍可追溯。' : '已保存为候选状态，尚未视为正史。');
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : '主角状态保存失败'); }
+    finally { setBusy(false); }
+  };
+  return <div className="protagonist-workspace">
+    <section className="protagonist-toolbar"><div><h3>主角实时面板</h3><p>只展示当前状态；变化通过新版本记录，战死、消耗或移除不会抹掉历史证据。</p></div>
+      {dashboard.profiles.length > 0 && <select aria-label="选择主角" value={selected?.profileId ?? ''} onChange={(event) => setSelectedProfileId(event.target.value)}>{dashboard.profiles.map((profile) => <option key={profile.profileId} value={profile.profileId}>{profile.displayName}{profile.isPrimary ? '（主角）' : ''}</option>)}</select>}
+    </section>
+    {selected === null ? <form className="protagonist-create" onSubmit={(event) => {
+      event.preventDefault(); if (bookId === null || !profileName.trim()) return; setBusy(true);
+      void saveProtagonistProfile(bookId, { displayName: profileName.trim(), isPrimary: true }).then(async (profile) => { setSelectedProfileId(profile.profileId); setProfileName(''); await refresh(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角档案创建失败')).finally(() => setBusy(false));
+    }}><label>主角姓名<input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="例如：张三" /></label><button className="primary-button" disabled={busy || !profileName.trim()}>建立主角面板</button></form> : <>
+      <div className="protagonist-state-grid">{PROTAGONIST_CATEGORIES.map(([key, title]) => {
+        const records = selected.current.filter((item) => item.category === key);
+        const pending = selected.pending.filter((item) => item.category === key);
+        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].length === 0 ? <p>暂无</p> : [...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '候选' : item.authorityLayer === 'canon' ? '正史' : '计算结果'} · 版本 {item.revision}</small></div><span>{formatValue(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
+          if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
+        }}>移除</button></article>)}</section>;
+      })}</div>
+      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>新增或更新状态</h4><p>同名状态会形成新修订；明确数字可用于资源、兵力和属性观察。</p></header><div><label>分类<select value={category} onChange={(event) => setCategory(event.target.value)}>{PROTAGONIST_CATEGORIES.map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !label.trim() || !rawValue.trim()}>保存状态</button></form>
+    </>}
+    {formulas.length > 0 && <FormulaCalculator bookId={bookId} formulas={formulas} />}
+    {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+  </div>;
+}
+
+function AttributeFormulaManager({ bookId }: { bookId: string | null }): React.JSX.Element {
+  const [formulas, setFormulas] = useState<AttributeFormulaData[]>([]);
+  const [label, setLabel] = useState('');
+  const [expression, setExpression] = useState('');
+  const [variablesText, setVariablesText] = useState('');
+  const [unit, setUnit] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const refresh = useCallback(() => bookId === null ? Promise.resolve() : fetchAttributeFormulas(bookId).then(setFormulas), [bookId]);
+  useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
+  const variables = parseFormulaVariables(variablesText);
+  return <section className="formula-manager"><header><h3>属性计算公式</h3><p>公式属于基本设定。只允许数字、已声明变量、括号和四则运算，不执行任何脚本。</p></header><form onSubmit={(event) => {
+    event.preventDefault(); if (bookId === null || !label.trim() || !expression.trim() || variables.length === 0) return;
+    void createAttributeFormula(bookId, { formulaKey: normalizeStateKey(label), label: label.trim(), expression: expression.trim(), variables, unit: unit.trim() || null }).then(async () => { setLabel(''); setExpression(''); setVariablesText(''); setUnit(''); await refresh(); setNotice('公式新版本已保存。'); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '公式保存失败'));
+  }}><div><label>公式名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：战斗力" /></label><label>表达式<input value={expression} onChange={(event) => setExpression(event.target.value)} placeholder="攻击 * 2 + 防御" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="可留空" /></label></div><label>变量（每行：变量名:显示名）<textarea rows={4} value={variablesText} onChange={(event) => setVariablesText(event.target.value)} placeholder={'攻击:攻击力\n防御:防御力'} /></label><button className="primary-button" disabled={bookId === null || !label.trim() || !expression.trim() || variables.length === 0}>保存公式</button></form>
+    <RecordCollection records={formulas.map((formula) => ({ 名称: formula.label, 表达式: formula.expression, 变量: formula.variables.map((item) => item.label), 单位: formula.unit, 版本: formula.version }))} empty="还没有属性计算公式。非游戏题材可以不设置。" />{notice !== null && <p className="binding-status" role="status">{notice}</p>}</section>;
+}
+
+function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formulas: AttributeFormulaData[] }): React.JSX.Element {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [results, setResults] = useState<Record<string, string>>({});
+  return <section className="formula-calculator"><header><h3>属性试算</h3><p>这里只计算数值，不会自动把结果写成正史。</p></header>{formulas.map((formula) => <form key={formula.formulaId} onSubmit={(event) => {
+    event.preventDefault(); if (bookId === null) return;
+    const payload: Record<string, number> = {};
+    for (const variable of formula.variables) payload[variable.key] = Number(values[`${formula.formulaId}:${variable.key}`] ?? variable.defaultValue ?? '');
+    void evaluateAttributeFormula(bookId, formula.formulaId, payload).then((result) => setResults((current) => ({ ...current, [formula.formulaId]: `${result.result}${formula.unit ?? ''}` }))).catch((reason: unknown) => setResults((current) => ({ ...current, [formula.formulaId]: reason instanceof Error ? reason.message : '计算失败' })));
+  }}><strong>{formula.label}</strong><code>{formula.expression}</code><div>{formula.variables.map((variable) => <label key={variable.key}>{variable.label}<input type="number" step="any" value={values[`${formula.formulaId}:${variable.key}`] ?? String(variable.defaultValue ?? '')} onChange={(event) => setValues((current) => ({ ...current, [`${formula.formulaId}:${variable.key}`]: event.target.value }))} /></label>)}</div><button className="secondary-button">计算</button>{results[formula.formulaId] !== undefined && <output>{results[formula.formulaId]}</output>}</form>)}</section>;
 }
 
 function EntityGrid({ entities }: { entities: Array<Record<string, unknown>> }): React.JSX.Element {
@@ -1033,9 +1192,17 @@ function LocationLibrary({ entities, facts }: { entities: Array<Record<string, u
   return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">尚无作者确认的地图坐标。系统不会用力导向布局冒充地理事实。</p>}<EntityGrid entities={entities} /></div>;
 }
 
+type GraphTab = 'relations' | 'emotion' | 'mainline' | 'subplot' | 'hook' | 'information_gap';
+
 function ProjectionWorkspace({ data }: { data: unknown }): React.JSX.Element {
-  const records = Array.isArray(data) ? data.filter(isRecord) : [];
-  return <section className="reference-view projection-workspace"><header><h2>叙事图谱</h2><p>计划轨与正式正文形成的实际轨分开显示。所有数值都是分析投影，不会自动改变剧情。</p></header><ProjectionTracks records={records} /></section>;
+  const [tab, setTab] = useState<GraphTab>('relations');
+  const graph = isGraphWorkspaceData(data) ? data : { relations: [], projections: [] };
+  const tabs: Array<[GraphTab, string]> = [['relations', '人物关系'], ['emotion', '情绪'], ['mainline', '主线'], ['subplot', '支线'], ['hook', '钩子与伏笔'], ['information_gap', '信息差']];
+  const records = graph.projections.filter((record) => record.projection_type === tab);
+  return <section className="reference-view projection-workspace"><header><h2>叙事图谱</h2><p>关系和五类叙事轨迹集中在这里浏览；它们是可重建投影，不会自动改变剧情或正史。</p></header>
+    <nav className="secondary-tabs" aria-label="图谱分类">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    {tab === 'relations' ? <KnowledgeGraph records={graph.relations} /> : <ProjectionTracks records={records} />}
+  </section>;
 }
 
 function ProjectionTracks({ records }: { records: Array<Record<string, unknown>> }): React.JSX.Element {
@@ -1790,7 +1957,7 @@ function modelProfileValue(profile: TeamModelProfileData): string {
 }
 
 function artifactTypeLabel(type: string): string {
-  return ({ creative_plan: '已确认创作方案', story_bible: '设定框架', master_outline: '全书总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
+  return ({ creative_plan: '全书框架', story_bible: '基本设定', master_outline: '全书总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
 }
 
 function authorityLabel(status: string): string {
@@ -1836,6 +2003,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isLibraryData(value: unknown): value is LibraryData {
   return isRecord(value) && typeof value.canonRevision === 'number' && Array.isArray(value.entities) && Array.isArray(value.facts)
     && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps) && isRecord(value.summary);
+}
+
+function isGraphWorkspaceData(value: unknown): value is GraphWorkspaceData {
+  return isRecord(value) && Array.isArray(value.relations) && Array.isArray(value.projections);
+}
+
+function normalizeStateKey(value: string): string {
+  const normalized = value.trim().replace(/\s+/gu, '_').replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/^([\p{N}-])/u, '_$1');
+  return normalized.slice(0, 80) || '未命名';
+}
+
+function parseFormulaVariables(value: string): Array<{ key: string; label: string }> {
+  const seen = new Set<string>();
+  return value.split(/\r?\n/u).flatMap((line) => {
+    const [rawKey, rawLabel] = line.split(':', 2);
+    if (rawKey === undefined || !rawKey.trim()) return [];
+    const key = normalizeStateKey(rawKey);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ key, label: rawLabel?.trim() || rawKey.trim() }];
+  });
 }
 
 function emptyLibraryData(): LibraryData {

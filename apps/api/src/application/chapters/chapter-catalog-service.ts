@@ -38,6 +38,9 @@ export interface ManuscriptInput {
   contentHash: string;
   wordCount: number;
   status?: 'draft' | 'candidate' | 'under_review' | 'approved';
+  creatorKind?: 'agent' | 'owner' | 'import';
+  editNote?: string | null;
+  expectedCurrentVersionId?: string | null;
 }
 
 export class ChapterCatalogService {
@@ -84,18 +87,25 @@ export class ChapterCatalogService {
       INSERT INTO manuscript_versions (
         manuscript_version_id, owner_id, book_id, chapter_id, parent_version_id,
         author_agent_id, model_provider, model_id, source_task_id, file_id,
-        content_hash, word_count, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        content_hash, word_count, status, created_at, creator_kind, edit_note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.manuscriptVersionId, scope.ownerId, scope.bookId, input.chapterId,
       input.parentVersionId ?? null, input.authorAgentId, input.modelProvider,
       input.modelId, input.sourceTaskId, input.fileId, input.contentHash,
-      input.wordCount, status, now
+      input.wordCount, status, now, input.creatorKind ?? 'agent', input.editNote ?? null
     );
-    this.database.prepare(`
-      UPDATE chapters SET current_manuscript_version_id = ?, generation_status = 'completed',
-        updated_at = ?, version = version + 1 WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
-    `).run(input.manuscriptVersionId, now, input.chapterId, scope.ownerId, scope.bookId);
+    const result = input.expectedCurrentVersionId === undefined
+      ? this.database.prepare(`
+          UPDATE chapters SET current_manuscript_version_id = ?, generation_status = 'completed',
+            updated_at = ?, version = version + 1 WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+        `).run(input.manuscriptVersionId, now, input.chapterId, scope.ownerId, scope.bookId)
+      : this.database.prepare(`
+          UPDATE chapters SET current_manuscript_version_id = ?, generation_status = 'completed',
+            updated_at = ?, version = version + 1 WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+              AND current_manuscript_version_id IS ?
+        `).run(input.manuscriptVersionId, now, input.chapterId, scope.ownerId, scope.bookId, input.expectedCurrentVersionId);
+    if (result.changes !== 1) throw new Error('正文基线已经变化，请重新载入后再保存');
   }
 
   public selectManuscript(scope: BookScope, chapterId: string, manuscriptVersionId: string): void {

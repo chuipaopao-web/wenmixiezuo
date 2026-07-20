@@ -412,3 +412,27 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `BOOK_STATUS_CONFLICT`
 
 具体状态机、请求限额、Cookie、导入和错误脱敏见 `docs/RUNTIME_WORKFLOWS.md` 与 `docs/SECURITY_AND_OPERATIONS.md`。
+
+## 18. 作者正文、主角状态与属性公式
+
+### 18.1 正文版本与生产动作
+
+- `POST /api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts`：提交 `baseManuscriptVersionId/content/note`，以CAS创建作者不可变新稿；已结算章节、陈旧基准和竞争任务拒绝写入。
+- `POST /api/v1/books/:bookId/chapters/:chapterId/rewrite`：绑定 `manuscriptVersionId/instruction` 创建或恢复真实重写任务，旧稿保留。
+- `POST /api/v1/books/:bookId/chapters/:chapterId/finalize`：绑定当前稿创建正式审校任务；如果同稿已在等待老板确认则返回现有确认，不重复调用模型。
+- 旧 `select-manuscript` 与直接 `settle` 对活动流程返回409及替代入口，不能绕过三席和老板确认。
+
+### 18.2 主角面板
+
+- `GET/POST /api/v1/books/:bookId/protagonists`：读取当前面板或创建/修订主角档案；
+- `POST /api/v1/books/:bookId/protagonists/:profileId/archive`：归档档案；
+- `POST /api/v1/books/:bookId/protagonists/:profileId/state`：追加候选或作者确认状态修订；
+- `POST /api/v1/books/:bookId/protagonist-state/:entryId/archive`：从当前面板移出条目并保留历史。
+
+### 18.3 属性公式
+
+- `GET/POST /api/v1/books/:bookId/attribute-formulas`：读取活动公式或保存新版本；
+- `POST /api/v1/books/:bookId/attribute-formulas/:formulaId/evaluate`：服务端使用声明变量安全试算；
+- `POST /api/v1/books/:bookId/attribute-formulas/:formulaId/archive`：归档公式。
+
+以上接口均先验证本机会话和书籍作用域；用户输入错误返回可理解的领域错误，不返回SQL、路径、堆栈或通用“内部错误”。资料库聚合响应附带 `protagonists` 与 `attributeFormulas`，但不返回公式执行能力或原始向量。

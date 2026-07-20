@@ -48,6 +48,9 @@ import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-ret
 import { LocalSemanticUtilityModel } from '../infrastructure/retrieval/local-semantic-utility-model.js';
 import type { RetrievalMode } from '../contracts/retrieval-plan.js';
 import type { ChatAttachmentRecord } from '../infrastructure/db/repositories/chat-attachment-repository.js';
+import { ProtagonistStateService, type ProtagonistStateStatus, type ProtagonistValueType } from '../application/knowledge/protagonist-state-service.js';
+import { AttributeFormulaService, type FormulaVariable } from '../application/knowledge/attribute-formula-service.js';
+import { OwnerManuscriptService } from '../application/creation/owner-manuscript-service.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -93,8 +96,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     localRetrievalRuntime === undefined ? undefined : new LocalSemanticUtilityModel(localRetrievalRuntime.embedding));
   const chatAttachments = new ChatAttachmentService(database, config.dataDir, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
+  const ownerManuscripts = new OwnerManuscriptService(database, config.dataDir, config.releaseId, ids, clock);
+  const protagonists = new ProtagonistStateService(database, ids, clock);
+  const attributeFormulas = new AttributeFormulaService(database, ids, clock);
   const chapterApprovals = new ChapterApprovalService(
-    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks
+    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists
   );
   const backups = new BackupService(database, config);
   const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
@@ -311,6 +317,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       tags,
       projections,
       gaps,
+      protagonists: protagonists.dashboard(scope),
+      attributeFormulas: attributeFormulas.list(scope),
       summary: {
         entityCount: scopedCount('entities'),
         factCount: scopedCount('fact_assertions', `AND status NOT IN ('withdrawn', 'rejected')`),
@@ -321,6 +329,67 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       }
     }, request.id);
   });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/protagonists', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(protagonists.dashboard(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { profileId?: string; displayName: string; entityId?: string | null; isPrimary?: boolean } }>(
+    '/api/v1/books/:bookId/protagonists', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(protagonists.saveProfile(scope, request.body), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; profileId: string } }>(
+    '/api/v1/books/:bookId/protagonists/:profileId/archive', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(protagonists.archiveProfile(scope, request.params.profileId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; profileId: string }; Body: {
+    category: string; logicalKey: string; label: string; valueType: ProtagonistValueType; value: unknown;
+    unit?: string | null; stateStatus?: ProtagonistStateStatus; confirmed?: boolean;
+    effectiveChapterNumber?: number | null; storyTime?: string | null; note?: string | null;
+  } }>('/api/v1/books/:bookId/protagonists/:profileId/state', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(protagonists.append(scope, { profileId: request.params.profileId, ...request.body }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; entryId: string }; Body: { note?: string | null } }>(
+    '/api/v1/books/:bookId/protagonist-state/:entryId/archive', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(protagonists.archiveEntry(scope, request.params.entryId, request.body?.note ?? null), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(attributeFormulas.list(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: {
+    formulaKey: string; label: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
+  } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(attributeFormulas.create(scope, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; formulaId: string }; Body: { values: Record<string, number> } }>(
+    '/api/v1/books/:bookId/attribute-formulas/:formulaId/evaluate', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(attributeFormulas.evaluate(scope, request.params.formulaId, request.body.values), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; formulaId: string } }>(
+    '/api/v1/books/:bookId/attribute-formulas/:formulaId/archive', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(attributeFormulas.archive(scope, request.params.formulaId), request.id);
+    }
+  );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/model-bindings', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
@@ -516,8 +585,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/select-manuscript', async (request) => {
-    chapters.selectManuscript({ ...owner, bookId: request.params.bookId }, request.params.chapterId, request.body.manuscriptVersionId);
-    return success({ manuscriptVersionId: request.body.manuscriptVersionId, status: 'approved' }, request.id);
+    throw new DomainError(errorCodes.operationIncomplete, '正文不能绕过审校直接选定；请使用定稿入口提交完整审校', {
+      replacement: `/api/v1/books/${request.params.bookId}/chapters/${request.params.chapterId}/finalize`,
+      manuscriptVersionId: request.body.manuscriptVersionId
+    }, false, 409);
   });
 
   app.get<{ Params: { bookId: string; chapterId: string }; Querystring: { start?: number; end?: number } }>('/api/v1/books/:bookId/chapters/:chapterId/content', async (request) => {
@@ -533,6 +604,47 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const end = Math.min(content.length, request.query.end ?? content.length, start + 100_000);
     return success({ manuscriptVersionId: row.manuscript_version_id, contentHash: row.content_hash, start, end, totalLength: content.length, content: content.slice(start, end) }, request.id);
   });
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: {
+    baseManuscriptVersionId: string | null; content: string; note?: string | null;
+  } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts', async (request) => {
+    return success(ownerManuscripts.saveDraft({ ...owner, bookId: request.params.bookId }, {
+      chapterId: request.params.chapterId, ...request.body
+    }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; instruction?: string | null } }>(
+    '/api/v1/books/:bookId/chapters/:chapterId/rewrite', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId };
+      const gate = database.prepare(`SELECT confirmation_id, task_id, expected_canon_revision FROM chapter_approval_gates
+        WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ? AND status = 'awaiting_owner'
+        ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId) as {
+          confirmation_id: string; task_id: string; expected_canon_revision: number;
+        } | undefined;
+      if (gate !== undefined) {
+        chapterApprovals.resolve(scope, gate.confirmation_id, gate.expected_canon_revision, false,
+          request.body.instruction?.trim() || '老板要求完整重写当前正文');
+        const task = tasks.queue(scope, gate.task_id);
+        return success({ taskId: task.taskId, operation: 'rewrite_existing', manuscriptVersionId: request.body.manuscriptVersionId }, request.id);
+      }
+      return success(chapterBatches.scheduleExistingRevision(scope, request.params.chapterId, request.body.manuscriptVersionId,
+        'rewrite_existing', request.body.instruction?.trim() || null), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>(
+    '/api/v1/books/:bookId/chapters/:chapterId/finalize', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId };
+      const gate = database.prepare(`SELECT confirmation_id, task_id FROM chapter_approval_gates
+        WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ? AND status = 'awaiting_owner'
+        ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId) as {
+          confirmation_id: string; task_id: string;
+        } | undefined;
+      if (gate !== undefined) return success({ taskId: gate.task_id, confirmationId: gate.confirmation_id, operation: 'awaiting_owner' }, request.id);
+      return success(chapterBatches.scheduleExistingRevision(scope, request.params.chapterId, request.body.manuscriptVersionId,
+        'review_existing'), request.id);
+    }
+  );
 
   app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {
     return success({ entityId: canon.createEntity({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
@@ -580,7 +692,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; chapterEndState: Record<string, unknown> } }>('/api/v1/books/:bookId/chapters/:chapterId/settle', async (request) => {
-    return success(canon.settleChapter({ ...owner, bookId: request.params.bookId }, request.params.chapterId, request.body.manuscriptVersionId, request.body.chapterEndState), request.id);
+    throw new DomainError(errorCodes.operationIncomplete, '正文不能绕过三席点评和老板确认直接结算', {
+      replacement: `/api/v1/books/${request.params.bookId}/chapters/${request.params.chapterId}/finalize`,
+      manuscriptVersionId: request.body.manuscriptVersionId
+    }, false, 409);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { layer?: MemoryLayer; agentId?: string; chapter?: number; canonRevision?: number } }>('/api/v1/books/:bookId/memories', async (request) => {

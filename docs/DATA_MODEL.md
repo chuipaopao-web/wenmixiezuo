@@ -370,7 +370,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 ## 14. 长篇release新增Schema分组与切换元数据
 
-长篇增量只通过0010至0022向前新增，不修改0001至0009，也不修改已合并迁移。表名、顺序和职责如下：
+长篇增量只通过0010至0023向前新增，不修改0001至0009，也不修改已合并迁移。表名、顺序和职责如下：
 
 - 0010：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
 - 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
@@ -385,7 +385,30 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0020：为任务补充不可复用租约token、attempt、租约续期与恢复字段；为模型调用补充不可变结果、结果哈希、provider引用和调和记录；所有晚到提交由书籍作用域、执行者、租约、attempt和主编epoch联合栅栏。
 - 0021：`canon_index_requests` 保存与正史修订同事务登记的索引意图、处理状态和错误；索引协调器幂等消费并只在全书覆盖探针通过后切换活动投影。
 - 0022：`editor_review_syntheses` 保存主编真实综合；章节流水线保存一次写手接管计数与原因；`fact_assertions` 增加认识状态、否定、观点/知情主体、知情时间和时间完整度；`chunk_snapshot_memberships` 让全书活动清单复用不可变来源切片，`embedding_vector_cache` 按模型身份与嵌入文本哈希复用向量，防止每章全书重切/重嵌入。
+- 0023：`manuscript_versions` 增加作者/Agent来源与修订说明；`protagonist_profiles`、`protagonist_state_entries` 保存按书隔离、追加修订的主角状态账本；`attribute_formulas` 保存版本化受限算术公式。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。
 
 旧事实迁移不伪造世界有效、人物知情或系统修订时间。原权威等级保留，并写 `temporal_completeness=partial`；补全任务只生成候选和来源指针。完整迁移、状态机和回滚见 `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md` 与最终实施计划。
+
+## 15. Schema 0023：作者正文修订、主角状态与属性公式
+
+### `manuscript_versions` 增量字段
+
+- `creator_kind`：`agent/owner/import`，区分Agent产稿、作者手改和导入来源；
+- `edit_note`：作者修订说明或导入备注；
+- 作者保存仍创建完整不可变版本，`parent_version_id` 回链基准稿，当前指针通过版本CAS切换；旧版本、文件和哈希不得覆盖。
+
+### `protagonist_profiles`
+
+每书保存一个或多个主角面板，包含可选角色实体、显示名、主角标识和活动/归档状态。作者只填姓名时，系统可在同书内按完全相同的活动角色标准名匹配并补上实体关联；不做跨书、别名模糊匹配或猜测。所有唯一键和外键均携带 `owner_id/book_id`。
+
+### `protagonist_state_entries`
+
+追加式保存分类、逻辑键、名称、值类型/值/单位、活动/消耗/遗失/战死/退役/归档状态、候选/正史/派生权威层、生效章节、故事时间、来源事实/正文、正史修订、修订号和上一版本。当前面板由每个逻辑键的最新非归档修订派生；物理删除或原地改写均不允许。
+
+### `attribute_formulas`
+
+按 `formula_key/version` 保存名称、受限表达式、声明变量、单位和活动/历史/归档状态。表达式不是代码，结果不是事实；任何正式状态仍需来源和正史门禁。
+
+Schema 0023只向前增加。测试必须覆盖空库/升级/重复迁移、跨书、正文旧版不变、状态历史、结构化正史投影、公式非法字符/未知变量/除零和数据库外键完整性。

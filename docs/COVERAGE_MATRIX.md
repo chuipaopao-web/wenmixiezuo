@@ -14,7 +14,7 @@
 | 8 | 多Agent讨论与老板决策流程 | `PRODUCT.md`、`API.md` | 4 | 有范围讨论、真实意见、老板确认 |
 | 9 | 建书方式、分类与标签体系 | `PRODUCT.md`、`DATA_MODEL.md` | 4 | 定位卡、标签版本、新书原子性 |
 | 10 | 题材自适应与质量标准 | `PRODUCT.md` | 4 | 适配快照、规则失效、题材质量标准 |
-| 11 | 创作方案、故事圣经与大纲模板 | `PRODUCT.md`、`DATA_MODEL.md` | 4 | 六层规划成果、版本与历史；设定/总纲/卷纲/章纲/章节列表前端可见与真实卷章树 |
+| 11 | 创作方案、故事圣经与大纲模板 | `PRODUCT.md`、`DATA_MODEL.md` | 4 | 全书框架、基本设定、总纲、卷纲、章纲分层可见且保留版本；章节目录只在正文工作台显示 |
 | 12 | 单章与连续多章创作流水线 | `PRODUCT.md`、`ARCHITECTURE.md` | 6 | 前章结算、串行、多章断点续跑 |
 | 13 | 正文写作规范与AI腔风险 | `PRODUCT.md` | 6 | 三异模型结构化点评、可解释AI腔/段落占比、政治情色风险、定点重写、不可变版本 |
 | 14 | 分层记忆与上下文组装 | `MEMORY.md` | 5 | 硬锚点100%、上下文包、注意力预算 |
@@ -55,12 +55,13 @@
 | DEC-020 | 冻结长篇终局设计，以新release、Schema 10—16、真实状态机、本机安全、可移植、逐书影子切换和E0—E4分层验收开发 | `PRE_DEVELOPMENT_DESIGN_FREEZE.md`、`RUNTIME_WORKFLOWS.md`、`SECURITY_AND_OPERATIONS.md`、`EVALUATION_PROTOCOL.md`、最终八阶段实施计划及所有当前规格 |
 | DEC-021 | 下一release固定11人团队、双异模型编剧、主编/副编、主笔/副笔和三异模型点评；固定模型名单已由DEC-026修订 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`RUNTIME_WORKFLOWS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、八阶段实施计划和团队审计 |
 | DEC-022 | 前端显示一句话职责和可点击公开岗位合同；研究员作为零空转的按需现实事实专家保留，不参与固定三评 | `PRODUCT.md`、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`API.md`、`ACCEPTANCE.md`、Web实施计划和任务账本 |
-| DEC-023 | 前端结构化显示设定框架、总纲、卷纲、章纲、章节列表和真实卷章树 | `PRODUCT.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和功能总表 |
+| DEC-023 | 历史规划页结构化成果方案；其中设定框架命名和规划页章节列表已由DEC-041替代 | `PRODUCT.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和功能总表 |
 | DEC-024 | 去AI味采用带证据检测与定点修订，不安装第三方黑盒运行时Skill或默认整章改写 | `PRODUCT.md`、`ROLE_PROMPTS.md`、`EVALUATION_PROTOCOL.md`、`ACCEPTANCE.md`和最终实施计划 |
 | DEC-025 | 开书只收最小资料；进入书籍即自由聊天；移除1/3/5章批次选择；双编剧估算剧情跨度，正文仍逐章执行；情绪图谱是计划/实际分析投影 | `PRODUCT.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、功能总表、最终实施计划和专项审计 |
 | DEC-026 | 默认DeepSeek＋GLM剧情席，Kimi可替换一席，豆包不讨论剧情；副笔为GLM；模型绑定可版本化配置；GLM写手时DeepSeek承担事实点评 | 项目长篇质量Skill、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和专项审计 |
 | DEC-027 | 小文秘书作为11人之外的本地工具角色；确定性→本地模型→创作岗位分层；点名直达、剧情会话、原话保留、四类记忆和可回滚工具经验 | 项目长篇质量Skill、`LOCAL_SECRETARY_ROUTING_AUDIT.md`、产品/架构/数据/Agent/提示/记忆/RAG/工作流/API/评测/验收、最终实施计划和任务账本 |
 | DEC-040 | 以生产调用图和故障证据补齐任务/模型结果栅栏、正史事务/增量全书索引、岗位混合RAG、认识状态事实、阶段结算、三席并发与主编真实综合；保留11岗和epoch | `PRODUCTION_CHAIN_REMEDIATION_AUDIT.md`、架构/数据/Agent/记忆规格、Schema 0020—0022、来源清单/片段复用/向量缓存/旧水位栅栏、生产服务、故障/跨书/迁移/备份测试和release证据 |
+| DEC-041 | 规划/正文和图谱/资料库去重；正文不可变修订、真实重写/定稿；六类叙事图谱、主角状态账本和受限属性公式 | `MANUSCRIPT_KNOWLEDGE_WORKSPACE_AUDIT.md`、产品/架构/数据/API/验收规格、Schema 0023、正文/主角/公式服务、Web工作台与release证据 |
 
 ## 当前发布执行证据
 
@@ -74,3 +75,4 @@
 - 阶段8已对全部1至24条执行交叉回归：两书五章、中断接管、真实讨论、工具取消、预算预测、版权绕过、长对话、备份恢复、逻辑24小时Worker和桌面实机入口均通过，证据见 `08-release.md` 和 `ACCEPTANCE_MATRIX.md`。
 - 本首版24条共识没有未说明跳过项。真实外部模型和第二物理数据备份仍按实际状态报告；远程Git后来已配置私有仓库，但只备代码/文档，不冒充小说数据备份。DEC-011至027的长篇终局能力当前仍以E0为主，只有新release取得的E1—E4证据才可升级结论。
 - DEC-040增量把已有检索、连续性和审校基础设施接入正式生产调用路径，并消除按修订全书重切/重嵌入及旧投影倒灌；确定性、故障注入、跨书、迁移、恢复、500万字符规模回放和本地向量运行证据达到E2。真实模型纵向创作与创造性非劣效仍等待E3/E4，不由工程绿测外推。
+- DEC-041增量把章节唯一目录移到正文页，并为作者修改、重写、定稿、六类叙事图谱、主角当前状态/历史和安全公式建立生产入口；工程验证最高为E2，真实模型的自动状态抽取和长篇数值连续性仍等待E3/E4。

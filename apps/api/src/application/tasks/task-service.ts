@@ -123,6 +123,17 @@ export class TaskService {
     return this.require(scope, taskId);
   }
 
+  public completeSynchronous(scope: BookScope, taskId: string, phase = 'completed'): TaskRecord {
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      UPDATE tasks SET status = 'succeeded', current_phase = ?, checkpoint_json = ?, updated_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'pending'
+    `).run(phase, JSON.stringify({ completedSynchronously: true }), now, taskId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) throw new Error('同步任务不存在或状态不可完成');
+    this.events?.append(scope, 'task.completed', { taskId, status: 'succeeded', phase, synchronous: true });
+    return this.require(scope, taskId);
+  }
+
   public claimNext(workerId: string, leaseMs = 15_000): TaskRecord | null {
     const nowDate = this.clock.now();
     const now = nowDate.toISOString();

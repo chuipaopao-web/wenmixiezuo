@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ChapterPipelineService, type PipelinePhase, type PipelineResult } from './chapter-pipeline-service.js';
 import { WriterSelectionService } from './writer-selection-service.js';
@@ -121,6 +122,51 @@ export class ChapterBatchService {
       ) VALUES (?, ?, ?, ?, ?, 0, 'pending', '{}', ?, ?)
     `).run(batchId, scope.ownerId, scope.bookId, JSON.stringify(chapterIds), JSON.stringify(taskIds), now, now);
     return this.require(scope, batchId);
+  }
+
+  public scheduleExistingRevision(
+    scope: BookScope,
+    chapterId: string,
+    manuscriptVersionId: string,
+    operation: 'review_existing' | 'rewrite_existing',
+    instruction: string | null = null
+  ): { taskId: string; operation: 'review_existing' | 'rewrite_existing'; manuscriptVersionId: string } {
+    assertBookScope(scope);
+    const chapter = this.database.prepare(`SELECT chapter_number, settlement_status, current_manuscript_version_id
+      FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(chapterId, scope.ownerId, scope.bookId) as {
+        chapter_number: number; settlement_status: string; current_manuscript_version_id: string | null;
+      } | undefined;
+    if (chapter === undefined) throw new DomainError(errorCodes.bookScopeViolation, '章节不存在或越权', {}, false, 404);
+    if (chapter.settlement_status === 'settled') throw new DomainError(errorCodes.operationIncomplete, '正史已结算章节不能通过草稿入口重写或定稿', {}, false, 409);
+    if (chapter.current_manuscript_version_id !== manuscriptVersionId) throw new DomainError(errorCodes.operationIncomplete, '提交的正文已经不是当前版本', {}, true, 409);
+    const manuscript = this.database.prepare(`SELECT 1 FROM manuscript_versions
+      WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ? AND chapter_id = ?
+        AND status IN ('draft','candidate','under_review','approved')`)
+      .get(manuscriptVersionId, scope.ownerId, scope.bookId, chapterId);
+    if (manuscript === undefined) throw new DomainError(errorCodes.bookScopeViolation, '当前正文版本不存在、越权或状态不可提交', {}, false, 404);
+    const active = this.database.prepare(`SELECT 1 FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+      AND status IN ('pending','queued','working','waiting_confirmation','paused','blocked','interrupted') LIMIT 1`)
+      .get(scope.ownerId, scope.bookId, chapterId);
+    if (active !== undefined) throw new DomainError(errorCodes.taskAlreadyRunning, '本章已有进行中或待确认任务，请先处理当前任务', {}, false, 409);
+    const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
+    const book = this.database.prepare(`SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId) as { editor_epoch: number };
+    const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
+    if (budget === undefined) throw new DomainError(errorCodes.budgetExhausted, '书籍没有活动预算', {}, false, 409);
+    const taskId = this.ids.next();
+    const attempts = this.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND task_type = 'chapter_creation'`)
+      .get(scope.ownerId, scope.bookId, chapterId) as { count: number };
+    const tasks = new TaskService(this.database, this.releaseId, this.clock);
+    tasks.create(scope, {
+      taskId, taskType: 'chapter_creation', assignedAgentId: selection.writerAgentId, chapterId,
+      idempotencyKey: `chapter-${operation}:${chapterId}:${manuscriptVersionId}:attempt:${attempts.count + 1}`,
+      budgetId: budget.budget_id, requiredEditorEpoch: book.editor_epoch, initialPhase: 'preflight',
+      brief: { operation, chapterId, chapterNumber: chapter.chapter_number, manuscriptVersionId, instruction: instruction ?? '' }
+    });
+    tasks.queue(scope, taskId);
+    return { taskId, operation, manuscriptVersionId };
   }
 
   public async run(

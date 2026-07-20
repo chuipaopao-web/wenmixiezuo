@@ -111,7 +111,7 @@ export class ChapterPipelineService {
       || (leaseFence !== undefined && (currentTask.leaseToken !== leaseFence.leaseToken || currentTask.currentAttemptNo !== leaseFence.attemptNo))) {
       throw new Error('章节任务未由指定Worker持有');
     }
-    let run = this.findOrCreateRun(scope, taskId, task.chapter_id);
+    let run = this.findOrCreateRun(scope, taskId, task.chapter_id, currentTask.brief);
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     try {
       while (run.phase !== 'completed') {
@@ -204,6 +204,11 @@ export class ChapterPipelineService {
     return new UnitOfWork(this.database).run(() => {
       new CopyrightService(this.database, this.ids, this.clock).validatePreGeneration(scope);
       const chapter = this.requireChapter(scope, run.chapter_id);
+      const taskBrief = this.taskBrief(scope, run.task_id);
+      const operation = taskBrief.operation === 'review_existing' || taskBrief.operation === 'rewrite_existing'
+        ? taskBrief.operation : null;
+      const existingManuscriptVersionId = operation === null ? null : requiredString(taskBrief.manuscriptVersionId, '正文任务缺少绑定版本');
+      if (existingManuscriptVersionId !== null) this.requireBoundManuscript(scope, run.chapter_id, existingManuscriptVersionId);
       if (chapter.settlement_status === 'settled') return this.advance(run, 'completed');
       const previous = this.database.prepare(`
         SELECT chapter_id, settlement_status FROM chapters
@@ -258,7 +263,12 @@ export class ChapterPipelineService {
         positioningVersion: run.expected_positioning_version,
         sources: [
           { sourceClass: 'hard', sourceType: 'chapter_outline', sourceId: outline.artifactVersionId, reason: '老板确认的当前章纲', content: JSON.stringify(outline.content) },
-          { sourceClass: 'hard', sourceType: 'writing_contract', sourceId: selectedContract.artifactVersionId, reason: '主编签发的当前写作契约', content: JSON.stringify(selectedContract.content) }
+          { sourceClass: 'hard', sourceType: 'writing_contract', sourceId: selectedContract.artifactVersionId, reason: '主编签发的当前写作契约', content: JSON.stringify(selectedContract.content) },
+          ...(existingManuscriptVersionId === null ? [] : [{
+            sourceClass: 'hard' as const, sourceType: 'owner_manuscript', sourceId: existingManuscriptVersionId,
+            reason: operation === 'review_existing' ? '老板提交定稿审校的当前不可变正文' : '老板要求主笔重写的当前不可变正文',
+            content: this.loadManuscript(scope, existingManuscriptVersionId)
+          }])
         ]
       });
       const lease = new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock)
@@ -269,8 +279,10 @@ export class ChapterPipelineService {
       `).run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
       this.database.prepare(`
         UPDATE chapter_pipeline_runs SET outline_version_id = ?, writing_contract_version_id = ?,
-          writing_order_id = ?, writer_epoch = ?, phase = 'context', status = 'working', updated_at = ? WHERE pipeline_run_id = ?
+          writing_order_id = ?, writer_epoch = ?, current_manuscript_version_id = ?, phase = ?,
+          status = 'working', updated_at = ? WHERE pipeline_run_id = ?
       `).run(outline.artifactVersionId, selectedContract.artifactVersionId, order.writingOrderId, lease.epoch,
+        existingManuscriptVersionId, operation === 'review_existing' ? 'hard_check' : 'context',
         this.clock.now().toISOString(), run.pipeline_run_id);
       return this.reload(run.pipeline_run_id);
     });
@@ -307,6 +319,21 @@ export class ChapterPipelineService {
       { sourceType: 'chapter_outline', sourceId: run.outline_version_id, content: JSON.stringify(outline.content), reason: '当前章纲', priority: 100, version: outline.version },
       { sourceType: 'writing_contract', sourceId: run.writing_contract_version_id, content: JSON.stringify(contract.content), reason: '当前写作契约', priority: 100, version: contract.version }
     ];
+    const taskBrief = this.taskBrief(scope, run.task_id);
+    if (taskBrief.operation === 'rewrite_existing') {
+      const manuscriptVersionId = requiredString(taskBrief.manuscriptVersionId, '重写任务缺少正文版本');
+      this.requireBoundManuscript(scope, run.chapter_id, manuscriptVersionId);
+      hardSources.push({
+        sourceType: 'current_manuscript', sourceId: manuscriptVersionId,
+        content: this.loadManuscript(scope, manuscriptVersionId), reason: '老板要求重写的当前完整正文', priority: 100
+      });
+      hardSources.push({
+        sourceType: 'owner_rewrite_instruction', sourceId: `instruction:${run.task_id}`,
+        content: typeof taskBrief.instruction === 'string' && taskBrief.instruction.trim().length > 0
+          ? taskBrief.instruction.trim() : '在保持已确认正史与章纲的前提下重写本章，提升人物声音、情绪与阅读体验。',
+        reason: '老板本次重写要求', priority: 100
+      });
+    }
     if (previous !== undefined) hardSources.push({ sourceType: 'previous_chapter_end', sourceId: `previous:${chapter.chapter_number - 1}`, content: previous.state_json, reason: '前章结算硬状态', priority: 100 });
     const retrievalSources = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
       query: JSON.stringify({ chapterNumber: chapter.chapter_number, title: chapter.title, outline: outline.content, contract: contract.content }),
@@ -347,7 +374,18 @@ export class ChapterPipelineService {
       WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ? AND c.settlement_status = 'settled'
       ORDER BY c.chapter_number DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as { state_json: string } | undefined;
-    const prompt = JSON.stringify({ operation: 'draft', chapterNumber: chapter.chapter_number, title: chapter.title, previousState: previous?.state_json ?? '故事刚刚开始' });
+    const taskBrief = this.taskBrief(scope, run.task_id);
+    const rewriteBase = taskBrief.operation === 'rewrite_existing'
+      ? requiredString(taskBrief.manuscriptVersionId, '重写任务缺少正文版本') : null;
+    const prompt = JSON.stringify({
+      operation: rewriteBase === null ? 'draft' : 'rewrite', chapterNumber: chapter.chapter_number, title: chapter.title,
+      previousState: previous?.state_json ?? '故事刚刚开始',
+      ...(rewriteBase === null ? {} : {
+        content: this.loadManuscript(scope, rewriteBase),
+        requiredActions: [typeof taskBrief.instruction === 'string' && taskBrief.instruction.trim().length > 0
+          ? taskBrief.instruction.trim() : '完整重写本章并保持正史、章纲和人物连续性']
+      })
+    });
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
     const adapter = this.modelAdapters.resolve(writerModel.provider, writerModel.modelId, 'novel_writer', 'writer');
     let output: string;
@@ -358,7 +396,7 @@ export class ChapterPipelineService {
       return this.takeOverWriterOrBlock(scope, run, 'draft', error.message);
     }
     writerLease.assertCanCommit(scope, run.writer_agent_id, run.writer_epoch!);
-    this.promoteManuscript(scope, run, output, null, adapter, 'candidate', (manuscriptVersionId) => {
+    this.promoteManuscript(scope, run, output, rewriteBase, adapter, 'candidate', (manuscriptVersionId) => {
       this.database.prepare(`UPDATE chapter_pipeline_runs SET current_manuscript_version_id = ?, phase = 'hard_check', updated_at = ? WHERE pipeline_run_id = ?`)
         .run(manuscriptVersionId, this.clock.now().toISOString(), run.pipeline_run_id);
     });
@@ -441,12 +479,12 @@ export class ChapterPipelineService {
           reviewerRole: reviewer.role,
           manuscriptVersionId,
           modelSnapshotId: reviewer.agent.modelSnapshotId,
-          content,
+          ...(adapter.provider.startsWith('local-deterministic') ? { content } : {}),
           contract: reviewer.role === 'literary'
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'
               ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
-              : '核对连续性、人物状态、因果与硬约束；另返回factCandidates数组，每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective'
+              : '核对连续性、人物状态、因果与硬约束；另返回factCandidates数组，每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角可量化状态仅在正文明确给出时使用 protagonist_state.<分类>.<状态键>（绝对值）或 protagonist_delta.<分类>.<状态键>（增减值）；不得从模糊文学描写猜测数值'
         });
       let output: string;
       try {
@@ -679,7 +717,7 @@ export class ChapterPipelineService {
     return this.advance(run, 'completed');
   }
 
-  private findOrCreateRun(scope: BookScope, taskId: string, chapterId: string): PipelineRow {
+  private findOrCreateRun(scope: BookScope, taskId: string, chapterId: string, taskBrief: Record<string, unknown>): PipelineRow {
     const existing = this.database.prepare(`SELECT * FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, chapterId) as PipelineRow | undefined;
     if (existing !== undefined) {
@@ -688,7 +726,9 @@ export class ChapterPipelineService {
           .run(this.clock.now().toISOString(), existing.pipeline_run_id);
         return this.reload(existing.pipeline_run_id);
       }
-      if (existing.status === 'failed' && (existing.current_manuscript_version_id === null || existing.task_id !== taskId)) {
+      const explicitExistingOperation = taskBrief.operation === 'review_existing' || taskBrief.operation === 'rewrite_existing';
+      if ((existing.status === 'failed' && (existing.current_manuscript_version_id === null || existing.task_id !== taskId))
+        || (explicitExistingOperation && existing.task_id !== taskId && existing.status === 'completed')) {
         const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
         const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
           .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
@@ -735,6 +775,20 @@ export class ChapterPipelineService {
       bindingRevision?.agent_model_binding_revision_id ?? null, now, now
     );
     return this.reload(pipelineRunId);
+  }
+
+  private taskBrief(scope: BookScope, taskId: string): Record<string, unknown> {
+    const row = this.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(taskId, scope.ownerId, scope.bookId) as { task_brief_json: string } | undefined;
+    if (row === undefined) throw new Error('章节任务不存在或越权');
+    return JSON.parse(row.task_brief_json) as Record<string, unknown>;
+  }
+
+  private requireBoundManuscript(scope: BookScope, chapterId: string, manuscriptVersionId: string): void {
+    const row = this.database.prepare(`SELECT 1 FROM manuscript_versions WHERE manuscript_version_id = ?
+      AND owner_id = ? AND book_id = ? AND chapter_id = ? AND status IN ('draft','candidate','under_review','approved')`)
+      .get(manuscriptVersionId, scope.ownerId, scope.bookId, chapterId);
+    if (row === undefined) throw new Error('正文任务绑定版本不存在、越权或状态不可用');
   }
 
   private async executeModel(

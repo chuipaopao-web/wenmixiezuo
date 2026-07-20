@@ -6,6 +6,7 @@ import type { ProductionWorkflowRepository } from '../../infrastructure/db/repos
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
 import { TaskService } from '../tasks/task-service.js';
+import type { ProtagonistStateService } from '../knowledge/protagonist-state-service.js';
 
 export class ChapterApprovalService {
   public constructor(
@@ -16,7 +17,8 @@ export class ChapterApprovalService {
     private readonly clock: Clock,
     private readonly chapters: ChapterCatalogService,
     private readonly canon: CanonService,
-    private readonly tasks: TaskService
+    private readonly tasks: TaskService,
+    private readonly protagonists?: ProtagonistStateService
   ) {}
 
   public resolve(scope: BookScope, confirmationId: string, expectedCanonRevision: number, accept: boolean, note: string | null = null): {
@@ -94,6 +96,7 @@ export class ChapterApprovalService {
         endingExcerpt: endingExcerpt(content),
         source: 'owner_confirmed_manuscript'
       }, undefined, expectedCanonRevision);
+      this.protagonists?.projectCanonFacts(scope, gate.chapterId);
       this.repository.recordQualityMetric(scope, {
         id: this.ids.next(), chapterId: gate.chapterId, manuscriptVersionId: gate.manuscriptVersionId,
         rewriteCount: this.repository.rewriteCount(scope, gate.chapterId, gate.taskId), now

@@ -37,13 +37,19 @@ describe('向前迁移器', () => {
         '0017_experience_freeze.sql', '0018_portability_operations.sql', '0019_chat_attachments.sql',
         '0020_runtime_integrity.sql',
         '0021_canon_index_requests.sql',
-        '0022_editor_review_syntheses.sql'
+        '0022_editor_review_syntheses.sql',
+        '0023_manuscript_protagonist_workspace.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
       expect(tables.map((row) => row.name)).toContain('chat_attachments');
       expect(tables.map((row) => row.name)).toContain('task_attempts');
       expect(tables.map((row) => row.name)).toContain('model_call_results');
+      expect(tables.map((row) => row.name)).toContain('protagonist_profiles');
+      expect(tables.map((row) => row.name)).toContain('protagonist_state_entries');
+      expect(tables.map((row) => row.name)).toContain('attribute_formulas');
+      const manuscriptColumns = database.prepare('PRAGMA table_info(manuscript_versions)').all() as Array<{ name: string }>;
+      expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(database.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 });
     } finally {
