@@ -44,7 +44,8 @@
 ## 正式验收状态
 
 - 提交前执行 `npm run acceptance`：3个验收测试全部通过；审计除“工作树干净”外其余条款全部通过。“工作树干净”在施工尚未提交时按设计阻断，不把该轮记录为最终通过。
-- 最终Git提交后必须在干净工作树重跑 `npm run acceptance`，要求 `failures: []`；随后再记录提交与远程推送结果。
+- 功能提交：`4f7bbcf`（`fix: refine manuscript and planning workspaces`）。提交后在干净工作树重跑 `npm run acceptance`：3个验收测试全部通过，所有审计条款通过，`failures: []`。
+- 本证据补录提交完成后再次提交，并在第二次干净工作树验收通过后推送至 `origin/main`。
 
 ## 证据边界与回滚
 
