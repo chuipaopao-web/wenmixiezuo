@@ -120,6 +120,25 @@ export class ProtagonistStateRepository {
       .get(scope.ownerId, scope.bookId, entityId, entityId, scope.ownerId, scope.bookId, entityId) as ProtagonistProfileRow | undefined;
   }
 
+  public profileByEntityIncludingArchived(scope: BookScope, entityId: string): ProtagonistProfileRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT * FROM protagonist_profiles
+      WHERE owner_id = ? AND book_id = ?
+        AND (entity_id = ? OR (entity_id IS NULL AND display_name = (
+          SELECT canonical_name FROM entities WHERE entity_id = ? AND owner_id = ? AND book_id = ? AND entity_type = 'character' AND status = 'active'
+        )))
+      ORDER BY CASE WHEN entity_id = ? THEN 0 ELSE 1 END, CASE status WHEN 'active' THEN 0 ELSE 1 END LIMIT 1`)
+      .get(scope.ownerId, scope.bookId, entityId, entityId, scope.ownerId, scope.bookId, entityId) as ProtagonistProfileRow | undefined;
+  }
+
+  public activeCharacterName(scope: BookScope, entityId: string): string | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(`SELECT canonical_name FROM entities
+      WHERE entity_id = ? AND owner_id = ? AND book_id = ? AND entity_type = 'character' AND status = 'active'`)
+      .get(entityId, scope.ownerId, scope.bookId) as { canonical_name: string } | undefined;
+    return row?.canonical_name;
+  }
+
   public linkProfileEntity(scope: BookScope, profileId: string, entityId: string, now: string): void {
     assertBookScope(scope);
     this.database.prepare(`UPDATE protagonist_profiles SET entity_id = ?, updated_at = ?

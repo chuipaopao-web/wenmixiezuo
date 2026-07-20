@@ -1783,7 +1783,7 @@ svg {
 }
 
 .agent-row strong {
-  font-size: calc(11px * var(--font-scale));
+  font-size: calc(12px * var(--font-scale));
 }
 
 .agent-row em {
@@ -1792,7 +1792,7 @@ svg {
   align-items: center;
   gap: 5px;
   color: var(--ink-faint);
-  font-size: calc(9px * var(--font-scale));
+  font-size: calc(10px * var(--font-scale));
   font-style: normal;
 }
 
@@ -2935,6 +2935,11 @@ svg {
 .protagonist-state-grid article small { margin-top: 2px; color: var(--ink-faint); font-size: calc(8px * var(--font-scale)); }
 .protagonist-state-grid article > span { color: var(--accent-strong); font-size: calc(11px * var(--font-scale)); font-weight: 700; }
 .protagonist-state-grid article button { border: 0; padding: 3px; color: var(--ink-faint); background: transparent; font-size: calc(8px * var(--font-scale)); cursor: pointer; }
+.protagonist-state-grid .protagonist-classifier { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .7fr) auto; align-items: end; gap: 8px; border-top: 1px dashed var(--line-strong); padding-top: 8px; }
+.protagonist-state-grid .protagonist-classifier p { margin: 0; color: var(--ink-soft); font-size: calc(9px * var(--font-scale)); line-height: 1.5; text-align: left; }
+.protagonist-state-grid .protagonist-classifier label { display: grid; gap: 3px; color: var(--ink-soft); font-size: calc(9px * var(--font-scale)); }
+.protagonist-state-grid .protagonist-classifier input { min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--control-radius); padding: 6px 7px; color: var(--ink); background: var(--panel-raised); font: inherit; }
+.protagonist-state-grid .protagonist-classifier button { border: 1px solid var(--line-strong); padding: 6px 9px; font-size: calc(9px * var(--font-scale)); }
 .protagonist-state-form,
 .formula-manager { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 14px; background: var(--panel); }
 .protagonist-state-form header p { margin: 3px 0 0; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
@@ -2978,20 +2983,9 @@ svg {
 .projection-tracks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .projection-tracks > section > h3 { margin-bottom: 12px; }
 
-.local-tool-section { border-bottom: 1px solid var(--line) !important; padding-bottom: 10px; }
-.local-assistant-card { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; margin-top: 8px; }
-.local-assistant-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--accent-hover); background: var(--accent-soft); }
-.local-assistant-card strong,
-.local-assistant-card small,
-.local-assistant-card em { display: block; }
-.local-assistant-card strong { font-size: calc(10px * var(--font-scale)); }
-.local-assistant-card small { margin-top: 3px; color: var(--ink-faint); font-size: calc(8px * var(--font-scale)); line-height: 1.35; }
-.local-assistant-card em { margin-top: 4px; color: var(--accent); font-size: calc(8px * var(--font-scale)); font-style: normal; }
-.local-assistant-card em .agent-state { display: inline-block; width: 6px; height: 6px; margin-right: 5px; background: var(--accent); }
-
 .agent-row { width: 100%; align-items: start; color: var(--ink); background: transparent; text-align: left; cursor: pointer; }
 .agent-row .agent-copy { min-width: 0; display: block; }
-.agent-row .agent-copy > small { display: -webkit-box; overflow: hidden; margin-top: 2px; color: var(--ink-faint); font-size: calc(8px * var(--font-scale)); line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.agent-row .agent-copy > small { display: -webkit-box; overflow: hidden; margin-top: 2px; color: var(--ink-faint); font-size: calc(10px * var(--font-scale)); line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .agent-row .agent-copy > em { grid-column: auto; margin-top: 4px; }
 
 .agent-dialog { width: min(720px, 100%); }
@@ -3545,6 +3539,7 @@ svg {
   .protagonist-toolbar { display: grid; }
   .protagonist-state-form > div,
   .formula-manager form > div { grid-template-columns: 1fr 1fr; }
+  .protagonist-state-grid .protagonist-classifier { grid-template-columns: 1fr; align-items: stretch; }
   .formula-calculator > form { grid-template-columns: 1fr; align-items: stretch; }
   .library-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .library-metrics > div { border-top: 1px solid var(--line); border-left: 0 !important; }

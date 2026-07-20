@@ -77,6 +77,7 @@ import {
   saveProtagonistProfile,
   appendProtagonistState,
   archiveProtagonistState,
+  classifyProtagonistState,
   createAttributeFormula,
   evaluateAttributeFormula,
   type AgentData,
@@ -1129,10 +1130,11 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
   return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div><div className="library-explainer"><TreeStructureIcon /><div><h3>权威与投影分开</h3><p>正文、确认设定和事实是正史来源。关系、情绪、地图位置和向量只是可重建视图，冲突时必须回查来源。</p></div></div></div>;
 }
 
-const PROTAGONIST_CATEGORIES: Array<[string, string]> = [
-  ['overview', '身份与状态'], ['attribute', '属性面板'], ['resource', '资源'], ['equipment', '装备道具'],
-  ['skill', '技能能力'], ['territory', '城池领地'], ['general', '将领随从'], ['army', '士兵军队']
-];
+const PROTAGONIST_CATEGORY_LABELS: Record<string, string> = {
+  overview: '身份与状态', attribute: '属性面板', resource: '资源', equipment: '装备道具',
+  skill: '技能能力', territory: '城池领地', general: '将领随从', army: '士兵军队',
+  unclassified: '待归类'
+};
 
 function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
   bookId: string | null; initialDashboard?: ProtagonistDashboardData | undefined; initialFormulas?: AttributeFormulaData[] | undefined;
@@ -1141,11 +1143,12 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
   const [formulas, setFormulas] = useState<AttributeFormulaData[]>(initialFormulas ?? []);
   const [selectedProfileId, setSelectedProfileId] = useState(initialDashboard?.profiles[0]?.profileId ?? '');
   const [profileName, setProfileName] = useState('');
-  const [category, setCategory] = useState('overview');
+  const [category, setCategory] = useState('');
   const [label, setLabel] = useState('');
   const [rawValue, setRawValue] = useState('');
   const [unit, setUnit] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [classificationDrafts, setClassificationDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = useCallback(async () => {
@@ -1156,19 +1159,37 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
   }, [bookId]);
   useEffect(() => { void refresh().catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角面板加载失败')); }, [refresh]);
   const selected = dashboard.profiles.find((profile) => profile.profileId === selectedProfileId) ?? dashboard.profiles[0] ?? null;
+  const selectedStates = selected === null ? [] : [...selected.current, ...selected.pending];
+  const categories = [...new Set(selectedStates.map((item) => item.category))]
+    .sort((left, right) => Number(isUnclassifiedCategory(right)) - Number(isUnclassifiedCategory(left)) || protagonistCategoryLabel(left).localeCompare(protagonistCategoryLabel(right), 'zh-CN'));
+  const categorySuggestions = categories.filter((value) => !isUnclassifiedCategory(value));
   const addState = async (): Promise<void> => {
-    if (bookId === null || selected === null || !label.trim() || !rawValue.trim()) return;
+    if (bookId === null || selected === null || !category.trim() || !label.trim() || !rawValue.trim()) return;
+    const categoryKey = resolveProtagonistCategoryKey(category);
     const numeric = Number(rawValue);
-    const valueType: ProtagonistStateData['valueType'] = Number.isFinite(numeric) && rawValue.trim() !== '' ? (category === 'resource' || category === 'army' ? 'resource' : 'number') : 'text';
-    const value: unknown = valueType === 'number' || valueType === 'resource' ? numeric : rawValue.trim();
-    const logicalKey = normalizeStateKey(`${category}_${label}`);
+    const valueType: ProtagonistStateData['valueType'] = Number.isFinite(numeric) && rawValue.trim() !== '' ? 'number' : 'text';
+    const value: unknown = valueType === 'number' ? numeric : rawValue.trim();
+    const logicalKey = normalizeStateKey(`${categoryKey}_${label}`);
     setBusy(true); setNotice(null);
     try {
-      await appendProtagonistState(bookId, selected.profileId, { category, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, confirmed });
+      await appendProtagonistState(bookId, selected.profileId, { category: categoryKey, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, confirmed });
       setLabel(''); setRawValue(''); setUnit(''); setConfirmed(false);
       await refresh();
       setNotice(confirmed ? '已按作者确认保存到当前主角面板；旧状态版本仍可追溯。' : '已保存为候选状态，尚未视为正史。');
     } catch (reason) { setNotice(reason instanceof Error ? reason.message : '主角状态保存失败'); }
+    finally { setBusy(false); }
+  };
+  const classifyState = async (item: ProtagonistStateData): Promise<void> => {
+    const nextCategory = classificationDrafts[item.entryId]?.trim() ?? '';
+    if (bookId === null || nextCategory.length === 0) return;
+    setBusy(true); setNotice(null);
+    try {
+      const categoryKey = resolveProtagonistCategoryKey(nextCategory);
+      await classifyProtagonistState(bookId, item.entryId, categoryKey);
+      setClassificationDrafts((current) => { const next = { ...current }; delete next[item.entryId]; return next; });
+      await refresh();
+      setNotice(`已将“${item.label}”归入“${protagonistCategoryLabel(categoryKey)}”；原值、正史来源和历史版本均已保留。`);
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : '资料归类失败'); }
     finally { setBusy(false); }
   };
   return <div className="protagonist-workspace">
@@ -1179,14 +1200,15 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
       event.preventDefault(); if (bookId === null || !profileName.trim()) return; setBusy(true);
       void saveProtagonistProfile(bookId, { displayName: profileName.trim(), isPrimary: true }).then(async (profile) => { setSelectedProfileId(profile.profileId); setProfileName(''); await refresh(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角档案创建失败')).finally(() => setBusy(false));
     }}><label>主角姓名<input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="例如：张三" /></label><button className="primary-button" disabled={busy || !profileName.trim()}>建立主角面板</button></form> : <>
-      <div className="protagonist-state-grid">{PROTAGONIST_CATEGORIES.map(([key, title]) => {
+      {categories.length === 0 ? <EmptyReference icon={<UserCircleIcon />} title="还没有主角资料" description="定稿章节产生明确主角事实后，小文秘书会自动整理到这里；也可以先手工补充作者已经确认的信息。" /> : <div className="protagonist-state-grid">{categories.map((key) => {
+        const title = protagonistCategoryLabel(key);
         const records = selected.current.filter((item) => item.category === key);
         const pending = selected.pending.filter((item) => item.category === key);
-        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].length === 0 ? <p>暂无</p> : [...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '候选' : item.authorityLayer === 'canon' ? '正史' : '计算结果'} · 版本 {item.revision}</small></div><span>{formatValue(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
+        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '候选' : item.authorityLayer === 'canon' ? '正史' : '计算结果'} · 版本 {item.revision}</small></div><span>{formatValue(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
           if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
-        }}>移除</button></article>)}</section>;
-      })}</div>
-      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>新增或更新状态</h4><p>同名状态会形成新修订；明确数字可用于资源、兵力和属性观察。</p></header><div><label>分类<select value={category} onChange={(event) => setCategory(event.target.value)}>{PROTAGONIST_CATEGORIES.map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !label.trim() || !rawValue.trim()}>保存状态</button></form>
+        }}>移除</button>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
+      })}</div>}
+      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>补充或纠正一项资料</h4><p>分类由这本书自己的内容决定，不套固定模板；同名状态会追加新修订，旧值与来源仍可追溯。</p></header><div><label>分类<input list="protagonist-category-suggestions" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：契约伙伴、城池等级" /><datalist id="protagonist-category-suggestions">{categorySuggestions.map((value) => <option key={value} value={protagonistCategoryLabel(value)} />)}</datalist></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !category.trim() || !label.trim() || !rawValue.trim()}>保存状态</button></form>
     </>}
     {formulas.length > 0 && <FormulaCalculator bookId={bookId} formulas={formulas} />}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
@@ -1454,13 +1476,6 @@ function TeamInspector({ workspace, worker, onSelectAgent }: { workspace: Worksp
   const agents = workspace?.agents ?? [];
   return (
     <div className="inspector-content team-inspector">
-      <section className="inspector-section local-tool-section">
-        <div className="inspector-heading"><h2>小文秘书</h2></div>
-        <article className="local-assistant-card">
-          <span className="local-assistant-avatar" aria-hidden="true"><ChatsCircleIcon /></span>
-          <span><strong>{workspace?.localAssistant?.displayName ?? '小文秘书'}（{workspace?.localAssistant?.roleName ?? '本地秘书'}）</strong><small>{workspace?.localAssistant?.summary ?? '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'}</small><em><span className="agent-state" aria-hidden="true" />{workspace?.localAssistant?.status === 'offline' ? '离线' : '本地就绪'}</em></span>
-        </article>
-      </section>
       <section className="inspector-section">
         <div className="inspector-heading"><h2>团队</h2><span>{agents.length} 名成员</span></div>
         <div className="agent-list">{agents.map((agent) => <AgentRow key={agent.agentId} agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} worker={worker} onSelect={() => onSelectAgent(agent)} />)}</div>
@@ -1486,6 +1501,21 @@ function AgentAvatar({ roleKey, roleName }: { roleKey: string; roleName: string 
 
 function memberIdentity(agent: Pick<AgentData, 'displayName' | 'roleName'>): string {
   return `${agent.displayName}（${agent.roleName}）`;
+}
+
+function isUnclassifiedCategory(category: string): boolean {
+  const normalized = category.trim().toLocaleLowerCase('zh-CN');
+  return normalized === 'unclassified' || normalized === '待归类';
+}
+
+function protagonistCategoryLabel(category: string): string {
+  return isUnclassifiedCategory(category) ? '待归类' : PROTAGONIST_CATEGORY_LABELS[category] ?? category;
+}
+
+function resolveProtagonistCategoryKey(category: string): string {
+  const normalized = category.trim();
+  const legacy = Object.entries(PROTAGONIST_CATEGORY_LABELS).find(([, label]) => label === normalized)?.[0];
+  return legacy ?? normalized;
 }
 
 function activeTaskForAgent(workspace: WorkspaceData | null, agentId: string): TaskData | null {

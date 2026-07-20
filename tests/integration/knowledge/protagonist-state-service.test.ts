@@ -82,4 +82,74 @@ describe('主角状态账本', () => {
       context.close();
     }
   });
+
+  it('无需预建固定模板即可从正史自动建档，无法归类时询问并以追加修订完成分类', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { title: '契约书', content: '沈岚与白鹿结成灵魂契约。' });
+      const service = new ProtagonistStateService(context.database, ids, clock);
+      const canon = new CanonService(context.database, ids, clock);
+      const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '沈岚' });
+      const fact = canon.proposeFact(fixture.scope, {
+        subjectEntityId: entityId, relationKey: 'protagonist_state.unclassified.soul_companion',
+        value: { value: '白鹿', label: '灵魂契约伙伴' }, evidence: [{ quote: '沈岚与白鹿结成灵魂契约' }], grade: 'B',
+        sourceChapterId: fixture.chapterId, sourceManuscriptVersionId: fixture.manuscriptVersionId
+      });
+      canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, {});
+
+      expect(service.projectCanonFacts(fixture.scope, fixture.chapterId)).toBe(1);
+      const automatic = service.dashboard(fixture.scope).profiles[0]!;
+      expect(automatic).toMatchObject({ displayName: '沈岚', entityId, isPrimary: true });
+      expect(automatic.current[0]).toMatchObject({
+        category: 'unclassified', logicalKey: 'soul_companion', value: '白鹿', sourceFactId: fact.factId, authorityLayer: 'canon'
+      });
+      expect(context.database.prepare(`SELECT target_type, target_id, gap_type, severity, status
+        FROM knowledge_gap_findings WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toMatchObject({
+        target_type: 'protagonist_state_classification', target_id: `${automatic.profileId}:soul_companion`,
+        gap_type: 'classification', severity: 'important', status: 'open'
+      });
+
+      const classified = service.classify(fixture.scope, automatic.current[0]!.entryId, '契约伙伴');
+      expect(classified).toMatchObject({
+        category: '契约伙伴', logicalKey: 'soul_companion', value: '白鹿', sourceFactId: fact.factId,
+        sourceManuscriptVersionId: fixture.manuscriptVersionId, revision: 2, previousEntryId: automatic.current[0]!.entryId
+      });
+      expect(service.dashboard(fixture.scope).profiles[0]).toMatchObject({
+        current: [expect.objectContaining({ category: '契约伙伴', value: '白鹿' })], historyCount: 2
+      });
+      expect(context.database.prepare(`SELECT status, resolved_at FROM knowledge_gap_findings
+        WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toMatchObject({ status: 'resolved' });
+      expect(service.projectCanonFacts(fixture.scope, fixture.chapterId)).toBe(0);
+    } finally {
+      context.close();
+    }
+  });
+
+  it('作者归档的主角档案不会被后续自动投影静默恢复', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { title: '归档边界', content: '林澈清点仍在城中的卫兵。' });
+      const service = new ProtagonistStateService(context.database, ids, clock);
+      const canon = new CanonService(context.database, ids, clock);
+      const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澈' });
+      const profile = service.saveProfile(fixture.scope, { displayName: '林澈', entityId, isPrimary: true });
+      service.archiveProfile(fixture.scope, profile.profileId);
+      canon.proposeFact(fixture.scope, {
+        subjectEntityId: entityId, relationKey: 'protagonist_state.兵力.卫兵',
+        value: { value: 30, label: '卫兵', unit: '人' }, evidence: [{ quote: '林澈清点仍在城中的卫兵' }], grade: 'B',
+        sourceChapterId: fixture.chapterId, sourceManuscriptVersionId: fixture.manuscriptVersionId
+      });
+      canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, {});
+
+      expect(service.projectCanonFacts(fixture.scope, fixture.chapterId)).toBe(0);
+      expect(service.dashboard(fixture.scope).profiles).toEqual([]);
+      expect(service.listProfiles(fixture.scope, true)).toEqual([expect.objectContaining({ profileId: profile.profileId, status: 'archived' })]);
+    } finally {
+      context.close();
+    }
+  });
 });

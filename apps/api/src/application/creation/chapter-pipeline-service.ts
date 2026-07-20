@@ -484,7 +484,7 @@ export class ChapterPipelineService {
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'
               ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
-              : '核对连续性、人物状态、因果与硬约束；另返回factCandidates数组，每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角可量化状态仅在正文明确给出时使用 protagonist_state.<分类>.<状态键>（绝对值）或 protagonist_delta.<分类>.<状态键>（增减值）；不得从模糊文学描写猜测数值'
+              : '核对连续性、人物状态、因果与硬约束；另返回factCandidates数组，每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
         });
       let output: string;
       try {

@@ -365,6 +365,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     }
   );
 
+  app.post<{ Params: { bookId: string; entryId: string }; Body: { category?: string } }>(
+    '/api/v1/books/:bookId/protagonist-state/:entryId/classify', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(protagonists.classify(scope, request.params.entryId, request.body?.category ?? ''), request.id);
+    }
+  );
+
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
     return success(attributeFormulas.list(scope), request.id);

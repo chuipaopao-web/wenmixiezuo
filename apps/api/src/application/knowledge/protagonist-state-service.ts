@@ -7,6 +7,8 @@ import {
   type ProtagonistProfileRow as ProfileRow,
   type ProtagonistStateRow as StateRow
 } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
+import { TaxonomyRepository } from '../../infrastructure/db/repositories/taxonomy-repository.js';
+import { TaxonomyService } from './taxonomy-service.js';
 
 export type ProtagonistValueType = 'number' | 'text' | 'enum' | 'list' | 'resource' | 'derived';
 export type ProtagonistStateStatus = 'active' | 'consumed' | 'lost' | 'dead' | 'retired' | 'archived';
@@ -46,9 +48,13 @@ export interface ProtagonistStateRecord {
 
 export class ProtagonistStateService {
   private readonly repository: ProtagonistStateRepository;
+  private readonly taxonomyRepository: TaxonomyRepository;
+  private readonly taxonomy: TaxonomyService;
 
   public constructor(database: DatabaseSync, private readonly ids: IdGenerator, private readonly clock: Clock) {
     this.repository = new ProtagonistStateRepository(database);
+    this.taxonomyRepository = new TaxonomyRepository(database);
+    this.taxonomy = new TaxonomyService(this.taxonomyRepository, ids, clock);
   }
 
   public saveProfile(scope: BookScope, input: { profileId?: string; displayName: string; entityId?: string | null; isPrimary?: boolean }): ProtagonistProfileRecord {
@@ -125,6 +131,30 @@ export class ProtagonistStateService {
     });
   }
 
+  public classify(scope: BookScope, entryId: string, categoryInput: string): ProtagonistStateRecord {
+    const current = this.requireEntry(scope, entryId);
+    if (this.requireProfile(scope, current.profileId).status !== 'active' || current.stateStatus === 'archived') {
+      throw new DomainError(errorCodes.operationIncomplete, '已归档的主角资料不能重新归类', {}, false, 409);
+    }
+    const latest = this.latest(scope, current.profileId, current.logicalKey);
+    if (latest.entryId !== entryId) throw new DomainError(errorCodes.operationIncomplete, '只能归类当前状态版本', {}, false, 409);
+    const category = requiredText(categoryInput, '状态分类', 80);
+    if (isUnclassifiedCategory(category)) throw new DomainError(errorCodes.validation, '请填写明确的资料分类');
+    return this.repository.runInTransaction(() => {
+      const result = this.insertRevision(scope, {
+        profileId: current.profileId, category, logicalKey: current.logicalKey, label: current.label,
+        valueType: current.valueType, value: current.value, unit: current.unit, stateStatus: current.stateStatus,
+        authorityLayer: current.authorityLayer, effectiveChapterNumber: current.effectiveChapterNumber,
+        storyTime: current.storyTime, sourceKind: current.sourceKind, sourceId: current.sourceId,
+        sourceFactId: current.sourceFactId, sourceManuscriptVersionId: current.sourceManuscriptVersionId,
+        canonRevision: current.canonRevision,
+        note: [current.note, `作者确认资料分类为“${category}”`].filter(Boolean).join('；')
+      });
+      this.taxonomyRepository.resolveGaps(scope, CLASSIFICATION_GAP_TARGET, classificationTarget(current.profileId, current.logicalKey), this.clock.now().toISOString());
+      return result;
+    });
+  }
+
   public dashboard(scope: BookScope): { profiles: Array<ProtagonistProfileRecord & { current: ProtagonistStateRecord[]; pending: ProtagonistStateRecord[]; historyCount: number }> } {
     const profiles = this.listProfiles(scope);
     return { profiles: profiles.map((profile) => {
@@ -142,34 +172,63 @@ export class ProtagonistStateService {
   public projectCanonFacts(scope: BookScope, chapterId: string): number {
     assertBookScope(scope);
     const facts = this.repository.structuredFacts(scope, chapterId);
-    let projected = 0;
-    for (const fact of facts) {
-      if (this.repository.hasSourceFact(scope, fact.fact_id)) continue;
-      const profile = this.repository.activeProfileByEntity(scope, fact.subject_entity_id);
-      if (profile === undefined) continue;
-      let parsed: ReturnType<typeof parseStructuredRelation>;
-      let nextValue: unknown;
-      try {
-        parsed = parseStructuredRelation(fact.relation_key, JSON.parse(fact.value_json) as unknown);
-        const previous = this.latestOrNull(scope, profile.protagonist_profile_id, parsed.logicalKey);
-        nextValue = parsed.delta === null ? parsed.value : numericValue(previous) + parsed.delta;
-      } catch (error) {
-        if (error instanceof DomainError) continue;
-        throw error;
+    return this.repository.runInTransaction(() => {
+      let projected = 0;
+      for (const fact of facts) {
+        if (this.repository.hasSourceFact(scope, fact.fact_id)) continue;
+        let parsed: ReturnType<typeof parseStructuredRelation>;
+        try {
+          parsed = parseStructuredRelation(fact.relation_key, JSON.parse(fact.value_json) as unknown);
+        } catch (error) {
+          if (error instanceof DomainError) continue;
+          throw error;
+        }
+        let profile = this.repository.activeProfileByEntity(scope, fact.subject_entity_id);
+        if (profile === undefined) {
+          if (this.repository.profileByEntityIncludingArchived(scope, fact.subject_entity_id)?.status === 'archived') continue;
+          const displayName = this.repository.activeCharacterName(scope, fact.subject_entity_id);
+          if (displayName === undefined) continue;
+          const saved = this.saveProfile(scope, {
+            displayName, entityId: fact.subject_entity_id, isPrimary: this.repository.listProfiles(scope, false).length === 0
+          });
+          profile = this.profileRow(scope, saved.profileId);
+          if (profile === undefined) continue;
+        }
+        let nextValue: unknown;
+        try {
+          const previous = this.latestOrNull(scope, profile.protagonist_profile_id, parsed.logicalKey);
+          nextValue = parsed.delta === null ? parsed.value : numericValue(previous) + parsed.delta;
+        } catch (error) {
+          if (error instanceof DomainError) continue;
+          throw error;
+        }
+        if (profile.entity_id === null) {
+          this.repository.linkProfileEntity(scope, profile.protagonist_profile_id, fact.subject_entity_id, this.clock.now().toISOString());
+        }
+        this.insertRevision(scope, {
+          profileId: profile.protagonist_profile_id, category: parsed.category, logicalKey: parsed.logicalKey,
+          label: parsed.label, valueType: parsed.valueType, value: nextValue, unit: parsed.unit,
+          stateStatus: parsed.stateStatus, authorityLayer: 'canon', effectiveChapterNumber: fact.chapter_number,
+          storyTime: null, sourceKind: 'canon_fact', sourceId: fact.fact_id, sourceFactId: fact.fact_id,
+          sourceManuscriptVersionId: fact.source_manuscript_version_id, canonRevision: fact.canon_revision, note: '由已结算正史结构化事实更新'
+        });
+        if (isUnclassifiedCategory(parsed.category)) this.ensureClassificationGap(scope, profile.protagonist_profile_id, parsed);
+        projected += 1;
       }
-      if (profile.entity_id === null) {
-        this.repository.linkProfileEntity(scope, profile.protagonist_profile_id, fact.subject_entity_id, this.clock.now().toISOString());
-      }
-      this.insertRevision(scope, {
-        profileId: profile.protagonist_profile_id, category: parsed.category, logicalKey: parsed.logicalKey,
-        label: parsed.label, valueType: parsed.valueType, value: nextValue, unit: parsed.unit,
-        stateStatus: parsed.stateStatus, authorityLayer: 'canon', effectiveChapterNumber: fact.chapter_number,
-        storyTime: null, sourceKind: 'canon_fact', sourceId: fact.fact_id, sourceFactId: fact.fact_id,
-        sourceManuscriptVersionId: fact.source_manuscript_version_id, canonRevision: fact.canon_revision, note: '由已结算正史结构化事实更新'
-      });
-      projected += 1;
-    }
-    return projected;
+      return projected;
+    });
+  }
+
+  private ensureClassificationGap(scope: BookScope, profileId: string, parsed: ReturnType<typeof parseStructuredRelation>): void {
+    const targetId = classificationTarget(profileId, parsed.logicalKey);
+    if (this.taxonomyRepository.hasOpenGap(scope, CLASSIFICATION_GAP_TARGET, targetId, 'classification')) return;
+    this.taxonomy.reportGap(scope, {
+      targetType: CLASSIFICATION_GAP_TARGET,
+      targetId,
+      gapType: 'classification',
+      diagnosis: `“${parsed.label}”已从正史自动记录，但无法可靠判断资料分类。请作者确认分类；主编可以提供建议。`,
+      severity: 'important'
+    });
   }
 
   private listHistory(scope: BookScope, profileId: string): ProtagonistStateRecord[] {
@@ -311,4 +370,15 @@ function normalizedKey(value: string, label: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const CLASSIFICATION_GAP_TARGET = 'protagonist_state_classification';
+
+function isUnclassifiedCategory(category: string): boolean {
+  const normalized = category.trim().toLocaleLowerCase('zh-CN');
+  return normalized === 'unclassified' || normalized === '待归类';
+}
+
+function classificationTarget(profileId: string, logicalKey: string): string {
+  return `${profileId}:${logicalKey}`;
 }

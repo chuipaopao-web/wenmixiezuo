@@ -535,6 +535,12 @@ export function archiveProtagonistState(bookId: string, entryId: string): Promis
   });
 }
 
+export function classifyProtagonistState(bookId: string, entryId: string, category: string): Promise<ProtagonistStateData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/protagonist-state/${encodeURIComponent(entryId)}/classify`, {
+    method: 'POST', body: JSON.stringify({ category })
+  });
+}
+
 export function createAttributeFormula(bookId: string, input: {
   formulaKey: string; label: string; expression: string;
   variables: Array<{ key: string; label: string; defaultValue?: number }>; unit?: string | null;

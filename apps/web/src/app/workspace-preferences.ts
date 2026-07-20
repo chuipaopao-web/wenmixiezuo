@@ -12,10 +12,10 @@ export const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
 };
 
 export const FONT_SCALE: Record<WorkspaceFontSize, number> = {
-  small: 0.92,
-  standard: 1,
-  large: 1.1,
-  xlarge: 1.2
+  small: 1,
+  standard: 1.1,
+  large: 1.2,
+  xlarge: 1.32
 };
 
 const STORAGE_KEY = 'wenmi:workspace-preferences';

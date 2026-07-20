@@ -147,9 +147,15 @@ describe('工作台API', () => {
     const profileId = profileResponse.json().data.profileId as string;
     const stateResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${first.bookId}/protagonists/${profileId}/state`,
-      payload: { category: '城池', logicalKey: '主城等级', label: '主城等级', valueType: 'number', value: 3, unit: '级', confirmed: true }
+      payload: { category: '待归类', logicalKey: '主城等级', label: '主城等级', valueType: 'number', value: 3, unit: '级', confirmed: true }
     });
     expect(stateResponse.json().data).toMatchObject({ value: 3, authorityLayer: 'canon', revision: 1 });
+    const stateId = stateResponse.json().data.entryId as string;
+    const classifiedResponse = await app.inject({
+      method: 'POST', url: `/api/v1/books/${first.bookId}/protagonist-state/${stateId}/classify`, payload: { category: '城池等级' }
+    });
+    expect(classifiedResponse.statusCode).toBe(200);
+    expect(classifiedResponse.json().data).toMatchObject({ category: '城池等级', value: 3, revision: 2, previousEntryId: stateId });
     const formulaResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas`,
       payload: { formulaKey: '总兵力', label: '总兵力', expression: '步兵 + 弓兵', variables: [{ key: '步兵', label: '步兵' }, { key: '弓兵', label: '弓兵' }], unit: '人' }
@@ -169,6 +175,10 @@ describe('工作台API', () => {
       payload: { category: '资源', logicalKey: '金币', label: '金币', valueType: 'resource', value: 1 }
     });
     expect(crossBook.statusCode).toBeGreaterThanOrEqual(400);
+    const crossBookClassification = await app.inject({
+      method: 'POST', url: `/api/v1/books/${second.bookId}/protagonist-state/${stateId}/classify`, payload: { category: '越权分类' }
+    });
+    expect(crossBookClassification.statusCode).toBeGreaterThanOrEqual(400);
     expect((await app.inject({ method: 'GET', url: `/api/v1/books/${second.bookId}/protagonists` })).json().data.profiles).toEqual([]);
   });
 });

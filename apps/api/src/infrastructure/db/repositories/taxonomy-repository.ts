@@ -136,6 +136,22 @@ export class TaxonomyRepository {
     );
   }
 
+  public hasOpenGap(scope: BookScope, targetType: string, targetId: string, gapType: string): boolean {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT 1 FROM knowledge_gap_findings
+      WHERE owner_id = ? AND book_id = ? AND target_type = ? AND target_id = ? AND gap_type = ?
+        AND status IN ('open', 'accepted_unknown') LIMIT 1`)
+      .get(scope.ownerId, scope.bookId, targetType, targetId, gapType) !== undefined;
+  }
+
+  public resolveGaps(scope: BookScope, targetType: string, targetId: string, now: string): number {
+    assertBookScope(scope);
+    return Number(this.database.prepare(`UPDATE knowledge_gap_findings SET status = 'resolved', resolved_at = ?
+      WHERE owner_id = ? AND book_id = ? AND target_type = ? AND target_id = ?
+        AND status IN ('open', 'accepted_unknown')`)
+      .run(now, scope.ownerId, scope.bookId, targetType, targetId).changes);
+  }
+
   public listOpenGaps(scope: BookScope): Array<Record<string, unknown>> {
     assertBookScope(scope);
     return this.database.prepare(`

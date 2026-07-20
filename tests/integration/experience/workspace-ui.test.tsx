@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe('完整创作工作台', () => {
-  it('显示内容优先三栏、小文秘书、十一名女性成员原型头像与真实状态并通过自动无障碍检查', async () => {
+  it('显示内容优先三栏、仅十一名女性创作成员、原型头像与真实状态并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
@@ -80,7 +80,7 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('complementary', { name: '书籍与功能' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
     expect(await screen.findByText('11 名成员')).toBeInTheDocument();
-    expect(screen.getByText('小文秘书（本地秘书）')).toBeInTheDocument();
+    expect(screen.queryByText('小文秘书（本地秘书）')).not.toBeInTheDocument();
     expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
     expect(screen.getByText('后台工作中')).toBeInTheDocument();
@@ -92,6 +92,7 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('local-deterministic/wenmi-fixture-v1')).not.toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(11);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
+    expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
@@ -288,7 +289,7 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('radio', { name: '雾蓝' }));
     fireEvent.click(screen.getByRole('radio', { name: '大' }));
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'mist');
-    expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
+    expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.2' });
     expect(JSON.parse(localStorage.getItem('wenmi:workspace-preferences') ?? '{}')).toMatchObject({ theme: 'mist', fontSize: 'large' });
     expect(screen.getByText('订阅与套餐模型已启用')).toBeInTheDocument();
     expect(screen.getByText('禁止按量付费回退')).toBeInTheDocument();
@@ -343,7 +344,13 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '主角实时面板' })).toBeInTheDocument();
     expect(screen.getByText('步兵数量')).toBeInTheDocument();
     expect(screen.getByText('1,200人')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '城池领地' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '契约伙伴' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '城池领地' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '待归类' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('为灵魂印记确认分类'), { target: { value: '灵魂能力' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认分类' }));
+    await waitFor(() => expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([input, init]) =>
+      String(input).endsWith('/protagonist-state/state-ui-3/classify') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: '角色' }));
     expect(await screen.findByText('张三')).toBeInTheDocument();
     expect(document.querySelector('.library-workspace pre')).toBeNull();
@@ -556,7 +563,11 @@ describe('完整创作工作台', () => {
 function createFetchRouter(chapterContent = '正文内容', workspaceData = workspace, messages: unknown[] = []) {
   const protagonistDashboard = { profiles: [{
     profileId: 'protagonist-ui-1', entityId: 'entity-1', displayName: '张三', isPrimary: true, status: 'active', historyCount: 2,
-    current: [{ entryId: 'state-ui-1', profileId: 'protagonist-ui-1', category: 'army', logicalKey: 'army_步兵数量', label: '步兵数量', valueType: 'resource', value: 1200, unit: '人', stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 2, note: null }],
+    current: [
+      { entryId: 'state-ui-1', profileId: 'protagonist-ui-1', category: 'army', logicalKey: 'army_步兵数量', label: '步兵数量', valueType: 'resource', value: 1200, unit: '人', stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 2, note: null },
+      { entryId: 'state-ui-2', profileId: 'protagonist-ui-1', category: '契约伙伴', logicalKey: 'spirit_deer', label: '白鹿', valueType: 'text', value: '共生契约', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null },
+      { entryId: 'state-ui-3', profileId: 'protagonist-ui-1', category: 'unclassified', logicalKey: 'soul_mark', label: '灵魂印记', valueType: 'text', value: '初醒', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null }
+    ],
     pending: []
   }] };
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -674,6 +685,9 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       });
     }
     if (path.endsWith('/protagonists')) return apiResponse(protagonistDashboard);
+    if (path.endsWith('/protagonist-state/state-ui-3/classify') && init?.method === 'POST') return apiResponse({
+      ...protagonistDashboard.profiles[0]!.current[2], category: '灵魂能力', revision: 2, previousEntryId: 'state-ui-3'
+    });
     if (path.endsWith('/attribute-formulas')) return apiResponse([]);
     if (path.endsWith('/library')) return apiResponse({ canonRevision: 3, entities: [{ entity_id: 'entity-1', entity_type: 'character', canonical_name: '张三', aliases: [], schema_version: 1, status: 'active' }], facts: [], relations: [], tags: [], projections: [], gaps: [], protagonists: protagonistDashboard, attributeFormulas: [], summary: { entityCount: 1, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } });
     if (path.endsWith('/memory') || path.endsWith('/projections')) return apiResponse([]);

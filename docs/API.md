@@ -425,6 +425,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 ### 18.2 主角面板
 
 - `GET/POST /api/v1/books/:bookId/protagonists`：读取当前面板或创建/修订主角档案；
+- `POST /api/v1/books/:bookId/protagonist-state/:entryId/classify`：作者为当前最新的“待归类”或其他状态项确认自由分类；服务端新增修订，保留事实值/来源/历史并关闭对应分类缺口，跨书或旧修订请求拒绝；
 - `POST /api/v1/books/:bookId/protagonists/:profileId/archive`：归档档案；
 - `POST /api/v1/books/:bookId/protagonists/:profileId/state`：追加候选或作者确认状态修订；
 - `POST /api/v1/books/:bookId/protagonist-state/:entryId/archive`：从当前面板移出条目并保留历史。

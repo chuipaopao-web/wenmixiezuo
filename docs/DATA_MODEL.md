@@ -42,7 +42,7 @@ draft → active → paused → archived
 
 保存 `agent_id`、`owner_id`、`book_id`、岗位模板、女性成员姓名、模型配置快照、权限、启用状态和健康状态。`display_name` 是成员姓名，岗位短名来自版本化岗位模板。
 
-小文秘书不写入 `agent_instances`，避免被误算为第12名创作成员或异模型意见。它使用版本化工具角色模板和下述按书会话/路由记录；前端聚合接口明确返回 `utilityAssistant` 与 `creativeAgents` 两个字段。
+小文秘书不写入 `agent_instances`，避免被误算为第12名创作成员或异模型意见。它使用版本化工具角色模板和下述按书会话/路由记录；前端聚合接口可以继续分开返回 `utilityAssistant` 与 `creativeAgents` 供聊天/诊断使用，但右侧团队栏只渲染 `creativeAgents`。
 
 ### `model_config_snapshots`
 
@@ -405,7 +405,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 ### `protagonist_state_entries`
 
-追加式保存分类、逻辑键、名称、值类型/值/单位、活动/消耗/遗失/战死/退役/归档状态、候选/正史/派生权威层、生效章节、故事时间、来源事实/正文、正史修订、修订号和上一版本。当前面板由每个逻辑键的最新非归档修订派生；物理删除或原地改写均不允许。
+追加式保存分类、逻辑键、名称、值类型/值/单位、活动/消耗/遗失/战死/退役/归档状态、候选/正史/派生权威层、生效章节、故事时间、来源事实/正文、正史修订、修订号和上一版本。`category` 是按书可扩展的导航元数据，不是固定枚举或必填模板；无法可靠分类时使用保留键 `unclassified` 并关联一个开放资料缺口。当前面板由每个逻辑键的最新非归档修订派生；作者重分类只新增修订并保留事实来源，物理删除或原地改写均不允许。
 
 ### `attribute_formulas`
 
