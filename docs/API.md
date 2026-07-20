@@ -417,7 +417,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 
 ### 18.1 正文版本与生产动作
 
-- `POST /api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts`：提交 `baseManuscriptVersionId/content/note`，以CAS创建作者不可变新稿；已结算章节、陈旧基准和竞争任务拒绝写入。
+- `POST /api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts`：提交 `baseManuscriptVersionId/content/note`，以CAS创建作者不可变新稿；章节尚无正文时允许 `baseManuscriptVersionId=null` 创建第一份作者草稿，已有正文时必须提交当前版本ID。已结算章节、陈旧基准和竞争任务拒绝写入。
 - `POST /api/v1/books/:bookId/chapters/:chapterId/rewrite`：绑定 `manuscriptVersionId/instruction` 创建或恢复真实重写任务，旧稿保留。
 - `POST /api/v1/books/:bookId/chapters/:chapterId/finalize`：绑定当前稿创建正式审校任务；如果同稿已在等待老板确认则返回现有确认，不重复调用模型。
 - 旧 `select-manuscript` 与直接 `settle` 对活动流程返回409及替代入口，不能绕过三席和老板确认。

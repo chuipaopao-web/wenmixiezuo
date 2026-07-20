@@ -260,6 +260,12 @@ export function App(): React.JSX.Element {
     const cacheKey = `chapter:${selectedBookId}:${selectedChapterId}`;
     const controller = new AbortController();
     void fetchChapterDetail(selectedBookId, selectedChapterId, controller.signal).then(setChapterDetail).catch(() => undefined);
+    const activeChapter = selectedWorkspaceChapter ?? selectedChapter;
+    const activeVersionId = activeChapter?.currentManuscriptVersionId ?? activeChapter?.canonManuscriptVersionId ?? null;
+    if (activeChapter !== null && activeVersionId === null) {
+      setReader({ content: '', offline: false, manuscriptVersionId: null });
+      return () => controller.abort();
+    }
     void fetchChapterContent(selectedBookId, selectedChapterId, controller.signal)
       .then(async (content) => {
         setReader({ content: content.content, offline: false, manuscriptVersionId: content.manuscriptVersionId });
@@ -267,10 +273,19 @@ export function App(): React.JSX.Element {
       })
       .catch(async () => {
         const cached = await loadSnapshot<string>(cacheKey, workspace.book.canonRevision);
-        if (cached !== null) setReader({ content: cached, offline: true, manuscriptVersionId: selectedWorkspaceChapter?.currentManuscriptVersionId ?? selectedWorkspaceChapter?.canonManuscriptVersionId ?? null });
+        if (cached !== null) setReader({ content: cached, offline: true, manuscriptVersionId: activeVersionId });
       });
     return () => controller.abort();
-  }, [selectedBookId, selectedChapterId, selectedWorkspaceChapter?.currentManuscriptVersionId, selectedWorkspaceChapter?.canonManuscriptVersionId, workspace?.book.canonRevision]);
+  }, [selectedBookId, selectedChapterId, selectedWorkspaceChapter?.currentManuscriptVersionId, selectedWorkspaceChapter?.canonManuscriptVersionId, selectedChapter?.currentManuscriptVersionId, selectedChapter?.canonManuscriptVersionId, workspace?.book.canonRevision]);
+
+  useEffect(() => {
+    if (view !== 'manuscript' || workspace === null || workspace.chapters.length === 0) return;
+    if (selectedChapterId !== null && selectedChapter?.chapterId === selectedChapterId) return;
+    const firstChapter = [...workspace.chapters].sort((left, right) => left.chapterNumber - right.chapterNumber)[0];
+    if (firstChapter === undefined) return;
+    setSelectedChapterId(firstChapter.chapterId);
+    setSelectedChapter(firstChapter);
+  }, [selectedChapterId, selectedChapter?.chapterId, view, workspace]);
 
   useEffect(() => {
     if (selectedBookId === null || workspace === null || !['outline', 'knowledge', 'projections', 'rights'].includes(view)) return;
@@ -878,6 +893,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   onChanged: () => void;
 }): React.JSX.Element {
   const [draft, setDraft] = useState('');
+  const [baselineContent, setBaselineContent] = useState('');
   const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
   const [rewriteOpen, setRewriteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState('保留已确认事实和人物声音，重新组织本章正文。');
@@ -885,27 +901,33 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     setDraft(reader?.content ?? '');
+    setBaselineContent(reader?.content ?? '');
     setBaseVersionId(reader?.manuscriptVersionId ?? chapter.currentManuscriptVersionId ?? chapter.canonManuscriptVersionId);
     setNotice(null);
     setRewriteOpen(false);
   }, [chapter.chapterId, chapter.currentManuscriptVersionId, chapter.canonManuscriptVersionId, reader?.content, reader?.manuscriptVersionId]);
   const settled = chapter.settlementStatus === 'settled';
-  const editable = !settled && reader !== null && !reader.offline && baseVersionId !== null;
-  const changed = reader !== null && draft !== reader.content;
+  const editable = !settled && reader !== null && !reader.offline;
+  const hasVersion = baseVersionId !== null;
+  const changed = reader !== null && draft !== baselineContent;
   const perform = async (kind: 'save' | 'rewrite' | 'finalize'): Promise<void> => {
-    if (baseVersionId === null || busyAction !== null) return;
+    const actionVersionId = baseVersionId;
+    if (busyAction !== null || (kind !== 'save' && actionVersionId === null)) return;
     setBusyAction(kind); setNotice(null);
     try {
       if (kind === 'save') {
         const result = await saveOwnerManuscript(bookId, chapter.chapterId, { baseManuscriptVersionId: baseVersionId, content: draft, note: '作者在正文工作台修改' });
         setBaseVersionId(result.manuscriptVersionId);
+        setBaselineContent(draft);
         setNotice(result.unchanged ? '正文没有变化。' : '修改已保存为新的不可变草稿版本，旧版本仍可追溯。');
       } else if (kind === 'rewrite') {
-        const result = await rewriteChapter(bookId, chapter.chapterId, baseVersionId, rewriteInstruction.trim());
+        if (actionVersionId === null) return;
+        const result = await rewriteChapter(bookId, chapter.chapterId, actionVersionId, rewriteInstruction.trim());
         setRewriteOpen(false);
         setNotice(`重写任务已进入队列（${shortId(result.taskId)}），完成后会生成新草稿，不覆盖当前版本。`);
       } else {
-        const result = await finalizeChapter(bookId, chapter.chapterId, baseVersionId);
+        if (actionVersionId === null) return;
+        const result = await finalizeChapter(bookId, chapter.chapterId, actionVersionId);
         setNotice(result.confirmationId === undefined
           ? `定稿审校任务已进入队列（${shortId(result.taskId)}）。通过三席点评后仍需你确认，才会进入正史。`
           : '本章已完成审校，正在等待你的最终确认。');
@@ -924,12 +946,16 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         <p className="offline-note">{reader.offline ? <><WifiSlashIcon />离线缓存，只读</> : settled ? <><WifiHighIcon />已确认正史正文，只读</> : <><WifiHighIcon />当前草稿，可修改</>}</p>
         {settled ? <div className="novel-text">{reader.content}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
         {!settled && <div className="manuscript-actions">
-          <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : '保存修改'}</button>
-          <button className="secondary-button" type="button" disabled={!editable || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>重写</button>
-          <button className="primary-button" type="button" disabled={!editable || changed || busyAction !== null} onClick={() => void perform('finalize')}>{busyAction === 'finalize' ? '提交中…' : '定稿'}</button>
+          <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : hasVersion ? '保存修改' : '保存草稿'}</button>
+          <button className="secondary-button" type="button" title={!hasVersion ? '先保存第一份正文草稿' : changed ? '请先保存当前修改' : '创建真实主笔重写任务'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>重写</button>
+          <button className="primary-button" type="button" title={!hasVersion ? '先保存第一份正文草稿' : changed ? '请先保存当前修改' : '提交硬检查、三席点评和老板确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('finalize')}>{busyAction === 'finalize' ? '提交中…' : '定稿'}</button>
         </div>}
         {rewriteOpen && <div className="rewrite-panel"><label>重写要求<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '开始重写'}</button></div></div>}
-        {changed && <p className="manuscript-unsaved">正文有未保存修改。保存后才能重写或提交定稿审校。</p>}
+        {!settled && <p className="manuscript-unsaved">{!hasVersion
+          ? '先输入或粘贴正文并保存第一稿，保存后才能重写或提交定稿审校。'
+          : changed
+            ? '正文有未保存修改。保存后才能重写或提交定稿审校。'
+            : '当前草稿已保存。重写会创建主笔任务，定稿会进入完整审校和老板确认。'}</p>}
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
       </>}
       {detail !== null && <ChapterProductionEvidence detail={detail} />}
@@ -953,30 +979,51 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
 }
 
 type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
+type ArtifactProjection = 'complete' | 'framework' | 'basic';
+
+const storyFrameworkFields = ['title', 'positioning', 'tags', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
+const storyBasicFields = ['worldView', 'worldRules', 'powerSystem', 'resourceSystem', 'equipmentTiers', 'economicRules', 'attributeFields'] as const;
+const basicSettingDefaults: Record<string, unknown> = {
+  worldView: '', powerSystem: '', resourceSystem: '', equipmentTiers: [], economicRules: [], attributeFields: [], worldRules: []
+};
 
 function PlanningWorkspace({ data, workspace }: {
   data: unknown; workspace: WorkspaceData | null;
 }): React.JSX.Element {
   const [tab, setTab] = useState<PlanningTab>('framework');
   const artifacts = Array.isArray(data) ? data.filter(isRecord) : [];
-  const typeByTab: Record<PlanningTab, string[]> = {
-    framework: ['creative_plan'], basic: ['story_bible'], master: ['master_outline'], volume: ['volume_outline'], chapter: ['chapter_outline']
-  };
-  const visible = artifacts.filter((artifact) => typeByTab[tab].includes(String(artifact.artifact_type)));
+  const visible = artifacts.flatMap<{ artifact: Record<string, unknown>; projection: ArtifactProjection }>((artifact) => {
+    const type = String(artifact.artifact_type);
+    if (type === 'story_bible' && (tab === 'framework' || tab === 'basic')) return [{ artifact, projection: tab }];
+    const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'basic'>, string> = {
+      master: 'master_outline', volume: 'volume_outline', chapter: 'chapter_outline'
+    };
+    if (tab === 'framework' && type === 'creative_plan') return [{ artifact, projection: 'complete' }];
+    if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
+    return [];
+  });
   const tabs: Array<[PlanningTab, string]> = [['framework', '全书框架'], ['basic', '基本设定'], ['master', '总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
+  const tabDescription: Record<PlanningTab, string> = {
+    framework: '作品定位、题材与读者、表达基线、核心前提、主线和初始人物势力都在这里。',
+    basic: '这里只维护世界观、力量与资源体系、装备等级、经济规则、属性字段和计算公式；非数值题材可以留空。',
+    master: '全书主线、推进阶段、重大承诺、开放问题和终局方向。',
+    volume: '按卷维护阶段目标、核心冲突、故事弧、高潮结果和卷末状态。',
+    chapter: '按章维护叙事目标、场景节拍、必须结果、读者信息和伏笔回收。'
+  };
   return (
     <section className="reference-view planning-workspace" aria-labelledby="planning-title">
       <header><h2 id="planning-title">规划工作台</h2><p>这里说明准备怎样写；资料库记录已经确认或发生的正史，两者通过来源相连。</p></header>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
+      <p className="planning-tab-description">{tabDescription[tab]}</p>
       {visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
-      ) : <div className="artifact-list">{visible.map((artifact) => <ArtifactCard key={String(artifact.artifact_id)} bookId={workspace?.book.bookId ?? null} artifact={artifact} />)}</div>}
+      ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <AttributeFormulaManager bookId={workspace?.book.bookId ?? null} />}
     </section>
   );
 }
 
-function ArtifactCard({ artifact, bookId }: { artifact: Record<string, unknown>; bookId: string | null }): React.JSX.Element {
+function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<string, unknown>; bookId: string | null; projection: ArtifactProjection }): React.JSX.Element {
   const artifactId = String(artifact.artifact_id ?? '');
   const initialStatus = String(artifact.active_version_status ?? artifact.status ?? 'candidate');
   const initialContent = isRecord(artifact.active_content) ? artifact.active_content : {};
@@ -988,14 +1035,17 @@ function ArtifactCard({ artifact, bookId }: { artifact: Record<string, unknown>;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState(String(artifact.active_version_id ?? ''));
+  const visibleContent = projectArtifactContent(content, projection, projection === 'basic');
+  const editableProjection = projectArtifactContent(draft, projection, true);
+  const displayTitle = projection === 'framework' ? '作品定位与全书框架' : projection === 'basic' ? '基本设定' : String(artifact.title ?? '未命名规划');
   const reloadVersions = (): void => {
     if (bookId === null || artifactId.length === 0) return;
     setBusy(true);
     void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本加载失败')).finally(() => setBusy(false));
   };
-  return <article className="artifact-card"><header><div><h3>{String(artifact.title ?? '未命名规划')}</h3><p>{artifactTypeLabel(String(artifact.artifact_type ?? ''))}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header><StructuredContent value={content} />
+  return <article className="artifact-card"><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(String(artifact.artifact_type ?? ''))}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header><StructuredContent value={visibleContent} />
     {notice !== null && <p className="artifact-notice" role="status">{notice}</p>}
-    {editing && <div className="artifact-editor"><h4>从当前内容创建候选版本</h4><ArtifactEditFields value={draft} onChange={setDraft} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
+    {editing && <div className="artifact-editor"><h4>从当前内容创建候选版本</h4><ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
       if (bookId === null) return;
       setBusy(true); setNotice(null);
       void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`候选版本 ${created.version} 已保存，尚未转为正式。`); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '候选保存失败')).finally(() => setBusy(false));
@@ -1011,6 +1061,25 @@ function ArtifactCard({ artifact, bookId }: { artifact: Record<string, unknown>;
         setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`版本 ${version.version} 已否决并保留追溯记录。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本否决失败')).finally(() => setBusy(false));
       }}>否决</button></>}</div></div>)}</div>}
     <footer><span>版本 {String(artifact.version ?? 1)}</span><span>来源和影响范围随版本保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>作者编辑</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看版本' : '刷新版本'}</button></span></footer></article>;
+}
+
+function projectArtifactContent(content: Record<string, unknown>, projection: ArtifactProjection, includeDefaults = false): Record<string, unknown> {
+  if (projection === 'complete') return content;
+  const keys = projection === 'framework' ? storyFrameworkFields : storyBasicFields;
+  const projected: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key in content) projected[key] = content[key];
+    else if (projection === 'basic' && includeDefaults) projected[key] = basicSettingDefaults[key];
+  }
+  return projected;
+}
+
+function mergeArtifactProjection(content: Record<string, unknown>, projected: Record<string, unknown>, projection: ArtifactProjection): Record<string, unknown> {
+  if (projection === 'complete') return projected;
+  const allowed = new Set<string>(projection === 'framework' ? storyFrameworkFields : storyBasicFields);
+  const merged = { ...content };
+  for (const [key, value] of Object.entries(projected)) if (allowed.has(key)) merged[key] = value;
+  return merged;
 }
 
 function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; depth?: number }): React.JSX.Element {
@@ -1957,7 +2026,7 @@ function modelProfileValue(profile: TeamModelProfileData): string {
 }
 
 function artifactTypeLabel(type: string): string {
-  return ({ creative_plan: '全书框架', story_bible: '基本设定', master_outline: '全书总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
+  return ({ creative_plan: '全书框架', story_bible: '故事圣经（按职责分区显示）', master_outline: '全书总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
 }
 
 function authorityLabel(status: string): string {
@@ -1970,8 +2039,10 @@ function entityTypeLabel(type: string): string {
 
 function fieldLabel(key: string): string {
   return ({
+    title: '书名', genre: '题材', sourceStatus: '来源状态', summary: '内容摘要', candidates: '候选',
     premise: '核心前提', audience: '目标读者', tone: '整体表达', constraints: '硬边界', confirmedRecommendation: '确认方案', alternatives: '保留备选',
-    positioning: '作品定位', worldRules: '世界规则', characters: '人物', mainPlot: '主线', planningHistory: '规划沿革',
+    positioning: '作品定位', worldView: '世界观', worldRules: '世界规则', powerSystem: '力量体系', resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段',
+    characters: '初始人物', initialOrganizations: '初始势力', mainPlot: '主线', planningHistory: '规划沿革', openQuestions: '开放问题', tags: '主要标签', theme: '主题',
     acts: '推进阶段', endingDirection: '结局方向', volumeNumber: '卷号', goal: '目标', arcs: '故事弧', endingState: '卷末状态',
     chapterNumber: '章节', objective: '目标', beats: '场景节拍', hook: '章末钩子', status: '状态', track: '轨道',
     projection_type: '投影类型', chapter_number: '章节', canon_revision: '正史修订', content: '分析内容', sourceIds: '来源', rebuilt_at: '重建时间',

@@ -125,6 +125,7 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/\.conversation-stream\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
+    expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
   });
 
   it('把归档书移出主书架并放入可恢复的归档区', async () => {
@@ -304,8 +305,7 @@ describe('完整创作工作台', () => {
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
     expect(await screen.findByRole('region', { name: '正文章节列表' })).toBeInTheDocument();
-    const chapterButton = await screen.findByRole('button', { name: /1\. 雾城初响/ });
-    fireEvent.click(chapterButton);
+    expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     await waitFor(() => expect(document.querySelector('.novel-text')?.textContent).toBe(longText));
     expect(await screen.findByRole('heading', { name: '工单与三席点评' })).toBeInTheDocument();
     expect(screen.getByText('文学与AI腔席')).toBeInTheDocument();
@@ -325,7 +325,12 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '规划工作台' })).toBeInTheDocument();
     for (const name of ['全书框架', '基本设定', '总纲', '卷纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '章节列表' })).not.toBeInTheDocument();
+    expect(await screen.findByText('游戏历史')).toBeInTheDocument();
+    expect(screen.queryByText('钟响后可见未来一天')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '基本设定' }));
+    expect(await screen.findByText('钟响后可见未来一天')).toBeInTheDocument();
+    expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
+    expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '属性计算公式' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
     expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
@@ -347,6 +352,29 @@ describe('完整创作工作台', () => {
     for (const name of ['人物关系', '情绪', '主线', '支线', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
   });
 
+  it('编辑基本设定时保留同一故事圣经中的全书框架字段', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(await screen.findByRole('button', { name: '基本设定' }));
+    fireEvent.click(await screen.findByRole('button', { name: '作者编辑' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '世界观' }), { target: { value: '钟声只展示与守城有关的未来碎片' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存候选' }));
+
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/artifacts/story-1/versions') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(request).toBeDefined();
+      const payload = JSON.parse(String((request![1] as RequestInit).body)) as { content: Record<string, unknown>; parentVersionId: string };
+      expect(payload.parentVersionId).toBe('story-version-1');
+      expect(payload.content).toMatchObject({
+        worldView: '钟声只展示与守城有关的未来碎片',
+        positioning: { genre: { value: '游戏历史', sourceStatus: 'explicit' } }
+      });
+    });
+  });
+
   it('未定稿正文可编辑保存，并提供重写与定稿审校入口', async () => {
     const draftWorkspace: WorkspaceData = {
       ...workspace,
@@ -359,7 +387,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
-    fireEvent.click(await screen.findByRole('button', { name: /1\. 雾城初响/ }));
+    expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
     fireEvent.change(editor, { target: { value: '作者修改后的正文' } });
     expect(screen.getByText(/未保存修改/)).toBeInTheDocument();
@@ -367,6 +395,37 @@ describe('完整创作工作台', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith('/manuscripts/owner-drafts') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
     expect(screen.getByRole('button', { name: '重写' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '定稿' })).toBeInTheDocument();
+  });
+
+  it('计划章无正文时直接显示空编辑器和动作状态，并以空基线保存第一稿', async () => {
+    const plannedWorkspace: WorkspaceData = {
+      ...workspace,
+      chapters: [{ ...chapter, volumeId: 'volume-ui-1', generationStatus: 'not_started', settlementStatus: 'unsettled', currentManuscriptVersionId: null, canonManuscriptVersionId: null }],
+      tasks: [],
+      volumes: [{ ...workspace.volumes![0]!, settledCount: 0 }]
+    };
+    const fetchMock = vi.fn(createFetchRouter('', plannedWorkspace));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+
+    expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
+    const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
+    expect(editor).toHaveValue('');
+    expect(screen.getByRole('button', { name: '重写' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '定稿' })).toBeDisabled();
+    expect(screen.getByText(/先输入或粘贴正文并保存第一稿/)).toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: '这是作者从空白章节写下的第一稿。' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/manuscripts/owner-drafts') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(request).toBeDefined();
+      expect(JSON.parse(String((request![1] as RequestInit).body))).toMatchObject({ baseManuscriptVersionId: null, content: '这是作者从空白章节写下的第一稿。' });
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: '重写' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: '定稿' })).toBeEnabled();
   });
 
   it('版权与研究入口只展示隔离后的真实摘要', async () => {
@@ -560,12 +619,22 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path.endsWith('/messages') && init?.method === 'POST') return apiResponse({ messageId: 'message-ui-new', action: { kind: 'conversation_reply_scheduled' } });
     if (path.endsWith('/messages')) return apiResponse(messages);
-    if (path.endsWith('/manuscripts/owner-drafts') && init?.method === 'POST') return apiResponse({ manuscriptVersionId: 'manuscript-owner-2', parentVersionId: 'manuscript-1', contentHash: 'hash-owner-2', wordCount: 8, status: 'candidate', unchanged: false });
+    if (path.endsWith('/manuscripts/owner-drafts') && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { baseManuscriptVersionId: string | null };
+      return apiResponse({ manuscriptVersionId: 'manuscript-owner-2', parentVersionId: payload.baseManuscriptVersionId, contentHash: 'hash-owner-2', wordCount: 8, status: 'candidate', unchanged: false });
+    }
     if (path.endsWith('/rewrite') && init?.method === 'POST') return apiResponse({ taskId: 'task-rewrite-1', operation: 'rewrite_existing', manuscriptVersionId: 'manuscript-owner-2' });
     if (path.endsWith('/finalize') && init?.method === 'POST') return apiResponse({ taskId: 'task-review-1', operation: 'review_existing' });
-    if (path.endsWith('/content')) return apiResponse({
-      manuscriptVersionId: 'manuscript-1', contentHash: 'hash-1', totalLength: chapterContent.length, content: chapterContent
-    });
+    if (path.endsWith('/content')) {
+      const activeChapter = workspaceData.chapters.find((item) => path.includes(`/chapters/${item.chapterId}/`));
+      if (activeChapter?.currentManuscriptVersionId === null && activeChapter.canonManuscriptVersionId === null) {
+        return new Response(JSON.stringify({ error: { message: '章节尚无可读取的正文或越权' } }), { status: 404, headers: { 'content-type': 'application/json' } });
+      }
+      return apiResponse({
+        manuscriptVersionId: activeChapter?.currentManuscriptVersionId ?? activeChapter?.canonManuscriptVersionId ?? 'manuscript-1',
+        contentHash: 'hash-1', totalLength: chapterContent.length, content: chapterContent
+      });
+    }
     if (/\/chapters\/chapter-ui-1$/u.test(path)) return apiResponse({
       chapter, manuscripts: [], facts: [], reviews: [], production: {
         writingOrders: [{ objective: '让钟声第一次改变主角选择', version: 1, canon_revision: 2, status: 'active' }], reviewPanels: [], approvalGates: [],
@@ -582,11 +651,28 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     if (path.endsWith('/research/sources')) return apiResponse([{ title: '公开资料', source_status: 'provided' }]);
     if (path.endsWith('/research/claims')) return apiResponse([{ claim_text: '候选判断', candidate_status: 'candidate' }]);
     if (path.endsWith('/artifacts')) return apiResponse([
-      { artifact_id: 'story-1', artifact_type: 'story_bible', title: '设定框架', status: 'active', version: 1, active_version_status: 'active', active_content: { worldRules: ['钟响后可见未来一天'], characters: ['张三'] } },
+      { artifact_id: 'story-1', artifact_type: 'story_bible', title: '故事圣经', status: 'active', version: 1, active_version_id: 'story-version-1', active_version_status: 'active', active_content: {
+        title: '雾钟档案',
+        positioning: { genre: { value: '游戏历史', sourceStatus: 'explicit' }, audience: { value: '长篇成长读者', sourceStatus: 'explicit' } },
+        mainPlot: { confirmed: { summary: '守住雾城并查明钟声来源' }, candidates: [] },
+        characters: ['张三'],
+        worldView: '钟声会短暂揭示未来碎片',
+        powerSystem: '军功与精神力双轨成长',
+        equipmentTiers: ['凡铁', '铭文', '王器'],
+        worldRules: ['钟响后可见未来一天']
+      } },
       { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见', acts: ['雾城危机'], endingDirection: '待确认' } },
       { artifact_id: 'volume-1', artifact_type: 'volume_outline', title: '第一卷卷纲', status: 'active', version: 1, active_version_status: 'active', active_content: { volumeNumber: 1, goal: '揭开钟声来源', arcs: ['雾城危机'], endingState: '城门失守' } },
       { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第一章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, goal: '听见钟声', beats: ['登城'], hook: '未来罪案出现' } }
     ]);
+    if (path.endsWith('/artifacts/story-1/versions') && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { content: Record<string, unknown>; parentVersionId: string | null };
+      return apiResponse({
+        artifactVersionId: 'story-version-2', artifactId: 'story-1', version: 2,
+        parentVersionId: payload.parentVersionId, positioningVersion: 1, content: payload.content,
+        contentHash: 'story-hash-2', status: 'candidate', createdAt: '2026-07-20T12:00:00.000Z'
+      });
+    }
     if (path.endsWith('/protagonists')) return apiResponse(protagonistDashboard);
     if (path.endsWith('/attribute-formulas')) return apiResponse([]);
     if (path.endsWith('/library')) return apiResponse({ canonRevision: 3, entities: [{ entity_id: 'entity-1', entity_type: 'character', canonical_name: '张三', aliases: [], schema_version: 1, status: 'active' }], facts: [], relations: [], tags: [], projections: [], gaps: [], protagonists: protagonistDashboard, attributeFormulas: [], summary: { entityCount: 1, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } });

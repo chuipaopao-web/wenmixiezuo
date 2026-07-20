@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { OwnerManuscriptService } from '../../../apps/api/src/application/creation/owner-manuscript-service.js';
+import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { ChapterPipelineService } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -10,6 +11,36 @@ import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domai
 import { createTestContext, FixedClock, SequenceIds } from '../../helpers/test-context.js';
 
 describe('作者正文修订', () => {
+  it('允许已规划但尚无正文的章节以空CAS基线创建第一份作者草稿', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '空稿首存书' });
+      const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+      const chapters = new ChapterCatalogService(context.database, ids, clock);
+      const volumeId = chapters.createVolume(scope, 1, '第一卷');
+      const planned = chapters.createChapter(scope, volumeId, 1, '第一章');
+      const saved = new OwnerManuscriptService(
+        context.database, context.dataDir, context.config.releaseId, ids, clock
+      ).saveDraft(scope, {
+        chapterId: planned.chapterId,
+        baseManuscriptVersionId: null,
+        content: '作者从空白章节开始写下第一份正文。',
+        note: '作者创建第一稿'
+      });
+
+      expect(saved).toMatchObject({ parentVersionId: null, status: 'candidate', unchanged: false });
+      expect(context.database.prepare(`SELECT current_manuscript_version_id, settlement_status FROM chapters
+        WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`).get(scope.ownerId, scope.bookId, planned.chapterId)).toEqual({
+        current_manuscript_version_id: saved.manuscriptVersionId,
+        settlement_status: 'unsettled'
+      });
+    } finally {
+      context.close();
+    }
+  });
+
   it('保存新不可变版本、保留旧稿并拒绝陈旧基线和已结算编辑', () => {
     const context = createTestContext();
     try {
