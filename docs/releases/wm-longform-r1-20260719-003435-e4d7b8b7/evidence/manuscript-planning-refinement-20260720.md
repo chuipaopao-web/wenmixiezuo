@@ -45,7 +45,7 @@
 
 - 提交前执行 `npm run acceptance`：3个验收测试全部通过；审计除“工作树干净”外其余条款全部通过。“工作树干净”在施工尚未提交时按设计阻断，不把该轮记录为最终通过。
 - 功能提交：`4f7bbcf`（`fix: refine manuscript and planning workspaces`）。提交后在干净工作树重跑 `npm run acceptance`：3个验收测试全部通过，所有审计条款通过，`failures: []`。
-- 本证据补录提交完成后再次提交，并在第二次干净工作树验收通过后推送至 `origin/main`。
+- 证据补录提交为 `ab3d826`；第二次干净工作树正式验收仍为3/3、`failures: []`。随后已成功推送 `38d3905..ab3d826` 至 `origin/main`。
 
 ## 证据边界与回滚
 
