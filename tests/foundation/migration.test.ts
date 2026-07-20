@@ -36,7 +36,8 @@ describe('向前迁移器', () => {
         '0015_agent_compression_prompts.sql', '0016_production_workflow.sql',
         '0017_experience_freeze.sql', '0018_portability_operations.sql', '0019_chat_attachments.sql',
         '0020_runtime_integrity.sql',
-        '0021_canon_index_requests.sql'
+        '0021_canon_index_requests.sql',
+        '0022_editor_review_syntheses.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -121,6 +122,22 @@ describe('向前迁移器', () => {
       runMigrations(database, migrationsDir);
       writeFileSync(migrationPath, 'CREATE TABLE changed(id TEXT PRIMARY KEY) STRICT;', 'utf8');
       expect(() => runMigrations(database, migrationsDir)).toThrow('校验和发生变化');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('拒绝已执行迁移文件从迁移目录消失', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const migrationPath = resolve(migrationsDir, '0001_initial.sql');
+    writeFileSync(migrationPath, 'CREATE TABLE stable(id TEXT PRIMARY KEY) STRICT;', 'utf8');
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      rmSync(migrationPath);
+      expect(() => runMigrations(database, migrationsDir)).toThrow('已执行迁移文件缺失');
     } finally {
       database.close();
     }

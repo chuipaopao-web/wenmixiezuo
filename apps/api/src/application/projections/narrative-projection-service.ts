@@ -37,7 +37,8 @@ export class NarrativeProjectionService {
       WHERE v.owner_id = ? AND v.book_id = ? AND a.artifact_type = 'chapter_outline' AND v.status = 'selected'
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ chapter_number: number; content_json: string; artifact_version_id: string }>;
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare(`DELETE FROM narrative_projections WHERE owner_id = ? AND book_id = ?`).run(scope.ownerId, scope.bookId);
       for (const outline of outlines) {
@@ -58,9 +59,9 @@ export class NarrativeProjectionService {
         this.insert(scope, 'subplot', 'actual', chapter.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'selected_manuscript' }, sources, now);
         this.insert(scope, 'information_gap', 'actual', chapter.chapter_number, book.canon_revision, { status: 'not_extracted', source: 'selected_manuscript' }, sources, now);
       }
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return outlines.length * 5 + chapters.filter((chapter) => chapter.settlement_status === 'settled' && chapter.state_json !== null).length * 5;

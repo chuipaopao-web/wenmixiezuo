@@ -167,7 +167,31 @@ function productionReview(
     const none = (policyVersion: string) => ({ level: 'none', locations: [], evidence: [], recommendedAction: '无需修改，继续保持基于正文证据复核。', policyVersion });
     return { ...common, politicalRisk: none('wenmi-content-policy-2026-07'), sexualContentRisk: none('wenmi-content-policy-2026-07') };
   }
-  return common;
+  return { ...common, factCandidates: deterministicFactCandidates(content) };
+}
+
+function deterministicFactCandidates(content: string): Array<Record<string, unknown>> {
+  const candidates: Array<Record<string, unknown>> = [];
+  const possession = sentenceContaining(content, '林澈', '铜钥匙');
+  if (possession !== null) candidates.push({
+    subjectName: '林澈', entityType: 'character', relationKey: 'possesses:item', value: '铜钥匙',
+    evidenceQuote: possession, evidenceLocation: '正文中提及铜钥匙的场景', epistemicStatus: 'objective',
+    negated: false, viewpointName: null, knowledgeSubjectName: null,
+    knowledgeTimeStart: null, knowledgeTimeEnd: null, storyTimeStart: null, storyTimeEnd: null
+  });
+  const keyRule = sentenceContaining(content, '钥匙', '开门');
+  if (keyRule !== null) candidates.push({
+    subjectName: '林澈', entityType: 'character', relationKey: 'believes:item_capability', value: '铜钥匙能开门并可能决定账本读取方式',
+    evidenceQuote: keyRule, evidenceLocation: '正文对钥匙作用的判断', epistemicStatus: 'belief',
+    negated: false, viewpointName: '林澈', knowledgeSubjectName: '林澈',
+    knowledgeTimeStart: null, knowledgeTimeEnd: null, storyTimeStart: null, storyTimeEnd: null
+  });
+  return candidates;
+}
+
+function sentenceContaining(content: string, ...needles: string[]): string | null {
+  const sentence = content.split(/(?<=[。！？])/u).find((item) => needles.every((needle) => item.includes(needle)))?.trim();
+  return sentence === undefined || sentence.length === 0 ? null : sentence;
 }
 
 function buildNovel(bookId: string, chapterNumber: number, title: string, previousState: string): string {

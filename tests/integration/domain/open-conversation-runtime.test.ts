@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
 import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
-import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -89,6 +91,42 @@ describe('开放式主创对话', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ?`).get(taskId)).toEqual({ count: 1 });
   });
 
+  it('未点名的主编开放回复连续技术失败后由副编接管并从原任务恢复', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '副编接管对话书', text: '旧城剧情讨论'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(scope, '请判断下一步还缺什么资料');
+    const taskId = String(scheduled.action.taskId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const firstClaim = tasks.claimNext('worker-chief')!;
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const takeoverFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'discussion' && roleKey === 'chief_editor') {
+          return { provider, modelId, async generate() { throw new Error('模拟主编回复Endpoint不可用'); } };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+
+    await expect(new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-chief', { leaseToken: firstClaim.leaseToken!, attemptNo: firstClaim.currentAttemptNo }))
+      .rejects.toThrow('已由');
+    expect(tasks.require(scope, taskId)).toMatchObject({ status: 'queued', requiredEditorEpoch: 2 });
+
+    const secondClaim = tasks.claimNext('worker-deputy')!;
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-deputy', { leaseToken: secondClaim.leaseToken!, attemptNo: secondClaim.currentAttemptNo });
+    expect(tasks.require(scope, taskId).status).toBe('succeeded');
+    expect((conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null }>)
+      .some((message) => message.sender_type === 'agent' && message.role_key === 'deputy_editor')).toBe(true);
+  });
+
   it('问候、身份说明和任务查看由小文秘书本地完成且不创建模型任务', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -109,6 +147,26 @@ describe('开放式主创对话', () => {
     expect(notices.some((message) => message.content.includes('目前没有进行中的任务'))).toBe(true);
     expect(notices.at(-1)?.content).toContain('不需要暂停');
     expect(notices.some((message) => /明确控制命令已执行|内部错误/u.test(message.content))).toBe(false);
+  });
+
+  it('聊天发出取消时只中止当前书籍的活动任务', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const firstBook = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '取消命令测试书', text: '一部待讨论的小说' });
+    const secondBook = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '隔离书', text: '不应被取消' });
+    const firstScope = { ownerId: context.config.ownerId, bookId: firstBook.bookId };
+    const secondScope = { ownerId: context.config.ownerId, bookId: secondBook.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    const first = conversations.sendBossMessage(firstScope, '讨论下一章的冲突');
+    const second = conversations.sendBossMessage(secondScope, '讨论另一章的冲突');
+    const cancelled = conversations.sendBossMessage(firstScope, '取消');
+
+    expect(cancelled.action).toMatchObject({ kind: 'cancel_requested', taskIds: [first.action.taskId] });
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    expect(tasks.require(firstScope, String(first.action.taskId))).toMatchObject({ status: 'cancelled', cancelRequested: true });
+    expect(tasks.require(secondScope, String(second.action.taskId))).toMatchObject({ status: 'queued', cancelRequested: false });
   });
 
   it('自然创作意图自动进入相关岗位讨论而不要求命令前缀', () => {

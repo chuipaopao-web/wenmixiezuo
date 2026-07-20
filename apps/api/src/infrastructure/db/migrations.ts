@@ -26,6 +26,11 @@ export function runMigrations(database: DatabaseSync, migrationsDir: string): Mi
   const names = readdirSync(migrationsDir)
     .filter((name) => /^[0-9]{4}_[a-z0-9_-]+\.sql$/.test(name))
     .sort();
+  const available = new Set(names);
+  const missingApplied = appliedRows.map((row) => row.name).filter((name) => !available.has(name)).sort();
+  if (missingApplied.length > 0) {
+    throw new Error(`已执行迁移文件缺失：${missingApplied.join(', ')}`);
+  }
   const newlyApplied: string[] = [];
 
   for (const name of names) {
@@ -53,4 +58,3 @@ export function runMigrations(database: DatabaseSync, migrationsDir: string): Mi
 
   return { applied: newlyApplied, currentVersion: names.length };
 }
-

@@ -26,3 +26,17 @@ export interface ModelAdapter {
   generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult>;
 }
 
+export type ModelFailureClass = 'technical_failure' | 'authentication_failure' | 'request_failure';
+
+export class ModelAdapterError extends Error {
+  public constructor(
+    message: string,
+    public readonly failureClass: ModelFailureClass,
+    public readonly retryable: boolean,
+    public readonly statusCode?: number,
+    public readonly outcomeUnknown = false
+  ) {
+    super(message);
+    this.name = 'ModelAdapterError';
+  }
+}

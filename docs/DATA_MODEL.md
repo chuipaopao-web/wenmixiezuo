@@ -60,6 +60,8 @@ draft → active → paused → archived
 
 三份报告属于当前稿临时质量记录，不自动成为正史或长期经验。每个新修订稿产生新的 `review_panel`；旧报告不可覆盖，主编合并结果另存 `revision_orders` 并保留采用、否决、分歧、来源报告和最多两轮计数。
 
+`editor_review_syntheses` 保存活动主编基于三份已验证报告生成的不可变综合JSON、综合哈希、实际主编Agent和模型快照。它不保存新的全文点评，也不能在缺席、同源、错稿或坏Schema时创建；最终修订工单引用该综合及原始三报告，确定性代码只负责校验和状态提交，不冒充主编判断。
+
 ### `editor_leases`
 
 每书只有一条有效活动租约，包含活动主编、候任主编、`editor_epoch`、过期时间、接管状态和接管ID。旧epoch的命令在应用服务层拒绝。
@@ -368,7 +370,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 ## 14. 长篇release新增Schema分组与切换元数据
 
-长篇增量只通过0010至0019向前新增，不修改0001至0009。表名、顺序和职责如下：
+长篇增量只通过0010至0022向前新增，不修改0001至0009，也不修改已合并迁移。表名、顺序和职责如下：
 
 - 0010：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
 - 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
@@ -380,6 +382,9 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0017：冻结运行中讨论、写作与点评所用模型绑定和书籍体验修订，保证未来配置不污染既有任务。
 - 0018：`portable_operations`、`portable_manifests`、`portable_files`、`import_quarantine_checks`、`restore_impact_reports`。
 - 0019：`chat_attachments`，保存按书隔离的原文件身份、哈希、MIME、大小、本地相对路径、消息绑定、解析状态、有界上下文摘录和固定 `temporary` 生命周期。原文件与解析文本同时登记 `file_registry`；附件不能成为正史权威或正式向量投影源。
+- 0020：为任务补充不可复用租约token、attempt、租约续期与恢复字段；为模型调用补充不可变结果、结果哈希、provider引用和调和记录；所有晚到提交由书籍作用域、执行者、租约、attempt和主编epoch联合栅栏。
+- 0021：`canon_index_requests` 保存与正史修订同事务登记的索引意图、处理状态和错误；索引协调器幂等消费并只在全书覆盖探针通过后切换活动投影。
+- 0022：`editor_review_syntheses` 保存主编真实综合；章节流水线保存一次写手接管计数与原因；`fact_assertions` 增加认识状态、否定、观点/知情主体、知情时间和时间完整度；`chunk_snapshot_memberships` 让全书活动清单复用不可变来源切片，`embedding_vector_cache` 按模型身份与嵌入文本哈希复用向量，防止每章全书重切/重嵌入。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。
 

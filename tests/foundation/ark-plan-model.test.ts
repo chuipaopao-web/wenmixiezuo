@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ArkPlanModelAdapter } from '../../apps/api/src/infrastructure/models/ark-plan-model.js';
+import { ModelAdapterError } from '../../apps/api/src/infrastructure/models/model-adapter.js';
 
 const request = {
   requestId: 'request-plan-1',
@@ -102,8 +103,20 @@ describe('火山方舟严格套餐适配器', () => {
     }, async () => new Response('{"error":{"message":"denied"}}', { status: 403 }));
     const error = await failing.generate(request).catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({ failureClass: 'authentication_failure', retryable: false, statusCode: 403 });
     expect((error as Error).message).toContain('403');
     expect((error as Error).message).not.toContain('secret-must-not-leak');
+  });
+
+  it('只把限流和服务端故障标记为可重试技术错误', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => new Response('rate limited', { status: 429 }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({ failureClass: 'technical_failure', retryable: true, statusCode: 429 });
   });
 
   it('超时会真实中断底层HTTP请求', async () => {
@@ -120,7 +133,25 @@ describe('火山方舟严格套餐适配器', () => {
       purpose: 'discussion', timeoutMs: 1_000
     }, fetchImpl);
 
-    await expect(adapter.generate(request)).rejects.toThrow(/1000毫秒/u);
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: false, outcomeUnknown: true
+    });
+    expect((error as Error).message).toMatch(/1000毫秒/u);
     expect(observedAbort).toBe(true);
+  });
+
+  it('2xx响应不可解析时冻结为供应商结果未知而不是安全重试', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => new Response('not-json', { status: 200 }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: false, statusCode: 200, outcomeUnknown: true
+    });
   });
 });

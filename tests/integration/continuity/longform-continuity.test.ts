@@ -32,6 +32,8 @@ describe('超长篇连续性', () => {
       sources: [{ sourceType: 'canon_volume', sourceId: 'volume-1', sourceHash: 'b'.repeat(64), locator: { chapters: [1, 100] } }] };
     const first = service.build(scope, { ...base, probes: [{ type: 'fact', expected: true, actual: true, passed: true }] });
     expect(first.activated).toBe(true);
+    expect(() => service.build(scope, { ...base, canonRevision: 11, probes: [] }))
+      .toThrow('至少一个可验证探针');
     const failed = service.build(scope, { ...base, canonRevision: 11, probes: [{ type: 'negative', expected: '无冲突', actual: '冲突', passed: false }] });
     expect(failed).toMatchObject({ activated: false, retainedPreviousId: first.settlementId });
     expect(repository.activeSettlement(scope, 'volume', 'volume-1')?.id).toBe(first.settlementId);

@@ -42,18 +42,50 @@ export class ChapterApprovalService {
       if (this.repository.canonRevision(scope) !== expectedCanonRevision) throw new Error('正史修订已经变化，正文确认必须重新生成');
       if (!liveRetry) this.repository.resolveGate(scope, confirmationId, true, note, now);
       this.chapters.selectManuscript(scope, gate.chapterId, gate.manuscriptVersionId);
-      const canonicalName = `第${chapter.chapterNumber}章已发生事件`;
-      const entityId = this.repository.findChapterEventEntity(scope, canonicalName) ?? this.canon.createEntity(scope, { entityType: 'event', canonicalName });
-      if (!this.repository.hasChapterFact(scope, gate.chapterId, gate.manuscriptVersionId)) {
+      for (const candidate of this.repository.factCandidatesForPanel(scope, liveGate.reviewPanelId)) {
+        if (candidate.evidenceQuote.length > 600 || !content.includes(candidate.evidenceQuote)) {
+          throw new Error(`事实候选证据无法在确认正文中逐字定位：${candidate.subjectName}/${candidate.relationKey}`);
+        }
+        const entityId = this.repository.findEntity(scope, candidate.entityType, candidate.subjectName)
+          ?? this.canon.createEntity(scope, { entityType: candidate.entityType, canonicalName: candidate.subjectName });
+        const viewpointEntityId = candidate.viewpointName === null
+          ? null
+          : this.repository.findEntity(scope, 'character', candidate.viewpointName)
+            ?? this.canon.createEntity(scope, { entityType: 'character', canonicalName: candidate.viewpointName });
+        const knowledgeSubjectId = candidate.knowledgeSubjectName === null
+          ? null
+          : this.repository.findEntity(scope, 'character', candidate.knowledgeSubjectName)
+            ?? this.canon.createEntity(scope, { entityType: 'character', canonicalName: candidate.knowledgeSubjectName });
+        if (this.repository.hasFactCandidate(scope, {
+          chapterId: gate.chapterId,
+          manuscriptVersionId: gate.manuscriptVersionId,
+          subjectEntityId: entityId,
+          relationKey: candidate.relationKey
+        })) continue;
         this.canon.proposeFact(scope, {
           subjectEntityId: entityId,
-          relationKey: 'event',
-          value: { chapterNumber: chapter.chapterNumber, endingExcerpt: endingExcerpt(content), source: 'owner_confirmed_manuscript' },
-          evidence: [{ manuscriptVersionId: gate.manuscriptVersionId, location: '全文及章末' }],
+          relationKey: candidate.relationKey,
+          value: candidate.value,
+          evidence: [{
+            manuscriptVersionId: gate.manuscriptVersionId,
+            quote: candidate.evidenceQuote,
+            location: candidate.evidenceLocation
+          }],
           grade: 'B',
           sourceChapterId: gate.chapterId,
           sourceManuscriptVersionId: gate.manuscriptVersionId,
-          storyTimeStart: `第${chapter.chapterNumber}章`
+          storyTimeStart: candidate.storyTimeStart ?? `第${chapter.chapterNumber}章`,
+          storyTimeEnd: candidate.storyTimeEnd,
+          epistemicStatus: candidate.epistemicStatus,
+          negated: candidate.negated,
+          viewpointEntityId,
+          knowledgeSubjectId,
+          knowledgeTimeStart: candidate.knowledgeTimeStart,
+          knowledgeTimeEnd: candidate.knowledgeTimeEnd,
+          temporalCompleteness: candidate.storyTimeStart !== null
+            && (candidate.epistemicStatus === 'objective' || (viewpointEntityId !== null && knowledgeSubjectId !== null))
+            ? 'complete'
+            : 'partial'
         });
       }
       const result = this.canon.settleChapter(scope, gate.chapterId, gate.manuscriptVersionId, {

@@ -700,10 +700,10 @@
 - 唯一负责人：当前Codex；不调用其他开发Agent。
 - 允许文件：新增0020以后迁移、API/Worker业务和Repository、检索/知识/创作/审校/恢复代码、相关测试、当前规格、任务账本与release证据。
 - 禁止文件：0001—0019迁移改写、API Key、来源快照、真实生产恢复/永久删除和 `D:\AI智囊团`。
-- 依赖：DEC-012/021/026/028—031/040、Schema 19、长篇质量Skill与既有本地向量运行时。
+- 依赖：DEC-012/021/026/028—031/040、Schema 19基线、向前迁移0020—0022、长篇质量Skill与既有本地向量运行时。
 - 实现约束：SQLite保持权威；外部调用不占长事务；所有提交有作用域与租约/epoch栅栏；投影可重建且旧水位保留；检索多取少注入；正式三席不降级。
 - 验收标准：八阶段计划中的目标测试、类型、全测、构建、空库/升级迁移、运行、恢复、跨书、备份和正式验收全部真实通过；缺凭证时如实停在E2。
-- 测试命令：阶段专项、`npm run verify`、`npm run migrate`、空库与Schema 19升级、运行探针、恢复/跨书/Repository、`npm run verify:backup`、`npm run acceptance`、`git diff --check`。
+- 测试命令：阶段专项、`npm run verify`、`npm run migrate`两次、空库与Schema 19→22升级、运行探针、恢复/跨书/Repository、`npm run runtime:vector-e2e`、`npm run evaluate:retrieval-gold`、`npm run verify:backup`、`npm run acceptance`、`git diff --check`。
 - 停止条件：付费、新密钥/登录、真实书永久删除、生产恢复、重大架构变更、跨书泄漏、正史半结算、预算不可调和或外部阻塞。
 - 回滚方法：业务按阶段revert或向前修复；迁移只向前；投影删除重建；不回滚正史或正式正文。
 - 复核人：当前Codex依据两轮设计审计、自动与运行证据复核；单人限制如实记录。

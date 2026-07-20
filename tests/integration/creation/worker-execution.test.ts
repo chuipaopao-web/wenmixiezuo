@@ -59,7 +59,9 @@ describe('独立Worker章节执行', () => {
     expect(context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId)).toEqual({ status: 'succeeded' });
     expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ settlement_status: 'settled' });
     expect(context.database.prepare(`SELECT current_task_id FROM worker_health WHERE worker_id = 'creation-worker-test'`).get()).toEqual({ current_task_id: null });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded'`).get(taskId)).toEqual({ count: 8 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded'`).get(taskId)).toEqual({ count: 10 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM editor_review_syntheses WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
     const contentResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${scope.bookId}/chapters/${batch.chapterIds[0]!}/content?start=0&end=120` });
     expect(contentResponse.statusCode).toBe(200);
     expect(contentResponse.json().data).toEqual(expect.objectContaining({ start: 0, end: 120, totalLength: expect.any(Number), content: expect.any(String) }));

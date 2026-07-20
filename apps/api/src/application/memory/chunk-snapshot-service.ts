@@ -28,10 +28,19 @@ export class ChunkSnapshotService {
   ) {}
 
   public build(scope: BookScope, source: ChunkSourceInput, canonRevision: number, failAt?: 'before_validate' | 'before_ready'): { snapshotId: string; chunkCount: number } {
-    return this.buildMany(scope, [source], canonRevision, failAt);
+    return this.buildManyInternal(scope, [source], canonRevision, 'materialized', failAt);
   }
 
   public buildMany(scope: BookScope, sources: ChunkSourceInput[], canonRevision: number, failAt?: 'before_validate' | 'before_ready'): { snapshotId: string; chunkCount: number } {
+    return this.buildManyInternal(scope, sources, canonRevision, 'materialized', failAt);
+  }
+
+  public buildFragmentMany(scope: BookScope, sources: ChunkSourceInput[], canonRevision: number): { snapshotId: string; chunkCount: number } {
+    return this.buildManyInternal(scope, sources, canonRevision, 'fragment');
+  }
+
+  private buildManyInternal(scope: BookScope, sources: ChunkSourceInput[], canonRevision: number,
+    snapshotKind: 'materialized' | 'fragment', failAt?: 'before_validate' | 'before_ready'): { snapshotId: string; chunkCount: number } {
     if (sources.length === 0) throw new Error('切片快照至少需要一个不可变来源');
     const duplicate = sources.find((source, index) => sources.findIndex((candidate) => candidate.sourceType === source.sourceType
       && candidate.sourceId === source.sourceId && candidate.sourceVersion === source.sourceVersion) !== index);
@@ -49,7 +58,7 @@ export class ChunkSnapshotService {
       const policy = prepared[0]!.result.policy;
       this.repository.createSnapshot(scope, {
         snapshotId, strategyVersion: policy.version, normalizationVersion: policy.normalizationVersion,
-        embeddingTextPolicyVersion: policy.embeddingTextPolicyVersion, canonRevision, now
+        embeddingTextPolicyVersion: policy.embeddingTextPolicyVersion, canonRevision, now, snapshotKind
       });
       let chunkCount = 0;
       let nodeCount = 0;

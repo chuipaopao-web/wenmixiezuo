@@ -28,6 +28,26 @@ export interface ProductionReview {
   };
   politicalRisk?: ContentRisk;
   sexualContentRisk?: ContentRisk;
+  factCandidates?: FactCandidate[];
+}
+
+export const factEntityTypes = ['character', 'location', 'organization', 'item', 'resource', 'skill', 'stat_panel', 'world_rule', 'event', 'foreshadowing', 'hook'] as const;
+export const factEpistemicStatuses = ['objective', 'claim', 'belief', 'lie', 'dream', 'plan', 'counterfactual', 'ambiguous', 'conflicted'] as const;
+export interface FactCandidate {
+  subjectName: string;
+  entityType: typeof factEntityTypes[number];
+  relationKey: string;
+  value: unknown;
+  evidenceQuote: string;
+  evidenceLocation: string;
+  epistemicStatus: typeof factEpistemicStatuses[number];
+  negated: boolean;
+  viewpointName: string | null;
+  knowledgeSubjectName: string | null;
+  knowledgeTimeStart: string | null;
+  knowledgeTimeEnd: string | null;
+  storyTimeStart: string | null;
+  storyTimeEnd: string | null;
 }
 
 export interface ContentRisk {
@@ -36,6 +56,39 @@ export interface ContentRisk {
   evidence: string[];
   recommendedAction: string;
   policyVersion: string;
+}
+
+export interface EditorReviewSynthesis {
+  panelId: string;
+  manuscriptVersionId: string;
+  recommendedVerdict: ReviewVerdict;
+  priorityIssueIndexes: number[];
+  preservedDisagreements: string[];
+  rationale: string;
+}
+
+export function parseEditorReviewSynthesis(raw: string, expected: {
+  panelId: string; manuscriptVersionId: string; issueCount: number;
+}): EditorReviewSynthesis {
+  const value = parseJsonObject(raw);
+  if (value.panelId !== expected.panelId || value.manuscriptVersionId !== expected.manuscriptVersionId) {
+    throw new Error('主编综合结果与冻结点评轮次不一致');
+  }
+  if (!['pass', 'rewrite', 'blocked'].includes(String(value.recommendedVerdict))) throw new Error('主编综合recommendedVerdict无效');
+  if (!Array.isArray(value.priorityIssueIndexes)
+    || value.priorityIssueIndexes.some((index) => !Number.isInteger(index) || Number(index) < 0 || Number(index) >= expected.issueCount)
+    || new Set(value.priorityIssueIndexes).size !== value.priorityIssueIndexes.length) {
+    throw new Error('主编综合priorityIssueIndexes无效');
+  }
+  const rationale = requiredText(value.rationale, '主编综合rationale');
+  return {
+    panelId: expected.panelId,
+    manuscriptVersionId: expected.manuscriptVersionId,
+    recommendedVerdict: value.recommendedVerdict as ReviewVerdict,
+    priorityIssueIndexes: value.priorityIssueIndexes as number[],
+    preservedDisagreements: stringArray(value.preservedDisagreements, '主编综合preservedDisagreements'),
+    rationale
+  };
 }
 
 export function parseProductionReview(
@@ -64,12 +117,48 @@ export function parseProductionReview(
     issues,
     scores
   };
+  if (expected.reviewerRole === 'fact') base.factCandidates = parseFactCandidates(value.factCandidates);
   if (expected.reviewerRole === 'literary') base.aiStyle = parseAiStyle(value.aiStyle);
   if (expected.reviewerRole === 'experience') {
     base.politicalRisk = parseRisk(value.politicalRisk, 'politicalRisk');
     base.sexualContentRisk = parseRisk(value.sexualContentRisk, 'sexualContentRisk');
   }
   return base;
+}
+
+function parseFactCandidates(value: unknown): FactCandidate[] {
+  if (!Array.isArray(value)) throw new Error('事实点评缺少factCandidates数组');
+  if (value.length > 40) throw new Error('单章事实候选超过40条上限');
+  return value.map((item) => {
+    if (!isRecord(item)) throw new Error('事实候选必须是对象');
+    const subjectName = requiredText(item.subjectName, 'factCandidates.subjectName');
+    const relationKey = requiredText(item.relationKey, 'factCandidates.relationKey');
+    const evidenceQuote = requiredText(item.evidenceQuote, 'factCandidates.evidenceQuote');
+    const evidenceLocation = requiredText(item.evidenceLocation, 'factCandidates.evidenceLocation');
+    if (!factEntityTypes.includes(item.entityType as FactCandidate['entityType'])) throw new Error('factCandidates.entityType无效');
+    if (!factEpistemicStatuses.includes(item.epistemicStatus as FactCandidate['epistemicStatus'])) throw new Error('factCandidates.epistemicStatus无效');
+    if (typeof item.negated !== 'boolean') throw new Error('factCandidates.negated无效');
+    if (!('value' in item)) throw new Error('factCandidates.value缺失');
+    for (const field of ['viewpointName', 'knowledgeSubjectName', 'knowledgeTimeStart', 'knowledgeTimeEnd', 'storyTimeStart', 'storyTimeEnd'] as const) {
+      if (item[field] !== null && typeof item[field] !== 'string') throw new Error(`factCandidates.${field}无效`);
+    }
+    return {
+      subjectName,
+      entityType: item.entityType as FactCandidate['entityType'],
+      relationKey,
+      value: item.value,
+      evidenceQuote,
+      evidenceLocation,
+      epistemicStatus: item.epistemicStatus as FactCandidate['epistemicStatus'],
+      negated: item.negated,
+      viewpointName: (item.viewpointName ?? null) as string | null,
+      knowledgeSubjectName: (item.knowledgeSubjectName ?? null) as string | null,
+      knowledgeTimeStart: (item.knowledgeTimeStart ?? null) as string | null,
+      knowledgeTimeEnd: (item.knowledgeTimeEnd ?? null) as string | null,
+      storyTimeStart: item.storyTimeStart as string | null,
+      storyTimeEnd: item.storyTimeEnd as string | null
+    };
+  });
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -131,6 +220,11 @@ function parseRisk(value: unknown, field: string): ContentRisk {
 function boundedNumber(value: unknown, field: string, minimum = 0, maximum = 100): number {
   if (!Number.isFinite(value) || Number(value) < minimum || Number(value) > maximum) throw new Error(`${field}无效`);
   return Number(value);
+}
+
+function requiredText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`${field}缺失`);
+  return value.trim();
 }
 
 function integer(value: unknown, field: string): number {

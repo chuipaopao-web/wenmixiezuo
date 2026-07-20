@@ -18,6 +18,13 @@ import {
   prepareEffectiveOutput,
   type EffectiveOutputResult
 } from '../chat/effective-output-service.js';
+import { HybridRetrievalService } from '../memory/hybrid-retrieval-service.js';
+import { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
+import { RetrievalOrchestrationRepository } from '../../infrastructure/db/repositories/retrieval-orchestration-repository.js';
+import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowledge-repository.js';
+import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
+import { EditorLeaseService } from '../editors/editor-lease-service.js';
+import { createHash } from 'node:crypto';
 
 interface DiscussionTaskRow {
   status: string;
@@ -43,7 +50,11 @@ export class DiscussionPipelineService {
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
-    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
+    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({})),
+    private readonly retrieval: HybridRetrievalService = new HybridRetrievalService(
+      new RetrievalOrchestrationRepository(database), new KnowledgeRepository(database),
+      new ChunkSnapshotRepository(database), ids, clock
+    )
   ) {}
 
   public async executeClaimed(scope: BookScope, taskId: string, workerId: string, leaseFence?: TaskLeaseFence): Promise<{ discussionId: string; decisionId: string; opinionCount: number }> {
@@ -66,7 +77,7 @@ export class DiscussionPipelineService {
     };
     const discussions = new DiscussionService(this.database, this.ids, this.clock);
     const discussion = discussions.require(scope, brief.discussionId);
-    if (discussion.status !== 'collecting') throw new Error('讨论任务状态与讨论阶段不一致');
+    if (!['collecting', 'synthesizing'].includes(discussion.status)) throw new Error('讨论任务状态与讨论阶段不一致');
     const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
     const participants = this.database.prepare(`
@@ -77,8 +88,9 @@ export class DiscussionPipelineService {
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id)
       WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ?
+        AND (a.agent_id = ? OR r.role_key NOT IN ('chief_editor', 'deputy_editor'))
       ORDER BY CASE WHEN a.agent_id = ? THEN 1 ELSE 0 END, p.agent_id
-    `).all(brief.discussionId, scope.ownerId, scope.bookId, task.assigned_agent_id) as unknown as ParticipantRow[];
+    `).all(brief.discussionId, scope.ownerId, scope.bookId, task.assigned_agent_id, task.assigned_agent_id) as unknown as ParticipantRow[];
     const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
       .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
     if (budget === undefined) throw new Error('讨论书籍没有活动预算');
@@ -91,10 +103,30 @@ export class DiscussionPipelineService {
       roleKey: RoleKey | CreativeRoleKey;
       output: string;
       effective?: EffectiveOutputResult;
-    }> = [];
+    }> = (this.database.prepare(`
+      SELECT o.agent_id, a.display_name, r.role_key, o.content_json
+      FROM discussion_opinions o JOIN agent_instances a
+        ON a.agent_id = o.agent_id AND a.owner_id = o.owner_id AND a.book_id = o.book_id
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE o.discussion_id = ? AND o.owner_id = ? AND o.book_id = ? AND o.phase = 'independent'
+      ORDER BY o.created_at, o.opinion_id
+    `).all(brief.discussionId, scope.ownerId, scope.bookId) as unknown as Array<{
+      agent_id: string; display_name: string; role_key: RoleKey | CreativeRoleKey; content_json: string;
+    }>).map((row) => {
+      const content = JSON.parse(row.content_json) as { recommendation?: unknown };
+      const output = typeof content.recommendation === 'string' ? content.recommendation : JSON.stringify(content.recommendation ?? content);
+      return {
+        agentId: row.agent_id,
+        role: row.display_name,
+        roleKey: row.role_key,
+        output,
+        ...(['chief_editor', 'deputy_editor'].includes(row.role_key) ? { effective: prepareEffectiveOutput(output) } : {})
+      };
+    });
     const spanEstimates = new PlotSpanEstimateService(new LongformContinuityRepository(this.database), this.ids, this.clock);
     try {
       for (const participant of participants) {
+        if (opinions.some((opinion) => opinion.agentId === participant.agent_id)) continue;
         const cancellation = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
         if (cancellation.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
         const isEditor = participant.agent_id === task.assigned_agent_id;
@@ -108,16 +140,30 @@ export class DiscussionPipelineService {
             priority: 100
           });
         }
+        const retrieved = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
+          query: brief.scopeText,
+          roleKey: participant.role_key,
+          mode: brief.purpose === 'creative_planning' ? 'creative_exploration' : 'open_discussion',
+          canonRevision: book.canon_revision,
+          taskId,
+          sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
+          limit: isEditor ? 12 : 9
+        });
+        hardSources.push(...retrieved.hardSources);
         const pack = contextPacks.build(scope, {
           taskId, agentId: participant.agent_id, canonRevision: book.canon_revision,
           positioningVersion: book.positioning_version, tokenBudget: 8_000,
           hardSources,
-          optionalSources: []
+          optionalSources: retrieved.optionalSources
         });
+        const evidenceContext = pack.sources
+          .filter((source) => source.sourceType.startsWith('retrieval:'))
+          .map((source) => ({ sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content }));
         const prompt = isEditor
           ? [
               `你是${participant.display_name}，是当前书籍的活动主编。`,
               `老板的问题：${brief.scopeText}`,
+              `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
               `已收到的真实岗位意见：${JSON.stringify(opinions.map((opinion) => ({ role: opinion.role, opinion: opinion.output })))}`,
               brief.purpose === 'creative_planning'
                 ? '请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、双编剧建议的剧情跨度与推进节点、视角与文风、章末钩子和仍需决定的问题。'
@@ -128,36 +174,78 @@ export class DiscussionPipelineService {
             ].join('\n')
           : [
               `你是${participant.display_name}。请只从岗位职责出发分析这个小说创作问题：${brief.scopeText}。`,
+              `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
               '给出推荐、理由、风险和一项可执行建议；不要客套、自我介绍、复述老板原话或重复结论。',
               brief.purpose === 'creative_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
                 ? '最后必须另起一行输出：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。章数必须为1至30的整数，且最少≤建议≤最多。'
                 : ''
             ].filter(Boolean).join('\n');
-        const requestId = this.ids.next();
         const adapter = this.modelAdapters.resolve(participant.provider, participant.model_id, 'discussion', participant.role_key);
-        const reservationId = budgets.reserve(
-          scope,
-          budget.budget_id,
-          requestId,
-          adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000,
-          0
-        );
-        const result = await calls.execute(scope, {
-          requestId, taskId, phaseKey: `opinion:${participant.role_key}`, agentId: participant.agent_id,
-          modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
-          input: prompt,
-          parameters: JSON.stringify({
-            maxOutputTokens: 1_000,
-            planOnly: !participant.provider.startsWith('local-deterministic'),
-            cashFallbackAllowed: false
-          }),
-          reservationId, contextPackId: pack.contextPackId,
-          leaseToken: leaseFence?.leaseToken ?? claimedTask.leaseToken,
-          attemptNo: leaseFence?.attemptNo ?? claimedTask.currentAttemptNo
-        }, adapter, {
-          requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
-          agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
-        });
+        const inputHash = createHash('sha256').update(prompt).digest('hex');
+        const reusable = this.database.prepare(`SELECT r.output_text, r.input_tokens, r.output_tokens, r.cash_micros
+          FROM model_calls m JOIN model_call_results r ON r.request_id = m.request_id
+          WHERE m.owner_id = ? AND m.book_id = ? AND m.task_id = ? AND m.agent_id = ?
+            AND m.model_snapshot_id = ? AND m.input_hash = ? AND m.phase_key LIKE ? AND m.state = 'succeeded'
+          ORDER BY m.completed_at DESC LIMIT 1`)
+          .get(scope.ownerId, scope.bookId, taskId, participant.agent_id, participant.model_snapshot_id,
+            inputHash, `opinion:${participant.role_key}:attempt-%`) as {
+              output_text: string; input_tokens: number; output_tokens: number; cash_micros: number;
+            } | undefined;
+        let result = reusable === undefined ? undefined : {
+          provider: participant.provider,
+          modelId: participant.model_id,
+          output: reusable.output_text,
+          inputTokens: reusable.input_tokens,
+          outputTokens: reusable.output_tokens,
+          cashCostCny: reusable.cash_micros / 1_000_000,
+          state: 'succeeded' as const
+        };
+        let lastError: unknown;
+        for (let technicalTry = 1; result === undefined && technicalTry <= 2; technicalTry += 1) {
+          const requestId = this.ids.next();
+          const reservationId = budgets.reserve(
+            scope, budget.budget_id, requestId,
+            adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000, 0
+          );
+          try {
+            result = await calls.execute(scope, {
+              requestId, taskId,
+              phaseKey: `opinion:${participant.role_key}:attempt-${claimedTask.currentAttemptNo}:try-${technicalTry}`,
+              agentId: participant.agent_id,
+              modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
+              input: prompt,
+              parameters: JSON.stringify({
+                maxOutputTokens: 1_000,
+                planOnly: !participant.provider.startsWith('local-deterministic'),
+                cashFallbackAllowed: false
+              }),
+              reservationId, contextPackId: pack.contextPackId,
+              leaseToken: leaseFence?.leaseToken ?? claimedTask.leaseToken,
+              attemptNo: leaseFence?.attemptNo ?? claimedTask.currentAttemptNo
+            }, adapter, {
+              requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
+              agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
+            });
+          } catch (error) {
+            lastError = error;
+            const call = this.database.prepare(`SELECT state, error_class FROM model_calls
+              WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
+              .get(requestId, scope.ownerId, scope.bookId) as { state: string; error_class: string | null } | undefined;
+            const retryable = call?.state === 'failed' && call.error_class === 'technical_failure';
+            if (!retryable) throw error;
+            if (technicalTry === 2) {
+              if (isEditor) {
+                const takeover = new EditorLeaseService(this.database, this.ids, this.clock)
+                  .tryAutomaticTakeover(scope, participant.agent_id);
+                throw new Error(takeover.takenOver
+                  ? `活动主编连续技术失败，已由${takeover.activeEditorAgentId}接管并从讨论检查点恢复`
+                  : `活动主编连续技术失败且未能安全接管：${takeover.reason}`);
+              }
+              throw error;
+            }
+          }
+        }
+        if (result === undefined) throw lastError instanceof Error ? lastError : new Error('讨论模型调用失败');
         const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
         const output = effective?.fullContent ?? result.output;
         discussions.addOpinion(scope, brief.discussionId, {
@@ -181,7 +269,7 @@ export class DiscussionPipelineService {
         opinions.push({ agentId: participant.agent_id, role: participant.display_name, roleKey: participant.role_key, output,
           ...(effective === undefined ? {} : { effective }) });
       }
-      discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
+      if (discussion.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
       const editorOpinion = opinions.find((opinion) => opinion.agentId === task.assigned_agent_id);
       if (editor === undefined || editorOpinion === undefined) throw new Error('活动主编没有完成真实汇总，不能生成讨论决定');
@@ -211,9 +299,12 @@ export class DiscussionPipelineService {
           lease_token = NULL, heartbeat_at = NULL, updated_at = ?
         WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
           AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+          AND (required_editor_epoch = 0 OR required_editor_epoch = (
+            SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+          ))
       `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
         taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
-        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0);
+        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0, scope.ownerId, scope.bookId);
       if (failure.changes !== 1) throw error;
       this.database.prepare(`
         UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?

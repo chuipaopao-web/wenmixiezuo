@@ -10,6 +10,8 @@ import { PlanningArtifactService } from '../artifacts/planning-artifact-service.
 import { LocalAssistantService, type RoutingDecision } from '../local-assistant/local-assistant-service.js';
 import { LocalAssistantRepository } from '../../infrastructure/db/repositories/local-assistant-repository.js';
 import type { LocalUtilityModel } from '../local-assistant/local-utility-model.js';
+import { cancelActiveModelCall } from '../calls/model-call-service.js';
+import { cancelActiveToolCall } from '../calls/tool-call-service.js';
 import {
   ChatAttachmentRepository,
   type ChatAttachmentRecord
@@ -271,7 +273,20 @@ export class ConversationService {
     if (content === '取消' || intake?.selectedAction === 'cancel_tasks') {
       const cancellable = tasks.list(scope).filter((task) => ['pending', 'queued', 'working', 'paused', 'blocked'].includes(task.status));
       for (const task of cancellable) tasks.requestCancel(scope, task.taskId);
-      return { kind: 'cancel_requested', taskIds: cancellable.map((task) => task.taskId) };
+      const taskIds = cancellable.map((task) => task.taskId);
+      const modelCalls = this.database.prepare(`
+        SELECT m.request_id FROM model_calls m JOIN tasks t ON t.task_id = m.task_id
+          AND t.owner_id = m.owner_id AND t.book_id = m.book_id
+        WHERE m.owner_id = ? AND m.book_id = ? AND m.state = 'working' AND t.cancel_requested = 1
+      `).all(scope.ownerId, scope.bookId) as unknown as Array<{ request_id: string }>;
+      const toolCalls = this.database.prepare(`
+        SELECT c.tool_call_id FROM tool_calls c JOIN tasks t ON t.task_id = c.task_id
+          AND t.owner_id = c.owner_id AND t.book_id = c.book_id
+        WHERE c.owner_id = ? AND c.book_id = ? AND c.state = 'working' AND t.cancel_requested = 1
+      `).all(scope.ownerId, scope.bookId) as unknown as Array<{ tool_call_id: string }>;
+      const cancelledModelCalls = modelCalls.filter((call) => cancelActiveModelCall(call.request_id)).length;
+      const cancelledToolCalls = toolCalls.filter((call) => cancelActiveToolCall(call.tool_call_id)).length;
+      return { kind: 'cancel_requested', taskIds, cancelledModelCalls, cancelledToolCalls };
     }
     if (intake?.selectedAction === 'show_task_overview' || /^查看任务[！!。.？?\s]*$/u.test(content)) {
       const allTasks = tasks.list(scope);
@@ -294,10 +309,10 @@ export class ConversationService {
         SELECT a.agent_id FROM agent_instances a JOIN role_templates r
           ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
         WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-          AND a.agent_id <> ? AND r.category = 'core'
-        ORDER BY CASE r.role_key WHEN 'continuity' THEN 0 ELSE 1 END, r.role_key LIMIT 1
+          AND a.agent_id <> ? AND r.role_key IN ('chief_editor', 'deputy_editor')
+        ORDER BY CASE r.role_key WHEN 'deputy_editor' THEN 0 ELSE 1 END, a.created_at, a.agent_id LIMIT 1
       `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id) as { agent_id: string } | undefined;
-      if (candidate === undefined) throw new Error('没有可用于接管的核心Agent');
+      if (candidate === undefined) throw new Error('没有已启用的候任副编可用于接管');
       const prepared = new EditorLeaseService(this.database, this.ids, this.clock).prepareTakeover(scope, candidate.agent_id);
       return { kind: 'takeover_prepared', takeoverId: prepared.takeoverId, fromEpoch: lease.editor_epoch, candidateAgentId: candidate.agent_id };
     }
@@ -549,7 +564,7 @@ function actionNotice(action: Record<string, unknown>): string {
       : `好的，${String((action.taskIds as unknown[]).length)} 个暂停任务已经重新排队，会从保存的检查点继续。`;
     case 'cancel_requested': return (action.taskIds as unknown[]).length === 0
       ? '目前没有可以取消的任务。'
-      : `已经向 ${String((action.taskIds as unknown[]).length)} 个任务发出取消请求；正在运行的任务会先安全收尾。`;
+      : `已经向 ${String((action.taskIds as unknown[]).length)} 个任务发出取消请求；正在运行的模型和工具调用也已立即中断，未知的远程调用结果会先核对再决定是否重试。`;
     case 'task_overview': return Number(action.activeCount) === 0
       ? '目前没有进行中的任务。需要开始讨论或创作时，直接告诉我就好。'
       : `目前有 ${String(action.activeCount)} 个任务正在进行或等待处理${Number(action.waitingConfirmationCount) > 0 ? `，其中 ${String(action.waitingConfirmationCount)} 个等您确认` : ''}。我已经为您打开左侧“任务”。`;

@@ -80,7 +80,8 @@ export class RetrievalOrchestrationRepository {
     now: string;
   }): void {
     assertBookScope(scope);
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       const insertRun = this.database.prepare(`
         INSERT INTO retrieval_channel_runs (
@@ -146,9 +147,9 @@ export class RetrievalOrchestrationRepository {
         WHERE retrieval_query_plan_id = ? AND owner_id = ? AND book_id = ? AND status = 'planned'
       `).run(input.planId, scope.ownerId, scope.bookId);
       if (updated.changes !== 1) throw new Error('检索计划状态已经变化');
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      if (this.database.isTransaction) this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
   }
@@ -179,7 +180,7 @@ export class RetrievalOrchestrationRepository {
           JOIN fact_assertions f ON f.fact_id = r.source_fact_id AND f.owner_id = r.owner_id AND f.book_id = r.book_id
           LEFT JOIN manuscript_versions m ON m.manuscript_version_id = f.source_manuscript_version_id
             AND m.owner_id = f.owner_id AND m.book_id = f.book_id
-          WHERE r.owner_id = ? AND r.book_id = ? AND r.canon_revision <= ? AND r.from_entity_id = ?
+          WHERE r.owner_id = ? AND r.book_id = ? AND r.canon_revision = ? AND r.from_entity_id = ?
           ORDER BY r.relationship_id LIMIT ?
         `).all(scope.ownerId, scope.bookId, canonRevision, entityId, limits.fanout) as unknown as Array<{
           relationship_id: string; from_entity_id: string; relation_key: string; to_value_json: string; source_fact_id: string; content_hash: string | null;

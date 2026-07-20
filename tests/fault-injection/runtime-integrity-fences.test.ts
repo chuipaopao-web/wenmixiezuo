@@ -60,7 +60,7 @@ describe('任务、模型结果和预算完整性栅栏', () => {
     expect({ reserved: budget.reservedTokens, spent: budget.spentTokens }).toEqual({ reserved: 0, spent: 0 });
   });
 
-  it('模型响应晚于租约时保存审计结果并结算真实用量，但阻止业务提交和自动重试', async () => {
+  it('模型响应晚于租约时保存审计结果并结算真实用量，丢弃旧结果后允许任务从新attempt重跑', async () => {
     const fixture = setup();
     const requestId = 'late-model-result';
     const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, requestId, 500, 0);
@@ -94,6 +94,6 @@ describe('任务、模型结果和预算完整性栅栏', () => {
     expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId))
       .toEqual({ status: 'settled' });
     expect(fixture.claimer.recoverExpired()).toBe(1);
-    expect(fixture.tasks.require(fixture.scope, 'task-fence').status).toBe('interrupted');
+    expect(fixture.tasks.require(fixture.scope, 'task-fence').status).toBe('queued');
   });
 });

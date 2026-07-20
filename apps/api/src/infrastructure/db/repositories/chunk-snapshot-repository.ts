@@ -8,14 +8,17 @@ export class ChunkSnapshotRepository {
   public createSnapshot(scope: BookScope, input: {
     snapshotId: string; strategyVersion: string; normalizationVersion: string;
     embeddingTextPolicyVersion: string; canonRevision: number; now: string;
+    snapshotKind?: 'materialized' | 'fragment' | 'manifest';
   }): void {
     assertBookScope(scope);
     this.database.prepare(`
       INSERT INTO chunk_snapshots (
         chunk_snapshot_id, owner_id, book_id, strategy_version, normalization_version,
-        embedding_text_policy_version, canon_revision, coverage_json, validation_json, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', '{}', 'building', ?)
-    `).run(input.snapshotId, scope.ownerId, scope.bookId, input.strategyVersion, input.normalizationVersion, input.embeddingTextPolicyVersion, input.canonRevision, input.now);
+        embedding_text_policy_version, canon_revision, coverage_json, validation_json, status, created_at,
+        snapshot_kind
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', '{}', 'building', ?, ?)
+    `).run(input.snapshotId, scope.ownerId, scope.bookId, input.strategyVersion, input.normalizationVersion,
+      input.embeddingTextPolicyVersion, input.canonRevision, input.now, input.snapshotKind ?? 'materialized');
   }
 
   public addSource(scope: BookScope, input: {
@@ -160,7 +163,22 @@ export class ChunkSnapshotRepository {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('FTS返回数量无效');
     const terms = lexicalQueryTerms(query);
     const minimumMatches = terms.length <= 2 ? 1 : 2;
-    const rows = this.database.prepare(`
+    const snapshotKind = this.snapshotKind(scope, snapshotId);
+    if (snapshotKind === null) return [];
+    const manifest = snapshotKind === 'manifest';
+    const rows = this.database.prepare(manifest ? `
+      SELECT f.content_chunk_id AS chunkId, bm25(content_chunks_fts) AS rank, c.index_text AS text,
+             c.source_type AS sourceType, c.source_id AS sourceId, c.source_version AS sourceVersion,
+             c.source_hash AS sourceHash, c.content_hash AS contentHash, c.byte_start AS byteStart,
+             c.byte_end AS byteEnd, c.lifecycle_layer AS lifecycleLayer
+      FROM content_chunks_fts f JOIN content_chunks c ON c.content_chunk_id = f.content_chunk_id
+        AND c.owner_id = f.owner_id AND c.book_id = f.book_id AND c.chunk_snapshot_id = f.chunk_snapshot_id
+      JOIN chunk_snapshot_memberships m ON m.owner_id = c.owner_id AND m.book_id = c.book_id
+        AND m.member_snapshot_id = c.chunk_snapshot_id AND m.source_type = c.source_type
+        AND m.source_id = c.source_id AND m.source_version = c.source_version AND m.source_hash = c.source_hash
+      WHERE content_chunks_fts MATCH ? AND m.owner_id = ? AND m.book_id = ? AND m.manifest_snapshot_id = ?
+      ORDER BY rank LIMIT ?
+    ` : `
       SELECT f.content_chunk_id AS chunkId, bm25(content_chunks_fts) AS rank, c.index_text AS text,
              c.source_type AS sourceType, c.source_id AS sourceId, c.source_version AS sourceVersion,
              c.source_hash AS sourceHash, c.content_hash AS contentHash, c.byte_start AS byteStart,
@@ -182,7 +200,21 @@ export class ChunkSnapshotRepository {
     byteStart: number; byteEnd: number; lifecycleLayer: 'temporary' | 'candidate' | 'canon' | 'derived'; authorityGrade: 'A' | 'B' | 'C' | 'D'; narrativeMode: string;
   } {
     assertBookScope(scope);
-    const row = this.database.prepare(`
+    const snapshotKind = this.snapshotKind(scope, snapshotId);
+    if (snapshotKind === null) throw new Error('检索块不存在、快照不匹配或越权');
+    const manifest = snapshotKind === 'manifest';
+    const row = this.database.prepare(manifest ? `
+      SELECT c.content_chunk_id AS chunkId, c.index_text AS text, c.source_type AS sourceType,
+             c.source_id AS sourceId, c.source_version AS sourceVersion, c.source_hash AS sourceHash,
+             c.byte_start AS byteStart, c.byte_end AS byteEnd, c.lifecycle_layer AS lifecycleLayer,
+             c.authority_grade AS authorityGrade, c.narrative_mode AS narrativeMode
+      FROM chunk_snapshot_memberships m JOIN content_chunks c
+        ON c.owner_id = m.owner_id AND c.book_id = m.book_id AND c.chunk_snapshot_id = m.member_snapshot_id
+        AND c.source_type = m.source_type AND c.source_id = m.source_id AND c.source_version = m.source_version
+        AND c.source_hash = m.source_hash
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.manifest_snapshot_id = ?
+        AND c.content_chunk_id = ? AND c.validation_status = 'valid'
+    ` : `
       SELECT content_chunk_id AS chunkId, index_text AS text, source_type AS sourceType,
              source_id AS sourceId, source_version AS sourceVersion, source_hash AS sourceHash,
              byte_start AS byteStart, byte_end AS byteEnd, lifecycle_layer AS lifecycleLayer,
@@ -195,6 +227,13 @@ export class ChunkSnapshotRepository {
     } | undefined;
     if (row === undefined) throw new Error('检索块不存在、快照不匹配或越权');
     return row;
+  }
+
+  private snapshotKind(scope: BookScope, snapshotId: string): string | null {
+    const row = this.database.prepare(`SELECT snapshot_kind FROM chunk_snapshots
+      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ? AND status = 'ready'`)
+      .get(scope.ownerId, scope.bookId, snapshotId) as { snapshot_kind: string } | undefined;
+    return row?.snapshot_kind ?? null;
   }
 }
 

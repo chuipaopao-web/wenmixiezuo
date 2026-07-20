@@ -3,6 +3,7 @@ import {
   CodexSubscriptionModelAdapter,
   type CodexProcessRunner
 } from '../../apps/api/src/infrastructure/models/codex-subscription-model.js';
+import { ModelAdapterError } from '../../apps/api/src/infrastructure/models/model-adapter.js';
 
 const request = {
   requestId: 'request-codex-1', taskId: 'task-codex-1', ownerId: 'owner-1', bookId: 'book-1',
@@ -61,5 +62,19 @@ describe('Codex订阅模型适配器', () => {
 
     await expect(adapter.generate(request, controller.signal)).rejects.toThrow('cancelled');
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('子进程中断后冻结为订阅结果未知而不是自动重复调用', async () => {
+    const adapter = new CodexSubscriptionModelAdapter({
+      executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
+      workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
+      purpose: 'discussion', roleKey: 'chief_editor'
+    }, { run: async () => { throw new Error('process closed'); } });
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: false, outcomeUnknown: true
+    });
   });
 });

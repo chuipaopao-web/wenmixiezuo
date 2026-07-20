@@ -41,6 +41,26 @@ describe('正文提升故障恢复', () => {
     expect(new ConsistencyService(context!.database, context!.dataDir).checkBook(scope).ok).toBe(true);
   });
 
+  it('进程在错误处理前崩溃而遗留working操作时也能幂等恢复', () => {
+    const { scope, promotion } = setup();
+    const staged = promotion.stageText('task-working', '工作中崩溃恢复正文');
+    const request = {
+      ...staged,
+      operationId: 'operation-working',
+      fileId: 'file-working',
+      chapterId: 'chapter-working',
+      versionId: 'version-working'
+    };
+    expect(() => promotion.promote(scope, request, { afterFilePromoted: () => { throw new Error('simulated-crash'); } }))
+      .toThrow('simulated-crash');
+    context!.database.prepare(`UPDATE operations SET status = 'working' WHERE operation_id = ?`).run(request.operationId);
+
+    promotion.recover(scope, request.operationId);
+    expect(context!.database.prepare(`SELECT status FROM operations WHERE operation_id = ?`).get(request.operationId))
+      .toEqual({ status: 'succeeded' });
+    expect(new FileRegistryRepository(context!.database, scope).list()).toHaveLength(1);
+  });
+
   it('不可变版本不能被不同内容覆盖', () => {
     const { scope, promotion } = setup();
     const first = promotion.stageText('task-first', '第一版正文');
@@ -64,4 +84,3 @@ describe('正文提升故障恢复', () => {
     expect(report.issues.map((issue) => issue.kind).sort()).toEqual(['missing', 'orphan']);
   });
 });
-

@@ -1,4 +1,4 @@
-import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
 import { assertPlanBaseUrl, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
@@ -69,20 +69,42 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         signal: controller.signal
       });
     } catch (error) {
-      if (timedOut) throw new Error(`方舟套餐模型调用在${timeoutMs}毫秒内未完成`);
+      if (timedOut) throw new ModelAdapterError(
+        `方舟套餐模型调用在${timeoutMs}毫秒内未完成，供应商结果状态未知`,
+        'technical_failure', false, undefined, true
+      );
       if (isAborted(signal)) throw signal?.reason ?? new DOMException('模型调用已取消', 'AbortError');
-      throw error;
+      throw new ModelAdapterError(
+        `方舟套餐请求中断，供应商结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
+        'technical_failure', false, undefined, true
+      );
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', forwardAbort);
     }
     if (!response.ok) {
       const detail = sanitize(await response.text().catch(() => ''), this.options.apiKey).slice(0, 240);
-      throw new Error(`火山方舟${this.options.plan === 'coding' ? 'Coding Plan' : 'Agent Plan'}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`);
+      const message = `火山方舟${this.options.plan === 'coding' ? 'Coding Plan' : 'Agent Plan'}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`;
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      const failureClass = retryable
+        ? 'technical_failure'
+        : response.status === 401 || response.status === 403
+          ? 'authentication_failure'
+          : 'request_failure';
+      throw new ModelAdapterError(message, failureClass, retryable, response.status);
     }
-    const body = await response.json() as ArkMessagesResponse;
+    let body: ArkMessagesResponse;
+    try {
+      body = await response.json() as ArkMessagesResponse;
+    } catch {
+      throw new ModelAdapterError('方舟套餐已返回成功状态但响应无法解析，供应商结果状态未知',
+        'technical_failure', false, response.status, true);
+    }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
-    if (output === undefined || output.length === 0) throw new Error('火山方舟套餐模型没有返回文字');
+    if (output === undefined || output.length === 0) throw new ModelAdapterError(
+      '火山方舟套餐已执行但没有可提交文字，供应商结果状态未知',
+      'technical_failure', false, response.status, true
+    );
     return {
       provider: this.provider,
       modelId: this.modelId,

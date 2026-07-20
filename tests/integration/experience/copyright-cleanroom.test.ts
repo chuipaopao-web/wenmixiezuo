@@ -9,6 +9,25 @@ describe('版权隔离与干净室门禁', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
+  it('没有登记参考源时只放行生成，不冒充已完成版权检测', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '无参考源测试书', text: '验证版权检测状态语义' });
+    const result = new CopyrightService(context.database, ids, clock).checkTargetAgainstAllSources(
+      { ownerId: context.config.ownerId, bookId: book.bookId },
+      'manuscript',
+      'draft-without-sources',
+      '这是一段尚未与任何登记参考源进行比对的原创候选正文。'
+    );
+    expect(result).toMatchObject({
+      sourceCount: 0,
+      assessmentStatus: 'not_assessed_no_sources',
+      decision: 'pass',
+      checks: []
+    });
+  });
+
   it('原文隔离、结构抽象和主笔上下文禁入均生效', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -38,6 +57,8 @@ describe('版权隔离与干净室门禁', () => {
     expect(pack.context_json).not.toContain('北塔');
     expect(pack.context_json).not.toContain('三枚铜钥匙');
     expect(() => copyright.assertWriterContextSafe([{ sourceType: 'copyright_raw', content: '隔离原文' }]))
+      .toThrowError(expect.objectContaining<Partial<DomainError>>({ code: errorCodes.copyrightBlocked }));
+    expect(() => copyright.assertWriterContextSafe([{ sourceType: 'retrieval:copyright_raw', content: '检索层包装后的隔离原文' }]))
       .toThrowError(expect.objectContaining<Partial<DomainError>>({ code: errorCodes.copyrightBlocked }));
     expect(() => copyright.assertWriterContextSafe([{ sourceType: 'cleanroom_package', content: pack.context_json }])).not.toThrow();
   });

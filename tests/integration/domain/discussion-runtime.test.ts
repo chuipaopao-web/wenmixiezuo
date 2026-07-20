@@ -4,6 +4,9 @@ import { DiscussionPipelineService } from '../../../apps/api/src/application/dis
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
@@ -80,5 +83,49 @@ describe('自然语言讨论运行闭环', () => {
       WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'chapter_outline' AND a.status = 'active'
     `).get(scope.ownerId, scope.bookId) as { content_json: string };
     expect(JSON.parse(outline.content_json)).toMatchObject({ sourceDiscussionId: String(scheduled.action.discussionId), sourceDecisionId: result.decisionId });
+  });
+
+  it('活动主编连续技术失败后由副编接管，并复用已完成的双编剧意见', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '副编接管讨论书', text: '雾城悬疑长篇' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(scope, '讨论主角发现旧盟友说谎之后的剧情方向');
+    const taskId = String(scheduled.action.taskId);
+    const discussionId = String(scheduled.action.discussionId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const takeoverFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'discussion' && roleKey === 'chief_editor') {
+          return { provider, modelId, async generate() { throw new Error('模拟主编Endpoint不可用'); } };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+    expect(tasks.claimNext('worker-chief')?.taskId).toBe(taskId);
+    await expect(new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-chief')).rejects.toThrow('已由');
+    expect(tasks.require(scope, taskId)).toMatchObject({ status: 'queued', requiredEditorEpoch: 2 });
+
+    const reclaimed = tasks.claimNext('worker-deputy');
+    expect(reclaimed?.taskId).toBe(taskId);
+    const completed = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-deputy', { leaseToken: reclaimed!.leaseToken!, attemptNo: reclaimed!.currentAttemptNo });
+    expect(completed.opinionCount).toBe(3);
+    expect(tasks.require(scope, taskId).status).toBe('succeeded');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_opinions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
+      .get(scope.ownerId, scope.bookId, discussionId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?
+      AND task_id = ? AND state = 'failed' AND error_class = 'technical_failure'`)
+      .get(scope.ownerId, scope.bookId, taskId)).toEqual({ count: 2 });
+    const activeEditor = context.database.prepare(`SELECT r.role_key FROM editor_leases l JOIN agent_instances a
+      ON a.agent_id = l.active_editor_agent_id JOIN role_templates r
+      ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE l.owner_id = ? AND l.book_id = ?`).get(scope.ownerId, scope.bookId);
+    expect(activeEditor).toEqual({ role_key: 'deputy_editor' });
   });
 });

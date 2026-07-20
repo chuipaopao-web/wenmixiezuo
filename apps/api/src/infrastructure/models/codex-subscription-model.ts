@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
-import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
 import type { ModelPurpose } from './model-runtime-config.js';
 
 export interface CodexRunInput {
@@ -163,14 +163,24 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
       '--cd', this.options.workingDirectory,
       '--json', '-'
     ];
-    const result = await this.runner.run({
-      executable: this.options.executable,
-      args,
-      workingDirectory: this.options.workingDirectory,
-      prompt,
-      timeoutMs: this.options.timeoutMs,
-      ...(signal === undefined ? {} : { signal })
-    });
+    let result: CodexRunResult;
+    try {
+      result = await this.runner.run({
+        executable: this.options.executable,
+        args,
+        workingDirectory: this.options.workingDirectory,
+        prompt,
+        timeoutMs: this.options.timeoutMs,
+        ...(signal === undefined ? {} : { signal })
+      });
+    } catch (error) {
+      if (isSignalAborted(signal) || (error instanceof Error && error.name === 'AbortError')) throw error;
+      if (error instanceof ModelAdapterError) throw error;
+      throw new ModelAdapterError(
+        `Codex订阅调用中断，订阅额度与结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
+        'technical_failure', false, undefined, true
+      );
+    }
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -198,6 +208,10 @@ function sanitizeProcessDiagnostic(value: string): string {
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/giu, '$1***@')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, ' ')
     .trim();
+}
+
+function isSignalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 function safeCodexEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

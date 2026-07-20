@@ -20,6 +20,11 @@ import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-c
 import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
 import { CapabilityService } from '../application/capabilities/capability-service.js';
 import { CanonIndexService } from '../application/projections/canon-index-service.js';
+import { HybridRetrievalService } from '../application/memory/hybrid-retrieval-service.js';
+import { RetrievalOrchestrationRepository } from '../infrastructure/db/repositories/retrieval-orchestration-repository.js';
+import { KnowledgeRepository } from '../infrastructure/db/repositories/knowledge-repository.js';
+import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk-snapshot-repository.js';
+import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -44,6 +49,13 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   registerRequestPolicy(app, config, sessions, options);
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
+  const retrievalIds = new UuidGenerator();
+  const retrievalClock = new SystemClock();
+  const productionRetrieval = new HybridRetrievalService(
+    new RetrievalOrchestrationRepository(database), new KnowledgeRepository(database),
+    new ChunkSnapshotRepository(database), retrievalIds, retrievalClock,
+    loadLocalRetrievalRuntime(config.dataDir)
+  );
   const capabilities = new CapabilityService(
     new RuntimeCapabilityProbe(database, config.dataDir),
     new ModelAssetRegistry(config.dataDir),
@@ -107,11 +119,11 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     if (task === undefined) throw new DomainError('VALIDATION_ERROR', 'Worker任务不存在或范围不匹配');
     const scope = { ownerId: request.body.ownerId, bookId: request.body.bookId };
     const result = task.task_type === 'chapter_creation'
-      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, undefined, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+      ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, undefined, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
       : task.task_type === 'discussion'
-        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+        ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : task.task_type === 'conversation_reply'
-          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });

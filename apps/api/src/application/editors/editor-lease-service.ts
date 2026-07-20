@@ -13,6 +13,13 @@ export interface EditorLease {
   takeoverId: string | null;
 }
 
+export interface AutomaticTakeoverResult {
+  takenOver: boolean;
+  activeEditorAgentId: string;
+  editorEpoch: number;
+  reason: string;
+}
+
 interface LeaseRow {
   active_editor_agent_id: string;
   candidate_editor_agent_id: string | null;
@@ -32,7 +39,7 @@ export class EditorLeaseService {
 
   public create(scope: BookScope, activeEditorAgentId: string, leaseMs = 60_000): EditorLease {
     assertBookScope(scope);
-    this.requireAgent(scope, activeEditorAgentId);
+    this.requireEditorAgent(scope, activeEditorAgentId, 'active');
     const now = this.clock.now();
     this.database.exec('BEGIN IMMEDIATE');
     try {
@@ -66,7 +73,8 @@ export class EditorLeaseService {
 
   public prepareTakeover(scope: BookScope, candidateEditorAgentId: string): { takeoverId: string; package: Record<string, unknown> } {
     assertBookScope(scope);
-    this.requireAgent(scope, candidateEditorAgentId);
+    this.requireEditorAgent(scope, candidateEditorAgentId, 'candidate');
+    this.assertCandidateModelAvailable(scope, candidateEditorAgentId);
     const lease = this.require(scope);
     if (lease.activeEditorAgentId === candidateEditorAgentId) throw new Error('候任主编不能与活动主编相同');
     const takeoverId = this.ids.next();
@@ -120,10 +128,14 @@ export class EditorLeaseService {
           from_epoch, package_json, status, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?)
       `).run(takeoverId, scope.ownerId, scope.bookId, lease.activeEditorAgentId, candidateEditorAgentId, lease.editorEpoch, JSON.stringify(packageData), now);
-      this.database.prepare(`
+      const prepared = this.database.prepare(`
         UPDATE editor_leases SET candidate_editor_agent_id = ?, takeover_state = 'ready',
-          takeover_id = ?, updated_at = ? WHERE owner_id = ? AND book_id = ?
-      `).run(candidateEditorAgentId, takeoverId, now, scope.ownerId, scope.bookId);
+          takeover_id = ?, updated_at = ?
+        WHERE owner_id = ? AND book_id = ? AND active_editor_agent_id = ?
+          AND editor_epoch = ? AND takeover_state = 'stable'
+      `).run(candidateEditorAgentId, takeoverId, now, scope.ownerId, scope.bookId,
+        lease.activeEditorAgentId, lease.editorEpoch);
+      if (prepared.changes !== 1) throw new Error('主编接管状态已经变化，请重新读取当前租约');
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -137,28 +149,77 @@ export class EditorLeaseService {
     if (lease.takeoverId !== takeoverId || lease.takeoverState !== 'ready' || lease.candidateEditorAgentId === null) {
       throw new Error('接管包未就绪或不匹配');
     }
+    this.requireEditorAgent(scope, lease.candidateEditorAgentId, 'candidate');
+    this.assertCandidateModelAvailable(scope, lease.candidateEditorAgentId);
     const nextEpoch = lease.editorEpoch + 1;
     const now = this.clock.now();
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      this.database.prepare(`
+      const leaseUpdated = this.database.prepare(`
         UPDATE editor_leases SET active_editor_agent_id = candidate_editor_agent_id,
           candidate_editor_agent_id = NULL, editor_epoch = ?, lease_expires_at = ?,
           takeover_state = 'stable', takeover_id = NULL, updated_at = ?
         WHERE owner_id = ? AND book_id = ? AND editor_epoch = ? AND takeover_id = ?
       `).run(nextEpoch, new Date(now.getTime() + leaseMs).toISOString(), now.toISOString(), scope.ownerId, scope.bookId, lease.editorEpoch, takeoverId);
-      this.database.prepare(`
+      if (leaseUpdated.changes !== 1) throw new Error('主编接管租约已失效，拒绝提交旧接管包');
+      const bookUpdated = this.database.prepare(`
         UPDATE books SET active_editor_agent_id = ?, editor_epoch = ?, version = version + 1, updated_at = ?
         WHERE owner_id = ? AND book_id = ? AND editor_epoch = ?
       `).run(lease.candidateEditorAgentId, nextEpoch, now.toISOString(), scope.ownerId, scope.bookId, lease.editorEpoch);
+      if (bookUpdated.changes !== 1) throw new Error('书籍主编epoch已变化，接管事务已回滚');
+      const candidateModel = this.database.prepare(`SELECT model_snapshot_id FROM agent_instances
+        WHERE agent_id = ? AND owner_id = ? AND book_id = ? AND enabled = 1`)
+        .get(lease.candidateEditorAgentId, scope.ownerId, scope.bookId) as { model_snapshot_id: string } | undefined;
+      if (candidateModel === undefined) throw new Error('候任主编模型快照在接管提交前失效');
       this.database.prepare(`
-        UPDATE tasks SET required_editor_epoch = ?, updated_at = ?
+        INSERT INTO discussion_participants (
+          discussion_id, owner_id, book_id, agent_id, invited_reason, responded, model_snapshot_id
+        )
+        SELECT json_extract(t.task_brief_json, '$.discussionId'), t.owner_id, t.book_id, ?,
+          '活动主编故障接管后继续主持', 0, ?
+        FROM tasks t JOIN discussions d
+          ON d.discussion_id = json_extract(t.task_brief_json, '$.discussionId')
+          AND d.owner_id = t.owner_id AND d.book_id = t.book_id
+        WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion'
+          AND t.status NOT IN ('succeeded', 'failed', 'cancelled')
+          AND d.status IN ('collecting', 'synthesizing')
+        ON CONFLICT(discussion_id, agent_id) DO UPDATE SET
+          invited_reason = excluded.invited_reason,
+          model_snapshot_id = excluded.model_snapshot_id
+      `).run(lease.candidateEditorAgentId, candidateModel.model_snapshot_id, scope.ownerId, scope.bookId);
+      this.database.prepare(`
+        UPDATE task_attempts SET
+          status = CASE WHEN EXISTS (
+            SELECT 1 FROM model_calls m WHERE m.task_id = task_attempts.task_id
+              AND m.owner_id = task_attempts.owner_id AND m.book_id = task_attempts.book_id AND m.state = 'working'
+          ) THEN 'interrupted' ELSE 'expired' END,
+          error_code = 'EDITOR_TAKEOVER', completed_at = ?
+        WHERE owner_id = ? AND book_id = ? AND status = 'working'
+      `).run(now.toISOString(), scope.ownerId, scope.bookId);
+      this.database.prepare(`
+        UPDATE tasks SET required_editor_epoch = ?,
+          assigned_agent_id = CASE WHEN task_type IN ('discussion', 'conversation_reply') THEN ? ELSE assigned_agent_id END,
+          status = CASE
+            WHEN status = 'working' AND EXISTS (
+              SELECT 1 FROM model_calls m WHERE m.task_id = tasks.task_id
+                AND m.owner_id = tasks.owner_id AND m.book_id = tasks.book_id AND m.state = 'working'
+            ) THEN 'interrupted'
+            WHEN status = 'working' THEN 'queued'
+            ELSE status
+          END,
+          error_code = CASE WHEN status = 'working' THEN 'EDITOR_TAKEOVER' ELSE error_code END,
+          lease_owner = CASE WHEN status = 'working' THEN NULL ELSE lease_owner END,
+          lease_token = CASE WHEN status = 'working' THEN NULL ELSE lease_token END,
+          lease_expires_at = CASE WHEN status = 'working' THEN NULL ELSE lease_expires_at END,
+          heartbeat_at = CASE WHEN status = 'working' THEN NULL ELSE heartbeat_at END,
+          updated_at = ?
         WHERE owner_id = ? AND book_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled')
-      `).run(nextEpoch, now.toISOString(), scope.ownerId, scope.bookId);
-      this.database.prepare(`
+      `).run(nextEpoch, lease.candidateEditorAgentId, now.toISOString(), scope.ownerId, scope.bookId);
+      const packageCompleted = this.database.prepare(`
         UPDATE takeover_packages SET status = 'completed', to_epoch = ?, completed_at = ?
         WHERE takeover_id = ? AND owner_id = ? AND book_id = ? AND status = 'ready'
       `).run(nextEpoch, now.toISOString(), takeoverId, scope.ownerId, scope.bookId);
+      if (packageCompleted.changes !== 1) throw new Error('接管包状态已变化，接管事务已回滚');
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -166,6 +227,45 @@ export class EditorLeaseService {
     }
     this.events?.append(scope, 'agent.presence.changed', { takeoverId, editorEpoch: nextEpoch, activeEditorAgentId: lease.candidateEditorAgentId });
     return this.require(scope);
+  }
+
+  public tryAutomaticTakeover(scope: BookScope, failedEditorAgentId: string): AutomaticTakeoverResult {
+    const lease = this.require(scope);
+    if (lease.activeEditorAgentId !== failedEditorAgentId) {
+      return {
+        takenOver: false,
+        activeEditorAgentId: lease.activeEditorAgentId,
+        editorEpoch: lease.editorEpoch,
+        reason: '活动主编已经变化，旧故障信号不再触发接管'
+      };
+    }
+    const candidate = this.database.prepare(`
+      SELECT a.agent_id FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
+        AND r.role_key IN ('chief_editor', 'deputy_editor')
+      ORDER BY CASE r.role_key WHEN 'deputy_editor' THEN 0 ELSE 1 END, a.created_at, a.agent_id LIMIT 1
+    `).get(scope.ownerId, scope.bookId, failedEditorAgentId) as { agent_id: string } | undefined;
+    if (candidate === undefined) {
+      return { takenOver: false, activeEditorAgentId: lease.activeEditorAgentId, editorEpoch: lease.editorEpoch, reason: '没有已启用的候任主编' };
+    }
+    try {
+      const prepared = this.prepareTakeover(scope, candidate.agent_id);
+      const completed = this.completeTakeover(scope, prepared.takeoverId);
+      return {
+        takenOver: true,
+        activeEditorAgentId: completed.activeEditorAgentId,
+        editorEpoch: completed.editorEpoch,
+        reason: '活动主编连续两次技术调用失败，候任模型已有近期成功证据，已完成原子接管'
+      };
+    } catch (error) {
+      return {
+        takenOver: false,
+        activeEditorAgentId: lease.activeEditorAgentId,
+        editorEpoch: lease.editorEpoch,
+        reason: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   public assertEpoch(scope: BookScope, editorAgentId: string, epoch: number): void {
@@ -196,10 +296,43 @@ export class EditorLeaseService {
     };
   }
 
-  private requireAgent(scope: BookScope, agentId: string): void {
+  private requireEditorAgent(scope: BookScope, agentId: string, mode: 'active' | 'candidate'): void {
     const agent = this.database.prepare(`
-      SELECT 1 FROM agent_instances WHERE agent_id = ? AND owner_id = ? AND book_id = ? AND enabled = 1
-    `).get(agentId, scope.ownerId, scope.bookId);
+      SELECT r.role_key, a.role_template_version
+      FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+    `).get(agentId, scope.ownerId, scope.bookId) as { role_key: string; role_template_version: number } | undefined;
     if (agent === undefined) throw new Error('主编Agent不存在、停用或跨书');
+    if (agent.role_template_version === 2) {
+      if (mode === 'active' && agent.role_key !== 'chief_editor') throw new Error('初始活动主编必须使用主编岗位');
+      if (mode === 'candidate' && !['chief_editor', 'deputy_editor'].includes(agent.role_key)) {
+        throw new Error('候任接管者必须使用主编或副编岗位');
+      }
+    }
+  }
+
+  private assertCandidateModelAvailable(scope: BookScope, agentId: string): void {
+    const model = this.database.prepare(`
+      SELECT m.provider, m.model_id, json_extract(m.parameters_json, '$.plan') AS plan_type
+      FROM agent_instances a JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
+      WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+    `).get(agentId, scope.ownerId, scope.bookId) as { provider: string; model_id: string; plan_type: string | null } | undefined;
+    if (model === undefined) throw new Error('候任主编缺少有效模型快照');
+    if (model.plan_type === 'deterministic' || model.provider.startsWith('local-deterministic')) return;
+    const since = new Date(this.clock.now().getTime() - 24 * 60 * 60 * 1_000).toISOString();
+    const recentSuccess = this.database.prepare(`
+      SELECT 1 FROM model_calls
+      WHERE owner_id = ? AND provider = ? AND model_id = ?
+        AND state = 'succeeded' AND completed_at >= ? LIMIT 1
+    `).get(scope.ownerId, model.provider, model.model_id, since) !== undefined;
+    if (!recentSuccess) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, '候任副编模型当前没有24小时内的成功调用证据，已停止接管并等待老板处理', {
+        candidateAgentId: agentId,
+        provider: model.provider,
+        modelId: model.model_id,
+        verificationWindowHours: 24
+      }, false, 409);
+    }
   }
 }

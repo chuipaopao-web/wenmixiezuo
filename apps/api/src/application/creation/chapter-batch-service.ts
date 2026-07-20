@@ -54,13 +54,19 @@ export class ChapterBatchService {
     for (const [index, number] of readiness.chapterNumbers.entries()) {
       const existing = this.database.prepare(`
         SELECT c.chapter_id,
+          c.generation_status,
           (SELECT COUNT(*) FROM manuscript_versions m WHERE m.owner_id = c.owner_id AND m.book_id = c.book_id AND m.chapter_id = c.chapter_id) AS manuscript_count,
           (SELECT COUNT(*) FROM tasks t WHERE t.owner_id = c.owner_id AND t.book_id = c.book_id AND t.chapter_id = c.chapter_id
             AND t.status IN ('pending','queued','working','waiting_confirmation','paused','blocked','interrupted')) AS active_task_count
         FROM chapters c WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number = ? AND c.settlement_status = 'unsettled'
-      `).get(scope.ownerId, scope.bookId, number) as { chapter_id: string; manuscript_count: number; active_task_count: number } | undefined;
+      `).get(scope.ownerId, scope.bookId, number) as {
+        chapter_id: string; generation_status: string; manuscript_count: number; active_task_count: number;
+      } | undefined;
       if (existing !== undefined) {
-        if (existing.manuscript_count !== 0 || existing.active_task_count !== 0) throw new Error(`第${number}章已有正文或活动任务，不能重复安排`);
+        const safeRetry = existing.generation_status === 'failed' && existing.active_task_count === 0;
+        if ((!safeRetry && existing.manuscript_count !== 0) || existing.active_task_count !== 0) {
+          throw new Error(`第${number}章已有正文或活动任务，不能重复安排`);
+        }
         this.database.prepare(`
           UPDATE chapters SET plan_status = 'planned', generation_status = 'not_started', updated_at = ?
           WHERE chapter_id = ? AND owner_id = ? AND book_id = ?

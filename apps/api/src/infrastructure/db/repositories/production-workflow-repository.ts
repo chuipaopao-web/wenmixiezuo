@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { BookScope } from '../../../domain/scope.js';
 import { assertBookScope } from '../../../domain/scope.js';
-import type { ReviewerRole } from '../../../contracts/production-review.js';
+import type { FactCandidate, ReviewerRole } from '../../../contracts/production-review.js';
 import type { TeamAgentRow } from './agent-governance-repository.js';
 
 export interface WritingOrderRecord {
@@ -173,6 +173,19 @@ export class ProductionWorkflowRepository {
         input.modelSnapshotId, JSON.stringify(input.report), input.reportHash, input.inputTokens, input.now);
   }
 
+  public insertEditorSynthesis(scope: BookScope, input: {
+    id: string; panelId: string; manuscriptVersionId: string; editorAgentId: string;
+    modelSnapshotId: string; synthesis: unknown; synthesisHash: string; now: string;
+  }): void {
+    this.database.prepare(`
+      INSERT INTO editor_review_syntheses (
+        editor_review_synthesis_id, owner_id, book_id, review_panel_id, manuscript_version_id,
+        editor_agent_id, model_snapshot_id, synthesis_json, synthesis_hash, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(input.id, scope.ownerId, scope.bookId, input.panelId, input.manuscriptVersionId,
+      input.editorAgentId, input.modelSnapshotId, JSON.stringify(input.synthesis), input.synthesisHash, input.now);
+  }
+
   public finishReviewPanel(scope: BookScope, panelId: string, blocked: boolean): void {
     const count = (this.database.prepare(`SELECT COUNT(*) AS count FROM review_reports WHERE owner_id = ? AND book_id = ? AND review_panel_id = ? AND status = 'submitted'`)
       .get(scope.ownerId, scope.bookId, panelId) as { count: number }).count;
@@ -204,7 +217,8 @@ export class ProductionWorkflowRepository {
     gateId: string; confirmationId: string; chapterId: string; taskId: string; manuscriptVersionId: string;
     reviewPanelId: string; expectedCanonRevision: number; scopeData: unknown; impact: unknown; now: string;
   }): ApprovalGateRecord {
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare(`INSERT INTO confirmations (
         confirmation_id, owner_id, book_id, target_type, target_id, old_value_json, new_value_json,
@@ -219,9 +233,9 @@ export class ProductionWorkflowRepository {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_owner', ?)`)
         .run(input.gateId, scope.ownerId, scope.bookId, input.chapterId, input.taskId, input.manuscriptVersionId,
           input.reviewPanelId, input.confirmationId, input.expectedCanonRevision, input.now);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireGate(scope, input.confirmationId);
@@ -359,6 +373,39 @@ export class ProductionWorkflowRepository {
     const row = this.database.prepare(`SELECT entity_id FROM entities WHERE owner_id = ? AND book_id = ? AND entity_type = 'event' AND canonical_name = ? ORDER BY created_at LIMIT 1`)
       .get(scope.ownerId, scope.bookId, canonicalName) as { entity_id: string } | undefined;
     return row?.entity_id ?? null;
+  }
+
+  public findEntity(scope: BookScope, entityType: string, canonicalName: string): string | null {
+    const row = this.database.prepare(`
+      SELECT entity_id FROM entities
+      WHERE owner_id = ? AND book_id = ? AND entity_type = ? AND canonical_name = ? AND status = 'active'
+      ORDER BY created_at, entity_id LIMIT 1
+    `).get(scope.ownerId, scope.bookId, entityType, canonicalName) as { entity_id: string } | undefined;
+    return row?.entity_id ?? null;
+  }
+
+  public factCandidatesForPanel(scope: BookScope, panelId: string): FactCandidate[] {
+    const row = this.database.prepare(`
+      SELECT report_json FROM review_reports
+      WHERE owner_id = ? AND book_id = ? AND review_panel_id = ?
+        AND reviewer_role = 'fact' AND status = 'submitted'
+      ORDER BY created_at DESC, review_report_id DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, panelId) as { report_json: string } | undefined;
+    if (row === undefined) throw new Error('事实点评报告缺失，不能晋升章节事实');
+    const report = JSON.parse(row.report_json) as { factCandidates?: FactCandidate[] };
+    if (!Array.isArray(report.factCandidates)) throw new Error('事实点评报告没有结构化事实候选');
+    return report.factCandidates;
+  }
+
+  public hasFactCandidate(scope: BookScope, input: {
+    chapterId: string; manuscriptVersionId: string; subjectEntityId: string; relationKey: string;
+  }): boolean {
+    return this.database.prepare(`
+      SELECT 1 FROM fact_assertions
+      WHERE owner_id = ? AND book_id = ? AND source_chapter_id = ? AND source_manuscript_version_id = ?
+        AND subject_entity_id = ? AND relation_key = ? AND status NOT IN ('rejected', 'withdrawn') LIMIT 1
+    `).get(scope.ownerId, scope.bookId, input.chapterId, input.manuscriptVersionId,
+      input.subjectEntityId, input.relationKey) !== undefined;
   }
 
   public hasChapterFact(scope: BookScope, chapterId: string, manuscriptVersionId: string): boolean {

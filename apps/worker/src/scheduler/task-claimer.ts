@@ -140,7 +140,7 @@ export class TaskClaimer {
         const unresolvedCall = this.database.prepare(`
           SELECT 1 FROM model_calls m JOIN model_call_reconciliations r ON r.request_id = m.request_id
           WHERE m.task_id = ? AND m.owner_id = ? AND m.book_id = ?
-            AND r.state IN ('awaiting_provider', 'discarded') LIMIT 1
+            AND r.state = 'awaiting_provider' LIMIT 1
         `).get(row.task_id, row.owner_id, row.book_id);
         const nextStatus = row.cancel_requested === 1 ? 'cancelled'
           : workingCall === undefined && unresolvedCall === undefined ? 'queued' : 'interrupted';

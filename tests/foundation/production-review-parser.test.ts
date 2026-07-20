@@ -24,4 +24,21 @@ describe('三点评结构化契约', () => {
       sexualContentRisk: { level: 'none', locations: [], evidence: [], recommendedAction: '无需修改', policyVersion: 'p1' }
     }), experience)).toThrow('必须带位置和证据');
   });
+
+  it('事实席必须返回带原文证据和认知状态的结构化候选', () => {
+    const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
+    const parsed = parseProductionReview(JSON.stringify({
+      ...fact, verdict: 'pass', summary: '事实通过', issues: [], scores: { continuity: 92 },
+      factCandidates: [{
+        subjectName: '张三', entityType: 'character', relationKey: 'declared_war_on', value: '天安城',
+        evidenceQuote: '张三今日向天安城宣战。', evidenceLocation: '第12段',
+        epistemicStatus: 'objective', negated: false, viewpointName: null, knowledgeSubjectName: null,
+        knowledgeTimeStart: null, knowledgeTimeEnd: null, storyTimeStart: '第三日', storyTimeEnd: null
+      }]
+    }), fact);
+    expect(parsed.factCandidates?.[0]).toMatchObject({ subjectName: '张三', relationKey: 'declared_war_on' });
+    expect(() => parseProductionReview(JSON.stringify({
+      ...fact, verdict: 'pass', summary: '事实通过', issues: [], scores: { continuity: 92 }
+    }), fact)).toThrow('factCandidates');
+  });
 });

@@ -2,6 +2,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { BookScope } from '../../../domain/scope.js';
 
 export interface WriterLeaseRecord { writerAgentId: string; epoch: number; writingOrderId: string | null; checkpoint: Record<string, unknown>; leaseExpiresAt: string }
+export interface WriterAgentEligibility {
+  roleKey: string; roleTemplateVersion: number; provider: string; modelId: string; plan: string;
+}
 export class WriterLeaseRepository {
   public constructor(private readonly database: DatabaseSync) {}
   public get(scope: BookScope): WriterLeaseRecord | null {
@@ -21,5 +24,32 @@ export class WriterLeaseRepository {
       writing_order_id = ?, lease_expires_at = ?, takeover_state = 'stable', checkpoint_json = ?, updated_at = ?
       WHERE owner_id = ? AND book_id = ? AND writer_epoch = ?`).run(input.agentId, input.writingOrderId ?? null, input.expiresAt,
       JSON.stringify(input.checkpoint), input.now, scope.ownerId, scope.bookId, input.expectedEpoch).changes === 1;
+  }
+  public renew(scope: BookScope, input: { agentId: string; epoch: number; expiresAt: string; now: string }): boolean {
+    return this.database.prepare(`UPDATE writer_leases SET lease_expires_at = ?, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND active_writer_agent_id = ? AND writer_epoch = ?
+        AND lease_expires_at > ?`)
+      .run(input.expiresAt, input.now, scope.ownerId, scope.bookId, input.agentId, input.epoch, input.now).changes === 1;
+  }
+  public writerAgent(scope: BookScope, agentId: string, modelSnapshotId?: string): WriterAgentEligibility | null {
+    const row = this.database.prepare(`SELECT r.role_key, a.role_template_version, m.provider, m.model_id,
+      COALESCE(json_extract(m.parameters_json, '$.plan'), 'deterministic') AS plan_type
+      FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(?, a.model_snapshot_id)
+        AND m.owner_id = a.owner_id AND m.book_id = a.book_id
+      WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND a.enabled = 1`)
+      .get(modelSnapshotId ?? null, agentId, scope.ownerId, scope.bookId) as {
+        role_key: string; role_template_version: number; provider: string; model_id: string; plan_type: string;
+      } | undefined;
+    return row === undefined ? null : {
+      roleKey: row.role_key, roleTemplateVersion: row.role_template_version,
+      provider: row.provider, modelId: row.model_id, plan: row.plan_type
+    };
+  }
+  public hasRecentModelSuccess(scope: BookScope, provider: string, modelId: string, since: string): boolean {
+    return this.database.prepare(`SELECT 1 FROM model_calls
+      WHERE owner_id = ? AND provider = ? AND model_id = ? AND state = 'succeeded' AND completed_at >= ? LIMIT 1`)
+      .get(scope.ownerId, provider, modelId, since) !== undefined;
   }
 }

@@ -29,25 +29,72 @@ describe('订阅与套餐模型真实流水线接线', () => {
     new ModelBindingService(context.database, ids, clock, runtime.roleProfiles).bindAllBooks();
 
     const codexPrompts: string[] = [];
+    let malformedSynthesisSent = false;
     const codexRunner: CodexProcessRunner = {
       async run(input) {
         codexPrompts.push(input.prompt);
-        if (input.prompt.includes('"operation":"draft"')) {
+        const wrapped = parseObject(input.prompt.split('【本次任务输入】').at(-1)?.trim());
+        const synthesisInput = parseObject(wrapped?.taskInput) ?? wrapped;
+        if (synthesisInput?.operation === 'draft' || input.prompt.includes('"operation":"draft"')) {
           const output = buildValidNovel();
           return { output, inputTokens: 18_500, outputTokens: 1_600 };
+        }
+        if (synthesisInput?.operation === 'repair_editor_synthesis_json') {
+          return {
+            output: JSON.stringify({
+              panelId: synthesisInput.panelId,
+              manuscriptVersionId: synthesisInput.manuscriptVersionId,
+              recommendedVerdict: 'pass',
+              priorityIssueIndexes: Array.from({ length: Number(synthesisInput.issueCount ?? 0) }, (_, index) => index),
+              preservedDisagreements: [],
+              rationale: '按校验摘要修复结构，不改变三席风险等级。'
+            }),
+            inputTokens: 120,
+            outputTokens: 50
+          };
+        }
+        if (synthesisInput?.operation === 'review_synthesis') {
+          if (!malformedSynthesisSent) {
+            malformedSynthesisSent = true;
+            return { output: '{"recommendedVerdict":"pass"', inputTokens: 300, outputTokens: 20 };
+          }
+          const reports = Array.isArray(synthesisInput?.reports) ? synthesisInput.reports.filter((report) => typeof report === 'object' && report !== null) as Array<Record<string, unknown>> : [];
+          const issueCount = reports.reduce((count, report) => count + (Array.isArray(report.issues) ? report.issues.length : 0), 0);
+          const verdicts = reports.map((report) => String(report.verdict));
+          const panelId = synthesisInput?.panelId ?? input.prompt.match(/"panelId":"([^"]+)"/u)?.[1];
+          const manuscriptVersionId = synthesisInput?.manuscriptVersionId ?? input.prompt.match(/"manuscriptVersionId":"([^"]+)"/u)?.[1];
+          return {
+            output: JSON.stringify({
+              panelId,
+              manuscriptVersionId,
+              recommendedVerdict: verdicts.includes('blocked') ? 'blocked' : verdicts.includes('rewrite') ? 'rewrite' : 'pass',
+              priorityIssueIndexes: Array.from({ length: issueCount }, (_, index) => index),
+              preservedDisagreements: [],
+              rationale: '按三席结构化报告综合，不进行第四次正文点评。'
+            }),
+            inputTokens: 300,
+            outputTokens: 80
+          };
         }
         return { output: '建议让章末钩子来自人物主动选择，并保留一项下一章可验证的疑问。', inputTokens: 40, outputTokens: 30 };
       }
     };
-    const calls: Array<{ url: string; model: string }> = [];
+    const calls: Array<{ url: string; model: string; prompt: string }> = [];
+    let malformedLiterarySent = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> };
-      calls.push({ url: String(input), model: body.model });
+      calls.push({ url: String(input), model: body.model, prompt: body.messages[0]?.content ?? '' });
       const prompt = parseObject(body.messages[0]?.content);
       const taskInput = parseObject(prompt?.taskInput);
       const role = taskInput?.reviewerRole;
       const discussionPrompt = body.messages[0]?.content ?? '';
-      const text = typeof role === 'string'
+      const repairContract = parseObject(taskInput?.originalContract);
+      const repairRole = repairContract?.reviewerRole;
+      const text = taskInput?.operation === 'repair_review_json' && typeof repairRole === 'string'
+        ? JSON.stringify(reviewResult(repairRole, repairContract?.manuscriptVersionId, repairContract?.modelSnapshotId))
+        : role === 'literary' && !malformedLiterarySent
+          ? (malformedLiterarySent = true, '{"verdict":"pass"')
+          : typeof role === 'string'
         ? JSON.stringify(reviewResult(role, taskInput?.manuscriptVersionId, taskInput?.modelSnapshotId))
         : discussionPrompt.includes('章节跨度估算')
           ? '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。\n章节跨度估算 {"minimum":2,"recommended":3,"maximum":5,"units":[{"unit":"推进单元","suggestedChapters":3}],"assumptions":["基于当前简报"],"uncertainty":["后续信息可能改变跨度"]}'
@@ -88,9 +135,11 @@ describe('订阅与套餐模型真实流水线接线', () => {
     ]));
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
+    expect(calls.some((call) => call.prompt.includes('repair_review_json'))).toBe(true);
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
     expect(codexPrompts.some((prompt) => prompt.includes('chapter_outline') && prompt.includes('writing_contract'))).toBe(true);
+    expect(codexPrompts.some((prompt) => prompt.includes('repair_editor_synthesis_json'))).toBe(true);
   });
 });
 
@@ -117,7 +166,13 @@ function reviewResult(role: string, manuscriptVersionId: unknown, modelSnapshotI
     const none = { level: 'none', locations: [], evidence: [], recommendedAction: '无需修改', policyVersion: 'test-policy-v1' };
     return { ...common, politicalRisk: none, sexualContentRisk: none };
   }
-  return common;
+  return { ...common, factCandidates: [{
+    subjectName: '林澈', entityType: 'character', relationKey: 'observed:item', value: '导师留下的钥匙',
+    evidenceQuote: '钟楼的灯忽然亮起，林澈看见窗后的人举起了导师失踪前留下的那枚钥匙。',
+    evidenceLocation: '章末', epistemicStatus: 'objective', negated: false,
+    viewpointName: null, knowledgeSubjectName: null, knowledgeTimeStart: null, knowledgeTimeEnd: null,
+    storyTimeStart: null, storyTimeEnd: null
+  }] };
 }
 
 function parseObject(value: unknown): Record<string, unknown> | null {

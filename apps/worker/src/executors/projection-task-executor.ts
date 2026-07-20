@@ -58,6 +58,13 @@ interface VectorBuildResult {
   probeDistance: number;
 }
 
+interface ProjectionChunkRow {
+  content_chunk_id: string;
+  chunk_snapshot_id: string;
+  index_text: string;
+  embedding_text: string;
+}
+
 export class ProjectionTaskExecutor {
   public constructor(
     private readonly database: DatabaseSync,
@@ -69,10 +76,15 @@ export class ProjectionTaskExecutor {
     const jobId = `projection-${randomUUID()}`;
     const row = this.claim(now, jobId);
     if (row === null) return false;
+    if (!this.isCurrentCanonRevision(row)) {
+      this.supersede(row, jobId, now.toISOString());
+      return true;
+    }
     try {
       const vectorBuild = row.projection_type === 'vector' ? await this.buildVector(row) : null;
       this.database.exec('BEGIN IMMEDIATE');
       try {
+        this.requireReadySnapshot(row);
         const probes = row.projection_type === 'fts'
           ? this.executeFts(row)
           : row.projection_type === 'vector' && vectorBuild !== null
@@ -94,6 +106,10 @@ export class ProjectionTaskExecutor {
       return true;
     } catch (error) {
       if (this.database.isTransaction) this.database.exec('ROLLBACK');
+      if (!this.isCurrentCanonRevision(row)) {
+        this.supersede(row, jobId, now.toISOString());
+        return true;
+      }
       const code = errorCode(error);
       this.database.exec('BEGIN IMMEDIATE');
       try {
@@ -142,26 +158,73 @@ export class ProjectionTaskExecutor {
     }
   }
 
+  private isCurrentCanonRevision(row: ProjectionRow): boolean {
+    const book = this.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
+      .get(row.owner_id, row.book_id) as { canon_revision: number } | undefined;
+    return book?.canon_revision === row.required_canon_revision;
+  }
+
+  private supersede(row: ProjectionRow, jobId: string, now: string): void {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      this.database.prepare(`UPDATE projection_jobs SET status = 'cancelled', error_code = 'STALE_CANON_REVISION',
+        finished_at = ?, updated_at = ? WHERE projection_job_id = ? AND status = 'building'`)
+        .run(now, now, jobId);
+      this.database.prepare(`UPDATE projection_outbox SET status = 'superseded', updated_at = ?
+        WHERE projection_outbox_id = ? AND status = 'claimed'`).run(now, row.projection_outbox_id);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   private requireReadySnapshot(row: ProjectionRow): void {
     const snapshot = this.database.prepare(`
-      SELECT status, canon_revision FROM chunk_snapshots
-      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?
-    `).get(row.owner_id, row.book_id, row.source_snapshot_id) as { status: string; canon_revision: number } | undefined;
-    if (snapshot?.status !== 'ready' || snapshot.canon_revision !== row.required_canon_revision) throw new Error('PROJECTION_SOURCE_NOT_READY');
+      SELECT s.status, s.canon_revision, b.canon_revision AS book_canon_revision
+      FROM chunk_snapshots s JOIN books b ON b.owner_id = s.owner_id AND b.book_id = s.book_id
+      WHERE s.owner_id = ? AND s.book_id = ? AND s.chunk_snapshot_id = ?
+    `).get(row.owner_id, row.book_id, row.source_snapshot_id) as {
+      status: string; canon_revision: number; book_canon_revision: number;
+    } | undefined;
+    if (snapshot?.status !== 'ready' || snapshot.canon_revision !== row.required_canon_revision
+      || snapshot.book_canon_revision !== row.required_canon_revision) throw new Error('PROJECTION_SOURCE_NOT_READY');
   }
 
   private executeFts(row: ProjectionRow): Record<string, unknown> {
     this.requireReadySnapshot(row);
-    this.database.prepare(`DELETE FROM content_chunks_fts WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?`)
-      .run(row.owner_id, row.book_id, row.source_snapshot_id);
-    const chunks = this.database.prepare(`
-      SELECT content_chunk_id, index_text FROM content_chunks
-      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ? AND validation_status = 'valid' AND fts_eligible = 1
-      ORDER BY ordinal
-    `).all(row.owner_id, row.book_id, row.source_snapshot_id) as unknown as Array<{ content_chunk_id: string; index_text: string }>;
+    const chunks = this.listProjectionChunks(row, 'fts');
     const insert = this.database.prepare(`INSERT INTO content_chunks_fts(content_chunk_id, owner_id, book_id, chunk_snapshot_id, index_text) VALUES (?, ?, ?, ?, ?)`);
-    for (const chunk of chunks) insert.run(chunk.content_chunk_id, row.owner_id, row.book_id, row.source_snapshot_id, lexicalizeChinese(chunk.index_text));
+    const remove = this.database.prepare(`DELETE FROM content_chunks_fts
+      WHERE content_chunk_id = ? AND owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?`);
+    for (const chunk of chunks) {
+      remove.run(chunk.content_chunk_id, row.owner_id, row.book_id, chunk.chunk_snapshot_id);
+      insert.run(chunk.content_chunk_id, row.owner_id, row.book_id, chunk.chunk_snapshot_id, lexicalizeChinese(chunk.index_text));
+    }
     return { rows: chunks.length, sourceReady: true, scopeChecked: true, ftsProbe: chunks.length > 0 };
+  }
+
+  private listProjectionChunks(row: ProjectionRow, eligibility: 'fts' | 'vector'): ProjectionChunkRow[] {
+    const snapshot = this.database.prepare(`SELECT snapshot_kind FROM chunk_snapshots
+      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?`)
+      .get(row.owner_id, row.book_id, row.source_snapshot_id) as { snapshot_kind: string } | undefined;
+    if (snapshot === undefined) throw new Error('PROJECTION_SOURCE_NOT_READY');
+    const eligibilityColumn = eligibility === 'fts' ? 'fts_eligible' : 'vector_eligible';
+    if (snapshot.snapshot_kind !== 'manifest') return this.database.prepare(`
+      SELECT content_chunk_id, chunk_snapshot_id, index_text, embedding_text FROM content_chunks
+      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ? AND validation_status = 'valid'
+        AND ${eligibilityColumn} = 1 ORDER BY ordinal, content_chunk_id
+    `).all(row.owner_id, row.book_id, row.source_snapshot_id) as unknown as ProjectionChunkRow[];
+    return this.database.prepare(`
+      SELECT c.content_chunk_id, c.chunk_snapshot_id, c.index_text, c.embedding_text
+      FROM chunk_snapshot_memberships m JOIN content_chunks c
+        ON c.owner_id = m.owner_id AND c.book_id = m.book_id AND c.chunk_snapshot_id = m.member_snapshot_id
+        AND c.source_type = m.source_type AND c.source_id = m.source_id AND c.source_version = m.source_version
+        AND c.source_hash = m.source_hash
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.manifest_snapshot_id = ?
+        AND c.validation_status = 'valid' AND c.${eligibilityColumn} = 1
+      ORDER BY m.source_type, m.source_id, c.ordinal, c.content_chunk_id
+    `).all(row.owner_id, row.book_id, row.source_snapshot_id) as unknown as ProjectionChunkRow[];
   }
 
   private async buildVector(row: ProjectionRow): Promise<VectorBuildResult> {
@@ -171,26 +234,41 @@ export class ProjectionTaskExecutor {
       throw new Error(runtime?.embedding.degradationReason ?? runtime?.store.degradationReason ?? 'VECTOR_RUNTIME_UNAVAILABLE');
     }
     if (!Number.isInteger(runtime.embedding.dimension) || runtime.embedding.dimension < 8) throw new Error('VECTOR_DIMENSION_INVALID');
-    const chunks = this.database.prepare(`
-      SELECT content_chunk_id, embedding_text FROM content_chunks
-      WHERE owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?
-        AND validation_status = 'valid' AND vector_eligible = 1
-      ORDER BY ordinal, content_chunk_id
-    `).all(row.owner_id, row.book_id, row.source_snapshot_id) as unknown as Array<{ content_chunk_id: string; embedding_text: string }>;
+    const chunks = this.listProjectionChunks(row, 'vector');
     if (chunks.length === 0) throw new Error('VECTOR_SOURCE_EMPTY');
-    const vectors: number[][] = [];
+    const cacheKey = digest(`${runtime.embedding.modelSnapshotId}\0${runtime.model.assetHash}\0${runtime.embedding.dimension}`);
+    const vectorsByHash = new Map<string, number[]>();
+    const textByHash = new Map<string, string>();
+    for (const chunk of chunks) textByHash.set(digest(chunk.embedding_text), chunk.embedding_text);
+    const readCached = this.database.prepare(`SELECT dimension, vector_json FROM embedding_vector_cache
+      WHERE embedding_cache_key = ? AND embedding_text_hash = ?`);
+    for (const hash of textByHash.keys()) {
+      const cached = readCached.get(cacheKey, hash) as { dimension: number; vector_json: string } | undefined;
+      if (cached === undefined || cached.dimension !== runtime.embedding.dimension) continue;
+      const vector = JSON.parse(cached.vector_json) as unknown;
+      if (Array.isArray(vector) && vector.length === runtime.embedding.dimension
+        && vector.every((value) => typeof value === 'number' && Number.isFinite(value))) vectorsByHash.set(hash, vector as number[]);
+    }
+    const missing = [...textByHash.entries()].filter(([hash]) => !vectorsByHash.has(hash));
     const batchSize = Math.max(1, Math.min(runtime.batchSize ?? 32, 128));
-    for (let start = 0; start < chunks.length; start += batchSize) {
-      const batch = chunks.slice(start, start + batchSize);
-      const embedded = await runtime.embedding.embedDocuments(batch.map((chunk) => chunk.embedding_text));
+    for (let start = 0; start < missing.length; start += batchSize) {
+      const batch = missing.slice(start, start + batchSize);
+      const embedded = await runtime.embedding.embedDocuments(batch.map(([, text]) => text));
       if (embedded.length !== batch.length) throw new Error('VECTOR_BATCH_COUNT_MISMATCH');
-      for (const vector of embedded) {
+      for (let index = 0; index < embedded.length; index += 1) {
+        const vector = embedded[index]!;
         if (vector.length !== runtime.embedding.dimension || vector.some((value) => !Number.isFinite(value))) throw new Error('VECTOR_DIMENSION_MISMATCH');
-        vectors.push(vector);
+        vectorsByHash.set(batch[index]![0], vector);
       }
     }
+    const insertCache = this.database.prepare(`INSERT OR IGNORE INTO embedding_vector_cache (
+      embedding_cache_key, embedding_text_hash, dimension, vector_json, created_at
+    ) VALUES (?, ?, ?, ?, ?)`);
+    for (const [hash] of missing) insertCache.run(cacheKey, hash, runtime.embedding.dimension,
+      JSON.stringify(vectorsByHash.get(hash)!), new Date().toISOString());
+    const vectors = chunks.map((chunk) => vectorsByHash.get(digest(chunk.embedding_text))!);
     const scope = { ownerId: row.owner_id, bookId: row.book_id };
-    const tableName = `wmv_${digest(`${row.owner_id}\0${row.book_id}\0${row.source_snapshot_id}\0${runtime.embedding.modelSnapshotId}`).slice(0, 48)}`;
+    const tableName = `wmv_${digest(`${row.owner_id}\0${row.book_id}\0${runtime.embedding.modelSnapshotId}\0slot-${row.required_canon_revision % 2}`).slice(0, 48)}`;
     await runtime.store.rebuild(scope, tableName, chunks.map((chunk, index) => ({
       chunkId: chunk.content_chunk_id, snapshotId: row.source_snapshot_id, text: chunk.embedding_text, vector: vectors[index]!
     })));

@@ -16,6 +16,7 @@ export interface CopyrightCheckResult {
 
 export interface AggregateCopyrightCheckResult {
   sourceCount: number;
+  assessmentStatus: 'assessed' | 'not_assessed_no_sources';
   riskLevel: CopyrightCheckResult['riskLevel'];
   decision: CopyrightCheckResult['decision'];
   dimensions: Record<string, number>;
@@ -109,7 +110,8 @@ export class CopyrightService {
   }
 
   public assertWriterContextSafe(sources: Array<{ sourceType: string; content: string }>): void {
-    const prohibited = sources.filter((source) => ['copyright_raw', 'detailed_chapter_summary', 'character_mapping', 'copyright_fts'].includes(source.sourceType));
+    const prohibitedTypes = new Set(['copyright_raw', 'detailed_chapter_summary', 'character_mapping', 'copyright_fts']);
+    const prohibited = sources.filter((source) => prohibitedTypes.has(source.sourceType.replace(/^retrieval:/u, '')));
     if (prohibited.length > 0) {
       throw new DomainError(errorCodes.copyrightBlocked, '主笔上下文包含版权隔离区禁止资料', { sourceTypes: prohibited.map((source) => source.sourceType) }, false, 409);
     }
@@ -172,7 +174,16 @@ export class CopyrightService {
       ORDER BY copyright_source_id
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ copyright_source_id: string; raw_content: string }>;
     if (sources.length === 0) {
-      return { sourceCount: 0, riskLevel: 'low', decision: 'pass', dimensions: { combinedText: 0, eventChain: 0, translationRisk: 0 }, checks: [] };
+      return {
+        sourceCount: 0,
+        assessmentStatus: 'not_assessed_no_sources',
+        // `pass` only controls the generation gate here. With no registered
+        // comparison source, this result must never be presented as assessed.
+        riskLevel: 'low',
+        decision: 'pass',
+        dimensions: { combinedText: 0, eventChain: 0, translationRisk: 0 },
+        checks: []
+      };
     }
     const checks = sources.map((source) => this.checkTarget(scope, source.copyright_source_id, targetType, targetId, targetContent));
     const targetWindows = windows(normalize(targetContent), 6);
@@ -185,6 +196,7 @@ export class CopyrightService {
     const riskLevel: CopyrightCheckResult['riskLevel'] = score >= 0.5 ? 'blocked' : score >= 0.25 ? 'high' : score >= 0.12 ? 'medium' : 'low';
     return {
       sourceCount: sources.length,
+      assessmentStatus: 'assessed',
       riskLevel,
       decision: riskLevel === 'low' ? 'pass' : 'redesign',
       dimensions: { combinedText: round(combinedText), eventChain: round(eventChain), translationRisk },

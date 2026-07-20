@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
-import type { ModelAdapter, ModelRequest, ModelResult } from '../../infrastructure/models/model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../infrastructure/models/model-adapter.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { EventStore } from '../events/event-store.js';
 
@@ -79,7 +79,11 @@ export class ModelCallService {
     const requestId = this.begin(scope, call);
     if (requestId !== call.requestId) {
       const reusable = this.loadSucceededResult(scope, requestId, call.provider, call.modelId);
-      if (reusable !== null) return reusable;
+      if (reusable !== null) {
+        this.budgets.release(scope, call.reservationId);
+        return reusable;
+      }
+      this.budgets.release(scope, call.reservationId);
       throw new Error('相同输入的模型调用状态未知或未完成，拒绝重复调用');
     }
     const controller = new AbortController();
@@ -153,18 +157,34 @@ export class ModelCallService {
         this.events?.append(scope, 'model_call.interrupted', { requestId, taskId: call.taskId, reason: 'commit_fence_lost' });
         throw error;
       }
-      const interrupted = fencedOut || controller.signal.aborted || (error instanceof Error && error.name === 'AbortError');
+      const providerOutcomeUnknown = error instanceof ModelAdapterError && error.outcomeUnknown;
+      const interrupted = fencedOut || providerOutcomeUnknown || controller.signal.aborted
+        || (error instanceof Error && error.name === 'AbortError');
+      const failureClass = error instanceof ModelAdapterError ? error.failureClass : 'technical_failure';
       this.database.prepare(`
         UPDATE model_calls SET state = ?, error_class = ?, completed_at = ? WHERE request_id = ? AND state IN ('pending', 'working')
-      `).run(interrupted ? 'interrupted' : 'failed', fencedOut ? 'lease_or_epoch_lost' : interrupted ? 'cancelled' : 'technical_failure', this.clock.now().toISOString(), requestId);
+      `).run(interrupted ? 'interrupted' : 'failed', fencedOut ? 'lease_or_epoch_lost'
+        : providerOutcomeUnknown ? 'provider_result_unknown' : interrupted ? 'cancelled' : failureClass,
+      this.clock.now().toISOString(), requestId);
       if (interrupted) {
-        this.database.prepare(`
+        if (adapter.provider.startsWith('local-deterministic')) {
+          this.budgets.release(scope, call.reservationId);
+          this.database.prepare(`
+            INSERT INTO model_call_reconciliations (
+              request_id, owner_id, book_id, state, reason_code, details_json, created_at, resolved_at
+            ) VALUES (?, ?, ?, 'retry_safe', 'LOCAL_CALL_INTERRUPTED', '{}', ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET state = 'retry_safe',
+              reason_code = excluded.reason_code, resolved_at = excluded.resolved_at
+          `).run(requestId, scope.ownerId, scope.bookId, this.clock.now().toISOString(), this.clock.now().toISOString());
+        } else this.database.prepare(`
           INSERT INTO model_call_reconciliations (
             request_id, owner_id, book_id, state, reason_code, details_json, created_at
           ) VALUES (?, ?, ?, 'awaiting_provider', ?, '{}', ?)
           ON CONFLICT(request_id) DO NOTHING
         `).run(requestId, scope.ownerId, scope.bookId,
-          fencedOut ? 'COMMIT_FENCE_LOST_RESULT_UNKNOWN' : 'INTERRUPTED_RESULT_UNKNOWN', this.clock.now().toISOString());
+          fencedOut ? 'COMMIT_FENCE_LOST_RESULT_UNKNOWN'
+            : providerOutcomeUnknown ? 'PROVIDER_RESULT_UNKNOWN' : 'INTERRUPTED_RESULT_UNKNOWN',
+          this.clock.now().toISOString());
       }
       if (!interrupted) this.budgets.release(scope, call.reservationId);
       if (interrupted) this.events?.append(scope, 'model_call.interrupted', { requestId, taskId: call.taskId });

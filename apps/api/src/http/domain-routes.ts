@@ -99,7 +99,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const backups = new BackupService(database, config);
   const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
   const agentGovernance = new AgentGovernanceRepository(database);
-  const modelBindings = new ModelBindingV2Service(agentGovernance, new UnitOfWork(database), ids, clock);
+  const modelBindings = new ModelBindingV2Service(agentGovernance, new UnitOfWork(database), ids, clock, config.modelRuntime.activeMode);
   const portability = new BookPortabilityService(database, config, ids, clock);
   const taxonomy = new TaxonomyService(new TaxonomyRepository(database), ids, clock);
 

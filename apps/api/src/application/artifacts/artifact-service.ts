@@ -53,7 +53,8 @@ export class ArtifactService {
     const artifactId = this.ids.next();
     const versionId = this.ids.next();
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare(`
         INSERT INTO artifacts (
@@ -61,9 +62,9 @@ export class ArtifactService {
         ) VALUES (?, ?, ?, ?, ?, 'draft', 1, ?, ?)
       `).run(artifactId, scope.ownerId, scope.bookId, type, title, now, now);
       this.insertVersion(scope, artifactId, versionId, 1, null, book.positioning_version, adaptation.adaptation_snapshot_id, content, status, now);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireVersion(scope, versionId);
@@ -80,14 +81,15 @@ export class ArtifactService {
       .get(artifactId) as { next: number };
     const versionId = this.ids.next();
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.insertVersion(scope, artifactId, versionId, next.next, parentVersionId ?? artifact.active_version_id, book.positioning_version, adaptation.adaptation_snapshot_id, content, 'candidate', now);
       this.database.prepare('UPDATE artifacts SET version = version + 1, updated_at = ? WHERE artifact_id = ? AND owner_id = ? AND book_id = ?')
         .run(now, artifactId, scope.ownerId, scope.bookId);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireVersion(scope, versionId);
@@ -98,16 +100,17 @@ export class ArtifactService {
     const version = this.requireVersion(scope, versionId);
     if (version.artifactId !== artifactId) throw new Error('成果版本不属于指定成果');
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare("UPDATE artifact_versions SET status = 'superseded' WHERE artifact_id = ? AND status = 'selected'").run(artifactId);
       this.database.prepare("UPDATE artifact_versions SET status = 'selected' WHERE artifact_version_id = ? AND owner_id = ? AND book_id = ?")
         .run(versionId, scope.ownerId, scope.bookId);
       this.database.prepare("UPDATE artifacts SET active_version_id = ?, status = 'active', updated_at = ? WHERE artifact_id = ? AND owner_id = ? AND book_id = ?")
         .run(versionId, now, artifactId, scope.ownerId, scope.bookId);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireVersion(scope, versionId);

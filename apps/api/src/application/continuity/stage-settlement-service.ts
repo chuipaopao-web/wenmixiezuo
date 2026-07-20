@@ -14,10 +14,11 @@ export class StageSettlementService {
   }): { settlementId: string; activated: boolean; retainedPreviousId: string | null } {
     if (input.sources.length === 0) throw new Error('阶段结算不能没有正史来源');
     if (input.sources.some((source) => source.sourceHash.length !== 64)) throw new Error('阶段结算来源哈希无效');
+    if (input.probes.length === 0) throw new Error('阶段结算必须包含至少一个可验证探针');
     const previous = this.repository.activeSettlement(scope, input.stageType, input.stageKey);
     const id = this.ids.next();
     const now = this.clock.now().toISOString();
-    const allPassed = input.probes.length > 0 && input.probes.every((probe) => probe.passed);
+    const allPassed = input.probes.every((probe) => probe.passed);
     this.unitOfWork.run(() => {
       this.repository.insertSettlement(scope, { id, stageType: input.stageType, stageKey: input.stageKey,
         version: this.repository.nextSettlementVersion(scope, input.stageType, input.stageKey), chapterStart: input.chapterStart,

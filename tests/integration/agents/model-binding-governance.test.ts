@@ -68,4 +68,23 @@ describe('未来模型绑定与运行任务快照治理', () => {
     profiles.experience_reviewer = { ...profiles.literary_reviewer };
     expect(() => service.validate(profiles)).toThrow(/四个不同模型来源/u);
   });
+
+  it('真实套餐模式拒绝把历史确定性绑定恢复成未来活动配置', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '假模型恢复门禁书' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const repository = new AgentGovernanceRepository(context.database);
+    const originalRevision = context.database.prepare(`SELECT agent_model_binding_revision_id AS id
+      FROM agent_model_binding_revisions WHERE owner_id = ? AND book_id = ? AND status = 'active'`)
+      .get(scope.ownerId, scope.bookId) as { id: string };
+    const service = new ModelBindingV2Service(
+      repository, new UnitOfWork(context.database), ids, clock, 'subscription-plan'
+    );
+
+    expect(() => service.restoreFuture(scope, originalRevision.id, '不得恢复假模型')).toThrow('真实套餐模式不能激活确定性假模型绑定');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_binding_revisions
+      WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+  });
 });

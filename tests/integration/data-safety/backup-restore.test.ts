@@ -45,4 +45,26 @@ describe('一致性备份与临时恢复验证', () => {
     lifecycle.permanentlyDelete(scope, requiredPermanentDeleteText('甲书', scope.bookId));
     expect(() => backups.verify(created.backupId)).toThrow('墓碑禁止备份复活');
   });
+
+  it('清单已经落盘但状态仍为creating时可恢复验证，不要求重新复制备份', () => {
+    context = createTestContext();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    const lifecycle = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
+    lifecycle.ensureOwner(scope);
+    lifecycle.createDraft(scope, '甲书');
+    const backups = new BackupService(context.database, context.config);
+    const created = backups.create();
+    context.database.prepare(`UPDATE backups SET status = 'creating', database_hash = NULL,
+      manifest_hash = NULL, file_count = 0 WHERE backup_id = ?`).run(created.backupId);
+
+    const verified = backups.verify(created.backupId);
+    expect(verified.verified).toBe(true);
+    expect(context.database.prepare(`SELECT status, database_hash, manifest_hash FROM backups WHERE backup_id = ?`)
+      .get(created.backupId)).toEqual({
+        status: 'verified',
+        database_hash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        manifest_hash: expect.stringMatching(/^[a-f0-9]{64}$/u)
+      });
+    backups.discardVerification(verified.restorePath);
+  });
 });

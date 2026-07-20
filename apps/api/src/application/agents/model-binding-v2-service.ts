@@ -1,26 +1,20 @@
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
-import { deterministicTeamProfile, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
+import { creativeRoleKeys, deterministicTeamProfile, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
 import type { AgentGovernanceRepository, TeamAgentRow } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import type { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 
 export class ModelBindingV2Service {
-  public constructor(private readonly repository: AgentGovernanceRepository, private readonly unitOfWork: UnitOfWork, private readonly ids: IdGenerator, private readonly clock: Clock) {}
+  public constructor(
+    private readonly repository: AgentGovernanceRepository,
+    private readonly unitOfWork: UnitOfWork,
+    private readonly ids: IdGenerator,
+    private readonly clock: Clock,
+    private readonly runtimeMode?: 'deterministic' | 'subscription-plan'
+  ) {}
 
   public validate(profiles: Record<CreativeRoleKey, TeamModelProfile>): void {
-    const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
-    if (signature('lead_screenwriter') === signature('second_screenwriter')) throw new Error('两名编剧必须使用不同模型');
-    for (const role of ['lead_screenwriter', 'second_screenwriter'] as const) {
-      if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
-    }
-    for (const role of ['lead_writer', 'backup_writer'] as const) {
-      if (profiles[role].plan !== 'deterministic' && !/(gpt-5\.6|glm-5-2)/iu.test(profiles[role].modelId)) throw new Error('写手仅允许Codex GPT-5.6或GLM 5.2');
-      const factRole: CreativeRoleKey = /glm/iu.test(profiles[role].modelId) ? 'lead_screenwriter' : 'setting';
-      const reviewSignatures = [signature(role), signature(factRole), signature('literary_reviewer'), signature('experience_reviewer')];
-      if (new Set(reviewSignatures).size !== reviewSignatures.length) {
-        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验三席必须使用四个不同模型来源`);
-      }
-    }
+    validateTeamModelProfiles(profiles, this.runtimeMode);
   }
 
   public reviseFuture(scope: BookScope, profiles: Record<CreativeRoleKey, TeamModelProfile>, reason: string): number {
@@ -55,6 +49,33 @@ export class ModelBindingV2Service {
     }])) as Record<CreativeRoleKey, TeamModelProfile>;
     return this.reviseFuture(scope, profiles, reason);
   }
+}
+
+export function validateTeamModelProfiles(
+  profiles: Record<CreativeRoleKey, TeamModelProfile>,
+  runtimeMode?: 'deterministic' | 'subscription-plan'
+): void {
+    const plans = creativeRoleKeys.map((role) => profiles[role]?.plan);
+    if (plans.some((plan) => plan === undefined)) throw new Error('模型绑定缺少创作岗位配置');
+    if (runtimeMode === 'subscription-plan' && plans.some((plan) => plan === 'deterministic')) {
+      throw new Error('真实套餐模式不能激活确定性假模型绑定');
+    }
+    if (runtimeMode === 'deterministic' && plans.some((plan) => plan !== 'deterministic')) {
+      throw new Error('确定性模式不能激活需要真实套餐凭证的模型绑定');
+    }
+    const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
+    if (signature('lead_screenwriter') === signature('second_screenwriter')) throw new Error('两名编剧必须使用不同模型');
+    for (const role of ['lead_screenwriter', 'second_screenwriter'] as const) {
+      if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
+    }
+    for (const role of ['lead_writer', 'backup_writer'] as const) {
+      if (profiles[role].plan !== 'deterministic' && !/(gpt-5\.6|glm-5-2)/iu.test(profiles[role].modelId)) throw new Error('写手仅允许Codex GPT-5.6或GLM 5.2');
+      const factRole: CreativeRoleKey = /glm/iu.test(profiles[role].modelId) ? 'lead_screenwriter' : 'setting';
+      const reviewSignatures = [signature(role), signature(factRole), signature('literary_reviewer'), signature('experience_reviewer')];
+      if (new Set(reviewSignatures).size !== reviewSignatures.length) {
+        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验三席必须使用四个不同模型来源`);
+      }
+    }
 }
 
 export class ReviewModelCompatibilityService {

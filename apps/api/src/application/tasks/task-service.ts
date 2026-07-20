@@ -242,8 +242,12 @@ export class TaskService {
         heartbeat_at = NULL, pause_requested = 0, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ? AND pause_requested = 1
         AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+        AND (required_editor_epoch = 0 OR required_editor_epoch = (
+          SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+        ))
     `).run(now, taskId, scope.ownerId, scope.bookId, workerId, now,
-      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0);
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0,
+      scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('任务不在可暂停检查点');
     this.finishCurrentAttempt(scope, taskId, 'paused', now);
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'paused' });
@@ -328,13 +332,13 @@ export class TaskService {
         SELECT m.request_id, x.model_call_result_id, r.status AS reservation_status
         FROM model_calls m JOIN budget_reservations r ON r.reservation_id = m.reservation_id
         LEFT JOIN model_call_results x ON x.request_id = m.request_id
-        WHERE m.task_id = ? AND m.state = 'working' LIMIT 1
-      `).get(row.task_id) as { request_id: string; model_call_result_id: string | null; reservation_status: string } | undefined;
+        WHERE m.task_id = ? AND m.owner_id = ? AND m.book_id = ? AND m.state = 'working' LIMIT 1
+      `).get(row.task_id, row.owner_id, row.book_id) as { request_id: string; model_call_result_id: string | null; reservation_status: string } | undefined;
       const reusableResult = workingCall !== undefined && workingCall.model_call_result_id !== null && workingCall.reservation_status === 'settled';
       const unresolvedCall = this.database.prepare(`
         SELECT 1 FROM model_calls m JOIN model_call_reconciliations r ON r.request_id = m.request_id
         WHERE m.task_id = ? AND m.owner_id = ? AND m.book_id = ?
-          AND r.state IN ('awaiting_provider', 'discarded') LIMIT 1
+          AND r.state = 'awaiting_provider' LIMIT 1
       `).get(row.task_id, row.owner_id, row.book_id);
       const nextStatus: TaskStatus = row.cancel_requested === 1 ? 'cancelled'
         : (workingCall === undefined || reusableResult) && unresolvedCall === undefined ? 'queued' : 'interrupted';

@@ -14,6 +14,13 @@ import {
   EFFECTIVE_OUTPUT_CONTRACT,
   prepareEffectiveOutput
 } from './effective-output-service.js';
+import { HybridRetrievalService } from '../memory/hybrid-retrieval-service.js';
+import { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
+import { RetrievalOrchestrationRepository } from '../../infrastructure/db/repositories/retrieval-orchestration-repository.js';
+import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowledge-repository.js';
+import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
+import { createHash } from 'node:crypto';
+import { EditorLeaseService } from '../editors/editor-lease-service.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -38,7 +45,11 @@ export class ConversationReplyPipelineService {
     private readonly releaseId: string,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
-    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}))
+    private readonly modelAdapters: ModelAdapterFactory = new ModelAdapterFactory(loadModelRuntimeConfig({})),
+    private readonly retrieval: HybridRetrievalService = new HybridRetrievalService(
+      new RetrievalOrchestrationRepository(database), new KnowledgeRepository(database),
+      new ChunkSnapshotRepository(database), ids, clock
+    )
   ) {}
 
   public async executeClaimed(scope: BookScope, taskId: string, workerId: string, leaseFence?: TaskLeaseFence): Promise<{ messageId: string }> {
@@ -101,13 +112,22 @@ export class ConversationReplyPipelineService {
         sourceType: 'boss_message', sourceId: brief.messageId, content: brief.content,
         reason: '当前需要回复的老板消息', priority: 100
       }];
-      if (storyBible !== undefined) {
-        hardSources.push({
-          sourceType: 'story_bible', sourceId: storyBible.artifact_version_id, content: storyBible.content_json,
-          reason: '当前书籍已选故事圣经；草稿字段必须如实标识', priority: 95
-        });
-      }
+      const retrieved = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
+        query: brief.content,
+        roleKey: replyAgent.role_key,
+        mode: 'open_discussion',
+        canonRevision: book.canon_revision,
+        taskId,
+        sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
+        limit: 10
+      });
+      hardSources.push(...retrieved.hardSources);
       const optionalSources: ContextSource[] = [
+        ...retrieved.optionalSources,
+        ...(storyBible === undefined ? [] : [{
+          sourceType: 'story_bible', sourceId: storyBible.artifact_version_id, content: storyBible.content_json,
+          reason: '当前书籍已选故事圣经；仅在本次问题相关且预算允许时带入', priority: 90
+        }]),
         { sourceType: 'recent_conversation', sourceId: `history:${brief.messageId}`, content: JSON.stringify(history), reason: '仅限本次回复的最近12条对话窗口', priority: 70 },
         { sourceType: 'confirmed_decisions', sourceId: `decisions:${scope.bookId}`, content: JSON.stringify(decisions), reason: '老板已经确认的创作决定', priority: 80 }
       ];
@@ -136,38 +156,84 @@ export class ConversationReplyPipelineService {
         ],
         outputContract: EFFECTIVE_OUTPUT_CONTRACT,
         currentMessage: brief.content,
-        recentConversation: history,
-        storyBible: storyBible === undefined ? null : JSON.parse(storyBible.content_json),
-        confirmedDecisions: decisions,
+        contextSources: pack.sources.map((source) => ({
+          sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content
+        })),
         contextPackHash: pack.contentHash
       });
-      const requestId = this.ids.next();
       const budgets = new BudgetService(this.database, this.ids, this.clock);
       const adapter = this.modelAdapters.resolve(replyAgent.provider, replyAgent.model_id, 'discussion', replyAgent.role_key);
-      const reservationId = budgets.reserve(scope, budget.budget_id, requestId, adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000, 0);
-      const result = await new ModelCallService(this.database, this.clock, budgets).execute(scope, {
-        requestId,
-        taskId,
-        phaseKey: `reply:${replyAgent.role_key}`,
-        agentId: replyAgent.agent_id,
-        modelSnapshotId: replyAgent.model_snapshot_id,
+      const inputHash = createHash('sha256').update(prompt).digest('hex');
+      const reusable = this.database.prepare(`SELECT r.output_text, r.input_tokens, r.output_tokens, r.cash_micros
+        FROM model_calls m JOIN model_call_results r ON r.request_id = m.request_id
+        WHERE m.owner_id = ? AND m.book_id = ? AND m.task_id = ? AND m.agent_id = ?
+          AND m.model_snapshot_id = ? AND m.input_hash = ? AND m.phase_key LIKE ? AND m.state = 'succeeded'
+        ORDER BY m.completed_at DESC LIMIT 1`)
+        .get(scope.ownerId, scope.bookId, taskId, replyAgent.agent_id, replyAgent.model_snapshot_id,
+          inputHash, `reply:${replyAgent.role_key}:attempt-%`) as {
+            output_text: string; input_tokens: number; output_tokens: number; cash_micros: number;
+          } | undefined;
+      let result = reusable === undefined ? undefined : {
         provider: replyAgent.provider,
         modelId: replyAgent.model_id,
-        input: prompt,
-        parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
-        reservationId,
-        contextPackId: pack.contextPackId,
-        leaseToken: leaseFence?.leaseToken ?? currentTask.leaseToken,
-        attemptNo: leaseFence?.attemptNo ?? currentTask.currentAttemptNo
-      }, adapter, {
-        requestId,
-        taskId,
-        ownerId: scope.ownerId,
-        bookId: scope.bookId,
-        agentId: replyAgent.agent_id,
-        prompt,
-        maxOutputTokens: 1_200
-      });
+        output: reusable.output_text,
+        inputTokens: reusable.input_tokens,
+        outputTokens: reusable.output_tokens,
+        cashCostCny: reusable.cash_micros / 1_000_000,
+        state: 'succeeded' as const
+      };
+      let lastError: unknown;
+      const calls = new ModelCallService(this.database, this.clock, budgets);
+      for (let technicalTry = 1; result === undefined && technicalTry <= 2; technicalTry += 1) {
+        const requestId = this.ids.next();
+        const reservationId = budgets.reserve(scope, budget.budget_id, requestId,
+          adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000, 0);
+        try {
+          result = await calls.execute(scope, {
+            requestId,
+            taskId,
+            phaseKey: `reply:${replyAgent.role_key}:attempt-${currentTask.currentAttemptNo}:try-${technicalTry}`,
+            agentId: replyAgent.agent_id,
+            modelSnapshotId: replyAgent.model_snapshot_id,
+            provider: replyAgent.provider,
+            modelId: replyAgent.model_id,
+            input: prompt,
+            parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
+            reservationId,
+            contextPackId: pack.contextPackId,
+            leaseToken: leaseFence?.leaseToken ?? currentTask.leaseToken,
+            attemptNo: leaseFence?.attemptNo ?? currentTask.currentAttemptNo
+          }, adapter, {
+            requestId,
+            taskId,
+            ownerId: scope.ownerId,
+            bookId: scope.bookId,
+            agentId: replyAgent.agent_id,
+            prompt,
+            maxOutputTokens: 1_200
+          });
+        } catch (error) {
+          lastError = error;
+          const call = this.database.prepare(`SELECT state, error_class FROM model_calls
+            WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
+            .get(requestId, scope.ownerId, scope.bookId) as { state: string; error_class: string | null } | undefined;
+          const retryable = call?.state === 'failed' && call.error_class === 'technical_failure';
+          if (!retryable) throw error;
+          if (technicalTry === 2) {
+            const canTakeOverEditor = brief.directNamedMember !== true
+              && ['chief_editor', 'deputy_editor'].includes(replyAgent.role_key);
+            if (canTakeOverEditor) {
+              const takeover = new EditorLeaseService(this.database, this.ids, this.clock)
+                .tryAutomaticTakeover(scope, replyAgent.agent_id);
+              throw new Error(takeover.takenOver
+                ? `活动主编连续技术失败，已由${takeover.activeEditorAgentId}接管并从对话检查点恢复`
+                : `活动主编连续技术失败且未能安全接管：${takeover.reason}`);
+            }
+            throw error;
+          }
+        }
+      }
+      if (result === undefined) throw lastError instanceof Error ? lastError : new Error('对话模型调用失败');
       const effective = prepareEffectiveOutput(result.output);
       const references: unknown[] = [{ replyToMessageId: brief.messageId, contextPackId: pack.contextPackId }];
       const effectiveReference = createEffectiveOutputReference(effective);
@@ -193,9 +259,12 @@ export class ConversationReplyPipelineService {
           lease_token = NULL, heartbeat_at = NULL, updated_at = ?
         WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
           AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+          AND (required_editor_epoch = 0 OR required_editor_epoch = (
+            SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
+          ))
       `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'CONVERSATION_REPLY_FAILED', now,
         taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
-        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0);
+        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0, scope.ownerId, scope.bookId);
       if (failure.changes !== 1) throw error;
       this.database.prepare(`
         UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?

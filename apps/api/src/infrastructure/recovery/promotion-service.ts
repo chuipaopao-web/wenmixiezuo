@@ -107,20 +107,27 @@ export class PromotionService {
     assertBookScope(scope);
     const row = this.database.prepare(`
       SELECT payload_json FROM operations
-      WHERE operation_id = ? AND owner_id = ? AND book_id = ? AND status = 'incomplete'
+      WHERE operation_id = ? AND owner_id = ? AND book_id = ? AND status IN ('working', 'incomplete')
     `).get(operationId, scope.ownerId, scope.bookId) as { payload_json: string } | undefined;
     if (row === undefined) throw new Error('没有可恢复的提升操作');
     const payload = JSON.parse(row.payload_json) as PromotionPayload;
     const targetPath = resolveInside(this.dataDir, payload.targetRelativePath);
-    if (!existsSync(targetPath) || sha256File(targetPath) !== payload.contentHash) {
-      throw new Error('恢复目标文件缺失或哈希不匹配');
+    if (existsSync(targetPath)) {
+      if (sha256File(targetPath) !== payload.contentHash) throw new Error('恢复目标文件哈希不匹配');
+      this.register(scope, payload);
+      return;
     }
-    this.register(scope, payload);
+    const stagedPath = resolveInside(this.dataDir, payload.stagedRelativePath);
+    if (!existsSync(stagedPath) || sha256File(stagedPath) !== payload.contentHash || statSync(stagedPath).size !== payload.sizeBytes) {
+      throw new Error('恢复所需的目标文件和暂存文件均不可用');
+    }
+    this.promote(scope, payload);
   }
 
   private register(scope: BookScope, payload: PromotionPayload): void {
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare(`
         INSERT INTO file_registry (
@@ -138,9 +145,9 @@ export class PromotionService {
         INSERT INTO recovery_log (operation_id, owner_id, book_id, step, status, details_json, recorded_at)
         VALUES (?, ?, ?, 'register_file', 'completed', ?, ?)
       `).run(payload.operationId, scope.ownerId, scope.bookId, JSON.stringify({ fileId: payload.fileId }), now);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
   }

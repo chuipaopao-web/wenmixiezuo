@@ -44,6 +44,8 @@ describe('投影outbox与独立故障状态', () => {
       sourceHash: createHash('sha256').update(content).digest('hex'), sourceLocator: { chapterId: 'chapter-1' },
       lifecycleLayer: 'canon', authorityGrade: 'A'
     }, 1);
+    context.database.prepare(`UPDATE books SET canon_revision = 1 WHERE owner_id = ? AND book_id = ?`)
+      .run(scope.ownerId, scope.bookId);
     const jobs = new ProjectionJobService(new ProjectionRepository(context.database), new UnitOfWork(context.database), ids, clock);
     jobs.enqueue(scope, { projectionType: 'fts', sourceSnapshotId: built.snapshotId, requiredCanonRevision: 1, idempotencyKey: `fts:${built.snapshotId}` });
     expect(await new ProjectionTaskExecutor(context.database, 'worker-test').runNext(clock.now())).toBe(true);
@@ -63,6 +65,8 @@ describe('投影outbox与独立故障状态', () => {
       sourceHash: createHash('sha256').update(content).digest('hex'), sourceLocator: { chapterId: 'chapter-1' },
       lifecycleLayer: 'canon', authorityGrade: 'A'
     }, 1);
+    context.database.prepare(`UPDATE books SET canon_revision = 1 WHERE owner_id = ? AND book_id = ?`)
+      .run(scope.ownerId, scope.bookId);
     new ProjectionJobService(new ProjectionRepository(context.database), new UnitOfWork(context.database), ids, clock)
       .enqueue(scope, { projectionType: 'vector', sourceSnapshotId: built.snapshotId, requiredCanonRevision: 1, idempotencyKey: `vector:${built.snapshotId}` });
     context.database.prepare(`
@@ -97,5 +101,63 @@ describe('投影outbox与独立故障状态', () => {
     expect(manifest).toMatchObject({ row_count: built.chunkCount, status: 'ready', embedding_model_snapshot_id: 'legacy-embedding-id' });
     const hits = await store.search(scope, manifest.table_name, built.snapshotId, await embedding.embedQuery('张三向天安城宣战'), 3);
     expect(hits[0]?.text).toContain('张三');
+  });
+
+  it('正史修订只嵌入新增文本并用双缓冲表保留当前向量水位', async () => {
+    context = createTestContext('wenmi-projection-vector-cache-');
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-cache' };
+    initializeRuntimeBook(context, scope, ids, clock, '增量向量书');
+    const repository = new ChunkSnapshotRepository(context.database);
+    const chunks = new ChunkSnapshotService(repository, new UnitOfWork(context.database), new StructuralChunker(), ids, clock);
+    const firstText = '张三在天安城外确认旧约。';
+    const secondText = '李四在北塔清点粮草。';
+    const source = (sourceId: string, content: string) => ({
+      sourceType: 'manuscript' as const, sourceId, sourceVersion: 'v1', content,
+      sourceHash: createHash('sha256').update(content).digest('hex'), sourceLocator: { sourceId },
+      lifecycleLayer: 'canon' as const, authorityGrade: 'A' as const
+    });
+    const first = chunks.build(scope, source('chapter-1', firstText), 1);
+    context.database.prepare(`UPDATE books SET canon_revision = 1 WHERE owner_id = ? AND book_id = ?`)
+      .run(scope.ownerId, scope.bookId);
+    const jobs = new ProjectionJobService(new ProjectionRepository(context.database), new UnitOfWork(context.database), ids, clock);
+    jobs.enqueue(scope, { projectionType: 'vector', sourceSnapshotId: first.snapshotId,
+      requiredCanonRevision: 1, idempotencyKey: `vector:${first.snapshotId}` });
+    const deterministic = new DeterministicEmbeddingAdapter(32);
+    let embeddedTexts = 0;
+    const embedding = {
+      modelSnapshotId: deterministic.modelSnapshotId, dimension: deterministic.dimension,
+      available: true, degradationReason: null,
+      embedDocuments: async (texts: string[]) => {
+        embeddedTexts += texts.length;
+        return deterministic.embedDocuments(texts);
+      }
+    };
+    const store = new LanceDbVectorStore(resolve(context.dataDir, 'indexes', 'lance'));
+    const executor = new ProjectionTaskExecutor(context.database, 'worker-vector-cache', {
+      embedding, store, model: {
+        modelId: 'deterministic-cache-test', modelVersion: '1', source: 'test', license: 'test-only',
+        localPath: 'test-fixture', filesJson: '[]', tokenizerId: 'deterministic', normalized: true,
+        queryInstruction: '', quantization: null, assetHash: 'b'.repeat(64)
+      }
+    });
+    expect(await executor.runNext(clock.now())).toBe(true);
+    expect(embeddedTexts).toBe(first.chunkCount);
+
+    const second = chunks.buildMany(scope, [source('chapter-1', firstText), source('chapter-2', secondText)], 2);
+    context.database.prepare(`UPDATE books SET canon_revision = 2 WHERE owner_id = ? AND book_id = ?`)
+      .run(scope.ownerId, scope.bookId);
+    jobs.enqueue(scope, { projectionType: 'vector', sourceSnapshotId: second.snapshotId,
+      requiredCanonRevision: 2, idempotencyKey: `vector:${second.snapshotId}` });
+    embeddedTexts = 0;
+    expect(await executor.runNext(clock.now())).toBe(true);
+    expect(embeddedTexts).toBe(second.chunkCount - first.chunkCount);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM embedding_vector_cache`).get())
+      .toEqual({ count: second.chunkCount });
+    expect(repository.requireWatermark(scope, 'vector')).toMatchObject({ activeSnapshotId: second.snapshotId, canonRevision: 2 });
+    const tableNames = context.database.prepare(`SELECT table_name FROM vector_index_manifests
+      WHERE owner_id = ? AND book_id = ? ORDER BY canon_revision`).all(scope.ownerId, scope.bookId) as Array<{ table_name: string }>;
+    expect(new Set(tableNames.map((row) => row.table_name)).size).toBe(2);
   });
 });

@@ -3,7 +3,7 @@ import { BudgetService } from '../../../apps/api/src/application/budget/budget-s
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { DeterministicModelAdapter } from '../../../apps/api/src/infrastructure/models/deterministic-model.js';
-import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { FixedClock, MutableClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
 
@@ -39,10 +39,15 @@ describe('模型调用账本、幂等与真实取消', () => {
     expect(result.cashCostCny).toBe(0);
     expect(context!.database.prepare('SELECT state FROM model_calls WHERE request_id = ?').get(call.requestId)).toEqual({ state: 'succeeded' });
     expect(context!.database.prepare('SELECT COUNT(*) AS count FROM usage_ledger').get()).toEqual({ count: 1 });
-    const replay = await calls.execute(fixture.scope, { ...call, requestId: 'request-duplicate' }, new DeterministicModelAdapter(), { ...request, requestId: 'request-duplicate' });
+    const duplicateReservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-duplicate', 200, 0);
+    const replay = await calls.execute(fixture.scope, {
+      ...call, requestId: 'request-duplicate', reservationId: duplicateReservationId
+    }, new DeterministicModelAdapter(), { ...request, requestId: 'request-duplicate' });
     expect(replay.output).toBe(result.output);
     expect(context!.database.prepare('SELECT COUNT(*) AS count FROM usage_ledger').get()).toEqual({ count: 1 });
     expect(context!.database.prepare('SELECT COUNT(*) AS count FROM model_call_results').get()).toEqual({ count: 1 });
+    expect(context!.database.prepare('SELECT status FROM budget_reservations WHERE reservation_id = ?').get(duplicateReservationId))
+      .toEqual({ status: 'released' });
   });
 
   it('取消信号真实传到底层适配器并保留interrupted不自动重试', async () => {
@@ -68,5 +73,31 @@ describe('模型调用账本、幂等与真实取消', () => {
     await expect(promise).rejects.toThrow('模型调用已取消');
     expect(context!.database.prepare('SELECT state FROM model_calls WHERE request_id = ?').get(call.requestId)).toEqual({ state: 'interrupted' });
     expect(context!.database.prepare('SELECT status FROM budget_reservations WHERE reservation_id = ?').get(reservationId)).toEqual({ status: 'reserved' });
+  });
+
+  it('供应商结果未知时冻结调用和预算并登记待调和状态', async () => {
+    const fixture = setup();
+    context!.database.prepare(`UPDATE model_config_snapshots SET provider = 'remote-test', model_id = 'remote-v1' WHERE model_snapshot_id = ?`)
+      .run(fixture.snapshotId);
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-unknown', 200, 0);
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const adapter: ModelAdapter = {
+      provider: 'remote-test', modelId: 'remote-v1',
+      generate: async () => { throw new ModelAdapterError('provider timeout', 'technical_failure', false, undefined, true); }
+    };
+    const call = {
+      requestId: 'request-unknown', taskId: 'task-model', phaseKey: 'unknown', agentId: fixture.agent.agentId,
+      modelSnapshotId: fixture.snapshotId, provider: 'remote-test', modelId: 'remote-v1', input: '不可重复', parameters: '{}', reservationId
+    };
+    await expect(calls.execute(fixture.scope, call, adapter, {
+      requestId: call.requestId, taskId: call.taskId, ownerId: fixture.scope.ownerId, bookId: fixture.scope.bookId,
+      agentId: fixture.agent.agentId, prompt: call.input, maxOutputTokens: 100
+    })).rejects.toThrow('provider timeout');
+    expect(context!.database.prepare(`SELECT state, error_class FROM model_calls WHERE request_id = ?`).get(call.requestId))
+      .toEqual({ state: 'interrupted', error_class: 'provider_result_unknown' });
+    expect(context!.database.prepare(`SELECT state, reason_code FROM model_call_reconciliations WHERE request_id = ?`).get(call.requestId))
+      .toEqual({ state: 'awaiting_provider', reason_code: 'PROVIDER_RESULT_UNKNOWN' });
+    expect(context!.database.prepare('SELECT status FROM budget_reservations WHERE reservation_id = ?').get(reservationId))
+      .toEqual({ status: 'reserved' });
   });
 });

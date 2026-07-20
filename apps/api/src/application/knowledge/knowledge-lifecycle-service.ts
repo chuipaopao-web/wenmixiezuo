@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { EpistemicStatus, KnowledgeAuthorityGrade, KnowledgeLayer, KnowledgePromotionRecord, KnowledgeRevisionRecord, TemporalScopeInput } from '../../contracts/knowledge-lifecycle.js';
+import type { EpistemicStatus, KnowledgeAuthorityGrade, KnowledgeLayer, KnowledgePromotionRecord, KnowledgeRevisionRecord, TemporalScopeInput, TemporalScopeRecord } from '../../contracts/knowledge-lifecycle.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
@@ -81,7 +81,7 @@ export class KnowledgeLifecycleService {
   }): KnowledgePromotionRecord {
     const candidate = this.repository.requireRevision(scope, candidateRevisionId);
     const temporal = this.repository.requireTemporalScope(scope, candidate.temporalScopeId);
-    const checks = this.checkPromotion(candidate, temporal.completeness, input.decisionType);
+    const checks = this.checkPromotion(candidate, temporal, input.decisionType);
     const now = this.clock.now().toISOString();
     return this.unitOfWork.run(() => {
       const canonRevisionId = this.ids.next();
@@ -180,7 +180,7 @@ export class KnowledgeLifecycleService {
 
   private checkPromotion(
     candidate: KnowledgeRevisionRecord,
-    completeness: 'complete' | 'partial' | 'unknown',
+    temporal: TemporalScopeRecord,
     decisionType: 'boss_confirmed' | 'graded_settlement' | 'chief_editor_approved'
   ): Record<string, unknown> {
     if (candidate.layer !== 'candidate' || candidate.status !== 'active') {
@@ -196,8 +196,9 @@ export class KnowledgeLifecycleService {
       throw new DomainError(errorCodes.confirmationRequired, 'D级知识必须由老板确认', {}, false, 409);
     }
     if (decisionType === 'graded_settlement') {
-      if (!['A', 'B'].includes(candidate.authorityGrade) || candidate.epistemicStatus !== 'objective' || candidate.evidence.length === 0 || completeness === 'unknown') {
-        throw new DomainError(errorCodes.operationIncomplete, '自动结算只接受有来源、非未知时间的A/B级客观候选', {}, false, 409);
+      const epistemicallyScoped = candidate.epistemicStatus === 'objective' || temporal.knowledgeSubjectId !== null;
+      if (!['A', 'B'].includes(candidate.authorityGrade) || !epistemicallyScoped || candidate.evidence.length === 0 || temporal.completeness === 'unknown') {
+        throw new DomainError(errorCodes.operationIncomplete, '自动结算只接受有来源、时间可判定且认知主体明确的A/B级候选', {}, false, 409);
       }
       if (candidate.sourceType !== 'confirmed_manuscript' && candidate.sourceType !== 'legacy_fact_assertion') {
         throw new DomainError(errorCodes.operationIncomplete, '自动结算来源不是已确认正文', {}, false, 409);
@@ -210,7 +211,7 @@ export class KnowledgeLifecycleService {
       sourceHash: true,
       evidenceCount: candidate.evidence.length,
       epistemicStatus: candidate.epistemicStatus,
-      temporalCompleteness: completeness,
+      temporalCompleteness: temporal.completeness,
       decisionType
     };
   }

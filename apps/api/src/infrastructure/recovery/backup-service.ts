@@ -114,30 +114,40 @@ export class BackupService {
     } catch (error) {
       this.database.prepare("UPDATE backups SET status = 'invalid', verification_json = ? WHERE backup_id = ?")
         .run(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), backupId);
+      rmSync(backupRoot, { force: true, recursive: true });
       throw error;
     }
   }
 
   public verify(backupId: string): { verified: true; databaseHash: string; fileCount: number; restorePath: string } {
     const row = this.database.prepare(`
-      SELECT backup_path, database_hash, manifest_hash, file_count FROM backups
-      WHERE backup_id = ? AND status IN ('complete', 'verified')
-    `).get(backupId) as { backup_path: string; database_hash: string; manifest_hash: string; file_count: number } | undefined;
+      SELECT backup_path, database_hash, manifest_hash, file_count, status FROM backups
+      WHERE backup_id = ? AND status IN ('creating', 'complete', 'verified')
+    `).get(backupId) as {
+      backup_path: string; database_hash: string | null; manifest_hash: string | null; file_count: number; status: string;
+    } | undefined;
     if (row === undefined) throw new Error('备份不存在或尚未完成');
     const backupRoot = resolveInside(this.config.dataDir, row.backup_path);
     const manifestPath = resolve(backupRoot, 'manifest.json');
     const manifestBytes = readFileSync(manifestPath);
-    if (createHash('sha256').update(manifestBytes).digest('hex') !== row.manifest_hash) throw new Error('备份清单哈希不匹配');
+    const actualManifestHash = createHash('sha256').update(manifestBytes).digest('hex');
+    if (row.manifest_hash !== null && actualManifestHash !== row.manifest_hash) throw new Error('备份清单哈希不匹配');
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as BackupManifest;
+    if (manifest.backupId !== backupId || manifest.releaseId !== this.config.releaseId) throw new Error('备份清单身份或release不匹配');
     const sourceDatabase = resolve(backupRoot, 'database.sqlite');
-    if (sha256File(sourceDatabase) !== row.database_hash || manifest.databaseHash !== row.database_hash) throw new Error('备份数据库哈希不匹配');
+    const expectedDatabaseHash = row.database_hash ?? manifest.databaseHash;
+    if (sha256File(sourceDatabase) !== expectedDatabaseHash || manifest.databaseHash !== expectedDatabaseHash) throw new Error('备份数据库哈希不匹配');
 
     const restoreRoot = resolveInside(this.config.dataDir, `quarantine/restore-${backupId}-${randomUUID().slice(0, 8)}`);
     mkdirSync(restoreRoot, { recursive: true });
     const restoredDatabasePath = resolve(restoreRoot, 'database.sqlite');
     copyFileSync(sourceDatabase, restoredDatabasePath);
+    if (sha256File(restoredDatabasePath) !== expectedDatabaseHash) throw new Error('恢复数据库副本哈希不匹配');
     for (const file of manifest.files) {
       const sourcePath = resolve(backupRoot, file.backupRelativePath);
+      if (!existsSync(sourcePath) || sha256File(sourcePath) !== file.contentHash || statSync(sourcePath).size !== file.sizeBytes) {
+        throw new Error(`备份文件校验失败：${file.fileId}`);
+      }
       const restoredPath = resolve(restoreRoot, file.sourceRelativePath);
       mkdirSync(dirname(restoredPath), { recursive: true });
       copyFileSync(sourcePath, restoredPath);
@@ -152,23 +162,35 @@ export class BackupService {
       const foreignKeys = restored.prepare('PRAGMA foreign_key_check').all();
       if (integrity.integrity_check !== 'ok' || foreignKeys.length !== 0) throw new Error('恢复数据库完整性或外键检查失败');
       const tombstones = this.database.prepare('SELECT owner_id, deleted_book_id FROM deletion_tombstones').all() as unknown as Array<{ owner_id: string; deleted_book_id: string }>;
+      const restoredTables = restored.prepare(
+        `SELECT name FROM pragma_table_list WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`
+      ).all() as unknown as Array<{ name: string }>;
+      const scopedTables = restoredTables.filter(({ name }) => {
+          const columns = restored.prepare(`PRAGMA table_info(${quoteIdentifier(name)})`).all() as unknown as Array<{ name: string }>;
+          const names = new Set(columns.map((column) => column.name));
+          return names.has('owner_id') && names.has('book_id');
+        });
       for (const tombstone of tombstones) {
-        const resurrected = restored.prepare('SELECT 1 FROM books WHERE owner_id = ? AND book_id = ?')
-          .get(tombstone.owner_id, tombstone.deleted_book_id);
-        if (resurrected !== undefined) throw new Error(`删除墓碑禁止备份复活书籍：${tombstone.deleted_book_id}`);
+        for (const table of scopedTables) {
+          const resurrected = restored.prepare(`SELECT 1 FROM ${quoteIdentifier(table.name)} WHERE owner_id = ? AND book_id = ? LIMIT 1`)
+            .get(tombstone.owner_id, tombstone.deleted_book_id);
+          if (resurrected !== undefined) throw new Error(`删除墓碑禁止备份复活书籍：${tombstone.deleted_book_id}/${table.name}`);
+        }
       }
     } finally {
       restored.close();
     }
     const verification = {
       verified: true as const,
-      databaseHash: sha256File(restoredDatabasePath),
+      databaseHash: expectedDatabaseHash,
       fileCount: manifest.files.length,
       restorePath: portableRelative(this.config.dataDir, restoreRoot)
     };
     this.database.prepare(`
-      UPDATE backups SET status = 'verified', verified_at = ?, verification_json = ? WHERE backup_id = ?
-    `).run(new Date().toISOString(), JSON.stringify(verification), backupId);
+      UPDATE backups SET status = 'verified', database_hash = ?, manifest_hash = ?, file_count = ?,
+        verified_at = ?, verification_json = ? WHERE backup_id = ?
+    `).run(expectedDatabaseHash, actualManifestHash, manifest.files.length,
+      new Date().toISOString(), JSON.stringify(verification), backupId);
     return verification;
   }
 
@@ -176,4 +198,8 @@ export class BackupService {
     const path = resolveInside(this.config.dataDir, restoreRelativePath);
     rmSync(path, { force: true, recursive: true });
   }
+}
+
+function quoteIdentifier(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
 }
