@@ -9,6 +9,53 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('建书REST流程', () => {
+  it('无状态识别5000字内剧情梗概，不创建草稿、模型调用或正史记录', async () => {
+    context = createTestContext();
+    const app = await createServer(context.config, context.database, { trustedTest: true });
+    try {
+      const synopsis = [
+        '书名：北境军报',
+        '频道：男频',
+        '分类：历史脑洞',
+        '男主：陆沉，十八岁，边城驿卒之子。',
+        '全书简介：陆沉利用未来军报阻止王朝覆灭。',
+        '主要标签：历史、穿越、谋略'
+      ].join('\n');
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/opening-synopsis/analyze', payload: { synopsis }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toMatchObject({
+        schemaVersion: 'opening-synopsis-suggestions-v1',
+        analysisMode: 'local-deterministic',
+        suggestions: {
+          title: '北境军报',
+          channel: 'male',
+          categoryKey: 'male-history-brain',
+          mainTags: ['历史', '穿越', '谋略']
+        }
+      });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM positioning_drafts').get()).toMatchObject({ count: 0 });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM books').get()).toMatchObject({ count: 0 });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM model_calls').get()).toMatchObject({ count: 0 });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM canon_revisions').get()).toMatchObject({ count: 0 });
+
+      const empty = await app.inject({
+        method: 'POST', url: '/api/v1/opening-synopsis/analyze', payload: { synopsis: ' ' }
+      });
+      expect(empty.statusCode).toBe(400);
+      expect(empty.json().error.message).toContain('不能为空');
+
+      const tooLong = await app.inject({
+        method: 'POST', url: '/api/v1/opening-synopsis/analyze', payload: { synopsis: '长'.repeat(5_001) }
+      });
+      expect(tooLong.statusCode).toBe(400);
+      expect(tooLong.json().error.message).toContain('不能超过5000');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('公开版本化番茄式分类并接受完整开书资料', async () => {
     context = createTestContext();
     const app = await createServer(context.config, context.database, { trustedTest: true });

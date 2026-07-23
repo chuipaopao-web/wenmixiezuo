@@ -3046,6 +3046,13 @@ svg {
   scrollbar-color: var(--line-strong) transparent;
 }
 
+.opening-primary-stack {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
 .opening-form-section {
   min-width: 0;
   align-self: start;
@@ -3053,6 +3060,70 @@ svg {
   border-radius: var(--card-radius);
   padding: 15px;
   background: var(--panel-raised);
+}
+
+.synopsis-analysis-section {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--panel-raised) 90%, var(--accent-soft));
+}
+
+.synopsis-analysis-intro,
+.synopsis-analysis-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: calc(9px * var(--font-scale));
+  line-height: 1.6;
+}
+
+.synopsis-analysis-section textarea {
+  min-height: 156px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.synopsis-analysis-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.synopsis-analysis-actions > span {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  font-size: calc(8px * var(--font-scale));
+}
+
+.synopsis-analysis-actions .secondary-button {
+  min-width: 104px;
+  padding: 8px 12px;
+}
+
+.synopsis-analysis-feedback {
+  margin: 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 8px 10px;
+  font-size: calc(9px * var(--font-scale));
+  line-height: 1.5;
+}
+
+.synopsis-analysis-feedback.success {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+}
+
+.synopsis-analysis-feedback.error {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.synopsis-analysis-note {
+  margin-top: 10px;
+  color: var(--ink-faint);
 }
 
 .opening-form-section > label,

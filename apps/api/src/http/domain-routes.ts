@@ -55,6 +55,7 @@ import { AttributeFormulaService, type FormulaVariable } from '../application/kn
 import { OwnerManuscriptService } from '../application/creation/owner-manuscript-service.js';
 import { BudgetService } from '../application/budget/budget-service.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
+import { OpeningSynopsisAnalysisService } from '../application/books/opening-synopsis-analysis-service.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -115,8 +116,23 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const modelBindings = new ModelBindingV2Service(agentGovernance, new UnitOfWork(database), ids, clock, config.modelRuntime.activeMode);
   const portability = new BookPortabilityService(database, config, ids, clock);
   const taxonomy = new TaxonomyService(new TaxonomyRepository(database), ids, clock);
+  const openingSynopsisAnalysis = new OpeningSynopsisAnalysisService();
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
+  app.post<{ Body: { synopsis?: string } }>('/api/v1/opening-synopsis/analyze', async (request) => {
+    try {
+      return success(openingSynopsisAnalysis.analyze({ synopsis: request.body.synopsis ?? '' }), request.id);
+    } catch (error) {
+      throw new DomainError(
+        errorCodes.validation,
+        error instanceof Error ? error.message : '剧情梗概格式无效',
+        {},
+        false,
+        400
+      );
+    }
+  });
 
   app.post<{ Body: {
     title?: string; text: string; category?: string; classification?: string;

@@ -81,6 +81,37 @@ export interface OpeningBlueprintData {
   mustFollow: string[];
 }
 
+export interface OpeningSynopsisAnalysisData {
+  schemaVersion: 'opening-synopsis-suggestions-v1';
+  analysisMode: 'local-deterministic';
+  taxonomyVersion: string;
+  synopsisLength: number;
+  suggestions: {
+    title: string | null;
+    channel: OpeningChannel | null;
+    categoryKey: string | null;
+    protagonist: {
+      role: ProtagonistRole;
+      name: string;
+      age: string | null;
+      background: string | null;
+      personalities: string[];
+    } | null;
+    worldBackground: string | null;
+    openingBackground: string | null;
+    stageOne: { start: string | null; development: string | null; end: string | null };
+    fullBookOutline: string;
+    initialMap: string | null;
+    mainTags: string[];
+    auxiliaryTags: string[];
+    storyTraits: string[];
+    mustFollow: string[];
+  };
+  recognizedFields: string[];
+  unresolvedFields: string[];
+  evidence: Array<{ field: string; excerpt: string }>;
+}
+
 export interface ChapterData {
   chapterId: string;
   volumeId?: string;
@@ -366,6 +397,12 @@ export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {
 
 export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxonomyData> {
   return request('/api/v1/opening-taxonomy', signal === undefined ? {} : { signal });
+}
+
+export function analyzeOpeningSynopsis(synopsis: string): Promise<OpeningSynopsisAnalysisData> {
+  return request('/api/v1/opening-synopsis/analyze', {
+    method: 'POST', body: JSON.stringify({ synopsis })
+  });
 }
 
 export function fetchWorkspace(bookId: string, signal?: AbortSignal): Promise<WorkspaceData> {

@@ -34,6 +34,7 @@ import {
 } from '@phosphor-icons/react';
 import {
   archiveBook,
+  analyzeOpeningSynopsis,
   cancelTask,
   createBook,
   fetchArtifacts,
@@ -100,6 +101,7 @@ import {
   type OperationsStatusData,
   type OpeningBlueprintData,
   type OpeningChannel,
+  type OpeningSynopsisAnalysisData,
   type OpeningTaxonomyData,
   type ProtagonistRole,
   type TaskData,
@@ -1796,6 +1798,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [tagQuery, setTagQuery] = useState('');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
+  const [synopsis, setSynopsis] = useState('');
+  const [synopsisBusy, setSynopsisBusy] = useState(false);
+  const [synopsisFeedback, setSynopsisFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1858,6 +1863,91 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     if (mustFollow.length >= 12) return;
     setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
+  const applySynopsisSuggestions = (analysis: OpeningSynopsisAnalysisData): void => {
+    if (taxonomy === null || analysis.taxonomyVersion !== taxonomy.version) {
+      throw new Error('分类目录已经变化，请刷新开书页面后重新识别');
+    }
+    const suggestion = analysis.suggestions;
+    let applied = 0;
+    let kept = 0;
+    const fillText = (current: string, next: string | null, setter: (value: string) => void): void => {
+      if (next === null || next.trim().length === 0) return;
+      if (current.trim().length > 0) { kept += 1; return; }
+      setter(next); applied += 1;
+    };
+    fillText(title, suggestion.title, setTitle);
+    const resolvedChannel = channel ?? suggestion.channel;
+    if (suggestion.channel !== null) {
+      if (channel === null) { setChannel(suggestion.channel); applied += 1; }
+      else if (channel !== suggestion.channel) kept += 1;
+    }
+    if (suggestion.categoryKey !== null) {
+      const suggestedCategory = taxonomy.categories.find((item) => item.key === suggestion.categoryKey);
+      if (categoryKey !== null) kept += 1;
+      else if (suggestedCategory?.channel === resolvedChannel) { setCategoryKey(suggestion.categoryKey); applied += 1; }
+    }
+    if (suggestion.protagonist !== null) {
+      const first = protagonists[0];
+      if (first !== undefined) {
+        const next = { ...first };
+        let protagonistApplied = false;
+        if (first.name.trim().length === 0) { next.name = suggestion.protagonist.name; protagonistApplied = true; }
+        else kept += 1;
+        if (suggestion.protagonist.age !== null) {
+          if (first.age.trim().length === 0) { next.age = suggestion.protagonist.age; protagonistApplied = true; }
+          else kept += 1;
+        }
+        if (suggestion.protagonist.background !== null) {
+          if (first.background.trim().length === 0) { next.background = suggestion.protagonist.background; protagonistApplied = true; }
+          else kept += 1;
+        }
+        const mergedPersonalities = [...new Set([...first.personalities, ...suggestion.protagonist.personalities])].slice(0, 6);
+        if (mergedPersonalities.length > first.personalities.length) {
+          next.personalities = mergedPersonalities; protagonistApplied = true;
+        }
+        if (first.name.trim().length === 0 && first.age.trim().length === 0 && first.background.trim().length === 0) {
+          next.role = suggestion.protagonist.role;
+        }
+        if (protagonistApplied) { updateProtagonist(0, next); applied += 1; }
+      }
+    }
+    fillText(worldBackground, suggestion.worldBackground, setWorldBackground);
+    fillText(openingBackground, suggestion.openingBackground, setOpeningBackground);
+    fillText(stageStart, suggestion.stageOne.start, setStageStart);
+    fillText(stageDevelopment, suggestion.stageOne.development, setStageDevelopment);
+    fillText(stageEnd, suggestion.stageOne.end, setStageEnd);
+    fillText(fullBookOutline, suggestion.fullBookOutline, setFullBookOutline);
+    fillText(initialMap, suggestion.initialMap, setInitialMap);
+    const mergeTags = (current: string[], next: string[], max: number, setter: (value: string[]) => void): void => {
+      const merged = [...new Set([...current, ...next])].slice(0, max);
+      if (merged.length > current.length) { setter(merged); applied += 1; }
+    };
+    mergeTags(mainTags, suggestion.mainTags, 5, setMainTags);
+    mergeTags(auxiliaryTags, suggestion.auxiliaryTags, 8, setAuxiliaryTags);
+    mergeTags(storyTraits, suggestion.storyTraits, 8, setStoryTraits);
+    if (suggestion.mustFollow.length > 0) {
+      if (selectedMustFollow.includes('无额外限制')) kept += 1;
+      else mergeTags(selectedMustFollow, suggestion.mustFollow, Math.max(0, 12 - customMustFollow.length), setSelectedMustFollow);
+    }
+    const unresolved = analysis.unresolvedFields.length;
+    setSynopsisFeedback({
+      kind: 'success',
+      message: `已填入 ${applied} 项建议，保留 ${kept} 项已有内容。${unresolved > 0 ? `还有 ${unresolved} 项需要您确认。` : '所有识别结果仍可修改。'}`
+    });
+  };
+  const runSynopsisAnalysis = (): void => {
+    const value = synopsis.trim();
+    if (value.length === 0 || value.length > 5_000 || taxonomy === null || synopsisBusy) return;
+    setSynopsisBusy(true);
+    setSynopsisFeedback(null);
+    void analyzeOpeningSynopsis(value)
+      .then(applySynopsisSuggestions)
+      .catch((reason: unknown) => setSynopsisFeedback({
+        kind: 'error',
+        message: reason instanceof Error ? reason.message : '剧情梗概识别暂时没有完成，请重试或继续手工填写'
+      }))
+      .finally(() => setSynopsisBusy(false));
+  };
   const submit = (): void => {
     if (!valid || taxonomy === null || channel === null || category === null) return;
     const openingBlueprint: OpeningBlueprintData = {
@@ -1884,7 +1974,8 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
       <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">完整开书</span><h2 id="complete-create-book-title">创建一本新书</h2><p>先把确定的信息交给团队；填写“待讨论”也比系统擅自猜测更可靠。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
       <div className="complete-create-book-body">
-        <section className="opening-form-section">
+        <div className="opening-primary-stack">
+          <section className="opening-form-section">
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
@@ -1896,7 +1987,40 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
           <div className="category-options">{categories.map((item) => <button className={categoryKey === item.key ? 'category-choice selected' : 'category-choice'} type="button" aria-label={`${categoryKey === item.key ? '取消' : '选择'}作品分类：${item.name}`} key={item.key} onClick={() => { setCategoryKey(item.key); setMainTags([]); }}><strong>{item.name}</strong><small>{item.description}</small></button>)}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
-        </section>
+          </section>
+
+          <section className="opening-form-section synopsis-analysis-section">
+            <div className="section-heading"><div><span>AI</span><h3>剧情梗概快速识别</h3></div><small>可选</small></div>
+            <p className="synopsis-analysis-intro">粘贴您已经写好的剧情梗概，小文秘书会本地扫描分类、标签和基础信息，减少重复填写。</p>
+            <label htmlFor="opening-synopsis">剧情梗概
+              <textarea
+                id="opening-synopsis"
+                aria-label="剧情梗概"
+                maxLength={5_000}
+                rows={9}
+                value={synopsis}
+                onChange={(event) => { setSynopsis(event.target.value); setSynopsisFeedback(null); }}
+                placeholder="可以直接粘贴一整段，也可以写“书名：”“主角：”“世界观背景：”等标题，带标题时识别更准确。"
+              />
+            </label>
+            <div className="synopsis-analysis-actions">
+              <span aria-live="polite">{synopsis.length} / 5000</span>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={synopsis.trim().length === 0 || synopsis.length > 5_000 || taxonomy === null || synopsisBusy}
+                onClick={runSynopsisAnalysis}
+              >
+                {synopsisBusy ? '正在识别' : synopsisFeedback?.kind === 'error' ? '重新识别' : '识别并填写'}
+              </button>
+            </div>
+            {synopsisFeedback !== null && <p
+              className={`synopsis-analysis-feedback ${synopsisFeedback.kind}`}
+              role={synopsisFeedback.kind === 'error' ? 'alert' : 'status'}
+            >{synopsisFeedback.message}</p>}
+            <p className="synopsis-analysis-note">结果只是可修改建议；不会覆盖已填内容，也不会单独保存原始梗概或写入正史。</p>
+          </section>
+        </div>
 
         <section className="opening-form-section protagonist-section">
           <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加主角（{protagonists.length}/8）</button></div>

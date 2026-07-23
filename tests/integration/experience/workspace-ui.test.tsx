@@ -197,6 +197,87 @@ describe('完整创作工作台', () => {
     })).toBe(true));
   });
 
+  it('在开书左列用5000字剧情梗概识别空字段，并保留作者已经填写的内容', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    const synopsisInput = within(dialog).getByLabelText('剧情梗概') as HTMLTextAreaElement;
+    expect(synopsisInput).toHaveAttribute('maxlength', '5000');
+    expect(within(dialog).getByText('0 / 5000')).toBeInTheDocument();
+    expect(document.querySelector('.opening-primary-stack')).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '作者保留的书名' } });
+    const synopsis = [
+      '书名：北境军报',
+      '频道：男频',
+      '分类：玄幻脑洞',
+      '男主：陆沉，十八岁，边军斥候。',
+      '性格：冷静、敏锐',
+      '世界观背景：城邦以军功与盟约维持秩序。',
+      '故事起始背景：天安城拒绝缴纳边境军费。',
+      '第一阶段起始剧情：陆沉发现伪造军令。',
+      '第一阶段发展剧情：他阻止第一次宣战。',
+      '第一阶段结束剧情：他查出军令来自城内权臣。',
+      '全书简介：陆沉调查城邦战争规则，最终重建联盟。',
+      '初始地图：天安城北门与边军大营。',
+      '主要标签：玄幻、脑洞、成长',
+      '全书特点：群像',
+      '必须遵守：不写后宫'
+    ].join('\n');
+    fireEvent.change(synopsisInput, { target: { value: synopsis } });
+    expect(within(dialog).getByText(`${synopsis.length} / 5000`)).toBeInTheDocument();
+    const analyzeButton = within(dialog).getByRole('button', { name: '识别并填写' });
+    await waitFor(() => expect(analyzeButton).toBeEnabled());
+    fireEvent.click(analyzeButton);
+
+    await waitFor(() => expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname))
+      .toContain('/api/v1/opening-synopsis/analyze'));
+    expect(await within(dialog).findByText(/已填入.+保留 1 项已有内容/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('书名')).toHaveValue('作者保留的书名');
+    expect(within(dialog).getByRole('radio', { name: '男频' })).toBeChecked();
+    expect(within(dialog).getByRole('button', { name: '取消作品分类：玄幻脑洞' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('主角姓名')).toHaveValue('陆沉');
+    expect(within(dialog).getByLabelText('主角年龄')).toHaveValue('十八岁');
+    expect(within(dialog).getByLabelText('主角人物背景')).toHaveValue('边军斥候。');
+    expect(within(dialog).getByRole('button', { name: '取消性格：冷静' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('世界观背景')).toHaveValue('城邦以军功与盟约维持秩序。');
+    expect(within(dialog).getByRole('button', { name: '取消主要标签：玄幻' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '取消主要标签：脑洞' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '取消必须遵守：不写后宫' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/api/v1/opening-synopsis/analyze')
+      && (init as RequestInit | undefined)?.method === 'POST'
+      && JSON.parse(String((init as RequestInit).body)).synopsis === synopsis)).toBe(true);
+    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it('剧情梗概识别失败时保留手工表单并提供重试', async () => {
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/v1/opening-synopsis/analyze') {
+        return new Response(JSON.stringify({ error: { message: '本地识别暂时不可用' } }), {
+          status: 500, headers: { 'content-type': 'application/json' }
+        });
+      }
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    fireEvent.change(within(dialog).getByLabelText('剧情梗概'), { target: { value: '主角张三在天安城开始调查。' } });
+    const analyzeButton = within(dialog).getByRole('button', { name: '识别并填写' });
+    await waitFor(() => expect(analyzeButton).toBeEnabled());
+    fireEvent.click(analyzeButton);
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('本地识别暂时不可用');
+    expect(within(dialog).getByRole('button', { name: '重新识别' })).toBeEnabled();
+    expect(within(dialog).getByLabelText('剧情梗概')).toHaveValue('主角张三在天安城开始调查。');
+  });
+
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
@@ -640,6 +721,36 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         { name: '内容尺度', description: '额外尺度', options: ['不写露骨情色'] },
         { name: '结构与结局', description: '结局底线', options: ['不写开放式结局'] }
       ]
+    });
+    if (path === '/api/v1/opening-synopsis/analyze') return apiResponse({
+      schemaVersion: 'opening-synopsis-suggestions-v1',
+      analysisMode: 'local-deterministic',
+      taxonomyVersion: 'fanqie-public-map-2026-07-23-v1',
+      synopsisLength: JSON.parse(String(init?.body ?? '{}')).synopsis?.length ?? 0,
+      suggestions: {
+        title: '北境军报',
+        channel: 'male',
+        categoryKey: 'male-fantasy-brain',
+        protagonist: {
+          role: 'male_lead', name: '陆沉', age: '十八岁', background: '边军斥候。', personalities: ['冷静', '敏锐']
+        },
+        worldBackground: '城邦以军功与盟约维持秩序。',
+        openingBackground: '天安城拒绝缴纳边境军费。',
+        stageOne: {
+          start: '陆沉发现伪造军令。',
+          development: '他阻止第一次宣战。',
+          end: '他查出军令来自城内权臣。'
+        },
+        fullBookOutline: '陆沉调查城邦战争规则，最终重建联盟。',
+        initialMap: '天安城北门与边军大营。',
+        mainTags: ['玄幻', '脑洞', '成长'],
+        auxiliaryTags: [],
+        storyTraits: ['群像'],
+        mustFollow: ['不写后宫']
+      },
+      recognizedFields: ['书名', '创作频道', '作品分类', '初始主角', '世界观背景', '故事起始背景', '第一阶段起始剧情', '第一阶段发展剧情', '第一阶段结束剧情', '全书简介', '初始地图', '主要标签', '必须遵守'],
+      unresolvedFields: [],
+      evidence: [{ field: '书名', excerpt: '北境军报' }]
     });
     if (path === '/api/v1/books/drafts') return apiResponse({ draftId: 'draft-ui-1', version: 1 });
     if (path === '/api/v1/book-drafts/draft-ui-1/confirm') return apiResponse({ bookId: workspaceData.book.bookId });
