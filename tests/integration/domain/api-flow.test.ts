@@ -53,12 +53,32 @@ describe('建书REST流程', () => {
       });
       expect(draftResponse.statusCode).toBe(200);
       const draft = draftResponse.json().data as { draftId: string; version: number };
+      const staleConfirmResponse = await app.inject({
+        method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version + 1 }
+      });
+      expect(staleConfirmResponse.statusCode).toBe(409);
+      expect(staleConfirmResponse.json().error).toMatchObject({
+        code: 'BOOK_VERSION_CONFLICT',
+        message: expect.stringContaining('版本已经变化'),
+        retryable: true
+      });
+      const booksAfterStaleConfirm = await app.inject({ method: 'GET', url: '/api/v1/books' });
+      expect(booksAfterStaleConfirm.json().data).toEqual([]);
       const confirmResponse = await app.inject({
         method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version }
       });
       expect(confirmResponse.statusCode).toBe(200);
       const created = confirmResponse.json().data as { bookId: string; kickoffTaskId: string };
       expect(created.kickoffTaskId).toBeTruthy();
+      const duplicateConfirmResponse = await app.inject({
+        method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version }
+      });
+      expect(duplicateConfirmResponse.statusCode).toBe(409);
+      expect(duplicateConfirmResponse.json().error).toMatchObject({
+        code: 'BOOK_STATUS_CONFLICT',
+        message: expect.stringContaining('已经确认或结束'),
+        retryable: false
+      });
       const messages = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/messages` });
       expect(messages.json().data).toEqual([]);
       const workspace = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/workspace` });

@@ -18,6 +18,7 @@ import { PromptTemplateRepository } from '../../infrastructure/db/repositories/p
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
 import { TaskService } from '../tasks/task-service.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -51,8 +52,24 @@ export class BookOnboardingService {
   ): OnboardingResult {
     const positioning = new PositioningService(this.database, this.ids, this.clock);
     const draft = positioning.require(scope, draftId);
-    if (draft.status !== 'editing') throw new Error('定位草稿已经确认或结束');
-    if (draft.version !== expectedVersion) throw new Error('定位草稿版本已经变化');
+    if (draft.status !== 'editing') {
+      throw new DomainError(
+        errorCodes.bookStatusConflict,
+        '定位草稿已经确认或结束',
+        { currentStatus: draft.status },
+        false,
+        409
+      );
+    }
+    if (draft.version !== expectedVersion) {
+      throw new DomainError(
+        errorCodes.bookVersionConflict,
+        '定位草稿版本已经变化',
+        { expectedVersion, actualVersion: draft.version },
+        true,
+        409
+      );
+    }
     const bookScope = { ownerId: scope.ownerId, bookId: draft.proposedBookId };
     const tombstone = this.database.prepare('SELECT 1 FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?')
       .get(scope.ownerId, draft.proposedBookId);
