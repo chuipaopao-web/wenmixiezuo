@@ -55,7 +55,9 @@
 - `npm.cmd run verify`：三端TypeScript检查通过；117个测试文件、357项测试全部通过；API、Web、Worker生产构建通过。
 - `npm.cmd run migrate`：正式库当前Schema 25，`applied: []`。
 - `npm.cmd run verify:backup`：生产库完整性`ok`、外键违规0；备份 `backup-2026-07-23T06-04-50-558Z-e477b399` 在隔离目录恢复验证通过，恢复副本随后销毁。
-- `npm.cmd run acceptance`：验收测试3/3通过；提交前审计仅因工作树包含本次待提交修复而报告“工作树干净”未通过，功能、迁移、依赖、密钥、运行数据、产品名、桌面入口和使用说明检查均通过；提交后重新执行正式验收。
+- 功能提交：`c6a35ca`（`fix: harden book creation confirmation`）。
+- `npm.cmd run acceptance`：功能提交后验收测试3/3通过，完整审计 `failures: []`，工作树干净。
+- 最新生产构建运行：Web返回200，API状态`ok`且release_id匹配，Worker状态`ready`，最新错误日志为空。
 
 ## 结论
 
