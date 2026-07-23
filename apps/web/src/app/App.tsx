@@ -1794,6 +1794,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
+  const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
 
   useEffect(() => {
@@ -1813,14 +1814,15 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
     ? options
     : options.filter((item) => item.toLocaleLowerCase('zh-CN').includes(normalizedTagQuery));
-  const mustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
+  const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
+  const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
   const protagonistsValid = protagonists.length > 0 && protagonists.every((item) =>
     item.name.trim().length > 0 && item.age.trim().length > 0 && item.background.trim().length > 0 && item.personalities.length > 0
   );
   const valid = taxonomy !== null && title.trim().length > 0 && channel !== null && category !== null
     && protagonistsValid && worldBackground.trim().length > 0 && openingBackground.trim().length > 0
     && stageStart.trim().length > 0 && stageDevelopment.trim().length > 0 && stageEnd.trim().length > 0
-    && fullBookOutline.trim().length > 0 && initialMap.trim().length > 0 && mustFollow.length > 0
+    && fullBookOutline.trim().length > 0 && initialMap.trim().length > 0 && mustFollow.length > 0 && mustFollow.length <= 12
     && mainTags.length >= 2 && mainTags.length <= 5;
 
   const updateProtagonist = (index: number, patch: Partial<OpeningProtagonistDraft>): void => {
@@ -1842,6 +1844,19 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     const value = customTag.trim().replace(/^#+/u, '');
     if (value.length === 0 || customTags.includes(value) || customTags.length >= 10) return;
     setCustomTags([...customTags, value]); setCustomTag('');
+  };
+  const toggleMustFollow = (item: string): void => {
+    if (selectedMustFollow.includes(item)) {
+      setSelectedMustFollow(selectedMustFollow.filter((value) => value !== item));
+      return;
+    }
+    if (item === '无额外限制') {
+      setSelectedMustFollow(['无额外限制']);
+      setMustFollowText('');
+      return;
+    }
+    if (mustFollow.length >= 12) return;
+    setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
   const submit = (): void => {
     if (!valid || taxonomy === null || channel === null || category === null) return;
@@ -1913,7 +1928,16 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <StringTagPicker title="全书特点" hint="可选，最多8个" kind="全书特点" options={matchingTags(taxonomy?.storyTraits ?? [])} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 8)} />
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
-          <label htmlFor="must-follow">必须遵守<textarea id="must-follow" aria-label="必须遵守" maxLength={6000} rows={4} value={mustFollowText} onChange={(event) => setMustFollowText(event.target.value)} placeholder="每行一条，最多12条；没有额外作品边界时填写：无额外限制" /></label>
+          <details className="boundary-panel" open>
+            <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/12 条</small></summary>
+            <p>这里只选择您明确不能接受的内容；它们是作品硬边界。没有额外边界可直接选择“无额外限制”。</p>
+            <section><header><strong>快速选择</strong><small>与下方自定义内容合计最多12条</small></header><div className="tag-options"><button className={selectedMustFollow.includes('无额外限制') ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selectedMustFollow.includes('无额外限制')} aria-label={`${selectedMustFollow.includes('无额外限制') ? '取消' : '选择'}必须遵守：无额外限制`} onClick={() => toggleMustFollow('无额外限制')}>无额外限制</button></div></section>
+            {(taxonomy?.boundaryGroups ?? []).map((group) => <section key={group.name}><header><strong>{group.name}</strong><small>{group.description}</small></header><div className="tag-options">{group.options.map((item) => {
+              const selected = selectedMustFollow.includes(item);
+              return <button className={selected ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selected} aria-label={`${selected ? '取消' : '选择'}必须遵守：${item}`} key={item} onClick={() => toggleMustFollow(item)}>{selected && <CheckCircleIcon />}{item}</button>;
+            })}</div></section>)}
+            <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 12 && <small className="inline-error" role="alert">必须遵守最多12条，请减少{mustFollow.length - 12}条。</small>}</section>
+          </details>
         </section>
       </div>
       <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · {mainTags.length}/2—5 个主要标签</span></div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={submit}>{busy ? '正在创建' : '确认建书'}</button></div></footer>

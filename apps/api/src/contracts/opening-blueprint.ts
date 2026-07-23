@@ -9,6 +9,12 @@ export interface OpeningTaxonomyCategory {
   recommendedMainTags: string[];
 }
 
+export interface OpeningBoundaryGroup {
+  name: string;
+  description: string;
+  options: string[];
+}
+
 export interface OpeningTaxonomy {
   version: string;
   sourceLabel: string;
@@ -20,6 +26,7 @@ export interface OpeningTaxonomy {
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
+  boundaryGroups: OpeningBoundaryGroup[];
 }
 
 export interface OpeningProtagonistInput {
@@ -118,6 +125,28 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
   personalityOptions: [
     '冷静', '果断', '敏锐', '理性', '坚韧', '乐观', '温柔', '克制', '善良有底线', '责任感强', '外冷内热', '嘴硬心软',
     '幽默', '毒舌', '腹黑', '谨慎', '多疑', '骄傲', '叛逆', '野心勃勃', '重情重义', '敢爱敢恨', '慢热', '社恐', '社牛'
+  ],
+  boundaryGroups: [
+    {
+      name: '感情与关系',
+      description: '只选择作者明确不接受的关系走向。',
+      options: ['不写后宫', '不写多角恋', '不写出轨', '不写强制爱', '不写追妻火葬场', '感情线不喧宾夺主']
+    },
+    {
+      name: '主角体验',
+      description: '避免把爽点偏好误当成每章任务。',
+      options: ['不虐主', '不降智', '不圣母', '不洗白恶人', '不靠误会强推剧情', '不使用系统金手指']
+    },
+    {
+      name: '内容尺度',
+      description: '系统安全与平台合规始终生效，这里只记录作品额外边界。',
+      options: ['不写露骨情色', '不写血腥猎奇', '不写未成年人恋爱', '不写现实政治映射', '不写宗教神秘化', '不写真实人物影射']
+    },
+    {
+      name: '结构与结局',
+      description: '只约束明确结局底线，不提前锁死过程。',
+      options: ['不写开放式结局', '不写悲剧结局', '不写烂尾式跳时', '不写梦境式翻盘', '不写主角团灭', '不写机械式重复升级']
+    }
   ]
 };
 

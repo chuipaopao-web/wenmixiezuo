@@ -42,6 +42,14 @@ describe('完整开书分类与资料合同', () => {
     expect(new Set(OPENING_TAXONOMY.categories.map((item) => item.key)).size).toBe(OPENING_TAXONOMY.categories.length);
     expect(OPENING_TAXONOMY.categories.flatMap((item) => item.recommendedMainTags)
       .filter((tag) => !OPENING_TAXONOMY.mainTags.includes(tag))).toEqual([]);
+    expect(OPENING_TAXONOMY).toMatchObject({
+      boundaryGroups: expect.arrayContaining([
+        expect.objectContaining({ name: '感情与关系', options: expect.arrayContaining(['不写后宫', '不写多角恋']) }),
+        expect.objectContaining({ name: '主角体验', options: expect.arrayContaining(['不虐主', '不降智']) }),
+        expect.objectContaining({ name: '内容尺度', options: expect.arrayContaining(['不写露骨情色', '不写血腥猎奇']) }),
+        expect.objectContaining({ name: '结构与结局', options: expect.arrayContaining(['不写开放式结局', '不写主角团灭']) })
+      ])
+    });
   });
 
   it('接受完整资料、多个主角和2至5个主要标签', () => {

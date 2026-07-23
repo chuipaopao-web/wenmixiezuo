@@ -3602,6 +3602,14 @@ svg {
   border-top: 1px dashed var(--line);
 }
 
+.boundary-custom-field label {
+  margin: 0;
+}
+
+.boundary-custom-field textarea {
+  margin-top: 6px;
+}
+
 .candidate-tag-note {
   margin-top: 12px;
   border: 1px dashed var(--line-strong);

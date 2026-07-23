@@ -171,7 +171,10 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '选择全书特点：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
-    fireEvent.change(within(dialog).getByLabelText('必须遵守'), { target: { value: '不靠误会强推剧情' } });
+    expect(within(dialog).getByText('感情与关系')).toBeInTheDocument();
+    expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
+    fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
     expect(within(dialog).getByText(/已选 2 个主要标签/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
@@ -187,7 +190,10 @@ describe('完整创作工作台', () => {
         && blueprint.mainTags.includes('现言')
         && blueprint.mainTags.includes('脑洞')
         && Array.isArray(blueprint.customTags)
-        && blueprint.customTags.includes('轻悬疑');
+        && blueprint.customTags.includes('轻悬疑')
+        && Array.isArray(blueprint.mustFollow)
+        && blueprint.mustFollow.includes('不写后宫')
+        && blueprint.mustFollow.includes('不靠误会强推剧情');
     })).toBe(true));
   });
 
@@ -627,7 +633,13 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         { key: 'male-fantasy-brain', name: '玄幻脑洞', channel: 'male', description: '男频玄幻脑洞', recommendedMainTags: ['玄幻', '脑洞'] },
         { key: 'female-modern-brain', name: '现言脑洞', channel: 'female', description: '女频现言脑洞', recommendedMainTags: ['现言', '脑洞'] }
       ],
-      mainTags: ['玄幻', '现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻'], personalityOptions: ['冷静', '敏锐']
+      mainTags: ['玄幻', '现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻'], personalityOptions: ['冷静', '敏锐'],
+      boundaryGroups: [
+        { name: '感情与关系', description: '关系走向', options: ['不写后宫', '不写多角恋'] },
+        { name: '主角体验', description: '主角底线', options: ['不虐主', '不降智'] },
+        { name: '内容尺度', description: '额外尺度', options: ['不写露骨情色'] },
+        { name: '结构与结局', description: '结局底线', options: ['不写开放式结局'] }
+      ]
     });
     if (path === '/api/v1/books/drafts') return apiResponse({ draftId: 'draft-ui-1', version: 1 });
     if (path === '/api/v1/book-drafts/draft-ui-1/confirm') return apiResponse({ bookId: workspaceData.book.bookId });

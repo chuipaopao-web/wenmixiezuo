@@ -61,6 +61,7 @@ export interface OpeningTaxonomyData {
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
+  boundaryGroups: Array<{ name: string; description: string; options: string[] }>;
 }
 
 export interface OpeningBlueprintData {

@@ -33,12 +33,18 @@ try {
   const taxonomyResponse = await fetch(`http://127.0.0.1:${apiPort}/api/v1/opening-taxonomy`, { headers: { cookie } });
   if (!taxonomyResponse.ok) throw new Error(`taxonomy failed: ${taxonomyResponse.status}`);
   const taxonomy = (await taxonomyResponse.json()).data;
+  const boundaryOptionCount = taxonomy.boundaryGroups.reduce((total, group) => total + group.options.length, 0);
+  if (taxonomy.boundaryGroups.length !== 4 || boundaryOptionCount !== 24) {
+    throw new Error(`boundary catalog incomplete: ${taxonomy.boundaryGroups.length} groups/${boundaryOptionCount} options`);
+  }
   console.log(JSON.stringify({
     smoke: 'passed',
     schemaVersion: 25,
     taxonomyVersion: taxonomy.version,
     categories: taxonomy.categories.length,
-    channels: [...new Set(taxonomy.categories.map((category) => category.channel))]
+    channels: [...new Set(taxonomy.categories.map((category) => category.channel))],
+    boundaryGroups: taxonomy.boundaryGroups.length,
+    boundaryOptions: boundaryOptionCount
   }));
 } finally {
   child.kill('SIGTERM');
