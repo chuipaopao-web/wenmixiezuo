@@ -71,6 +71,8 @@ export class ConversationReplyPipelineService {
         modelSnapshotId?: string;
         directNamedMember?: boolean;
         requestedMemberName?: string;
+        proactiveOnboarding?: boolean;
+        openingBlueprintId?: string | null;
       };
       const replyAgent = this.database.prepare(`
         SELECT a.agent_id, a.display_name, r.role_key, m.model_snapshot_id, m.provider, m.model_id
@@ -93,6 +95,7 @@ export class ConversationReplyPipelineService {
       const history = this.database.prepare(`
         SELECT sender_type, role_key, content, created_at FROM messages
         WHERE conversation_id = ? AND owner_id = ? AND book_id = ? AND rowid < ?
+          AND message_type <> 'onboarding_trigger'
         ORDER BY rowid DESC LIMIT 12
       `).all(brief.conversationId, scope.ownerId, scope.bookId, targetMessage.row_id) as unknown as Array<Record<string, unknown>>;
       history.reverse();
@@ -109,22 +112,40 @@ export class ConversationReplyPipelineService {
         ORDER BY d.confirmed_at DESC LIMIT 5
       `).all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown>>;
       const hardSources: ContextSource[] = [{
-        sourceType: 'boss_message', sourceId: brief.messageId, content: brief.content,
-        reason: '当前需要回复的老板消息', priority: 100
+        sourceType: brief.proactiveOnboarding === true ? 'onboarding_trigger' : 'boss_message',
+        sourceId: brief.messageId, content: brief.content,
+        reason: brief.proactiveOnboarding === true ? '建书后主动引导合同' : '当前需要回复的老板消息', priority: 100
       }];
-      const retrieved = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
-        query: brief.content,
-        roleKey: replyAgent.role_key,
-        mode: 'open_discussion',
-        canonRevision: book.canon_revision,
-        taskId,
-        sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
-        limit: 10
-      });
+      if (brief.proactiveOnboarding === true) {
+        if (brief.openingBlueprintId === undefined) throw new Error('主动开场任务缺少开书资料引用字段');
+        if (typeof brief.openingBlueprintId === 'string') {
+          const openingBlueprint = this.database.prepare(`
+            SELECT blueprint_json FROM book_opening_blueprints
+            WHERE opening_blueprint_id = ? AND owner_id = ? AND book_id = ? AND status = 'active'
+          `).get(brief.openingBlueprintId, scope.ownerId, scope.bookId) as { blueprint_json: string } | undefined;
+          if (openingBlueprint === undefined) throw new Error('主动开场引用的完整开书资料不存在或越权');
+          hardSources.push({
+            sourceType: 'opening_blueprint', sourceId: brief.openingBlueprintId,
+            content: openingBlueprint.blueprint_json,
+            reason: '老板确认提交的完整开书规划参考；必须用于本次主编主动开场', priority: 100
+          });
+        }
+      }
+      const retrieved = brief.proactiveOnboarding === true
+        ? { hardSources: [], optionalSources: [] }
+        : await new RetrievalContextSourceService(this.retrieval).collect(scope, {
+          query: brief.content,
+          roleKey: replyAgent.role_key,
+          mode: 'open_discussion',
+          canonRevision: book.canon_revision,
+          taskId,
+          sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
+          limit: 10
+        });
       hardSources.push(...retrieved.hardSources);
       const optionalSources: ContextSource[] = [
         ...retrieved.optionalSources,
-        ...(storyBible === undefined ? [] : [{
+        ...(storyBible === undefined || brief.proactiveOnboarding === true ? [] : [{
           sourceType: 'story_bible', sourceId: storyBible.artifact_version_id, content: storyBible.content_json,
           reason: '当前书籍已选故事圣经；仅在本次问题相关且预算允许时带入', priority: 90
         }]),
@@ -151,11 +172,16 @@ export class ConversationReplyPipelineService {
           brief.directNamedMember === true ? '老板明确点名了你；只以自己的岗位身份回答，不转交给主编代答' : '你是当前活动主编，负责回应并判断下一步',
           '如果创作资料不足，指出缺口并提出一至三个具体问题',
           '不要在没有确认方案和章纲时直接创作正文',
+          ...(brief.proactiveOnboarding === true ? [
+            '这是建书后的主动开场，不要声称老板刚刚发送了这条内部触发指令',
+            '先简短区分已知、待讨论和可能冲突，再只问一至三个最高价值问题',
+            '不得复述完整开书表单，不得启动主笔或生成小说正文'
+          ] : []),
           '回答使用自然中文，可讨论但不得把闲聊写入正史',
           '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
         ],
         outputContract: EFFECTIVE_OUTPUT_CONTRACT,
-        currentMessage: brief.content,
+        currentMessage: brief.proactiveOnboarding === true ? '建书完成，请主动引导下一步创作讨论。' : brief.content,
         contextSources: pack.sources.map((source) => ({
           sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content
         })),

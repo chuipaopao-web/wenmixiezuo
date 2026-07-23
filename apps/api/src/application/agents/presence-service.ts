@@ -36,19 +36,38 @@ export class PresenceService {
 
   public list(scope: BookScope): AgentPresence[] {
     assertBookScope(scope);
+    // P0-2 / R02: Presence 当前活动只认每个 Agent 至多一条“最新、同书、非终态”任务。
+    // blocked/failed/cancelled/succeeded 不表示成员正在工作；interrupted 只进任务中心，
+    // 不把成员伪装成持续工作。这里只取 working/waiting_confirmation/paused，并用窗口
+    // 函数保证每个 Agent 至多一条，历史 blocked 不再污染 Presence、不再产生重复行。
     const rows = this.database.prepare(`
+      WITH current_tasks AS (
+        SELECT t.assigned_agent_id, t.task_id, t.status, t.current_phase, t.heartbeat_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY t.assigned_agent_id
+                 ORDER BY CASE t.status
+                            WHEN 'working' THEN 0
+                            WHEN 'waiting_confirmation' THEN 1
+                            WHEN 'paused' THEN 2
+                            ELSE 3 END,
+                          t.updated_at DESC
+               ) AS rn
+        FROM tasks t
+        WHERE t.owner_id = ? AND t.book_id = ?
+          AND t.status IN ('working', 'paused', 'waiting_confirmation')
+      )
       SELECT a.agent_id, r.display_name AS role_name, m.provider, m.model_id,
-             a.activation_state, t.task_id, t.status AS task_status, t.current_phase,
-             t.heartbeat_at,
-             EXISTS(SELECT 1 FROM model_calls mc WHERE mc.task_id = t.task_id AND mc.state = 'working') AS model_working,
-             EXISTS(SELECT 1 FROM tool_calls tc WHERE tc.task_id = t.task_id AND tc.state = 'working') AS tool_working
+             a.activation_state, ct.task_id, ct.status AS task_status, ct.current_phase,
+             ct.heartbeat_at,
+             EXISTS(SELECT 1 FROM model_calls mc WHERE mc.task_id = ct.task_id AND mc.state = 'working') AS model_working,
+             EXISTS(SELECT 1 FROM tool_calls tc WHERE tc.task_id = ct.task_id AND tc.state = 'working') AS tool_working
       FROM agent_instances a
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
-      LEFT JOIN tasks t ON t.assigned_agent_id = a.agent_id AND t.status IN ('working', 'paused', 'blocked', 'waiting_confirmation')
+      LEFT JOIN current_tasks ct ON ct.assigned_agent_id = a.agent_id AND ct.rn = 1
       WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
       ORDER BY r.category, r.role_template_id
-    `).all(scope.ownerId, scope.bookId) as unknown as PresenceRow[];
+    `).all(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId) as unknown as PresenceRow[];
     return rows.map((row) => ({
       agentId: row.agent_id,
       roleName: row.role_name,

@@ -185,6 +185,37 @@ export class BudgetService {
     return this.require(scope, reservation.budget_id);
   }
 
+  public reviseTokenLimit(scope: BookScope, budgetId: string, expectedTokenLimit: number, tokenLimit: number): BudgetRecord {
+    assertBookScope(scope);
+    if (!Number.isInteger(expectedTokenLimit) || expectedTokenLimit < 0 || !Number.isInteger(tokenLimit) || tokenLimit < 0) {
+      throw new Error('预算Token上限必须是非负整数');
+    }
+    const now = this.clock.now().toISOString();
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.require(scope, budgetId);
+      if (current.tokenLimit !== expectedTokenLimit) throw new Error('预算版本已经变化，请刷新后重试');
+      if (current.status === 'closed') throw new Error('已关闭预算不能修改');
+      if (tokenLimit < current.spentTokens + current.reservedTokens) {
+        throw new Error('新Token上限不能低于已经使用和冻结的Token');
+      }
+      const result = this.database.prepare(`
+        UPDATE budgets SET token_limit = ?,
+          status = CASE WHEN spent_tokens + reserved_tokens >= ? THEN 'exhausted' ELSE 'active' END,
+          updated_at = ?
+        WHERE budget_id = ? AND owner_id = ? AND book_id = ? AND token_limit = ?
+      `).run(tokenLimit, tokenLimit, now, budgetId, scope.ownerId, scope.bookId, expectedTokenLimit);
+      if (result.changes !== 1) throw new Error('预算版本已经变化，请刷新后重试');
+      this.database.exec('COMMIT');
+    } catch (error) {
+      if (this.database.isTransaction) this.database.exec('ROLLBACK');
+      throw error;
+    }
+    const revised = this.require(scope, budgetId);
+    this.emitThreshold(scope, revised);
+    return revised;
+  }
+
   public require(scope: BookScope, budgetId: string): BudgetRecord {
     assertBookScope(scope);
     const row = this.database.prepare(`

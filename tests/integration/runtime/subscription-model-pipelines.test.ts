@@ -37,7 +37,9 @@ describe('订阅与套餐模型真实流水线接线', () => {
         const synthesisInput = parseObject(wrapped?.taskInput) ?? wrapped;
         if (synthesisInput?.operation === 'draft' || input.prompt.includes('"operation":"draft"')) {
           const output = buildValidNovel();
-          return { output, inputTokens: 18_500, outputTokens: 1_600 };
+          // Codex还会计入岗位系统提示与订阅运行器包装开销；该值刻意超过
+          // 24k上下文包+8k输出的旧冻结上限，验证预算预留不会误杀成功结果。
+          return { output, inputTokens: 31_000, outputTokens: 1_600 };
         }
         if (synthesisInput?.operation === 'repair_editor_synthesis_json') {
           return {
@@ -79,11 +81,11 @@ describe('订阅与套餐模型真实流水线接线', () => {
         return { output: '建议让章末钩子来自人物主动选择，并保留一项下一章可验证的疑问。', inputTokens: 40, outputTokens: 30 };
       }
     };
-    const calls: Array<{ url: string; model: string; prompt: string }> = [];
+    const calls: Array<{ url: string; model: string; prompt: string; maxTokens: number }> = [];
     let malformedLiterarySent = false;
     const fetchImpl: typeof fetch = async (input, init) => {
-      const body = JSON.parse(String(init?.body)) as { model: string; messages: Array<{ content: string }> };
-      calls.push({ url: String(input), model: body.model, prompt: body.messages[0]?.content ?? '' });
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: Array<{ content: string }> };
+      calls.push({ url: String(input), model: body.model, prompt: body.messages[0]?.content ?? '', maxTokens: body.max_tokens });
       const prompt = parseObject(body.messages[0]?.content);
       const taskInput = parseObject(prompt?.taskInput);
       const role = taskInput?.reviewerRole;
@@ -135,7 +137,13 @@ describe('订阅与套餐模型真实流水线接线', () => {
     ]));
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
+    expect(calls.filter((call) => call.prompt.includes('章节跨度估算')).every((call) => call.maxTokens >= 3_000)).toBe(true);
     expect(calls.some((call) => call.prompt.includes('repair_review_json'))).toBe(true);
+    expect(calls.filter((call) => call.prompt.includes('repair_review_json')).every((call) =>
+      call.prompt.includes('location')
+      && call.prompt.includes('issueType')
+      && call.prompt.includes('requiredAction')
+      && call.prompt.includes('pass|rewrite|blocked'))).toBe(true);
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
     expect(codexPrompts.some((prompt) => prompt.includes('chapter_outline') && prompt.includes('writing_contract'))).toBe(true);

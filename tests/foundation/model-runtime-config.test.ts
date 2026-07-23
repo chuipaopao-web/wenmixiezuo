@@ -36,6 +36,7 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5-2-260617' });
     expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'kimi-k2-6-modelhub' });
     expect(config.roleProfiles.reader_experience).toMatchObject({ modelId: 'doubao-seed-2-0-pro-260215' });
+    expect(config.codex.timeoutMs).toBe(900_000);
     expect(config.publicProfiles).toEqual(expect.arrayContaining([
       expect.objectContaining({ modelId: 'gpt-5.6-sol', credentialConfigured: true }),
       expect.objectContaining({ modelId: 'deepseek-v4-pro', credentialConfigured: true }),

@@ -20,6 +20,24 @@ export interface AutomaticTakeoverResult {
   reason: string;
 }
 
+export interface EditorLeaseStatus extends EditorLease {
+  expired: boolean;
+}
+
+export interface ExpirySafetyReport {
+  hasWorkingTasks: boolean;
+  hasWorkingCalls: boolean;
+  hasUnknownResultCalls: boolean;
+  safeToRevert: boolean;
+}
+
+export interface RevertResult {
+  reverted: boolean;
+  activeEditorAgentId: string;
+  editorEpoch: number;
+  reason: string;
+}
+
 interface LeaseRow {
   active_editor_agent_id: string;
   candidate_editor_agent_id: string | null;
@@ -69,6 +87,13 @@ export class EditorLeaseService {
       WHERE owner_id = ? AND book_id = ? AND active_editor_agent_id = ? AND editor_epoch = ?
     `).run(new Date(now.getTime() + leaseMs).toISOString(), now.toISOString(), scope.ownerId, scope.bookId, editorAgentId, epoch);
     return this.require(scope);
+  }
+
+  public heartbeatRenew(scope: BookScope, editorAgentId: string, leaseMs = 60_000): EditorLease {
+    // P0-4: 主编活动心跳续租。以当前租约的 epoch 续期——只要主编身份与 epoch 未变即续期，
+    // 防止租约因无续期调用而过期、又被上层误判为 stable。若主编已被接管，assertEpoch 会拒绝旧主编续租。
+    const lease = this.require(scope);
+    return this.renew(scope, editorAgentId, lease.editorEpoch, leaseMs);
   }
 
   public prepareTakeover(scope: BookScope, candidateEditorAgentId: string): { takeoverId: string; package: Record<string, unknown> } {
@@ -294,6 +319,62 @@ export class EditorLeaseService {
       takeoverState: row.takeover_state,
       takeoverId: row.takeover_id
     };
+  }
+
+  public isLeaseExpired(scope: BookScope, now?: Date): boolean {
+    const lease = this.require(scope);
+    const at = now ?? this.clock.now();
+    return Date.parse(lease.leaseExpiresAt) <= at.getTime();
+  }
+
+  public describeLease(scope: BookScope): EditorLeaseStatus {
+    const lease = this.require(scope);
+    const expired = Date.parse(lease.leaseExpiresAt) <= this.clock.now().getTime();
+    return { ...lease, expired };
+  }
+
+  public evaluateExpirySafety(scope: BookScope): ExpirySafetyReport {
+    assertBookScope(scope);
+    const workingTasks = this.database.prepare(`
+      SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND status = 'working'
+    `).get(scope.ownerId, scope.bookId) as { count: number };
+    const workingCalls = this.database.prepare(`
+      SELECT COUNT(*) AS count FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND state = 'working'
+    `).get(scope.ownerId, scope.bookId) as { count: number };
+    const unknownResultCalls = this.database.prepare(`
+      SELECT COUNT(*) AS count FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND state IN ('pending', 'working', 'interrupted')
+    `).get(scope.ownerId, scope.bookId) as { count: number };
+    // 安全回切边界：只有在途模型调用与结果未知调用都为 0 时才允许切人，避免丢失正在生成的结果
+    const safeToRevert = workingCalls.count === 0 && unknownResultCalls.count === 0;
+    return {
+      hasWorkingTasks: workingTasks.count > 0,
+      hasWorkingCalls: workingCalls.count > 0,
+      hasUnknownResultCalls: unknownResultCalls.count > 0,
+      safeToRevert
+    };
+  }
+
+  public safeRevertToChief(scope: BookScope, preferredChiefAgentId: string): RevertResult {
+    assertBookScope(scope);
+    const lease = this.require(scope);
+    if (lease.activeEditorAgentId === preferredChiefAgentId) {
+      return { reverted: false, activeEditorAgentId: lease.activeEditorAgentId, editorEpoch: lease.editorEpoch, reason: '当前活动主编即为目标主编，无需回切' };
+    }
+    const safety = this.evaluateExpirySafety(scope);
+    if (!safety.safeToRevert) {
+      return { reverted: false, activeEditorAgentId: lease.activeEditorAgentId, editorEpoch: lease.editorEpoch, reason: '存在进行中或结果未知的模型调用，暂不回切以避免丢失结果' };
+    }
+    try {
+      // 复用 prepareTakeover/completeTakeover 的原子交接与候任模型可用性校验
+      const prepared = this.prepareTakeover(scope, preferredChiefAgentId);
+      const completed = this.completeTakeover(scope, prepared.takeoverId);
+      return { reverted: true, activeEditorAgentId: completed.activeEditorAgentId, editorEpoch: completed.editorEpoch, reason: '原主编模型恢复且无进行中调用，已安全回切' };
+    } catch (error) {
+      return { reverted: false, activeEditorAgentId: lease.activeEditorAgentId, editorEpoch: lease.editorEpoch, reason: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private requireEditorAgent(scope: BookScope, agentId: string, mode: 'active' | 'candidate'): void {

@@ -161,6 +161,64 @@ export class ProductionWorkflowRepository {
         input.canonRevision, input.tokenBudget);
   }
 
+  public resumeIncompleteReviewPanel(scope: BookScope, input: {
+    manuscriptVersionId: string; manuscriptHash: string; writerModelSnapshotId: string;
+    canonRevision: number; bindingRevisionId: string | null;
+  }): ReviewPanelRecord | null {
+    const row = this.database.prepare(`
+      SELECT p.review_panel_id, p.manuscript_version_id, p.review_round, p.writer_model_snapshot_id,
+        p.fact_agent_id, p.fact_model_snapshot_id, p.literary_agent_id, p.literary_model_snapshot_id,
+        p.experience_agent_id, p.experience_model_snapshot_id, p.status, COUNT(r.review_report_id) AS report_count
+      FROM review_panels p
+      LEFT JOIN review_reports r ON r.review_panel_id = p.review_panel_id
+        AND r.owner_id = p.owner_id AND r.book_id = p.book_id AND r.status = 'submitted'
+      WHERE p.owner_id = ? AND p.book_id = ? AND p.manuscript_version_id = ?
+        AND p.manuscript_hash = ? AND p.writer_model_snapshot_id = ? AND p.canon_revision = ?
+        AND p.binding_revision_id IS ? AND p.status IN ('blocked', 'working')
+        AND NOT EXISTS (SELECT 1 FROM editor_review_syntheses s
+          WHERE s.owner_id = p.owner_id AND s.book_id = p.book_id AND s.review_panel_id = p.review_panel_id)
+      GROUP BY p.review_panel_id
+      ORDER BY p.review_round DESC, p.created_at DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, input.manuscriptVersionId, input.manuscriptHash,
+      input.writerModelSnapshotId, input.canonRevision, input.bindingRevisionId) as Record<string, string | number> | undefined;
+    if (row === undefined) return null;
+    const team = this.currentTeam(scope, input.bindingRevisionId);
+    const frozenAgent = (agentId: string, snapshotId: string): TeamAgentRow | null => {
+      const agent = team.find((candidate) => candidate.agentId === agentId && candidate.modelSnapshotId === snapshotId);
+      return agent ?? null;
+    };
+    const fact = frozenAgent(row.fact_agent_id as string, row.fact_model_snapshot_id as string);
+    const literary = frozenAgent(row.literary_agent_id as string, row.literary_model_snapshot_id as string);
+    const experience = frozenAgent(row.experience_agent_id as string, row.experience_model_snapshot_id as string);
+    if (fact === null || literary === null || experience === null) return null;
+    const reopened = this.database.prepare(`
+      UPDATE review_panels SET status = 'working'
+      WHERE review_panel_id = ? AND owner_id = ? AND book_id = ? AND status IN ('blocked', 'working')
+        AND NOT EXISTS (SELECT 1 FROM editor_review_syntheses s
+          WHERE s.owner_id = review_panels.owner_id AND s.book_id = review_panels.book_id
+            AND s.review_panel_id = review_panels.review_panel_id)
+    `).run(row.review_panel_id as string, scope.ownerId, scope.bookId);
+    if (reopened.changes !== 1) return null;
+    return {
+      reviewPanelId: row.review_panel_id as string,
+      manuscriptVersionId: row.manuscript_version_id as string,
+      reviewRound: Number(row.review_round),
+      writerModelSnapshotId: row.writer_model_snapshot_id as string,
+      fact,
+      literary,
+      experience,
+      status: 'working'
+    };
+  }
+
+  public reviewReportJson(scope: BookScope, panelId: string, role: ReviewerRole): string | null {
+    const row = this.database.prepare(`SELECT report_json FROM review_reports
+      WHERE owner_id = ? AND book_id = ? AND review_panel_id = ? AND reviewer_role = ? AND status = 'submitted'`)
+      .get(scope.ownerId, scope.bookId, panelId, role) as { report_json: string } | undefined;
+    return row?.report_json ?? null;
+  }
+
   public insertReviewReport(scope: BookScope, input: {
     id: string; panelId: string; manuscriptVersionId: string; role: ReviewerRole; agentId: string; modelSnapshotId: string;
     report: unknown; reportHash: string; inputTokens: number; now: string;
@@ -227,12 +285,23 @@ export class ProductionWorkflowRepository {
         .run(input.confirmationId, scope.ownerId, scope.bookId, input.manuscriptVersionId,
           JSON.stringify({ manuscriptVersionId: input.manuscriptVersionId, status: 'approved' }), JSON.stringify(input.scopeData),
           JSON.stringify(input.impact), input.expectedCanonRevision, input.now);
-      this.database.prepare(`INSERT INTO chapter_approval_gates (
+      const gate = this.database.prepare(`INSERT INTO chapter_approval_gates (
         chapter_approval_gate_id, owner_id, book_id, chapter_id, task_id, manuscript_version_id,
         review_panel_id, confirmation_id, expected_canon_revision, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_owner', ?)`)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_owner', ?)
+      ON CONFLICT(owner_id, book_id, chapter_id, manuscript_version_id) DO UPDATE SET
+        task_id = excluded.task_id,
+        review_panel_id = excluded.review_panel_id,
+        confirmation_id = excluded.confirmation_id,
+        expected_canon_revision = excluded.expected_canon_revision,
+        status = 'awaiting_owner',
+        decision_note = NULL,
+        resolved_at = NULL,
+        created_at = excluded.created_at
+      WHERE chapter_approval_gates.status IN ('rejected', 'superseded', 'settlement_failed')`)
         .run(input.gateId, scope.ownerId, scope.bookId, input.chapterId, input.taskId, input.manuscriptVersionId,
           input.reviewPanelId, input.confirmationId, input.expectedCanonRevision, input.now);
+      if (gate.changes !== 1) throw new Error('正文确认门禁未能建立');
       if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
       if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
@@ -332,11 +401,12 @@ export class ProductionWorkflowRepository {
   }
 
   public recordQualityMetric(scope: BookScope, input: {
-    id: string; chapterId: string; manuscriptVersionId: string; rewriteCount: number; now: string;
+    id: string; chapterId: string; manuscriptVersionId: string; reviewPanelId: string; rewriteCount: number; now: string;
   }): void {
     const reports = this.database.prepare(`SELECT reviewer_role, report_json FROM review_reports
-      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND status = 'submitted' ORDER BY reviewer_role`)
-      .all(scope.ownerId, scope.bookId, input.manuscriptVersionId) as unknown as Array<{ reviewer_role: string; report_json: string }>;
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND review_panel_id = ?
+        AND status = 'submitted' ORDER BY reviewer_role`)
+      .all(scope.ownerId, scope.bookId, input.manuscriptVersionId, input.reviewPanelId) as unknown as Array<{ reviewer_role: string; report_json: string }>;
     if (reports.length !== 3) throw new Error('正式结算缺少三份点评报告');
     const scores = Object.fromEntries(reports.map((report) => [report.reviewer_role, JSON.parse(report.report_json)]));
     this.database.prepare(`INSERT INTO chapter_quality_metrics (
@@ -395,6 +465,31 @@ export class ProductionWorkflowRepository {
     const report = JSON.parse(row.report_json) as { factCandidates?: FactCandidate[] };
     if (!Array.isArray(report.factCandidates)) throw new Error('事实点评报告没有结构化事实候选');
     return report.factCandidates;
+  }
+
+  public recordRejectedFactCandidate(scope: BookScope, input: {
+    eventId: string;
+    occurredAt: string;
+    chapterId: string;
+    manuscriptVersionId: string;
+    reviewPanelId: string;
+    subjectName: string;
+    relationKey: string;
+    reason: 'evidence_quote_too_long' | 'evidence_quote_not_found';
+    evidenceQuoteLength: number;
+  }): void {
+    this.database.prepare(`
+      INSERT INTO persistent_events (event_id, event_type, owner_id, book_id, occurred_at, data_json)
+      VALUES (?, 'fact_candidate.rejected', ?, ?, ?, ?)
+    `).run(input.eventId, scope.ownerId, scope.bookId, input.occurredAt, JSON.stringify({
+      chapterId: input.chapterId,
+      manuscriptVersionId: input.manuscriptVersionId,
+      reviewPanelId: input.reviewPanelId,
+      subjectName: input.subjectName,
+      relationKey: input.relationKey,
+      reason: input.reason,
+      evidenceQuoteLength: input.evidenceQuoteLength
+    }));
   }
 
   public hasFactCandidate(scope: BookScope, input: {

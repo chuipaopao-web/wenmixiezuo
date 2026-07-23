@@ -47,6 +47,39 @@ export interface BookData {
   updatedAt: string;
 }
 
+export type OpeningChannel = 'male' | 'female';
+export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
+
+export interface OpeningTaxonomyData {
+  version: string;
+  sourceLabel: string;
+  sourceUrl: string;
+  updatedAt: string;
+  notice: string;
+  categories: Array<{ key: string; name: string; channel: OpeningChannel; description: string; recommendedMainTags: string[] }>;
+  mainTags: string[];
+  auxiliaryTags: string[];
+  storyTraits: string[];
+  personalityOptions: string[];
+}
+
+export interface OpeningBlueprintData {
+  taxonomyVersion: string;
+  channel: OpeningChannel;
+  categoryKey: string;
+  protagonists: Array<{ role: ProtagonistRole; name: string; age: string; background: string; personalities: string[] }>;
+  worldBackground: string;
+  openingBackground: string;
+  stageOne: { start: string; development: string; end: string };
+  fullBookOutline: string;
+  mainTags: string[];
+  auxiliaryTags: string[];
+  storyTraits: string[];
+  customTags: string[];
+  initialMap: string;
+  mustFollow: string[];
+}
+
 export interface ChapterData {
   chapterId: string;
   volumeId?: string;
@@ -330,6 +363,10 @@ export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {
   return request('/api/v1/books', signal === undefined ? {} : { signal });
 }
 
+export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxonomyData> {
+  return request('/api/v1/opening-taxonomy', signal === undefined ? {} : { signal });
+}
+
 export function fetchWorkspace(bookId: string, signal?: AbortSignal): Promise<WorkspaceData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/workspace`, signal === undefined ? {} : { signal });
 }
@@ -342,7 +379,11 @@ export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
   return request('/api/v1/runtime/worker', signal === undefined ? {} : { signal });
 }
 
-export async function createBook(input: { title: string; text: string; category?: string; classification?: string; targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string; tags?: string[] }): Promise<{ bookId: string }> {
+export async function createBook(input: {
+  title: string; text: string; category?: string; classification?: string; targetAudience?: string;
+  expectedScaleChars?: number; initialExpressionBaseline?: string; tags?: string[];
+  openingBlueprint?: OpeningBlueprintData;
+}): Promise<{ bookId: string; kickoffTaskId?: string }> {
   const draft = await request<{ draftId: string; version: number }>('/api/v1/books/drafts', {
     method: 'POST', body: JSON.stringify(input)
   });

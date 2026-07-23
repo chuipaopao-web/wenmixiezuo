@@ -15,6 +15,9 @@ import type { CreativeRoleKey, TeamModelProfile } from '../../contracts/agent-te
 import { creativeRoleKeys } from '../../contracts/agent-team-v2.js';
 import { PromptCompiler } from '../agents/prompt-compiler.js';
 import { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
+import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
+import { TaskService } from '../tasks/task-service.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -26,6 +29,8 @@ export interface OnboardingResult {
   onboardingProfileId: string;
   expressionProfileId: string;
   activeEditorAgentId: string;
+  openingBlueprintId: string | null;
+  kickoffTaskId: string | null;
   agentCount: number;
 }
 
@@ -34,10 +39,16 @@ export class BookOnboardingService {
     private readonly database: DatabaseSync,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
-    private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>
+    private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>,
+    private readonly releaseId?: string
   ) {}
 
-  public confirmDraft(scope: OwnerScope, draftId: string, expectedVersion: number, failAt?: 'after_book' | 'after_team' | 'after_artifact'): OnboardingResult {
+  public confirmDraft(
+    scope: OwnerScope,
+    draftId: string,
+    expectedVersion: number,
+    failAt?: 'after_book' | 'after_team' | 'after_artifact' | 'after_kickoff'
+  ): OnboardingResult {
     const positioning = new PositioningService(this.database, this.ids, this.clock);
     const draft = positioning.require(scope, draftId);
     if (draft.status !== 'editing') throw new Error('定位草稿已经确认或结束');
@@ -59,12 +70,19 @@ export class BookOnboardingService {
     const storyBibleArtifactId = this.ids.next();
     const storyBibleVersionId = this.ids.next();
     const conversationId = this.ids.next();
+    const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
+    const onboardingTriggerMessageId = this.ids.next();
+    const kickoffTaskId = this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
 
     this.database.exec('BEGIN IMMEDIATE');
     try {
       new BookRepository(this.database).create(bookScope, draft.title, now, 'active');
       if (failAt === 'after_book') throw new Error('simulated-onboarding-failure');
+      if (draft.openingBlueprint !== null && openingBlueprintId !== null) {
+        this.insertOpeningBlueprint(bookScope, openingBlueprintId, draft.openingBlueprint, now);
+        this.insertOpeningProtagonists(bookScope, openingBlueprintId, draft.openingBlueprint, now);
+      }
       const genre = fieldValue(draft.fields, 'genre');
       const classification = fieldValue(draft.fields, 'classification');
       const targetAudience = fieldValue(draft.fields, 'audience');
@@ -138,7 +156,7 @@ export class BookOnboardingService {
           status, created_at, updated_at
         ) VALUES (?, ?, ?, 'standard', 240000, 0, 0, 0, 0, 0, 'active', ?, ?)
       `).run(budgetId, scope.ownerId, draft.proposedBookId, now, now);
-      const storyBible = storyBibleSkeleton(draft.title, draft.fields, draft.tags);
+      const storyBible = storyBibleSkeleton(draft.title, draft.fields, draft.tags, draft.openingBlueprint);
       this.database.prepare(`
         INSERT INTO artifacts (
           artifact_id, owner_id, book_id, artifact_type, title, active_version_id,
@@ -161,9 +179,9 @@ export class BookOnboardingService {
         VALUES (?, ?, ?, '主创作对话', ?, ?)
       `).run(conversationId, scope.ownerId, draft.proposedBookId, now, now);
       const editor = this.database.prepare(`
-        SELECT agent_id FROM agent_instances
+        SELECT agent_id, model_snapshot_id FROM agent_instances
         WHERE owner_id = ? AND book_id = ? AND role_template_id = 'role-v2-chief-editor'
-      `).get(scope.ownerId, draft.proposedBookId) as { agent_id: string };
+      `).get(scope.ownerId, draft.proposedBookId) as { agent_id: string; model_snapshot_id: string };
       this.database.prepare(`
         INSERT INTO editor_leases (
           owner_id, book_id, active_editor_agent_id, editor_epoch,
@@ -174,6 +192,35 @@ export class BookOnboardingService {
         UPDATE books SET positioning_version = 1, active_editor_agent_id = ?, editor_epoch = 1,
           updated_at = ? WHERE owner_id = ? AND book_id = ?
       `).run(editor.agent_id, now, scope.ownerId, draft.proposedBookId);
+      if (this.releaseId !== undefined) {
+        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint);
+        this.database.prepare(`
+          INSERT INTO messages (
+            message_id, conversation_id, owner_id, book_id, sender_type,
+            message_type, content, references_json, created_at
+          ) VALUES (?, ?, ?, ?, 'system', 'onboarding_trigger', ?, '[]', ?)
+        `).run(onboardingTriggerMessageId, conversationId, scope.ownerId, draft.proposedBookId, kickoffContent, now);
+        const taskService = new TaskService(this.database, this.requireReleaseId(), this.clock);
+        taskService.create(bookScope, {
+          taskId: kickoffTaskId,
+          taskType: 'conversation_reply',
+          assignedAgentId: editor.agent_id,
+          idempotencyKey: `onboarding-kickoff:${draft.proposedBookId}`,
+          budgetId,
+          requiredEditorEpoch: 1,
+          initialPhase: 'reply',
+          brief: {
+            conversationId,
+            messageId: onboardingTriggerMessageId,
+            content: kickoffContent,
+            modelSnapshotId: editor.model_snapshot_id,
+            proactiveOnboarding: true,
+            openingBlueprintId
+          }
+        });
+        taskService.queue(bookScope, kickoffTaskId);
+      }
+      if (failAt === 'after_kickoff') throw new Error('simulated-onboarding-failure');
       this.database.prepare(`
         UPDATE positioning_drafts SET status = 'confirmed', confirmed_book_id = ?, updated_at = ?
         WHERE draft_id = ? AND owner_id = ? AND version = ? AND status = 'editing'
@@ -189,11 +236,70 @@ export class BookOnboardingService {
         onboardingProfileId,
         expressionProfileId,
         activeEditorAgentId: editor.agent_id,
+        openingBlueprintId,
+        kickoffTaskId: this.releaseId === undefined ? null : kickoffTaskId,
         agentCount: createdTeam.length
       };
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
+    }
+  }
+
+  private requireReleaseId(): string {
+    if (this.releaseId !== undefined) return this.releaseId;
+    const row = this.database.prepare('SELECT release_id FROM release_runs ORDER BY created_at DESC LIMIT 1')
+      .get() as { release_id: string } | undefined;
+    if (row === undefined) throw new Error('开书任务无法找到活动release');
+    return row.release_id;
+  }
+
+  private insertOpeningBlueprint(
+    scope: { ownerId: string; bookId: string },
+    openingBlueprintId: string,
+    blueprint: OpeningBlueprintInput,
+    now: string
+  ): void {
+    const category = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey);
+    if (category === undefined || category.channel !== blueprint.channel) throw new Error('开书分类目录与频道不匹配');
+    this.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version,
+        channel, category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'active', ?)
+    `).run(
+      openingBlueprintId, scope.ownerId, scope.bookId, blueprint.taxonomyVersion,
+      blueprint.channel, blueprint.categoryKey, category.name, JSON.stringify(blueprint), hashJson(blueprint), now
+    );
+  }
+
+  private insertOpeningProtagonists(
+    scope: { ownerId: string; bookId: string },
+    openingBlueprintId: string,
+    blueprint: OpeningBlueprintInput,
+    now: string
+  ): void {
+    const repository = new ProtagonistStateRepository(this.database);
+    for (const [index, protagonist] of blueprint.protagonists.entries()) {
+      const profileId = this.ids.next();
+      repository.insertProfile(scope, {
+        profileId, entityId: null, displayName: protagonist.name, isPrimary: index === 0, now
+      });
+      const entries = [
+        { key: 'opening.age', label: '年龄', category: '基本资料', value: protagonist.age, type: 'text' },
+        { key: 'opening.background', label: '人物背景', category: '基本资料', value: protagonist.background, type: 'text' },
+        { key: 'opening.personalities', label: '性格', category: '基本资料', value: protagonist.personalities, type: 'list' }
+      ];
+      for (const entry of entries) {
+        repository.insertState(scope, {
+          entryId: this.ids.next(), profileId, category: entry.category, logicalKey: entry.key,
+          label: entry.label, valueType: entry.type, valueJson: JSON.stringify(entry.value), unit: null,
+          stateStatus: 'active', authorityLayer: 'candidate', effectiveChapterNumber: null, storyTime: null,
+          sourceKind: 'owner', sourceId: openingBlueprintId, sourceFactId: null,
+          sourceManuscriptVersionId: null, canonRevision: 0, revision: 1,
+          previousEntryId: null, note: '老板确认的开书参考资料；尚未作为正文正史结算', now
+        });
+      }
     }
   }
 
@@ -236,16 +342,40 @@ function asNullableString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function storyBibleSkeleton(title: string, fields: PositioningField[], tags: PositioningTag[]): Record<string, unknown> {
+function storyBibleSkeleton(
+  title: string,
+  fields: PositioningField[],
+  tags: PositioningTag[],
+  openingBlueprint: OpeningBlueprintInput | null
+): Record<string, unknown> {
   return {
-    schema: 'story-bible-v1',
+    schema: 'story-bible-v2',
     title,
     positioning: Object.fromEntries(fields.map((field) => [field.key, { value: field.value, sourceStatus: field.sourceStatus }])),
     tags,
     theme: { confirmed: [], candidates: [] },
     worldRules: [],
-    characters: [],
-    mainPlot: { confirmed: null, candidates: [] },
+    characters: openingBlueprint?.protagonists.map((item) => ({
+      name: item.name, role: item.role, age: item.age, background: item.background,
+      personalities: item.personalities, sourceStatus: 'owner_reference'
+    })) ?? [],
+    openingReference: openingBlueprint === null ? null : {
+      worldBackground: openingBlueprint.worldBackground,
+      openingBackground: openingBlueprint.openingBackground,
+      stageOne: openingBlueprint.stageOne,
+      fullBookOutline: openingBlueprint.fullBookOutline,
+      initialMap: openingBlueprint.initialMap,
+      mustFollow: openingBlueprint.mustFollow,
+      authority: 'owner_confirmed_reference_not_canon'
+    },
+    mainPlot: { confirmed: null, candidates: openingBlueprint === null ? [] : [openingBlueprint.fullBookOutline] },
     openQuestions: fields.filter((field) => field.sourceStatus === 'unspecified' || field.sourceStatus === 'conflict').map((field) => field.key)
   };
+}
+
+function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null): string {
+  if (blueprint === null) {
+    return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
+  }
+  return `《${title}》已按完整开书资料创建。请以活动主编身份主动开场：先用简短中文整理已经明确的信息、仍待讨论的信息和可能冲突；然后只提出1至3个对下一阶段最有价值的问题。不要复述整张表，不要启动主笔，不要生成正文。开书资料是规划参考，不是已经发生的正史。`;
 }

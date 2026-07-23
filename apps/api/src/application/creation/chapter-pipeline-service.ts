@@ -26,7 +26,7 @@ import { CopyrightService } from '../copyright/copyright-service.js';
 import { WritingReadinessService } from './writing-readiness-service.js';
 import { ChapterStateRecoveryService } from './chapter-state-recovery-service.js';
 import { WritingOrderService } from './writing-order-service.js';
-import { ProductionReviewService } from './production-review-service.js';
+import { ProductionReviewService, reportsForEditorSynthesis } from './production-review-service.js';
 import { ProductionWorkflowRepository } from '../../infrastructure/db/repositories/production-workflow-repository.js';
 import { WriterLeaseRepository } from '../../infrastructure/db/repositories/writer-lease-repository.js';
 import { WriterLeaseService } from '../agents/writer-lease-service.js';
@@ -136,6 +136,9 @@ export class ChapterPipelineService {
       return this.mapResult(run, 'completed');
     } catch (error) {
       const now = this.clock.now().toISOString();
+      if (run.phase === 'review' && run.review_panel_id !== null) {
+        new ProductionWorkflowRepository(this.database).blockReviewPanel(scope, run.review_panel_id);
+      }
       const cancelRequested = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
         .get(taskId, scope.ownerId, scope.bookId) as { cancel_requested: number } | undefined)?.cancel_requested === 1;
       const qualityBlocked = error instanceof QualityBlockedError;
@@ -209,6 +212,50 @@ export class ChapterPipelineService {
         ? taskBrief.operation : null;
       const existingManuscriptVersionId = operation === null ? null : requiredString(taskBrief.manuscriptVersionId, '正文任务缺少绑定版本');
       if (existingManuscriptVersionId !== null) this.requireBoundManuscript(scope, run.chapter_id, existingManuscriptVersionId);
+      const reviewWriter = operation !== 'review_existing' || existingManuscriptVersionId === null
+        ? null
+        : this.database.prepare(`
+            WITH RECURSIVE lineage(
+              manuscript_version_id, parent_version_id, author_agent_id, model_provider, model_id, source_task_id, depth
+            ) AS (
+              SELECT manuscript_version_id, parent_version_id, author_agent_id, model_provider, model_id, source_task_id, 0
+              FROM manuscript_versions
+              WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ? AND chapter_id = ?
+              UNION ALL
+              SELECT parent.manuscript_version_id, parent.parent_version_id, parent.author_agent_id,
+                parent.model_provider, parent.model_id, parent.source_task_id, lineage.depth + 1
+              FROM manuscript_versions parent
+              JOIN lineage ON parent.manuscript_version_id = lineage.parent_version_id
+              WHERE parent.owner_id = ? AND parent.book_id = ? AND parent.chapter_id = ? AND lineage.depth < 64
+            )
+            SELECT lineage.author_agent_id AS writer_agent_id,
+              COALESCE(call.model_snapshot_id, b.model_snapshot_id, agent.model_snapshot_id) AS writer_model_snapshot_id
+            FROM lineage
+            LEFT JOIN model_calls call ON call.owner_id = ? AND call.book_id = ?
+              AND call.task_id = lineage.source_task_id AND call.agent_id = lineage.author_agent_id
+              AND call.provider = lineage.model_provider AND call.model_id = lineage.model_id AND call.state = 'succeeded'
+            LEFT JOIN agent_model_bindings b ON b.owner_id = ? AND b.book_id = ?
+              AND b.agent_model_binding_revision_id = ? AND b.agent_id = lineage.author_agent_id
+              AND b.provider = lineage.model_provider AND b.model_id = lineage.model_id AND b.status = 'active'
+            LEFT JOIN agent_instances agent ON agent.owner_id = ? AND agent.book_id = ?
+              AND agent.agent_id = lineage.author_agent_id AND agent.enabled = 1
+            WHERE lineage.model_provider <> 'manual'
+              AND COALESCE(call.model_snapshot_id, b.model_snapshot_id, agent.model_snapshot_id) IS NOT NULL
+            ORDER BY lineage.depth, call.completed_at DESC LIMIT 1
+          `).get(
+            existingManuscriptVersionId, scope.ownerId, scope.bookId, run.chapter_id,
+            scope.ownerId, scope.bookId, run.chapter_id,
+            scope.ownerId, scope.bookId,
+            scope.ownerId, scope.bookId, run.binding_revision_id,
+            scope.ownerId, scope.bookId
+          ) as {
+            writer_agent_id: string; writer_model_snapshot_id: string;
+          } | undefined;
+      if (operation === 'review_existing' && reviewWriter === undefined) {
+        throw new QualityBlockedError('定稿审校无法从不可变稿件和冻结模型绑定核实真实写手，已拒绝用默认主笔冒充作者');
+      }
+      const effectiveWriterAgentId = reviewWriter?.writer_agent_id ?? run.writer_agent_id;
+      const effectiveWriterModelSnapshotId = reviewWriter?.writer_model_snapshot_id ?? run.writer_model_snapshot_id;
       if (chapter.settlement_status === 'settled') return this.advance(run, 'completed');
       const previous = this.database.prepare(`
         SELECT chapter_id, settlement_status FROM chapters
@@ -272,16 +319,17 @@ export class ChapterPipelineService {
         ]
       });
       const lease = new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock)
-        .beginOrder(scope, run.writer_agent_id, order.writingOrderId, { taskId: run.task_id, chapterId: run.chapter_id, phase: 'preflight' });
+        .beginOrder(scope, effectiveWriterAgentId, order.writingOrderId, { taskId: run.task_id, chapterId: run.chapter_id, phase: 'preflight' });
       this.database.prepare(`
         UPDATE chapters SET plan_status = 'ready', generation_status = 'working', updated_at = ?
         WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
       `).run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
       this.database.prepare(`
         UPDATE chapter_pipeline_runs SET outline_version_id = ?, writing_contract_version_id = ?,
-          writing_order_id = ?, writer_epoch = ?, current_manuscript_version_id = ?, phase = ?,
+          writing_order_id = ?, writer_agent_id = ?, writer_model_snapshot_id = ?, writer_epoch = ?, current_manuscript_version_id = ?, phase = ?,
           status = 'working', updated_at = ? WHERE pipeline_run_id = ?
-      `).run(outline.artifactVersionId, selectedContract.artifactVersionId, order.writingOrderId, lease.epoch,
+      `).run(outline.artifactVersionId, selectedContract.artifactVersionId, order.writingOrderId,
+        effectiveWriterAgentId, effectiveWriterModelSnapshotId, lease.epoch,
         existingManuscriptVersionId, operation === 'review_existing' ? 'hard_check' : 'context',
         this.clock.now().toISOString(), run.pipeline_run_id);
       return this.reload(run.pipeline_run_id);
@@ -407,9 +455,22 @@ export class ChapterPipelineService {
     if (run.current_manuscript_version_id === null) throw new Error('硬检查缺少正文版本');
     const content = this.loadManuscript(scope, run.current_manuscript_version_id);
     const characterCount = countNovelCharacters(content);
+    const targetMinimum = 2_500;
+    const targetMaximum = 3_500;
+    const hardMinimum = 2_350;
+    const hardMaximum = 3_650;
     const checks = {
       fullImmutableVersion: true,
-      length: { passed: characterCount >= 2_500 && characterCount <= 3_500, characterCount, minimum: 2_500, maximum: 3_500 },
+      length: {
+        passed: characterCount >= hardMinimum && characterCount <= hardMaximum,
+        targetMet: characterCount >= targetMinimum && characterCount <= targetMaximum,
+        characterCount,
+        targetMinimum,
+        targetMaximum,
+        minimum: hardMinimum,
+        maximum: hardMaximum,
+        policy: 'target-with-bounded-hard-tolerance-v1'
+      },
       noPlaceholder: { passed: !/【|TODO|待补|占位/u.test(content) },
       hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
     };
@@ -420,7 +481,10 @@ export class ChapterPipelineService {
         passed, checks_json, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(this.ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.current_manuscript_version_id, passed ? 1 : 0, JSON.stringify(checks), this.clock.now().toISOString());
-    if (!passed) throw new DomainError(errorCodes.validation, '正文硬检查未通过', { checks }, false, 409);
+    if (!passed) {
+      if (run.rewrite_count >= 2) throw new QualityBlockedError('两轮定点修复后正文硬检查仍未通过，已停止机械补写');
+      return this.advance(run, 'rewrite');
+    }
     const copyright = new CopyrightService(this.database, this.ids, this.clock)
       .checkTargetAgainstAllSources(scope, 'manuscript', run.current_manuscript_version_id, content);
     if (copyright.decision !== 'pass') {
@@ -432,24 +496,89 @@ export class ChapterPipelineService {
   private async review(scope: BookScope, run: PipelineRow): Promise<PipelineRow> {
     if (run.current_manuscript_version_id === null) throw new Error('审校缺少正文版本');
     const manuscriptVersionId = run.current_manuscript_version_id;
-    if (run.writing_order_id === null || run.writer_epoch === null) throw new Error('审校缺少冻结工单或写手epoch');
+    if (run.writing_order_id === null || run.writer_epoch === null
+      || run.outline_version_id === null || run.writing_contract_version_id === null) {
+      throw new Error('审校缺少冻结章纲、写作契约、工单或写手epoch');
+    }
     const writerLease = this.renewWriterForModelPhase(scope, run);
     const content = this.loadManuscript(scope, manuscriptVersionId);
+    const artifacts = new ArtifactService(this.database, this.ids, this.clock);
+    const frozenOutline = artifacts.requireVersion(scope, run.outline_version_id);
+    const frozenContract = artifacts.requireVersion(scope, run.writing_contract_version_id);
+    const chapter = this.requireChapter(scope, run.chapter_id);
+    const previousChapter = this.database.prepare(`
+      SELECT e.state_json, c.canon_manuscript_version_id FROM chapters c JOIN chapter_end_states e
+        ON e.chapter_end_state_id = c.chapter_end_state_id
+      WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ?
+        AND c.settlement_status = 'settled'
+      ORDER BY c.chapter_number DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as {
+      state_json: string; canon_manuscript_version_id: string;
+    } | undefined;
+    const frozenReviewSources: ContextSource[] = [
+      {
+        sourceType: 'chapter_outline', sourceId: run.outline_version_id,
+        content: JSON.stringify(frozenOutline.content), reason: '本章审校必须核对的冻结章纲',
+        priority: 100, version: frozenOutline.version
+      },
+      {
+        sourceType: 'writing_contract', sourceId: run.writing_contract_version_id,
+        content: JSON.stringify(frozenContract.content), reason: '本章审校必须核对的冻结写作契约',
+        priority: 100, version: frozenContract.version
+      },
+      ...(previousChapter === undefined ? [] : [{
+        sourceType: 'previous_chapter_end', sourceId: `previous:${chapter.chapter_number - 1}`,
+        content: previousChapter.state_json, reason: '前一章已结算的硬状态', priority: 99
+      }, {
+        sourceType: 'previous_chapter_manuscript', sourceId: previousChapter.canon_manuscript_version_id,
+        content: this.loadManuscript(scope, previousChapter.canon_manuscript_version_id),
+        reason: '前一章已结算的完整正史正文；用于核对相邻章动作、人数和因果连续性', priority: 98
+      }])
+    ];
     const manuscriptHash = createHash('sha256').update(content).digest('hex');
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
     const workflowRepository = new ProductionWorkflowRepository(this.database);
     const reviews = new ProductionReviewService(workflowRepository, this.ids, this.clock);
     if (run.review_panel_id !== null) workflowRepository.blockReviewPanel(scope, run.review_panel_id);
-    const panel = reviews.openPanel(scope, {
+    const resumedPanel = reviews.resumeIncompletePanel(scope, {
+      manuscriptVersionId,
+      manuscriptHash,
+      writerModelSnapshotId: run.writer_model_snapshot_id,
+      canonRevision: run.expected_canon_revision,
+      bindingRevisionId: run.binding_revision_id
+    });
+    const usedReviewRounds = (this.database.prepare(`
+      SELECT review_round FROM review_panels
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ?
+      ORDER BY review_round
+    `).all(scope.ownerId, scope.bookId, manuscriptVersionId) as unknown as Array<{ review_round: number }>)
+      .map((row) => row.review_round);
+    const completedExactManuscriptAttempts = (this.database.prepare(`
+      SELECT COUNT(*) AS attempt_count FROM review_panels
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND status IN ('complete', 'blocked')
+    `).get(scope.ownerId, scope.bookId, manuscriptVersionId) as { attempt_count: number }).attempt_count;
+    const reviewRound = nextExactManuscriptReviewAttempt(usedReviewRounds, resumedPanel?.reviewRound);
+    const revisionRound = revisionRoundForRewriteCount(run.rewrite_count);
+    if (hasExhaustedExactManuscriptReviewAttempts(completedExactManuscriptAttempts, resumedPanel !== null)) {
+      throw new QualityBlockedError('同一正文已完成三次独立审校尝试，仍未形成可用报告；已停止继续消耗套餐额度');
+    }
+    const panel = resumedPanel ?? reviews.openPanel(scope, {
       chapterId: run.chapter_id, manuscriptVersionId, manuscriptHash,
-      reviewRound: run.rewrite_count + 1, writerAgentId: run.writer_agent_id, writerProvider: writerModel.provider,
+      reviewRound, writerAgentId: run.writer_agent_id, writerProvider: writerModel.provider,
       writerModelId: writerModel.modelId, writerModelSnapshotId: run.writer_model_snapshot_id, writerEpoch: run.writer_epoch,
       writingOrderId: run.writing_order_id, canonRevision: run.expected_canon_revision,
       bindingRevisionId: run.binding_revision_id
     });
     this.database.prepare(`UPDATE chapter_pipeline_runs SET review_panel_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
       .run(panel.panelId, this.clock.now().toISOString(), run.pipeline_run_id);
-    const reports: ProductionReview[] = await Promise.all(panel.reviewers.map(async (reviewer) => {
+    const reviewPromises = panel.reviewers.map(async (reviewer): Promise<ProductionReview> => {
+      const existingReport = reviews.existingReport(scope, {
+        panelId: panel.panelId,
+        role: reviewer.role,
+        manuscriptVersionId,
+        modelSnapshotId: reviewer.agent.modelSnapshotId
+      });
+      if (existingReport !== null) return existingReport;
       const reviewerSources = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
         query: reviewRetrievalQuery(content, this.requireChapter(scope, run.chapter_id)),
         roleKey: reviewer.agent.roleKey,
@@ -469,22 +598,60 @@ export class ChapterPipelineService {
         tokenBudget: 12_000,
         hardSources: [
           { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
+          ...frozenReviewSources,
           ...reviewerSources.hardSources
         ],
         optionalSources: reviewerSources.optionalSources
       });
       const adapter = this.modelAdapters.resolve(reviewer.agent.provider, reviewer.agent.modelId, 'novel_reviewer', reviewer.agent.roleKey as never);
-      const reviewPhase = `review-${run.rewrite_count + 1}-${reviewer.role}-${panel.panelId}`;
+      const reviewPhase = `review-${reviewRound}-${reviewer.role}-${panel.panelId}`;
+      const requiredSchema = productionReviewOutputContract(reviewer.role, {
+        reviewerRole: reviewer.role,
+        manuscriptVersionId,
+        modelSnapshotId: reviewer.agent.modelSnapshotId
+      });
       const reviewPrompt = JSON.stringify({
           reviewerRole: reviewer.role,
           manuscriptVersionId,
           modelSnapshotId: reviewer.agent.modelSnapshotId,
+          requiredSchema,
+          sourceBoundaryContract: [
+            'sources中sourceType=current_manuscript且order=0的是本轮唯一待审正文；所有retrieval:*来源都是已定稿前史或参考资料，不是本章的重复片段。',
+            '评价本章动机、节奏、视角和语言时，只能把current_manuscript中的动作归入本章；检索前史仅用于核对时间顺序与已确认事实，不得把前史事件冒充本章事件。',
+            '声称人物动机矛盾时，必须分别引用current_manuscript中的当前动机证据和已定稿前史中的冲突证据，并说明两者为何不能按时间先后、意外后果、信息差或开放谜团同时成立。',
+            '不得仅凭行为后果推断主观故意；文本没有明确建立故意时，意外携带、争抢、失误和未知原因不能改写成蓄意行为。'
+          ],
+          severityRubric: reviewer.role === 'fact'
+            ? [
+                'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
+                'major必须证明同一稿件内部自相矛盾、违反已确认正史/规则、人物状态不可能或因果动作不可成立，并引用冲突两端。',
+                '局部说明不足、可由常识合理推断的动作、开放谜团、尚未解释的异常机制和可选设定建议只能是minor或observation；缺少解释本身不是矛盾。',
+                '若问题存在两个都自洽的阅读方式，或只需补充、删除、替换一两句便能澄清，severity最高只能是minor且verdict应为pass；不得用major迫使正文选择会改写章纲、伤亡或人物状态的方案。',
+                'retrieval:fact中的H车道objective正史事实优先于人物说法、旧章节中的当时认知和conflicted/claim资料；早期误认死亡、后续发现假尸或本人归队属于时间推进，不是正文自相矛盾。',
+                '发现资料冲突时必须比较认识状态、正史修订与叙事先后；claim或conflicted资料不能单独推翻objective事实，也不能要求老板重复裁决已经在后续正史中解决的信息。'
+              ]
+            : reviewer.role === 'literary'
+              ? [
+                  'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
+                  'major只用于核心人物动机无法成立、场景因果断裂、全文持续性语言问题或章末钩子失效，必须说明不修会怎样破坏本章。',
+                  '局部AI腔、单句替换偏好、可选意象、故意留白、开放谜团、节奏微调和另一种同样成立的表达只能是minor或observation；不得要求唯一措辞。',
+                  '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡或认知提示，精简副词或增加微反应，则属于局部低成本建议，severity最高只能是minor且verdict应为pass；不得用major强制偏好的解释密度。',
+                  '人物知晓危险并不排除饥渴、恐惧、犹豫、冲动或隐瞒等同时存在的动机；除非正文明确证明两种状态在同一时刻不可共存，否则不得判为动机断裂。',
+                  '正史、时间线、世界规则和设定边界的客观裁决属于事实席；文学席可记录阅读疑点，但不得仅因新线索尚未解释或缺少前置说明就判定lore/canon/continuity blocker。'
+                ]
+              : [
+                  'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
+                  'major只用于会显著造成跳读/弃读、情绪逻辑断裂或核心钩子不可理解的问题；低成本体验优化只能是minor。',
+                  '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡、微反应或一句钩子台词，则severity最高只能是minor且verdict应为pass。',
+                  '长篇连载章节可以直接承接上一章并从动作中开始，不强制每章复述前情；只要当前场景可理解，缺少回顾最多是observation。正文已用岗位称呼、持有物或行动展示职责时，不得仅因没有背景履历判定人物根基缺失。',
+                  '政治/情色风险等级必须基于明确政策证据，不能由题材、冲突强度或个人不适推断。'
+                ],
           ...(adapter.provider.startsWith('local-deterministic') ? { content } : {}),
           contract: reviewer.role === 'literary'
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'
               ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
-              : '核对连续性、人物状态、因果与硬约束；另返回factCandidates数组，每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
+              : '核对连续性、人物状态、因果与硬约束，最多返回8个最重要问题；另返回最多16条factCandidates，只保留会影响后续章节的持久事实。每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
         });
       let output: string;
       try {
@@ -493,7 +660,6 @@ export class ChapterPipelineService {
           adapter, reviewPrompt, pack.contextPackId
         );
       } catch (error) {
-        workflowRepository.blockReviewPanel(scope, panel.panelId);
         throw new QualityBlockedError(`点评席在一次技术重试后仍不可用：${error instanceof Error ? error.message : String(error)}`);
       }
       try {
@@ -505,28 +671,44 @@ export class ChapterPipelineService {
       } catch (firstValidationError) {
         try {
           const repaired = await this.executeModel(
-            scope, run, `review-repair-${run.rewrite_count + 1}-${reviewer.role}-${panel.panelId}`,
+            scope, run, `review-repair-${reviewRound}-${reviewer.role}-${panel.panelId}`,
             reviewer.agent.agentId, reviewer.agent.modelSnapshotId, adapter,
             JSON.stringify({
               operation: 'repair_review_json',
               validationError: firstValidationError instanceof Error ? firstValidationError.message : String(firstValidationError),
               invalidOutput: output.slice(0, 12_000),
               originalContract: JSON.parse(reviewPrompt) as unknown,
-              instruction: '只修正JSON结构、字段、枚举和版本绑定；不得新增正文中没有的证据，只输出一个JSON对象。'
+              requiredSchema,
+              instruction: '严格按requiredSchema修正JSON结构、英文键名、英文枚举和版本绑定；verdict只允许pass|rewrite|blocked，issue只允许location、issueType、severity、evidence、requiredAction；不得新增正文中没有的证据，只输出一个JSON对象。'
             }),
             pack.contextPackId
           );
           return reviews.persist(scope, {
             panelId: panel.panelId, role: reviewer.role, manuscriptVersionId,
             modelSnapshotId: reviewer.agent.modelSnapshotId, agentId: reviewer.agent.agentId, raw: repaired,
-            inputTokens: estimateTokens(content)
+            inputTokens: estimateTokens(content), allowDroppingInvalidFactCandidates: true, normalizeLocalBlockers: true,
+            normalizeAiStyleEvidence: true, normalizeRepairedVerdict: true, normalizeMalformedJsonStrings: true,
+            normalizeRiskArrays: true, normalizeScoreArray: true, normalizeIssueLocations: true,
+            normalizeRepairedSeverity: true, normalizeIssueFieldAliases: true
           });
         } catch (repairError) {
-          workflowRepository.blockReviewPanel(scope, panel.panelId);
           throw new QualityBlockedError(`点评报告定向修复一次后仍未通过：${repairError instanceof Error ? repairError.message : String(repairError)}`);
         }
       }
-    }));
+    });
+    // 三席必须真正结束后再让任务进入终态。Promise.all 会在首个失败时提前返回，
+    // 使其余真实模型调用在租约释放后变成“结果未知”；allSettled 保留完整审计证据。
+    const settledReviews = await Promise.allSettled(reviewPromises);
+    const failedReviews = settledReviews.filter((item): item is PromiseRejectedResult => item.status === 'rejected');
+    if (failedReviews.length > 0) {
+      workflowRepository.blockReviewPanel(scope, panel.panelId);
+      const first = failedReviews[0]!.reason;
+      throw first instanceof QualityBlockedError
+        ? first
+        : new QualityBlockedError(`点评席未完成：${first instanceof Error ? first.message : String(first)}`);
+    }
+    const reports = settledReviews.map((item) => (item as PromiseFulfilledResult<ProductionReview>).value);
+    const synthesisReports = reportsForEditorSynthesis(reports);
     const activeEditor = this.database.prepare(`SELECT active_editor_agent_id FROM books
       WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { active_editor_agent_id: string | null } | undefined;
@@ -535,6 +717,8 @@ export class ChapterPipelineService {
       : workflowRepository.currentTeam(scope, run.binding_revision_id)
           .find((agent) => agent.agentId === activeEditor.active_editor_agent_id);
     if (editor === undefined) throw new QualityBlockedError('当前模型绑定缺少活动主编，不能综合三席报告');
+    const editorSharesReviewerModel = panel.reviewers.some((reviewer) =>
+      reviewer.agent.provider === editor.provider && reviewer.agent.modelId === editor.modelId);
     const editorPack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id,
       agentId: editor.agentId,
@@ -545,19 +729,21 @@ export class ChapterPipelineService {
       hardSources: [{
         sourceType: 'review_reports',
         sourceId: `panel:${panel.panelId}`,
-        content: JSON.stringify(reports),
+        content: JSON.stringify(synthesisReports),
         reason: '主编只综合三份结构化点评，不读取正文进行第四次点评',
         priority: 100
       }],
       optionalSources: []
     });
-    const editorAdapter = this.modelAdapters.resolve(editor.provider, editor.modelId, 'discussion', editor.roleKey as never);
+    const editorAdapter = this.modelAdapters.resolve(editor.provider, editor.modelId, 'review_synthesis', editor.roleKey as never);
+    // P0-4: 主编综合调用前按真实任务心跳续租，避免主编租约因无续期而过期被误判为 stable
+    new EditorLeaseService(this.database, this.ids, this.clock).heartbeatRenew(scope, editor.agentId);
     let synthesisRaw: string;
     try {
       synthesisRaw = await this.executeModel(
         scope,
         run,
-        `editor-synthesis-${run.rewrite_count + 1}-${panel.panelId}`,
+        `editor-synthesis-${reviewRound}-${panel.panelId}`,
         editor.agentId,
         editor.modelSnapshotId,
         editorAdapter,
@@ -565,11 +751,20 @@ export class ChapterPipelineService {
           operation: 'review_synthesis',
           panelId: panel.panelId,
           manuscriptVersionId,
-          reports,
+          reports: synthesisReports,
+          editorModelIndependence: {
+            sharesProviderAndModelWithReviewer: editorSharesReviewerModel,
+            rule: editorSharesReviewerModel
+              ? '主编综合与一名点评席共享模型来源；必须披露重合，且不能把该席与主编视为两份独立佐证。'
+              : '主编综合与三名点评席不存在模型来源重合。'
+          },
           rules: [
             '只综合三席已提交的结构化报告，不推测正文中未被报告指出的问题',
             '不能降级任何blocker、重大问题或高等级合规风险',
-            '按修改收益与牵连范围排列问题索引，并保留真实分歧'
+            '按修改收益与牵连范围排列问题索引，并保留真实分歧',
+            '三席不是简单多数投票，但单个主观席也不是共识；缺少独立佐证的文学或体验异议必须作为异议保留，不能追逐每轮变化的风格目标。',
+            '客观正史、时间线和事实连续性由事实席负责核验。若只有文学席把这类问题标为blocker，而事实席以明确证据判定通过、体验席也未阻断，主编必须保留分歧并要求一次定点复核，不得把文学席与同源主编当成两份独立佐证，也不得直接要求老板重复裁决已结算正史。',
+            '两轮有界改写后，如果事实席和另一独立席通过，且没有blocker、安全、合规、客观连续性或跨席硬问题，应把剩余主观异议交给老板确认，不得下达第三轮改写。'
           ],
           output: {
             panelId: '原值', manuscriptVersionId: '原值', recommendedVerdict: 'pass|rewrite|blocked',
@@ -581,7 +776,7 @@ export class ChapterPipelineService {
       );
     } catch (error) {
       workflowRepository.blockReviewPanel(scope, panel.panelId);
-      const synthesisPhase = `editor-synthesis-${run.rewrite_count + 1}-${panel.panelId}`;
+      const synthesisPhase = `editor-synthesis-${reviewRound}-${panel.panelId}`;
       const technicalFailures = (this.database.prepare(`SELECT COUNT(*) AS count FROM model_calls
         WHERE owner_id = ? AND book_id = ? AND task_id = ? AND agent_id = ?
           AND phase_key LIKE ? AND state = 'failed' AND error_class = 'technical_failure'`)
@@ -605,7 +800,7 @@ export class ChapterPipelineService {
     } catch (firstValidationError) {
       try {
         const repaired = await this.executeModel(
-          scope, run, `editor-synthesis-repair-${run.rewrite_count + 1}-${panel.panelId}`,
+          scope, run, `editor-synthesis-repair-${reviewRound}-${panel.panelId}`,
           editor.agentId, editor.modelSnapshotId, editorAdapter,
           JSON.stringify({
             operation: 'repair_editor_synthesis_json',
@@ -624,7 +819,9 @@ export class ChapterPipelineService {
           editorAgentId: editor.agentId,
           modelSnapshotId: editor.modelSnapshotId,
           raw: repaired,
-          issueCount: reports.flatMap((report) => report.issues).length
+          issueCount: reports.flatMap((report) => report.issues).length,
+          normalizeRepairedShape: true,
+          normalizeMalformedJsonStrings: true
         });
       } catch (repairError) {
         workflowRepository.blockReviewPanel(scope, panel.panelId);
@@ -634,7 +831,7 @@ export class ChapterPipelineService {
     writerLease.assertCanCommit(scope, run.writer_agent_id, run.writer_epoch);
     const merged = reviews.merge(scope, {
       panelId: panel.panelId, manuscriptVersionId,
-      revisionRound: run.rewrite_count + 1, reports, editorSynthesis
+      revisionRound, reports, editorSynthesis
     });
     if (merged.verdict === 'blocked') throw new QualityBlockedError('三异模型点评发现阻断问题，已保留稿件和证据');
     if (merged.verdict === 'rewrite') {
@@ -654,16 +851,61 @@ export class ChapterPipelineService {
       ORDER BY r.created_at, j.key
     `).all(scope.ownerId, scope.bookId, run.current_manuscript_version_id) as unknown as Array<{ required_action: string }>;
     const requiredActions = issues.map((issue) => issue.required_action);
+    if (requiredActions.length === 0) {
+      const hardCheck = this.database.prepare(`
+        SELECT checks_json FROM hard_check_results
+        WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND passed = 0
+        ORDER BY created_at DESC, hard_check_id DESC LIMIT 1
+      `).get(scope.ownerId, scope.bookId, run.current_manuscript_version_id) as { checks_json: string } | undefined;
+      if (hardCheck !== undefined) {
+        const checks = JSON.parse(hardCheck.checks_json) as {
+          length?: {
+            passed?: boolean; characterCount?: number;
+            targetMinimum?: number; targetMaximum?: number;
+            minimum?: number; maximum?: number;
+          };
+          noPlaceholder?: { passed?: boolean };
+        };
+        if (checks.length?.passed === false) {
+          requiredActions.push(
+            `全文当前有效字符${checks.length.characterCount ?? '未知'}，在不改变事实、人物选择和章末钩子的前提下调整到${checks.length.targetMinimum ?? 2500}至${checks.length.targetMaximum ?? 3500}个汉字、字母或数字有效字符（不计标点和空白）；只补充有因果作用的动作、感官、对话或过渡，禁止同义复述和空泛凑字`
+          );
+        }
+        if (checks.noPlaceholder?.passed === false) requiredActions.push('删除全部占位标记并补成完整、可阅读的叙事内容');
+      }
+    }
+    if (requiredActions.length === 0) throw new QualityBlockedError('硬检查未通过但没有形成可执行的定点修改要求');
     const rewriteSources: ContextSource[] = [
       { sourceType: 'current_manuscript', sourceId: run.current_manuscript_version_id, content, reason: '待定点重写的完整正文', priority: 100 },
       { sourceType: 'review_issues', sourceId: `review:${run.rewrite_count + 1}`, content: JSON.stringify(requiredActions), reason: '结构化修改要求', priority: 100 }
     ];
-    new CopyrightService(this.database, this.ids, this.clock).assertWriterContextSafe(rewriteSources);
+    const inheritedPack = run.context_pack_id === null ? undefined : this.database.prepare(`
+      SELECT source_manifest_json FROM context_packs
+      WHERE context_pack_id = ? AND owner_id = ? AND book_id = ? AND status = 'active'
+    `).get(run.context_pack_id, scope.ownerId, scope.bookId) as { source_manifest_json: string } | undefined;
+    const inheritedSources = inheritedPack === undefined
+      ? []
+      : (JSON.parse(inheritedPack.source_manifest_json) as Array<{
+          sourceType: string; sourceId: string; content: string; reason: string;
+          priority: number; version: string | number | null; hard: boolean;
+        }>).filter((source) => !['current_manuscript', 'review_issues'].includes(source.sourceType))
+          .map((source): ContextSource & { hard: boolean } => ({
+            sourceType: source.sourceType,
+            sourceId: source.sourceId,
+            content: source.content,
+            reason: `沿用初稿冻结上下文：${source.reason}`,
+            priority: source.priority,
+            ...(source.version === null ? {} : { version: source.version }),
+            hard: source.hard
+          }));
+    const rewriteHardSources = [...rewriteSources, ...inheritedSources.filter((source) => source.hard)];
+    const rewriteOptionalSources = inheritedSources.filter((source) => !source.hard);
+    new CopyrightService(this.database, this.ids, this.clock).assertWriterContextSafe([...rewriteHardSources, ...rewriteOptionalSources]);
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id, agentId: run.writer_agent_id, chapterId: run.chapter_id,
       canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-      tokenBudget: 12_000,
-      hardSources: rewriteSources, optionalSources: []
+      tokenBudget: 24_000,
+      hardSources: rewriteHardSources, optionalSources: rewriteOptionalSources
     });
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
     const adapter = this.modelAdapters.resolve(writerModel.provider, writerModel.modelId, 'novel_writer', 'writer');
@@ -721,14 +963,20 @@ export class ChapterPipelineService {
     const existing = this.database.prepare(`SELECT * FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, chapterId) as PipelineRow | undefined;
     if (existing !== undefined) {
-      if (existing.status === 'paused') {
+      if (existing.status === 'paused' && existing.task_id === taskId) {
         this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'working', updated_at = ? WHERE pipeline_run_id = ?`)
           .run(this.clock.now().toISOString(), existing.pipeline_run_id);
         return this.reload(existing.pipeline_run_id);
       }
       const explicitExistingOperation = taskBrief.operation === 'review_existing' || taskBrief.operation === 'rewrite_existing';
       if ((existing.status === 'failed' && (existing.current_manuscript_version_id === null || existing.task_id !== taskId))
-        || (explicitExistingOperation && existing.task_id !== taskId && existing.status === 'completed')) {
+        || (explicitExistingOperation && existing.task_id !== taskId && ['completed', 'paused'].includes(existing.status))) {
+        const requestedManuscriptVersionId = typeof taskBrief.manuscriptVersionId === 'string'
+          ? taskBrief.manuscriptVersionId
+          : null;
+        const continuingSameVersion = existing.status === 'failed'
+          && requestedManuscriptVersionId !== null
+          && existing.current_manuscript_version_id === requestedManuscriptVersionId;
         const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);
         const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
           .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
@@ -742,12 +990,13 @@ export class ChapterPipelineService {
             outline_version_id = NULL,
             writing_contract_version_id = NULL, context_pack_id = NULL, writing_order_id = NULL,
             current_manuscript_version_id = NULL, writer_epoch = NULL, review_panel_id = NULL,
-            confirmation_id = NULL, rewrite_count = 0, phase = 'preflight',
+            confirmation_id = NULL, rewrite_count = ?, phase = 'preflight',
             status = 'working', error_code = NULL, expected_canon_revision = ?,
             expected_positioning_version = ?, updated_at = ? WHERE pipeline_run_id = ?
         `).run(taskId, selection.writerSelectionId, selection.writerAgentId, selection.writerModelSnapshotId,
           selection.reviewerAgentId, selection.reviewerModelSnapshotId,
           bindingRevision?.agent_model_binding_revision_id ?? null,
+          resumedRewriteCount(existing.rewrite_count, continuingSameVersion, taskBrief.operation),
           book.canon_revision, book.positioning_version, this.clock.now().toISOString(), existing.pipeline_run_id);
         return this.reload(existing.pipeline_run_id);
       }
@@ -828,10 +1077,12 @@ export class ChapterPipelineService {
       const packBudget = (this.database.prepare(`SELECT token_budget FROM context_packs
         WHERE context_pack_id = ? AND owner_id = ? AND book_id = ?`)
         .get(contextPackId, scope.ownerId, scope.bookId) as { token_budget: number } | undefined)?.token_budget ?? 0;
-      const estimatedInputCeiling = adapter.provider.startsWith('local-deterministic')
-        ? Math.ceil(estimateTokens(modelPrompt) * 1.15)
-        : Math.max(packBudget, Math.ceil(estimateTokens(modelPrompt) * 1.15));
-      const reservedTokens = estimatedInputCeiling + maxOutputTokens;
+      const reservedTokens = modelReservationTokenCeiling({
+        provider: adapter.provider,
+        estimatedPromptTokens: estimateTokens(modelPrompt),
+        packBudget,
+        maxOutputTokens
+      });
       const reservationId = budgets.reserve(scope, budget.budget_id, requestId, reservedTokens, 0);
       const effectivePhaseKey = `${phaseKey}:attempt-${lease.current_attempt_no}:try-${technicalTry}`;
       try {
@@ -884,6 +1135,27 @@ export class ChapterPipelineService {
     status: 'candidate',
     afterRegister?: (manuscriptVersionId: string) => void
   ): string {
+    const contentHash = createHash('sha256').update(content).digest('hex');
+    const existing = this.database.prepare(`
+      SELECT manuscript_version_id FROM manuscript_versions
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND content_hash = ?
+        AND status IN ('draft', 'candidate', 'under_review', 'approved', 'canon')
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, run.chapter_id, contentHash) as { manuscript_version_id: string } | undefined;
+    if (existing !== undefined) {
+      if (run.writer_epoch === null) throw new Error('正文登记缺少写手epoch');
+      return new UnitOfWork(this.database).run(() => {
+        new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock)
+          .assertCanCommit(scope, run.writer_agent_id, run.writer_epoch!);
+        const now = this.clock.now().toISOString();
+        this.database.prepare(`
+          UPDATE chapters SET current_manuscript_version_id = ?, generation_status = 'completed', updated_at = ?
+          WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+        `).run(existing.manuscript_version_id, now, run.chapter_id, scope.ownerId, scope.bookId);
+        afterRegister?.(existing.manuscript_version_id);
+        return existing.manuscript_version_id;
+      });
+    }
     const promotion = new PromotionService(this.database, this.dataDir, this.clock);
     const staged = promotion.stageText(run.task_id, content);
     const manuscriptVersionId = this.ids.next();
@@ -1029,31 +1301,7 @@ export class ChapterPipelineService {
     `).get(contextPackId, scope.ownerId, scope.bookId) as { source_manifest_json: string; content_hash: string } | undefined;
     if (row === undefined) throw new Error('模型上下文包不存在、已失效或越权');
     const parsedTaskInput = JSON.parse(taskInput) as unknown;
-    const compactTaskInput = phaseKey.startsWith('review-repair-') || phaseKey.startsWith('editor-synthesis-repair-')
-      ? parsedTaskInput
-      : phaseKey.startsWith('editor-synthesis-')
-        ? isRecordValue(parsedTaskInput)
-          ? {
-              operation: parsedTaskInput.operation,
-              panelId: parsedTaskInput.panelId,
-              manuscriptVersionId: parsedTaskInput.manuscriptVersionId,
-              rules: parsedTaskInput.rules,
-              output: parsedTaskInput.output
-            }
-          : { operation: 'review_synthesis' }
-      : phaseKey.startsWith('review-')
-      ? isRecordValue(parsedTaskInput)
-        ? {
-            operation: 'review',
-            reviewerRole: parsedTaskInput.reviewerRole,
-            manuscriptVersionId: parsedTaskInput.manuscriptVersionId,
-            modelSnapshotId: parsedTaskInput.modelSnapshotId,
-            contract: parsedTaskInput.contract
-          }
-        : { operation: 'review' }
-      : phaseKey.startsWith('rewrite-')
-        ? { operation: 'rewrite' }
-        : parsedTaskInput;
+    const compactTaskInput = compactChapterModelTaskInput(phaseKey, parsedTaskInput);
     return JSON.stringify({
       phase: phaseKey,
       contextPackHash: row.content_hash,
@@ -1084,11 +1332,151 @@ export class ChapterPipelineService {
   }
 }
 
+export function compactChapterModelTaskInput(phaseKey: string, parsedTaskInput: unknown): unknown {
+  if (phaseKey.startsWith('review-repair-') || phaseKey.startsWith('editor-synthesis-repair-')) return parsedTaskInput;
+  if (phaseKey.startsWith('editor-synthesis-')) {
+    return isRecordValue(parsedTaskInput)
+      ? {
+          operation: parsedTaskInput.operation,
+          panelId: parsedTaskInput.panelId,
+          manuscriptVersionId: parsedTaskInput.manuscriptVersionId,
+          rules: parsedTaskInput.rules,
+          output: parsedTaskInput.output
+        }
+      : { operation: 'review_synthesis' };
+  }
+  if (phaseKey.startsWith('review-')) {
+    return isRecordValue(parsedTaskInput)
+      ? {
+          operation: 'review',
+          reviewerRole: parsedTaskInput.reviewerRole,
+          manuscriptVersionId: parsedTaskInput.manuscriptVersionId,
+          modelSnapshotId: parsedTaskInput.modelSnapshotId,
+          requiredSchema: parsedTaskInput.requiredSchema,
+          sourceBoundaryContract: parsedTaskInput.sourceBoundaryContract,
+          severityRubric: parsedTaskInput.severityRubric,
+          contract: parsedTaskInput.contract
+        }
+      : { operation: 'review' };
+  }
+  if (phaseKey.startsWith('rewrite-')) {
+    return isRecordValue(parsedTaskInput)
+      ? {
+          operation: 'rewrite',
+          requiredActions: parsedTaskInput.requiredActions,
+          outputContract: {
+            kind: 'complete_chapter_replacement',
+            characterRange: [2_500, 3_500],
+            preserveUnchangedParagraphs: true,
+            forbidExcerptOrSummary: true,
+            instruction: '当前完整正文已在sources中。必须返回修改后的整章正文，不能只返回修改片段；未修改部分也必须完整保留。'
+          }
+        }
+      : { operation: 'rewrite' };
+  }
+  return parsedTaskInput;
+}
+
+export function hasExhaustedExactManuscriptReviewAttempts(completedAttempts: number, resumingIncompletePanel: boolean): boolean {
+  return !resumingIncompletePanel && completedAttempts >= 3;
+}
+
+export function nextExactManuscriptReviewAttempt(usedAttempts: number[], resumedAttempt?: number): number {
+  if (resumedAttempt !== undefined) return resumedAttempt;
+  return [1, 2, 3].find((attempt) => !usedAttempts.includes(attempt)) ?? 4;
+}
+
+export function revisionRoundForRewriteCount(rewriteCount: number): number {
+  return Math.max(1, rewriteCount + 1);
+}
+
+export function resumedRewriteCount(
+  existingRewriteCount: number,
+  continuingSameVersion: boolean,
+  operation: unknown
+): number {
+  // Re-submitting the exact draft for review must not buy infinite automatic rewrites.
+  // An explicit owner rewrite is a new creative instruction, so it receives a fresh bounded
+  // two-rewrite window even when its immutable base version is the previously blocked draft.
+  return continuingSameVersion && operation === 'review_existing' ? existingRewriteCount : 0;
+}
+
 function outputTokenLimit(phaseKey: string): number {
   if (phaseKey.startsWith('draft') || phaseKey.startsWith('rewrite')) return 8_000;
-  if (phaseKey.startsWith('review-')) return 4_000;
+  if (phaseKey.startsWith('review-')) return 6_000;
   if (phaseKey.startsWith('editor-synthesis')) return 2_000;
   return 4_000;
+}
+
+export function modelReservationTokenCeiling(input: {
+  provider: string; estimatedPromptTokens: number; packBudget: number; maxOutputTokens: number;
+}): number {
+  if (input.provider.startsWith('local-deterministic')) {
+    return Math.ceil(input.estimatedPromptTokens * 1.15) + input.maxOutputTokens;
+  }
+  // Subscription usage includes provider-side system instructions and, for Codex, the fixed
+  // execution protocol that is not part of our context-pack token budget. Real long-form calls
+  // show a stable ~22k-token Codex wrapper; reserve a bounded 24k overhead so a completed chapter
+  // is not discarded merely because the local estimate cannot see that wrapper. Settlement still
+  // records only the actual usage and cash remains frozen at zero.
+  const protocolOverhead = input.provider === 'openai-codex-subscription' ? 24_000 : 0;
+  const estimatedInputCeiling = Math.max(
+    Math.ceil(input.packBudget * 1.35),
+    Math.ceil(input.estimatedPromptTokens * 1.25)
+  ) + protocolOverhead;
+  return estimatedInputCeiling + input.maxOutputTokens;
+}
+
+function productionReviewOutputContract(
+  role: 'fact' | 'literary' | 'experience',
+  identity: { reviewerRole: string; manuscriptVersionId: string; modelSnapshotId: string }
+): Record<string, unknown> {
+  const common: Record<string, unknown> = {
+    reviewerRole: { const: identity.reviewerRole },
+    manuscriptVersionId: { const: identity.manuscriptVersionId },
+    modelSnapshotId: { const: identity.modelSnapshotId },
+    verdict: { enum: ['pass', 'rewrite', 'blocked'], note: '必须使用英文枚举；pass不得包含major或blocker' },
+    summary: '非空字符串',
+    issues: {
+      type: 'array', maxItems: 8,
+      items: {
+        location: '正文位置', issueType: '问题类型',
+        severity: {
+          enum: ['blocker', 'major', 'minor', 'observation'],
+          rule: 'blocker仅用于无法自动定点修复、必须停止或等待老板确认的问题；任何能给出局部修改动作的质量问题必须标为major或更低'
+        },
+        evidence: '正文原句或可核验依据', requiredAction: '可执行修改要求'
+      }
+    },
+    scores: { note: '至少一个0至100的有限数值；键名可按职责命名' }
+  };
+  if (role === 'fact') {
+    common.factCandidates = {
+      type: 'array', maxItems: 16, note: '只保留会影响后续章节的持久事实',
+      items: {
+        subjectName: '实体原名', entityType: { enum: ['character', 'location', 'organization', 'item', 'resource', 'skill', 'stat_panel', 'world_rule', 'event', 'foreshadowing', 'hook'] },
+        relationKey: '稳定关系键', value: '事实值', evidenceQuote: '正文原句', evidenceLocation: '正文位置',
+        epistemicStatus: { enum: ['objective', 'claim', 'belief', 'lie', 'dream', 'plan', 'counterfactual', 'ambiguous', 'conflicted'] },
+        negated: false, viewpointName: null, knowledgeSubjectName: null, knowledgeTimeStart: null,
+        knowledgeTimeEnd: null, storyTimeStart: null, storyTimeEnd: null
+      }
+    };
+  } else if (role === 'literary') {
+    common.aiStyle = {
+      riskScore: '0至100数值', flaggedParagraphCount: '非负整数', totalParagraphCount: '正整数',
+      flaggedParagraphRatio: 'flaggedParagraphCount/totalParagraphCount', isAuthorshipProbability: false,
+      evidence: ['每项必须是带段落位置的字符串证据']
+    };
+  } else {
+    const risk = {
+      level: { enum: ['none', 'low', 'medium', 'high', 'blocked'] },
+      locations: ['非none时必须有正文位置'], evidence: ['非none时必须有正文原句'],
+      recommendedAction: '非空字符串', policyVersion: '非空字符串'
+    };
+    common.politicalRisk = risk;
+    common.sexualContentRisk = risk;
+  }
+  return { type: 'object', onlyTheseTopLevelFields: true, required: common };
 }
 
 class QualityBlockedError extends Error {

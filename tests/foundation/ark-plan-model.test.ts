@@ -50,8 +50,10 @@ describe('火山方舟严格套餐适配器', () => {
   });
 
   it('Coding Plan只能进入/api/coding且不会使用普通Endpoint', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/coding/v1/messages');
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      expect(body.thinking).toBeUndefined();
       return Response.json({ content: [{ type: 'text', text: '正文' }], usage: { input_tokens: 5, output_tokens: 2 } });
     });
     const adapter = new ArkPlanModelAdapter({
@@ -61,6 +63,21 @@ describe('火山方舟严格套餐适配器', () => {
       baseUrl: 'https://ark.cn-beijing.volces.com/api/coding',
       apiKey: 'coding-test-key',
       purpose: 'novel_writer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('DeepSeek事实点评关闭隐藏思考以保留完整JSON输出额度', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      return Response.json({ content: [{ type: 'text', text: '{"verdict":"pass"}' }], usage: { input_tokens: 5, output_tokens: 8 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'coding', provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/coding', apiKey: 'coding-test-key', purpose: 'novel_reviewer'
     }, fetchImpl);
 
     await adapter.generate(request);
@@ -79,6 +96,21 @@ describe('火山方舟严格套餐适配器', () => {
     }, fetchImpl);
 
     await expect(adapter.generate(request)).resolves.toMatchObject({ output: '设定结论' });
+  });
+
+  it('主笔重写系统合同明确禁止只返回修改片段', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { system?: string };
+      expect(body.system).toContain('修改后的完整章节');
+      expect(body.system).toContain('禁止只返回修改片段');
+      return Response.json({ content: [{ type: 'text', text: '完整正文' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
+    }, fetchImpl);
+
+    await expect(adapter.generate(request)).resolves.toMatchObject({ output: '完整正文' });
   });
 
   it('尊重取消并对错误响应脱敏', async () => {

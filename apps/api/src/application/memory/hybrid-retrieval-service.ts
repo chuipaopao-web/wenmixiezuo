@@ -77,6 +77,7 @@ export class HybridRetrievalService {
         sourceVersion: cluster.primary.sourceVersion, sourceHash: cluster.primary.sourceHash,
         sourceLocator: cluster.primary.sourceLocator, content: cluster.primary.content,
         authorityGrade: cluster.primary.authorityGrade, lifecycleLayer: cluster.primary.lifecycleLayer,
+        epistemicStatus: cluster.primary.epistemicStatus, negated: cluster.primary.negated,
         closure: closureByCluster.get(cluster.clusterId)?.result ?? 'unknown', score: cluster.rrfScore
       }));
       const now = this.clock.now().toISOString();

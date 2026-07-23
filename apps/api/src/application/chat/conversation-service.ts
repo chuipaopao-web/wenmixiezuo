@@ -96,6 +96,7 @@ export class ConversationService {
       SELECT message_id, sender_type, sender_agent_id, role_key, model_provider,
         model_id, message_type, content, references_json, created_at
       FROM messages WHERE conversation_id = ? AND owner_id = ? AND book_id = ?
+        AND message_type <> 'onboarding_trigger'
         AND (? IS NULL OR created_at < ? OR (created_at = ? AND message_id < ?))
       ORDER BY created_at DESC, message_id DESC LIMIT ?
     `).all(

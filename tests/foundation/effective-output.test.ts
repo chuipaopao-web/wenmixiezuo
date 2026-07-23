@@ -104,4 +104,66 @@ describe('有效输出层', () => {
     expect(reference?.contentHash).toMatch(/^[a-f0-9]{64}$/u);
     expect(result.visibleContent).not.toContain('婉儿');
   });
+
+  it('解析合同版本化包装对象 {version,format,fields} 为自然中文且不裸露JSON', () => {
+    // P0-3 / R01: 真实模型按 EFFECTIVE_OUTPUT_CONTRACT 返回 {version:1,format:'json_object',fields:{...}}，
+    // 旧解析只认根级 answer 会失败并原样回退，导致围栏 JSON 裸露。双形态白名单解析后应输出自然中文。
+    const result = prepareEffectiveOutput(JSON.stringify({
+      version: 1,
+      format: 'json_object',
+      fields: {
+        answer: '不建议立即宣战，应先核实兵力。',
+        keyPoints: ['旧盟约仍在'],
+        risks: ['援军可能介入'],
+        questions: [],
+        alternatives: [],
+        nextStep: null,
+        details: null,
+        internalReasoning: '不得进入可见内容'
+      }
+    }));
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('不建议立即宣战');
+    expect(result.visibleContent).toContain('旧盟约仍在');
+    expect(result.visibleContent).not.toContain('internalReasoning');
+    expect(result.visibleContent).not.toContain('json_object');
+    expect(result.visibleContent).not.toContain('```');
+    expect(result.visibleContent).not.toContain('"version"');
+  });
+
+  it('解析带代码围栏的包装JSON', () => {
+    const wrapped = JSON.stringify({
+      version: 1, format: 'json_object',
+      fields: { answer: '先核对人物状态。', keyPoints: [], risks: ['生死冲突'], questions: [], alternatives: [], nextStep: null, details: null }
+    });
+    const result = prepareEffectiveOutput(`\`\`\`json\n${wrapped}\n\`\`\``);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('先核对人物状态');
+    expect(result.visibleContent).toContain('生死冲突');
+    expect(result.visibleContent).not.toContain('```');
+    expect(result.visibleContent).not.toContain('json_object');
+  });
+
+  it('拒绝非合同版本或格式的包装对象并回退', () => {
+    const badVersion = prepareEffectiveOutput(JSON.stringify({ version: 2, format: 'json_object', fields: { answer: 'x' } }));
+    expect(badVersion.format).toBe('fallback');
+
+    const badFormat = prepareEffectiveOutput(JSON.stringify({ version: 1, format: 'text', fields: { answer: 'x' } }));
+    expect(badFormat.format).toBe('fallback');
+  });
+
+  it('包装对象 fields 缺 answer 或 fields 非对象时回退', () => {
+    const noAnswer = prepareEffectiveOutput(JSON.stringify({ version: 1, format: 'json_object', fields: { keyPoints: ['x'] } }));
+    expect(noAnswer.format).toBe('fallback');
+
+    const badFields = prepareEffectiveOutput(JSON.stringify({ version: 1, format: 'json_object', fields: 'not-an-object' }));
+    expect(badFields.format).toBe('fallback');
+  });
+
+  it('坏JSON（缺逗号）回退且不抛异常', () => {
+    const result = prepareEffectiveOutput('{"answer":"结论" "keyPoints":[]}');
+    expect(result.format).toBe('fallback');
+  });
 });

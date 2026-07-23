@@ -44,7 +44,7 @@ export class OwnerManuscriptRepository {
   public hasUnsafeTask(scope: BookScope, chapterId: string): boolean {
     assertBookScope(scope);
     return this.database.prepare(`SELECT 1 FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
-      AND status IN ('pending','queued','working','paused','blocked','interrupted') LIMIT 1`)
+      AND status IN ('pending','queued','working','paused','interrupted') LIMIT 1`)
       .get(scope.ownerId, scope.bookId, chapterId) !== undefined;
   }
 

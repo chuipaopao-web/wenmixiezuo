@@ -90,7 +90,7 @@ describe('作者正文修订', () => {
         status: 'queued',
         task_brief_json: expect.stringContaining('review_existing')
       });
-      context.database.prepare(`UPDATE tasks SET status = 'cancelled', cancel_requested = 1 WHERE task_id = ?`).run(finalize.taskId);
+      context.database.prepare(`UPDATE tasks SET status = 'blocked', error_code = 'QUALITY_BLOCKED' WHERE task_id = ?`).run(finalize.taskId);
       const rewrite = batches.scheduleExistingRevision(finalizeFixture.scope, finalizeFixture.chapterId, finalizeFixture.manuscriptVersionId, 'rewrite_existing', '强化冲突并保留人物动机');
       const rewriteTask = context.database.prepare('SELECT status, task_brief_json FROM tasks WHERE task_id = ?').get(rewrite.taskId) as { status: string; task_brief_json: string };
       expect(rewriteTask.status).toBe('queued');
@@ -98,6 +98,31 @@ describe('作者正文修订', () => {
         operation: 'rewrite_existing', manuscriptVersionId: finalizeFixture.manuscriptVersionId,
         instruction: '强化冲突并保留人物动机'
       });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('allows an owner correction after a quality-blocked task has released its lease', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { content: 'A complete candidate manuscript.' });
+      context.database.prepare(`UPDATE tasks SET status = 'blocked', current_phase = 'review',
+        error_code = 'QUALITY_BLOCKED', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+        WHERE task_id = ?`).run(fixture.taskId);
+
+      const saved = new OwnerManuscriptService(
+        context.database, context.dataDir, context.config.releaseId, ids, clock
+      ).saveDraft(fixture.scope, {
+        chapterId: fixture.chapterId,
+        baseManuscriptVersionId: fixture.manuscriptVersionId,
+        content: 'A corrected complete candidate manuscript.',
+        note: 'Resolve the blocking review findings.'
+      });
+
+      expect(saved).toMatchObject({ parentVersionId: fixture.manuscriptVersionId, unchanged: false });
     } finally {
       context.close();
     }

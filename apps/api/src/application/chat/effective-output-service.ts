@@ -102,14 +102,20 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
     return null;
   }
   if (!isRecord(value)) return null;
-  const answer = nonEmptyString(value.answer);
+  // P0-3 / R01: 双形态白名单解析。兼容根级对象和合同版本化包装对象
+  // {version:1, format:'json_object', fields:{...}}；包装只允许 version=1、format=json_object、fields为对象。
+  // 真实模型按 EFFECTIVE_OUTPUT_CONTRACT 返回包装对象时，旧逻辑只读根级 answer 会失败并原样回退，
+  // 导致代码围栏与内部 JSON 键裸露到聊天。
+  const fields = unwrapContractFields(value);
+  if (fields === null) return null;
+  const answer = nonEmptyString(fields.answer);
   if (answer === null) return null;
-  const keyPoints = stringList(value.keyPoints, 3);
-  const risks = stringList(value.risks, MAX_LIST_ITEMS);
-  const questions = stringList(value.questions, 3);
-  const alternatives = alternativeList(value.alternatives);
-  const nextStep = optionalString(value.nextStep);
-  const details = optionalString(value.details);
+  const keyPoints = stringList(fields.keyPoints, 3);
+  const risks = stringList(fields.risks, MAX_LIST_ITEMS);
+  const questions = stringList(fields.questions, 3);
+  const alternatives = alternativeList(fields.alternatives);
+  const nextStep = optionalString(fields.nextStep);
+  const details = optionalString(fields.details);
   if ([keyPoints, risks, questions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
     return null;
   }
@@ -122,6 +128,17 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
     nextStep,
     details
   };
+}
+
+function unwrapContractFields(value: Record<string, unknown>): Record<string, unknown> | null {
+  // 根级对象（无合同包装键）：直接作为字段源，保持对历史根级输出的兼容。
+  if (value.version === undefined && value.format === undefined && value.fields === undefined) {
+    return value;
+  }
+  // 版本化包装对象：只允许 version=1、format=json_object、fields 为对象。
+  if (value.version !== 1 || value.format !== 'json_object') return null;
+  const fields = value.fields;
+  return isRecord(fields) ? fields : null;
 }
 
 function renderStructuredReply(reply: StructuredEffectiveReply, includeDetails: boolean): string {

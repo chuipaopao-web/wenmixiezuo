@@ -168,6 +168,9 @@ export class DiscussionPipelineService {
               brief.purpose === 'creative_planning'
                 ? '请形成可供老板确认的创作方案，覆盖主角与开局处境、核心冲突、双编剧建议的剧情跨度与推进节点、视角与文风、章末钩子和仍需决定的问题。'
                 : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+              brief.purpose === 'creative_planning'
+                ? '最后必须另起一行输出且整行不得换行：规划落库 {"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","chapters":[{"title":"章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}。chapters数量由双编剧独立跨度估算综合决定，必须为1至30章；每章goal和hook必须具体且互不重复，禁止使用“承接前章、继续推进”模板。JSON之外保留分歧、风险与未知。'
+                : '',
               '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
               '必须保留结构不同的高潜少数方案、关键分歧、风险和未知；不要把岗位意见压成没有代价的安全折中。',
               `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
@@ -201,6 +204,7 @@ export class DiscussionPipelineService {
           state: 'succeeded' as const
         };
         let lastError: unknown;
+        const maxOutputTokens = discussionOutputTokenLimit(participant.role_key, isEditor);
         for (let technicalTry = 1; result === undefined && technicalTry <= 2; technicalTry += 1) {
           const requestId = this.ids.next();
           const reservationId = budgets.reserve(
@@ -215,7 +219,7 @@ export class DiscussionPipelineService {
               modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
               input: prompt,
               parameters: JSON.stringify({
-                maxOutputTokens: 1_000,
+                maxOutputTokens,
                 planOnly: !participant.provider.startsWith('local-deterministic'),
                 cashFallbackAllowed: false
               }),
@@ -224,7 +228,7 @@ export class DiscussionPipelineService {
               attemptNo: leaseFence?.attemptNo ?? claimedTask.currentAttemptNo
             }, adapter, {
               requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
-              agentId: participant.agent_id, prompt, maxOutputTokens: 1_000
+              agentId: participant.agent_id, prompt, maxOutputTokens
             });
           } catch (error) {
             lastError = error;
@@ -329,14 +333,19 @@ export class DiscussionPipelineService {
       .filter((opinion) => opinion.agentId !== editor.agent_id)
       .map((opinion) => `【${opinion.role}】\n${opinion.output}`);
     const confirmation = `如接受，请输入：确认方案 ${decisionId}`;
+    // P0-3 / R01: 合同型 discussion_summary 解析失败时不把围栏/原文 JSON 直接塞进聊天，
+    // 显示自然中文提示并保留原始结果审计入口（fullSummary 仍含原文，供 effective_output 引用追溯）。
+    const editorVisible = editorSummary.format === 'fallback'
+      ? '主编汇总未能解析为结构化结论，请查看原始结果。'
+      : editorSummary.visibleContent;
     const summary = [
-      `讨论“${scopeText}”已完成。`,
-      editorSummary.visibleContent,
+      `讨论“${shortDiscussionTitle(scopeText)}”已完成。`,
+      editorVisible,
       specialistSections.length > 0 ? `已保留 ${specialistSections.length} 份独立岗位意见，可展开查看。` : '',
       confirmation
     ].filter(Boolean).join('\n\n');
     const fullSummary = [
-      `讨论“${scopeText}”已完成。`,
+      `讨论“${shortDiscussionTitle(scopeText)}”已完成。`,
       ...specialistSections,
       `【${editor.display_name}汇总】\n${editorSummary.fullContent}`,
       confirmation
@@ -355,6 +364,19 @@ export class DiscussionPipelineService {
       JSON.stringify(references), this.clock.now().toISOString()
     );
   }
+}
+
+function shortDiscussionTitle(scopeText: string): string {
+  // P0-3 / R01: 汇总标题只用短讨论题，不复述老板整段原话；原话通过 discussionId 引用完整追溯。
+  const firstLine = scopeText.split(/\n/u)[0]?.trim() ?? scopeText.trim();
+  const limit = 40;
+  return firstLine.length > limit ? `${firstLine.slice(0, limit)}…` : firstLine;
+}
+
+function discussionOutputTokenLimit(roleKey: RoleKey | CreativeRoleKey, isEditor: boolean): number {
+  if (isEditor) return 6_000;
+  if (roleKey === 'lead_screenwriter' || roleKey === 'second_screenwriter') return 4_000;
+  return 2_000;
 }
 
 interface SpanEstimate {

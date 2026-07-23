@@ -32,13 +32,22 @@ export class StructuredKnowledgeProvider implements RetrievalChannelProvider {
     return ranked.map(({ revision, relevance }, index) => ({
       candidateId: this.ids.next(), channel: this.channel, channelRank: index + 1,
       lane: ['A', 'B'].includes(revision.authorityGrade) && revision.epistemicStatus === 'objective' ? 'H' : 'E',
-      sourceType: revision.sourceType, sourceId: revision.sourceId, sourceVersion: String(revision.revision),
-      sourceHash: revision.sourceHash, sourceLocator: revision.sourceLocator,
-      provenanceKey: `${revision.sourceType}:${revision.sourceId}:${JSON.stringify(revision.sourceLocator)}`,
+      // Callers filter by product-level source families (fact/manuscript/wiki...), while a
+      // knowledge revision retains its provenance type (for example confirmed_manuscript).
+      // Exposing provenance as sourceType caused every structured fact to be filtered out.
+      sourceType: 'fact', sourceId: revision.knowledgeRevisionId, sourceVersion: String(revision.revision),
+      sourceHash: revision.sourceHash, sourceLocator: {
+        knowledgeRevisionId: revision.knowledgeRevisionId,
+        originalSourceType: revision.sourceType,
+        originalSourceId: revision.sourceId,
+        ...revision.sourceLocator
+      },
+      provenanceKey: `knowledge:${revision.knowledgeRevisionId}`,
       assertionKey: revision.knowledgeItemId, content: revision.contentText, authorityGrade: revision.authorityGrade,
       lifecycleLayer: revision.layer, epistemicStatus: revision.epistemicStatus, negated: revision.negated,
       conflictGroup: revision.epistemicStatus === 'conflicted' ? revision.knowledgeItemId : null,
-      metadata: { temporalMatch: true, viewpointMatch: true, canonRevision: revision.canonRevision, relevance }
+      metadata: { temporalMatch: true, viewpointMatch: true, canonRevision: revision.canonRevision, relevance,
+        originalSourceType: revision.sourceType, originalSourceId: revision.sourceId }
     }));
   }
 }
@@ -67,7 +76,34 @@ export class FtsChunkProvider implements RetrievalChannelProvider {
   public readonly degradationReason = null;
   public constructor(private readonly scope: BookScope, private readonly snapshotId: string, private readonly repository: ChunkSnapshotRepository, private readonly ids: IdGenerator) {}
   public async retrieve(plan: RetrievalPlan, limit: number): Promise<RetrievalCandidate[]> {
-    return this.repository.searchFts(this.scope, this.snapshotId, plan.normalizedQuery, limit).map((hit, index) => ({
+    const primary = this.repository.searchFts(this.scope, this.snapshotId, plan.normalizedQuery, limit);
+    const scored = new Map<string, { hit: (typeof primary)[number]; score: number; firstSeen: number }>();
+    let firstSeen = 0;
+    const add = (hits: typeof primary, weight: number): void => {
+      hits.forEach((hit, index) => {
+        const current = scored.get(hit.chunkId);
+        const score = weight / (index + 1);
+        if (current === undefined) scored.set(hit.chunkId, { hit, score, firstSeen: firstSeen++ });
+        else current.score += score;
+      });
+    };
+    add(primary, 1);
+    // A long chapter query contains hundreds of common Chinese bigrams. BM25 over the whole
+    // query can therefore return an old claim while omitting the later resolution of the same
+    // named entity. Once the planner has safely resolved an entity, run a small local-window
+    // query for each mention and fuse it with the broad result. This is retrieval, not extra LLM
+    // context, and implements the product's "lock the name before answering" contract.
+    for (const seed of plan.entitySeeds) {
+      add(this.repository.searchFts(this.scope, this.snapshotId, seed.canonicalName, Math.min(limit, 6)), 0.5);
+      for (const query of entityFocusedQueries(plan.originalQuery, seed.matchedText, seed.canonicalName)) {
+        add(this.repository.searchFts(this.scope, this.snapshotId, query, Math.min(limit, 8)), 2);
+      }
+    }
+    const selected = [...scored.values()]
+      .sort((left, right) => right.score - left.score || left.firstSeen - right.firstSeen)
+      .slice(0, limit)
+      .map((item) => item.hit);
+    return selected.map((hit, index) => ({
       candidateId: this.ids.next(), channel: this.channel, channelRank: index + 1, lane: hit.lifecycleLayer === 'canon' ? 'E' : 'I',
       sourceType: hit.sourceType, sourceId: hit.sourceId, sourceVersion: hit.sourceVersion, sourceHash: hit.sourceHash,
       sourceLocator: { chunkId: hit.chunkId, byteStart: hit.byteStart, byteEnd: hit.byteEnd },
@@ -78,6 +114,21 @@ export class FtsChunkProvider implements RetrievalChannelProvider {
         temporalMatch: plan.worldTime === null, viewpointMatch: plan.viewpointEntityId === null }
     }));
   }
+}
+
+function entityFocusedQueries(query: string, matchedText: string, canonicalName: string): string[] {
+  const clauses = query.split(/[。！？!?\n]+/u).map((clause) => clause.trim()).filter(Boolean);
+  const windows = clauses.flatMap((clause, index) => {
+    if (!clause.includes(matchedText) && !clause.includes(canonicalName)) return [];
+    // The explanation often follows the named statement in the next sentence (for example
+    // "X was reported dead. Later X returned alive"). Keep one adjacent clause on either side
+    // while retaining the bounded 180-character retrieval-only window.
+    return [
+      [clauses[index - 1], clause].filter(Boolean).join('。'),
+      [clause, clauses[index + 1]].filter(Boolean).join('。')
+    ];
+  });
+  return [...new Set(windows.map((window) => `${canonicalName} ${window.slice(0, 180)}`))].slice(0, 4);
 }
 
 export class VectorChunkProvider implements RetrievalChannelProvider {
@@ -119,7 +170,7 @@ export class RelationProvider implements RetrievalChannelProvider {
     return this.repository.expandRelations(this.scope, plan.entitySeeds.map((seed) => seed.entityId), plan.canonRevision)
       .slice(0, limit).map((edge, index) => ({
         candidateId: this.ids.next(), channel: this.channel, channelRank: index + 1, lane: 'E',
-        sourceType: 'fact_assertion', sourceId: edge.sourceFactId, sourceVersion: null, sourceHash: edge.sourceHash,
+        sourceType: 'fact', sourceId: edge.sourceFactId, sourceVersion: null, sourceHash: edge.sourceHash,
         sourceLocator: { relationshipId: edge.relationshipId }, provenanceKey: `fact:${edge.sourceFactId}`,
         assertionKey: `${edge.fromEntityId}:${edge.relationKey}`, content: `${edge.fromEntityId} ${edge.relationKey} ${JSON.stringify(edge.toValue)}`,
         authorityGrade: null, lifecycleLayer: 'derived', epistemicStatus: 'objective', negated: false,

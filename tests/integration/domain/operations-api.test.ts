@@ -57,7 +57,14 @@ describe('生命周期、任务审计与备份REST入口', () => {
       const taskDetail = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/tasks/${batch.taskIds[0]!}` });
       expect(taskDetail.statusCode).toBe(200);
       expect(taskDetail.json().data).toMatchObject({ task: { taskId: batch.taskIds[0] }, phases: [], modelCalls: [], toolCalls: [] });
-      expect(((await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/budgets` })).json().data as unknown[])).toHaveLength(1);
+      const bookBudgets = (await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/budgets` })).json().data as Array<{ budget_id: string; token_limit: number }>;
+      expect(bookBudgets).toHaveLength(1);
+      const raisedBudget = await app.inject({
+        method: 'PATCH', url: `/api/v1/books/${created.bookId}/budgets/${bookBudgets[0]!.budget_id}`,
+        payload: { expectedTokenLimit: bookBudgets[0]!.token_limit, tokenLimit: 5_000_000 }
+      });
+      expect(raisedBudget.statusCode).toBe(200);
+      expect(raisedBudget.json().data).toMatchObject({ tokenLimit: 5_000_000, cashLimitMicros: 0 });
 
       const backup = (await app.inject({ method: 'POST', url: '/api/v1/backups' })).json().data as { backupId: string };
       const verified = await app.inject({ method: 'POST', url: `/api/v1/backups/${backup.backupId}/verify` });

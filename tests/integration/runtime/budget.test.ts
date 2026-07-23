@@ -44,4 +44,18 @@ describe('预算冻结与结算', () => {
     const budget = service.create(scope, 'standard', 100, 0);
     expect(() => service.reserve(scope, budget.budgetId, 'unknown-cost', 10, null)).toThrow('现金费用未知');
   });
+
+  it('can raise a token-only book limit without ever enabling cash fallback', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    initializeRuntimeBook(context, scope, ids, clock);
+    const service = new BudgetService(context.database, ids, clock);
+    const budget = service.create(scope, 'standard', 240_000, 0);
+
+    const revised = service.reviseTokenLimit(scope, budget.budgetId, 240_000, 5_000_000);
+    expect(revised).toMatchObject({ tokenLimit: 5_000_000, cashLimitMicros: 0, status: 'active' });
+    expect(() => service.reviseTokenLimit(scope, budget.budgetId, 240_000, 6_000_000)).toThrow('预算版本已经变化');
+  });
 });

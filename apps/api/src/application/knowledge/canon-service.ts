@@ -379,8 +379,24 @@ export class CanonService {
       for (const fact of additions) {
         const candidate = knowledge.findActiveCandidateByKey(scope, 'fact_assertion', fact.fact_id);
         if (candidate === null || candidate.sourceHash === null) continue;
+        // The confirmed manuscript is authoritative, while an extracted ambiguous/conflicted
+        // assertion must preserve that epistemic status instead of pretending to be a resolved
+        // knowledge fact. Keep its lifecycle record in the candidate layer for later
+        // disambiguation, but do not let this derived projection block chapter settlement.
+        if (candidate.epistemicStatus === 'ambiguous' || candidate.epistemicStatus === 'conflicted') continue;
+        const decisionType = fact.grade === 'D' ? 'boss_confirmed' : fact.grade === 'C' ? 'chief_editor_approved' : 'graded_settlement';
+        if (decisionType === 'graded_settlement') {
+          const temporal = knowledge.requireTemporalScope(scope, candidate.temporalScopeId);
+          const epistemicallyScoped = candidate.epistemicStatus === 'objective' || temporal.knowledgeSubjectId !== null;
+          const eligible = ['A', 'B'].includes(candidate.authorityGrade)
+            && epistemicallyScoped
+            && candidate.evidence.length > 0
+            && temporal.completeness !== 'unknown'
+            && candidate.sourceType === 'confirmed_manuscript';
+          if (!eligible) continue;
+        }
         lifecycle.promote(scope, candidate.knowledgeRevisionId, {
-          decisionType: fact.grade === 'D' ? 'boss_confirmed' : fact.grade === 'C' ? 'chief_editor_approved' : 'graded_settlement',
+          decisionType,
           decisionSourceType: 'chapter_settlement',
           decisionSourceId: chapterId,
           canonRevision: nextRevision,
@@ -400,7 +416,7 @@ export class CanonService {
       `).run(now, manuscriptVersionId, chapterId, scope.ownerId, scope.bookId);
       if (manuscriptUpdate.changes !== 1) throw new Error('正文版本状态在结算期间发生变化');
       const chapterUpdate = this.database.prepare(`
-        UPDATE chapters SET settlement_status = 'settled', canon_manuscript_version_id = ?,
+        UPDATE chapters SET settlement_status = 'settled', generation_status = 'completed', canon_manuscript_version_id = ?,
           chapter_end_state_id = ?, updated_at = ?, version = version + 1
         WHERE chapter_id = ? AND owner_id = ? AND book_id = ? AND settlement_status <> 'settled'
       `).run(manuscriptVersionId, chapterEndStateId, now, chapterId, scope.ownerId, scope.bookId);

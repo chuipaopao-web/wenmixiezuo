@@ -128,4 +128,29 @@ describe('自然语言讨论运行闭环', () => {
       WHERE l.owner_id = ? AND l.book_id = ?`).get(scope.ownerId, scope.bookId);
     expect(activeEditor).toEqual({ role_key: 'deputy_editor' });
   });
+
+  it('汇总标题用短讨论题，不复述老板整段原话', async () => {
+    // P0-3 / R01: 汇总标题只用短讨论题，老板原话通过 discussionId 引用完整追溯，不整段复述。
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '短标题书', text: '雾城悬疑长篇' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const longScope = '讨论 规划第11至20章共且仅共10章作为地下账库与迁城试验故事弧承接第10章发现的地下封存总账林砚要查清灰塔为何被王都从账面抹除同时把十七人的据点改造成能够移动的领地必须包含总账并非普通纸账岑鸢发现审计印记的第二层用途贺铸训练第一支守备队第一次灰塔升级需在救人和保资源之间选择出现一个立场可信但利益冲突的邻地领主';
+    const scheduled = conversations.sendBossMessage(scope, longScope);
+    const taskId = String(scheduled.action.taskId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    expect(tasks.claimNext('worker-title')?.taskId).toBe(taskId);
+    await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, taskId, 'worker-title');
+    const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string }>;
+    const summary = messages.find((message) => message.sender_type === 'agent');
+    expect(summary).toBeDefined();
+    expect(summary?.content).toContain('讨论“');
+    expect(summary?.content).toContain('已完成。');
+    expect(summary?.content).toContain('…');
+    // 原话尾部不进标题，老板原话通过 discussionId 引用追溯。
+    expect(summary?.content).not.toContain('立场可信但利益冲突的邻地领主');
+  });
 });

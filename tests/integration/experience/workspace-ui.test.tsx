@@ -141,7 +141,7 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('archived')).not.toBeInTheDocument();
   });
 
-  it('新建书只要求书名和频道，主要标签不限制其他自由发挥', async () => {
+  it('完整开书资料按番茄式分类提交，并保留主要选择之外的自由创作', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
@@ -149,32 +149,45 @@ describe('完整创作工作台', () => {
     fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
     expect(within(dialog).getByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
-    expect(within(dialog).getByText(/标签只确定主要方向，不是每章清单/)).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('预计规模')).not.toBeInTheDocument();
-    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+    expect(within(dialog).getByText(/标签只确定主要方向/)).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主类型：古代言情' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择故事特点：群像' }));
-    fireEvent.change(within(dialog).getByLabelText('自定义主要标签'), { target: { value: '轻悬疑' } });
+    fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
+    fireEvent.change(within(dialog).getByLabelText('主角身份'), { target: { value: 'female_lead' } });
+    fireEvent.change(within(dialog).getByLabelText('主角姓名'), { target: { value: '沈簪' } });
+    fireEvent.change(within(dialog).getByLabelText('主角年龄'), { target: { value: '二十三岁' } });
+    fireEvent.change(within(dialog).getByLabelText('主角人物背景'), { target: { value: '文物修复师，回长安处理家族旧案。' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择性格：冷静' }));
+    fireEvent.change(within(dialog).getByLabelText('世界观背景'), { target: { value: '当代长安与梦中旧城彼此映照。' } });
+    fireEvent.change(within(dialog).getByLabelText('故事起始背景'), { target: { value: '沈簪修复一支能映出失踪者记忆的古簪。' } });
+    fireEvent.change(within(dialog).getByLabelText('第一阶段起始剧情'), { target: { value: '古簪第一次显出旧城命案。' } });
+    fireEvent.change(within(dialog).getByLabelText('第一阶段发展剧情'), { target: { value: '她与刑警沿记忆寻找三名失踪者。' } });
+    fireEvent.change(within(dialog).getByLabelText('第一阶段结束剧情'), { target: { value: '她救回失踪者，却发现父亲也在旧城。' } });
+    fireEvent.change(within(dialog).getByLabelText('全书简介（故事主线和结果）'), { target: { value: '沈簪追查旧城真相，最终让被篡改的城市记忆回归。' } });
+    fireEvent.change(within(dialog).getByLabelText('初始地图'), { target: { value: '长安旧城区、文保中心与梦中朱雀街。' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：现言' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：脑洞' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择全书特点：群像' }));
+    fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
-    fireEvent.click(within(dialog).getByText('必须遵守（可不选）'));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
-    expect(within(dialog).getByText(/当前 3 个主要标签/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('必须遵守'), { target: { value: '不靠误会强推剧情' } });
+    expect(within(dialog).getByText(/已选 2 个主要标签/)).toBeInTheDocument();
+    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     fireEvent.click(within(dialog).getByRole('button', { name: '确认建书' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/books/drafts') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const payload = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
+      const blueprint = payload.openingBlueprint as Record<string, unknown>;
       return payload.title === '长安簪影'
         && payload.classification === '女频'
-        && Array.isArray(payload.tags)
-        && payload.tags.includes('古代言情')
-        && payload.tags.includes('群像')
-        && payload.tags.includes('轻悬疑')
-        && payload.tags.includes('必须遵守：不写后宫');
+        && blueprint.categoryKey === 'female-modern-brain'
+        && Array.isArray(blueprint.mainTags)
+        && blueprint.mainTags.includes('现言')
+        && blueprint.mainTags.includes('脑洞')
+        && Array.isArray(blueprint.customTags)
+        && blueprint.customTags.includes('轻悬疑');
     })).toBe(true));
   });
 
@@ -607,6 +620,15 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       }
     });
     if (path === '/api/v1/books') return apiResponse([workspaceData.book]);
+    if (path === '/api/v1/opening-taxonomy') return apiResponse({
+      version: 'fanqie-public-map-2026-07-23-v1', sourceLabel: '番茄小说公开分类本地映射', sourceUrl: 'https://fanqienovel.com/', updatedAt: '2026-07-23',
+      notice: '主要选择只定方向，其他元素可随剧情自由创作。',
+      categories: [
+        { key: 'male-fantasy-brain', name: '玄幻脑洞', channel: 'male', description: '男频玄幻脑洞', recommendedMainTags: ['玄幻', '脑洞'] },
+        { key: 'female-modern-brain', name: '现言脑洞', channel: 'female', description: '女频现言脑洞', recommendedMainTags: ['现言', '脑洞'] }
+      ],
+      mainTags: ['玄幻', '现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻'], personalityOptions: ['冷静', '敏锐']
+    });
     if (path === '/api/v1/books/drafts') return apiResponse({ draftId: 'draft-ui-1', version: 1 });
     if (path === '/api/v1/book-drafts/draft-ui-1/confirm') return apiResponse({ bookId: workspaceData.book.bookId });
     if (path === `/api/v1/books/${workspaceData.book.bookId}/archive`) return apiResponse({ ...workspaceData.book, status: 'archived', version: workspaceData.book.version + 1 });

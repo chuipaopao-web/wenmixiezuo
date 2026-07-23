@@ -45,8 +45,26 @@ export class ChapterApprovalService {
       if (!liveRetry) this.repository.resolveGate(scope, confirmationId, true, note, now);
       this.chapters.selectManuscript(scope, gate.chapterId, gate.manuscriptVersionId);
       for (const candidate of this.repository.factCandidatesForPanel(scope, liveGate.reviewPanelId)) {
-        if (candidate.evidenceQuote.length > 600 || !content.includes(candidate.evidenceQuote)) {
-          throw new Error(`事实候选证据无法在确认正文中逐字定位：${candidate.subjectName}/${candidate.relationKey}`);
+        const rejectionReason = candidate.evidenceQuote.length > 600
+          ? 'evidence_quote_too_long' as const
+          : !content.includes(candidate.evidenceQuote)
+            ? 'evidence_quote_not_found' as const
+            : null;
+        if (rejectionReason !== null) {
+          // A model-proposed fact is a secondary projection, not the manuscript authority. Invalid
+          // evidence is quarantined from canon without blocking an otherwise approved manuscript.
+          this.repository.recordRejectedFactCandidate(scope, {
+            eventId: this.ids.next(),
+            occurredAt: now,
+            chapterId: gate.chapterId,
+            manuscriptVersionId: gate.manuscriptVersionId,
+            reviewPanelId: liveGate.reviewPanelId,
+            subjectName: candidate.subjectName,
+            relationKey: candidate.relationKey,
+            reason: rejectionReason,
+            evidenceQuoteLength: candidate.evidenceQuote.length
+          });
+          continue;
         }
         const entityId = this.repository.findEntity(scope, candidate.entityType, candidate.subjectName)
           ?? this.canon.createEntity(scope, { entityType: candidate.entityType, canonicalName: candidate.subjectName });
@@ -99,6 +117,7 @@ export class ChapterApprovalService {
       this.protagonists?.projectCanonFacts(scope, gate.chapterId);
       this.repository.recordQualityMetric(scope, {
         id: this.ids.next(), chapterId: gate.chapterId, manuscriptVersionId: gate.manuscriptVersionId,
+        reviewPanelId: liveGate.reviewPanelId,
         rewriteCount: this.repository.rewriteCount(scope, gate.chapterId, gate.taskId), now
       });
       this.repository.markGateSettlement(scope, confirmationId, true, now);

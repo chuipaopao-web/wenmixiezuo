@@ -22,14 +22,16 @@ import { NarrativeProjectionService, type NarrativeProjectionType } from '../app
 import { CopyrightService, type RightsPath } from '../application/copyright/copyright-service.js';
 import { ResearchService } from '../application/research/research-service.js';
 import { ConversationService } from '../application/chat/conversation-service.js';
+import { diagnoseTextEncoding } from '../application/chat/text-encoding-diagnostics.js';
 import { ChatAttachmentService } from '../application/chat/chat-attachment-service.js';
 import { TaskService } from '../application/tasks/task-service.js';
 import { BackupService } from '../infrastructure/recovery/backup-service.js';
-import { cancelActiveModelCall } from '../application/calls/model-call-service.js';
+import { cancelActiveModelCall, ModelCallService } from '../application/calls/model-call-service.js';
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
 import { ChapterApprovalService } from '../application/creation/chapter-approval-service.js';
+import { EditorLeaseService, type EditorLeaseStatus } from '../application/editors/editor-lease-service.js';
 import { ProductionWorkflowRepository } from '../infrastructure/db/repositories/production-workflow-repository.js';
 import { ExpressionProfileService } from '../application/books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../infrastructure/db/repositories/expression-profile-repository.js';
@@ -51,6 +53,8 @@ import type { ChatAttachmentRecord } from '../infrastructure/db/repositories/cha
 import { ProtagonistStateService, type ProtagonistStateStatus, type ProtagonistValueType } from '../application/knowledge/protagonist-state-service.js';
 import { AttributeFormulaService, type FormulaVariable } from '../application/knowledge/attribute-formula-service.js';
 import { OwnerManuscriptService } from '../application/creation/owner-manuscript-service.js';
+import { BudgetService } from '../application/budget/budget-service.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -73,7 +77,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   const owner = { ownerId: config.ownerId };
   const positioning = new PositioningService(database, ids, clock);
-  const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles);
+  const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId);
   const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
   const books = new BookRepository(database);
   const agents = new AgentTeamService(database, ids, clock, config.modelRuntime.roleProfiles);
@@ -99,6 +103,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const ownerManuscripts = new OwnerManuscriptService(database, config.dataDir, config.releaseId, ids, clock);
   const protagonists = new ProtagonistStateService(database, ids, clock);
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
+  const budgets = new BudgetService(database, ids, clock);
+  const modelCalls = new ModelCallService(database, clock, budgets);
+  const editors = new EditorLeaseService(database, ids, clock);
   const chapterApprovals = new ChapterApprovalService(
     new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists
   );
@@ -109,12 +116,21 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const portability = new BookPortabilityService(database, config, ids, clock);
   const taxonomy = new TaxonomyService(new TaxonomyRepository(database), ids, clock);
 
+  app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
   app.post<{ Body: {
     title?: string; text: string; category?: string; classification?: string;
     targetAudience?: string; expectedScaleChars?: number; initialExpressionBaseline?: string;
-    tags?: string[]; style?: string;
+    tags?: string[]; style?: string; openingBlueprint?: OpeningBlueprintInput;
   } }>('/api/v1/books/drafts', async (request) => {
-    return success(positioning.createDraft(owner, request.body), request.id);
+    try {
+      return success(positioning.createDraft(owner, request.body), request.id);
+    } catch (error) {
+      if (request.body.openingBlueprint !== undefined && error instanceof Error) {
+        throw new DomainError(errorCodes.validation, error.message, {}, false, 400);
+      }
+      throw error;
+    }
   });
 
   app.patch<{ Params: { draftId: string }; Body: { expectedVersion: number; title?: string; fields?: Parameters<PositioningService['updateDraft']>[3]['fields']; tags?: Parameters<PositioningService['updateDraft']>[3]['tags'] } }>('/api/v1/book-drafts/:draftId', async (request) => {
@@ -186,7 +202,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         createdAt: row.created_at
       }))
     };
-    const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE owner_id = ? AND book_id = ?`)
+    const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type <> 'onboarding_trigger'`)
       .get(scope.ownerId, scope.bookId) as { count: number }).count;
     const volumes = database.prepare(`
       SELECT v.volume_id AS volumeId, v.volume_number AS volumeNumber, v.title, v.status,
@@ -208,6 +225,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         outputKinds: contract?.outputKinds ?? []
       };
     });
+    // P0-4: 暴露主编租约真实状态（含过期标记与接管态），前端据此显示"西施接管中"而非把过期租约当 stable。
+    let editorLease: EditorLeaseStatus | null = null;
+    try {
+      editorLease = editors.describeLease(scope);
+    } catch {
+      editorLease = null;
+    }
     return success({
       book,
       chapters: chapters.listWorkspaceWindow(scope),
@@ -215,6 +239,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       agents: liveAgents,
       tasks: tasks.list(scope),
       budget,
+      editor: editorLease,
       confirmations,
       messageCount,
       localAssistant: {
@@ -495,6 +520,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { type: DiscussionType; scopeText: string; createdByAgentId: string; participants: Array<{ agentId: string; reason: string }> } }>('/api/v1/books/:bookId/discussions', async (request) => {
+    // R10: 讨论范围文本同样做编码健康诊断，避免问号串进入双编剧/主编昂贵会话
+    const encodingHealth = diagnoseTextEncoding(request.body.scopeText);
+    if (encodingHealth.damaged) {
+      throw new DomainError(errorCodes.operationIncomplete,
+        '讨论范围文本疑似编码损坏，包含 UTF-8 替换符或长问号串；请检查终端/脚本编码后重新发送',
+        { damaged: encodingHealth.damaged, reason: encodingHealth.reason, replacementCharCount: encodingHealth.replacementCharCount, suspiciousQuestionMarkRun: encodingHealth.suspiciousQuestionMarkRun, totalLength: encodingHealth.totalLength }, false, 400);
+    }
     return success(discussions.create({ ...owner, bookId: request.params.bookId }, request.body), request.id);
   });
 
@@ -809,6 +841,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { content: string; attachmentIds?: string[] } }>('/api/v1/books/:bookId/messages', async (request) => {
+    // R10: 拒绝编码损坏文本进入模型，保留诊断报告以便定位
+    const encodingHealth = diagnoseTextEncoding(request.body.content);
+    if (encodingHealth.damaged) {
+      throw new DomainError(errorCodes.operationIncomplete,
+        '输入文本疑似编码损坏，包含 UTF-8 替换符或长问号串；请检查终端/脚本编码后重新发送',
+        { damaged: encodingHealth.damaged, reason: encodingHealth.reason, replacementCharCount: encodingHealth.replacementCharCount, suspiciousQuestionMarkRun: encodingHealth.suspiciousQuestionMarkRun, totalLength: encodingHealth.totalLength }, false, 400);
+    }
     return success(await conversations.sendBossMessageWithLocalAssistant(
       { ...owner, bookId: request.params.bookId }, request.body.content, request.body.attachmentIds ?? []
     ), request.id);
@@ -928,6 +967,17 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     `).all(config.ownerId, request.params.bookId), request.id);
   });
 
+  app.patch<{
+    Params: { bookId: string; budgetId: string };
+    Body: { expectedTokenLimit: number; tokenLimit: number };
+  }>('/api/v1/books/:bookId/budgets/:budgetId', async (request) => {
+    books.require({ ...owner, bookId: request.params.bookId });
+    return success(budgets.reviseTokenLimit(
+      { ...owner, bookId: request.params.bookId }, request.params.budgetId,
+      request.body.expectedTokenLimit, request.body.tokenLimit
+    ), request.id);
+  });
+
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/usage', async (request) => {
     return success(database.prepare(`
       SELECT provider, model_id, SUM(input_tokens) AS input_tokens,
@@ -936,6 +986,29 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM usage_ledger WHERE owner_id = ? AND book_id = ?
       GROUP BY provider, model_id ORDER BY provider, model_id
     `).all(config.ownerId, request.params.bookId), request.id);
+  });
+
+  // P0-5: 暴露无主预留巡检与中断调用手动调和入口。无活动调用且无调和记录的预留必须为0；
+  // 中断调用可由人工/供应商确认后推进到 reusable/retry_safe/release，避免永久冻结。
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/budgets/reconciliation', async (request) => {
+    books.require({ ...owner, bookId: request.params.bookId });
+    return success(modelCalls.reportUnreconciledReservations(
+      { ownerId: config.ownerId, bookId: request.params.bookId }
+    ), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; requestId: string } }>('/api/v1/books/:bookId/model-calls/:requestId/reconcile', async (request) => {
+    books.require({ ...owner, bookId: request.params.bookId });
+    return success(modelCalls.reconcileInterruptedCall(
+      { ownerId: config.ownerId, bookId: request.params.bookId }, request.params.requestId
+    ), request.id);
+  });
+
+  // P0-4: 主编模型恢复后，在无活动/未知调用安全边界手动回切主编；不满足边界时返回原因不切。
+  app.post<{ Params: { bookId: string }; Body: { chiefAgentId: string } }>('/api/v1/books/:bookId/editor/revert', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(editors.safeRevertToChief(scope, request.body.chiefAgentId), request.id);
   });
 
   app.post('/api/v1/backups', async (request) => success(backups.create(), request.id));

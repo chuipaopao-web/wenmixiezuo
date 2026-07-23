@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
-import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { FixedClock, MutableClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
 import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
@@ -72,5 +72,110 @@ describe('双主编租约与接管', () => {
       .toThrow('没有24小时内的成功调用证据');
     expect(context.database.prepare(`SELECT takeover_state FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId)).toEqual({ takeover_state: 'stable' });
+  });
+});
+
+describe('主编租约续期、过期与安全回切', () => {
+  it('主编心跳续租延长租约过期时间，过期后describeLease显式标记expired而非静默stable', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-lease' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    const created = editors.create(scope, agents[0]!.agentId, 60_000);
+    expect(editors.isLeaseExpired(scope)).toBe(false);
+    expect(editors.describeLease(scope).expired).toBe(false);
+    // 推进 30s 仍未过期；主编心跳续租后再给 60s 窗口
+    clock.advance(30_000);
+    editors.heartbeatRenew(scope, agents[0]!.agentId, 60_000);
+    const renewedExpiresAt = Date.parse(editors.require(scope).leaseExpiresAt);
+    expect(renewedExpiresAt).toBeGreaterThan(Date.parse(created.leaseExpiresAt));
+    // 续租后过期时间 = base+90s；推进 70s 到 base+100s，已过期
+    clock.advance(70_000);
+    expect(editors.isLeaseExpired(scope)).toBe(true);
+    const status = editors.describeLease(scope);
+    expect(status.expired).toBe(true);
+    // DB 中 takeover_state 仍为 stable，但 expired 标志显式反映过期，上层不再静默当成稳定
+    expect(status.takeoverState).toBe('stable');
+  });
+
+  it('租约过期且有working模型调用时不抢占、不安全回切', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-expiry' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    editors.create(scope, agents[0]!.agentId, 60_000);
+    // 副编接管上位（模拟西施替貂蝉）
+    const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
+    editors.completeTakeover(scope, prepared.takeoverId);
+    expect(editors.require(scope).activeEditorAgentId).toBe(agents[1]!.agentId);
+    // 推进使租约过期
+    clock.advance(120_000);
+    expect(editors.isLeaseExpired(scope)).toBe(true);
+    // 造一条 working 模型调用（结果未知）
+    const budgets = new BudgetService(context.database, ids, clock);
+    const budget = budgets.create(scope, 'standard', 100, 0);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(scope, { taskId: 'task-working', taskType: 'runtime_probe', assignedAgentId: agents[1]!.agentId, idempotencyKey: 'working', budgetId: budget.budgetId, requiredEditorEpoch: 2, initialPhase: 'execute', brief: {} });
+    const reservationId = 'reservation-working';
+    context.database.prepare(`INSERT INTO budget_reservations (reservation_id, budget_id, owner_id, book_id, request_id, frozen_tokens, frozen_cash_micros, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?)`)
+      .run(reservationId, budget.budgetId, scope.ownerId, scope.bookId, 'request-working', 10, 0, clock.now().toISOString());
+    const modelSnapshotId = (context.database.prepare(`SELECT model_snapshot_id FROM agent_instances WHERE agent_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(agents[1]!.agentId, scope.ownerId, scope.bookId) as { model_snapshot_id: string }).model_snapshot_id;
+    context.database.prepare(`INSERT INTO model_calls (request_id, owner_id, book_id, task_id, phase_key, agent_id, provider, model_id, model_snapshot_id, input_hash, parameters_hash, reservation_id, state, started_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'working', ?, ?)`)
+      .run('request-working', scope.ownerId, scope.bookId, 'task-working', 'phase:test', agents[1]!.agentId, agents[1]!.provider, agents[1]!.modelId, modelSnapshotId, 'a'.repeat(64), 'b'.repeat(64), reservationId, clock.now().toISOString(), clock.now().toISOString());
+    // 过期但有 working 调用：不安全回切，避免丢失正在生成的结果
+    const safety = editors.evaluateExpirySafety(scope);
+    expect(safety.hasWorkingCalls).toBe(true);
+    expect(safety.hasUnknownResultCalls).toBe(true);
+    expect(safety.safeToRevert).toBe(false);
+    const revert = editors.safeRevertToChief(scope, agents[0]!.agentId);
+    expect(revert.reverted).toBe(false);
+    expect(revert.reason).toContain('进行中或结果未知');
+    expect(editors.require(scope).activeEditorAgentId).toBe(agents[1]!.agentId);
+  });
+
+  it('副编接管后原主编模型恢复且无进行中调用时安全回切', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-revert' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    editors.create(scope, agents[0]!.agentId, 60_000);
+    // 副编接管
+    const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
+    editors.completeTakeover(scope, prepared.takeoverId);
+    expect(editors.require(scope).activeEditorAgentId).toBe(agents[1]!.agentId);
+    expect(editors.require(scope).editorEpoch).toBe(2);
+    // 无进行中调用，原主编模型可用（deterministic），安全回切
+    const safety = editors.evaluateExpirySafety(scope);
+    expect(safety.safeToRevert).toBe(true);
+    const revert = editors.safeRevertToChief(scope, agents[0]!.agentId);
+    expect(revert.reverted).toBe(true);
+    expect(revert.activeEditorAgentId).toBe(agents[0]!.agentId);
+    expect(revert.editorEpoch).toBe(3);
+    expect(editors.require(scope).activeEditorAgentId).toBe(agents[0]!.agentId);
+    expect(editors.require(scope).editorEpoch).toBe(3);
+  });
+
+  it('旧epoch晚到的续租与提交指令被拒绝，当前主编可正常续租', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-epoch' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    editors.create(scope, agents[0]!.agentId, 60_000);
+    const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
+    editors.completeTakeover(scope, prepared.takeoverId); // epoch -> 2，活动主编变为 agents[1]
+    // 旧主编用 epoch=1 续租/校验应被拒绝
+    expect(() => editors.renew(scope, agents[0]!.agentId, 1)).toThrow('旧指令被拒绝');
+    expect(() => editors.assertEpoch(scope, agents[0]!.agentId, 1)).toThrow('旧指令被拒绝');
+    // 当前活动主编 epoch=2 可正常心跳续租
+    expect(() => editors.heartbeatRenew(scope, agents[1]!.agentId)).not.toThrow();
   });
 });

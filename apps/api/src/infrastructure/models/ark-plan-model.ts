@@ -19,8 +19,9 @@ interface ArkMessagesResponse {
 
 const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
   discussion: '你是文秘写作中的小说创作成员。只按当前岗位和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
-  novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文有效字符必须在2500至3500之间，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。保持人物、时间线和因果连续。',
-  novel_reviewer: '你是文秘写作的独立审校。只输出一个JSON对象，不使用Markdown围栏。字段必须为verdict(pass|rewrite|blocked)、summary、issues数组和scores对象；每个issue包含location、issueType、severity(blocker|major|minor|observation)、evidence、requiredAction；scores包含continuity、character、pacing、style、hook五个0至100整数。'
+  novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文有效字符必须在2500至3500之间，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落。保持人物、时间线和因果连续。',
+  novel_reviewer: '你是文秘写作的独立审校。只输出一个JSON对象，不使用Markdown围栏。字段必须为verdict(pass|rewrite|blocked)、summary、issues数组和scores对象；每个issue包含location、issueType、severity(blocker|major|minor|observation)、evidence、requiredAction；scores包含continuity、character、pacing、style、hook五个0至100整数。',
+  review_synthesis: '你是文秘写作的主编汇总器。只综合三席结构化报告，不读取正文进行第四次点评。只输出JSON对象，字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。'
 };
 
 export class ArkPlanModelAdapter implements ModelAdapter {
@@ -40,7 +41,11 @@ export class ArkPlanModelAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     if (signal?.aborted === true) throw signal.reason ?? new DOMException('模型调用已取消', 'AbortError');
-    const timeoutMs = this.options.timeoutMs ?? 120_000;
+    // Reasoning-capable plan models can legitimately need more than two minutes for
+    // bounded chapter reviews.  A two-minute abort leaves the remote result unknown
+    // and forces the whole independent review seat to be discarded, so keep a
+    // five-minute local ceiling while preserving the explicit per-adapter override.
+    const timeoutMs = this.options.timeoutMs ?? 300_000;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) throw new Error('方舟模型调用超时必须在1秒至15分钟之间');
     const controller = new AbortController();
     let timedOut = false;
@@ -62,7 +67,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         body: JSON.stringify({
           model: this.modelId,
           max_tokens: request.maxOutputTokens,
-          ...(requiresVisibleOutput(this.modelId) ? { thinking: { type: 'disabled' } } : {}),
+          ...(requiresVisibleOutput(this.modelId, this.options.purpose) ? { thinking: { type: 'disabled' } } : {}),
           system: this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
           messages: [{ role: 'user', content: request.prompt }]
         }),
@@ -117,8 +122,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   }
 }
 
-function requiresVisibleOutput(modelId: string): boolean {
-  return modelId.startsWith('glm-') || modelId.startsWith('kimi-');
+function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean {
+  if (modelId.startsWith('glm-') || modelId.startsWith('kimi-')) return true;
+  // DeepSeek's hidden reasoning can consume the complete review allowance before
+  // the bounded JSON report is closed.  Disable it only for deterministic review
+  // contracts; creative planning keeps the model's normal reasoning behaviour.
+  return modelId.startsWith('deepseek-') && (purpose === 'novel_reviewer' || purpose === 'review_synthesis');
 }
 
 function finiteTokenCount(value: number | undefined): number {

@@ -1,3 +1,5 @@
+import type { OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
+
 export type SourceStatus = 'explicit' | 'inferred' | 'unspecified' | 'conflict';
 
 export interface PositioningField {
@@ -21,8 +23,8 @@ export interface PositioningDraft {
   inputText: string;
   fields: PositioningField[];
   tags: PositioningTag[];
+  openingBlueprint: OpeningBlueprintInput | null;
   status: 'editing' | 'confirmed' | 'abandoned';
   version: number;
   confirmedBookId: string | null;
 }
-

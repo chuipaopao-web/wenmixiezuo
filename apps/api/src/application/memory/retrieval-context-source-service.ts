@@ -30,7 +30,7 @@ export class RetrievalContextSourceService {
         sourceId: `${hit.sourceId}:${hit.clusterId}`,
         ...(hit.sourceVersion === null ? {} : { version: hit.sourceVersion }),
         content: hit.content,
-        reason: `混合检索 ${hit.lane} 车道；证据闭环=${hit.closure}；通道=${hit.channels.join('+')}`,
+        reason: `混合检索 ${hit.lane} 车道；证据闭环=${hit.closure}；权威=${hit.authorityGrade ?? 'none'}；知识层=${hit.lifecycleLayer}；认识状态=${hit.epistemicStatus}${hit.negated ? '；否定事实=true' : ''}；通道=${hit.channels.join('+')}`,
         priority: hit.lane === 'H' ? 96 - hit.rank : hit.lane === 'E' ? 74 - hit.rank : 54 - hit.rank
       };
       if (hit.lane === 'H' && hit.closure === 'closed') hardSources.push(source);

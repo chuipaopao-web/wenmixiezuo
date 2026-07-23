@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
+import { ChapterPipelineService } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -26,10 +27,25 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1, { firstChapterTitle: '雨夜北塔' });
     const result = await batches.run(scope, batch.batchId);
-
     expect(result.batch.status).toBe('paused');
     expect(result.results).toHaveLength(1);
     expect(result.results[0]).toEqual(expect.objectContaining({ status: 'awaiting_confirmation', phase: 'completed', rewriteCount: 1 }));
+    const rewriteCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'rewrite-%' AND state = 'succeeded'
+      ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
+    const rewritePack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
+      .get(rewriteCall.context_pack_id) as { source_manifest_json: string };
+    const rewriteSourceTypes = (JSON.parse(rewritePack.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
+    expect(rewriteSourceTypes).toEqual(expect.arrayContaining(['current_manuscript', 'review_issues', 'chapter_outline', 'writing_contract']));
+    const reviewCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'review-%' AND state = 'succeeded'
+      ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
+    const reviewPack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
+      .get(reviewCall.context_pack_id) as { source_manifest_json: string };
+    const reviewSourceTypes = (JSON.parse(reviewPack.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
+    expect(reviewSourceTypes).toEqual(expect.arrayContaining([
+      'current_manuscript', 'chapter_outline', 'writing_contract'
+    ]));
     const chapterId = batch.chapterIds[0]!;
     expect(context.database.prepare(`SELECT settlement_status, generation_status FROM chapters WHERE chapter_id = ?`).get(chapterId))
       .toEqual({ settlement_status: 'awaiting_confirmation', generation_status: 'completed' });
@@ -37,12 +53,53 @@ describe('单章完整创作流水线', () => {
     expect(context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(batch.taskIds[0]!)).toEqual({ status: 'waiting_confirmation' });
     const confirmation = context.database.prepare(`SELECT confirmation_id, expected_canon_revision FROM confirmations
       WHERE owner_id = ? AND book_id = ? AND target_type = 'manuscript' AND status = 'pending'`).get(scope.ownerId, scope.bookId) as { confirmation_id: string; expected_canon_revision: number };
+    const factReport = context.database.prepare(`SELECT review_report_id, report_json FROM review_reports
+      WHERE owner_id = ? AND book_id = ? AND reviewer_role = 'fact' AND status = 'submitted'
+      ORDER BY created_at DESC, review_report_id DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { review_report_id: string; report_json: string };
+    const malformedFactReport = JSON.parse(factReport.report_json) as { factCandidates: unknown[] };
+    const validFactTemplate = malformedFactReport.factCandidates[0] as Record<string, unknown>;
+    malformedFactReport.factCandidates.push({
+      ...validFactTemplate,
+      relationKey: 'identity:uncertain',
+      value: '导师失踪线索仍有两种解释',
+      epistemicStatus: 'ambiguous'
+    });
+    malformedFactReport.factCandidates.push({
+      ...validFactTemplate,
+      relationKey: 'claim:unscoped',
+      value: '来源不明的角色说法',
+      epistemicStatus: 'claim',
+      viewpointName: null,
+      knowledgeSubjectName: null
+    });
+    malformedFactReport.factCandidates.push({
+      entityType: 'character', subjectName: '林澈', relationKey: 'invalid_projection', value: '不得晋升',
+      evidenceQuote: '这段由模型改写的证据并不在正文中', evidenceLocation: '正文', storyTimeStart: null,
+      storyTimeEnd: null, epistemicStatus: 'objective', negated: false, viewpointName: null,
+      knowledgeSubjectName: null, knowledgeTimeStart: null, knowledgeTimeEnd: null
+    });
+    context.database.prepare(`UPDATE review_reports SET report_json = ? WHERE review_report_id = ?`)
+      .run(JSON.stringify(malformedFactReport), factReport.review_report_id);
+    const unrelatedOlderReport = context.database.prepare(`SELECT review_report_id, manuscript_version_id FROM review_reports
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id <> ? ORDER BY created_at LIMIT 1`)
+      .get(scope.ownerId, scope.bookId, String((context.database.prepare(`SELECT manuscript_version_id FROM chapter_approval_gates
+        WHERE confirmation_id = ?`).get(confirmation.confirmation_id) as { manuscript_version_id: string }).manuscript_version_id)) as {
+          review_report_id: string; manuscript_version_id: string;
+        };
+    const gateManuscriptId = (context.database.prepare(`SELECT manuscript_version_id FROM chapter_approval_gates
+      WHERE confirmation_id = ?`).get(confirmation.confirmation_id) as { manuscript_version_id: string }).manuscript_version_id;
+    context.database.prepare(`UPDATE review_reports SET manuscript_version_id = ? WHERE review_report_id = ?`)
+      .run(gateManuscriptId, unrelatedOlderReport.review_report_id);
     const approval = new ChapterApprovalService(
       new ProductionWorkflowRepository(context.database), context.dataDir, context.config.releaseId, ids, clock,
       new ChapterCatalogService(context.database, ids, clock), new CanonService(context.database, ids, clock),
       new TaskService(context.database, context.config.releaseId, clock)
     );
     expect(approval.resolve(scope, confirmation.confirmation_id, confirmation.expected_canon_revision, true)).toEqual({ status: 'settled', canonRevision: 1 });
+    expect(context.database.prepare(`SELECT settlement_status, generation_status FROM chapters WHERE chapter_id = ?`).get(chapterId))
+      .toEqual({ settlement_status: 'settled', generation_status: 'completed' });
+    context.database.prepare(`UPDATE review_reports SET manuscript_version_id = ? WHERE review_report_id = ?`)
+      .run(unrelatedOlderReport.manuscript_version_id, unrelatedOlderReport.review_report_id);
     const completed = await batches.run(scope, batch.batchId);
     expect(completed.batch.status).toBe('completed');
     const manuscripts = context.database.prepare(`
@@ -69,6 +126,40 @@ describe('单章完整创作流水线', () => {
       expect.objectContaining({ canonical_name: '林澈', relation_key: 'believes:item_capability', status: 'active' })
     ]));
     expect(canonFacts.every((fact) => JSON.parse(fact.evidence_json)[0]?.quote.length > 0)).toBe(true);
+    expect(canonFacts.some((fact) => fact.relation_key === 'invalid_projection')).toBe(false);
+    const ambiguousLifecycle = context.database.prepare(`
+      SELECT f.status AS fact_status, f.epistemic_status, r.lifecycle_layer AS layer, r.status AS knowledge_status
+      FROM fact_assertions f JOIN knowledge_items i
+        ON i.owner_id = f.owner_id AND i.book_id = f.book_id
+        AND i.knowledge_type = 'fact_assertion' AND i.canonical_key = f.fact_id
+      JOIN knowledge_revisions r ON r.knowledge_item_id = i.knowledge_item_id
+        AND r.owner_id = i.owner_id AND r.book_id = i.book_id
+      WHERE f.owner_id = ? AND f.book_id = ? AND f.source_chapter_id = ?
+        AND f.relation_key = 'identity:uncertain'
+      ORDER BY r.revision DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapterId);
+    expect(ambiguousLifecycle).toEqual({
+      fact_status: 'active', epistemic_status: 'ambiguous', layer: 'candidate', knowledge_status: 'active'
+    });
+    const unscopedLifecycle = context.database.prepare(`
+      SELECT f.status AS fact_status, f.epistemic_status, r.lifecycle_layer AS layer, r.status AS knowledge_status
+      FROM fact_assertions f JOIN knowledge_items i
+        ON i.owner_id = f.owner_id AND i.book_id = f.book_id
+        AND i.knowledge_type = 'fact_assertion' AND i.canonical_key = f.fact_id
+      JOIN knowledge_revisions r ON r.knowledge_item_id = i.knowledge_item_id
+        AND r.owner_id = i.owner_id AND r.book_id = i.book_id
+      WHERE f.owner_id = ? AND f.book_id = ? AND f.source_chapter_id = ?
+        AND f.relation_key = 'claim:unscoped'
+      ORDER BY r.revision DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapterId);
+    expect(unscopedLifecycle).toEqual({
+      fact_status: 'active', epistemic_status: 'claim', layer: 'candidate', knowledge_status: 'active'
+    });
+    const rejectedProjectionEvent = context.database.prepare(`SELECT data_json FROM persistent_events
+      WHERE owner_id = ? AND book_id = ? AND event_type = 'fact_candidate.rejected'`).get(scope.ownerId, scope.bookId) as { data_json: string };
+    expect(JSON.parse(rejectedProjectionEvent.data_json)).toEqual(expect.objectContaining({
+      chapterId, relationKey: 'invalid_projection', reason: 'evidence_quote_not_found'
+    }));
     expect(canonFacts.find((fact) => fact.relation_key === 'believes:item_capability'))
       .toMatchObject({ epistemic_status: 'belief', viewpoint_name: '林澈' });
     const projectedState = context.database.prepare(`SELECT p.state_json FROM character_state_projection p
@@ -90,8 +181,9 @@ describe('单章完整创作流水线', () => {
       WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY review_round`).all(scope.ownerId, scope.bookId, chapterId);
     expect(panels).toEqual([
       expect.objectContaining({ review_round: 1, status: 'complete' }),
-      expect.objectContaining({ review_round: 2, status: 'complete' })
+      expect.objectContaining({ review_round: 1, status: 'complete' })
     ]);
+    expect(new Set(panels.map((panel) => panel.manuscript_version_id)).size).toBe(2);
     const reports = context.database.prepare(`SELECT reviewer_role, model_snapshot_id, manuscript_version_id, report_json
       FROM review_reports WHERE owner_id = ? AND book_id = ? ORDER BY created_at, reviewer_role`).all(scope.ownerId, scope.bookId) as unknown as Array<{ reviewer_role: string; model_snapshot_id: string; manuscript_version_id: string; report_json: string }>;
     expect(reports).toHaveLength(6);
@@ -127,6 +219,46 @@ describe('单章完整创作流水线', () => {
     expect(new Set(retrievalPlans.filter((plan) => plan.mode === 'review').map((plan) => plan.role_key)))
       .toEqual(new Set(['setting', 'literary_reviewer', 'experience_reviewer']));
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
+
+    const sourcePanel = context.database.prepare(`SELECT * FROM review_panels
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+      ORDER BY created_at DESC, review_panel_id DESC LIMIT 1`).get(scope.ownerId, scope.bookId, chapterId) as Record<string, string | number>;
+    const sourcePanelId = sourcePanel.review_panel_id as string;
+    const incompletePanelId = ids.next();
+    context.database.prepare(`INSERT INTO review_panels (
+      review_panel_id, owner_id, book_id, manuscript_version_id, writer_model_snapshot_id,
+      fact_agent_id, fact_model_snapshot_id, literary_agent_id, literary_model_snapshot_id,
+      experience_agent_id, experience_model_snapshot_id, selection_reason_json, status, created_at,
+      chapter_id, review_round, manuscript_hash, writer_epoch, binding_revision_id, writing_order_id, canon_revision, token_budget
+    ) SELECT ?, owner_id, book_id, manuscript_version_id, writer_model_snapshot_id,
+      fact_agent_id, fact_model_snapshot_id, literary_agent_id, literary_model_snapshot_id,
+      experience_agent_id, experience_model_snapshot_id, selection_reason_json, 'blocked', ?,
+      chapter_id, 3, manuscript_hash, writer_epoch, binding_revision_id, writing_order_id, canon_revision, token_budget
+      FROM review_panels WHERE review_panel_id = ?`).run(incompletePanelId, clock.now().toISOString(), sourcePanelId);
+    const sourceReports = context.database.prepare(`SELECT * FROM review_reports
+      WHERE review_panel_id = ? AND reviewer_role IN ('fact', 'literary') ORDER BY reviewer_role`).all(sourcePanelId) as Array<{
+        manuscript_version_id: string; reviewer_role: string; agent_id: string; model_snapshot_id: string;
+        report_json: string; report_hash: string; input_tokens: number;
+      }>;
+    for (const report of sourceReports) {
+      context.database.prepare(`INSERT INTO review_reports (
+        review_report_id, owner_id, book_id, review_panel_id, manuscript_version_id, reviewer_role,
+        agent_id, model_snapshot_id, report_json, report_hash, input_tokens, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?)`)
+        .run(ids.next(), scope.ownerId, scope.bookId, incompletePanelId, report.manuscript_version_id,
+          report.reviewer_role, report.agent_id, report.model_snapshot_id, report.report_json,
+          report.report_hash, report.input_tokens, clock.now().toISOString());
+    }
+    const recovered = new ProductionWorkflowRepository(context.database).resumeIncompleteReviewPanel(scope, {
+      manuscriptVersionId: sourcePanel.manuscript_version_id as string,
+      manuscriptHash: sourcePanel.manuscript_hash as string,
+      writerModelSnapshotId: sourcePanel.writer_model_snapshot_id as string,
+      canonRevision: Number(sourcePanel.canon_revision),
+      bindingRevisionId: sourcePanel.binding_revision_id as string
+    });
+    expect(recovered).toMatchObject({ reviewPanelId: incompletePanelId, reviewRound: 3, status: 'working' });
+    expect(context.database.prepare(`SELECT status FROM review_panels WHERE review_panel_id = ?`).get(incompletePanelId))
+      .toEqual({ status: 'working' });
   });
 
   it('老板拒绝候选正文后沿用同一任务定点重写，不把拒稿写入正史', async () => {
@@ -198,6 +330,102 @@ describe('单章完整创作流水线', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE owner_id = ? AND book_id = ?
       AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, batch.chapterIds[0]!)).toEqual({ count: 1 });
+
+    const chapterId = batch.chapterIds[0]!;
+    const manuscript = context.database.prepare(`SELECT manuscript_version_id, author_agent_id, model_id
+      FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at DESC LIMIT 1`)
+      .get(scope.ownerId, scope.bookId, chapterId) as { manuscript_version_id: string; author_agent_id: string; model_id: string };
+    expect(approvePendingManuscript(context, scope, ids, clock, false)).toEqual({ status: 'rejected' });
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.requestCancel(scope, batch.taskIds[0]!);
+    const scheduled = batches.scheduleExistingRevision(scope, chapterId, manuscript.manuscript_version_id, 'review_existing');
+    const claimed = tasks.claimNext('review-existing-worker', 120_000)!;
+    expect(claimed.taskId).toBe(scheduled.taskId);
+    const reviewed = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock, takeoverFactory
+    ).executeClaimed(scope, scheduled.taskId, 'review-existing-worker', undefined, {
+      leaseToken: claimed.leaseToken!, attemptNo: claimed.currentAttemptNo
+    });
+    expect(reviewed.status).toBe('awaiting_confirmation');
+    const frozen = context.database.prepare(`SELECT writer_model_snapshot_id, fact_model_snapshot_id
+      FROM review_panels WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ?
+      ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, manuscript.manuscript_version_id) as {
+        writer_model_snapshot_id: string; fact_model_snapshot_id: string;
+      };
+    const author = context.database.prepare(`SELECT model_snapshot_id FROM agent_instances WHERE agent_id = ?`)
+      .get(manuscript.author_agent_id) as { model_snapshot_id: string };
+    expect(manuscript.model_id).toContain('backup_writer');
+    expect(frozen.writer_model_snapshot_id).toBe(author.model_snapshot_id);
+    expect(frozen.fact_model_snapshot_id).not.toBe(frozen.writer_model_snapshot_id);
+  });
+
+  it('硬检查发现初稿超出有界容差时自动定点补写，而不是让整章任务失败', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '长度修复测试书', text: '灰塔生存危机' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    let rewritePrompt = '';
+    const repairFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'novel_writer') {
+          return {
+            provider, modelId,
+            async generate(request) {
+              const operation = (JSON.parse(request.prompt) as { operation: string }).operation;
+              if (operation === 'rewrite') rewritePrompt = request.prompt;
+              const output = '林'.repeat(operation === 'draft' ? 2_299 : 2_700);
+              return { provider, modelId, output, inputTokens: 100, outputTokens: output.length, cashCostCny: 0, state: 'succeeded' };
+            }
+          };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, repairFactory);
+    const batch = batches.scheduleNewChapters(scope, 1);
+
+    const result = await batches.run(scope, batch.batchId);
+    expect(result.results[0]).toEqual(expect.objectContaining({ status: 'awaiting_confirmation', rewriteCount: 1 }));
+    expect(context.database.prepare(`SELECT passed FROM hard_check_results WHERE owner_id = ? AND book_id = ? ORDER BY created_at, hard_check_id`)
+      .all(scope.ownerId, scope.bookId)).toEqual([{ passed: 0 }, { passed: 1 }]);
+    expect(context.database.prepare(`SELECT word_count FROM manuscript_versions WHERE owner_id = ? AND book_id = ? ORDER BY created_at, manuscript_version_id`)
+      .all(scope.ownerId, scope.bookId)).toEqual([{ word_count: 2299 }, { word_count: 2700 }]);
+    expect(rewritePrompt).toContain('2500至3500个汉字、字母或数字有效字符（不计标点和空白）');
+    expect(rewritePrompt).not.toContain('2350至3650');
+  });
+
+  it('目标区间附近的完整稿记录告警但不为字数机械重写', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '长度容差测试书', text: '灰塔生存危机' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const toleranceFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'novel_writer') return {
+          provider, modelId,
+          async generate() {
+            const output = '林'.repeat(2_479);
+            return { provider, modelId, output, inputTokens: 100, outputTokens: output.length, cashCostCny: 0, state: 'succeeded' };
+          }
+        };
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, toleranceFactory);
+    const batch = batches.scheduleNewChapters(scope, 1);
+
+    const result = await batches.run(scope, batch.batchId);
+    expect(result.results[0]).toEqual(expect.objectContaining({ phase: 'review', rewriteCount: 0 }));
+    const row = context.database.prepare(`SELECT passed, checks_json FROM hard_check_results
+      WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { passed: number; checks_json: string };
+    expect(row.passed).toBe(1);
+    expect(JSON.parse(row.checks_json).length).toMatchObject({ passed: true, targetMet: false, minimum: 2350, maximum: 3650 });
   });
 });
 

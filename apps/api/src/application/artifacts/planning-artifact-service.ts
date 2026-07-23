@@ -14,6 +14,20 @@ interface DecisionRow {
   boss_confirmed: number;
 }
 
+interface StructuredChapterPlan {
+  title: string;
+  goal: string;
+  beats: string[];
+  hook: string;
+}
+
+interface StructuredArcPlan {
+  arcTitle: string;
+  arcGoal: string;
+  endingState: string;
+  chapters: StructuredChapterPlan[];
+}
+
 export interface PreparedPlanningArtifacts {
   creativePlanVersionId: string;
   storyBibleVersionId: string;
@@ -63,6 +77,11 @@ export class PlanningArtifactService {
     const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
     const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
+    const structuredPlan = parsePlanningDeposit(summary);
+    if (structuredPlan !== null && structuredPlan.chapters.length !== chapterCount) {
+      throw new Error(`规划落库章节数${structuredPlan.chapters.length}与确认跨度${chapterCount}不一致`);
+    }
+    const narrativeSummary = stripPlanningDeposit(summary);
     const positioning = this.positioning(scope);
     const expressionProfiles = new ExpressionProfileService(
       new ExpressionProfileRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
@@ -91,7 +110,7 @@ export class PlanningArtifactService {
       audience,
       tone,
       constraints: ['不得脱离老板确认的方案擅自补写关键设定', '新增重大设定必须再次讨论并确认'],
-      confirmedRecommendation: summary,
+      confirmedRecommendation: narrativeSummary,
       alternatives,
       ...source
     });
@@ -103,18 +122,25 @@ export class PlanningArtifactService {
       worldRules: Array.isArray(currentBible.worldRules) ? currentBible.worldRules : [],
       characters: Array.isArray(currentBible.characters) ? currentBible.characters : [],
       mainPlot: {
-        confirmed: { summary, scope: decision.scope_text, ...source },
+        confirmed: { summary: narrativeSummary, scope: decision.scope_text, ...source },
         candidates: []
       },
-      planningHistory: [...asArray(currentBible.planningHistory), { summary, scope: decision.scope_text, ...source }]
+      planningHistory: [...asArray(currentBible.planningHistory), { summary: narrativeSummary, scope: decision.scope_text, ...source }]
     });
     const firstChapterNumber = this.nextChapterNumber(scope);
-    const beats = extractBeats(summary, decision.scope_text, alternatives);
+    const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
+    const chapterPlans = structuredPlan?.chapters ?? Array.from({ length: chapterCount }, (_, index) => ({
+      title: `第${firstChapterNumber + index}章`,
+      goal: index === 0 ? narrativeSummary : `承接第${firstChapterNumber + index - 1}章，推进已确认方案：${narrativeSummary}`,
+      beats,
+      hook: extractHook(narrativeSummary, decision.scope_text)
+    }));
     const masterOutline = this.upsert(scope, 'master_outline', '总纲', {
       premise,
-      acts: Array.from({ length: chapterCount }, (_, index) => ({
+      acts: chapterPlans.map((plan, index) => ({
         chapterNumber: firstChapterNumber + index,
-        objective: index === 0 ? summary : `承接前章，继续推进已确认方案：${summary}`
+        title: plan.title,
+        objective: plan.goal
       })),
       endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定；后续由老板确认',
       ...source
@@ -122,24 +148,26 @@ export class PlanningArtifactService {
     const volumeNumber = this.currentVolumeNumber(scope);
     const volumeOutline = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
       volumeNumber,
-      goal: summary,
+      goal: structuredPlan?.arcGoal ?? narrativeSummary,
       arcs: [{
-        title: '当前故事弧',
+        title: structuredPlan?.arcTitle ?? '当前故事弧',
         chapterStart: firstChapterNumber,
         chapterEnd: firstChapterNumber + chapterCount - 1,
-        objective: summary,
+        objective: structuredPlan?.arcGoal ?? narrativeSummary,
         status: 'active'
       }],
-      endingState: extractHook(summary, decision.scope_text),
+      endingState: structuredPlan?.endingState ?? extractHook(narrativeSummary, decision.scope_text),
       ...source
     });
     const chapterOutlineVersionIds = Array.from({ length: chapterCount }, (_, index) => {
       const chapterNumber = firstChapterNumber + index;
+      const plan = chapterPlans[index]!;
       const outline = this.upsert(scope, 'chapter_outline', `第${chapterNumber}章章纲`, {
         chapterNumber,
-        goal: index === 0 ? summary : `承接第${chapterNumber - 1}章，推进已确认方案：${summary}`,
-        beats,
-        hook: extractHook(summary, decision.scope_text),
+        title: plan.title,
+        goal: plan.goal,
+        beats: plan.beats,
+        hook: plan.hook,
         ...source
       });
       return outline.artifactVersionId;
@@ -210,8 +238,86 @@ export class PlanningArtifactService {
       ORDER BY plot_span_estimate_id
     `).all(scope.ownerId, scope.bookId, discussionId, scope.ownerId, scope.bookId, discussionId) as unknown as Array<{ recommended_chapters: number }>;
     if (rows.length < 2) throw new Error('创作方案缺少双异模型编剧的独立章节跨度估算');
+    const decision = this.database.prepare(`
+      SELECT recommendation_json FROM discussion_decisions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND boss_confirmed = 1
+      ORDER BY created_at DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, discussionId) as { recommendation_json: string } | undefined;
+    if (decision !== undefined) {
+      const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
+      const structured = parsePlanningDeposit(readableSummary(recommendation));
+      if (structured !== null) return structured.chapters.length;
+    }
     return Math.max(1, Math.min(30, Math.round(rows.reduce((sum, row) => sum + row.recommended_chapters, 0) / rows.length)));
   }
+}
+
+function parsePlanningDeposit(summary: string): StructuredArcPlan | null {
+  const match = /规划落库\s*(\{[^\r\n]+\})/u.exec(effectivePlanningText(summary));
+  if (match === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(match[1]!);
+  } catch {
+    throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
+  }
+  if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 30) {
+    throw new Error('规划落库必须包含1至30个章节方案');
+  }
+  const chapters = value.chapters.map((item, index): StructuredChapterPlan => {
+    if (!isRecord(item)) throw new Error(`规划落库第${index + 1}章不是有效对象`);
+    const title = stringValue(item.title);
+    const goal = stringValue(item.goal);
+    const hook = stringValue(item.hook);
+    const beats = stringArray(item.beats).map((beat) => beat.trim()).filter(Boolean);
+    if (title === null || goal === null || hook === null || beats.length === 0) {
+      throw new Error(`规划落库第${index + 1}章缺少标题、目标、推进节点或钩子`);
+    }
+    return { title, goal, beats, hook };
+  });
+  if (new Set(chapters.map((chapter) => chapter.goal)).size !== chapters.length) {
+    throw new Error('规划落库存在重复章节目标，不能生成模板化章纲');
+  }
+  return {
+    arcTitle: stringValue(value.arcTitle) ?? '当前故事弧',
+    arcGoal: stringValue(value.arcGoal) ?? chapters.map((chapter) => chapter.goal).join('；'),
+    endingState: stringValue(value.endingState) ?? chapters.at(-1)!.hook,
+    chapters
+  };
+}
+
+function stripPlanningDeposit(summary: string): string {
+  return effectivePlanningText(summary).replace(/\n?规划落库\s*\{[^\r\n]+\}/u, '').trim();
+}
+
+function effectivePlanningText(summary: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(summary);
+  } catch {
+    return summary;
+  }
+  if (!isRecord(parsed)) return summary;
+  const payload = isRecord(parsed.fields) ? parsed.fields : parsed;
+  const sections: string[] = [];
+  for (const key of ['answer', 'details', 'nextStep'] as const) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim().length > 0) sections.push(value.trim());
+  }
+  for (const key of ['keyPoints', 'risks', 'questions'] as const) {
+    const value = payload[key];
+    if (Array.isArray(value)) sections.push(...value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0));
+  }
+  if (Array.isArray(payload.alternatives)) {
+    for (const item of payload.alternatives) {
+      if (!isRecord(item)) continue;
+      for (const key of ['title', 'content', 'tradeoff'] as const) {
+        const value = item[key];
+        if (typeof value === 'string' && value.trim().length > 0) sections.push(value.trim());
+      }
+    }
+  }
+  return sections.length > 0 ? sections.join('\n') : summary;
 }
 
 function readableSummary(recommendation: Record<string, unknown>): string {

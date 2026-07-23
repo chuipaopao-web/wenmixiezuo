@@ -267,4 +267,112 @@ export class ModelCallService {
       throw persistError;
     }
   }
+
+  public reconcileInterruptedCall(scope: BookScope, requestId: string): {
+    requestId: string;
+    finalState: 'reusable' | 'retry_safe' | 'discarded' | 'awaiting_provider';
+    settled: boolean;
+    reason: string;
+  } {
+    // P0-5: 远程中断调用的主动调和入口。按本地已有证据决定终态，不猜测 provider 侧结果。
+    assertBookScope(scope);
+    const call = this.database.prepare(`
+      SELECT task_id, reservation_id, provider, model_id, state, started_at
+      FROM model_calls WHERE request_id = ? AND owner_id = ? AND book_id = ?
+    `).get(requestId, scope.ownerId, scope.bookId) as {
+      task_id: string; reservation_id: string; provider: string; model_id: string;
+      state: string; started_at: string | null;
+    } | undefined;
+    if (call === undefined) throw new Error('调和失败：找不到对应的模型调用记录');
+    if (call.state !== 'interrupted') {
+      return { requestId, finalState: 'awaiting_provider', settled: false, reason: `调用当前状态为 ${call.state}，非中断态，无需调和` };
+    }
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      SELECT output_text, input_tokens, output_tokens, cash_micros, duration_ms
+      FROM model_call_results WHERE request_id = ? AND owner_id = ? AND book_id = ?
+    `).get(requestId, scope.ownerId, scope.bookId) as {
+      output_text: string; input_tokens: number; output_tokens: number; cash_micros: number; duration_ms: number;
+    } | undefined;
+    if (result !== undefined) {
+      // 找到已完成结果 -> 按真实用量结算，标记可复用（原子：settle 加入外层事务）
+      this.database.exec('BEGIN IMMEDIATE');
+      try {
+        this.budgets.settle(scope, call.reservation_id, {
+          taskId: call.task_id, provider: call.provider, modelId: call.model_id,
+          inputTokens: result.input_tokens, outputTokens: result.output_tokens,
+          cashMicros: result.cash_micros, durationMs: result.duration_ms
+        });
+        this.database.prepare(`
+          UPDATE model_calls SET state = 'succeeded', input_tokens = ?, output_tokens = ?, cash_micros = ?,
+            duration_ms = ?, result_reference = ?, completed_at = ?
+          WHERE request_id = ? AND owner_id = ? AND book_id = ? AND state = 'interrupted'
+        `).run(result.input_tokens, result.output_tokens, result.cash_micros, result.duration_ms,
+          `model-call-result:${requestId}`, now, requestId, scope.ownerId, scope.bookId);
+        this.database.prepare(`
+          INSERT INTO model_call_reconciliations (request_id, owner_id, book_id, state, reason_code, details_json, created_at, resolved_at)
+          VALUES (?, ?, ?, 'reusable', 'LATE_RESULT_RECONCILED', '{}', ?, ?)
+          ON CONFLICT(request_id) DO UPDATE SET state = 'reusable', reason_code = 'LATE_RESULT_RECONCILED', resolved_at = excluded.resolved_at
+        `).run(requestId, scope.ownerId, scope.bookId, now, now);
+        this.database.exec('COMMIT');
+      } catch (error) {
+        if (this.database.isTransaction) this.database.exec('ROLLBACK');
+        throw error;
+      }
+      return { requestId, finalState: 'reusable', settled: true, reason: '找到已完成结果，按真实用量结算并标记可复用' };
+    }
+    const provenNotExecuted = call.provider.startsWith('local-deterministic') || call.started_at === null;
+    if (provenNotExecuted) {
+      // 可证明未执行 -> 释放预留并标记可安全重试（release 自开事务，故不外包）
+      this.budgets.release(scope, call.reservation_id);
+      this.database.prepare(`
+        INSERT INTO model_call_reconciliations (request_id, owner_id, book_id, state, reason_code, details_json, created_at, resolved_at)
+        VALUES (?, ?, ?, 'retry_safe', 'PROVEN_NOT_EXECUTED', '{}', ?, ?)
+        ON CONFLICT(request_id) DO UPDATE SET state = 'retry_safe', reason_code = 'PROVEN_NOT_EXECUTED', resolved_at = excluded.resolved_at
+      `).run(requestId, scope.ownerId, scope.bookId, now, now);
+      return { requestId, finalState: 'retry_safe', settled: false, reason: '可证明未执行，释放预留并标记可安全重试' };
+    }
+    // 远程中断、无结果、本地无法证明未执行 -> 保持 awaiting_provider，记录调和尝试，UI 显示未决而非静默占用
+    const prior = this.database.prepare(`SELECT details_json FROM model_call_reconciliations WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(requestId, scope.ownerId, scope.bookId) as { details_json: string } | undefined;
+    const attemptCount = prior === undefined ? 1 : (Number((JSON.parse(prior.details_json) as { attemptCount?: number }).attemptCount) || 0) + 1;
+    this.database.prepare(`
+      INSERT INTO model_call_reconciliations (request_id, owner_id, book_id, state, reason_code, details_json, created_at)
+      VALUES (?, ?, ?, 'awaiting_provider', 'NO_RESULT_QUERY_UNAVAILABLE', ?, ?)
+      ON CONFLICT(request_id) DO UPDATE SET state = 'awaiting_provider',
+        reason_code = 'NO_RESULT_QUERY_UNAVAILABLE', details_json = excluded.details_json
+    `).run(requestId, scope.ownerId, scope.bookId, JSON.stringify({ attemptCount }), now);
+    return { requestId, finalState: 'awaiting_provider', settled: false, reason: '供应商结果未知且本地无法查询，保持冻结等待人工或供应商确认' };
+  }
+
+  public reportUnreconciledReservations(scope: BookScope): {
+    orphanReservationCount: number;
+    orphanReservations: Array<{ reservationId: string; requestId: string; frozenTokens: number }>;
+    awaitingProviderCount: number;
+    invariantHolds: boolean;
+  } {
+    // P0-5 不变式巡检：无模型调用且无调和记录的预留（无主预留）必须为 0。
+    assertBookScope(scope);
+    const orphans = this.database.prepare(`
+      SELECT reservation_id, request_id, frozen_tokens
+      FROM budget_reservations
+      WHERE owner_id = ? AND book_id = ? AND status = 'reserved'
+        AND request_id NOT IN (SELECT request_id FROM model_calls WHERE owner_id = ? AND book_id = ?)
+        AND request_id NOT IN (SELECT request_id FROM model_call_reconciliations WHERE owner_id = ? AND book_id = ?)
+    `).all(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId, scope.ownerId, scope.bookId) as Array<{
+      reservation_id: string; request_id: string; frozen_tokens: number;
+    }>;
+    const awaiting = this.database.prepare(`
+      SELECT COUNT(*) AS count FROM model_call_reconciliations
+      WHERE owner_id = ? AND book_id = ? AND state = 'awaiting_provider'
+    `).get(scope.ownerId, scope.bookId) as { count: number };
+    return {
+      orphanReservationCount: orphans.length,
+      orphanReservations: orphans.map((row) => ({
+        reservationId: row.reservation_id, requestId: row.request_id, frozenTokens: row.frozen_tokens
+      })),
+      awaitingProviderCount: awaiting.count,
+      invariantHolds: orphans.length === 0
+    };
+  }
 }

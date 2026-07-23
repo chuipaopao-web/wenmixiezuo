@@ -101,3 +101,78 @@ describe('模型调用账本、幂等与真实取消', () => {
       .toEqual({ status: 'reserved' });
   });
 });
+
+function insertInterruptedCall(fixture: ReturnType<typeof setup>, requestId: string, reservationId: string, provider: string, modelId: string, started: boolean): void {
+  context!.database.prepare(`INSERT INTO model_calls (request_id, owner_id, book_id, task_id, phase_key, agent_id, provider, model_id, model_snapshot_id, input_hash, parameters_hash, reservation_id, state, started_at, completed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'interrupted', ?, ?, ?)`)
+    .run(requestId, fixture.scope.ownerId, fixture.scope.bookId, 'task-model', 'phase:recon', fixture.agent.agentId, provider, modelId, fixture.snapshotId, 'a'.repeat(64), 'b'.repeat(64), reservationId, started ? fixture.clock.now().toISOString() : null, fixture.clock.now().toISOString(), fixture.clock.now().toISOString());
+}
+
+describe('中断调用主动调和与无主预留巡检', () => {
+  it('中断调用找到已完成结果时调和为reusable并按真实用量结算，预算守恒', () => {
+    const fixture = setup();
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-recon', 200, 0);
+    insertInterruptedCall(fixture, 'request-recon', reservationId, 'ark-volc', 'doubao-v1', true);
+    context!.database.prepare(`INSERT INTO model_call_results (model_call_result_id, request_id, owner_id, book_id, output_text, output_hash, input_tokens, output_tokens, cash_micros, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run('result-recon', 'request-recon', fixture.scope.ownerId, fixture.scope.bookId, '已完成结果', 'h'.repeat(64), 50, 80, 0, 100, fixture.clock.now().toISOString());
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const outcome = calls.reconcileInterruptedCall(fixture.scope, 'request-recon');
+    expect(outcome.finalState).toBe('reusable');
+    expect(outcome.settled).toBe(true);
+    expect(context!.database.prepare(`SELECT state FROM model_calls WHERE request_id = ?`).get('request-recon')).toEqual({ state: 'succeeded' });
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId)).toEqual({ status: 'settled' });
+    const budget = context!.database.prepare(`SELECT reserved_tokens, spent_tokens FROM budgets WHERE budget_id = ?`).get(fixture.budget.budgetId) as { reserved_tokens: number; spent_tokens: number };
+    expect(budget.reserved_tokens).toBe(0);
+    expect(budget.spent_tokens).toBe(130);
+  });
+
+  it('远程中断无结果且无法查询时保持awaiting_provider，不静默释放预留', () => {
+    const fixture = setup();
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-ark', 200, 0);
+    insertInterruptedCall(fixture, 'request-ark', reservationId, 'ark-volc', 'doubao-v1', true);
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const outcome = calls.reconcileInterruptedCall(fixture.scope, 'request-ark');
+    expect(outcome.finalState).toBe('awaiting_provider');
+    expect(outcome.settled).toBe(false);
+    expect(outcome.reason).toContain('供应商结果未知');
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId)).toEqual({ status: 'reserved' });
+    expect(context!.database.prepare(`SELECT state FROM model_call_reconciliations WHERE request_id = ?`).get('request-ark')).toEqual({ state: 'awaiting_provider' });
+  });
+
+  it('可证明未执行的中断调用调和为retry_safe并释放预留', () => {
+    const fixture = setup();
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-local', 200, 0);
+    insertInterruptedCall(fixture, 'request-local', reservationId, 'local-deterministic', 'wenmi-fixture-v1', false);
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const outcome = calls.reconcileInterruptedCall(fixture.scope, 'request-local');
+    expect(outcome.finalState).toBe('retry_safe');
+    expect(outcome.settled).toBe(false);
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId)).toEqual({ status: 'released' });
+    expect(context!.database.prepare(`SELECT state FROM model_call_reconciliations WHERE request_id = ?`).get('request-local')).toEqual({ state: 'retry_safe' });
+    const budget = context!.database.prepare(`SELECT reserved_tokens, spent_tokens FROM budgets WHERE budget_id = ?`).get(fixture.budget.budgetId) as { reserved_tokens: number; spent_tokens: number };
+    expect(budget.reserved_tokens).toBe(0);
+    expect(budget.spent_tokens).toBe(0);
+  });
+
+  it('重复调和幂等，巡检报告无模型调用且无调和记录的孤儿预留', () => {
+    const fixture = setup();
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-ark2', 200, 0);
+    insertInterruptedCall(fixture, 'request-ark2', reservationId, 'ark-volc', 'doubao-v1', true);
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const first = calls.reconcileInterruptedCall(fixture.scope, 'request-ark2');
+    const second = calls.reconcileInterruptedCall(fixture.scope, 'request-ark2');
+    expect(first.finalState).toBe('awaiting_provider');
+    expect(second.finalState).toBe('awaiting_provider');
+    const recon = context!.database.prepare(`SELECT COUNT(*) AS count, details_json FROM model_call_reconciliations WHERE request_id = ?`).get('request-ark2') as { count: number; details_json: string };
+    expect(recon.count).toBe(1);
+    expect((JSON.parse(recon.details_json) as { attemptCount: number }).attemptCount).toBe(2);
+    const report = calls.reportUnreconciledReservations(fixture.scope);
+    expect(report.invariantHolds).toBe(true);
+    expect(report.orphanReservationCount).toBe(0);
+    expect(report.awaitingProviderCount).toBe(1);
+    fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-orphan', 100, 0);
+    const report2 = calls.reportUnreconciledReservations(fixture.scope);
+    expect(report2.invariantHolds).toBe(false);
+    expect(report2.orphanReservationCount).toBe(1);
+    expect(report2.orphanReservations[0]!.requestId).toBe('request-orphan');
+  });
+});

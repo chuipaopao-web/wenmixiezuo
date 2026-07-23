@@ -1,6 +1,6 @@
 import type { RoleKey } from './roles.js';
 
-export type RolePromptPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer';
+export type RolePromptPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RolePromptDefinition {
   roleKey: RoleKey;
@@ -130,7 +130,9 @@ export function buildRoleSystemPrompt(roleKey: RoleKey, purpose: RolePromptPurpo
     : roleKey === 'reader_experience'
       ? '除共同字段外必须分别返回politicalRisk与sexualContentRisk；每项含level、locations、evidence、recommendedAction、policyVersion。非none风险必须有位置和正文证据，且结论不是法律或平台保证。'
       : '只核对事实、连续性、人物状态、因果和硬约束；每项问题必须带位置、正文证据、严重度和修改目标。';
-  const purposeRule = purpose === 'novel_writer'
+  const purposeRule = purpose === 'review_synthesis'
+    ? '本次只综合三席已经提交的结构化报告，不读取正文进行第四次点评。只输出一个JSON对象，不使用Markdown；字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。recommendedVerdict只允许pass、rewrite、blocked；priorityIssueIndexes只写输入issues展开后的零基整数索引。'
+    : purpose === 'novel_writer'
     ? '本次是正式正文任务：输出2500至3500有效字符的完整中文正文，只输出正文，不用Markdown围栏，不写解释、TODO或占位。'
     : purpose === 'novel_reviewer'
       ? `本次是独立审校任务：只输出JSON对象，共同字段为reviewerRole、manuscriptVersionId、modelSnapshotId、verdict、summary、issues、scores，不用Markdown围栏。必须原样回传任务给出的三个身份字段。${reviewSchema}`

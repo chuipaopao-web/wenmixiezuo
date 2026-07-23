@@ -24,6 +24,10 @@ describe('九岗位定位提示词', () => {
     expect(buildRoleSystemPrompt('chief_editor', 'discussion')).toContain('老板是最终决策者');
     expect(buildRoleSystemPrompt('writer', 'novel_writer')).toContain('2500至3500');
     expect(buildRoleSystemPrompt('reviewer', 'novel_reviewer')).toContain('JSON');
+    const synthesis = buildRoleSystemPrompt('chief_editor', 'review_synthesis');
+    expect(synthesis).toContain('recommendedVerdict');
+    expect(synthesis).toContain('priorityIssueIndexes');
+    expect(synthesis).toContain('只综合三席');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('来源');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('当前模型调用不直接联网');
   });

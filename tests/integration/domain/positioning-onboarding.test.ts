@@ -3,11 +3,55 @@ import { BookOnboardingService } from '../../../apps/api/src/application/books/b
 import { PositioningService } from '../../../apps/api/src/application/books/positioning-service.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
+import { ProtagonistStateRepository } from '../../../apps/api/src/infrastructure/db/repositories/protagonist-state-repository.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('定位草稿与原子建书', () => {
+  it('原子保存完整开书资料、主角候选状态和唯一主编开场任务', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain',
+      protagonists: [{ role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] }],
+      worldBackground: '当代沿海城市，旧城区改造牵动多个家族。',
+      openingBackground: '林雾收到一封盖着未来日期的拆迁通知。',
+      stageOne: { start: '她回到旧宅核查通知。', development: '她发现每次改图都会改变一段现实。', end: '她保住旧街，却让失踪多年的姐姐重新出现。' },
+      fullBookOutline: '林雾寻找城市记忆被改写的原因，最终决定保留真实代价而非完美幻象。',
+      mainTags: ['现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻', '成长'], customTags: ['城市记忆'],
+      initialMap: '临海市旧港区：雾桥街、规划院与废弃轮渡站。', mustFollow: ['不靠误会强推剧情']
+    };
+    const draft = new PositioningService(context.database, ids, clock).createDraft(
+      { ownerId: 'owner-one' }, { title: '雾桥改造簿', text: openingBlueprint.fullBookOutline, openingBlueprint }
+    );
+    const result = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
+      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+
+    const stored = context.database.prepare(`SELECT taxonomy_version, channel, category_key, blueprint_json, status
+      FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`).get('owner-one', result.bookId) as Record<string, unknown>;
+    expect(stored).toMatchObject({ taxonomy_version: OPENING_TAXONOMY.version, channel: 'female', category_key: 'female-modern-brain', status: 'active' });
+    expect(JSON.parse(String(stored.blueprint_json))).toMatchObject({ initialMap: openingBlueprint.initialMap, protagonists: [{ name: '林雾' }] });
+    expect(context.database.prepare('SELECT display_name FROM protagonist_profiles WHERE owner_id = ? AND book_id = ?').all('owner-one', result.bookId))
+      .toEqual([{ display_name: '林雾' }]);
+    expect(context.database.prepare(`SELECT label, authority_layer, source_kind FROM protagonist_state_entries
+      WHERE owner_id = ? AND book_id = ? ORDER BY logical_key`).all('owner-one', result.bookId)).toEqual([
+        { label: '年龄', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '人物背景', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '性格', authority_layer: 'candidate', source_kind: 'owner' }
+      ]);
+    expect(result.kickoffTaskId).toBeTruthy();
+    expect(context.database.prepare(`SELECT task_type, status, assigned_agent_id FROM tasks WHERE task_id = ?`).get(result.kickoffTaskId))
+      .toMatchObject({ task_type: 'conversation_reply', status: 'queued', assigned_agent_id: result.activeEditorAgentId });
+    expect(context.database.prepare(`SELECT sender_type, message_type FROM messages WHERE owner_id = ? AND book_id = ?`).all('owner-one', result.bookId))
+      .toEqual([{ sender_type: 'system', message_type: 'onboarding_trigger' }]);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
+      .get('owner-one', result.bookId)).toEqual({ count: 10 });
+  });
+
   it('区分老板明确、系统推断、未指定和冲突字段', () => {
     context = createTestContext();
     const service = new PositioningService(context.database, new SequenceIds(), new FixedClock());
@@ -21,7 +65,7 @@ describe('定位草稿与原子建书', () => {
     expect(draft.tags.some((tag) => tag.name === '游戏' && tag.sourceStatus === 'conflict')).toBe(true);
   });
 
-  it('确认指定草稿版本后原子创建书、9岗位、预算、故事圣经和主编租约', () => {
+  it('确认指定草稿版本后原子创建书、11岗位、预算、故事圣经和主编租约', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -39,6 +83,32 @@ describe('定位草稿与原子建书', () => {
     expect(context.database.prepare('SELECT editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ editor_epoch: 1 });
   });
 
+  it('完整开书资料和主角状态按书隔离', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const positioning = new PositioningService(context.database, ids, clock);
+    const first = completeOpeningBlueprint();
+    const second: OpeningBlueprintInput = {
+      ...completeOpeningBlueprint(),
+      protagonists: [{ ...completeOpeningBlueprint().protagonists[0]!, name: '顾川' }],
+      fullBookOutline: '顾川从海港小吏成长为守护航路的领航者。',
+      initialMap: '澜州港与外海群岛。'
+    };
+    const firstDraft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '雁州账簿', text: first.fullBookOutline, openingBlueprint: first });
+    const secondDraft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '澜州航路', text: second.fullBookOutline, openingBlueprint: second });
+    const onboarding = new BookOnboardingService(context.database, ids, clock);
+    const firstBook = onboarding.confirmDraft({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
+    const secondBook = onboarding.confirmDraft({ ownerId: 'owner-one' }, secondDraft.draftId, secondDraft.version);
+    const protagonists = new ProtagonistStateRepository(context.database);
+    expect(protagonists.listProfiles({ ownerId: 'owner-one', bookId: firstBook.bookId }, false).map((row) => row.display_name)).toEqual(['沈砚']);
+    expect(protagonists.listProfiles({ ownerId: 'owner-one', bookId: secondBook.bookId }, false).map((row) => row.display_name)).toEqual(['顾川']);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`)
+      .get('owner-one', firstBook.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`)
+      .get('owner-one', secondBook.bookId)).toEqual({ count: 1 });
+  });
+
   it('任一步失败时不留下半本书或Agent', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -50,5 +120,31 @@ describe('定位草稿与原子建书', () => {
     expect(new BookRepository(context.database).find({ ownerId: 'owner-one', bookId: draft.proposedBookId })).toBeNull();
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE book_id = ?').get(draft.proposedBookId)).toEqual({ count: 0 });
     expect(positioning.require({ ownerId: 'owner-one' }, draft.draftId).status).toBe('editing');
+
+    const completeDraft = positioning.createDraft(
+      { ownerId: 'owner-one' },
+      { title: '完整失败书', text: completeOpeningBlueprint().fullBookOutline, openingBlueprint: completeOpeningBlueprint() }
+    );
+    expect(() => new BookOnboardingService(context!.database, ids, clock, undefined, context!.config.releaseId)
+      .confirmDraft({ ownerId: 'owner-one' }, completeDraft.draftId, completeDraft.version, 'after_kickoff'))
+      .toThrow('simulated-onboarding-failure');
+    expect(new BookRepository(context.database).find({ ownerId: 'owner-one', bookId: completeDraft.proposedBookId })).toBeNull();
+    for (const table of ['book_opening_blueprints', 'protagonist_profiles', 'tasks', 'messages']) {
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE owner_id = ? AND book_id = ?`)
+        .get('owner-one', completeDraft.proposedBookId)).toEqual({ count: 0 });
+    }
+    expect(positioning.require({ ownerId: 'owner-one' }, completeDraft.draftId).status).toBe('editing');
   });
 });
+
+function completeOpeningBlueprint(): OpeningBlueprintInput {
+  return {
+    taxonomyVersion: OPENING_TAXONOMY.version,
+    channel: 'male', categoryKey: 'male-history-brain',
+    protagonists: [{ role: 'male_lead', name: '沈砚', age: '十九岁', background: '边郡书记官。', personalities: ['冷静'] }],
+    worldBackground: '架空王朝以军镇与州府共同治理边境。', openingBackground: '沈砚发现一份被涂改的军粮账簿。',
+    stageOne: { start: '追查假账。', development: '牵出军镇争权。', end: '保住粮道并锁定幕后主使。' },
+    fullBookOutline: '沈砚从边郡小吏成长为重建边境秩序的执政者。', mainTags: ['历史', '谋略'], auxiliaryTags: ['架空历史'],
+    storyTraits: ['群像'], customTags: [], initialMap: '雁州城与北仓粮道。', mustFollow: ['不写后宫']
+  };
+}

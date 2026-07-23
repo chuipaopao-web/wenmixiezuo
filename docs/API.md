@@ -56,16 +56,17 @@
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| POST | `/books/drafts` | 从最小表单或自然语言创建开书草稿：书名与创作频道必填；一句话想法、主要标签和作品额外边界可选；旧字段继续兼容但不再是界面门禁 |
-| PATCH | `/book-drafts/{draftId}` | 修改开书草稿；世界观、力量体系、主线等不是必填字段 |
-| POST | `/book-drafts/{draftId}/confirm` | 原子创建书籍、11个创作Agent、默认模型绑定修订、小文秘书按书会话状态和空规划入口；旧书在安全点幂等升级 |
+| GET | `/opening-taxonomy` | 读取带版本、来源说明和更新时间的番茄式本地分类、标签与性格选项 |
+| POST | `/books/drafts` | 创建开书草稿；当前Web提交完整 `openingBlueprint`，旧字段只用于历史兼容 |
+| PATCH | `/book-drafts/{draftId}` | 修改开书草稿及其定位版本 |
+| POST | `/book-drafts/{draftId}/confirm` | 原子创建书、开书资料、主角候选、11个创作Agent、预算、会话和主编主动开场任务 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
 | POST | `/books/{bookId}/restore` | 使用乐观版本恢复已归档书籍 |
 | POST | `/books/{bookId}/purge` | 已归档书输入YES后永久删除并写墓碑 |
 
-建书确认必须包含开书草稿版本，防止确认旧版本。当前UI预览把频道映射到兼容分类字段、把可见选择写入定位标签；在软/硬/候选独立Schema激活前，API不得声称名称前缀已经形成正式生成门禁。叙事视角允许保持 `provisional`，但首个正式写作工单前必须确认版本；“情绪引擎”不属于开书API。
+建书确认必须包含开书草稿版本，防止确认旧版本。完整资料校验频道/分类、主角和阶段剧情，主要标签限2—5个；自定义标签不能冒充分类键。开书参考资料、软标签和候选主角不得声称已形成正史生成门禁。叙事视角仍在首个正式写作工单前确认；“情绪引擎”不属于开书API。
 
 ## 4. Agent与岗位
 
@@ -228,6 +229,11 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 |---|---|---|
 | GET | `/books/{bookId}/usage` | 单书、任务和模型用量 |
 | GET | `/books/{bookId}/budgets` | 当前预算模式、冻结和保护线 |
+| GET | `/books/{bookId}/budgets/reconciliation` | 无主预留巡检：无模型调用且无调和记录的预留必须为0；返回 orphanReservationCount/awaitingProviderCount/invariantHolds |
+| POST | `/books/{bookId}/model-calls/{requestId}/reconcile` | 中断调用手动调和：按本地证据推进到 reusable（找到结果按真实用量 settle）/retry_safe（可证明未执行则 release）/awaiting_provider（无法查询保持冻结） |
+| POST | `/books/{bookId}/editor/revert` | 主编模型恢复后安全回切：body `{chiefAgentId}`；有 working/未知调用时返回原因不切，无则在安全边界原子回切（新 epoch） |
+
+`GET /workspace` 返回的 `editor` 字段（`describeLease`）含 `activeEditorAgentId`/`editorEpoch`/`leaseExpiresAt`/`takeoverState`(stable|preparing|ready)/`expired`，前端据此显示"西施接管中"而非把过期租约当 stable。`POST /messages`、`POST /discussions` 在入口做编码健康诊断（U+FFFD 替换符或连续6+问号判损坏），损坏文本返回 400 不进入模型。
 
 费用未知且可能产生按量现金支出时，任务暂停或切换费用明确路线，不能只提示后继续。
 
@@ -437,3 +443,9 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `POST /api/v1/books/:bookId/attribute-formulas/:formulaId/archive`：归档公式。
 
 以上接口均先验证本机会话和书籍作用域；用户输入错误返回可理解的领域错误，不返回SQL、路径、堆栈或通用“内部错误”。资料库聚合响应附带 `protagonists` 与 `attributeFormulas`，但不返回公式执行能力或原始向量。
+## 完整开书与分类目录（DEC-046）
+
+- `GET /api/v1/opening-taxonomy`：返回当前本地分类目录版本、来源说明、更新时间、男频/女频分类、主要标签、辅助题材、全书特点和性格选项。该接口只读，不在线抓取第三方网站。
+- `POST /api/v1/books/drafts`：除兼容旧客户端字段外，当前Web入口提交 `openingBlueprint`。服务端校验男/女频道、目录分类、至少一位完整主角、第一阶段三段剧情、全书内部简介、初始地图、必须遵守以及2—5个主要标签；未知自定义标签允许，但不能冒充目录分类键。完整资料JSON总量不超过18,000字符，字段不会被静默截断。
+- `POST /api/v1/book-drafts/:draftId/confirm`：在同一事务创建版本化开书资料、初始主角候选资料与主编主动开场任务，返回 `kickoffTaskId`。主编开场把对应开书快照作为有界硬来源，不重复带入含相同信息的故事圣经，也不对尚无正史的新书执行空检索。事务失败不得留下书、团队、资料或任务。
+- 旧草稿仍可按旧字段确认，避免升级后破坏已存在的编辑中草稿；新Web不再产生旧式不完整草稿。

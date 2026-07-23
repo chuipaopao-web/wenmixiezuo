@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HybridRetrievalService } from '../../../apps/api/src/application/memory/hybrid-retrieval-service.js';
+import { KnowledgeLifecycleService } from '../../../apps/api/src/application/knowledge/knowledge-lifecycle-service.js';
 import { ChunkSnapshotService } from '../../../apps/api/src/application/memory/chunk-snapshot-service.js';
 import { StructuralChunker } from '../../../apps/api/src/application/memory/structural-chunker.js';
 import { ProjectionJobService } from '../../../apps/api/src/application/projections/projection-job-service.js';
@@ -57,6 +58,17 @@ describe('公开混合RAG运行链', () => {
 
     const repository = new RetrievalOrchestrationRepository(context.database);
     const knowledge = new KnowledgeRepository(context.database);
+    const lifecycle = new KnowledgeLifecycleService(knowledge, new UnitOfWork(context.database), ids, clock);
+    const candidate = lifecycle.create(scope, {
+      knowledgeType: 'fact', canonicalKey: 'zhangsan:war-authority', layer: 'candidate', authorityGrade: 'A',
+      epistemicStatus: 'objective', temporal: { canonRevision: 0, completeness: 'complete' },
+      content: { subject: '张三', relation: '拥有宣战权' }, contentText: '张三拥有向天安城宣战的领主权限',
+      evidence: [{ chapterId: 'chapter-9' }], sourceType: 'confirmed_manuscript', sourceId: 'chapter-9',
+      sourceHash: createHash('sha256').update(content).digest('hex'), sourceLocator: { chapterId: 'chapter-9' }, createdByType: 'system'
+    });
+    lifecycle.promote(scope, candidate.knowledgeRevisionId, {
+      decisionType: 'graded_settlement', decisionSourceType: 'chapter_settlement', decisionSourceId: 'settlement-9', canonRevision: 0
+    });
     const service = new HybridRetrievalService(repository, knowledge, new ChunkSnapshotRepository(context.database), ids, clock, {
       embedding, store, model: { modelId: 'deterministic-test', modelVersion: '1', assetHash: 'b'.repeat(64) }
     });
@@ -69,6 +81,17 @@ describe('公开混合RAG运行链', () => {
     expect(result.channels.map((channel) => channel.channel)).toEqual(['structured', 'fts', 'vector', 'relation']);
     expect(result.channels.find((channel) => channel.channel === 'vector')).toMatchObject({ status: 'ready', candidateCount: expect.any(Number) });
     expect(result.hits.some((hit) => hit.content.includes('宣战规则'))).toBe(true);
+    expect(result.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'fact', lane: 'H', content: expect.stringContaining('拥有向天安城宣战的领主权限') })
+    ]));
+    const factOnly = await service.search(scope, {
+      query: '张三向天安城宣战需要什么权限？', roleKey: 'fact_reviewer', mode: 'review', canonRevision: 0,
+      limit: 8, sourceTypes: ['fact']
+    });
+    expect(factOnly.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceType: 'fact', lane: 'H', epistemicStatus: 'objective' })
+    ]));
+    expect(factOnly.hits.every((hit) => hit.sourceType === 'fact')).toBe(true);
     expect((context.database.prepare(`SELECT COUNT(*) AS count FROM retrieval_candidates WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { count: number }).count).toBeGreaterThan(0);
 

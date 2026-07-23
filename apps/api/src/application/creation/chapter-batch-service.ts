@@ -58,7 +58,7 @@ export class ChapterBatchService {
           c.generation_status,
           (SELECT COUNT(*) FROM manuscript_versions m WHERE m.owner_id = c.owner_id AND m.book_id = c.book_id AND m.chapter_id = c.chapter_id) AS manuscript_count,
           (SELECT COUNT(*) FROM tasks t WHERE t.owner_id = c.owner_id AND t.book_id = c.book_id AND t.chapter_id = c.chapter_id
-            AND t.status IN ('pending','queued','working','waiting_confirmation','paused','blocked','interrupted')) AS active_task_count
+            AND t.status IN ('pending','queued','working','waiting_confirmation','paused','interrupted')) AS active_task_count
         FROM chapters c WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number = ? AND c.settlement_status = 'unsettled'
       `).get(scope.ownerId, scope.bookId, number) as {
         chapter_id: string; generation_status: string; manuscript_count: number; active_task_count: number;
@@ -146,7 +146,7 @@ export class ChapterBatchService {
       .get(manuscriptVersionId, scope.ownerId, scope.bookId, chapterId);
     if (manuscript === undefined) throw new DomainError(errorCodes.bookScopeViolation, '当前正文版本不存在、越权或状态不可提交', {}, false, 404);
     const active = this.database.prepare(`SELECT 1 FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
-      AND status IN ('pending','queued','working','waiting_confirmation','paused','blocked','interrupted') LIMIT 1`)
+      AND status IN ('pending','queued','working','waiting_confirmation','paused','interrupted') LIMIT 1`)
       .get(scope.ownerId, scope.bookId, chapterId);
     if (active !== undefined) throw new DomainError(errorCodes.taskAlreadyRunning, '本章已有进行中或待确认任务，请先处理当前任务', {}, false, 409);
     const selection = new WriterSelectionService(this.database, this.ids, this.clock).select(scope);

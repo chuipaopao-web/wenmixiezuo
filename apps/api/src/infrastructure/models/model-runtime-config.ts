@@ -17,7 +17,7 @@ export const novelRoleKeys = [
 export type NovelRoleKey = RoleKey;
 export type ModelRuntimeMode = 'deterministic' | 'subscription-plan';
 export type ModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent';
-export type ModelPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer';
+export type ModelPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RoleModelProfile {
   provider: string;
@@ -201,7 +201,7 @@ export function loadModelRuntimeConfig(
   if (agentKey === undefined) missingCredentials.push('agent-plan');
   const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && missingCredentials.length === 0 ? 'subscription-plan' : 'deterministic';
   const roleProfiles = activeMode === 'subscription-plan' ? subscriptionProfiles(env) : deterministicProfiles();
-  const codexTimeout = Number(firstNonEmpty(env.WENMI_CODEX_TIMEOUT_MS) ?? '300000');
+  const codexTimeout = Number(firstNonEmpty(env.WENMI_CODEX_TIMEOUT_MS) ?? '900000');
   if (!Number.isInteger(codexTimeout) || codexTimeout < 30_000 || codexTimeout > 900_000) {
     throw new Error('WENMI_CODEX_TIMEOUT_MS必须在30000至900000之间');
   }
