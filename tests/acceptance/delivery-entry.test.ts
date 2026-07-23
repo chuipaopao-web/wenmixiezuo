@@ -12,6 +12,9 @@ describe('最终交付入口', () => {
     const stopper = readFileSync(resolve(root, 'scripts/stop-desktop.ps1'), 'utf8');
     const guide = readFileSync(resolve(root, 'docs/USER_GUIDE.md'), 'utf8');
     expect(start).toContain('start-desktop.ps1');
+    expect(start).toContain('set "WENMI_SAVED_PATH=%PATH%"');
+    expect(start).toContain('set "Path="');
+    expect(start).toContain('set "PATH=%WENMI_SAVED_PATH%"');
     expect(stop).toContain('stop-desktop.ps1');
     expect(launcher).toContain("Start-Process 'http://127.0.0.1:43110'");
     expect(launcher).toContain('npm.cmd run migrate');
