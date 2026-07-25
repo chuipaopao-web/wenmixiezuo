@@ -370,7 +370,7 @@ pending → queued → working → waiting_confirmation → succeeded
 
 ## 14. 长篇release新增Schema分组与切换元数据
 
-长篇增量只通过0010至0023向前新增，不修改0001至0009，也不修改已合并迁移。表名、顺序和职责如下：
+长篇增量只通过0010至0026向前新增，不修改0001至0009，也不修改已合并迁移。表名、顺序和职责如下：
 
 - 0010：`book_onboarding_profiles`、`book_expression_profiles`、`technique_cards`、`entity_schemas`、`tag_definitions`、`tag_aliases`、`tag_assignments`、`semantic_annotations`、`knowledge_gap_findings`。
 - 0011：`knowledge_items`、`knowledge_revisions`、`knowledge_promotions`、`temporal_scopes`、`retention_records`、`canon_source_bindings`。
@@ -386,6 +386,9 @@ pending → queued → working → waiting_confirmation → succeeded
 - 0021：`canon_index_requests` 保存与正史修订同事务登记的索引意图、处理状态和错误；索引协调器幂等消费并只在全书覆盖探针通过后切换活动投影。
 - 0022：`editor_review_syntheses` 保存主编真实综合；章节流水线保存一次写手接管计数与原因；`fact_assertions` 增加认识状态、否定、观点/知情主体、知情时间和时间完整度；`chunk_snapshot_memberships` 让全书活动清单复用不可变来源切片，`embedding_vector_cache` 按模型身份与嵌入文本哈希复用向量，防止每章全书重切/重嵌入。
 - 0023：`manuscript_versions` 增加作者/Agent来源与修订说明；`protagonist_profiles`、`protagonist_state_entries` 保存按书隔离、追加修订的主角状态账本；`attribute_formulas` 保存版本化受限算术公式。
+- 0024：把历史已结算章节的生成状态规范为完成，并收紧后续结算状态一致性。
+- 0025：`book_opening_blueprints` 保存不可变完整开书资料，并为定位草稿增加版本化开书蓝图。
+- 0026：`creative_sessions`、事件、不可变黑板、讨论轮、剧情预演分支和 `manuscript_quality_snapshots`，并为上下文包增加策略版本与来源指纹。
 
 所有核心/按书记录继续携带 `owner_id + book_id`；投影记录额外携带 `source_revision`、Schema/策略/模型/切片版本、水位和哈希。活动策略与活动快照指针只在验证事务中切换；构建中的行不能被正式查询读取。
 
@@ -420,3 +423,13 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 - 主角姓名投影到 `protagonist_profiles`，年龄、人物背景和性格以 `authority_layer='candidate'`、`source_kind='owner'` 的初始状态项保存，并引用开书资料版本；建书不会把这些候选资料冒充章节正史。
 - 番茄式分类目录是应用内版本化合同，不依赖第三方在线服务。旧书保留原目录版本和分类键；目录升级只影响新选择，不静默重写历史。
 - 内部 `onboarding_trigger` 消息仅为主编主动开场任务的可追溯触发源，消息列表不向老板显示；实际主编回复、模型调用、上下文包、预算和任务状态照常审计。
+
+## 16. Schema 0026：持续创作会话与质量快照
+
+- `creative_sessions`：按 `owner_id + book_id` 只允许一个活动会话，保存状态、模式、当前黑板修订、正史修订、会话epoch和已锁定决定。
+- `creative_session_events`：追加式保存老板原话引用、主编回复、状态动作、讨论轮和锁定事件；不保存模型思维链。
+- `creative_blackboard_revisions`：保存不可变共享黑板、上一修订、内容哈希和来源指纹。黑板最多保留最近8条有界老板消息及有界候选，不等于聊天归档或正史。
+- `creative_session_rounds`：把初次探索、重大改向和锁定后规划轮绑定到真实讨论任务、黑板修订与完成决定。
+- `narrative_forecasts` / `narrative_forecast_branches`：保存2—5个非正史预演分支；正史/黑板/来源变化后只改为陈旧、拒绝或替代，不原地重写。
+- `manuscript_quality_snapshots`：按稿件和点评面板保存事实、文学、体验及AI腔自然度等命名空间维度、硬阻断状态、父快照和唯一最佳标记。它是临时质量证据，不是正史。
+- `context_packs` 新增策略版本和来源指纹，使4200字符初稿包与9000字符重写包可复现；所有新表继续执行书籍隔离、前向迁移和Repository访问边界。

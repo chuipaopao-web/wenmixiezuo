@@ -7,7 +7,6 @@ import { ModelCallService } from '../calls/model-call-service.js';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
 import { ContextPackService, estimateTokens, type ContextSource } from '../memory/context-pack-service.js';
-import { MemoryService } from '../memory/memory-service.js';
 import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
@@ -38,6 +37,9 @@ import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowle
 import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
+import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
+import { ManuscriptQualitySnapshotService } from './manuscript-quality-snapshot-service.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -142,13 +144,15 @@ export class ChapterPipelineService {
       const cancelRequested = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
         .get(taskId, scope.ownerId, scope.bookId) as { cancel_requested: number } | undefined)?.cancel_requested === 1;
       const qualityBlocked = error instanceof QualityBlockedError;
+      const restoredBest = qualityBlocked
+        && this.reload(run.pipeline_run_id).current_manuscript_version_id !== run.current_manuscript_version_id;
       const errorCode = cancelRequested ? 'TASK_CANCELLED' : qualityBlocked ? 'QUALITY_BLOCKED' : error instanceof DomainError ? error.code : 'PIPELINE_FAILED';
       this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'failed', error_code = ?, updated_at = ? WHERE pipeline_run_id = ?`)
         .run(errorCode, now, run.pipeline_run_id);
       if (!cancelRequested) {
-        this.database.prepare(`UPDATE chapters SET generation_status = 'failed', updated_at = ?
+        this.database.prepare(`UPDATE chapters SET generation_status = ?, updated_at = ?
           WHERE chapter_id = ? AND owner_id = ? AND book_id = ? AND settlement_status <> 'settled'`)
-          .run(now, run.chapter_id, scope.ownerId, scope.bookId);
+          .run(restoredBest ? 'completed' : 'failed', now, run.chapter_id, scope.ownerId, scope.bookId);
       }
       const failure = this.database.prepare(`
         UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
@@ -343,29 +347,47 @@ export class ChapterPipelineService {
     const contract = artifacts.requireVersion(scope, run.writing_contract_version_id);
     const chapter = this.requireChapter(scope, run.chapter_id);
     const previous = this.database.prepare(`
-      SELECT e.state_json FROM chapters c JOIN chapter_end_states e ON e.chapter_end_state_id = c.chapter_end_state_id
+      SELECT e.state_json, c.canon_manuscript_version_id
+      FROM chapters c JOIN chapter_end_states e ON e.chapter_end_state_id = c.chapter_end_state_id
       WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ? AND c.settlement_status = 'settled'
       ORDER BY c.chapter_number DESC LIMIT 1
-    `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as { state_json: string } | undefined;
-    const planningSources = this.database.prepare(`
-      SELECT a.artifact_type, v.artifact_version_id, v.version, v.content_json
-      FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
-      WHERE a.owner_id = ? AND a.book_id = ? AND a.status = 'active'
-        AND a.artifact_type = 'creative_plan'
-      ORDER BY a.created_at DESC LIMIT 3
-    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ artifact_type: string; artifact_version_id: string; version: number; content_json: string }>;
+    `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as {
+      state_json: string;
+      canon_manuscript_version_id: string;
+    } | undefined;
+    const continuity = new LongformContinuityRepository(this.database);
+    const settlements = continuity.writerSettlementContext(scope, chapter.chapter_number, 3);
+    const commitments = continuity.listCommitments(scope, chapter.chapter_number).slice(0, 8);
+    const draftPolicy = WRITER_CONTEXT_POLICY.draft;
+    const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
-      { sourceType: 'system_rule', sourceId: 'writing-safety-v1', content: '正文必须完整、原创、服从正史；不得静默覆盖旧版本；不得包含占位符。', reason: '系统与老板硬规则', priority: 100 },
-      ...planningSources.map((source) => ({
-        sourceType: source.artifact_type,
-        sourceId: source.artifact_version_id,
-        content: source.content_json,
-        reason: '老板确认后选中的全书创作资料',
+      {
+        sourceType: 'system_rule',
+        sourceId: 'writing-safety-v2',
+        content: '只写本章正文；服从已确认正史与本章工单；不得写占位、解释或擅自新增重大设定。',
+        reason: '正文生产硬规则',
+        priority: 100
+      },
+      {
+        sourceType: 'chapter_work_order',
+        sourceId: `${run.outline_version_id}:${run.writing_contract_version_id}`,
+        content: workOrder,
+        reason: '本章唯一目标、章纲与写作契约，合计不超过1500字',
         priority: 100,
-        version: source.version
-      })),
-      { sourceType: 'chapter_outline', sourceId: run.outline_version_id, content: JSON.stringify(outline.content), reason: '当前章纲', priority: 100, version: outline.version },
-      { sourceType: 'writing_contract', sourceId: run.writing_contract_version_id, content: JSON.stringify(contract.content), reason: '当前写作契约', priority: 100, version: contract.version }
+        version: `${outline.version}:${contract.version}`
+      },
+      ...(settlements.length === 0 ? [] : [{
+        sourceType: 'stage_settlement_context',
+        sourceId: settlements.map((item) => item.settlementId).join(':'),
+        content: clipContext(JSON.stringify(settlements.map((settlement) => ({
+          type: settlement.stageType,
+          chapterRange: [settlement.chapterStart, settlement.chapterEnd],
+          payload: settlement.payload
+        }))), draftPolicy.stageSettlementMaximum),
+        reason: '按卷总结、最近剧情阶段和阶段后章节分层压缩；需要细节时再按来源回查正史原文',
+        priority: 99,
+        version: settlements.map((item) => item.version).join(':')
+      }])
     ];
     const taskBrief = this.taskBrief(scope, run.task_id);
     if (taskBrief.operation === 'rewrite_existing') {
@@ -382,19 +404,52 @@ export class ChapterPipelineService {
         reason: '老板本次重写要求', priority: 100
       });
     }
-    if (previous !== undefined) hardSources.push({ sourceType: 'previous_chapter_end', sourceId: `previous:${chapter.chapter_number - 1}`, content: previous.state_json, reason: '前章结算硬状态', priority: 100 });
+    if (previous !== undefined) {
+      hardSources.push({
+        sourceType: 'previous_chapter_end',
+        sourceId: `previous:${chapter.chapter_number - 1}`,
+        content: clipContext(previous.state_json, draftPolicy.previousStateMaximum),
+        reason: '前章结尾后的当前人物与场景状态',
+        priority: 100
+      });
+      hardSources.push({
+        sourceType: 'previous_chapter_tail',
+        sourceId: previous.canon_manuscript_version_id,
+        content: tailContext(this.loadManuscript(scope, previous.canon_manuscript_version_id), draftPolicy.previousTailMaximum),
+        reason: '前章结尾原文，用于保持相邻章动作、语气和钩子连续',
+        priority: 100
+      });
+    }
+    if (commitments.length > 0) {
+      hardSources.push({
+        sourceType: 'active_commitments',
+        sourceId: `commitments:${scope.bookId}:${chapter.chapter_number}`,
+        content: clipContext(JSON.stringify(commitments.map((item) => ({
+          id: item.commitmentId,
+          type: item.type,
+          title: item.title,
+          description: item.description,
+          status: item.status,
+          due: [item.earliestDueChapter, item.latestDueChapter]
+        }))), draftPolicy.commitmentsMaximum),
+        reason: '仍开放且可能影响本章的伏笔、承诺和因果债',
+        priority: 98
+      });
+    }
     const retrievalSources = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
       query: JSON.stringify({ chapterNumber: chapter.chapter_number, title: chapter.title, outline: outline.content, contract: contract.content }),
       roleKey: 'lead_writer', mode: 'drafting', canonRevision: run.expected_canon_revision,
-      taskId: run.task_id, sourceTypes: ['manuscript', 'fact', 'outline', 'setting', 'wiki', 'voice'], limit: 14
+      taskId: run.task_id, sourceTypes: ['manuscript', 'fact', 'outline', 'setting', 'wiki', 'voice'], limit: 8
     });
-    hardSources.push(...retrievalSources.hardSources);
-    const optionalSources = [
-      ...retrievalSources.optionalSources,
-      ...new MemoryService(this.database, this.ids, this.clock).listActive(scope, { canonRevision: run.expected_canon_revision })
-        .slice(0, 12)
-        .map((memory, index) => ({ sourceType: `memory:${memory.layer}`, sourceId: memory.memoryId, content: memory.content, reason: '与当前书籍相关的活动记忆', priority: 45 - index }))
-    ];
+    hardSources.push(...retrievalSources.hardSources.slice(0, 4).map((source) => ({
+      ...source,
+      content: clipContext(source.content, draftPolicy.hardRetrievalMaximum),
+      reason: `${source.reason}；已按主笔最小资料包压缩`
+    })));
+    const optionalSources = retrievalSources.optionalSources.slice(0, 6).map((source) => ({
+      ...source,
+      content: clipContext(source.content, draftPolicy.optionalRetrievalMaximum)
+    }));
     new CopyrightService(this.database, this.ids, this.clock).assertWriterContextSafe([...hardSources, ...optionalSources]);
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id,
@@ -404,7 +459,15 @@ export class ChapterPipelineService {
       positioningVersion: run.expected_positioning_version,
       outlineVersionId: run.outline_version_id,
       writingContractVersionId: run.writing_contract_version_id,
-      tokenBudget: 24_000,
+      tokenBudget: taskBrief.operation === 'rewrite_existing'
+        ? WRITER_CONTEXT_POLICY.ownerRewrite.tokenBudget
+        : draftPolicy.tokenBudget,
+      characterBudget: taskBrief.operation === 'rewrite_existing'
+        ? WRITER_CONTEXT_POLICY.ownerRewrite.characterBudget
+        : draftPolicy.characterBudget,
+      policyVersion: taskBrief.operation === 'rewrite_existing'
+        ? WRITER_CONTEXT_POLICY.ownerRewrite.policyVersion
+        : draftPolicy.policyVersion,
       hardSources,
       optionalSources
     });
@@ -490,6 +553,9 @@ export class ChapterPipelineService {
     if (copyright.decision !== 'pass') {
       throw new DomainError(errorCodes.copyrightBlocked, '正文版权检查未通过，必须重新设计', { copyright }, false, 409);
     }
+    if (this.taskBrief(scope, run.task_id).productionMode === 'trial_draft') {
+      return this.advance(run, 'completed');
+    }
     return this.advance(run, 'review');
   }
 
@@ -530,9 +596,9 @@ export class ChapterPipelineService {
         sourceType: 'previous_chapter_end', sourceId: `previous:${chapter.chapter_number - 1}`,
         content: previousChapter.state_json, reason: '前一章已结算的硬状态', priority: 99
       }, {
-        sourceType: 'previous_chapter_manuscript', sourceId: previousChapter.canon_manuscript_version_id,
-        content: this.loadManuscript(scope, previousChapter.canon_manuscript_version_id),
-        reason: '前一章已结算的完整正史正文；用于核对相邻章动作、人数和因果连续性', priority: 98
+        sourceType: 'previous_chapter_tail', sourceId: previousChapter.canon_manuscript_version_id,
+        content: tailContext(this.loadManuscript(scope, previousChapter.canon_manuscript_version_id), 800),
+        reason: '前一章定稿结尾；只用于核对相邻章动作、人物位置和因果衔接', priority: 98
       }])
     ];
     const manuscriptHash = createHash('sha256').update(content).digest('hex');
@@ -590,12 +656,14 @@ export class ChapterPipelineService {
           : reviewer.role === 'literary'
             ? ['voice', 'manuscript', 'outline']
             : ['manuscript', 'outline', 'setting', 'wiki'],
-        limit: reviewer.role === 'fact' ? 14 : 8
+        limit: reviewer.role === 'fact' ? 8 : 6
       });
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId: run.task_id, agentId: reviewer.agent.agentId, chapterId: run.chapter_id,
         canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-        tokenBudget: 12_000,
+        tokenBudget: 8_500,
+        characterBudget: 8_500,
+        policyVersion: `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: [
           { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
           ...frozenReviewSources,
@@ -833,6 +901,29 @@ export class ChapterPipelineService {
       panelId: panel.panelId, manuscriptVersionId,
       revisionRound, reports, editorSynthesis
     });
+    const qualitySnapshots = new ManuscriptQualitySnapshotService(
+      this.database, this.ids, this.clock
+    );
+    const quality = qualitySnapshots.record(scope, {
+      chapterId: run.chapter_id,
+      manuscriptVersionId,
+      reviewPanelId: panel.panelId,
+      reports
+    });
+    if (quality.retainPreviousBest && quality.bestVersionId !== null) {
+      qualitySnapshots.restoreBest(scope, {
+        chapterId: run.chapter_id,
+        rejectedVersionId: manuscriptVersionId,
+        bestVersionId: quality.bestVersionId,
+        pipelineRunId: run.pipeline_run_id
+      });
+      if (merged.verdict === 'blocked') {
+        throw new QualityBlockedError('三异模型点评发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
+      }
+      throw new QualityBlockedError(
+        `新稿在${quality.regressedDimensions.length}个可比文学/体验维度明显退化，且没有硬问题改善；已恢复上一最佳稿并停止自动改写`
+      );
+    }
     if (merged.verdict === 'blocked') throw new QualityBlockedError('三异模型点评发现阻断问题，已保留稿件和证据');
     if (merged.verdict === 'rewrite') {
       if (run.rewrite_count >= 2) throw new QualityBlockedError('两轮定点重写后仍未通过，已停止机械重写');
@@ -904,7 +995,9 @@ export class ChapterPipelineService {
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id, agentId: run.writer_agent_id, chapterId: run.chapter_id,
       canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-      tokenBudget: 24_000,
+      tokenBudget: WRITER_CONTEXT_POLICY.targetedRewrite.tokenBudget,
+      characterBudget: WRITER_CONTEXT_POLICY.targetedRewrite.characterBudget,
+      policyVersion: WRITER_CONTEXT_POLICY.targetedRewrite.policyVersion,
       hardSources: rewriteHardSources, optionalSources: rewriteOptionalSources
     });
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
@@ -1551,6 +1644,44 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 function asObject(value: unknown): Record<string, unknown> {
   if (!isRecordValue(value)) throw new Error('规划成果内容必须是对象');
   return value;
+}
+
+export function compactWriterWorkOrder(
+  outline: Record<string, unknown>,
+  contract: Record<string, unknown>,
+  maxCharacters: number
+): string {
+  const outlineKeys = ['chapterNumber', 'title', 'goal', 'objective', 'beats', 'scenes', 'hook', 'mustInclude', 'mustAvoid'];
+  const contractKeys = [
+    'targetCharacters', 'narrativePerson', 'viewpointDistance', 'languageTone', 'textDensity',
+    'hardConstraints', 'preserve', 'avoid', 'acceptance', 'style'
+  ];
+  const outlineText = JSON.stringify(pickContextFields(outline, outlineKeys));
+  const contractText = JSON.stringify(pickContextFields(contract, contractKeys));
+  const outlineBudget = Math.max(1, Math.floor((maxCharacters - 12) * 0.68));
+  const contractBudget = Math.max(1, maxCharacters - outlineBudget - 12);
+  return `本章章纲：${clipContext(outlineText, outlineBudget)}\n写作契约：${clipContext(contractText, contractBudget)}`;
+}
+
+export function clipContext(content: string, maxCharacters: number): string {
+  const normalized = content.trim();
+  if (normalized.length <= maxCharacters) return normalized;
+  if (maxCharacters <= 1) return '…'.slice(0, maxCharacters);
+  return `${normalized.slice(0, maxCharacters - 1)}…`;
+}
+
+export function tailContext(content: string, maxCharacters: number): string {
+  const normalized = content.trim();
+  if (normalized.length <= maxCharacters) return normalized;
+  if (maxCharacters <= 1) return '…'.slice(0, maxCharacters);
+  return `…${normalized.slice(-(maxCharacters - 1))}`;
+}
+
+function pickContextFields(value: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const selected = Object.fromEntries(keys
+    .filter((key) => Object.hasOwn(value, key))
+    .map((key) => [key, value[key]]));
+  return Object.keys(selected).length > 0 ? selected : value;
 }
 
 function requiredString(value: unknown, message: string): string {

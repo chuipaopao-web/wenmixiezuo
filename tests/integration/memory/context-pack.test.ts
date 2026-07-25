@@ -48,6 +48,43 @@ describe('不可变上下文包', () => {
     })).toThrowError(expect.objectContaining<Partial<DomainError>>({ code: errorCodes.operationIncomplete }));
   });
 
+  it('按字符预算构建可追溯资料包并保存策略版本与来源指纹', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId,
+      agentId: fixture.agentId,
+      chapterId: fixture.chapterId,
+      canonRevision: 0,
+      positioningVersion: 1,
+      tokenBudget: 100,
+      characterBudget: 12,
+      policyVersion: 'writer-context-test-v2',
+      hardSources: [
+        { sourceType: 'chapter_work_order', sourceId: 'order-1', content: '本章目标六个字', reason: '硬工单', priority: 100 }
+      ],
+      optionalSources: [
+        { sourceType: 'optional', sourceId: 'fits', content: '补充', reason: '可选', priority: 10 },
+        { sourceType: 'optional', sourceId: 'too-long', content: '这是一段超过剩余字符预算的资料', reason: '低优先级', priority: 1 }
+      ]
+    });
+    expect(pack.totalCharacters).toBeLessThanOrEqual(12);
+    expect(pack.policyVersion).toBe('writer-context-test-v2');
+    expect(pack.sourceFingerprint).toMatch(/^[a-f0-9]{64}$/u);
+    expect(pack.excluded).toContainEqual(expect.objectContaining({
+      sourceId: 'too-long',
+      reason: 'character_budget_lower_priority'
+    }));
+    expect(context.database.prepare(`
+      SELECT policy_version, source_fingerprint FROM context_packs WHERE context_pack_id = ?
+    `).get(pack.contextPackId)).toEqual({
+      policy_version: 'writer-context-test-v2',
+      source_fingerprint: pack.sourceFingerprint
+    });
+  });
+
   it('正史变化只使旧版本派生上下文失效', () => {
     context = createTestContext();
     const ids = new SequenceIds();

@@ -78,6 +78,26 @@ describe('订阅与套餐模型真实流水线接线', () => {
             outputTokens: 80
           };
         }
+        if (input.prompt.includes('规划落库')) {
+          return {
+            output: [
+              '建议把这一段设计成三章滚动窗口：先迫使主角选择，再让代价落地，最后用新的事实改变下一步判断。',
+              `规划落库 ${JSON.stringify({
+                arcTitle: '雾城选择弧',
+                arcGoal: '让主角主动选择并承担代价',
+                endingState: '主角获得新线索，同时失去一条安全退路',
+                estimatedChapterRange: { minimum: 2, recommended: 3, maximum: 5 },
+                chapters: [
+                  { title: '雾中的选择', goal: '主角在两条风险路线中主动选择', beats: ['确认目标', '作出选择'], hook: '选择触发意外回信' },
+                  { title: '代价落地', goal: '让上一章选择产生具体损失', beats: ['损失显现', '关系受压'], hook: '盟友隐瞒被揭开一角' },
+                  { title: '钟楼新证', goal: '用新事实改变主角对敌友的判断', beats: ['验证线索', '调整行动'], hook: '钟楼出现失踪者信物' }
+                ]
+              })}`
+            ].join('\n'),
+            inputTokens: 400,
+            outputTokens: 220
+          };
+        }
         return { output: '建议让章末钩子来自人物主动选择，并保留一项下一章可验证的疑问。', inputTokens: 40, outputTokens: 30 };
       }
     };
@@ -115,7 +135,13 @@ describe('订阅与套餐模型真实流水线接线', () => {
     expect(tasks.claimNext('subscription-discussion-worker')?.taskId).toBe(discussionTaskId);
     const discussionResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, discussionTaskId, 'subscription-discussion-worker');
-    expect(conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`).action)
+    const locked = conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`);
+    expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', roundKind: 'locked_planning' });
+    const planningTaskId = String(locked.action.taskId);
+    expect(tasks.claimNext('subscription-planning-worker')?.taskId).toBe(planningTaskId);
+    const planningResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
+      .executeClaimed(scope, planningTaskId, 'subscription-planning-worker');
+    expect(conversations.sendBossMessage(scope, `确认方案 ${planningResult.decisionId}`).action)
       .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
 
     const batchService = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, adapters);
@@ -137,7 +163,8 @@ describe('订阅与套餐模型真实流水线接线', () => {
     ]));
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
-    expect(calls.filter((call) => call.prompt.includes('章节跨度估算')).every((call) => call.maxTokens >= 3_000)).toBe(true);
+    expect(calls.filter((call) => call.prompt.includes('最后必须另起一行输出：章节跨度估算'))
+      .every((call) => call.maxTokens >= 3_000)).toBe(true);
     expect(calls.some((call) => call.prompt.includes('repair_review_json'))).toBe(true);
     expect(calls.filter((call) => call.prompt.includes('repair_review_json')).every((call) =>
       call.prompt.includes('location')
@@ -146,7 +173,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
       && call.prompt.includes('pass|rewrite|blocked'))).toBe(true);
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
-    expect(codexPrompts.some((prompt) => prompt.includes('chapter_outline') && prompt.includes('writing_contract'))).toBe(true);
+    expect(codexPrompts.some((prompt) => prompt.includes('chapter_work_order'))).toBe(true);
     expect(codexPrompts.some((prompt) => prompt.includes('repair_editor_synthesis_json'))).toBe(true);
   });
 });

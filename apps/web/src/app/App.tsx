@@ -89,6 +89,7 @@ import {
   type ChapterData,
   type ChapterPageData,
   type ChatAttachmentData,
+  type CreativeSessionData,
   type HealthData,
   type LibraryData,
   type GraphWorkspaceData,
@@ -334,10 +335,14 @@ export function App(): React.JSX.Element {
     setLeftOpen(false);
   };
 
-  const submitMessage = async (): Promise<void> => {
-    const readyAttachments = pendingAttachments.filter((item) => item.status === 'ready' && item.data !== null);
-    if (selectedBookId === null || (composer.trim().length === 0 && readyAttachments.length === 0) || busy) return;
-    const switchMatch = /^(?:切书|切换到)\s*[《「]?(.+?)[》」]?$/u.exec(composer.trim());
+  const submitMessage = async (overrideContent?: string): Promise<void> => {
+    const isQuickAction = overrideContent !== undefined;
+    const readyAttachments = isQuickAction
+      ? []
+      : pendingAttachments.filter((item) => item.status === 'ready' && item.data !== null);
+    const outgoingContent = overrideContent ?? composer;
+    if (selectedBookId === null || (outgoingContent.trim().length === 0 && readyAttachments.length === 0) || busy) return;
+    const switchMatch = /^(?:切书|切换到)\s*[《「]?(.+?)[》」]?$/u.exec(outgoingContent.trim());
     if (switchMatch !== null) {
       if (pendingAttachments.length > 0) {
         setError('切换书籍前请先发送或移除当前附件，避免资料进入错误书籍。');
@@ -355,12 +360,14 @@ export function App(): React.JSX.Element {
     }
     setBusy(true);
     try {
-      const sent = await sendMessage(selectedBookId, composer, readyAttachments.map((item) => item.data!.attachmentId));
+      const sent = await sendMessage(selectedBookId, outgoingContent, readyAttachments.map((item) => item.data!.attachmentId));
       if (sent.action.kind === 'task_overview') setView('tasks');
       if (sent.action.kind === 'knowledge_workspace_opened') setView('knowledge');
-      setComposer('');
-      setPendingAttachments([]);
-      await saveDraft(selectedBookId, '');
+      if (!isQuickAction) {
+        setComposer('');
+        setPendingAttachments([]);
+        await saveDraft(selectedBookId, '');
+      }
       await refreshWorkspace(selectedBookId);
       setError(null);
     } catch (reason) {
@@ -586,6 +593,7 @@ export function App(): React.JSX.Element {
                 messages={messages}
                 agents={workspace?.agents ?? []}
                 totalMessageCount={workspace?.messageCount ?? messages.length}
+                creativeSession={workspace?.creativeSession ?? null}
                 busy={busy}
                 composer={composer}
                 setComposer={setComposer}
@@ -593,6 +601,7 @@ export function App(): React.JSX.Element {
                 onFilesSelected={uploadSelectedFiles}
                 onRemoveAttachment={removePendingAttachment}
                 onSubmit={submitMessage}
+                onQuickAction={(content) => submitMessage(content)}
               />
             )}
             {view === 'tasks' && (
@@ -680,6 +689,7 @@ function ChatWorkspace(props: {
   messages: MessageData[];
   agents: AgentData[];
   totalMessageCount: number;
+  creativeSession: CreativeSessionData | null;
   busy: boolean;
   composer: string;
   setComposer: (value: string) => void;
@@ -687,6 +697,7 @@ function ChatWorkspace(props: {
   onFilesSelected: (files: File[]) => Promise<void>;
   onRemoveAttachment: (attachment: PendingChatAttachment) => void;
   onSubmit: () => Promise<void>;
+  onQuickAction: (content: string) => Promise<void>;
 }): React.JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const visibleMessages = props.messages.slice(-200);
@@ -696,6 +707,13 @@ function ChatWorkspace(props: {
   const canSend = !props.busy && !uploading && (props.composer.trim().length > 0 || readyAttachmentCount > 0);
   return (
     <section className="chat-workspace" aria-label="主创作对话">
+      {props.creativeSession !== null && (
+        <CreativeSessionStrip
+          session={props.creativeSession}
+          busy={props.busy}
+          onQuickAction={props.onQuickAction}
+        />
+      )}
       <div className="conversation-stream" aria-live="polite">
         {props.messages.length === 0 ? (
           <div className="conversation-empty">
@@ -743,6 +761,55 @@ function ChatWorkspace(props: {
       </div>
     </section>
   );
+}
+
+function CreativeSessionStrip({ session, busy, onQuickAction }: {
+  session: CreativeSessionData;
+  busy: boolean;
+  onQuickAction: (content: string) => Promise<void>;
+}): React.JSX.Element {
+  const board = session.blackboard;
+  const branches = session.activeForecast?.branches ?? [];
+  const canLock = ['exploring', 'awaiting_direction'].includes(session.status) && branches.length > 0;
+  return (
+    <section className="creative-session-strip" aria-label="当前剧情会话">
+      <div className="creative-session-heading">
+        <span className="creative-session-state">{creativeSessionStatus(session.status)}</span>
+        <strong>{board?.currentGoal || session.activeTopic}</strong>
+        <small>{board?.nextStep ?? '主编正在整理当前议题。'}</small>
+      </div>
+      {branches.length > 0 && (
+        <div className="forecast-branch-list" aria-label="候选剧情方向">
+          {branches.slice(0, 3).map((branch) => (
+            <span key={branch.branchId}><b>{branch.ordinal}</b>{branch.title}</span>
+          ))}
+        </div>
+      )}
+      <div className="creative-session-actions">
+        {canLock && (
+          <>
+            <button type="button" disabled={busy} onClick={() => void onQuickAction('请主编比较这些方向的收益、代价、风险和未知项')}>继续比较</button>
+            <button className="primary" type="button" disabled={busy} onClick={() => void onQuickAction('锁定当前方向')}>锁定方向</button>
+          </>
+        )}
+        {session.status === 'ready' && (
+          <button type="button" disabled={busy} onClick={() => void onQuickAction('请主编只细化下一章，先不要让主笔开写')}>细化下一章</button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function creativeSessionStatus(status: CreativeSessionData['status']): string {
+  const labels: Record<CreativeSessionData['status'], string> = {
+    exploring: '讨论中',
+    awaiting_direction: '待锁定方向',
+    planning: '规划中',
+    awaiting_plan: '待确认规划',
+    ready: '可进入创作',
+    paused: '已暂停'
+  };
+  return labels[status];
 }
 
 function MessageBubble({ bookId, message, agents }: { bookId: string; message: MessageData; agents: AgentData[] }): React.JSX.Element {

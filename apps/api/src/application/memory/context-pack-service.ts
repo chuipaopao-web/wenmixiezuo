@@ -23,6 +23,8 @@ export interface ContextPackInput {
   outlineVersionId?: string | null;
   writingContractVersionId?: string | null;
   tokenBudget: number;
+  characterBudget?: number;
+  policyVersion?: string;
   hardSources: ContextSource[];
   optionalSources: ContextSource[];
 }
@@ -30,7 +32,10 @@ export interface ContextPackInput {
 export interface ContextPackRecord {
   contextPackId: string;
   totalTokens: number;
+  totalCharacters: number;
   contentHash: string;
+  sourceFingerprint: string;
+  policyVersion: string;
   sources: Array<ContextSource & { tokenCount: number; hard: boolean }>;
   excluded: Array<{ sourceType: string; sourceId: string; reason: string; tokenCount: number }>;
 }
@@ -44,8 +49,16 @@ export class ContextPackService {
 
   public build(scope: BookScope, input: ContextPackInput): ContextPackRecord {
     assertBookScope(scope);
-    const hard = input.hardSources.map((source) => ({ ...source, tokenCount: estimateTokens(source.content), hard: true as const }));
+    const characterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
+    const policyVersion = input.policyVersion ?? 'legacy-context-v1';
+    const hard = input.hardSources.map((source) => ({
+      ...source,
+      tokenCount: estimateTokens(source.content),
+      characterCount: source.content.length,
+      hard: true as const
+    }));
     const hardTokens = hard.reduce((sum, source) => sum + source.tokenCount, 0);
+    const hardCharacters = hard.reduce((sum, source) => sum + source.characterCount, 0);
     if (hardTokens > input.tokenBudget) {
       throw new DomainError(
         errorCodes.operationIncomplete,
@@ -54,11 +67,30 @@ export class ContextPackService {
         false, 409
       );
     }
+    if (hardCharacters > characterBudget) {
+      throw new DomainError(
+        errorCodes.operationIncomplete,
+        '字符预算不足以容纳不可截断的硬来源',
+        {
+          characterBudget,
+          requiredHardCharacters: hardCharacters,
+          hardSourceIds: hard.map((source) => source.sourceId)
+        },
+        false,
+        409
+      );
+    }
     const included: Array<ContextSource & { tokenCount: number; hard: boolean }> = [...hard];
     const excluded: ContextPackRecord['excluded'] = [];
     let totalTokens = hardTokens;
+    let totalCharacters = hardCharacters;
     const optional = [...input.optionalSources]
-      .map((source) => ({ ...source, tokenCount: estimateTokens(source.content), hard: false as const }))
+      .map((source) => ({
+        ...source,
+        tokenCount: estimateTokens(source.content),
+        characterCount: source.content.length,
+        hard: false as const
+      }))
       .sort((left, right) => right.priority - left.priority || left.sourceId.localeCompare(right.sourceId));
     // P0-6: 同源去重。完整不可变版本已作为硬来源注入时，排除同版本/同一物理正文的派生检索块，
     // 记录 duplicate_of_hard_source。不同版本、不同故事时间的来源不按相似文本误删，仅按版本血缘
@@ -82,11 +114,22 @@ export class ContextPackService {
       return true;
     });
     for (const source of dedupedOptional) {
-      if (totalTokens + source.tokenCount <= input.tokenBudget) {
+      if (
+        totalTokens + source.tokenCount <= input.tokenBudget
+        && totalCharacters + source.characterCount <= characterBudget
+      ) {
         included.push(source);
         totalTokens += source.tokenCount;
+        totalCharacters += source.characterCount;
       } else {
-        excluded.push({ sourceType: source.sourceType, sourceId: source.sourceId, reason: 'token_budget_lower_priority', tokenCount: source.tokenCount });
+        excluded.push({
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          reason: totalCharacters + source.characterCount > characterBudget
+            ? 'character_budget_lower_priority'
+            : 'token_budget_lower_priority',
+          tokenCount: source.tokenCount
+        });
       }
     }
     const manifest = included.map((source, order) => ({
@@ -108,26 +151,45 @@ export class ContextPackService {
       chapterId: input.chapterId ?? null,
       canonRevision: input.canonRevision,
       positioningVersion: input.positioningVersion,
+      policyVersion,
+      characterBudget: characterBudget === Number.MAX_SAFE_INTEGER ? null : characterBudget,
+      tokenBudget: input.tokenBudget,
       manifest,
       excluded
     });
     const contentHash = createHash('sha256').update(immutableContent).digest('hex');
+    const sourceFingerprint = createHash('sha256').update(stableJson(manifest.map((source) => ({
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      version: source.version,
+      contentHash: createHash('sha256').update(source.content).digest('hex')
+    })))).digest('hex');
     const contextPackId = this.ids.next();
     this.database.prepare(`
       INSERT INTO context_packs (
         context_pack_id, owner_id, book_id, task_id, agent_id, chapter_id,
         canon_revision, positioning_version, outline_version_id,
         writing_contract_version_id, token_budget, total_tokens,
-        source_manifest_json, excluded_sources_json, content_hash, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+        source_manifest_json, excluded_sources_json, content_hash,
+        policy_version, source_fingerprint, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
     `).run(
       contextPackId, scope.ownerId, scope.bookId, input.taskId, input.agentId,
       input.chapterId ?? null, input.canonRevision, input.positioningVersion,
       input.outlineVersionId ?? null, input.writingContractVersionId ?? null,
       input.tokenBudget, totalTokens, stableJson(manifest), stableJson(excluded),
-      contentHash, this.clock.now().toISOString()
+      contentHash, policyVersion, sourceFingerprint, this.clock.now().toISOString()
     );
-    return { contextPackId, totalTokens, contentHash, sources: included, excluded };
+    return {
+      contextPackId,
+      totalTokens,
+      totalCharacters,
+      contentHash,
+      sourceFingerprint,
+      policyVersion,
+      sources: included,
+      excluded
+    };
   }
 }
 

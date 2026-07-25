@@ -40,7 +40,10 @@ describe('聊天附件API', () => {
       payload: { content: '讨论 剧情中这次宣战是否合理', attachmentIds: [attachmentId] }
     });
     expect(send.statusCode).toBe(200);
-    expect(send.json().data.action.kind).toBe('discussion_scheduled');
+    expect(send.json().data.action).toMatchObject({
+      kind: 'creative_session_started',
+      purpose: 'creative_exploration'
+    });
     const message = context.database.prepare(`SELECT message_id, content, references_json FROM messages
       WHERE owner_id = ? AND book_id = ? AND sender_type = 'boss' ORDER BY created_at DESC LIMIT 1`)
       .get(context.config.ownerId, book.bookId) as { message_id: string; content: string; references_json: string };

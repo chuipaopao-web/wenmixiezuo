@@ -16,8 +16,14 @@ import {
   ChatAttachmentRepository,
   type ChatAttachmentRecord
 } from '../../infrastructure/db/repositories/chat-attachment-repository.js';
+import { CreativeSessionService } from '../discussions/creative-session-service.js';
+import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
+import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
+import { StageSettlementService } from '../continuity/stage-settlement-service.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 
-type DiscussionPurpose = 'open_discussion' | 'creative_planning';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning';
+type CreativeRoundKind = 'initial_exploration' | 'major_redirect' | 'locked_planning';
 
 interface AttachmentReference {
   type: 'chat_attachment';
@@ -191,16 +197,57 @@ export class ConversationService {
         topic: intake.selectedAction === 'explain_local_assistant_role' ? 'identity' : 'greeting'
       };
     }
+    if (/^(?:试写|试写看看|试写一章|先试写一章)[！!。.？?\s]*$/u.test(content)) {
+      const count: ChapterRequestCount = 1;
+      const readiness = new WritingReadinessService(this.database).inspect(scope, count);
+      if (!readiness.ready) {
+        const scheduled = this.scheduleCreativeSessionMessage(
+          scope,
+          `老板希望先试写，不进入正史。请继续当前剧情讨论，只补齐唯一下一章所需的信息；不要提前扩写整批章纲。当前缺少：${readiness.missing.join('、')}`,
+          messageId,
+          conversationId,
+          false
+        );
+        return {
+          ...scheduled,
+          kind: 'trial_draft_not_ready',
+          requestedChapterCount: null,
+          missing: readiness.missing
+        };
+      }
+      const active = new CreativeSessionRepository(this.database).active(scope);
+      if (active !== null) {
+        const repository = new CreativeSessionRepository(this.database);
+        repository.updateStatus(scope, {
+          sessionId: active.sessionId,
+          expectedStatus: active.status,
+          status: active.status,
+          mode: 'trial_draft',
+          now: this.clock.now().toISOString()
+        });
+        repository.appendEvent(scope, {
+          eventId: this.ids.next(),
+          sessionId: active.sessionId,
+          eventType: 'action',
+          sourceMessageId: messageId,
+          payload: { action: 'request_trial_draft' },
+          now: this.clock.now().toISOString()
+        });
+      }
+      const batch = new ChapterBatchService(
+        this.database, this.dataDir, this.releaseId, this.ids, this.clock
+      ).scheduleNewChapters(scope, count, { productionMode: 'trial_draft' });
+      return { kind: 'trial_draft_scheduled', batchId: batch.batchId, count };
+    }
     if (/^(?:写[一1]章|开始写|继续写)$/u.test(content)) {
       if (attachmentContext.length > 0) {
         return {
-          ...this.scheduleDiscussion(
+          ...this.scheduleCreativeSessionMessage(
             scope,
             `老板要求开始创作并附加了临时资料。先核对附件与当前正史、明确其用途，再细化唯一下一章；附件未确认，不能写入正史。\n\n${modelContent}`,
             messageId,
             conversationId,
-            'creative_planning',
-            null
+            false
           ),
           kind: 'planning_discussion_scheduled',
           requestedChapterCount: null,
@@ -224,26 +271,36 @@ export class ConversationService {
           '请明确主角与开局处境、核心冲突、各章推进节点、第一章视角与文风、章末钩子，以及仍需老板决定的问题。',
           `当前缺少：${readiness.missing.join('、')}`
         ].join('\n');
-        const scheduled = this.scheduleDiscussion(
-          scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, 'creative_planning', null
+        const scheduled = this.scheduleCreativeSessionMessage(
+          scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, false
         );
         return { ...scheduled, kind: 'planning_discussion_scheduled', requestedChapterCount: null, missing: readiness.missing };
       }
-      const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock).scheduleNewChapters(scope, count);
+      const active = new CreativeSessionRepository(this.database).active(scope);
+      if (active !== null) {
+        new CreativeSessionRepository(this.database).updateStatus(scope, {
+          sessionId: active.sessionId,
+          expectedStatus: active.status,
+          status: active.status,
+          mode: 'formal_production',
+          now: this.clock.now().toISOString()
+        });
+      }
+      const batch = new ChapterBatchService(this.database, this.dataDir, this.releaseId, this.ids, this.clock)
+        .scheduleNewChapters(scope, count, { productionMode: 'formal_production' });
       return { kind: 'chapter_batch_scheduled', batchId: batch.batchId, count };
     }
     if (/^写[三四五345]章$/u.test(content)) {
       return {
-        ...this.scheduleDiscussion(
+        ...this.scheduleCreativeSessionMessage(
           scope,
           appendAttachmentContext(
-            `老板希望连续推进多章，但正式正文必须逐章点评、逐章确认和逐章结算。请先评估合理章节跨度并细化唯一下一章。原话：${content}`,
+            `老板希望连续推进多章，但正式正文必须逐章点评、逐章确认和逐章结算。先继续讨论并锁定剧情方向，方向锁定后再评估跨度和细化唯一下一章。原话：${content}`,
             attachmentContext
           ),
           messageId,
           conversationId,
-          'creative_planning',
-          null
+          false
         ),
         kind: 'planning_discussion_scheduled',
         requestedChapterCount: null,
@@ -255,21 +312,37 @@ export class ConversationService {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
       const planning = isCreativeIntent(scopeText);
-      return this.scheduleDiscussion(
-        scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId,
-        planning ? 'creative_planning' : 'open_discussion', null
-      );
+      return planning
+        ? this.scheduleCreativeSessionMessage(
+            scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, false
+          )
+        : this.scheduleDiscussion(
+            scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId,
+            'open_discussion', null
+          );
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     if (content === '暂停' || intake?.selectedAction === 'pause_tasks') {
       const working = tasks.list(scope).filter((task) => task.status === 'working');
       for (const task of working) tasks.requestPause(scope, task.taskId);
-      return { kind: 'pause_requested', taskIds: working.map((task) => task.taskId) };
+      const session = new CreativeSessionService(this.database, this.ids, this.clock).pauseActive(scope, messageId);
+      return {
+        kind: 'pause_requested',
+        taskIds: working.map((task) => task.taskId),
+        creativeSessionId: session?.sessionId ?? null,
+        creativeSessionStatus: session?.status ?? null
+      };
     }
     if (content === '继续' || intake?.selectedAction === 'resume_tasks') {
       const paused = tasks.list(scope).filter((task) => task.status === 'paused');
       for (const task of paused) tasks.queue(scope, task.taskId);
-      return { kind: 'tasks_resumed', taskIds: paused.map((task) => task.taskId) };
+      const session = new CreativeSessionService(this.database, this.ids, this.clock).resumeActive(scope, messageId);
+      return {
+        kind: 'tasks_resumed',
+        taskIds: paused.map((task) => task.taskId),
+        creativeSessionId: session?.sessionId ?? null,
+        creativeSessionStatus: session?.status ?? null
+      };
     }
     if (content === '取消' || intake?.selectedAction === 'cancel_tasks') {
       const cancellable = tasks.list(scope).filter((task) => ['pending', 'queued', 'working', 'paused', 'blocked'].includes(task.status));
@@ -324,25 +397,70 @@ export class ConversationService {
     }
     const confirmDecision = /^确认方案\s+([A-Za-z0-9-]+)$/u.exec(content);
     if (confirmDecision !== null) {
-      const decision = this.database.prepare(`
-        SELECT d.discussion_id FROM discussion_decisions d JOIN discussions x ON x.discussion_id = d.discussion_id
-        WHERE d.decision_id = ? AND d.owner_id = ? AND d.book_id = ? AND x.status = 'awaiting_boss'
-      `).get(confirmDecision[1]!, scope.ownerId, scope.bookId) as { discussion_id: string } | undefined;
-      if (decision === undefined) throw new Error('待确认方案不存在、已处理或不属于当前书籍');
-      new DiscussionService(this.database, this.ids, this.clock).confirm(scope, decision.discussion_id, confirmDecision[1]!);
-      const prepared = new PlanningArtifactService(this.database, this.ids, this.clock)
-        .promoteIfPlanningTask(scope, decision.discussion_id, confirmDecision[1]!);
+      return this.confirmDiscussionDecision(
+        scope,
+        confirmDecision[1]!,
+        messageId,
+        conversationId
+      );
+    }
+    const closeStoryArc = /^(?:这段剧情结束了|当前剧情阶段结束|阶段结束(?:，|,)?生成总结|结算当前剧情阶段)(?:[：:]\s*(.+))?[。.\s]*$/u.exec(content);
+    if (closeStoryArc !== null) {
+      const settlement = new StageSettlementService(
+        new LongformContinuityRepository(this.database),
+        new UnitOfWork(this.database),
+        this.ids,
+        this.clock
+      ).closeCurrentStoryArc(scope, closeStoryArc[1]?.trim() || '当前剧情阶段');
       return {
-        kind: 'discussion_confirmed', discussionId: decision.discussion_id, decisionId: confirmDecision[1],
-        planningPrepared: prepared !== null, chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
+        kind: 'story_arc_settled',
+        settlementId: settlement.settlementId,
+        chapterStart: settlement.chapterStart,
+        chapterEnd: settlement.chapterEnd
       };
     }
-    if (intake?.routeClass === 'plot_discussion') return this.scheduleDiscussion(scope, modelContent, messageId, conversationId, 'creative_planning', null);
-    if (isCreativeIntent(content)) return this.scheduleDiscussion(scope, modelContent, messageId, conversationId, 'creative_planning', null);
+    if (/^(?:锁定当前方向|就按这个方向|按主编推荐(?:的方向)?|确定这个方向)[！!。.？?\s]*$/u.test(content)) {
+      const active = new CreativeSessionRepository(this.database).active(scope);
+      if (active === null) throw new Error('当前没有可锁定方向的创作会话');
+      const latest = this.database.prepare(`
+        SELECT r.completed_decision_id AS decision_id
+        FROM creative_session_rounds r
+        JOIN discussions d ON d.discussion_id = r.discussion_id
+        JOIN tasks t ON t.owner_id = r.owner_id AND t.book_id = r.book_id
+          AND t.task_type = 'discussion'
+          AND json_extract(t.task_brief_json, '$.discussionId') = r.discussion_id
+        WHERE r.creative_session_id = ? AND r.owner_id = ? AND r.book_id = ?
+          AND r.round_kind IN ('initial_exploration', 'major_redirect')
+          AND r.status = 'completed' AND d.status = 'awaiting_boss'
+          AND json_extract(t.task_brief_json, '$.purpose') = 'creative_exploration'
+        ORDER BY r.round_number DESC LIMIT 1
+      `).get(active.sessionId, scope.ownerId, scope.bookId) as { decision_id: string | null } | undefined;
+      if (latest?.decision_id === null || latest?.decision_id === undefined) {
+        throw new Error('当前创作会话还没有可锁定的主编方向结论');
+      }
+      return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
+    }
+    const activeCreativeSession = new CreativeSessionRepository(this.database).active(scope);
+    if (
+      intake?.routeClass === 'plot_discussion'
+      || isCreativeIntent(content)
+      || activeCreativeSession !== null
+    ) {
+      return this.scheduleCreativeSessionMessage(
+        scope, modelContent, messageId, conversationId,
+        isMajorCreativeRedirect(content)
+      );
+    }
     return this.scheduleConversationReply(scope, modelContent, messageId, conversationId);
   }
 
-  private scheduleConversationReply(scope: BookScope, content: string, messageId: string, conversationId: string): Record<string, unknown> {
+  private scheduleConversationReply(
+    scope: BookScope,
+    content: string,
+    messageId: string,
+    conversationId: string,
+    creativeSession?: { sessionId: string; blackboardRevision: number; action: 'continue_discussion' }
+  ): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
     const editor = this.database.prepare(`SELECT model_snapshot_id FROM agent_instances
       WHERE owner_id = ? AND book_id = ? AND agent_id = ? AND enabled = 1`)
@@ -359,10 +477,153 @@ export class ConversationService {
       budgetId: budget.budget_id,
       requiredEditorEpoch: lease.editor_epoch,
       initialPhase: 'reply',
-      brief: { conversationId, messageId, content, modelSnapshotId: editor.model_snapshot_id }
+      brief: {
+        conversationId, messageId, content, modelSnapshotId: editor.model_snapshot_id,
+        ...(creativeSession === undefined ? {} : {
+          creativeSessionId: creativeSession.sessionId,
+          creativeBlackboardRevision: creativeSession.blackboardRevision,
+          creativeSessionAction: creativeSession.action
+        })
+      }
     });
     tasks.queue(scope, taskId);
-    return { kind: 'conversation_reply_scheduled', taskId, agentId: lease.active_editor_agent_id };
+    return {
+      kind: creativeSession === undefined ? 'conversation_reply_scheduled' : 'creative_session_continued',
+      taskId,
+      agentId: lease.active_editor_agent_id,
+      ...(creativeSession === undefined ? {} : {
+        sessionId: creativeSession.sessionId,
+        blackboardRevision: creativeSession.blackboardRevision
+      })
+    };
+  }
+
+  private scheduleCreativeSessionMessage(
+    scope: BookScope,
+    content: string,
+    messageId: string,
+    conversationId: string,
+    forceMajorRedirect: boolean
+  ): Record<string, unknown> {
+    const intake = new CreativeSessionService(this.database, this.ids, this.clock).receiveOwnerMessage(scope, {
+      conversationId,
+      messageId,
+      content
+    });
+    if (!intake.created && !forceMajorRedirect) {
+      return this.scheduleConversationReply(scope, content, messageId, conversationId, {
+        sessionId: intake.session.sessionId,
+        blackboardRevision: intake.blackboard.revision,
+        action: 'continue_discussion'
+      });
+    }
+    const roundKind: CreativeRoundKind = intake.created ? 'initial_exploration' : 'major_redirect';
+    const scheduled = this.scheduleDiscussion(
+      scope,
+      content,
+      messageId,
+      conversationId,
+      'creative_exploration',
+      null,
+      {
+        sessionId: intake.session.sessionId,
+        blackboardRevision: intake.blackboard.revision,
+        sourceFingerprint: intake.blackboard.sourceFingerprint,
+        roundKind
+      }
+    );
+    return {
+      ...scheduled,
+      kind: intake.created ? 'creative_session_started' : 'creative_session_round_scheduled',
+      sessionId: intake.session.sessionId,
+      blackboardRevision: intake.blackboard.revision,
+      roundKind
+    };
+  }
+
+  private confirmDiscussionDecision(
+    scope: BookScope,
+    decisionId: string,
+    sourceMessageId: string,
+    conversationId: string
+  ): Record<string, unknown> {
+    const row = this.database.prepare(`
+      SELECT d.discussion_id, d.recommendation_json, t.task_brief_json
+      FROM discussion_decisions d
+      JOIN discussions x ON x.discussion_id = d.discussion_id
+      JOIN tasks t ON t.owner_id = d.owner_id AND t.book_id = d.book_id
+        AND t.task_type = 'discussion'
+        AND json_extract(t.task_brief_json, '$.discussionId') = d.discussion_id
+      WHERE d.decision_id = ? AND d.owner_id = ? AND d.book_id = ?
+        AND x.status = 'awaiting_boss'
+      ORDER BY t.created_at DESC LIMIT 1
+    `).get(decisionId, scope.ownerId, scope.bookId) as {
+      discussion_id: string;
+      recommendation_json: string;
+      task_brief_json: string;
+    } | undefined;
+    if (row === undefined) throw new Error('待确认方案不存在、已处理或不属于当前书籍');
+    const brief = JSON.parse(row.task_brief_json) as {
+      purpose?: DiscussionPurpose;
+      creativeSessionId?: string;
+    };
+    new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
+
+    if (brief.purpose === 'creative_exploration' && brief.creativeSessionId !== undefined) {
+      const recommendation = JSON.parse(row.recommendation_json) as Record<string, unknown>;
+      const summary = typeof recommendation.summary === 'string'
+        ? recommendation.summary
+        : JSON.stringify(recommendation.summary ?? recommendation);
+      const blackboard = new CreativeSessionService(this.database, this.ids, this.clock).lockDirection(scope, {
+        sessionId: brief.creativeSessionId,
+        decisionId,
+        summary,
+        sourceMessageId
+      });
+      const scheduled = this.scheduleDiscussion(
+        scope,
+        `老板已锁定方向。锁定决定：${summary}`,
+        sourceMessageId,
+        conversationId,
+        'locked_planning',
+        null,
+        {
+          sessionId: brief.creativeSessionId,
+          blackboardRevision: blackboard.revision,
+          sourceFingerprint: blackboard.sourceFingerprint,
+          roundKind: 'locked_planning'
+        }
+      );
+      return {
+        ...scheduled,
+        kind: 'creative_direction_locked',
+        sourceDiscussionId: row.discussion_id,
+        sourceDecisionId: decisionId,
+        sessionId: brief.creativeSessionId
+      };
+    }
+
+    const prepared = new PlanningArtifactService(this.database, this.ids, this.clock)
+      .promoteIfPlanningTask(scope, row.discussion_id, decisionId);
+    if (brief.purpose === 'locked_planning' && brief.creativeSessionId !== undefined) {
+      if (prepared === null) throw new Error('锁定规划已经确认，但未能生成滚动规划资料');
+      const repository = new CreativeSessionRepository(this.database);
+      const session = repository.require(scope, brief.creativeSessionId);
+      repository.updateStatus(scope, {
+        sessionId: session.sessionId,
+        expectedStatus: session.status,
+        status: 'ready',
+        mode: 'formal_production',
+        now: this.clock.now().toISOString()
+      });
+    }
+    return {
+      kind: 'discussion_confirmed',
+      discussionId: row.discussion_id,
+      decisionId,
+      planningPrepared: prepared !== null,
+      chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
+    };
   }
 
   private scheduleNamedConversationReply(
@@ -423,10 +684,17 @@ export class ConversationService {
     messageId: string,
     conversationId: string,
     purpose: DiscussionPurpose,
-    requestedChapterCount: ChapterRequestCount | null
+    requestedChapterCount: ChapterRequestCount | null,
+    creativeSession?: {
+      sessionId: string;
+      blackboardRevision: number;
+      sourceFingerprint: string;
+      roundKind: CreativeRoundKind;
+    }
   ): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
-    const roleKeys = purpose === 'creative_planning'
+    const creativePurpose = purpose === 'creative_exploration' || purpose === 'locked_planning';
+    const roleKeys = creativePurpose
       ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']
       : discussionRoleCandidates(scopeText);
     const placeholders = roleKeys.map(() => '?').join(', ');
@@ -437,14 +705,14 @@ export class ConversationService {
         AND r.role_key IN (${placeholders})
       ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, r.role_key
       LIMIT ?
-    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, purpose === 'creative_planning' ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
+    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, creativePurpose ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
     if (specialists.length === 0) throw new Error('没有与讨论范围匹配的岗位');
     for (const specialist of specialists) {
       this.database.prepare(`UPDATE agent_instances SET activation_state = 'idle', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
         .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, specialist.agent_id);
     }
     const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
-      type: 'quick',
+      type: creativePurpose ? 'collaborative' : 'quick',
       scopeText,
       createdByAgentId: lease.active_editor_agent_id,
       participants: [
@@ -463,15 +731,51 @@ export class ConversationService {
       budgetId: budget.budget_id,
       requiredEditorEpoch: lease.editor_epoch,
       initialPhase: 'collecting',
-      brief: { discussionId: discussion.discussionId, scopeText, conversationId, purpose, requestedChapterCount }
+      brief: {
+        discussionId: discussion.discussionId,
+        scopeText,
+        conversationId,
+        purpose,
+        requestedChapterCount,
+        ...(creativeSession === undefined ? {} : {
+          creativeSessionId: creativeSession.sessionId,
+          creativeBlackboardRevision: creativeSession.blackboardRevision,
+          creativeSourceFingerprint: creativeSession.sourceFingerprint,
+          roundKind: creativeSession.roundKind
+        })
+      }
     });
+    if (creativeSession !== undefined) {
+      const repository = new CreativeSessionRepository(this.database);
+      repository.linkRound(scope, {
+        roundId: this.ids.next(),
+        sessionId: creativeSession.sessionId,
+        discussionId: discussion.discussionId,
+        roundKind: creativeSession.roundKind,
+        blackboardRevision: creativeSession.blackboardRevision,
+        sourceFingerprint: creativeSession.sourceFingerprint,
+        now: this.clock.now().toISOString()
+      });
+      repository.appendEvent(scope, {
+        eventId: this.ids.next(),
+        sessionId: creativeSession.sessionId,
+        eventType: 'round_opened',
+        sourceMessageId: messageId,
+        payload: { discussionId: discussion.discussionId, roundKind: creativeSession.roundKind },
+        now: this.clock.now().toISOString()
+      });
+    }
     tasks.queue(scope, taskId);
     return {
       kind: 'discussion_scheduled',
       purpose,
       discussionId: discussion.discussionId,
       taskId,
-      participants: discussion.participants.map((item) => item.agentId)
+      participants: discussion.participants.map((item) => item.agentId),
+      ...(creativeSession === undefined ? {} : {
+        sessionId: creativeSession.sessionId,
+        roundKind: creativeSession.roundKind
+      })
     };
   }
 
@@ -494,7 +798,7 @@ export class ConversationService {
       SELECT json_extract(t.task_brief_json, '$.discussionId') AS discussion_id, t.task_id
       FROM tasks t JOIN discussions d ON d.discussion_id = json_extract(t.task_brief_json, '$.discussionId')
       WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion'
-        AND json_extract(t.task_brief_json, '$.purpose') = 'creative_planning'
+        AND json_extract(t.task_brief_json, '$.purpose') IN ('creative_exploration', 'locked_planning')
         AND (json_extract(t.task_brief_json, '$.requestedChapterCount') IS NULL
           OR CAST(json_extract(t.task_brief_json, '$.requestedChapterCount') AS INTEGER) >= ?)
         AND t.status IN ('pending', 'queued', 'working', 'waiting_confirmation', 'succeeded')
@@ -541,7 +845,11 @@ function discussionRoleCandidates(content: string): string[] {
 }
 
 function isCreativeIntent(content: string): boolean {
-  return /小说|故事|剧情|情节|题材|游戏文|主角|角色|人物|设定|世界观|开局|结局|冲突|转折|节奏|文风|大纲|章纲|第一章|下一章|钩子|我想写|怎么写/u.test(content);
+  return /讨论|小说|故事|剧情|情节|题材|游戏文|主角|角色|人物|设定|世界观|开局|结局|冲突|转折|节奏|文风|大纲|章纲|第一章|下一章|钩子|我想写|怎么写/u.test(content);
+}
+
+function isMajorCreativeRedirect(content: string): boolean {
+  return /^(?:重大改向|重大调整|推翻当前方向|换一条完全不同的路线|重新让两位编剧推演)(?:[：:\s]|$)/u.test(content.trim());
 }
 
 function actionNotice(action: Record<string, unknown>): string {
@@ -550,12 +858,19 @@ function actionNotice(action: Record<string, unknown>): string {
       ? '我是小文秘书，负责接收消息、整理附件、查看任务和安排合适的成员。剧情、正文和正史仍由创作成员与您确认，我不会替她们作答。'
       : '我在。您可以直接说想聊的剧情、点名成员，或者让我查看任务和资料；需要创作判断时，我会把您的原话交给合适的成员。';
     case 'chapter_batch_scheduled': return '好的，下一章已经交给主笔。完成三轮独立点评后，我会把稿件带回来请您确认；在您确认前，它不会进入正史。';
+    case 'trial_draft_scheduled': return '好的，已安排试写一章。它只会保留为可修改的临时稿，不启动正式三席审校，也不会进入正史；满意后再点“定稿”进入正式审校。';
+    case 'trial_draft_not_ready': return `可以先试写，但还缺少唯一下一章所需的信息：${(action.missing as string[]).join('、')}。貂蝉会在当前会话里继续问清，不会直接让主笔盲写。`;
     case 'discussion_scheduled': return '收到，我已经把您的原话交给貂蝉，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。';
     case 'planning_discussion_scheduled': return action.requestedChapterCount === null
       ? '我没有让主笔贸然批量开写。貂蝉和两位编剧会先评估这段剧情适合展开多少章，并把唯一下一章理清后请您确认。'
       : '目前还缺少可执行的下一章方案，我没有启动主笔。貂蝉会先和相关成员补齐剧情与章纲，再回来请您确认。';
     case 'planning_discussion_existing': return '前面的剧情方案还在讨论或等您确认，我没有重复开启新任务。您可以在左侧“任务”里查看进度。';
     case 'conversation_reply_scheduled': return '收到，我已经把您的原话交给貂蝉。她会结合这本书现有的资料直接回复您。';
+    case 'creative_session_started': return '新的剧情议题已经建立为持续创作会话。貂蝉会先主持两位异模型编剧独立推演和一次交叉质疑；这一轮只比较方向，不会提前写正文或生成整批章纲。';
+    case 'creative_session_continued': return '这句话已经接在当前剧情会话里，我没有重复拉起两位编剧。貂蝉会沿着现有分歧和未决问题继续回应。';
+    case 'creative_session_round_scheduled': return '收到明确的重大改向要求。我保留了原讨论记录，并为同一创作会话开启一轮新的双编剧独立推演；旧预演会标记为过期，不会混入新结论。';
+    case 'creative_direction_locked': return '剧情方向已经锁定，但还没有让主笔开写。两位编剧现在会分别估算这个故事弧需要多少章，貂蝉只细化未来1至3章，完成后再请您确认。';
+    case 'story_arc_settled': return `当前剧情阶段已经按第${String(action.chapterStart)}章至第${String(action.chapterEnd)}章的定稿正史完成结算。后续创作默认读取这份精简阶段记忆；遇到人物、规则、伏笔或旧因果触发时，仍会回查对应正史原文。`;
     case 'named_member_reply_scheduled': return `好的，我已经把您的原话直接交给${String(action.memberName)}，由她本人回复。`;
     case 'pause_requested': return (action.taskIds as unknown[]).length === 0
       ? '目前没有正在运行的任务，不需要暂停。'

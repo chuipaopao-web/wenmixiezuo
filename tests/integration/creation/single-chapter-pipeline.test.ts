@@ -33,10 +33,29 @@ describe('单章完整创作流水线', () => {
     const rewriteCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'rewrite-%' AND state = 'succeeded'
       ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
+    const draftCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'draft:%' AND state = 'succeeded'
+      ORDER BY created_at LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
+    const draftPack = context.database.prepare(`
+      SELECT policy_version, total_tokens, source_manifest_json
+      FROM context_packs WHERE context_pack_id = ?
+    `).get(draftCall.context_pack_id) as {
+      policy_version: string;
+      total_tokens: number;
+      source_manifest_json: string;
+    };
+    const draftSources = JSON.parse(draftPack.source_manifest_json) as Array<{
+      sourceType: string;
+      content: string;
+    }>;
+    expect(draftPack.policy_version).toBe('writer-draft-context-v2-4200chars');
+    expect(draftPack.total_tokens).toBeLessThanOrEqual(4_200);
+    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_200);
+    expect(draftSources.map((source) => source.sourceType)).not.toContain('creative_plan');
     const rewritePack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
       .get(rewriteCall.context_pack_id) as { source_manifest_json: string };
     const rewriteSourceTypes = (JSON.parse(rewritePack.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
-    expect(rewriteSourceTypes).toEqual(expect.arrayContaining(['current_manuscript', 'review_issues', 'chapter_outline', 'writing_contract']));
+    expect(rewriteSourceTypes).toEqual(expect.arrayContaining(['current_manuscript', 'review_issues', 'chapter_work_order']));
     const reviewCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'review-%' AND state = 'succeeded'
       ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
@@ -211,6 +230,28 @@ describe('单章完整创作流水线', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM budget_reservations WHERE owner_id = ? AND book_id = ? AND status = 'settled'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 10 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM editor_review_syntheses WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId))
       .toEqual({ count: 2 });
+    const qualitySnapshots = context.database.prepare(`
+      SELECT manuscript_version_id, dimensions_json, hard_blocked, is_best
+      FROM manuscript_quality_snapshots
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+      ORDER BY created_at, manuscript_quality_snapshot_id
+    `).all(scope.ownerId, scope.bookId, chapterId) as unknown as Array<{
+      manuscript_version_id: string;
+      dimensions_json: string;
+      hard_blocked: number;
+      is_best: number;
+    }>;
+    expect(qualitySnapshots).toHaveLength(2);
+    expect(qualitySnapshots.filter((snapshot) => snapshot.is_best === 1)).toHaveLength(1);
+    expect(qualitySnapshots.every((snapshot) => {
+      const dimensions = Object.keys(JSON.parse(snapshot.dimensions_json) as Record<string, number>);
+      return dimensions.some((dimension) => dimension.startsWith('fact:'))
+        && dimensions.some((dimension) => dimension.startsWith('literary:'))
+        && dimensions.some((dimension) => dimension.startsWith('experience:'));
+    })).toBe(true);
+    expect(qualitySnapshots.find((snapshot) => snapshot.is_best === 1)?.manuscript_version_id)
+      .toBe((context.database.prepare(`SELECT current_manuscript_version_id FROM chapters WHERE chapter_id = ?`)
+        .get(chapterId) as { current_manuscript_version_id: string }).current_manuscript_version_id);
     const retrievalPlans = context.database.prepare(`
       SELECT mode, role_key FROM retrieval_query_plans
       WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, retrieval_query_plan_id

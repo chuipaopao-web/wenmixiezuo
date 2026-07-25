@@ -108,6 +108,47 @@ describe('工作台API', () => {
       .get(context.config.ownerId, book.bookId)).toEqual({ count: 0 });
   });
 
+  it('工作区返回当前持续剧情会话和可读黑板，不泄露内部事件原文', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '持续会话接口书',
+      text: '张三准备进入天安城调查旧案'
+    });
+    app = await createServer(context.config, context.database, { trustedTest: true });
+    const message = await app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${book.bookId}/messages`,
+      payload: { content: '讨论张三应该怎样进入天安城' }
+    });
+    expect(message.statusCode).toBe(200);
+    expect(message.json().data.action).toMatchObject({
+      kind: 'creative_session_started',
+      roundKind: 'initial_exploration'
+    });
+
+    const workspaceResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/books/${book.bookId}/workspace`
+    });
+    expect(workspaceResponse.statusCode).toBe(200);
+    expect(workspaceResponse.json().data.creativeSession).toMatchObject({
+      status: 'exploring',
+      mode: 'creative_forecast',
+      activeTopic: '讨论张三应该怎样进入天安城',
+      currentBlackboardRevision: 1,
+      blackboard: {
+        revision: 1,
+        currentGoal: '讨论张三应该怎样进入天安城',
+        maturity: 'exploring'
+      },
+      activeForecast: null
+    });
+    expect(workspaceResponse.json().data.creativeSession.blackboard.ownerMessages).toBeUndefined();
+    expect(workspaceResponse.json().data.creativeSession.blackboard.evidence).toBeUndefined();
+  });
+
   it('研究元数据可查看但接口不返回缓存原文，候选不会修改正史', async () => {
     context = createTestContext();
     const book = initializeDomainBook(context, context.config.ownerId, new SequenceIds(), new FixedClock(), {

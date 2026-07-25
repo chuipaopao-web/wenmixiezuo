@@ -178,9 +178,17 @@ describe('开放式主创对话', () => {
     const result = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock)
       .sendBossMessage(scope, '我想写一本游戏文');
 
-    expect(result.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
+    expect(result.action).toMatchObject({
+      kind: 'creative_session_started',
+      purpose: 'creative_exploration',
+      roundKind: 'initial_exploration'
+    });
     const task = new TaskService(context.database, context.config.releaseId, clock).require(scope, String(result.action.taskId));
-    expect(task.brief).toMatchObject({ purpose: 'creative_planning', requestedChapterCount: null });
+    expect(task.brief).toMatchObject({
+      purpose: 'creative_exploration',
+      requestedChapterCount: null,
+      roundKind: 'initial_exploration'
+    });
   });
 
   it('未准备好时写一章只发起规划讨论，不创建章节或正文任务', () => {
@@ -208,7 +216,7 @@ describe('开放式主创对话', () => {
     expect(conversations.sendBossMessage(scope, '你好啊').action.kind).toBe('local_assistant_reply');
     expect(conversations.sendBossMessage(scope, '没人在吗').action.kind).toBe('local_assistant_reply');
     const planning = conversations.sendBossMessage(scope, '我想写一本游戏文');
-    expect(planning.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning' });
+    expect(planning.action).toMatchObject({ kind: 'creative_session_started', purpose: 'creative_exploration' });
     expect(conversations.sendBossMessage(scope, '写一章').action).toMatchObject({
       kind: 'planning_discussion_existing', discussionId: planning.action.discussionId
     });

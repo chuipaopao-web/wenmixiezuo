@@ -56,6 +56,7 @@ import { OwnerManuscriptService } from '../application/creation/owner-manuscript
 import { BudgetService } from '../application/budget/budget-service.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
 import { OpeningSynopsisAnalysisService } from '../application/books/opening-synopsis-analysis-service.js';
+import { CreativeSessionRepository } from '../infrastructure/db/repositories/creative-session-repository.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -230,6 +231,33 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     `).all(scope.ownerId, scope.bookId);
     const localAssistantSessions = (database.prepare(`SELECT COUNT(*) AS count FROM local_assistant_sessions
       WHERE owner_id = ? AND book_id = ? AND status = 'active'`).get(scope.ownerId, scope.bookId) as { count: number }).count;
+    const creativeSessionRepository = new CreativeSessionRepository(database);
+    const activeCreativeSession = creativeSessionRepository.active(scope);
+    const creativeSession = activeCreativeSession === null
+      ? null
+      : (() => {
+          const blackboard = creativeSessionRepository.blackboard(scope, activeCreativeSession.sessionId);
+          const forecasts = creativeSessionRepository.listForecasts(scope, activeCreativeSession.sessionId);
+          const activeForecast = forecasts.find((item) => item.status === 'active') ?? null;
+          return {
+            ...activeCreativeSession,
+            blackboard: blackboard === null ? null : {
+              revision: blackboard.revision,
+              currentGoal: blackboard.payload.currentGoal,
+              maturity: blackboard.payload.maturity,
+              nextStep: blackboard.payload.nextStep,
+              candidates: blackboard.payload.candidates,
+              disagreements: blackboard.payload.disagreements,
+              risks: blackboard.payload.risks,
+              unknowns: blackboard.payload.unknowns,
+              lockedDirection: blackboard.payload.lockedDirection ?? null
+            },
+            activeForecast: activeForecast === null ? null : {
+              ...activeForecast,
+              branches: creativeSessionRepository.listForecastBranches(scope, activeForecast.forecastId)
+            }
+          };
+        })();
     const liveAgents = agents.list(scope).map((agent) => {
       const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
       return {
@@ -258,6 +286,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       editor: editorLease,
       confirmations,
       messageCount,
+      creativeSession,
       localAssistant: {
         displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: localAssistantSessions,
         summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'

@@ -28,7 +28,7 @@ for (let stage = 0; stage <= 8; stage += 1) {
 
 const contract = readFileSync(resolve(root, 'apps/api/src/contracts/api.ts'), 'utf8');
 const migrations = trackedFiles.filter((file) => file.startsWith('apps/api/src/infrastructure/db/migrations/') && file.endsWith('.sql')).sort();
-check('Schema与迁移锁定', contract.includes('SCHEMA_VERSION = 25') && migrations.at(-1)?.includes('0025_'), `${migrations.at(-1) ?? '无迁移'}`);
+check('Schema与迁移锁定', contract.includes('SCHEMA_VERSION = 26') && migrations.at(-1)?.includes('0026_'), `${migrations.at(-1) ?? '无迁移'}`);
 
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const packageLock = JSON.parse(readFileSync(resolve(root, 'package-lock.json'), 'utf8'));

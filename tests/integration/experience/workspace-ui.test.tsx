@@ -62,6 +62,44 @@ const workspace: WorkspaceData = {
     cash_limit_micros: 0, spent_cash_micros: 0, status: 'active'
   },
   confirmations: { count: 0, items: [] },
+  creativeSession: {
+    sessionId: 'creative-session-ui-1',
+    status: 'awaiting_direction',
+    mode: 'creative_forecast',
+    activeTopic: '张三如何进入天安城',
+    currentBlackboardRevision: 3,
+    canonRevision: 3,
+    blackboard: {
+      revision: 3,
+      currentGoal: '比较张三潜入天安城的两条剧情方向',
+      maturity: 'direction_ready',
+      nextStep: '继续比较，或由老板锁定一个方向',
+      candidates: [],
+      disagreements: ['是否让守城将领主动接触张三'],
+      risks: ['过早暴露张三身份'],
+      unknowns: ['城门审查规则'],
+      lockedDirection: null
+    },
+    activeForecast: {
+      forecastId: 'forecast-ui-1',
+      status: 'active',
+      staleReason: null,
+      branchCount: 2,
+      branches: [{
+        branchId: 'branch-ui-1',
+        ordinal: 1,
+        title: '商队伪装线',
+        proposal: { summary: '张三随商队入城' },
+        sourceAgentId: 'agent-3'
+      }, {
+        branchId: 'branch-ui-2',
+        ordinal: 2,
+        title: '守将邀约线',
+        proposal: { summary: '守将暗中邀请张三' },
+        sourceAgentId: 'agent-4'
+      }]
+    }
+  },
   localAssistant: { displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: 1, summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。' }
 };
 
@@ -127,6 +165,25 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.conversation-stream\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
+  });
+
+  it('在聊天顶部显示持续剧情会话、候选方向和自然操作', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const strip = await screen.findByRole('region', { name: '当前剧情会话' });
+    expect(within(strip).getByText('待锁定方向')).toBeInTheDocument();
+    expect(within(strip).getByText('比较张三潜入天安城的两条剧情方向')).toBeInTheDocument();
+    expect(within(strip).getByText('商队伪装线')).toBeInTheDocument();
+    expect(within(strip).getByText('守将邀约线')).toBeInTheDocument();
+    fireEvent.click(within(strip).getByRole('button', { name: '锁定方向' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!String(input).endsWith('/api/v1/books/book-ui-1/messages')
+        || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      return JSON.parse(String((init as RequestInit).body)).content === '锁定当前方向';
+    })).toBe(true));
   });
 
   it('把归档书移出主书架并放入可恢复的归档区', async () => {

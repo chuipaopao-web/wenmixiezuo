@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertBookScope, type BookScope } from '../../../domain/scope.js';
 
@@ -5,6 +6,17 @@ export interface CommitmentRecord {
   commitmentId: string; type: string; title: string; description: string; entityIds: string[]; openedChapter: number;
   earliestDueChapter: number | null; latestDueChapter: number | null; sourceId: string; sourceHash: string;
   status: 'open' | 'due' | 'fulfilled' | 'violated' | 'retired';
+}
+
+export interface SettlementContextRecord {
+  settlementId: string;
+  stageType: 'chapter' | 'story_arc' | 'volume' | 'book';
+  stageKey: string;
+  version: number;
+  chapterStart: number;
+  chapterEnd: number;
+  canonRevision: number;
+  payload: Record<string, unknown>;
 }
 
 export class LongformContinuityRepository {
@@ -40,6 +52,104 @@ export class LongformContinuityRepository {
       openedChapter: row.opened_chapter as number, earliestDueChapter: row.earliest_due_chapter as number | null,
       latestDueChapter: row.latest_due_chapter as number | null, sourceId: row.source_id as string, sourceHash: row.source_hash as string,
       status: row.status as CommitmentRecord['status'] }));
+  }
+
+  public writerSettlementContext(scope: BookScope, currentChapter: number, limit = 3): SettlementContextRecord[] {
+    assertBookScope(scope);
+    const rows = this.database.prepare(`
+      SELECT stage_settlement_id, stage_type, stage_key, version, chapter_start, chapter_end,
+        canon_revision, irreversible_results_json, entity_states_json, closed_threads_json,
+        open_threads_json, relationship_changes_json, knowledge_changes_json,
+        resource_changes_json, rule_changes_json
+      FROM stage_settlements
+      WHERE owner_id = ? AND book_id = ? AND status = 'active' AND chapter_end < ?
+      ORDER BY chapter_end DESC, version DESC
+      LIMIT 96
+    `).all(scope.ownerId, scope.bookId, currentChapter) as unknown as Array<Record<string, unknown>>;
+    const mapped = rows.map(mapSettlementContext);
+    const latestVolume = mapped
+      .filter((item) => item.stageType === 'volume')
+      .sort((left, right) => right.chapterEnd - left.chapterEnd)[0];
+    const volumeEnd = latestVolume?.chapterEnd ?? 0;
+    const recentArcs = mapped
+      .filter((item) => item.stageType === 'story_arc' && item.chapterEnd > volumeEnd)
+      .sort((left, right) => right.chapterEnd - left.chapterEnd);
+    const arcEnd = recentArcs[0]?.chapterEnd ?? volumeEnd;
+    const recentChapters = mapped
+      .filter((item) => item.stageType === 'chapter' && item.chapterEnd > arcEnd)
+      .sort((left, right) => right.chapterEnd - left.chapterEnd);
+    const selected: SettlementContextRecord[] = [];
+    if (latestVolume !== undefined) selected.push(latestVolume);
+    if (recentArcs[0] !== undefined) selected.push(recentArcs[0]);
+    for (const chapter of recentChapters) {
+      if (selected.length >= limit) break;
+      selected.push(chapter);
+    }
+    if (selected.length < limit && recentArcs.length > 1) {
+      for (const arc of recentArcs.slice(1)) {
+        if (selected.length >= limit) break;
+        selected.push(arc);
+      }
+    }
+    if (selected.length < limit && latestVolume === undefined && recentArcs.length === 0) {
+      for (const chapter of mapped.filter((item) => item.stageType === 'chapter')) {
+        if (selected.length >= limit) break;
+        if (!selected.some((item) => item.settlementId === chapter.settlementId)) selected.push(chapter);
+      }
+    }
+    return selected.slice(0, Math.max(1, limit));
+  }
+
+  public activeChapterSettlements(
+    scope: BookScope,
+    chapterStart: number,
+    chapterEnd: number
+  ): SettlementContextRecord[] {
+    assertBookScope(scope);
+    return (this.database.prepare(`
+      SELECT stage_settlement_id, stage_type, stage_key, version, chapter_start, chapter_end,
+        canon_revision, irreversible_results_json, entity_states_json, closed_threads_json,
+        open_threads_json, relationship_changes_json, knowledge_changes_json,
+        resource_changes_json, rule_changes_json
+      FROM stage_settlements
+      WHERE owner_id = ? AND book_id = ? AND status = 'active' AND stage_type = 'chapter'
+        AND chapter_start >= ? AND chapter_end <= ?
+      ORDER BY chapter_start, version
+    `).all(scope.ownerId, scope.bookId, chapterStart, chapterEnd) as unknown as Array<Record<string, unknown>>)
+      .map(mapSettlementContext);
+  }
+
+  public latestStageEnd(scope: BookScope, stageType: 'story_arc' | 'volume'): number {
+    assertBookScope(scope);
+    const row = this.database.prepare(`
+      SELECT COALESCE(MAX(chapter_end), 0) AS chapter_end
+      FROM stage_settlements
+      WHERE owner_id = ? AND book_id = ? AND stage_type = ? AND status = 'active'
+    `).get(scope.ownerId, scope.bookId, stageType) as { chapter_end: number };
+    return row.chapter_end;
+  }
+
+  public latestSettledChapter(scope: BookScope): number {
+    assertBookScope(scope);
+    const row = this.database.prepare(`
+      SELECT COALESCE(MAX(chapter_number), 0) AS chapter_number
+      FROM chapters
+      WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'
+    `).get(scope.ownerId, scope.bookId) as { chapter_number: number };
+    return row.chapter_number;
+  }
+
+  public latestCanonRevision(scope: BookScope): number {
+    assertBookScope(scope);
+    const row = this.database.prepare(`
+      SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId) as { canon_revision: number } | undefined;
+    if (row === undefined) throw new Error('书籍不存在或越权');
+    return row.canon_revision;
+  }
+
+  public settlementSourceHash(record: SettlementContextRecord): string {
+    return createSettlementHash(record);
   }
 
   public updateCommitmentStatus(scope: BookScope, id: string, status: CommitmentRecord['status'], resolutionSourceId: string | null, now: string): boolean {
@@ -147,3 +257,38 @@ export class LongformContinuityRepository {
 }
 
 function json(value: unknown): string { return JSON.stringify(value ?? []); }
+
+function mapSettlementContext(row: Record<string, unknown>): SettlementContextRecord {
+  return {
+    settlementId: row.stage_settlement_id as string,
+    stageType: row.stage_type as SettlementContextRecord['stageType'],
+    stageKey: row.stage_key as string,
+    version: row.version as number,
+    chapterStart: row.chapter_start as number,
+    chapterEnd: row.chapter_end as number,
+    canonRevision: row.canon_revision as number,
+    payload: {
+      irreversibleResults: JSON.parse(row.irreversible_results_json as string) as unknown,
+      entityStates: JSON.parse(row.entity_states_json as string) as unknown,
+      closedThreads: JSON.parse(row.closed_threads_json as string) as unknown,
+      openThreads: JSON.parse(row.open_threads_json as string) as unknown,
+      relationshipChanges: JSON.parse(row.relationship_changes_json as string) as unknown,
+      knowledgeChanges: JSON.parse(row.knowledge_changes_json as string) as unknown,
+      resourceChanges: JSON.parse(row.resource_changes_json as string) as unknown,
+      ruleChanges: JSON.parse(row.rule_changes_json as string) as unknown
+    }
+  };
+}
+
+function createSettlementHash(record: SettlementContextRecord): string {
+  return createHash('sha256').update(JSON.stringify({
+    settlementId: record.settlementId,
+    stageType: record.stageType,
+    stageKey: record.stageKey,
+    version: record.version,
+    chapterStart: record.chapterStart,
+    chapterEnd: record.chapterEnd,
+    canonRevision: record.canonRevision,
+    payload: record.payload
+  })).digest('hex');
+}

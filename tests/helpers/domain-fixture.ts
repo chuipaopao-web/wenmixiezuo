@@ -11,6 +11,7 @@ import { ProductionWorkflowRepository } from '../../apps/api/src/infrastructure/
 import { ChapterCatalogService } from '../../apps/api/src/application/chapters/chapter-catalog-service.js';
 import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
 import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
+import { ArtifactService } from '../../apps/api/src/application/artifacts/artifact-service.js';
 
 export function initializeDomainBook(
   context: TestContext,
@@ -80,7 +81,23 @@ export function prepareBookForWriting(
     impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
   });
   discussions.confirm(scope, discussion.discussionId, decisionId);
-  new PlanningArtifactService(context.database, ids, clock).promoteConfirmedDecision(scope, discussion.discussionId, decisionId, count);
+  const prepared = new PlanningArtifactService(context.database, ids, clock)
+    .promoteConfirmedDecision(scope, discussion.discussionId, decisionId, count);
+  if (count > prepared.chapterOutlineVersionIds.length) {
+    const artifacts = new ArtifactService(context.database, ids, clock);
+    for (let chapterNumber = prepared.chapterOutlineVersionIds.length + 1; chapterNumber <= count; chapterNumber += 1) {
+      const version = artifacts.create(scope, 'chapter_outline', `第${chapterNumber}章章纲`, {
+        chapterNumber,
+        title: `第${chapterNumber}章`,
+        goal: `测试滚动规划窗口第${chapterNumber}章：推进已确认核心冲突并形成新的具体选择`,
+        beats: [`第${chapterNumber}章推进节点`, `第${chapterNumber}章人物选择与代价`],
+        hook: `第${chapterNumber}章末留下可验证的新问题`,
+        sourceDiscussionId: discussion.discussionId,
+        sourceDecisionId: decisionId
+      }, 'candidate');
+      artifacts.select(scope, version.artifactId, version.artifactVersionId);
+    }
+  }
   return { discussionId: discussion.discussionId, decisionId };
 }
 

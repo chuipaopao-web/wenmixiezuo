@@ -21,6 +21,8 @@ import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowle
 import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { createHash } from 'node:crypto';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
+import { CreativeSessionService } from '../discussions/creative-session-service.js';
+import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -28,6 +30,11 @@ interface ReplyTaskRow {
   task_brief_json: string;
   cancel_requested: number;
   assigned_agent_id: string | null;
+}
+
+function clipContextSource(value: string, maximum: number): string {
+  if (value.length <= maximum) return value;
+  return `${value.slice(0, maximum - 24)}……（完整内容保留在来源记录中）`;
 }
 
 interface ReplyAgentRow {
@@ -73,6 +80,9 @@ export class ConversationReplyPipelineService {
         requestedMemberName?: string;
         proactiveOnboarding?: boolean;
         openingBlueprintId?: string | null;
+        creativeSessionId?: string;
+        creativeBlackboardRevision?: number;
+        creativeSessionAction?: 'continue_discussion';
       };
       const replyAgent = this.database.prepare(`
         SELECT a.agent_id, a.display_name, r.role_key, m.model_snapshot_id, m.provider, m.model_id
@@ -96,7 +106,7 @@ export class ConversationReplyPipelineService {
         SELECT sender_type, role_key, content, created_at FROM messages
         WHERE conversation_id = ? AND owner_id = ? AND book_id = ? AND rowid < ?
           AND message_type <> 'onboarding_trigger'
-        ORDER BY rowid DESC LIMIT 12
+        ORDER BY rowid DESC LIMIT 6
       `).all(brief.conversationId, scope.ownerId, scope.bookId, targetMessage.row_id) as unknown as Array<Record<string, unknown>>;
       history.reverse();
       const storyBible = this.database.prepare(`
@@ -109,13 +119,30 @@ export class ConversationReplyPipelineService {
         SELECT d.decision_id, x.scope_text, d.recommendation_json FROM discussion_decisions d
         JOIN discussions x ON x.discussion_id = d.discussion_id
         WHERE d.owner_id = ? AND d.book_id = ? AND d.boss_confirmed = 1
-        ORDER BY d.confirmed_at DESC LIMIT 5
+        ORDER BY d.confirmed_at DESC LIMIT 3
       `).all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown>>;
       const hardSources: ContextSource[] = [{
         sourceType: brief.proactiveOnboarding === true ? 'onboarding_trigger' : 'boss_message',
         sourceId: brief.messageId, content: brief.content,
         reason: brief.proactiveOnboarding === true ? '建书后主动引导合同' : '当前需要回复的老板消息', priority: 100
       }];
+      if (brief.creativeSessionId !== undefined) {
+        const sessionRepository = new CreativeSessionRepository(this.database);
+        const blackboard = sessionRepository.blackboard(
+          scope,
+          brief.creativeSessionId,
+          brief.creativeBlackboardRevision
+        );
+        if (blackboard === null) throw new Error('持续创作会话缺少可追溯共享黑板');
+        hardSources.push({
+          sourceType: 'creative_blackboard',
+          sourceId: `${brief.creativeSessionId}:${blackboard.revision}`,
+          content: clipContextSource(JSON.stringify(blackboard.payload), 2_400),
+          reason: '当前持续创作会话的议题、候选方向、分歧、未知项和下一步；不是正史',
+          priority: 100,
+          version: blackboard.revision
+        });
+      }
       if (brief.proactiveOnboarding === true) {
         if (brief.openingBlueprintId === undefined) throw new Error('主动开场任务缺少开书资料引用字段');
         if (typeof brief.openingBlueprintId === 'string') {
@@ -140,24 +167,41 @@ export class ConversationReplyPipelineService {
           canonRevision: book.canon_revision,
           taskId,
           sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
-          limit: 10
+          limit: 6
         });
       hardSources.push(...retrieved.hardSources);
       const optionalSources: ContextSource[] = [
         ...retrieved.optionalSources,
         ...(storyBible === undefined || brief.proactiveOnboarding === true ? [] : [{
-          sourceType: 'story_bible', sourceId: storyBible.artifact_version_id, content: storyBible.content_json,
+          sourceType: 'story_bible', sourceId: storyBible.artifact_version_id,
+          content: clipContextSource(storyBible.content_json, 1_500),
           reason: '当前书籍已选故事圣经；仅在本次问题相关且预算允许时带入', priority: 90
         }]),
-        { sourceType: 'recent_conversation', sourceId: `history:${brief.messageId}`, content: JSON.stringify(history), reason: '仅限本次回复的最近12条对话窗口', priority: 70 },
-        { sourceType: 'confirmed_decisions', sourceId: `decisions:${scope.bookId}`, content: JSON.stringify(decisions), reason: '老板已经确认的创作决定', priority: 80 }
+        {
+          sourceType: 'recent_conversation',
+          sourceId: `history:${brief.messageId}`,
+          content: clipContextSource(JSON.stringify(history), 1_800),
+          reason: '仅限本次回复的最近6条对话窗口；完整原文仍归档但默认不注入',
+          priority: 70
+        },
+        {
+          sourceType: 'confirmed_decisions',
+          sourceId: `decisions:${scope.bookId}`,
+          content: clipContextSource(JSON.stringify(decisions), 1_200),
+          reason: '老板已经确认的最近创作决定',
+          priority: 80
+        }
       ];
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId,
         agentId: replyAgent.agent_id,
         canonRevision: book.canon_revision,
         positioningVersion: book.positioning_version,
-        tokenBudget: 24_000,
+        tokenBudget: brief.proactiveOnboarding === true ? 12_000 : 7_000,
+        characterBudget: brief.proactiveOnboarding === true ? 12_000 : 7_000,
+        policyVersion: brief.proactiveOnboarding === true
+          ? 'onboarding-editor-context-v2-12000chars'
+          : 'creative-editor-context-v2-7000chars',
         hardSources,
         optionalSources
       });
@@ -275,6 +319,13 @@ export class ConversationReplyPipelineService {
         replyAgent.role_key, result.provider, result.modelId, effective.visibleContent,
         JSON.stringify(references), this.clock.now().toISOString()
       );
+      if (brief.creativeSessionId !== undefined) {
+        new CreativeSessionService(this.database, this.ids, this.clock).appendEditorReply(scope, {
+          sessionId: brief.creativeSessionId,
+          messageId,
+          content: effective.visibleContent
+        });
+      }
       new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
       return { messageId };
     } catch (error) {

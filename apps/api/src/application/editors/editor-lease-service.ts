@@ -207,7 +207,7 @@ export class EditorLeaseService {
           AND d.owner_id = t.owner_id AND d.book_id = t.book_id
         WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion'
           AND t.status NOT IN ('succeeded', 'failed', 'cancelled')
-          AND d.status IN ('collecting', 'synthesizing')
+          AND d.status IN ('collecting', 'cross_review', 'synthesizing')
         ON CONFLICT(discussion_id, agent_id) DO UPDATE SET
           invited_reason = excluded.invited_reason,
           model_snapshot_id = excluded.model_snapshot_id

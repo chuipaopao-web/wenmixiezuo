@@ -56,7 +56,7 @@ export class PlanningArtifactService {
     `).get(scope.ownerId, scope.bookId, discussionId) as { task_brief_json: string } | undefined;
     if (sourceTask === undefined) return null;
     const brief = JSON.parse(sourceTask.task_brief_json) as { purpose?: string };
-    if (brief.purpose !== 'creative_planning') return null;
+    if (brief.purpose !== 'locked_planning') return null;
     return this.promoteConfirmedDecision(scope, discussionId, decisionId, this.recommendedChapterCount(scope, discussionId));
   }
 
@@ -78,8 +78,8 @@ export class PlanningArtifactService {
     const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
     const structuredPlan = parsePlanningDeposit(summary);
-    if (structuredPlan !== null && structuredPlan.chapters.length !== chapterCount) {
-      throw new Error(`规划落库章节数${structuredPlan.chapters.length}与确认跨度${chapterCount}不一致`);
+    if (structuredPlan !== null && structuredPlan.chapters.length > Math.min(3, chapterCount)) {
+      throw new Error(`滚动章纲只能细化未来1至${Math.min(3, chapterCount)}章`);
     }
     const narrativeSummary = stripPlanningDeposit(summary);
     const positioning = this.positioning(scope);
@@ -129,9 +129,11 @@ export class PlanningArtifactService {
     });
     const firstChapterNumber = this.nextChapterNumber(scope);
     const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
-    const chapterPlans = structuredPlan?.chapters ?? Array.from({ length: chapterCount }, (_, index) => ({
+    const detailedChapterCount = Math.min(3, chapterCount);
+    const fallbackStages = ['建立本弧核心冲突并迫使主角作出第一次选择', '让选择产生可见代价并升级阻力', '形成阶段转折并打开下一步问题'];
+    const chapterPlans = structuredPlan?.chapters ?? Array.from({ length: detailedChapterCount }, (_, index) => ({
       title: `第${firstChapterNumber + index}章`,
-      goal: index === 0 ? narrativeSummary : `承接第${firstChapterNumber + index - 1}章，推进已确认方案：${narrativeSummary}`,
+      goal: `${fallbackStages[index] ?? '推进已确认故事弧'}：${narrativeSummary}`,
       beats,
       hook: extractHook(narrativeSummary, decision.scope_text)
     }));
@@ -159,7 +161,7 @@ export class PlanningArtifactService {
       endingState: structuredPlan?.endingState ?? extractHook(narrativeSummary, decision.scope_text),
       ...source
     });
-    const chapterOutlineVersionIds = Array.from({ length: chapterCount }, (_, index) => {
+    const chapterOutlineVersionIds = Array.from({ length: chapterPlans.length }, (_, index) => {
       const chapterNumber = firstChapterNumber + index;
       const plan = chapterPlans[index]!;
       const outline = this.upsert(scope, 'chapter_outline', `第${chapterNumber}章章纲`, {
@@ -261,8 +263,8 @@ function parsePlanningDeposit(summary: string): StructuredArcPlan | null {
   } catch {
     throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
   }
-  if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 30) {
-    throw new Error('规划落库必须包含1至30个章节方案');
+  if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 3) {
+    throw new Error('滚动规划必须包含未来1至3个章节方案');
   }
   const chapters = value.chapters.map((item, index): StructuredChapterPlan => {
     if (!isRecord(item)) throw new Error(`规划落库第${index + 1}章不是有效对象`);

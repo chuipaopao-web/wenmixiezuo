@@ -198,12 +198,46 @@ export interface WorkspaceData {
     }>;
   };
   messageCount: number;
+  creativeSession?: CreativeSessionData | null;
   localAssistant?: {
     displayName: string;
     roleName: string;
     status: 'ready' | 'degraded' | 'offline';
     sessionCount: number;
     summary: string;
+  };
+}
+
+export interface CreativeSessionData {
+  sessionId: string;
+  status: 'exploring' | 'awaiting_direction' | 'planning' | 'awaiting_plan' | 'ready' | 'paused';
+  mode: 'open_discussion' | 'creative_forecast' | 'trial_draft' | 'formal_production';
+  activeTopic: string;
+  currentBlackboardRevision: number;
+  canonRevision: number;
+  blackboard: null | {
+    revision: number;
+    currentGoal: string;
+    maturity: 'exploring' | 'comparing' | 'direction_ready' | 'planning' | 'ready';
+    nextStep: string;
+    candidates: unknown[];
+    disagreements: unknown[];
+    risks: unknown[];
+    unknowns: unknown[];
+    lockedDirection: null | { decisionId: string; summary: string };
+  };
+  activeForecast: null | {
+    forecastId: string;
+    status: string;
+    staleReason: string | null;
+    branchCount: number;
+    branches: Array<{
+      branchId: string;
+      ordinal: number;
+      title: string;
+      proposal: Record<string, unknown>;
+      sourceAgentId: string | null;
+    }>;
   };
 }
 

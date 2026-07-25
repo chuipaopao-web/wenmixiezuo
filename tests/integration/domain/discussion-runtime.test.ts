@@ -7,6 +7,8 @@ import { createTestContext, FixedClock, SequenceIds, type TestContext } from '..
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import { prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 
 describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
@@ -20,7 +22,7 @@ describe('自然语言讨论运行闭环', () => {
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const scheduled = conversations.sendBossMessage(scope, '讨论 下一章的读者情绪和结尾钩子');
-    expect(scheduled.action).toMatchObject({ kind: 'discussion_scheduled' });
+    expect(scheduled.action).toMatchObject({ kind: 'creative_session_started', roundKind: 'initial_exploration' });
     const taskId = String(scheduled.action.taskId);
     const discussionId = String(scheduled.action.discussionId);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
@@ -28,18 +30,19 @@ describe('自然语言讨论运行闭环', () => {
 
     const result = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, taskId, 'worker-discussion');
-    expect(result).toMatchObject({ discussionId, opinionCount: 3 });
+    expect(result).toMatchObject({ discussionId, opinionCount: 5 });
     expect(tasks.require(scope, taskId).status).toBe('succeeded');
     const discussion = context.database.prepare(`SELECT status, calls_used FROM discussions WHERE discussion_id = ?`).get(discussionId);
-    expect(discussion).toEqual({ status: 'awaiting_boss', calls_used: 3 });
+    expect(discussion).toEqual({ status: 'awaiting_boss', calls_used: 5 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants WHERE discussion_id = ? AND responded = 1`).get(discussionId)).toEqual({ count: 3 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 3 });
-    expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates WHERE discussion_id = ? AND independence_attested = 1`).get(discussionId)).toEqual({ count: 2 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ? AND state = 'succeeded' AND context_pack_id IS NOT NULL`).get(taskId)).toEqual({ count: 5 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_opinions WHERE discussion_id = ? AND phase = 'cross_review'`).get(discussionId)).toEqual({ count: 2 });
+    expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates WHERE discussion_id = ? AND independence_attested = 1`).get(discussionId)).toEqual({ count: 0 });
     const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; references_json: string; model_provider: string | null; model_id: string | null }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
     expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v2-chief_editor' });
     expect(summary?.content).toContain(`确认方案 ${result.decisionId}`);
-    expect(summary?.content).toContain('份独立岗位意见');
+    expect(summary?.content).toContain('份独立方案与交叉质疑');
     expect(summary?.content).not.toContain('【婉儿】');
     const effectiveReference = (JSON.parse(summary?.references_json ?? '[]') as Array<Record<string, unknown>>)
       .find((reference) => reference.type === 'effective_output');
@@ -49,7 +52,11 @@ describe('自然语言讨论运行闭环', () => {
     expect(String(effectiveReference?.fullContent)).toContain(`确认方案 ${result.decisionId}`);
 
     const callsBeforeConfirmation = (context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId) as { count: number }).count;
-    expect(conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`).action).toMatchObject({ kind: 'discussion_confirmed', decisionId: result.decisionId });
+    expect(conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`).action).toMatchObject({
+      kind: 'creative_direction_locked',
+      sourceDecisionId: result.decisionId,
+      roundKind: 'locked_planning'
+    });
     expect(context.database.prepare(`SELECT status FROM discussions WHERE discussion_id = ?`).get(discussionId)).toEqual({ status: 'confirmed' });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId)).toEqual({ count: callsBeforeConfirmation });
   });
@@ -68,7 +75,15 @@ describe('自然语言讨论运行闭环', () => {
     const result = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, taskId, 'worker-planning');
 
-    const confirmed = conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`);
+    const locked = conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`);
+    expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', sourceDecisionId: result.decisionId });
+    const planningTaskId = String(locked.action.taskId);
+    expect(tasks.claimNext('worker-rolling-planning')?.taskId).toBe(planningTaskId);
+    const planningResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, planningTaskId, 'worker-rolling-planning');
+    expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates
+      WHERE discussion_id = ? AND independence_attested = 1`).get(planningResult.discussionId)).toEqual({ count: 2 });
+    const confirmed = conversations.sendBossMessage(scope, `确认方案 ${planningResult.decisionId}`);
     expect(confirmed.action).toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM artifacts
@@ -82,7 +97,71 @@ describe('自然语言讨论运行闭环', () => {
       SELECT v.content_json FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
       WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'chapter_outline' AND a.status = 'active'
     `).get(scope.ownerId, scope.bookId) as { content_json: string };
-    expect(JSON.parse(outline.content_json)).toMatchObject({ sourceDiscussionId: String(scheduled.action.discussionId), sourceDecisionId: result.decisionId });
+    expect(JSON.parse(outline.content_json)).toMatchObject({
+      sourceDiscussionId: planningResult.discussionId,
+      sourceDecisionId: planningResult.decisionId
+    });
+  });
+
+  it('试写只生成可修改临时稿，不启动三席审校或进入正史', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '试写隔离测试书',
+      text: '主角在雨夜发现失踪信使留下的半枚印章'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const trial = conversations.sendBossMessage(scope, '试写看看');
+    expect(trial.action).toMatchObject({ kind: 'trial_draft_scheduled', count: 1 });
+
+    const batch = await new ChapterBatchService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).run(scope, String(trial.action.batchId));
+    expect(batch.batch.status).toBe('completed');
+    expect(batch.results).toEqual([
+      expect.objectContaining({ status: 'completed', phase: 'completed', rewriteCount: 0 })
+    ]);
+    expect(context.database.prepare(`
+      SELECT settlement_status, generation_status FROM chapters
+      WHERE owner_id = ? AND book_id = ? AND chapter_number = 1
+    `).get(scope.ownerId, scope.bookId)).toEqual({
+      settlement_status: 'unsettled',
+      generation_status: 'completed'
+    });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM review_reports WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM confirmations WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 0 });
+    const trialChapter = context.database.prepare(`
+      SELECT chapter_id, current_manuscript_version_id FROM chapters
+      WHERE owner_id = ? AND book_id = ? AND chapter_number = 1
+    `).get(scope.ownerId, scope.bookId) as {
+      chapter_id: string;
+      current_manuscript_version_id: string;
+    };
+    const formalReview = new ChapterBatchService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).scheduleExistingRevision(
+      scope,
+      trialChapter.chapter_id,
+      trialChapter.current_manuscript_version_id,
+      'review_existing'
+    );
+    expect(new TaskService(context.database, context.config.releaseId, clock)
+      .require(scope, formalReview.taskId).brief).toMatchObject({
+      operation: 'review_existing',
+      manuscriptVersionId: trialChapter.current_manuscript_version_id
+    });
   });
 
   it('活动主编连续技术失败后由副编接管，并复用已完成的双编剧意见', async () => {
@@ -114,11 +193,11 @@ describe('自然语言讨论运行闭环', () => {
     expect(reclaimed?.taskId).toBe(taskId);
     const completed = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
       .executeClaimed(scope, taskId, 'worker-deputy', { leaseToken: reclaimed!.leaseToken!, attemptNo: reclaimed!.currentAttemptNo });
-    expect(completed.opinionCount).toBe(3);
+    expect(completed.opinionCount).toBe(5);
     expect(tasks.require(scope, taskId).status).toBe('succeeded');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_opinions
       WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
-      .get(scope.ownerId, scope.bookId, discussionId)).toEqual({ count: 3 });
+      .get(scope.ownerId, scope.bookId, discussionId)).toEqual({ count: 5 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?
       AND task_id = ? AND state = 'failed' AND error_class = 'technical_failure'`)
       .get(scope.ownerId, scope.bookId, taskId)).toEqual({ count: 2 });

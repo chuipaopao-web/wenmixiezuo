@@ -41,7 +41,11 @@ export class ChapterBatchService {
   public scheduleNewChapters(
     scope: BookScope,
     count: 1 | 3 | 4 | 5,
-    options: { volumeTitle?: string; firstChapterTitle?: string } = {}
+    options: {
+      volumeTitle?: string;
+      firstChapterTitle?: string;
+      productionMode?: 'formal_production' | 'trial_draft';
+    } = {}
   ): ChapterBatchRecord {
     assertBookScope(scope);
     if (![1, 3, 4, 5].includes(count)) throw new Error('首版批次只能安排1章或连续3至5章');
@@ -77,10 +81,16 @@ export class ChapterBatchService {
         chapterIds.push(catalog.createChapter(scope, volume.volume_id, number, index === 0 && options.firstChapterTitle !== undefined ? options.firstChapterTitle : `第${number}章`).chapterId);
       }
     }
-    return this.scheduleExisting(scope, chapterIds);
+    return this.scheduleExisting(scope, chapterIds, {
+      productionMode: options.productionMode ?? 'formal_production'
+    });
   }
 
-  public scheduleExisting(scope: BookScope, chapterIds: string[]): ChapterBatchRecord {
+  public scheduleExisting(
+    scope: BookScope,
+    chapterIds: string[],
+    options: { productionMode?: 'formal_production' | 'trial_draft' } = {}
+  ): ChapterBatchRecord {
     assertBookScope(scope);
     if (chapterIds.length !== 1 && (chapterIds.length < 3 || chapterIds.length > 5)) throw new Error('首版批次只能安排1章或连续3至5章');
     new WritingReadinessService(this.database).assertReady(scope, chapterIds.length as ChapterRequestCount);
@@ -107,7 +117,12 @@ export class ChapterBatchService {
         budgetId: budget.budget_id,
         requiredEditorEpoch: book.editor_epoch,
         initialPhase: 'preflight',
-        brief: { chapterId, chapterNumber: chapter.chapter_number, batchIndex: index }
+        brief: {
+          chapterId,
+          chapterNumber: chapter.chapter_number,
+          batchIndex: index,
+          productionMode: options.productionMode ?? 'formal_production'
+        }
       });
       if (index > 0) tasks.addDependency(scope, taskId, taskIds[index - 1]!);
       tasks.queue(scope, taskId);

@@ -36,7 +36,7 @@ describe('小文秘书真实消息入口的本地语义候选', () => {
     const service = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock, model);
     const original = '咱们一起盘一盘，张三接下来该不该攻城？';
     const result = await service.sendBossMessageWithLocalAssistant(scope, original);
-    expect(result.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'creative_planning',
+    expect(result.action).toMatchObject({ kind: 'creative_session_started', purpose: 'creative_exploration',
       intake: { routeClass: 'plot_discussion', selectedAction: 'start_editor_hosted_dual_screenwriter_session' } });
     expect(model.calls).toBe(1);
     const stored = context.database.prepare(`
