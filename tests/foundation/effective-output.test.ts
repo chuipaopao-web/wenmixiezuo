@@ -61,7 +61,7 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('下一步：请两名编剧分别推演');
     expect(result.fullContent).toContain('好的。');
     expect(result.fullContent.match(/旧盟约可能让天安城获得援军/gu)).toHaveLength(2);
-    expect(createEffectiveOutputReference(result)?.fullContent).toBe(result.fullContent);
+    expect(createEffectiveOutputReference(result)).toBeNull();
     expect(result.filtered).toBe(true);
   });
 
@@ -74,7 +74,7 @@ describe('有效输出层', () => {
     expect(createEffectiveOutputReference(result)).toBeNull();
   });
 
-  it('有界字段超出合同后原样回退，不丢内容', () => {
+  it('轻微超出建议条数时仍自然展示，不因合同偏差暴露JSON', () => {
     const raw = JSON.stringify({
       answer: '结论',
       keyPoints: ['一', '二', '三', '四'],
@@ -87,20 +87,21 @@ describe('有效输出层', () => {
 
     const result = prepareEffectiveOutput(raw);
 
-    expect(result.format).toBe('fallback');
-    expect(result.visibleContent).toBe(raw);
-    expect(result.fullContent).toBe(raw);
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('结论');
+    expect(result.visibleContent).toContain('- 四');
+    expect(result.visibleContent).not.toContain('"keyPoints"');
   });
 
-  it('讨论消息可以用完整参与者内容覆盖展开引用而不改变默认结论', () => {
+  it('结构化回复可保留主编整理后的补充依据而不暴露其他岗位原始协议', () => {
     const result = prepareEffectiveOutput(JSON.stringify({
       answer: '主推荐采用缓攻方案。', keyPoints: ['保留联盟反转空间'], risks: ['节奏偏慢'],
       questions: [], nextStep: '确认后生成三章章纲', details: '主编完整补充'
     }));
-    const fullDiscussion = '【婉儿】直接宣战方案\n【红玉】缓攻方案\n【貂蝉】主编完整补充';
-    const reference = createEffectiveOutputReference(result, fullDiscussion);
+    const reference = createEffectiveOutputReference(result);
 
-    expect(reference?.fullContent).toBe(fullDiscussion);
+    expect(reference?.fullContent).toContain('主编完整补充');
+    expect(reference?.fullContent).not.toContain('婉儿');
     expect(reference?.contentHash).toMatch(/^[a-f0-9]{64}$/u);
     expect(result.visibleContent).not.toContain('婉儿');
   });
@@ -146,6 +147,25 @@ describe('有效输出层', () => {
     expect(result.visibleContent).not.toContain('json_object');
   });
 
+  it('从前后混杂岗位文本和规划落库中安全提取主编结构化结论', () => {
+    const wrapped = JSON.stringify({
+      version: 1, format: 'json_object',
+      fields: {
+        answer: '先用三章完成灰塔迁移。', keyPoints: ['账簿必须先核验'], risks: ['水源不足'],
+        questions: [], alternatives: [], nextStep: '锁定后细化第一章', details: '依据来自灰塔现状。'
+      },
+      rules: ['内部合同不得展示']
+    });
+    const result = prepareEffectiveOutput(`编剧原始意见\n${wrapped}\n规划落库 {"chapters":[{"title":"内部章纲"}]}`);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('先用三章完成灰塔迁移');
+    expect(result.visibleContent).toContain('账簿必须先核验');
+    expect(result.visibleContent).not.toContain('规划落库');
+    expect(result.visibleContent).not.toContain('rules');
+    expect(result.fullContent).toContain('依据来自灰塔现状');
+  });
+
   it('拒绝非合同版本或格式的包装对象并回退', () => {
     const badVersion = prepareEffectiveOutput(JSON.stringify({ version: 2, format: 'json_object', fields: { answer: 'x' } }));
     expect(badVersion.format).toBe('fallback');
@@ -165,5 +185,8 @@ describe('有效输出层', () => {
   it('坏JSON（缺逗号）回退且不抛异常', () => {
     const result = prepareEffectiveOutput('{"answer":"结论" "keyPoints":[]}');
     expect(result.format).toBe('fallback');
+    expect(result.visibleContent).toContain('格式不适合直接展示');
+    expect(result.visibleContent).not.toContain('"answer"');
+    expect(result.fullContent).toContain('"answer"');
   });
 });

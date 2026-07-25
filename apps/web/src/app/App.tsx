@@ -113,6 +113,14 @@ import {
 import { cacheSnapshot, loadDraft, loadSnapshot, saveDraft } from '../lib/offline/offline-store';
 import { avatarPosition } from './role-avatars';
 import {
+  authorFieldLabel,
+  authorFormatScalar,
+  authorRelationshipLabel,
+  projectionForAuthor,
+  structuredReplyFromMixedText,
+  toAuthorDisplayValue
+} from './author-presentation';
+import {
   DEFAULT_WORKSPACE_PREFERENCES,
   FONT_SCALE,
   readWorkspacePreferences,
@@ -816,8 +824,13 @@ function MessageBubble({ bookId, message, agents }: { bookId: string; message: M
   const [expanded, setExpanded] = useState(false);
   const speakingAgent = message.role_key === null ? null : agents.find((agent) => agent.roleKey === message.role_key) ?? null;
   const attachments = messageAttachmentReferences(message.references_json);
-  const effectiveOutput = effectiveOutputReference(message.references_json);
-  const conciseContent = localAssistantDisplayContent(message);
+  const storedEffectiveOutput = effectiveOutputReference(message.references_json);
+  const recoveredDirectOutput = message.sender_type === 'agent' ? structuredReplyFromMixedText(message.content) : null;
+  const recoveredLegacyOutput = storedEffectiveOutput?.format === 'fallback'
+    ? structuredReplyFromMixedText(storedEffectiveOutput.fullContent)
+    : null;
+  const effectiveOutput = recoveredLegacyOutput ?? recoveredDirectOutput ?? (storedEffectiveOutput?.format === 'structured' ? storedEffectiveOutput : null);
+  const conciseContent = recoveredLegacyOutput?.visibleContent ?? recoveredDirectOutput?.visibleContent ?? localAssistantDisplayContent(message);
   const displayContent = expanded && effectiveOutput !== null ? effectiveOutput.fullContent : conciseContent;
   const source = message.sender_type === 'boss'
     ? '老板'
@@ -848,7 +861,6 @@ function MessageBubble({ bookId, message, agents }: { bookId: string; message: M
             ? <a className="message-image-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><img src={chatAttachmentContentUrl(bookId, attachment.attachmentId)} alt={attachment.originalName} /><span>{attachment.originalName}</span></a>
             : <a className="message-file-attachment" key={attachment.attachmentId} href={chatAttachmentContentUrl(bookId, attachment.attachmentId)} target="_blank" rel="noreferrer"><FileTextIcon /><span><strong>{attachment.originalName}</strong><small>{attachmentStatusLabel(attachment.parseStatus, attachment.parsedCharCount)}</small></span></a>
         ))}</div>}
-        {message.sender_type === 'agent' && <footer>{message.model_provider}/{message.model_id}</footer>}
       </div>
       {message.sender_type === 'boss' && <span className="message-avatar boss-avatar" role="img" aria-label="老板头像"><UserCircleIcon /></span>}
     </article>
@@ -878,6 +890,7 @@ interface MessageAttachmentReference {
 interface EffectiveOutputMessageReference {
   type: 'effective_output';
   version: 1;
+  format: 'structured' | 'fallback';
   fullContent: string;
   contentHash: string;
 }
@@ -889,6 +902,7 @@ function effectiveOutputReference(value: string): EffectiveOutputMessageReferenc
     const reference = parsed.find((item): item is EffectiveOutputMessageReference => isRecord(item)
       && item.type === 'effective_output'
       && item.version === 1
+      && (item.format === 'structured' || item.format === 'fallback')
       && typeof item.fullContent === 'string'
       && item.fullContent.trim().length > 0
       && typeof item.contentHash === 'string'
@@ -1033,12 +1047,12 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   const reports = detail.production.reviewReports.map((row) => ({ row, report: parseRecordJson(row.report_json) })).filter((item) => item.report !== null) as Array<{ row: Record<string, unknown>; report: Record<string, unknown> }>;
   if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>生产证据</h3><p>本章尚未形成正式工单和三席点评。</p></section>;
   return <section className="production-evidence"><header><h3>工单与三席点评</h3><p>点评针对同一不可变正文版本；AI腔是可定位文风风险，不是AI作者概率。政治与情色项是内容筛查，不是法律或平台保证。</p></header>
-    {order !== undefined && <article className="writing-order-card"><span>写作工单</span><strong>{String(order.objective ?? '本章正式写作目标')}</strong><small>版本 {String(order.version ?? 1)}，正史水位 {String(order.canon_revision ?? 0)}，状态 {authorityLabel(String(order.status ?? 'active'))}</small></article>}
+    {order !== undefined && <article className="writing-order-card"><span>写作工单</span><strong>{String(order.objective ?? '本章正式写作目标')}</strong><small>版本 {String(order.version ?? 1)}，依据正史版本 {String(order.canon_revision ?? 0)}，状态 {authorityLabel(String(order.status ?? 'active'))}</small></article>}
     <div className="review-evidence-grid">{reports.map(({ row, report }) => {
       const aiStyle = isRecord(report.aiStyle) ? report.aiStyle : null;
       const political = isRecord(report.politicalRisk) ? report.politicalRisk : null;
       const sexual = isRecord(report.sexualContentRisk) ? report.sexualContentRisk : null;
-      return <article key={String(row.review_report_id)}><header><span>{reviewerRoleLabel(String(row.reviewer_role))}</span><em>{authorityLabel(String(row.status ?? 'completed'))}</em></header><h4>{String(report.summary ?? '已完成结构化点评')}</h4><p>{String(row.provider ?? '')}/{String(row.model_id ?? '')}</p><dl><div><dt>结论</dt><dd>{reviewVerdictLabel(String(report.verdict ?? 'pass'))}</dd></div><div><dt>全文输入</dt><dd>{formatNumber(Number(row.input_tokens ?? 0))} Token</dd></div>{aiStyle !== null && <><div><dt>AI腔风险</dt><dd>{String(aiStyle.riskScore ?? 0)}/100</dd></div><div><dt>证据段落</dt><dd>{String(aiStyle.flaggedParagraphCount ?? 0)}/{String(aiStyle.totalParagraphCount ?? 0)}（{formatPercent(Number(aiStyle.flaggedParagraphRatio ?? 0))}）</dd></div></>}{political !== null && <div><dt>政治风险</dt><dd>{riskLevelLabel(String(political.level ?? 'none'))}</dd></div>}{sexual !== null && <div><dt>情色风险</dt><dd>{riskLevelLabel(String(sexual.level ?? 'none'))}</dd></div>}</dl>{Array.isArray(report.issues) && report.issues.length > 0 && <details><summary>查看定位问题 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}</article>;
+      return <article key={String(row.review_report_id)}><header><span>{reviewerRoleLabel(String(row.reviewer_role))}</span><em>{authorityLabel(String(row.status ?? 'completed'))}</em></header><h4>{String(report.summary ?? '已完成结构化点评')}</h4><dl><div><dt>结论</dt><dd>{reviewVerdictLabel(String(report.verdict ?? 'pass'))}</dd></div>{aiStyle !== null && <><div><dt>AI腔风险</dt><dd>{String(aiStyle.riskScore ?? 0)}/100</dd></div><div><dt>证据段落</dt><dd>{String(aiStyle.flaggedParagraphCount ?? 0)}/{String(aiStyle.totalParagraphCount ?? 0)}（{formatPercent(Number(aiStyle.flaggedParagraphRatio ?? 0))}）</dd></div></>}{political !== null && <div><dt>政治风险</dt><dd>{riskLevelLabel(String(political.level ?? 'none'))}</dd></div>}{sexual !== null && <div><dt>情色风险</dt><dd>{riskLevelLabel(String(sexual.level ?? 'none'))}</dd></div>}</dl>{Array.isArray(report.issues) && report.issues.length > 0 && <details><summary>查看定位问题 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}</article>;
     })}</div>
   </section>;
 }
@@ -1309,7 +1323,7 @@ function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formul
 
 function EntityGrid({ entities }: { entities: Array<Record<string, unknown>> }): React.JSX.Element {
   if (entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="此分类尚无资料" description="可直接告诉主编需要增加的人物、势力、地点、规则或道具标签。" />;
-  return <div className="entity-grid">{entities.slice(0, 300).map((entity) => <article key={String(entity.entity_id)}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{String(entity.canonical_name)}</h3><p>{arrayText(entity.aliases, '暂无别名')}</p><small>结构版本 {String(entity.schema_version ?? 1)}</small></article>)}</div>;
+  return <div className="entity-grid">{entities.slice(0, 300).map((entity) => <article key={String(entity.entity_id)}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{String(entity.canonical_name)}</h3><p>{arrayText(entity.aliases, '暂无别名')}</p></article>)}</div>;
 }
 
 function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>>; bookId: string | null }): React.JSX.Element {
@@ -1332,7 +1346,7 @@ function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>
 
 function KnowledgeGraph({ records }: { records: Array<Record<string, unknown>> }): React.JSX.Element {
   if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="尚无关系图谱" description="确认人物、势力或地点关系并重建投影后显示；布局只是浏览辅助，不是故事事实。" />;
-  const edges = records.slice(0, 500).map((record) => ({ from: String(record.from_name ?? record.from_entity_id ?? '未知'), relation: String(record.relation_key ?? '关联'), to: graphTarget(record.toValue) }));
+  const edges = records.slice(0, 500).map((record) => ({ from: String(record.from_name ?? '未知'), relation: authorRelationshipLabel(record.relation_key), to: graphTarget(record.toValue) }));
   const nodes = [...new Set(edges.flatMap((edge) => [edge.from, edge.to]))].slice(0, 200);
   return <div className="knowledge-graph"><div className="graph-canvas" role="img" aria-label={`${nodes.length}个节点、${edges.length}条关系的有界关系图`}><div className="graph-node-grid">{nodes.map((node) => <span tabIndex={0} key={node}>{node}</span>)}</div></div><div className="graph-edge-list">{edges.slice(0, 100).map((edge, index) => <div key={`${edge.from}-${edge.relation}-${edge.to}-${index}`}><strong>{edge.from}</strong><span>{edge.relation}</span><strong>{edge.to}</strong></div>)}</div><p className="projection-disclaimer">当前仅加载≤200节点、≤500边的有界子图；节点布局不代表地理坐标或权威关系强度。</p></div>;
 }
@@ -1362,7 +1376,9 @@ function ProjectionWorkspace({ data }: { data: unknown }): React.JSX.Element {
 
 function ProjectionTracks({ records }: { records: Array<Record<string, unknown>> }): React.JSX.Element {
   if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="尚无分析投影" description="确认规划或结算正文后，可重建情绪、主支线、钩子和信息差视图。" />;
-  return <div className="projection-tracks"><section><h3>规划曲线</h3><RecordCollection records={records.filter((item) => item.track === 'planned')} empty="暂无规划轨" /></section><section><h3>实际曲线</h3><RecordCollection records={records.filter((item) => item.track === 'actual')} empty="暂无实际轨" /></section></div>;
+  const planned = records.filter((item) => item.track === 'planned').map(projectionForAuthor);
+  const actual = records.filter((item) => item.track === 'actual').map(projectionForAuthor);
+  return <div className="projection-tracks"><section><h3>规划曲线</h3><RecordCollection records={planned} empty="暂无规划轨" /></section><section><h3>实际曲线</h3><RecordCollection records={actual} empty="暂无实际轨" /></section></div>;
 }
 
 function RightsWorkspace({ data }: { data: unknown }): React.JSX.Element {
@@ -1376,12 +1392,13 @@ function RecordCollection({ records, empty }: { records: Array<Record<string, un
 }
 
 function StructuredContent({ value, depth = 0 }: { value: unknown; depth?: number }): React.JSX.Element {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="empty-value">暂无</span>;
-    return <ul>{value.slice(0, 30).map((item, index) => <li key={index}>{isRecord(item) || Array.isArray(item) ? <StructuredContent value={item} depth={depth + 1} /> : formatValue(item)}</li>)}</ul>;
+  const visibleValue = depth === 0 ? toAuthorDisplayValue(value) : value;
+  if (Array.isArray(visibleValue)) {
+    if (visibleValue.length === 0) return <span className="empty-value">暂无</span>;
+    return <ul>{visibleValue.slice(0, 30).map((item, index) => <li key={index}>{isRecord(item) || Array.isArray(item) ? <StructuredContent value={item} depth={depth + 1} /> : authorFormatScalar(item)}</li>)}</ul>;
   }
-  if (!isRecord(value)) return <span>{formatValue(value)}</span>;
-  return <dl className={`structured-content depth-${Math.min(depth, 2)}`}>{Object.entries(value).filter(([key]) => !isTechnicalField(key)).slice(0, 40).map(([key, item]) => <div key={key}><dt>{fieldLabel(key)}</dt><dd>{isRecord(item) || Array.isArray(item) ? <StructuredContent value={item} depth={depth + 1} /> : formatValue(item)}</dd></div>)}</dl>;
+  if (!isRecord(visibleValue)) return <span>{authorFormatScalar(visibleValue)}</span>;
+  return <dl className={`structured-content depth-${Math.min(depth, 2)}`}>{Object.entries(visibleValue).slice(0, 40).map(([key, item]) => <div key={key}><dt>{authorFieldLabel(key)}</dt><dd>{isRecord(item) || Array.isArray(item) ? <StructuredContent value={item} depth={depth + 1} /> : authorFormatScalar(item)}</dd></div>)}</dl>;
 }
 
 function EmptyReference({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }): React.JSX.Element {

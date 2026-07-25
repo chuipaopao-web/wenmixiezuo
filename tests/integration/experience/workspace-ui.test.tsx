@@ -187,6 +187,39 @@ describe('完整创作工作台', () => {
     })).toBe(true));
   });
 
+  it('图谱、规划和版权页只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      if (path.endsWith('/projections')) return apiResponse([{
+        projection_id: 'projection-internal-1', owner_id: 'owner-internal', book_id: 'book-internal',
+        projection_type: 'emotion', track: 'actual', chapter_number: 12, canon_revision: 3,
+        content_json: JSON.stringify({ status: 'not_extracted', source: 'chapter_outline' }),
+        source_ids_json: JSON.stringify(['source-internal-1']), rebuilt_at: '2026-07-25T01:00:00.000Z'
+      }]);
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '图谱' }));
+    fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
+    expect(await screen.findByText('暂无可展示内容')).toBeInTheDocument();
+    expect(screen.getByText('章纲')).toBeInTheDocument();
+    expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '规划' }));
+    expect(await screen.findByText('作品定位与全书框架')).toBeInTheDocument();
+    expect(screen.queryByText('sourceStatus')).not.toBeInTheDocument();
+    expect(screen.queryByText('explicit')).not.toBeInTheDocument();
+    expect(screen.getAllByText('明确确认').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '版权与研究' }));
+    expect(await screen.findByText('作者提供')).toBeInTheDocument();
+    expect(screen.getAllByText('候选判断').length).toBeGreaterThan(0);
+    expect(screen.queryByText('source_status')).not.toBeInTheDocument();
+    expect(screen.queryByText('candidate_status')).not.toBeInTheDocument();
+  });
+
   it('把归档书移出主书架并放入可恢复的归档区', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', { ...workspace, book: { ...book, status: 'archived' } })));
     render(<App />);
@@ -674,6 +707,14 @@ describe('完整创作工作台', () => {
       references_json: JSON.stringify([{ type: 'effective_output', version: 1,
         fullContent: '这段损坏引用不得展示。', contentHash: 'invalid' }]),
       created_at: '2026-07-16T12:04:00.000Z'
+    }, {
+      message_id: 'legacy-fallback-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
+      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'discussion_summary',
+      content: '主编汇总未能解析为结构化结论，请查看原始结果。',
+      references_json: JSON.stringify([{ type: 'effective_output', version: 1, format: 'fallback',
+        fullContent: `【婉儿】原始意见\n${JSON.stringify({ version: 1, format: 'json_object', fields: { answer: '先查清灰塔账簿，再决定是否迁移。', keyPoints: ['账簿有断页'], alternatives: [], risks: ['水源不足'], questions: [], nextStep: null, details: null } })}\n规划落库 {"chapters":[1,2,3]}`,
+        contentHash: 'b'.repeat(64) }]),
+      created_at: '2026-07-16T12:05:00.000Z'
     }];
     const fetchMock = vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: chatMessages.length }, chatMessages));
     vi.stubGlobal('fetch', fetchMock);
@@ -700,6 +741,10 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: '收起完整回复' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('损坏引用安全降级。')).toBeInTheDocument();
     expect(screen.queryByText('这段损坏引用不得展示。')).not.toBeInTheDocument();
+    expect(screen.getByText(/先查清灰塔账簿/)).toBeInTheDocument();
+    expect(screen.queryByText(/主编汇总未能解析/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/规划落库/)).not.toBeInTheDocument();
+    expect(screen.queryByText('local-deterministic/fixture')).not.toBeInTheDocument();
 
     const addButton = screen.getByRole('button', { name: '添加图片或文件' });
     expect(addButton).toBeInTheDocument();

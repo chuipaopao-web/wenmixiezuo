@@ -69,7 +69,10 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   }
 
   const cleaned = removeOnlyCertainNoise(normalizedRaw);
-  const visibleContent = cleaned.length > 0 ? cleaned : normalizedRaw;
+  const fallbackContent = cleaned.length > 0 ? cleaned : normalizedRaw;
+  const visibleContent = looksLikeMachinePayload(fallbackContent)
+    ? '这次回复的格式不适合直接展示，我已经把内部杂乱内容拦下了。请继续追问，我会重新整理成清楚的结论。'
+    : fallbackContent;
   return {
     visibleContent,
     fullContent: normalizedRaw,
@@ -78,11 +81,10 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   };
 }
 
-export function createEffectiveOutputReference(
-  result: EffectiveOutputResult,
-  fullContentOverride?: string
-): EffectiveOutputReference | null {
-  const fullContent = normalizeText(fullContentOverride ?? result.fullContent);
+export function createEffectiveOutputReference(result: EffectiveOutputResult): EffectiveOutputReference | null {
+  // 非结构化回退保留在内部调用记录中，不再把原始协议或混杂输出作为作者可展开内容。
+  if (result.format !== 'structured') return null;
+  const fullContent = normalizeText(result.fullContent);
   if (fullContent.length === 0 || fullContent === normalizeText(result.visibleContent)) return null;
   return {
     type: 'effective_output',
@@ -94,40 +96,73 @@ export function createEffectiveOutputReference(
 }
 
 function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
-  const candidate = unwrapJsonFence(raw);
-  let value: unknown;
-  try {
-    value = JSON.parse(candidate) as unknown;
-  } catch {
-    return null;
+  for (const candidate of structuredJsonCandidates(raw)) {
+    let value: unknown;
+    try {
+      value = JSON.parse(candidate) as unknown;
+    } catch {
+      continue;
+    }
+    if (!isRecord(value)) continue;
+    // 双形态白名单解析。兼容根级对象和合同版本化包装对象；包装只允许版本1的对象字段。
+    const fields = unwrapContractFields(value);
+    if (fields === null) continue;
+    const answer = nonEmptyString(fields.answer);
+    if (answer === null) continue;
+    const keyPoints = stringList(fields.keyPoints, MAX_LIST_ITEMS);
+    const risks = stringList(fields.risks, MAX_LIST_ITEMS);
+    const questions = stringList(fields.questions, MAX_LIST_ITEMS);
+    const alternatives = alternativeList(fields.alternatives);
+    const nextStep = optionalString(fields.nextStep);
+    const details = optionalString(fields.details);
+    if ([keyPoints, risks, questions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
+      continue;
+    }
+    return {
+      answer,
+      keyPoints: keyPoints!,
+      alternatives: alternatives!,
+      risks: risks!,
+      questions: questions!,
+      nextStep,
+      details
+    };
   }
-  if (!isRecord(value)) return null;
-  // P0-3 / R01: 双形态白名单解析。兼容根级对象和合同版本化包装对象
-  // {version:1, format:'json_object', fields:{...}}；包装只允许 version=1、format=json_object、fields为对象。
-  // 真实模型按 EFFECTIVE_OUTPUT_CONTRACT 返回包装对象时，旧逻辑只读根级 answer 会失败并原样回退，
-  // 导致代码围栏与内部 JSON 键裸露到聊天。
-  const fields = unwrapContractFields(value);
-  if (fields === null) return null;
-  const answer = nonEmptyString(fields.answer);
-  if (answer === null) return null;
-  const keyPoints = stringList(fields.keyPoints, 3);
-  const risks = stringList(fields.risks, MAX_LIST_ITEMS);
-  const questions = stringList(fields.questions, 3);
-  const alternatives = alternativeList(fields.alternatives);
-  const nextStep = optionalString(fields.nextStep);
-  const details = optionalString(fields.details);
-  if ([keyPoints, risks, questions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
-    return null;
+  return null;
+}
+
+function structuredJsonCandidates(raw: string): string[] {
+  const direct = unwrapJsonFence(raw);
+  const candidates = [direct];
+
+  // 模型偶尔会在结构化答复前后附加岗位意见或“规划落库”。使用字符串感知的括号扫描，
+  // 只抽取完整 JSON 对象；不使用贪婪正则，避免嵌套对象、转义引号导致截断。
+  for (let start = 0; start < raw.length; start += 1) {
+    if (raw[start] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          candidates.push(raw.slice(start, index + 1));
+          start = index;
+          break;
+        }
+      }
+    }
   }
-  return {
-    answer,
-    keyPoints: keyPoints!,
-    alternatives: alternatives!,
-    risks: risks!,
-    questions: questions!,
-    nextStep,
-    details
-  };
+  return candidates;
 }
 
 function unwrapContractFields(value: Record<string, unknown>): Record<string, unknown> | null {
@@ -174,6 +209,14 @@ function removeOnlyCertainNoise(raw: string): string {
     kept.push(paragraph);
   }
   return kept.join('\n\n');
+}
+
+function looksLikeMachinePayload(value: string): boolean {
+  const text = value.trim();
+  if (/^```(?:json)?\s*/iu.test(text)) return true;
+  if (/^[\[{][\s\S]*[\]}]$/u.test(text)) return true;
+  return /\\?"(?:version|format|fields|answer|title|goal|beats|hook)\\?"\s*:/iu.test(text)
+    || /(?:规划落库|content_json|projection_id|source_ids_json)/iu.test(text);
 }
 
 function unwrapJsonFence(value: string): string {

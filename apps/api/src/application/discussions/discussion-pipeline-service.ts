@@ -343,9 +343,7 @@ export class DiscussionPipelineService {
         brief.conversationId,
         editor,
         brief.discussionId,
-        brief.scopeText,
         decisionId,
-        opinions,
         editorOpinion.effective ?? prepareEffectiveOutput(editorOpinion.output),
         brief.purpose ?? 'open_discussion'
       );
@@ -460,39 +458,25 @@ export class DiscussionPipelineService {
     conversationId: string,
     editor: ParticipantRow,
     discussionId: string,
-    scopeText: string,
     decisionId: string,
-    opinions: Array<{ agentId: string; role: string; roleKey: RoleKey | CreativeRoleKey; output: string }>,
     editorSummary: EffectiveOutputResult,
     purpose: DiscussionPurpose
   ): string {
-    const specialistSections = opinions
-      .filter((opinion) => opinion.agentId !== editor.agent_id)
-      .map((opinion) => `【${opinion.role}】\n${opinion.output}`);
     const confirmation = purpose === 'creative_exploration'
-      ? `您可以继续讨论、要求重大改向或试写；方向明确后可直接说“锁定当前方向”，也可输入：确认方案 ${decisionId}`
+      ? '您可以继续讨论、要求重大改向或试写；方向明确后直接说“锁定当前方向”。'
       : purpose === 'locked_planning'
-        ? `如认可故事弧跨度和未来1至3章的滚动规划，请输入：确认方案 ${decisionId}`
-        : `如接受，请输入：确认方案 ${decisionId}`;
-    // P0-3 / R01: 合同型 discussion_summary 解析失败时不把围栏/原文 JSON 直接塞进聊天，
-    // 显示自然中文提示并保留原始结果审计入口（fullSummary 仍含原文，供 effective_output 引用追溯）。
+        ? '如果认可故事弧跨度和未来1至3章的滚动规划，直接说“确认当前规划”。'
+        : '如果接受这份方案，直接说“确认当前方案”。';
+    // 原始岗位意见仍保存在 discussion_opinions 与模型调用审计中；作者聊天只显示主编整理后的结论。
     const editorVisible = editorSummary.format === 'fallback'
-      ? '主编汇总未能解析为结构化结论，请查看原始结果。'
+      ? '这轮意见已经收齐了，但整理时出了点问题。为了不把内部杂乱内容发给您，我先把它拦下；您可以继续追问，我会沿着当前讨论接着处理。'
       : editorSummary.visibleContent;
     const summary = [
-      `讨论“${shortDiscussionTitle(scopeText)}”已完成。`,
       editorVisible,
-      specialistSections.length > 0 ? `已保留 ${specialistSections.length} 份独立方案与交叉质疑，可展开查看。` : '',
       confirmation
     ].filter(Boolean).join('\n\n');
-    const fullSummary = [
-      `讨论“${shortDiscussionTitle(scopeText)}”已完成。`,
-      ...specialistSections,
-      `【${editor.display_name}汇总】\n${editorSummary.fullContent}`,
-      confirmation
-    ].join('\n');
     const references: unknown[] = [{ discussionId, decisionId }];
-    const effectiveReference = createEffectiveOutputReference(editorSummary, fullSummary);
+    const effectiveReference = createEffectiveOutputReference(editorSummary);
     if (effectiveReference !== null) references.push(effectiveReference);
     const messageId = this.ids.next();
     this.database.prepare(`
@@ -507,13 +491,6 @@ export class DiscussionPipelineService {
     );
     return messageId;
   }
-}
-
-function shortDiscussionTitle(scopeText: string): string {
-  // P0-3 / R01: 汇总标题只用短讨论题，不复述老板整段原话；原话通过 discussionId 引用完整追溯。
-  const firstLine = scopeText.split(/\n/u)[0]?.trim() ?? scopeText.trim();
-  const limit = 40;
-  return firstLine.length > limit ? `${firstLine.slice(0, limit)}…` : firstLine;
 }
 
 function discussionOutputTokenLimit(roleKey: RoleKey | CreativeRoleKey, isEditor: boolean, phase: DiscussionPhase): number {

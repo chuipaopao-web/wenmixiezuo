@@ -41,18 +41,16 @@ describe('自然语言讨论运行闭环', () => {
     const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string; references_json: string; model_provider: string | null; model_id: string | null }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
     expect(summary).toMatchObject({ model_provider: 'local-deterministic', model_id: 'wenmi-fixture-v2-chief_editor' });
-    expect(summary?.content).toContain(`确认方案 ${result.decisionId}`);
-    expect(summary?.content).toContain('份独立方案与交叉质疑');
+    expect(summary?.content).toContain('锁定当前方向');
+    expect(summary?.content).not.toContain(result.decisionId);
+    expect(summary?.content).not.toContain('份独立方案与交叉质疑');
     expect(summary?.content).not.toContain('【婉儿】');
     const effectiveReference = (JSON.parse(summary?.references_json ?? '[]') as Array<Record<string, unknown>>)
       .find((reference) => reference.type === 'effective_output');
-    expect(effectiveReference).toMatchObject({ type: 'effective_output', version: 1 });
-    expect(String(effectiveReference?.fullContent)).toContain('【婉儿】');
-    expect(String(effectiveReference?.fullContent)).toContain('【红玉】');
-    expect(String(effectiveReference?.fullContent)).toContain(`确认方案 ${result.decisionId}`);
+    expect(effectiveReference).toBeUndefined();
 
     const callsBeforeConfirmation = (context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId) as { count: number }).count;
-    expect(conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`).action).toMatchObject({
+    expect(conversations.sendBossMessage(scope, '锁定当前方向').action).toMatchObject({
       kind: 'creative_direction_locked',
       sourceDecisionId: result.decisionId,
       roundKind: 'locked_planning'
@@ -75,7 +73,7 @@ describe('自然语言讨论运行闭环', () => {
     const result = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, taskId, 'worker-planning');
 
-    const locked = conversations.sendBossMessage(scope, `确认方案 ${result.decisionId}`);
+    const locked = conversations.sendBossMessage(scope, '锁定当前方向');
     expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', sourceDecisionId: result.decisionId });
     const planningTaskId = String(locked.action.taskId);
     expect(tasks.claimNext('worker-rolling-planning')?.taskId).toBe(planningTaskId);
@@ -83,7 +81,7 @@ describe('自然语言讨论运行闭环', () => {
       .executeClaimed(scope, planningTaskId, 'worker-rolling-planning');
     expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates
       WHERE discussion_id = ? AND independence_attested = 1`).get(planningResult.discussionId)).toEqual({ count: 2 });
-    const confirmed = conversations.sendBossMessage(scope, `确认方案 ${planningResult.decisionId}`);
+    const confirmed = conversations.sendBossMessage(scope, '确认当前规划');
     expect(confirmed.action).toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM artifacts
@@ -208,8 +206,7 @@ describe('自然语言讨论运行闭环', () => {
     expect(activeEditor).toEqual({ role_key: 'deputy_editor' });
   });
 
-  it('汇总标题用短讨论题，不复述老板整段原话', async () => {
-    // P0-3 / R01: 汇总标题只用短讨论题，老板原话通过 discussionId 引用完整追溯，不整段复述。
+  it('汇总不复述老板整段原话，也不添加机械完成标题', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -226,10 +223,9 @@ describe('自然语言讨论运行闭环', () => {
     const messages = conversations.listMessages(scope) as Array<{ sender_type: string; content: string }>;
     const summary = messages.find((message) => message.sender_type === 'agent');
     expect(summary).toBeDefined();
-    expect(summary?.content).toContain('讨论“');
-    expect(summary?.content).toContain('已完成。');
-    expect(summary?.content).toContain('…');
-    // 原话尾部不进标题，老板原话通过 discussionId 引用追溯。
+    expect(summary?.content).not.toContain('讨论“');
+    expect(summary?.content).not.toContain('已完成。');
+    expect(summary?.content).not.toContain('{"');
     expect(summary?.content).not.toContain('立场可信但利益冲突的邻地领主');
   });
 });

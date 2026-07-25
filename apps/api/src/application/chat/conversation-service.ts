@@ -440,6 +440,21 @@ export class ConversationService {
       }
       return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
     }
+    if (/^(?:确认当前规划|确认当前方案|就按当前规划|采用当前方案)[！!。.？?\s]*$/u.test(content)) {
+      const latest = this.database.prepare(`
+        SELECT d.decision_id
+        FROM discussion_decisions d
+        JOIN discussions x ON x.discussion_id = d.discussion_id
+        JOIN tasks t ON t.owner_id = d.owner_id AND t.book_id = d.book_id
+          AND t.task_type = 'discussion'
+          AND json_extract(t.task_brief_json, '$.discussionId') = d.discussion_id
+        WHERE d.owner_id = ? AND d.book_id = ? AND x.status = 'awaiting_boss'
+          AND COALESCE(json_extract(t.task_brief_json, '$.purpose'), 'open_discussion') <> 'creative_exploration'
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get(scope.ownerId, scope.bookId) as { decision_id: string } | undefined;
+      if (latest === undefined) throw new Error('当前没有等待确认的规划或方案');
+      return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
+    }
     const activeCreativeSession = new CreativeSessionRepository(this.database).active(scope);
     if (
       intake?.routeClass === 'plot_discussion'
