@@ -162,7 +162,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/html\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/#root\s*\{[^}]*height:\s*100dvh[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/su);
-    expect(css).toMatch(/\.conversation-stream\s*\{[^}]*overflow:\s*auto/su);
+    expect(css).toMatch(/\.conversation-stream\s*\{[^}]*grid-row:\s*2[^}]*overflow:\s*auto/su);
+    expect(css).toMatch(/\.composer-wrap\s*\{[^}]*grid-row:\s*3/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
   });

@@ -778,6 +778,7 @@ svg {
 }
 
 .creative-session-strip {
+  grid-row: 1;
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(0, 1.25fr) auto;
   align-items: center;
@@ -914,6 +915,7 @@ svg {
 }
 
 .conversation-stream {
+  grid-row: 2;
   min-height: 0;
   overflow: auto;
   padding: 24px clamp(16px, 2.6vw, 44px);
@@ -1113,6 +1115,7 @@ svg {
 }
 
 .composer-wrap {
+  grid-row: 3;
   border-top: 1px solid var(--line);
   padding: 11px clamp(16px, 2.6vw, 44px) calc(11px + env(safe-area-inset-bottom));
   background: var(--panel);
