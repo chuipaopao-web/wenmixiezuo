@@ -3,7 +3,7 @@ import { ConversationService } from '../../../apps/api/src/application/chat/conv
 import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
-import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { ModelAdapterError, type ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -118,6 +118,12 @@ describe('开放式主创对话', () => {
       .executeClaimed(scope, taskId, 'worker-chief', { leaseToken: firstClaim.leaseToken!, attemptNo: firstClaim.currentAttemptNo }))
       .rejects.toThrow('已由');
     expect(tasks.require(scope, taskId)).toMatchObject({ status: 'queued', requiredEditorEpoch: 2 });
+    const deputySnapshot = context.database.prepare(`
+      SELECT model_snapshot_id AS modelSnapshotId
+      FROM agent_instances
+      WHERE agent_id = ?
+    `).get(tasks.require(scope, taskId).assignedAgentId) as { modelSnapshotId: string };
+    expect(tasks.require(scope, taskId).brief).toMatchObject({ modelSnapshotId: deputySnapshot.modelSnapshotId });
 
     const secondClaim = tasks.claimNext('worker-deputy')!;
     await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
@@ -125,6 +131,56 @@ describe('开放式主创对话', () => {
     expect(tasks.require(scope, taskId).status).toBe('succeeded');
     expect((conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null }>)
       .some((message) => message.sender_type === 'agent' && message.role_key === 'deputy_editor')).toBe(true);
+  });
+
+  it('provider result unknown hands the same reply task to the deputy editor', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: 'Onboarding takeover book', text: 'A new book waiting for setting guidance'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(scope, 'Please guide me through the setting');
+    const taskId = String(scheduled.action.taskId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const firstClaim = tasks.claimNext('worker-chief-unknown')!;
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const takeoverFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'discussion' && roleKey === 'chief_editor') {
+          return {
+            provider,
+            modelId,
+            async generate() {
+              throw new ModelAdapterError('provider output state is unknown', 'technical_failure', false, undefined, true);
+            }
+          };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+
+    await expect(new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-chief-unknown', {
+        leaseToken: firstClaim.leaseToken!,
+        attemptNo: firstClaim.currentAttemptNo
+      })).rejects.toThrow('已由');
+
+    expect(tasks.require(scope, taskId)).toMatchObject({ status: 'queued', requiredEditorEpoch: 2 });
+    const secondClaim = tasks.claimNext('worker-deputy-after-unknown')!;
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
+      .executeClaimed(scope, taskId, 'worker-deputy-after-unknown', {
+        leaseToken: secondClaim.leaseToken!,
+        attemptNo: secondClaim.currentAttemptNo
+      });
+
+    expect(tasks.require(scope, taskId).status).toBe('succeeded');
+    expect((conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null }>)
+      .filter((message) => message.sender_type === 'agent')).toEqual([
+        expect.objectContaining({ role_key: 'deputy_editor' })
+      ]);
   });
 
   it('问候、身份说明和任务查看由小文秘书本地完成且不创建模型任务', async () => {

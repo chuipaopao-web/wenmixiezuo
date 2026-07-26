@@ -115,6 +115,34 @@ afterEach(() => {
 });
 
 describe('完整创作工作台', () => {
+  it('新书等待主编主动开场时显示真实任务状态而不是普通空白提示', async () => {
+    const onboardingWorkspace: WorkspaceData = {
+      ...workspace,
+      messageCount: 0,
+      creativeSession: null,
+      tasks: [{
+        taskId: 'task-onboarding-1',
+        taskType: 'conversation_reply',
+        status: 'working',
+        currentPhase: 'reply',
+        pauseRequested: false,
+        cancelRequested: false,
+        attemptCount: 1,
+        assignedAgentId: 'agent-1',
+        chapterId: null,
+        brief: { proactiveOnboarding: true, openingBlueprintId: 'blueprint-1' },
+        checkpoint: {}
+      }]
+    };
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', onboardingWorkspace, [])));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '主编正在整理开书资料' })).toBeInTheDocument();
+    expect(screen.getByText(/一至三个最值得先确定的设定问题/u)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '从故事想法开始聊' })).not.toBeInTheDocument();
+  });
+
   it('服务未启动时显示中文恢复提示，不暴露Failed to fetch', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));

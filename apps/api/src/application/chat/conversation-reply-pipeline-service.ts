@@ -220,7 +220,9 @@ export class ConversationReplyPipelineService {
           ...(brief.proactiveOnboarding === true ? [
             '这是建书后的主动开场，不要声称老板刚刚发送了这条内部触发指令',
             '先简短区分已知、待讨论和可能冲突，再只问一至三个最高价值问题',
-            '不得复述完整开书表单，不得启动主笔或生成小说正文'
+            '不得复述完整开书表单，不得启动主笔或生成小说正文',
+            '这是第一次接待，不做竞品举例、长篇标签分析或完整方案推演；alternatives必须为空数组，risks最多两条，keyPoints最多三条，questions一至三条',
+            'answer、keyPoints、risks、questions和nextStep合计不超过600个中文字符；details只写一句补充或留空，必须在输出上限内闭合JSON'
           ] : []),
           '回答使用自然中文，可讨论但不得把闲聊写入正史',
           '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
@@ -288,6 +290,19 @@ export class ConversationReplyPipelineService {
           const call = this.database.prepare(`SELECT state, error_class FROM model_calls
             WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
             .get(requestId, scope.ownerId, scope.bookId) as { state: string; error_class: string | null } | undefined;
+          const providerResultUnknown = call?.state === 'interrupted' && call.error_class === 'provider_result_unknown';
+          if (providerResultUnknown) {
+            const canTakeOverEditor = brief.directNamedMember !== true
+              && ['chief_editor', 'deputy_editor'].includes(replyAgent.role_key);
+            if (canTakeOverEditor) {
+              const takeover = new EditorLeaseService(this.database, this.ids, this.clock)
+                .tryAutomaticTakeover(scope, replyAgent.agent_id);
+              throw new Error(takeover.takenOver
+                ? `活动主编调用结果未知，已由${takeover.activeEditorAgentId}接管并从原对话任务恢复`
+                : `活动主编调用结果未知且未能安全接管：${takeover.reason}`);
+            }
+            throw error;
+          }
           const retryable = call?.state === 'failed' && call.error_class === 'technical_failure';
           if (!retryable) throw error;
           if (technicalTry === 2) {

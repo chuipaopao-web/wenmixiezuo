@@ -154,6 +154,7 @@ describe('建书REST流程', () => {
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, created.kickoffTaskId, 'worker-onboarding');
       expect(capturedPrompt).toContain('这是建书后的主动开场');
+      expect(capturedPrompt).toContain('合计不超过600个中文字符');
       expect(capturedPrompt).toContain('不得启动主笔或生成小说正文');
       expect(capturedPrompt).toContain('张三');
       expect(capturedPrompt).toContain('天安城');

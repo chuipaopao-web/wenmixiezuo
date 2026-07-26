@@ -632,6 +632,9 @@ export function App(): React.JSX.Element {
                 agents={workspace?.agents ?? []}
                 totalMessageCount={workspace?.messageCount ?? messages.length}
                 creativeSession={workspace?.creativeSession ?? null}
+                onboardingTask={workspace?.tasks.find((task) =>
+                  task.taskType === 'conversation_reply' && task.brief.proactiveOnboarding === true
+                ) ?? null}
                 busy={busy}
                 composer={composer}
                 setComposer={setComposer}
@@ -728,6 +731,7 @@ function ChatWorkspace(props: {
   agents: AgentData[];
   totalMessageCount: number;
   creativeSession: CreativeSessionData | null;
+  onboardingTask: TaskData | null;
   busy: boolean;
   composer: string;
   setComposer: (value: string) => void;
@@ -743,6 +747,10 @@ function ChatWorkspace(props: {
   const readyAttachmentCount = props.pendingAttachments.filter((item) => item.status === 'ready').length;
   const uploading = props.pendingAttachments.some((item) => item.status === 'uploading');
   const canSend = !props.busy && !uploading && (props.composer.trim().length > 0 || readyAttachmentCount > 0);
+  const onboardingPending = props.onboardingTask !== null
+    && ['pending', 'queued', 'working'].includes(props.onboardingTask.status);
+  const onboardingFailed = props.onboardingTask !== null
+    && ['failed', 'blocked', 'interrupted'].includes(props.onboardingTask.status);
   return (
     <section className="chat-workspace" aria-label="主创作对话">
       {props.creativeSession !== null && (
@@ -756,8 +764,12 @@ function ChatWorkspace(props: {
         {props.messages.length === 0 ? (
           <div className="conversation-empty">
             <ChatsCircleIcon />
-            <h2>从故事想法开始聊</h2>
-            <p>自由说出人物、冲突或你拿不准的剧情。小文秘书会保留原话，剧情问题由主编主持两名异模型编剧讨论；规划齐备后再逐章创作。</p>
+            <h2>{onboardingPending ? '主编正在整理开书资料' : onboardingFailed ? '主编这次没有成功接入' : '从故事想法开始聊'}</h2>
+            <p>{onboardingPending
+              ? '貂蝉会先核对您已经填写的作品定位，再主动提出一至三个最值得先确定的设定问题。这里不会自动写正文，也不会把讨论直接写入正史。'
+              : onboardingFailed
+                ? '开场任务保留了完整记录，没有伪造回复。您可以在左侧“任务”查看故障；恢复后会继续使用原来的开场任务，不会重复创建。'
+                : '自由说出人物、冲突或你拿不准的剧情。小文秘书会保留原话，剧情问题由主编主持两名异模型编剧讨论；规划齐备后再逐章创作。'}</p>
           </div>
         ) : (
           <>

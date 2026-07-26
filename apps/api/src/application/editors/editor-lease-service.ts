@@ -224,6 +224,11 @@ export class EditorLeaseService {
       this.database.prepare(`
         UPDATE tasks SET required_editor_epoch = ?,
           assigned_agent_id = CASE WHEN task_type IN ('discussion', 'conversation_reply') THEN ? ELSE assigned_agent_id END,
+          task_brief_json = CASE
+            WHEN task_type = 'conversation_reply'
+              THEN json_set(task_brief_json, '$.modelSnapshotId', ?)
+            ELSE task_brief_json
+          END,
           status = CASE
             WHEN status = 'working' AND EXISTS (
               SELECT 1 FROM model_calls m WHERE m.task_id = tasks.task_id
@@ -239,7 +244,8 @@ export class EditorLeaseService {
           heartbeat_at = CASE WHEN status = 'working' THEN NULL ELSE heartbeat_at END,
           updated_at = ?
         WHERE owner_id = ? AND book_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled')
-      `).run(nextEpoch, lease.candidateEditorAgentId, now.toISOString(), scope.ownerId, scope.bookId);
+      `).run(nextEpoch, lease.candidateEditorAgentId, candidateModel.model_snapshot_id,
+        now.toISOString(), scope.ownerId, scope.bookId);
       const packageCompleted = this.database.prepare(`
         UPDATE takeover_packages SET status = 'completed', to_epoch = ?, completed_at = ?
         WHERE takeover_id = ? AND owner_id = ? AND book_id = ? AND status = 'ready'
