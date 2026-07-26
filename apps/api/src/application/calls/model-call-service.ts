@@ -76,7 +76,28 @@ export class ModelCallService {
 
   public async execute(scope: BookScope, call: BeginModelCall, adapter: ModelAdapter, request: ModelRequest): Promise<ModelResult> {
     if (adapter.provider !== call.provider || adapter.modelId !== call.modelId) throw new Error('模型适配器与配置快照来源不匹配');
-    const requestId = this.begin(scope, call);
+    const preference = this.database.prepare(`
+      SELECT prompt_preference_id, version, content
+      FROM agent_prompt_preferences
+      WHERE owner_id = ? AND book_id = ? AND agent_id = ? AND status = 'active'
+      ORDER BY version DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, call.agentId) as {
+      prompt_preference_id: string; version: number; content: string;
+    } | undefined;
+    const effectiveCall = preference === undefined ? call : {
+      ...call,
+      input: `${call.input}\n[prompt-preference:${preference.prompt_preference_id}:v${preference.version}]`
+    };
+    const effectiveRequest = preference === undefined || preference.content.trim().length === 0
+      ? request
+      : { ...request, supplementalInstructions: preference.content };
+    const requestId = this.begin(scope, effectiveCall);
+    if (preference !== undefined && requestId === call.requestId) {
+      this.database.prepare(`
+        UPDATE model_calls SET prompt_preference_id = ?
+        WHERE request_id = ? AND owner_id = ? AND book_id = ?
+      `).run(preference.prompt_preference_id, requestId, scope.ownerId, scope.bookId);
+    }
     if (requestId !== call.requestId) {
       const reusable = this.loadSucceededResult(scope, requestId, call.provider, call.modelId);
       if (reusable !== null) {
@@ -95,7 +116,7 @@ export class ModelCallService {
       .run(this.clock.now().toISOString(), requestId);
     this.events?.append(scope, 'model_call.started', { requestId, taskId: call.taskId, provider: adapter.provider, modelId: adapter.modelId });
     try {
-      const result = await adapter.generate(request, controller.signal);
+      const result = await adapter.generate(effectiveRequest, controller.signal);
       if (result.provider !== adapter.provider || result.modelId !== adapter.modelId) {
         throw new Error('模型返回来源与已验证适配器不一致');
       }

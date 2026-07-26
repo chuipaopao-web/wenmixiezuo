@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
+import { AgentPromptPreferenceService } from '../../../apps/api/src/application/agents/agent-prompt-preference-service.js';
+import { AgentPromptPreferenceRepository } from '../../../apps/api/src/infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { DeterministicModelAdapter } from '../../../apps/api/src/infrastructure/models/deterministic-model.js';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
@@ -25,6 +27,44 @@ function setup(clock: FixedClock | MutableClock = new FixedClock()) {
 }
 
 describe('模型调用账本、幂等与真实取消', () => {
+  it('把书籍级岗位补充要求注入真实适配器并记录使用版本', async () => {
+    const fixture = setup();
+    const preferences = new AgentPromptPreferenceService(
+      new AgentPromptPreferenceRepository(context!.database), fixture.ids, fixture.clock
+    );
+    const saved = preferences.revise(fixture.scope, fixture.agent.agentId, 0, '本书中避免机械总结，优先保留人物潜台词。');
+    context!.database.prepare(`UPDATE model_config_snapshots SET provider = 'capture-test', model_id = 'capture-v1' WHERE model_snapshot_id = ?`)
+      .run(fixture.snapshotId);
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-preference', 200, 0);
+    let receivedSupplement: string | undefined;
+    const adapter: ModelAdapter = {
+      provider: 'capture-test',
+      modelId: 'capture-v1',
+      generate: async (request) => {
+        receivedSupplement = request.supplementalInstructions;
+        return {
+          provider: 'capture-test', modelId: 'capture-v1', output: '完成',
+          inputTokens: 10, outputTokens: 2, cashCostCny: 0, state: 'succeeded'
+        };
+      }
+    };
+    const calls = new ModelCallService(context!.database, fixture.clock, fixture.budgets);
+    const call = {
+      requestId: 'request-preference', taskId: 'task-model', phaseKey: 'preference',
+      agentId: fixture.agent.agentId, modelSnapshotId: fixture.snapshotId,
+      provider: 'capture-test', modelId: 'capture-v1', input: '写作请求',
+      parameters: '{}', reservationId
+    };
+    await calls.execute(fixture.scope, call, adapter, {
+      requestId: call.requestId, taskId: call.taskId, ownerId: fixture.scope.ownerId,
+      bookId: fixture.scope.bookId, agentId: fixture.agent.agentId,
+      prompt: call.input, maxOutputTokens: 100
+    });
+    expect(receivedSupplement).toBe('本书中避免机械总结，优先保留人物潜台词。');
+    expect(context!.database.prepare('SELECT prompt_preference_id FROM model_calls WHERE request_id = ?').get(call.requestId))
+      .toEqual({ prompt_preference_id: saved.promptPreferenceId });
+  });
+
   it('调用前冻结预算，成功后结算且相同输入不能重复调用', async () => {
     const fixture = setup();
     const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-model', 200, 0);

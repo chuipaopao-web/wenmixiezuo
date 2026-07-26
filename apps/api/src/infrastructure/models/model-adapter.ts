@@ -7,6 +7,7 @@ export interface ModelRequest {
   bookId: string;
   agentId: string;
   prompt: string;
+  supplementalInstructions?: string;
   maxOutputTokens: number;
 }
 

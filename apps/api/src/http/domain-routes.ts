@@ -57,6 +57,8 @@ import { BudgetService } from '../application/budget/budget-service.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
 import { OpeningSynopsisAnalysisService } from '../application/books/opening-synopsis-analysis-service.js';
 import { CreativeSessionRepository } from '../infrastructure/db/repositories/creative-session-repository.js';
+import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
+import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -118,6 +120,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const portability = new BookPortabilityService(database, config, ids, clock);
   const taxonomy = new TaxonomyService(new TaxonomyRepository(database), ids, clock);
   const openingSynopsisAnalysis = new OpeningSynopsisAnalysisService();
+  const agentPromptPreferences = new AgentPromptPreferenceService(
+    new AgentPromptPreferenceRepository(database), ids, clock
+  );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
 
@@ -292,6 +297,53 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'
       }
     }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/team-config', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    const preferences = new Map(agentPromptPreferences.list(scope).map((item) => [item.agentId, item]));
+    const members = agents.list(scope).map((agent) => {
+      const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
+      return {
+        ...agent,
+        publicSummary: contract?.publicSummary ?? agent.roleName,
+        responsibilities: contract?.responsibilities ?? [],
+        boundaries: contract?.boundaries ?? [],
+        retrievalFocus: contract?.retrievalFocus ?? [],
+        outputKinds: contract?.outputKinds ?? [],
+        promptPreference: preferences.get(agent.agentId) ?? {
+          promptPreferenceId: null,
+          agentId: agent.agentId,
+          version: 0,
+          content: '',
+          createdAt: null
+        }
+      };
+    });
+    return success({
+      members,
+      promptPolicy: {
+        editableLabel: '本书岗位补充要求',
+        maxChars: 4000,
+        priority: '软性要求不会覆盖系统硬约束、事实证据、正史、安全规则和输出格式。',
+        internalPromptVisible: false
+      }
+    }, request.id);
+  });
+
+  app.put<{
+    Params: { bookId: string; agentId: string };
+    Body: { expectedVersion: number; content?: string };
+  }>('/api/v1/books/:bookId/agents/:agentId/prompt-preference', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(agentPromptPreferences.revise(
+      scope,
+      request.params.agentId,
+      request.body.expectedVersion,
+      request.body.content ?? ''
+    ), request.id);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { offset?: number; limit?: number } }>('/api/v1/books/:bookId/volumes', async (request) => {

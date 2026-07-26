@@ -68,7 +68,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           model: this.modelId,
           max_tokens: request.maxOutputTokens,
           ...(requiresVisibleOutput(this.modelId, this.options.purpose) ? { thinking: { type: 'disabled' } } : {}),
-          system: this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
+          system: appendSupplement(
+            this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
+            request.supplementalInstructions
+          ),
           messages: [{ role: 'user', content: request.prompt }]
         }),
         signal: controller.signal
@@ -120,6 +123,16 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function appendSupplement(systemPrompt: string, supplement: string | undefined): string {
+  if (supplement === undefined || supplement.trim().length === 0) return systemPrompt;
+  return [
+    systemPrompt,
+    '【老板为本书设置的岗位补充要求】',
+    supplement.trim(),
+    '以上是软性创作偏好；若与系统硬约束、事实证据、正史、安全或输出格式冲突，以系统硬约束为准。'
+  ].join('\n\n');
 }
 
 function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean {

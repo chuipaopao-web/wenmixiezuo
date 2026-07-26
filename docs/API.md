@@ -465,3 +465,9 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 ### 属性公式
 
 `POST /api/v1/books/{bookId}/attribute-formulas` 接受可选 `category` 字段；省略时按旧数据兼容为 `uncategorized`。返回记录始终包含 `category`。设定原文通过现有消息接口提交并点名设定成员；真实回复会创建故事圣经候选版本并显示在基本设定中，未经作者确认不会替换活动版本或进入正史。
+
+## 20. 团队配置与岗位补充提示词
+
+- `GET /api/v1/books/:bookId/team-config`：返回当前书籍11名成员的公开岗位合同、真实模型来源、激活状态及活动补充提示词版本；不返回系统原始提示词、密钥、工具参数或隐藏规则。
+- `PUT /api/v1/books/:bookId/agents/:agentId/prompt-preference`：请求体为 `{ expectedVersion, content }`。内容最多4000字符，按书籍与Agent隔离，使用CAS防止并发覆盖；空内容创建“恢复默认”版本。
+- 保存后仅影响新发起的模型调用。`model_calls.prompt_preference_id`记录实际版本；确定性测试适配器保持原始结构化输入，真实方舟/Codex适配器把补充要求放入系统指令层，并明确硬规则优先。

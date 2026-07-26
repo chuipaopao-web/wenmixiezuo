@@ -42,7 +42,8 @@ describe('向前迁移器', () => {
         '0024_settled_chapter_generation_status.sql',
         '0025_opening_blueprints.sql',
         '0026_creative_sessions_and_context_policy.sql',
-        '0027_attribute_formula_categories.sql'
+        '0027_attribute_formula_categories.sql',
+        '0028_agent_prompt_preferences.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -56,6 +57,7 @@ describe('向前迁移器', () => {
       expect(tables.map((row) => row.name)).toContain('creative_sessions');
       expect(tables.map((row) => row.name)).toContain('creative_blackboard_revisions');
       expect(tables.map((row) => row.name)).toContain('narrative_forecasts');
+      expect(tables.map((row) => row.name)).toContain('agent_prompt_preferences');
       const manuscriptColumns = database.prepare('PRAGMA table_info(manuscript_versions)').all() as Array<{ name: string }>;
       expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });

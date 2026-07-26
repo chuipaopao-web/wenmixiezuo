@@ -56,6 +56,7 @@ import {
   fetchRightsWorkspace,
   fetchWorker,
   fetchWorkspace,
+  fetchTeamConfig,
   sendMessage,
   resolveConfirmation,
   activateModelBindings,
@@ -82,6 +83,7 @@ import {
   classifyProtagonistState,
   createAttributeFormula,
   evaluateAttributeFormula,
+  saveAgentPromptPreference,
   type AgentData,
   type ArtifactVersionData,
   type BookData,
@@ -107,6 +109,7 @@ import {
   type ProtagonistRole,
   type TaskData,
   type TeamModelProfileData,
+  type TeamConfigData,
   type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
@@ -129,7 +132,7 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights';
+type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'team';
 
 interface PendingChatAttachment {
   localId: string;
@@ -587,6 +590,7 @@ export function App(): React.JSX.Element {
             <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
             <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
             <RailViewButton active={view === 'tasks'} onClick={() => { setView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
+            <RailViewButton active={view === 'team'} onClick={() => { setView('team'); setLeftOpen(false); }} icon={<UsersThreeIcon />} label="团队" />
           </nav>
         )}
       </aside>
@@ -631,6 +635,7 @@ export function App(): React.JSX.Element {
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
             {view === 'rights' && <RightsWorkspace data={referenceData} />}
+            {view === 'team' && <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />}
           </>
         )}
       </main>
@@ -1607,6 +1612,127 @@ function ConfirmationsPanel({ workspace, busy, onDecide }: {
           </article>
         ))}</div>
       )}
+    </section>
+  );
+}
+
+function TeamWorkspace({ bookId, workspace, onError }: {
+  bookId: string;
+  workspace: WorkspaceData | null;
+  onError: (message: string | null) => void;
+}): React.JSX.Element {
+  const [config, setConfig] = useState<TeamConfigData | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback((signal?: AbortSignal) => {
+    return fetchTeamConfig(bookId, signal).then((next) => {
+      setConfig(next);
+      setSelectedId((current) => current !== null && next.members.some((member) => member.agentId === current)
+        ? current
+        : next.members[0]?.agentId ?? null);
+    });
+  }, [bookId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal).catch((reason: unknown) => {
+      if (!controller.signal.aborted) onError(reason instanceof Error ? reason.message : '团队配置加载失败');
+    });
+    return () => controller.abort();
+  }, [load, onError]);
+
+  const member = config?.members.find((item) => item.agentId === selectedId) ?? null;
+  useEffect(() => {
+    setDraft(member?.promptPreference.content ?? '');
+    setNotice(null);
+  }, [member?.agentId, member?.promptPreference.version]);
+
+  const save = async (content: string): Promise<void> => {
+    if (member === null || config === null) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      const preference = await saveAgentPromptPreference(
+        bookId,
+        member.agentId,
+        member.promptPreference.version,
+        content
+      );
+      setConfig({
+        ...config,
+        members: config.members.map((item) => item.agentId === member.agentId
+          ? { ...item, promptPreference: preference }
+          : item)
+      });
+      setDraft(preference.content);
+      setNotice(content.trim().length === 0 ? '已恢复默认要求，新任务开始生效。' : '已保存，新任务开始生效。');
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : '提示词保存失败');
+      await load().catch(() => undefined);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (config === null) return <WorkspaceSkeleton />;
+  return (
+    <section className="team-workspace" aria-labelledby="team-workspace-title">
+      <header className="team-workspace-header">
+        <div><span className="eyebrow">成员与岗位</span><h2 id="team-workspace-title">团队配置</h2><p>查看每名成员的职责、边界和实际模型，并为当前书籍补充岗位要求。</p></div>
+        <span className="team-count">{config.members.length} 名成员</span>
+      </header>
+      <div className="team-config-layout">
+        <nav className="team-member-list" aria-label="团队成员">
+          {config.members.map((item) => {
+            const task = activeTaskForAgent(workspace, item.agentId);
+            return <button className={item.agentId === selectedId ? 'team-member-card active' : 'team-member-card'} type="button" key={item.agentId} onClick={() => setSelectedId(item.agentId)}>
+              <AgentAvatar roleKey={item.roleKey} roleName={memberIdentity(item)} />
+              <span><strong>{memberIdentity(item)}</strong><small>{item.publicSummary ?? item.roleName}</small></span>
+              <i>{task === null ? (item.activationState === 'standby' ? '待命' : '空闲') : '工作中'}</i>
+            </button>;
+          })}
+        </nav>
+        {member !== null && (
+          <article className="team-member-editor">
+            <header>
+              <div className="agent-dialog-identity"><AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} /><span><h3>{memberIdentity(member)}</h3><p>{member.publicSummary}</p></span></div>
+              <span className="model-source">{member.provider}/{member.modelId}</span>
+            </header>
+            <div className="agent-detail-groups">
+              {([
+                ['岗位职责', member.responsibilities ?? []],
+                ['工作边界', member.boundaries ?? []],
+                ['检索重点', member.retrievalFocus ?? []],
+                ['交付内容', member.outputKinds ?? []]
+              ] as const).map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}
+            </div>
+            <section className="prompt-editor">
+              <div className="prompt-editor-heading">
+                <span><h3>{config.promptPolicy.editableLabel}</h3><p>{config.promptPolicy.priority}</p></span>
+                <small>版本 {member.promptPreference.version || '默认'}</small>
+              </div>
+              <textarea
+                value={draft}
+                maxLength={config.promptPolicy.maxChars}
+                aria-label={`${memberIdentity(member)}的本书岗位补充要求`}
+                placeholder={`例如：为《${workspace?.book.title ?? '本书'}》工作时，重点关注……`}
+                onChange={(event) => setDraft(event.target.value)}
+              />
+              <div className="prompt-editor-actions">
+                <small>{draft.length}/{config.promptPolicy.maxChars} 字符　系统原始提示词和硬约束不对外编辑。</small>
+                <span>
+                  <button className="secondary-button" type="button" disabled={saving || member.promptPreference.version === 0} onClick={() => void save('')}>恢复默认</button>
+                  <button className="primary-button" type="button" disabled={saving || draft.trim() === member.promptPreference.content} onClick={() => void save(draft)}>{saving ? '保存中' : '保存提示词'}</button>
+                </span>
+              </div>
+              {notice !== null && <p className="inline-success" role="status">{notice}</p>}
+            </section>
+          </article>
+        )}
+      </div>
     </section>
   );
 }

@@ -156,6 +156,28 @@ export interface AgentData {
   outputKinds?: string[];
 }
 
+export interface AgentPromptPreferenceData {
+  promptPreferenceId: string | null;
+  agentId: string;
+  version: number;
+  content: string;
+  createdAt: string | null;
+}
+
+export interface TeamMemberConfigData extends AgentData {
+  promptPreference: AgentPromptPreferenceData;
+}
+
+export interface TeamConfigData {
+  members: TeamMemberConfigData[];
+  promptPolicy: {
+    editableLabel: string;
+    maxChars: number;
+    priority: string;
+    internalPromptVisible: false;
+  };
+}
+
 export interface TaskData {
   taskId: string;
   taskType: string;
@@ -442,6 +464,22 @@ export function analyzeOpeningSynopsis(synopsis: string): Promise<OpeningSynopsi
 
 export function fetchWorkspace(bookId: string, signal?: AbortSignal): Promise<WorkspaceData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/workspace`, signal === undefined ? {} : { signal });
+}
+
+export function fetchTeamConfig(bookId: string, signal?: AbortSignal): Promise<TeamConfigData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/team-config`, signal === undefined ? {} : { signal });
+}
+
+export function saveAgentPromptPreference(
+  bookId: string,
+  agentId: string,
+  expectedVersion: number,
+  content: string
+): Promise<AgentPromptPreferenceData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/agents/${encodeURIComponent(agentId)}/prompt-preference`, {
+    method: 'PUT',
+    body: JSON.stringify({ expectedVersion, content })
+  });
 }
 
 export function fetchMessages(bookId: string, signal?: AbortSignal): Promise<MessageData[]> {

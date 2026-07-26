@@ -149,6 +149,13 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
     const system = buildRoleSystemPrompt(this.options.roleKey, this.options.purpose);
     const prompt = [
       system,
+      ...(request.supplementalInstructions?.trim()
+        ? [
+            '【老板为本书设置的岗位补充要求】',
+            request.supplementalInstructions.trim(),
+            '以上是软性创作偏好；若与系统硬约束、事实证据、正史、安全或输出格式冲突，以系统硬约束为准。'
+          ]
+        : []),
       '运行限制：不得调用工具、命令、联网、MCP、子Agent或读写文件；不要解释运行限制，只完成文本任务。',
       `输出上限：${request.maxOutputTokens} Token。`,
       '【本次任务输入】',

@@ -134,7 +134,7 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['对话', '规划', '正文', '图谱', '资料库', '版权与研究', '任务']) {
+    for (const name of ['对话', '规划', '正文', '图谱', '资料库', '版权与研究', '任务', '团队']) {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
     expect(document.querySelector('.task-center')).toBeNull();
@@ -155,6 +155,28 @@ describe('完整创作工作台', () => {
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('团队页展示公开岗位配置并保存书籍级补充提示词', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    await screen.findAllByText('雾钟档案');
+    fireEvent.click(screen.getByRole('button', { name: '团队' }));
+    const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
+    expect(within(team).getByText('11 名成员')).toBeInTheDocument();
+    fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
+    expect(within(team).getByText('岗位职责')).toBeInTheDocument();
+    expect(within(team).getByText('工作边界')).toBeInTheDocument();
+    const editor = within(team).getByRole('textbox', { name: '貂蝉（主编）的本书岗位补充要求' });
+    fireEvent.change(editor, { target: { value: '讨论时先指出最大风险，再给推荐方向。' } });
+    fireEvent.click(within(team).getByRole('button', { name: '保存提示词' }));
+    await within(team).findByText('已保存，新任务开始生效。');
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/agents/agent-1/prompt-preference')
+      && (init as RequestInit | undefined)?.method === 'PUT'
+      && String((init as RequestInit).body).includes('讨论时先指出最大风险')
+    )).toBe(true);
   });
 
   it('把应用壳固定在动态视口并只让内容区独立滚动', () => {
@@ -889,6 +911,29 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path === '/api/v1/operations/status') return apiResponse({ releaseId: 'release-ui', schemaVersion: 18, disk: { totalBytes: 1000, freeBytes: 800 }, queue: { queued: 0, working: 1, blocked: 0 }, projection: { status: 'ready' }, latestBackup: null, portability: { completed: 0, failed: 0 }, diagnostics: { telemetrySent: false, secretsIncluded: false, listeningHost: '127.0.0.1' } });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
+    if (path.endsWith('/team-config')) return apiResponse({
+      members: agents.map((agent) => ({
+        ...agent,
+        promptPreference: {
+          promptPreferenceId: null, agentId: agent.agentId, version: 0, content: '', createdAt: null
+        }
+      })),
+      promptPolicy: {
+        editableLabel: '本书岗位补充要求',
+        maxChars: 4000,
+        priority: '软性要求不会覆盖系统硬约束、事实证据、正史、安全规则和输出格式。',
+        internalPromptVisible: false
+      }
+    });
+    if (path.endsWith('/prompt-preference') && init?.method === 'PUT') {
+      const payload = JSON.parse(String(init.body)) as { expectedVersion: number; content: string };
+      const agentId = path.split('/').at(-2) ?? '';
+      return apiResponse({
+        promptPreferenceId: 'preference-ui-1', agentId,
+        version: payload.expectedVersion + 1, content: payload.content,
+        createdAt: '2026-07-26T12:00:00.000Z'
+      });
+    }
     if (path.includes('/volumes/') && path.endsWith('/chapters')) return apiResponse({
       items: workspaceData.chapters,
       total: workspaceData.chapters.length,
