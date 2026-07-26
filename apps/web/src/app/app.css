@@ -810,6 +810,24 @@ svg {
   padding: clamp(24px, 4vw, 56px);
 }
 
+.bookshelf-home {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bookshelf-scroll-region {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
 .bookshelf-heading,
 .team-template-workspace > header {
   display: flex;
@@ -2239,7 +2257,8 @@ svg {
 }
 
 .empty-library {
-  height: 100%;
+  min-height: 0;
+  flex: 1;
   padding: 40px;
 }
 

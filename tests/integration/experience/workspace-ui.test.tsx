@@ -131,6 +131,7 @@ describe('完整创作工作台', () => {
 
     const shelf = await screen.findByRole('heading', { name: '我的作品' });
     expect(shelf).toBeInTheDocument();
+    expect(shelf.closest('.bookshelf-home')?.querySelector('.bookshelf-scroll-region')).not.toBeNull();
     expect(screen.getByRole('button', { name: '打开《雾钟档案》' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '首页功能' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '创作功能' })).not.toBeInTheDocument();
