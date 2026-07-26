@@ -3193,6 +3193,10 @@ svg {
 .team-member-editor > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .team-member-editor .model-source { max-width: 48%; overflow-wrap: anywhere; color: var(--ink-soft); font-size: calc(9px * var(--font-scale)); text-align: right; }
 .prompt-editor { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 18px; }
+.default-prompt-view { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 18px; }
+.default-prompt-view h3 { margin: 0 0 4px; }
+.default-prompt-view p { margin: 0; color: var(--ink-soft); font-size: calc(10px * var(--font-scale)); }
+.default-prompt-view pre { margin: 12px 0 0; border: 1px solid var(--line); border-radius: var(--control-radius); padding: 14px; background: var(--surface); color: var(--ink); font: inherit; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .prompt-editor-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
 .prompt-editor-heading h3 { margin: 0 0 4px; }
 .prompt-editor-heading p { margin: 0; color: var(--ink-soft); font-size: calc(10px * var(--font-scale)); }

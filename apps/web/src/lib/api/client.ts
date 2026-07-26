@@ -165,6 +165,7 @@ export interface AgentPromptPreferenceData {
 }
 
 export interface TeamMemberConfigData extends AgentData {
+  defaultPrompt: string;
   promptPreference: AgentPromptPreferenceData;
 }
 

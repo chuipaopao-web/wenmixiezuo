@@ -1709,6 +1709,13 @@ function TeamWorkspace({ bookId, workspace, onError }: {
                 ['交付内容', member.outputKinds ?? []]
               ] as const).map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}
             </div>
+            <section className="default-prompt-view">
+              <div>
+                <h3>默认岗位提示词</h3>
+                <p>这是成员始终携带的公开岗位要求，只读。内部安全门禁和输出协议不会在作者界面展开。</p>
+              </div>
+              <pre>{member.defaultPrompt}</pre>
+            </section>
             <section className="prompt-editor">
               <div className="prompt-editor-heading">
                 <span><h3>{config.promptPolicy.editableLabel}</h3><p>{config.promptPolicy.priority}</p></span>

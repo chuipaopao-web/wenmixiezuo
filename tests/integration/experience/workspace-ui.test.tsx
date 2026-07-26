@@ -168,6 +168,8 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
     expect(within(team).getByText('岗位职责')).toBeInTheDocument();
     expect(within(team).getByText('工作边界')).toBeInTheDocument();
+    expect(within(team).getByText('默认岗位提示词')).toBeInTheDocument();
+    expect(within(team).getByText(/你是文秘写作团队中的貂蝉/)).toBeInTheDocument();
     const editor = within(team).getByRole('textbox', { name: '貂蝉（主编）的本书岗位补充要求' });
     fireEvent.change(editor, { target: { value: '讨论时先指出最大风险，再给推荐方向。' } });
     fireEvent.click(within(team).getByRole('button', { name: '保存提示词' }));
@@ -914,6 +916,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     if (path.endsWith('/team-config')) return apiResponse({
       members: agents.map((agent) => ({
         ...agent,
+        defaultPrompt: `你是文秘写作团队中的${agent.displayName}（${agent.roleName}）。\n主要职责：完成岗位任务。`,
         promptPreference: {
           promptPreferenceId: null, agentId: agent.agentId, version: 0, content: '', createdAt: null
         }
