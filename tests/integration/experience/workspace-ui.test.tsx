@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import axe from 'axe-core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../../apps/web/src/app/App';
 import type { WorkspaceData } from '../../../apps/web/src/lib/api/client';
 
@@ -103,13 +103,61 @@ const workspace: WorkspaceData = {
   localAssistant: { displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: 1, summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。' }
 };
 
+beforeEach(() => {
+  window.history.replaceState(null, '', '/?book=book-ui-1');
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
+  window.history.replaceState(null, '', '/');
 });
 
 describe('完整创作工作台', () => {
+  it('服务未启动时显示中文恢复提示，不暴露Failed to fetch', async () => {
+    window.history.replaceState(null, '', '/');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    render(<App />);
+    expect(await screen.findByText('无法连接文秘写作服务，请重新启动应用后再试。')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+  });
+
+  it('根入口先显示书架，打开书后才显示书内功能，返回书架不发送任务控制请求', async () => {
+    window.history.replaceState(null, '', '/');
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const shelf = await screen.findByRole('heading', { name: '我的作品' });
+    expect(shelf).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开《雾钟档案》' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '首页功能' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: '创作功能' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/books/book-ui-1/workspace'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开《雾钟档案》' }));
+    expect(await screen.findByRole('navigation', { name: '创作功能' })).toBeInTheDocument();
+    expect(new URL(window.location.href).searchParams.get('book')).toBe('book-ui-1');
+    fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
+    expect(await screen.findByRole('heading', { name: '我的作品' })).toBeInTheDocument();
+    expect(new URL(window.location.href).searchParams.get('book')).toBeNull();
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
+  });
+
+  it('首页团队显示全局岗位模板，不把模板状态伪装成实时工作状态', async () => {
+    window.history.replaceState(null, '', '/');
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '团队' }));
+    expect(await screen.findByRole('heading', { name: '创作团队' })).toBeInTheDocument();
+    expect(screen.getAllByText('全局岗位模板').length).toBeGreaterThan(0);
+    expect(screen.getByText('11 名成员')).toBeInTheDocument();
+    expect(screen.queryByText('后台工作中')).not.toBeInTheDocument();
+    expect(screen.getAllByText('貂蝉（主编）').length).toBeGreaterThan(0);
+    expect(screen.getByText('Codex订阅 · gpt-5.6-sol')).toBeInTheDocument();
+  });
+
   it('显示内容优先三栏、仅十一名女性创作成员、原型头像与真实状态并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
@@ -134,7 +182,7 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['对话', '规划', '正文', '图谱', '资料库', '版权与研究', '任务', '团队']) {
+    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究', '任务']) {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
     expect(document.querySelector('.task-center')).toBeNull();
@@ -162,7 +210,9 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     await screen.findAllByText('雾钟档案');
+    fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
+    fireEvent.click(await screen.findByRole('button', { name: '雾钟档案' }));
     const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
     expect(within(team).getByText('11 名成员')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
@@ -257,6 +307,7 @@ describe('完整创作工作台', () => {
   });
 
   it('只用作品定位建书，并把人物、设定和剧情留到后续阶段', async () => {
+    window.history.replaceState(null, '', '/');
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
@@ -310,6 +361,7 @@ describe('完整创作工作台', () => {
   });
 
   it('开书资料未填完整时明确列出缺失项，不用静默禁用按钮', async () => {
+    window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
@@ -327,6 +379,7 @@ describe('完整创作工作台', () => {
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
+    window.history.replaceState(null, '', '/');
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
@@ -846,6 +899,25 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path === '/api/v1/operations/status') return apiResponse({ releaseId: 'release-ui', schemaVersion: 18, disk: { totalBytes: 1000, freeBytes: 800 }, queue: { queued: 0, working: 1, blocked: 0 }, projection: { status: 'ready' }, latestBackup: null, portability: { completed: 0, failed: 0 }, diagnostics: { telemetrySent: false, secretsIncluded: false, listeningHost: '127.0.0.1' } });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
+    if (path === '/api/v1/team-template') return apiResponse({
+      members: agents.map((agent, index) => ({
+        roleTemplateId: `role-template-${agent.roleKey}`,
+        roleKey: agent.roleKey,
+        memberName: agent.displayName,
+        shortTitle: agent.roleName,
+        category: agent.category,
+        publicSummary: agent.publicSummary,
+        responsibilities: agent.responsibilities,
+        boundaries: agent.boundaries,
+        retrievalFocus: agent.retrievalFocus,
+        outputKinds: agent.outputKinds,
+        defaultActivation: index < 6 ? 'resident' : 'standby',
+        defaultModel: index === 0
+          ? { provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol', plan: 'codex' }
+          : { provider: agent.provider, modelId: agent.modelId, plan: 'deterministic' },
+        defaultPrompt: `你是文秘写作团队中的${agent.displayName}（${agent.roleName}）。`
+      }))
+    });
     if (path.endsWith('/team-config')) return apiResponse({
       members: agents.map((agent) => ({
         ...agent,

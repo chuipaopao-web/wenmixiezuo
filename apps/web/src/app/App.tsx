@@ -56,6 +56,7 @@ import {
   fetchWorker,
   fetchWorkspace,
   fetchTeamConfig,
+  fetchTeamTemplate,
   sendMessage,
   resolveConfirmation,
   activateModelBindings,
@@ -107,6 +108,7 @@ import {
   type TaskData,
   type TeamModelProfileData,
   type TeamConfigData,
+  type TeamTemplateData,
   type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
@@ -130,6 +132,7 @@ import {
 import './app.css';
 
 type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'team';
+type HomeView = 'shelf' | 'team';
 
 interface PendingChatAttachment {
   localId: string;
@@ -148,6 +151,9 @@ export function App(): React.JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [view, setView] = useState<WorkspaceView>('chat');
+  const [homeView, setHomeView] = useState<HomeView>('shelf');
+  const [teamTemplate, setTeamTemplate] = useState<TeamTemplateData | null>(null);
+  const [teamBookId, setTeamBookId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterData | null>(null);
   const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
@@ -184,7 +190,7 @@ export function App(): React.JSX.Element {
     setBooks(nextBooks);
     setSelectedBookId((current) => {
       const nextActiveBooks = nextBooks.filter((book) => book.status !== 'archived');
-      const next = current !== null && nextActiveBooks.some((book) => book.bookId === current) ? current : nextActiveBooks[0]?.bookId ?? null;
+      const next = current !== null && nextActiveBooks.some((book) => book.bookId === current) ? current : null;
       persistSelectedBook(next);
       return next;
     });
@@ -236,6 +242,15 @@ export function App(): React.JSX.Element {
       window.clearInterval(poll);
     };
   }, [refreshWorkspace, selectedBookId]);
+
+  useEffect(() => {
+    if (selectedBookId !== null || homeView !== 'team' || teamTemplate !== null) return;
+    const controller = new AbortController();
+    void fetchTeamTemplate(controller.signal).then(setTeamTemplate).catch((reason: unknown) => {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '团队模板加载失败');
+    });
+    return () => controller.abort();
+  }, [homeView, selectedBookId, teamTemplate]);
 
   useEffect(() => {
     setPendingAttachments([]);
@@ -341,6 +356,24 @@ export function App(): React.JSX.Element {
     setSelectedTaskId(null);
     setView('chat');
     setLeftOpen(false);
+  };
+
+  const returnToShelf = (): void => {
+    if (pendingAttachments.length > 0) {
+      setError('返回书架前请先发送或移除当前附件，避免留下未引用资料。');
+      return;
+    }
+    setSelectedBookId(null);
+    persistSelectedBook(null);
+    setWorkspace(null);
+    setMessages([]);
+    setSelectedChapterId(null);
+    setSelectedChapter(null);
+    setSelectedTaskId(null);
+    setReaderMode(false);
+    setHomeView('shelf');
+    setLeftOpen(false);
+    setRightOpen(false);
   };
 
   const submitMessage = async (overrideContent?: string): Promise<void> => {
@@ -519,7 +552,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div
-      className={`app-shell ${readerMode ? 'reader-mode' : ''}`}
+      className={`app-shell ${readerMode ? 'reader-mode' : ''} ${selectedBook === null ? 'home-mode' : ''}`}
       data-theme={preferences.theme}
       style={{ '--font-scale': String(FONT_SCALE[preferences.fontSize]) } as CSSProperties}
     >
@@ -529,7 +562,9 @@ export function App(): React.JSX.Element {
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
-        <TopbarBookSummary book={selectedBook} workspace={workspace} />
+        {selectedBook === null
+          ? <div className="home-topbar-title"><strong>{homeView === 'shelf' ? '我的书架' : '创作团队'}</strong><span>{homeView === 'shelf' ? `${activeBooks.length} 本创作中的书` : '全局岗位模板'}</span></div>
+          : <TopbarBookSummary book={selectedBook} workspace={workspace} />}
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
           <button className="icon-button settings-button" type="button" aria-label="界面设置" onClick={() => setSettingsOpen(true)}><GearSixIcon /></button>
@@ -538,48 +573,21 @@ export function App(): React.JSX.Element {
               {readerMode ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
             </button>
           )}
-          <button className="icon-button mobile-only" type="button" aria-label="打开创作团队" onClick={() => setRightOpen(true)}><UsersThreeIcon /></button>
+          {selectedBook !== null && <button className="icon-button mobile-only" type="button" aria-label="打开创作团队" onClick={() => setRightOpen(true)}><UsersThreeIcon /></button>}
         </div>
       </header>
 
-      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍与功能">
+      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label={selectedBook === null ? '首页功能' : '书籍与功能'}>
         <DrawerHeader title="书籍与功能" onClose={() => setLeftOpen(false)} />
-        <div className="rail-heading"><span>我的书</span><button className="small-icon-button" type="button" aria-label="创建新书" onClick={() => setCreateOpen(true)}><PlusIcon /></button></div>
-        <nav className="book-switcher" aria-label="书籍列表">
-          {activeBooks.map((book) => (
-            <div className="book-row" key={book.bookId}>
-              <button aria-label={`打开《${book.title}》`} className={book.bookId === selectedBookId ? 'book-button active' : 'book-button'} type="button" onClick={() => selectBook(book.bookId)}>
-                <BooksIcon /><span><strong>{book.title}</strong><small>{bookStatusLabel(book.status)}</small></span><CaretRightIcon />
-              </button>
-              <button className="book-menu-button" type="button" aria-label={`管理《${book.title}》`} aria-expanded={bookMenuId === book.bookId} onClick={() => setBookMenuId((current) => current === book.bookId ? null : book.bookId)}><DotsThreeVerticalIcon /></button>
-              {bookMenuId === book.bookId && (
-                <div className="book-action-popover">
-                  <button type="button" onClick={() => setArchiveCandidate(book)}><ArchiveBoxIcon />移到归档</button>
-                  <small>从主书架收起，可以恢复</small>
-                </div>
-              )}
-            </div>
-          ))}
-          {!loading && activeBooks.length === 0 && <p className="rail-empty">主书架还没有书。创建新书或从归档区恢复。</p>}
-          {archivedBooks.length > 0 && (
-            <div className="archive-shelf">
-              <button className="archive-shelf-toggle" type="button" aria-expanded={archiveOpen} aria-label={`查看已归档书籍，共 ${archivedBooks.length} 本`} onClick={() => setArchiveOpen((value) => !value)}>
-                <ArchiveBoxIcon /><span>已归档</span><small>{archivedBooks.length}</small><CaretRightIcon />
-              </button>
-              {archiveOpen && <div className="archived-book-list">{archivedBooks.map((book) => (
-                <div className="archived-book-row" key={book.bookId}>
-                  <span><strong>{book.title}</strong><small>不参与当前创作</small></span>
-                  <div className="archived-book-actions">
-                    <button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void restoreArchivedBook(book)}><ArrowCounterClockwiseIcon /></button>
-                    <button className="danger-icon-button" type="button" disabled={busy} aria-label={`彻底删除《${book.title}》`} onClick={() => setPurgeCandidate(book)}><TrashIcon /></button>
-                  </div>
-                </div>
-              ))}</div>}
-            </div>
-          )}
-        </nav>
-        {selectedBook !== null && (
+        {selectedBook === null ? (
+          <nav className="home-navigation" aria-label="首页功能">
+            <RailViewButton active={homeView === 'shelf'} onClick={() => { setHomeView('shelf'); setLeftOpen(false); }} icon={<BooksIcon />} label="书架" />
+            <RailViewButton active={homeView === 'team'} onClick={() => { setHomeView('team'); setLeftOpen(false); }} icon={<UsersThreeIcon />} label="团队" />
+            <button type="button" onClick={() => { setSettingsOpen(true); setLeftOpen(false); }}><GearSixIcon /><span>设置</span></button>
+          </nav>
+        ) : (
           <nav className="rail-navigation" aria-label="创作功能">
+            <button className="back-to-shelf" type="button" onClick={returnToShelf}><BooksIcon /><span>返回书架</span></button>
             <RailViewButton active={view === 'chat'} onClick={() => { setView('chat'); setLeftOpen(false); }} icon={<ChatsCircleIcon />} label="对话" />
             <RailViewButton active={view === 'outline'} onClick={() => { setView('outline'); setLeftOpen(false); }} icon={<FileTextIcon />} label="规划" />
             <RailViewButton active={view === 'manuscript'} onClick={() => { setView('manuscript'); setLeftOpen(false); }} icon={<BookOpenTextIcon />} label="正文" />
@@ -587,14 +595,35 @@ export function App(): React.JSX.Element {
             <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
             <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
             <RailViewButton active={view === 'tasks'} onClick={() => { setView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
-            <RailViewButton active={view === 'team'} onClick={() => { setView('team'); setLeftOpen(false); }} icon={<UsersThreeIcon />} label="团队" />
           </nav>
         )}
       </aside>
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
-        {loading ? <WorkspaceSkeleton /> : selectedBook === null ? <EmptyLibrary onCreate={() => setCreateOpen(true)} /> : (
+        {loading ? <WorkspaceSkeleton /> : selectedBook === null ? (
+          homeView === 'shelf'
+            ? <BookshelfHome
+                activeBooks={activeBooks}
+                archivedBooks={archivedBooks}
+                busy={busy}
+                archiveOpen={archiveOpen}
+                bookMenuId={bookMenuId}
+                onCreate={() => setCreateOpen(true)}
+                onOpen={selectBook}
+                onToggleMenu={setBookMenuId}
+                onArchive={setArchiveCandidate}
+                onToggleArchive={() => setArchiveOpen((value) => !value)}
+                onRestore={restoreArchivedBook}
+                onPurge={setPurgeCandidate}
+              />
+            : teamBookId === null
+              ? <TeamTemplateWorkspace data={teamTemplate} books={activeBooks} onManageBook={setTeamBookId} />
+              : <section className="home-team-book-config">
+                  <button className="secondary-button" type="button" onClick={() => setTeamBookId(null)}>返回团队模板</button>
+                  <TeamWorkspace bookId={teamBookId} workspace={null} onError={setError} />
+                </section>
+        ) : (
           <>
             {view === 'chat' && (
               <ChatWorkspace
@@ -632,15 +661,14 @@ export function App(): React.JSX.Element {
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
             {view === 'rights' && <RightsWorkspace data={referenceData} />}
-            {view === 'team' && <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />}
           </>
         )}
       </main>
 
-      <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="创作团队">
-        <DrawerHeader title="创作团队" onClose={() => setRightOpen(false)} />
-        <TeamInspector workspace={workspace} worker={worker} onSelectAgent={(agent) => setSelectedAgentId(agent.agentId)} />
-      </aside>
+      {selectedBook !== null && <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="创作团队">
+          <DrawerHeader title="创作团队" onClose={() => setRightOpen(false)} />
+          <TeamInspector workspace={workspace} worker={worker} onSelectAgent={(agent) => setSelectedAgentId(agent.agentId)} />
+        </aside>}
 
       {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
       {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
@@ -1818,6 +1846,83 @@ function agentPresence(agent: AgentData, task: TaskData | null, worker: WorkerDa
   return { label: '需要处理', className: 'blocked' };
 }
 
+function BookshelfHome({
+  activeBooks, archivedBooks, busy, archiveOpen, bookMenuId, onCreate, onOpen, onToggleMenu,
+  onArchive, onToggleArchive, onRestore, onPurge
+}: {
+  activeBooks: BookData[];
+  archivedBooks: BookData[];
+  busy: boolean;
+  archiveOpen: boolean;
+  bookMenuId: string | null;
+  onCreate: () => void;
+  onOpen: (bookId: string) => void;
+  onToggleMenu: (bookId: string | null) => void;
+  onArchive: (book: BookData) => void;
+  onToggleArchive: () => void;
+  onRestore: (book: BookData) => Promise<void>;
+  onPurge: (book: BookData) => void;
+}): React.JSX.Element {
+  return <section className="bookshelf-home" aria-labelledby="bookshelf-title">
+    <header className="bookshelf-heading">
+      <div><span className="eyebrow">本地书架</span><h2 id="bookshelf-title">我的作品</h2><p>打开一本书进入独立创作工作台。其他书的后台任务会继续运行。</p></div>
+      <button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button>
+    </header>
+    {activeBooks.length === 0 ? <EmptyLibrary onCreate={onCreate} /> : <div className="book-cover-grid" aria-label="活动书籍">
+      {activeBooks.map((book, index) => <article className="book-cover-card" key={book.bookId}>
+        <button className="book-cover-open" type="button" aria-label={`打开《${book.title}》`} onClick={() => onOpen(book.bookId)}>
+          <span className={`book-cover-art cover-tone-${index % 5}`} aria-hidden="true"><BooksIcon /><b>{book.title.slice(0, 8)}</b><small>文秘写作</small></span>
+          <span className="book-cover-copy"><strong>{book.title}</strong><small>{bookStatusLabel(book.status)} · 正史修订 {book.canonRevision}</small><time dateTime={book.updatedAt}>最近更新 {formatShelfDate(book.updatedAt)}</time></span>
+        </button>
+        <button className="book-cover-menu" type="button" aria-label={`管理《${book.title}》`} aria-expanded={bookMenuId === book.bookId} onClick={() => onToggleMenu(bookMenuId === book.bookId ? null : book.bookId)}><DotsThreeVerticalIcon /></button>
+        {bookMenuId === book.bookId && <div className="book-action-popover shelf-popover"><button type="button" onClick={() => onArchive(book)}><ArchiveBoxIcon />移到归档</button><small>书籍资料原样保留，之后可以恢复</small></div>}
+      </article>)}
+    </div>}
+    {archivedBooks.length > 0 && <section className="home-archive">
+      <button className="home-archive-toggle" type="button" aria-expanded={archiveOpen} aria-label={`查看已归档书籍，共 ${archivedBooks.length} 本`} onClick={onToggleArchive}><ArchiveBoxIcon /><span>已归档书籍</span><small>{archivedBooks.length} 本</small><CaretRightIcon /></button>
+      {archiveOpen && <div className="home-archive-list">{archivedBooks.map((book) => <article key={book.bookId}><span><strong>{book.title}</strong><small>资料完整保留</small></span><div><button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void onRestore(book)}><ArrowCounterClockwiseIcon />恢复</button><button className="danger-text-button" type="button" disabled={busy} aria-label={`彻底删除《${book.title}》`} onClick={() => onPurge(book)}><TrashIcon />彻底删除</button></div></article>)}</div>}
+    </section>}
+  </section>;
+}
+
+function TeamTemplateWorkspace({ data, books, onManageBook }: { data: TeamTemplateData | null; books: BookData[]; onManageBook: (bookId: string) => void }): React.JSX.Element {
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const selected = data?.members.find((member) => member.roleKey === selectedRole) ?? data?.members[0] ?? null;
+  if (data === null) return <WorkspaceSkeleton />;
+  return <section className="team-template-workspace" aria-labelledby="team-template-title">
+    <header><div><span className="eyebrow">全局岗位模板</span><h2 id="team-template-title">创作团队</h2><p>这里说明11个岗位的默认职责和模型。进入具体书籍后，右栏才显示该书成员的真实工作状态。</p></div><strong>{data.members.length} 名成员</strong></header>
+    {books.length > 0 && <div className="team-book-shortcuts"><span>管理某本书的成员补充要求：</span>{books.map((book) => <button type="button" key={book.bookId} onClick={() => onManageBook(book.bookId)}>{book.title}</button>)}</div>}
+    <div className="team-template-layout">
+      <nav aria-label="团队岗位模板">{data.members.map((member) => <button className={selected?.roleKey === member.roleKey ? 'active' : ''} type="button" key={member.roleKey} onClick={() => setSelectedRole(member.roleKey)}><AgentAvatar roleKey={member.roleKey} roleName={`${member.memberName}（${member.shortTitle}）`} /><span><strong>{member.memberName}（{member.shortTitle}）</strong><small>{member.publicSummary}</small></span></button>)}</nav>
+      {selected !== null && <article className="team-template-detail">
+        <header><div><AgentAvatar roleKey={selected.roleKey} roleName={`${selected.memberName}（${selected.shortTitle}）`} /><div><h3>{selected.memberName}（{selected.shortTitle}）</h3><p>{selected.publicSummary}</p></div></div><span>{selected.defaultActivation === 'resident' ? '常驻岗位' : '按需岗位'}</span></header>
+        <DetailList title="岗位职责" values={selected.responsibilities} />
+        <DetailList title="工作边界" values={selected.boundaries} />
+        <DetailList title="检索重点" values={selected.retrievalFocus} />
+        <section><h4>默认模型</h4><p>{modelProviderLabel(selected.defaultModel.provider)} · {selected.defaultModel.modelId}</p></section>
+        <section><h4>公开默认提示词</h4><pre>{selected.defaultPrompt}</pre></section>
+      </article>}
+    </div>
+  </section>;
+}
+
+function DetailList({ title, values }: { title: string; values: string[] }): React.JSX.Element {
+  return <section><h4>{title}</h4><ul>{values.map((value) => <li key={value}>{value}</li>)}</ul></section>;
+}
+
+function formatShelfDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '未知' : new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(date);
+}
+
+function modelProviderLabel(provider: string): string {
+  if (provider === 'openai-codex-subscription') return 'Codex订阅';
+  if (provider === 'volcengine-ark-coding-plan') return '火山方舟Coding Plan';
+  if (provider === 'volcengine-ark-agent-plan') return '火山方舟Agent Plan';
+  if (provider === 'local-deterministic') return '本地确定性工具';
+  return '已配置模型服务';
+}
+
 function EmptyLibrary({ onCreate }: { onCreate: () => void }): React.JSX.Element {
   return <section className="empty-library"><div className="empty-glyph"><BooksIcon /></div><h2>把第一本书放进工作台</h2><p>先填写书籍、主角、第一阶段剧情、主要标签和作品边界。确认后会原子创建11名创作成员、预算与规划资料，并由主编主动引导下一步讨论。</p><button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button></section>;
 }
@@ -2447,7 +2552,8 @@ function shortId(value: string): string {
 
 function readSelectedBook(): string | null {
   try {
-    return typeof localStorage === 'undefined' ? null : localStorage.getItem('wenmi:selected-book');
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('book');
   } catch {
     return null;
   }
@@ -2455,10 +2561,15 @@ function readSelectedBook(): string | null {
 
 function persistSelectedBook(bookId: string | null): void {
   try {
-    if (typeof localStorage === 'undefined') return;
-    if (bookId === null) localStorage.removeItem('wenmi:selected-book');
-    else localStorage.setItem('wenmi:selected-book', bookId);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (bookId === null) url.searchParams.delete('book');
+    else {
+      url.searchParams.delete('newBook');
+      url.searchParams.set('book', bookId);
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   } catch {
-    // 无痕模式或受限WebView可能禁用本地存储；工作区仍可在当前会话使用。
+    // 受限WebView可能禁用history；当前会话中的React状态仍可使用。
   }
 }

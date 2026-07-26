@@ -21,6 +21,17 @@ describe('工作台API', () => {
     });
     prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
     app = await createServer(context.config, context.database, { trustedTest: true });
+    const teamTemplateResponse = await app.inject({ method: 'GET', url: '/api/v1/team-template' });
+    expect(teamTemplateResponse.statusCode).toBe(200);
+    expect(teamTemplateResponse.json().data.members).toHaveLength(11);
+    expect(teamTemplateResponse.json().data.members[0]).toEqual(expect.objectContaining({
+      memberName: '貂蝉',
+      shortTitle: '主编',
+      publicSummary: expect.any(String),
+      defaultPrompt: expect.stringContaining('文秘写作团队中的貂蝉'),
+      defaultModel: expect.objectContaining({ provider: 'openai-codex-subscription' })
+    }));
+    expect(JSON.stringify(teamTemplateResponse.json().data)).not.toContain('agentId');
     const workspaceResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/workspace` });
     expect(workspaceResponse.statusCode).toBe(200);
     expect(workspaceResponse.json().data).toMatchObject({

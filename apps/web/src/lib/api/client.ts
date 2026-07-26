@@ -180,6 +180,24 @@ export interface TeamConfigData {
   };
 }
 
+export interface TeamTemplateData {
+  members: Array<{
+    roleTemplateId: string;
+    roleKey: string;
+    memberName: string;
+    shortTitle: string;
+    category: 'core' | 'specialist';
+    publicSummary: string;
+    responsibilities: string[];
+    boundaries: string[];
+    retrievalFocus: string[];
+    outputKinds: string[];
+    defaultActivation: 'resident' | 'standby';
+    defaultModel: { provider: string; modelId: string; plan: string };
+    defaultPrompt: string;
+  }>;
+}
+
 export interface TaskData {
   taskId: string;
   taskType: string;
@@ -427,19 +445,27 @@ async function performRequest(path: string, init: RequestInit): Promise<Response
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (path.startsWith('/api/v1/')) await ensureRuntimeSession();
-  let response = await performRequest(path, init);
-  if (response.status === 401 && path.startsWith('/api/v1/')) {
-    sessionPromise = null;
-    await ensureRuntimeSession();
-    response = await performRequest(path, init);
+  try {
+    if (path.startsWith('/api/v1/')) await ensureRuntimeSession();
+    let response = await performRequest(path, init);
+    if (response.status === 401 && path.startsWith('/api/v1/')) {
+      sessionPromise = null;
+      await ensureRuntimeSession();
+      response = await performRequest(path, init);
+    }
+    const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
+    if (!response.ok) {
+      const message = 'error' in body ? body.error?.message : undefined;
+      throw new Error(message ?? `这次没有顺利完成（状态 ${response.status}），请稍后再试。`);
+    }
+    return (body as ApiResponse<T>).data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    if (error instanceof TypeError && /fetch|network|load failed/iu.test(error.message)) {
+      throw new Error('无法连接文秘写作服务，请重新启动应用后再试。');
+    }
+    throw error;
   }
-  const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
-  if (!response.ok) {
-    const message = 'error' in body ? body.error?.message : undefined;
-    throw new Error(message ?? `这次没有顺利完成（状态 ${response.status}），请稍后再试。`);
-  }
-  return (body as ApiResponse<T>).data;
 }
 
 export function fetchHealth(signal?: AbortSignal): Promise<HealthData> {
@@ -448,6 +474,10 @@ export function fetchHealth(signal?: AbortSignal): Promise<HealthData> {
 
 export function fetchCapabilities(signal?: AbortSignal): Promise<CapabilityData> {
   return request('/api/v1/capabilities', signal === undefined ? {} : { signal });
+}
+
+export function fetchTeamTemplate(signal?: AbortSignal): Promise<TeamTemplateData> {
+  return request('/api/v1/team-template', signal === undefined ? {} : { signal });
 }
 
 export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {

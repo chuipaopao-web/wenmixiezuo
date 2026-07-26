@@ -341,6 +341,32 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     }, request.id);
   });
 
+  app.get('/api/v1/team-template', async (request) => success({
+    members: creativeMemberContracts.map((contract) => ({
+      roleTemplateId: contract.roleTemplateId,
+      roleKey: contract.roleKey,
+      memberName: contract.memberName,
+      shortTitle: contract.shortTitle,
+      category: contract.category,
+      publicSummary: contract.publicSummary,
+      responsibilities: contract.responsibilities,
+      boundaries: contract.boundaries,
+      retrievalFocus: contract.retrievalFocus,
+      outputKinds: contract.outputKinds,
+      defaultActivation: contract.defaultActivation,
+      defaultModel: contract.defaultModel,
+      defaultPrompt: [
+        `你是文秘写作团队中的${contract.memberName}（${contract.shortTitle}）。`,
+        `岗位定位：${contract.publicSummary}`,
+        `主要职责：${contract.responsibilities.join('；')}。`,
+        `工作边界：${contract.boundaries.join('；')}。`,
+        `检索重点：${contract.retrievalFocus.join('；')}。`,
+        `交付内容：${contract.outputKinds.join('；')}。`,
+        '只依据当前书籍范围内的任务和资料工作；不冒充其他成员，不声称完成未执行的操作；遇到事实不足或重大分歧时明确指出。'
+      ].join('\n')
+    }))
+  }, request.id));
+
   app.put<{
     Params: { bookId: string; agentId: string };
     Body: { expectedVersion: number; content?: string };
