@@ -1,6 +1,6 @@
 # 基本设定工作台实施计划
 
-**release_id:** `wm-longform-r1-20260719-003435-e4d7b8b7`  
+**release_id:** `wm-longform-r1-20260719-003435-e4d7b8b7`
 **design_review_id:** `DR-20260726-setting-workbench-v1`
 
 ## 目标
