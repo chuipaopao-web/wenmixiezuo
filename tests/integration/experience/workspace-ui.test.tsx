@@ -309,6 +309,23 @@ describe('完整创作工作台', () => {
     })).toBe(true));
   });
 
+  it('开书资料未填完整时明确列出缺失项，不用静默禁用按钮', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '待完善的新书' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：玄幻脑洞' }));
+
+    expect(within(dialog).getByText('还需填写：目标读者、至少2个主要标签、必须遵守')).toBeInTheDocument();
+    const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：目标读者、至少2个主要标签、必须遵守');
+  });
+
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);

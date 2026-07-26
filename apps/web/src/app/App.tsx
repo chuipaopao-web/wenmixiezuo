@@ -2055,6 +2055,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [tagQuery, setTagQuery] = useState('');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2075,9 +2076,18 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     : options.filter((item) => item.toLocaleLowerCase('zh-CN').includes(normalizedTagQuery));
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
-  const valid = taxonomy !== null && title.trim().length > 0 && channel !== null && category !== null
-    && targetAudience.trim().length > 0 && mustFollow.length > 0 && mustFollow.length <= 12
-    && mainTags.length >= 2 && mainTags.length <= 5;
+  const missingRequirements = [
+    ...(taxonomy === null ? ['分类目录'] : []),
+    ...(title.trim().length === 0 ? ['书名'] : []),
+    ...(channel === null ? ['创作频道'] : []),
+    ...(category === null ? ['作品分类'] : []),
+    ...(targetAudience.trim().length === 0 ? ['目标读者'] : []),
+    ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
+    ...(mainTags.length > 5 ? ['主要标签最多5个'] : []),
+    ...(mustFollow.length === 0 ? ['必须遵守'] : []),
+    ...(mustFollow.length > 12 ? ['必须遵守最多12条'] : [])
+  ];
+  const valid = missingRequirements.length === 0;
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
     else if (current.length < max) setter([...current, tag]);
@@ -2101,7 +2111,10 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
   const submit = (): void => {
-    if (!valid || taxonomy === null || channel === null || category === null) return;
+    if (!valid || taxonomy === null || channel === null || category === null) {
+      setSubmitAttempted(true);
+      return;
+    }
     const openingBlueprint: OpeningBlueprintData = {
       taxonomyVersion: taxonomy.version,
       channel,
@@ -2165,7 +2178,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </details>
         </section>
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后进入设定大纲</span></div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后进入设定大纲</span>{missingRequirements.length > 0 && <small className="create-book-requirements" role={submitAttempted ? 'alert' : undefined}>{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
     </section>
   </div>;
 }

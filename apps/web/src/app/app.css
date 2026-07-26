@@ -3942,6 +3942,13 @@ svg {
   font-size: calc(8px * var(--font-scale));
 }
 
+.create-book-requirements {
+  color: var(--danger);
+  display: block;
+  font-size: calc(8px * var(--font-scale));
+  margin-top: 3px;
+}
+
 .create-book-footer > div:last-child {
   display: flex;
   gap: 7px;
