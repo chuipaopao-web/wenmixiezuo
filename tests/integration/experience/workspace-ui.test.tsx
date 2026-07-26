@@ -256,7 +256,7 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('archived')).not.toBeInTheDocument();
   });
 
-  it('完整开书资料按番茄式分类提交，并保留主要选择之外的自由创作', async () => {
+  it('只用作品定位建书，并把人物、设定和剧情留到后续阶段', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
@@ -269,18 +269,7 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    fireEvent.change(within(dialog).getByLabelText('主角身份'), { target: { value: 'female_lead' } });
-    fireEvent.change(within(dialog).getByLabelText('主角姓名'), { target: { value: '沈簪' } });
-    fireEvent.change(within(dialog).getByLabelText('主角年龄'), { target: { value: '二十三岁' } });
-    fireEvent.change(within(dialog).getByLabelText('主角人物背景'), { target: { value: '文物修复师，回长安处理家族旧案。' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择性格：冷静' }));
-    fireEvent.change(within(dialog).getByLabelText('世界观背景'), { target: { value: '当代长安与梦中旧城彼此映照。' } });
-    fireEvent.change(within(dialog).getByLabelText('故事起始背景'), { target: { value: '沈簪修复一支能映出失踪者记忆的古簪。' } });
-    fireEvent.change(within(dialog).getByLabelText('第一阶段起始剧情'), { target: { value: '古簪第一次显出旧城命案。' } });
-    fireEvent.change(within(dialog).getByLabelText('第一阶段发展剧情'), { target: { value: '她与刑警沿记忆寻找三名失踪者。' } });
-    fireEvent.change(within(dialog).getByLabelText('第一阶段结束剧情'), { target: { value: '她救回失踪者，却发现父亲也在旧城。' } });
-    fireEvent.change(within(dialog).getByLabelText('全书简介（故事主线和结果）'), { target: { value: '沈簪追查旧城真相，最终让被篡改的城市记忆回归。' } });
-    fireEvent.change(within(dialog).getByLabelText('初始地图'), { target: { value: '长安旧城区、文保中心与梦中朱雀街。' } });
+    fireEvent.change(within(dialog).getByLabelText('目标读者'), { target: { value: '喜欢都市悬疑与女性成长的读者' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：现言' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：脑洞' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '选择全书特点：群像' }));
@@ -293,7 +282,10 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText(/已选 2 个主要标签/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认建书' }));
+    expect(within(dialog).queryByLabelText('主角姓名')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('世界观背景')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('第一阶段起始剧情')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '创建并进入设定' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/books/drafts') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const payload = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
@@ -301,6 +293,11 @@ describe('完整创作工作台', () => {
       return payload.title === '长安簪影'
         && payload.classification === '女频'
         && blueprint.categoryKey === 'female-modern-brain'
+        && blueprint.targetAudience === '喜欢都市悬疑与女性成长的读者'
+        && Array.isArray(blueprint.protagonists)
+        && blueprint.protagonists.length === 0
+        && blueprint.worldBackground === ''
+        && blueprint.fullBookOutline === ''
         && Array.isArray(blueprint.mainTags)
         && blueprint.mainTags.includes('现言')
         && blueprint.mainTags.includes('脑洞')
@@ -310,87 +307,6 @@ describe('完整创作工作台', () => {
         && blueprint.mustFollow.includes('不写后宫')
         && blueprint.mustFollow.includes('不靠误会强推剧情');
     })).toBe(true));
-  });
-
-  it('在开书左列用5000字剧情梗概识别空字段，并保留作者已经填写的内容', async () => {
-    const fetchMock = vi.fn(createFetchRouter());
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
-    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
-    const synopsisInput = within(dialog).getByLabelText('剧情梗概') as HTMLTextAreaElement;
-    expect(synopsisInput).toHaveAttribute('maxlength', '5000');
-    expect(within(dialog).getByText('0 / 5000')).toBeInTheDocument();
-    expect(document.querySelector('.opening-primary-stack')).toBeInTheDocument();
-
-    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '作者保留的书名' } });
-    const synopsis = [
-      '书名：北境军报',
-      '频道：男频',
-      '分类：玄幻脑洞',
-      '男主：陆沉，十八岁，边军斥候。',
-      '性格：冷静、敏锐',
-      '世界观背景：城邦以军功与盟约维持秩序。',
-      '故事起始背景：天安城拒绝缴纳边境军费。',
-      '第一阶段起始剧情：陆沉发现伪造军令。',
-      '第一阶段发展剧情：他阻止第一次宣战。',
-      '第一阶段结束剧情：他查出军令来自城内权臣。',
-      '全书简介：陆沉调查城邦战争规则，最终重建联盟。',
-      '初始地图：天安城北门与边军大营。',
-      '主要标签：玄幻、脑洞、成长',
-      '全书特点：群像',
-      '必须遵守：不写后宫'
-    ].join('\n');
-    fireEvent.change(synopsisInput, { target: { value: synopsis } });
-    expect(within(dialog).getByText(`${synopsis.length} / 5000`)).toBeInTheDocument();
-    const analyzeButton = within(dialog).getByRole('button', { name: '识别并填写' });
-    await waitFor(() => expect(analyzeButton).toBeEnabled());
-    fireEvent.click(analyzeButton);
-
-    await waitFor(() => expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname))
-      .toContain('/api/v1/opening-synopsis/analyze'));
-    expect(await within(dialog).findByText(/已填入.+保留 1 项已有内容/)).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('书名')).toHaveValue('作者保留的书名');
-    expect(within(dialog).getByRole('radio', { name: '男频' })).toBeChecked();
-    expect(within(dialog).getByRole('button', { name: '取消作品分类：玄幻脑洞' })).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('主角姓名')).toHaveValue('陆沉');
-    expect(within(dialog).getByLabelText('主角年龄')).toHaveValue('十八岁');
-    expect(within(dialog).getByLabelText('主角人物背景')).toHaveValue('边军斥候。');
-    expect(within(dialog).getByRole('button', { name: '取消性格：冷静' })).toBeInTheDocument();
-    expect(within(dialog).getByLabelText('世界观背景')).toHaveValue('城邦以军功与盟约维持秩序。');
-    expect(within(dialog).getByRole('button', { name: '取消主要标签：玄幻' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '取消主要标签：脑洞' })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: '取消必须遵守：不写后宫' })).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith('/api/v1/opening-synopsis/analyze')
-      && (init as RequestInit | undefined)?.method === 'POST'
-      && JSON.parse(String((init as RequestInit).body)).synopsis === synopsis)).toBe(true);
-    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
-  });
-
-  it('剧情梗概识别失败时保留手工表单并提供重试', async () => {
-    const baseRouter = createFetchRouter();
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/v1/opening-synopsis/analyze') {
-        return new Response(JSON.stringify({ error: { message: '本地识别暂时不可用' } }), {
-          status: 500, headers: { 'content-type': 'application/json' }
-        });
-      }
-      return baseRouter(input, init);
-    }));
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
-    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
-    fireEvent.change(within(dialog).getByLabelText('剧情梗概'), { target: { value: '主角张三在天安城开始调查。' } });
-    const analyzeButton = within(dialog).getByRole('button', { name: '识别并填写' });
-    await waitFor(() => expect(analyzeButton).toBeEnabled());
-    fireEvent.click(analyzeButton);
-
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('本地识别暂时不可用');
-    expect(within(dialog).getByRole('button', { name: '重新识别' })).toBeEnabled();
-    expect(within(dialog).getByLabelText('剧情梗概')).toHaveValue('主角张三在天安城开始调查。');
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
@@ -538,12 +454,12 @@ describe('完整创作工作台', () => {
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
-    expect(await screen.findByRole('heading', { name: '规划工作台' })).toBeInTheDocument();
-    for (const name of ['全书框架', '基本设定', '总纲', '卷纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '创作准备' })).toBeInTheDocument();
+    for (const name of ['本书资料', '设定大纲', '剧情总纲', '卷纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '章节列表' })).not.toBeInTheDocument();
     expect(await screen.findByText('游戏历史')).toBeInTheDocument();
     expect(screen.queryByText('钟响后可见未来一天')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '基本设定' }));
+    fireEvent.click(screen.getByRole('button', { name: '设定大纲' }));
     expect(await screen.findByText('钟响后可见未来一天')).toBeInTheDocument();
     expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
     expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
@@ -560,7 +476,7 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '属性计算公式' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
     expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '总纲' }));
+    fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('守城与预见')).toBeInTheDocument();
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
@@ -596,7 +512,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
-    fireEvent.click(await screen.findByRole('button', { name: '基本设定' }));
+    fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
     fireEvent.click(await screen.findByRole('button', { name: '作者编辑' }));
     fireEvent.change(screen.getByRole('textbox', { name: '世界观' }), { target: { value: '钟声只展示与守城有关的未来碎片' } });
     fireEvent.click(screen.getByRole('button', { name: '保存候选' }));

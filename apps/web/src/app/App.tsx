@@ -34,7 +34,6 @@ import {
 } from '@phosphor-icons/react';
 import {
   archiveBook,
-  analyzeOpeningSynopsis,
   cancelTask,
   createBook,
   fetchArtifacts,
@@ -104,9 +103,7 @@ import {
   type OperationsStatusData,
   type OpeningBlueprintData,
   type OpeningChannel,
-  type OpeningSynopsisAnalysisData,
   type OpeningTaxonomyData,
-  type ProtagonistRole,
   type TaskData,
   type TeamModelProfileData,
   type TeamConfigData,
@@ -1104,23 +1101,29 @@ function PlanningWorkspace({ data, workspace }: {
     if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
     return [];
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '全书框架'], ['basic', '基本设定'], ['master', '总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
   const tabDescription: Record<PlanningTab, string> = {
-    framework: '作品定位、题材与读者、表达基线、核心前提、主线和初始人物势力都在这里。',
-    basic: '这里只维护世界观、力量与资源体系、装备等级、经济规则、属性字段和计算公式；非数值题材可以留空。',
-    master: '全书主线、推进阶段、重大承诺、开放问题和终局方向。',
+    framework: '展示开书时确认的频道、分类、目标读者、主要标签和作品边界。',
+    basic: '先建立足够支撑第一阶段创作的世界、人物与核心规则；不知道的内容可以后补或刻意留白。',
+    master: '设定基线足够后，再讨论全书主线、推进阶段、重大承诺、开放问题和终局方向。',
     volume: '按卷维护阶段目标、核心冲突、故事弧、高潮结果和卷末状态。',
     chapter: '按章维护叙事目标、场景节拍、必须结果、读者信息和伏笔回收。'
   };
   return (
     <section className="reference-view planning-workspace" aria-labelledby="planning-title">
-      <header><h2 id="planning-title">规划工作台</h2><p>这里说明准备怎样写；资料库记录已经确认或发生的正史，两者通过来源相连。</p></header>
+      <header><h2 id="planning-title">创作准备</h2><p>先确认作品定位，再建立设定大纲；设定足够支撑当前阶段后，才进入剧情规划。</p></header>
+      <ol className="creation-progress" aria-label="创作准备流程">
+        <li className="done"><strong>1</strong><span>基本信息<small>已建书</small></span></li>
+        <li className={tab === 'basic' ? 'active' : ''}><strong>2</strong><span>设定大纲<small>逐步完善</small></span></li>
+        <li className={tab === 'master' || tab === 'volume' || tab === 'chapter' ? 'active' : ''}><strong>3</strong><span>剧情大纲<small>设定后讨论</small></span></li>
+        <li><strong>4</strong><span>正文创作<small>滚动推进</small></span></li>
+      </ol>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       <p className="planning-tab-description">{tabDescription[tab]}</p>
       {visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
-      {tab === 'basic' && <><SettingCatalog bookId={workspace?.book.bookId ?? null} /><AttributeFormulaManager bookId={workspace?.book.bookId ?? null} /></>}
+      {tab === 'basic' && <><div className="setting-state-guide"><article><strong>现在必须确定</strong><p>会直接影响世界运行、主角行动或第一阶段因果的基础规则。</p></article><article><strong>可以稍后补充</strong><p>暂时用不到的地区、支线、等级细节和装饰性资料。</p></article><article><strong>刻意保留未知</strong><p>准备作为悬念、探索空间或后续创意入口的内容。</p></article></div><SettingCatalog bookId={workspace?.book.bookId ?? null} /><AttributeFormulaManager bookId={workspace?.book.bookId ?? null} /></>}
     </section>
   );
 }
@@ -2028,22 +2031,9 @@ function roleLabel(role: string): string {
   } as Record<string, string>)[role] ?? role;
 }
 
-interface OpeningProtagonistDraft {
-  role: ProtagonistRole;
-  name: string;
-  age: string;
-  background: string;
-  personalities: string[];
-}
-
 const OPENING_CHANNELS: Array<{ id: OpeningChannel; label: string; description: string }> = [
   { id: 'male', label: '男频', description: '按男频分类与标签组织作品' },
   { id: 'female', label: '女频', description: '按女频分类与标签组织作品' }
-];
-
-const PROTAGONIST_ROLES: Array<{ id: ProtagonistRole; label: string }> = [
-  { id: 'male_lead', label: '男主' }, { id: 'female_lead', label: '女主' },
-  { id: 'co_lead', label: '共同主角' }, { id: 'ensemble', label: '群像主角' }, { id: 'non_human', label: '非人主角' }
 ];
 
 function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
@@ -2056,16 +2046,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [title, setTitle] = useState('');
   const [channel, setChannel] = useState<OpeningChannel | null>(null);
   const [categoryKey, setCategoryKey] = useState<string | null>(null);
-  const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>([
-    { role: 'co_lead', name: '', age: '', background: '', personalities: [] }
-  ]);
-  const [worldBackground, setWorldBackground] = useState('');
-  const [openingBackground, setOpeningBackground] = useState('');
-  const [stageStart, setStageStart] = useState('');
-  const [stageDevelopment, setStageDevelopment] = useState('');
-  const [stageEnd, setStageEnd] = useState('');
-  const [fullBookOutline, setFullBookOutline] = useState('');
-  const [initialMap, setInitialMap] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
   const [mainTags, setMainTags] = useState<string[]>([]);
   const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
   const [storyTraits, setStoryTraits] = useState<string[]>([]);
@@ -2074,9 +2055,6 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [tagQuery, setTagQuery] = useState('');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
-  const [synopsis, setSynopsis] = useState('');
-  const [synopsisBusy, setSynopsisBusy] = useState(false);
-  const [synopsisFeedback, setSynopsisFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2097,26 +2075,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     : options.filter((item) => item.toLocaleLowerCase('zh-CN').includes(normalizedTagQuery));
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
-  const protagonistsValid = protagonists.length > 0 && protagonists.every((item) =>
-    item.name.trim().length > 0 && item.age.trim().length > 0 && item.background.trim().length > 0 && item.personalities.length > 0
-  );
   const valid = taxonomy !== null && title.trim().length > 0 && channel !== null && category !== null
-    && protagonistsValid && worldBackground.trim().length > 0 && openingBackground.trim().length > 0
-    && stageStart.trim().length > 0 && stageDevelopment.trim().length > 0 && stageEnd.trim().length > 0
-    && fullBookOutline.trim().length > 0 && initialMap.trim().length > 0 && mustFollow.length > 0 && mustFollow.length <= 12
+    && targetAudience.trim().length > 0 && mustFollow.length > 0 && mustFollow.length <= 12
     && mainTags.length >= 2 && mainTags.length <= 5;
-
-  const updateProtagonist = (index: number, patch: Partial<OpeningProtagonistDraft>): void => {
-    setProtagonists((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
-  };
-  const toggleProtagonistPersonality = (index: number, personality: string): void => {
-    const current = protagonists[index];
-    if (current === undefined) return;
-    const next = current.personalities.includes(personality)
-      ? current.personalities.filter((item) => item !== personality)
-      : current.personalities.length >= 6 ? current.personalities : [...current.personalities, personality];
-    updateProtagonist(index, { personalities: next });
-  };
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
     else if (current.length < max) setter([...current, tag]);
@@ -2139,108 +2100,25 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     if (mustFollow.length >= 12) return;
     setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
-  const applySynopsisSuggestions = (analysis: OpeningSynopsisAnalysisData): void => {
-    if (taxonomy === null || analysis.taxonomyVersion !== taxonomy.version) {
-      throw new Error('分类目录已经变化，请刷新开书页面后重新识别');
-    }
-    const suggestion = analysis.suggestions;
-    let applied = 0;
-    let kept = 0;
-    const fillText = (current: string, next: string | null, setter: (value: string) => void): void => {
-      if (next === null || next.trim().length === 0) return;
-      if (current.trim().length > 0) { kept += 1; return; }
-      setter(next); applied += 1;
-    };
-    fillText(title, suggestion.title, setTitle);
-    const resolvedChannel = channel ?? suggestion.channel;
-    if (suggestion.channel !== null) {
-      if (channel === null) { setChannel(suggestion.channel); applied += 1; }
-      else if (channel !== suggestion.channel) kept += 1;
-    }
-    if (suggestion.categoryKey !== null) {
-      const suggestedCategory = taxonomy.categories.find((item) => item.key === suggestion.categoryKey);
-      if (categoryKey !== null) kept += 1;
-      else if (suggestedCategory?.channel === resolvedChannel) { setCategoryKey(suggestion.categoryKey); applied += 1; }
-    }
-    if (suggestion.protagonist !== null) {
-      const first = protagonists[0];
-      if (first !== undefined) {
-        const next = { ...first };
-        let protagonistApplied = false;
-        if (first.name.trim().length === 0) { next.name = suggestion.protagonist.name; protagonistApplied = true; }
-        else kept += 1;
-        if (suggestion.protagonist.age !== null) {
-          if (first.age.trim().length === 0) { next.age = suggestion.protagonist.age; protagonistApplied = true; }
-          else kept += 1;
-        }
-        if (suggestion.protagonist.background !== null) {
-          if (first.background.trim().length === 0) { next.background = suggestion.protagonist.background; protagonistApplied = true; }
-          else kept += 1;
-        }
-        const mergedPersonalities = [...new Set([...first.personalities, ...suggestion.protagonist.personalities])].slice(0, 6);
-        if (mergedPersonalities.length > first.personalities.length) {
-          next.personalities = mergedPersonalities; protagonistApplied = true;
-        }
-        if (first.name.trim().length === 0 && first.age.trim().length === 0 && first.background.trim().length === 0) {
-          next.role = suggestion.protagonist.role;
-        }
-        if (protagonistApplied) { updateProtagonist(0, next); applied += 1; }
-      }
-    }
-    fillText(worldBackground, suggestion.worldBackground, setWorldBackground);
-    fillText(openingBackground, suggestion.openingBackground, setOpeningBackground);
-    fillText(stageStart, suggestion.stageOne.start, setStageStart);
-    fillText(stageDevelopment, suggestion.stageOne.development, setStageDevelopment);
-    fillText(stageEnd, suggestion.stageOne.end, setStageEnd);
-    fillText(fullBookOutline, suggestion.fullBookOutline, setFullBookOutline);
-    fillText(initialMap, suggestion.initialMap, setInitialMap);
-    const mergeTags = (current: string[], next: string[], max: number, setter: (value: string[]) => void): void => {
-      const merged = [...new Set([...current, ...next])].slice(0, max);
-      if (merged.length > current.length) { setter(merged); applied += 1; }
-    };
-    mergeTags(mainTags, suggestion.mainTags, 5, setMainTags);
-    mergeTags(auxiliaryTags, suggestion.auxiliaryTags, 8, setAuxiliaryTags);
-    mergeTags(storyTraits, suggestion.storyTraits, 8, setStoryTraits);
-    if (suggestion.mustFollow.length > 0) {
-      if (selectedMustFollow.includes('无额外限制')) kept += 1;
-      else mergeTags(selectedMustFollow, suggestion.mustFollow, Math.max(0, 12 - customMustFollow.length), setSelectedMustFollow);
-    }
-    const unresolved = analysis.unresolvedFields.length;
-    setSynopsisFeedback({
-      kind: 'success',
-      message: `已填入 ${applied} 项建议，保留 ${kept} 项已有内容。${unresolved > 0 ? `还有 ${unresolved} 项需要您确认。` : '所有识别结果仍可修改。'}`
-    });
-  };
-  const runSynopsisAnalysis = (): void => {
-    const value = synopsis.trim();
-    if (value.length === 0 || value.length > 5_000 || taxonomy === null || synopsisBusy) return;
-    setSynopsisBusy(true);
-    setSynopsisFeedback(null);
-    void analyzeOpeningSynopsis(value)
-      .then(applySynopsisSuggestions)
-      .catch((reason: unknown) => setSynopsisFeedback({
-        kind: 'error',
-        message: reason instanceof Error ? reason.message : '剧情梗概识别暂时没有完成，请重试或继续手工填写'
-      }))
-      .finally(() => setSynopsisBusy(false));
-  };
   const submit = (): void => {
     if (!valid || taxonomy === null || channel === null || category === null) return;
     const openingBlueprint: OpeningBlueprintData = {
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
-      protagonists: protagonists.map((item) => ({
-        ...item, name: item.name.trim(), age: item.age.trim(), background: item.background.trim()
-      })),
-      worldBackground: worldBackground.trim(), openingBackground: openingBackground.trim(),
-      stageOne: { start: stageStart.trim(), development: stageDevelopment.trim(), end: stageEnd.trim() },
-      fullBookOutline: fullBookOutline.trim(), mainTags, auxiliaryTags, storyTraits, customTags,
-      initialMap: initialMap.trim(), mustFollow
+      targetAudience: targetAudience.trim(),
+      protagonists: [],
+      worldBackground: '',
+      openingBackground: '',
+      stageOne: { start: '', development: '', end: '' },
+      fullBookOutline: '',
+      mainTags, auxiliaryTags, storyTraits, customTags, mustFollow,
+      initialMap: ''
     };
     void onCreate({
-      title: title.trim(), text: openingBlueprint.fullBookOutline, category: category.name,
+      title: title.trim(), text: `${category.name}，面向${targetAudience.trim()}。`, category: category.name,
       classification: channel === 'male' ? '男频' : '女频',
+      targetAudience: targetAudience.trim(),
       tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
       openingBlueprint
     });
@@ -2248,7 +2126,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">完整开书</span><h2 id="complete-create-book-title">创建一本新书</h2><p>先把确定的信息交给团队；填写“待讨论”也比系统擅自猜测更可靠。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第一步 · 基本信息</span><h2 id="complete-create-book-title">创建一本新书</h2><p>这里只确定作品定位。建书后由主编先引导完善设定大纲，再讨论剧情。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
       <div className="complete-create-book-body">
         <div className="opening-primary-stack">
           <section className="opening-form-section">
@@ -2257,70 +2135,17 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
             setChannel(item.id); setCategoryKey(null); setMainTags([]);
-            if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) updateProtagonist(0, { role: item.id === 'male' ? 'male_lead' : 'female_lead' });
           }} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div></fieldset>
           <div className="taxonomy-heading"><strong>作品分类</strong><small>{taxonomy?.sourceLabel ?? '正在加载分类目录'}</small></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
           <div className="category-options">{categories.map((item) => <button className={categoryKey === item.key ? 'category-choice selected' : 'category-choice'} type="button" aria-label={`${categoryKey === item.key ? '取消' : '选择'}作品分类：${item.name}`} key={item.key} onClick={() => { setCategoryKey(item.key); setMainTags([]); }}><strong>{item.name}</strong><small>{item.description}</small></button>)}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
-          </section>
-
-          <section className="opening-form-section synopsis-analysis-section">
-            <div className="section-heading"><div><span>AI</span><h3>剧情梗概快速识别</h3></div><small>可选</small></div>
-            <p className="synopsis-analysis-intro">粘贴您已经写好的剧情梗概，小文秘书会本地扫描分类、标签和基础信息，减少重复填写。</p>
-            <label htmlFor="opening-synopsis">剧情梗概
-              <textarea
-                id="opening-synopsis"
-                aria-label="剧情梗概"
-                maxLength={5_000}
-                rows={9}
-                value={synopsis}
-                onChange={(event) => { setSynopsis(event.target.value); setSynopsisFeedback(null); }}
-                placeholder="可以直接粘贴一整段，也可以写“书名：”“主角：”“世界观背景：”等标题，带标题时识别更准确。"
-              />
-            </label>
-            <div className="synopsis-analysis-actions">
-              <span aria-live="polite">{synopsis.length} / 5000</span>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={synopsis.trim().length === 0 || synopsis.length > 5_000 || taxonomy === null || synopsisBusy}
-                onClick={runSynopsisAnalysis}
-              >
-                {synopsisBusy ? '正在识别' : synopsisFeedback?.kind === 'error' ? '重新识别' : '识别并填写'}
-              </button>
-            </div>
-            {synopsisFeedback !== null && <p
-              className={`synopsis-analysis-feedback ${synopsisFeedback.kind}`}
-              role={synopsisFeedback.kind === 'error' ? 'alert' : 'status'}
-            >{synopsisFeedback.message}</p>}
-            <p className="synopsis-analysis-note">结果只是可修改建议；不会覆盖已填内容，也不会单独保存原始梗概或写入正史。</p>
+          <label htmlFor="target-audience">目标读者<input id="target-audience" aria-label="目标读者" maxLength={500} value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} placeholder="例如：喜欢领主经营、群像成长和智谋博弈的读者" /></label>
           </section>
         </div>
 
-        <section className="opening-form-section protagonist-section">
-          <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加主角（{protagonists.length}/8）</button></div>
-          {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
-            <header><strong>主角 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除主角${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
-            <div className="form-row two"><label htmlFor={`protagonist-role-${index}`}>主角身份<select id={`protagonist-role-${index}`} aria-label="主角身份" value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label htmlFor={`protagonist-name-${index}`}>姓名<input id={`protagonist-name-${index}`} aria-label="主角姓名" maxLength={80} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} /></label></div>
-            <label htmlFor={`protagonist-age-${index}`}>年龄或生命阶段<input id={`protagonist-age-${index}`} aria-label="主角年龄" maxLength={80} value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：十八岁；不知道可填待讨论" /></label>
-            <label htmlFor={`protagonist-background-${index}`}>人物背景<textarea id={`protagonist-background-${index}`} aria-label="主角人物背景" maxLength={2000} rows={3} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} /></label>
-            <div className="compact-tag-heading"><strong>性格选项</strong><small>至少1个，最多6个</small></div>
-            <div className="tag-options">{(taxonomy?.personalityOptions ?? []).map((item) => <button className={protagonist.personalities.includes(item) ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={protagonist.personalities.includes(item)} aria-label={`${protagonist.personalities.includes(item) ? '取消' : '选择'}性格：${item}`} key={item} onClick={() => toggleProtagonistPersonality(index, item)}>{item}</button>)}</div>
-          </article>)}
-        </section>
-
-        <section className="opening-form-section story-opening-section">
-          <div className="section-heading"><div><span>03</span><h3>故事基础与第一阶段</h3></div><small>参考资料，不直接成为正史</small></div>
-          <OpeningTextarea id="world-background" label="世界观背景" value={worldBackground} onChange={setWorldBackground} placeholder="时代、社会、世界运行方式；不知道的部分可以写待讨论。" />
-          <OpeningTextarea id="opening-background" label="故事起始背景" value={openingBackground} onChange={setOpeningBackground} placeholder="故事开始时，主角身处什么处境？" />
-          <div className="stage-one-grid"><OpeningTextarea id="stage-start" label="第一阶段起始剧情" value={stageStart} onChange={setStageStart} /><OpeningTextarea id="stage-development" label="第一阶段发展剧情" value={stageDevelopment} onChange={setStageDevelopment} /><OpeningTextarea id="stage-end" label="第一阶段结束剧情" value={stageEnd} onChange={setStageEnd} /></div>
-          <OpeningTextarea id="full-book-outline" label="全书简介（故事主线和结果）" value={fullBookOutline} onChange={setFullBookOutline} rows={4} placeholder="这是团队内部规划资料，不会直接当作对外简介发布。" />
-          <OpeningTextarea id="initial-map" label="初始地图" value={initialMap} onChange={setInitialMap} placeholder="开篇主角所在的地点与周边关键位置。" />
-        </section>
-
         <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>04</span><h3>主要方向与边界</h3></div><small>主要标签2—5个</small></div>
+          <div className="section-heading"><div><span>02</span><h3>分类标签与边界</h3></div><small>主要标签2—5个</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向，不是每章清单；未选择的元素也可以随剧情自然加入。</p></div></div>
           <label htmlFor="opening-tag-search">搜索标签<input id="opening-tag-search" aria-label="搜索标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
           <StringTagPicker title="主要标签" hint={`已选 ${mainTags.length} 个主要标签`} kind="主要标签" options={matchingTags(mainTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 5)} />
@@ -2340,15 +2165,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </details>
         </section>
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · {mainTags.length}/2—5 个主要标签</span></div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={submit}>{busy ? '正在创建' : '确认建书'}</button></div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后进入设定大纲</span></div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={!valid || busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
     </section>
   </div>;
-}
-
-function OpeningTextarea({ id, label, value, onChange, rows = 3, placeholder }: {
-  id: string; label: string; value: string; onChange: (value: string) => void; rows?: number; placeholder?: string;
-}): React.JSX.Element {
-  return <label htmlFor={id}>{label}<textarea id={id} aria-label={label} rows={rows} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
 }
 
 function StringTagPicker({ title, hint, kind, options, selected, onToggle }: {

@@ -68,6 +68,7 @@ export interface OpeningBlueprintData {
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
+  targetAudience: string;
   protagonists: Array<{ role: ProtagonistRole; name: string; age: string; background: string; personalities: string[] }>;
   worldBackground: string;
   openingBackground: string;

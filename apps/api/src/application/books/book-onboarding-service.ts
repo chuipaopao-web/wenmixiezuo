@@ -297,7 +297,7 @@ export class BookOnboardingService {
     now: string
   ): void {
     const repository = new ProtagonistStateRepository(this.database);
-    for (const [index, protagonist] of blueprint.protagonists.entries()) {
+    for (const [index, protagonist] of (blueprint.protagonists ?? []).entries()) {
       const profileId = this.ids.next();
       repository.insertProfile(scope, {
         profileId, entityId: null, displayName: protagonist.name, isPrimary: index === 0, now
@@ -372,7 +372,7 @@ function storyBibleSkeleton(
     tags,
     theme: { confirmed: [], candidates: [] },
     worldRules: [],
-    characters: openingBlueprint?.protagonists.map((item) => ({
+    characters: openingBlueprint?.protagonists?.map((item) => ({
       name: item.name, role: item.role, age: item.age, background: item.background,
       personalities: item.personalities, sourceStatus: 'owner_reference'
     })) ?? [],
@@ -385,7 +385,10 @@ function storyBibleSkeleton(
       mustFollow: openingBlueprint.mustFollow,
       authority: 'owner_confirmed_reference_not_canon'
     },
-    mainPlot: { confirmed: null, candidates: openingBlueprint === null ? [] : [openingBlueprint.fullBookOutline] },
+    mainPlot: {
+      confirmed: null,
+      candidates: openingBlueprint?.fullBookOutline?.trim() ? [openingBlueprint.fullBookOutline] : []
+    },
     openQuestions: fields.filter((field) => field.sourceStatus === 'unspecified' || field.sourceStatus === 'conflict').map((field) => field.key)
   };
 }
@@ -394,5 +397,5 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
   if (blueprint === null) {
     return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
   }
-  return `《${title}》已按完整开书资料创建。请以活动主编身份主动开场：先用简短中文整理已经明确的信息、仍待讨论的信息和可能冲突；然后只提出1至3个对下一阶段最有价值的问题。不要复述整张表，不要启动主笔，不要生成正文。开书资料是规划参考，不是已经发生的正史。`;
+  return `《${title}》已完成作品基本信息。请以活动主编身份主动进入“设定大纲”阶段：先简短说明已经确认的频道、分类、目标读者与主要标签，再提出1至3个最有价值的设定问题，优先帮助老板建立足以支撑第一阶段创作的世界规则、人物基础或核心机制。允许回答“不知道”“稍后补充”或“刻意留白”。不要讨论第一阶段剧情，不要生成总纲、章纲或正文，不要启动编剧和主笔。`;
 }

@@ -17,6 +17,7 @@ describe('定位草稿与原子建书', () => {
     const openingBlueprint: OpeningBlueprintInput = {
       taxonomyVersion: OPENING_TAXONOMY.version,
       channel: 'female', categoryKey: 'female-modern-brain',
+      targetAudience: '喜欢都市悬疑、女性成长和群像关系的读者',
       protagonists: [{ role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] }],
       worldBackground: '当代沿海城市，旧城区改造牵动多个家族。',
       openingBackground: '林雾收到一封盖着未来日期的拆迁通知。',
@@ -141,6 +142,7 @@ function completeOpeningBlueprint(): OpeningBlueprintInput {
   return {
     taxonomyVersion: OPENING_TAXONOMY.version,
     channel: 'male', categoryKey: 'male-history-brain',
+    targetAudience: '喜欢历史谋略、群像成长和边城经营的读者',
     protagonists: [{ role: 'male_lead', name: '沈砚', age: '十九岁', background: '边郡书记官。', personalities: ['冷静'] }],
     worldBackground: '架空王朝以军镇与州府共同治理边境。', openingBackground: '沈砚发现一份被涂改的军粮账簿。',
     stageOne: { start: '追查假账。', development: '牵出军镇争权。', end: '保住粮道并锁定幕后主使。' },

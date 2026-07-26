@@ -71,6 +71,7 @@ describe('建书REST流程', () => {
       ]));
       const openingBlueprint = {
         taxonomyVersion: taxonomy.version, channel: 'male', categoryKey: 'male-fantasy-brain',
+        targetAudience: '喜欢玄幻成长与谋略冲突的男频读者',
         protagonists: [{ role: 'male_lead', name: '张三', age: '十八岁', background: '天安城边军斥候。', personalities: ['冷静'] }],
         worldBackground: '诸城邦以军功与盟约维持秩序。', openingBackground: '天安城拒绝缴纳边境军费。',
         stageOne: { start: '张三发现伪造军令。', development: '他阻止第一次宣战。', end: '他查出军令来自城内权臣。' },

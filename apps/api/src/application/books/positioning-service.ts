@@ -76,7 +76,13 @@ export class PositioningService {
         sourceStatus: openingBlueprint !== null || input.classification ? 'explicit' : 'unspecified',
         evidence: openingBlueprint === null ? input.classification ?? null : openingBlueprint.categoryKey
       },
-      { key: 'audience', label: '目标读者', value: input.targetAudience?.trim() || null, sourceStatus: input.targetAudience ? 'explicit' : 'unspecified', evidence: input.targetAudience ?? null },
+      {
+        key: 'audience',
+        label: '目标读者',
+        value: openingBlueprint?.targetAudience ?? (input.targetAudience?.trim() || null),
+        sourceStatus: openingBlueprint !== null || input.targetAudience ? 'explicit' : 'unspecified',
+        evidence: openingBlueprint?.targetAudience ?? input.targetAudience ?? null
+      },
       {
         key: 'expected_scale_chars',
         label: '预计规模',

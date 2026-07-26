@@ -2532,6 +2532,7 @@ svg {
 }
 
 @media (max-width: 900px) {
+  .creation-progress, .setting-state-guide { grid-template-columns: 1fr; }
   .app-shell,
   .reader-mode {
     display: grid;
@@ -3089,6 +3090,16 @@ svg {
 .protagonist-confirm { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-self: start; }
 .formula-manager { margin-top: 18px; }
 .setting-workbench { display: grid; gap: 14px; margin-top: 18px; border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 16px; background: var(--panel); }
+.creation-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0; padding: 0; list-style: none; }
+.creation-progress li { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink-faint); }
+.creation-progress li > strong { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; font-size: calc(9px * var(--font-scale)); }
+.creation-progress li span { display: grid; gap: 1px; color: var(--ink); font-weight: 700; }
+.creation-progress li small { color: var(--ink-faint); font-size: calc(7.5px * var(--font-scale)); font-weight: 400; }
+.creation-progress li.done, .creation-progress li.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.setting-state-guide { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.setting-state-guide article { padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.setting-state-guide article strong { color: var(--ink); }
+.setting-state-guide article p { margin: 5px 0 0; color: var(--ink-faint); font-size: calc(8.5px * var(--font-scale)); line-height: 1.55; }
 .setting-workbench > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .setting-workbench > header h3, .setting-import h4, .setting-catalog-detail h4 { margin: 0; }
 .setting-workbench > header p, .setting-import p, .setting-catalog-detail p { margin: 4px 0 0; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); line-height: 1.55; }

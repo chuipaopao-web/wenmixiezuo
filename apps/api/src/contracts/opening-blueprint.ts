@@ -41,6 +41,7 @@ export interface OpeningBlueprintInput {
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
+  targetAudience: string;
   protagonists: OpeningProtagonistInput[];
   worldBackground: string;
   openingBackground: string;
@@ -158,10 +159,10 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   const category = OPENING_TAXONOMY.categories.find((item) => item.key === input.categoryKey);
   if (category === undefined) throw new Error('作品分类不存在，请从当前分类目录重新选择');
   if (category.channel !== input.channel) throw new Error('作品分类不属于当前频道，请重新选择');
-  if (!Array.isArray(input.protagonists) || input.protagonists.length < 1 || input.protagonists.length > 8) {
-    throw new Error('至少填写1位、最多8位初始主角');
+  if (input.protagonists !== undefined && (!Array.isArray(input.protagonists) || input.protagonists.length > 8)) {
+    throw new Error('初始主角最多8位');
   }
-  const protagonists = input.protagonists.map((item, index) => {
+  const protagonists = (input.protagonists ?? []).map((item, index) => {
     if (!protagonistRoles.has(item.role)) throw new Error(`第${index + 1}位主角的身份类型无效`);
     const name = requiredText(item.name, `第${index + 1}位主角姓名`, 80);
     const age = requiredText(item.age, `第${index + 1}位主角年龄`, 80);
@@ -186,26 +187,35 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
     categoryKey: input.categoryKey,
+    targetAudience: requiredText(input.targetAudience, '目标读者', 500),
     protagonists,
-    worldBackground: requiredText(input.worldBackground, '世界观背景', 10_000),
-    openingBackground: requiredText(input.openingBackground, '故事起始背景', 10_000),
+    worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),
+    openingBackground: optionalText(input.openingBackground, '故事起始背景', 10_000),
     stageOne: {
-      start: requiredText(input.stageOne?.start, '第一阶段起始剧情', 10_000),
-      development: requiredText(input.stageOne?.development, '第一阶段发展剧情', 10_000),
-      end: requiredText(input.stageOne?.end, '第一阶段结束剧情', 10_000)
+      start: optionalText(input.stageOne?.start, '第一阶段起始剧情', 10_000),
+      development: optionalText(input.stageOne?.development, '第一阶段发展剧情', 10_000),
+      end: optionalText(input.stageOne?.end, '第一阶段结束剧情', 10_000)
     },
-    fullBookOutline: requiredText(input.fullBookOutline, '全书简介（故事主线和结果）', 20_000),
+    fullBookOutline: optionalText(input.fullBookOutline, '全书简介（故事主线和结果）', 20_000),
     mainTags,
     auxiliaryTags,
     storyTraits,
     customTags: uniqueTexts(input.customTags, '自定义标签', 0, 10, 40),
-    initialMap: requiredText(input.initialMap, '初始地图', 5_000),
+    initialMap: optionalText(input.initialMap, '初始地图', 5_000),
     mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 12, 500)
   };
   if (JSON.stringify(validated).length > 18_000) {
     throw new Error('开书资料总量不能超过18,000个字符，请保留确定信息并把细节留到后续讨论');
   }
   return validated;
+}
+
+function optionalText(value: unknown, label: string, maxLength: number): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string') throw new Error(`${label}格式无效`);
+  const text = value.trim();
+  if (text.length > maxLength) throw new Error(`${label}不能超过${maxLength}个字符`);
+  return text;
 }
 
 function requiredText(value: unknown, label: string, maxLength: number): string {
