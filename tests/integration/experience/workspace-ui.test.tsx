@@ -146,6 +146,20 @@ describe('完整创作工作台', () => {
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
 
+  it('空书架只显示一个创建新书入口', async () => {
+    window.history.replaceState(null, '', '/');
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/books') return apiResponse([]);
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '把第一本书放进工作台' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '创建新书' })).toHaveLength(1);
+  });
+
   it('首页团队显示全局岗位模板，不把模板状态伪装成实时工作状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));

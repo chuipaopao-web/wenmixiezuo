@@ -1866,7 +1866,7 @@ function BookshelfHome({
   return <section className="bookshelf-home" aria-labelledby="bookshelf-title">
     <header className="bookshelf-heading">
       <div><span className="eyebrow">本地书架</span><h2 id="bookshelf-title">我的作品</h2><p>打开一本书进入独立创作工作台。其他书的后台任务会继续运行。</p></div>
-      <button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button>
+      {activeBooks.length > 0 && <button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button>}
     </header>
     <div className="bookshelf-scroll-region">
       {activeBooks.length === 0 ? <EmptyLibrary onCreate={onCreate} /> : <div className="book-cover-grid" aria-label="活动书籍">
