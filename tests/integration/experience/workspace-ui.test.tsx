@@ -524,8 +524,14 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
     expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '设定目录' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: '搜索设定类目' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '设定分类' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /游戏与领主扩展/u }));
     expect(screen.getByText('个人战力榜')).toBeInTheDocument();
     expect(screen.getByText('建筑等级')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: '自定义设定类目' }), { target: { value: '神名禁忌' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加类目' }));
+    expect(screen.getByText('神名禁忌')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '已有设定原文' })).toHaveAttribute('maxlength', '10000');
     expect(await screen.findByRole('heading', { name: '属性计算公式' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '卷纲' }));

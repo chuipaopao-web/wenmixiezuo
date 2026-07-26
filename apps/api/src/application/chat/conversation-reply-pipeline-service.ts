@@ -358,7 +358,13 @@ export class ConversationReplyPipelineService {
 }
 
 function isSettingIntake(content: string, roleKey: RoleKey | CreativeRoleKey): boolean {
-  return ['setting', 'continuity'].includes(roleKey) && content.includes('请拆解下面这份设定资料');
+  if (!['setting', 'continuity'].includes(roleKey)) return false;
+  const normalized = content.replace(/\s+/gu, ' ').trim();
+  const explicitRequest = /(?:拆解|整理|归类|录入|填写|更新|同步).{0,18}(?:大纲|设定|资料|方案|规则|人物|世界观)|(?:大纲|设定|资料|方案).{0,18}(?:拆解|整理|归类|录入|填写|更新|同步)/u.test(normalized);
+  const planningSubmission = /请把下面资料拆解为本书的通用设定候选|请拆解下面这份设定资料/u.test(normalized);
+  const structuredSource = normalized.length >= 500
+    && /(?:^|[。；;])(?:世界观|人物设定|角色设定|力量体系|剧情大纲|故事大纲|基本设定|规则设定)[:：]/u.test(normalized);
+  return explicitRequest || planningSubmission || structuredSource;
 }
 
 function saveSettingCandidate(
@@ -388,9 +394,10 @@ function saveSettingCandidate(
     ...content,
     settingCandidates: [...current, {
       sourceMessageId,
+      sourceKind: 'owner_material',
       status: 'candidate',
       analysis,
-      notice: '由设定成员根据老板原文拆解；确认前不覆盖正式设定'
+      notice: '由文姬根据老板原文拆解；普通讨论不会自动写入，确认前不覆盖正式设定'
     }]
   }, artifact.active_version_id);
 }

@@ -1066,17 +1066,20 @@ const basicSettingDefaults: Record<string, unknown> = {
   worldView: '', powerSystem: '', resourceSystem: '', equipmentTiers: [], economicRules: [], attributeFields: [], worldRules: []
 };
 
-const SETTING_CATALOG: Array<{ group: string; description: string; items: string[] }> = [
-  { group: '世界与文明', description: '世界运行的底层背景', items: ['时代与纪元', '位面与宇宙', '地理地图', '种族', '文明', '国家与政体', '法律制度', '宗教信仰', '历法时间', '灾难与禁区'] },
-  { group: '力量体系', description: '能力来源、成长与克制', items: ['境界等级', '职业体系', '天赋资质', '血脉体质', '技能与熟练度', '能量与消耗', '突破条件', '克制关系', '异常状态', '死亡与复活'] },
-  { group: '装备与制造', description: '物品属性和成长规则', items: ['装备部位', '品质等级', '基础属性', '随机词条', '强化精炼', '镶嵌附魔', '套装效果', '耐久损耗', '绑定与交易', '锻造炼制'] },
-  { group: '经济与资源', description: '货币、产出和消耗闭环', items: ['货币体系', '物价与汇率', '稀有度', '资源种类', '采集产出', '生产加工', '库存与容量', '交易拍卖', '税收维护', '升级消耗'] },
-  { group: '人物与战力', description: '个人面板与衍生数值', items: ['基础属性', '生命能量', '攻击防御', '速度敏捷', '命中闪避', '暴击抗性', '恢复续航', '负重容量', '个人战力', '伤害与治疗'] },
-  { group: '伙伴与军团', description: '可成长单位和协同力量', items: ['宠物', '坐骑', '召唤物', '将领随从', '兵种', '军队规模', '忠诚士气', '编制阵型', '军团战力', '伤亡补充'] },
-  { group: '领地与建设', description: '城池、建筑和经营数据', items: ['领地等级', '城池等级', '建筑等级', '人口民心', '科技研究', '防御设施', '生产队列', '资源产量', '维护成本', '升级时间'] },
-  { group: '游戏机制', description: '系统玩法与反馈规则', items: ['任务', '成就', '称号', '声望', '阵营', '副本', '竞技对战', '赛季', '排行榜', '掉落概率'] },
-  { group: '榜单与评分', description: '排名口径必须可以解释', items: ['个人战力榜', '等级榜', '装备榜', '宠物榜', '坐骑榜', '军团榜', '领地榜', '财富榜', '成就榜', '赛季积分榜'] },
-  { group: '计算公式', description: '只计算声明变量，不执行脚本', items: ['个人战力', '装备战力', '综合战力', '军队战力', '伤害结算', '治疗结算', '资源产出', '升级成本', '升级时间', '排行榜积分'] }
+const SETTING_CATALOG: Array<{ group: string; description: string; kind: 'common' | 'extension' | 'formula'; items: string[] }> = [
+  { group: '世界与环境', description: '时代、空间、地理和自然边界', kind: 'common', items: ['时代背景', '世界层级', '地理地图', '气候环境', '国家地区', '城市地点', '种族物种', '文明科技', '历法时间', '灾难与禁区'] },
+  { group: '社会与秩序', description: '社会如何组织、约束并发生冲突', kind: 'common', items: ['政权制度', '法律规则', '社会阶层', '宗教信仰', '组织势力', '行业职业', '教育传承', '风俗文化', '道德禁忌', '信息传播'] },
+  { group: '力量与成长', description: '能力来源、成长路线、代价与克制', kind: 'common', items: ['力量来源', '等级境界', '职业路线', '天赋资质', '血脉体质', '能量消耗', '成长方式', '突破条件', '克制关系', '代价与限制', '死亡与复活'] },
+  { group: '人物与命名', description: '引用同书人物实体，起名前先查重', kind: 'common', items: ['主角', '重要配角', '普通配角', '反派', '导师', '队友', '家族成员', '别名与称号', '名字占用表', '人物关系', '当前状态'] },
+  { group: '势力与组织', description: '组织结构、资源和相互关系', kind: 'common', items: ['国家', '宗门', '家族', '公司', '学校', '军队', '联盟', '公会', '阵营', '秘密组织', '组织结构', '势力资源', '势力关系'] },
+  { group: '物品与资源', description: '物品用途、来源、稀缺性与流转', kind: 'common', items: ['货币', '材料', '道具', '武器', '装备', '药品', '宝物', '消耗品', '稀有度', '获取方式', '制造方式', '交易规则'] },
+  { group: '能力、特性与技能', description: '主动与被动能力的完整规则', kind: 'common', items: ['被动特性', '主动技能', '天赋能力', '血脉能力', '职业技能', '组合技能', '羁绊效果', '触发条件', '作用目标', '持续时间', '冷却时间', '消耗', '效果系数', '克制与免疫', '使用限制', '副作用'] },
+  { group: '冲突与战术', description: '战斗、商战、权谋和调查均可复用', kind: 'common', items: ['战斗规则', '主流战术', '阵型', '团队分工', '信息战', '资源战', '心理战', '谈判策略', '权谋手段', '调查手段', '常见反制', '优势条件', '失败代价'] },
+  { group: '经济与运转', description: '收入、生产、消耗和时间闭环', kind: 'common', items: ['货币体系', '收入来源', '生产与产出', '消耗与维护', '物价', '税收', '交易', '库存容量', '资源循环', '稀缺资源', '升级成本', '时间成本'] },
+  { group: '游戏与领主扩展', description: '仅在相关题材中按需启用', kind: 'extension', items: ['属性面板', '职业', '任务', '成就', '称号', '副本', '竞技对战', '赛季', '排行榜', '个人战力榜', '掉落概率', '宠物', '坐骑', '召唤物', '兵种', '军团', '领地等级', '城池等级', '建筑等级', '人口民心', '生产队列', '资源产量', '升级时间'] },
+  { group: '玄幻与修真扩展', description: '境界、功法与传承类题材按需启用', kind: 'extension', items: ['功法', '法术', '丹药', '法宝', '灵根', '体质', '宗门等级', '洞天秘境', '天劫', '因果气运'] },
+  { group: '悬疑与调查扩展', description: '案件、证据和信息差按需启用', kind: 'extension', items: ['案件', '证据链', '嫌疑人', '作案条件', '时间线', '不在场证明', '调查权限', '线索误导', '真相层级', '信息差'] },
+  { group: '计算公式', description: '只计算声明变量，不执行脚本', kind: 'formula', items: ['基础属性', '衍生属性', '个人战力', '装备战力', '综合战力', '军队战力', '伤害结算', '治疗结算', '概率规则', '资源产出', '升级成本', '升级时间', '排行榜积分'] }
 ];
 
 const FORMULA_CATEGORIES = SETTING_CATALOG.find((item) => item.group === '计算公式')!.items;
@@ -1119,21 +1122,37 @@ function PlanningWorkspace({ data, workspace }: {
 
 function SettingCatalog({ bookId }: { bookId: string | null }): React.JSX.Element {
   const [source, setSource] = useState('');
+  const [query, setQuery] = useState('');
+  const [activeGroup, setActiveGroup] = useState(SETTING_CATALOG[0]!.group);
+  const [customItems, setCustomItems] = useState<string[]>([]);
+  const [customDraft, setCustomDraft] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = (): void => {
     const text = source.trim();
     if (bookId === null || text.length === 0 || text.length > 10_000) return;
     setBusy(true);
-    const instruction = `@文姬 请拆解下面这份设定资料。按“世界观、力量与资源、装备、经济、属性字段、排行榜、宠物坐骑、领地建筑、资源产出、计算公式、未知项”分类整理；保留我的原意，不要补造数字。请给出可写入基本设定的候选内容和需要我确认的问题。以下是原文：\n\n${text}`;
+    const instruction = `@文姬 请把下面资料拆解为本书的通用设定候选。区分“世界环境、社会秩序、力量成长、人物与命名、势力组织、物品资源、能力特性技能、冲突战术、经济运转、题材扩展、规则公式、未知项”；人物、地点、势力和物品作为实体候选，不要当普通标签。保留我的原意和来源，不要补造数字、名字或关系；发现冲突请并列说明。只生成候选，等待我确认。以下是原文：\n\n${text}`;
     void sendMessage(bookId, instruction).then(() => {
       setSource('');
       setNotice('已交给文姬真实拆解。结果会出现在对话中；确认前只是候选，不会覆盖正式设定。');
     }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定资料提交失败')).finally(() => setBusy(false));
   };
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matchingGroups = SETTING_CATALOG.filter((section) => normalizedQuery.length === 0
+    || section.group.toLocaleLowerCase().includes(normalizedQuery)
+    || section.items.some((item) => item.toLocaleLowerCase().includes(normalizedQuery)));
+  const selected = matchingGroups.find((section) => section.group === activeGroup) ?? matchingGroups[0] ?? null;
   return <section className="setting-workbench">
     <header><div><h3>设定目录</h3><p>用于整理资料和发现缺口，不是限制创作的固定模板；可按本书情况自定义。</p></div><span>目录版本 1</span></header>
-    <div className="setting-catalog-grid">{SETTING_CATALOG.map((section) => <article key={section.group}><h4>{section.group}</h4><p>{section.description}</p><div>{section.items.map((item) => <span key={item}>{item}</span>)}</div></article>)}</div>
+    <label className="setting-search">搜索设定类目<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：技能、人物、战术、装备、证据链" /></label>
+    <div className="setting-catalog-layout">
+      <nav aria-label="设定分类">{matchingGroups.map((section) => <button type="button" className={selected?.group === section.group ? 'active' : ''} key={section.group} onClick={() => setActiveGroup(section.group)}><strong>{section.group}</strong><small>{section.kind === 'common' ? '通用' : section.kind === 'extension' ? '按需' : '公式'} · {section.items.length}</small></button>)}</nav>
+      <div className="setting-catalog-detail">
+        {selected === null ? <p className="empty-copy">没有匹配的设定类目。</p> : <article><header><div><h4>{selected.group}</h4><p>{selected.description}</p></div><span>{selected.kind === 'common' ? '通用类目' : selected.kind === 'extension' ? '题材扩展' : '安全公式'}</span></header><div>{selected.items.map((item) => <button type="button" key={item} title={`查看或补充“${item}”设定`}>{item}<small>尚未设置</small></button>)}</div></article>}
+        <section className="custom-setting-category"><h4>本书自定义类目</h4><p>只补充本书真正需要的内容，不会限制其他剧情自由发挥。</p><div>{customItems.map((item) => <span key={item}>{item}</span>)}</div><form onSubmit={(event) => { event.preventDefault(); const value = customDraft.trim(); if (value.length === 0 || customItems.includes(value)) return; setCustomItems((current) => [...current, value]); setCustomDraft(''); }}><input aria-label="自定义设定类目" maxLength={30} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="例如：梦境税、神名禁忌" /><button className="secondary-button" type="submit">添加类目</button></form></section>
+      </div>
+    </div>
     <div className="setting-import"><div><h4>粘贴已有设定，让成员拆解</h4><p>最多10000字。原文会进入当前对话并保留来源；文姬只整理候选，不会自动改正史。</p></div><textarea aria-label="已有设定原文" rows={8} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可粘贴世界观、数值面板、装备等级、排行榜、宠物、坐骑、建筑、资源产出和计算规则……" /><footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy || bookId === null || source.trim().length === 0} onClick={submit}>{busy ? '正在提交…' : '交给文姬拆解'}</button></footer>{notice !== null && <p className="binding-status" role="status">{notice}</p>}</div>
   </section>;
 }
