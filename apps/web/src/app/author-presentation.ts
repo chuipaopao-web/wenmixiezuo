@@ -26,7 +26,8 @@ const FIELD_LABELS: Record<string, string> = {
   volumeNumber: '卷号', arcs: '故事弧', endingState: '卷末状态', created_source: '记录来源',
   assignment_count: '使用次数', candidate_status: '确认状态', claim_text: '候选判断',
   sources: '资料来源', structureCards: '结构参考卡', cleanroomPackages: '隔离资料包', checks: '版权检查',
-  recentChecks: '最近检查', count: '数量'
+  recentChecks: '最近检查', count: '数量', scope: '涉及范围', impact: '可能影响',
+  estimatedCashCny: '预计现金费用', blocksSettlement: '是否阻止定稿结算'
 };
 
 const ENUM_LABELS: Record<string, string> = {
@@ -34,7 +35,10 @@ const ENUM_LABELS: Record<string, string> = {
   information_gap: '信息差', not_extracted: '暂无可展示内容', chapter_outline: '章纲', active: '有效',
   archived: '已归档', proposed: '待确认', confirmed: '已确认', candidate: '候选', derived: '分析结果',
   provided: '作者提供', manual: '人工记录', explicit: '明确确认', inferred: '根据资料推断', unspecified: '尚未说明',
-  low: '低', medium: '中', high: '高', true: '是', false: '否'
+  selected_manuscript: '正式正文', owner_reference: '作者资料', conflict: '信息存在冲突',
+  low: '低', medium: '中', high: '高', true: '是', false: '否',
+  posterior_neck_pain_and_visual_flash: '后颈疼痛并伴有视觉闪光',
+  severe_pain_with_mobility_loss: '剧烈疼痛并伴有活动受限'
 };
 
 export interface AuthorReplyProjection {
@@ -46,7 +50,11 @@ export function toAuthorDisplayValue(value: unknown, depth = 0): unknown {
   if (depth > 8) return '内容层级过深，已省略';
   const parsed = parseJsonString(value);
   if (parsed !== value) return toAuthorDisplayValue(parsed, depth + 1);
-  if (typeof value === 'string' && looksLikeMachinePayload(value)) return '这项内容的格式异常，内部原件已保留，但不会在作者界面直接展示。';
+  if (typeof value === 'string') {
+    const readable = stripTrailingMachineProtocol(value);
+    if (readable !== value) return readable;
+    if (looksLikeMachinePayload(value)) return '这项内容的格式异常，内部原件已保留，但不会在作者界面直接展示。';
+  }
   if (Array.isArray(value)) return value.slice(0, 100).map((item) => toAuthorDisplayValue(item, depth + 1));
   if (!isRecord(value)) return value;
 
@@ -100,7 +108,10 @@ export function authorFormatScalar(value: unknown): string {
   if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'number') return new Intl.NumberFormat('zh-CN').format(value);
   const text = String(value).trim();
-  return ENUM_LABELS[text] ?? text;
+  const known = ENUM_LABELS[text];
+  if (known !== undefined) return known;
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/u.test(text)) return '待整理资料';
+  return text;
 }
 
 export function authorRelationshipLabel(value: unknown): string {
@@ -183,6 +194,13 @@ function looksLikeMachinePayload(value: string): boolean {
   return /^```(?:json)?\s*/iu.test(text)
     || /\\?"(?:version|format|fields|answer|title|goal|beats|hook|content_json|projection_id)\\?"\s*:/iu.test(text)
     || /(?:规划落库|source_ids_json)/iu.test(text);
+}
+
+function stripTrailingMachineProtocol(value: string): string {
+  const marker = /(?:^|\r?\n)\s*(?:规划落库|章节跨度估算)\s*(?=\{)/iu.exec(value);
+  if (marker === null) return value;
+  const readable = value.slice(0, marker.index).trim();
+  return readable.length > 0 ? readable : '内部规划数据已保存';
 }
 
 function balancedJsonObjects(raw: string): string[] {

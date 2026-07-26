@@ -194,7 +194,7 @@ describe('完整创作工作台', () => {
       if (path.endsWith('/projections')) return apiResponse([{
         projection_id: 'projection-internal-1', owner_id: 'owner-internal', book_id: 'book-internal',
         projection_type: 'emotion', track: 'actual', chapter_number: 12, canon_revision: 3,
-        content_json: JSON.stringify({ status: 'not_extracted', source: 'chapter_outline' }),
+        content_json: JSON.stringify({ status: 'not_extracted', source: 'selected_manuscript' }),
         source_ids_json: JSON.stringify(['source-internal-1']), rebuilt_at: '2026-07-25T01:00:00.000Z'
       }]);
       return baseRouter(input, init);
@@ -204,7 +204,7 @@ describe('完整创作工作台', () => {
     fireEvent.click(await screen.findByRole('button', { name: '图谱' }));
     fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
     expect(await screen.findByText('暂无可展示内容')).toBeInTheDocument();
-    expect(screen.getByText('章纲')).toBeInTheDocument();
+    expect(screen.getByText('正式正文')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '规划' }));
@@ -526,6 +526,9 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '属性计算公式' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
     expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '总纲' }));
+    expect(await screen.findByText('守城与预见')).toBeInTheDocument();
+    expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '主角' })).toBeInTheDocument();
@@ -538,6 +541,9 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('heading', { name: '契约伙伴' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '城池领地' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '待归类' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '身体伤势' })).toBeInTheDocument();
+    expect(screen.getByText('后颈疼痛并伴有视觉闪光')).toBeInTheDocument();
+    expect(screen.queryByText(/physical_injury|posterior_neck/u)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('为灵魂印记确认分类'), { target: { value: '灵魂能力' } });
     fireEvent.click(screen.getByRole('button', { name: '确认分类' }));
     await waitFor(() => expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([input, init]) =>
@@ -656,7 +662,9 @@ describe('完整创作工作台', () => {
     expect(await screen.findByText('重大正史事实')).toBeInTheDocument();
     expect(screen.getByText(/绑定正史 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('查看范围与影响'));
-    expect(screen.getByText(/blocksSettlement/)).toBeInTheDocument();
+    expect(screen.getByText('可能影响')).toBeInTheDocument();
+    expect(screen.getByText('是否阻止定稿结算')).toBeInTheDocument();
+    expect(screen.queryByText(/blocksSettlement|relationKey/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '明确接受' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).includes('/confirmations/confirmation-ui-1/accept') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
@@ -769,7 +777,8 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     current: [
       { entryId: 'state-ui-1', profileId: 'protagonist-ui-1', category: 'army', logicalKey: 'army_步兵数量', label: '步兵数量', valueType: 'resource', value: 1200, unit: '人', stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 2, note: null },
       { entryId: 'state-ui-2', profileId: 'protagonist-ui-1', category: '契约伙伴', logicalKey: 'spirit_deer', label: '白鹿', valueType: 'text', value: '共生契约', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null },
-      { entryId: 'state-ui-3', profileId: 'protagonist-ui-1', category: 'unclassified', logicalKey: 'soul_mark', label: '灵魂印记', valueType: 'text', value: '初醒', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null }
+      { entryId: 'state-ui-3', profileId: 'protagonist-ui-1', category: 'unclassified', logicalKey: 'soul_mark', label: '灵魂印记', valueType: 'text', value: '初醒', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null },
+      { entryId: 'state-ui-4', profileId: 'protagonist-ui-1', category: 'physical_injury', logicalKey: 'neck_injury', label: '后颈伤势', valueType: 'text', value: 'posterior_neck_pain_and_visual_flash', unit: null, stateStatus: 'active', authorityLayer: 'canon', effectiveChapterNumber: 1, revision: 1, note: null }
     ],
     pending: []
   }] };
@@ -920,7 +929,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         equipmentTiers: ['凡铁', '铭文', '王器'],
         worldRules: ['钟响后可见未来一天']
       } },
-      { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见', acts: ['雾城危机'], endingDirection: '待确认' } },
+      { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}', acts: ['雾城危机'], endingDirection: '待确认' } },
       { artifact_id: 'volume-1', artifact_type: 'volume_outline', title: '第一卷卷纲', status: 'active', version: 1, active_version_status: 'active', active_content: { volumeNumber: 1, goal: '揭开钟声来源', arcs: ['雾城危机'], endingState: '城门失守' } },
       { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第一章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, goal: '听见钟声', beats: ['登城'], hook: '未来罪案出现' } }
     ]);

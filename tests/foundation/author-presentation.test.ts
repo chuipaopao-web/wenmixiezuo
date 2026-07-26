@@ -30,6 +30,14 @@ describe('作者展示层', () => {
     expect(String(toAuthorDisplayValue('{\\"title\\":broken}'))).not.toContain('title');
   });
 
+  it('保留规划正文并移除尾部机器协议，同时把历史枚举和值转换为中文', () => {
+    const mixed = '建议先完成灰塔审计，再进入迁移。\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}';
+    expect(toAuthorDisplayValue(mixed)).toBe('建议先完成灰塔审计，再进入迁移。');
+    expect(authorFormatScalar('selected_manuscript')).toBe('正式正文');
+    expect(authorFormatScalar('posterior_neck_pain_and_visual_flash')).toBe('后颈疼痛并伴有视觉闪光');
+    expect(authorFormatScalar('severe_pain_with_mobility_loss')).toBe('剧烈疼痛并伴有活动受限');
+  });
+
   it('把图谱原始记录转换为章节结果，不显示投影协议字段', () => {
     const value = projectionForAuthor({
       projection_id: 'p-1', projection_type: 'emotion', track: 'actual', chapter_number: 12,

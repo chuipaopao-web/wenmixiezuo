@@ -1211,6 +1211,8 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
 const PROTAGONIST_CATEGORY_LABELS: Record<string, string> = {
   overview: '身份与状态', attribute: '属性面板', resource: '资源', equipment: '装备道具',
   skill: '技能能力', territory: '城池领地', general: '将领随从', army: '士兵军队',
+  identity: '身份', governance: '治理与权力', debt: '债务与承诺', injury: '伤势',
+  physical: '身体状态', physical_injury: '身体伤势', memory: '记忆与认知',
   unclassified: '待归类'
 };
 
@@ -1282,7 +1284,7 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
         const title = protagonistCategoryLabel(key);
         const records = selected.current.filter((item) => item.category === key);
         const pending = selected.pending.filter((item) => item.category === key);
-        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '候选' : item.authorityLayer === 'canon' ? '正史' : '计算结果'} · 版本 {item.revision}</small></div><span>{formatValue(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
+        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '候选' : item.authorityLayer === 'canon' ? '正史' : '计算结果'} · 版本 {item.revision}</small></div><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
           if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
         }}>移除</button>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
       })}</div>}
@@ -1543,7 +1545,7 @@ function ConfirmationsPanel({ workspace, busy, onDecide }: {
           <article className="confirmation-card" key={confirmation.confirmationId}>
             <strong>{confirmationLabel(confirmation.targetType)}</strong>
             <span>对象 {shortId(confirmation.targetId)}，绑定正史 {confirmation.expectedCanonRevision}</span>
-            <details><summary>查看范围与影响</summary><pre>{JSON.stringify({ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: 0 }, null, 2)}</pre></details>
+            <details><summary>查看范围与影响</summary><StructuredContent value={{ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: '0 元' }} /></details>
             <p>接受会解除相关门禁；模糊回复不会生效。</p>
             <div><button type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
           </article>
@@ -1590,7 +1592,8 @@ function isUnclassifiedCategory(category: string): boolean {
 }
 
 function protagonistCategoryLabel(category: string): string {
-  return isUnclassifiedCategory(category) ? '待归类' : PROTAGONIST_CATEGORY_LABELS[category] ?? category;
+  if (isUnclassifiedCategory(category)) return '待归类';
+  return PROTAGONIST_CATEGORY_LABELS[category] ?? (/\p{Script=Han}/u.test(category) ? category : '其他资料');
 }
 
 function resolveProtagonistCategoryKey(category: string): string {
