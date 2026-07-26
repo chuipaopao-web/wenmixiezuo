@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { CreativeSessionService } from '../discussions/creative-session-service.js';
 import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
+import { ArtifactService } from '../artifacts/artifact-service.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -326,6 +327,9 @@ export class ConversationReplyPipelineService {
           content: effective.visibleContent
         });
       }
+      if (isSettingIntake(brief.content, replyAgent.role_key)) {
+        saveSettingCandidate(this.database, this.ids, this.clock, scope, brief.messageId, effective.visibleContent);
+      }
       new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
       return { messageId };
     } catch (error) {
@@ -351,4 +355,42 @@ export class ConversationReplyPipelineService {
       throw error;
     }
   }
+}
+
+function isSettingIntake(content: string, roleKey: RoleKey | CreativeRoleKey): boolean {
+  return ['setting', 'continuity'].includes(roleKey) && content.includes('请拆解下面这份设定资料');
+}
+
+function saveSettingCandidate(
+  database: DatabaseSync,
+  ids: IdGenerator,
+  clock: Clock,
+  scope: BookScope,
+  sourceMessageId: string,
+  analysis: string
+): void {
+  const duplicate = database.prepare(`
+    SELECT 1 FROM artifact_versions
+    WHERE owner_id = ? AND book_id = ? AND content_json LIKE ? LIMIT 1
+  `).get(scope.ownerId, scope.bookId, `%"sourceMessageId":"${sourceMessageId}"%`);
+  if (duplicate !== undefined) return;
+  const artifact = database.prepare(`
+    SELECT a.artifact_id, a.active_version_id, v.content_json
+    FROM artifacts a
+    JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+    WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'story_bible'
+    LIMIT 1
+  `).get(scope.ownerId, scope.bookId) as { artifact_id: string; active_version_id: string; content_json: string } | undefined;
+  if (artifact === undefined) throw new Error('设定拆解无法找到故事圣经');
+  const content = JSON.parse(artifact.content_json) as Record<string, unknown>;
+  const current = Array.isArray(content.settingCandidates) ? content.settingCandidates : [];
+  new ArtifactService(database, ids, clock).addVersion(scope, artifact.artifact_id, {
+    ...content,
+    settingCandidates: [...current, {
+      sourceMessageId,
+      status: 'candidate',
+      analysis,
+      notice: '由设定成员根据老板原文拆解；确认前不覆盖正式设定'
+    }]
+  }, artifact.active_version_id);
 }
