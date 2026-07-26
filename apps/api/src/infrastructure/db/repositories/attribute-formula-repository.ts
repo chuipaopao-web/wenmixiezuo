@@ -5,6 +5,7 @@ export interface AttributeFormulaRow {
   attribute_formula_id: string;
   formula_key: string;
   label: string;
+  category: string;
   expression: string;
   variables_json: string;
   unit: string | null;
@@ -43,15 +44,15 @@ export class AttributeFormulaRepository {
   }
 
   public insert(scope: BookScope, input: {
-    formulaId: string; formulaKey: string; label: string; expression: string; variablesJson: string;
+    formulaId: string; formulaKey: string; label: string; category: string; expression: string; variablesJson: string;
     unit: string | null; version: number; now: string;
   }): void {
     assertBookScope(scope);
     this.database.prepare(`INSERT INTO attribute_formulas (
-      attribute_formula_id, owner_id, book_id, formula_key, label, expression, variables_json,
+      attribute_formula_id, owner_id, book_id, formula_key, label, category, expression, variables_json,
       unit, version, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
-      .run(input.formulaId, scope.ownerId, scope.bookId, input.formulaKey, input.label, input.expression,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
+      .run(input.formulaId, scope.ownerId, scope.bookId, input.formulaKey, input.label, input.category, input.expression,
         input.variablesJson, input.unit, input.version, input.now, input.now);
   }
 

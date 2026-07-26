@@ -14,6 +14,7 @@ export interface AttributeFormulaRecord {
   formulaId: string;
   formulaKey: string;
   label: string;
+  category: string;
   expression: string;
   variables: FormulaVariable[];
   unit: string | null;
@@ -31,11 +32,12 @@ export class AttributeFormulaService {
   }
 
   public create(scope: BookScope, input: {
-    formulaKey: string; label: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
+    formulaKey: string; label: string; category?: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
   }): AttributeFormulaRecord {
     assertBookScope(scope);
     const formulaKey = normalizedKey(input.formulaKey, '公式键');
     const label = requiredText(input.label, '公式名称', 120);
+    const category = optionalCategory(input.category);
     const expression = requiredText(input.expression, '公式表达式', 500);
     const variables = validateVariables(input.variables);
     evaluateArithmetic(expression, Object.fromEntries(variables.map((item) => [item.key, item.defaultValue ?? 1])));
@@ -45,7 +47,7 @@ export class AttributeFormulaService {
     this.repository.runInTransaction(() => {
       this.repository.supersedeActive(scope, formulaKey, now);
       this.repository.insert(scope, {
-        formulaId, formulaKey, label, expression, variablesJson: JSON.stringify(variables),
+        formulaId, formulaKey, label, category, expression, variablesJson: JSON.stringify(variables),
         unit: input.unit?.trim() || null, version, now
       });
     });
@@ -214,6 +216,12 @@ function requiredText(value: string, label: string, maxLength: number): string {
   return normalized;
 }
 
+function optionalCategory(value: string | undefined): string {
+  const normalized = value?.trim() || 'uncategorized';
+  if (normalized.length > 64) throw validationError('公式分类不能超过64个字符');
+  return normalized;
+}
+
 function validationError(message: string): DomainError {
   return new DomainError(errorCodes.validation, message);
 }
@@ -223,6 +231,7 @@ function mapFormula(row: AttributeFormulaRow): AttributeFormulaRecord {
     formulaId: row.attribute_formula_id,
     formulaKey: row.formula_key,
     label: row.label,
+    category: row.category,
     expression: row.expression,
     variables: JSON.parse(row.variables_json) as FormulaVariable[],
     unit: row.unit,

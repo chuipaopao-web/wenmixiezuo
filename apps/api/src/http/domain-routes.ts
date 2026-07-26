@@ -448,7 +448,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: {
-    formulaKey: string; label: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
+    formulaKey: string; label: string; category?: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
   } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
     return success(attributeFormulas.create(scope, request.body), request.id);

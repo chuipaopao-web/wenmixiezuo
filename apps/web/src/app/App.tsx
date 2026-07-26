@@ -1060,11 +1060,26 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
 type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
-const storyFrameworkFields = ['title', 'positioning', 'tags', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
+const storyFrameworkFields = ['title', 'positioning', 'tags', 'openingReference', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
 const storyBasicFields = ['worldView', 'worldRules', 'powerSystem', 'resourceSystem', 'equipmentTiers', 'economicRules', 'attributeFields'] as const;
 const basicSettingDefaults: Record<string, unknown> = {
   worldView: '', powerSystem: '', resourceSystem: '', equipmentTiers: [], economicRules: [], attributeFields: [], worldRules: []
 };
+
+const SETTING_CATALOG: Array<{ group: string; description: string; items: string[] }> = [
+  { group: '世界与文明', description: '世界运行的底层背景', items: ['时代与纪元', '位面与宇宙', '地理地图', '种族', '文明', '国家与政体', '法律制度', '宗教信仰', '历法时间', '灾难与禁区'] },
+  { group: '力量体系', description: '能力来源、成长与克制', items: ['境界等级', '职业体系', '天赋资质', '血脉体质', '技能与熟练度', '能量与消耗', '突破条件', '克制关系', '异常状态', '死亡与复活'] },
+  { group: '装备与制造', description: '物品属性和成长规则', items: ['装备部位', '品质等级', '基础属性', '随机词条', '强化精炼', '镶嵌附魔', '套装效果', '耐久损耗', '绑定与交易', '锻造炼制'] },
+  { group: '经济与资源', description: '货币、产出和消耗闭环', items: ['货币体系', '物价与汇率', '稀有度', '资源种类', '采集产出', '生产加工', '库存与容量', '交易拍卖', '税收维护', '升级消耗'] },
+  { group: '人物与战力', description: '个人面板与衍生数值', items: ['基础属性', '生命能量', '攻击防御', '速度敏捷', '命中闪避', '暴击抗性', '恢复续航', '负重容量', '个人战力', '伤害与治疗'] },
+  { group: '伙伴与军团', description: '可成长单位和协同力量', items: ['宠物', '坐骑', '召唤物', '将领随从', '兵种', '军队规模', '忠诚士气', '编制阵型', '军团战力', '伤亡补充'] },
+  { group: '领地与建设', description: '城池、建筑和经营数据', items: ['领地等级', '城池等级', '建筑等级', '人口民心', '科技研究', '防御设施', '生产队列', '资源产量', '维护成本', '升级时间'] },
+  { group: '游戏机制', description: '系统玩法与反馈规则', items: ['任务', '成就', '称号', '声望', '阵营', '副本', '竞技对战', '赛季', '排行榜', '掉落概率'] },
+  { group: '榜单与评分', description: '排名口径必须可以解释', items: ['个人战力榜', '等级榜', '装备榜', '宠物榜', '坐骑榜', '军团榜', '领地榜', '财富榜', '成就榜', '赛季积分榜'] },
+  { group: '计算公式', description: '只计算声明变量，不执行脚本', items: ['个人战力', '装备战力', '综合战力', '军队战力', '伤害结算', '治疗结算', '资源产出', '升级成本', '升级时间', '排行榜积分'] }
+];
+
+const FORMULA_CATEGORIES = SETTING_CATALOG.find((item) => item.group === '计算公式')!.items;
 
 function PlanningWorkspace({ data, workspace }: {
   data: unknown; workspace: WorkspaceData | null;
@@ -1097,9 +1112,30 @@ function PlanningWorkspace({ data, workspace }: {
       {visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
-      {tab === 'basic' && <AttributeFormulaManager bookId={workspace?.book.bookId ?? null} />}
+      {tab === 'basic' && <><SettingCatalog bookId={workspace?.book.bookId ?? null} /><AttributeFormulaManager bookId={workspace?.book.bookId ?? null} /></>}
     </section>
   );
+}
+
+function SettingCatalog({ bookId }: { bookId: string | null }): React.JSX.Element {
+  const [source, setSource] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = (): void => {
+    const text = source.trim();
+    if (bookId === null || text.length === 0 || text.length > 10_000) return;
+    setBusy(true);
+    const instruction = `@文姬 请拆解下面这份设定资料。按“世界观、力量与资源、装备、经济、属性字段、排行榜、宠物坐骑、领地建筑、资源产出、计算公式、未知项”分类整理；保留我的原意，不要补造数字。请给出可写入基本设定的候选内容和需要我确认的问题。以下是原文：\n\n${text}`;
+    void sendMessage(bookId, instruction).then(() => {
+      setSource('');
+      setNotice('已交给文姬真实拆解。结果会出现在对话中；确认前只是候选，不会覆盖正式设定。');
+    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定资料提交失败')).finally(() => setBusy(false));
+  };
+  return <section className="setting-workbench">
+    <header><div><h3>设定目录</h3><p>用于整理资料和发现缺口，不是限制创作的固定模板；可按本书情况自定义。</p></div><span>目录版本 1</span></header>
+    <div className="setting-catalog-grid">{SETTING_CATALOG.map((section) => <article key={section.group}><h4>{section.group}</h4><p>{section.description}</p><div>{section.items.map((item) => <span key={item}>{item}</span>)}</div></article>)}</div>
+    <div className="setting-import"><div><h4>粘贴已有设定，让成员拆解</h4><p>最多10000字。原文会进入当前对话并保留来源；文姬只整理候选，不会自动改正史。</p></div><textarea aria-label="已有设定原文" rows={8} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可粘贴世界观、数值面板、装备等级、排行榜、宠物、坐骑、建筑、资源产出和计算规则……" /><footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy || bookId === null || source.trim().length === 0} onClick={submit}>{busy ? '正在提交…' : '交给文姬拆解'}</button></footer>{notice !== null && <p className="binding-status" role="status">{notice}</p>}</div>
+  </section>;
 }
 
 function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<string, unknown>; bookId: string | null; projection: ArtifactProjection }): React.JSX.Element {
@@ -1301,15 +1337,16 @@ function AttributeFormulaManager({ bookId }: { bookId: string | null }): React.J
   const [expression, setExpression] = useState('');
   const [variablesText, setVariablesText] = useState('');
   const [unit, setUnit] = useState('');
+  const [category, setCategory] = useState(FORMULA_CATEGORIES[0]!);
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = useCallback(() => bookId === null ? Promise.resolve() : fetchAttributeFormulas(bookId).then(setFormulas), [bookId]);
   useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
   const variables = parseFormulaVariables(variablesText);
   return <section className="formula-manager"><header><h3>属性计算公式</h3><p>公式属于基本设定。只允许数字、已声明变量、括号和四则运算，不执行任何脚本。</p></header><form onSubmit={(event) => {
     event.preventDefault(); if (bookId === null || !label.trim() || !expression.trim() || variables.length === 0) return;
-    void createAttributeFormula(bookId, { formulaKey: normalizeStateKey(label), label: label.trim(), expression: expression.trim(), variables, unit: unit.trim() || null }).then(async () => { setLabel(''); setExpression(''); setVariablesText(''); setUnit(''); await refresh(); setNotice('公式新版本已保存。'); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '公式保存失败'));
-  }}><div><label>公式名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：战斗力" /></label><label>表达式<input value={expression} onChange={(event) => setExpression(event.target.value)} placeholder="攻击 * 2 + 防御" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="可留空" /></label></div><label>变量（每行：变量名:显示名）<textarea rows={4} value={variablesText} onChange={(event) => setVariablesText(event.target.value)} placeholder={'攻击:攻击力\n防御:防御力'} /></label><button className="primary-button" disabled={bookId === null || !label.trim() || !expression.trim() || variables.length === 0}>保存公式</button></form>
-    <RecordCollection records={formulas.map((formula) => ({ 名称: formula.label, 表达式: formula.expression, 变量: formula.variables.map((item) => item.label), 单位: formula.unit, 版本: formula.version }))} empty="还没有属性计算公式。非游戏题材可以不设置。" />{notice !== null && <p className="binding-status" role="status">{notice}</p>}</section>;
+    void createAttributeFormula(bookId, { formulaKey: normalizeStateKey(label), label: label.trim(), category, expression: expression.trim(), variables, unit: unit.trim() || null }).then(async () => { setLabel(''); setExpression(''); setVariablesText(''); setUnit(''); await refresh(); setNotice('公式新版本已保存。'); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '公式保存失败'));
+  }}><div><label>用途分类<select value={category} onChange={(event) => setCategory(event.target.value)}>{FORMULA_CATEGORIES.map((value) => <option key={value}>{value}</option>)}</select></label><label>公式名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：主角综合战力" /></label><label>表达式<input value={expression} onChange={(event) => setExpression(event.target.value)} placeholder="攻击 * 2 + 防御" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="可留空" /></label></div><label>变量（每行：变量名:显示名）<textarea rows={4} value={variablesText} onChange={(event) => setVariablesText(event.target.value)} placeholder={'攻击:攻击力\n防御:防御力'} /></label><button className="primary-button" disabled={bookId === null || !label.trim() || !expression.trim() || variables.length === 0}>保存公式</button></form>
+    <RecordCollection records={formulas.map((formula) => ({ 分类: formula.category === 'uncategorized' ? '未分类' : formula.category, 名称: formula.label, 表达式: formula.expression, 变量: formula.variables.map((item) => item.label), 单位: formula.unit, 版本: formula.version }))} empty="还没有属性计算公式。非游戏题材可以不设置。" />{notice !== null && <p className="binding-status" role="status">{notice}</p>}</section>;
 }
 
 function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formulas: AttributeFormulaData[] }): React.JSX.Element {
@@ -2360,6 +2397,7 @@ function fieldLabel(key: string): string {
     title: '书名', genre: '题材', sourceStatus: '来源状态', summary: '内容摘要', candidates: '候选',
     premise: '核心前提', audience: '目标读者', tone: '整体表达', constraints: '硬边界', confirmedRecommendation: '确认方案', alternatives: '保留备选',
     positioning: '作品定位', worldView: '世界观', worldRules: '世界规则', powerSystem: '力量体系', resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段',
+    openingReference: '开书基本资料', worldBackground: '世界观参考', openingBackground: '故事起始背景', stageOne: '第一阶段剧情', fullBookOutline: '全书简介', initialMap: '初始地图', mustFollow: '必须遵守',
     characters: '初始人物', initialOrganizations: '初始势力', mainPlot: '主线', planningHistory: '规划沿革', openQuestions: '开放问题', tags: '主要标签', theme: '主题',
     acts: '推进阶段', endingDirection: '结局方向', volumeNumber: '卷号', goal: '目标', arcs: '故事弧', endingState: '卷末状态',
     chapterNumber: '章节', objective: '目标', beats: '场景节拍', hook: '章末钩子', status: '状态', track: '轨道',

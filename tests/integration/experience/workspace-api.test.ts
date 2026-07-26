@@ -199,13 +199,13 @@ describe('工作台API', () => {
     expect(classifiedResponse.json().data).toMatchObject({ category: '城池等级', value: 3, revision: 2, previousEntryId: stateId });
     const formulaResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas`,
-      payload: { formulaKey: '总兵力', label: '总兵力', expression: '步兵 + 弓兵', variables: [{ key: '步兵', label: '步兵' }, { key: '弓兵', label: '弓兵' }], unit: '人' }
+      payload: { formulaKey: '总兵力', label: '总兵力', category: '军队战力', expression: '步兵 + 弓兵', variables: [{ key: '步兵', label: '步兵' }, { key: '弓兵', label: '弓兵' }], unit: '人' }
     });
     const formulaId = formulaResponse.json().data.formulaId as string;
     const evaluated = await app.inject({
       method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas/${formulaId}/evaluate`, payload: { values: { 步兵: 120, 弓兵: 80 } }
     });
-    expect(evaluated.json().data).toMatchObject({ result: 200, formula: { unit: '人' } });
+    expect(evaluated.json().data).toMatchObject({ result: 200, formula: { category: '军队战力', unit: '人' } });
     const library = await app.inject({ method: 'GET', url: `/api/v1/books/${first.bookId}/library` });
     expect(library.json().data).toMatchObject({
       protagonists: { profiles: [expect.objectContaining({ displayName: '林澈', current: [expect.objectContaining({ value: 3 })] })] },

@@ -433,3 +433,6 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 - `narrative_forecasts` / `narrative_forecast_branches`：保存2—5个非正史预演分支；正史/黑板/来源变化后只改为陈旧、拒绝或替代，不原地重写。
 - `manuscript_quality_snapshots`：按稿件和点评面板保存事实、文学、体验及AI腔自然度等命名空间维度、硬阻断状态、父快照和唯一最佳标记。它是临时质量证据，不是正史。
 - `context_packs` 新增策略版本和来源指纹，使4200字符初稿包与9000字符重写包可复现；所有新表继续执行书籍隔离、前向迁移和Repository访问边界。
+### 属性公式分类
+
+`attribute_formulas.category` 保存作者可见的业务用途，例如个人战力、装备战力、军队战力、资源产出或排行榜积分。旧记录迁移后使用 `uncategorized`，前端显示为“未分类”。分类不改变公式版本语义，公式仍按 `formula_key` 生成不可变新版本。

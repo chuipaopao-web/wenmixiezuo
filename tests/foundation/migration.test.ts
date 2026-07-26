@@ -41,7 +41,8 @@ describe('向前迁移器', () => {
         '0023_manuscript_protagonist_workspace.sql',
         '0024_settled_chapter_generation_status.sql',
         '0025_opening_blueprints.sql',
-        '0026_creative_sessions_and_context_policy.sql'
+        '0026_creative_sessions_and_context_policy.sql',
+        '0027_attribute_formula_categories.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');

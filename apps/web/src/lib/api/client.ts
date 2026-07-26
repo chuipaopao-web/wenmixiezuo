@@ -287,6 +287,7 @@ export interface AttributeFormulaData {
   formulaId: string;
   formulaKey: string;
   label: string;
+  category: string;
   expression: string;
   variables: Array<{ key: string; label: string; defaultValue?: number }>;
   unit: string | null;
@@ -655,7 +656,7 @@ export function classifyProtagonistState(bookId: string, entryId: string, catego
 }
 
 export function createAttributeFormula(bookId: string, input: {
-  formulaKey: string; label: string; expression: string;
+  formulaKey: string; label: string; category?: string; expression: string;
   variables: Array<{ key: string; label: string; defaultValue?: number }>; unit?: string | null;
 }): Promise<AttributeFormulaData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/attribute-formulas`, { method: 'POST', body: JSON.stringify(input) });
