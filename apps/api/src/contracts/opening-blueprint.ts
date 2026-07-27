@@ -140,7 +140,7 @@ const femaleCategories: OpeningTaxonomyCategory[] = [
 
 const subjectMap = new Map<string, Set<string>>();
 for (const group of OPENING_TAG_GROUPS) {
-  for (const name of group.mainTags) {
+  for (const name of [...group.mainTags, ...group.auxiliaryTags]) {
     const packs = subjectMap.get(name) ?? new Set<string>();
     for (const pack of group.packKeys) packs.add(pack);
     subjectMap.set(name, packs);
@@ -162,7 +162,7 @@ const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
 ]))];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-07-27-v2',
+  version: 'wenmi-single-category-subject-library-2026-07-27-v3',
   sourceLabel: '番茄式分类与文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-07-23',

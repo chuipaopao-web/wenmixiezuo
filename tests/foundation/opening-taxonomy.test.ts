@@ -43,7 +43,11 @@ describe('完整开书分类与资料合同', () => {
     expect(new Set(OPENING_TAXONOMY.categories.map((item) => item.key)).size).toBe(OPENING_TAXONOMY.categories.length);
     expect(OPENING_TAXONOMY.tagGroups.length).toBeGreaterThan(10);
     expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '历史古代')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '历史脑洞')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '架空历史')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '朝堂江湖')).toBe(true);
     expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '游戏异界')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.length).toBeGreaterThan(100);
     expect(new Set(OPENING_TAXONOMY.mainTags).size).toBeGreaterThan(200);
     expect(OPENING_TAXONOMY.categories.every((item) => item.tagPackKeys.length > 0)).toBe(true);
     expect(OPENING_TAXONOMY.categories.flatMap((item) => item.recommendedMainTags)
