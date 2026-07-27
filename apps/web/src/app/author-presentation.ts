@@ -47,6 +47,37 @@ export interface AuthorReplyProjection {
   fullContent: string;
 }
 
+export function collectSettingTemplateHints(artifacts: Record<string, unknown>[]): string[] {
+  const result = new Map<string, string>();
+  const add = (value: unknown): void => {
+    if (typeof value !== 'string') return;
+    value
+      .split(/[\u3001\uff0c,\uff5c|\s]+/u)
+      .map((part) => part.trim().replace(/[\u3002\uff1b;\uff1a:\uff0c,\u3001]+$/u, '').trim())
+      .filter((part) => part.length >= 2 && part.length <= 16)
+      .forEach((part) => {
+        const identity = part.toLocaleLowerCase('zh-CN');
+        if (!result.has(identity)) result.set(identity, part);
+      });
+  };
+
+  for (const artifact of artifacts) {
+    const content = isRecord(artifact.active_content) ? artifact.active_content : artifact;
+    const positioning = isRecord(content.positioning) ? content.positioning : null;
+    if (positioning !== null) {
+      const genre = positioning.genre;
+      add(isRecord(genre) ? genre.value : genre);
+    }
+    if (!Array.isArray(content.tags)) continue;
+    for (const tag of content.tags) {
+      if (!isRecord(tag) || typeof tag.name !== 'string' || tag.name.startsWith('\u5fc5\u987b\u9075\u5b88\uff1a')) continue;
+      add(tag.name);
+    }
+  }
+
+  return [...result.values()].slice(0, 24);
+}
+
 export function toAuthorDisplayValue(value: unknown, depth = 0): unknown {
   if (depth > 8) return '内容层级过深，已省略';
   const parsed = parseJsonString(value);

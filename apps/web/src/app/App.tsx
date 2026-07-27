@@ -120,6 +120,7 @@ import {
   authorFieldLabel,
   authorFormatScalar,
   authorRelationshipLabel,
+  collectSettingTemplateHints,
   projectionForAuthor,
   structuredReplyFromMixedText,
   toAuthorDisplayValue
@@ -1476,22 +1477,6 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss }: {
     </section>
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
-}
-
-function collectSettingTemplateHints(artifacts: Record<string, unknown>[]): string[] {
-  const result = new Set<string>();
-  const visit = (value: unknown, key = ''): void => {
-    if (typeof value === 'string') {
-      if (/tag|genre|category|题材|分类|标签|channel/iu.test(key) || SETTING_EXTENSION_PACKS.some((pack) => pack.match.test(value))) {
-        value.split(/[、,，/|｜+\s]+/u).map((part) => part.trim()).filter((part) => part.length >= 2 && part.length <= 16).forEach((part) => result.add(part));
-      }
-      return;
-    }
-    if (Array.isArray(value)) { value.forEach((item) => visit(item, key)); return; }
-    if (isRecord(value)) Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
-  };
-  artifacts.forEach((artifact) => visit(artifact.active_content ?? artifact));
-  return [...result].slice(0, 24);
 }
 
 function settingStatusClass(status: SettingOutlineStatus): string {

@@ -2,12 +2,34 @@ import { describe, expect, it } from 'vitest';
 import {
   authorFieldLabel,
   authorFormatScalar,
+  collectSettingTemplateHints,
   projectionForAuthor,
   structuredReplyFromMixedText,
   toAuthorDisplayValue
 } from '../../apps/web/src/app/author-presentation';
 
 describe('作者展示层', () => {
+  it('只展示语义设定提示，并在清理句末标点后去重', () => {
+    const hints = collectSettingTemplateHints([{
+      active_content: {
+        positioning: {
+          premise: { value: '游戏体育。' },
+          genre: { value: '游戏体育' },
+          classification: { value: '男频' }
+        },
+        tags: [
+          { name: '游戏体育。', category: 'dynamic', sourceStatus: 'explicit' },
+          { name: '历史脑洞', category: 'dynamic', sourceStatus: 'explicit' },
+          { name: '必须遵守：不降智', category: 'dynamic', sourceStatus: 'explicit' }
+        ]
+      }
+    }]);
+
+    expect(hints).toEqual(['游戏体育', '历史脑洞']);
+    expect(hints).not.toContain('dynamic');
+    expect(hints).not.toContain('explicit');
+  });
+
   it('解析嵌套JSON并隐藏内部标识、哈希和原始来源ID', () => {
     const value = toAuthorDisplayValue({
       projection_id: 'projection-secret', owner_id: 'owner-secret', book_id: 'book-secret',
