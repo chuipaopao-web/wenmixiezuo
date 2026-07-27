@@ -62,6 +62,7 @@ export interface OpeningTaxonomyData {
   storyTraits: string[];
   personalityOptions: string[];
   boundaryGroups: Array<{ name: string; description: string; options: string[] }>;
+  subjects: Array<{ name: string; packKeys: string[] }>;
   tagGroups: Array<{
     key: string;
     name: string;

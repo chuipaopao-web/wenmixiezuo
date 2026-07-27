@@ -35,13 +35,16 @@ function validBlueprint(): OpeningBlueprintInput {
 
 describe('完整开书分类与资料合同', () => {
   it('按男频女频提供版本化番茄式分类且分类键唯一', () => {
-    expect(OPENING_TAXONOMY.version).toMatch(/^wenmi-dynamic-tag-library-/u);
+    expect(OPENING_TAXONOMY.version).toMatch(/^wenmi-single-category-subject-library-/u);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'male' && item.name === '玄幻脑洞')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'male' && item.name === '动漫衍生')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'female' && item.name === '现言脑洞')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'female' && item.name === '古风世情')).toBe(true);
     expect(new Set(OPENING_TAXONOMY.categories.map((item) => item.key)).size).toBe(OPENING_TAXONOMY.categories.length);
     expect(OPENING_TAXONOMY.tagGroups.length).toBeGreaterThan(10);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '历史古代')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '游戏异界')).toBe(true);
+    expect(new Set(OPENING_TAXONOMY.mainTags).size).toBeGreaterThan(200);
     expect(OPENING_TAXONOMY.categories.every((item) => item.tagPackKeys.length > 0)).toBe(true);
     expect(OPENING_TAXONOMY.categories.flatMap((item) => item.recommendedMainTags)
       .filter((tag) => !OPENING_TAXONOMY.mainTags.includes(tag))).toEqual([]);
@@ -91,5 +94,19 @@ describe('完整开书分类与资料合同', () => {
       initialMap: ''
     })).toMatchObject({ protagonists: [], fullBookOutline: '' });
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), fullBookOutline: '长'.repeat(18_000) })).toThrow('资料总量');
+  });
+
+  it('新合同只保留一个分类，题材可跨包组合且最多8个', () => {
+    const blueprint = validateOpeningBlueprint({
+      ...validBlueprint(),
+      auxiliaryTags: ['历史古代', '游戏异界']
+    });
+    expect(blueprint.categoryKey).toBe('male-fantasy-brain');
+    expect(blueprint.auxiliaryTags).toEqual(['历史古代', '游戏异界']);
+    expect(blueprint.auxiliaryCategoryKeys).toBeUndefined();
+    expect(() => validateOpeningBlueprint({
+      ...validBlueprint(),
+      auxiliaryTags: OPENING_TAXONOMY.subjects.slice(0, 9).map((item) => item.name)
+    })).toThrow('0至8个');
   });
 });

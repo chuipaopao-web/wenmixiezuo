@@ -4300,7 +4300,68 @@ svg {
   margin-top: 14px;
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
+  padding: 12px;
   background: color-mix(in srgb, var(--panel) 90%, var(--accent-soft));
+}
+
+.subject-library {
+  margin-top: 12px;
+}
+
+.subject-toggle {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 11px;
+  color: var(--accent-hover);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.tag-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.tag-library-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.tag-library-heading small,
+.tag-library-heading > span,
+.tag-context-note {
+  color: var(--ink-faint);
+}
+
+.full-tag-library > nav {
+  display: flex;
+  overflow-x: auto;
+  gap: 5px;
+  padding: 9px 0;
+}
+
+.full-tag-library > nav button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--ink-soft);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.full-tag-library > nav button.selected {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+}
+
+.tag-context-note {
+  margin: 0 0 8px;
 }
 
 .tag-library-toggle {

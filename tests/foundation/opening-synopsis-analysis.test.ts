@@ -50,7 +50,7 @@ describe('开书剧情梗概本地识别', () => {
         fullBookOutline: '陆沉阻止王朝覆灭，最终建立新的边境秩序。',
         initialMap: '北境雁回驿及周边三十里。',
         mainTags: ['历史', '穿越', '谋略'],
-        auxiliaryTags: ['架空历史', '朝堂江湖'],
+        auxiliaryTags: ['架空历史', '历史', '朝堂江湖', '江湖'],
         storyTraits: ['群像', '成长', '智斗'],
         mustFollow: ['不写后宫', '不降智']
       }

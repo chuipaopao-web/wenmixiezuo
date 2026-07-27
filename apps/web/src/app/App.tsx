@@ -2165,16 +2165,15 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [title, setTitle] = useState('');
   const [channel, setChannel] = useState<OpeningChannel | null>(null);
   const [categoryKey, setCategoryKey] = useState<string | null>(null);
-  const [auxiliaryCategoryKeys, setAuxiliaryCategoryKeys] = useState<string[]>([]);
   const [targetAudience, setTargetAudience] = useState('');
   const [mainTags, setMainTags] = useState<string[]>([]);
   const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
-  const [storyTraits, setStoryTraits] = useState<string[]>([]);
+  const [storyTraits] = useState<string[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
-  const [tagLibraryOpen, setTagLibraryOpen] = useState(false);
-  const [activeTagGroupKey, setActiveTagGroupKey] = useState('common');
+  const [allSubjectsOpen, setAllSubjectsOpen] = useState(false);
+  const [activeTagGroupKey, setActiveTagGroupKey] = useState('recommended');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -2191,20 +2190,33 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
 
   const categories = taxonomy?.categories.filter((item) => item.channel === channel) ?? [];
   const category = taxonomy?.categories.find((item) => item.key === categoryKey) ?? null;
-  const auxiliaryCategories = auxiliaryCategoryKeys
-    .map((key) => taxonomy?.categories.find((item) => item.key === key))
-    .filter((item): item is NonNullable<typeof item> => item !== undefined);
-  const selectedCategories = category === null ? auxiliaryCategories : [category, ...auxiliaryCategories];
-  const activePackKeys = [...new Set(['common', ...selectedCategories.flatMap((item) => item.tagPackKeys ?? [])])];
+  const subjects = taxonomy?.subjects ?? (taxonomy?.auxiliaryTags ?? []).map((name) => ({ name, packKeys: ['common'] }));
+  const activePackKeys = [...new Set([
+    'common',
+    ...(category?.tagPackKeys ?? []),
+    ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys)
+  ])];
   const availableTagGroups = taxonomy?.tagGroups ?? [{
     key: 'common', name: '当前分类', description: '当前分类可用标签',
+    packKeys: ['common'],
     mainTags: taxonomy?.mainTags ?? [], auxiliaryTags: taxonomy?.auxiliaryTags ?? [], storyTraits: taxonomy?.storyTraits ?? []
   }];
-  const relevantTagGroups = availableTagGroups.filter((group) => activePackKeys.includes(group.key));
-  const activeTagGroup = availableTagGroups.find((group) => group.key === activeTagGroupKey) ?? relevantTagGroups[0] ?? null;
-  const mainTagOptions = [...new Set([...selectedCategories.flatMap((item) => item.recommendedMainTags), ...relevantTagGroups.flatMap((group) => group.mainTags)])];
-  const auxiliaryTagOptions = [...new Set(relevantTagGroups.flatMap((group) => group.auxiliaryTags))];
-  const storyTraitOptions = [...new Set(relevantTagGroups.flatMap((group) => group.storyTraits))];
+  const relevantTagGroups = availableTagGroups.filter((group) => group.packKeys?.some((pack) => activePackKeys.includes(pack)) ?? activePackKeys.includes(group.key));
+  const activeTagGroup = activeTagGroupKey === 'recommended'
+    ? null
+    : availableTagGroups.find((group) => group.key === activeTagGroupKey) ?? null;
+  const recommendedSubjects = subjects.filter((item) => (item.packKeys ?? ['common']).some((pack) => category?.tagPackKeys?.includes(pack)));
+  const subjectOptions = allSubjectsOpen ? subjects : [...new Map([...recommendedSubjects, ...subjects.filter((item) => auxiliaryTags.includes(item.name))].map((item) => [item.name, item])).values()];
+  const groupTagValues = (group: typeof availableTagGroups[number]): string[] => [
+    ...group.mainTags,
+    ...group.auxiliaryTags,
+    ...group.storyTraits
+  ];
+  const recommendedTagOptions = [...new Set([
+    ...(category?.recommendedMainTags ?? []),
+    ...relevantTagGroups.flatMap(groupTagValues)
+  ])];
+  const displayedTagOptions = activeTagGroup === null ? recommendedTagOptions : [...new Set(groupTagValues(activeTagGroup))];
   const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN');
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
     ? options
@@ -2254,7 +2266,6 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
-      auxiliaryCategoryKeys,
       targetAudience: targetAudience.trim(),
       protagonists: [],
       worldBackground: '',
@@ -2283,49 +2294,39 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <label htmlFor="complete-book-title">书名</label>
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
-            setChannel(item.id); setCategoryKey(null); setAuxiliaryCategoryKeys([]); setMainTags([]);
+            setChannel(item.id); setCategoryKey(null);
           }} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div></fieldset>
-          <div className="taxonomy-heading"><strong>作品分类</strong><small>1个主分类 + 最多3个辅助分类</small></div>
+          <div className="taxonomy-heading"><strong>作品分类（单选）</strong><small>一本书只确定一个主分类</small></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
           <div className="category-options">{categories.map((item) => {
-            const primary = categoryKey === item.key;
-            const auxiliary = auxiliaryCategoryKeys.includes(item.key);
-            return <button className={primary ? 'category-choice selected primary' : auxiliary ? 'category-choice selected auxiliary' : 'category-choice'} type="button" aria-label={primary ? `当前主分类：${item.name}` : auxiliary ? `取消辅助分类：${item.name}` : `选择作品分类：${item.name}`} key={item.key} onClick={() => {
-              if (primary) return;
-              if (categoryKey === null) {
-                setCategoryKey(item.key);
-                setActiveTagGroupKey(item.tagPackKeys?.[0] ?? 'common');
-              } else if (auxiliary) {
-                setAuxiliaryCategoryKeys(auxiliaryCategoryKeys.filter((key) => key !== item.key));
-              } else if (auxiliaryCategoryKeys.length < 3) {
-                setAuxiliaryCategoryKeys([...auxiliaryCategoryKeys, item.key]);
-              }
-            }}><strong>{item.name}</strong><small>{primary ? '主分类' : auxiliary ? '辅助分类' : item.description}</small></button>;
+            const selected = categoryKey === item.key;
+            return <button className={selected ? 'category-choice selected primary' : 'category-choice'} type="button" aria-pressed={selected} aria-label={selected ? `当前作品分类：${item.name}` : `选择作品分类：${item.name}`} key={item.key} onClick={() => {
+              setCategoryKey(item.key);
+              setActiveTagGroupKey('recommended');
+            }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
-          {selectedCategories.length > 0 && <div className="selected-category-strip">{selectedCategories.map((item, index) => <span key={item.key}><strong>{index === 0 ? '主' : '辅'}</strong>{item.name}{index > 0 && <><button type="button" onClick={() => { setCategoryKey(item.key); setAuxiliaryCategoryKeys([categoryKey!, ...auxiliaryCategoryKeys.filter((key) => key !== item.key)]); }}>设为主分类</button><button type="button" aria-label={`移除辅助分类：${item.name}`} onClick={() => setAuxiliaryCategoryKeys(auxiliaryCategoryKeys.filter((key) => key !== item.key))}><XIcon /></button></>}</span>)}</div>}
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
           <label htmlFor="target-audience">目标读者<input id="target-audience" aria-label="目标读者" maxLength={500} value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} placeholder="例如：喜欢领主经营、群像成长和智谋博弈的读者" /></label>
           </section>
         </div>
 
         <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>02</span><h3>分类标签与边界</h3></div><small>主要标签2—8个</small></div>
-          <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向，不是每章清单；未选择的元素也可以随剧情自然加入。</p></div></div>
-          <label htmlFor="opening-tag-search">搜索标签<input id="opening-tag-search" aria-label="搜索标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
-          <StringTagPicker title="主要标签" hint={`已选 ${mainTags.length} 个主要标签（上限8；按主辅分类推荐）`} kind="主要标签" options={matchingTags(mainTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
-          <StringTagPicker title="辅助题材" hint="可选，最多11个" kind="辅助题材" options={matchingTags(auxiliaryTagOptions)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 11)} />
-          <StringTagPicker title="全书特点" hint="可选，最多11个" kind="全书特点" options={matchingTags(storyTraitOptions)} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 11)} />
-          {taxonomy !== null && <section className="full-tag-library">
-            <button className="tag-library-toggle" type="button" aria-expanded={tagLibraryOpen} onClick={() => setTagLibraryOpen(!tagLibraryOpen)}><TagIcon /><span><strong>展开完整标签库</strong><small>默认只显示与主辅分类有关的标签，找不到时再展开</small></span></button>
-            {tagLibraryOpen && <div className="tag-library-content">
-              <nav aria-label="标签库分类">{availableTagGroups.map((group) => <button className={activeTagGroup?.key === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}</nav>
-              {activeTagGroup !== null && <div><header><strong>{activeTagGroup.name}</strong><small>{activeTagGroup.description}</small></header>
-                <StringTagPicker title="主要方向" hint="加入主要标签" kind="主要标签" options={matchingTags(activeTagGroup.mainTags)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
-                <StringTagPicker title="辅助元素" hint="加入辅助题材" kind="辅助题材" options={matchingTags(activeTagGroup.auxiliaryTags)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 11)} />
-                <StringTagPicker title="叙事特点" hint="加入全书特点" kind="全书特点" options={matchingTags(activeTagGroup.storyTraits)} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 11)} />
-              </div>}
-            </div>}
-          </section>}
+          <div className="section-heading"><div><span>02</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
+          <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
+          <section className="subject-library">
+            <StringTagPicker title="题材组合（多选）" hint={`建议2—5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
+            <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
+          </section>
+          <section className="full-tag-library">
+            <header className="tag-library-heading"><div><strong>完整标签库</strong><small>根据主分类和题材优先推荐，也可切换分组或搜索全部词条</small></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
+            <label htmlFor="opening-tag-search">搜索全部标签<input id="opening-tag-search" aria-label="搜索全部标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
+            <nav aria-label="标签库分组">
+              <button className={activeTagGroupKey === 'recommended' ? 'selected' : ''} type="button" onClick={() => setActiveTagGroupKey('recommended')}>智能推荐</button>
+              {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
+            </nav>
+            <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已选 ${mainTags.length} 个主要标签（最多8个）`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
+          </section>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
           <details className="boundary-panel" open>

@@ -12,6 +12,11 @@ export interface OpeningTaxonomyCategory {
   tagPackKeys: string[];
 }
 
+export interface OpeningSubjectOption {
+  name: string;
+  packKeys: string[];
+}
+
 export interface OpeningBoundaryGroup {
   name: string;
   description: string;
@@ -31,6 +36,7 @@ export interface OpeningTaxonomy {
   personalityOptions: string[];
   boundaryGroups: OpeningBoundaryGroup[];
   tagGroups: OpeningTagGroup[];
+  subjects: OpeningSubjectOption[];
 }
 
 export interface OpeningProtagonistInput {
@@ -132,15 +138,38 @@ const femaleCategories: OpeningTaxonomyCategory[] = [
   key, name, channel: 'female', description, recommendedMainTags, tagPackKeys: categoryPackKeys(String(key))
 })) as OpeningTaxonomyCategory[];
 
+const subjectMap = new Map<string, Set<string>>();
+for (const group of OPENING_TAG_GROUPS) {
+  for (const name of group.mainTags) {
+    const packs = subjectMap.get(name) ?? new Set<string>();
+    for (const pack of group.packKeys) packs.add(pack);
+    subjectMap.set(name, packs);
+  }
+}
+for (const item of [...maleCategories, ...femaleCategories]) {
+  const packs = subjectMap.get(item.name) ?? new Set<string>();
+  for (const pack of item.tagPackKeys) packs.add(pack);
+  subjectMap.set(item.name, packs);
+}
+const subjects: OpeningSubjectOption[] = [...subjectMap.entries()].map(([name, packs]) => ({
+  name,
+  packKeys: [...packs]
+}));
+const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
+  ...group.mainTags,
+  ...group.auxiliaryTags,
+  ...group.storyTraits
+]))];
+
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-dynamic-tag-library-2026-07-27-v1',
+  version: 'wenmi-single-category-subject-library-2026-07-27-v2',
   sourceLabel: '番茄式分类与文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-07-23',
   notice: '分类依据公开页面整理并在本地版本化，不代表平台永久不变；主要选择只定方向，其他元素可随剧情自由创作。',
   categories: [...maleCategories, ...femaleCategories],
-  mainTags: uniqueTagValues(OPENING_TAG_GROUPS, 'main'),
-  auxiliaryTags: uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary'),
+  mainTags: allSelectableTags,
+  auxiliaryTags: [...new Set([...subjects.map((item) => item.name), ...uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary')])],
   storyTraits: uniqueTagValues(OPENING_TAG_GROUPS, 'trait'),
   personalityOptions: [
     '冷静', '果断', '敏锐', '理性', '坚韧', '乐观', '温柔', '克制', '善良有底线', '责任感强', '外冷内热', '嘴硬心软',
@@ -168,7 +197,8 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
       options: ['不写开放式结局', '不写悲剧结局', '不写烂尾式跳时', '不写梦境式翻盘', '不写主角团灭', '不写机械式重复升级']
     }
   ],
-  tagGroups: OPENING_TAG_GROUPS
+  tagGroups: OPENING_TAG_GROUPS,
+  subjects
 };
 
 const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human']);
@@ -179,12 +209,14 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   const category = OPENING_TAXONOMY.categories.find((item) => item.key === input.categoryKey);
   if (category === undefined) throw new Error('作品分类不存在，请从当前分类目录重新选择');
   if (category.channel !== input.channel) throw new Error('作品分类不属于当前频道，请重新选择');
-  const auxiliaryCategoryKeys = uniqueTexts(input.auxiliaryCategoryKeys ?? [], '辅助分类', 0, 3, 100);
-  if (auxiliaryCategoryKeys.includes(category.key)) throw new Error('主分类不能同时作为辅助分类');
+  const auxiliaryCategoryKeys = uniqueTexts(input.auxiliaryCategoryKeys ?? [], '旧版辅助分类', 0, 3, 100);
+  const legacySubjects: string[] = [];
+  if (auxiliaryCategoryKeys.includes(category.key)) throw new Error('主分类不能同时作为辅助分类（旧版兼容字段）');
   for (const key of auxiliaryCategoryKeys) {
     const auxiliary = OPENING_TAXONOMY.categories.find((item) => item.key === key);
     if (auxiliary === undefined) throw new Error(`辅助分类不存在：${key}`);
     if (auxiliary.channel !== input.channel) throw new Error('辅助分类不属于当前频道，请重新选择');
+    legacySubjects.push(auxiliary.name);
   }
   if (input.protagonists !== undefined && (!Array.isArray(input.protagonists) || input.protagonists.length > 8)) {
     throw new Error('初始主角最多8位');
@@ -202,9 +234,15 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   for (const tag of mainTags) {
     if (!OPENING_TAXONOMY.mainTags.includes(tag)) throw new Error(`主要标签不在当前目录：${tag}`);
   }
-  const auxiliaryTags = uniqueTexts(input.auxiliaryTags, '辅助题材', 0, 11, 40);
+  const auxiliaryTags = uniqueTexts(
+    [...input.auxiliaryTags, ...legacySubjects],
+    '题材',
+    0,
+    auxiliaryCategoryKeys.length > 0 ? 11 : 8,
+    40
+  );
   for (const tag of auxiliaryTags) {
-    if (!OPENING_TAXONOMY.auxiliaryTags.includes(tag)) throw new Error(`辅助题材不在当前目录；如需自定义请放入自定义标签：${tag}`);
+    if (!OPENING_TAXONOMY.auxiliaryTags.includes(tag)) throw new Error(`题材不在当前目录；如需自定义请放入自定义标签：${tag}`);
   }
   const storyTraits = uniqueTexts(input.storyTraits, '全书特点', 0, 11, 40);
   for (const tag of storyTraits) {
@@ -214,7 +252,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
     categoryKey: input.categoryKey,
-    auxiliaryCategoryKeys,
+    ...(auxiliaryCategoryKeys.length > 0 ? { auxiliaryCategoryKeys } : {}),
     targetAudience: requiredText(input.targetAudience, '目标读者', 500),
     protagonists,
     worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),

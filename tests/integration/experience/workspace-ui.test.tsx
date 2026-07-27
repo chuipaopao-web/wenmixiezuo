@@ -366,14 +366,14 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('目标读者'), { target: { value: '喜欢都市悬疑与女性成长的读者' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：现言' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：脑洞' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择全书特点：群像' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
     expect(within(dialog).getByText('感情与关系')).toBeInTheDocument();
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/已选 2 个主要标签/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已选 3 个主要标签/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     expect(within(dialog).queryByLabelText('主角姓名')).not.toBeInTheDocument();
