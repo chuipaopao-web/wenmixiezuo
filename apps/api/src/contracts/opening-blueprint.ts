@@ -138,23 +138,28 @@ const femaleCategories: OpeningTaxonomyCategory[] = [
   key, name, channel: 'female', description, recommendedMainTags, tagPackKeys: categoryPackKeys(String(key))
 })) as OpeningTaxonomyCategory[];
 
-const subjectMap = new Map<string, Set<string>>();
-for (const group of OPENING_TAG_GROUPS) {
-  for (const name of [...group.mainTags, ...group.auxiliaryTags]) {
-    const packs = subjectMap.get(name) ?? new Set<string>();
-    for (const pack of group.packKeys) packs.add(pack);
-    subjectMap.set(name, packs);
-  }
+function subject(packKeys: string[], ...names: string[]): OpeningSubjectOption[] {
+  return names.map((name) => ({ name, packKeys }));
 }
-for (const item of [...maleCategories, ...femaleCategories]) {
-  const packs = subjectMap.get(item.name) ?? new Set<string>();
-  for (const pack of item.tagPackKeys) packs.add(pack);
-  subjectMap.set(item.name, packs);
-}
-const subjects: OpeningSubjectOption[] = [...subjectMap.entries()].map(([name, packs]) => ({
-  name,
-  packKeys: [...packs]
-}));
+
+// “题材”只保存平台分类级或跨分类的大方向。副本、排行榜、装备品质等
+// 书内机制继续留在完整标签库和设定大纲，不得混入开书题材选择。
+const subjects: OpeningSubjectOption[] = [
+  ...subject(['fantasy'], '玄幻脑洞', '传统玄幻', '东方玄幻', '异世大陆', '高武世界', '洪荒神话', '灵气复苏', '御兽'),
+  ...subject(['xianxia', 'fantasy'], '东方仙侠', '奇幻仙侠', '修仙', '修真'),
+  ...subject(['history'], '历史古代', '历史脑洞', '架空历史', '朝堂江湖', '抗战谍战', '军事战争'),
+  ...subject(['game'], '游戏异界', '虚拟网游', '电子竞技', '游戏竞技', '竞技体育'),
+  ...subject(['urban'], '都市脑洞', '都市日常', '都市高武', '都市修真', '都市种田', '商战职场', '娱乐明星', '现实生活'),
+  ...subject(['lord', 'business'], '领主争霸', '种田经营', '基建发展', '商业经营'),
+  ...subject(['suspense'], '悬疑脑洞', '悬疑灵异', '推理探案', '民俗悬疑', '规则怪谈', '盗墓探险'),
+  ...subject(['scifi', 'apocalypse'], '科幻末世', '未来世界', '星际文明', '赛博朋克', '废土求生'),
+  ...subject(['western_fantasy'], '西方奇幻', '史诗奇幻', '魔法世界'),
+  ...subject(['martial'], '传统武侠', '国术武道'),
+  ...subject(['romance'], '古代言情', '现代言情', '古言脑洞', '现言脑洞', '玄幻言情', '仙侠奇缘', '豪门总裁', '宫斗宅斗', '青春甜宠', '悬疑恋爱', '年代婚恋'),
+  ...subject(['system', 'infinite'], '系统流', '无限流', '诸天万界', '快穿', '穿书'),
+  ...subject(['common'], '穿越', '重生'),
+  ...subject(['derivative'], '动漫衍生', '影视衍生', '男频衍生', '女频衍生', '轻小说')
+];
 const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
   ...group.mainTags,
   ...group.auxiliaryTags,
@@ -162,14 +167,19 @@ const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
 ]))];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-07-27-v3',
-  sourceLabel: '番茄式分类与文秘写作动态词条库',
+  version: 'wenmi-single-category-subject-library-2026-07-27-v4',
+  sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-07-23',
   notice: '分类依据公开页面整理并在本地版本化，不代表平台永久不变；主要选择只定方向，其他元素可随剧情自由创作。',
   categories: [...maleCategories, ...femaleCategories],
   mainTags: allSelectableTags,
-  auxiliaryTags: [...new Set([...subjects.map((item) => item.name), ...uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary')])],
+  // 保留旧细粒度题材的合同兼容，避免旧草稿失效；Web只展示上面的精选大题材。
+  auxiliaryTags: [...new Set([
+    ...subjects.map((item) => item.name),
+    ...[...maleCategories, ...femaleCategories].map((item) => item.name),
+    ...uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary')
+  ])],
   storyTraits: uniqueTagValues(OPENING_TAG_GROUPS, 'trait'),
   personalityOptions: [
     '冷静', '果断', '敏锐', '理性', '坚韧', '乐观', '温柔', '克制', '善良有底线', '责任感强', '外冷内热', '嘴硬心软',

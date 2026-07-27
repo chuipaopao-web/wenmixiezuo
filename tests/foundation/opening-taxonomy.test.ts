@@ -47,7 +47,14 @@ describe('完整开书分类与资料合同', () => {
     expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '架空历史')).toBe(true);
     expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '朝堂江湖')).toBe(true);
     expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '游戏异界')).toBe(true);
-    expect(OPENING_TAXONOMY.subjects.length).toBeGreaterThan(100);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '东方玄幻')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '东方仙侠')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '重生')).toBe(true);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '副本')).toBe(false);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '排行榜')).toBe(false);
+    expect(OPENING_TAXONOMY.subjects.some((item) => item.name === '装备品质')).toBe(false);
+    expect(OPENING_TAXONOMY.subjects.length).toBeGreaterThan(50);
+    expect(OPENING_TAXONOMY.subjects.length).toBeLessThan(90);
     expect(new Set(OPENING_TAXONOMY.mainTags).size).toBeGreaterThan(200);
     expect(OPENING_TAXONOMY.categories.every((item) => item.tagPackKeys.length > 0)).toBe(true);
     expect(OPENING_TAXONOMY.categories.flatMap((item) => item.recommendedMainTags)
