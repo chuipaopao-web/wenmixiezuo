@@ -296,6 +296,11 @@ export class TaskService {
       scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('任务完成被租约门禁拒绝');
     const task = this.require(scope, taskId);
+    this.database.prepare(`
+      UPDATE task_phases SET status = ?, completed_at = ?, heartbeat_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'
+    `).run(task.status === 'cancelled' ? 'cancelled' : 'succeeded', now, now,
+      taskId, scope.ownerId, scope.bookId);
     this.finishCurrentAttempt(scope, taskId, task.status === 'cancelled' ? 'cancelled' : 'succeeded', now);
     this.events?.append(scope, task.status === 'succeeded' ? 'task.completed' : 'task.phase.changed', { taskId, status: task.status });
     return task;

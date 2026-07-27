@@ -21,6 +21,7 @@ import { CreativeSessionRepository } from '../../infrastructure/db/repositories/
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../continuity/stage-settlement-service.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 
 type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning';
 type CreativeRoundKind = 'initial_exploration' | 'major_redirect' | 'locked_planning';
@@ -432,9 +433,11 @@ export class ConversationService {
         chapterEnd: settlement.chapterEnd
       };
     }
-    if (/^(?:锁定当前方向|就按这个方向|按主编推荐(?:的方向)?|确定这个方向)[！!。.？?\s]*$/u.test(content)) {
+    if (/^(?:锁定当前方向|就按这个方向|按主编推荐(?:的方向)?|确定这个方向)(?:[！!。.？?\s]*|[：:，,]\s*[\s\S]+)$/u.test(content)) {
       const active = new CreativeSessionRepository(this.database).active(scope);
-      if (active === null) throw new Error('当前没有可锁定方向的创作会话');
+      if (active === null) {
+        throw new DomainError(errorCodes.operationIncomplete, '当前没有可锁定方向的创作会话，请先让主编和编剧完成一次剧情方向讨论', {}, false, 409);
+      }
       const latest = this.database.prepare(`
         SELECT r.completed_decision_id AS decision_id
         FROM creative_session_rounds r
@@ -449,7 +452,13 @@ export class ConversationService {
         ORDER BY r.round_number DESC LIMIT 1
       `).get(active.sessionId, scope.ownerId, scope.bookId) as { decision_id: string | null } | undefined;
       if (latest?.decision_id === null || latest?.decision_id === undefined) {
-        throw new Error('当前创作会话还没有可锁定的主编方向结论');
+        throw new DomainError(
+          errorCodes.operationIncomplete,
+          '当前创作会话还没有可锁定的主编方向结论，请先让主编和编剧完成剧情方向讨论',
+          {},
+          false,
+          409
+        );
       }
       return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
     }
@@ -465,7 +474,9 @@ export class ConversationService {
           AND COALESCE(json_extract(t.task_brief_json, '$.purpose'), 'open_discussion') <> 'creative_exploration'
         ORDER BY t.created_at DESC LIMIT 1
       `).get(scope.ownerId, scope.bookId) as { decision_id: string } | undefined;
-      if (latest === undefined) throw new Error('当前没有等待确认的规划或方案');
+      if (latest === undefined) {
+        throw new DomainError(errorCodes.operationIncomplete, '当前没有等待确认的规划或方案，请先完成规划讨论', {}, false, 409);
+      }
       return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
     }
     const activeCreativeSession = new CreativeSessionRepository(this.database).active(scope);
@@ -519,6 +530,7 @@ export class ConversationService {
       kind: creativeSession === undefined ? 'conversation_reply_scheduled' : 'creative_session_continued',
       taskId,
       agentId: lease.active_editor_agent_id,
+      editorName: lease.active_editor_name,
       ...(creativeSession === undefined ? {} : {
         sessionId: creativeSession.sessionId,
         blackboardRevision: creativeSession.blackboardRevision
@@ -801,6 +813,7 @@ export class ConversationService {
       purpose,
       discussionId: discussion.discussionId,
       taskId,
+      editorName: lease.active_editor_name,
       participants: discussion.participants.map((item) => item.agentId),
       ...(creativeSession === undefined ? {} : {
         sessionId: creativeSession.sessionId,
@@ -809,9 +822,16 @@ export class ConversationService {
     };
   }
 
-  private requireEditorLease(scope: BookScope): { active_editor_agent_id: string; editor_epoch: number } {
-    const lease = this.database.prepare(`SELECT active_editor_agent_id, editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
-      .get(scope.ownerId, scope.bookId) as { active_editor_agent_id: string; editor_epoch: number } | undefined;
+  private requireEditorLease(scope: BookScope): { active_editor_agent_id: string; editor_epoch: number; active_editor_name: string } {
+    const lease = this.database.prepare(`
+      SELECT l.active_editor_agent_id, l.editor_epoch, a.display_name AS active_editor_name
+      FROM editor_leases l
+      JOIN agent_instances a ON a.owner_id = l.owner_id AND a.book_id = l.book_id
+        AND a.agent_id = l.active_editor_agent_id
+      WHERE l.owner_id = ? AND l.book_id = ?
+    `).get(scope.ownerId, scope.bookId) as {
+      active_editor_agent_id: string; editor_epoch: number; active_editor_name: string;
+    } | undefined;
     if (lease === undefined) throw new Error('当前书籍没有活动主编租约');
     return lease;
   }
@@ -848,6 +868,12 @@ export class ConversationService {
   }
 
   private addLocalAssistantMessage(scope: BookScope, conversationId: string, content: string): void {
+    const latest = this.database.prepare(`
+      SELECT message_type, content FROM messages
+      WHERE conversation_id = ? AND owner_id = ? AND book_id = ?
+      ORDER BY created_at DESC, message_id DESC LIMIT 1
+    `).get(conversationId, scope.ownerId, scope.bookId) as { message_type: string; content: string } | undefined;
+    if (latest?.message_type === 'local_assistant_notice' && latest.content === content) return;
     this.database.prepare(`
       INSERT INTO messages (
         message_id, conversation_id, owner_id, book_id, sender_type,
@@ -883,23 +909,26 @@ function isMajorCreativeRedirect(content: string): boolean {
 }
 
 function actionNotice(action: Record<string, unknown>): string {
+  const editorName = typeof action.editorName === 'string' && action.editorName.trim().length > 0
+    ? action.editorName.trim()
+    : '活动主编';
   switch (action.kind) {
     case 'local_assistant_reply': return action.topic === 'identity'
       ? '我是小文秘书，负责接收消息、整理附件、查看任务和安排合适的成员。剧情、正文和正史仍由创作成员与您确认，我不会替她们作答。'
       : '我在。您可以直接说想聊的剧情、点名成员，或者让我查看任务和资料；需要创作判断时，我会把您的原话交给合适的成员。';
     case 'chapter_batch_scheduled': return '好的，下一章已经交给主笔。完成三轮独立点评后，我会把稿件带回来请您确认；在您确认前，它不会进入正史。';
     case 'trial_draft_scheduled': return '好的，已安排试写一章。它只会保留为可修改的临时稿，不启动正式三席审校，也不会进入正史；满意后再点“定稿”进入正式审校。';
-    case 'trial_draft_not_ready': return `可以先试写，但还缺少唯一下一章所需的信息：${(action.missing as string[]).join('、')}。貂蝉会在当前会话里继续问清，不会直接让主笔盲写。`;
-    case 'discussion_scheduled': return '收到，我已经把您的原话交给貂蝉，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。';
+    case 'trial_draft_not_ready': return `可以先试写，但还缺少唯一下一章所需的信息：${(action.missing as string[]).join('、')}。${editorName}会在当前会话里继续问清，不会直接让主笔盲写。`;
+    case 'discussion_scheduled': return `收到，我已经把您的原话交给${editorName}，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。`;
     case 'planning_discussion_scheduled': return action.requestedChapterCount === null
-      ? '我没有让主笔贸然批量开写。貂蝉和两位编剧会先评估这段剧情适合展开多少章，并把唯一下一章理清后请您确认。'
-      : '目前还缺少可执行的下一章方案，我没有启动主笔。貂蝉会先和相关成员补齐剧情与章纲，再回来请您确认。';
+      ? `我没有让主笔贸然批量开写。${editorName}和两位编剧会先评估这段剧情适合展开多少章，并把唯一下一章理清后请您确认。`
+      : `目前还缺少可执行的下一章方案，我没有启动主笔。${editorName}会先和相关成员补齐剧情与章纲，再回来请您确认。`;
     case 'planning_discussion_existing': return '前面的剧情方案还在讨论或等您确认，我没有重复开启新任务。您可以在左侧“任务”里查看进度。';
-    case 'conversation_reply_scheduled': return '收到，我已经把您的原话交给貂蝉。她会结合这本书现有的资料直接回复您。';
-    case 'creative_session_started': return '新的剧情议题已经建立为持续创作会话。貂蝉会先主持两位异模型编剧独立推演和一次交叉质疑；这一轮只比较方向，不会提前写正文或生成整批章纲。';
-    case 'creative_session_continued': return '这句话已经接在当前剧情会话里，我没有重复拉起两位编剧。貂蝉会沿着现有分歧和未决问题继续回应。';
+    case 'conversation_reply_scheduled': return `收到，我已经把您的原话交给${editorName}。她会结合这本书现有的资料直接回复您。`;
+    case 'creative_session_started': return `新的剧情议题已经建立为持续创作会话。${editorName}会先主持两位异模型编剧独立推演和一次交叉质疑；这一轮只比较方向，不会提前写正文或生成整批章纲。`;
+    case 'creative_session_continued': return `这句话已经接在当前剧情会话里，我没有重复拉起两位编剧。${editorName}会沿着现有分歧和未决问题继续回应。`;
     case 'creative_session_round_scheduled': return '收到明确的重大改向要求。我保留了原讨论记录，并为同一创作会话开启一轮新的双编剧独立推演；旧预演会标记为过期，不会混入新结论。';
-    case 'creative_direction_locked': return '剧情方向已经锁定，但还没有让主笔开写。两位编剧现在会分别估算这个故事弧需要多少章，貂蝉只细化未来1至3章，完成后再请您确认。';
+    case 'creative_direction_locked': return `剧情方向已经锁定，但还没有让主笔开写。两位编剧现在会分别估算这个故事弧需要多少章，${editorName}只细化未来1至3章，完成后再请您确认。`;
     case 'story_arc_settled': return `当前剧情阶段已经按第${String(action.chapterStart)}章至第${String(action.chapterEnd)}章的定稿正史完成结算。后续创作默认读取这份精简阶段记忆；遇到人物、规则、伏笔或旧因果触发时，仍会回查对应正史原文。`;
     case 'named_member_reply_scheduled': return `好的，我已经把您的原话直接交给${String(action.memberName)}，由她本人回复。`;
     case 'pause_requested': return (action.taskIds as unknown[]).length === 0

@@ -162,6 +162,27 @@ describe('主编租约续期、过期与安全回切', () => {
     expect(editors.require(scope).editorEpoch).toBe(3);
   });
 
+  it('副编自动接管后再次故障不会自动切回刚失败的主编形成乒乓接管', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-no-ping-pong' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    editors.create(scope, agents[0]!.agentId, 60_000);
+
+    const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
+    const first = editors.completeTakeover(scope, prepared.takeoverId);
+    expect(first.activeEditorAgentId).toBe(agents[1]!.agentId);
+    expect(first.editorEpoch).toBe(2);
+
+    const second = editors.tryAutomaticTakeover(scope, agents[1]!.agentId);
+    expect(second.takenOver).toBe(false);
+    expect(second.activeEditorAgentId).toBe(agents[1]!.agentId);
+    expect(second.editorEpoch).toBe(2);
+    expect(second.reason).toContain('不会自动切回');
+  });
+
   it('旧epoch晚到的续租与提交指令被拒绝，当前主编可正常续租', () => {
     context = createTestContext();
     const ids = new SequenceIds();

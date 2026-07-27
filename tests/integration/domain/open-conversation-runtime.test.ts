@@ -7,6 +7,7 @@ import { ModelAdapterError, type ModelAdapter } from '../../../apps/api/src/infr
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { DomainError } from '../../../apps/api/src/domain/errors.js';
 
 describe('开放式主创对话', () => {
   let context: TestContext | undefined;
@@ -129,8 +130,14 @@ describe('开放式主创对话', () => {
     await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock, takeoverFactory)
       .executeClaimed(scope, taskId, 'worker-deputy', { leaseToken: secondClaim.leaseToken!, attemptNo: secondClaim.currentAttemptNo });
     expect(tasks.require(scope, taskId).status).toBe('succeeded');
-    expect((conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null }>)
+    const finalMessages = conversations.listMessages(scope) as Array<{ sender_type: string; role_key: string | null; message_type: string; content: string }>;
+    expect(finalMessages
       .some((message) => message.sender_type === 'agent' && message.role_key === 'deputy_editor')).toBe(true);
+    conversations.sendBossMessage(scope, '请继续说明下一步');
+    const latestNotice = (conversations.listMessages(scope) as Array<{ message_type: string; content: string }>)
+      .filter((message) => message.message_type === 'local_assistant_notice').at(-1);
+    expect(latestNotice?.content).toContain('西施');
+    expect(latestNotice?.content).not.toContain('貂蝉');
   });
 
   it('provider result unknown hands the same reply task to the deputy editor', async () => {
@@ -247,6 +254,27 @@ describe('开放式主创对话', () => {
     });
   });
 
+  it('锁定方向可以携带作者补充说明而不被误判为普通续聊', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '自然锁定测试书', text: '主角发现旧账与迁城资格有关'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const started = conversations.sendBossMessage(scope, '讨论主角核验旧账后的剧情方向');
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const taskId = String(started.action.taskId);
+    expect(tasks.claimNext('worker-lock-intent')?.taskId).toBe(taskId);
+    await new (await import('../../../apps/api/src/application/discussions/discussion-pipeline-service.js')).DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, taskId, 'worker-lock-intent');
+
+    expect(conversations.sendBossMessage(scope, '锁定当前方向，保留旧账证据链，不要提前迁城').action)
+      .toMatchObject({ kind: 'creative_direction_locked' });
+  });
+
   it('未准备好时写一章只发起规划讨论，不创建章节或正文任务', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -282,5 +310,23 @@ describe('开放式主创对话', () => {
     `).all(scope.ownerId, scope.bookId);
     expect(taskCounts).toEqual([{ task_type: 'discussion', count: 1 }]);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('尚无主编方向时锁定请求返回可理解的业务错误而不是内部错误', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '尚未讨论书' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    try {
+      conversations.sendBossMessage(scope, '锁定当前方向');
+      throw new Error('预期锁定门禁拒绝请求');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).statusCode).toBe(409);
+      expect((error as Error).message).toContain('先让主编和编剧完成');
+    }
   });
 });

@@ -270,6 +270,16 @@ export class EditorLeaseService {
         reason: '活动主编已经变化，旧故障信号不再触发接管'
       };
     }
+    // 自动接管只允许初始主编(epoch 1)向候任者单向切换一次。
+    // 后续回切必须经过 safeRevertToChief 的调用状态检查，不能因新的故障信号来回弹跳。
+    if (lease.editorEpoch > 1) {
+      return {
+        takenOver: false,
+        activeEditorAgentId: lease.activeEditorAgentId,
+        editorEpoch: lease.editorEpoch,
+        reason: '副编接管后也发生连续技术故障，系统不会自动切回刚刚失败的主编；请老板检查模型可用性后再决定'
+      };
+    }
     const candidate = this.database.prepare(`
       SELECT a.agent_id FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version

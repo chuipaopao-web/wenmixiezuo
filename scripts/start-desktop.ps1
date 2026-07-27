@@ -14,6 +14,15 @@ foreach ($name in $wenmiEnvironmentNames) {
   if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
 }
 
+# 某些开发宿主会同时注入 Path 与 PATH。PowerShell 的 Start-Process 会把它们
+# 判定为重复字典键并拒绝启动；统一为 Windows 标准的 Path 后再创建子进程。
+$processEnvironmentKeys = [Environment]::GetEnvironmentVariables('Process').Keys
+if (($processEnvironmentKeys -ccontains 'Path') -and ($processEnvironmentKeys -ccontains 'PATH')) {
+  $pathValue = [Environment]::GetEnvironmentVariable('Path', 'Process')
+  [Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+  [Environment]::SetEnvironmentVariable('Path', $pathValue, 'Process')
+}
+
 Set-Location -LiteralPath $projectRoot
 New-Item -ItemType Directory -Force -Path $controlDirectory, $logDirectory | Out-Null
 Remove-Item -LiteralPath $stopRequestPath -Force -ErrorAction SilentlyContinue

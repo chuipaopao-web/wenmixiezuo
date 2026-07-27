@@ -270,7 +270,11 @@ export class DiscussionPipelineService {
         }
         if (result === undefined) throw lastError instanceof Error ? lastError : new Error('讨论模型调用失败');
         const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
-        const output = effective?.fullContent ?? result.output;
+        // 锁定规划的原始回复还携带机器可解析的“规划落库”契约。
+        // 面向老板的消息仍使用 effective 字段，但落库证据必须保留原始结构化段。
+        const output = isEditor && brief.purpose === 'locked_planning'
+          ? result.output
+          : effective?.fullContent ?? result.output;
         const opinionId = discussions.addOpinion(scope, brief.discussionId, {
           agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id, phase,
           content: {
@@ -282,7 +286,7 @@ export class DiscussionPipelineService {
         });
         if (brief.purpose === 'locked_planning' && phase === 'independent'
           && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)) {
-          const estimate = parseSpanEstimate(result.output, result.provider.startsWith('local-deterministic'));
+          const estimate = parseSpanEstimateOutput(result.output, result.provider.startsWith('local-deterministic'));
           spanEstimates.submit(scope, {
             discussionId: brief.discussionId, round: 1, agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id,
             minimum: estimate.minimum, recommended: estimate.recommended, maximum: estimate.maximum,
@@ -398,6 +402,11 @@ export class DiscussionPipelineService {
         WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
       `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
         scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? claimedTask.currentAttemptNo);
+      this.database.prepare(`
+        UPDATE task_phases
+        SET status = ?, heartbeat_at = ?, completed_at = ?
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND status = 'working'
+      `).run(cancelled ? 'cancelled' : 'failed', now, now, scope.ownerId, scope.bookId, taskId);
       throw error;
     }
   }
@@ -568,11 +577,12 @@ interface SpanEstimate {
   uncertainty: unknown[];
 }
 
-function parseSpanEstimate(output: string, deterministicFallback: boolean): SpanEstimate {
-  const match = /章节跨度估算\s*(\{[^\r\n]+\})/u.exec(output);
-  if (match !== null) {
+export function parseSpanEstimateOutput(output: string, deterministicFallback: boolean): SpanEstimate {
+  const marker = /章节跨度估算(?:\*\*)?/u.exec(output);
+  const candidates = marker === null ? [] : extractCompleteJsonObjects(output.slice(marker.index + marker[0].length));
+  for (const candidate of candidates) {
     try {
-      const value = JSON.parse(match[1]!) as Partial<SpanEstimate>;
+      const value = JSON.parse(candidate) as Partial<SpanEstimate>;
       if (
         Number.isInteger(value.minimum) && Number.isInteger(value.recommended) && Number.isInteger(value.maximum)
         && value.minimum! >= 1 && value.minimum! <= value.recommended! && value.recommended! <= value.maximum! && value.maximum! <= 30
@@ -597,4 +607,34 @@ function parseSpanEstimate(output: string, deterministicFallback: boolean): Span
     };
   }
   throw new Error('编剧回复缺少有效的结构化章节跨度估算，不能伪造或代填估算');
+}
+
+function extractCompleteJsonObjects(value: string): string[] {
+  const objects: string[] = [];
+  for (let start = 0; start < value.length; start += 1) {
+    if (value[start] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const character = value[index]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{') depth += 1;
+      else if (character === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          objects.push(value.slice(start, index + 1));
+          start = index;
+          break;
+        }
+      }
+    }
+  }
+  return objects;
 }

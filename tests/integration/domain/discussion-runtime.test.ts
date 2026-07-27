@@ -9,10 +9,44 @@ import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/m
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
+import { parseSpanEstimateOutput } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import { parsePlanningDepositOutput } from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
 
 describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
+
+  it('接受真实模型常见的Markdown标题和代码围栏跨度估算', () => {
+    expect(parseSpanEstimateOutput([
+      '建议先完成证据核验，再进入迁城抉择。',
+      '**章节跨度估算**',
+      '```json',
+      '{"minimum":5,"recommended":8,"maximum":12,"units":[{"unit":"核验账簿","suggestedChapters":3}],"assumptions":["旧账可追溯"],"uncertainty":["邻地领主立场"]}',
+      '```'
+    ].join('\n'), false)).toMatchObject({
+      minimum: 5,
+      recommended: 8,
+      maximum: 12
+    });
+  });
+
+  it('接受Markdown标题和多行代码围栏中的规划落库', () => {
+    expect(parsePlanningDepositOutput([
+      '建议把第一弧控制在八章。',
+      '**规划落库**',
+      '```json',
+      '{',
+      '  "arcTitle": "灰塔旧账",',
+      '  "arcGoal": "核验旧账并决定迁城",',
+      '  "endingState": "主角掌握迁城代价",',
+      '  "chapters": [{"title":"旧账","goal":"找到可核验账页","beats":["进入账库"],"hook":"账页缺了一角"}]',
+      '}',
+      '```'
+    ].join('\n'))).toMatchObject({
+      arcTitle: '灰塔旧账',
+      chapters: [expect.objectContaining({ title: '旧账' })]
+    });
+  });
 
   it('设定专项讨论固定由主编主持并激活两名异模型编剧', () => {
     context = createTestContext();

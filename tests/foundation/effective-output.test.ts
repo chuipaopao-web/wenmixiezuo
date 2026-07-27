@@ -189,4 +189,22 @@ describe('有效输出层', () => {
     expect(result.visibleContent).not.toContain('"answer"');
     expect(result.fullContent).toContain('"answer"');
   });
+
+  it('字段轻微偏差时保留可安全解释的有效结论', () => {
+    const result = prepareEffectiveOutput(JSON.stringify({
+      answer: '先确认灰塔账簿的真实性，再决定是否迁城。',
+      keyPoints: '账簿是当前唯一可核验线索',
+      risks: '贸然迁城会同时失去水源和旧账证据',
+      questions: [],
+      alternatives: [],
+      nextStep: null,
+      details: null
+    }));
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('先确认灰塔账簿');
+    expect(result.visibleContent).toContain('账簿是当前唯一可核验线索');
+    expect(result.visibleContent).toContain('贸然迁城');
+    expect(result.visibleContent).not.toContain('格式不适合直接展示');
+  });
 });

@@ -226,6 +226,7 @@ function unwrapJsonFence(value: string): string {
 
 function stringList(value: unknown, maxItems: number): string[] | null {
   if (value === undefined) return [];
+  if (typeof value === 'string' && value.trim().length > 0) return [value.trim()];
   if (!Array.isArray(value) || value.length > maxItems) return null;
   const values = value.map(nonEmptyString);
   return values.some((item) => item === null) ? null : values as string[];

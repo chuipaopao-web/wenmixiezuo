@@ -25,6 +25,11 @@ interface StructuredArcPlan {
   arcTitle: string;
   arcGoal: string;
   endingState: string;
+  estimatedChapterRange: {
+    minimum: number;
+    recommended: number;
+    maximum: number;
+  } | null;
   chapters: StructuredChapterPlan[];
 }
 
@@ -77,7 +82,7 @@ export class PlanningArtifactService {
     const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
     const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
-    const structuredPlan = parsePlanningDeposit(summary);
+    const structuredPlan = parsePlanningDepositOutput(summary);
     if (structuredPlan !== null && structuredPlan.chapters.length > Math.min(3, chapterCount)) {
       throw new Error(`滚动章纲只能细化未来1至${Math.min(3, chapterCount)}章`);
     }
@@ -247,19 +252,24 @@ export class PlanningArtifactService {
     `).get(scope.ownerId, scope.bookId, discussionId) as { recommendation_json: string } | undefined;
     if (decision !== undefined) {
       const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
-      const structured = parsePlanningDeposit(readableSummary(recommendation));
-      if (structured !== null) return structured.chapters.length;
+      const structured = parsePlanningDepositOutput(readableSummary(recommendation));
+      if (structured?.estimatedChapterRange !== null && structured?.estimatedChapterRange !== undefined) {
+        return structured.estimatedChapterRange.recommended;
+      }
     }
     return Math.max(1, Math.min(30, Math.round(rows.reduce((sum, row) => sum + row.recommended_chapters, 0) / rows.length)));
   }
 }
 
-function parsePlanningDeposit(summary: string): StructuredArcPlan | null {
-  const match = /规划落库\s*(\{[^\r\n]+\})/u.exec(effectivePlanningText(summary));
-  if (match === null) return null;
+export function parsePlanningDepositOutput(summary: string): StructuredArcPlan | null {
+  const text = effectivePlanningText(summary);
+  const marker = /规划落库(?:\*\*)?/u.exec(text);
+  if (marker === null) return null;
+  const candidate = extractCompleteJsonObject(text.slice(marker.index + marker[0].length));
+  if (candidate === null) throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
   let value: unknown;
   try {
-    value = JSON.parse(match[1]!);
+    value = JSON.parse(candidate);
   } catch {
     throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
   }
@@ -280,16 +290,63 @@ function parsePlanningDeposit(summary: string): StructuredArcPlan | null {
   if (new Set(chapters.map((chapter) => chapter.goal)).size !== chapters.length) {
     throw new Error('规划落库存在重复章节目标，不能生成模板化章纲');
   }
+  const estimatedChapterRange = parseChapterRange(value.estimatedChapterRange);
   return {
     arcTitle: stringValue(value.arcTitle) ?? '当前故事弧',
     arcGoal: stringValue(value.arcGoal) ?? chapters.map((chapter) => chapter.goal).join('；'),
     endingState: stringValue(value.endingState) ?? chapters.at(-1)!.hook,
+    estimatedChapterRange,
     chapters
   };
 }
 
+function parseChapterRange(value: unknown): StructuredArcPlan['estimatedChapterRange'] {
+  if (!isRecord(value)) return null;
+  const minimum = integerValue(value.minimum);
+  const recommended = integerValue(value.recommended);
+  const maximum = integerValue(value.maximum);
+  if (minimum === null || recommended === null || maximum === null
+    || minimum < 1 || maximum > 30 || minimum > recommended || recommended > maximum) {
+    throw new Error('规划落库的章节跨度必须是1至30章内递增的最少、建议和最多章数');
+  }
+  return { minimum, recommended, maximum };
+}
+
 function stripPlanningDeposit(summary: string): string {
-  return effectivePlanningText(summary).replace(/\n?规划落库\s*\{[^\r\n]+\}/u, '').trim();
+  const text = effectivePlanningText(summary);
+  const marker = /规划落库(?:\*\*)?/u.exec(text);
+  if (marker === null) return text.trim();
+  const suffix = text.slice(marker.index + marker[0].length);
+  const candidate = extractCompleteJsonObject(suffix);
+  if (candidate === null) return text.trim();
+  const candidateStart = suffix.indexOf(candidate);
+  return `${text.slice(0, marker.index)}${suffix.slice(candidateStart + candidate.length)}`
+    .replace(/```(?:json)?|```/giu, '').trim();
+}
+
+function extractCompleteJsonObject(value: string): string | null {
+  for (let start = 0; start < value.length; start += 1) {
+    if (value[start] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const character = value[index]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{') depth += 1;
+      else if (character === '}') {
+        depth -= 1;
+        if (depth === 0) return value.slice(start, index + 1);
+      }
+    }
+  }
+  return null;
 }
 
 function effectivePlanningText(summary: string): string {
@@ -345,6 +402,10 @@ function extractHook(summary: string, scopeText: string): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function integerValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null;
 }
 
 function asArray(value: unknown): unknown[] {

@@ -31,6 +31,13 @@ describe('持久任务状态机', () => {
     tasks.queue(scope, 'task-first');
     expect(tasks.claimNext('worker-one')?.attemptCount).toBe(2);
     tasks.complete(scope, 'task-first', 'worker-one');
+    expect(context.database.prepare(`
+      SELECT status, completed_at FROM task_phases
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key = ?
+    `).get(scope.ownerId, scope.bookId, 'task-first', 'write_draft')).toMatchObject({
+      status: 'succeeded',
+      completed_at: expect.any(String)
+    });
     expect(tasks.claimNext('worker-one')?.taskId).toBe('task-second');
     expect(events.replay(scope, 0).map((event) => event.eventSeq)).toEqual([...events.replay(scope, 0).map((event) => event.eventSeq)].sort((a, b) => a - b));
   });
@@ -50,4 +57,3 @@ describe('持久任务状态机', () => {
     expect(() => tasks.addDependency(firstScope, 'task-alpha', 'task-beta')).toThrow('越权');
   });
 });
-
