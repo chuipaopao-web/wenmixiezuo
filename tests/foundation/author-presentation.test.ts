@@ -34,6 +34,7 @@ describe('作者展示层', () => {
     const mixed = '建议先完成灰塔审计，再进入迁移。\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}';
     expect(toAuthorDisplayValue(mixed)).toBe('建议先完成灰塔审计，再进入迁移。');
     expect(authorFormatScalar('selected_manuscript')).toBe('正式正文');
+    expect(authorFormatScalar('dynamic')).toBe('按本书动态整理');
     expect(authorFormatScalar('posterior_neck_pain_and_visual_flash')).toBe('后颈疼痛并伴有视觉闪光');
     expect(authorFormatScalar('severe_pain_with_mobility_loss')).toBe('剧烈疼痛并伴有活动受限');
   });

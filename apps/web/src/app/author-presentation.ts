@@ -36,6 +36,7 @@ const ENUM_LABELS: Record<string, string> = {
   archived: '已归档', proposed: '待确认', confirmed: '已确认', candidate: '候选', derived: '分析结果',
   provided: '作者提供', manual: '人工记录', explicit: '明确确认', inferred: '根据资料推断', unspecified: '尚未说明',
   selected_manuscript: '正式正文', owner_reference: '作者资料', conflict: '信息存在冲突',
+  dynamic: '按本书动态整理', common: '通用内容', extension: '题材扩展', formula: '计算规则',
   low: '低', medium: '中', high: '高', true: '是', false: '否',
   posterior_neck_pain_and_visual_flash: '后颈疼痛并伴有视觉闪光',
   severe_pain_with_mobility_loss: '剧烈疼痛并伴有活动受限'
