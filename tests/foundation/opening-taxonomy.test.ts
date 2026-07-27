@@ -35,12 +35,14 @@ function validBlueprint(): OpeningBlueprintInput {
 
 describe('完整开书分类与资料合同', () => {
   it('按男频女频提供版本化番茄式分类且分类键唯一', () => {
-    expect(OPENING_TAXONOMY.version).toMatch(/^fanqie-public-map-/u);
+    expect(OPENING_TAXONOMY.version).toMatch(/^wenmi-dynamic-tag-library-/u);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'male' && item.name === '玄幻脑洞')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'male' && item.name === '动漫衍生')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'female' && item.name === '现言脑洞')).toBe(true);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'female' && item.name === '古风世情')).toBe(true);
     expect(new Set(OPENING_TAXONOMY.categories.map((item) => item.key)).size).toBe(OPENING_TAXONOMY.categories.length);
+    expect(OPENING_TAXONOMY.tagGroups.length).toBeGreaterThan(10);
+    expect(OPENING_TAXONOMY.categories.every((item) => item.tagPackKeys.length > 0)).toBe(true);
     expect(OPENING_TAXONOMY.categories.flatMap((item) => item.recommendedMainTags)
       .filter((tag) => !OPENING_TAXONOMY.mainTags.includes(tag))).toEqual([]);
     expect(OPENING_TAXONOMY).toMatchObject({
@@ -53,18 +55,29 @@ describe('完整开书分类与资料合同', () => {
     });
   });
 
-  it('接受完整资料、多个主角和2至5个主要标签', () => {
+  it('接受完整资料、多个主角和2至8个主要标签', () => {
     const blueprint = validBlueprint();
+    blueprint.auxiliaryCategoryKeys = ['male-game-sports', 'male-history-brain'];
     blueprint.protagonists.push({
       role: 'female_lead', name: '谢昭', age: '二十岁',
       background: '北境守将之女，负责城防粮秣。', personalities: ['果断', '敏锐']
     });
-    expect(validateOpeningBlueprint(blueprint)).toMatchObject({ channel: 'male', categoryKey: 'male-fantasy-brain' });
+    expect(validateOpeningBlueprint(blueprint)).toMatchObject({
+      channel: 'male',
+      categoryKey: 'male-fantasy-brain',
+      auxiliaryCategoryKeys: ['male-game-sports', 'male-history-brain']
+    });
   });
 
   it('拒绝跨频道分类、缺失资料和主要标签数量越界', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), categoryKey: 'female-modern-brain' })).toThrow('不属于当前频道');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['穿越'] })).toThrow('2至5个');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['穿越'] })).toThrow('2至8个');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['female-modern-brain'] })).toThrow('不属于当前频道');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['male-fantasy-brain'] })).toThrow('不能同时作为辅助分类');
+    expect(() => validateOpeningBlueprint({
+      ...validBlueprint(),
+      auxiliaryCategoryKeys: ['male-game-sports', 'male-history-brain', 'male-urban-brain', 'male-scifi-apocalypse']
+    })).toThrow('0至3个');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' })).toThrow('目标读者');

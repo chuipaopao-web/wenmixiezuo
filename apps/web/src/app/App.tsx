@@ -2165,6 +2165,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [title, setTitle] = useState('');
   const [channel, setChannel] = useState<OpeningChannel | null>(null);
   const [categoryKey, setCategoryKey] = useState<string | null>(null);
+  const [auxiliaryCategoryKeys, setAuxiliaryCategoryKeys] = useState<string[]>([]);
   const [targetAudience, setTargetAudience] = useState('');
   const [mainTags, setMainTags] = useState<string[]>([]);
   const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
@@ -2172,6 +2173,8 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
+  const [tagLibraryOpen, setTagLibraryOpen] = useState(false);
+  const [activeTagGroupKey, setActiveTagGroupKey] = useState('common');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -2188,7 +2191,20 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
 
   const categories = taxonomy?.categories.filter((item) => item.channel === channel) ?? [];
   const category = taxonomy?.categories.find((item) => item.key === categoryKey) ?? null;
-  const mainTagOptions = taxonomy === null ? [] : [...new Set([...(category?.recommendedMainTags ?? []), ...taxonomy.mainTags])];
+  const auxiliaryCategories = auxiliaryCategoryKeys
+    .map((key) => taxonomy?.categories.find((item) => item.key === key))
+    .filter((item): item is NonNullable<typeof item> => item !== undefined);
+  const selectedCategories = category === null ? auxiliaryCategories : [category, ...auxiliaryCategories];
+  const activePackKeys = [...new Set(['common', ...selectedCategories.flatMap((item) => item.tagPackKeys ?? [])])];
+  const availableTagGroups = taxonomy?.tagGroups ?? [{
+    key: 'common', name: '当前分类', description: '当前分类可用标签',
+    mainTags: taxonomy?.mainTags ?? [], auxiliaryTags: taxonomy?.auxiliaryTags ?? [], storyTraits: taxonomy?.storyTraits ?? []
+  }];
+  const relevantTagGroups = availableTagGroups.filter((group) => activePackKeys.includes(group.key));
+  const activeTagGroup = availableTagGroups.find((group) => group.key === activeTagGroupKey) ?? relevantTagGroups[0] ?? null;
+  const mainTagOptions = [...new Set([...selectedCategories.flatMap((item) => item.recommendedMainTags), ...relevantTagGroups.flatMap((group) => group.mainTags)])];
+  const auxiliaryTagOptions = [...new Set(relevantTagGroups.flatMap((group) => group.auxiliaryTags))];
+  const storyTraitOptions = [...new Set(relevantTagGroups.flatMap((group) => group.storyTraits))];
   const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN');
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
     ? options
@@ -2202,9 +2218,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     ...(category === null ? ['作品分类'] : []),
     ...(targetAudience.trim().length === 0 ? ['目标读者'] : []),
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
-    ...(mainTags.length > 5 ? ['主要标签最多5个'] : []),
+    ...(mainTags.length > 8 ? ['主要标签最多8个'] : []),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
-    ...(mustFollow.length > 12 ? ['必须遵守最多12条'] : [])
+    ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
   const valid = missingRequirements.length === 0;
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max: number): void => {
@@ -2213,7 +2229,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   };
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
-    if (value.length === 0 || customTags.includes(value) || customTags.length >= 10) return;
+    if (value.length === 0 || customTags.includes(value) || customTags.length >= 13) return;
     setCustomTags([...customTags, value]); setCustomTag('');
   };
   const toggleMustFollow = (item: string): void => {
@@ -2226,7 +2242,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       setMustFollowText('');
       return;
     }
-    if (mustFollow.length >= 12) return;
+    if (mustFollow.length >= 15) return;
     setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
   const submit = (): void => {
@@ -2238,6 +2254,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
+      auxiliaryCategoryKeys,
       targetAudience: targetAudience.trim(),
       protagonists: [],
       worldBackground: '',
@@ -2266,34 +2283,60 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <label htmlFor="complete-book-title">书名</label>
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
-            setChannel(item.id); setCategoryKey(null); setMainTags([]);
+            setChannel(item.id); setCategoryKey(null); setAuxiliaryCategoryKeys([]); setMainTags([]);
           }} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div></fieldset>
-          <div className="taxonomy-heading"><strong>作品分类</strong><small>{taxonomy?.sourceLabel ?? '正在加载分类目录'}</small></div>
+          <div className="taxonomy-heading"><strong>作品分类</strong><small>1个主分类 + 最多3个辅助分类</small></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
-          <div className="category-options">{categories.map((item) => <button className={categoryKey === item.key ? 'category-choice selected' : 'category-choice'} type="button" aria-label={`${categoryKey === item.key ? '取消' : '选择'}作品分类：${item.name}`} key={item.key} onClick={() => { setCategoryKey(item.key); setMainTags([]); }}><strong>{item.name}</strong><small>{item.description}</small></button>)}</div>
+          <div className="category-options">{categories.map((item) => {
+            const primary = categoryKey === item.key;
+            const auxiliary = auxiliaryCategoryKeys.includes(item.key);
+            return <button className={primary ? 'category-choice selected primary' : auxiliary ? 'category-choice selected auxiliary' : 'category-choice'} type="button" aria-label={primary ? `当前主分类：${item.name}` : auxiliary ? `取消辅助分类：${item.name}` : `选择作品分类：${item.name}`} key={item.key} onClick={() => {
+              if (primary) return;
+              if (categoryKey === null) {
+                setCategoryKey(item.key);
+                setActiveTagGroupKey(item.tagPackKeys?.[0] ?? 'common');
+              } else if (auxiliary) {
+                setAuxiliaryCategoryKeys(auxiliaryCategoryKeys.filter((key) => key !== item.key));
+              } else if (auxiliaryCategoryKeys.length < 3) {
+                setAuxiliaryCategoryKeys([...auxiliaryCategoryKeys, item.key]);
+              }
+            }}><strong>{item.name}</strong><small>{primary ? '主分类' : auxiliary ? '辅助分类' : item.description}</small></button>;
+          })}</div>
+          {selectedCategories.length > 0 && <div className="selected-category-strip">{selectedCategories.map((item, index) => <span key={item.key}><strong>{index === 0 ? '主' : '辅'}</strong>{item.name}{index > 0 && <><button type="button" onClick={() => { setCategoryKey(item.key); setAuxiliaryCategoryKeys([categoryKey!, ...auxiliaryCategoryKeys.filter((key) => key !== item.key)]); }}>设为主分类</button><button type="button" aria-label={`移除辅助分类：${item.name}`} onClick={() => setAuxiliaryCategoryKeys(auxiliaryCategoryKeys.filter((key) => key !== item.key))}><XIcon /></button></>}</span>)}</div>}
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
           <label htmlFor="target-audience">目标读者<input id="target-audience" aria-label="目标读者" maxLength={500} value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} placeholder="例如：喜欢领主经营、群像成长和智谋博弈的读者" /></label>
           </section>
         </div>
 
         <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>02</span><h3>分类标签与边界</h3></div><small>主要标签2—5个</small></div>
+          <div className="section-heading"><div><span>02</span><h3>分类标签与边界</h3></div><small>主要标签2—8个</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向，不是每章清单；未选择的元素也可以随剧情自然加入。</p></div></div>
           <label htmlFor="opening-tag-search">搜索标签<input id="opening-tag-search" aria-label="搜索标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
-          <StringTagPicker title="主要标签" hint={`已选 ${mainTags.length} 个主要标签`} kind="主要标签" options={matchingTags(mainTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 5)} />
-          <StringTagPicker title="辅助题材" hint="可选，最多8个" kind="辅助题材" options={matchingTags(taxonomy?.auxiliaryTags ?? [])} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
-          <StringTagPicker title="全书特点" hint="可选，最多8个" kind="全书特点" options={matchingTags(taxonomy?.storyTraits ?? [])} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 8)} />
+          <StringTagPicker title="主要标签" hint={`已选 ${mainTags.length} 个主要标签（上限8；按主辅分类推荐）`} kind="主要标签" options={matchingTags(mainTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
+          <StringTagPicker title="辅助题材" hint="可选，最多11个" kind="辅助题材" options={matchingTags(auxiliaryTagOptions)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 11)} />
+          <StringTagPicker title="全书特点" hint="可选，最多11个" kind="全书特点" options={matchingTags(storyTraitOptions)} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 11)} />
+          {taxonomy !== null && <section className="full-tag-library">
+            <button className="tag-library-toggle" type="button" aria-expanded={tagLibraryOpen} onClick={() => setTagLibraryOpen(!tagLibraryOpen)}><TagIcon /><span><strong>展开完整标签库</strong><small>默认只显示与主辅分类有关的标签，找不到时再展开</small></span></button>
+            {tagLibraryOpen && <div className="tag-library-content">
+              <nav aria-label="标签库分类">{availableTagGroups.map((group) => <button className={activeTagGroup?.key === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}</nav>
+              {activeTagGroup !== null && <div><header><strong>{activeTagGroup.name}</strong><small>{activeTagGroup.description}</small></header>
+                <StringTagPicker title="主要方向" hint="加入主要标签" kind="主要标签" options={matchingTags(activeTagGroup.mainTags)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
+                <StringTagPicker title="辅助元素" hint="加入辅助题材" kind="辅助题材" options={matchingTags(activeTagGroup.auxiliaryTags)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 11)} />
+                <StringTagPicker title="叙事特点" hint="加入全书特点" kind="全书特点" options={matchingTags(activeTagGroup.storyTraits)} selected={storyTraits} onToggle={(item) => toggleTag(item, storyTraits, setStoryTraits, 11)} />
+              </div>}
+            </div>}
+          </section>}
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
           <details className="boundary-panel" open>
-            <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/12 条</small></summary>
+            <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/15 条</small></summary>
             <p>这里只选择您明确不能接受的内容；它们是作品硬边界。没有额外边界可直接选择“无额外限制”。</p>
-            <section><header><strong>快速选择</strong><small>与下方自定义内容合计最多12条</small></header><div className="tag-options"><button className={selectedMustFollow.includes('无额外限制') ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selectedMustFollow.includes('无额外限制')} aria-label={`${selectedMustFollow.includes('无额外限制') ? '取消' : '选择'}必须遵守：无额外限制`} onClick={() => toggleMustFollow('无额外限制')}>无额外限制</button></div></section>
+            <section><header><strong>快速选择</strong><small>与下方自定义内容合计最多15条</small></header><div className="tag-options"><button className={selectedMustFollow.includes('无额外限制') ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selectedMustFollow.includes('无额外限制')} aria-label={`${selectedMustFollow.includes('无额外限制') ? '取消' : '选择'}必须遵守：无额外限制`} onClick={() => toggleMustFollow('无额外限制')}>无额外限制</button></div></section>
             {(taxonomy?.boundaryGroups ?? []).map((group) => <section key={group.name}><header><strong>{group.name}</strong><small>{group.description}</small></header><div className="tag-options">{group.options.map((item) => {
               const selected = selectedMustFollow.includes(item);
               return <button className={selected ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selected} aria-label={`${selected ? '取消' : '选择'}必须遵守：${item}`} key={item} onClick={() => toggleMustFollow(item)}>{selected && <CheckCircleIcon />}{item}</button>;
             })}</div></section>)}
-            <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 12 && <small className="inline-error" role="alert">必须遵守最多12条，请减少{mustFollow.length - 12}条。</small>}</section>
+            <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 15 && <small className="inline-error" role="alert">必须遵守最多15条，请减少{mustFollow.length - 15}条。</small>}</section>
           </details>
         </section>
       </div>

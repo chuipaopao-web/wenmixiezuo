@@ -56,18 +56,28 @@ export interface OpeningTaxonomyData {
   sourceUrl: string;
   updatedAt: string;
   notice: string;
-  categories: Array<{ key: string; name: string; channel: OpeningChannel; description: string; recommendedMainTags: string[] }>;
+  categories: Array<{ key: string; name: string; channel: OpeningChannel; description: string; recommendedMainTags: string[]; tagPackKeys: string[] }>;
   mainTags: string[];
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
   boundaryGroups: Array<{ name: string; description: string; options: string[] }>;
+  tagGroups: Array<{
+    key: string;
+    name: string;
+    description: string;
+    packKeys: string[];
+    mainTags: string[];
+    auxiliaryTags: string[];
+    storyTraits: string[];
+  }>;
 }
 
 export interface OpeningBlueprintData {
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
+  auxiliaryCategoryKeys?: string[];
   targetAudience: string;
   protagonists: Array<{ role: ProtagonistRole; name: string; age: string; background: string; personalities: string[] }>;
   worldBackground: string;

@@ -1,3 +1,5 @@
+import { OPENING_TAG_GROUPS, uniqueTagValues, type OpeningTagGroup } from './opening-tag-library.js';
+
 export type OpeningChannel = 'male' | 'female';
 export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
 
@@ -7,6 +9,7 @@ export interface OpeningTaxonomyCategory {
   channel: OpeningChannel;
   description: string;
   recommendedMainTags: string[];
+  tagPackKeys: string[];
 }
 
 export interface OpeningBoundaryGroup {
@@ -27,6 +30,7 @@ export interface OpeningTaxonomy {
   storyTraits: string[];
   personalityOptions: string[];
   boundaryGroups: OpeningBoundaryGroup[];
+  tagGroups: OpeningTagGroup[];
 }
 
 export interface OpeningProtagonistInput {
@@ -41,6 +45,7 @@ export interface OpeningBlueprintInput {
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
+  auxiliaryCategoryKeys?: string[];
   targetAudience: string;
   protagonists: OpeningProtagonistInput[];
   worldBackground: string;
@@ -53,6 +58,30 @@ export interface OpeningBlueprintInput {
   customTags: string[];
   initialMap: string;
   mustFollow: string[];
+}
+
+function categoryPackKeys(key: string): string[] {
+  const mappings: Array<[string[], string[]]> = [
+    [['western'], ['western_fantasy']],
+    [['martial-arts'], ['martial']],
+    [['female-fantasy'], ['western_fantasy', 'romance']],
+    [['fantasy'], ['fantasy']],
+    [['xianxia', 'cultivation'], ['xianxia', 'fantasy']],
+    [['history', 'war-spy'], ['history']],
+    [['game'], ['game']],
+    [['modern'], ['romance', 'urban']],
+    [['urban', 'war-god'], ['urban']],
+    [['farming'], ['lord', 'business']],
+    [['scifi'], ['scifi']],
+    [['apocalypse'], ['apocalypse', 'scifi']],
+    [['suspense', 'supernatural'], ['suspense']],
+    [['romance', 'wealthy', 'palace', 'ancient', 'youth'], ['romance']],
+    [['ancient', 'palace'], ['history']],
+    [['era', 'reality'], ['reality', 'era']],
+    [['derivative', 'anime'], ['derivative']]
+  ];
+  const matched = [...new Set(mappings.filter(([needles]) => needles.some((needle) => key.includes(needle))).flatMap(([, packs]) => packs))];
+  return matched.length > 0 ? matched : ['common'];
 }
 
 const maleCategories: OpeningTaxonomyCategory[] = [
@@ -78,7 +107,9 @@ const maleCategories: OpeningTaxonomyCategory[] = [
   ['male-anime-derivative', '动漫衍生', '基于合法授权、公共文化母题或原创世界观联动的动漫向衍生', ['衍生', '动漫', '冒险']],
   ['male-derivative', '男频衍生', '基于合法授权或公共文化母题的衍生创作', ['衍生', '冒险', '群像']],
   ['male-reality', '现实题材', '职业、社会生活与现实人物成长', ['现实', '职业', '成长']]
-].map(([key, name, description, recommendedMainTags]) => ({ key, name, channel: 'male', description, recommendedMainTags })) as OpeningTaxonomyCategory[];
+].map(([key, name, description, recommendedMainTags]) => ({
+  key, name, channel: 'male', description, recommendedMainTags, tagPackKeys: categoryPackKeys(String(key))
+})) as OpeningTaxonomyCategory[];
 
 const femaleCategories: OpeningTaxonomyCategory[] = [
   ['female-modern-brain', '现言脑洞', '现代言情与高概念设定融合', ['现言', '脑洞', '情感']],
@@ -97,32 +128,20 @@ const femaleCategories: OpeningTaxonomyCategory[] = [
   ['female-fantasy', '西方奇幻', '魔法世界、冒险与人物关系', ['奇幻', '魔法', '冒险']],
   ['female-derivative', '女频衍生', '基于合法授权或公共文化母题的衍生创作', ['衍生', '群像', '成长']],
   ['female-reality', '现实生活', '职业、家庭、社会生活与女性成长', ['现实', '生活', '女性成长']]
-].map(([key, name, description, recommendedMainTags]) => ({ key, name, channel: 'female', description, recommendedMainTags })) as OpeningTaxonomyCategory[];
+].map(([key, name, description, recommendedMainTags]) => ({
+  key, name, channel: 'female', description, recommendedMainTags, tagPackKeys: categoryPackKeys(String(key))
+})) as OpeningTaxonomyCategory[];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'fanqie-public-map-2026-07-23-v1',
-  sourceLabel: '番茄小说公开分类本地映射',
+  version: 'wenmi-dynamic-tag-library-2026-07-27-v1',
+  sourceLabel: '番茄式分类与文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-07-23',
   notice: '分类依据公开页面整理并在本地版本化，不代表平台永久不变；主要选择只定方向，其他元素可随剧情自由创作。',
   categories: [...maleCategories, ...femaleCategories],
-  mainTags: [
-    '玄幻', '仙侠', '武侠', '都市', '历史', '古代', '科幻', '末世', '游戏', '竞技', '悬疑', '推理', '灵异', '奇幻', '魔法',
-    '古言', '现言', '言情', '青春', '校园', '年代', '现实', '生活', '日常', '职业', '豪门', '宫斗', '权谋', '江湖', '衍生', '动漫',
-    '穿越', '重生', '快穿', '穿书', '系统', '脑洞', '高武', '修仙', '修真', '御兽', '无限流', '规则怪谈', '星际', '种田',
-    '经营', '谋略', '谍战', '赘婿', '逆袭', '探案', '冒险', '生存', '群像', '成长', '升级', '争霸', '情感', '甜宠', '女性成长', '热血', '爽文'
-  ],
-  auxiliaryTags: [
-    '东方玄幻', '异世大陆', '洪荒神话', '凡人流', '灵气复苏', '都市异能', '商战职场', '娱乐圈', '医生', '律师', '警察',
-    '乡村', '美食', '抗战谍战', '架空历史', '朝堂江湖', '领主', '基建', '网游', '电竞', '游戏异界', '诸天万界',
-    '赛博朋克', '未来世界', '克苏鲁', '盗墓', '民俗悬疑', '魔法学院', '蒸汽朋克', '兽世', '萌宝', '婚恋', '先婚后爱',
-    '破镜重圆', '双向救赎', '青梅竹马', '欢喜冤家', '真假千金', '娱乐明星', '职场成长', '家族群像', '非遗文化', '文化考据'
-  ],
-  storyTraits: [
-    '轻松', '幽默', '治愈', '温馨', '热血', '高燃', '爽感', '慢热', '快节奏', '强情节', '强设定', '感情细腻', '日常',
-    '智斗', '权谋', '探案', '冒险', '生存', '成长', '逆袭', '升级', '争霸', '经营', '群像', '双强', '单元剧', '多线叙事',
-    '反套路', '黑色幽默', '暗黑', '悲剧底色', '正剧', '现实向', '家国情怀', '女性成长', '男性成长', '无CP', '双主角'
-  ],
+  mainTags: uniqueTagValues(OPENING_TAG_GROUPS, 'main'),
+  auxiliaryTags: uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary'),
+  storyTraits: uniqueTagValues(OPENING_TAG_GROUPS, 'trait'),
   personalityOptions: [
     '冷静', '果断', '敏锐', '理性', '坚韧', '乐观', '温柔', '克制', '善良有底线', '责任感强', '外冷内热', '嘴硬心软',
     '幽默', '毒舌', '腹黑', '谨慎', '多疑', '骄傲', '叛逆', '野心勃勃', '重情重义', '敢爱敢恨', '慢热', '社恐', '社牛'
@@ -148,7 +167,8 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
       description: '只约束明确结局底线，不提前锁死过程。',
       options: ['不写开放式结局', '不写悲剧结局', '不写烂尾式跳时', '不写梦境式翻盘', '不写主角团灭', '不写机械式重复升级']
     }
-  ]
+  ],
+  tagGroups: OPENING_TAG_GROUPS
 };
 
 const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human']);
@@ -159,6 +179,13 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   const category = OPENING_TAXONOMY.categories.find((item) => item.key === input.categoryKey);
   if (category === undefined) throw new Error('作品分类不存在，请从当前分类目录重新选择');
   if (category.channel !== input.channel) throw new Error('作品分类不属于当前频道，请重新选择');
+  const auxiliaryCategoryKeys = uniqueTexts(input.auxiliaryCategoryKeys ?? [], '辅助分类', 0, 3, 100);
+  if (auxiliaryCategoryKeys.includes(category.key)) throw new Error('主分类不能同时作为辅助分类');
+  for (const key of auxiliaryCategoryKeys) {
+    const auxiliary = OPENING_TAXONOMY.categories.find((item) => item.key === key);
+    if (auxiliary === undefined) throw new Error(`辅助分类不存在：${key}`);
+    if (auxiliary.channel !== input.channel) throw new Error('辅助分类不属于当前频道，请重新选择');
+  }
   if (input.protagonists !== undefined && (!Array.isArray(input.protagonists) || input.protagonists.length > 8)) {
     throw new Error('初始主角最多8位');
   }
@@ -171,15 +198,15 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     return { role: item.role, name, age, background, personalities };
   });
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
-  const mainTags = uniqueTexts(input.mainTags, '主要标签', 2, 5, 40);
+  const mainTags = uniqueTexts(input.mainTags, '主要标签', 2, 8, 40);
   for (const tag of mainTags) {
     if (!OPENING_TAXONOMY.mainTags.includes(tag)) throw new Error(`主要标签不在当前目录：${tag}`);
   }
-  const auxiliaryTags = uniqueTexts(input.auxiliaryTags, '辅助题材', 0, 8, 40);
+  const auxiliaryTags = uniqueTexts(input.auxiliaryTags, '辅助题材', 0, 11, 40);
   for (const tag of auxiliaryTags) {
     if (!OPENING_TAXONOMY.auxiliaryTags.includes(tag)) throw new Error(`辅助题材不在当前目录；如需自定义请放入自定义标签：${tag}`);
   }
-  const storyTraits = uniqueTexts(input.storyTraits, '全书特点', 0, 8, 40);
+  const storyTraits = uniqueTexts(input.storyTraits, '全书特点', 0, 11, 40);
   for (const tag of storyTraits) {
     if (!OPENING_TAXONOMY.storyTraits.includes(tag)) throw new Error(`全书特点不在当前目录；如需自定义请放入自定义标签：${tag}`);
   }
@@ -187,6 +214,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
     categoryKey: input.categoryKey,
+    auxiliaryCategoryKeys,
     targetAudience: requiredText(input.targetAudience, '目标读者', 500),
     protagonists,
     worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),
@@ -200,9 +228,9 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     mainTags,
     auxiliaryTags,
     storyTraits,
-    customTags: uniqueTexts(input.customTags, '自定义标签', 0, 10, 40),
+    customTags: uniqueTexts(input.customTags, '自定义标签', 0, 13, 40),
     initialMap: optionalText(input.initialMap, '初始地图', 5_000),
-    mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 12, 500)
+    mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 15, 500)
   };
   if (JSON.stringify(validated).length > 18_000) {
     throw new Error('开书资料总量不能超过18,000个字符，请保留确定信息并把细节留到后续讨论');
