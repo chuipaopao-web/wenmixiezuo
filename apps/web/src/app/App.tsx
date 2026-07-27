@@ -2611,7 +2611,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <div className="section-heading"><div><span>02</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
           <section className="subject-library">
-            <StringTagPicker title="题材组合（多选）" hint={`建议2—5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
+            <StringTagPicker title="融合题材（多选）" hint={`来自起点二级分类与番茄作品题材；建议2—5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
             <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
           </section>
           <section className="full-tag-library">
