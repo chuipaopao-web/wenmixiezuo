@@ -359,11 +359,12 @@ describe('完整创作工作台', () => {
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
     expect(within(dialog).getByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
     expect(within(dialog).getByText(/标签只确定主要方向/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('目标读者推荐')).not.toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择目标读者：喜欢人物成长的女频读者' }));
     await waitFor(() => expect(within(dialog).getByText(/已自动勾选 8 个/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
     expect(within(dialog).getByText(/已自动勾选 7 个/)).toBeInTheDocument();
@@ -388,7 +389,7 @@ describe('完整创作工作台', () => {
       return payload.title === '长安簪影'
         && payload.classification === '女频'
         && blueprint.categoryKey === 'female-modern-brain'
-        && blueprint.targetAudience === '喜欢人物成长的女频读者'
+        && blueprint.targetAudience === ''
         && Array.isArray(blueprint.protagonists)
         && blueprint.protagonists.length === 0
         && blueprint.worldBackground === ''
@@ -415,11 +416,11 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：玄幻脑洞' }));
 
-    expect(within(dialog).getByText('还需填写：目标读者、必须遵守')).toBeInTheDocument();
+    expect(within(dialog).getByText('还需填写：必须遵守')).toBeInTheDocument();
     const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：目标读者、必须遵守');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：必须遵守');
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {

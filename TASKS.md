@@ -934,3 +934,16 @@
 - 测试命令：目标Vitest、`npm.cmd run typecheck`、`npm.cmd run verify`、`npm.cmd run migrate`两次、运行探针、Repository/跨书测试、`git diff --check`。
 - 停止条件：跨书、正史污染、模型独立性失效、需要付费/新密钥/永久删除/生产恢复或触碰智囊团。
 - 回滚：应用层非破坏性revert或向前修复；Schema 29保留，设定状态数据不删除。
+
+## 修复任务 UX-20260727-03：删除新书目标读者输入
+
+- `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`；决定：DEC-061；`design_review_id`：`DR-20260727-remove-opening-audience-v1`。
+- 目标：从新书页面删除目标读者输入和推荐，同时取消前后端必填校验。
+- 不做什么：不删除旧书目标读者数据，不修改数据库Schema，不改变点评岗位或场景契约。
+- 唯一负责人/复核人：当前Codex / 当前Codex；不调用其他开发Agent。
+- 允许文件：开书UI、开书蓝图兼容校验、接待文案、当前规格与相关测试。
+- 禁止文件：迁移改写、生产数据清理、API Key、来源快照及 `D:\AI智囊团` 全部文件。
+- 验收：新书页面不存在目标读者控件；未提供目标读者仍可建书；旧值仍可通过合同并保留；类型、目标测试、构建、迁移和运行检查通过。
+- 测试命令：目标Vitest、`npm.cmd run typecheck`、`npm.cmd run build`、`npm.cmd run migrate`、`git diff --check`。
+- 停止条件：旧书数据变化、跨书影响、需要迁移或生产恢复。
+- 回滚：非破坏性Git revert；历史资料不变。

@@ -253,7 +253,8 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     channel: input.channel,
     categoryKey: input.categoryKey,
     ...(auxiliaryCategoryKeys.length > 0 ? { auxiliaryCategoryKeys } : {}),
-    targetAudience: requiredText(input.targetAudience, '目标读者', 500),
+    // 旧书和旧客户端继续保留该字段；新书入口不再要求作者预判目标读者。
+    targetAudience: optionalText(input.targetAudience, '目标读者', 500),
     protagonists,
     worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),
     openingBackground: optionalText(input.openingBackground, '故事起始背景', 10_000),

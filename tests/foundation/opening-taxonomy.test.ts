@@ -87,7 +87,7 @@ describe('完整开书分类与资料合同', () => {
     })).toThrow('0至3个');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' })).toThrow('目标读者');
+    expect(validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' }).targetAudience).toBe('');
     expect(validateOpeningBlueprint({
       ...validBlueprint(),
       protagonists: [],
