@@ -365,9 +365,9 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    await waitFor(() => expect(within(dialog).getByText(/已自动勾选 8 个/)).toBeInTheDocument());
+    await waitFor(() => expect(within(dialog).getByText(/当前已选 8 个，不限数量/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
-    expect(within(dialog).getByText(/已自动勾选 7 个/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/当前已选 7 个，不限数量/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
@@ -375,7 +375,7 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/已自动勾选 8 个/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/当前已选 8 个，不限数量/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     expect(within(dialog).queryByLabelText('主角姓名')).not.toBeInTheDocument();

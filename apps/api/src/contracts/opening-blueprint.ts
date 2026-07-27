@@ -242,7 +242,13 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     return { role: item.role, name, age, background, personalities };
   });
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
-  const mainTags = uniqueTexts(input.mainTags, '主要标签', 2, 8, 40);
+  if (Array.isArray(input.mainTags)) {
+    const distinctMainTags = new Set(input.mainTags
+      .map((item) => typeof item === 'string' ? item.trim() : '')
+      .filter(Boolean));
+    if (distinctMainTags.size < 2) throw new Error('主要标签至少选择2个');
+  }
+  const mainTags = uniqueTexts(input.mainTags, '主要标签', 2, OPENING_TAXONOMY.mainTags.length, 40);
   for (const tag of mainTags) {
     if (!OPENING_TAXONOMY.mainTags.includes(tag)) throw new Error(`主要标签不在当前目录：${tag}`);
   }

@@ -76,7 +76,7 @@ describe('完整开书分类与资料合同', () => {
     });
   });
 
-  it('接受完整资料、多个主角和2至8个主要标签', () => {
+  it('接受完整资料、多个主角和不限上限的主要标签', () => {
     const blueprint = validBlueprint();
     blueprint.auxiliaryCategoryKeys = ['male-game-sports', 'male-history-brain'];
     blueprint.protagonists.push({
@@ -90,9 +90,14 @@ describe('完整开书分类与资料合同', () => {
     });
   });
 
+  it('主要标签至少两个，但不再限制八个上限', () => {
+    const mainTags = OPENING_TAXONOMY.mainTags.slice(0, 24);
+    expect(validateOpeningBlueprint({ ...validBlueprint(), mainTags }).mainTags).toEqual(mainTags);
+  });
+
   it('拒绝跨频道分类、缺失资料和主要标签数量越界', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), categoryKey: 'female-modern-brain' })).toThrow('不属于当前频道');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['穿越'] })).toThrow('2至8个');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['穿越'] })).toThrow('至少选择2个');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['female-modern-brain'] })).toThrow('不属于当前频道');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['male-fantasy-brain'] })).toThrow('不能同时作为辅助分类');
     expect(() => validateOpeningBlueprint({

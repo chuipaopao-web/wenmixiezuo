@@ -2518,7 +2518,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   useEffect(() => {
     if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
     automaticTagSignature.current = tagRecommendationSignature;
-    setMainTags(recommendedTagOptions.slice(0, 8));
+    setMainTags(recommendedTagOptions.slice(0, 12));
   }, [taxonomy, category, tagRecommendationSignature]);
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
@@ -2528,14 +2528,13 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     ...(channel === null ? ['创作频道'] : []),
     ...(category === null ? ['作品分类'] : []),
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
-    ...(mainTags.length > 8 ? ['主要标签最多8个'] : []),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
   const valid = missingRequirements.length === 0;
-  const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max: number): void => {
+  const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max?: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
-    else if (current.length < max) setter([...current, tag]);
+    else if (max === undefined || current.length < max) setter([...current, tag]);
   };
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
@@ -2622,7 +2621,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
               {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
             </nav>
             <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已自动勾选 ${mainTags.length} 个（最多8个），可取消或替换`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`当前已选 ${mainTags.length} 个，不限数量；可继续勾选、取消或替换`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags)} />
           </section>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
