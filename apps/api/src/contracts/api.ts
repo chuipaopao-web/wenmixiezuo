@@ -1,5 +1,5 @@
 export const API_VERSION = 'v1' as const;
-export const SCHEMA_VERSION = 28 as const;
+export const SCHEMA_VERSION = 29 as const;
 
 export interface ApiMeta {
   requestId: string;

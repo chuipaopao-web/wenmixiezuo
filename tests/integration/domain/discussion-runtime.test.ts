@@ -14,6 +14,42 @@ describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
+  it('设定专项讨论固定由主编主持并激活两名异模型编剧', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '设定讨论测试书',
+      text: '男频游戏异界与历史脑洞'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(
+      scope,
+      '讨论设定 【设定专项讨论资料包】\n当前设定项：游戏世界接入方式\n讨论目标：确定进入方式、边界和代价'
+    );
+
+    expect(scheduled.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'open_discussion' });
+    const discussionId = String(scheduled.action.discussionId);
+    const participants = context.database.prepare(`
+      SELECT r.role_key
+      FROM discussion_participants p
+      JOIN agent_instances a ON a.agent_id = p.agent_id
+      JOIN role_templates r
+        ON r.role_template_id = a.role_template_id
+       AND r.version = a.role_template_version
+      WHERE p.discussion_id = ?
+      ORDER BY r.role_key
+    `).all(discussionId) as Array<{ role_key: string }>;
+    expect(participants.map((item) => item.role_key)).toEqual([
+      'chief_editor',
+      'lead_screenwriter',
+      'second_screenwriter'
+    ]);
+    expect(context.database.prepare(`SELECT discussion_type, status FROM discussions WHERE discussion_id = ?`).get(discussionId))
+      .toEqual({ discussion_type: 'collaborative', status: 'collecting' });
+  });
+
   it('按问题激活相关岗位，经Worker执行真实模型调用并由老板明确确认方案', async () => {
     context = createTestContext();
     const ids = new SequenceIds();

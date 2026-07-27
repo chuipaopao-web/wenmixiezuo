@@ -52,6 +52,7 @@ import {
   fetchOperationsStatus,
   fetchProtagonists,
   fetchAttributeFormulas,
+  fetchSettingOutlineWorkspace,
   fetchRightsWorkspace,
   fetchWorker,
   fetchWorkspace,
@@ -83,6 +84,7 @@ import {
   classifyProtagonistState,
   createAttributeFormula,
   evaluateAttributeFormula,
+  saveSettingOutlineItem,
   saveAgentPromptPreference,
   type AgentData,
   type ArtifactVersionData,
@@ -660,7 +662,20 @@ export function App(): React.JSX.Element {
                 onChanged={() => void refreshWorkspace(selectedBook.bookId)}
               />
             )}
-            {view === 'outline' && <PlanningWorkspace data={referenceData} workspace={workspace} />}
+            {view === 'outline' && <PlanningWorkspace
+              data={referenceData}
+              workspace={workspace}
+              onDiscussSetting={async (packet) => {
+                if (selectedBookId === null) return;
+                setError(null);
+                try {
+                  await sendMessage(selectedBookId, `讨论设定 ${packet}`);
+                  setView('chat');
+                } catch (reason) {
+                  setError(reason instanceof Error ? reason.message : '设定讨论启动失败');
+                }
+              }}
+            />}
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
             {view === 'rights' && <RightsWorkspace data={referenceData} />}
@@ -1126,8 +1141,127 @@ const SETTING_CATALOG: Array<{ group: string; description: string; kind: 'common
 
 const FORMULA_CATEGORIES = SETTING_CATALOG.find((item) => item.group === '计算公式')!.items;
 
-function PlanningWorkspace({ data, workspace }: {
-  data: unknown; workspace: WorkspaceData | null;
+type SettingOutlineStatus = '待讨论' | '讨论中' | '候选待确认' | '已确认' | '稍后补充' | '刻意留白' | '不适用';
+interface SettingOutlineItem {
+  key: string;
+  label: string;
+  prompt: string;
+  source: string;
+  groupTitle?: string;
+  required?: boolean;
+}
+interface SettingOutlineGroup {
+  key: string;
+  title: string;
+  description: string;
+  items: SettingOutlineItem[];
+}
+
+const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
+  { key: 'creative', title: '作品策划', description: '先明确为什么写、写给谁以及提供什么独特体验。', items: [
+    { key: 'creative-concept', label: '策划理念', prompt: '这本书最核心的创作机制是什么，为什么值得持续写下去？', source: '通用', required: true },
+    { key: 'theme-intent', label: '小说立意', prompt: '作品希望探讨什么问题？不要求写成口号或道德结论。', source: '通用' },
+    { key: 'reader-promise', label: '读者承诺与核心体验', prompt: '读者持续追读时，稳定获得什么感受和满足？', source: '通用', required: true },
+    { key: 'differentiator', label: '差异化卖点', prompt: '与同类作品相比，哪些机制、视角或体验不可替代？', source: '通用', required: true },
+    { key: 'tone-boundary', label: '作品气质与表达边界', prompt: '整体气质、叙事尺度与明确不能触碰的表达边界是什么？', source: '通用' }
+  ] },
+  { key: 'world', title: '世界与环境', description: '定义世界存在方式、自然边界与历史背景。', items: [
+    { key: 'era', label: '时代与世界类型', prompt: '故事处于什么时代和世界类型，现实、架空或多世界如何并存？', source: '通用', required: true },
+    { key: 'world-layer', label: '世界层级与空间结构', prompt: '世界由哪些层级、位面、区域或服务器构成？', source: '通用' },
+    { key: 'geography', label: '地理地图与初始地点', prompt: '核心地理结构、交通边界和主角初始活动区域是什么？', source: '通用', required: true },
+    { key: 'civilization', label: '文明、科技与生产水平', prompt: '文明和科技发展到什么程度，哪些能力普及或稀缺？', source: '通用' },
+    { key: 'history', label: '历史背景与历法', prompt: '哪些历史事件塑造了当下，各方如何记录时间？', source: '通用' },
+    { key: 'hazards', label: '灾难、禁区与自然限制', prompt: '环境中有哪些不可忽视的危险、禁区和客观限制？', source: '通用' }
+  ] },
+  { key: 'society', title: '社会与秩序', description: '说明社会如何组织、约束、奖惩并传播信息。', items: [
+    { key: 'governance', label: '政权、法律与治理', prompt: '谁制定规则，法律如何执行，违规的真实代价是什么？', source: '通用', required: true },
+    { key: 'class', label: '阶层、身份与流动', prompt: '身份如何取得，阶层能否流动，特权与义务怎样对应？', source: '通用' },
+    { key: 'culture', label: '文化、宗教与禁忌', prompt: '共同信念、礼俗、宗教和社会禁忌如何影响人物选择？', source: '通用' },
+    { key: 'education', label: '教育与知识传承', prompt: '知识、技能和秘密通过什么体系传播与垄断？', source: '通用' },
+    { key: 'information', label: '信息传播与舆论', prompt: '消息传播速度、可信度和控制权分别如何？', source: '通用' }
+  ] },
+  { key: 'growth', title: '力量与成长', description: '建立力量来源、成长路径、限制、代价和克制关系。', items: [
+    { key: 'power-source', label: '力量来源', prompt: '力量从哪里来，谁可以获得，是否能够被夺取或继承？', source: '通用', required: true },
+    { key: 'levels', label: '等级、境界与晋升', prompt: '成长阶段如何划分，晋升需要什么条件并带来什么变化？', source: '通用', required: true },
+    { key: 'abilities', label: '能力、特性与技能', prompt: '主动、被动、天赋和职业能力分别遵守什么规则？', source: '通用' },
+    { key: 'costs', label: '消耗、代价与限制', prompt: '使用力量消耗什么，失败和过度使用会造成什么后果？', source: '通用', required: true },
+    { key: 'counters', label: '克制、免疫与平衡', prompt: '强弱关系如何成立，哪些反制可以防止能力无限膨胀？', source: '通用' },
+    { key: 'death', label: '死亡、复活与继承', prompt: '死亡是否可逆，复活、继承和损失分别遵循什么规则？', source: '通用' }
+  ] },
+  { key: 'characters', title: '人物与命名', description: '只建立人物运行基础，不提前规定具体剧情结果。', items: [
+    { key: 'protagonist', label: '主角身份、起点与处境', prompt: '主角开始时拥有什么、缺少什么、处于怎样的社会位置？', source: '通用', required: true },
+    { key: 'motivation', label: '核心欲望、动机与底线', prompt: '主角真正想要什么，害怕失去什么，哪些事绝不会做？', source: '通用', required: true },
+    { key: 'strength-flaw', label: '优势、缺陷与成长边界', prompt: '主角的可靠优势、真实缺陷和不能无代价突破的边界是什么？', source: '通用' },
+    { key: 'supporting', label: '配角类型与功能边界', prompt: '需要哪些人物类型，如何避免配角只成为主角工具？', source: '通用' },
+    { key: 'naming', label: '姓名库、称谓与命名规则', prompt: '不同地区、身份和种族如何命名，已占用名字有哪些？', source: '通用' },
+    { key: 'relations', label: '人物关系基本原则', prompt: '亲缘、利益、情感和权力关系由哪些长期因素维持或改变？', source: '通用' }
+  ] },
+  { key: 'organizations', title: '势力与组织', description: '定义国家、阵营和组织的结构、资源与相互关系。', items: [
+    { key: 'factions', label: '国家、阵营与主要势力', prompt: '主要势力分别追求什么，依靠什么资源存在？', source: '通用', required: true },
+    { key: 'structure', label: '组织结构与权力来源', prompt: '组织如何决策、晋升和监督，真实权力掌握在谁手里？', source: '通用' },
+    { key: 'military', label: '军队、兵种与武装体系', prompt: '武装力量如何组织、补给、训练和承担损失？', source: '通用' },
+    { key: 'diplomacy', label: '联盟、敌对与外交规则', prompt: '势力关系如何建立、维持和破裂？', source: '通用' }
+  ] },
+  { key: 'resources', title: '物品、经济与资源', description: '明确生产、交换、消耗、装备和稀缺资源的闭环。', items: [
+    { key: 'currency', label: '货币、价格与交易', prompt: '价值如何衡量，交易如何发生，信用和货币由谁保证？', source: '通用' },
+    { key: 'production', label: '生产、产出与消耗', prompt: '关键资源怎样生产、运输、储存和消耗？', source: '通用', required: true },
+    { key: 'equipment', label: '装备、道具与品阶', prompt: '装备道具如何分类、获得、损坏、升级和流通？', source: '通用' },
+    { key: 'scarcity', label: '稀缺资源与争夺规则', prompt: '真正稀缺的资源是什么，为什么不能无限复制？', source: '通用' },
+    { key: 'formula', label: '属性字段与计算公式', prompt: '哪些数值必须精确计算，变量、单位、边界和舍入规则是什么？', source: '通用' }
+  ] },
+  { key: 'conflict', title: '冲突与战术', description: '定义战斗、权谋、调查和竞争的公平边界。', items: [
+    { key: 'combat', label: '战斗与胜负规则', prompt: '战斗如何判定优势和胜负，环境、信息和士气如何影响结果？', source: '通用' },
+    { key: 'tactics', label: '主流战术与团队分工', prompt: '常见战术、阵型、职业分工和反制分别是什么？', source: '通用' },
+    { key: 'war', label: '战争、补给与损失', prompt: '大规模冲突如何动员、补给、结算伤亡并承担后果？', source: '通用' },
+    { key: 'investigation', label: '调查、证据与信息差', prompt: '事实如何查明，证据如何验证，谁有权接触哪些信息？', source: '通用' }
+  ] },
+  { key: 'boundaries', title: '约束、留白与未知', description: '区分硬边界、暂缓决定和有意保留的创意空间。', items: [
+    { key: 'must-follow', label: '必须遵守', prompt: '作者明确要求永远遵守的事实、尺度和禁区是什么？', source: '通用', required: true },
+    { key: 'open', label: '开放问题', prompt: '目前还没有答案、需要在后续创作中探索的问题是什么？', source: '通用' },
+    { key: 'intentional-unknown', label: '刻意留白', prompt: '哪些内容应保持未知，避免过早解释削弱悬念和创造性？', source: '通用' }
+  ] }
+];
+
+const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup }> = [
+  { match: /游戏|电竞|网游|系统/u, group: { key: 'game-extension', title: '题材扩展：游戏规则', description: '由游戏相关分类或题材自动加入。', items: [
+    { key: 'game-entry', label: '游戏世界接入方式', prompt: '通过头盔、穿越、现实融合还是其他方式进入，边界是什么？', source: '游戏扩展', required: true },
+    { key: 'player-npc', label: '玩家与NPC边界', prompt: '玩家和NPC如何识别、互动、死亡和承担后果？', source: '游戏扩展', required: true },
+    { key: 'game-panel', label: '属性面板与数据可见性', prompt: '哪些属性可见，谁能查看，信息是否可能伪装或延迟？', source: '游戏扩展' },
+    { key: 'class-skill', label: '职业、转职与技能树', prompt: '职业如何获得、成长、转职和组合，技能如何学习？', source: '游戏扩展' },
+    { key: 'loot', label: '装备、掉落与绑定规则', prompt: '物品如何掉落、交易、绑定、强化、损坏和回收？', source: '游戏扩展' },
+    { key: 'quest-instance', label: '任务、副本与奖励', prompt: '任务和副本如何生成、失败、重置并结算奖励？', source: '游戏扩展' },
+    { key: 'ranking', label: '排行榜、赛季与竞技', prompt: '榜单计算什么，怎样防刷榜，赛季重置会保留什么？', source: '游戏扩展' }
+  ] } },
+  { match: /历史|古代|三国|架空/u, group: { key: 'history-extension', title: '题材扩展：历史与架空', description: '由历史、古代或架空相关题材自动加入。', items: [
+    { key: 'history-baseline', label: '历史基线', prompt: '故事以哪段历史为基线，哪些事实必须保持一致？', source: '历史扩展', required: true },
+    { key: 'divergence', label: '架空分歧点', prompt: '世界从哪个事件开始偏离历史，直接和长期影响是什么？', source: '历史扩展', required: true },
+    { key: 'politics-military', label: '政治、官制与军制', prompt: '权力、行政和军事制度如何真实运转？', source: '历史扩展' },
+    { key: 'technology-spread', label: '技术传播与时代限制', prompt: '技术改进需要哪些前置条件，传播速度和阻力是什么？', source: '历史扩展' },
+    { key: 'historical-names', label: '年代、地名与人物校验', prompt: '年代、称谓、地名和历史人物如何保持可核对？', source: '历史扩展' }
+  ] } },
+  { match: /领主|种田|经营|基建/u, group: { key: 'lord-extension', title: '题材扩展：领地经营', description: '由领主、种田、经营或基建题材自动加入。', items: [
+    { key: 'territory', label: '领地、城市与建筑等级', prompt: '领地和建筑如何升级，解锁条件、时间和成本是什么？', source: '领地扩展' },
+    { key: 'population', label: '人口、民心与劳动力', prompt: '人口如何增长、迁移、分工并影响秩序？', source: '领地扩展' },
+    { key: 'army', label: '将领、士兵与兵种', prompt: '军队如何招募、训练、编制、补给和承担伤亡？', source: '领地扩展' },
+    { key: 'yield', label: '资源产出与生产队列', prompt: '资源和建筑产出如何计算，生产队列受什么限制？', source: '领地扩展' }
+  ] } },
+  { match: /玄幻|仙侠|修仙|奇幻|魔法/u, group: { key: 'fantasy-extension', title: '题材扩展：超凡体系', description: '由玄幻、仙侠、奇幻或魔法题材自动加入。', items: [
+    { key: 'cultivation', label: '功法、修炼与传承', prompt: '修炼体系如何学习、传承、改进和走火入魔？', source: '超凡扩展' },
+    { key: 'bloodline', label: '血脉、体质与天赋', prompt: '先天条件如何影响成长，能否改变，代价是什么？', source: '超凡扩展' },
+    { key: 'treasures', label: '丹药、法宝与天材地宝', prompt: '超凡资源如何分级、获得、炼制和限制使用？', source: '超凡扩展' },
+    { key: 'causality', label: '天劫、因果与气运', prompt: '超自然约束是否客观存在，如何作用且避免万能解释？', source: '超凡扩展' }
+  ] } },
+  { match: /悬疑|推理|探案|灵异/u, group: { key: 'mystery-extension', title: '题材扩展：悬疑调查', description: '由悬疑、推理、探案或灵异题材自动加入。', items: [
+    { key: 'case-rules', label: '案件与作案边界', prompt: '案件成立必须满足哪些客观条件，凶手能力边界是什么？', source: '悬疑扩展' },
+    { key: 'evidence-chain', label: '证据链与验证规则', prompt: '哪些证据有效，如何验证、污染、隐藏或误导？', source: '悬疑扩展' },
+    { key: 'truth-layers', label: '真相层级与公平线索', prompt: '读者何时能够接触关键线索，怎样避免事后补设定？', source: '悬疑扩展' }
+  ] } }
+];
+
+function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
+  data: unknown;
+  workspace: WorkspaceData | null;
+  onDiscussSetting: (packet: string) => Promise<void>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<PlanningTab>('framework');
   const artifacts = Array.isArray(data) ? data.filter(isRecord) : [];
@@ -1163,46 +1297,205 @@ function PlanningWorkspace({ data, workspace }: {
       {visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
-      {tab === 'basic' && <><div className="setting-state-guide"><article><strong>现在必须确定</strong><p>会直接影响世界运行、主角行动或第一阶段因果的基础规则。</p></article><article><strong>可以稍后补充</strong><p>暂时用不到的地区、支线、等级细节和装饰性资料。</p></article><article><strong>刻意保留未知</strong><p>准备作为悬念、探索空间或后续创意入口的内容。</p></article></div><SettingCatalog bookId={workspace?.book.bookId ?? null} /><AttributeFormulaManager bookId={workspace?.book.bookId ?? null} /></>}
+      {tab === 'basic' && <SettingCatalog
+        bookId={workspace?.book.bookId ?? null}
+        bookTitle={workspace?.book.title ?? '当前书籍'}
+        templateHints={collectSettingTemplateHints(artifacts)}
+        onDiscuss={onDiscussSetting}
+      />}
     </section>
   );
 }
 
-function SettingCatalog({ bookId }: { bookId: string | null }): React.JSX.Element {
+function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss }: {
+  bookId: string | null;
+  bookTitle: string;
+  templateHints: string[];
+  onDiscuss: (packet: string) => Promise<void>;
+}): React.JSX.Element {
   const [source, setSource] = useState('');
   const [query, setQuery] = useState('');
-  const [activeGroup, setActiveGroup] = useState(SETTING_CATALOG[0]!.group);
-  const [customItems, setCustomItems] = useState<string[]>([]);
+  const [customItems, setCustomItems] = useState<SettingOutlineItem[]>([]);
   const [customDraft, setCustomDraft] = useState('');
+  const [customGroupDraft, setCustomGroupDraft] = useState('本书扩展');
+  const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const submit = (): void => {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const hintText = templateHints.join('、');
+  const extensionGroups = SETTING_EXTENSION_PACKS
+    .filter((pack) => pack.match.test(hintText))
+    .map((pack) => pack.group);
+  const customGroups = [...new Set(customItems.map((item) => item.groupTitle ?? '本书扩展'))].map((groupTitle, index) => ({
+    key: `custom-${index}-${groupTitle}`,
+    title: groupTitle,
+    description: '由作者补充的本书专属设定项。',
+    items: customItems.filter((item) => (item.groupTitle ?? '本书扩展') === groupTitle)
+  }));
+  const groups: SettingOutlineGroup[] = [
+    ...BASE_SETTING_OUTLINE.slice(0, 3),
+    ...extensionGroups.filter((group) => group.key === 'history-extension'),
+    ...BASE_SETTING_OUTLINE.slice(3, 7),
+    ...extensionGroups.filter((group) => group.key !== 'history-extension'),
+    ...BASE_SETTING_OUTLINE.slice(7),
+    ...customGroups
+  ];
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleGroups = groups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => normalizedQuery.length === 0
+      || `${group.title}${item.label}${item.prompt}${item.source}`.toLocaleLowerCase().includes(normalizedQuery))
+  })).filter((group) => group.items.length > 0);
+  const allItems = groups.flatMap((group) => group.items);
+  const confirmed = allItems.filter((item) => statuses[item.key] === '已确认').length;
+
+  useEffect(() => {
+    if (bookId === null) {
+      setCustomItems([]);
+      setStatuses({});
+      return;
+    }
+    const controller = new AbortController();
+    void fetchSettingOutlineWorkspace(bookId, controller.signal).then((items) => {
+      setStatuses(Object.fromEntries(items.map((item) => [item.itemKey, item.status])));
+      setCustomItems(items.filter((item) => item.custom).map((item) => ({
+        key: item.itemKey,
+        label: item.label,
+        prompt: item.prompt,
+        source: item.sourceLabel,
+        groupTitle: item.groupTitle
+      })));
+    }).catch((reason: unknown) => {
+      if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '设定清单读取失败');
+    });
+    return () => controller.abort();
+  }, [bookId]);
+
+  const persistItem = (group: SettingOutlineGroup, item: SettingOutlineItem, status: SettingOutlineStatus, custom = false): void => {
+    if (bookId === null) return;
+    const sortOrder = allItems.findIndex((candidate) => candidate.key === item.key);
+    void saveSettingOutlineItem(bookId, {
+      itemKey: item.key,
+      groupTitle: group.title,
+      label: item.label,
+      prompt: item.prompt,
+      sourceLabel: item.source,
+      status,
+      custom,
+      sortOrder: sortOrder < 0 ? allItems.length : sortOrder
+    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
+  };
+
+  const submitSource = (): void => {
     const text = source.trim();
     if (bookId === null || text.length === 0 || text.length > 10_000) return;
-    setBusy(true);
-    const instruction = `@文姬 请把下面资料拆解为本书的通用设定候选。区分“世界环境、社会秩序、力量成长、人物与命名、势力组织、物品资源、能力特性技能、冲突战术、经济运转、题材扩展、规则公式、未知项”；人物、地点、势力和物品作为实体候选，不要当普通标签。保留我的原意和来源，不要补造数字、名字或关系；发现冲突请并列说明。只生成候选，等待我确认。以下是原文：\n\n${text}`;
+    setBusyKey('source');
+    const instruction = `@文姬 请按本书设定大纲框架拆解以下作者原文。只整理候选并保留来源，不补造名字、数字或关系，不自动写正史。模板依据：${hintText || '通用设定'}。原文：\n\n${text}`;
     void sendMessage(bookId, instruction).then(() => {
       setSource('');
-      setNotice('已交给文姬真实拆解。结果会出现在对话中；确认前只是候选，不会覆盖正式设定。');
-    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定资料提交失败')).finally(() => setBusy(false));
+      setNotice('资料已交给文姬拆解，结果会在对话中作为候选显示。');
+    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定资料提交失败')).finally(() => setBusyKey(null));
   };
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const matchingGroups = SETTING_CATALOG.filter((section) => normalizedQuery.length === 0
-    || section.group.toLocaleLowerCase().includes(normalizedQuery)
-    || section.items.some((item) => item.toLocaleLowerCase().includes(normalizedQuery)));
-  const selected = matchingGroups.find((section) => section.group === activeGroup) ?? matchingGroups[0] ?? null;
-  return <section className="setting-workbench">
-    <div className="setting-import"><div><h4>粘贴已有设定，让成员拆解</h4><p>最多10000字。原文会进入当前对话并保留来源；文姬只整理候选，不会自动改正史。</p></div><textarea aria-label="已有设定原文" rows={8} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可粘贴世界观、数值面板、装备等级、排行榜、宠物、坐骑、建筑、资源产出和计算规则……" /><footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy || bookId === null || source.trim().length === 0} onClick={submit}>{busy ? '正在提交…' : '交给文姬拆解'}</button></footer>{notice !== null && <p className="binding-status" role="status">{notice}</p>}</div>
-    <header><div><h3>设定目录</h3><p>用于整理资料和发现缺口，不是限制创作的固定模板；可按本书情况自定义。</p></div><span>目录版本 1</span></header>
-    <label className="setting-search">搜索设定类目<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：技能、人物、战术、装备、证据链" /></label>
-    <div className="setting-catalog-layout">
-      <nav aria-label="设定分类">{matchingGroups.map((section) => <button type="button" className={selected?.group === section.group ? 'active' : ''} key={section.group} onClick={() => setActiveGroup(section.group)}><strong>{section.group}</strong><small>{section.kind === 'common' ? '通用' : section.kind === 'extension' ? '按需' : '公式'} · {section.items.length}</small></button>)}</nav>
-      <div className="setting-catalog-detail">
-        {selected === null ? <p className="empty-copy">没有匹配的设定类目。</p> : <article><header><div><h4>{selected.group}</h4><p>{selected.description}</p></div><span>{selected.kind === 'common' ? '通用类目' : selected.kind === 'extension' ? '题材扩展' : '安全公式'}</span></header><div>{selected.items.map((item) => <button type="button" key={item} title={`查看或补充“${item}”设定`}>{item}<small>待完善</small></button>)}</div></article>}
-        <section className="custom-setting-category"><h4>本书自定义类目</h4><p>只补充本书真正需要的内容，不会限制其他剧情自由发挥。</p><div>{customItems.map((item) => <span key={item}>{item}</span>)}</div><form onSubmit={(event) => { event.preventDefault(); const value = customDraft.trim(); if (value.length === 0 || customItems.includes(value)) return; setCustomItems((current) => [...current, value]); setCustomDraft(''); }}><input aria-label="自定义设定类目" maxLength={30} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="例如：梦境税、神名禁忌" /><button className="secondary-button" type="submit">添加类目</button></form></section>
-      </div>
+
+  const discuss = (group: SettingOutlineGroup, item: SettingOutlineItem): void => {
+    const prior = allItems
+      .filter((candidate) => candidate.key !== item.key && statuses[candidate.key] === '已确认')
+      .slice(-8)
+      .map((candidate) => candidate.label);
+    const packet = [
+      `【设定专项讨论资料包】`,
+      `书籍：${bookTitle}`,
+      `当前板块：${group.title}`,
+      `当前设定项：${item.label}`,
+      `讨论目标：${item.prompt}`,
+      `模板来源：${item.source}`,
+      `开书分类与题材：${hintText || '尚未读取到题材标签，按通用框架讨论'}`,
+      `已经确认的前置设定：${prior.length === 0 ? '暂无' : prior.join('、')}`,
+      `当前状态：${statuses[item.key] ?? '待讨论'}`,
+      `工作要求：由主编主持，两名异模型编剧先独立提出不同方案，再进行一次有界交叉质疑；不得生成剧情、章纲或正文。请只输出有效候选、分歧、代价、未知项以及需要老板确认的问题。`
+    ].join('\n');
+    setBusyKey(item.key);
+    setStatuses((current) => ({ ...current, [item.key]: '讨论中' }));
+    persistItem(group, item, '讨论中', item.source === '作者自定义');
+    void onDiscuss(packet).catch(() => {
+      setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
+      persistItem(group, item, '待讨论', item.source === '作者自定义');
+    }).finally(() => setBusyKey(null));
+  };
+
+  return <section className="setting-outline-workbench">
+    <header className="setting-outline-header">
+      <div><span>动态设定模板</span><h3>设定大纲</h3><p>按前置依赖从上到下讨论。模板足够完整，但允许稍后补充、刻意留白或标记不适用。</p></div>
+      <div className="setting-outline-progress"><strong>{confirmed} / {allItems.length}</strong><span>已确认</span><div><i style={{ width: `${allItems.length === 0 ? 0 : Math.round(confirmed / allItems.length * 100)}%` }} /></div></div>
+    </header>
+    <div className="setting-template-sources"><strong>本书模板：</strong>{templateHints.length === 0 ? <span>通用设定</span> : templateHints.slice(0, 12).map((hint) => <span key={hint}>{hint}</span>)}</div>
+    <section className="setting-import compact">
+      <div><h4>已有设定可以直接粘贴</h4><p>可选；没有现成资料就直接按下方清单讨论。</p></div>
+      <textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="粘贴世界观、力量体系、人物设定、数值规则或完整策划案……" />
+      <footer><span>{source.length}/10000</span><button className="secondary-button" type="button" disabled={busyKey !== null || bookId === null || source.trim().length === 0} onClick={submitSource}>{busyKey === 'source' ? '正在提交…' : '交给文姬拆解'}</button></footer>
+    </section>
+    <label className="setting-search">搜索设定项<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：力量、死亡、装备、姓名、历史分歧点" /></label>
+    <div className="setting-outline-list">
+      {visibleGroups.map((group, groupIndex) => <section key={group.key} className="setting-outline-group">
+        <header><div><small>{String(groupIndex + 1).padStart(2, '0')}</small><div><h4>{group.title}</h4><p>{group.description}</p></div></div><span>{group.items.length} 项</span></header>
+        <div>{group.items.map((item) => {
+          const index = allItems.findIndex((candidate) => candidate.key === item.key) + 1;
+          const status = statuses[item.key] ?? '待讨论';
+          return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
+            <strong className="setting-outline-index">{String(index).padStart(2, '0')}</strong>
+            <div className="setting-outline-copy"><div><h5>{item.label}</h5><span>{item.source}{item.required === true ? ' · 当前阶段重要' : ''}</span></div><p>{item.prompt}</p></div>
+            <select aria-label={`${item.label}状态`} value={status} onChange={(event) => {
+              const nextStatus = event.target.value as SettingOutlineStatus;
+              setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
+              persistItem(group, item, nextStatus, item.source === '作者自定义');
+            }}>
+              {(['待讨论', '讨论中', '候选待确认', '已确认', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value}>{value}</option>)}
+            </select>
+            <button className="setting-discuss-button" type="button" disabled={bookId === null || busyKey !== null} onClick={() => discuss(group, item)}>{busyKey === item.key ? '正在启动…' : '跳转讨论'}</button>
+          </article>;
+        })}</div>
+      </section>)}
     </div>
+    <section className="custom-setting-builder">
+      <header><div><h4>补充本书专属设定</h4><p>缺少的标签或整块内容都可以添加，加入后同样能够一键发起讨论。</p></div></header>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const value = customDraft.trim();
+        if (value.length === 0 || customItems.some((item) => item.label === value)) return;
+        const groupTitle = customGroupDraft.trim() || '本书扩展';
+        const item = { key: `custom-${Date.now()}`, label: value, prompt: `请围绕“${value}”建立本书需要的定义、边界、代价、冲突和未知项。`, source: '作者自定义', groupTitle };
+        const group = { key: `custom-${groupTitle}`, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
+        setCustomItems((current) => [...current, item]);
+        setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
+        persistItem(group, item, '待讨论', true);
+        setCustomDraft('');
+      }}>
+        <input aria-label="自定义板块名称" maxLength={24} value={customGroupDraft} onChange={(event) => setCustomGroupDraft(event.target.value)} placeholder="板块名称，例如：神名禁忌" />
+        <input aria-label="自定义设定项" maxLength={40} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="新增设定项，例如：梦境税" />
+        <button className="primary-button" type="submit">添加到清单</button>
+      </form>
+    </section>
+    {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
+}
+
+function collectSettingTemplateHints(artifacts: Record<string, unknown>[]): string[] {
+  const result = new Set<string>();
+  const visit = (value: unknown, key = ''): void => {
+    if (typeof value === 'string') {
+      if (/tag|genre|category|题材|分类|标签|channel/iu.test(key) || SETTING_EXTENSION_PACKS.some((pack) => pack.match.test(value))) {
+        value.split(/[、,，/|｜+\s]+/u).map((part) => part.trim()).filter((part) => part.length >= 2 && part.length <= 16).forEach((part) => result.add(part));
+      }
+      return;
+    }
+    if (Array.isArray(value)) { value.forEach((item) => visit(item, key)); return; }
+    if (isRecord(value)) Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
+  };
+  artifacts.forEach((artifact) => visit(artifact.active_content ?? artifact));
+  return [...result].slice(0, 24);
+}
+
+function settingStatusClass(status: SettingOutlineStatus): string {
+  return status === '已确认' ? 'confirmed' : status === '讨论中' ? 'active' : status === '候选待确认' ? 'candidate' : 'pending';
 }
 
 function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<string, unknown>; bookId: string | null; projection: ArtifactProjection }): React.JSX.Element {

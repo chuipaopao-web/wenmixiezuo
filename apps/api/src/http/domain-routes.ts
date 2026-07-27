@@ -59,6 +59,7 @@ import { OpeningSynopsisAnalysisService } from '../application/books/opening-syn
 import { CreativeSessionRepository } from '../infrastructure/db/repositories/creative-session-repository.js';
 import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
+import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -107,6 +108,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const ownerManuscripts = new OwnerManuscriptService(database, config.dataDir, config.releaseId, ids, clock);
   const protagonists = new ProtagonistStateService(database, ids, clock);
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
+  const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
   const budgets = new BudgetService(database, ids, clock);
   const modelCalls = new ModelCallService(database, clock, budgets);
   const editors = new EditorLeaseService(database, ids, clock);
@@ -532,6 +534,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
     return success(attributeFormulas.list(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/setting-outline-workspace', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(settingOutlineWorkspace.list(scope), request.id);
+  });
+
+  app.put<{ Params: { bookId: string; itemKey: string }; Body: {
+    groupTitle: string;
+    label: string;
+    prompt: string;
+    sourceLabel: string;
+    status: string;
+    custom?: boolean;
+    sortOrder?: number;
+  } }>('/api/v1/books/:bookId/setting-outline-workspace/:itemKey', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(settingOutlineWorkspace.save(scope, {
+      itemKey: request.params.itemKey,
+      ...request.body
+    }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: {

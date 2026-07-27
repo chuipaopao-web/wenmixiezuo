@@ -47,6 +47,18 @@ export interface BookData {
   updatedAt: string;
 }
 
+export interface SettingOutlineWorkspaceData {
+  itemKey: string;
+  groupTitle: string;
+  label: string;
+  prompt: string;
+  sourceLabel: string;
+  status: '待讨论' | '讨论中' | '候选待确认' | '已确认' | '稍后补充' | '刻意留白' | '不适用';
+  custom: boolean;
+  sortOrder: number;
+  updatedAt: string;
+}
+
 export type OpeningChannel = 'male' | 'female';
 export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
 
@@ -712,6 +724,25 @@ export function fetchProtagonists(bookId: string, signal?: AbortSignal): Promise
 
 export function fetchAttributeFormulas(bookId: string, signal?: AbortSignal): Promise<AttributeFormulaData[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/attribute-formulas`, signal === undefined ? {} : { signal });
+}
+
+export function fetchSettingOutlineWorkspace(bookId: string, signal?: AbortSignal): Promise<SettingOutlineWorkspaceData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace`, signal === undefined ? {} : { signal });
+}
+
+export function saveSettingOutlineItem(bookId: string, item: Omit<SettingOutlineWorkspaceData, 'updatedAt'>): Promise<SettingOutlineWorkspaceData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(item.itemKey)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      groupTitle: item.groupTitle,
+      label: item.label,
+      prompt: item.prompt,
+      sourceLabel: item.sourceLabel,
+      status: item.status,
+      custom: item.custom,
+      sortOrder: item.sortOrder
+    })
+  });
 }
 
 export function appendProtagonistState(bookId: string, profileId: string, input: {

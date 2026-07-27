@@ -576,21 +576,20 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '设定大纲' }));
     expect(await screen.findByText('钟响后可见未来一天')).toBeInTheDocument();
     expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
-    expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: '设定目录' })).toBeInTheDocument();
+    expect(screen.getByText('游戏历史')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
     const importBox = screen.getByRole('textbox', { name: '已有设定原文' });
-    const catalogHeading = screen.getByRole('heading', { name: '设定目录' });
-    expect(importBox.compareDocumentPosition(catalogHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('searchbox', { name: '搜索设定类目' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '设定分类' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /游戏与领主扩展/u }));
-    expect(screen.getByText('个人战力榜')).toBeInTheDocument();
-    expect(screen.getByText('建筑等级')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: '自定义设定类目' }), { target: { value: '神名禁忌' } });
-    fireEvent.click(screen.getByRole('button', { name: '添加类目' }));
+    const catalogHeading = screen.getByRole('heading', { name: '设定大纲' });
+    expect(catalogHeading.compareDocumentPosition(importBox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('searchbox', { name: '搜索设定项' })).toBeInTheDocument();
+    expect(screen.getByText('策划理念')).toBeInTheDocument();
+    expect(screen.getByText('游戏世界接入方式')).toBeInTheDocument();
+    expect(screen.getByText('历史基线')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: '自定义设定项' }), { target: { value: '神名禁忌' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加到清单' }));
     expect(screen.getByText('神名禁忌')).toBeInTheDocument();
     expect(importBox).toHaveAttribute('maxlength', '10000');
-    expect(await screen.findByRole('heading', { name: '属性计算公式' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '跳转讨论' }).length).toBeGreaterThan(10);
     fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
     expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
@@ -997,6 +996,15 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path.endsWith('/messages') && init?.method === 'POST') return apiResponse({ messageId: 'message-ui-new', action: { kind: 'conversation_reply_scheduled' } });
     if (path.endsWith('/messages')) return apiResponse(messages);
+    if (path.endsWith('/setting-outline-workspace') && init?.method !== 'PUT') return apiResponse([]);
+    if (path.includes('/setting-outline-workspace/') && init?.method === 'PUT') {
+      const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return apiResponse({
+        itemKey: decodeURIComponent(path.split('/').at(-1) ?? ''),
+        ...payload,
+        updatedAt: '2026-07-27T12:00:00.000Z'
+      });
+    }
     if (path.endsWith('/manuscripts/owner-drafts') && init?.method === 'POST') {
       const payload = JSON.parse(String(init.body)) as { baseManuscriptVersionId: string | null };
       return apiResponse({ manuscriptVersionId: 'manuscript-owner-2', parentVersionId: payload.baseManuscriptVersionId, contentHash: 'hash-owner-2', wordCount: 8, status: 'candidate', unchanged: false });

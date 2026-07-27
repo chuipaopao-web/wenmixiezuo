@@ -307,7 +307,20 @@ export class ConversationService {
         missing: ['逐章规划与确认']
       };
     }
-    const discussionMatch = /^讨论\s+(.+)$/u.exec(content);
+    const settingDiscussionMatch = /^讨论设定\s+([\s\S]+)$/u.exec(content);
+    if (settingDiscussionMatch !== null) {
+      const scopeText = settingDiscussionMatch[1]!.trim();
+      if (scopeText.length < 2) throw new Error('请在“讨论设定”后写明具体设定项');
+      return this.scheduleDiscussion(
+        scope,
+        appendAttachmentContext(scopeText, attachmentContext),
+        messageId,
+        conversationId,
+        'open_discussion',
+        null
+      );
+    }
+    const discussionMatch = /^讨论\s+([\s\S]+)$/u.exec(content);
     if (discussionMatch !== null) {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
@@ -709,7 +722,9 @@ export class ConversationService {
   ): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
     const creativePurpose = purpose === 'creative_exploration' || purpose === 'locked_planning';
-    const roleKeys = creativePurpose
+    const settingWorkshop = scopeText.includes('【设定专项讨论资料包】');
+    const collaborative = creativePurpose || settingWorkshop;
+    const roleKeys = collaborative
       ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']
       : discussionRoleCandidates(scopeText);
     const placeholders = roleKeys.map(() => '?').join(', ');
@@ -720,14 +735,14 @@ export class ConversationService {
         AND r.role_key IN (${placeholders})
       ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, r.role_key
       LIMIT ?
-    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, creativePurpose ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
+    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, collaborative ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
     if (specialists.length === 0) throw new Error('没有与讨论范围匹配的岗位');
     for (const specialist of specialists) {
       this.database.prepare(`UPDATE agent_instances SET activation_state = 'idle', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
         .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, specialist.agent_id);
     }
     const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
-      type: creativePurpose ? 'collaborative' : 'quick',
+      type: collaborative ? 'collaborative' : 'quick',
       scopeText,
       createdByAgentId: lease.active_editor_agent_id,
       participants: [
