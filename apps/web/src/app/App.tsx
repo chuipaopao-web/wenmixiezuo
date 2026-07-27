@@ -2177,6 +2177,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const automaticTagSignature = useRef('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2215,12 +2216,38 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const recommendedTagOptions = [...new Set([
     ...(category?.recommendedMainTags ?? []),
     ...relevantTagGroups.flatMap(groupTagValues)
-  ])];
+  ])].filter((tag) => tag !== category?.name && !auxiliaryTags.includes(tag));
+  const audienceByPack: Record<string, string[]> = {
+    common: channel === 'female'
+      ? ['喜欢人物成长的女频读者', '喜欢情感张力的女频读者', '喜欢群像故事的女频读者']
+      : ['喜欢成长升级的男频读者', '喜欢热血爽感的男频读者', '喜欢智谋博弈的男频读者'],
+    fantasy: ['喜欢东方幻想与力量成长的读者'],
+    xianxia: ['喜欢修行体系与仙侠冒险的读者'],
+    history: ['喜欢历史推演、战争与权谋的读者'],
+    game: ['喜欢游戏机制、竞技与数值成长的读者'],
+    lord: ['喜欢领主经营、建设与势力扩张的读者'],
+    business: ['喜欢经营建设与资源博弈的读者'],
+    urban: ['喜欢都市生活、职业与身份反差的读者'],
+    romance: ['喜欢细腻感情与关系成长的读者'],
+    suspense: ['喜欢悬疑推理、探案与信息差的读者'],
+    scifi: ['喜欢未来科技、星际与生存探索的读者'],
+    apocalypse: ['喜欢末世生存与基地建设的读者'],
+    western_fantasy: ['喜欢魔法、种族与史诗冒险的读者'],
+    martial: ['喜欢江湖、武学与侠义抉择的读者'],
+    derivative: ['喜欢熟悉母题与原创变体的读者']
+  };
+  const audienceRecommendations = [...new Set(activePackKeys.flatMap((pack) => audienceByPack[pack] ?? []))].slice(0, 8);
   const displayedTagOptions = activeTagGroup === null ? recommendedTagOptions : [...new Set(groupTagValues(activeTagGroup))];
   const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN');
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
     ? options
     : options.filter((item) => item.toLocaleLowerCase('zh-CN').includes(normalizedTagQuery));
+  const tagRecommendationSignature = `${taxonomy?.version ?? ''}|${categoryKey ?? ''}|${[...auxiliaryTags].sort().join('|')}`;
+  useEffect(() => {
+    if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
+    automaticTagSignature.current = tagRecommendationSignature;
+    setMainTags(recommendedTagOptions.slice(0, 8));
+  }, [taxonomy, category, tagRecommendationSignature]);
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
   const missingRequirements = [
@@ -2238,6 +2265,14 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
     else if (current.length < max) setter([...current, tag]);
+  };
+  const toggleAudience = (item: string): void => {
+    const current = targetAudience.split('、').map((value) => value.trim()).filter(Boolean);
+    if (current.includes(item)) {
+      setTargetAudience(current.filter((value) => value !== item).join('、'));
+      return;
+    }
+    if (current.length < 3) setTargetAudience([...current, item].join('、'));
   };
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
@@ -2306,7 +2341,8 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
             }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
-          <label htmlFor="target-audience">目标读者<input id="target-audience" aria-label="目标读者" maxLength={500} value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} placeholder="例如：喜欢领主经营、群像成长和智谋博弈的读者" /></label>
+          <label htmlFor="target-audience">目标读者<input id="target-audience" aria-label="目标读者" maxLength={500} value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} placeholder="可直接填写，也可以选择下方推荐" /></label>
+          <StringTagPicker title="目标读者推荐" hint="可选1—3项，也可以继续手动修改" kind="目标读者" options={audienceRecommendations} selected={targetAudience.split('、').map((item) => item.trim()).filter(Boolean)} onToggle={toggleAudience} />
           </section>
         </div>
 
@@ -2325,7 +2361,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
               {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
             </nav>
             <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已选 ${mainTags.length} 个主要标签（最多8个）`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已自动勾选 ${mainTags.length} 个（最多8个），可取消或替换`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags, 8)} />
           </section>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}

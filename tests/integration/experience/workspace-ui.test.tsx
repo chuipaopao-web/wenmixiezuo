@@ -363,9 +363,10 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    fireEvent.change(within(dialog).getByLabelText('目标读者'), { target: { value: '喜欢都市悬疑与女性成长的读者' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：现言' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：脑洞' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择目标读者：喜欢人物成长的女频读者' }));
+    await waitFor(() => expect(within(dialog).getByText(/已自动勾选 8 个/)).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
+    expect(within(dialog).getByText(/已自动勾选 7 个/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
@@ -373,7 +374,7 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/已选 3 个主要标签/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已自动勾选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     expect(within(dialog).queryByLabelText('主角姓名')).not.toBeInTheDocument();
@@ -387,7 +388,7 @@ describe('完整创作工作台', () => {
       return payload.title === '长安簪影'
         && payload.classification === '女频'
         && blueprint.categoryKey === 'female-modern-brain'
-        && blueprint.targetAudience === '喜欢都市悬疑与女性成长的读者'
+        && blueprint.targetAudience === '喜欢人物成长的女频读者'
         && Array.isArray(blueprint.protagonists)
         && blueprint.protagonists.length === 0
         && blueprint.worldBackground === ''
@@ -414,11 +415,11 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：玄幻脑洞' }));
 
-    expect(within(dialog).getByText('还需填写：目标读者、至少2个主要标签、必须遵守')).toBeInTheDocument();
+    expect(within(dialog).getByText('还需填写：目标读者、必须遵守')).toBeInTheDocument();
     const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：目标读者、至少2个主要标签、必须遵守');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：目标读者、必须遵守');
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
