@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
-import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import {
+  DiscussionPipelineService,
+  compactOpinionsForEditor,
+  discussionContextTokenBudget
+} from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -14,7 +18,52 @@ import { parsePlanningDepositOutput } from '../../../apps/api/src/application/ar
 
 describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
-  afterEach(() => context?.close());
+  afterEach(() => {
+    context?.close();
+    context = undefined;
+  });
+
+  it('主编汇总上下文可容纳老板原话和四份真实岗位意见，编剧单席仍保持精简预算', () => {
+    expect(discussionContextTokenBudget(false)).toBe(8_000);
+    expect(discussionContextTokenBudget(true)).toBe(10_000);
+    const compacted = compactOpinionsForEditor(Array.from({ length: 4 }, (_, index) => ({
+      opinionId: `opinion-${index}`,
+      agentId: `agent-${index}`,
+      role: `编剧${index}`,
+      roleKey: index % 2 === 0 ? 'lead_screenwriter' : 'second_screenwriter',
+      phase: index < 2 ? 'independent' : 'cross_review',
+      output: `核心方案${index}：${'完整论证'.repeat(1_000)}\n最终结论${index}`
+    })));
+    expect(compacted).toHaveLength(4);
+    expect(compacted.every((opinion) => opinion.output.includes('完整原文保存在讨论证据中'))).toBe(true);
+    expect(compacted.every((opinion) => opinion.output.includes('最终结论'))).toBe(true);
+  });
+
+  it('失败的讨论任务可以保留既有意见并重新入队续跑', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '失败任务续跑测试书',
+      text: '主编汇总前上下文门禁失败'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const task = tasks.create(scope, {
+      taskId: ids.next(),
+      taskType: 'discussion',
+      idempotencyKey: 'failed-discussion-retry',
+      initialPhase: 'collecting',
+      brief: { discussionId: ids.next() }
+    });
+    context.database.prepare(`UPDATE tasks SET status = 'failed', error_code = 'DISCUSSION_FAILED' WHERE task_id = ?`)
+      .run(task.taskId);
+
+    expect(tasks.retryFailed(scope, task.taskId)).toMatchObject({
+      status: 'queued',
+      attemptCount: 0
+    });
+  });
 
   it('接受真实模型常见的Markdown标题和代码围栏跨度估算', () => {
     expect(parseSpanEstimateOutput([
@@ -142,6 +191,7 @@ describe('自然语言讨论运行闭环', () => {
     expect(tasks.claimNext('worker-planning')?.taskId).toBe(taskId);
     const result = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
       .executeClaimed(scope, taskId, 'worker-planning');
+    prepareBookForWriting(context, scope, ids, clock, 1);
 
     const locked = conversations.sendBossMessage(scope, '锁定当前方向');
     expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', sourceDecisionId: result.decisionId });

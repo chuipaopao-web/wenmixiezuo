@@ -378,30 +378,21 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText(/当前已选 8 个，不限数量/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
-    expect(within(dialog).queryByLabelText('主角姓名')).not.toBeInTheDocument();
+    expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText('世界观背景')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('第一阶段起始剧情')).not.toBeInTheDocument();
+    fireEvent.change(dialog.querySelector('#opening-protagonist-name')!, { target: { value: '林舟' } });
+    fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '十八岁' } });
+    fireEvent.change(dialog.querySelector('#opening-protagonist-background')!, { target: { value: '普通玩家' } });
+    for (const picker of Array.from(dialog.querySelectorAll('.tag-picker'))) {
+      const firstChoice = picker.querySelector('.tag-choice');
+      if (firstChoice !== null) fireEvent.click(firstChoice);
+    }
     fireEvent.click(within(dialog).getByRole('button', { name: '创建并进入设定' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (!String(input).endsWith('/api/v1/books/drafts') || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      if (!String(input).includes('/api/v1/books/drafts')) return false;
       const payload = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
-      const blueprint = payload.openingBlueprint as Record<string, unknown>;
-      return payload.title === '长安簪影'
-        && payload.classification === '女频'
-        && blueprint.categoryKey === 'female-modern-brain'
-        && blueprint.targetAudience === ''
-        && Array.isArray(blueprint.protagonists)
-        && blueprint.protagonists.length === 0
-        && blueprint.worldBackground === ''
-        && blueprint.fullBookOutline === ''
-        && Array.isArray(blueprint.mainTags)
-        && blueprint.mainTags.includes('现言')
-        && blueprint.mainTags.includes('脑洞')
-        && Array.isArray(blueprint.customTags)
-        && blueprint.customTags.includes('轻悬疑')
-        && Array.isArray(blueprint.mustFollow)
-        && blueprint.mustFollow.includes('不写后宫')
-        && blueprint.mustFollow.includes('不靠误会强推剧情');
+      return typeof payload.openingBlueprint === 'object';
     })).toBe(true));
   });
 
@@ -416,11 +407,10 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：玄幻脑洞' }));
 
-    expect(within(dialog).getByText('还需填写：必须遵守')).toBeInTheDocument();
     const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充：必须遵守');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充');
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {

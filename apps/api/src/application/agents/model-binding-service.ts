@@ -36,7 +36,7 @@ export class ModelBindingService {
     private readonly roleProfiles: Record<RoleKey, RoleModelProfile>
   ) {}
 
-  public bindAllBooks(): ModelBindingResult {
+  public bindAllBooks(options: { preserveActiveRevision?: boolean } = {}): ModelBindingResult {
     const v2Books = this.database.prepare(`
       SELECT DISTINCT a.owner_id, a.book_id
       FROM agent_instances a JOIN books b ON b.owner_id = a.owner_id AND b.book_id = a.book_id
@@ -50,6 +50,12 @@ export class ModelBindingService {
       const scope = { ownerId: book.owner_id, bookId: book.book_id };
       const repository = new AgentGovernanceRepository(this.database);
       const current = repository.listTeam(scope);
+      const hasActiveRevision = this.database.prepare(`
+        SELECT 1 FROM agent_model_binding_revisions
+        WHERE owner_id = ? AND book_id = ? AND status = 'active'
+        LIMIT 1
+      `).get(scope.ownerId, scope.bookId) !== undefined;
+      if (options.preserveActiveRevision === true && hasActiveRevision) continue;
       const requiresRevision = creativeRoleKeys.some((role) => {
         const agent = current.find((item) => item.roleKey === role);
         const profile = creativeProfiles[role];

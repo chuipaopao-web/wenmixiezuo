@@ -23,6 +23,7 @@ import { PromotionService } from '../../infrastructure/recovery/promotion-servic
 import { WriterSelectionService } from './writer-selection-service.js';
 import { CopyrightService } from '../copyright/copyright-service.js';
 import { WritingReadinessService } from './writing-readiness-service.js';
+import { StyleCapsuleService } from './style-capsule-service.js';
 import { ChapterStateRecoveryService } from './chapter-state-recovery-service.js';
 import { WritingOrderService } from './writing-order-service.js';
 import { ProductionReviewService, reportsForEditorSynthesis } from './production-review-service.js';
@@ -359,6 +360,7 @@ export class ChapterPipelineService {
     const settlements = continuity.writerSettlementContext(scope, chapter.chapter_number, 3);
     const commitments = continuity.listCommitments(scope, chapter.chapter_number).slice(0, 8);
     const draftPolicy = WRITER_CONTEXT_POLICY.draft;
+    const style = new StyleCapsuleService(this.database).active(scope);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
       {
@@ -375,6 +377,14 @@ export class ChapterPipelineService {
         reason: '本章唯一目标、章纲与写作契约，合计不超过1500字',
         priority: 100,
         version: `${outline.version}:${contract.version}`
+      },
+      {
+        sourceType: 'style_baseline',
+        sourceId: style.styleVersionId,
+        content: style.capsule,
+        reason: '老板确认的作品风格短胶囊；按场景动态适配，不机械打卡',
+        priority: 100,
+        version: style.styleVersionId
       },
       ...(settlements.length === 0 ? [] : [{
         sourceType: 'stage_settlement_context',
@@ -491,6 +501,7 @@ export class ChapterPipelineService {
     const prompt = JSON.stringify({
       operation: rewriteBase === null ? 'draft' : 'rewrite', chapterNumber: chapter.chapter_number, title: chapter.title,
       previousState: previous?.state_json ?? '故事刚刚开始',
+      lengthContract: writerLengthContract(),
       ...(rewriteBase === null ? {} : {
         content: this.loadManuscript(scope, rewriteBase),
         requiredActions: [typeof taskBrief.instruction === 'string' && taskBrief.instruction.trim().length > 0
@@ -601,6 +612,14 @@ export class ChapterPipelineService {
         reason: '前一章定稿结尾；只用于核对相邻章动作、人物位置和因果衔接', priority: 98
       }])
     ];
+    const boundedFrozenReviewSources = frozenReviewSources.map((source) => ({
+      ...source,
+      content: clipContext(source.content,
+        source.sourceType === 'writing_contract' ? 1_000
+          : source.sourceType === 'previous_chapter_end' ? 500
+            : source.sourceType === 'previous_chapter_tail' ? 400
+              : 700)
+    }));
     const manuscriptHash = createHash('sha256').update(content).digest('hex');
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
     const workflowRepository = new ProductionWorkflowRepository(this.database);
@@ -666,8 +685,11 @@ export class ChapterPipelineService {
         policyVersion: `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: [
           { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
-          ...frozenReviewSources,
-          ...reviewerSources.hardSources
+          ...boundedFrozenReviewSources,
+          ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
+            ...source,
+            content: clipContext(source.content, 300)
+          }))
         ],
         optionalSources: reviewerSources.optionalSources
       });
@@ -910,23 +932,50 @@ export class ChapterPipelineService {
       reviewPanelId: panel.panelId,
       reports
     });
-    if (quality.retainPreviousBest && quality.bestVersionId !== null) {
+    const operation = this.taskBrief(scope, run.task_id).operation;
+    if (shouldRestorePreviousBest(operation, quality.retainPreviousBest)
+      && quality.bestVersionId !== null) {
       qualitySnapshots.restoreBest(scope, {
         chapterId: run.chapter_id,
         rejectedVersionId: manuscriptVersionId,
         bestVersionId: quality.bestVersionId,
         pipelineRunId: run.pipeline_run_id
       });
-      if (merged.verdict === 'blocked') {
+      if (quality.hardBlocked) {
         throw new QualityBlockedError('三异模型点评发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
       }
-      throw new QualityBlockedError(
-        `新稿在${quality.regressedDimensions.length}个可比文学/体验维度明显退化，且没有硬问题改善；已恢复上一最佳稿并停止自动改写`
+      const bestPanel = this.database.prepare(`
+        SELECT review_panel_id FROM manuscript_quality_snapshots
+        WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ?
+        ORDER BY created_at DESC, manuscript_quality_snapshot_id DESC LIMIT 1
+      `).get(scope.ownerId, scope.bookId, run.chapter_id, quality.bestVersionId) as {
+        review_panel_id: string;
+      } | undefined;
+      if (bestPanel === undefined) {
+        throw new QualityBlockedError('已恢复上一最佳稿，但缺少可追溯的三席点评快照');
+      }
+      this.database.prepare(`
+        UPDATE chapter_pipeline_runs
+        SET current_manuscript_version_id = ?, review_panel_id = ?, phase = 'facts', updated_at = ?
+        WHERE pipeline_run_id = ?
+      `).run(
+        quality.bestVersionId,
+        bestPanel.review_panel_id,
+        this.clock.now().toISOString(),
+        run.pipeline_run_id
       );
+      return this.reload(run.pipeline_run_id);
     }
-    if (merged.verdict === 'blocked') throw new QualityBlockedError('三异模型点评发现阻断问题，已保留稿件和证据');
+    if (merged.verdict === 'blocked') {
+      if (quality.hardBlocked) {
+        throw new QualityBlockedError('三异模型点评发现事实、连续性或合规硬阻断问题，已保留稿件和证据');
+      }
+      // Literary and experience disagreements must remain visible to the owner,
+      // but they must not create a dead end after the bounded automatic rewrite.
+      return this.advance(run, 'facts');
+    }
     if (merged.verdict === 'rewrite') {
-      if (run.rewrite_count >= 2) throw new QualityBlockedError('两轮定点重写后仍未通过，已停止机械重写');
+      if (run.rewrite_count >= 2) return this.advance(run, 'facts');
       return this.advance(run, 'rewrite');
     }
     return this.advance(run, 'facts');
@@ -958,8 +1007,13 @@ export class ChapterPipelineService {
           noPlaceholder?: { passed?: boolean };
         };
         if (checks.length?.passed === false) {
+          const characterCount = checks.length.characterCount;
+          const isTooShort = typeof characterCount === 'number'
+            && characterCount < (checks.length.minimum ?? 2_350);
           requiredActions.push(
-            `全文当前有效字符${checks.length.characterCount ?? '未知'}，在不改变事实、人物选择和章末钩子的前提下调整到${checks.length.targetMinimum ?? 2500}至${checks.length.targetMaximum ?? 3500}个汉字、字母或数字有效字符（不计标点和空白）；只补充有因果作用的动作、感官、对话或过渡，禁止同义复述和空泛凑字`
+            isTooShort
+              ? `全文当前有效字符${characterCount ?? '未知'}，低于硬下限；在不改变事实、人物选择和章末钩子的前提下扩充到2700至3200个汉字、字母或数字有效字符（不计标点和空白）；只补充有因果作用的动作、感官、对话或过渡，禁止同义复述和空泛凑字`
+              : `全文当前有效字符${characterCount ?? '未知'}，超过硬上限；在不改变事实、人物选择和章末钩子的前提下压缩到2700至3200个汉字、字母或数字有效字符（不计标点和空白）；优先删除解释、复述和无因果作用的段落`
           );
         }
         if (checks.noPlaceholder?.passed === false) requiredActions.push('删除全部占位标记并补成完整、可阅读的叙事内容');
@@ -1004,9 +1058,10 @@ export class ChapterPipelineService {
     const adapter = this.modelAdapters.resolve(writerModel.provider, writerModel.modelId, 'novel_writer', 'writer');
     let output: string;
     try {
+      const lengthContract = writerLengthContract();
       output = await this.executeModel(
         scope, run, `rewrite-${run.rewrite_count + 1}`, run.writer_agent_id, run.writer_model_snapshot_id,
-        adapter, JSON.stringify({ operation: 'rewrite', content, requiredActions }), pack.contextPackId
+        adapter, JSON.stringify({ operation: 'rewrite', content, requiredActions, lengthContract }), pack.contextPackId
       );
     } catch (error) {
       if (!(error instanceof ModelTechnicalFailureError)) throw error;
@@ -1677,6 +1732,17 @@ export function tailContext(content: string, maxCharacters: number): string {
   return `…${normalized.slice(-(maxCharacters - 1))}`;
 }
 
+export function shouldRestorePreviousBest(
+  operation: unknown,
+  retainPreviousBest: boolean
+): boolean {
+  // An owner-submitted finalization explicitly selects the manuscript under review.
+  // Subjective score regression remains visible as a disagreement, but must not
+  // silently replace that manuscript with an older version. Objective blockers
+  // are still enforced by the fact, compliance, and hard-quality gates.
+  return retainPreviousBest && operation !== 'review_existing';
+}
+
 function pickContextFields(value: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   const selected = Object.fromEntries(keys
     .filter((key) => Object.hasOwn(value, key))
@@ -1687,6 +1753,17 @@ function pickContextFields(value: Record<string, unknown>, keys: string[]): Reco
 function requiredString(value: unknown, message: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(message);
   return value.trim();
+}
+
+function writerLengthContract(): Record<string, unknown> {
+  return {
+    generationAimMinimum: 2_700,
+    generationAimMaximum: 3_200,
+    acceptedMinimum: 2_350,
+    acceptedMaximum: 3_650,
+    unit: '有效汉字、字母或数字（不计标点和空白）',
+    instruction: '只输出完整小说正文，优先控制在2700至3200有效字符；允许的硬边界为2350至3650。要求较多时压缩解释和同义复述，不得靠扩写逐条解释要求。'
+  };
 }
 
 function firstString(...values: unknown[]): string | null {

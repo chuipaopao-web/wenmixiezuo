@@ -160,6 +160,46 @@ export class ChapterCatalogService {
     `).all(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId, Math.max(1, Math.min(200, limit))) as unknown as ChapterRow[];
     return rows.map(mapChapter);
   }
+
+  public repairPlaceholderTitlesFromSelectedOutlines(scope: BookScope): number {
+    assertBookScope(scope);
+    const rows = this.database.prepare(`
+      SELECT c.chapter_id, c.chapter_number, c.title, v.content_json
+      FROM chapters c
+      JOIN artifacts a ON a.owner_id = c.owner_id AND a.book_id = c.book_id
+        AND a.artifact_type = 'chapter_outline' AND a.title = '第' || c.chapter_number || '章章纲'
+        AND a.status = 'active'
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id AND v.status = 'selected'
+      WHERE c.owner_id = ? AND c.book_id = ?
+      ORDER BY c.chapter_number
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{
+      chapter_id: string;
+      chapter_number: number;
+      title: string;
+      content_json: string;
+    }>;
+    const now = this.clock.now().toISOString();
+    let changes = 0;
+    for (const row of rows) {
+      if (!isPlaceholderChapterTitle(row.title, row.chapter_number)) continue;
+      const content = JSON.parse(row.content_json) as { title?: unknown };
+      const title = typeof content.title === 'string'
+        ? content.title.replace(/^第\d+章[：:\s]*/u, '').trim()
+        : '';
+      if (title.length === 0 || isPlaceholderChapterTitle(title, row.chapter_number)) continue;
+      const result = this.database.prepare(`
+        UPDATE chapters SET title = ?, updated_at = ?, version = version + 1
+        WHERE chapter_id = ? AND owner_id = ? AND book_id = ? AND title = ?
+      `).run(title, now, row.chapter_id, scope.ownerId, scope.bookId, row.title);
+      changes += Number(result.changes);
+    }
+    return changes;
+  }
+}
+
+function isPlaceholderChapterTitle(title: string, chapterNumber: number): boolean {
+  const normalized = title.trim();
+  return normalized === `第${chapterNumber}章` || /^\?+$/u.test(normalized);
 }
 
 function mapChapter(row: ChapterRow): ChapterRecord {

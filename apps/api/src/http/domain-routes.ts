@@ -60,6 +60,12 @@ import { CreativeSessionRepository } from '../infrastructure/db/repositories/cre
 import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
+import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
+import { PlanningStateService } from '../application/books/planning-state-service.js';
+import { StyleBaselineService } from '../application/books/style-baseline-service.js';
+import type { StyleBaselineInput } from '../contracts/style-baseline.js';
+import { SettingBaselineService } from '../application/knowledge/setting-baseline-service.js';
+import { PlanningStageArtifactService } from '../application/artifacts/planning-stage-artifact-service.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -109,6 +115,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const protagonists = new ProtagonistStateService(database, ids, clock);
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
   const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
+  const bookProfileView = new BookProfileViewService(database);
+  const planningStates = new PlanningStateService(database);
+  const styleBaselines = new StyleBaselineService(database, ids, clock);
+  const settingBaselines = new SettingBaselineService(database, clock);
+  const planningStageArtifacts = new PlanningStageArtifactService(database, clock);
   const budgets = new BudgetService(database, ids, clock);
   const modelCalls = new ModelCallService(database, clock, budgets);
   const editors = new EditorLeaseService(database, ids, clock);
@@ -127,6 +138,55 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/book-profile', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(bookProfileView.get(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/planning-state', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(planningStates.get(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/style-baseline', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(styleBaselines.get(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number; style: StyleBaselineInput } }>(
+    '/api/v1/books/:bookId/style-baseline/confirm',
+    async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      return success(styleBaselines.confirm(scope, request.body.expectedPlanningVersion, request.body.style), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/setting-baseline/readiness', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(settingBaselines.inspect(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number } }>(
+    '/api/v1/books/:bookId/setting-baseline/confirm',
+    async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      return success(settingBaselines.confirm(scope, request.body.expectedPlanningVersion), request.id);
+    }
+  );
+
+  app.post<{
+    Params: { bookId: string };
+    Body: { expectedPlanningVersion: number; artifactVersionId: string; artifactType: 'master_outline' | 'volume_outline' | 'chapter_outline' };
+  }>('/api/v1/books/:bookId/planning-artifacts/confirm', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(planningStageArtifacts.confirm(
+      scope,
+      request.body.expectedPlanningVersion,
+      request.body.artifactVersionId,
+      request.body.artifactType
+    ), request.id);
+  });
 
   app.post<{ Body: { synopsis?: string } }>('/api/v1/opening-synopsis/analyze', async (request) => {
     try {
@@ -1031,6 +1091,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/resume', async (request) => {
     return success(tasks.queue({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/retry', async (request) => {
+    return success(tasks.retryFailed({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {

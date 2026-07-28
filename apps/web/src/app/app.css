@@ -3648,6 +3648,9 @@ svg {
 .custom-setting-builder { display: grid; gap: 12px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: var(--panel-radius); background: var(--panel); }
 .custom-setting-builder form { display: grid; grid-template-columns: minmax(150px, .45fr) minmax(240px, 1fr) auto; gap: 8px; }
 .custom-setting-builder input { min-height: 40px; border: 1px solid var(--line-strong); border-radius: var(--control-radius); padding: 8px 10px; color: var(--ink); background: var(--panel-raised); font: inherit; }
+.planning-stage-action { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px; border: 1px solid var(--line-strong); border-radius: var(--panel-radius); background: color-mix(in srgb, var(--accent-soft) 62%, var(--panel)); }
+.planning-stage-action strong { color: var(--ink); }
+.planning-stage-action p { margin: 4px 0 0; color: var(--ink-muted); }
 
 @media (max-width: 900px) {
   .setting-outline-header { align-items: stretch; flex-direction: column; }

@@ -83,6 +83,30 @@ export function prepareBookForWriting(
   discussions.confirm(scope, discussion.discussionId, decisionId);
   const prepared = new PlanningArtifactService(context.database, ids, clock)
     .promoteConfirmedDecision(scope, discussion.discussionId, decisionId, count);
+  const styleVersionId = ids.next();
+  const now = clock.now().toISOString();
+  context.database.prepare(`
+    UPDATE book_style_versions SET status = 'superseded'
+    WHERE owner_id = ? AND book_id = ? AND status = 'selected'
+  `).run(scope.ownerId, scope.bookId);
+  context.database.prepare(`
+    INSERT INTO book_style_versions (
+      style_version_id, owner_id, book_id, version, content_json, source_kind, status, created_at
+    ) VALUES (?, ?, ?, 1, ?, 'owner', 'selected', ?)
+  `).run(styleVersionId, scope.ownerId, scope.bookId, JSON.stringify({
+    languageTones: ['自然'], emotionalTones: ['有张力'], pacingAndPayoff: ['推进明确'],
+    atmospheres: ['沉浸'], custom: [], adaptiveRules: [], avoidPatterns: []
+  }), now);
+  context.database.prepare(`
+    UPDATE book_planning_states
+    SET version = version + 1, stage = 'chapter_outline_ready',
+      active_style_version_id = ?, setting_baseline_version_id = ?,
+      master_outline_version_id = ?, volume_outline_version_id = ?, updated_at = ?
+    WHERE owner_id = ? AND book_id = ?
+  `).run(
+    styleVersionId, prepared.storyBibleVersionId, prepared.masterOutlineVersionId,
+    prepared.volumeOutlineVersionId, now, scope.ownerId, scope.bookId
+  );
   if (count > prepared.chapterOutlineVersionIds.length) {
     const artifacts = new ArtifactService(context.database, ids, clock);
     for (let chapterNumber = prepared.chapterOutlineVersionIds.length + 1; chapterNumber <= count; chapterNumber += 1) {

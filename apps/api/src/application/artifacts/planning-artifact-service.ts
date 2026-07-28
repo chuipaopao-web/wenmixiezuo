@@ -6,6 +6,8 @@ import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.
 import { ExpressionProfileService } from '../books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../../infrastructure/db/repositories/expression-profile-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { PlanningStageArtifactService } from './planning-stage-artifact-service.js';
+import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 
 interface DecisionRow {
   scope_text: string;
@@ -60,9 +62,165 @@ export class PlanningArtifactService {
       ORDER BY created_at DESC LIMIT 1
     `).get(scope.ownerId, scope.bookId, discussionId) as { task_brief_json: string } | undefined;
     if (sourceTask === undefined) return null;
-    const brief = JSON.parse(sourceTask.task_brief_json) as { purpose?: string };
+    const brief = JSON.parse(sourceTask.task_brief_json) as {
+      purpose?: string;
+      requestedChapterCount?: number | null;
+    };
     if (brief.purpose !== 'locked_planning') return null;
-    return this.promoteConfirmedDecision(scope, discussionId, decisionId, this.recommendedChapterCount(scope, discussionId));
+    const requestedChapterCount = brief.requestedChapterCount;
+    const chapterCount = typeof requestedChapterCount === 'number' && Number.isInteger(requestedChapterCount)
+      ? requestedChapterCount
+      : this.recommendedChapterCount(scope, discussionId);
+    return this.promoteChapterOutlinesOnly(scope, discussionId, decisionId, Math.min(3, chapterCount));
+  }
+
+  public promoteCurrentPlanningStage(
+    scope: BookScope,
+    discussionId: string,
+    decisionId: string
+  ): { artifactType: 'master_outline' | 'volume_outline'; artifactVersionId: string; stage: string } | null {
+    return new UnitOfWork(this.database).run(
+      () => this.promoteCurrentPlanningStageInTransaction(scope, discussionId, decisionId)
+    );
+  }
+
+  private promoteCurrentPlanningStageInTransaction(
+    scope: BookScope,
+    discussionId: string,
+    decisionId: string
+  ): { artifactType: 'master_outline' | 'volume_outline'; artifactVersionId: string; stage: string } | null {
+    assertBookScope(scope);
+    const workflow = new PlanningWorkflowRepository(this.database);
+    if (workflow.openingBlueprint(scope) === undefined) return null;
+    const state = workflow.planningState(scope);
+    if (state === undefined) return null;
+    const decision = this.database.prepare(`
+      SELECT x.scope_text, d.recommendation_json, d.alternatives_json, d.boss_confirmed
+      FROM discussion_decisions d
+      JOIN discussions x ON x.discussion_id = d.discussion_id
+      WHERE d.decision_id = ? AND d.discussion_id = ?
+        AND d.owner_id = ? AND d.book_id = ?
+    `).get(decisionId, discussionId, scope.ownerId, scope.bookId) as DecisionRow | undefined;
+    if (decision === undefined || decision.boss_confirmed !== 1) {
+      throw new Error('只有老板明确确认的讨论结论才能进入规划');
+    }
+    const summary = stripPlanningDeposit(readableSummary(
+      JSON.parse(decision.recommendation_json) as Record<string, unknown>
+    ));
+    const source = { sourceDiscussionId: discussionId, sourceDecisionId: decisionId };
+
+    if (['setting_ready', 'master_outline_in_progress'].includes(state.stage)) {
+      if (state.setting_baseline_version_id === null) {
+        throw new Error('确认剧情总纲前必须先确认设定大纲');
+      }
+      const positioning = this.positioning(scope);
+      const version = this.upsert(scope, 'master_outline', '剧情总纲', {
+        premise: stringValue(positioning.premise?.value) ?? decision.scope_text,
+        mainConflict: summary,
+        storyDirection: summary,
+        endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定，后续由老板确认',
+        openQuestions: [],
+        sourceSettingBaselineVersionId: state.setting_baseline_version_id,
+        ...source
+      });
+      const advanced = new PlanningStageArtifactService(this.database, this.clock)
+        .confirm(scope, state.version, version.artifactVersionId, 'master_outline');
+      return { artifactType: 'master_outline', artifactVersionId: version.artifactVersionId, stage: advanced.stage };
+    }
+
+    if (['master_outline_ready', 'volume_outline_in_progress'].includes(state.stage)) {
+      if (state.master_outline_version_id === null) {
+        throw new Error('确认卷纲前必须先确认剧情总纲');
+      }
+      const volumeNumber = this.currentVolumeNumber(scope);
+      const version = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
+        volumeNumber,
+        goal: summary,
+        arcs: [{ title: '本卷主线', objective: summary, status: 'confirmed' }],
+        endingState: '由本卷后续滚动规划继续细化',
+        openQuestions: [],
+        sourceMasterOutlineVersionId: state.master_outline_version_id,
+        ...source
+      });
+      const advanced = new PlanningStageArtifactService(this.database, this.clock)
+        .confirm(scope, state.version, version.artifactVersionId, 'volume_outline');
+      return { artifactType: 'volume_outline', artifactVersionId: version.artifactVersionId, stage: advanced.stage };
+    }
+    return null;
+  }
+
+  private promoteChapterOutlinesOnly(
+    scope: BookScope,
+    discussionId: string,
+    decisionId: string,
+    chapterCount: number
+  ): PreparedPlanningArtifacts {
+    assertBookScope(scope);
+    const state = this.database.prepare(`
+      SELECT active_style_version_id, setting_baseline_version_id, master_outline_version_id, volume_outline_version_id
+      FROM book_planning_states
+      WHERE owner_id = ? AND book_id = ? AND stage IN ('volume_outline_ready', 'chapter_outline_ready', 'writing_enabled')
+    `).get(scope.ownerId, scope.bookId) as {
+      active_style_version_id: string | null;
+      setting_baseline_version_id: string | null;
+      master_outline_version_id: string | null;
+      volume_outline_version_id: string | null;
+    } | undefined;
+    if (state === undefined || state.active_style_version_id === null || state.setting_baseline_version_id === null
+      || state.master_outline_version_id === null || state.volume_outline_version_id === null) {
+      throw new Error('滚动章纲只能在作品风格、设定、剧情总纲和当前卷纲依次确认后生成');
+    }
+    const decision = this.database.prepare(`
+      SELECT x.scope_text, d.recommendation_json, d.alternatives_json, d.boss_confirmed
+      FROM discussion_decisions d JOIN discussions x ON x.discussion_id = d.discussion_id
+      WHERE d.decision_id = ? AND d.discussion_id = ? AND d.owner_id = ? AND d.book_id = ?
+    `).get(decisionId, discussionId, scope.ownerId, scope.bookId) as DecisionRow | undefined;
+    if (decision === undefined || decision.boss_confirmed !== 1) throw new Error('只有老板明确确认的讨论决定才能生成章纲');
+    const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
+    const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
+    const summary = readableSummary(recommendation);
+    const structured = parsePlanningDepositOutput(summary);
+    if (structured !== null && structured.chapters.length !== chapterCount) {
+      throw new Error(`滚动章纲必须只细化未来${chapterCount}章`);
+    }
+    const narrativeSummary = stripPlanningDeposit(summary);
+    const firstChapterNumber = this.nextChapterNumber(scope);
+    const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
+    const chapterPlans = structured?.chapters ?? Array.from({ length: chapterCount }, (_, index) => ({
+      title: `第${firstChapterNumber + index}章`,
+      goal: `推进当前卷已确认目标：${narrativeSummary}`,
+      beats,
+      hook: extractHook(narrativeSummary, decision.scope_text)
+    }));
+    const source = {
+      sourceDiscussionId: discussionId,
+      sourceDecisionId: decisionId,
+      sourceMasterOutlineVersionId: state.master_outline_version_id,
+      sourceVolumeOutlineVersionId: state.volume_outline_version_id,
+      sourceStyleVersionId: state.active_style_version_id,
+      sourceSettingBaselineVersionId: state.setting_baseline_version_id
+    };
+    const chapterOutlineVersionIds = chapterPlans.map((plan, index) => this.upsert(
+      scope,
+      'chapter_outline',
+      `第${firstChapterNumber + index}章章纲`,
+      {
+        chapterNumber: firstChapterNumber + index,
+        title: plan.title,
+        goal: plan.goal,
+        beats: plan.beats,
+        hook: plan.hook,
+        creativeFreedom: ['对白、动作、意象与局部调度由主笔决定', '允许按场景目的动态适配风格'],
+        ...source
+      }
+    ).artifactVersionId);
+    return {
+      creativePlanVersionId: state.active_style_version_id,
+      storyBibleVersionId: state.setting_baseline_version_id,
+      masterOutlineVersionId: state.master_outline_version_id,
+      volumeOutlineVersionId: state.volume_outline_version_id,
+      chapterOutlineVersionIds
+    };
   }
 
   public promoteConfirmedDecision(
@@ -83,8 +241,9 @@ export class PlanningArtifactService {
     const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
     const structuredPlan = parsePlanningDepositOutput(summary);
-    if (structuredPlan !== null && structuredPlan.chapters.length > Math.min(3, chapterCount)) {
-      throw new Error(`滚动章纲只能细化未来1至${Math.min(3, chapterCount)}章`);
+    const detailedChapterCount = chapterCount;
+    if (structuredPlan !== null && structuredPlan.chapters.length !== detailedChapterCount) {
+      throw new Error(`滚动章纲必须从当前下一章开始连续细化${detailedChapterCount}章，不能跳章、少章或错位`);
     }
     const narrativeSummary = stripPlanningDeposit(summary);
     const positioning = this.positioning(scope);
@@ -134,7 +293,6 @@ export class PlanningArtifactService {
     });
     const firstChapterNumber = this.nextChapterNumber(scope);
     const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
-    const detailedChapterCount = Math.min(3, chapterCount);
     const fallbackStages = ['建立本弧核心冲突并迫使主角作出第一次选择', '让选择产生可见代价并升级阻力', '形成阶段转折并打开下一步问题'];
     const chapterPlans = structuredPlan?.chapters ?? Array.from({ length: detailedChapterCount }, (_, index) => ({
       title: `第${firstChapterNumber + index}章`,
@@ -142,27 +300,35 @@ export class PlanningArtifactService {
       beats,
       hook: extractHook(narrativeSummary, decision.scope_text)
     }));
+    const currentMasterOutline = this.currentArtifactContent(scope, 'master_outline', '总纲');
+    const currentActs = asArray(currentMasterOutline.acts).filter(isRecord);
+    const newActs = chapterPlans.map((plan, index) => ({
+      chapterNumber: firstChapterNumber + index,
+      title: plan.title,
+      objective: plan.goal
+    }));
+    const mergedActs = mergeNumberedItems(currentActs, newActs, 'chapterNumber');
     const masterOutline = this.upsert(scope, 'master_outline', '总纲', {
       premise,
-      acts: chapterPlans.map((plan, index) => ({
-        chapterNumber: firstChapterNumber + index,
-        title: plan.title,
-        objective: plan.goal
-      })),
+      acts: mergedActs,
       endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定；后续由老板确认',
       ...source
     });
     const volumeNumber = this.currentVolumeNumber(scope);
+    const volumeTitle = `第${volumeNumber}卷卷纲`;
+    const currentVolumeOutline = this.currentArtifactContent(scope, 'volume_outline', volumeTitle);
+    const currentArcs = asArray(currentVolumeOutline.arcs).filter(isRecord);
+    const nextArc = {
+      title: structuredPlan?.arcTitle ?? '当前故事弧',
+      chapterStart: firstChapterNumber,
+      chapterEnd: firstChapterNumber + chapterCount - 1,
+      objective: structuredPlan?.arcGoal ?? narrativeSummary,
+      status: 'active'
+    };
     const volumeOutline = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
       volumeNumber,
       goal: structuredPlan?.arcGoal ?? narrativeSummary,
-      arcs: [{
-        title: structuredPlan?.arcTitle ?? '当前故事弧',
-        chapterStart: firstChapterNumber,
-        chapterEnd: firstChapterNumber + chapterCount - 1,
-        objective: structuredPlan?.arcGoal ?? narrativeSummary,
-        status: 'active'
-      }],
+      arcs: mergeArcItems(currentArcs, nextArc),
       endingState: structuredPlan?.endingState ?? extractHook(narrativeSummary, decision.scope_text),
       ...source
     });
@@ -215,6 +381,17 @@ export class PlanningArtifactService {
     return row === undefined ? {} : JSON.parse(row.content_json) as Record<string, unknown>;
   }
 
+  private currentArtifactContent(scope: BookScope, type: ArtifactType, title: string): Record<string, unknown> {
+    const row = this.database.prepare(`
+      SELECT v.content_json FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = ? AND a.title = ?
+        AND a.status = 'active' AND v.status = 'selected'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, type, title) as { content_json: string } | undefined;
+    return row === undefined ? {} : JSON.parse(row.content_json) as Record<string, unknown>;
+  }
+
   private bookTitle(scope: BookScope): string {
     return (this.database.prepare(`SELECT title FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { title: string }).title;
@@ -264,16 +441,24 @@ export class PlanningArtifactService {
 export function parsePlanningDepositOutput(summary: string): StructuredArcPlan | null {
   const text = effectivePlanningText(summary);
   const marker = /规划落库(?:\*\*)?/u.exec(text);
-  if (marker === null) return null;
-  const candidate = extractCompleteJsonObject(text.slice(marker.index + marker[0].length));
-  if (candidate === null) throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
+  const markedCandidate = marker === null
+    ? null
+    : extractCompleteJsonObject(text.slice(marker.index + marker[0].length));
+  if (marker !== null && markedCandidate === null) {
+    throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
+  }
+  const candidate = markedCandidate ?? extractCompleteJsonObjects(text)
+    .map((item) => item.value)
+    .reverse()
+    .find(isPlanningDepositJson) ?? null;
+  if (candidate === null) return null;
   let value: unknown;
   try {
     value = JSON.parse(candidate);
   } catch {
     throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
   }
-  if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 3) {
+  if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 30) {
     throw new Error('滚动规划必须包含未来1至3个章节方案');
   }
   const chapters = value.chapters.map((item, index): StructuredChapterPlan => {
@@ -315,16 +500,26 @@ function parseChapterRange(value: unknown): StructuredArcPlan['estimatedChapterR
 function stripPlanningDeposit(summary: string): string {
   const text = effectivePlanningText(summary);
   const marker = /规划落库(?:\*\*)?/u.exec(text);
-  if (marker === null) return text.trim();
-  const suffix = text.slice(marker.index + marker[0].length);
-  const candidate = extractCompleteJsonObject(suffix);
-  if (candidate === null) return text.trim();
-  const candidateStart = suffix.indexOf(candidate);
-  return `${text.slice(0, marker.index)}${suffix.slice(candidateStart + candidate.length)}`
-    .replace(/```(?:json)?|```/giu, '').trim();
+  if (marker !== null) {
+    const suffix = text.slice(marker.index + marker[0].length);
+    const candidate = extractCompleteJsonObject(suffix);
+    if (candidate === null) return text.trim();
+    const candidateStart = suffix.indexOf(candidate);
+    return effectivePlanningText(`${text.slice(0, marker.index)}${suffix.slice(candidateStart + candidate.length)}`
+      .replace(/```(?:json)?|```/giu, '').trim());
+  }
+  const deposit = extractCompleteJsonObjects(text).reverse().find((item) => isPlanningDepositJson(item.value));
+  if (deposit === undefined) return text.trim();
+  return effectivePlanningText(`${text.slice(0, deposit.start)}${text.slice(deposit.end)}`
+    .replace(/```(?:json)?|```/giu, '').trim());
 }
 
 function extractCompleteJsonObject(value: string): string | null {
+  return extractCompleteJsonObjects(value)[0]?.value ?? null;
+}
+
+function extractCompleteJsonObjects(value: string): Array<{ value: string; start: number; end: number }> {
+  const objects: Array<{ value: string; start: number; end: number }> = [];
   for (let start = 0; start < value.length; start += 1) {
     if (value[start] !== '{') continue;
     let depth = 0;
@@ -342,11 +537,25 @@ function extractCompleteJsonObject(value: string): string | null {
       else if (character === '{') depth += 1;
       else if (character === '}') {
         depth -= 1;
-        if (depth === 0) return value.slice(start, index + 1);
+        if (depth === 0) {
+          objects.push({ value: value.slice(start, index + 1), start, end: index + 1 });
+          start = index;
+          break;
+        }
       }
     }
   }
-  return null;
+  return objects;
+}
+
+function isPlanningDepositJson(candidate: string): boolean {
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return isRecord(parsed) && Array.isArray(parsed.chapters)
+      && (typeof parsed.arcTitle === 'string' || typeof parsed.arcGoal === 'string');
+  } catch {
+    return false;
+  }
 }
 
 function effectivePlanningText(summary: string): string {
@@ -410,6 +619,33 @@ function integerValue(value: unknown): number | null {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+export function mergeNumberedItems(
+  current: Record<string, unknown>[],
+  incoming: Record<string, unknown>[],
+  numberKey: string
+): Record<string, unknown>[] {
+  const merged = new Map<number, Record<string, unknown>>();
+  for (const item of [...current, ...incoming]) {
+    const number = integerValue(item[numberKey]);
+    if (number !== null) merged.set(number, item);
+  }
+  return [...merged.entries()].sort(([left], [right]) => left - right).map(([, item]) => item);
+}
+
+export function mergeArcItems(
+  current: Record<string, unknown>[],
+  incoming: Record<string, unknown>
+): Record<string, unknown>[] {
+  const start = integerValue(incoming.chapterStart);
+  const end = integerValue(incoming.chapterEnd);
+  const retained = current.filter((item) =>
+    integerValue(item.chapterStart) !== start || integerValue(item.chapterEnd) !== end
+  );
+  return [...retained, incoming].sort((left, right) =>
+    (integerValue(left.chapterStart) ?? 0) - (integerValue(right.chapterStart) ?? 0)
+  );
 }
 
 function stringArray(value: unknown): string[] {

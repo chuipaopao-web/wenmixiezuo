@@ -11,6 +11,10 @@ function validBlueprint(): OpeningBlueprintInput {
     channel: 'male',
     categoryKey: 'male-fantasy-brain',
     targetAudience: '喜欢成长、谋略与边城经营的男频读者',
+    styleIntent: {
+      languageTones: ['幽默'], emotionalTones: ['热血'],
+      pacingAndPayoff: ['爽点密集'], atmospheres: ['沉浸'], custom: []
+    },
     protagonists: [{
       role: 'male_lead', name: '陆沉', age: '十八岁',
       background: '边城驿卒之子，意外得到残缺军功册。',
@@ -107,7 +111,7 @@ describe('完整开书分类与资料合同', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
     expect(validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' }).targetAudience).toBe('');
-    expect(validateOpeningBlueprint({
+    expect(() => validateOpeningBlueprint({
       ...validBlueprint(),
       protagonists: [],
       worldBackground: '',
@@ -115,7 +119,7 @@ describe('完整开书分类与资料合同', () => {
       stageOne: { start: '', development: '', end: '' },
       fullBookOutline: '',
       initialMap: ''
-    })).toMatchObject({ protagonists: [], fullBookOutline: '' });
+    })).toThrow();
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), fullBookOutline: '长'.repeat(18_000) })).toThrow('资料总量');
   });
 

@@ -63,17 +63,43 @@ $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $stdoutPath = Join-Path $logDirectory "desktop-$timestamp.out.log"
 $stderrPath = Join-Path $logDirectory "desktop-$timestamp.err.log"
 $nodePath = (Get-Command node.exe).Source
-$process = Start-Process -FilePath $nodePath -ArgumentList @('scripts/start.mjs') `
-  -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru `
-  -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-$process.Refresh()
+# Windows PowerShell 的 Start-Process 会枚举宿主环境；当上游同时注入 Path/PATH 时，
+# 它会在真正创建进程前因重复键崩溃。cmd start 直接继承当前环境，不重建该字典。
+$beforeNodeIds = @(Get-Process node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+$beforeNodeIds = @(Get-Process node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
+& cmd.exe /d /c start 'Wenmi Writing' /b $nodePath scripts/start.mjs
+if ($LASTEXITCODE -ne 0) { throw 'Wenmi process could not be started.' }
+$processDeadline = (Get-Date).AddSeconds(10)
+$publishedLauncher = $null
+while ((Get-Date) -lt $processDeadline -and $null -eq $publishedLauncher) {
+  Start-Sleep -Milliseconds 100
+  if (Test-Path -LiteralPath $pidPath) {
+    try { $publishedLauncher = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8 | ConvertFrom-Json } catch { $publishedLauncher = $null }
+  }
+}
+$childProcess = if ($null -ne $publishedLauncher) {
+  Get-Process -Id ([int]$publishedLauncher.processId) -ErrorAction SilentlyContinue
+} else {
+  $null
+}
+while ((Get-Date) -lt $processDeadline -and $null -eq $childProcess) {
+  Start-Sleep -Milliseconds 100
+  $childProcess = Get-Process node -ErrorAction SilentlyContinue |
+    Where-Object { $_.Id -notin $beforeNodeIds -and $_.Path -eq $nodePath } |
+    # scripts/start.mjs 必然先于它创建的 API/Web/Worker 子进程出现。
+    Sort-Object StartTime, Id |
+    Select-Object -First 1
+}
+if ($null -eq $childProcess) { throw 'Wenmi process started but its verified process record was not found.' }
+$childProcess.Refresh()
 $launcherRecord = [ordered]@{
   schemaVersion = 1
-  processId = $process.Id
+  processId = $childProcess.Id
   executablePath = $nodePath
   projectRoot = $projectRoot
   entryPoint = 'scripts/start.mjs'
-  startedAtUtc = $process.StartTime.ToUniversalTime().ToString('o')
+  startedAtUtc = $childProcess.StartTime.ToUniversalTime().ToString('o')
 }
 $launcherRecord | ConvertTo-Json -Compress | Set-Content -LiteralPath $pidPath -Encoding utf8
 

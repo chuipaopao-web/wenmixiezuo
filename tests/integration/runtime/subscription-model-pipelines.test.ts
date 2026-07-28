@@ -8,7 +8,7 @@ import { countNovelCharacters } from '../../../apps/api/src/infrastructure/model
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import type { CodexProcessRunner } from '../../../apps/api/src/infrastructure/models/codex-subscription-model.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
-import { approvePendingManuscript, initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('订阅与套餐模型真实流水线接线', () => {
@@ -21,6 +21,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '订阅模型测试书', text: '雾城悬疑与读者钩子' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
     const runtime = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',

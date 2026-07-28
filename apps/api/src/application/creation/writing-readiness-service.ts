@@ -28,6 +28,22 @@ export class WritingReadinessService {
     const firstNumber = this.nextChapterNumber(scope);
     const chapterNumbers = Array.from({ length: count }, (_, index) => firstNumber + index);
     const missing: string[] = [];
+    const planning = this.database.prepare(`
+      SELECT stage, active_style_version_id, setting_baseline_version_id,
+        master_outline_version_id, volume_outline_version_id
+      FROM book_planning_states WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId) as {
+      stage: string; active_style_version_id: string | null; setting_baseline_version_id: string | null;
+      master_outline_version_id: string | null; volume_outline_version_id: string | null;
+    } | undefined;
+    if (planning === undefined) missing.push('planning_state');
+    else {
+      if (planning.active_style_version_id === null) missing.push('confirmed_style_baseline');
+      if (planning.setting_baseline_version_id === null) missing.push('confirmed_setting_baseline');
+      if (planning.master_outline_version_id === null) missing.push('confirmed_master_outline');
+      if (planning.volume_outline_version_id === null) missing.push('confirmed_volume_outline');
+      if (!['chapter_outline_ready', 'writing_enabled'].includes(planning.stage)) missing.push('planning_stage');
+    }
     const expression = this.database.prepare(`SELECT status, narrative_person, viewpoint_distance
       FROM book_expression_profiles WHERE owner_id = ? AND book_id = ? AND status IN ('provisional', 'confirmed')
       ORDER BY version DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { status: string; narrative_person: string | null; viewpoint_distance: string | null } | undefined;

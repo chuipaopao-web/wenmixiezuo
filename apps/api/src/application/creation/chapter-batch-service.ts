@@ -73,17 +73,41 @@ export class ChapterBatchService {
           throw new Error(`第${number}章已有正文或活动任务，不能重复安排`);
         }
         this.database.prepare(`
-          UPDATE chapters SET plan_status = 'planned', generation_status = 'not_started', updated_at = ?
+          UPDATE chapters SET title = ?, plan_status = 'planned', generation_status = 'not_started', updated_at = ?
           WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
-        `).run(this.clock.now().toISOString(), existing.chapter_id, scope.ownerId, scope.bookId);
+        `).run(this.plannedChapterTitle(scope, number, options.firstChapterTitle), this.clock.now().toISOString(),
+          existing.chapter_id, scope.ownerId, scope.bookId);
         chapterIds.push(existing.chapter_id);
       } else {
-        chapterIds.push(catalog.createChapter(scope, volume.volume_id, number, index === 0 && options.firstChapterTitle !== undefined ? options.firstChapterTitle : `第${number}章`).chapterId);
+        chapterIds.push(catalog.createChapter(
+          scope,
+          volume.volume_id,
+          number,
+          this.plannedChapterTitle(scope, number, index === 0 ? options.firstChapterTitle : undefined)
+        ).chapterId);
       }
     }
     return this.scheduleExisting(scope, chapterIds, {
       productionMode: options.productionMode ?? 'formal_production'
     });
+  }
+
+  private plannedChapterTitle(scope: BookScope, chapterNumber: number, explicitTitle?: string): string {
+    if (explicitTitle?.trim()) return explicitTitle.trim();
+    const row = this.database.prepare(`
+      SELECT v.content_json
+      FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ?
+        AND a.artifact_type = 'chapter_outline' AND a.title = ?
+        AND a.status = 'active' AND v.status = 'selected'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, `第${chapterNumber}章章纲`) as { content_json: string } | undefined;
+    if (row !== undefined) {
+      const content = JSON.parse(row.content_json) as { title?: unknown };
+      if (typeof content.title === 'string' && content.title.trim()) return content.title.trim();
+    }
+    return `第${chapterNumber}章`;
   }
 
   public scheduleExisting(

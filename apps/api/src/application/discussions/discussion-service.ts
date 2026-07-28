@@ -170,7 +170,8 @@ export class DiscussionService {
     const discussion = this.require(scope, discussionId);
     if (discussion.status !== 'awaiting_boss') throw new Error('讨论不在等待老板确认状态');
     const now = this.clock.now().toISOString();
-    this.database.exec('BEGIN IMMEDIATE');
+    const ownsTransaction = !this.database.isTransaction;
+    if (ownsTransaction) this.database.exec('BEGIN IMMEDIATE');
     try {
       const updated = this.database.prepare(`
         UPDATE discussion_decisions SET boss_confirmed = 1, confirmed_at = ?
@@ -179,9 +180,9 @@ export class DiscussionService {
       if (updated.changes !== 1) throw new Error('讨论决定不存在或越权');
       this.database.prepare("UPDATE discussions SET status = 'confirmed', updated_at = ? WHERE discussion_id = ?")
         .run(now, discussionId);
-      this.database.exec('COMMIT');
+      if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
-      this.database.exec('ROLLBACK');
+      if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.require(scope, discussionId);

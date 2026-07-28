@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const projectRoot = process.cwd();
@@ -16,6 +16,15 @@ const modelCredentialNames = [
   'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_API_KEY',
   'ANTHROPIC_AUTH_TOKEN', 'ARK_AGENTPLAN_KEY'
 ];
+
+writeFileSync(launcherRecordPath, JSON.stringify({
+  schemaVersion: 1,
+  processId: process.pid,
+  executablePath: process.execPath,
+  projectRoot,
+  entryPoint: 'scripts/start.mjs',
+  startedAtUtc: new Date().toISOString()
+}), 'utf8');
 
 // Desktop launchers can inherit an Explorer environment block that predates the
 // user-level configuration. Import only the allowlisted names into process.env;

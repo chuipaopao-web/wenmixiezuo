@@ -70,6 +70,10 @@ describe('建书REST流程', () => {
         expect.objectContaining({ key: 'female-modern-brain', channel: 'female' })
       ]));
       const openingBlueprint = {
+        styleIntent: {
+          languageTones: ['幽默'], emotionalTones: ['热血'],
+          pacingAndPayoff: ['爽点密集'], atmospheres: ['沉浸'], custom: []
+        },
         taxonomyVersion: taxonomy.version, channel: 'male', categoryKey: 'male-fantasy-brain',
         targetAudience: '喜欢玄幻成长与谋略冲突的男频读者',
         protagonists: [{ role: 'male_lead', name: '张三', age: '十八岁', background: '天安城边军斥候。', personalities: ['冷静'] }],

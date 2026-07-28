@@ -47,6 +47,14 @@ export interface OpeningProtagonistInput {
   personalities: string[];
 }
 
+export interface OpeningStyleIntent {
+  languageTones: string[];
+  emotionalTones: string[];
+  pacingAndPayoff: string[];
+  atmospheres: string[];
+  custom: string[];
+}
+
 export interface OpeningBlueprintInput {
   taxonomyVersion: string;
   channel: OpeningChannel;
@@ -61,6 +69,7 @@ export interface OpeningBlueprintInput {
   mainTags: string[];
   auxiliaryTags: string[];
   storyTraits: string[];
+  styleIntent?: OpeningStyleIntent;
   customTags: string[];
   initialMap: string;
   mustFollow: string[];
@@ -241,6 +250,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 6, 40);
     return { role: item.role, name, age, background, personalities };
   });
+  if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄或生命阶段、人物背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
   if (Array.isArray(input.mainTags)) {
     const distinctMainTags = new Set(input.mainTags
@@ -266,6 +276,13 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   for (const tag of storyTraits) {
     if (!OPENING_TAXONOMY.storyTraits.includes(tag)) throw new Error(`全书特点不在当前目录；如需自定义请放入自定义标签：${tag}`);
   }
+  const styleIntent = {
+    languageTones: uniqueTexts(input.styleIntent?.languageTones ?? [], '语言气质', 1, 8, 40),
+    emotionalTones: uniqueTexts(input.styleIntent?.emotionalTones ?? [], '情绪基调', 1, 8, 40),
+    pacingAndPayoff: uniqueTexts(input.styleIntent?.pacingAndPayoff ?? [], '节奏与爽感', 1, 8, 40),
+    atmospheres: uniqueTexts(input.styleIntent?.atmospheres ?? [], '叙事氛围', 0, 8, 40),
+    custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
+  };
   const validated: OpeningBlueprintInput = {
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
@@ -285,6 +302,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     mainTags,
     auxiliaryTags,
     storyTraits,
+    styleIntent,
     customTags: uniqueTexts(input.customTags, '自定义标签', 0, 13, 40),
     initialMap: optionalText(input.initialMap, '初始地图', 5_000),
     mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 15, 500)

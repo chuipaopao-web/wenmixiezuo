@@ -1,12 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
-import { PlanningArtifactService } from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
+import {
+  mergeArcItems,
+  mergeNumberedItems,
+  PlanningArtifactService
+} from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('structured rolling chapter plans', () => {
   let context: TestContext | undefined;
-  afterEach(() => context?.close());
+  afterEach(() => {
+    context?.close();
+    context = undefined;
+  });
 
   it('promotes distinct chapter goals, beats and hooks instead of repeating the discussion summary', () => {
     context = createTestContext('wenmi-planning-structure-');
@@ -62,5 +69,90 @@ describe('structured rolling chapter plans', () => {
     expect(contents.map((item) => item.goal)).toEqual(planning.chapters.map((item) => item.goal));
     expect(contents.map((item) => item.hook)).toEqual(planning.chapters.map((item) => item.hook));
     expect(new Set(contents.map((item) => item.goal)).size).toBe(3);
+  });
+
+  it('promotes every requested chapter when a rolling plan contains four chapters', () => {
+    context = createTestContext('wenmi-planning-four-chapters-');
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '四章滚动规划', text: '验证四章规划不会被截断' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const agents = context.database.prepare(`
+      SELECT a.agent_id, a.model_snapshot_id, r.role_key FROM agent_instances a
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('chief_editor', 'lead_screenwriter')
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; model_snapshot_id: string; role_key: string }>;
+    const agent = agents.find((item) => item.role_key === 'chief_editor')!;
+    const writer = agents.find((item) => item.role_key === 'lead_screenwriter')!;
+    const discussions = new DiscussionService(context.database, ids, clock);
+    const discussion = discussions.create(scope, {
+      type: 'quick', scopeText: '规划未来四章', createdByAgentId: agent.agent_id,
+      participants: [
+        { agentId: agent.agent_id, reason: '主编汇总' },
+        { agentId: writer.agent_id, reason: '编剧规划' }
+      ]
+    });
+    const chapters = [1, 2, 3, 4].map((number) => ({
+      title: `第${number}章`,
+      goal: `完成互不重复的目标${number}`,
+      beats: [`推进${number}A`, `推进${number}B`],
+      hook: `留下钩子${number}`
+    }));
+    const output = JSON.stringify({
+      version: 1, format: 'json_object', fields: {
+        answer: '形成四章连续规划', keyPoints: [], alternatives: [], risks: [], questions: [],
+        nextStep: '确认后逐章创作',
+        details: `规划落库 ${JSON.stringify({
+          arcTitle: '四章短弧', arcGoal: '连续推进四章', endingState: '完成阶段结算',
+          estimatedChapterRange: { minimum: 4, recommended: 4, maximum: 4 }, chapters
+        })}`
+      }
+    });
+    discussions.addOpinion(scope, discussion.discussionId, {
+      agentId: agent.agent_id, modelSnapshotId: agent.model_snapshot_id, phase: 'independent',
+      content: { recommendation: output }, tokens: 200
+    });
+    discussions.setStage(scope, discussion.discussionId, 'collecting', 'synthesizing');
+    const decisionId = discussions.synthesize(scope, discussion.discussionId, {
+      recommendation: { summary: output }, alternatives: [], disagreements: [],
+      impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
+    });
+    discussions.confirm(scope, discussion.discussionId, decisionId);
+
+    const promoted = new PlanningArtifactService(context.database, ids, clock)
+      .promoteConfirmedDecision(scope, discussion.discussionId, decisionId, 4);
+
+    expect(promoted.chapterOutlineVersionIds).toHaveLength(4);
+    const outlines = context.database.prepare(`
+      SELECT v.content_json FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'chapter_outline'
+      ORDER BY CAST(json_extract(v.content_json, '$.chapterNumber') AS INTEGER)
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ content_json: string }>;
+    expect(outlines.map((row) => JSON.parse(row.content_json).goal)).toEqual(chapters.map((chapter) => chapter.goal));
+  });
+
+  it('merges later rolling plans without dropping earlier chapter and arc coverage', () => {
+    expect(mergeNumberedItems(
+      [
+        { chapterNumber: 1, title: '开端' },
+        { chapterNumber: 2, title: '旧标题' }
+      ],
+      [
+        { chapterNumber: 2, title: '修订标题' },
+        { chapterNumber: 3, title: '转折' }
+      ],
+      'chapterNumber'
+    )).toEqual([
+      { chapterNumber: 1, title: '开端' },
+      { chapterNumber: 2, title: '修订标题' },
+      { chapterNumber: 3, title: '转折' }
+    ]);
+    expect(mergeArcItems(
+      [{ title: '第一段', chapterStart: 1, chapterEnd: 3 }],
+      { title: '第二段', chapterStart: 4, chapterEnd: 6 }
+    )).toEqual([
+      { title: '第一段', chapterStart: 1, chapterEnd: 3 },
+      { title: '第二段', chapterStart: 4, chapterEnd: 6 }
+    ]);
   });
 });

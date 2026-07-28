@@ -22,6 +22,7 @@ import { LongformContinuityRepository } from '../../infrastructure/db/repositori
 import { StageSettlementService } from '../continuity/stage-settlement-service.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
+import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 
 type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning';
 type CreativeRoundKind = 'initial_exploration' | 'major_redirect' | 'locked_planning';
@@ -326,14 +327,37 @@ export class ConversationService {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
       const planning = isCreativeIntent(scopeText);
-      return planning
-        ? this.scheduleCreativeSessionMessage(
-            scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, false
-          )
-        : this.scheduleDiscussion(
-            scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId,
-            'open_discussion', null
+      if (planning) {
+        const planningState = new PlanningWorkflowRepository(this.database).planningState(scope);
+        const usesStagedOpening = new PlanningWorkflowRepository(this.database).openingBlueprint(scope) !== undefined;
+        if (usesStagedOpening && planningState !== undefined && ['setting_ready', 'master_outline_in_progress'].includes(planningState.stage)) {
+          return this.scheduleDiscussion(
+            scope,
+            appendAttachmentContext(`【剧情总纲专项讨论资料包】\n${scopeText}`, attachmentContext),
+            messageId,
+            conversationId,
+            'open_discussion',
+            null
           );
+        }
+        if (usesStagedOpening && planningState !== undefined && ['master_outline_ready', 'volume_outline_in_progress'].includes(planningState.stage)) {
+          return this.scheduleDiscussion(
+            scope,
+            appendAttachmentContext(`【卷纲专项讨论资料包】\n${scopeText}`, attachmentContext),
+            messageId,
+            conversationId,
+            'open_discussion',
+            null
+          );
+        }
+        return this.scheduleCreativeSessionMessage(
+          scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, false
+        );
+      }
+      return this.scheduleDiscussion(
+        scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId,
+        'open_discussion', null
+      );
     }
     const tasks = new TaskService(this.database, this.releaseId, this.clock);
     if (content === '暂停' || intake?.selectedAction === 'pause_tasks') {
@@ -480,11 +504,30 @@ export class ConversationService {
       return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
     }
     const activeCreativeSession = new CreativeSessionRepository(this.database).active(scope);
+    const planningRepository = new PlanningWorkflowRepository(this.database);
+    const planningState = planningRepository.planningState(scope);
+    const usesStagedOpening = planningRepository.openingBlueprint(scope) !== undefined;
     if (
       intake?.routeClass === 'plot_discussion'
       || isCreativeIntent(content)
       || activeCreativeSession !== null
     ) {
+      if (
+        activeCreativeSession === null
+        && usesStagedOpening
+        && planningState !== undefined
+        && !['volume_outline_ready', 'chapter_outline_ready', 'writing_enabled'].includes(planningState.stage)
+      ) {
+        return this.scheduleConversationReply(
+          scope,
+          appendAttachmentContext(
+            `当前仍在“${planningState.stage}”阶段。请先按设定大纲、剧情总纲、卷纲的顺序完成并确认前置内容；本轮由主编先理解和追问，不启动正文规划。\n老板原话：${content}`,
+            attachmentContext
+          ),
+          messageId,
+          conversationId
+        );
+      }
       return this.scheduleCreativeSessionMessage(
         scope, modelContent, messageId, conversationId,
         isMajorCreativeRedirect(content)
@@ -607,7 +650,18 @@ export class ConversationService {
       purpose?: DiscussionPurpose;
       creativeSessionId?: string;
     };
-    new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
+    const planningArtifacts = new PlanningArtifactService(this.database, this.ids, this.clock);
+    const stagedConfirmation = (brief.purpose === 'open_discussion' || brief.purpose === undefined)
+      && new PlanningWorkflowRepository(this.database).openingBlueprint(scope) !== undefined;
+    const stagePromotion = stagedConfirmation
+      ? new UnitOfWork(this.database).run(() => {
+          new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
+          return planningArtifacts.promoteCurrentPlanningStage(scope, row.discussion_id, decisionId);
+        })
+      : null;
+    if (!stagedConfirmation) {
+      new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
+    }
 
     if (brief.purpose === 'creative_exploration' && brief.creativeSessionId !== undefined) {
       const recommendation = JSON.parse(row.recommendation_json) as Record<string, unknown>;
@@ -643,8 +697,9 @@ export class ConversationService {
       };
     }
 
-    const prepared = new PlanningArtifactService(this.database, this.ids, this.clock)
-      .promoteIfPlanningTask(scope, row.discussion_id, decisionId);
+    const prepared = stagePromotion === null
+      ? planningArtifacts.promoteIfPlanningTask(scope, row.discussion_id, decisionId)
+      : null;
     if (brief.purpose === 'locked_planning' && brief.creativeSessionId !== undefined) {
       if (prepared === null) throw new Error('锁定规划已经确认，但未能生成滚动规划资料');
       const repository = new CreativeSessionRepository(this.database);
@@ -661,6 +716,9 @@ export class ConversationService {
       kind: 'discussion_confirmed',
       discussionId: row.discussion_id,
       decisionId,
+      planningStage: stagePromotion?.stage ?? null,
+      planningArtifactType: stagePromotion?.artifactType ?? null,
+      planningArtifactVersionId: stagePromotion?.artifactVersionId ?? null,
       planningPrepared: prepared !== null,
       chapterOutlineCount: prepared?.chapterOutlineVersionIds.length ?? 0
     };
@@ -734,7 +792,9 @@ export class ConversationService {
   ): Record<string, unknown> {
     const lease = this.requireEditorLease(scope);
     const creativePurpose = purpose === 'creative_exploration' || purpose === 'locked_planning';
-    const settingWorkshop = scopeText.includes('【设定专项讨论资料包】');
+    const settingWorkshop = scopeText.includes('【设定专项讨论资料包】')
+      || scopeText.includes('【剧情总纲专项讨论资料包】')
+      || scopeText.includes('【卷纲专项讨论资料包】');
     const collaborative = creativePurpose || settingWorkshop;
     const roleKeys = collaborative
       ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']

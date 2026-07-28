@@ -434,8 +434,14 @@ describe('单章完整创作流水线', () => {
       .all(scope.ownerId, scope.bookId)).toEqual([{ passed: 0 }, { passed: 1 }]);
     expect(context.database.prepare(`SELECT word_count FROM manuscript_versions WHERE owner_id = ? AND book_id = ? ORDER BY created_at, manuscript_version_id`)
       .all(scope.ownerId, scope.bookId)).toEqual([{ word_count: 2299 }, { word_count: 2700 }]);
-    expect(rewritePrompt).toContain('2500至3500个汉字、字母或数字有效字符（不计标点和空白）');
-    expect(rewritePrompt).not.toContain('2350至3650');
+    expect(rewritePrompt).toContain('2700至3200个汉字、字母或数字有效字符（不计标点和空白）');
+    expect(JSON.parse(rewritePrompt)).toMatchObject({
+      lengthContract: {
+        generationAimMinimum: 2700,
+        generationAimMaximum: 3200,
+        acceptedMaximum: 3650
+      }
+    });
   });
 
   it('目标区间附近的完整稿记录告警但不为字数机械重写', async () => {

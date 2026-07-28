@@ -88,6 +88,7 @@ export class BookOnboardingService {
     const storyBibleVersionId = this.ids.next();
     const conversationId = this.ids.next();
     const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
+    const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
     const onboardingTriggerMessageId = this.ids.next();
     const kickoffTaskId = this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
@@ -99,7 +100,17 @@ export class BookOnboardingService {
       if (draft.openingBlueprint !== null && openingBlueprintId !== null) {
         this.insertOpeningBlueprint(bookScope, openingBlueprintId, draft.openingBlueprint, now);
         this.insertOpeningProtagonists(bookScope, openingBlueprintId, draft.openingBlueprint, now);
+        this.insertOpeningStyle(bookScope, openingStyleVersionId!, openingBlueprintId, draft.openingBlueprint, now);
       }
+      this.database.prepare(`
+        INSERT INTO book_planning_states (
+          owner_id, book_id, version, stage, active_style_version_id, updated_at
+        ) VALUES (?, ?, 1, ?, ?, ?)
+      `).run(
+        scope.ownerId, draft.proposedBookId,
+        openingStyleVersionId === null ? 'style_in_progress' : 'setting_in_progress',
+        openingStyleVersionId, now
+      );
       const genre = fieldValue(draft.fields, 'genre');
       const classification = fieldValue(draft.fields, 'classification');
       const targetAudience = fieldValue(draft.fields, 'audience');
@@ -318,6 +329,39 @@ export class BookOnboardingService {
         });
       }
     }
+  }
+
+  private insertOpeningStyle(
+    scope: { ownerId: string; bookId: string },
+    styleVersionId: string,
+    openingBlueprintId: string,
+    blueprint: OpeningBlueprintInput,
+    now: string
+  ): void {
+    const intent = blueprint.styleIntent;
+    if (intent === undefined) throw new Error('开书资料缺少作品风格意向');
+    const content = {
+      ...intent,
+      strength: 'medium',
+      adaptiveRules: [
+        '战斗、情感、悬疑和日常场景按自身功能调整节奏与表现强度',
+        '作品风格约束长期方向，不要求每章机械出现全部标签'
+      ],
+      avoidPatterns: [
+        '所有角色使用同一种口吻',
+        '用网络段子硬插幽默',
+        '用无代价碾压代替因果铺垫'
+      ],
+      narrativePerson: '',
+      viewpointDistance: '',
+      textDensity: 'adaptive'
+    };
+    this.database.prepare(`
+      INSERT INTO book_style_versions (
+        style_version_id, owner_id, book_id, version, content_json,
+        source_kind, source_id, status, created_at
+      ) VALUES (?, ?, ?, 1, ?, 'opening', ?, 'selected', ?)
+    `).run(styleVersionId, scope.ownerId, scope.bookId, JSON.stringify(content), openingBlueprintId, now);
   }
 
   private insertTags(scope: { ownerId: string; bookId: string }, positioningVersion: number, tags: PositioningTag[], now: string): void {

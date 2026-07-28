@@ -53,6 +53,11 @@ import {
   fetchProtagonists,
   fetchAttributeFormulas,
   fetchSettingOutlineWorkspace,
+  fetchBookProfile,
+  fetchPlanningState,
+  fetchStyleBaseline,
+  fetchSettingReadiness,
+  confirmSettingBaseline,
   fetchRightsWorkspace,
   fetchWorker,
   fetchWorkspace,
@@ -107,6 +112,8 @@ import {
   type OpeningBlueprintData,
   type OpeningChannel,
   type OpeningTaxonomyData,
+  type BookProfileViewData,
+  type PlanningStateData,
   type TaskData,
   type TeamModelProfileData,
   type TeamConfigData,
@@ -1115,7 +1122,7 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   </section>;
 }
 
-type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
+type PlanningTab = 'framework' | 'style' | 'basic' | 'master' | 'volume' | 'chapter';
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
 const storyFrameworkFields = ['title', 'positioning', 'tags', 'openingReference', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
@@ -1265,20 +1272,45 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
   onDiscussSetting: (packet: string) => Promise<void>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<PlanningTab>('framework');
+  const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
+  const [planningState, setPlanningState] = useState<PlanningStateData | null>(null);
+  const [styleBaseline, setStyleBaseline] = useState<Record<string, unknown> | null>(null);
+  const bookId = workspace?.book.bookId ?? null;
+  const refreshPlanningState = useCallback(async (): Promise<void> => {
+    if (bookId === null) return;
+    setPlanningState(await fetchPlanningState(bookId));
+  }, [bookId]);
+  useEffect(() => {
+    if (bookId === null) return;
+    const controller = new AbortController();
+    void Promise.all([
+      fetchBookProfile(bookId, controller.signal),
+      fetchPlanningState(bookId, controller.signal),
+      fetchStyleBaseline(bookId, controller.signal)
+    ]).then(([profile, state, style]) => {
+      setBookProfile(profile); setPlanningState(state); setStyleBaseline(style);
+    }).catch(() => {
+      if (!controller.signal.aborted) {
+        setBookProfile(null); setPlanningState(null); setStyleBaseline(null);
+      }
+    });
+    return () => controller.abort();
+  }, [bookId]);
   const artifacts = Array.isArray(data) ? data.filter(isRecord) : [];
   const visible = artifacts.flatMap<{ artifact: Record<string, unknown>; projection: ArtifactProjection }>((artifact) => {
     const type = String(artifact.artifact_type);
     if (type === 'story_bible' && (tab === 'framework' || tab === 'basic')) return [{ artifact, projection: tab }];
-    const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'basic'>, string> = {
+    const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'style' | 'basic'>, string> = {
       master: 'master_outline', volume: 'volume_outline', chapter: 'chapter_outline'
     };
     if (tab === 'framework' && type === 'creative_plan') return [{ artifact, projection: 'complete' }];
-    if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
+    if (tab !== 'framework' && tab !== 'style' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
     return [];
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['style', '作品风格'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
   const tabDescription: Record<PlanningTab, string> = {
     framework: '展示开书时确认的频道、分类、题材、主要标签和作品边界。',
+    style: '展示全书长期软基线；战斗、情感、悬疑和日常场景会按功能动态适配。',
     basic: '先建立足够支撑第一阶段创作的世界、人物与核心规则；不知道的内容可以后补或刻意留白。',
     master: '设定基线足够后，再讨论全书主线、推进阶段、重大承诺、开放问题和终局方向。',
     volume: '按卷维护阶段目标、核心冲突、故事弧、高潮结果和卷末状态。',
@@ -1287,6 +1319,7 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
   return (
     <section className="reference-view planning-workspace" aria-labelledby="planning-title">
       <header><h2 id="planning-title">创作准备</h2><p>先确认作品定位，再建立设定大纲；设定足够支撑当前阶段后，才进入剧情规划。</p></header>
+      {planningState !== null && <aside className="planning-stage-banner"><strong>当前阶段：{planningState.stageLabel}</strong><span>下一步：{planningState.nextAction}</span>{planningState.missing.length > 0 && <small>尚缺：{planningState.missing.join('、')}</small>}</aside>}
       <ol className="creation-progress" aria-label="创作准备流程">
         <li className="done"><strong>1</strong><span>基本信息<small>已建书</small></span></li>
         <li className={tab === 'basic' ? 'active' : ''}><strong>2</strong><span>设定大纲<small>逐步完善</small></span></li>
@@ -1295,7 +1328,7 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
       </ol>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       <p className="planning-tab-description">{tabDescription[tab]}</p>
-      {visible.length === 0 ? (
+      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} /> : tab === 'style' && styleBaseline !== null ? <StyleBaselinePanel baseline={styleBaseline} /> : visible.length === 0 ? (
         <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -1303,16 +1336,43 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
         bookTitle={workspace?.book.title ?? '当前书籍'}
         templateHints={collectSettingTemplateHints(artifacts)}
         onDiscuss={onDiscussSetting}
+        planningState={planningState}
+        onPlanningStateChanged={refreshPlanningState}
       />}
     </section>
   );
 }
 
-function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss }: {
+function BookProfilePanel({ profile }: { profile: BookProfileViewData }): React.JSX.Element {
+  return <section className="book-profile-panel">
+    <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category} · 第{profile.version}版</p></div><small>{profile.source}</small></header>
+    <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
+    <h4>初始主角</h4>
+    <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
+    <h4>必须遵守</h4><ul>{profile.mustFollow.map((item) => <li key={item}>{item}</li>)}</ul>
+  </section>;
+}
+
+function StyleBaselinePanel({ baseline }: { baseline: Record<string, unknown> }): React.JSX.Element {
+  const content = isRecord(baseline.content) ? baseline.content : {};
+  const rows: Array<[string, unknown]> = [
+    ['语言气质', content.languageTones],
+    ['情绪基调', content.emotionalTones],
+    ['节奏与爽感', content.pacingAndPayoff],
+    ['叙事氛围', content.atmospheres],
+    ['场景动态适配', content.adaptiveRules],
+    ['禁止退化', content.avoidPatterns]
+  ];
+  return <section className="book-profile-panel style-baseline-panel"><header><div><h3>作品风格基线</h3><p>{String(baseline.status ?? '已确认')} · 第{String(baseline.version ?? 1)}版</p></div><small>{String(baseline.source ?? '老板确认')}</small></header><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{arrayText(value, '尚未补充')}</dd></div>)}</dl><p className="creative-freedom-note">这是全书主要方向，不是每章打卡清单；具体场景按人物、情绪和叙事功能动态调整。</p></section>;
+}
+
+function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningState, onPlanningStateChanged }: {
   bookId: string | null;
   bookTitle: string;
   templateHints: string[];
   onDiscuss: (packet: string) => Promise<void>;
+  planningState: PlanningStateData | null;
+  onPlanningStateChanged: () => Promise<void>;
 }): React.JSX.Element {
   const [source, setSource] = useState('');
   const [query, setQuery] = useState('');
@@ -1423,6 +1483,24 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss }: {
     }).finally(() => setBusyKey(null));
   };
 
+  const confirmSetting = (): void => {
+    if (bookId === null || planningState === null) return;
+    setBusyKey('confirm-setting');
+    void fetchSettingReadiness(bookId).then((readiness) => {
+      if (!readiness.ready) {
+        const outstanding = [...readiness.missing, ...readiness.unresolved].slice(0, 12);
+        setNotice(`设定大纲还不能确认，请先处理：${outstanding.join('、') || '未完成项目'}`);
+        return;
+      }
+      return confirmSettingBaseline(bookId, planningState.version).then(async () => {
+        setNotice('设定大纲已确认。现在可以进入“剧情总纲”，讨论全书主线与结局方向。');
+        await onPlanningStateChanged();
+      });
+    }).catch((reason: unknown) => {
+      setNotice(reason instanceof Error ? reason.message : '确认设定大纲失败');
+    }).finally(() => setBusyKey(null));
+  };
+
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
       <div><span>动态设定模板</span><h3>设定大纲</h3><p>按前置依赖从上到下讨论。模板足够完整，但允许稍后补充、刻意留白或标记不适用。</p></div>
@@ -1474,6 +1552,12 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss }: {
         <input aria-label="自定义设定项" maxLength={40} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="新增设定项，例如：梦境税" />
         <button className="primary-button" type="submit">添加到清单</button>
       </form>
+    </section>
+    <section className="planning-stage-action">
+      <div><strong>完成设定大纲</strong><p>确认后锁定当前设定版本，再进入剧情总纲。后续补充会产生新版本，不会静默覆盖。</p></div>
+      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null} onClick={confirmSetting}>
+        {busyKey === 'confirm-setting' ? '正在检查…' : '检查并确认设定大纲'}
+      </button>
     </section>
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
@@ -2446,6 +2530,14 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [mainTags, setMainTags] = useState<string[]>([]);
   const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
   const [storyTraits] = useState<string[]>([]);
+  const [protagonistName, setProtagonistName] = useState('');
+  const [protagonistAge, setProtagonistAge] = useState('');
+  const [protagonistBackground, setProtagonistBackground] = useState('');
+  const [protagonistPersonalities, setProtagonistPersonalities] = useState<string[]>([]);
+  const [languageTones, setLanguageTones] = useState<string[]>([]);
+  const [emotionalTones, setEmotionalTones] = useState<string[]>([]);
+  const [pacingAndPayoff, setPacingAndPayoff] = useState<string[]>([]);
+  const [atmospheres, setAtmospheres] = useState<string[]>([]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
@@ -2513,6 +2605,13 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     ...(channel === null ? ['创作频道'] : []),
     ...(category === null ? ['作品分类'] : []),
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
+    ...(protagonistName.trim().length === 0 ? ['主角姓名'] : []),
+    ...(protagonistAge.trim().length === 0 ? ['主角年龄或生命阶段'] : []),
+    ...(protagonistBackground.trim().length === 0 ? ['主角人物背景'] : []),
+    ...(protagonistPersonalities.length === 0 ? ['至少1个主角性格'] : []),
+    ...(languageTones.length === 0 ? ['至少1个语言气质'] : []),
+    ...(emotionalTones.length === 0 ? ['至少1个情绪基调'] : []),
+    ...(pacingAndPayoff.length === 0 ? ['至少1个节奏与爽感'] : []),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
@@ -2549,12 +2648,19 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       channel,
       categoryKey: category.key,
       targetAudience: '',
-      protagonists: [],
+      protagonists: [{
+        role: channel === 'female' ? 'female_lead' : 'male_lead',
+        name: protagonistName.trim(),
+        age: protagonistAge.trim(),
+        background: protagonistBackground.trim(),
+        personalities: protagonistPersonalities
+      }],
       worldBackground: '',
       openingBackground: '',
       stageOne: { start: '', development: '', end: '' },
       fullBookOutline: '',
       mainTags, auxiliaryTags, storyTraits, customTags, mustFollow,
+      styleIntent: { languageTones, emotionalTones, pacingAndPayoff, atmospheres, custom: [] },
       initialMap: ''
     };
     void onCreate({
@@ -2589,10 +2695,20 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           })}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
           </section>
+          <section className="opening-form-section">
+            <div className="section-heading"><div><span>02</span><h3>主角基本信息</h3></div><small>全部必填</small></div>
+            <label htmlFor="opening-protagonist-name">主角姓名</label>
+            <input id="opening-protagonist-name" value={protagonistName} onChange={(event) => setProtagonistName(event.target.value)} placeholder="例如：林舟" maxLength={80} />
+            <label htmlFor="opening-protagonist-age">年龄或生命阶段</label>
+            <input id="opening-protagonist-age" value={protagonistAge} onChange={(event) => setProtagonistAge(event.target.value)} placeholder="例如：十八岁、成年、初入职场" maxLength={80} />
+            <label htmlFor="opening-protagonist-background">人物背景</label>
+            <textarea id="opening-protagonist-background" value={protagonistBackground} onChange={(event) => setProtagonistBackground(event.target.value)} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={4} maxLength={2000} />
+            <StringTagPicker title="主角性格" hint="至少1个，最多6个" kind="主角性格" options={taxonomy?.personalityOptions ?? []} selected={protagonistPersonalities} onToggle={(item) => toggleTag(item, protagonistPersonalities, setProtagonistPersonalities, 6)} />
+          </section>
         </div>
 
         <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>02</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
+          <div className="section-heading"><div><span>03</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
           <section className="subject-library">
             <StringTagPicker title="融合题材（多选）" hint={`来自起点二级分类与番茄作品题材；建议2—5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
@@ -2610,6 +2726,13 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </section>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
+          <section className="style-intent-panel">
+            <div className="section-heading"><div><span>04</span><h3>作品风格</h3></div><small>全书主要方向，具体场景动态调整</small></div>
+            <StringTagPicker title="语言气质" hint="至少1个" kind="语言气质" options={['幽默', '轻松', '克制', '冷峻', '严谨', '毒舌', '细腻', '质朴']} selected={languageTones} onToggle={(item) => toggleTag(item, languageTones, setLanguageTones, 8)} />
+            <StringTagPicker title="情绪基调" hint="至少1个" kind="情绪基调" options={['热血', '高燃', '温馨', '治愈', '压抑', '悲壮', '明快', '沉郁']} selected={emotionalTones} onToggle={(item) => toggleTag(item, emotionalTones, setEmotionalTones, 8)} />
+            <StringTagPicker title="节奏与爽感" hint="至少1个" kind="节奏与爽感" options={['爽点密集', '快节奏', '强情节', '稳步升级', '慢热蓄力', '悬念推进', '经营积累']} selected={pacingAndPayoff} onToggle={(item) => toggleTag(item, pacingAndPayoff, setPacingAndPayoff, 8)} />
+            <StringTagPicker title="叙事氛围" hint="可选；用于补充整体阅读质感" kind="叙事氛围" options={['史诗', '日常', '悬疑', '黑色幽默', '群像', '沉浸', '浪漫', '冷酷']} selected={atmospheres} onToggle={(item) => toggleTag(item, atmospheres, setAtmospheres, 8)} />
+          </section>
           <details className="boundary-panel" open>
             <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/15 条</small></summary>
             <p>这里只选择您明确不能接受的内容；它们是作品硬边界。没有额外边界可直接选择“无额外限制”。</p>
@@ -2622,7 +2745,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </details>
         </section>
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后进入设定大纲</span>{missingRequirements.length > 0 && <small className="create-book-requirements" role={submitAttempted ? 'alert' : undefined}>{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后由主编接待并进入设定大纲</span>{missingRequirements.length > 0 && <small className="create-book-requirements" role={submitAttempted ? 'alert' : undefined}>{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
     </section>
   </div>;
 }

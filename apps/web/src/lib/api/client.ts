@@ -100,9 +100,38 @@ export interface OpeningBlueprintData {
   mainTags: string[];
   auxiliaryTags: string[];
   storyTraits: string[];
+  styleIntent: {
+    languageTones: string[];
+    emotionalTones: string[];
+    pacingAndPayoff: string[];
+    atmospheres: string[];
+    custom: string[];
+  };
   customTags: string[];
   initialMap: string;
   mustFollow: string[];
+}
+
+export interface BookProfileViewData {
+  title: string;
+  channel: string;
+  category: string;
+  subjects: string[];
+  mainTags: string[];
+  customTags: string[];
+  protagonists: OpeningBlueprintData['protagonists'];
+  mustFollow: string[];
+  style: OpeningBlueprintData['styleIntent'];
+  source: string;
+  version: number;
+}
+
+export interface PlanningStateData {
+  version: number;
+  stage: string;
+  stageLabel: string;
+  missing: string[];
+  nextAction: string;
 }
 
 export interface OpeningSynopsisAnalysisData {
@@ -728,6 +757,45 @@ export function fetchAttributeFormulas(bookId: string, signal?: AbortSignal): Pr
 
 export function fetchSettingOutlineWorkspace(bookId: string, signal?: AbortSignal): Promise<SettingOutlineWorkspaceData[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace`, signal === undefined ? {} : { signal });
+}
+
+export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfileViewData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/book-profile`, signal === undefined ? {} : { signal });
+}
+
+export function fetchPlanningState(bookId: string, signal?: AbortSignal): Promise<PlanningStateData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/planning-state`, signal === undefined ? {} : { signal });
+}
+
+export function fetchStyleBaseline(bookId: string, signal?: AbortSignal): Promise<Record<string, unknown> | null> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/style-baseline`, signal === undefined ? {} : { signal });
+}
+
+export function fetchSettingReadiness(bookId: string): Promise<{
+  ready: boolean; missing: string[]; unresolved: string[]; required: string[];
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/readiness`);
+}
+
+export function confirmSettingBaseline(bookId: string, expectedPlanningVersion: number): Promise<{
+  stage: string; version: number;
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedPlanningVersion })
+  });
+}
+
+export function confirmPlanningArtifact(
+  bookId: string,
+  expectedPlanningVersion: number,
+  artifactVersionId: string,
+  artifactType: 'master_outline' | 'volume_outline' | 'chapter_outline'
+): Promise<{ stage: string; version: number; artifactVersionId: string }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/planning-artifacts/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedPlanningVersion, artifactVersionId, artifactType })
+  });
 }
 
 export function saveSettingOutlineItem(bookId: string, item: Omit<SettingOutlineWorkspaceData, 'updatedAt'>): Promise<SettingOutlineWorkspaceData> {

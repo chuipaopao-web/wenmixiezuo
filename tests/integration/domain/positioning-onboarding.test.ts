@@ -15,6 +15,10 @@ describe('定位草稿与原子建书', () => {
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const openingBlueprint: OpeningBlueprintInput = {
+      styleIntent: {
+        languageTones: ['克制'], emotionalTones: ['温暖'],
+        pacingAndPayoff: ['悬念递进'], atmospheres: ['现实'], custom: []
+      },
       taxonomyVersion: OPENING_TAXONOMY.version,
       channel: 'female', categoryKey: 'female-modern-brain',
       targetAudience: '喜欢都市悬疑、女性成长和群像关系的读者',
@@ -140,6 +144,10 @@ describe('定位草稿与原子建书', () => {
 
 function completeOpeningBlueprint(): OpeningBlueprintInput {
   return {
+    styleIntent: {
+      languageTones: ['幽默'], emotionalTones: ['热血'],
+      pacingAndPayoff: ['爽点密集'], atmospheres: ['沉浸'], custom: []
+    },
     taxonomyVersion: OPENING_TAXONOMY.version,
     channel: 'male', categoryKey: 'male-history-brain',
     targetAudience: '喜欢历史谋略、群像成长和边城经营的读者',

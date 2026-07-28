@@ -123,6 +123,24 @@ export class TaskService {
     return this.require(scope, taskId);
   }
 
+  public retryFailed(scope: BookScope, taskId: string): TaskRecord {
+    this.require(scope, taskId);
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      UPDATE tasks
+      SET status = 'queued', error_code = NULL, cancel_requested = 0,
+        lease_owner = NULL, lease_expires_at = NULL, lease_token = NULL,
+        heartbeat_at = NULL, updated_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ?
+        AND status IN ('failed', 'interrupted')
+    `).run(now, taskId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) {
+      throw new DomainError(errorCodes.taskAlreadyRunning, '只有失败或中断的任务可以重试', {}, false, 409);
+    }
+    this.events?.append(scope, 'task.phase.changed', { taskId, status: 'queued', retry: true });
+    return this.require(scope, taskId);
+  }
+
   public completeSynchronous(scope: BookScope, taskId: string, phase = 'completed'): TaskRecord {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`

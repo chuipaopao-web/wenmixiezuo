@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ProductionReview, ReviewerRole } from '../../../apps/api/src/contracts/production-review.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { ManuscriptQualitySnapshotService } from '../../../apps/api/src/application/creation/manuscript-quality-snapshot-service.js';
+import { shouldRestorePreviousBest } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -158,6 +159,15 @@ describe('稿件纵向质量退化保护', () => {
       SELECT COUNT(*) AS count FROM manuscript_quality_snapshots
       WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND is_best = 1
     `).get(scope.ownerId, scope.bookId, chapterId)).toEqual({ count: 1 });
+  });
+});
+
+describe('作者定稿版本选择', () => {
+  it('不会因为主观评分回落而静默换回旧稿', () => {
+    expect(shouldRestorePreviousBest('review_existing', true)).toBe(false);
+    expect(shouldRestorePreviousBest('rewrite_existing', true)).toBe(true);
+    expect(shouldRestorePreviousBest(undefined, true)).toBe(true);
+    expect(shouldRestorePreviousBest('review_existing', false)).toBe(false);
   });
 });
 

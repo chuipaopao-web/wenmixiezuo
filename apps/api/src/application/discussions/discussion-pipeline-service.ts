@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
-import { ContextPackService } from '../memory/context-pack-service.js';
+import { ContextPackService, estimateTokens } from '../memory/context-pack-service.js';
 import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
@@ -158,12 +158,15 @@ export class DiscussionPipelineService {
         const cancellation = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
         if (cancellation.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
         const isEditor = participant.agent_id === task.assigned_agent_id;
+        const promptPeerOpinions = isEditor
+          ? compactOpinionsForEditor(peerOpinions)
+          : peerOpinions;
         const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
-        if (peerOpinions.length > 0) {
+        if (promptPeerOpinions.length > 0) {
           hardSources.push({
             sourceType: phase === 'cross_review' ? 'peer_independent_opinion' : 'specialist_opinions',
             sourceId: `${phase}:opinions:${brief.discussionId}:${participant.agent_id}`,
-            content: JSON.stringify(peerOpinions.map((opinion) => ({
+            content: JSON.stringify(promptPeerOpinions.map((opinion) => ({
               opinionId: opinion.opinionId,
               role: opinion.role,
               phase: opinion.phase,
@@ -187,7 +190,11 @@ export class DiscussionPipelineService {
         hardSources.push(...retrieved.hardSources);
         const pack = contextPacks.build(scope, {
           taskId, agentId: participant.agent_id, canonRevision: book.canon_revision,
-          positioningVersion: book.positioning_version, tokenBudget: 8_000,
+          positioningVersion: book.positioning_version,
+          // 主编汇总必须同时保留老板原话、两份独立方案和两份交叉质疑。
+          // 这些均是不可截断的审计硬来源，真实长方案会稳定超过编剧单席的 8k 上限。
+          // 这里只提高讨论汇总包上限；正文主笔的精简资料包预算不受影响。
+          tokenBudget: discussionContextTokenBudget(isEditor),
           hardSources,
           optionalSources: retrieved.optionalSources
         });
@@ -199,8 +206,9 @@ export class DiscussionPipelineService {
           purpose: brief.purpose ?? 'open_discussion',
           phase,
           scopeText: brief.scopeText,
+          requestedChapterCount: brief.requestedChapterCount ?? null,
           evidenceContext,
-          peerOpinions
+          peerOpinions: promptPeerOpinions
         });
         const adapter = this.modelAdapters.resolve(participant.provider, participant.model_id, 'discussion', participant.role_key);
         const inputHash = createHash('sha256').update(prompt).digest('hex');
@@ -509,15 +517,53 @@ function discussionOutputTokenLimit(roleKey: RoleKey | CreativeRoleKey, isEditor
   return 2_000;
 }
 
+export function discussionContextTokenBudget(isEditor: boolean): number {
+  return isEditor ? 10_000 : 8_000;
+}
+
+export function compactOpinionsForEditor(opinions: CollectedOpinion[]): CollectedOpinion[] {
+  return opinions.map((opinion) => ({
+    ...opinion,
+    output: boundedHeadAndTail(opinion.output, 640)
+  }));
+}
+
+function boundedHeadAndTail(content: string, tokenLimit: number): string {
+  if (estimateTokens(content) <= tokenLimit) return content;
+  const headLimit = Math.floor(tokenLimit * 0.75);
+  const tailLimit = tokenLimit - headLimit;
+  let head = '';
+  let headTokens = 0;
+  for (const character of content) {
+    const cost = estimateTokens(character);
+    if (headTokens + cost > headLimit) break;
+    head += character;
+    headTokens += cost;
+  }
+  let tail = '';
+  let tailTokens = 0;
+  for (let index = content.length - 1; index >= head.length; index -= 1) {
+    const character = content[index] ?? '';
+    const cost = estimateTokens(character);
+    if (tailTokens + cost > tailLimit) break;
+    tail = `${character}${tail}`;
+    tailTokens += cost;
+  }
+  return `${head}\n\n[中间展开内容已省略；完整原文保存在讨论证据中]\n\n${tail}`;
+}
+
 function buildDiscussionPrompt(input: {
   participant: ParticipantRow;
   purpose: DiscussionPurpose;
   phase: DiscussionPhase;
   scopeText: string;
+  requestedChapterCount: number | null;
   evidenceContext: Array<Record<string, unknown>>;
   peerOpinions: CollectedOpinion[];
 }): string {
-  const { participant, purpose, phase, scopeText, evidenceContext, peerOpinions } = input;
+  const {
+    participant, purpose, phase, scopeText, requestedChapterCount, evidenceContext, peerOpinions
+  } = input;
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
   if (isEditor) {
     return [
@@ -535,7 +581,11 @@ function buildDiscussionPrompt(input: {
           ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
           : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
       purpose === 'locked_planning'
-        ? '最后必须另起一行输出且整行不得换行：规划落库 {"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"title":"章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}。chapters只能包含未来1至3章；每章目标和钩子必须具体且互不重复。'
+        ? [
+            '最后必须另起一行输出且整行不得换行：规划落库 {"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"title":"章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}。',
+            `chapters必须从当前下一章开始连续给出，且必须恰好包含${requestedChapterCount ?? 3}章；已有候选正文也必须在相应章位生成修正版章纲，不得跳过、错位或只写后续章节。`,
+            '每章目标和钩子必须具体且互不重复。'
+          ].join('')
         : '',
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
       '保留结构不同的高潜少数方案和有证据的分歧，不用多数票，不把意见压成没有代价的安全折中。',
