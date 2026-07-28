@@ -2932,7 +2932,7 @@ function modelProfileValue(profile: TeamModelProfileData): string {
 }
 
 function artifactTypeLabel(type: string): string {
-  return ({ creative_plan: '全书框架', story_bible: '故事圣经（按职责分区显示）', master_outline: '全书总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
+  return ({ creative_plan: '本书资料', story_bible: '设定大纲', master_outline: '剧情总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
 }
 
 function authorityLabel(status: string): string {

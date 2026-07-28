@@ -3,6 +3,8 @@ import { DiscussionService } from '../../../apps/api/src/application/discussions
 import {
   mergeArcItems,
   mergeNumberedItems,
+  parseMasterOutlineDepositOutput,
+  parseVolumeOutlineDepositOutput,
   PlanningArtifactService
 } from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
@@ -154,5 +156,55 @@ describe('structured rolling chapter plans', () => {
       { title: '第一段', chapterStart: 1, chapterEnd: 3 },
       { title: '第二段', chapterStart: 4, chapterEnd: 6 }
     ]);
+  });
+
+  it('keeps the whole-book master outline structurally distinct from a volume outline', () => {
+    const master = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify({
+      premise: '被抄袭的策划进入自己设计的历史游戏世界',
+      coreConflict: '主角必须在平台规则与真实历史代价之间争夺规则解释权',
+      protagonistArc: '从只想证明自己，成长为愿意承担规则后果的秩序建立者',
+      majorStages: [
+        { title: '夺回身份', goal: '证明游戏规则与历史世界存在真实关联', turningPoint: '首个冠军奖励在现实兑现' },
+        { title: '重建规则', goal: '联合被平台牺牲的玩家重写竞赛秩序', turningPoint: '最终对手掌握历史世界入口' }
+      ],
+      endingDirection: '主角公开规则来源并选择共同治理',
+      storyPromises: ['游戏机制与历史选择互相改变'],
+      openQuestions: ['最终是否保留职业联赛']
+    })}`);
+    const volume = parseVolumeOutlineDepositOutput(`卷纲落库 ${JSON.stringify({
+      title: '被夺走的首胜',
+      goal: '取得第一份可公开核验的原创证据',
+      startingState: '主角刚被公司解约，只有未公开的旧版本记录',
+      arcs: [{
+        title: '匿名重返赛场',
+        objective: '进入历史副本并逼出抄袭者的规则漏洞',
+        turningPoints: ['原队友认出主角习惯', '副本奖励在现实到账'],
+        payoff: '主角拿到带时间戳的规则证据'
+      }],
+      climax: '主角在决赛中迫使对手公开使用抄袭机制',
+      endingState: '主角有了盟友和证据，但身份暴露给平台',
+      openQuestions: ['原队友是否公开站队']
+    })}`);
+
+    expect(master?.majorStages).toHaveLength(2);
+    expect(master?.coreConflict).toContain('规则解释权');
+    expect(volume?.arcs).toHaveLength(1);
+    expect(volume?.goal).toContain('原创证据');
+    expect(JSON.stringify(volume)).not.toContain(master?.endingDirection);
+  });
+
+  it('rejects generic summaries and repeated stage goals instead of silently creating fake outlines', () => {
+    expect(parseMasterOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
+    expect(parseVolumeOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
+    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify({
+      premise: '前提',
+      coreConflict: '冲突',
+      protagonistArc: '成长',
+      majorStages: [
+        { title: '一', goal: '同一目标', turningPoint: '转折一' },
+        { title: '二', goal: '同一目标', turningPoint: '转折二' }
+      ],
+      endingDirection: '结局'
+    })}`)).toThrow('推进阶段目标不能重复');
   });
 });

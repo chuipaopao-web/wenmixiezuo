@@ -23,6 +23,9 @@ const FIELD_LABELS: Record<string, string> = {
   resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段',
   characters: '初始人物', initialOrganizations: '初始势力', mainPlot: '主线', planningHistory: '规划沿革',
   openQuestions: '开放问题', tags: '主要标签', theme: '主题', acts: '推进阶段', endingDirection: '结局方向',
+  coreConflict: '核心冲突', protagonistArc: '主角成长线', majorStages: '全书推进阶段',
+  storyPromises: '作品承诺', startingState: '卷首状态', turningPoint: '关键转折',
+  turningPoints: '关键转折', payoff: '阶段兑现', climax: '本卷高潮',
   volumeNumber: '卷号', arcs: '故事弧', endingState: '卷末状态', created_source: '记录来源',
   assignment_count: '使用次数', candidate_status: '确认状态', claim_text: '候选判断',
   sources: '资料来源', structureCards: '结构参考卡', cleanroomPackages: '隔离资料包', checks: '版权检查',
@@ -229,7 +232,7 @@ function looksLikeMachinePayload(value: string): boolean {
 }
 
 function stripTrailingMachineProtocol(value: string): string {
-  const marker = /(?:^|\r?\n)\s*(?:规划落库|章节跨度估算)\s*(?=\{)/iu.exec(value);
+  const marker = /(?:^|\r?\n)\s*(?:规划落库|剧情总纲落库|卷纲落库|章节跨度估算)\s*(?=\{)/iu.exec(value);
   if (marker === null) return value;
   const readable = value.slice(0, marker.index).trim();
   return readable.length > 0 ? readable : '内部规划数据已保存';

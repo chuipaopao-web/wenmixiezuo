@@ -35,6 +35,35 @@ interface StructuredArcPlan {
   chapters: StructuredChapterPlan[];
 }
 
+interface StructuredMasterOutline {
+  premise: string;
+  coreConflict: string;
+  protagonistArc: string;
+  majorStages: Array<{
+    title: string;
+    goal: string;
+    turningPoint: string;
+  }>;
+  endingDirection: string;
+  storyPromises: string[];
+  openQuestions: string[];
+}
+
+interface StructuredVolumeOutline {
+  title: string;
+  goal: string;
+  startingState: string;
+  arcs: Array<{
+    title: string;
+    objective: string;
+    turningPoints: string[];
+    payoff: string;
+  }>;
+  climax: string;
+  endingState: string;
+  openQuestions: string[];
+}
+
 export interface PreparedPlanningArtifacts {
   creativePlanVersionId: string;
   storyBibleVersionId: string;
@@ -104,22 +133,27 @@ export class PlanningArtifactService {
     if (decision === undefined || decision.boss_confirmed !== 1) {
       throw new Error('只有老板明确确认的讨论结论才能进入规划');
     }
-    const summary = stripPlanningDeposit(readableSummary(
+    const rawSummary = readableSummary(
       JSON.parse(decision.recommendation_json) as Record<string, unknown>
-    ));
+    );
     const source = { sourceDiscussionId: discussionId, sourceDecisionId: decisionId };
 
     if (['setting_ready', 'master_outline_in_progress'].includes(state.stage)) {
       if (state.setting_baseline_version_id === null) {
         throw new Error('确认剧情总纲前必须先确认设定大纲');
       }
-      const positioning = this.positioning(scope);
+      const structured = parseMasterOutlineDepositOutput(rawSummary);
+      if (structured === null) {
+        throw new Error('剧情总纲缺少有效的全书级结构，不能把普通讨论总结重复写入剧情总纲');
+      }
       const version = this.upsert(scope, 'master_outline', '剧情总纲', {
-        premise: stringValue(positioning.premise?.value) ?? decision.scope_text,
-        mainConflict: summary,
-        storyDirection: summary,
-        endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定，后续由老板确认',
-        openQuestions: [],
+        premise: structured.premise,
+        coreConflict: structured.coreConflict,
+        protagonistArc: structured.protagonistArc,
+        majorStages: structured.majorStages,
+        endingDirection: structured.endingDirection,
+        storyPromises: structured.storyPromises,
+        openQuestions: structured.openQuestions,
         sourceSettingBaselineVersionId: state.setting_baseline_version_id,
         ...source
       });
@@ -132,13 +166,20 @@ export class PlanningArtifactService {
       if (state.master_outline_version_id === null) {
         throw new Error('确认卷纲前必须先确认剧情总纲');
       }
+      const structured = parseVolumeOutlineDepositOutput(rawSummary);
+      if (structured === null) {
+        throw new Error('卷纲缺少有效的本卷结构，不能用剧情总纲或普通讨论总结代替卷纲');
+      }
       const volumeNumber = this.currentVolumeNumber(scope);
       const version = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
         volumeNumber,
-        goal: summary,
-        arcs: [{ title: '本卷主线', objective: summary, status: 'confirmed' }],
-        endingState: '由本卷后续滚动规划继续细化',
-        openQuestions: [],
+        title: structured.title,
+        goal: structured.goal,
+        startingState: structured.startingState,
+        arcs: structured.arcs,
+        climax: structured.climax,
+        endingState: structured.endingState,
+        openQuestions: structured.openQuestions,
         sourceMasterOutlineVersionId: state.master_outline_version_id,
         ...source
       });
@@ -483,6 +524,93 @@ export function parsePlanningDepositOutput(summary: string): StructuredArcPlan |
     estimatedChapterRange,
     chapters
   };
+}
+
+export function parseMasterOutlineDepositOutput(summary: string): StructuredMasterOutline | null {
+  const value = parseMarkedDeposit(summary, '剧情总纲落库');
+  if (value === null) return null;
+  const premise = stringValue(value.premise);
+  const coreConflict = stringValue(value.coreConflict);
+  const protagonistArc = stringValue(value.protagonistArc);
+  const endingDirection = stringValue(value.endingDirection);
+  if (premise === null || coreConflict === null || protagonistArc === null || endingDirection === null) {
+    throw new Error('剧情总纲必须包含核心前提、核心冲突、主角成长线和结局方向');
+  }
+  if (!Array.isArray(value.majorStages) || value.majorStages.length < 2) {
+    throw new Error('剧情总纲必须包含至少两个互不重复的全书推进阶段');
+  }
+  const majorStages = value.majorStages.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`剧情总纲第${index + 1}个推进阶段格式无效`);
+    const title = stringValue(item.title);
+    const goal = stringValue(item.goal);
+    const turningPoint = stringValue(item.turningPoint);
+    if (title === null || goal === null || turningPoint === null) {
+      throw new Error(`剧情总纲第${index + 1}个推进阶段缺少标题、目标或转折`);
+    }
+    return { title, goal, turningPoint };
+  });
+  if (new Set(majorStages.map((item) => item.goal)).size !== majorStages.length) {
+    throw new Error('剧情总纲的推进阶段目标不能重复');
+  }
+  return {
+    premise,
+    coreConflict,
+    protagonistArc,
+    majorStages,
+    endingDirection,
+    storyPromises: stringArray(value.storyPromises).filter(Boolean),
+    openQuestions: stringArray(value.openQuestions).filter(Boolean)
+  };
+}
+
+export function parseVolumeOutlineDepositOutput(summary: string): StructuredVolumeOutline | null {
+  const value = parseMarkedDeposit(summary, '卷纲落库');
+  if (value === null) return null;
+  const title = stringValue(value.title);
+  const goal = stringValue(value.goal);
+  const startingState = stringValue(value.startingState);
+  const climax = stringValue(value.climax);
+  const endingState = stringValue(value.endingState);
+  if (title === null || goal === null || startingState === null || climax === null || endingState === null) {
+    throw new Error('卷纲必须包含卷名、本卷目标、卷首状态、高潮和卷末状态');
+  }
+  if (!Array.isArray(value.arcs) || value.arcs.length < 1) throw new Error('卷纲必须包含至少一个本卷故事弧');
+  const arcs = value.arcs.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`卷纲第${index + 1}个故事弧格式无效`);
+    const arcTitle = stringValue(item.title);
+    const objective = stringValue(item.objective);
+    const payoff = stringValue(item.payoff);
+    const turningPoints = stringArray(item.turningPoints).filter(Boolean);
+    if (arcTitle === null || objective === null || payoff === null || turningPoints.length < 1) {
+      throw new Error(`卷纲第${index + 1}个故事弧缺少标题、目标、转折或兑现`);
+    }
+    return { title: arcTitle, objective, turningPoints, payoff };
+  });
+  return {
+    title,
+    goal,
+    startingState,
+    arcs,
+    climax,
+    endingState,
+    openQuestions: stringArray(value.openQuestions).filter(Boolean)
+  };
+}
+
+function parseMarkedDeposit(summary: string, markerText: '剧情总纲落库' | '卷纲落库'): Record<string, unknown> | null {
+  const text = effectivePlanningText(summary);
+  const marker = new RegExp(`${markerText}(?:\\*\\*)?`, 'u').exec(text);
+  if (marker === null) return null;
+  const candidate = extractCompleteJsonObject(text.slice(marker.index + marker[0].length));
+  if (candidate === null) throw new Error(`${markerText}JSON无法解析`);
+  let value: unknown;
+  try {
+    value = JSON.parse(candidate);
+  } catch {
+    throw new Error(`${markerText}JSON无法解析`);
+  }
+  if (!isRecord(value)) throw new Error(`${markerText}必须是有效对象`);
+  return value;
 }
 
 function parseChapterRange(value: unknown): StructuredArcPlan['estimatedChapterRange'] {

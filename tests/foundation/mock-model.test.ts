@@ -27,5 +27,25 @@ describe('确定性假模型', () => {
     controller.abort(new Error('cancelled'));
     await expect(adapter.generate(request, controller.signal)).rejects.toThrow('cancelled');
   });
-});
 
+  it('在零费用测试模式为不同规划阶段返回各自的结构合同', async () => {
+    const adapter = new DeterministicModelAdapter();
+    const master = await adapter.generate({
+      ...request,
+      prompt: '你是当前书籍的活动主编。剧情总纲落库 输出合同'
+    });
+    const volume = await adapter.generate({
+      ...request,
+      prompt: '你是当前书籍的活动主编。卷纲落库 输出合同'
+    });
+    const chapters = await adapter.generate({
+      ...request,
+      prompt: '你是当前书籍的活动主编。规划落库 输出合同'
+    });
+
+    expect(master.output).toContain('剧情总纲落库');
+    expect(volume.output).toContain('卷纲落库');
+    expect(chapters.output).toContain('规划落库');
+    expect(master.output).not.toBe(volume.output);
+  });
+});

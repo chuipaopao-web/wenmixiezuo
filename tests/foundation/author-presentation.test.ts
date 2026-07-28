@@ -61,6 +61,13 @@ describe('作者展示层', () => {
     expect(authorFormatScalar('severe_pain_with_mobility_loss')).toBe('剧烈疼痛并伴有活动受限');
   });
 
+  it('移除剧情总纲和卷纲的内部落库合同', () => {
+    expect(toAuthorDisplayValue('这是给作者看的剧情总纲结论。\n剧情总纲落库 {"premise":"内部结构"}'))
+      .toBe('这是给作者看的剧情总纲结论。');
+    expect(toAuthorDisplayValue('这是给作者看的卷纲结论。\n卷纲落库 {"title":"内部结构"}'))
+      .toBe('这是给作者看的卷纲结论。');
+  });
+
   it('把图谱原始记录转换为章节结果，不显示投影协议字段', () => {
     const value = projectionForAuthor({
       projection_id: 'p-1', projection_type: 'emotion', track: 'actual', chapter_number: 12,

@@ -162,6 +162,9 @@ export class DiscussionPipelineService {
           ? compactOpinionsForEditor(peerOpinions)
           : peerOpinions;
         const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
+        hardSources.push(...planningHierarchySources(
+          this.database, scope, brief.scopeText, brief.purpose ?? 'open_discussion'
+        ));
         if (promptPeerOpinions.length > 0) {
           hardSources.push({
             sourceType: phase === 'cross_review' ? 'peer_independent_opinion' : 'specialist_opinions',
@@ -199,7 +202,7 @@ export class DiscussionPipelineService {
           optionalSources: retrieved.optionalSources
         });
         const evidenceContext = pack.sources
-          .filter((source) => source.sourceType.startsWith('retrieval:'))
+          .filter((source) => source.sourceType.startsWith('retrieval:') || source.sourceType.startsWith('planning:'))
           .map((source) => ({ sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content }));
         const prompt = buildDiscussionPrompt({
           participant,
@@ -278,9 +281,13 @@ export class DiscussionPipelineService {
         }
         if (result === undefined) throw lastError instanceof Error ? lastError : new Error('讨论模型调用失败');
         const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
-        // 锁定规划的原始回复还携带机器可解析的“规划落库”契约。
+        // 各级规划的原始回复还携带机器可解析的落库契约。
         // 面向老板的消息仍使用 effective 字段，但落库证据必须保留原始结构化段。
-        const output = isEditor && brief.purpose === 'locked_planning'
+        const output = isEditor && (
+          brief.purpose === 'locked_planning'
+          || brief.scopeText.includes('【剧情总纲专项讨论资料包】')
+          || brief.scopeText.includes('【卷纲专项讨论资料包】')
+        )
           ? result.output
           : effective?.fullContent ?? result.output;
         const opinionId = discussions.addOpinion(scope, brief.discussionId, {
@@ -510,6 +517,52 @@ export class DiscussionPipelineService {
   }
 }
 
+function planningHierarchySources(
+  database: DatabaseSync,
+  scope: BookScope,
+  scopeText: string,
+  purpose: DiscussionPurpose
+): Array<{ sourceType: string; sourceId: string; content: string; reason: string; priority: number }> {
+  const masterWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
+  const volumeWorkshop = scopeText.includes('【卷纲专项讨论资料包】');
+  const rollingPlan = purpose === 'locked_planning';
+  if (!masterWorkshop && !volumeWorkshop && !rollingPlan) return [];
+  const state = database.prepare(`
+    SELECT active_style_version_id, setting_baseline_version_id,
+      master_outline_version_id, volume_outline_version_id
+    FROM book_planning_states WHERE owner_id = ? AND book_id = ?
+  `).get(scope.ownerId, scope.bookId) as {
+    active_style_version_id: string | null;
+    setting_baseline_version_id: string | null;
+    master_outline_version_id: string | null;
+    volume_outline_version_id: string | null;
+  } | undefined;
+  if (state === undefined) return [];
+  const requested = [
+    { id: state.active_style_version_id, type: 'style', reason: '已确认作品风格，规划必须与正文表达方向一致' },
+    { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定大纲，是剧情推演不可违背的上游边界' },
+    ...(volumeWorkshop || rollingPlan
+      ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲，当前卷只能在全书主线边界内展开' }]
+      : []),
+    ...(rollingPlan
+      ? [{ id: state.volume_outline_version_id, type: 'volume_outline', reason: '已确认当前卷纲，章纲必须推进本卷目标' }]
+      : [])
+  ].filter((item): item is { id: string; type: string; reason: string } => item.id !== null);
+  return requested.flatMap((item) => {
+    const row = database.prepare(`
+      SELECT artifact_version_id, content_json FROM artifact_versions
+      WHERE artifact_version_id = ? AND owner_id = ? AND book_id = ? AND status = 'selected'
+    `).get(item.id, scope.ownerId, scope.bookId) as { artifact_version_id: string; content_json: string } | undefined;
+    return row === undefined ? [] : [{
+      sourceType: `planning:${item.type}`,
+      sourceId: row.artifact_version_id,
+      content: row.content_json,
+      reason: item.reason,
+      priority: 99
+    }];
+  });
+}
+
 function discussionOutputTokenLimit(roleKey: RoleKey | CreativeRoleKey, isEditor: boolean, phase: DiscussionPhase): number {
   if (isEditor) return 6_000;
   if (phase === 'cross_review') return 2_500;
@@ -564,6 +617,8 @@ function buildDiscussionPrompt(input: {
   const {
     participant, purpose, phase, scopeText, requestedChapterCount, evidenceContext, peerOpinions
   } = input;
+  const isMasterOutlineWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
+  const isVolumeOutlineWorkshop = scopeText.includes('【卷纲专项讨论资料包】');
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
   if (isEditor) {
     return [
@@ -579,7 +634,17 @@ function buildDiscussionPrompt(input: {
         ? '现在只做方向比较：整理2至5个候选方向，逐项写清收益、代价、因果风险、人物影响、关键分歧和未知项；提出最多3个高价值追问。不得估算章节数，不得生成章纲，不得安排主笔开写。'
         : purpose === 'locked_planning'
           ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
-          : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+          : isMasterOutlineWorkshop
+            ? '这是剧情总纲专项讨论。请只处理全书级内容：核心前提、贯穿全书的核心冲突、主角成长线、主要推进阶段、作品承诺和结局方向。不得把章纲、单卷细节或普通讨论摘要冒充剧情总纲。'
+            : isVolumeOutlineWorkshop
+              ? '这是卷纲专项讨论。请以上一级已确认剧情总纲为边界，只处理当前卷：卷首状态、本卷唯一目标、故事弧与转折、高潮兑现和卷末状态。不得照抄或缩写整部剧情总纲。'
+              : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+      isMasterOutlineWorkshop
+        ? '最后必须另起一行输出且整行不得换行：剧情总纲落库 {"premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"title":"阶段名","goal":"阶段目标","turningPoint":"改变后续方向的转折"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}。majorStages至少2项且目标不得重复。'
+        : '',
+      isVolumeOutlineWorkshop
+        ? '最后必须另起一行输出且整行不得换行：卷纲落库 {"title":"本卷名称","goal":"本卷唯一目标","startingState":"承接上级规划的卷首状态","arcs":[{"title":"本卷故事弧","objective":"弧目标","turningPoints":["转折"],"payoff":"本弧兑现"}],"climax":"本卷高潮及因果兑现","endingState":"进入下一卷时的角色与局势状态","openQuestions":["仍需老板确认的问题"]}。不得重复剧情总纲原文。'
+        : '',
       purpose === 'locked_planning'
         ? [
             '最后必须另起一行输出且整行不得换行：规划落库 {"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"title":"章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}。',
@@ -608,7 +673,11 @@ function buildDiscussionPrompt(input: {
   return [
     `你是${participant.display_name}。请在看不到另一位编剧答案的前提下，独立分析这个小说创作问题：${scopeText}。`,
     `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
-    '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
+    isMasterOutlineWorkshop
+      ? '独立提出全书级方案：核心冲突如何持续升级、主角成长如何改变选择、各大阶段如何因果相接、结局如何兑现前文承诺。不要写逐章事件。'
+      : isVolumeOutlineWorkshop
+        ? '独立提出当前卷方案：从卷首状态出发，围绕一个本卷目标设计递进故事弧、关键转折、高潮兑现与卷末新状态。不要重述整部小说。'
+        : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     purpose === 'creative_exploration'
       ? '当前仍是开放推演阶段：不得估算章节数，不得生成章纲，不得假定老板已经锁定方向。'
       : '',
