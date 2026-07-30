@@ -132,30 +132,48 @@ export class PlanningArtifactService {
       JSON.parse(decision.recommendation_json) as Record<string, unknown>
     );
     const source = { sourceDiscussionId: discussionId, sourceDecisionId: decisionId };
+    const structuredMaster = parseMasterOutlineDepositOutput(rawSummary);
 
-    if (['setting_ready', 'master_outline_in_progress'].includes(state.stage)) {
+    if (structuredMaster !== null) {
       if (state.setting_baseline_version_id === null) {
         throw new Error('确认剧情总纲前必须先确认设定大纲');
       }
-      const structured = parseMasterOutlineDepositOutput(rawSummary);
-      if (structured === null) {
-        throw new Error('剧情总纲缺少有效的全书级结构，不能把普通讨论总结重复写入剧情总纲');
-      }
       const version = this.upsert(scope, 'master_outline', '剧情总纲', {
-        outlineSchema: structured.outlineSchema,
-        premise: structured.premise,
-        coreConflict: structured.coreConflict,
-        protagonistArc: structured.protagonistArc,
-        majorStages: structured.majorStages,
-        endingDirection: structured.endingDirection,
-        storyPromises: structured.storyPromises,
-        openQuestions: structured.openQuestions,
+        outlineSchema: structuredMaster.outlineSchema,
+        premise: structuredMaster.premise,
+        coreConflict: structuredMaster.coreConflict,
+        protagonistArc: structuredMaster.protagonistArc,
+        majorStages: structuredMaster.majorStages,
+        endingDirection: structuredMaster.endingDirection,
+        storyPromises: structuredMaster.storyPromises,
+        openQuestions: structuredMaster.openQuestions,
         sourceSettingBaselineVersionId: state.setting_baseline_version_id,
         ...source
       });
+      // 选定同一剧情总纲的新版本时，ArtifactService 会把规划状态回退到
+      // master_outline_ready 并清空依赖旧总纲的当前卷纲指针。这里不能再按
+      // 旧 version 调用 confirm，否则已经进入卷纲/章纲阶段的书无法替换总纲。
+      if (state.master_outline_version_id !== null) {
+        const replaced = workflow.planningState(scope);
+        if (replaced?.master_outline_version_id !== version.artifactVersionId) {
+          throw new Error('新版剧情总纲已经生成，但未能切换为当前版本');
+        }
+        return {
+          artifactType: 'master_outline',
+          artifactVersionId: version.artifactVersionId,
+          stage: replaced.stage
+        };
+      }
+      if (!['setting_ready', 'master_outline_in_progress'].includes(state.stage)) {
+        throw new Error('首次确认剧情总纲时规划阶段不匹配');
+      }
       const advanced = new PlanningStageArtifactService(this.database, this.clock)
         .confirm(scope, state.version, version.artifactVersionId, 'master_outline');
       return { artifactType: 'master_outline', artifactVersionId: version.artifactVersionId, stage: advanced.stage };
+    }
+
+    if (['setting_ready', 'master_outline_in_progress'].includes(state.stage)) {
+      throw new Error('剧情总纲缺少有效的全书级结构，不能把普通讨论总结重复写入剧情总纲');
     }
 
     if (['master_outline_ready', 'volume_outline_in_progress'].includes(state.stage)) {
@@ -644,7 +662,11 @@ function parseWorkflowArtifact(summary: string, expectedType: string): Record<st
     }
     if (!isRecord(parsed)) continue;
     const fields = isRecord(parsed.fields) ? parsed.fields : parsed;
-    const artifact = fields.workflowArtifact;
+    const artifact = isRecord(fields.workflowArtifact)
+      ? fields.workflowArtifact
+      : fields.type === expectedType && isRecord(fields.payload)
+        ? fields
+        : null;
     if (!isRecord(artifact) || artifact.type !== expectedType || !isRecord(artifact.payload)) continue;
     return artifact.payload;
   }

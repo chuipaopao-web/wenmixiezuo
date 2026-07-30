@@ -126,7 +126,7 @@ export class DiscussionPipelineService {
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const calls = new ModelCallService(this.database, this.clock, budgets);
     const contextPacks = new ContextPackService(this.database, this.ids, this.clock);
-    const opinions: CollectedOpinion[] = (this.database.prepare(`
+    const savedOpinions = (this.database.prepare(`
       SELECT o.opinion_id, o.agent_id, a.display_name, r.role_key, o.phase, o.content_json
       FROM discussion_opinions o JOIN agent_instances a
         ON a.agent_id = o.agent_id AND a.owner_id = o.owner_id AND a.book_id = o.book_id
@@ -156,6 +156,13 @@ export class DiscussionPipelineService {
           : {})
       };
     });
+    // 失败重试可能留下同一成员、同一阶段的无效结构化回复。它们属于可追溯
+    // 审计证据，但不能再次进入主编资料包；否则既污染判断，也会把硬来源预算
+    // 撑爆。运行检查点只保留每席每阶段最后一份有效结果。
+    const opinions: CollectedOpinion[] = normalizeDiscussionCheckpoints(
+      savedOpinions,
+      brief.scopeText.includes('【剧情总纲专项讨论资料包】')
+    );
     const spanEstimates = new PlotSpanEstimateService(new LongformContinuityRepository(this.database), this.ids, this.clock);
     try {
       const collectOpinion = async (
@@ -167,13 +174,19 @@ export class DiscussionPipelineService {
         const matchingOpinions = opinions.filter(
           (opinion) => opinion.agentId === participant.agent_id && opinion.phase === phase
         );
+        const specialistMasterOutlineRequired = !isEditor
+          && phase === 'independent'
+          && brief.scopeText.includes('【剧情总纲专项讨论资料包】')
+          && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key);
         let existing = isEditor
           ? matchingOpinions.findLast((opinion) => hasRequiredWorkflowArtifact(
               brief.scopeText,
               brief.purpose ?? 'open_discussion',
               opinion.output
             ))
-          : matchingOpinions.findLast(() => true);
+          : specialistMasterOutlineRequired
+            ? matchingOpinions.findLast((opinion) => isValidMasterOutlineOutput(opinion.output))
+            : matchingOpinions.findLast(() => true);
         if (existing !== undefined) {
           // An opinion is checkpointed before its span estimate. If parsing or persistence
           // fails after the opinion insert, a task retry must rebuild that missing derived
@@ -302,7 +315,8 @@ export class DiscussionPipelineService {
           && phase === 'independent'
           && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key);
         let reusableIsValid = reusable !== undefined
-          && (!isEditor || hasRequiredWorkflowArtifact(brief.scopeText, brief.purpose ?? 'open_discussion', reusable.output_text));
+          && (!isEditor || hasRequiredWorkflowArtifact(brief.scopeText, brief.purpose ?? 'open_discussion', reusable.output_text))
+          && (!specialistMasterOutlineRequired || isValidMasterOutlineOutput(reusable.output_text));
         if (reusableIsValid && spanEstimateRequired) {
           try {
             parseSpanEstimateOutput(
@@ -463,7 +477,7 @@ export class DiscussionPipelineService {
       const volumeOutlineDiscussion = brief.scopeText.includes('【卷纲专项讨论资料包】');
       if (masterOutlineDiscussion) {
         for (const opinion of independent) {
-          if (parseMasterOutlineDepositOutput(opinion.output) === null) {
+          if (!isValidMasterOutlineOutput(opinion.output)) {
             throw new Error(`${opinion.role}没有提交有效的阶段式剧情总纲，不能进入交叉质疑`);
           }
         }
@@ -489,7 +503,7 @@ export class DiscussionPipelineService {
       const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor.agent_id);
       const editorOpinion = await collectOpinion(editor, 'independent', specialistEvidence);
       if (masterOutlineDiscussion
-        && parseMasterOutlineDepositOutput(editorOpinion.output) === null) {
+        && !isValidMasterOutlineOutput(editorOpinion.output)) {
         throw new Error('活动主编回复缺少有效的剧情总纲落库结构，不能把普通讨论总结伪装成剧情总纲');
       }
       if (volumeOutlineDiscussion
@@ -762,7 +776,7 @@ function planningHierarchySources(
         item.type,
         row.content_json,
         rollingPlan && item.type === 'setting' ? 12 : 30,
-        !(rollingPlan && item.type === 'setting')
+        !((masterWorkshop || rollingPlan) && item.type === 'setting')
       ),
       reason: item.reason,
       priority: 99
@@ -795,8 +809,8 @@ export function compactPlanningArtifactForDiscussion(
         : [],
       characters: parsed.characters,
       mustFollow: openingReference?.mustFollow,
-      // 滚动章纲不应把六十余项全书设定全部塞给每个岗位。开书定位、角色、
-      // 必须遵守项仍作为硬边界；与本轮剧情相关的详细设定由混合检索按需召回。
+      // 总纲整理与滚动章纲都不应把六十余项全书设定全部塞给每个岗位。开书定位、
+      // 角色和必须遵守项仍作为硬边界；与本轮剧情相关的详细设定由混合检索按需召回。
       settingOutline: includeSettingOutline
         ? items.map((item) => {
             const record = item as Record<string, unknown>;
@@ -838,7 +852,7 @@ function hasRequiredWorkflowArtifact(
   output: string
 ): boolean {
   if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
-    return parseMasterOutlineDepositOutput(output) !== null;
+    return isValidMasterOutlineOutput(output);
   }
   if (scopeText.includes('【卷纲专项讨论资料包】')) {
     return parseVolumeOutlineDepositOutput(output) !== null;
@@ -873,14 +887,30 @@ export function discussionOutputTokenLimit(
     // 预算随本批条目数有界增长，不影响普通聊天、总纲或卷纲的精简输出。
     return Math.min(8_000, Math.max(3_600, settingBatchKeys(scopeText).length * 700));
   }
-  // 剧情总纲、卷纲和滚动章纲同时要求面向作者的结论与完整 workflowArtifact。
-  // 3.6k 会在结构末尾截断合法 JSON，造成“模型调用成功但任务失败”，因此仅为这些
-  // 必须落库的规划任务留出有界余量；普通开放讨论仍保持较小上限。
+  // 阶段式剧情总纲包含每阶段主线、起承转合、阶段总结、伏笔和后续方向。真实
+  // 四阶段结果已证明 4.5k 会恰好在最后一个阶段中间截断。此前 6k 超时的根因
+  // 是主编输入曾膨胀到 7k 左右；现在完整意见改为结构化骨架摘要，输入已被控制，
+  // 因此为总纲恢复 6k，靠结构校验保证不会把截断结果误当成功。
+  if (isEditor && scopeText.includes('【剧情总纲专项讨论资料包】')) {
+    return 6_000;
+  }
+  // 卷纲和滚动章纲的结构明显短于全书阶段总纲，4.5k 足以容纳面向作者的结论
+  // 与完整 workflowArtifact；普通开放讨论仍保持较小上限。
   if (isEditor && (
-    scopeText.includes('【剧情总纲专项讨论资料包】')
-    || scopeText.includes('【卷纲专项讨论资料包】')
+    scopeText.includes('【卷纲专项讨论资料包】')
     || purpose === 'locked_planning'
-  )) return 6_000;
+  )) {
+    return 4_500;
+  }
+  // 剧情总纲要求两名编剧各自提交完整的阶段式落库结构。4k 在四阶段及以上
+  // 方案中会把末尾 JSON 截断；这里与主编保持同一有界上限，重试时再依据结构
+  // 校验只重做被截断的一席，不重复调用已经成功的编剧。
+  if (!isEditor
+    && phase === 'independent'
+    && scopeText.includes('【剧情总纲专项讨论资料包】')
+    && (roleKey === 'lead_screenwriter' || roleKey === 'second_screenwriter')) {
+    return 6_000;
+  }
   if (isEditor) return 3_600;
   if (phase === 'cross_review') return 2_500;
   if (roleKey === 'lead_screenwriter' || roleKey === 'second_screenwriter') return 4_000;
@@ -916,10 +946,71 @@ export function discussionRetrievalQuery(scopeText: string): string {
 export function compactOpinionsForEditor(opinions: CollectedOpinion[]): CollectedOpinion[] {
   return opinions.map((opinion) => ({
     ...opinion,
-    // 主编需要的是各席核心主张、关键转折与结论，不应重复吞入完整长文。
-    // 完整意见已单独持久化，可从 opinionId 追溯。
-    output: boundedHeadAndTail(opinion.output, 140)
+    // 阶段式总纲不能使用普通“首尾各截一段”压缩，否则主编看不到中间阶段，
+    // 容易把两套真实方案误合成为第三套臆造方案。对可校验的编剧总纲保留完整
+    // 阶段骨架，只压缩每个字段的措辞；交叉质疑和普通意见继续使用短摘要。
+    // 完整意见仍单独持久化，可从 opinionId 追溯。
+    output: opinion.phase === 'independent'
+      ? compactMasterOutlineForEditor(opinion.output) ?? boundedHeadAndTail(opinion.output, 140)
+      : boundedHeadAndTail(opinion.output, 180)
   }));
+}
+
+function compactMasterOutlineForEditor(output: string): string | null {
+  let outline: ReturnType<typeof parseMasterOutlineDepositOutput>;
+  try {
+    outline = parseMasterOutlineDepositOutput(output);
+  } catch {
+    return null;
+  }
+  if (outline === null) return null;
+  const shorten = (value: string, tokens: number): string => boundedHeadAndTail(value, tokens);
+  // 这里故意不用 JSON：两份总纲重复的英文键名与转义符会额外占用约两千
+  // Token，却不增加任何创作信息。中文骨架保留同样的阶段字段和先后关系，
+  // 完整机器结构仍由 opinionId 指向原始意见，可随时追溯。
+  return [
+    `总纲前提：${shorten(outline.premise, 20)}`,
+    `核心冲突：${shorten(outline.coreConflict, 20)}`,
+    `主角成长：${shorten(outline.protagonistArc, 20)}`,
+    ...outline.majorStages.map((stage) => [
+      `阶段${stage.stageNumber}｜${stage.chapterRange.start}-${stage.chapterRange.end}章｜${stage.title}`,
+      `主线：遭遇=${shorten(stage.mainline.encounter, 18)}；解决=${shorten(stage.mainline.resolution, 18)}；结果=${shorten(stage.mainline.result, 18)}`,
+      `起承转合：起=${shorten(stage.structure.setup, 10)}；承=${shorten(stage.structure.development, 10)}；转=${shorten(stage.structure.turn, 10)}；合=${shorten(stage.structure.conclusion, 10)}`,
+      `阶段总结：${shorten(stage.stageSummary, 14)}`,
+      `待回收：${stage.pendingThreads.slice(0, 2).map((item) => shorten(item, 8)).join('｜') || '无'}`,
+      `后续方向：${shorten(stage.followUpDirection, 14)}`
+    ].join('\n')),
+    `结局方向：${shorten(outline.endingDirection, 20)}`,
+    `故事承诺：${outline.storyPromises.slice(0, 3).map((item) => shorten(item, 8)).join('｜')}`,
+    `开放问题：${outline.openQuestions.slice(0, 3).map((item) => shorten(item, 8)).join('｜')}`
+  ].join('\n');
+}
+
+export function normalizeDiscussionCheckpoints(
+  opinions: CollectedOpinion[],
+  masterOutlineDiscussion: boolean
+): CollectedOpinion[] {
+  const latest = new Map<string, CollectedOpinion>();
+  for (const opinion of opinions) {
+    if (
+      masterOutlineDiscussion
+      && opinion.phase === 'independent'
+      && ['lead_screenwriter', 'second_screenwriter'].includes(opinion.roleKey)
+      && !isValidMasterOutlineOutput(opinion.output)
+    ) {
+      continue;
+    }
+    latest.set(`${opinion.agentId}:${opinion.phase}`, opinion);
+  }
+  return [...latest.values()];
+}
+
+function isValidMasterOutlineOutput(output: string): boolean {
+  try {
+    return parseMasterOutlineDepositOutput(output) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function compactRetrievalHardSourcesForEditor<T extends { content: string }>(sources: T[]): T[] {

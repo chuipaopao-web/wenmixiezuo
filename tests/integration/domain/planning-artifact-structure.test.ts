@@ -350,6 +350,17 @@ describe('structured rolling chapter plans', () => {
     expect(master?.premise).toContain('历史游戏世界');
   });
 
+  it('accepts a planning artifact returned as the top-level workflow envelope', () => {
+    const master = parseMasterOutlineDepositOutput(JSON.stringify({
+      type: 'master_outline',
+      payload: stageMasterPayload()
+    }));
+
+    expect(master?.outlineSchema).toBe('stage_master_v2');
+    expect(master?.majorStages).toHaveLength(2);
+    expect(master?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
+  });
+
   it('accepts rolling chapter outlines embedded in workflowArtifact instead of falling back to repeated summaries', () => {
     const chapters = [
       { title: '穷途末路的入口', goal: '夏炎为支付舱位费接下第一项采集任务', beats: ['确认余额', '接受任务'], hook: '结算页出现完成度折扣' },
@@ -560,6 +571,136 @@ describe('structured rolling chapter plans', () => {
     expect(new WritingReadinessService(context.database).inspect(scope, 1)).toMatchObject({
       ready: true,
       missing: []
+    });
+  });
+
+  it('replaces a confirmed master outline after downstream planning and invalidates the current volume pointer', () => {
+    context = createTestContext('wenmi-master-outline-replacement-');
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '剧情总纲替换测试',
+      text: '已经做过卷纲和章纲，但老板要求重做剧情总纲'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version, channel,
+        category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
+    `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    const artifacts = new ArtifactService(context.database, ids, clock);
+    const storyBible = artifacts.create(scope, 'story_bible', '设定大纲', {
+      title: '剧情总纲替换测试',
+      positioning: {},
+      worldRules: ['公开任务必须可核验'],
+      characters: [],
+      mainPlot: {}
+    }, 'candidate');
+    artifacts.select(scope, storyBible.artifactId, storyBible.artifactVersionId);
+    const oldMaster = artifacts.create(scope, 'master_outline', '剧情总纲', {
+      premise: '旧版前提',
+      coreConflict: '旧版冲突',
+      protagonistArc: '旧版成长线',
+      majorStages: [{ title: '旧阶段', goal: '旧目标', turningPoint: '旧转折' }],
+      endingDirection: '旧版方向'
+    }, 'candidate');
+    artifacts.select(scope, oldMaster.artifactId, oldMaster.artifactVersionId);
+    const oldVolume = artifacts.create(scope, 'volume_outline', '第一卷卷纲', {
+      volumeNumber: 1,
+      goal: '旧版第一卷目标',
+      arcs: [{ title: '旧故事弧', objective: '旧目标', turningPoints: ['旧转折'], payoff: '旧回报' }],
+      endingState: '旧版卷末状态'
+    }, 'candidate');
+    artifacts.select(scope, oldVolume.artifactId, oldVolume.artifactVersionId);
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET version = 20, stage = 'chapter_outline_ready',
+        setting_baseline_version_id = ?, master_outline_version_id = ?,
+        volume_outline_version_id = ?
+      WHERE owner_id = ? AND book_id = ?
+    `).run(
+      storyBible.artifactVersionId,
+      oldMaster.artifactVersionId,
+      oldVolume.artifactVersionId,
+      scope.ownerId,
+      scope.bookId
+    );
+
+    const agents = context.database.prepare(`
+      SELECT a.agent_id, a.model_snapshot_id, r.role_key FROM agent_instances a
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('chief_editor', 'lead_screenwriter')
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{
+      agent_id: string; model_snapshot_id: string; role_key: string;
+    }>;
+    const editor = agents.find((item) => item.role_key === 'chief_editor')!;
+    const writer = agents.find((item) => item.role_key === 'lead_screenwriter')!;
+    const discussions = new DiscussionService(context.database, ids, clock);
+    const discussion = discussions.create(scope, {
+      type: 'quick',
+      scopeText: '按老板新约束完整替换剧情总纲',
+      createdByAgentId: editor.agent_id,
+      participants: [
+        { agentId: editor.agent_id, reason: '主编汇总' },
+        { agentId: writer.agent_id, reason: '编剧规划' }
+      ]
+    });
+    const replacement = stageMasterPayload();
+    replacement.premise = '新版阶段式前提';
+    const output = JSON.stringify({
+      answer: '已形成新版阶段式剧情总纲',
+      keyPoints: [],
+      alternatives: [],
+      risks: [],
+      questions: [],
+      nextStep: '确认后重新规划当前卷',
+      details: null,
+      workflowArtifact: {
+        type: 'master_outline',
+        payload: replacement
+      }
+    });
+    discussions.addOpinion(scope, discussion.discussionId, {
+      agentId: editor.agent_id,
+      modelSnapshotId: editor.model_snapshot_id,
+      phase: 'independent',
+      content: { recommendation: output },
+      tokens: 200
+    });
+    discussions.setStage(scope, discussion.discussionId, 'collecting', 'synthesizing');
+    const decisionId = discussions.synthesize(scope, discussion.discussionId, {
+      recommendation: { summary: output },
+      alternatives: [],
+      disagreements: [],
+      impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
+    });
+    discussions.confirm(scope, discussion.discussionId, decisionId);
+
+    const promoted = new PlanningArtifactService(context.database, ids, clock)
+      .promoteCurrentPlanningStage(scope, discussion.discussionId, decisionId);
+    const state = context.database.prepare(`
+      SELECT stage, master_outline_version_id, volume_outline_version_id
+      FROM book_planning_states WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId) as {
+      stage: string; master_outline_version_id: string; volume_outline_version_id: string | null;
+    };
+    const active = context.database.prepare(`
+      SELECT v.content_json FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'master_outline'
+    `).get(scope.ownerId, scope.bookId) as { content_json: string };
+
+    expect(promoted).toMatchObject({
+      artifactType: 'master_outline',
+      artifactVersionId: state.master_outline_version_id,
+      stage: 'master_outline_ready'
+    });
+    expect(state.master_outline_version_id).not.toBe(oldMaster.artifactVersionId);
+    expect(state.volume_outline_version_id).toBeNull();
+    expect(JSON.parse(active.content_json)).toMatchObject({
+      outlineSchema: 'stage_master_v2',
+      premise: '新版阶段式前提'
     });
   });
 

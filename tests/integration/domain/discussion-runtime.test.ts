@@ -11,8 +11,10 @@ import {
   compactPlanningArtifactForDiscussion,
   discussionContextTokenBudget,
   discussionOutputTokenLimit,
-  discussionRetrievalQuery
+  discussionRetrievalQuery,
+  normalizeDiscussionCheckpoints
 } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import { estimateTokens } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -37,14 +39,20 @@ describe('自然语言讨论运行闭环', () => {
 
   it('为必须落库的规划结构保留足够输出空间，但不放大普通讨论', () => {
     expect(discussionOutputTokenLimit(
+      'deputy_editor', true, 'independent', '【剧情总纲专项讨论资料包】', 'open_discussion'
+    )).toBe(6_000);
+    expect(discussionOutputTokenLimit(
       'deputy_editor', true, 'independent', '【卷纲专项讨论资料包】', 'open_discussion'
+    )).toBe(4_500);
+    expect(discussionOutputTokenLimit(
+      'second_screenwriter', false, 'independent', '【剧情总纲专项讨论资料包】', 'open_discussion'
     )).toBe(6_000);
     expect(discussionOutputTokenLimit(
       'deputy_editor', true, 'independent', '普通创作讨论', 'open_discussion'
     )).toBe(3_600);
     expect(discussionOutputTokenLimit(
       'deputy_editor', true, 'independent', '未来三章', 'locked_planning'
-    )).toBe(6_000);
+    )).toBe(4_500);
   });
 
   it('compacts a locked creative decision before scheduling rolling chapter planning', () => {
@@ -143,6 +151,137 @@ describe('自然语言讨论运行闭环', () => {
     expect(compacted.every((opinion) => opinion.output.length < 1_100)).toBe(true);
   });
 
+  it('主编汇总阶段总纲时保留每一阶段骨架，而不是只看见首尾片段', () => {
+    const longText = '规则、代价与人物选择必须形成因果闭环。'.repeat(80);
+    const master = {
+      workflowArtifact: {
+        type: 'master_outline',
+        payload: {
+          outlineSchema: 'stage_master_v2',
+          premise: longText,
+          coreConflict: longText,
+          protagonistArc: longText,
+          majorStages: [1, 2, 3, 4].map((stageNumber) => ({
+            stageNumber,
+            title: `阶段${stageNumber}`,
+            chapterRange: {
+              start: stageNumber === 1 ? 1 : (stageNumber - 1) * 50 + 1,
+              end: stageNumber * 50
+            },
+            mainline: {
+              encounter: `${longText}遭遇${stageNumber}`,
+              resolution: `${longText}解决${stageNumber}`,
+              result: `${longText}结果${stageNumber}`
+            },
+            structure: {
+              setup: `${longText}起${stageNumber}`,
+              development: `${longText}承${stageNumber}`,
+              turn: `${longText}转${stageNumber}`,
+              conclusion: `${longText}合${stageNumber}`
+            },
+            stageSummary: `${longText}总结${stageNumber}`,
+            pendingThreads: [`伏笔${stageNumber}`],
+            followUpDirection: `${longText}后续${stageNumber}`
+          })),
+          endingDirection: longText,
+          storyPromises: ['热血成长'],
+          openQuestions: ['终局代价']
+        }
+      }
+    };
+    const [compacted] = compactOpinionsForEditor([{
+      opinionId: 'master-opinion',
+      agentId: 'screenwriter',
+      role: '编剧',
+      roleKey: 'lead_screenwriter',
+      phase: 'independent',
+      output: JSON.stringify(master)
+    }]);
+
+    expect(compacted?.output).toContain('阶段1｜1-50章｜阶段1');
+    expect(compacted?.output).toContain('阶段4｜151-200章｜阶段4');
+    expect(compacted?.output).toContain('主线：遭遇=');
+    expect(compacted?.output).toContain('；结果=');
+    expect(compacted?.output).toContain('待回收：伏笔4');
+    expect(compacted?.output.length).toBeLessThan(3_000);
+    expect(estimateTokens(compacted?.output ?? '')).toBeLessThan(1_600);
+  });
+
+  it('剧情总纲重试只把每席最后一份有效检查点交给主编', () => {
+    const valid = JSON.stringify({
+      workflowArtifact: {
+        type: 'master_outline',
+        payload: {
+          outlineSchema: 'stage_master_v2',
+          premise: '公开竞技贡献可兑现现金。',
+          coreConflict: '成长、经营与公共规则的代价冲突。',
+          protagonistArc: '夏炎从求生者成长为规则建设者。',
+          majorStages: [
+            {
+              stageNumber: 1,
+              title: '站稳脚跟',
+              chapterRange: { start: 1, end: 50 },
+              mainline: { encounter: '求生', resolution: '建立队伍', result: '验证收入' },
+              structure: { setup: '到账', development: '磨合', turn: '危机', conclusion: '站稳' },
+              stageSummary: '完成队伍雏形。',
+              pendingThreads: ['公证网络来源'],
+              followUpDirection: '进入跨区竞争。'
+            },
+            {
+              stageNumber: 2,
+              title: '跨区竞争',
+              chapterRange: { start: 51, end: 150 },
+              mainline: { encounter: '跨区竞争', resolution: '建设据点', result: '形成影响力' },
+              structure: { setup: '入局', development: '经营', turn: '联盟破裂', conclusion: '建立秩序' },
+              stageSummary: '从队伍成长为稳定组织。',
+              pendingThreads: ['公证规则代价'],
+              followUpDirection: '进入文明级竞争。'
+            }
+          ],
+          endingDirection: '建立公平公开的竞技秩序。',
+          storyPromises: ['热血成长'],
+          openQuestions: ['终局代价']
+        }
+      }
+    });
+    const checkpoints = normalizeDiscussionCheckpoints([
+      {
+        opinionId: 'invalid',
+        agentId: 'writer-a',
+        role: '编剧甲',
+        roleKey: 'lead_screenwriter',
+        phase: 'independent',
+        output: '{"workflowArtifact":'
+      },
+      {
+        opinionId: 'valid',
+        agentId: 'writer-a',
+        role: '编剧甲',
+        roleKey: 'lead_screenwriter',
+        phase: 'independent',
+        output: valid
+      },
+      {
+        opinionId: 'cross-old',
+        agentId: 'writer-a',
+        role: '编剧甲',
+        roleKey: 'lead_screenwriter',
+        phase: 'cross_review',
+        output: '旧交叉意见'
+      },
+      {
+        opinionId: 'cross-new',
+        agentId: 'writer-a',
+        role: '编剧甲',
+        roleKey: 'lead_screenwriter',
+        phase: 'cross_review',
+        output: '新交叉意见'
+      }
+    ], true);
+
+    expect(checkpoints.map((item) => item.opinionId)).toEqual(['valid', 'cross-new']);
+  });
+
   it('滚动章纲压缩全书设定并以有界摘要交叉质疑，避免硬来源撑爆上下文', () => {
     const setting = compactPlanningArtifactForDiscussion('setting', JSON.stringify({
       title: '测试书',
@@ -173,7 +312,7 @@ describe('自然语言讨论运行闭环', () => {
     expect(peer[0]?.output.length).toBeLessThan(2_600);
   });
 
-  it('滚动章纲硬来源只保留开书边界，详细设定交给混合检索按需召回', () => {
+  it('总纲与滚动章纲硬来源只保留开书边界，详细设定交给混合检索按需召回', () => {
     const setting = compactPlanningArtifactForDiscussion('setting', JSON.stringify({
       title: '测试书',
       positioning: { genre: { value: '游戏体育' } },
@@ -449,6 +588,96 @@ describe('自然语言讨论运行闭环', () => {
       .toBe('stage_master_v2');
   });
 
+  it('剧情总纲编剧输出被截断后，重试只重做无效检查点并继续主编汇总', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '总纲截断恢复书',
+      text: '男频游戏异界、历史脑洞与经营争霸'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const scheduled = conversations.sendBossMessage(
+      scope,
+      [
+        '讨论剧情总纲 【剧情总纲专项讨论资料包】',
+        '按阶段规划全书，必须覆盖开书资料与已确认设定。'
+      ].join('\n')
+    );
+    const taskId = String(scheduled.action.taskId);
+    const discussionId = String(scheduled.action.discussionId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    let secondScreenwriterCalls = 0;
+    const requestedOutputLimits: number[] = [];
+    const truncatingFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        const base = baseFactory.resolve(provider, modelId, purpose, roleKey);
+        if (purpose !== 'discussion' || roleKey !== 'second_screenwriter') return base;
+        return {
+          provider,
+          modelId,
+          async generate(request, signal) {
+            secondScreenwriterCalls += 1;
+            requestedOutputLimits.push(request.maxOutputTokens);
+            if (secondScreenwriterCalls === 1) {
+              return {
+                provider,
+                modelId,
+                output: '{"workflowArtifact":{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","majorStages":[',
+                inputTokens: 100,
+                outputTokens: request.maxOutputTokens,
+                cashCostCny: 0,
+                state: 'succeeded' as const
+              };
+            }
+            return base.generate(request, signal);
+          }
+        };
+      }
+    } as ModelAdapterFactory;
+
+    const firstClaim = tasks.claimNext('worker-master-truncated')!;
+    await expect(new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock, truncatingFactory
+    ).executeClaimed(scope, taskId, 'worker-master-truncated', {
+      leaseToken: firstClaim.leaseToken!,
+      attemptNo: firstClaim.currentAttemptNo
+    })).rejects.toThrow('没有提交有效的阶段式剧情总纲');
+    expect(tasks.require(scope, taskId).status).toBe('failed');
+    expect(secondScreenwriterCalls).toBe(1);
+
+    tasks.retryFailed(scope, taskId);
+    const retryClaim = tasks.claimNext('worker-master-retry')!;
+    const completed = await new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock, truncatingFactory
+    ).executeClaimed(scope, taskId, 'worker-master-retry', {
+      leaseToken: retryClaim.leaseToken!,
+      attemptNo: retryClaim.currentAttemptNo
+    });
+
+    expect(completed).toMatchObject({ discussionId, opinionCount: 5 });
+    expect(tasks.require(scope, taskId).status).toBe('succeeded');
+    expect(secondScreenwriterCalls).toBe(3);
+    expect(requestedOutputLimits).toEqual([6_000, 6_000, 2_500]);
+    const validIndependent = context.database.prepare(`
+      SELECT content_json
+      FROM discussion_opinions o
+      JOIN agent_instances a ON a.agent_id = o.agent_id
+      JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE o.discussion_id = ? AND o.phase = 'independent'
+        AND r.role_key = 'second_screenwriter'
+      ORDER BY o.created_at DESC, o.opinion_id DESC
+      LIMIT 1
+    `).get(discussionId) as { content_json: string };
+    const recommendation = (JSON.parse(validIndependent.content_json) as { recommendation: string }).recommendation;
+    expect(parseMasterOutlineDepositOutput(recommendation)?.outlineSchema).toBe('stage_master_v2');
+  });
+
   it('剧情总纲已经确认后仍可显式重新发起新版总纲讨论，而不会误路由到卷纲', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -480,6 +709,39 @@ describe('自然语言讨论运行闭环', () => {
     `).get(String(scheduled.action.discussionId)) as { scope_text: string };
     expect(discussion.scope_text).toContain('【剧情总纲专项讨论资料包】');
     expect(discussion.scope_text).not.toContain('【卷纲专项讨论资料包】');
+  });
+
+  it('剧情总纲最终替换版会重新拉起双编剧讨论，而不是误作创作会话普通续聊', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '旧版总纲最终替换书',
+      text: '已有总纲需要按老板新约束整体替换'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version, channel,
+        category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
+    `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET stage = 'master_outline_ready'
+      WHERE owner_id = ? AND book_id = ?
+    `).run(scope.ownerId, scope.bookId);
+
+    const scheduled = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '讨论 剧情总纲最终替换版：保留阶段结构，重新输出');
+
+    expect(scheduled.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'open_discussion' });
+    const discussion = context.database.prepare(`
+      SELECT scope_text FROM discussions WHERE discussion_id = ?
+    `).get(String(scheduled.action.discussionId)) as { scope_text: string };
+    expect(discussion.scope_text).toContain('【剧情总纲专项讨论资料包】');
+    expect(discussion.scope_text).toContain('剧情总纲最终替换版');
   });
 
   it('自然创作讨论经老板确认后形成可追溯资料，主笔门禁才会放行', async () => {
