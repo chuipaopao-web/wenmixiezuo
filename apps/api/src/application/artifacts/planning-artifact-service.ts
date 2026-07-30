@@ -1,7 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
-import type { ArtifactType } from '../../domain/artifact-schemas.js';
+import {
+  parseStageMasterOutlineV2,
+  type ArtifactType,
+  type StageMasterOutlineV2
+} from '../../domain/artifact-schemas.js';
 import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.js';
 import { ExpressionProfileService } from '../books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../../infrastructure/db/repositories/expression-profile-repository.js';
@@ -36,19 +40,7 @@ interface StructuredArcPlan {
   chapters: StructuredChapterPlan[];
 }
 
-interface StructuredMasterOutline {
-  premise: string;
-  coreConflict: string;
-  protagonistArc: string;
-  majorStages: Array<{
-    title: string;
-    goal: string;
-    turningPoint: string;
-  }>;
-  endingDirection: string;
-  storyPromises: string[];
-  openQuestions: string[];
-}
+type StructuredMasterOutline = StageMasterOutlineV2;
 
 interface StructuredVolumeOutline {
   title: string;
@@ -150,6 +142,7 @@ export class PlanningArtifactService {
         throw new Error('剧情总纲缺少有效的全书级结构，不能把普通讨论总结重复写入剧情总纲');
       }
       const version = this.upsert(scope, 'master_outline', '剧情总纲', {
+        outlineSchema: structured.outlineSchema,
         premise: structured.premise,
         coreConflict: structured.coreConflict,
         protagonistArc: structured.protagonistArc,
@@ -585,38 +578,7 @@ export function parsePlanningDepositOutput(summary: string): StructuredArcPlan |
 export function parseMasterOutlineDepositOutput(summary: string): StructuredMasterOutline | null {
   const value = parseMarkedDeposit(summary, '剧情总纲落库');
   if (value === null) return null;
-  const premise = stringValue(value.premise);
-  const coreConflict = stringValue(value.coreConflict);
-  const protagonistArc = stringValue(value.protagonistArc);
-  const endingDirection = stringValue(value.endingDirection);
-  if (premise === null || coreConflict === null || protagonistArc === null || endingDirection === null) {
-    throw new Error('剧情总纲必须包含核心前提、核心冲突、主角成长线和结局方向');
-  }
-  if (!Array.isArray(value.majorStages) || value.majorStages.length < 2) {
-    throw new Error('剧情总纲必须包含至少两个互不重复的全书推进阶段');
-  }
-  const majorStages = value.majorStages.map((item, index) => {
-    if (!isRecord(item)) throw new Error(`剧情总纲第${index + 1}个推进阶段格式无效`);
-    const title = stringValue(item.title);
-    const goal = stringValue(item.goal);
-    const turningPoint = stringValue(item.turningPoint);
-    if (title === null || goal === null || turningPoint === null) {
-      throw new Error(`剧情总纲第${index + 1}个推进阶段缺少标题、目标或转折`);
-    }
-    return { title, goal, turningPoint };
-  });
-  if (new Set(majorStages.map((item) => item.goal)).size !== majorStages.length) {
-    throw new Error('剧情总纲的推进阶段目标不能重复');
-  }
-  return {
-    premise,
-    coreConflict,
-    protagonistArc,
-    majorStages,
-    endingDirection,
-    storyPromises: stringArray(value.storyPromises).filter(Boolean),
-    openQuestions: stringArray(value.openQuestions).filter(Boolean)
-  };
+  return parseStageMasterOutlineV2(value);
 }
 
 export function parseVolumeOutlineDepositOutput(summary: string): StructuredVolumeOutline | null {

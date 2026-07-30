@@ -3,7 +3,7 @@ const TECHNICAL_FIELDS = new Set([
   'model_snapshot_id', 'modelSnapshotId', 'parameters_json', 'parametersJson',
   'scope_json', 'scopeJson', 'impact_json', 'impactJson', 'references_json',
   'referencesJson', 'source_ids_json', 'sourceIds', 'sourceIdsJson', 'rebuilt_at',
-  'rebuiltAt', 'schema_version', 'schemaVersion', 'version', 'format', 'rules'
+  'rebuiltAt', 'schema_version', 'schemaVersion', 'outlineSchema', 'version', 'format', 'rules'
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
@@ -25,6 +25,10 @@ const FIELD_LABELS: Record<string, string> = {
   openQuestions: '开放问题', tags: '主要标签', theme: '主题', acts: '推进阶段', endingDirection: '结局方向',
   coreConflict: '核心冲突', protagonistArc: '主角成长线', majorStages: '全书推进阶段',
   storyPromises: '作品承诺', startingState: '卷首状态', turningPoint: '关键转折',
+  stageNumber: '阶段', chapterRange: '章节范围', mainline: '主线剧情', encounter: '遇到什么',
+  resolution: '如何解决', result: '阶段结果', structure: '起承转合', setup: '起', development: '承',
+  turn: '转', conclusion: '合', stageSummary: '阶段总结', pendingThreads: '待回收信息与伏笔',
+  followUpDirection: '后续方向',
   turningPoints: '关键转折', payoff: '阶段兑现', climax: '本卷高潮',
   volumeNumber: '卷号', arcs: '故事弧', endingState: '卷末状态', created_source: '记录来源',
   assignment_count: '使用次数', candidate_status: '确认状态', claim_text: '候选判断',

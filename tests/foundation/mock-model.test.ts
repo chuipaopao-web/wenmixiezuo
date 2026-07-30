@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DeterministicModelAdapter } from '../../apps/api/src/infrastructure/models/deterministic-model.js';
+import { parseMasterOutlineDepositOutput } from '../../apps/api/src/application/artifacts/planning-artifact-service.js';
 
 const request = {
   requestId: 'request-1',
@@ -44,6 +45,10 @@ describe('确定性假模型', () => {
     });
 
     expect(master.output).toContain('剧情总纲落库');
+    const parsedMaster = parseMasterOutlineDepositOutput(master.output);
+    expect(parsedMaster?.outlineSchema).toBe('stage_master_v2');
+    expect(parsedMaster?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
+    expect(parsedMaster?.majorStages[0]?.pendingThreads).toBeDefined();
     expect(volume.output).toContain('卷纲落库');
     expect(chapters.output).toContain('规划落库');
     expect(master.output).not.toBe(volume.output);

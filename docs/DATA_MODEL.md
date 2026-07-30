@@ -125,6 +125,8 @@ collecting
 
 统一保存创作方案、故事圣经、总纲、卷纲、章纲、写作契约和其他结构化成果的版本元数据。不同类型通过Schema和版本化模板约束。
 
+新确认的 `master_outline` 使用 `outlineSchema = stage_master_v2`。`majorStages` 每项包含 `stageNumber`、`title`、`chapterRange { start, end }`、`mainline { encounter, resolution, result }`、`structure { setup, development, turn, conclusion }`、`stageSummary`、`pendingThreads[]` 和 `followUpDirection`。阶段范围连续但仅是活动规划；旧 `title/goal/turningPoint` 结构继续只读兼容。总纲版本显式引用活动设定版本，卷纲继续显式引用活动总纲版本。
+
 场景契约作为写作契约内的版本化结构，保存场景顺序、叙事功能、目标读者效果、冲突、信息变化、情绪变化、核心/辅助技法选择、选择理由、自由创作区和重大候选。技法选择是软建议，不能覆盖表达基线、硬事实或主笔自由创作权。
 
 ### `technique_cards`

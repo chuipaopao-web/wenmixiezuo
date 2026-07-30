@@ -16,6 +16,58 @@ import { WritingReadinessService } from '../../../apps/api/src/application/creat
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
+function stageMasterPayload(): Record<string, unknown> {
+  return {
+    outlineSchema: 'stage_master_v2',
+    premise: '被抄袭的策划进入自己设计的历史游戏世界',
+    coreConflict: '主角必须在平台规则与真实历史代价之间争夺规则解释权',
+    protagonistArc: '从只想证明自己，成长为愿意承担规则后果的秩序建立者',
+    majorStages: [
+      {
+        stageNumber: 1,
+        title: '夺回身份',
+        chapterRange: { start: 1, end: 50 },
+        mainline: {
+          encounter: '夏炎被夺走署名后进入历史游戏世界，发现冠军结算会影响现实。',
+          resolution: '夏炎以公开战绩、队友证词和规则漏洞逐步建立原创证据链。',
+          result: '夏炎夺回参赛身份，并确认平台背后仍有人操纵历史入口。'
+        },
+        structure: {
+          setup: '失业与抄袭逼迫夏炎匿名参赛。',
+          development: '夏炎连续赢下副本并建立自己的队伍。',
+          turn: '首个冠军奖励在现实兑现，同时暴露数据所有权陷阱。',
+          conclusion: '夏炎拒绝控制性合同，带队独立。'
+        },
+        stageSummary: '夏炎从孤立求生者变成拥有队伍和证据的独立选手。',
+        pendingThreads: ['历史入口由谁控制', '原队友是否公开作证'],
+        followUpDirection: '追查平台如何利用历史入口垄断赛事。'
+      },
+      {
+        stageNumber: 2,
+        title: '重建规则',
+        chapterRange: { start: 51, end: 100 },
+        mainline: {
+          encounter: '平台封锁独立队伍的结算渠道，并利用历史副本逼迫夏炎妥协。',
+          resolution: '夏炎联合被牺牲的玩家公开账本，争取退出权与数据权。',
+          result: '旧平台垄断被打破，但夏炎发现最终对手掌握历史入口源头。'
+        },
+        structure: {
+          setup: '独立队伍遭遇结算封锁。',
+          development: '受害玩家组成联盟并验证公开账本。',
+          turn: '联盟内部有人用新规则谋取私利。',
+          conclusion: '夏炎公开规则来源并拒绝成为新垄断者。'
+        },
+        stageSummary: '赛事规则由平台私产转为可监督的公共协议，主角承担治理责任。',
+        pendingThreads: ['历史入口的最终归属'],
+        followUpDirection: '进入终局，决定入口和新规则由谁维护。'
+      }
+    ],
+    endingDirection: '主角公开规则来源并选择共同治理',
+    storyPromises: ['游戏机制与历史选择互相改变'],
+    openQuestions: ['最终是否保留职业联赛']
+  };
+}
+
 describe('structured rolling chapter plans', () => {
   let context: TestContext | undefined;
   afterEach(() => {
@@ -254,18 +306,7 @@ describe('structured rolling chapter plans', () => {
   });
 
   it('keeps the whole-book master outline structurally distinct from a volume outline', () => {
-    const master = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify({
-      premise: '被抄袭的策划进入自己设计的历史游戏世界',
-      coreConflict: '主角必须在平台规则与真实历史代价之间争夺规则解释权',
-      protagonistArc: '从只想证明自己，成长为愿意承担规则后果的秩序建立者',
-      majorStages: [
-        { title: '夺回身份', goal: '证明游戏规则与历史世界存在真实关联', turningPoint: '首个冠军奖励在现实兑现' },
-        { title: '重建规则', goal: '联合被平台牺牲的玩家重写竞赛秩序', turningPoint: '最终对手掌握历史世界入口' }
-      ],
-      endingDirection: '主角公开规则来源并选择共同治理',
-      storyPromises: ['游戏机制与历史选择互相改变'],
-      openQuestions: ['最终是否保留职业联赛']
-    })}`);
+    const master = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(stageMasterPayload())}`);
     const volume = parseVolumeOutlineDepositOutput(`卷纲落库 ${JSON.stringify({
       title: '被夺走的首胜',
       goal: '取得第一份可公开核验的原创证据',
@@ -282,6 +323,9 @@ describe('structured rolling chapter plans', () => {
     })}`);
 
     expect(master?.majorStages).toHaveLength(2);
+    expect(master?.outlineSchema).toBe('stage_master_v2');
+    expect(master?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
+    expect(master?.majorStages[0]?.mainline.result).toContain('参赛身份');
     expect(master?.coreConflict).toContain('规则解释权');
     expect(volume?.arcs).toHaveLength(1);
     expect(volume?.goal).toContain('原创证据');
@@ -299,22 +343,11 @@ describe('structured rolling chapter plans', () => {
       details: null,
       workflowArtifact: {
         type: 'master_outline',
-        payload: {
-          premise: '失业青年进入竞技表现可结算收入的游戏。',
-          coreConflict: '个人生存与资本垄断游戏定价权的冲突。',
-          protagonistArc: '从为钱参赛成长为维护竞技自由定价的人。',
-          majorStages: [
-            { title: '活下去', goal: '证明竞技可以带来真实收入', turningPoint: '拒绝第一份控制性合同' },
-            { title: '建队伍', goal: '建立不受财阀控制的队伍', turningPoint: '公开数据所有权问题' }
-          ],
-          endingDirection: '在冠军赛兑现竞技自由与数据权利。',
-          storyPromises: ['竞技成长', '经营兑现'],
-          openQuestions: []
-        }
+        payload: stageMasterPayload()
       }
     }));
     expect(master?.majorStages).toHaveLength(2);
-    expect(master?.premise).toContain('竞技表现');
+    expect(master?.premise).toContain('历史游戏世界');
   });
 
   it('accepts rolling chapter outlines embedded in workflowArtifact instead of falling back to repeated summaries', () => {
@@ -364,16 +397,7 @@ describe('structured rolling chapter plans', () => {
       'master_outline',
       '剧情总纲',
       {
-        premise: '失业青年进入竞技表现可结算收入的游戏。',
-        coreConflict: '自由选手与垄断合同争夺退出权。',
-        protagonistArc: '从求生选手成长为公开规则的维护者。',
-        majorStages: [
-          { title: '求生', goal: '靠竞技取得收入', turningPoint: '拒绝控制性合同' },
-          { title: '重构', goal: '推动数据权与退出权公开化', turningPoint: '放弃成为新垄断者' }
-        ],
-        endingDirection: '成为顶尖选手并建立开放的独立俱乐部。',
-        storyPromises: ['即时收入兑现', '竞技与经营并重'],
-        openQuestions: []
+        ...stageMasterPayload()
       },
       'candidate'
     )).not.toThrow();
@@ -564,15 +588,16 @@ describe('structured rolling chapter plans', () => {
   it('rejects generic summaries and repeated stage goals instead of silently creating fake outlines', () => {
     expect(parseMasterOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
     expect(parseVolumeOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
-    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify({
-      premise: '前提',
-      coreConflict: '冲突',
-      protagonistArc: '成长',
-      majorStages: [
-        { title: '一', goal: '同一目标', turningPoint: '转折一' },
-        { title: '二', goal: '同一目标', turningPoint: '转折二' }
-      ],
-      endingDirection: '结局'
-    })}`)).toThrow('推进阶段目标不能重复');
+    const missingResult = stageMasterPayload();
+    const stages = missingResult.majorStages as Array<Record<string, unknown>>;
+    stages[0] = { ...stages[0], mainline: { encounter: '遇到问题', resolution: '解决问题' } };
+    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(missingResult)}`))
+      .toThrow('主线遭遇、解决方式或阶段结果');
+
+    const gapped = stageMasterPayload();
+    const gappedStages = gapped.majorStages as Array<Record<string, unknown>>;
+    gappedStages[1] = { ...gappedStages[1], chapterRange: { start: 52, end: 100 } };
+    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(gapped)}`))
+      .toThrow('必须紧接上一阶段');
   });
 });

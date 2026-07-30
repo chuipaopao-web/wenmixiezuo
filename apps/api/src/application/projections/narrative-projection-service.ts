@@ -213,10 +213,18 @@ function plannedMainline(rows: PlanningArtifactRow[]): ProjectionDraft[] {
   const content = parseRecord(master.content_json);
   return recordArray(content.majorStages).flatMap((stage, index) => {
     const title = readableText(stage.title, 100) ?? `阶段${index + 1}`;
-    const goal = readableText(stage.goal, 240);
-    const turningPoint = readableText(stage.turningPoint, 180);
-    const result = readableText(stage.result, 180);
-    const summary = conciseSummary([goal, turningPoint, result]);
+    const chapterRange = childRecord(stage.chapterRange);
+    const mainline = childRecord(stage.mainline);
+    const isStageMasterV2 = content.outlineSchema === 'stage_master_v2';
+    const encounter = readableText(mainline.encounter, 180);
+    const resolution = readableText(mainline.resolution, 180);
+    const stageResult = readableText(mainline.result, 180);
+    const legacyGoal = readableText(stage.goal, 240);
+    const legacyTurningPoint = readableText(stage.turningPoint, 180);
+    const legacyResult = readableText(stage.result, 180);
+    const summary = isStageMasterV2
+      ? conciseSummary([encounter, resolution, stageResult])
+      : conciseSummary([legacyGoal, legacyTurningPoint, legacyResult]);
     if (summary === null) return [];
     return [{
       type: 'mainline' as const,
@@ -225,9 +233,11 @@ function plannedMainline(rows: PlanningArtifactRow[]): ProjectionDraft[] {
       content: compact({
         scopeLabel: title,
         summary,
-        chapterStart: positiveInteger(stage.chapterStart),
-        chapterEnd: positiveInteger(stage.chapterEnd),
-        result
+        chapterStart: positiveInteger(isStageMasterV2 ? chapterRange.start : stage.chapterStart),
+        chapterEnd: positiveInteger(isStageMasterV2 ? chapterRange.end : stage.chapterEnd),
+        result: isStageMasterV2
+          ? readableText(stage.stageSummary, 180) ?? stageResult
+          : legacyResult
       }),
       sourceIds: [master.artifact_version_id]
     }];

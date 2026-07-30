@@ -48,14 +48,99 @@ function deterministicDiscussion(prompt: string): string | null {
       details: ''
     }
   };
+  if (prompt.includes('现在进行且仅进行一次交叉质疑')) {
+    base.fields.answer = '对方方案的阶段因果能够成立，但需要检查阶段结果是否真正成为下一阶段起点，并为未回收伏笔留下明确承接位置。';
+    base.fields.keyPoints = ['保留两套方案真正不同的阶段升级方式', '检查章节范围连续性和阶段结果'];
+    base.fields.risks = ['阶段结论若不改变人物处境，后续会变成重复升级'];
+    base.fields.nextStep = '由主编只基于两份完整方案和本轮质疑形成阶段总纲';
+    return JSON.stringify(base);
+  }
   if (prompt.includes('剧情总纲落库')) {
-    base.fields.details = '剧情总纲落库 {"premise":"主角在既有秩序失效后被迫承担重建责任","coreConflict":"个人生存选择与重建公共秩序的责任持续冲突","protagonistArc":"从只保护自己成长为愿意承担选择后果的领导者","majorStages":[{"title":"取得立足点","goal":"证明主角能够建立可持续的生存规则","turningPoint":"第一次成功同时暴露更大制度问题"},{"title":"争夺规则权","goal":"联合受旧秩序伤害的人改变资源分配方式","turningPoint":"主角发现真正对手掌握规则来源"},{"title":"完成新秩序","goal":"在终局代价前决定新规则由谁维护","turningPoint":"主角放弃独占胜利并公开规则"}],"endingDirection":"主角以承担真实代价的选择兑现重建承诺","storyPromises":["每次胜利产生后续代价","人物关系随选择真实变化"],"openQuestions":["最终治理形式仍由老板确认"]}';
+    base.fields.details = `剧情总纲落库 ${JSON.stringify(deterministicMasterOutline())}`;
   } else if (prompt.includes('卷纲落库')) {
     base.fields.details = '卷纲落库 {"title":"建立第一个立足点","goal":"主角取得一项可公开核验且能持续运转的生存资格","startingState":"主角资源有限、身份未获承认且旧规则仍占优势","arcs":[{"title":"证明能力","objective":"用一次高风险选择证明新方案可以运转","turningPoints":["第一次成功引来旧势力干预","盟友因代价产生分歧"],"payoff":"主角保住成果并获得有限追随者"}],"climax":"主角放弃短期独占收益，公开关键规则以换取共同抵抗","endingState":"主角获得立足点和盟友，同时被更高层对手正式注意","openQuestions":["盟友分歧将在下一卷如何升级"]}';
   } else if (prompt.includes('规划落库')) {
     base.fields.details = '规划落库 {"arcTitle":"当前卷滚动推进","arcGoal":"用三次递进选择推进本卷唯一目标","endingState":"主角完成阶段选择并面对新的可追踪问题","estimatedChapterRange":{"minimum":3,"recommended":3,"maximum":3},"chapters":[{"title":"必须作出的选择","goal":"让主角在两种有代价的方案中作出明确选择","beats":["暴露现实限制","提出互斥方案"],"hook":"选择触发意料之外的责任"},{"title":"代价开始兑现","goal":"让上一章的选择具体损害一段重要关系","beats":["短期收益出现","盟友发现被隐瞒的代价"],"hook":"对手掌握主角选择的证据"},{"title":"阶段结果落地","goal":"让主角承担代价并取得推进本卷目标的有限成果","beats":["对手公开施压","主角用行动回应"],"hook":"成果中出现指向更大冲突的异常"}]}';
   }
   return JSON.stringify(base);
+}
+
+function deterministicMasterOutline(): Record<string, unknown> {
+  const stage = (
+    stageNumber: number,
+    title: string,
+    start: number,
+    end: number,
+    encounter: string,
+    resolution: string,
+    result: string,
+    setup: string,
+    development: string,
+    turn: string,
+    conclusion: string,
+    stageSummary: string,
+    pendingThreads: string[],
+    followUpDirection: string
+  ): Record<string, unknown> => ({
+    stageNumber,
+    title,
+    chapterRange: { start, end },
+    mainline: { encounter, resolution, result },
+    structure: { setup, development, turn, conclusion },
+    stageSummary,
+    pendingThreads,
+    followUpDirection
+  });
+  return {
+    outlineSchema: 'stage_master_v2',
+    premise: '主角在既有秩序失效后被迫承担重建责任',
+    coreConflict: '个人生存选择与重建公共秩序的责任持续冲突',
+    protagonistArc: '从只保护自己成长为愿意承担选择后果的领导者',
+    majorStages: [
+      stage(
+        1, '取得立足点', 1, 50,
+        '主角接管濒临崩溃的据点并遭遇资源断供',
+        '查清账目、重建分配规则并团结幸存者',
+        '据点恢复运转，主角取得第一份规则解释权',
+        '旧秩序失效，主角被迫接手烂摊子',
+        '资源、关系和外部压力同步升级',
+        '第一次胜利暴露规则被人为操纵',
+        '主角守住据点并决定追查规则源头',
+        '主角由自保转向承担集体生存责任，获得继续行动的基础',
+        ['规则操纵者的身份', '旧账中缺失的一页'],
+        '进入规则权争夺，追查资源断供背后的利益链'
+      ),
+      stage(
+        2, '争夺规则权', 51, 100,
+        '旧势力利用制度和舆论围堵新据点',
+        '主角联合受损群体公开证据并建立替代规则',
+        '旧势力失去垄断，但真正对手暴露',
+        '新据点扩张触动既得利益',
+        '联盟建立又因利益分配出现裂缝',
+        '盟友背叛迫使主角公开关键证据',
+        '主角赢得阶段性规则权并看见更大敌人',
+        '主角从据点管理者成长为能够组织联盟的领导者',
+        ['背叛者未交代的动机', '规则源头的维护者'],
+        '把局部改革推向全域，准备承担公开挑战旧秩序的代价'
+      ),
+      stage(
+        3, '完成新秩序', 101, 150,
+        '真正对手发动终局清算并逼迫主角独占胜利',
+        '主角公开规则来源、分散权力并承担个人损失',
+        '新秩序建立且拥有可追责的维护机制',
+        '全域冲突爆发，既有联盟面临瓦解',
+        '主角在效率与公开之间反复受挫',
+        '最亲近的人付出代价，迫使主角改变胜利定义',
+        '主角放弃独占成果，以可追责制度兑现承诺',
+        '主角完成从求生者到规则建设者的成长，并让胜利不依赖个人永续掌权',
+        [],
+        '收束主要因果，同时为世界继续运转保留余韵'
+      )
+    ],
+    endingDirection: '主角以承担真实代价的选择兑现重建承诺',
+    storyPromises: ['每次胜利产生后续代价', '人物关系随选择真实变化'],
+    openQuestions: ['最终治理形式仍由老板确认']
+  };
 }
 
 function reviewSynthesis(prompt: string): string | null {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { NarrativeProjectionService } from '../../../apps/api/src/application/projections/narrative-projection-service.js';
 import { ResearchService } from '../../../apps/api/src/application/research/research-service.js';
+import { ArtifactService } from '../../../apps/api/src/application/artifacts/artifact-service.js';
 import { LongformContinuityRepository } from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -9,6 +10,81 @@ import { createTestContext, FixedClock, SequenceIds, type TestContext } from '..
 describe('叙事投影与研究候选边界', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
+
+  it('把阶段式剧情总纲投影为每阶段一条简洁主线', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '阶段总纲投影书',
+      text: '游戏竞技与历史经营'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const artifacts = new ArtifactService(context.database, ids, clock);
+    const master = artifacts.create(scope, 'master_outline', '剧情总纲', {
+      outlineSchema: 'stage_master_v2',
+      premise: '夏炎进入历史游戏世界争夺公开竞赛规则。',
+      coreConflict: '个人求生与平台垄断规则冲突。',
+      protagonistArc: '从独行选手成长为规则维护者。',
+      majorStages: [{
+        stageNumber: 1,
+        title: '夺回身份',
+        chapterRange: { start: 1, end: 50 },
+        mainline: {
+          encounter: '夏炎被抄袭者夺走参赛身份。',
+          resolution: '夏炎用冠军记录和队友证词建立证据链。',
+          result: '夏炎夺回身份并建立独立队伍。'
+        },
+        structure: {
+          setup: '匿名参赛',
+          development: '连续夺冠',
+          turn: '现实奖励到账',
+          conclusion: '拒绝垄断合同'
+        },
+        stageSummary: '夏炎拥有队伍、证据和继续调查平台的资格。',
+        pendingThreads: ['历史入口由谁控制'],
+        followUpDirection: '追查平台控制历史入口的方式。'
+      }, {
+        stageNumber: 2,
+        title: '公开规则',
+        chapterRange: { start: 51, end: 100 },
+        mainline: {
+          encounter: '平台利用历史入口制造不公平赛事。',
+          resolution: '夏炎联合不同赛区公开规则证据。',
+          result: '赛事规则改为公开审计。'
+        },
+        structure: {
+          setup: '独立队伍进入联赛',
+          development: '追查异常判罚',
+          turn: '内部证人出现',
+          conclusion: '公开审计机制落地'
+        },
+        stageSummary: '夏炎从参赛者成长为能推动规则改变的组织者。',
+        pendingThreads: [],
+        followUpDirection: '验证新规则能否在更大范围持续运转。'
+      }],
+      endingDirection: '公开规则来源。',
+      storyPromises: ['胜利必须付出代价'],
+      openQuestions: []
+    }, 'candidate');
+    artifacts.select(scope, master.artifactId, master.artifactVersionId);
+
+    const projections = new NarrativeProjectionService(context.database, ids, clock);
+    expect(projections.rebuild(scope)).toBe(2);
+    const row = context.database.prepare(`
+      SELECT content_json FROM narrative_projections
+      WHERE owner_id = ? AND book_id = ? AND projection_type = 'mainline'
+      ORDER BY chapter_number
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as { content_json: string };
+    expect(JSON.parse(row.content_json)).toEqual(expect.objectContaining({
+      scopeLabel: '夺回身份',
+      summary: expect.stringContaining('夺回身份'),
+      chapterStart: 1,
+      chapterEnd: 50,
+      result: '夏炎拥有队伍、证据和继续调查平台的资格。'
+    }));
+  });
 
   it('只按真实来源和正确粒度生成简洁叙事图谱并可重建', async () => {
     context = createTestContext();

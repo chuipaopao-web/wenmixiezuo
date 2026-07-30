@@ -772,7 +772,34 @@ describe('完整创作工作台', () => {
           version: 2,
           active_version_id: 'master-selected-version',
           active_version_status: 'selected',
-          active_content: { premise: '夏炎从流民求生走向经营自持。' }
+          active_content: {
+            outlineSchema: 'stage_master_v2',
+            premise: '夏炎从流民求生走向经营自持。',
+            coreConflict: '生存选择与重建秩序的责任冲突。',
+            protagonistArc: '从独自求生到承担共同治理。',
+            majorStages: [{
+              stageNumber: 1,
+              title: '荒原立足',
+              chapterRange: { start: 1, end: 50 },
+              mainline: {
+                encounter: '夏炎失去水源与合法身份。',
+                resolution: '夏炎带领流民建立净水营地。',
+                result: '夏炎取得第一块合法领地。'
+              },
+              structure: {
+                setup: '流落荒原',
+                development: '修复净水装置',
+                turn: '发现旧账本',
+                conclusion: '建立营地'
+              },
+              stageSummary: '夏炎从流民变成营地负责人。',
+              pendingThreads: ['旧账本由谁伪造'],
+              followUpDirection: '追查王都账本来源。'
+            }],
+            endingDirection: '建立公开可审计的新秩序。',
+            storyPromises: ['经营成长必须有真实代价'],
+            openQuestions: []
+          }
         }
       ]);
       return baseRouter(input, init);
@@ -787,6 +814,13 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('夏炎从流民求生走向经营自持。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '荒原立足' })).toBeInTheDocument();
+    expect(screen.getByText('第1—50章')).toBeInTheDocument();
+    for (const label of ['主线剧情', '起承转合', '阶段总结', '待回收信息与伏笔', '后续方向']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.queryByText('stage_master_v2')).not.toBeInTheDocument();
+    expect(screen.queryByText('chapterRange')).not.toBeInTheDocument();
     expect(screen.getByText('已确认')).toBeInTheDocument();
     expect(screen.queryByText('selected')).not.toBeInTheDocument();
   });

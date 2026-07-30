@@ -23,7 +23,10 @@ import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/mod
 import { prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { parseSpanEstimateOutput } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
-import { parsePlanningDepositOutput } from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
+import {
+  parseMasterOutlineDepositOutput,
+  parsePlanningDepositOutput
+} from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
 
 describe('自然语言讨论运行闭环', () => {
   let context: TestContext | undefined;
@@ -374,6 +377,76 @@ describe('自然语言讨论运行闭环', () => {
     });
     expect(context.database.prepare(`SELECT status FROM discussions WHERE discussion_id = ?`).get(discussionId)).toEqual({ status: 'confirmed' });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE book_id = ?`).get(scope.bookId)).toEqual({ count: callsBeforeConfirmation });
+  });
+
+  it('剧情总纲要求两名编剧各自提交完整阶段方案，通过后才交叉并由主编综合', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '阶段总纲讨论书',
+      text: '男频游戏竞技与历史经营'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const scheduled = conversations.sendBossMessage(
+      scope,
+      [
+        '讨论剧情总纲 【剧情总纲专项讨论资料包】',
+        '主角夏炎必须在游戏竞技与历史经营的冲突中夺回规则解释权。',
+        '请由两名编剧分别直接规划阶段，再由主编整理。'
+      ].join('\n')
+    );
+    expect(scheduled.action).toMatchObject({ kind: 'creative_session_started' });
+    const taskId = String(scheduled.action.taskId);
+    const discussionId = String(scheduled.action.discussionId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    expect(tasks.claimNext('worker-master-outline')?.taskId).toBe(taskId);
+
+    const result = await new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, taskId, 'worker-master-outline');
+
+    expect(result).toMatchObject({ discussionId, opinionCount: 5 });
+    const opinions = context.database.prepare(`
+      SELECT o.phase, o.content_json, r.role_key
+      FROM discussion_opinions o
+      JOIN agent_instances a ON a.agent_id = o.agent_id
+      JOIN role_templates r
+        ON r.role_template_id = a.role_template_id
+       AND r.version = a.role_template_version
+      WHERE o.discussion_id = ?
+      ORDER BY o.created_at, o.opinion_id
+    `).all(discussionId) as Array<{ phase: string; content_json: string; role_key: string }>;
+    const independentWriters = opinions.filter((opinion) =>
+      opinion.phase === 'independent'
+      && ['lead_screenwriter', 'second_screenwriter'].includes(opinion.role_key)
+    );
+    expect(independentWriters).toHaveLength(2);
+    for (const opinion of independentWriters) {
+      const content = JSON.parse(opinion.content_json) as { recommendation: string };
+      const parsed = parseMasterOutlineDepositOutput(content.recommendation);
+      expect(parsed?.outlineSchema).toBe('stage_master_v2');
+      expect(parsed?.majorStages[0]?.mainline.result).toBeTruthy();
+    }
+    const crossReviews = opinions.filter((opinion) =>
+      opinion.phase === 'cross_review'
+      && ['lead_screenwriter', 'second_screenwriter'].includes(opinion.role_key)
+    );
+    expect(crossReviews).toHaveLength(2);
+    for (const opinion of crossReviews) {
+      const content = JSON.parse(opinion.content_json) as { recommendation: string };
+      expect(parseMasterOutlineDepositOutput(content.recommendation)).toBeNull();
+    }
+    const editor = opinions.find((opinion) =>
+      opinion.phase === 'independent' && opinion.role_key === 'chief_editor'
+    );
+    expect(editor).toBeDefined();
+    const editorContent = JSON.parse(editor!.content_json) as { recommendation: string };
+    expect(parseMasterOutlineDepositOutput(editorContent.recommendation)?.outlineSchema)
+      .toBe('stage_master_v2');
   });
 
   it('自然创作讨论经老板确认后形成可追溯资料，主笔门禁才会放行', async () => {

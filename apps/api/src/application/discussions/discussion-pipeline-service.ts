@@ -459,9 +459,20 @@ export class DiscussionPipelineService {
 
       const settingSpecialistDiscussion = brief.scopeText.includes('【设定专项讨论资料包】')
         || brief.scopeText.includes('【设定大纲成组讨论资料包】');
+      const masterOutlineDiscussion = brief.scopeText.includes('【剧情总纲专项讨论资料包】');
+      const volumeOutlineDiscussion = brief.scopeText.includes('【卷纲专项讨论资料包】');
+      if (masterOutlineDiscussion) {
+        for (const opinion of independent) {
+          if (parseMasterOutlineDepositOutput(opinion.output) === null) {
+            throw new Error(`${opinion.role}没有提交有效的阶段式剧情总纲，不能进入交叉质疑`);
+          }
+        }
+      }
       const creativePurpose = brief.purpose === 'creative_exploration'
         || brief.purpose === 'locked_planning'
-        || settingSpecialistDiscussion;
+        || settingSpecialistDiscussion
+        || masterOutlineDiscussion
+        || volumeOutlineDiscussion;
       if (creativePurpose) {
         const current = discussions.require(scope, brief.discussionId);
         if (current.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'cross_review');
@@ -477,11 +488,11 @@ export class DiscussionPipelineService {
 
       const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor.agent_id);
       const editorOpinion = await collectOpinion(editor, 'independent', specialistEvidence);
-      if (brief.scopeText.includes('【剧情总纲专项讨论资料包】')
+      if (masterOutlineDiscussion
         && parseMasterOutlineDepositOutput(editorOpinion.output) === null) {
         throw new Error('活动主编回复缺少有效的剧情总纲落库结构，不能把普通讨论总结伪装成剧情总纲');
       }
-      if (brief.scopeText.includes('【卷纲专项讨论资料包】')
+      if (volumeOutlineDiscussion
         && parseVolumeOutlineDepositOutput(editorOpinion.output) === null) {
         throw new Error('活动主编回复缺少有效的卷纲落库结构，不能把剧情总纲缩写或普通讨论总结伪装成卷纲');
       }
@@ -982,22 +993,22 @@ function buildDiscussionPrompt(input: {
         phase: opinion.phase,
         opinion: opinion.output
       })))}`,
-      purpose === 'creative_exploration'
-        ? '现在只做方向比较：整理2至5个候选方向，逐项写清收益、代价、因果风险、人物影响、关键分歧和未知项；提出最多3个高价值追问。不得估算章节数，不得生成章纲，不得安排主笔开写。'
-        : purpose === 'locked_planning'
-          ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
-          : isMasterOutlineWorkshop
-            ? '这是剧情总纲专项讨论。请只处理全书级内容：核心前提、贯穿全书的核心冲突、主角成长线、主要推进阶段、作品承诺和结局方向。不得把章纲、单卷细节或普通讨论摘要冒充剧情总纲。'
-            : isVolumeOutlineWorkshop
-              ? '这是卷纲专项讨论。请以上一级已确认剧情总纲为边界，只处理当前卷：卷首状态、本卷唯一目标、故事弧与转折、高潮兑现和卷末状态。不得照抄或缩写整部剧情总纲。'
-              : isGroupedSettingWorkshop
-                ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、卷纲、章纲或正文。'
-              : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+      isMasterOutlineWorkshop
+        ? '这是剧情总纲专项讨论。只能综合两位编剧已经提交并通过结构校验的完整阶段方案；按连续章节范围规划全书阶段，写清每阶段的主线遭遇、解决方式、结果、起承转合、阶段总结、待回收信息与伏笔、后续方向。不得凭空补造第三套通用总纲，不得写逐章事件。'
+        : isVolumeOutlineWorkshop
+          ? '这是卷纲专项讨论。请以上一级已确认剧情总纲为边界，只处理当前卷：卷首状态、本卷唯一目标、故事弧与转折、高潮兑现和卷末状态。不得照抄或缩写整部剧情总纲。'
+          : isGroupedSettingWorkshop
+            ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、卷纲、章纲或正文。'
+            : purpose === 'creative_exploration'
+              ? '现在只做方向比较：整理2至5个候选方向，逐项写清收益、代价、因果风险、人物影响、关键分歧和未知项；提出最多3个高价值追问。不得估算章节数，不得生成章纲，不得安排主笔开写。'
+              : purpose === 'locked_planning'
+                ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
+                : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
       isGroupedSettingWorkshop
         ? `在同一个JSON对象的workflowArtifact字段输出设定大纲落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
         : '',
       isMasterOutlineWorkshop
-        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"title":"阶段名","goal":"阶段目标","turningPoint":"改变后续方向的转折"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。majorStages至少2项且目标不得重复。'
+        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":50},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。majorStages至少2项；stageNumber从1连续递增；章节范围从第1章开始且相邻阶段必须首尾相接、不得重叠或留空；主线三项、起承转合、阶段总结和后续方向不得为空。起承转合是阶段总结视角，不是每章机械公式。'
         : '',
       isVolumeOutlineWorkshop
         ? '在同一个JSON对象的workflowArtifact字段输出卷纲落库结构：{"type":"volume_outline","payload":{"title":"本卷名称","goal":"本卷唯一目标","startingState":"承接上级规划的卷首状态","arcs":[{"title":"本卷故事弧","objective":"弧目标","turningPoints":["转折"],"payoff":"本弧兑现"}],"climax":"本卷高潮及因果兑现","endingState":"进入下一卷时的角色与局势状态","openQuestions":["仍需老板确认的问题"]}}。不得重复剧情总纲原文。'
@@ -1026,7 +1037,9 @@ function buildDiscussionPrompt(input: {
         role: opinion.role,
         opinion: opinion.output
       })))}`,
-      '指出对方方案最强之处、一个关键盲点、一个会使方案失败的条件，并给出一项改进；保留你与对方真正不同的判断，不得为形成共识而趋同。',
+      isMasterOutlineWorkshop
+        ? '只质疑对方阶段总纲：检查章节范围是否连续、阶段结果能否成为下一阶段起点、主角动机与代价是否成立、起承转合是否真正总结了阶段变化、待回收伏笔是否能被后续方向承接。指出最强之处、一个关键盲点、一个失败条件和一项改进；不得重新生成完整总纲。'
+        : '指出对方方案最强之处、一个关键盲点、一个会使方案失败的条件，并给出一项改进；保留你与对方真正不同的判断，不得为形成共识而趋同。',
       '不得重新估算章节跨度，不得生成章纲，不得复述老板原话。'
     ].join('\n');
   }
@@ -1040,6 +1053,9 @@ function buildDiscussionPrompt(input: {
         : isGroupedSettingWorkshop
           ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
+    isMasterOutlineWorkshop
+      ? '这是剧情总纲落库任务。你必须直接提交一份完整可校验的阶段总纲，不是只提建议。在同一个JSON对象的workflowArtifact字段输出：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"阶段名","chapterRange":{"start":1,"end":50},"mainline":{"encounter":"主角遇到什么","resolution":"怎么解决","result":"什么结果"},"structure":{"setup":"起","development":"承","turn":"转","conclusion":"合"},"stageSummary":"阶段总结","pendingThreads":["待回收信息与伏笔"],"followUpDirection":"后续方向"}],"endingDirection":"结局方向","storyPromises":["作品承诺"],"openQuestions":["仍需老板确认的问题"]}}。至少2阶段；编号和章节连续；每个必填文本都要具体。起承转合只总结阶段变化，不得压成逐章公式。'
+      : '',
     purpose === 'creative_exploration'
       ? '当前仍是开放推演阶段：不得估算章节数，不得生成章纲，不得假定老板已经锁定方向。'
       : '',
