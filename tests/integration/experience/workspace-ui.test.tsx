@@ -325,7 +325,11 @@ describe('完整创作工作台', () => {
       if (path.endsWith('/projections')) return apiResponse([{
         projection_id: 'projection-internal-1', owner_id: 'owner-internal', book_id: 'book-internal',
         projection_type: 'emotion', track: 'actual', chapter_number: 12, canon_revision: 3,
-        content_json: JSON.stringify({ status: 'not_extracted', source: 'selected_manuscript' }),
+        content_json: JSON.stringify({
+          scopeLabel: '第12章',
+          emotionFlow: ['紧张', '平静'],
+          baseline: '平'
+        }),
         source_ids_json: JSON.stringify(['source-internal-1']), rebuilt_at: '2026-07-25T01:00:00.000Z'
       }]);
       return baseRouter(input, init);
@@ -334,8 +338,9 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '图谱' }));
     fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
-    expect(await screen.findByText('暂无可展示内容')).toBeInTheDocument();
-    expect(screen.getByText('正式正文')).toBeInTheDocument();
+    expect(await screen.findByText('第12章')).toBeInTheDocument();
+    expect(screen.getByText('紧张 → 平静')).toBeInTheDocument();
+    expect(screen.getByText('平')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '规划' }));
@@ -735,11 +740,13 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
     expect(await screen.findByRole('heading', { name: '叙事图谱' })).toBeInTheDocument();
     for (const name of ['人物关系', '情绪', '主线', '支线', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
-    expect(screen.getAllByText('守城军').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('张三 —— 守城军（盟友）')).toBeInTheDocument();
+    expect(document.querySelector('.graph-node-grid')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '情绪' }));
-    expect(await screen.findByText('从绝望转为守城决心。')).toBeInTheDocument();
-    expect(screen.getByText('压抑')).toBeInTheDocument();
-    expect(screen.getByText('决意')).toBeInTheDocument();
+    expect(await screen.findByText('压抑 → 决意')).toBeInTheDocument();
+    expect(screen.getByText('虐转爽')).toBeInTheDocument();
+    expect(screen.queryByText('规划曲线')).not.toBeInTheDocument();
+    expect(screen.queryByText('实际曲线')).not.toBeInTheDocument();
   });
 
   it('设定清单完整时不显示空旧卡片，并把正式规划状态翻译为中文', async () => {
@@ -1272,8 +1279,8 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       summary: { entityCount: 1, factCount: 1, relationCount: 1, tagCount: 0, projectionCount: 2, openGapCount: 0 }
     });
     if (path.endsWith('/projections')) return apiResponse([
-      { projection_id: 'projection-planned', projection_type: 'emotion', track: 'planned', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ emotionalArc: ['压抑', '决意'] }) },
-      { projection_id: 'projection-actual', projection_type: 'emotion', track: 'actual', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ summary: '从绝望转为守城决心。' }) }
+      { projection_id: 'projection-planned', projection_type: 'emotion', track: 'planned', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ scopeLabel: '第1章', emotionFlow: ['压抑', '决意'], baseline: '虐转爽' }) },
+      { projection_id: 'projection-actual', projection_type: 'emotion', track: 'actual', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ scopeLabel: '第1章', emotionFlow: ['惊讶', '平静'], baseline: '平' }) }
     ]);
     if (path.endsWith('/memory')) return apiResponse([]);
     if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十一人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });

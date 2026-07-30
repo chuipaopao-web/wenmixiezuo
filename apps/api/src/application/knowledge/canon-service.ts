@@ -63,6 +63,12 @@ interface FactRow {
   status: FactStatus;
 }
 
+interface ProjectionEntityRow {
+  entity_id: string;
+  entity_type: string;
+  canonical_name: string;
+}
+
 interface BookRow { canon_revision: number; positioning_version: number }
 
 export class CanonService {
@@ -648,6 +654,19 @@ export class CanonService {
       SELECT chapter_id, chapter_number FROM chapters WHERE owner_id = ? AND book_id = ?
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ chapter_id: string; chapter_number: number }>)
       .map((chapter) => [chapter.chapter_id, chapter.chapter_number]));
+    const projectionEntities = this.database.prepare(`
+      SELECT entity_id, entity_type, canonical_name
+      FROM entities
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'
+    `).all(scope.ownerId, scope.bookId) as unknown as ProjectionEntityRow[];
+    const projectionEntitiesById = new Map(projectionEntities.map((entity) => [entity.entity_id, entity]));
+    const projectionEntitiesByName = new Map<string, ProjectionEntityRow>();
+    for (const entity of projectionEntities) {
+      const current = projectionEntitiesByName.get(entity.canonical_name);
+      if (current === undefined || (current.entity_type !== 'character' && entity.entity_type === 'character')) {
+        projectionEntitiesByName.set(entity.canonical_name, entity);
+      }
+    }
     const orderedFacts = [...facts].sort((left, right) => {
       const leftChapter = left.source_chapter_id === null ? -1 : chapterNumbers.get(left.source_chapter_id) ?? -1;
       const rightChapter = right.source_chapter_id === null ? -1 : chapterNumbers.get(right.source_chapter_id) ?? -1;
@@ -669,12 +688,20 @@ export class CanonService {
         `).run(this.ids.next(), scope.ownerId, scope.bookId, revision, fact.subject_entity_id, fact.story_time_start ?? 'unspecified', fact.value_json, fact.fact_id);
       }
       if (isRelationshipFactKey(fact.relation_key)) {
+        const relationship = normalizeRelationshipProjection(
+          fact,
+          projectionEntitiesById,
+          projectionEntitiesByName
+        );
         this.database.prepare(`
           INSERT INTO relationship_projection (
             relationship_id, owner_id, book_id, canon_revision, from_entity_id,
             relation_key, to_value_json, source_fact_id
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(this.ids.next(), scope.ownerId, scope.bookId, revision, fact.subject_entity_id, fact.relation_key, fact.value_json, fact.fact_id);
+        `).run(
+          this.ids.next(), scope.ownerId, scope.bookId, revision, relationship.fromEntityId,
+          fact.relation_key, relationship.toValueJson, fact.fact_id
+        );
       }
     }
     for (const [entityId, state] of byEntity) {
@@ -724,6 +751,41 @@ export class CanonService {
     }
     return conflict;
   }
+}
+
+function normalizeRelationshipProjection(
+  fact: FactRow,
+  entitiesById: Map<string, ProjectionEntityRow>,
+  entitiesByName: Map<string, ProjectionEntityRow>
+): { fromEntityId: string; toValueJson: string } {
+  const subject = entitiesById.get(fact.subject_entity_id);
+  if (subject === undefined) return { fromEntityId: fact.subject_entity_id, toValueJson: fact.value_json };
+  let value: unknown;
+  try {
+    value = JSON.parse(fact.value_json) as unknown;
+  } catch {
+    return { fromEntityId: fact.subject_entity_id, toValueJson: fact.value_json };
+  }
+
+  const explicitTargetName = typeof value === 'string' ? value.trim() : null;
+  if (explicitTargetName !== null && entitiesByName.has(explicitTargetName)) {
+    return {
+      fromEntityId: fact.subject_entity_id,
+      toValueJson: stableJson({ name: explicitTargetName })
+    };
+  }
+
+  const endpoints = subject.canonical_name.split(/\s*(?:与|和)\s*/u).filter(Boolean);
+  if (endpoints.length !== 2) return { fromEntityId: fact.subject_entity_id, toValueJson: fact.value_json };
+  const from = entitiesByName.get(endpoints[0] ?? '');
+  const to = entitiesByName.get(endpoints[1] ?? '');
+  if (from === undefined || to === undefined || from.entity_id === to.entity_id) {
+    return { fromEntityId: fact.subject_entity_id, toValueJson: fact.value_json };
+  }
+  return {
+    fromEntityId: from.entity_id,
+    toValueJson: stableJson({ name: to.canonical_name, summary: value })
+  };
 }
 
 function isRelationshipFactKey(relationKey: string): boolean {

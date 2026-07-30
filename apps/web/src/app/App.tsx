@@ -131,7 +131,6 @@ import {
   authorFormatScalar,
   authorRelationshipLabel,
   collectSettingTemplateHints,
-  projectionForAuthor,
   structuredReplyFromMixedText,
   toAuthorDisplayValue
 } from './author-presentation';
@@ -2047,10 +2046,11 @@ function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>
 }
 
 function KnowledgeGraph({ records }: { records: Array<Record<string, unknown>> }): React.JSX.Element {
-  if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="尚无关系图谱" description="确认人物、势力或地点关系并重建投影后显示；布局只是浏览辅助，不是故事事实。" />;
+  if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="尚无人物关系" description="确认人物之间的关系后会在这里简洁显示；没有依据时不会猜测或补造。" />;
   const edges = records.slice(0, 500).map((record) => ({ from: String(record.from_name ?? '未知'), relation: authorRelationshipLabel(record.relation_key), to: graphTarget(record.toValue) }));
-  const nodes = [...new Set(edges.flatMap((edge) => [edge.from, edge.to]))].slice(0, 200);
-  return <div className="knowledge-graph"><div className="graph-canvas" role="img" aria-label={`${nodes.length}个节点、${edges.length}条关系的有界关系图`}><div className="graph-node-grid">{nodes.map((node) => <span tabIndex={0} key={node}>{node}</span>)}</div></div><div className="graph-edge-list">{edges.slice(0, 100).map((edge, index) => <div key={`${edge.from}-${edge.relation}-${edge.to}-${index}`}><strong>{edge.from}</strong><span>{edge.relation}</span><strong>{edge.to}</strong></div>)}</div><p className="projection-disclaimer">当前仅加载≤200节点、≤500边的有界子图；节点布局不代表地理坐标或权威关系强度。</p></div>;
+  return <div className="knowledge-graph" role="list" aria-label={`人物关系，共${edges.length}条`}>
+    {edges.slice(0, 100).map((edge, index) => <p role="listitem" key={`${edge.from}-${edge.relation}-${edge.to}-${index}`}>{`${edge.from} —— ${edge.to}（${edge.relation}）`}</p>)}
+  </div>;
 }
 
 function LocationLibrary({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
@@ -2077,10 +2077,100 @@ function ProjectionWorkspace({ data }: { data: unknown }): React.JSX.Element {
 }
 
 function ProjectionTracks({ records }: { records: Array<Record<string, unknown>> }): React.JSX.Element {
-  if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="尚无分析投影" description="确认规划或结算正文后，可重建情绪、主支线、钩子和信息差视图。" />;
-  const planned = records.filter((item) => item.track === 'planned').map(projectionForAuthor);
-  const actual = records.filter((item) => item.track === 'actual').map(projectionForAuthor);
-  return <div className="projection-tracks"><section><h3>规划曲线</h3><RecordCollection records={planned} empty="暂无规划轨" /></section><section><h3>实际曲线</h3><RecordCollection records={actual} empty="暂无实际轨" /></section></div>;
+  if (records.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="当前没有可展示内容" description="只有资料中明确记录的内容才会显示；系统不会为了填满图谱而猜测。" />;
+  const ordered = [...records].sort((left, right) => {
+    const leftChapter = Number(left.chapter_number ?? left.chapterNumber ?? 0);
+    const rightChapter = Number(right.chapter_number ?? right.chapterNumber ?? 0);
+    if (leftChapter !== rightChapter) return leftChapter - rightChapter;
+    return String(left.track) === 'planned' ? -1 : 1;
+  });
+  return <div className="projection-summary-list" role="list">
+    {ordered.map((record, index) => <NarrativeProjectionCard key={String(record.projection_id ?? index)} record={record} />)}
+  </div>;
+}
+
+function NarrativeProjectionCard({ record }: { record: Record<string, unknown> }): React.JSX.Element {
+  const content = projectionContent(record);
+  const type = String(record.projection_type ?? '');
+  const scopeLabel = readableProjectionText(content.scopeLabel) ?? chapterProjectionLabel(record);
+  const track = String(record.track) === 'actual' ? '已发生' : '规划';
+  return <article className={`projection-summary-card ${type}`} role="listitem">
+    <header><strong>{scopeLabel}</strong><span>{track}</span></header>
+    {type === 'emotion' && <EmotionProjection content={content} />}
+    {type === 'mainline' && <MainlineProjection content={content} />}
+    {type === 'subplot' && <p>{readableProjectionText(content.summary) ?? '暂无简要说明'}</p>}
+    {type === 'hook' && <HookProjection content={content} />}
+    {type === 'information_gap' && <InformationGapProjection content={content} />}
+  </article>;
+}
+
+function EmotionProjection({ content }: { content: Record<string, unknown> }): React.JSX.Element {
+  const flow = projectionTextList(content.emotionFlow);
+  const baseline = readableProjectionText(content.baseline);
+  return <div className="emotion-projection">
+    {flow.length > 0 && <p className="emotion-flow">{flow.join(' → ')}</p>}
+    {baseline !== null && <span className="projection-tone">{baseline}</span>}
+    {readableProjectionText(content.summary) !== null && <p>{readableProjectionText(content.summary)}</p>}
+  </div>;
+}
+
+function MainlineProjection({ content }: { content: Record<string, unknown> }): React.JSX.Element {
+  const summary = readableProjectionText(content.summary) ?? '暂无简要说明';
+  const result = readableProjectionText(content.result);
+  return <div><p>{summary}</p>{result !== null && !summary.includes(result) && <p className="projection-result">结果：{result}</p>}</div>;
+}
+
+function HookProjection({ content }: { content: Record<string, unknown> }): React.JSX.Element {
+  const items = Array.isArray(content.items) ? content.items.filter(isRecord) : [];
+  return <ul className="projection-item-list">{items.map((item, index) => {
+    const kind = readableProjectionText(item.kind) ?? '钩子';
+    const status = readableProjectionText(item.status) ?? '已记录';
+    const summary = readableProjectionText(item.summary) ?? '暂无简要说明';
+    return <li key={`${kind}-${status}-${index}`}><span>{kind} · {status}</span><p>{summary}</p></li>;
+  })}</ul>;
+}
+
+function InformationGapProjection({ content }: { content: Record<string, unknown> }): React.JSX.Element {
+  const items = Array.isArray(content.items) ? content.items.filter(isRecord) : [];
+  return <ul className="projection-item-list information-gap-list">{items.map((item, index) => {
+    const knowers = projectionTextList(item.knowers);
+    const unaware = projectionTextList(item.unaware);
+    return <li key={`${readableProjectionText(item.summary) ?? '信息差'}-${index}`}>
+      <p>{readableProjectionText(item.summary) ?? '暂无简要说明'}</p>
+      <small>知道：{knowers.join('、')}　不知道：{unaware.join('、')}　读者：{readableProjectionText(item.readerState) ?? '未说明'}</small>
+    </li>;
+  })}</ul>;
+}
+
+function projectionContent(record: Record<string, unknown>): Record<string, unknown> {
+  const raw = record.content ?? record.content_json;
+  if (isRecord(raw)) return raw;
+  if (typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function projectionTextList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = readableProjectionText(item);
+    return text === null ? [] : [text];
+  }).slice(0, 20);
+}
+
+function readableProjectionText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.replace(/\s+/gu, ' ').trim();
+  return text.length > 0 ? text : null;
+}
+
+function chapterProjectionLabel(record: Record<string, unknown>): string {
+  const chapter = Number(record.chapter_number ?? record.chapterNumber);
+  return Number.isInteger(chapter) && chapter > 0 ? `第${chapter}章` : '故事阶段';
 }
 
 function RightsWorkspace({ data }: { data: unknown }): React.JSX.Element {

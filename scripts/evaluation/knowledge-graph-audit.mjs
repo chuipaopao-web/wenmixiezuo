@@ -85,6 +85,18 @@ const report = {
     GROUP BY projection_type, track, canon_revision
     ORDER BY projection_type, track, canon_revision
   `).all(...scope),
+  relationshipSamples: database.prepare(`
+    SELECT e.canonical_name AS fromName, r.relation_key AS relation,
+      r.to_value_json AS target, r.source_fact_id AS sourceFactId
+    FROM relationship_projection r
+    JOIN entities e
+      ON e.owner_id = r.owner_id AND e.book_id = r.book_id
+      AND e.entity_id = r.from_entity_id
+    WHERE r.owner_id = ? AND r.book_id = ?
+      AND r.canon_revision = ?
+    ORDER BY e.canonical_name, r.relation_key
+    LIMIT 100
+  `).all(...scope, book.canon_revision),
   narrativeSamples: database.prepare(`
     SELECT projection_type AS type, track, chapter_number AS chapterNumber,
       content_json AS content, source_ids_json AS sourceIds
@@ -119,6 +131,16 @@ const report = {
     LEFT JOIN chapter_end_states e
       ON e.owner_id = c.owner_id AND e.book_id = c.book_id
       AND e.chapter_end_state_id = c.chapter_end_state_id
+    WHERE c.owner_id = ? AND c.book_id = ?
+    ORDER BY c.chapter_number
+    LIMIT 3
+  `).all(...scope),
+  qualityMetricSamples: database.prepare(`
+    SELECT c.chapter_number AS chapterNumber, q.scores_json AS scores
+    FROM chapters c
+    LEFT JOIN chapter_quality_metrics q
+      ON q.owner_id = c.owner_id AND q.book_id = c.book_id
+      AND q.chapter_id = c.chapter_id
     WHERE c.owner_id = ? AND c.book_id = ?
     ORDER BY c.chapter_number
     LIMIT 3

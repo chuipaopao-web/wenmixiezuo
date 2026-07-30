@@ -438,3 +438,17 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 ### 属性公式分类
 
 `attribute_formulas.category` 保存作者可见的业务用途，例如个人战力、装备战力、军队战力、资源产出或排行榜积分。旧记录迁移后使用 `uncategorized`，前端显示为“未分类”。分类不改变公式版本语义，公式仍按 `formula_key` 生成不可变新版本。
+
+### `relationship_projection` / `narrative_projections` 作者视图合同（DEC-068）
+
+关系投影在作者界面只呈现人物甲、人物乙和中文关系名称。叙事投影继续是可重建派生数据，正式源仍为已选规划、阶段结算、叙事承诺、正文结算和带来源的结构化质量证据。
+
+作者可见内容使用以下白名单语义：
+
+- `mainline`：`scopeLabel`、`summary`、可选 `chapterStart/chapterEnd/result`；
+- `emotion`：`scopeLabel`、`emotionFlow`、可选 `baseline/summary`；
+- `subplot`：`scopeLabel`、`summary`、可选 `parentScopeLabel`；
+- `hook`：按章聚合的 `items[]`，每项含 `kind/summary/status/openedChapter` 及可选 `resolvedChapter`；
+- `information_gap`：按章或阶段聚合的 `items[]`，每项含 `summary/knowers/unaware/readerState`。
+
+`narrative_projections.chapter_number` 对章节投影表示章节号；对阶段主线投影表示稳定排序号或真实起始章，真实结束章保存在内容白名单中。不得为了填满五类轨道，为每章机械制造记录。重建先生成新集合并在事务内替换同书同修订投影；不得修改规划、正史、正文或来源证据。

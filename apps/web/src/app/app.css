@@ -3759,22 +3759,104 @@ svg {
 .tag-center form input,
 .tag-center form select { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--control-radius); padding: 7px 8px; color: var(--ink); background: var(--panel-raised); }
 .tag-center form > button { justify-self: end; }
-.knowledge-graph { display: grid; gap: 10px; }
-.graph-canvas { min-height: 180px; border: 1px solid var(--line); border-radius: var(--surface-radius); padding: 12px; background: radial-gradient(circle at center, var(--accent-soft), transparent 70%), var(--panel); }
-.graph-node-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.graph-node-grid span { border: 1px solid var(--accent-muted); border-radius: 999px; padding: 6px 9px; color: var(--ink); background: var(--panel-raised); font-size: calc(9px * var(--font-scale)); }
-.graph-edge-list { display: grid; gap: 4px; max-height: 260px; overflow: auto; }
-.graph-edge-list > div { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 7px; border-bottom: 1px solid var(--line); padding: 5px; font-size: calc(9px * var(--font-scale)); }
-.graph-edge-list > div span { color: var(--accent-strong); text-align: center; }
-.graph-edge-list > div strong:last-child { text-align: right; }
-.projection-disclaimer { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.knowledge-graph,
+.projection-summary-list {
+  display: grid;
+  gap: 10px;
+}
+
+.knowledge-graph > p,
+.projection-summary-card {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 12px 14px;
+  color: var(--ink);
+  background: var(--panel);
+  font-size: calc(11px * var(--font-scale));
+  line-height: 1.7;
+}
+
+.projection-summary-card {
+  display: grid;
+  gap: 8px;
+}
+
+.projection-summary-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.projection-summary-card > header strong {
+  font-size: calc(11px * var(--font-scale));
+}
+
+.projection-summary-card > header span,
+.projection-tone,
+.projection-item-list > li > span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-size: calc(9px * var(--font-scale));
+  font-weight: 700;
+}
+
+.projection-summary-card p {
+  margin: 0;
+}
+
+.emotion-projection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.emotion-flow {
+  font-weight: 700;
+}
+
+.emotion-projection > p:last-child:not(:first-child) {
+  flex-basis: 100%;
+  color: var(--ink-soft);
+}
+
+.projection-result {
+  margin-top: 5px !important;
+  color: var(--ink-soft);
+}
+
+.projection-item-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.projection-item-list > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.information-gap-list > li {
+  grid-template-columns: 1fr;
+}
+
+.information-gap-list small {
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
 .location-library { display: grid; gap: 14px; }
 .author-map { position: relative; min-height: 320px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--surface-radius); background: linear-gradient(30deg, transparent 49%, var(--line) 50%, transparent 51%) 0 0/32px 32px, var(--panel); }
 .author-map button { position: absolute; transform: translate(-50%, -50%); border: 1px solid var(--accent-muted); border-radius: 999px; padding: 5px 8px; color: var(--ink); background: var(--panel-raised); box-shadow: var(--shadow-soft); font-size: calc(9px * var(--font-scale)); cursor: pointer; }
 @media (max-width: 700px) { .tag-center form > div { grid-template-columns: 1fr; } .author-map { min-height: 240px; } }
 .record-collection { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.projection-tracks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.projection-tracks > section > h3 { margin-bottom: 12px; }
 
 .agent-row { width: 100%; align-items: start; color: var(--ink); background: transparent; text-align: left; cursor: pointer; }
 .agent-row .agent-copy { min-width: 0; display: block; }
