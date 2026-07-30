@@ -106,4 +106,4 @@
 - [x] **Step 2:** 运行 `npm.cmd run migrate` 两次，验证空库/升级幂等；运行本机健康探针。
 - [x] **Step 3:** 运行 `npm.cmd run verify:backup`、`npm.cmd run acceptance` 和 `git diff --check`。
 - [x] **Step 4:** 按 Skill 做两轮自审：先查一致性/来源/越级，再查创造性/过度约束/上下文负担。
-- [ ] **Step 5:** 保存证据、提交 Git，并确认工作树干净。
+- [x] **Step 5:** 保存证据、提交 Git，并确认工作树干净。
