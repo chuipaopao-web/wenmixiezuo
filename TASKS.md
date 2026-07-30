@@ -995,3 +995,19 @@
 - 测试命令：作者展示专项测试、`npm.cmd run verify`、`npm.cmd run migrate`、本地健康探针和 `git diff --check`。
 - 停止条件：有效分类或题材丢失、跨书影响、构建失败。
 - 回滚方法：revert本任务提交；书籍资料无需恢复。
+
+### CORE-20260730-01：《这游戏上线就给钱》真实十章全流程恢复与验收
+
+- `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`。
+- 状态：功能、数据、前端逐页验证和全部工程门禁已通过；等待Git提交后执行干净工作树正式审计。
+- 目标：模拟作者使用现有开书资料，跑通设定讨论、60项设定确认、剧情总纲、第一卷卷纲、十份章纲、逐章写作、三席审校、作者确认和十章正史结算；所有结果保存并在前端可检查。
+- 不做什么：不调用开发子Agent；不修改、停止或重启 `D:\AI智囊团`；不伪造模型来源；不以十章样本冒充超长篇质量证明。
+- 唯一负责人/复核人：当前Codex / 当前Codex。
+- 允许文件：创作流程、设定/规划/正文展示、Repository、Schema 31—32、Worker恢复、相关契约/测试/文档/验收脚本；运行数据仅由产品API、Worker、确认和结算路径写入。
+- 依赖：DEC-049/052/054/060/065、Schema 32、11人团队、DeepSeek/GLM/Kimi/豆包现有模型绑定、任务恢复和正史结算。
+- 实现约束：书籍、设定、规划、章纲、正文三方一致；作者选定稿不得静默覆盖；设定变更使下游规划失效；正文逐章审校确认；模型与作者编辑来源如实记录。
+- 验收标准：60/60设定、总纲、卷纲、1—10章章纲、1—10章正史正文全部可见；无内部字段/JSON泄漏；类型、458项全测、构建、迁移、运行、备份恢复、数据库完整性和前端实机截图全部通过。
+- 测试命令：`npm.cmd run typecheck`、`npm.cmd run test`、`npm.cmd run build`、`npm.cmd run migrate`、`npm.cmd run verify:backup`、`node scripts/evaluation/full-flow-data-audit.mjs`、`node scripts/evaluation/full-flow-ui-verification.mjs`、`npm.cmd run acceptance`、`git diff --check`。
+- 停止条件：跨书泄漏、正史或文件哈希不一致、设定/规划/正文前端缺失、需要新密钥或付费、永久删除、生产恢复或重大额外架构变化。
+- 回滚方法：业务代码用Git revert；Schema只向前修复；已确认正文、正史、讨论、任务和模型调用记录不删除。
+- 当前证据：60项设定全部确认；剧情总纲、第一卷卷纲和十份章纲均有活动版本；十章共35,054字符、文件哈希全部匹配、正史修订10；前端六页截图和机器报告通过；完整记录见 `docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/full-novel-flow-20260730.md`。

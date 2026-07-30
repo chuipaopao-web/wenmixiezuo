@@ -35,6 +35,25 @@ describe('小文秘书', () => {
       routeClass: 'local_assistant_conversation', selectedAction: 'explain_local_assistant_role'
     });
   });
+  it('资料包证据中的成员姓名不会被误判成老板点名', () => {
+    context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
+    const book = initializeDomainBook(context, 'owner-one', ids, clock); const scope = { ownerId: 'owner-one', bookId: book.bookId };
+    const service = new LocalAssistantService(new LocalAssistantRepository(context.database), ids, clock);
+    expect(service.route(scope, {
+      conversationId: 'c',
+      messageId: 'm1',
+      original: '讨论设定 【设定大纲成组讨论资料包】\n已经确认的设定JSON：[{"content":"婉儿和红玉上次提出了不同方案"}]'
+    })).toMatchObject({
+      routeClass: 'editor_handoff',
+      selectedAction: 'preserve_structured_workflow_packet',
+      excludedActions: expect.arrayContaining(['named_member_inference_from_evidence'])
+    });
+    expect(service.route(scope, {
+      conversationId: 'c',
+      messageId: 'm2',
+      original: '婉儿，你单独说说这个冲突是否成立'
+    })).toMatchObject({ routeClass: 'named_member', selectedRoles: ['婉儿'] });
+  });
   it('只学习工具、路由和故障恢复经验，且必须带反例', () => {
     context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
     const book = initializeDomainBook(context, 'owner-one', ids, clock); const scope = { ownerId: 'owner-one', bookId: book.bookId };

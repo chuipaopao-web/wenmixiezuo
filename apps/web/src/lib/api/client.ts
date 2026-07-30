@@ -56,6 +56,11 @@ export interface SettingOutlineWorkspaceData {
   status: '待讨论' | '讨论中' | '候选待确认' | '已确认' | '稍后补充' | '刻意留白' | '不适用';
   custom: boolean;
   sortOrder: number;
+  content: string | null;
+  sourceDiscussionId: string | null;
+  sourceDecisionId: string | null;
+  candidateAt: string | null;
+  confirmedAt: string | null;
   updatedAt: string;
 }
 
@@ -254,6 +259,7 @@ export interface TaskData {
   taskId: string;
   taskType: string;
   status: string;
+  errorCode?: string | null;
   currentPhase: string;
   pauseRequested: boolean;
   cancelRequested: boolean;
@@ -639,6 +645,12 @@ export function cancelTask(bookId: string, taskId: string): Promise<TaskData> {
   });
 }
 
+export function retryTask(bookId: string, taskId: string): Promise<TaskData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}/retry`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
 export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<unknown> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/confirmations/${encodeURIComponent(confirmationId)}/${accept ? 'accept' : 'reject'}`, {
     method: 'POST', body: JSON.stringify({ expectedCanonRevision })
@@ -798,7 +810,15 @@ export function confirmPlanningArtifact(
   });
 }
 
-export function saveSettingOutlineItem(bookId: string, item: Omit<SettingOutlineWorkspaceData, 'updatedAt'>): Promise<SettingOutlineWorkspaceData> {
+export function saveSettingOutlineItem(
+  bookId: string,
+  item: Pick<
+    SettingOutlineWorkspaceData,
+    'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder'
+  > & {
+    content?: string | null;
+  }
+): Promise<SettingOutlineWorkspaceData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(item.itemKey)}`, {
     method: 'PUT',
     body: JSON.stringify({
@@ -808,8 +828,22 @@ export function saveSettingOutlineItem(bookId: string, item: Omit<SettingOutline
       sourceLabel: item.sourceLabel,
       status: item.status,
       custom: item.custom,
-      sortOrder: item.sortOrder
+      sortOrder: item.sortOrder,
+      content: item.content ?? null
     })
+  });
+}
+
+export function initializeSettingOutlineWorkspace(
+  bookId: string,
+  items: Array<Pick<
+    SettingOutlineWorkspaceData,
+    'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'custom' | 'sortOrder'
+  >>
+): Promise<SettingOutlineWorkspaceData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/initialize`, {
+    method: 'POST',
+    body: JSON.stringify({ items })
   });
 }
 

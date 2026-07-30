@@ -43,9 +43,22 @@ export class LocalAssistantService {
   }
 }
 function decide(text: string): RoutingDecision {
-  if (/(永久删除|付费|购买|密钥|api\s*key)/iu.test(text)) return { routeClass: 'protected_operation', riskLevel: 'irreversible', confidenceBand: 'high',
+  if (/^(?:讨论设定\s+)?【(?:设定专项讨论资料包|设定大纲成组讨论资料包|剧情总纲专项讨论资料包|卷纲专项讨论资料包)】/u.test(text)) {
+    return {
+      routeClass: 'editor_handoff',
+      riskLevel: 'medium',
+      confidenceBand: 'high',
+      selectedAction: 'preserve_structured_workflow_packet',
+      selectedRoles: ['chief_editor'],
+      excludedActions: ['named_member_inference_from_evidence', 'automatic_canon_promotion'],
+      receiptText: '收到，我会按资料包指定的流程交给主编，不会把证据中的成员姓名误当成点名。'
+    };
+  }
+  if (requestsProtectedOperation(text)) return { routeClass: 'protected_operation', riskLevel: 'irreversible', confidenceBand: 'high',
     selectedAction: 'require_owner_confirmation', selectedRoles: [], excludedActions: ['automatic_execution'], receiptText: '这一步需要您亲自确认，我先停在这里，没有执行任何不可逆操作。' };
-  const named = ['貂蝉', '西施', '婉儿', '红玉', '文姬', '秋香', '湘君', '妲己', '昭君', '道韫', '弄玉'].find((name) => text.includes(name));
+  const named = ['貂蝉', '西施', '婉儿', '红玉', '文姬', '秋香', '湘君', '妲己', '昭君', '道韫', '弄玉'].find((name) => (
+    new RegExp(`^(?:@${name}|${name}[，,：:\\s]|(?:请|让|叫|交给|问问|我想和|我要和)${name}(?:[，,：:\\s]|$))`, 'u').test(text)
+  ));
   if (named !== undefined) return { routeClass: 'named_member', riskLevel: 'medium', confidenceBand: 'high', selectedAction: 'route_directly_to_named_member',
     selectedRoles: [named], excludedActions: ['local_assistant_answer_on_behalf'], receiptText: `好的，我会把您的原话直接交给${named}，由她本人回复。` };
   if (/(讨论|聊聊|推演).*(剧情|情节|人物命运)|(剧情|情节).*(讨论|推演)/u.test(text)) return { routeClass: 'plot_discussion', riskLevel: 'medium', confidenceBand: 'high',
@@ -66,4 +79,18 @@ function decide(text: string): RoutingDecision {
   }
   return { routeClass: 'editor_handoff', riskLevel: 'medium', confidenceBand: 'medium', selectedAction: 'preserve_original_and_handoff_to_editor',
     selectedRoles: ['chief_editor'], excludedActions: ['automatic_canon_promotion'], receiptText: '收到，我会保留您的原话，并交给貂蝉判断下一步。' };
+}
+
+function requestsProtectedOperation(text: string): boolean {
+  if (/永久删除/u.test(text)) return true;
+  if (
+    /(?:请|帮我|我要|需要|现在|立即|直接|执行|进行|允许|授权|准备).{0,16}(?:付费|购买|充值|续费|开通)/u.test(text)
+    || /(?:付费|购买|充值|续费|开通).{0,16}(?:服务|套餐|模型|资源|功能|会员|额度)/u.test(text)
+  ) {
+    return true;
+  }
+  return (
+    /(?:请|帮我|我要|需要|现在|立即|直接|执行|进行|允许|授权|准备|添加|设置|更换|提供|获取|创建|生成).{0,16}(?:密钥|api\s*key)/iu.test(text)
+    || /(?:密钥|api\s*key).{0,16}(?:写入|保存|添加|设置|更换|提供|获取|创建|生成)/iu.test(text)
+  );
 }

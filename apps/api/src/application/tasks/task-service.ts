@@ -15,6 +15,7 @@ export interface TaskRecord {
   taskType: string;
   assignedAgentId: string | null;
   status: TaskStatus;
+  errorCode: string | null;
   currentPhase: string;
   idempotencyKey: string;
   budgetId: string | null;
@@ -43,6 +44,7 @@ interface TaskRow {
   task_type: string;
   assigned_agent_id: string | null;
   status: TaskStatus;
+  error_code: string | null;
   current_phase: string;
   idempotency_key: string;
   budget_id: string | null;
@@ -303,6 +305,7 @@ export class TaskService {
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE tasks SET status = CASE WHEN cancel_requested = 1 THEN 'cancelled' ELSE 'succeeded' END,
+        error_code = CASE WHEN cancel_requested = 1 THEN 'TASK_CANCELLED' ELSE NULL END,
         lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
         AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
@@ -452,6 +455,7 @@ function mapTask(row: TaskRow): TaskRecord {
     taskType: row.task_type,
     assignedAgentId: row.assigned_agent_id,
     status: row.status,
+    errorCode: row.error_code,
     currentPhase: row.current_phase,
     idempotencyKey: row.idempotency_key,
     budgetId: row.budget_id,

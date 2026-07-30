@@ -382,7 +382,7 @@ export class ChapterPipelineService {
         sourceType: 'style_baseline',
         sourceId: style.styleVersionId,
         content: style.capsule,
-        reason: '老板确认的作品风格短胶囊；按场景动态适配，不机械打卡',
+        reason: '可追溯的场景表达短胶囊；按本章功能动态选择，不机械打卡',
         priority: 100,
         version: style.styleVersionId
       },
@@ -545,7 +545,7 @@ export class ChapterPipelineService {
         maximum: hardMaximum,
         policy: 'target-with-bounded-hard-tolerance-v1'
       },
-      noPlaceholder: { passed: !/【|TODO|待补|占位/u.test(content) },
+      noPlaceholder: { passed: !containsExplicitPlaceholder(content) },
       hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
     };
     const passed = checks.length.passed && checks.noPlaceholder.passed;
@@ -975,7 +975,9 @@ export class ChapterPipelineService {
       return this.advance(run, 'facts');
     }
     if (merged.verdict === 'rewrite') {
-      if (run.rewrite_count >= 2) return this.advance(run, 'facts');
+      if (!shouldAutomaticallyRewriteReview(operation, run.rewrite_count)) {
+        return this.advance(run, 'facts');
+      }
       return this.advance(run, 'rewrite');
     }
     return this.advance(run, 'facts');
@@ -1549,6 +1551,16 @@ export function resumedRewriteCount(
   return continuingSameVersion && operation === 'review_existing' ? existingRewriteCount : 0;
 }
 
+export function shouldAutomaticallyRewriteReview(
+  operation: unknown,
+  rewriteCount: number
+): boolean {
+  // “定稿审校”审的是老板/作者明确选择的不可变稿件。点评意见必须保留并展示，
+  // 但不能让主笔在作者不知情时覆盖这份稿件；只有普通生产或明确“重写”任务
+  // 才进入最多两轮的自动定点改写。
+  return operation !== 'review_existing' && rewriteCount < 2;
+}
+
 function outputTokenLimit(phaseKey: string): number {
   if (phaseKey.startsWith('draft') || phaseKey.startsWith('rewrite')) return 8_000;
   if (phaseKey.startsWith('review-')) return 6_000;
@@ -1764,6 +1776,10 @@ function writerLengthContract(): Record<string, unknown> {
     unit: '有效汉字、字母或数字（不计标点和空白）',
     instruction: '只输出完整小说正文，优先控制在2700至3200有效字符；允许的硬边界为2350至3650。要求较多时压缩解释和同义复述，不得靠扩写逐条解释要求。'
   };
+}
+
+export function containsExplicitPlaceholder(content: string): boolean {
+  return /(?:【|\[|<)\s*(?:TODO|待补|待填写|占位)\s*(?:】|\]|>)|(?:^|\n)\s*(?:TODO|待补|待填写|占位)\s*(?=\n|$)/iu.test(content);
 }
 
 function firstString(...values: unknown[]): string | null {

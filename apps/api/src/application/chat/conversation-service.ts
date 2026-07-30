@@ -23,6 +23,10 @@ import { StageSettlementService } from '../continuity/stage-settlement-service.j
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
+import { SettingOutlineWorkspaceService } from '../knowledge/setting-outline-workspace-service.js';
+import { compactLockedDecisionSummary } from '../discussions/locked-planning-context.js';
+
+export { compactLockedDecisionSummary } from '../discussions/locked-planning-context.js';
 
 type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning';
 type CreativeRoundKind = 'initial_exploration' | 'major_redirect' | 'locked_planning';
@@ -484,7 +488,13 @@ export class ConversationService {
           409
         );
       }
-      return this.confirmDiscussionDecision(scope, latest.decision_id, messageId, conversationId);
+      return this.confirmDiscussionDecision(
+        scope,
+        latest.decision_id,
+        messageId,
+        conversationId,
+        lockDirectionNote(content)
+      );
     }
     if (/^(?:确认当前规划|确认当前方案|就按当前规划|采用当前方案)[！!。.？?\s]*$/u.test(content)) {
       const latest = this.database.prepare(`
@@ -588,7 +598,12 @@ export class ConversationService {
     conversationId: string,
     forceMajorRedirect: boolean
   ): Record<string, unknown> {
-    const intake = new CreativeSessionService(this.database, this.ids, this.clock).receiveOwnerMessage(scope, {
+    const creativeSessions = new CreativeSessionService(this.database, this.ids, this.clock);
+    const requestedChapterCount = requestedChapterCountFromScope(content);
+    if (requestedChapterCount !== null) {
+      creativeSessions.closeReadyTopic(scope, messageId);
+    }
+    const intake = creativeSessions.receiveOwnerMessage(scope, {
       conversationId,
       messageId,
       content
@@ -607,7 +622,7 @@ export class ConversationService {
       messageId,
       conversationId,
       'creative_exploration',
-      null,
+      requestedChapterCount,
       {
         sessionId: intake.session.sessionId,
         blackboardRevision: intake.blackboard.revision,
@@ -628,7 +643,8 @@ export class ConversationService {
     scope: BookScope,
     decisionId: string,
     sourceMessageId: string,
-    conversationId: string
+    conversationId: string,
+    authorConfirmationNote: string | null = null
   ): Record<string, unknown> {
     const row = this.database.prepare(`
       SELECT d.discussion_id, d.recommendation_json, t.task_brief_json
@@ -649,16 +665,23 @@ export class ConversationService {
     const brief = JSON.parse(row.task_brief_json) as {
       purpose?: DiscussionPurpose;
       creativeSessionId?: string;
+      requestedChapterCount?: ChapterRequestCount | null;
     };
     const planningArtifacts = new PlanningArtifactService(this.database, this.ids, this.clock);
     const stagedConfirmation = (brief.purpose === 'open_discussion' || brief.purpose === undefined)
       && new PlanningWorkflowRepository(this.database).openingBlueprint(scope) !== undefined;
-    const stagePromotion = stagedConfirmation
+    const stagedResult = stagedConfirmation
       ? new UnitOfWork(this.database).run(() => {
           new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
-          return planningArtifacts.promoteCurrentPlanningStage(scope, row.discussion_id, decisionId);
+          const confirmedSettings = new SettingOutlineWorkspaceService(this.database, this.clock)
+            .confirmDiscussionCandidates(scope, row.discussion_id, decisionId);
+          const stagePromotion = confirmedSettings.length === 0
+            ? planningArtifacts.promoteCurrentPlanningStage(scope, row.discussion_id, decisionId)
+            : null;
+          return { confirmedSettings, stagePromotion };
         })
       : null;
+    const stagePromotion = stagedResult?.stagePromotion ?? null;
     if (!stagedConfirmation) {
       new DiscussionService(this.database, this.ids, this.clock).confirm(scope, row.discussion_id, decisionId);
     }
@@ -668,19 +691,23 @@ export class ConversationService {
       const summary = typeof recommendation.summary === 'string'
         ? recommendation.summary
         : JSON.stringify(recommendation.summary ?? recommendation);
+      const lockedSummary = authorConfirmationNote === null
+        ? summary
+        : `${summary}\n\n老板锁定时补充：${authorConfirmationNote}`;
       const blackboard = new CreativeSessionService(this.database, this.ids, this.clock).lockDirection(scope, {
         sessionId: brief.creativeSessionId,
         decisionId,
-        summary,
+        summary: lockedSummary,
         sourceMessageId
       });
+      const lockedPlanningSummary = compactLockedDecisionSummary(lockedSummary);
       const scheduled = this.scheduleDiscussion(
         scope,
-        `老板已锁定方向。锁定决定：${summary}`,
+        `老板已锁定方向。锁定决定：${lockedPlanningSummary}`,
         sourceMessageId,
         conversationId,
         'locked_planning',
-        null,
+        brief.requestedChapterCount ?? null,
         {
           sessionId: brief.creativeSessionId,
           blackboardRevision: blackboard.revision,
@@ -717,6 +744,8 @@ export class ConversationService {
       discussionId: row.discussion_id,
       decisionId,
       planningStage: stagePromotion?.stage ?? null,
+      settingItemKey: stagedResult?.confirmedSettings[0]?.itemKey ?? null,
+      settingItemKeys: stagedResult?.confirmedSettings.map((item) => item.itemKey) ?? [],
       planningArtifactType: stagePromotion?.artifactType ?? null,
       planningArtifactVersionId: stagePromotion?.artifactVersionId ?? null,
       planningPrepared: prepared !== null,
@@ -793,6 +822,7 @@ export class ConversationService {
     const lease = this.requireEditorLease(scope);
     const creativePurpose = purpose === 'creative_exploration' || purpose === 'locked_planning';
     const settingWorkshop = scopeText.includes('【设定专项讨论资料包】')
+      || scopeText.includes('【设定大纲成组讨论资料包】')
       || scopeText.includes('【剧情总纲专项讨论资料包】')
       || scopeText.includes('【卷纲专项讨论资料包】');
     const collaborative = creativePurpose || settingWorkshop;
@@ -966,6 +996,24 @@ function isCreativeIntent(content: string): boolean {
 
 function isMajorCreativeRedirect(content: string): boolean {
   return /^(?:重大改向|重大调整|推翻当前方向|换一条完全不同的路线|重新让两位编剧推演)(?:[：:\s]|$)/u.test(content.trim());
+}
+
+function lockDirectionNote(content: string): string | null {
+  const match = content.trim().match(
+    /^(?:锁定当前方向|就按这个方向|按主编推荐(?:的方向)?|确定这个方向)[！!。.？?\s]*(?:[：:，,]\s*)?([\s\S]*)$/u
+  );
+  const note = match?.[1]?.trim() ?? '';
+  return note.length === 0 ? null : note;
+}
+
+function requestedChapterCountFromScope(content: string): ChapterRequestCount | null {
+  if (!/(?:讨论|规划)/u.test(content)) return null;
+  const match = content.match(/第\s*(\d{1,4})\s*(?:[—–\-至到]\s*(\d{1,4})\s*)?章/u);
+  if (match === null) return null;
+  const start = Number.parseInt(match[1]!, 10);
+  const end = match[2] === undefined ? start : Number.parseInt(match[2], 10);
+  const count = end - start + 1;
+  return [1, 2, 3, 4, 5].includes(count) ? count as ChapterRequestCount : null;
 }
 
 function actionNotice(action: Record<string, unknown>): string {

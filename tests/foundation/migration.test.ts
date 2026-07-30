@@ -45,7 +45,9 @@ describe('向前迁移器', () => {
         '0027_attribute_formula_categories.sql',
         '0028_agent_prompt_preferences.sql',
         '0029_setting_outline_workspace.sql',
-        '0030_planning_stage_and_style.sql'
+        '0030_planning_stage_and_style.sql',
+        '0031_book_purge_retrieval_index.sql',
+        '0032_setting_outline_decision_content.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -61,6 +63,10 @@ describe('向前迁移器', () => {
       expect(tables.map((row) => row.name)).toContain('narrative_forecasts');
       expect(tables.map((row) => row.name)).toContain('agent_prompt_preferences');
       expect(tables.map((row) => row.name)).toContain('setting_outline_workspace');
+      const settingOutlineColumns = database.prepare('PRAGMA table_info(setting_outline_workspace)').all() as Array<{ name: string }>;
+      expect(settingOutlineColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'content_text', 'source_discussion_id', 'source_decision_id', 'candidate_at', 'confirmed_at'
+      ]));
       const manuscriptColumns = database.prepare('PRAGMA table_info(manuscript_versions)').all() as Array<{ name: string }>;
       expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });

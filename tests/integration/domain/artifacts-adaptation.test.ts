@@ -53,4 +53,52 @@ describe('规划成果版本与题材适配失效传播', () => {
     expect(tasks.require(scope, 'task-plan').status).toBe('blocked');
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM adaptation_snapshots WHERE owner_id = ? AND book_id = ?').get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
   });
+
+  it('keeps the staged planning pointer aligned with an author-selected volume revision', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, 'owner-one', ids, clock);
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
+    const artifacts = new ArtifactService(context.database, ids, clock);
+    const initial = artifacts.create(scope, 'volume_outline', '第一卷卷纲', {
+      volumeNumber: 1,
+      goal: '完成第一阶段生存验证',
+      arcs: [{
+        title: '荒地求生',
+        objective: '找到稳定水源',
+        turningPoints: ['发现水迹'],
+        payoff: '形成最小协作'
+      }],
+      endingState: '主角取得继续探索的资格'
+    }, 'candidate');
+    artifacts.select(scope, initial.artifactId, initial.artifactVersionId);
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET version = 8, stage = 'volume_outline_ready', volume_outline_version_id = ?
+      WHERE owner_id = ? AND book_id = ?
+    `).run(initial.artifactVersionId, scope.ownerId, scope.bookId);
+
+    const revised = artifacts.addVersion(scope, initial.artifactId, {
+      volumeNumber: 1,
+      goal: '在不发明额外系统机制的前提下完成生存验证',
+      arcs: [{
+        title: '荒地求生',
+        objective: '依靠观察和协作找到稳定水源',
+        turningPoints: ['从植被和动物活动判断水迹'],
+        payoff: '用透明分配形成最小协作'
+      }],
+      endingState: '主角以可核验行动取得同行者信任'
+    }, initial.artifactVersionId);
+    artifacts.select(scope, initial.artifactId, revised.artifactVersionId);
+
+    expect(context.database.prepare(`
+      SELECT version, stage, volume_outline_version_id FROM book_planning_states
+      WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({
+      version: 9,
+      stage: 'volume_outline_ready',
+      volume_outline_version_id: revised.artifactVersionId
+    });
+  });
 });

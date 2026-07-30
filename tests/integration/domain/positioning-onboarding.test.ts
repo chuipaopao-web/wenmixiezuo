@@ -22,7 +22,10 @@ describe('定位草稿与原子建书', () => {
       taxonomyVersion: OPENING_TAXONOMY.version,
       channel: 'female', categoryKey: 'female-modern-brain',
       targetAudience: '喜欢都市悬疑、女性成长和群像关系的读者',
-      protagonists: [{ role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] }],
+      protagonists: [
+        { role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] },
+        { role: 'male_lead', name: '顾潮', age: '二十六岁', background: '轮渡工程师，掌握旧港水文档案。', personalities: ['克制', '有底线'] }
+      ],
       worldBackground: '当代沿海城市，旧城区改造牵动多个家族。',
       openingBackground: '林雾收到一封盖着未来日期的拆迁通知。',
       stageOne: { start: '她回到旧宅核查通知。', development: '她发现每次改图都会改变一段现实。', end: '她保住旧街，却让失踪多年的姐姐重新出现。' },
@@ -39,13 +42,16 @@ describe('定位草稿与原子建书', () => {
     const stored = context.database.prepare(`SELECT taxonomy_version, channel, category_key, blueprint_json, status
       FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`).get('owner-one', result.bookId) as Record<string, unknown>;
     expect(stored).toMatchObject({ taxonomy_version: OPENING_TAXONOMY.version, channel: 'female', category_key: 'female-modern-brain', status: 'active' });
-    expect(JSON.parse(String(stored.blueprint_json))).toMatchObject({ initialMap: openingBlueprint.initialMap, protagonists: [{ name: '林雾' }] });
+    expect(JSON.parse(String(stored.blueprint_json))).toMatchObject({ initialMap: openingBlueprint.initialMap, protagonists: [{ name: '林雾' }, { name: '顾潮' }] });
     expect(context.database.prepare('SELECT display_name FROM protagonist_profiles WHERE owner_id = ? AND book_id = ?').all('owner-one', result.bookId))
-      .toEqual([{ display_name: '林雾' }]);
+      .toEqual([{ display_name: '林雾' }, { display_name: '顾潮' }]);
     expect(context.database.prepare(`SELECT label, authority_layer, source_kind FROM protagonist_state_entries
       WHERE owner_id = ? AND book_id = ? ORDER BY logical_key`).all('owner-one', result.bookId)).toEqual([
         { label: '年龄', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '年龄', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '人物背景', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '人物背景', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '性格', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '性格', authority_layer: 'candidate', source_kind: 'owner' }
       ]);
     expect(result.kickoffTaskId).toBeTruthy();

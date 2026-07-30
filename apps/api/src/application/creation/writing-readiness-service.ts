@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 
-export type ChapterRequestCount = 1 | 3 | 4 | 5;
+export type ChapterRequestCount = 1 | 2 | 3 | 4 | 5;
 
 export interface WritingReadiness {
   ready: boolean;
@@ -50,7 +50,15 @@ export class WritingReadinessService {
     if (expression?.status !== 'confirmed' || expression.narrative_person === null || expression.viewpoint_distance === null) {
       missing.push('confirmed_expression_viewpoint');
     }
-    for (const type of ['creative_plan', 'story_bible', 'master_outline']) {
+    const hasOpeningBlueprint = this.database.prepare(`
+      SELECT 1 FROM book_opening_blueprints
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId) !== undefined;
+    const requiredArtifacts = hasOpeningBlueprint
+      ? ['story_bible', 'master_outline']
+      : ['creative_plan', 'story_bible', 'master_outline'];
+    for (const type of requiredArtifacts) {
       const active = this.database.prepare(`
         SELECT 1 FROM artifacts a JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
         WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = ?

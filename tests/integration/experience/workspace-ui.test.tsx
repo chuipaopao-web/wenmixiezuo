@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import axe from 'axe-core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../../apps/web/src/app/App';
 import type { WorkspaceData } from '../../../apps/web/src/lib/api/client';
@@ -108,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -141,6 +143,18 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '主编正在整理开书资料' })).toBeInTheDocument();
     expect(screen.getByText(/一至三个最值得先确定的设定问题/u)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '从故事想法开始聊' })).not.toBeInTheDocument();
+  });
+
+  it('讨论任务尚未完成时显示真实进度并说明结果会自动出现', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', workspace, [])));
+
+    render(<App />);
+
+    const progressTitle = await screen.findByText('主编与编剧正在讨论');
+    const progress = progressTitle.closest('[role="status"]');
+    expect(progress).toBeInstanceOf(HTMLElement);
+    if (!(progress instanceof HTMLElement)) throw new Error('讨论进度没有可访问状态容器');
+    expect(within(progress).getByText(/完成后会自动显示在这里/u)).toBeInTheDocument();
   });
 
   it('服务未启动时显示中文恢复提示，不暴露Failed to fetch', async () => {
@@ -365,9 +379,9 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    await waitFor(() => expect(within(dialog).getByText(/当前已选 8 个，不限数量/)).toBeInTheDocument());
+    await waitFor(() => expect(within(dialog).getByText(/已自动推荐8个；当前共选 8 个/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
-    expect(within(dialog).getByText(/当前已选 7 个，不限数量/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/当前共选 7 个/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
@@ -375,10 +389,13 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/当前已选 8 个，不限数量/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/当前共选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /增加角色/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('option', { name: '女主' })).toBeInTheDocument();
+    expect(within(dialog).queryByText('表达调色板')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('世界观背景')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('第一阶段起始剧情')).not.toBeInTheDocument();
     fireEvent.change(dialog.querySelector('#opening-protagonist-name')!, { target: { value: '林舟' } });
@@ -394,6 +411,73 @@ describe('完整创作工作台', () => {
       const payload = JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>;
       return typeof payload.openingBlueprint === 'object';
     })).toBe(true));
+  });
+
+  it('智能推荐固定八个且不把跨频道标签或作者手选标签写坏', async () => {
+    window.history.replaceState(null, '', '/');
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      if (path === '/api/v1/opening-taxonomy') return apiResponse({
+        version: 'opening-tag-recommendation-test-v1',
+        sourceLabel: 'test',
+        sourceUrl: 'https://example.test/',
+        updatedAt: '2026-07-29',
+        notice: '测试目录',
+        categories: [{
+          key: 'male-game-sports',
+          name: '游戏体育',
+          channel: 'male',
+          description: '游戏、电竞与体育',
+          recommendedMainTags: ['游戏', '竞技', '成长'],
+          tagPackKeys: ['game']
+        }],
+        subjects: [
+          { name: '游戏异界', packKeys: ['game'] },
+          { name: '历史脑洞', packKeys: ['history'] }
+        ],
+        mainTags: ['游戏', '竞技', '成长', '脑洞', '女性成长', '群像', '冒险', '生存', '升级', '热血', '爽文', '权谋'],
+        auxiliaryTags: ['游戏异界', '历史脑洞'],
+        storyTraits: [],
+        personalityOptions: ['冷静'],
+        boundaryGroups: [{ name: '内容边界', description: '边界', options: ['不写后宫'] }],
+        tagGroups: [
+          {
+            key: 'common', name: '通用', description: '通用', packKeys: ['common'],
+            mainTags: ['脑洞', '女性成长', '群像', '冒险', '生存', '升级', '热血', '爽文'],
+            auxiliaryTags: [], storyTraits: []
+          },
+          {
+            key: 'game', name: '游戏', description: '游戏', packKeys: ['game'],
+            mainTags: ['游戏', '竞技', '成长', '升级', '热血', '爽文'],
+            auxiliaryTags: [], storyTraits: []
+          },
+          {
+            key: 'history', name: '历史', description: '历史', packKeys: ['history'],
+            mainTags: ['权谋', '热血'],
+            auxiliaryTags: [], storyTraits: []
+          }
+        ]
+      });
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：游戏体育' }));
+
+    await waitFor(() => expect(within(dialog).getByText(/已自动推荐8个；当前共选 8 个/)).toBeInTheDocument());
+    expect(within(dialog).queryByRole('button', { name: /主要标签：女性成长/u })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：热血' }));
+    expect(within(dialog).getByText(/当前共选 9 个/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '展开全部题材' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择题材：历史脑洞' }));
+
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '取消主要标签：热血' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(within(dialog).getByText(/当前共选 9 个/)).toBeInTheDocument();
   });
 
   it('开书资料未填完整时明确列出缺失项，不用静默禁用按钮', async () => {
@@ -467,6 +551,8 @@ describe('完整创作工作台', () => {
       String(input).endsWith('/api/v1/books/book-ui-1/purge')
       && (init as RequestInit | undefined)?.method === 'POST'
       && JSON.parse(String((init as RequestInit).body)).confirmationText === 'YES')).toBe(true));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '查看已归档书籍，共 1 本' })).not.toBeInTheDocument());
+    expect(screen.queryByText(/无法连接文秘写作服务/)).not.toBeInTheDocument();
   });
 
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
@@ -554,6 +640,33 @@ describe('完整创作工作台', () => {
     expect(document.querySelector('.app-shell')).toHaveClass('reader-mode');
   });
 
+  it('已结算章节不被历史受阻任务错误显示为受阻', async () => {
+    const settledWithBlockedHistory: WorkspaceData = {
+      ...workspace,
+      tasks: [{
+        taskId: 'task-blocked-history',
+        taskType: 'chapter_creation',
+        status: 'blocked',
+        currentPhase: 'review',
+        pauseRequested: false,
+        cancelRequested: false,
+        attemptCount: 3,
+        assignedAgentId: 'agent-6',
+        chapterId: chapter.chapterId,
+        brief: { chapterId: chapter.chapterId, chapterNumber: chapter.chapterNumber },
+        checkpoint: { reason: 'historical_quality_block' }
+      }]
+    };
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter('已经结算的正文', settledWithBlockedHistory)));
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    const chapterButton = await screen.findByRole('button', { name: /1\. 雾城初响/u });
+    expect(chapterButton).toHaveTextContent('正史已结算');
+    expect(chapterButton).not.toHaveTextContent('受阻');
+  });
+
   it('规划工作台显示五个层级且资料库使用结构化卡片而非原始JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
@@ -586,6 +699,11 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('守城与预见')).toBeInTheDocument();
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '章纲' }));
+    expect(await screen.findByText('穷途末路的入口')).toBeInTheDocument();
+    expect(screen.getByText('第一笔血汗钱')).toBeInTheDocument();
+    expect(screen.getByText('摔在同一个坑里')).toBeInTheDocument();
+    expect(screen.getByText('确认游戏收入真实到账')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '主角' })).toBeInTheDocument();
@@ -611,6 +729,76 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
     expect(await screen.findByRole('heading', { name: '叙事图谱' })).toBeInTheDocument();
     for (const name of ['人物关系', '情绪', '主线', '支线', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+  });
+
+  it('设定清单完整时不显示空旧卡片，并把正式规划状态翻译为中文', async () => {
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      if (path.endsWith('/artifacts')) return apiResponse([
+        {
+          artifact_id: 'story-empty',
+          artifact_type: 'story_bible',
+          title: '故事圣经',
+          status: 'selected',
+          version: 3,
+          active_version_id: 'story-empty-version',
+          active_version_status: 'selected',
+          active_content: {}
+        },
+        {
+          artifact_id: 'master-selected',
+          artifact_type: 'master_outline',
+          title: '剧情总纲',
+          status: 'selected',
+          version: 2,
+          active_version_id: 'master-selected-version',
+          active_version_status: 'selected',
+          active_content: { premise: '夏炎从流民求生走向经营自持。' }
+        }
+      ]);
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
+    expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
+    expect(screen.queryByText('暂无可展示内容')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
+    expect(await screen.findByText('夏炎从流民求生走向经营自持。')).toBeInTheDocument();
+    expect(screen.getByText('已确认')).toBeInTheDocument();
+    expect(screen.queryByText('selected')).not.toBeInTheDocument();
+  });
+
+  it('停留在规划页时自动刷新后台随后产出的规划成果', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const baseRouter = createFetchRouter();
+    let artifactReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/artifacts')) {
+        artifactReads += 1;
+        if (artifactReads === 1) return apiResponse([]);
+      }
+      return baseRouter(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
+    expect(screen.queryByText('守城与预见')).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(await screen.findByText('守城与预见')).toBeInTheDocument();
+    expect(artifactReads).toBeGreaterThanOrEqual(2);
   });
 
   it('编辑基本设定时保留同一故事圣经中的全书框架字段', async () => {
@@ -639,7 +827,7 @@ describe('完整创作工作台', () => {
   it('未定稿正文可编辑保存，并提供重写与定稿审校入口', async () => {
     const draftWorkspace: WorkspaceData = {
       ...workspace,
-      chapters: [{ ...chapter, volumeId: 'volume-ui-1', settlementStatus: 'unsettled', currentManuscriptVersionId: 'manuscript-draft-1', canonManuscriptVersionId: null }],
+      chapters: [{ ...chapter, volumeId: 'volume-ui-1', settlementStatus: 'awaiting_confirmation', currentManuscriptVersionId: 'manuscript-draft-1', canonManuscriptVersionId: null }],
       tasks: [],
       volumes: [{ ...workspace.volumes![0]!, settledCount: 0 }]
     };
@@ -1040,7 +1228,9 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       } },
       { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}', acts: ['雾城危机'], endingDirection: '待确认' } },
       { artifact_id: 'volume-1', artifact_type: 'volume_outline', title: '第一卷卷纲', status: 'active', version: 1, active_version_status: 'active', active_content: { volumeNumber: 1, goal: '揭开钟声来源', arcs: ['雾城危机'], endingState: '城门失守' } },
-      { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第一章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, goal: '听见钟声', beats: ['登城'], hook: '未来罪案出现' } }
+      { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第1章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, title: '穷途末路的入口', goal: '确立生存压力并进入游戏舱', beats: ['确认余额', '接取任务'], hook: '完成度将影响收益' } },
+      { artifact_id: 'chapter-2', artifact_type: 'chapter_outline', title: '第2章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 2, title: '第一笔血汗钱', goal: '确认游戏收入真实到账', beats: ['完成采集', '收到转账'], hook: '设备状态开始下降' } },
+      { artifact_id: 'chapter-3', artifact_type: 'chapter_outline', title: '第3章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 3, title: '摔在同一个坑里', goal: '因规则盲区受损并开始记录规律', beats: ['连续登录', '建立规则表'], hook: '需要查清隐藏规则' } }
     ]);
     if (path.endsWith('/artifacts/story-1/versions') && init?.method === 'POST') {
       const payload = JSON.parse(String(init.body)) as { content: Record<string, unknown>; parentVersionId: string | null };

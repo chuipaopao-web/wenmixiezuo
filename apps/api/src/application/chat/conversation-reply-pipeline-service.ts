@@ -223,7 +223,10 @@ export class ConversationReplyPipelineService {
             '不得复述完整开书表单，不得启动主笔或生成小说正文',
             '这是第一次接待，不做竞品举例、长篇标签分析或完整方案推演；alternatives必须为空数组，risks最多两条，keyPoints最多三条，questions一至三条',
             'answer、keyPoints、risks、questions和nextStep合计不超过600个中文字符；details只写一句补充或留空，必须在输出上限内闭合JSON'
-          ] : []),
+          ] : [
+            'answer、keyPoints、alternatives、risks、questions和nextStep合计不超过1200个中文字符；details最多300个中文字符',
+            '优先保证JSON完整闭合；临近输出上限时省略次要细节，不得截断在字符串、数组或对象中'
+          ]),
           '回答使用自然中文，可讨论但不得把闲聊写入正史',
           '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
         ],
@@ -271,7 +274,7 @@ export class ConversationReplyPipelineService {
             provider: replyAgent.provider,
             modelId: replyAgent.model_id,
             input: prompt,
-            parameters: JSON.stringify({ maxOutputTokens: 1_200, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
+            parameters: JSON.stringify({ maxOutputTokens: 2_000, planOnly: !replyAgent.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
             reservationId,
             contextPackId: pack.contextPackId,
             leaseToken: leaseFence?.leaseToken ?? currentTask.leaseToken,
@@ -283,7 +286,7 @@ export class ConversationReplyPipelineService {
             bookId: scope.bookId,
             agentId: replyAgent.agent_id,
             prompt,
-            maxOutputTokens: 1_200
+            maxOutputTokens: 2_000
           });
         } catch (error) {
           lastError = error;

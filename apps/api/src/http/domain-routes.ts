@@ -118,7 +118,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const bookProfileView = new BookProfileViewService(database);
   const planningStates = new PlanningStateService(database);
   const styleBaselines = new StyleBaselineService(database, ids, clock);
-  const settingBaselines = new SettingBaselineService(database, clock);
+  const settingBaselines = new SettingBaselineService(database, ids, clock);
   const planningStageArtifacts = new PlanningStageArtifactService(database, clock);
   const budgets = new BudgetService(database, ids, clock);
   const modelCalls = new ModelCallService(database, clock, budgets);
@@ -609,12 +609,26 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     status: string;
     custom?: boolean;
     sortOrder?: number;
+    content?: string | null;
   } }>('/api/v1/books/:bookId/setting-outline-workspace/:itemKey', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
     return success(settingOutlineWorkspace.save(scope, {
       itemKey: request.params.itemKey,
       ...request.body
     }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { items: Array<{
+    itemKey: string;
+    groupTitle: string;
+    label: string;
+    prompt: string;
+    sourceLabel: string;
+    custom?: boolean;
+    sortOrder?: number;
+  }> } }>('/api/v1/books/:bookId/setting-outline-workspace/initialize', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    return success(settingOutlineWorkspace.initialize(scope, request.body.items), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: {

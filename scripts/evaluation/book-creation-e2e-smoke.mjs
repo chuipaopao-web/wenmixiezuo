@@ -74,7 +74,7 @@ try {
     body: {
       title: '边界过量错误书',
       text: maleBlueprint.fullBookOutline,
-      openingBlueprint: { ...maleBlueprint, mustFollow: Array.from({ length: 13 }, (_, index) => `边界${index + 1}`) }
+      openingBlueprint: { ...maleBlueprint, mustFollow: Array.from({ length: 16 }, (_, index) => `边界${index + 1}`) }
     }
   }, 'too many must-follow rules');
 

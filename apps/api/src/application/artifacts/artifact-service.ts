@@ -96,7 +96,7 @@ export class ArtifactService {
   }
 
   public select(scope: BookScope, artifactId: string, versionId: string): ArtifactVersionRecord {
-    this.requireArtifact(scope, artifactId);
+    const artifact = this.requireArtifact(scope, artifactId);
     const version = this.requireVersion(scope, versionId);
     if (version.artifactId !== artifactId) throw new Error('成果版本不属于指定成果');
     const now = this.clock.now().toISOString();
@@ -108,12 +108,58 @@ export class ArtifactService {
         .run(versionId, scope.ownerId, scope.bookId);
       this.database.prepare("UPDATE artifacts SET active_version_id = ?, status = 'active', updated_at = ? WHERE artifact_id = ? AND owner_id = ? AND book_id = ?")
         .run(versionId, now, artifactId, scope.ownerId, scope.bookId);
+      this.synchronizePlanningStateAfterSelection(scope, artifactId, artifact.artifact_type, versionId, now);
       if (ownsTransaction) this.database.exec('COMMIT');
     } catch (error) {
       if (ownsTransaction && this.database.isTransaction) this.database.exec('ROLLBACK');
       throw error;
     }
     return this.requireVersion(scope, versionId);
+  }
+
+  private synchronizePlanningStateAfterSelection(
+    scope: BookScope,
+    artifactId: string,
+    artifactType: ArtifactType,
+    versionId: string,
+    now: string
+  ): void {
+    if (artifactType === 'story_bible') {
+      this.database.prepare(`
+        UPDATE book_planning_states
+        SET version = version + 1, stage = 'setting_ready',
+            setting_baseline_version_id = ?, master_outline_version_id = NULL,
+            volume_outline_version_id = NULL, updated_at = ?
+        WHERE owner_id = ? AND book_id = ?
+          AND setting_baseline_version_id IN (
+            SELECT artifact_version_id FROM artifact_versions WHERE artifact_id = ?
+          )
+      `).run(versionId, now, scope.ownerId, scope.bookId, artifactId);
+      return;
+    }
+    if (artifactType === 'master_outline') {
+      this.database.prepare(`
+        UPDATE book_planning_states
+        SET version = version + 1, stage = 'master_outline_ready',
+            master_outline_version_id = ?, volume_outline_version_id = NULL, updated_at = ?
+        WHERE owner_id = ? AND book_id = ?
+          AND master_outline_version_id IN (
+            SELECT artifact_version_id FROM artifact_versions WHERE artifact_id = ?
+          )
+      `).run(versionId, now, scope.ownerId, scope.bookId, artifactId);
+      return;
+    }
+    if (artifactType === 'volume_outline') {
+      this.database.prepare(`
+        UPDATE book_planning_states
+        SET version = version + 1, stage = 'volume_outline_ready',
+            volume_outline_version_id = ?, updated_at = ?
+        WHERE owner_id = ? AND book_id = ?
+          AND volume_outline_version_id IN (
+            SELECT artifact_version_id FROM artifact_versions WHERE artifact_id = ?
+          )
+      `).run(versionId, now, scope.ownerId, scope.bookId, artifactId);
+    }
   }
 
   public revert(scope: BookScope, artifactId: string, historicalVersionId: string): ArtifactVersionRecord {

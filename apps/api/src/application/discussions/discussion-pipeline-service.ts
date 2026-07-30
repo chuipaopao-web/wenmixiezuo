@@ -27,6 +27,16 @@ import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { createHash } from 'node:crypto';
 import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
 import { CreativeSessionService } from './creative-session-service.js';
+import {
+  parseSettingOutlineDeposit,
+  SettingOutlineWorkspaceService
+} from '../knowledge/setting-outline-workspace-service.js';
+import {
+  nextChapterPlanningNumber,
+  parseMasterOutlineDepositOutput,
+  parseVolumeOutlineDepositOutput
+} from '../artifacts/planning-artifact-service.js';
+import { compactLockedPlanningScope } from './locked-planning-context.js';
 
 interface DiscussionTaskRow {
   status: string;
@@ -153,15 +163,74 @@ export class DiscussionPipelineService {
         phase: DiscussionPhase,
         peerOpinions: CollectedOpinion[] = []
       ): Promise<CollectedOpinion> => {
-        const existing = opinions.find((opinion) => opinion.agentId === participant.agent_id && opinion.phase === phase);
-        if (existing !== undefined) return existing;
+        const isEditor = participant.agent_id === task.assigned_agent_id;
+        const matchingOpinions = opinions.filter(
+          (opinion) => opinion.agentId === participant.agent_id && opinion.phase === phase
+        );
+        let existing = isEditor
+          ? matchingOpinions.findLast((opinion) => hasRequiredWorkflowArtifact(
+              brief.scopeText,
+              brief.purpose ?? 'open_discussion',
+              opinion.output
+            ))
+          : matchingOpinions.findLast(() => true);
+        if (existing !== undefined) {
+          // An opinion is checkpointed before its span estimate. If parsing or persistence
+          // fails after the opinion insert, a task retry must rebuild that missing derived
+          // estimate from the preserved real model output instead of silently skipping it.
+          if (
+            brief.purpose === 'locked_planning'
+            && phase === 'independent'
+            && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
+          ) {
+            const savedEstimate = this.database.prepare(`
+              SELECT 1
+              FROM plot_span_estimates
+              WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND round = 1
+                AND screenwriter_agent_id = ? AND status = 'submitted'
+              LIMIT 1
+            `).get(scope.ownerId, scope.bookId, brief.discussionId, participant.agent_id);
+            if (savedEstimate === undefined) {
+              try {
+                const estimate = parseSpanEstimateOutput(
+                  existing.output,
+                  participant.provider.startsWith('local-deterministic')
+                );
+                spanEstimates.submit(scope, {
+                  discussionId: brief.discussionId,
+                  round: 1,
+                  agentId: participant.agent_id,
+                  modelSnapshotId: participant.model_snapshot_id,
+                  minimum: estimate.minimum,
+                  recommended: estimate.recommended,
+                  maximum: estimate.maximum,
+                  units: estimate.units,
+                  assumptions: estimate.assumptions,
+                  uncertainty: estimate.uncertainty,
+                  sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: null }
+                });
+              } catch {
+                // 旧版本曾先保存意见、再解析跨度。若供应商输出在末尾被截断，
+                // 这条意见只能保留为审计证据，不能继续作为可恢复检查点。
+                const invalidIndex = opinions.indexOf(existing);
+                if (invalidIndex >= 0) opinions.splice(invalidIndex, 1);
+                existing = undefined;
+              }
+            }
+          }
+          if (existing !== undefined) return existing;
+        }
         const cancellation = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
         if (cancellation.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
-        const isEditor = participant.agent_id === task.assigned_agent_id;
         const promptPeerOpinions = isEditor
           ? compactOpinionsForEditor(peerOpinions)
-          : peerOpinions;
-        const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: brief.scopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
+          : phase === 'cross_review'
+            ? compactOpinionsForCrossReview(peerOpinions)
+            : peerOpinions;
+        const promptScopeText = brief.purpose === 'locked_planning'
+          ? compactLockedPlanningScope(brief.scopeText)
+          : brief.scopeText;
+        const hardSources = [{ sourceType: 'boss_discussion_scope', sourceId: brief.discussionId, content: promptScopeText, reason: '老板明确讨论范围，不可截断', priority: 100 }];
         hardSources.push(...planningHierarchySources(
           this.database, scope, brief.scopeText, brief.purpose ?? 'open_discussion'
         ));
@@ -182,7 +251,7 @@ export class DiscussionPipelineService {
           });
         }
         const retrieved = await new RetrievalContextSourceService(this.retrieval).collect(scope, {
-          query: brief.scopeText,
+          query: discussionRetrievalQuery(promptScopeText),
           roleKey: participant.role_key,
           mode: brief.purpose === 'open_discussion' || brief.purpose === undefined ? 'open_discussion' : 'creative_exploration',
           canonRevision: book.canon_revision,
@@ -190,7 +259,9 @@ export class DiscussionPipelineService {
           sourceTypes: ['fact', 'manuscript', 'outline', 'setting', 'wiki', 'voice'],
           limit: isEditor ? 12 : 9
         });
-        hardSources.push(...retrieved.hardSources);
+        hardSources.push(...(isEditor
+          ? compactRetrievalHardSourcesForEditor(retrieved.hardSources)
+          : retrieved.hardSources));
         const pack = contextPacks.build(scope, {
           taskId, agentId: participant.agent_id, canonRevision: book.canon_revision,
           positioningVersion: book.positioning_version,
@@ -208,8 +279,11 @@ export class DiscussionPipelineService {
           participant,
           purpose: brief.purpose ?? 'open_discussion',
           phase,
-          scopeText: brief.scopeText,
+          scopeText: promptScopeText,
           requestedChapterCount: brief.requestedChapterCount ?? null,
+          firstChapterNumber: brief.purpose === 'locked_planning'
+            ? nextChapterPlanningNumber(this.database, scope)
+            : null,
           evidenceContext,
           peerOpinions: promptPeerOpinions
         });
@@ -224,17 +298,38 @@ export class DiscussionPipelineService {
             inputHash, `${phase}:${participant.role_key}:attempt-%`) as {
               output_text: string; input_tokens: number; output_tokens: number; cash_micros: number;
             } | undefined;
-        let result = reusable === undefined ? undefined : {
+        const spanEstimateRequired = brief.purpose === 'locked_planning'
+          && phase === 'independent'
+          && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key);
+        let reusableIsValid = reusable !== undefined
+          && (!isEditor || hasRequiredWorkflowArtifact(brief.scopeText, brief.purpose ?? 'open_discussion', reusable.output_text));
+        if (reusableIsValid && spanEstimateRequired) {
+          try {
+            parseSpanEstimateOutput(
+              reusable!.output_text,
+              participant.provider.startsWith('local-deterministic')
+            );
+          } catch {
+            reusableIsValid = false;
+          }
+        }
+        let result = !reusableIsValid ? undefined : {
           provider: participant.provider,
           modelId: participant.model_id,
-          output: reusable.output_text,
-          inputTokens: reusable.input_tokens,
-          outputTokens: reusable.output_tokens,
-          cashCostCny: reusable.cash_micros / 1_000_000,
+          output: reusable!.output_text,
+          inputTokens: reusable!.input_tokens,
+          outputTokens: reusable!.output_tokens,
+          cashCostCny: reusable!.cash_micros / 1_000_000,
           state: 'succeeded' as const
         };
         let lastError: unknown;
-        const maxOutputTokens = discussionOutputTokenLimit(participant.role_key, isEditor, phase);
+        const maxOutputTokens = discussionOutputTokenLimit(
+          participant.role_key,
+          isEditor,
+          phase,
+          brief.scopeText,
+          brief.purpose ?? 'open_discussion'
+        );
         for (let technicalTry = 1; result === undefined && technicalTry <= 2; technicalTry += 1) {
           const requestId = this.ids.next();
           const reservationId = budgets.reserve(
@@ -265,6 +360,18 @@ export class DiscussionPipelineService {
             const call = this.database.prepare(`SELECT state, error_class FROM model_calls
               WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
               .get(requestId, scope.ownerId, scope.bookId) as { state: string; error_class: string | null } | undefined;
+            const providerResultUnknown = call?.state === 'interrupted'
+              && call.error_class === 'provider_result_unknown';
+            if (providerResultUnknown) {
+              if (isEditor) {
+                const takeover = new EditorLeaseService(this.database, this.ids, this.clock)
+                  .tryAutomaticTakeover(scope, participant.agent_id);
+                throw new Error(takeover.takenOver
+                  ? `活动主编调用结果未知，已由${takeover.activeEditorAgentId}接管并从讨论检查点恢复`
+                  : `活动主编调用结果未知且未能安全接管：${takeover.reason}`);
+              }
+              throw error;
+            }
             const retryable = call?.state === 'failed' && call.error_class === 'technical_failure';
             if (!retryable) throw error;
             if (technicalTry === 2) {
@@ -283,13 +390,25 @@ export class DiscussionPipelineService {
         const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
         // 各级规划的原始回复还携带机器可解析的落库契约。
         // 面向老板的消息仍使用 effective 字段，但落库证据必须保留原始结构化段。
+        const groupedSettingDiscussion = brief.scopeText.includes('【设定大纲成组讨论资料包】');
         const output = isEditor && (
           brief.purpose === 'locked_planning'
           || brief.scopeText.includes('【剧情总纲专项讨论资料包】')
           || brief.scopeText.includes('【卷纲专项讨论资料包】')
+          || groupedSettingDiscussion
         )
           ? result.output
           : effective?.fullContent ?? result.output;
+        if (isEditor && !hasRequiredWorkflowArtifact(
+          brief.scopeText,
+          brief.purpose ?? 'open_discussion',
+          output
+        )) {
+          throw new Error('活动主编回复缺少当前规划阶段要求的完整落库结构，残缺输出不会保存或在重试时复用');
+        }
+        const parsedSpanEstimate = spanEstimateRequired
+          ? parseSpanEstimateOutput(result.output, result.provider.startsWith('local-deterministic'))
+          : null;
         const opinionId = discussions.addOpinion(scope, brief.discussionId, {
           agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id, phase,
           content: {
@@ -299,14 +418,16 @@ export class DiscussionPipelineService {
           },
           tokens: result.inputTokens + result.outputTokens
         });
-        if (brief.purpose === 'locked_planning' && phase === 'independent'
-          && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)) {
-          const estimate = parseSpanEstimateOutput(result.output, result.provider.startsWith('local-deterministic'));
+        if (parsedSpanEstimate !== null) {
           spanEstimates.submit(scope, {
             discussionId: brief.discussionId, round: 1, agentId: participant.agent_id, modelSnapshotId: participant.model_snapshot_id,
-            minimum: estimate.minimum, recommended: estimate.recommended, maximum: estimate.maximum,
-            units: estimate.units, assumptions: estimate.assumptions,
-            uncertainty: estimate.uncertainty, sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: null }
+            minimum: parsedSpanEstimate.minimum,
+            recommended: parsedSpanEstimate.recommended,
+            maximum: parsedSpanEstimate.maximum,
+            units: parsedSpanEstimate.units,
+            assumptions: parsedSpanEstimate.assumptions,
+            uncertainty: parsedSpanEstimate.uncertainty,
+            sharedBrief: { scopeText: brief.scopeText, requestedChapterCount: null }
           });
         }
         const collected: CollectedOpinion = {
@@ -318,6 +439,12 @@ export class DiscussionPipelineService {
           output,
           ...(effective === undefined ? {} : { effective })
         };
+        for (let index = opinions.length - 1; index >= 0; index -= 1) {
+          const checkpoint = opinions[index];
+          if (checkpoint?.agentId === participant.agent_id && checkpoint.phase === phase) {
+            opinions.splice(index, 1);
+          }
+        }
         opinions.push(collected);
         return collected;
       };
@@ -330,7 +457,11 @@ export class DiscussionPipelineService {
         independent.push(await collectOpinion(specialist, 'independent'));
       }
 
-      const creativePurpose = brief.purpose === 'creative_exploration' || brief.purpose === 'locked_planning';
+      const settingSpecialistDiscussion = brief.scopeText.includes('【设定专项讨论资料包】')
+        || brief.scopeText.includes('【设定大纲成组讨论资料包】');
+      const creativePurpose = brief.purpose === 'creative_exploration'
+        || brief.purpose === 'locked_planning'
+        || settingSpecialistDiscussion;
       if (creativePurpose) {
         const current = discussions.require(scope, brief.discussionId);
         if (current.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'cross_review');
@@ -346,6 +477,14 @@ export class DiscussionPipelineService {
 
       const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor.agent_id);
       const editorOpinion = await collectOpinion(editor, 'independent', specialistEvidence);
+      if (brief.scopeText.includes('【剧情总纲专项讨论资料包】')
+        && parseMasterOutlineDepositOutput(editorOpinion.output) === null) {
+        throw new Error('活动主编回复缺少有效的剧情总纲落库结构，不能把普通讨论总结伪装成剧情总纲');
+      }
+      if (brief.scopeText.includes('【卷纲专项讨论资料包】')
+        && parseVolumeOutlineDepositOutput(editorOpinion.output) === null) {
+        throw new Error('活动主编回复缺少有效的卷纲落库结构，不能把剧情总纲缩写或普通讨论总结伪装成卷纲');
+      }
       const stage = discussions.require(scope, brief.discussionId).status;
       if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
       if (stage === 'cross_review') discussions.setStage(scope, brief.discussionId, 'cross_review', 'synthesizing');
@@ -357,13 +496,25 @@ export class DiscussionPipelineService {
           : [],
         impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
       });
+      const effectiveEditorOutput = editorOpinion.effective ?? prepareEffectiveOutput(editorOpinion.output);
+      const settingCandidates = new SettingOutlineWorkspaceService(this.database, this.clock).recordDiscussionCandidates(scope, {
+        discussionId: brief.discussionId,
+        decisionId,
+        scopeText: brief.scopeText,
+        content: brief.scopeText.includes('【设定大纲成组讨论资料包】')
+          ? editorOpinion.output
+          : effectiveEditorOutput.fullContent
+      });
+      if (brief.scopeText.includes('【设定大纲成组讨论资料包】') && settingCandidates.length === 0) {
+        throw new Error('活动主编回复缺少有效的“设定大纲落库”结构，不能把整段讨论摘要伪装成多项设定');
+      }
       const summaryMessageId = this.addEditorMessage(
         scope,
         brief.conversationId,
         editor,
         brief.discussionId,
         decisionId,
-        editorOpinion.effective ?? prepareEffectiveOutput(editorOpinion.output),
+        effectiveEditorOutput,
         brief.purpose ?? 'open_discussion'
       );
       if (brief.creativeSessionId !== undefined) {
@@ -422,8 +573,48 @@ export class DiscussionPipelineService {
         SET status = ?, heartbeat_at = ?, completed_at = ?
         WHERE owner_id = ? AND book_id = ? AND task_id = ? AND status = 'working'
       `).run(cancelled ? 'cancelled' : 'failed', now, now, scope.ownerId, scope.bookId, taskId);
+      if (!cancelled) {
+        this.addTaskFailureMessage(scope, brief.conversationId, taskId);
+      }
       throw error;
     }
+  }
+
+  private addTaskFailureMessage(scope: BookScope, conversationId: string, taskId: string): void {
+    const existing = this.database.prepare(`
+      SELECT 1 FROM messages
+      WHERE conversation_id = ? AND owner_id = ? AND book_id = ?
+        AND message_type = 'task_failure'
+        AND json_extract(references_json, '$[0].taskId') = ?
+      LIMIT 1
+    `).get(conversationId, scope.ownerId, scope.bookId, taskId);
+    if (existing !== undefined) return;
+    const completedOpinions = (this.database.prepare(`
+      SELECT COUNT(*) AS count
+      FROM discussion_opinions o
+      JOIN tasks t
+        ON json_extract(t.task_brief_json, '$.discussionId') = o.discussion_id
+        AND t.owner_id = o.owner_id AND t.book_id = o.book_id
+      WHERE t.task_id = ? AND t.owner_id = ? AND t.book_id = ?
+    `).get(taskId, scope.ownerId, scope.bookId) as { count: number }).count;
+    const progress = completedOpinions > 0
+      ? `已经完成的 ${completedOpinions} 份成员意见和讨论进度都已保存，重试时会从检查点继续，不会重复调用已经成功的成员。`
+      : '讨论资料和任务记录都已保存，恢复模型服务后可以从当前任务继续。';
+    const content = `这轮讨论在主编整理时没有顺利完成。${progress}请在左侧“任务”中打开这项失败任务，点击“继续重试”。`;
+    this.database.prepare(`
+      INSERT INTO messages (
+        message_id, conversation_id, owner_id, book_id, sender_type,
+        message_type, content, references_json, created_at
+      ) VALUES (?, ?, ?, ?, 'system', 'task_failure', ?, ?, ?)
+    `).run(
+      this.ids.next(),
+      conversationId,
+      scope.ownerId,
+      scope.bookId,
+      content,
+      JSON.stringify([{ taskId, completedOpinions }]),
+      this.clock.now().toISOString()
+    );
   }
 
   private persistForecast(
@@ -539,7 +730,7 @@ function planningHierarchySources(
   } | undefined;
   if (state === undefined) return [];
   const requested = [
-    { id: state.active_style_version_id, type: 'style', reason: '已确认作品风格，规划必须与正文表达方向一致' },
+    { id: state.active_style_version_id, type: 'style', reason: '可追溯表达策略；规划按当前场景选择必要表达，不固定全书情绪' },
     { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定大纲，是剧情推演不可违背的上游边界' },
     ...(volumeWorkshop || rollingPlan
       ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲，当前卷只能在全书主线边界内展开' }]
@@ -556,28 +747,186 @@ function planningHierarchySources(
     return row === undefined ? [] : [{
       sourceType: `planning:${item.type}`,
       sourceId: row.artifact_version_id,
-      content: row.content_json,
+      content: compactPlanningArtifactForDiscussion(
+        item.type,
+        row.content_json,
+        rollingPlan && item.type === 'setting' ? 12 : 30,
+        !(rollingPlan && item.type === 'setting')
+      ),
       reason: item.reason,
       priority: 99
     }];
   });
 }
 
-function discussionOutputTokenLimit(roleKey: RoleKey | CreativeRoleKey, isEditor: boolean, phase: DiscussionPhase): number {
-  if (isEditor) return 6_000;
+export function compactPlanningArtifactForDiscussion(
+  type: string,
+  contentJson: string,
+  settingItemTokenLimit = 30,
+  includeSettingOutline = true
+): string {
+  if (type !== 'setting') return contentJson;
+  try {
+    const parsed = stripPlanningAuditMetadata(JSON.parse(contentJson)) as Record<string, unknown>;
+    const positioning = parsed.positioning as Record<string, { value?: unknown }> | undefined;
+    const openingReference = parsed.openingReference as { mustFollow?: unknown } | undefined;
+    const outline = parsed.settingOutline as { items?: unknown } | undefined;
+    const items = Array.isArray(outline?.items) ? outline.items : [];
+    return JSON.stringify({
+      title: parsed.title,
+      positioning: positioning === undefined
+        ? undefined
+        : Object.fromEntries(Object.entries(positioning).map(([key, entry]) => [key, entry?.value])),
+      tags: Array.isArray(parsed.tags)
+        ? parsed.tags.map((tag) => typeof tag === 'object' && tag !== null
+          ? (tag as { name?: unknown }).name
+          : tag)
+        : [],
+      characters: parsed.characters,
+      mustFollow: openingReference?.mustFollow,
+      // 滚动章纲不应把六十余项全书设定全部塞给每个岗位。开书定位、角色、
+      // 必须遵守项仍作为硬边界；与本轮剧情相关的详细设定由混合检索按需召回。
+      settingOutline: includeSettingOutline
+        ? items.map((item) => {
+            const record = item as Record<string, unknown>;
+            const content = typeof record.content === 'string'
+              ? boundedHeadAndTail(record.content, settingItemTokenLimit)
+              : record.content;
+            return {
+              itemKey: record.itemKey,
+              label: record.label,
+              content
+            };
+          })
+        : undefined
+    });
+  } catch {
+    return contentJson;
+  }
+}
+
+function stripPlanningAuditMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripPlanningAuditMetadata);
+  if (value === null || typeof value !== 'object') return value;
+  const auditOnlyKeys = new Set([
+    'sourceDiscussionId',
+    'sourceDecisionId',
+    'sourceStatus',
+    'confirmedAt'
+  ]);
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !auditOnlyKeys.has(key))
+      .map(([key, child]) => [key, stripPlanningAuditMetadata(child)])
+  );
+}
+
+function hasRequiredWorkflowArtifact(
+  scopeText: string,
+  purpose: DiscussionPurpose,
+  output: string
+): boolean {
+  if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
+    return parseMasterOutlineDepositOutput(output) !== null;
+  }
+  if (scopeText.includes('【卷纲专项讨论资料包】')) {
+    return parseVolumeOutlineDepositOutput(output) !== null;
+  }
+  if (scopeText.includes('【设定大纲成组讨论资料包】')) {
+    const requiredKeys = new Set(settingBatchKeys(scopeText));
+    const deposits = parseSettingOutlineDeposit(output);
+    return requiredKeys.size > 0
+      && requiredKeys.size === deposits.length
+      && deposits.every((deposit) => requiredKeys.has(deposit.itemKey));
+  }
+  // 滚动章纲仍兼容历史确定性适配器的“规划落库”双段输出；其结构在老板
+  // 确认时由 PlanningArtifactService 统一校验。这里仅拦截已统一为
+  // workflowArtifact 合同的设定、剧情总纲和卷纲。
+  void purpose;
+  return true;
+}
+
+export function discussionOutputTokenLimit(
+  roleKey: RoleKey | CreativeRoleKey,
+  isEditor: boolean,
+  phase: DiscussionPhase,
+  scopeText: string,
+  purpose: DiscussionPurpose = 'open_discussion'
+): number {
+  // 主编只需要输出面向作者的结论和一个结构化规划产物。完整编剧意见已经
+  // 单独保存在 discussion_opinions；继续申请 4k 输出会让真实方舟 Plan
+  // 在 7k 级输入下更容易被上游网关中断。
+  if (isEditor && scopeText.includes('【设定大纲成组讨论资料包】')) {
+    // 成组设定必须逐项返回可解析的落库合同。固定 3.6k 会在 8—12 项批次中
+    // 截断 JSON，造成“模型已成功、任务仍失败”的假性恢复循环。
+    // 预算随本批条目数有界增长，不影响普通聊天、总纲或卷纲的精简输出。
+    return Math.min(8_000, Math.max(3_600, settingBatchKeys(scopeText).length * 700));
+  }
+  // 剧情总纲、卷纲和滚动章纲同时要求面向作者的结论与完整 workflowArtifact。
+  // 3.6k 会在结构末尾截断合法 JSON，造成“模型调用成功但任务失败”，因此仅为这些
+  // 必须落库的规划任务留出有界余量；普通开放讨论仍保持较小上限。
+  if (isEditor && (
+    scopeText.includes('【剧情总纲专项讨论资料包】')
+    || scopeText.includes('【卷纲专项讨论资料包】')
+    || purpose === 'locked_planning'
+  )) return 6_000;
+  if (isEditor) return 3_600;
   if (phase === 'cross_review') return 2_500;
   if (roleKey === 'lead_screenwriter' || roleKey === 'second_screenwriter') return 4_000;
   return 2_000;
 }
 
 export function discussionContextTokenBudget(isEditor: boolean): number {
-  return isEditor ? 10_000 : 8_000;
+  // 主编资料包保留老板原话、规划正史和四份意见的首尾摘要；完整意见通过
+  // opinionId 可追溯，不在同一调用里重复注入。编剧仍保留原有 8k 上限。
+  return isEditor ? 7_200 : 8_000;
+}
+
+export function discussionRetrievalQuery(scopeText: string): string {
+  if (!scopeText.includes('【设定大纲成组讨论资料包】')) {
+    return estimateTokens(scopeText) <= 1_200 ? scopeText : boundedHeadAndTail(scopeText, 1_200);
+  }
+  const bookTitle = /(?:^|\n)书籍：([^\n]+)/u.exec(scopeText)?.[1]?.trim() ?? '';
+  const targetJson = /(?:^|\n)本批设定项JSON：(\[[^\n]*\])/u.exec(scopeText)?.[1];
+  if (targetJson === undefined) return `设定大纲 ${bookTitle}`.trim();
+  try {
+    const targets = JSON.parse(targetJson) as Array<{ groupTitle?: unknown; label?: unknown; prompt?: unknown }>;
+    const terms = targets.flatMap((target) => [
+      typeof target.groupTitle === 'string' ? target.groupTitle : '',
+      typeof target.label === 'string' ? target.label : '',
+      typeof target.prompt === 'string' ? target.prompt : ''
+    ]).filter((value) => value.length > 0);
+    return [`设定大纲`, bookTitle, ...terms].filter((value) => value.length > 0).join(' ');
+  } catch {
+    return `设定大纲 ${bookTitle}`.trim();
+  }
 }
 
 export function compactOpinionsForEditor(opinions: CollectedOpinion[]): CollectedOpinion[] {
   return opinions.map((opinion) => ({
     ...opinion,
-    output: boundedHeadAndTail(opinion.output, 640)
+    // 主编需要的是各席核心主张、关键转折与结论，不应重复吞入完整长文。
+    // 完整意见已单独持久化，可从 opinionId 追溯。
+    output: boundedHeadAndTail(opinion.output, 140)
+  }));
+}
+
+export function compactRetrievalHardSourcesForEditor<T extends { content: string }>(sources: T[]): T[] {
+  // The editor already receives the selected setting/master/volume artifacts as first-class hard
+  // sources. Retrieval hits are supporting evidence, so inject only a bounded, traceable excerpt
+  // instead of duplicating entire canon chunks and overflowing the non-truncatable context budget.
+  return sources.slice(0, 4).map((source) => ({
+    ...source,
+    content: boundedHeadAndTail(source.content, 250)
+  }));
+}
+
+export function compactOpinionsForCrossReview(opinions: CollectedOpinion[]): CollectedOpinion[] {
+  return opinions.map((opinion) => ({
+    ...opinion,
+    // 交叉质疑需要看见另一方案的核心主张、风险和结尾跨度估算，但不需要把整份长文
+    // 作为不可截断硬来源再次注入。完整原文已持久化并可按 opinionId 追溯。
+    output: boundedHeadAndTail(opinion.output, 600)
   }));
 }
 
@@ -611,14 +960,17 @@ function buildDiscussionPrompt(input: {
   phase: DiscussionPhase;
   scopeText: string;
   requestedChapterCount: number | null;
+  firstChapterNumber: number | null;
   evidenceContext: Array<Record<string, unknown>>;
   peerOpinions: CollectedOpinion[];
 }): string {
   const {
-    participant, purpose, phase, scopeText, requestedChapterCount, evidenceContext, peerOpinions
+    participant, purpose, phase, scopeText, requestedChapterCount, firstChapterNumber, evidenceContext, peerOpinions
   } = input;
   const isMasterOutlineWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
   const isVolumeOutlineWorkshop = scopeText.includes('【卷纲专项讨论资料包】');
+  const isGroupedSettingWorkshop = scopeText.includes('【设定大纲成组讨论资料包】');
+  const groupedSettingKeys = isGroupedSettingWorkshop ? settingBatchKeys(scopeText) : [];
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
   if (isEditor) {
     return [
@@ -638,19 +990,27 @@ function buildDiscussionPrompt(input: {
             ? '这是剧情总纲专项讨论。请只处理全书级内容：核心前提、贯穿全书的核心冲突、主角成长线、主要推进阶段、作品承诺和结局方向。不得把章纲、单卷细节或普通讨论摘要冒充剧情总纲。'
             : isVolumeOutlineWorkshop
               ? '这是卷纲专项讨论。请以上一级已确认剧情总纲为边界，只处理当前卷：卷首状态、本卷唯一目标、故事弧与转折、高潮兑现和卷末状态。不得照抄或缩写整部剧情总纲。'
+              : isGroupedSettingWorkshop
+                ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、卷纲、章纲或正文。'
               : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+      isGroupedSettingWorkshop
+        ? `在同一个JSON对象的workflowArtifact字段输出设定大纲落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
+        : '',
       isMasterOutlineWorkshop
-        ? '最后必须另起一行输出且整行不得换行：剧情总纲落库 {"premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"title":"阶段名","goal":"阶段目标","turningPoint":"改变后续方向的转折"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}。majorStages至少2项且目标不得重复。'
+        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"title":"阶段名","goal":"阶段目标","turningPoint":"改变后续方向的转折"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。majorStages至少2项且目标不得重复。'
         : '',
       isVolumeOutlineWorkshop
-        ? '最后必须另起一行输出且整行不得换行：卷纲落库 {"title":"本卷名称","goal":"本卷唯一目标","startingState":"承接上级规划的卷首状态","arcs":[{"title":"本卷故事弧","objective":"弧目标","turningPoints":["转折"],"payoff":"本弧兑现"}],"climax":"本卷高潮及因果兑现","endingState":"进入下一卷时的角色与局势状态","openQuestions":["仍需老板确认的问题"]}。不得重复剧情总纲原文。'
+        ? '在同一个JSON对象的workflowArtifact字段输出卷纲落库结构：{"type":"volume_outline","payload":{"title":"本卷名称","goal":"本卷唯一目标","startingState":"承接上级规划的卷首状态","arcs":[{"title":"本卷故事弧","objective":"弧目标","turningPoints":["转折"],"payoff":"本弧兑现"}],"climax":"本卷高潮及因果兑现","endingState":"进入下一卷时的角色与局势状态","openQuestions":["仍需老板确认的问题"]}}。不得重复剧情总纲原文。'
         : '',
       purpose === 'locked_planning'
         ? [
-            '最后必须另起一行输出且整行不得换行：规划落库 {"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"title":"章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}。',
-            `chapters必须从当前下一章开始连续给出，且必须恰好包含${requestedChapterCount ?? 3}章；已有候选正文也必须在相应章位生成修正版章纲，不得跳过、错位或只写后续章节。`,
+            '在同一个JSON对象的workflowArtifact字段输出规划落库结构：{"type":"chapter_outline","payload":{"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"chapterNumber":绝对章号,"title":"不含第N章前缀的章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}}。',
+            `本次只能规划第${firstChapterNumber ?? 1}章至第${(firstChapterNumber ?? 1) + (requestedChapterCount ?? 3) - 1}章，共${requestedChapterCount ?? 3}章。chapters必须按绝对章号连续给出且chapterNumber逐项严格等于该范围；不得从第5章等其他章位开始，不得跳章、错位或只写后续章节。已有候选正文也必须在相应章位生成修正版章纲。`,
             '每章目标和钩子必须具体且互不重复。'
           ].join('')
+        : '',
+      (isMasterOutlineWorkshop || isVolumeOutlineWorkshop || isGroupedSettingWorkshop || purpose === 'locked_planning')
+        ? '这是必须落库的规划任务：先确保workflowArtifact完整、字段齐全且JSON闭合，再写面向老板的说明。answer不超过300字；keyPoints、risks、questions各最多3项；alternatives最多1项；details设为null。不要复述两位编剧的长篇论证，完整意见已经单独保存。'
         : '',
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
       '保留结构不同的高潜少数方案和有证据的分歧，不用多数票，不把意见压成没有代价的安全折中。',
@@ -677,14 +1037,32 @@ function buildDiscussionPrompt(input: {
       ? '独立提出全书级方案：核心冲突如何持续升级、主角成长如何改变选择、各大阶段如何因果相接、结局如何兑现前文承诺。不要写逐章事件。'
       : isVolumeOutlineWorkshop
         ? '独立提出当前卷方案：从卷首状态出发，围绕一个本卷目标设计递进故事弧、关键转折、高潮兑现与卷末新状态。不要重述整部小说。'
+        : isGroupedSettingWorkshop
+          ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     purpose === 'creative_exploration'
       ? '当前仍是开放推演阶段：不得估算章节数，不得生成章纲，不得假定老板已经锁定方向。'
       : '',
     purpose === 'locked_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
-      ? '方向已经锁定。最后必须另起一行输出：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。章数必须为1至30的整数，且最少≤建议≤最多。'
+      ? '方向已经锁定。回复的第一行必须先输出且完整闭合：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。必须先写这行，再写其他分析；章数必须为1至30的整数，且最少≤建议≤最多。'
       : ''
   ].filter(Boolean).join('\n');
+}
+
+function settingBatchKeys(scopeText: string): string[] {
+  const match = scopeText.match(/^本批设定项JSON：(.+)$/mu);
+  if (match?.[1] === undefined) return [];
+  try {
+    const value = JSON.parse(match[1]) as unknown;
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (typeof item !== 'object' || item === null) return [];
+      const key = (item as Record<string, unknown>).itemKey;
+      return typeof key === 'string' && key.trim().length > 0 ? [key.trim()] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 interface SpanEstimate {
@@ -698,7 +1076,12 @@ interface SpanEstimate {
 
 export function parseSpanEstimateOutput(output: string, deterministicFallback: boolean): SpanEstimate {
   const marker = /章节跨度估算(?:\*\*)?/u.exec(output);
-  const candidates = marker === null ? [] : extractCompleteJsonObjects(output.slice(marker.index + marker[0].length));
+  // 真实供应商偶尔会完整返回最后的 JSON 契约，却漏掉供人阅读的“章节跨度估算”标题。
+  // 机器边界是结构化契约，不应因为展示标题缺失而丢弃一份已经可验证的真实结果。
+  // 无标题时从末尾反向检查，优先取模型按要求放在结尾的跨度对象。
+  const candidates = marker === null
+    ? extractCompleteJsonObjects(output).reverse()
+    : extractCompleteJsonObjects(output.slice(marker.index + marker[0].length));
   for (const candidate of candidates) {
     try {
       const value = JSON.parse(candidate) as Partial<SpanEstimate>;

@@ -1,7 +1,9 @@
+import { rmSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BookLifecycleService } from '../../../apps/api/src/application/books/book-lifecycle-service.js';
 import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
+import { openDatabase } from '../../../apps/api/src/infrastructure/db/database.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 
@@ -46,6 +48,34 @@ describe('书籍生命周期与删除墓碑', () => {
       .get(scope.ownerId);
     expect(tombstone).toEqual({ deleted_book_id: 'book-alpha', deleted_book_title: '甲书' });
     expect(() => service.createDraft(scope, '甲书复活')).toThrow('墓碑禁止');
+    expect(() => service.permanentlyDelete(scope, 'YES')).not.toThrow();
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM deletion_tombstones
+      WHERE owner_id = ? AND deleted_book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+  });
+
+  it('永久删除在关闭并重新打开数据库后不会复活', () => {
+    context = createTestContext();
+    const current = context;
+    const service = new BookLifecycleService(current.database, current.dataDir, new SequenceIds(), new FixedClock());
+    const scope = { ownerId: 'owner-one', bookId: 'book-restart-check' };
+    service.ensureOwner(scope);
+    const created = service.createDraft(scope, '重启验证书');
+    service.archive(scope, created.version);
+    service.permanentlyDelete(scope, 'YES');
+
+    current.database.close();
+    const reopened = openDatabase(current.config.databasePath);
+    expect(new BookRepository(reopened).find(scope)).toBeNull();
+    expect(reopened.prepare(`
+      SELECT COUNT(*) AS count FROM deletion_tombstones
+      WHERE owner_id = ? AND deleted_book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+    expect(reopened.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    reopened.close();
+    rmSync(current.root, { force: true, recursive: true });
+    context = undefined;
   });
 
   it('活动书即使确认词正确也不能永久删除', () => {

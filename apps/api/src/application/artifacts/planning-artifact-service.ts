@@ -17,6 +17,7 @@ interface DecisionRow {
 }
 
 interface StructuredChapterPlan {
+  chapterNumber?: number;
   title: string;
   goal: string;
   beats: string[];
@@ -100,7 +101,9 @@ export class PlanningArtifactService {
     const chapterCount = typeof requestedChapterCount === 'number' && Number.isInteger(requestedChapterCount)
       ? requestedChapterCount
       : this.recommendedChapterCount(scope, discussionId);
-    return this.promoteChapterOutlinesOnly(scope, discussionId, decisionId, Math.min(3, chapterCount));
+    return new UnitOfWork(this.database).run(
+      () => this.promoteChapterOutlinesOnly(scope, discussionId, decisionId, Math.min(3, chapterCount))
+    );
   }
 
   public promoteCurrentPlanningStage(
@@ -198,10 +201,12 @@ export class PlanningArtifactService {
   ): PreparedPlanningArtifacts {
     assertBookScope(scope);
     const state = this.database.prepare(`
-      SELECT active_style_version_id, setting_baseline_version_id, master_outline_version_id, volume_outline_version_id
+      SELECT version, active_style_version_id, setting_baseline_version_id,
+        master_outline_version_id, volume_outline_version_id
       FROM book_planning_states
       WHERE owner_id = ? AND book_id = ? AND stage IN ('volume_outline_ready', 'chapter_outline_ready', 'writing_enabled')
     `).get(scope.ownerId, scope.bookId) as {
+      version: number;
       active_style_version_id: string | null;
       setting_baseline_version_id: string | null;
       master_outline_version_id: string | null;
@@ -209,7 +214,7 @@ export class PlanningArtifactService {
     } | undefined;
     if (state === undefined || state.active_style_version_id === null || state.setting_baseline_version_id === null
       || state.master_outline_version_id === null || state.volume_outline_version_id === null) {
-      throw new Error('滚动章纲只能在作品风格、设定、剧情总纲和当前卷纲依次确认后生成');
+      throw new Error('滚动章纲只能在表达策略记录、设定、剧情总纲和当前卷纲依次就绪后生成');
     }
     const decision = this.database.prepare(`
       SELECT x.scope_text, d.recommendation_json, d.alternatives_json, d.boss_confirmed
@@ -233,6 +238,7 @@ export class PlanningArtifactService {
       beats,
       hook: extractHook(narrativeSummary, decision.scope_text)
     }));
+    assertSequentialChapterPlans(chapterPlans, firstChapterNumber);
     const source = {
       sourceDiscussionId: discussionId,
       sourceDecisionId: decisionId,
@@ -255,6 +261,13 @@ export class PlanningArtifactService {
         ...source
       }
     ).artifactVersionId);
+    this.ensureConfirmedExpression(scope, decisionId);
+    new PlanningStageArtifactService(this.database, this.clock).confirm(
+      scope,
+      state.version,
+      chapterOutlineVersionIds[0]!,
+      'chapter_outline'
+    );
     return {
       creativePlanVersionId: state.active_style_version_id,
       storyBibleVersionId: state.setting_baseline_version_id,
@@ -288,24 +301,7 @@ export class PlanningArtifactService {
     }
     const narrativeSummary = stripPlanningDeposit(summary);
     const positioning = this.positioning(scope);
-    const expressionProfiles = new ExpressionProfileService(
-      new ExpressionProfileRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
-    );
-    const currentExpression = expressionProfiles.active(scope);
-    if (currentExpression?.status !== 'confirmed' || currentExpression.narrativePerson === null || currentExpression.viewpointDistance === null) {
-      expressionProfiles.revise(scope, {
-        narrativePerson: currentExpression?.narrativePerson ?? 'third',
-        viewpointDistance: currentExpression?.viewpointDistance ?? 'close',
-        languageTone: stringArray(currentExpression?.languageTone),
-        textDensity: currentExpression?.textDensity ?? 'adaptive',
-        targetAudience: currentExpression?.targetAudience ?? stringValue(positioning.audience?.value),
-        contentBoundaries: isRecord(currentExpression?.contentBoundaries) ? currentExpression.contentBoundaries : {},
-        humorSeriousness: currentExpression?.humorSeriousness ?? 'adaptive',
-        voiceEvidence: Array.isArray(currentExpression?.voiceEvidence) ? currentExpression.voiceEvidence : [],
-        impactScope: { appliesFrom: 'first_formal_work_order', sourceDecisionId: decisionId, ownerConfirmed: true },
-        confirm: true
-      });
-    }
+    this.ensureConfirmedExpression(scope, decisionId);
     const premise = stringValue(positioning.premise?.value) ?? decision.scope_text;
     const audience = stringValue(positioning.audience?.value) ?? '后续对话继续细化';
     const tone = stringValue(positioning.style?.value) ?? '服从老板确认的方案与后续修订';
@@ -341,6 +337,7 @@ export class PlanningArtifactService {
       beats,
       hook: extractHook(narrativeSummary, decision.scope_text)
     }));
+    assertSequentialChapterPlans(chapterPlans, firstChapterNumber);
     const currentMasterOutline = this.currentArtifactContent(scope, 'master_outline', '总纲');
     const currentActs = asArray(currentMasterOutline.acts).filter(isRecord);
     const newActs = chapterPlans.map((plan, index) => ({
@@ -395,6 +392,31 @@ export class PlanningArtifactService {
     };
   }
 
+  private ensureConfirmedExpression(scope: BookScope, decisionId: string): void {
+    const positioning = this.positioning(scope);
+    const expressionProfiles = new ExpressionProfileService(
+      new ExpressionProfileRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
+    );
+    const currentExpression = expressionProfiles.active(scope);
+    if (currentExpression?.status === 'confirmed'
+      && currentExpression.narrativePerson !== null
+      && currentExpression.viewpointDistance !== null) {
+      return;
+    }
+    expressionProfiles.revise(scope, {
+      narrativePerson: currentExpression?.narrativePerson ?? 'third',
+      viewpointDistance: currentExpression?.viewpointDistance ?? 'close',
+      languageTone: stringArray(currentExpression?.languageTone),
+      textDensity: currentExpression?.textDensity ?? 'adaptive',
+      targetAudience: currentExpression?.targetAudience ?? stringValue(positioning.audience?.value),
+      contentBoundaries: isRecord(currentExpression?.contentBoundaries) ? currentExpression.contentBoundaries : {},
+      humorSeriousness: currentExpression?.humorSeriousness ?? 'adaptive',
+      voiceEvidence: Array.isArray(currentExpression?.voiceEvidence) ? currentExpression.voiceEvidence : [],
+      impactScope: { appliesFrom: 'first_formal_work_order', sourceDecisionId: decisionId, ownerConfirmed: true },
+      confirm: true
+    });
+  }
+
   private upsert(scope: BookScope, type: ArtifactType, title: string, content: Record<string, unknown>): ArtifactVersionRecord {
     const artifacts = new ArtifactService(this.database, this.ids, this.clock);
     const existing = this.database.prepare(`
@@ -439,11 +461,7 @@ export class PlanningArtifactService {
   }
 
   private nextChapterNumber(scope: BookScope): number {
-    const row = this.database.prepare(`
-      SELECT COALESCE(MAX(chapter_number), 0) AS last FROM chapters
-      WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'
-    `).get(scope.ownerId, scope.bookId) as { last: number };
-    return row.last + 1;
+    return nextChapterPlanningNumber(this.database, scope);
   }
 
   private currentVolumeNumber(scope: BookScope): number {
@@ -479,25 +497,62 @@ export class PlanningArtifactService {
   }
 }
 
+export function nextChapterPlanningNumber(database: DatabaseSync, scope: BookScope): number {
+  assertBookScope(scope);
+  const row = database.prepare(`
+    SELECT MAX(last_chapter) AS last_chapter
+    FROM (
+      SELECT COALESCE(MAX(chapter_number), 0) AS last_chapter
+      FROM chapters
+      WHERE owner_id = ? AND book_id = ?
+      UNION ALL
+      SELECT COALESCE(MAX(CAST(json_extract(v.content_json, '$.chapterNumber') AS INTEGER)), 0) AS last_chapter
+      FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ?
+        AND a.artifact_type = 'chapter_outline'
+        AND a.status = 'active' AND v.status = 'selected'
+    )
+  `).get(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId) as { last_chapter: number | null };
+  return (row.last_chapter ?? 0) + 1;
+}
+
+function assertSequentialChapterPlans(chapters: StructuredChapterPlan[], firstChapterNumber: number): void {
+  chapters.forEach((chapter, index) => {
+    const expected = firstChapterNumber + index;
+    if (chapter.chapterNumber !== undefined && chapter.chapterNumber !== expected) {
+      throw new Error(`滚动章纲章位错位：当前必须从第${firstChapterNumber}章连续规划，但收到第${chapter.chapterNumber}章`);
+    }
+  });
+}
+
+function chapterNumberFromTitle(title: string): number | null {
+  const matched = title.match(/第\s*(\d{1,4})\s*章/u);
+  return matched === null ? null : Number.parseInt(matched[1]!, 10);
+}
+
 export function parsePlanningDepositOutput(summary: string): StructuredArcPlan | null {
+  const workflowPayload = parseWorkflowArtifact(summary, 'chapter_outline');
   const text = effectivePlanningText(summary);
   const marker = /规划落库(?:\*\*)?/u.exec(text);
   const markedCandidate = marker === null
     ? null
     : extractCompleteJsonObject(text.slice(marker.index + marker[0].length));
-  if (marker !== null && markedCandidate === null) {
+  if (workflowPayload === null && marker !== null && markedCandidate === null) {
     throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
   }
-  const candidate = markedCandidate ?? extractCompleteJsonObjects(text)
-    .map((item) => item.value)
-    .reverse()
-    .find(isPlanningDepositJson) ?? null;
-  if (candidate === null) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(candidate);
-  } catch {
-    throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
+  let value: unknown = workflowPayload;
+  if (value === null) {
+    const candidate = markedCandidate ?? extractCompleteJsonObjects(text)
+      .map((item) => item.value)
+      .reverse()
+      .find(isPlanningDepositJson) ?? null;
+    if (candidate === null) return null;
+    try {
+      value = JSON.parse(candidate);
+    } catch {
+      throw new Error('规划落库JSON无法解析，不能用重复模板代替真实章纲');
+    }
   }
   if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 30) {
     throw new Error('滚动规划必须包含未来1至3个章节方案');
@@ -511,7 +566,8 @@ export function parsePlanningDepositOutput(summary: string): StructuredArcPlan |
     if (title === null || goal === null || hook === null || beats.length === 0) {
       throw new Error(`规划落库第${index + 1}章缺少标题、目标、推进节点或钩子`);
     }
-    return { title, goal, beats, hook };
+    const chapterNumber = integerValue(item.chapterNumber) ?? chapterNumberFromTitle(title);
+    return { ...(chapterNumber === null ? {} : { chapterNumber }), title, goal, beats, hook };
   });
   if (new Set(chapters.map((chapter) => chapter.goal)).size !== chapters.length) {
     throw new Error('规划落库存在重复章节目标，不能生成模板化章纲');
@@ -598,6 +654,9 @@ export function parseVolumeOutlineDepositOutput(summary: string): StructuredVolu
 }
 
 function parseMarkedDeposit(summary: string, markerText: '剧情总纲落库' | '卷纲落库'): Record<string, unknown> | null {
+  const workflowType = markerText === '剧情总纲落库' ? 'master_outline' : 'volume_outline';
+  const workflowPayload = parseWorkflowArtifact(summary, workflowType);
+  if (workflowPayload !== null) return workflowPayload;
   const text = effectivePlanningText(summary);
   const marker = new RegExp(`${markerText}(?:\\*\\*)?`, 'u').exec(text);
   if (marker === null) return null;
@@ -611,6 +670,23 @@ function parseMarkedDeposit(summary: string, markerText: '剧情总纲落库' | 
   }
   if (!isRecord(value)) throw new Error(`${markerText}必须是有效对象`);
   return value;
+}
+
+function parseWorkflowArtifact(summary: string, expectedType: string): Record<string, unknown> | null {
+  for (const candidate of extractCompleteJsonObjects(summary)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate.value) as unknown;
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed)) continue;
+    const fields = isRecord(parsed.fields) ? parsed.fields : parsed;
+    const artifact = fields.workflowArtifact;
+    if (!isRecord(artifact) || artifact.type !== expectedType || !isRecord(artifact.payload)) continue;
+    return artifact.payload;
+  }
+  return null;
 }
 
 function parseChapterRange(value: unknown): StructuredArcPlan['estimatedChapterRange'] {

@@ -55,7 +55,6 @@ import {
   fetchSettingOutlineWorkspace,
   fetchBookProfile,
   fetchPlanningState,
-  fetchStyleBaseline,
   fetchSettingReadiness,
   confirmSettingBaseline,
   fetchRightsWorkspace,
@@ -75,6 +74,7 @@ import {
   rejectArtifactVersion,
   restoreBook,
   purgeBook,
+  retryTask,
   uploadChatAttachment,
   discardChatAttachment,
   chatAttachmentContentUrl,
@@ -89,6 +89,7 @@ import {
   classifyProtagonistState,
   createAttributeFormula,
   evaluateAttributeFormula,
+  initializeSettingOutlineWorkspace,
   saveSettingOutlineItem,
   saveAgentPromptPreference,
   type AgentData,
@@ -111,6 +112,7 @@ import {
   type OperationsStatusData,
   type OpeningBlueprintData,
   type OpeningChannel,
+  type ProtagonistRole,
   type OpeningTaxonomyData,
   type BookProfileViewData,
   type PlanningStateData,
@@ -323,20 +325,30 @@ export function App(): React.JSX.Element {
     if (selectedBookId === null || workspace === null || !['outline', 'knowledge', 'projections', 'rights'].includes(view)) return;
     const cacheKey = `${view}:${selectedBookId}`;
     const controller = new AbortController();
-    const request = view === 'outline'
-      ? fetchArtifacts(selectedBookId, controller.signal)
-      : view === 'knowledge'
-        ? fetchLibrary(selectedBookId, controller.signal)
-        : view === 'projections'
-          ? fetchGraphWorkspace(selectedBookId, controller.signal)
-          : fetchRightsWorkspace(selectedBookId, controller.signal);
-    void request.then(async (data) => {
-      setReferenceData(data);
-      await cacheSnapshot(cacheKey, selectedBookId, workspace.book.canonRevision, data);
-    }).catch(async () => {
-      setReferenceData(await loadSnapshot<unknown[]>(cacheKey, workspace.book.canonRevision) ?? []);
-    });
-    return () => controller.abort();
+    const refreshReferenceData = async (useCacheFallback: boolean): Promise<void> => {
+      const request = view === 'outline'
+        ? fetchArtifacts(selectedBookId, controller.signal)
+        : view === 'knowledge'
+          ? fetchLibrary(selectedBookId, controller.signal)
+          : view === 'projections'
+            ? fetchGraphWorkspace(selectedBookId, controller.signal)
+            : fetchRightsWorkspace(selectedBookId, controller.signal);
+      try {
+        const data = await request;
+        if (controller.signal.aborted) return;
+        setReferenceData(data);
+        await cacheSnapshot(cacheKey, selectedBookId, workspace.book.canonRevision, data);
+      } catch {
+        if (!useCacheFallback || controller.signal.aborted) return;
+        setReferenceData(await loadSnapshot<unknown[]>(cacheKey, workspace.book.canonRevision) ?? []);
+      }
+    };
+    void refreshReferenceData(true);
+    const poll = window.setInterval(() => void refreshReferenceData(false), 5_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(poll);
+    };
   }, [selectedBookId, view, workspace?.book.canonRevision]);
 
   useEffect(() => {
@@ -475,6 +487,22 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const retrySelectedTask = async (taskId: string): Promise<void> => {
+    if (selectedBookId === null || busy) return;
+    setBusy(true);
+    try {
+      await retryTask(selectedBookId, taskId);
+      await refreshWorkspace(selectedBookId);
+      setSelectedTaskId(null);
+      setView('chat');
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '任务重试失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const archiveSelectedBook = async (): Promise<void> => {
     if (archiveCandidate === null || busy) return;
     if (pendingAttachments.length > 0) {
@@ -547,11 +575,22 @@ export function App(): React.JSX.Element {
 
   const permanentlyDeleteArchivedBook = async (confirmationText: string): Promise<void> => {
     if (purgeCandidate === null || busy) return;
+    const deletedBookId = purgeCandidate.bookId;
     setBusy(true);
     try {
-      await purgeBook(purgeCandidate.bookId, confirmationText);
+      await purgeBook(deletedBookId, confirmationText);
+      setBooks((current) => current.filter((book) => book.bookId !== deletedBookId));
+      if (selectedBookId === deletedBookId) {
+        setSelectedBookId(null);
+        persistSelectedBook(null);
+        setWorkspace(null);
+        setMessages([]);
+        setSelectedChapterId(null);
+        setSelectedChapter(null);
+        setSelectedTaskId(null);
+      }
       setPurgeCandidate(null);
-      await loadBooks();
+      setArchiveOpen(false);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '永久删除书籍失败');
@@ -645,6 +684,11 @@ export function App(): React.JSX.Element {
                 onboardingTask={workspace?.tasks.find((task) =>
                   task.taskType === 'conversation_reply' && task.brief.proactiveOnboarding === true
                 ) ?? null}
+                activeFlowTask={workspace?.tasks.find((task) =>
+                  ['discussion', 'conversation_reply'].includes(task.taskType)
+                  && task.brief.proactiveOnboarding !== true
+                  && ['pending', 'queued', 'working'].includes(task.status)
+                ) ?? null}
                 busy={busy}
                 composer={composer}
                 setComposer={setComposer}
@@ -702,7 +746,7 @@ export function App(): React.JSX.Element {
       {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
       {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTask !== null && workspace !== null && (
-        <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onClose={() => setSelectedTaskId(null)} />
+        <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onRetryTask={retrySelectedTask} onClose={() => setSelectedTaskId(null)} />
       )}
       {selectedAgentId !== null && workspace !== null && (() => {
         const agent = workspace.agents.find((item) => item.agentId === selectedAgentId);
@@ -755,6 +799,7 @@ function ChatWorkspace(props: {
   totalMessageCount: number;
   creativeSession: CreativeSessionData | null;
   onboardingTask: TaskData | null;
+  activeFlowTask: TaskData | null;
   busy: boolean;
   composer: string;
   setComposer: (value: string) => void;
@@ -776,13 +821,24 @@ function ChatWorkspace(props: {
     && ['failed', 'blocked', 'interrupted'].includes(props.onboardingTask.status);
   return (
     <section className="chat-workspace" aria-label="主创作对话">
-      {props.creativeSession !== null && (
-        <CreativeSessionStrip
-          session={props.creativeSession}
-          busy={props.busy}
-          onQuickAction={props.onQuickAction}
-        />
-      )}
+      {(props.creativeSession !== null || props.activeFlowTask !== null) && <div className="chat-status-stack">
+        {props.creativeSession !== null && (
+          <CreativeSessionStrip
+            session={props.creativeSession}
+            busy={props.busy}
+            onQuickAction={props.onQuickAction}
+          />
+        )}
+        {props.activeFlowTask !== null && (
+          <section className="conversation-progress" role="status" aria-live="polite">
+            <span className="conversation-progress-pulse" aria-hidden="true" />
+            <div>
+              <strong>{props.activeFlowTask.taskType === 'discussion' ? '主编与编剧正在讨论' : '成员正在整理回复'}</strong>
+              <small>{flowTaskProgress(props.activeFlowTask)}；完成后会自动显示在这里，不需要重复发送。</small>
+            </div>
+          </section>
+        )}
+      </div>}
       <div className="conversation-stream" aria-live="polite">
         {props.messages.length === 0 ? (
           <div className="conversation-empty">
@@ -834,6 +890,19 @@ function ChatWorkspace(props: {
       </div>
     </section>
   );
+}
+
+function flowTaskProgress(task: TaskData): string {
+  if (task.status === 'pending' || task.status === 'queued') return '任务已经进入队列';
+  const labels: Record<string, string> = {
+    briefing: '正在整理最小资料包',
+    forecast: '两位编剧正在独立提出方向',
+    cross_examination: '正在进行一次交叉质疑',
+    synthesis: '主编正在归纳有效结论',
+    reply: '正在组织面向作者的回复',
+    working: '正在处理'
+  };
+  return labels[task.currentPhase] ?? '正在处理';
 }
 
 function CreativeSessionStrip({ session, busy, onQuickAction }: {
@@ -1122,7 +1191,7 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   </section>;
 }
 
-type PlanningTab = 'framework' | 'style' | 'basic' | 'master' | 'volume' | 'chapter';
+type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
 const storyFrameworkFields = ['title', 'positioning', 'tags', 'openingReference', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
@@ -1234,9 +1303,9 @@ const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup
   { match: /游戏|电竞|网游|系统/u, group: { key: 'game-extension', title: '题材扩展：游戏规则', description: '由游戏相关分类或题材自动加入。', items: [
     { key: 'game-entry', label: '游戏世界接入方式', prompt: '通过头盔、穿越、现实融合还是其他方式进入，边界是什么？', source: '游戏扩展', required: true },
     { key: 'player-npc', label: '玩家与NPC边界', prompt: '玩家和NPC如何识别、互动、死亡和承担后果？', source: '游戏扩展', required: true },
-    { key: 'game-panel', label: '属性面板与数据可见性', prompt: '哪些属性可见，谁能查看，信息是否可能伪装或延迟？', source: '游戏扩展' },
-    { key: 'class-skill', label: '职业、转职与技能树', prompt: '职业如何获得、成长、转职和组合，技能如何学习？', source: '游戏扩展' },
-    { key: 'loot', label: '装备、掉落与绑定规则', prompt: '物品如何掉落、交易、绑定、强化、损坏和回收？', source: '游戏扩展' },
+    { key: 'game-panel', label: '属性面板与数据可见性', prompt: '哪些属性可见，谁能查看，信息是否可能伪装或延迟？', source: '游戏扩展', required: true },
+    { key: 'class-skill', label: '职业、转职与技能树', prompt: '职业如何获得、成长、转职和组合，技能如何学习？', source: '游戏扩展', required: true },
+    { key: 'loot', label: '装备、掉落与绑定规则', prompt: '物品如何掉落、交易、绑定、强化、损坏和回收？', source: '游戏扩展', required: true },
     { key: 'quest-instance', label: '任务、副本与奖励', prompt: '任务和副本如何生成、失败、重置并结算奖励？', source: '游戏扩展' },
     { key: 'ranking', label: '排行榜、赛季与竞技', prompt: '榜单计算什么，怎样防刷榜，赛季重置会保留什么？', source: '游戏扩展' }
   ] } },
@@ -1248,10 +1317,10 @@ const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup
     { key: 'historical-names', label: '年代、地名与人物校验', prompt: '年代、称谓、地名和历史人物如何保持可核对？', source: '历史扩展' }
   ] } },
   { match: /领主|种田|经营|基建/u, group: { key: 'lord-extension', title: '题材扩展：领地经营', description: '由领主、种田、经营或基建题材自动加入。', items: [
-    { key: 'territory', label: '领地、城市与建筑等级', prompt: '领地和建筑如何升级，解锁条件、时间和成本是什么？', source: '领地扩展' },
-    { key: 'population', label: '人口、民心与劳动力', prompt: '人口如何增长、迁移、分工并影响秩序？', source: '领地扩展' },
-    { key: 'army', label: '将领、士兵与兵种', prompt: '军队如何招募、训练、编制、补给和承担伤亡？', source: '领地扩展' },
-    { key: 'yield', label: '资源产出与生产队列', prompt: '资源和建筑产出如何计算，生产队列受什么限制？', source: '领地扩展' }
+    { key: 'territory', label: '领地、城市与建筑等级', prompt: '领地和建筑如何升级，解锁条件、时间和成本是什么？', source: '领地扩展', required: true },
+    { key: 'population', label: '人口、民心与劳动力', prompt: '人口如何增长、迁移、分工并影响秩序？', source: '领地扩展', required: true },
+    { key: 'army', label: '将领、士兵与兵种', prompt: '军队如何招募、训练、编制、补给和承担伤亡？', source: '领地扩展', required: true },
+    { key: 'yield', label: '资源产出与生产队列', prompt: '资源和建筑产出如何计算，生产队列受什么限制？', source: '领地扩展', required: true }
   ] } },
   { match: /玄幻|仙侠|修仙|奇幻|魔法/u, group: { key: 'fantasy-extension', title: '题材扩展：超凡体系', description: '由玄幻、仙侠、奇幻或魔法题材自动加入。', items: [
     { key: 'cultivation', label: '功法、修炼与传承', prompt: '修炼体系如何学习、传承、改进和走火入魔？', source: '超凡扩展' },
@@ -1274,7 +1343,6 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
   const [tab, setTab] = useState<PlanningTab>('framework');
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
   const [planningState, setPlanningState] = useState<PlanningStateData | null>(null);
-  const [styleBaseline, setStyleBaseline] = useState<Record<string, unknown> | null>(null);
   const bookId = workspace?.book.bookId ?? null;
   const refreshPlanningState = useCallback(async (): Promise<void> => {
     if (bookId === null) return;
@@ -1285,13 +1353,12 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
     const controller = new AbortController();
     void Promise.all([
       fetchBookProfile(bookId, controller.signal),
-      fetchPlanningState(bookId, controller.signal),
-      fetchStyleBaseline(bookId, controller.signal)
-    ]).then(([profile, state, style]) => {
-      setBookProfile(profile); setPlanningState(state); setStyleBaseline(style);
+      fetchPlanningState(bookId, controller.signal)
+    ]).then(([profile, state]) => {
+      setBookProfile(profile); setPlanningState(state);
     }).catch(() => {
       if (!controller.signal.aborted) {
-        setBookProfile(null); setPlanningState(null); setStyleBaseline(null);
+        setBookProfile(null); setPlanningState(null);
       }
     });
     return () => controller.abort();
@@ -1300,17 +1367,21 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
   const visible = artifacts.flatMap<{ artifact: Record<string, unknown>; projection: ArtifactProjection }>((artifact) => {
     const type = String(artifact.artifact_type);
     if (type === 'story_bible' && (tab === 'framework' || tab === 'basic')) return [{ artifact, projection: tab }];
-    const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'style' | 'basic'>, string> = {
+    const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'basic'>, string> = {
       master: 'master_outline', volume: 'volume_outline', chapter: 'chapter_outline'
     };
     if (tab === 'framework' && type === 'creative_plan') return [{ artifact, projection: 'complete' }];
-    if (tab !== 'framework' && tab !== 'style' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
+    if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
     return [];
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['style', '作品风格'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
+  const renderableArtifacts = visible.filter(({ artifact, projection }) => {
+    if (projection !== 'basic') return true;
+    const source = isRecord(artifact.active_content) ? artifact.active_content : {};
+    return hasMeaningfulArtifactValue(projectArtifactContent(source, projection));
+  });
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
   const tabDescription: Record<PlanningTab, string> = {
     framework: '展示开书时确认的频道、分类、题材、主要标签和作品边界。',
-    style: '展示全书长期软基线；战斗、情感、悬疑和日常场景会按功能动态适配。',
     basic: '先建立足够支撑第一阶段创作的世界、人物与核心规则；不知道的内容可以后补或刻意留白。',
     master: '设定基线足够后，再讨论全书主线、推进阶段、重大承诺、开放问题和终局方向。',
     volume: '按卷维护阶段目标、核心冲突、故事弧、高潮结果和卷末状态。',
@@ -1328,12 +1399,13 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
       </ol>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       <p className="planning-tab-description">{tabDescription[tab]}</p>
-      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} /> : tab === 'style' && styleBaseline !== null ? <StyleBaselinePanel baseline={styleBaseline} /> : visible.length === 0 ? (
-        <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
-      ) : <div className="artifact-list">{visible.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
+      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} /> : renderableArtifacts.length === 0 ? (
+        tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
+      ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
         bookId={workspace?.book.bookId ?? null}
         bookTitle={workspace?.book.title ?? '当前书籍'}
+        bookProfile={bookProfile}
         templateHints={collectSettingTemplateHints(artifacts)}
         onDiscuss={onDiscussSetting}
         planningState={planningState}
@@ -1348,27 +1420,15 @@ function BookProfilePanel({ profile }: { profile: BookProfileViewData }): React.
     <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category} · 第{profile.version}版</p></div><small>{profile.source}</small></header>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>
-    <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
+    <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'} · {item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
     <h4>必须遵守</h4><ul>{profile.mustFollow.map((item) => <li key={item}>{item}</li>)}</ul>
   </section>;
 }
 
-function StyleBaselinePanel({ baseline }: { baseline: Record<string, unknown> }): React.JSX.Element {
-  const content = isRecord(baseline.content) ? baseline.content : {};
-  const rows: Array<[string, unknown]> = [
-    ['语言气质', content.languageTones],
-    ['情绪基调', content.emotionalTones],
-    ['节奏与爽感', content.pacingAndPayoff],
-    ['叙事氛围', content.atmospheres],
-    ['场景动态适配', content.adaptiveRules],
-    ['禁止退化', content.avoidPatterns]
-  ];
-  return <section className="book-profile-panel style-baseline-panel"><header><div><h3>作品风格基线</h3><p>{String(baseline.status ?? '已确认')} · 第{String(baseline.version ?? 1)}版</p></div><small>{String(baseline.source ?? '老板确认')}</small></header><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{arrayText(value, '尚未补充')}</dd></div>)}</dl><p className="creative-freedom-note">这是全书主要方向，不是每章打卡清单；具体场景按人物、情绪和叙事功能动态调整。</p></section>;
-}
-
-function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningState, onPlanningStateChanged }: {
+function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscuss, planningState, onPlanningStateChanged }: {
   bookId: string | null;
   bookTitle: string;
+  bookProfile: BookProfileViewData | null;
   templateHints: string[];
   onDiscuss: (packet: string) => Promise<void>;
   planningState: PlanningStateData | null;
@@ -1380,6 +1440,7 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
   const [customDraft, setCustomDraft] = useState('');
   const [customGroupDraft, setCustomGroupDraft] = useState('本书扩展');
   const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
+  const [contents, setContents] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const hintText = templateHints.join('、');
@@ -1413,12 +1474,28 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
     if (bookId === null) {
       setCustomItems([]);
       setStatuses({});
+      setContents({});
       return;
     }
     const controller = new AbortController();
-    void fetchSettingOutlineWorkspace(bookId, controller.signal).then((items) => {
-      setStatuses(Object.fromEntries(items.map((item) => [item.itemKey, item.status])));
-      setCustomItems(items.filter((item) => item.custom).map((item) => ({
+    const templateItems = groups.flatMap((group) => group.items.map((item) => ({
+      itemKey: item.key,
+      groupTitle: group.title,
+      label: item.label,
+      prompt: item.prompt,
+      sourceLabel: item.source,
+      custom: item.source === '作者自定义',
+      sortOrder: allItems.findIndex((candidate) => candidate.key === item.key)
+    })));
+    void fetchSettingOutlineWorkspace(bookId, controller.signal).then(async (items) => {
+      const existingKeys = new Set(items.map((item) => item.itemKey));
+      const missing = templateItems.filter((item) => !existingKeys.has(item.itemKey));
+      const completeItems = missing.length === 0
+        ? items
+        : await initializeSettingOutlineWorkspace(bookId, missing);
+      setStatuses(Object.fromEntries(completeItems.map((item) => [item.itemKey, item.status])));
+      setContents(Object.fromEntries(completeItems.flatMap((item) => item.content === null ? [] : [[item.itemKey, item.content]])));
+      setCustomItems(completeItems.filter((item) => item.custom).map((item) => ({
         key: item.itemKey,
         label: item.label,
         prompt: item.prompt,
@@ -1442,7 +1519,8 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
       sourceLabel: item.source,
       status,
       custom,
-      sortOrder: sortOrder < 0 ? allItems.length : sortOrder
+      sortOrder: sortOrder < 0 ? allItems.length : sortOrder,
+      content: contents[item.key] ?? null
     }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
   };
 
@@ -1465,8 +1543,10 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
     const packet = [
       `【设定专项讨论资料包】`,
       `书籍：${bookTitle}`,
+      `开书资料JSON：${JSON.stringify(compactBookProfile(bookProfile))}`,
       `当前板块：${group.title}`,
       `当前设定项：${item.label}`,
+      `设定项编号：${item.key}`,
       `讨论目标：${item.prompt}`,
       `模板来源：${item.source}`,
       `开书分类与题材：${hintText || '尚未读取到题材标签，按通用框架讨论'}`,
@@ -1480,6 +1560,76 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
     void onDiscuss(packet).catch(() => {
       setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
       persistItem(group, item, '待讨论', item.source === '作者自定义');
+    }).finally(() => setBusyKey(null));
+  };
+
+  const discussRequiredBatch = (): void => {
+    const pendingRequired = allItems.filter((item) => item.required === true && statuses[item.key] !== '已确认');
+    const targets = pendingRequired.slice(0, 5);
+    if (targets.length === 0) {
+      setNotice('当前阶段的必需设定已经全部确认。');
+      return;
+    }
+    const packetTargets = targets.map((item) => {
+      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key))!;
+      return {
+        itemKey: item.key,
+        groupTitle: group.title,
+        label: item.label,
+        prompt: item.prompt,
+        sourceLabel: item.source
+      };
+    });
+    const contextPriority = new Map<string, number>([
+      ['creative-concept', 100],
+      ['reader-promise', 95],
+      ['differentiator', 90],
+      ['era', 85],
+      ['geography', 80],
+      ['governance', 75],
+      ['protagonist', 70],
+      ['motivation', 65],
+      ['must-follow', 60],
+      ['game-entry', 55],
+      ['game-panel', 50]
+    ]);
+    const targetGroupTitles = new Set(packetTargets.map((item) => item.groupTitle));
+    const confirmedContext = allItems.flatMap((item) => {
+      const content = contents[item.key];
+      if (statuses[item.key] !== '已确认' || content === undefined) return [];
+      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key));
+      return [{
+        itemKey: item.key,
+        label: item.label,
+        content,
+        priority: (group !== undefined && targetGroupTitles.has(group.title) ? 200 : 0)
+          + (contextPriority.get(item.key) ?? 0)
+      }];
+    }).sort((left, right) => right.priority - left.priority || left.itemKey.localeCompare(right.itemKey))
+      .slice(0, 8)
+      .map(({ itemKey, label, content }) => ({ itemKey, label, content }));
+    const packet = [
+      '讨论设定 【设定大纲成组讨论资料包】',
+      `书籍：${bookTitle}`,
+      `开书资料JSON：${JSON.stringify(compactBookProfile(bookProfile))}`,
+      `本批设定项JSON：${JSON.stringify(packetTargets)}`,
+      `已经确认的设定JSON：${JSON.stringify(confirmedContext)}`,
+      '工作要求：由主编主持，两名异模型编剧先独立提出相互兼容的完整方案，再进行一次有界交叉质疑。只处理本批非剧情设定；每项形成独立、明确、可直接保存的结论。不得生成剧情总纲、卷纲、章纲或正文。'
+    ].join('\n');
+    setBusyKey('required-batch');
+    setStatuses((current) => ({
+      ...current,
+      ...Object.fromEntries(targets.map((item) => [item.key, '讨论中' as const]))
+    }));
+    for (const item of targets) {
+      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key))!;
+      persistItem(group, item, '讨论中', item.source === '作者自定义');
+    }
+    void onDiscuss(packet).catch(() => {
+      setStatuses((current) => ({
+        ...current,
+        ...Object.fromEntries(targets.map((item) => [item.key, '待讨论' as const]))
+      }));
     }).finally(() => setBusyKey(null));
   };
 
@@ -1504,7 +1654,7 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
       <div><span>动态设定模板</span><h3>设定大纲</h3><p>按前置依赖从上到下讨论。模板足够完整，但允许稍后补充、刻意留白或标记不适用。</p></div>
-      <div className="setting-outline-progress"><strong>{confirmed} / {allItems.length}</strong><span>已确认</span><div><i style={{ width: `${allItems.length === 0 ? 0 : Math.round(confirmed / allItems.length * 100)}%` }} /></div></div>
+      <div className="setting-outline-progress"><strong>{confirmed} / {allItems.length}</strong><span>已确认</span><div><i style={{ width: `${allItems.length === 0 ? 0 : Math.round(confirmed / allItems.length * 100)}%` }} /></div><button className="secondary-button" type="button" disabled={bookId === null || busyKey !== null} onClick={discussRequiredBatch}>{busyKey === 'required-batch' ? '正在启动…' : '讨论全部必需设定'}</button></div>
     </header>
     <div className="setting-template-sources"><strong>本书模板：</strong>{templateHints.length === 0 ? <span>通用设定</span> : templateHints.slice(0, 12).map((hint) => <span key={hint}>{hint}</span>)}</div>
     <section className="setting-import compact">
@@ -1521,7 +1671,10 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
           const status = statuses[item.key] ?? '待讨论';
           return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
             <strong className="setting-outline-index">{String(index).padStart(2, '0')}</strong>
-            <div className="setting-outline-copy"><div><h5>{item.label}</h5><span>{item.source}{item.required === true ? ' · 当前阶段重要' : ''}</span></div><p>{item.prompt}</p></div>
+            <div className="setting-outline-copy">
+              <div><h5>{item.label}</h5><span>{item.source}{item.required === true ? ' · 当前阶段重要' : ''}</span></div>
+              <p>{contents[item.key] ?? item.prompt}</p>
+            </div>
             <select aria-label={`${item.label}状态`} value={status} onChange={(event) => {
               const nextStatus = event.target.value as SettingOutlineStatus;
               setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
@@ -1561,6 +1714,20 @@ function SettingCatalog({ bookId, bookTitle, templateHints, onDiscuss, planningS
     </section>
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
+}
+
+function compactBookProfile(profile: BookProfileViewData | null): Record<string, unknown> {
+  if (profile === null) return {};
+  return {
+    title: profile.title,
+    channel: profile.channel,
+    category: profile.category,
+    subjects: profile.subjects,
+    mainTags: profile.mainTags,
+    customTags: profile.customTags,
+    protagonists: profile.protagonists,
+    mustFollow: profile.mustFollow
+  };
 }
 
 function settingStatusClass(status: SettingOutlineStatus): string {
@@ -1616,6 +1783,15 @@ function projectArtifactContent(content: Record<string, unknown>, projection: Ar
     else if (projection === 'basic' && includeDefaults) projected[key] = basicSettingDefaults[key];
   }
   return projected;
+}
+
+function hasMeaningfulArtifactValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulArtifactValue);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, item]) => !isTechnicalField(key) && hasMeaningfulArtifactValue(item));
 }
 
 function mergeArtifactProjection(content: Record<string, unknown>, projected: Record<string, unknown>, projection: ArtifactProjection): Record<string, unknown> {
@@ -2255,7 +2431,7 @@ function BookshelfHome({
       </div>}
       {archivedBooks.length > 0 && <section className="home-archive">
         <button className="home-archive-toggle" type="button" aria-expanded={archiveOpen} aria-label={`查看已归档书籍，共 ${archivedBooks.length} 本`} onClick={onToggleArchive}><ArchiveBoxIcon /><span>已归档书籍</span><small>{archivedBooks.length} 本</small><CaretRightIcon /></button>
-        {archiveOpen && <div className="home-archive-list">{archivedBooks.map((book) => <article key={book.bookId}><span><strong>{book.title}</strong><small>资料完整保留</small></span><div><button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void onRestore(book)}><ArrowCounterClockwiseIcon />恢复</button><button className="danger-text-button" type="button" disabled={busy} aria-label={`彻底删除《${book.title}》`} onClick={() => onPurge(book)}><TrashIcon />彻底删除</button></div></article>)}</div>}
+        {archiveOpen && <div className="home-archive-list">{archivedBooks.map((book) => <article key={book.bookId}><span><strong>{book.title}</strong><small>已归档 · {formatShelfDate(book.updatedAt)} · 编号 {shortId(book.bookId)}</small></span><div><button type="button" disabled={busy} aria-label={`恢复《${book.title}》`} onClick={() => void onRestore(book)}><ArrowCounterClockwiseIcon />恢复</button><button className="danger-text-button" type="button" disabled={busy} aria-label={`彻底删除《${book.title}》`} onClick={() => onPurge(book)}><TrashIcon />彻底删除</button></div></article>)}</div>}
       </section>}
     </div>
   </section>;
@@ -2307,15 +2483,17 @@ function WorkspaceSkeleton(): React.JSX.Element {
   return <div className="workspace-skeleton" aria-label="正在加载工作区"><span /><span /><span /><span /></div>;
 }
 
-function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
+function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onRetryTask, onClose }: {
   task: TaskData;
   workspace: WorkspaceData;
   busy: boolean;
   onCancelTask: (taskId: string) => Promise<void>;
+  onRetryTask: (taskId: string) => Promise<void>;
   onClose: () => void;
 }): React.JSX.Element {
   const agent = workspace.agents.find((item) => item.agentId === task.assignedAgentId) ?? null;
   const canCancel = isActiveTask(task.status) && !task.cancelRequested;
+  const canRetry = ['failed', 'interrupted'].includes(task.status);
   const chapter = taskChapterLabel(task, workspace).replace(/^第(\d+)章$/u, '第 $1 章');
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -2331,10 +2509,12 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onClose }: {
           <div><dt>已尝试</dt><dd>{task.attemptCount} 次</dd></div>
           <div className="task-detail-wide"><dt>任务目标</dt><dd>{taskGoal(task, chapter)}</dd></div>
           <div className="task-detail-wide"><dt>最近检查点</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>
+          {canRetry && <div className="task-detail-wide"><dt>恢复说明</dt><dd>已完成的成员意见和检查点会继续复用；重试只处理尚未完成的步骤。</dd></div>}
           <div className="task-detail-wide"><dt>任务 ID</dt><dd><code>{task.taskId}</code></dd></div>
         </dl>
         <footer>
           <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>关闭</button>
+          {canRetry && <button className="primary-button" type="button" disabled={busy} onClick={() => void onRetryTask(task.taskId)}>{busy ? '正在重试' : '继续重试'}</button>}
           {canCancel && <button className="danger-button" type="button" disabled={busy} onClick={() => void onCancelTask(task.taskId)}>{busy ? '正在取消' : '取消任务'}</button>}
         </footer>
       </section>
@@ -2517,6 +2697,22 @@ const OPENING_CHANNELS: Array<{ id: OpeningChannel; label: string; description: 
   { id: 'female', label: '女频', description: '按女频分类与标签组织作品' }
 ];
 
+interface OpeningProtagonistDraft {
+  role: ProtagonistRole;
+  name: string;
+  age: string;
+  background: string;
+  personalities: string[];
+}
+
+const PROTAGONIST_ROLES: Array<{ id: ProtagonistRole; label: string }> = [
+  { id: 'male_lead', label: '男主' },
+  { id: 'female_lead', label: '女主' },
+  { id: 'co_lead', label: '共同主角' },
+  { id: 'ensemble', label: '群像主角' },
+  { id: 'non_human', label: '非人主角' }
+];
+
 function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   busy: boolean;
   onCancel: () => void;
@@ -2530,14 +2726,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [mainTags, setMainTags] = useState<string[]>([]);
   const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
   const [storyTraits] = useState<string[]>([]);
-  const [protagonistName, setProtagonistName] = useState('');
-  const [protagonistAge, setProtagonistAge] = useState('');
-  const [protagonistBackground, setProtagonistBackground] = useState('');
-  const [protagonistPersonalities, setProtagonistPersonalities] = useState<string[]>([]);
-  const [languageTones, setLanguageTones] = useState<string[]>([]);
-  const [emotionalTones, setEmotionalTones] = useState<string[]>([]);
-  const [pacingAndPayoff, setPacingAndPayoff] = useState<string[]>([]);
-  const [atmospheres, setAtmospheres] = useState<string[]>([]);
+  const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>([
+    { role: 'co_lead', name: '', age: '', background: '', personalities: [] }
+  ]);
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
@@ -2547,6 +2738,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [mustFollowText, setMustFollowText] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const automaticTagSignature = useRef('');
+  const automaticTagValues = useRef<string[]>([]);
+  const automaticTagCategory = useRef<string | null>(null);
+  const dismissedAutomaticTags = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2585,7 +2779,12 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const recommendedTagOptions = [...new Set([
     ...(category?.recommendedMainTags ?? []),
     ...relevantTagGroups.flatMap(groupTagValues)
-  ])].filter((tag) => tag !== category?.name && !auxiliaryTags.includes(tag));
+  ])].filter((tag) => {
+    if (tag === category?.name || auxiliaryTags.includes(tag)) return false;
+    if (channel === 'male' && tag === '女性成长') return false;
+    if (channel === 'female' && tag === '男性成长') return false;
+    return true;
+  });
   const displayedTagOptions = activeTagGroup === null ? recommendedTagOptions : [...new Set(groupTagValues(activeTagGroup))];
   const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN');
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
@@ -2594,8 +2793,19 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const tagRecommendationSignature = `${taxonomy?.version ?? ''}|${categoryKey ?? ''}|${[...auxiliaryTags].sort().join('|')}`;
   useEffect(() => {
     if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
+    if (automaticTagCategory.current !== category.key) {
+      dismissedAutomaticTags.current.clear();
+      automaticTagCategory.current = category.key;
+    }
     automaticTagSignature.current = tagRecommendationSignature;
-    setMainTags(recommendedTagOptions.slice(0, 12));
+    const nextAutomaticTags = recommendedTagOptions
+      .filter((tag) => !dismissedAutomaticTags.current.has(tag))
+      .slice(0, 8);
+    setMainTags((current) => {
+      const manualTags = current.filter((tag) => !automaticTagValues.current.includes(tag));
+      return [...new Set([...manualTags, ...nextAutomaticTags])];
+    });
+    automaticTagValues.current = nextAutomaticTags;
   }, [taxonomy, category, tagRecommendationSignature]);
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
@@ -2605,13 +2815,12 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     ...(channel === null ? ['创作频道'] : []),
     ...(category === null ? ['作品分类'] : []),
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
-    ...(protagonistName.trim().length === 0 ? ['主角姓名'] : []),
-    ...(protagonistAge.trim().length === 0 ? ['主角年龄或生命阶段'] : []),
-    ...(protagonistBackground.trim().length === 0 ? ['主角人物背景'] : []),
-    ...(protagonistPersonalities.length === 0 ? ['至少1个主角性格'] : []),
-    ...(languageTones.length === 0 ? ['至少1个语言气质'] : []),
-    ...(emotionalTones.length === 0 ? ['至少1个情绪基调'] : []),
-    ...(pacingAndPayoff.length === 0 ? ['至少1个节奏与爽感'] : []),
+    ...protagonists.flatMap((item, index) => [
+      ...(item.name.trim().length === 0 ? [`主角${index + 1}姓名`] : []),
+      ...(item.age.trim().length === 0 ? [`主角${index + 1}年龄或生命阶段`] : []),
+      ...(item.background.trim().length === 0 ? [`主角${index + 1}人物背景`] : []),
+      ...(item.personalities.length === 0 ? [`主角${index + 1}至少1个性格`] : [])
+    ]),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
@@ -2619,6 +2828,26 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max?: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
     else if (max === undefined || current.length < max) setter([...current, tag]);
+  };
+  const toggleMainTag = (tag: string): void => {
+    if (mainTags.includes(tag)) {
+      if (automaticTagValues.current.includes(tag)) dismissedAutomaticTags.current.add(tag);
+      setMainTags(mainTags.filter((item) => item !== tag));
+      return;
+    }
+    dismissedAutomaticTags.current.delete(tag);
+    setMainTags([...mainTags, tag]);
+  };
+  const updateProtagonist = (index: number, patch: Partial<OpeningProtagonistDraft>): void => {
+    setProtagonists((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  };
+  const toggleProtagonistPersonality = (index: number, personality: string): void => {
+    const current = protagonists[index];
+    if (current === undefined) return;
+    const next = current.personalities.includes(personality)
+      ? current.personalities.filter((item) => item !== personality)
+      : current.personalities.length >= 6 ? current.personalities : [...current.personalities, personality];
+    updateProtagonist(index, { personalities: next });
   };
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
@@ -2648,19 +2877,18 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       channel,
       categoryKey: category.key,
       targetAudience: '',
-      protagonists: [{
-        role: channel === 'female' ? 'female_lead' : 'male_lead',
-        name: protagonistName.trim(),
-        age: protagonistAge.trim(),
-        background: protagonistBackground.trim(),
-        personalities: protagonistPersonalities
-      }],
+      protagonists: protagonists.map((item) => ({
+        ...item,
+        name: item.name.trim(),
+        age: item.age.trim(),
+        background: item.background.trim()
+      })),
       worldBackground: '',
       openingBackground: '',
       stageOne: { start: '', development: '', end: '' },
       fullBookOutline: '',
       mainTags, auxiliaryTags, storyTraits, customTags, mustFollow,
-      styleIntent: { languageTones, emotionalTones, pacingAndPayoff, atmospheres, custom: [] },
+      styleIntent: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
       initialMap: ''
     };
     void onCreate({
@@ -2683,6 +2911,9 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
             setChannel(item.id); setCategoryKey(null);
+            if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) {
+              updateProtagonist(0, { role: item.id === 'male' ? 'male_lead' : 'female_lead' });
+            }
           }} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div></fieldset>
           <div className="taxonomy-heading"><strong>作品分类（单选）</strong><small>一本书只确定一个主分类</small></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
@@ -2696,14 +2927,14 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
           </section>
           <section className="opening-form-section">
-            <div className="section-heading"><div><span>02</span><h3>主角基本信息</h3></div><small>全部必填</small></div>
-            <label htmlFor="opening-protagonist-name">主角姓名</label>
-            <input id="opening-protagonist-name" value={protagonistName} onChange={(event) => setProtagonistName(event.target.value)} placeholder="例如：林舟" maxLength={80} />
-            <label htmlFor="opening-protagonist-age">年龄或生命阶段</label>
-            <input id="opening-protagonist-age" value={protagonistAge} onChange={(event) => setProtagonistAge(event.target.value)} placeholder="例如：十八岁、成年、初入职场" maxLength={80} />
-            <label htmlFor="opening-protagonist-background">人物背景</label>
-            <textarea id="opening-protagonist-background" value={protagonistBackground} onChange={(event) => setProtagonistBackground(event.target.value)} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={4} maxLength={2000} />
-            <StringTagPicker title="主角性格" hint="至少1个，最多6个" kind="主角性格" options={taxonomy?.personalityOptions ?? []} selected={protagonistPersonalities} onToggle={(item) => toggleTag(item, protagonistPersonalities, setProtagonistPersonalities, 6)} />
+            <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
+            {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
+              <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
+              <div className="form-row two"><label htmlFor={`protagonist-role-${index}`}>主角身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label htmlFor={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`}>姓名<input id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} placeholder="例如：林舟" maxLength={80} /></label></div>
+              <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄或生命阶段<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：十八岁、成年、初入职场" maxLength={80} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>人物背景<textarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={3} maxLength={2000} /></label>
+              <StringTagPicker title="角色性格" hint="至少1个，最多6个" kind="角色性格" options={taxonomy?.personalityOptions ?? []} selected={protagonist.personalities} onToggle={(item) => toggleProtagonistPersonality(index, item)} />
+            </article>)}
           </section>
         </div>
 
@@ -2722,17 +2953,10 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
               {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
             </nav>
             <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`当前已选 ${mainTags.length} 个，不限数量；可继续勾选、取消或替换`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={(item) => toggleTag(item, mainTags, setMainTags)} />
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已自动推荐8个；当前共选 ${mainTags.length} 个，不限数量，可继续增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} />
           </section>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
-          <section className="style-intent-panel">
-            <div className="section-heading"><div><span>04</span><h3>作品风格</h3></div><small>全书主要方向，具体场景动态调整</small></div>
-            <StringTagPicker title="语言气质" hint="至少1个" kind="语言气质" options={['幽默', '轻松', '克制', '冷峻', '严谨', '毒舌', '细腻', '质朴']} selected={languageTones} onToggle={(item) => toggleTag(item, languageTones, setLanguageTones, 8)} />
-            <StringTagPicker title="情绪基调" hint="至少1个" kind="情绪基调" options={['热血', '高燃', '温馨', '治愈', '压抑', '悲壮', '明快', '沉郁']} selected={emotionalTones} onToggle={(item) => toggleTag(item, emotionalTones, setEmotionalTones, 8)} />
-            <StringTagPicker title="节奏与爽感" hint="至少1个" kind="节奏与爽感" options={['爽点密集', '快节奏', '强情节', '稳步升级', '慢热蓄力', '悬念推进', '经营积累']} selected={pacingAndPayoff} onToggle={(item) => toggleTag(item, pacingAndPayoff, setPacingAndPayoff, 8)} />
-            <StringTagPicker title="叙事氛围" hint="可选；用于补充整体阅读质感" kind="叙事氛围" options={['史诗', '日常', '悬疑', '黑色幽默', '群像', '沉浸', '浪漫', '冷酷']} selected={atmospheres} onToggle={(item) => toggleTag(item, atmospheres, setAtmospheres, 8)} />
-          </section>
           <details className="boundary-panel" open>
             <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/15 条</small></summary>
             <p>这里只选择您明确不能接受的内容；它们是作品硬边界。没有额外边界可直接选择“无额外限制”。</p>
@@ -2783,11 +3007,13 @@ function PurgeBookDialog({ book, busy, onCancel, onConfirm }: {
 }
 
 function chapterStatus(chapter: ChapterData, tasks: TaskData[] = []): string {
+  // 正史结算是章节的最终业务状态。历史失败/阻断任务仍会保留作审计，
+  // 但不能反向把已经结算的章节显示成“受阻”。
+  if (chapter.settlementStatus === 'settled') return '正史已结算';
   const task = tasks.find((item) => item.chapterId === chapter.chapterId && isActiveTask(item.status));
   if (task?.status === 'waiting_confirmation') return '待老板确认';
   if (task?.status === 'blocked' || task?.status === 'failed') return '受阻';
   if (task?.currentPhase === 'review' || task?.currentPhase === 'hard_check' || task?.currentPhase === 'rewrite') return '待点评或修订';
-  if (chapter.settlementStatus === 'settled') return '正史已结算';
   if (chapter.generationStatus === 'working') return '创作中';
   if (chapter.generationStatus === 'paused') return '已暂停';
   if (chapter.generationStatus === 'failed') return '需要处理';
@@ -2936,7 +3162,7 @@ function artifactTypeLabel(type: string): string {
 }
 
 function authorityLabel(status: string): string {
-  return ({ active: '活动正史', approved: '已确认', confirmed: '已确认', candidate: '候选', proposed: '待确认', derived: '分析投影', archived: '已归档', superseded: '历史版本' } as Record<string, string>)[status] ?? status;
+  return ({ active: '活动正史', selected: '已确认', approved: '已确认', confirmed: '已确认', candidate: '候选', proposed: '待确认', derived: '分析投影', archived: '已归档', superseded: '历史版本' } as Record<string, string>)[status] ?? status;
 }
 
 function entityTypeLabel(type: string): string {
@@ -2950,7 +3176,11 @@ function fieldLabel(key: string): string {
     positioning: '作品定位', worldView: '世界观', worldRules: '世界规则', powerSystem: '力量体系', resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段', settingCandidates: '成员拆解候选', analysis: '拆解结果', notice: '确认说明',
     openingReference: '开书基本资料', worldBackground: '世界观参考', openingBackground: '故事起始背景', stageOne: '第一阶段剧情', fullBookOutline: '全书简介', initialMap: '初始地图', mustFollow: '必须遵守',
     characters: '初始人物', initialOrganizations: '初始势力', mainPlot: '主线', planningHistory: '规划沿革', openQuestions: '开放问题', tags: '主要标签', theme: '主题',
-    acts: '推进阶段', endingDirection: '结局方向', volumeNumber: '卷号', goal: '目标', arcs: '故事弧', endingState: '卷末状态',
+    acts: '推进阶段', coreConflict: '核心冲突', protagonistArc: '主角成长线',
+    majorStages: '全书推进阶段', storyPromises: '作品承诺', turningPoint: '关键转折',
+    turningPoints: '关键转折', payoff: '阶段兑现', climax: '本卷高潮',
+    startingState: '卷首状态', endingDirection: '结局方向', volumeNumber: '卷号',
+    goal: '目标', arcs: '故事弧', endingState: '卷末状态',
     chapterNumber: '章节', objective: '目标', beats: '场景节拍', hook: '章末钩子', status: '状态', track: '轨道',
     projection_type: '投影类型', chapter_number: '章节', canon_revision: '正史修订', content: '分析内容', sourceIds: '来源', rebuilt_at: '重建时间',
     canonical_name: '名称', entity_type: '类型', aliases: '别名', relation_key: '关系', value: '事实值', evidence: '证据', grade: '证据等级',

@@ -277,9 +277,9 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     if (!OPENING_TAXONOMY.storyTraits.includes(tag)) throw new Error(`全书特点不在当前目录；如需自定义请放入自定义标签：${tag}`);
   }
   const styleIntent = {
-    languageTones: uniqueTexts(input.styleIntent?.languageTones ?? [], '语言气质', 1, 8, 40),
-    emotionalTones: uniqueTexts(input.styleIntent?.emotionalTones ?? [], '情绪基调', 1, 8, 40),
-    pacingAndPayoff: uniqueTexts(input.styleIntent?.pacingAndPayoff ?? [], '节奏与爽感', 1, 8, 40),
+    languageTones: uniqueTexts(input.styleIntent?.languageTones ?? [], '可用语言气质', 0, 8, 40),
+    emotionalTones: uniqueTexts(input.styleIntent?.emotionalTones ?? [], '可用情绪色彩', 0, 8, 40),
+    pacingAndPayoff: uniqueTexts(input.styleIntent?.pacingAndPayoff ?? [], '可用节奏策略', 0, 8, 40),
     atmospheres: uniqueTexts(input.styleIntent?.atmospheres ?? [], '叙事氛围', 0, 8, 40),
     custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
   };

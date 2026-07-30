@@ -41,7 +41,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' },
     logController: new LogController({ disableRequestLogging: true })
   });
-  await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
   await app.register(multipart, {
     limits: { files: 1, fileSize: 20 * 1024 * 1024, fields: 0, parts: 1 }
   });

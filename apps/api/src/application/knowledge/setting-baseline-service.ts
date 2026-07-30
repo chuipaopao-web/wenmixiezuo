@@ -1,9 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Clock } from '../../domain/ids.js';
+import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
+import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { ArtifactService } from '../artifacts/artifact-service.js';
+import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
 
 const terminalStatuses = new Set(['已确认', '稍后补充', '刻意留白', '不适用']);
 const baseRequired = [
@@ -14,8 +17,17 @@ const baseRequired = [
 
 export class SettingBaselineService {
   private readonly repository: PlanningWorkflowRepository;
-  public constructor(database: DatabaseSync, private readonly clock: Clock) {
+  private readonly artifacts: ArtifactService;
+  private readonly workspace: SettingOutlineWorkspaceService;
+
+  public constructor(
+    private readonly database: DatabaseSync,
+    ids: IdGenerator,
+    private readonly clock: Clock
+  ) {
     this.repository = new PlanningWorkflowRepository(database);
+    this.artifacts = new ArtifactService(database, ids, clock);
+    this.workspace = new SettingOutlineWorkspaceService(database, clock);
   }
 
   public inspect(scope: BookScope): { ready: boolean; missing: string[]; unresolved: string[]; required: string[] } {
@@ -47,13 +59,55 @@ export class SettingBaselineService {
         409
       );
     }
-    const storyBible = this.repository.activeArtifactVersion(scope, 'story_bible');
-    if (storyBible === undefined) throw new DomainError(errorCodes.operationIncomplete, '缺少设定资料版本', {}, false, 409);
-    const changed = this.repository.advanceSetting(
-      scope, expectedPlanningVersion, storyBible, this.clock.now().toISOString()
-    );
-    if (!changed) throw new DomainError(errorCodes.bookVersionConflict, '规划状态已经变化，或作品风格尚未确认', {}, true, 409);
-    return { stage: 'setting_ready', version: expectedPlanningVersion + 1 };
+    const activeStoryBibleId = this.repository.activeArtifactVersion(scope, 'story_bible');
+    if (activeStoryBibleId === undefined) {
+      throw new DomainError(errorCodes.operationIncomplete, '缺少设定资料版本', {}, false, 409);
+    }
+    const now = this.clock.now().toISOString();
+    return new UnitOfWork(this.database).run(() => {
+      const activeStoryBible = this.artifacts.requireVersion(scope, activeStoryBibleId);
+      const confirmedItems = this.workspace.list(scope)
+        .filter((item) => item.status === '已确认' && item.content !== null)
+        .map((item) => ({
+          itemKey: item.itemKey,
+          groupTitle: item.groupTitle,
+          label: item.label,
+          content: item.content,
+          sourceDiscussionId: item.sourceDiscussionId,
+          sourceDecisionId: item.sourceDecisionId,
+          confirmedAt: item.confirmedAt
+        }));
+      const nextStoryBible = this.artifacts.addVersion(scope, activeStoryBible.artifactId, {
+        ...activeStoryBible.content,
+        settingOutline: {
+          schemaVersion: 1,
+          confirmedAt: now,
+          items: confirmedItems
+        }
+      }, activeStoryBible.artifactVersionId);
+      this.artifacts.select(scope, activeStoryBible.artifactId, nextStoryBible.artifactVersionId);
+      const synchronized = this.repository.planningState(scope);
+      if (
+        synchronized?.version === expectedPlanningVersion + 1
+        && synchronized.stage === 'setting_ready'
+        && synchronized.setting_baseline_version_id === nextStoryBible.artifactVersionId
+      ) {
+        return { stage: 'setting_ready', version: synchronized.version };
+      }
+      const changed = this.repository.advanceSetting(
+        scope, expectedPlanningVersion, nextStoryBible.artifactVersionId, now
+      );
+      if (!changed) {
+        throw new DomainError(
+          errorCodes.bookVersionConflict,
+          '规划状态已经变化，或表达策略记录尚未建立',
+          {},
+          true,
+          409
+        );
+      }
+      return { stage: 'setting_ready', version: expectedPlanningVersion + 1 };
+    });
   }
 
   private opening(scope: BookScope): OpeningBlueprintInput {

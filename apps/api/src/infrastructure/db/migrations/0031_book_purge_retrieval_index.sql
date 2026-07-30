@@ -1,0 +1,2 @@
+CREATE INDEX retrieval_evidence_clusters_candidate_idx
+ON retrieval_evidence_clusters(primary_candidate_id);

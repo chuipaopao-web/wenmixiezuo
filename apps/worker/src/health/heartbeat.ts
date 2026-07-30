@@ -37,25 +37,43 @@ export class WorkerHeartbeat {
   }
 
   private write(): void {
-    this.database.prepare(`
-      INSERT INTO worker_health (
-        worker_id, release_id, process_id, started_at, heartbeat_at, capabilities_json, current_task_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(worker_id) DO UPDATE SET
-        release_id = excluded.release_id,
-        process_id = excluded.process_id,
-        started_at = excluded.started_at,
-        heartbeat_at = excluded.heartbeat_at,
-        capabilities_json = excluded.capabilities_json,
-        current_task_id = excluded.current_task_id
-    `).run(
-      this.config.workerId,
-      this.config.releaseId,
-      process.pid,
-      this.#startedAt,
-      new Date().toISOString(),
-      JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim', ...this.#extraCapabilities]),
-      this.#currentTaskId
-    );
+    try {
+      this.database.prepare(`
+        INSERT INTO worker_health (
+          worker_id, release_id, process_id, started_at, heartbeat_at, capabilities_json, current_task_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(worker_id) DO UPDATE SET
+          release_id = excluded.release_id,
+          process_id = excluded.process_id,
+          started_at = excluded.started_at,
+          heartbeat_at = excluded.heartbeat_at,
+          capabilities_json = excluded.capabilities_json,
+          current_task_id = excluded.current_task_id
+      `).run(
+        this.config.workerId,
+        this.config.releaseId,
+        process.pid,
+        this.#startedAt,
+        new Date().toISOString(),
+        JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim', ...this.#extraCapabilities]),
+        this.#currentTaskId
+      );
+    } catch (error) {
+      if (!isTransientDatabaseLock(error)) throw error;
+      console.warn(JSON.stringify({
+        service: 'wenmi-worker',
+        component: 'heartbeat',
+        status: 'deferred',
+        reason: 'database-busy'
+      }));
+    }
   }
+}
+
+function isTransientDatabaseLock(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const sqliteError = error as Error & { errcode?: number; errstr?: string };
+  return sqliteError.errcode === 5
+    || sqliteError.errstr === 'database is locked'
+    || /database is (?:locked|busy)/iu.test(error.message);
 }

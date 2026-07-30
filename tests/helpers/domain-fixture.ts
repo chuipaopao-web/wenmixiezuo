@@ -85,6 +85,11 @@ export function prepareBookForWriting(
     .promoteConfirmedDecision(scope, discussion.discussionId, decisionId, count);
   const styleVersionId = ids.next();
   const now = clock.now().toISOString();
+  const nextStyleVersion = (context.database.prepare(`
+    SELECT COALESCE(MAX(version), 0) + 1 AS next
+    FROM book_style_versions
+    WHERE owner_id = ? AND book_id = ?
+  `).get(scope.ownerId, scope.bookId) as { next: number }).next;
   context.database.prepare(`
     UPDATE book_style_versions SET status = 'superseded'
     WHERE owner_id = ? AND book_id = ? AND status = 'selected'
@@ -92,8 +97,8 @@ export function prepareBookForWriting(
   context.database.prepare(`
     INSERT INTO book_style_versions (
       style_version_id, owner_id, book_id, version, content_json, source_kind, status, created_at
-    ) VALUES (?, ?, ?, 1, ?, 'owner', 'selected', ?)
-  `).run(styleVersionId, scope.ownerId, scope.bookId, JSON.stringify({
+    ) VALUES (?, ?, ?, ?, ?, 'owner', 'selected', ?)
+  `).run(styleVersionId, scope.ownerId, scope.bookId, nextStyleVersion, JSON.stringify({
     languageTones: ['自然'], emotionalTones: ['有张力'], pacingAndPayoff: ['推进明确'],
     atmospheres: ['沉浸'], custom: [], adaptiveRules: [], avoidPatterns: []
   }), now);

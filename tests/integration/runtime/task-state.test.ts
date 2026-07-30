@@ -42,6 +42,30 @@ describe('持久任务状态机', () => {
     expect(events.replay(scope, 0).map((event) => event.eventSeq)).toEqual([...events.replay(scope, 0).map((event) => event.eventSeq)].sort((a, b) => a - b));
   });
 
+  it('任务在接管恢复后成功完成时清除历史错误码', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    initializeRuntimeBook(context, scope, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(scope, {
+      taskId: 'task-takeover',
+      taskType: 'runtime_probe',
+      idempotencyKey: 'idem-takeover',
+      initialPhase: 'execute',
+      brief: {}
+    });
+    tasks.queue(scope, 'task-takeover');
+    tasks.claimNext('worker-one');
+    context.database.prepare(`UPDATE tasks SET error_code = 'EDITOR_TAKEOVER' WHERE task_id = ?`)
+      .run('task-takeover');
+
+    expect(tasks.complete(scope, 'task-takeover', 'worker-one')).toMatchObject({ status: 'succeeded' });
+    expect(context.database.prepare(`SELECT error_code FROM tasks WHERE task_id = ?`).get('task-takeover'))
+      .toEqual({ error_code: null });
+  });
+
   it('跨书不能读取、依赖或控制任务', () => {
     context = createTestContext();
     const ids = new SequenceIds();

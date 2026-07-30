@@ -338,14 +338,15 @@ export class BookOnboardingService {
     blueprint: OpeningBlueprintInput,
     now: string
   ): void {
-    const intent = blueprint.styleIntent;
-    if (intent === undefined) throw new Error('开书资料缺少作品风格意向');
+    const intent = blueprint.styleIntent ?? {
+      languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []
+    };
     const content = {
       ...intent,
       strength: 'medium',
       adaptiveRules: [
-        '战斗、情感、悬疑和日常场景按自身功能调整节奏与表现强度',
-        '作品风格约束长期方向，不要求每章机械出现全部标签'
+        '每章根据场景功能、人物状态和章纲选择当前语言、主情绪、节奏与氛围',
+        '调色板只提供可用范围，不要求同时出现，也不限制未选择的合理表达'
       ],
       avoidPatterns: [
         '所有角色使用同一种口吻',

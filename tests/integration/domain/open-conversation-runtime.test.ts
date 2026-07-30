@@ -263,7 +263,7 @@ describe('开放式主创对话', () => {
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
-    const started = conversations.sendBossMessage(scope, '讨论主角核验旧账后的剧情方向');
+    const started = conversations.sendBossMessage(scope, '讨论并规划第1—3章：主角核验旧账后的剧情方向');
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     const taskId = String(started.action.taskId);
     expect(tasks.claimNext('worker-lock-intent')?.taskId).toBe(taskId);
@@ -271,8 +271,11 @@ describe('开放式主创对话', () => {
       context.database, context.config.releaseId, ids, clock
     ).executeClaimed(scope, taskId, 'worker-lock-intent');
 
-    expect(conversations.sendBossMessage(scope, '锁定当前方向，保留旧账证据链，不要提前迁城').action)
-      .toMatchObject({ kind: 'creative_direction_locked' });
+    const locked = conversations.sendBossMessage(scope, '锁定当前方向，保留旧账证据链，不要提前迁城');
+    expect(locked.action).toMatchObject({ kind: 'creative_direction_locked' });
+    const lockedBrief = tasks.require(scope, String(locked.action.taskId)).brief;
+    expect(lockedBrief).toMatchObject({ purpose: 'locked_planning', requestedChapterCount: 3 });
+    expect(String(lockedBrief.scopeText)).toContain('保留旧账证据链，不要提前迁城');
   });
 
   it('未准备好时写一章只发起规划讨论，不创建章节或正文任务', () => {

@@ -112,6 +112,29 @@ export class CreativeSessionRepository {
     return mapSession(row);
   }
 
+  public hasCompletedRollingPlan(scope: BookScope, sessionId: string): boolean {
+    assertBookScope(scope);
+    this.require(scope, sessionId);
+    const planning = this.database.prepare(`
+      SELECT stage
+      FROM book_planning_states
+      WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId) as { stage: string } | undefined;
+    if (planning === undefined || !['chapter_outline_ready', 'writing_enabled'].includes(planning.stage)) {
+      return false;
+    }
+    const round = this.database.prepare(`
+      SELECT d.status
+      FROM creative_session_rounds r
+      JOIN discussions d ON d.discussion_id = r.discussion_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.creative_session_id = ?
+        AND r.round_kind = 'locked_planning'
+      ORDER BY r.round_number DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, sessionId) as { status: string } | undefined;
+    return round?.status === 'confirmed';
+  }
+
   public appendEvent(scope: BookScope, input: {
     eventId: string;
     sessionId: string;

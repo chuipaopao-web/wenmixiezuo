@@ -21,8 +21,14 @@ describe('最终交付入口', () => {
     expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
     expect(launcher).toContain('*<div id="root"></div>*');
     expect(launcher).toContain('Test-WenmiReady');
-    expect(launcher).toContain('startedAtUtc');
+    expect(processLauncher).toContain('startedAtUtc');
     expect(launcher).toContain("[Environment]::SetEnvironmentVariable($name, $value, 'Process')");
+    expect(launcher).toContain('Start-Process -FilePath $nodePath');
+    expect(launcher).toContain('-WindowStyle Hidden');
+    expect(launcher).toContain('-RedirectStandardOutput $stdoutPath');
+    expect(launcher).toContain('-RedirectStandardError $stderrPath');
+    expect(launcher).not.toContain("& cmd.exe /d /c start 'Wenmi Writing' /b");
+    expect(launcher).not.toMatch(/[^\x00-\x7f]/u);
     expect(processLauncher).toContain("execFileSync('reg.exe'");
     expect(processLauncher).toContain("'HKCU\\\\Environment'");
     expect(processLauncher).not.toContain('console.log(value)');

@@ -16,9 +16,9 @@ export interface StyleBaselineInput {
 
 export function validateStyleBaseline(input: StyleBaselineInput): StyleBaselineInput {
   return {
-    languageTones: texts(input.languageTones, '语言气质', 1, 8, 40),
-    emotionalTones: texts(input.emotionalTones, '情绪基调', 1, 8, 40),
-    pacingAndPayoff: texts(input.pacingAndPayoff, '节奏与爽感', 1, 8, 40),
+    languageTones: texts(input.languageTones, '可用语言气质', 0, 8, 40),
+    emotionalTones: texts(input.emotionalTones, '可用情绪色彩', 0, 8, 40),
+    pacingAndPayoff: texts(input.pacingAndPayoff, '可用节奏策略', 0, 8, 40),
     atmospheres: texts(input.atmospheres, '叙事氛围', 0, 8, 40),
     custom: texts(input.custom, '自定义风格', 0, 12, 80),
     strength: ['weak', 'medium', 'strong'].includes(input.strength) ? input.strength : 'medium',

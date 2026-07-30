@@ -52,7 +52,16 @@ export class BookLifecycleService {
 
   public permanentlyDelete(scope: BookScope, confirmationText: string): void {
     assertBookScope(scope);
-    const book = this.#books.require(scope);
+    const book = this.#books.find(scope);
+    if (book === null && this.#purge.hasTombstone(scope)) {
+      validatePermanentDeleteText(confirmationText);
+      rmSync(resolveInside(this.dataDir, `books/${scope.bookId}`), { force: true, recursive: true });
+      return;
+    }
+    if (book === null) {
+      this.#books.require(scope);
+      return;
+    }
     if (book.status !== 'archived') {
       throw new DomainError(errorCodes.bookStatusConflict, '只有已归档书籍可以永久删除', { currentStatus: book.status }, false, 409);
     }

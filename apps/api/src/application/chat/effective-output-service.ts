@@ -45,7 +45,8 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
     risks: '事实冲突、代价、不确定项或资料缺口；不得为了简短而隐藏',
     questions: '只有继续工作确实需要时才问，最多3个',
     nextStep: '一项可执行下一步；没有则为null',
-    details: '可展开的补充证据与来源说明；不得写内部思维链，没有则为null'
+    details: '可展开的补充证据与来源说明；不得写内部思维链，没有则为null',
+    workflowArtifact: '仅当任务明确要求机器落库时填写；对象格式为type和payload。普通讨论省略该字段'
   },
   rules: [
     '只输出一个JSON对象，不要代码围栏、开场客套、自我介绍、过程说明或重复老板原话',
@@ -56,7 +57,7 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
 
 export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   const normalizedRaw = normalizeText(raw);
-  const structured = parseStructuredReply(normalizedRaw);
+  const structured = parseStructuredReply(normalizedRaw) ?? parseTruncatedStructuredReply(normalizedRaw);
   if (structured !== null) {
     const visibleContent = renderStructuredReply(structured, false);
     const fullContent = renderStructuredReply(structured, true);
@@ -79,6 +80,125 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
     filtered: visibleContent !== normalizedRaw,
     format: 'fallback'
   };
+}
+
+function parseTruncatedStructuredReply(raw: string): StructuredEffectiveReply | null {
+  if (!isUnclosedJsonObject(raw)) return null;
+  const answer = nonEmptyString(extractCompleteJsonProperty(raw, 'answer'));
+  if (answer === null) return null;
+
+  const keyPoints = completedStringList(raw, 'keyPoints');
+  const alternatives = completedAlternativeList(raw, 'alternatives');
+  const risks = completedStringList(raw, 'risks');
+  const questions = completedStringList(raw, 'questions');
+  const nextStep = optionalString(extractCompleteJsonProperty(raw, 'nextStep'));
+  const details = optionalDetails(extractCompleteJsonProperty(raw, 'details'));
+
+  return {
+    answer,
+    keyPoints: keyPoints ?? [],
+    alternatives: alternatives ?? [],
+    risks: risks ?? [],
+    questions: questions ?? [],
+    nextStep: nextStep === undefined ? null : nextStep,
+    details: details === undefined ? null : details
+  };
+}
+
+function completedStringList(raw: string, key: string): string[] | null {
+  const value = extractCompleteJsonProperty(raw, key);
+  if (value === undefined) return null;
+  return stringList(value, MAX_LIST_ITEMS);
+}
+
+function completedAlternativeList(raw: string, key: string): EffectiveAlternative[] | null {
+  const value = extractCompleteJsonProperty(raw, key);
+  if (value === undefined) return null;
+  return alternativeList(value);
+}
+
+function isUnclosedJsonObject(raw: string): boolean {
+  const value = unwrapJsonFence(raw).trim();
+  if (!value.startsWith('{')) return false;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (const char of value) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') depth += 1;
+    else if (char === '}') depth -= 1;
+  }
+  return depth > 0 || inString;
+}
+
+function extractCompleteJsonProperty(raw: string, key: string): unknown {
+  const value = unwrapJsonFence(raw);
+  const marker = new RegExp(`"${escapeRegExp(key)}"\\s*:`, 'u');
+  const markerIndex = value.search(marker);
+  if (markerIndex < 0) return undefined;
+  const markerText = value.slice(markerIndex).match(marker)?.[0];
+  if (markerText === undefined) return undefined;
+  let start = markerIndex + markerText.length;
+  while (start < value.length && /\s/u.test(value[start]!)) start += 1;
+  if (start >= value.length) return undefined;
+
+  const first = value[start]!;
+  if (first === '"') {
+    let escaped = false;
+    for (let index = start + 1; index < value.length; index += 1) {
+      const char = value[index]!;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') return parseJsonValue(value.slice(start, index + 1));
+    }
+    return undefined;
+  }
+
+  if (first === '[' || first === '{') {
+    const opening = first;
+    const closing = opening === '[' ? ']' : '}';
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const char = value[index]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === opening) depth += 1;
+      else if (char === closing) {
+        depth -= 1;
+        if (depth === 0) return parseJsonValue(value.slice(start, index + 1));
+      }
+    }
+    return undefined;
+  }
+
+  const primitiveEnd = value.slice(start).search(/[,}]/u);
+  const candidate = primitiveEnd < 0 ? value.slice(start) : value.slice(start, start + primitiveEnd);
+  return parseJsonValue(candidate.trim());
+}
+
+function parseJsonValue(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 export function createEffectiveOutputReference(result: EffectiveOutputResult): EffectiveOutputReference | null {
@@ -114,7 +234,7 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
     const questions = stringList(fields.questions, MAX_LIST_ITEMS);
     const alternatives = alternativeList(fields.alternatives);
     const nextStep = optionalString(fields.nextStep);
-    const details = optionalString(fields.details);
+    const details = optionalDetails(fields.details);
     if ([keyPoints, risks, questions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
       continue;
     }
@@ -250,6 +370,28 @@ function alternativeList(value: unknown): EffectiveAlternative[] | null {
 function optionalString(value: unknown): string | null | undefined {
   if (value === undefined || value === null || value === '') return null;
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function optionalDetails(value: unknown): string | null | undefined {
+  const scalar = optionalString(value);
+  if (scalar !== undefined) return scalar;
+  if (!isRecord(value)) return undefined;
+  const lines: string[] = [];
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = rawKey.trim();
+    if (key.length === 0 || /^(?:internalReasoning|reasoning|thought|chainOfThought|rules|process)$/iu.test(key)) continue;
+    if (typeof rawValue === 'string' && rawValue.trim().length > 0) {
+      lines.push(`${key}：${rawValue.trim()}`);
+      continue;
+    }
+    if (Array.isArray(rawValue)) {
+      const values = rawValue.map(nonEmptyString);
+      if (!values.some((item) => item === null) && values.length > 0) {
+        lines.push(`${key}：${(values as string[]).join('；')}`);
+      }
+    }
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
 }
 
 function nonEmptyString(value: unknown): string | null {

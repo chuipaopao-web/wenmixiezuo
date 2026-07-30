@@ -4,7 +4,8 @@ import {
   hasExhaustedExactManuscriptReviewAttempts,
   nextExactManuscriptReviewAttempt,
   revisionRoundForRewriteCount,
-  resumedRewriteCount
+  resumedRewriteCount,
+  shouldAutomaticallyRewriteReview
 } from '../../apps/api/src/application/creation/chapter-pipeline-service.js';
 
 describe('章节审校提示合同', () => {
@@ -54,5 +55,12 @@ describe('章节审校提示合同', () => {
     expect(resumedRewriteCount(2, true, 'review_existing')).toBe(2);
     expect(resumedRewriteCount(2, true, 'rewrite_existing')).toBe(0);
     expect(resumedRewriteCount(2, false, 'review_existing')).toBe(0);
+  });
+  it('does not let automatic rewrites overwrite an owner-selected finalization draft', () => {
+    expect(shouldAutomaticallyRewriteReview('review_existing', 0)).toBe(false);
+    expect(shouldAutomaticallyRewriteReview('review_existing', 1)).toBe(false);
+    expect(shouldAutomaticallyRewriteReview('rewrite_existing', 0)).toBe(true);
+    expect(shouldAutomaticallyRewriteReview(undefined, 1)).toBe(true);
+    expect(shouldAutomaticallyRewriteReview(undefined, 2)).toBe(false);
   });
 });

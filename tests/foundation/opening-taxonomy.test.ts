@@ -94,6 +94,14 @@ describe('完整开书分类与资料合同', () => {
     });
   });
 
+  it('允许不预设固定语言、情绪和节奏调色板', () => {
+    const blueprint = validBlueprint();
+    blueprint.styleIntent = {
+      languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []
+    };
+    expect(validateOpeningBlueprint(blueprint).styleIntent).toEqual(blueprint.styleIntent);
+  });
+
   it('主要标签至少两个，但不再限制八个上限', () => {
     const mainTags = OPENING_TAXONOMY.mainTags.slice(0, 24);
     expect(validateOpeningBlueprint({ ...validBlueprint(), mainTags }).mainTags).toEqual(mainTags);

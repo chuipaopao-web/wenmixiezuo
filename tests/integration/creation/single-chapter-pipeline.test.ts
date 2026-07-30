@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ChapterPipelineService } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
+import { ChapterPipelineService, containsExplicitPlaceholder } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -16,6 +16,13 @@ import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/mod
 describe('单章完整创作流水线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
+
+  it('只拦截明确占位标记，不把游戏面板方括号误判成占位内容', () => {
+    expect(containsExplicitPlaceholder('【身份：无籍流民】\n【可提现收益：0元】')).toBe(false);
+    expect(containsExplicitPlaceholder('正文\n【TODO】\n正文')).toBe(true);
+    expect(containsExplicitPlaceholder('正文\n[待补]\n正文')).toBe(true);
+    expect(containsExplicitPlaceholder('正文\n占位\n正文')).toBe(true);
+  });
 
   it('完成工单、三异模型点评和定点重写，老板确认前不入正史，确认后才结算', async () => {
     context = createTestContext();

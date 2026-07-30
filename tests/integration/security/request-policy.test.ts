@@ -53,6 +53,27 @@ describe('本机HTTP请求策略', () => {
     }
   });
 
+  it('浏览器可以预检设定工作台使用的PUT写入', async () => {
+    context = createTestContext('wenmi-policy-put-cors-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const response = await app.inject({
+        method: 'OPTIONS',
+        url: '/api/v1/books/book-1/setting-outline-workspace/world-era',
+        headers: {
+          host: HOST,
+          origin: ORIGIN,
+          'access-control-request-method': 'PUT',
+          'access-control-request-headers': 'content-type'
+        }
+      });
+      expect(response.statusCode).toBe(204);
+      expect(response.headers['access-control-allow-methods']).toContain('PUT');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('Worker独立Token仅能访问Worker入口', async () => {
     context = createTestContext('wenmi-policy-worker-');
     const app = await createServer(context.config, context.database);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { CreativeSessionRepository } from '../../../apps/api/src/infrastructure/db/repositories/creative-session-repository.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -109,5 +110,60 @@ describe('持续剧情创作会话', () => {
     );
     expect(first.action.sessionId).not.toBe(second.action.sessionId);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM creative_sessions`).get()).toEqual({ count: 2 });
+  });
+
+  it('上一段滚动规划已完成时，明确规划后续章节会关闭旧会话并建立新议题', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '滚动规划书',
+      text: '前三章已经规划完成'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+
+    const first = service.sendBossMessage(scope, '讨论并规划第1—3章');
+    const firstSessionId = String(first.action.sessionId);
+    context.database.prepare(`
+      UPDATE discussions SET status = 'confirmed'
+      WHERE discussion_id = ? AND owner_id = ? AND book_id = ?
+    `).run(String(first.action.discussionId), scope.ownerId, scope.bookId);
+    context.database.prepare(`
+      UPDATE creative_session_rounds
+      SET round_kind = 'locked_planning', status = 'completed'
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).run(firstSessionId, scope.ownerId, scope.bookId);
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET stage = 'chapter_outline_ready'
+      WHERE owner_id = ? AND book_id = ?
+    `).run(scope.ownerId, scope.bookId);
+    new CreativeSessionRepository(context.database).updateStatus(scope, {
+      sessionId: firstSessionId,
+      expectedStatus: 'exploring',
+      status: 'awaiting_plan',
+      mode: 'formal_production',
+      now: clock.now().toISOString()
+    });
+
+    const next = service.sendBossMessage(scope, '讨论并规划第4—6章，只规划这三章');
+
+    expect(next.action).toMatchObject({
+      kind: 'creative_session_started',
+      roundKind: 'initial_exploration'
+    });
+    expect(String(next.action.sessionId)).not.toBe(firstSessionId);
+    expect(context.database.prepare(`
+      SELECT status FROM creative_sessions
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).get(firstSessionId, scope.ownerId, scope.bookId)).toEqual({ status: 'closed' });
+    const task = context.database.prepare(`
+      SELECT task_brief_json FROM tasks
+      WHERE task_id = ? AND owner_id = ? AND book_id = ?
+    `).get(String(next.action.taskId), scope.ownerId, scope.bookId) as { task_brief_json: string };
+    expect(JSON.parse(task.task_brief_json)).toMatchObject({ requestedChapterCount: 3 });
   });
 });

@@ -6,16 +6,16 @@ $pidPath = Join-Path $controlDirectory 'desktop-launcher.pid'
 $stopRequestPath = Join-Path $controlDirectory 'desktop-stop.request.json'
 $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_ID') -Raw).Trim()
 
-# Explorer可能尚未继承新写入的用户环境变量；只装载文秘写作允许使用的配置名，
-# 不打印值，也不创建.env或把凭证写入项目文件。
+# Explorer may not have inherited recently saved user variables.
+# Import only allowlisted Wenmi settings; never print or persist their values.
 $wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL'
 foreach ($name in $wenmiEnvironmentNames) {
   $value = [Environment]::GetEnvironmentVariable($name, 'User')
   if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
 }
 
-# 某些开发宿主会同时注入 Path 与 PATH。PowerShell 的 Start-Process 会把它们
-# 判定为重复字典键并拒绝启动；统一为 Windows 标准的 Path 后再创建子进程。
+# Some hosts inject both Path and PATH. Windows PowerShell Start-Process
+# rejects that duplicate environment key, so keep only the standard Path key.
 $processEnvironmentKeys = [Environment]::GetEnvironmentVariables('Process').Keys
 if (($processEnvironmentKeys -ccontains 'Path') -and ($processEnvironmentKeys -ccontains 'PATH')) {
   $pathValue = [Environment]::GetEnvironmentVariable('Path', 'Process')
@@ -63,13 +63,15 @@ $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $stdoutPath = Join-Path $logDirectory "desktop-$timestamp.out.log"
 $stderrPath = Join-Path $logDirectory "desktop-$timestamp.err.log"
 $nodePath = (Get-Command node.exe).Source
-# Windows PowerShell 的 Start-Process 会枚举宿主环境；当上游同时注入 Path/PATH 时，
-# 它会在真正创建进程前因重复键崩溃。cmd start 直接继承当前环境，不重建该字典。
-$beforeNodeIds = @(Get-Process node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
-$beforeNodeIds = @(Get-Process node -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
 Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
-& cmd.exe /d /c start 'Wenmi Writing' /b $nodePath scripts/start.mjs
-if ($LASTEXITCODE -ne 0) { throw 'Wenmi process could not be started.' }
+$launcherProcess = Start-Process -FilePath $nodePath `
+  -ArgumentList @('scripts/start.mjs') `
+  -WorkingDirectory $projectRoot `
+  -WindowStyle Hidden `
+  -RedirectStandardOutput $stdoutPath `
+  -RedirectStandardError $stderrPath `
+  -PassThru
+if ($null -eq $launcherProcess) { throw 'Wenmi process could not be started.' }
 $processDeadline = (Get-Date).AddSeconds(10)
 $publishedLauncher = $null
 while ((Get-Date) -lt $processDeadline -and $null -eq $publishedLauncher) {
@@ -78,30 +80,12 @@ while ((Get-Date) -lt $processDeadline -and $null -eq $publishedLauncher) {
     try { $publishedLauncher = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8 | ConvertFrom-Json } catch { $publishedLauncher = $null }
   }
 }
-$childProcess = if ($null -ne $publishedLauncher) {
-  Get-Process -Id ([int]$publishedLauncher.processId) -ErrorAction SilentlyContinue
-} else {
-  $null
+if ($null -eq $publishedLauncher -or [int]$publishedLauncher.processId -ne $launcherProcess.Id) {
+  if (-not $launcherProcess.HasExited) { $launcherProcess.Kill() }
+  throw 'Wenmi process started but its verified process record was not published.'
 }
-while ((Get-Date) -lt $processDeadline -and $null -eq $childProcess) {
-  Start-Sleep -Milliseconds 100
-  $childProcess = Get-Process node -ErrorAction SilentlyContinue |
-    Where-Object { $_.Id -notin $beforeNodeIds -and $_.Path -eq $nodePath } |
-    # scripts/start.mjs 必然先于它创建的 API/Web/Worker 子进程出现。
-    Sort-Object StartTime, Id |
-    Select-Object -First 1
-}
-if ($null -eq $childProcess) { throw 'Wenmi process started but its verified process record was not found.' }
-$childProcess.Refresh()
-$launcherRecord = [ordered]@{
-  schemaVersion = 1
-  processId = $childProcess.Id
-  executablePath = $nodePath
-  projectRoot = $projectRoot
-  entryPoint = 'scripts/start.mjs'
-  startedAtUtc = $childProcess.StartTime.ToUniversalTime().ToString('o')
-}
-$launcherRecord | ConvertTo-Json -Compress | Set-Content -LiteralPath $pidPath -Encoding utf8
+$childProcess = Get-Process -Id $launcherProcess.Id -ErrorAction SilentlyContinue
+if ($null -eq $childProcess) { throw 'Wenmi process exited before startup verification completed.' }
 
 $deadline = (Get-Date).AddSeconds(30)
 while ((Get-Date) -lt $deadline -and -not (Test-WenmiReady)) {

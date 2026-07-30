@@ -147,6 +147,33 @@ describe('有效输出层', () => {
     expect(result.visibleContent).not.toContain('json_object');
   });
 
+  it('保留模型以对象返回的补充依据，而不是把整份有效回复判成机器载荷', () => {
+    const wrapped = JSON.stringify({
+      version: 1,
+      format: 'json_object',
+      fields: {
+        answer: '先确认游戏世界是否物理真实。',
+        keyPoints: ['两名编剧对世界结构存在根本分歧'],
+        risks: ['虚实兑换机制尚未闭合'],
+        questions: ['游戏世界是否允许后期揭示为物理真实？'],
+        alternatives: [],
+        nextStep: '老板确认后写入当前设定项。',
+        details: {
+          红玉依据: '现实唯一真实可以保护竞技爽感',
+          婉儿依据: '多世界结构可以提高长线延展性'
+        }
+      },
+      rules: ['只输出一个JSON对象']
+    });
+    const result = prepareEffectiveOutput(`\`\`\`json\n${wrapped}\n\`\`\``);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('先确认游戏世界是否物理真实');
+    expect(result.visibleContent).not.toContain('json_object');
+    expect(result.fullContent).toContain('红玉依据');
+    expect(result.fullContent).toContain('现实唯一真实可以保护竞技爽感');
+  });
+
   it('从前后混杂岗位文本和规划落库中安全提取主编结构化结论', () => {
     const wrapped = JSON.stringify({
       version: 1, format: 'json_object',
@@ -188,6 +215,20 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('格式不适合直接展示');
     expect(result.visibleContent).not.toContain('"answer"');
     expect(result.fullContent).toContain('"answer"');
+  });
+
+  it('模型在输出上限截断JSON时安全保留已经完整返回的核心结论', () => {
+    const result = prepareEffectiveOutput(`{
+      "answer": "第4至6章先误判、再修正，最后形成可重复的净收益。",
+      "keyPoints": ["公共基础舱延迟是持续阻力", "修正来自任务类型和时段选择"],
+      "alternatives": [],
+      "risks": ["具体数值必须与前三章一致", "第二条风险被输出上限截`);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('第4至6章先误判');
+    expect(result.visibleContent).toContain('公共基础舱延迟是持续阻力');
+    expect(result.visibleContent).not.toContain('"answer"');
+    expect(result.visibleContent).not.toContain('格式不适合直接展示');
   });
 
   it('字段轻微偏差时保留可安全解释的有效结论', () => {

@@ -108,6 +108,34 @@ export class CreativeSessionService {
     return { session: this.repository.require(scope, session.sessionId), blackboard, created };
   }
 
+  public closeReadyTopic(scope: BookScope, sourceMessageId: string): CreativeSessionRecord | null {
+    const session = this.repository.active(scope);
+    if (session === null) return session;
+    const completedRollingPlan = session.status === 'awaiting_plan'
+      && this.hasCompletedRollingPlan(scope, session.sessionId);
+    if (session.status !== 'ready' && !completedRollingPlan) return session;
+    const now = this.clock.now().toISOString();
+    const closed = this.repository.updateStatus(scope, {
+      sessionId: session.sessionId,
+      expectedStatus: session.status,
+      status: 'closed',
+      now
+    });
+    this.repository.appendEvent(scope, {
+      eventId: this.ids.next(),
+      sessionId: session.sessionId,
+      eventType: 'session_closed',
+      sourceMessageId,
+      payload: { reason: 'next_rolling_planning_scope' },
+      now
+    });
+    return closed;
+  }
+
+  private hasCompletedRollingPlan(scope: BookScope, sessionId: string): boolean {
+    return this.repository.hasCompletedRollingPlan(scope, sessionId);
+  }
+
   public pauseActive(scope: BookScope, sourceMessageId: string): CreativeSessionRecord | null {
     const session = this.repository.active(scope);
     if (session === null || session.status === 'paused') return session;

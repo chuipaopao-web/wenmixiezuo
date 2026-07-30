@@ -1231,8 +1231,12 @@ svg {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
-.creative-session-strip {
+.chat-status-stack {
   grid-row: 1;
+  min-width: 0;
+}
+
+.creative-session-strip {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(0, 1.25fr) auto;
   align-items: center;
@@ -1240,6 +1244,50 @@ svg {
   border-bottom: 1px solid var(--line);
   padding: 10px clamp(16px, 2.6vw, 44px);
   background: color-mix(in srgb, var(--accent-soft) 38%, var(--panel));
+}
+
+.conversation-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 9px clamp(16px, 2.6vw, 44px);
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--panel-raised) 76%, var(--accent-soft));
+}
+
+.conversation-progress div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.conversation-progress strong {
+  color: var(--ink);
+  font-size: calc(11px * var(--font-scale));
+}
+
+.conversation-progress small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-progress-pulse {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: conversation-progress-pulse 1.8s ease-out infinite;
+}
+
+@keyframes conversation-progress-pulse {
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 .creative-session-heading {

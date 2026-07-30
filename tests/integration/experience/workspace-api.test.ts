@@ -80,6 +80,9 @@ describe('工作台API', () => {
     expect(previewResponse.statusCode).toBe(200);
     expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 11 });
 
+    // 上面切换设定基线版本会按产品规则使总纲、卷纲和章纲失效。
+    // 重新建立经确认的下游规划后，明确写作命令才允许进入正式生产。
+    prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
     const commandResponse = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }
     });
