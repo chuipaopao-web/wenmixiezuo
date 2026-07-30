@@ -18,6 +18,7 @@ describe('正史投影与冲突', () => {
     for (const fact of [
       { relationKey: 'location', value: '北塔', storyTimeStart: '第一夜' },
       { relationKey: 'relationship:mentor', value: '顾衡', storyTimeStart: '第一夜' },
+      { relationKey: 'relationship.temporary_alliance', value: '顾衡', storyTimeStart: '第一夜' },
       { relationKey: 'alive', value: true, storyTimeStart: '第一夜' }
     ]) {
       canon.proposeFact(fixture.scope, {
@@ -33,15 +34,20 @@ describe('正史投影与冲突', () => {
     expect(new KnowledgeConsistencyService(context.database).inspect(fixture.scope)).toEqual([]);
     const character = context.database.prepare(`SELECT state_json FROM character_state_projection WHERE owner_id = ? AND book_id = ? AND entity_id = ?`)
       .get(fixture.scope.ownerId, fixture.scope.bookId, entityId) as { state_json: string };
-    expect(JSON.parse(character.state_json)).toEqual({ alive: true, location: '北塔', 'relationship:mentor': '顾衡' });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 1 });
+    expect(JSON.parse(character.state_json)).toEqual({
+      alive: true,
+      location: '北塔',
+      'relationship:mentor': '顾衡',
+      'relationship.temporary_alliance': '顾衡'
+    });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 4 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 2 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM knowledge_revisions
       WHERE owner_id = ? AND book_id = ? AND lifecycle_layer = 'canon' AND status = 'active'
-    `).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
+    `).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 4 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM canon_source_bindings WHERE owner_id = ? AND book_id = ? AND binding_status = 'active'`)
-      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 4 });
   });
 
   it('冲突B级事实转主编复核，选中新值后旧事实被替代', () => {

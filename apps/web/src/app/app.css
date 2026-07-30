@@ -3559,13 +3559,43 @@ svg {
 .library-explainer h3 { margin: 0; font-size: calc(12px * var(--font-scale)); }
 .library-explainer p { margin: 5px 0 0; color: var(--ink-soft); font-size: calc(10px * var(--font-scale)); line-height: 1.6; }
 
-.entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.book-profile-summary { margin-top: 15px; border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 15px; background: var(--panel); }
+.book-profile-summary > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.book-profile-summary h3 { margin: 0; font-size: calc(15px * var(--font-scale)); }
+.book-profile-summary header span { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.book-profile-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0; }
+.book-profile-summary dl > div { min-width: 0; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; }
+.book-profile-summary dt { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.book-profile-summary dd { margin: 0; font-size: calc(10px * var(--font-scale)); line-height: 1.6; overflow-wrap: anywhere; }
+.confirmed-settings-library { display: grid; gap: 14px; }
+.confirmed-settings-library > section { border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 14px; background: var(--panel); }
+.confirmed-settings-library > section > header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.confirmed-settings-library h3,
+.confirmed-settings-library h4 { margin: 0; }
+.confirmed-settings-library h3 { font-size: calc(14px * var(--font-scale)); }
+.confirmed-settings-library h4 { font-size: calc(11px * var(--font-scale)); }
+.confirmed-settings-library header span,
+.confirmed-settings-library small { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.confirmed-settings-library > section > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 9px; }
+.confirmed-settings-library article { border: 1px solid var(--line); border-radius: var(--control-radius); padding: 11px; background: var(--panel-muted); }
+.confirmed-settings-library article p { margin: 7px 0; font-size: calc(10px * var(--font-scale)); line-height: 1.65; white-space: pre-wrap; }
+
+.entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .entity-grid article { border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 13px; background: var(--panel); }
 .entity-grid article header { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
 .entity-grid article header em { font-style: normal; }
 .entity-grid h3 { margin: 13px 0 5px; font-size: calc(15px * var(--font-scale)); }
 .entity-grid p { margin: 0; color: var(--ink-soft); font-size: calc(10px * var(--font-scale)); }
 .entity-grid small { display: block; margin-top: 10px; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.entity-grid .entity-empty-detail { margin-top: 12px; border-left: 2px solid var(--line-strong); padding-left: 9px; }
+.entity-detail-list { display: grid; gap: 0; margin-top: 10px; }
+.entity-detail-list > div { min-width: 0; display: grid; grid-template-columns: minmax(72px, 0.28fr) minmax(0, 1fr); gap: 4px 10px; border-top: 1px solid var(--line); padding: 9px 0; }
+.entity-detail-list dt { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.entity-detail-list dd { min-width: 0; margin: 0; font-size: calc(10px * var(--font-scale)); line-height: 1.55; overflow-wrap: anywhere; }
+.entity-detail-list small { grid-column: 2; margin: 0; }
+.entity-detail-list .structured-content > div { grid-template-columns: minmax(72px, 0.32fr) minmax(0, 1fr); }
+.entity-grid details { margin-top: 8px; }
+.entity-grid summary { color: var(--accent-hover); font-size: calc(9px * var(--font-scale)); cursor: pointer; }
 .protagonist-workspace { display: grid; gap: 14px; }
 .protagonist-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
 .protagonist-toolbar h3,

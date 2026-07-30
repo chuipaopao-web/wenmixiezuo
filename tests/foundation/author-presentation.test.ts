@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  authorFactRelationLabel,
   authorFieldLabel,
   authorFormatScalar,
+  authorRelationshipLabel,
   collectSettingTemplateHints,
   projectionForAuthor,
   structuredReplyFromMixedText,
@@ -78,6 +80,18 @@ describe('作者展示层', () => {
     expect(authorFormatScalar(value.status)).toBe('暂无可展示内容');
     expect(authorFormatScalar(value.source)).toBe('章纲');
     expect(authorFieldLabel('chapterNumber')).toBe('章节');
+  });
+
+  it('把正史事实关系键转换为作者可读名称，不暴露内部英文键', () => {
+    expect(authorFactRelationLabel('identity.origin')).toBe('身份来历');
+    expect(authorFactRelationLabel('relationship.temporary_alliance')).toBe('人物关系');
+    expect(authorFactRelationLabel('protagonist_state.game.withdrawable_revenue')).toBe('可提现收益');
+    expect(authorFactRelationLabel('game.revenue_model')).toBe('收益规则');
+    expect(authorFactRelationLabel('movement_pattern.recent_route')).toBe('近期行动路线');
+    expect(authorRelationshipLabel('relationship.temporary_alliance')).toBe('临时同盟');
+    expect(authorFieldLabel('emotionalArc')).toBe('情绪变化');
+    expect(authorFieldLabel('endingSituation')).toBe('章末局势');
+    expect(authorFactRelationLabel('unknown.machine_key')).toBe('补充事实');
   });
 
   it('从历史混杂回复中恢复自然主编结论，不展示JSON合同与落库数据', () => {

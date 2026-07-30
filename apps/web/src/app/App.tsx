@@ -126,6 +126,7 @@ import {
 import { cacheSnapshot, loadDraft, loadSnapshot, saveDraft } from '../lib/offline/offline-store';
 import { avatarPosition } from './role-avatars';
 import {
+  authorFactRelationLabel,
   authorFieldLabel,
   authorFormatScalar,
   authorRelationshipLabel,
@@ -1813,13 +1814,13 @@ function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<stri
   })}</div>;
 }
 
-type LibraryTab = 'overview' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
+type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
 
 function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | null }): React.JSX.Element {
   const [tab, setTab] = useState<LibraryTab>('overview');
   const library = isLibraryData(data) ? data : emptyLibraryData();
   const tabs: Array<[LibraryTab, string]> = [
-    ['overview', '总览'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
+    ['overview', '总览'], ['settings', '已确认设定'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
     ['rules', '规则'], ['tags', '标签'], ['gaps', '缺口'], ['evidence', '证据']
   ];
   const entityTypes: Partial<Record<LibraryTab, string[]>> = {
@@ -1831,8 +1832,13 @@ function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | nu
       <header><h2 id="library-title">资料库</h2><p>正史修订 {library.canonRevision}。标签、图谱和地图是可重建视图，不会反向改写正史。</p></header>
       <nav className="secondary-tabs scrollable" aria-label="资料分类">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       {tab === 'overview' && <LibraryOverview data={library} />}
+      {tab === 'settings' && <ConfirmedSettingsLibrary data={library} />}
       {tab === 'protagonist' && <ProtagonistWorkspace bookId={bookId} initialDashboard={library.protagonists} initialFormulas={library.attributeFormulas} />}
-      {entityTypes[tab] !== undefined && tab !== 'locations' && <EntityGrid entities={library.entities.filter((entity) => entityTypes[tab]!.includes(String(entity.entity_type)))} />}
+      {entityTypes[tab] !== undefined && tab !== 'locations' && <EntityGrid
+        entities={library.entities.filter((entity) => entityTypes[tab]!.includes(String(entity.entity_type)))}
+        facts={library.facts}
+        protagonists={library.protagonists}
+      />}
       {tab === 'locations' && <LocationLibrary entities={library.entities.filter((entity) => entity.entity_type === 'location')} facts={library.facts} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
@@ -1846,7 +1852,14 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
     ['实体', data.summary.entityCount], ['正史事实', data.summary.factCount], ['关系', data.summary.relationCount],
     ['标签', data.summary.tagCount], ['分析投影', data.summary.projectionCount], ['待补缺口', data.summary.openGapCount]
   ];
-  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div><div className="library-explainer"><TreeStructureIcon /><div><h3>权威与投影分开</h3><p>正文、确认设定和事实是正史来源。关系、情绪、地图位置和向量只是可重建视图，冲突时必须回查来源。</p></div></div></div>;
+  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{data.bookProfile.title}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}<div className="library-explainer"><TreeStructureIcon /><div><h3>权威与投影分开</h3><p>开书资料、已确认设定、定稿正文和事实是来源。关系、情绪、地图位置和向量只是可重建视图，冲突时必须回查来源。</p></div></div></div>;
+}
+
+function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.Element {
+  if (data.settings.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有已确认设定" description="规划页讨论并由作者确认的设定会在这里按板块归档；待讨论和候选内容不会冒充已确认资料。" />;
+  const groups = new Map<string, typeof data.settings>();
+  for (const item of data.settings) groups.set(item.groupTitle, [...(groups.get(item.groupTitle) ?? []), item]);
+  return <div className="confirmed-settings-library">{[...groups.entries()].map(([groupTitle, items]) => <section key={groupTitle}><header><h3>{groupTitle}</h3><span>{items.length} 项已确认</span></header><div>{items.map((item) => <article key={item.itemKey}><h4>{item.label}</h4><p>{item.content}</p><small>{item.sourceLabel} · {item.confirmedAt === null ? '确认时间未记录' : new Date(item.confirmedAt).toLocaleString('zh-CN')}</small></article>)}</div></section>)}</div>;
 }
 
 const PROTAGONIST_CATEGORY_LABELS: Record<string, string> = {
@@ -1965,9 +1978,54 @@ function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formul
   }}><strong>{formula.label}</strong><code>{formula.expression}</code><div>{formula.variables.map((variable) => <label key={variable.key}>{variable.label}<input type="number" step="any" value={values[`${formula.formulaId}:${variable.key}`] ?? String(variable.defaultValue ?? '')} onChange={(event) => setValues((current) => ({ ...current, [`${formula.formulaId}:${variable.key}`]: event.target.value }))} /></label>)}</div><button className="secondary-button">计算</button>{results[formula.formulaId] !== undefined && <output>{results[formula.formulaId]}</output>}</form>)}</section>;
 }
 
-function EntityGrid({ entities }: { entities: Array<Record<string, unknown>> }): React.JSX.Element {
+function EntityGrid({ entities, facts, protagonists }: {
+  entities: Array<Record<string, unknown>>;
+  facts: Array<Record<string, unknown>>;
+  protagonists?: ProtagonistDashboardData | undefined;
+}): React.JSX.Element {
   if (entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="此分类尚无资料" description="可直接告诉主编需要增加的人物、势力、地点、规则或道具标签。" />;
-  return <div className="entity-grid">{entities.slice(0, 300).map((entity) => <article key={String(entity.entity_id)}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{String(entity.canonical_name)}</h3><p>{arrayText(entity.aliases, '暂无别名')}</p></article>)}</div>;
+  return <div className="entity-grid">{entities.slice(0, 300).map((entity) => {
+    const entityId = String(entity.entity_id);
+    const name = String(entity.canonical_name);
+    const entityFacts = uniqueEntityFacts(facts.filter((fact) => String(fact.subject_entity_id) === entityId));
+    const protagonist = protagonists?.profiles.find((profile) => profile.entityId === entityId || profile.displayName === name);
+    const states = protagonist === undefined ? [] : uniqueProtagonistStates([...protagonist.current, ...protagonist.pending], entityFacts);
+    const aliases = Array.isArray(entity.aliases) ? entity.aliases : [];
+    return <article key={entityId}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{name}</h3>{aliases.length > 0 && <p>别名：{arrayText(aliases, '')}</p>}{entityFacts.length === 0 && states.length === 0 ? <p className="entity-empty-detail">尚无已结算的详细事实，系统不会用猜测补齐。</p> : <div className="entity-detail-list">{entityFacts.slice(0, 12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}{states.slice(0, 8).map((state) => <div key={state.entryId}><dt>{state.label}</dt><dd>{authorFormatScalar(state.value)}{state.unit ?? ''}</dd><small>{state.authorityLayer === 'canon' ? '主角正史状态' : state.authorityLayer === 'candidate' ? '主角候选状态' : '主角计算结果'} · 版本 {state.revision}</small></div>)}</div>}{entityFacts.length > 12 && <details><summary>查看其余 {entityFacts.length - 12} 条事实</summary><div className="entity-detail-list">{entityFacts.slice(12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}</div></details>}</article>;
+  })}</div>;
+}
+
+function AuthorValue({ value }: { value: unknown }): React.JSX.Element {
+  return isRecord(value) || Array.isArray(value)
+    ? <StructuredContent value={value} />
+    : <>{authorFormatScalar(value)}</>;
+}
+
+function uniqueEntityFacts(facts: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  return facts.filter((fact) => {
+    const signature = `${String(fact.relation_key)}\u0000${JSON.stringify(fact.value)}`;
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+}
+
+function uniqueProtagonistStates(states: ProtagonistStateData[], facts: Array<Record<string, unknown>>): ProtagonistStateData[] {
+  const seen = new Set(facts.map((fact) => `${authorFactRelationLabel(fact.relation_key)}\u0000${JSON.stringify(fact.value)}`));
+  return states.filter((state) => {
+    const signature = `${state.label}\u0000${JSON.stringify(state.value)}`;
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+}
+
+function factSourceLabel(fact: Record<string, unknown>): string {
+  const chapterNumber = Number(fact.source_chapter_number);
+  const chapter = Number.isInteger(chapterNumber) && chapterNumber > 0 ? `第 ${chapterNumber} 章` : '已确认资料';
+  const grade = typeof fact.grade === 'string' && fact.grade.length > 0 ? `${fact.grade}级证据` : '来源已记录';
+  return `${chapter} · ${grade} · ${authorityLabel(String(fact.status))}`;
 }
 
 function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>>; bookId: string | null }): React.JSX.Element {
@@ -2002,7 +2060,7 @@ function LocationLibrary({ entities, facts }: { entities: Array<Record<string, u
     if (value === null || !/(coordinate|position|map|坐标|位置)/iu.test(relation) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return [];
     return [{ name: String(fact.canonical_name ?? '地点'), x: clampPercent(Number(value.x)), y: clampPercent(Number(value.y)), source: String(fact.fact_id ?? '') }];
   });
-  return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">尚无作者确认的地图坐标。系统不会用力导向布局冒充地理事实。</p>}<EntityGrid entities={entities} /></div>;
+  return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">尚无作者确认的地图坐标。系统不会用力导向布局冒充地理事实。</p>}<EntityGrid entities={entities} facts={facts} /></div>;
 }
 
 type GraphTab = 'relations' | 'emotion' | 'mainline' | 'subplot' | 'hook' | 'information_gap';
@@ -3210,7 +3268,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isLibraryData(value: unknown): value is LibraryData {
   return isRecord(value) && typeof value.canonRevision === 'number' && Array.isArray(value.entities) && Array.isArray(value.facts)
-    && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps) && isRecord(value.summary);
+    && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps)
+    && Array.isArray(value.settings) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
 }
 
 function isGraphWorkspaceData(value: unknown): value is GraphWorkspaceData {
@@ -3235,7 +3294,7 @@ function parseFormulaVariables(value: string): Array<{ key: string; label: strin
 }
 
 function emptyLibraryData(): LibraryData {
-  return { canonRevision: 0, entities: [], facts: [], relations: [], tags: [], projections: [], gaps: [], summary: { entityCount: 0, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } };
+  return { canonRevision: 0, entities: [], facts: [], relations: [], tags: [], projections: [], gaps: [], settings: [], bookProfile: null, summary: { entityCount: 0, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } };
 }
 
 function shortId(value: string): string {

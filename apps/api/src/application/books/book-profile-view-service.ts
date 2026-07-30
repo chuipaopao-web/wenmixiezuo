@@ -30,9 +30,15 @@ export class BookProfileViewService {
   }
 
   public get(scope: BookScope): BookProfileView {
+    const profile = this.find(scope);
+    if (profile === null) throw new Error('本书尚无可读取的开书资料');
+    return profile;
+  }
+
+  public find(scope: BookScope): BookProfileView | null {
     assertBookScope(scope);
     const row = this.repository.openingProfile(scope);
-    if (row === undefined) throw new Error('本书尚无可读取的开书资料');
+    if (row === undefined) return null;
     const blueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
     const style = blueprint.styleIntent ?? {
       languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []

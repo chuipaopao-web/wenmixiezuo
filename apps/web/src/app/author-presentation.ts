@@ -30,7 +30,12 @@ const FIELD_LABELS: Record<string, string> = {
   assignment_count: '使用次数', candidate_status: '确认状态', claim_text: '候选判断',
   sources: '资料来源', structureCards: '结构参考卡', cleanroomPackages: '隔离资料包', checks: '版权检查',
   recentChecks: '最近检查', count: '数量', scope: '涉及范围', impact: '可能影响',
-  estimatedCashCny: '预计现金费用', blocksSettlement: '是否阻止定稿结算'
+  estimatedCashCny: '预计现金费用', blocksSettlement: '是否阻止定稿结算',
+  chapterTitle: '章节标题', emotionalArc: '情绪变化', planningBasis: '规划依据',
+  subplots: '支线安排', endingExcerpt: '章末内容', hookStrength: '钩子强度',
+  scores: '体验评分', emotionalFulfillment: '情绪兑现', overallExperience: '整体体验',
+  developments: '支线进展', subject: '涉及对象', detail: '具体进展',
+  basis: '分析依据', endingSituation: '章末局势'
 };
 
 const ENUM_LABELS: Record<string, string> = {
@@ -40,6 +45,8 @@ const ENUM_LABELS: Record<string, string> = {
   provided: '作者提供', manual: '人工记录', explicit: '明确确认', inferred: '根据资料推断', unspecified: '尚未说明',
   selected_manuscript: '正式正文', owner_reference: '作者资料', conflict: '信息存在冲突',
   dynamic: '按本书动态整理', common: '通用内容', extension: '题材扩展', formula: '计算规则',
+  character: '人物', organization: '势力', location: '地点', event: '事件',
+  item: '道具', resource: '资源', world_rule: '世界规则',
   low: '低', medium: '中', high: '高', true: '是', false: '否',
   posterior_neck_pain_and_visual_flash: '后颈疼痛并伴有视觉闪光',
   severe_pain_with_mobility_loss: '剧烈疼痛并伴有活动受限'
@@ -153,10 +160,72 @@ export function authorRelationshipLabel(value: unknown): string {
   const text = String(value ?? '').trim();
   const known: Record<string, string> = {
     ally_of: '盟友', enemy_of: '敌对', member_of: '隶属', located_in: '位于', owns: '拥有',
-    parent_of: '亲子', sibling_of: '手足', loves: '爱慕', trusts: '信任', betrays: '背叛', supports: '支持'
+    parent_of: '亲子', sibling_of: '手足', loves: '爱慕', trusts: '信任', betrays: '背叛', supports: '支持',
+    temporary_alliance: '临时同盟', alliance: '同盟', cooperation: '合作', rivalry: '竞争',
+    hostility: '敌对', subordinate: '隶属', kinship: '亲属', acquaintance: '相识'
   };
   if (known[text] !== undefined) return known[text];
+  const suffix = text.split(/[.:]/u).at(-1) ?? text;
+  if (known[suffix] !== undefined) return known[suffix];
   return /\p{Script=Han}/u.test(text) ? text : '关联';
+}
+
+export function authorFactRelationLabel(value: unknown): string {
+  const text = String(value ?? '').trim();
+  if (text.length === 0) return '补充事实';
+  if (/^relationship[.:]/u.test(text)) return '人物关系';
+  const known: Record<string, string> = {
+    'identity.origin': '身份来历',
+    origin: '身份来历',
+    identity: '身份',
+    role: '身份职责',
+    observation: '能力与特长',
+    possessions: '持有物品',
+    member_count: '成员数量',
+    action: '关键行动',
+    health_status: '健康状态',
+    physical_condition: '身体状态',
+    physical_injury: '身体伤势',
+    injury: '伤势',
+    dialogue: '关键发言',
+    next_day: '下一步计划',
+    location: '所在位置',
+    withdrawable_revenue: '可提现收益',
+    financial_reserve: '资金储备',
+    employment_status: '就业状态',
+    water_intake: '饮水情况',
+    current_entry: '当前记录',
+    login_requirement: '登录要求',
+    revenue_model: '收益规则',
+    sensory_fidelity: '感官真实度',
+    visibility_problem: '公开可见问题',
+    attitude_toward_rule_change: '对规则变化的态度',
+    trust_level_with_夏炎: '与夏炎的信任程度',
+    next_move: '下一步行动',
+    knowledge_claim: '掌握的信息',
+    branch_confirmation: '地形分岔',
+    recent_route: '近期行动路线',
+    structure: '结构状态',
+    water_source: '水源情况',
+    arrival_time_relative: '到达时间',
+    possession: '持有物品',
+    weapon: '武器',
+    quality: '品质',
+    quantity: '数量',
+    composition: '人员构成',
+    death: '死亡事件',
+    recovery: '恢复情况',
+    night_wind: '夜间线索',
+    watch_shift: '轮值规则',
+    role_in_rule_system: '制度职责',
+    function: '用途',
+    occupant_count: '人数',
+    exposed_secret: '暴露的信息'
+  };
+  if (known[text] !== undefined) return known[text];
+  const suffix = text.split(/[.:]/u).at(-1) ?? text;
+  if (known[suffix] !== undefined) return known[suffix];
+  return /\p{Script=Han}/u.test(text) ? text.replaceAll('_', ' ') : '补充事实';
 }
 
 export function isAuthorTechnicalField(key: string): boolean {

@@ -67,9 +67,33 @@ describe('工作台API', () => {
     const selectedPlanning = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/select`, payload: { versionId: replacement.artifactVersionId } });
     expect(selectedPlanning.json().data.status).toBe('selected');
 
+    const settingItem = {
+      itemKey: 'world-era',
+      groupTitle: '世界与环境',
+      label: '时代背景',
+      prompt: '故事发生在什么时代？',
+      sourceLabel: '通用设定模板',
+      sortOrder: 1
+    };
+    expect((await app.inject({
+      method: 'POST',
+      url: `/api/v1/books/${book.bookId}/setting-outline-workspace/initialize`,
+      payload: { items: [settingItem] }
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: 'PUT',
+      url: `/api/v1/books/${book.bookId}/setting-outline-workspace/${settingItem.itemKey}`,
+      payload: { ...settingItem, status: '已确认', content: '架空王朝的边境要塞时代。' }
+    })).statusCode).toBe(200);
     const libraryResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/library` });
     expect(libraryResponse.statusCode).toBe(200);
-    expect(libraryResponse.json().data).toEqual(expect.objectContaining({ canonRevision: 0, entities: expect.any(Array), summary: expect.any(Object) }));
+    expect(libraryResponse.json().data).toEqual(expect.objectContaining({
+      canonRevision: 0,
+      entities: expect.any(Array),
+      settings: [expect.objectContaining({ itemKey: 'world-era', label: '时代背景', status: '已确认', content: '架空王朝的边境要塞时代。' })],
+      bookProfile: null,
+      summary: expect.any(Object)
+    }));
     const bindingsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/model-bindings` });
     expect(bindingsResponse.statusCode).toBe(200);
     expect(bindingsResponse.json().data.active).toHaveLength(11);

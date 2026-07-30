@@ -706,6 +706,10 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('确认游戏收入真实到账')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '雾钟档案' })).toBeInTheDocument();
+    expect(screen.getByText(/历史脑洞/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '已确认设定' }));
+    expect(await screen.findByText('架空王朝的雾城边境。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '主角' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '关系' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '情绪' })).not.toBeInTheDocument();
@@ -725,10 +729,17 @@ describe('完整创作工作台', () => {
       String(input).endsWith('/protagonist-state/state-ui-3/classify') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
     fireEvent.click(screen.getByRole('button', { name: '角色' }));
     expect(await screen.findByText('张三')).toBeInTheDocument();
+    expect(screen.getByText('雾城边防军出身')).toBeInTheDocument();
+    expect(screen.getByText(/第 1 章 · A级证据 · 活动正史/u)).toBeInTheDocument();
     expect(document.querySelector('.library-workspace pre')).toBeNull();
     fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
     expect(await screen.findByRole('heading', { name: '叙事图谱' })).toBeInTheDocument();
     for (const name of ['人物关系', '情绪', '主线', '支线', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(screen.getAllByText('守城军').length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole('button', { name: '情绪' }));
+    expect(await screen.findByText('从绝望转为守城决心。')).toBeInTheDocument();
+    expect(screen.getByText('压抑')).toBeInTheDocument();
+    expect(screen.getByText('决意')).toBeInTheDocument();
   });
 
   it('设定清单完整时不显示空旧卡片，并把正式规划状态翻译为中文', async () => {
@@ -1245,8 +1256,26 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       ...protagonistDashboard.profiles[0]!.current[2], category: '灵魂能力', revision: 2, previousEntryId: 'state-ui-3'
     });
     if (path.endsWith('/attribute-formulas')) return apiResponse([]);
-    if (path.endsWith('/library')) return apiResponse({ canonRevision: 3, entities: [{ entity_id: 'entity-1', entity_type: 'character', canonical_name: '张三', aliases: [], schema_version: 1, status: 'active' }], facts: [], relations: [], tags: [], projections: [], gaps: [], protagonists: protagonistDashboard, attributeFormulas: [], summary: { entityCount: 1, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } });
-    if (path.endsWith('/memory') || path.endsWith('/projections')) return apiResponse([]);
+    if (path.endsWith('/library')) return apiResponse({
+      canonRevision: 3,
+      entities: [{ entity_id: 'entity-1', entity_type: 'character', canonical_name: '张三', aliases: ['雾城守备'], schema_version: 1, status: 'active' }],
+      facts: [{
+        fact_id: 'fact-ui-1', subject_entity_id: 'entity-1', canonical_name: '张三',
+        relation_key: 'identity.origin', value: '雾城边防军出身', grade: 'A', status: 'active',
+        source_chapter_number: 1, source_chapter_title: '雾城初响'
+      }],
+      relations: [{ relationship_id: 'relation-ui-1', from_name: '张三', relation_key: 'ally_of', toValue: '守城军' }],
+      tags: [], projections: [], gaps: [],
+      settings: [{ itemKey: 'world-era', groupTitle: '世界与环境', label: '时代背景', prompt: '时代是什么？', sourceLabel: '通用设定模板', status: '已确认', custom: false, sortOrder: 1, content: '架空王朝的雾城边境。', sourceDiscussionId: null, sourceDecisionId: null, confirmedAt: '2026-07-16T12:00:00.000Z', updatedAt: '2026-07-16T12:00:00.000Z' }],
+      bookProfile: { title: '雾钟档案', channel: '男频', category: '历史脑洞', subjects: ['架空历史'], mainTags: ['成长', '守城'], customTags: [], protagonists: [{ role: 'male_lead', name: '张三', age: '二十岁', background: '雾城边军', personalities: ['坚韧'] }], mustFollow: ['钟声规则不得无代价改写'], style: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] }, source: '老板确认的开书资料', version: 1 },
+      protagonists: protagonistDashboard, attributeFormulas: [],
+      summary: { entityCount: 1, factCount: 1, relationCount: 1, tagCount: 0, projectionCount: 2, openGapCount: 0 }
+    });
+    if (path.endsWith('/projections')) return apiResponse([
+      { projection_id: 'projection-planned', projection_type: 'emotion', track: 'planned', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ emotionalArc: ['压抑', '决意'] }) },
+      { projection_id: 'projection-actual', projection_type: 'emotion', track: 'actual', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ summary: '从绝望转为守城决心。' }) }
+    ]);
+    if (path.endsWith('/memory')) return apiResponse([]);
     if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十一人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
     if (path.endsWith('/model-bindings/preview') || path.endsWith('/model-bindings/activate')) return apiResponse({ valid: true, futureTasksOnly: true });
     if (path.includes('/model-bindings/') && path.endsWith('/restore')) return apiResponse({ version: 2, futureTasksOnly: true });

@@ -349,9 +349,27 @@ export interface LibraryData {
   tags: Array<Record<string, unknown>>;
   projections: Array<Record<string, unknown>>;
   gaps: Array<Record<string, unknown>>;
+  settings: LibrarySettingData[];
+  bookProfile: BookProfileViewData | null;
   protagonists?: ProtagonistDashboardData;
   attributeFormulas?: AttributeFormulaData[];
   summary: { entityCount: number; factCount: number; relationCount: number; tagCount: number; projectionCount: number; openGapCount: number };
+}
+
+export interface LibrarySettingData {
+  itemKey: string;
+  groupTitle: string;
+  label: string;
+  prompt: string;
+  sourceLabel: string;
+  status: '已确认';
+  custom: boolean;
+  sortOrder: number;
+  content: string;
+  sourceDiscussionId: string | null;
+  sourceDecisionId: string | null;
+  confirmedAt: string | null;
+  updatedAt: string;
 }
 
 export interface ProtagonistStateData {

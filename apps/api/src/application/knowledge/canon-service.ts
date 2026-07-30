@@ -570,7 +570,7 @@ export class CanonService {
         entityStates: input.chapterEndState,
         closedThreads: [],
         openThreads: continuityRepository.listCommitments(scope, chapter.chapter_number),
-        relationshipChanges: input.additions.filter((fact) => fact.relation_key.startsWith('relationship:')).map((fact) => fact.fact_id),
+        relationshipChanges: input.additions.filter((fact) => isRelationshipFactKey(fact.relation_key)).map((fact) => fact.fact_id),
         knowledgeChanges: input.additions.map((fact) => ({ factId: fact.fact_id, grade: fact.grade })),
         resourceChanges: input.additions.filter((fact) => /resource|item|possesses/iu.test(fact.relation_key)).map((fact) => fact.fact_id),
         ruleChanges: input.additions.filter((fact) => /rule|constraint/iu.test(fact.relation_key)).map((fact) => fact.fact_id),
@@ -668,7 +668,7 @@ export class CanonService {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(this.ids.next(), scope.ownerId, scope.bookId, revision, fact.subject_entity_id, fact.story_time_start ?? 'unspecified', fact.value_json, fact.fact_id);
       }
-      if (fact.relation_key.startsWith('relationship:')) {
+      if (isRelationshipFactKey(fact.relation_key)) {
         this.database.prepare(`
           INSERT INTO relationship_projection (
             relationship_id, owner_id, book_id, canon_revision, from_entity_id,
@@ -724,6 +724,10 @@ export class CanonService {
     }
     return conflict;
   }
+}
+
+function isRelationshipFactKey(relationKey: string): boolean {
+  return relationKey.startsWith('relationship:') || relationKey.startsWith('relationship.');
 }
 
 export function stableJson(value: unknown): string {

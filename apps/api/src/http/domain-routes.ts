@@ -496,8 +496,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM entities WHERE owner_id = ? AND book_id = ? ORDER BY entity_type, canonical_name LIMIT 500`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { aliases_json: string }>).map(({ aliases_json: aliasesJson, ...row }) => ({ ...row, aliases: parseStoredJson(aliasesJson) }));
     const facts = (database.prepare(`SELECT f.fact_id, f.subject_entity_id, e.canonical_name, f.relation_key, f.value_json,
-      f.story_time_start, f.story_time_end, f.evidence_json, f.grade, f.status, f.source_chapter_id, f.source_manuscript_version_id
-      FROM fact_assertions f JOIN entities e ON e.entity_id = f.subject_entity_id
+      f.story_time_start, f.story_time_end, f.evidence_json, f.grade, f.status, f.source_chapter_id, f.source_manuscript_version_id,
+      c.chapter_number AS source_chapter_number, c.title AS source_chapter_title
+      FROM fact_assertions f JOIN entities e
+        ON e.entity_id = f.subject_entity_id AND e.owner_id = f.owner_id AND e.book_id = f.book_id
+      LEFT JOIN chapters c ON c.chapter_id = f.source_chapter_id AND c.owner_id = f.owner_id AND c.book_id = f.book_id
       WHERE f.owner_id = ? AND f.book_id = ? AND f.status NOT IN ('withdrawn', 'rejected')
       ORDER BY CASE f.status WHEN 'active' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, e.canonical_name LIMIT 1000`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { value_json: string; evidence_json: string }>).map(({ value_json: valueJson, evidence_json: evidenceJson, ...row }) => ({
@@ -505,7 +508,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       }));
     const relations = (database.prepare(`SELECT r.relationship_id, r.canon_revision, r.from_entity_id,
       e.canonical_name AS from_name, r.relation_key, r.to_value_json, r.source_fact_id
-      FROM relationship_projection r JOIN entities e ON e.entity_id = r.from_entity_id
+      FROM relationship_projection r JOIN entities e
+        ON e.entity_id = r.from_entity_id AND e.owner_id = r.owner_id AND e.book_id = r.book_id
       WHERE r.owner_id = ? AND r.book_id = ? AND r.canon_revision = ? ORDER BY e.canonical_name, r.relation_key LIMIT 500`)
       .all(scope.ownerId, scope.bookId, book.canonRevision) as unknown as Array<Record<string, unknown> & { to_value_json: string }>).map(({ to_value_json: toValueJson, ...row }) => ({ ...row, toValue: parseStoredJson(toValueJson) }));
     const tags = database.prepare(`SELECT d.tag_definition_id, d.namespace, d.name, d.description, d.color, d.icon,
@@ -536,6 +540,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       tags,
       projections,
       gaps,
+      settings: settingOutlineWorkspace.list(scope).filter((item) => item.status === '已确认' && item.content !== null),
+      bookProfile: bookProfileView.find(scope),
       protagonists: protagonists.dashboard(scope),
       attributeFormulas: attributeFormulas.list(scope),
       summary: {
@@ -1124,7 +1130,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/projections/rebuild', async (request) => {
-    return success({ rebuilt: projections.rebuild({ ...owner, bookId: request.params.bookId }) }, request.id);
+    const scope = { ...owner, bookId: request.params.bookId };
+    canon.rebuildProjections(scope);
+    const narrative = projections.rebuild(scope);
+    const relationship = (database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection
+      WHERE owner_id = ? AND book_id = ? AND canon_revision = (
+        SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?
+      )`).get(scope.ownerId, scope.bookId, scope.ownerId, scope.bookId) as { count: number }).count;
+    return success({ rebuilt: narrative + relationship, narrative, relationship }, request.id);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { type?: NarrativeProjectionType } }>('/api/v1/books/:bookId/projections', async (request) => {
