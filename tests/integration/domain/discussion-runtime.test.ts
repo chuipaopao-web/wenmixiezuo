@@ -449,6 +449,39 @@ describe('自然语言讨论运行闭环', () => {
       .toBe('stage_master_v2');
   });
 
+  it('剧情总纲已经确认后仍可显式重新发起新版总纲讨论，而不会误路由到卷纲', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '旧版总纲升级书',
+      text: '游戏异界与历史经营'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version, channel,
+        category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
+    `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET stage = 'master_outline_ready'
+      WHERE owner_id = ? AND book_id = ?
+    `).run(scope.ownerId, scope.bookId);
+
+    const scheduled = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '讨论 剧情总纲升级：按新版阶段格式重新规划');
+
+    expect(scheduled.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'open_discussion' });
+    const discussion = context.database.prepare(`
+      SELECT scope_text FROM discussions WHERE discussion_id = ?
+    `).get(String(scheduled.action.discussionId)) as { scope_text: string };
+    expect(discussion.scope_text).toContain('【剧情总纲专项讨论资料包】');
+    expect(discussion.scope_text).not.toContain('【卷纲专项讨论资料包】');
+  });
+
   it('自然创作讨论经老板确认后形成可追溯资料，主笔门禁才会放行', async () => {
     context = createTestContext();
     const ids = new SequenceIds();

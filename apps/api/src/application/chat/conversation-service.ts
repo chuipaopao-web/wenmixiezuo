@@ -330,10 +330,22 @@ export class ConversationService {
     if (discussionMatch !== null) {
       const scopeText = discussionMatch[1]!.trim();
       if (scopeText.length < 2) throw new Error('请在“讨论”后写明具体问题');
-      const planning = isCreativeIntent(scopeText);
+      const explicitMasterOutline = /^(?:剧情)?总纲(?:升级|重做|修订|重新讨论)?(?:\s|：|:|$)/u.test(scopeText)
+        || scopeText.includes('【剧情总纲专项讨论资料包】');
+      const planning = explicitMasterOutline || isCreativeIntent(scopeText);
       if (planning) {
         const planningState = new PlanningWorkflowRepository(this.database).planningState(scope);
         const usesStagedOpening = new PlanningWorkflowRepository(this.database).openingBlueprint(scope) !== undefined;
+        if (usesStagedOpening && explicitMasterOutline) {
+          return this.scheduleDiscussion(
+            scope,
+            appendAttachmentContext(`【剧情总纲专项讨论资料包】\n${scopeText}`, attachmentContext),
+            messageId,
+            conversationId,
+            'open_discussion',
+            null
+          );
+        }
         if (usesStagedOpening && planningState !== undefined && ['setting_ready', 'master_outline_in_progress'].includes(planningState.stage)) {
           return this.scheduleDiscussion(
             scope,

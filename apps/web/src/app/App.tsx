@@ -717,6 +717,19 @@ export function App(): React.JSX.Element {
             {view === 'outline' && <PlanningWorkspace
               data={referenceData}
               workspace={workspace}
+              onDiscussMasterOutline={async () => {
+                if (selectedBookId === null) return;
+                setError(null);
+                try {
+                  await sendMessage(
+                    selectedBookId,
+                    '讨论 剧情总纲升级：请依据当前开书资料、已确认设定和现有正式总纲，按新版阶段格式重新规划。两名编剧分别提交完整方案，主编综合后生成候选；保留旧版本，不直接改写正史或正文。'
+                  );
+                  setView('chat');
+                } catch (reason) {
+                  setError(reason instanceof Error ? reason.message : '剧情总纲升级讨论启动失败');
+                }
+              }}
               onDiscussSetting={async (packet) => {
                 if (selectedBookId === null) return;
                 setError(null);
@@ -1335,10 +1348,11 @@ const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup
   ] } }
 ];
 
-function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
+function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterOutline }: {
   data: unknown;
   workspace: WorkspaceData | null;
   onDiscussSetting: (packet: string) => Promise<void>;
+  onDiscussMasterOutline: () => Promise<void>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<PlanningTab>('framework');
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
@@ -1379,6 +1393,11 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
     const source = isRecord(artifact.active_content) ? artifact.active_content : {};
     return hasMeaningfulArtifactValue(projectArtifactContent(source, projection));
   });
+  const hasLegacyMasterOutline = tab === 'master' && renderableArtifacts.some(({ artifact }) => {
+    const content = isRecord(artifact.active_content) ? artifact.active_content : {};
+    return String(artifact.artifact_type) === 'master_outline'
+      && content.outlineSchema !== 'stage_master_v2';
+  });
   const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
   const tabDescription: Record<PlanningTab, string> = {
     framework: '展示开书时确认的频道、分类、题材、主要标签和作品边界。',
@@ -1399,6 +1418,13 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting }: {
       </ol>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       <p className="planning-tab-description">{tabDescription[tab]}</p>
+      {hasLegacyMasterOutline && <aside className="legacy-outline-upgrade">
+        <div>
+          <strong>当前显示的是历史总纲格式</strong>
+          <span>它尚未包含章节范围、主线解决与结果、阶段级起承转合、阶段总结、待回收信息与伏笔和后续方向。旧版本会保留，不会被静默改写。</span>
+        </div>
+        <button type="button" onClick={() => void onDiscussMasterOutline()}>按新版阶段格式重新讨论</button>
+      </aside>}
       {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`尚无${tabs.find(([key]) => key === tab)?.[1] ?? '规划'}`} description="先在对话中讨论并明确确认，主编才会生成带来源和版本的候选规划。" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}

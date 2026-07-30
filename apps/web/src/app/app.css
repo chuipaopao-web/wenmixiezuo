@@ -3455,6 +3455,43 @@ svg {
   line-height: 1.65;
 }
 
+.legacy-outline-upgrade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--panel-radius);
+  padding: 13px 15px;
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+.legacy-outline-upgrade > div {
+  display: grid;
+  gap: 4px;
+}
+
+.legacy-outline-upgrade span {
+  max-width: 82ch;
+  color: var(--ink-soft);
+  font-size: calc(9.5px * var(--font-scale));
+  line-height: 1.55;
+}
+
+.legacy-outline-upgrade button {
+  flex: 0 0 auto;
+  border: 1px solid var(--accent);
+  border-radius: var(--control-radius);
+  padding: 8px 12px;
+  color: var(--panel);
+  background: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
 .artifact-list,
 .record-collection,
 .projection-tracks {

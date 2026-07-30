@@ -825,6 +825,52 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('selected')).not.toBeInTheDocument();
   });
 
+  it('旧版剧情总纲明确提示缺少新版阶段字段，并可一键重新发起总纲讨论', async () => {
+    const baseRouter = createFetchRouter();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), 'http://localhost').pathname;
+      if (path.endsWith('/artifacts')) return apiResponse([{
+        artifact_id: 'legacy-master-selected',
+        artifact_type: 'master_outline',
+        title: '剧情总纲',
+        status: 'selected',
+        version: 2,
+        active_version_id: 'legacy-master-version',
+        active_version_status: 'selected',
+        active_content: {
+          premise: '夏炎从流民求生走向经营自持。',
+          coreConflict: '生存选择与重建秩序的责任冲突。',
+          protagonistArc: '从独自求生到承担共同治理。',
+          majorStages: [{
+            title: '流民求生',
+            goal: '取得水源与合法身份',
+            turningPoint: '发现旧账本'
+          }],
+          endingDirection: '建立公开可审计的新秩序。',
+          storyPromises: ['经营成长必须有真实代价'],
+          openQuestions: []
+        }
+      }]);
+      return baseRouter(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
+
+    expect(await screen.findByText('当前显示的是历史总纲格式')).toBeInTheDocument();
+    expect(screen.getByText(/尚未包含章节范围、主线解决与结果、阶段级起承转合/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '按新版阶段格式重新讨论' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!String(input).endsWith('/api/v1/books/book-ui-1/messages')
+        || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((init as RequestInit).body)) as { content: string };
+      return payload.content.startsWith('讨论 剧情总纲升级：');
+    })).toBe(true));
+  });
+
   it('停留在规划页时自动刷新后台随后产出的规划成果', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const baseRouter = createFetchRouter();
