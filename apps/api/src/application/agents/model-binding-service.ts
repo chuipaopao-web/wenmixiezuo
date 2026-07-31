@@ -36,7 +36,10 @@ export class ModelBindingService {
     private readonly roleProfiles: Record<RoleKey, RoleModelProfile>
   ) {}
 
-  public bindAllBooks(options: { preserveActiveRevision?: boolean } = {}): ModelBindingResult {
+  public bindAllBooks(options: {
+    preserveActiveRevision?: boolean;
+    migrateDeputyEditorToAgentPlan?: boolean;
+  } = {}): ModelBindingResult {
     const v2Books = this.database.prepare(`
       SELECT DISTINCT a.owner_id, a.book_id
       FROM agent_instances a JOIN books b ON b.owner_id = a.owner_id AND b.book_id = a.book_id
@@ -55,19 +58,34 @@ export class ModelBindingService {
         WHERE owner_id = ? AND book_id = ? AND status = 'active'
         LIMIT 1
       `).get(scope.ownerId, scope.bookId) !== undefined;
-      if (options.preserveActiveRevision === true && hasActiveRevision) continue;
+      const currentDeputy = current.find((item) => item.roleKey === 'deputy_editor');
+      const migrateDeputyEditorToAgentPlan = options.migrateDeputyEditorToAgentPlan === true
+        && hasActiveRevision
+        && currentDeputy !== undefined
+        && (currentDeputy.provider !== creativeProfiles.deputy_editor.provider
+          || currentDeputy.modelId !== creativeProfiles.deputy_editor.modelId);
+      if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToAgentPlan) continue;
+      const targetProfiles = migrateDeputyEditorToAgentPlan
+        ? preserveCurrentProfilesWithDeputyMigration(current, creativeProfiles.deputy_editor)
+        : creativeProfiles;
       const requiresRevision = creativeRoleKeys.some((role) => {
         const agent = current.find((item) => item.roleKey === role);
-        const profile = creativeProfiles[role];
+        const profile = targetProfiles[role];
         return agent === undefined || agent.provider !== profile.provider || agent.modelId !== profile.modelId;
       });
       if (requiresRevision) {
         const currentWriter = current.find((item) => item.roleKey === 'lead_writer');
-        if (currentWriter === undefined || currentWriter.provider !== creativeProfiles.lead_writer.provider || currentWriter.modelId !== creativeProfiles.lead_writer.modelId) {
+        if (currentWriter === undefined || currentWriter.provider !== targetProfiles.lead_writer.provider || currentWriter.modelId !== targetProfiles.lead_writer.modelId) {
           supersededV2WriterSelections += repository.activeWriterSelectionCount(scope);
         }
         new ModelBindingV2Service(repository, new UnitOfWork(this.database), this.ids, this.clock)
-          .reviseFuture(scope, creativeProfiles, '运行时模型策略更新；只影响未来任务');
+          .reviseFuture(
+            scope,
+            targetProfiles,
+            migrateDeputyEditorToAgentPlan
+              ? 'DEC-076：副编调整为火山方舟 Agent Plan GLM 5.2；只影响未来任务'
+              : '运行时模型策略更新；只影响未来任务'
+          );
         updatedV2Agents += creativeRoleKeys.length;
       }
     }
@@ -153,7 +171,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     : value;
   return {
     chief_editor: profile('chief_editor', profiles.chief_editor),
-    deputy_editor: profile('deputy_editor', profiles.reviewer),
+    deputy_editor: profile('deputy_editor', profiles.continuity),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     setting: profile('setting', profiles.continuity),
@@ -166,9 +184,25 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
   };
 }
 
+function preserveCurrentProfilesWithDeputyMigration(
+  current: Array<{ roleKey: string; provider: string; modelId: string; plan?: string }>,
+  deputyEditor: TeamModelProfile
+): Record<CreativeRoleKey, TeamModelProfile> {
+  const profiles = Object.fromEntries(current.map((agent) => [agent.roleKey, {
+    provider: agent.provider,
+    modelId: agent.modelId,
+    plan: agent.plan ?? 'deterministic'
+  }])) as Partial<Record<CreativeRoleKey, TeamModelProfile>>;
+  if (creativeRoleKeys.some((role) => profiles[role] === undefined)) {
+    throw new Error('副编模型迁移前发现十一人团队配置不完整');
+  }
+  profiles.deputy_editor = deputyEditor;
+  return profiles as Record<CreativeRoleKey, TeamModelProfile>;
+}
+
 function legacyProfileRole(roleKey: string): RoleKey {
   const aliases: Record<string, RoleKey> = {
-    chief_editor: 'chief_editor', deputy_editor: 'reviewer', lead_screenwriter: 'plot_architect',
+    chief_editor: 'chief_editor', deputy_editor: 'continuity', lead_screenwriter: 'plot_architect',
     second_screenwriter: 'continuity', setting: 'continuity', lead_writer: 'writer', backup_writer: 'continuity',
     literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright',
     plot_architect: 'plot_architect', continuity: 'continuity', writer: 'writer', reviewer: 'reviewer',

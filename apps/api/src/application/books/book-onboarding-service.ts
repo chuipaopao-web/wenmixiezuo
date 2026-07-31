@@ -383,7 +383,7 @@ export class BookOnboardingService {
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
   return {
     chief_editor: profiles.chief_editor,
-    deputy_editor: profiles.reviewer,
+    deputy_editor: profiles.continuity,
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
     setting: profiles.continuity,

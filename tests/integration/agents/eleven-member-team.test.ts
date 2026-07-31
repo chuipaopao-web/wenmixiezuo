@@ -25,6 +25,11 @@ describe('十一人创作团队', () => {
   it('模型绑定拒绝同模型双编剧、豆包编剧和不允许的写手', () => {
     const service = Object.create(ModelBindingV2Service.prototype) as ModelBindingV2Service;
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
+    expect(base.deputy_editor).toEqual({
+      provider: 'volcengine-ark-agent-plan',
+      modelId: 'glm-5-2-260617',
+      plan: 'agent'
+    });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('不同模型');
     expect(() => service.validate({ ...base, lead_screenwriter: base.experience_reviewer })).toThrow('豆包');
     expect(() => service.validate({ ...base, lead_writer: base.literary_reviewer })).toThrow('写手');

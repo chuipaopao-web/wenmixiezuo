@@ -37,6 +37,7 @@ describe('现有书籍模型快照绑定', () => {
     expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_writer')).toMatchObject({ provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_screenwriter')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' });
+    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617' });
     expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617' });
     expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2-6-modelhub' });
     expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2-0-pro-260215' });

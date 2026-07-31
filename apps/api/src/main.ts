@@ -34,7 +34,7 @@ if (legacyUpgrade.deferredBooks > 0) {
   }));
 }
 new ModelBindingService(database, ids, clock, config.modelRuntime.roleProfiles)
-  .bindAllBooks({ preserveActiveRevision: true });
+  .bindAllBooks({ preserveActiveRevision: true, migrateDeputyEditorToAgentPlan: true });
 const app = await createServer(config, database);
 
 const shutdown = async (): Promise<void> => {

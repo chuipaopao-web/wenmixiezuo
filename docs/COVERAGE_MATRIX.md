@@ -59,6 +59,7 @@
 | DEC-024 | 去AI味采用带证据检测与定点修订，不安装第三方黑盒运行时Skill或默认整章改写 | `PRODUCT.md`、`ROLE_PROMPTS.md`、`EVALUATION_PROTOCOL.md`、`ACCEPTANCE.md`和最终实施计划 |
 | DEC-025 | 开书只收最小资料；进入书籍即自由聊天；移除1/3/5章批次选择；双编剧估算剧情跨度，正文仍逐章执行；情绪图谱是计划/实际分析投影 | `PRODUCT.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、功能总表、最终实施计划和专项审计 |
 | DEC-026 | 默认DeepSeek＋GLM剧情席，Kimi可替换一席，豆包不讨论剧情；副笔为GLM；模型绑定可版本化配置；GLM写手时DeepSeek承担事实点评 | 项目长篇质量Skill、`AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`DATA_MODEL.md`、`RUNTIME_WORKFLOWS.md`、`API.md`、`ACCEPTANCE.md`、最终实施计划和专项审计 |
+| DEC-076 | 副编西施统一改用火山方舟Agent Plan GLM 5.2；现有书副编定向迁移，其他岗位配置和运行中快照保留；同源GLM不计额外独立意见 | `AGENT_SYSTEM.md`、`ROLE_PROMPTS.md`、`OWNER_GUIDE.md`、`ACCEPTANCE.md`、模型绑定服务、启动迁移、回归测试和专项审计 |
 | DEC-027 | 小文秘书作为11人之外的本地工具角色；确定性→本地模型→创作岗位分层；点名直达、剧情会话、原话保留、四类记忆和可回滚工具经验 | 项目长篇质量Skill、`LOCAL_SECRETARY_ROUTING_AUDIT.md`、产品/架构/数据/Agent/提示/记忆/RAG/工作流/API/评测/验收、最终实施计划和任务账本 |
 | DEC-040 | 以生产调用图和故障证据补齐任务/模型结果栅栏、正史事务/增量全书索引、岗位混合RAG、认识状态事实、阶段结算、三席并发与主编真实综合；保留11岗和epoch | `PRODUCTION_CHAIN_REMEDIATION_AUDIT.md`、架构/数据/Agent/记忆规格、Schema 0020—0022、来源清单/片段复用/向量缓存/旧水位栅栏、生产服务、故障/跨书/迁移/备份测试和release证据 |
 | DEC-041 | 规划/正文和图谱/资料库去重；正文不可变修订、真实重写/定稿；六类叙事图谱、主角状态账本和受限属性公式 | `MANUSCRIPT_KNOWLEDGE_WORKSPACE_AUDIT.md`、产品/架构/数据/API/验收规格、Schema 0023、正文/主角/公式服务、Web工作台与release证据 |
