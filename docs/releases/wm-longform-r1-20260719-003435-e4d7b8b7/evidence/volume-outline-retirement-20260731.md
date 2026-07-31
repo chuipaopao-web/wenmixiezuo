@@ -25,6 +25,8 @@
 - 本地运行：Web `127.0.0.1:43110` 返回 200；API `/health` 返回 `ok`；Worker 会话状态为 ready。
 - 活动书籍 Artifact 探针只返回 `chapter_outline`、`master_outline`、`story_bible`、`writing_contract`，卷纲数量为 0。
 - `git diff --check`：通过。
+- 实现提交：`1662084 feat: 退役独立卷纲规划层`。
+- 提交后 `npm.cmd run acceptance`：通过；Schema 33 与 `0033` 锁定一致，工作树干净，`failures: []`。
 
 ## 证据边界
 
