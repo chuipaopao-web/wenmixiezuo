@@ -126,6 +126,26 @@ describe('工作台API', () => {
       expect.objectContaining({ volumeNumber: 1, chapterCount: 1 })
     ]);
     expect(scheduledWorkspace.chapters[0].volumeId).toBe(scheduledWorkspace.volumes[0].volumeId);
+    const taskCenterResponse = await app.inject({ method: 'GET', url: '/api/v1/task-center' });
+    expect(taskCenterResponse.statusCode).toBe(200);
+    expect(taskCenterResponse.json().data.books).toEqual([
+      expect.objectContaining({
+        book: expect.objectContaining({ bookId: book.bookId, title: '工作台接口书' }),
+        chapters: [expect.objectContaining({
+          chapterId: scheduledWorkspace.chapters[0].chapterId,
+          chapterNumber: 1
+        })],
+        tasks: [expect.objectContaining({
+          taskId: scheduledWorkspace.tasks[0].taskId,
+          chapterId: scheduledWorkspace.chapters[0].chapterId
+        })],
+        budget: expect.objectContaining({ mode: expect.any(String) }),
+        confirmations: { count: 0, items: [] }
+      })
+    ]);
+    expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('volumes');
+    expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('messageCount');
+    expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('creativeSession');
     const chapterPage = await app.inject({
       method: 'GET',
       url: `/api/v1/books/${book.bookId}/volumes/${scheduledWorkspace.volumes[0].volumeId}/chapters?limit=1&query=1&status=planned`

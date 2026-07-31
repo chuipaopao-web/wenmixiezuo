@@ -58,6 +58,7 @@ import {
   fetchSettingReadiness,
   confirmSettingBaseline,
   fetchRightsWorkspace,
+  fetchTaskCenter,
   fetchWorker,
   fetchWorkspace,
   fetchTeamConfig,
@@ -117,6 +118,7 @@ import {
   type BookProfileViewData,
   type PlanningStateData,
   type TaskData,
+  type TaskCenterBookData,
   type TeamModelProfileData,
   type TeamConfigData,
   type TeamTemplateData,
@@ -143,8 +145,13 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type WorkspaceView = 'chat' | 'tasks' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'team';
-type HomeView = 'shelf' | 'team';
+type WorkspaceView = 'chat' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'team';
+type HomeView = 'shelf' | 'tasks' | 'team';
+
+interface TaskSelection {
+  bookId: string;
+  taskId: string;
+}
 
 interface PendingChatAttachment {
   localId: string;
@@ -164,6 +171,9 @@ export function App(): React.JSX.Element {
   const [messages, setMessages] = useState<MessageData[]>([]);
   const [view, setView] = useState<WorkspaceView>('chat');
   const [homeView, setHomeView] = useState<HomeView>('shelf');
+  const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
+  const [homeTasksLoading, setHomeTasksLoading] = useState(false);
+  const [homeTasksError, setHomeTasksError] = useState<string | null>(null);
   const [teamTemplate, setTeamTemplate] = useState<TeamTemplateData | null>(null);
   const [teamBookId, setTeamBookId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
@@ -184,7 +194,7 @@ export function App(): React.JSX.Element {
   const [purgeCandidate, setPurgeCandidate] = useState<BookData | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskSelection | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<WorkspacePreferences>(() => readWorkspacePreferences());
   const [busy, setBusy] = useState(false);
@@ -194,8 +204,19 @@ export function App(): React.JSX.Element {
   const activeBooks = books.filter((book) => book.status !== 'archived');
   const archivedBooks = books.filter((book) => book.status === 'archived');
   const selectedBook = activeBooks.find((book) => book.bookId === selectedBookId) ?? null;
-  const selectedTask = workspace?.tasks.find((task) => task.taskId === selectedTaskId) ?? null;
+  const selectedTaskContext = selectedTask === null
+    ? null
+    : (() => {
+        const taskWorkspace = selectedBookId === selectedTask.bookId
+          ? workspace
+          : homeTaskEntries.find((entry) => entry.book.bookId === selectedTask.bookId) ?? null;
+        const task = taskWorkspace?.tasks.find((item) => item.taskId === selectedTask.taskId) ?? null;
+        return taskWorkspace === null || task === null
+          ? null
+          : { bookId: selectedTask.bookId, workspace: taskWorkspace, task };
+      })();
   const selectedWorkspaceChapter = workspace?.chapters.find((chapter) => chapter.chapterId === selectedChapterId) ?? null;
+  const homeTaskBookCount = homeTaskEntries.filter((entry) => entry.tasks.some((task) => isActiveTask(task.status))).length;
 
   const loadBooks = useCallback(async (signal?: AbortSignal) => {
     const nextBooks = await fetchBooks(signal);
@@ -215,6 +236,14 @@ export function App(): React.JSX.Element {
     setWorkspace(nextWorkspace);
     setMessages(nextMessages);
     setWorker(nextWorker);
+  }, []);
+
+  const refreshHomeTasks = useCallback(async (signal?: AbortSignal) => {
+    const taskCenter = await fetchTaskCenter(signal);
+    if (signal?.aborted === true) return;
+    setHomeTaskEntries(taskCenter.books);
+    setHomeTasksError(null);
+    setHomeTasksLoading(false);
   }, []);
 
   useEffect(() => {
@@ -263,6 +292,25 @@ export function App(): React.JSX.Element {
     });
     return () => controller.abort();
   }, [homeView, selectedBookId, teamTemplate]);
+
+  useEffect(() => {
+    if (selectedBookId !== null || homeView !== 'tasks') return;
+    const controller = new AbortController();
+    setHomeTasksLoading(true);
+    void refreshHomeTasks(controller.signal).catch((reason: unknown) => {
+      if (!controller.signal.aborted) {
+        setHomeTasksError(reason instanceof Error ? reason.message : '任务中心加载失败');
+        setHomeTasksLoading(false);
+      }
+    });
+    const poll = window.setInterval(() => {
+      void refreshHomeTasks().catch(() => undefined);
+    }, 5_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(poll);
+    };
+  }, [homeView, refreshHomeTasks, selectedBookId]);
 
   useEffect(() => {
     setPendingAttachments([]);
@@ -375,9 +423,23 @@ export function App(): React.JSX.Element {
     persistSelectedBook(bookId);
     setSelectedChapterId(null);
     setSelectedChapter(null);
-    setSelectedTaskId(null);
+    setSelectedTask(null);
     setView('chat');
     setLeftOpen(false);
+  };
+
+  const openHomeView = (nextHomeView: HomeView): void => {
+    setSelectedBookId(null);
+    persistSelectedBook(null);
+    setWorkspace(null);
+    setMessages([]);
+    setSelectedChapterId(null);
+    setSelectedChapter(null);
+    setSelectedTask(null);
+    setReaderMode(false);
+    setHomeView(nextHomeView);
+    setLeftOpen(false);
+    setRightOpen(false);
   };
 
   const returnToShelf = (): void => {
@@ -385,17 +447,7 @@ export function App(): React.JSX.Element {
       setError('返回书架前请先发送或移除当前附件，避免留下未引用资料。');
       return;
     }
-    setSelectedBookId(null);
-    persistSelectedBook(null);
-    setWorkspace(null);
-    setMessages([]);
-    setSelectedChapterId(null);
-    setSelectedChapter(null);
-    setSelectedTaskId(null);
-    setReaderMode(false);
-    setHomeView('shelf');
-    setLeftOpen(false);
-    setRightOpen(false);
+    openHomeView('shelf');
   };
 
   const submitMessage = async (overrideContent?: string): Promise<void> => {
@@ -423,15 +475,19 @@ export function App(): React.JSX.Element {
     }
     setBusy(true);
     try {
-      const sent = await sendMessage(selectedBookId, outgoingContent, readyAttachments.map((item) => item.data!.attachmentId));
-      if (sent.action.kind === 'task_overview') setView('tasks');
+      const messageBookId = selectedBookId;
+      const sent = await sendMessage(messageBookId, outgoingContent, readyAttachments.map((item) => item.data!.attachmentId));
       if (sent.action.kind === 'knowledge_workspace_opened') setView('knowledge');
       if (!isQuickAction) {
         setComposer('');
         setPendingAttachments([]);
-        await saveDraft(selectedBookId, '');
+        await saveDraft(messageBookId, '');
       }
-      await refreshWorkspace(selectedBookId);
+      if (sent.action.kind === 'task_overview') {
+        openHomeView('tasks');
+      } else {
+        await refreshWorkspace(messageBookId);
+      }
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '消息发送失败');
@@ -459,12 +515,13 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const decideConfirmation = async (confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<void> => {
-    if (selectedBookId === null || busy) return;
+  const decideConfirmation = async (bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<void> => {
+    if (busy) return;
     setBusy(true);
     try {
-      await resolveConfirmation(selectedBookId, confirmationId, expectedCanonRevision, accept);
-      await refreshWorkspace(selectedBookId);
+      await resolveConfirmation(bookId, confirmationId, expectedCanonRevision, accept);
+      await refreshHomeTasks();
+      setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '确认操作失败');
     } finally {
@@ -472,13 +529,13 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const cancelSelectedTask = async (taskId: string): Promise<void> => {
-    if (selectedBookId === null || busy) return;
+  const cancelSelectedTask = async (bookId: string, taskId: string): Promise<void> => {
+    if (busy) return;
     setBusy(true);
     try {
-      await cancelTask(selectedBookId, taskId);
-      await refreshWorkspace(selectedBookId);
-      setSelectedTaskId(null);
+      await cancelTask(bookId, taskId);
+      await refreshHomeTasks();
+      setSelectedTask(null);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '任务取消失败');
@@ -487,14 +544,13 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const retrySelectedTask = async (taskId: string): Promise<void> => {
-    if (selectedBookId === null || busy) return;
+  const retrySelectedTask = async (bookId: string, taskId: string): Promise<void> => {
+    if (busy) return;
     setBusy(true);
     try {
-      await retryTask(selectedBookId, taskId);
-      await refreshWorkspace(selectedBookId);
-      setSelectedTaskId(null);
-      setView('chat');
+      await retryTask(bookId, taskId);
+      await refreshHomeTasks();
+      setSelectedTask(null);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '任务重试失败');
@@ -587,7 +643,7 @@ export function App(): React.JSX.Element {
         setMessages([]);
         setSelectedChapterId(null);
         setSelectedChapter(null);
-        setSelectedTaskId(null);
+        setSelectedTask(null);
       }
       setPurgeCandidate(null);
       setArchiveOpen(false);
@@ -612,7 +668,10 @@ export function App(): React.JSX.Element {
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
         {selectedBook === null
-          ? <div className="home-topbar-title"><strong>{homeView === 'shelf' ? '我的书架' : '创作团队'}</strong><span>{homeView === 'shelf' ? `${activeBooks.length} 本创作中的书` : '全局岗位模板'}</span></div>
+          ? <div className="home-topbar-title">
+              <strong>{homeView === 'shelf' ? '我的书架' : homeView === 'tasks' ? '任务中心' : '创作团队'}</strong>
+              <span>{homeView === 'shelf' ? `${activeBooks.length} 本创作中的书` : homeView === 'tasks' ? `${homeTaskBookCount} 本书有后台任务` : '全局岗位模板'}</span>
+            </div>
           : <TopbarBookSummary book={selectedBook} workspace={workspace} />}
         <div className="topbar-actions">
           <ServiceState health={health} worker={worker} error={error} />
@@ -631,6 +690,7 @@ export function App(): React.JSX.Element {
         {selectedBook === null ? (
           <nav className="home-navigation" aria-label="首页功能">
             <RailViewButton active={homeView === 'shelf'} onClick={() => { setHomeView('shelf'); setLeftOpen(false); }} icon={<BooksIcon />} label="书架" />
+            <RailViewButton active={homeView === 'tasks'} onClick={() => { setHomeView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
             <RailViewButton active={homeView === 'team'} onClick={() => { setHomeView('team'); setLeftOpen(false); }} icon={<UsersThreeIcon />} label="团队" />
             <button type="button" onClick={() => { setSettingsOpen(true); setLeftOpen(false); }}><GearSixIcon /><span>设置</span></button>
           </nav>
@@ -643,7 +703,6 @@ export function App(): React.JSX.Element {
             <RailViewButton active={view === 'projections'} onClick={() => { setView('projections'); setLeftOpen(false); }} icon={<DatabaseIcon />} label="图谱" />
             <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
             <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
-            <RailViewButton active={view === 'tasks'} onClick={() => { setView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
           </nav>
         )}
       </aside>
@@ -666,6 +725,15 @@ export function App(): React.JSX.Element {
                 onRestore={restoreArchivedBook}
                 onPurge={setPurgeCandidate}
               />
+            : homeView === 'tasks'
+              ? <GlobalTaskWorkspace
+                  entries={homeTaskEntries}
+                  loading={homeTasksLoading}
+                  loadError={homeTasksError}
+                  busy={busy}
+                  onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
+                  onDecide={decideConfirmation}
+                />
             : teamBookId === null
               ? <TeamTemplateWorkspace data={teamTemplate} books={activeBooks} onManageBook={setTeamBookId} />
               : <section className="home-team-book-config">
@@ -698,9 +766,6 @@ export function App(): React.JSX.Element {
                 onSubmit={submitMessage}
                 onQuickAction={(content) => submitMessage(content)}
               />
-            )}
-            {view === 'tasks' && (
-              <TaskWorkspace workspace={workspace} busy={busy} onSelect={(task) => setSelectedTaskId(task.taskId)} onDecide={decideConfirmation} />
             )}
             {view === 'manuscript' && (
               <ManuscriptWorkspace
@@ -758,8 +823,16 @@ export function App(): React.JSX.Element {
       {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
       {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
       {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
-      {selectedTask !== null && workspace !== null && (
-        <TaskDetailsDialog task={selectedTask} workspace={workspace} busy={busy} onCancelTask={cancelSelectedTask} onRetryTask={retrySelectedTask} onClose={() => setSelectedTaskId(null)} />
+      {selectedTaskContext !== null && (
+        <TaskDetailsDialog
+          bookId={selectedTaskContext.bookId}
+          task={selectedTaskContext.task}
+          workspace={selectedTaskContext.workspace}
+          busy={busy}
+          onCancelTask={cancelSelectedTask}
+          onRetryTask={retrySelectedTask}
+          onClose={() => setSelectedTask(null)}
+        />
       )}
       {selectedAgentId !== null && workspace !== null && (() => {
         const agent = workspace.agents.find((item) => item.agentId === selectedAgentId);
@@ -2520,7 +2593,7 @@ function ManuscriptChapterBrowser({ workspace, selectedChapterId, onSelect }: {
   </section>;
 }
 
-function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: WorkspaceData; onSelect: (task: TaskData) => void }): React.JSX.Element {
+function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: TaskCenterBookData; onSelect: (task: TaskData) => void }): React.JSX.Element {
   const chapter = taskChapterLabel(task, workspace);
   return (
     <button className="task-button" type="button" aria-label={`${chapter} ${taskLabel(task.taskType)} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
@@ -2534,64 +2607,98 @@ function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: 
   );
 }
 
-function TaskWorkspace({ workspace, busy, onSelect, onDecide }: {
-  workspace: WorkspaceData | null;
+function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelect, onDecide }: {
+  entries: TaskCenterBookData[];
+  loading: boolean;
+  loadError: string | null;
   busy: boolean;
-  onSelect: (task: TaskData) => void;
-  onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
+  onSelect: (bookId: string, task: TaskData) => void;
+  onDecide: (bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
 }): React.JSX.Element {
-  const activeTasks = workspace?.tasks.filter((task) => isActiveTask(task.status)) ?? [];
-  const historyTasks = workspace?.tasks.filter((task) => !isActiveTask(task.status)).slice(-12).reverse() ?? [];
-  const budgetRatio = workspace?.budget === null || workspace?.budget === undefined || workspace.budget.token_limit === 0
-    ? 0
-    : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
+  const activeTaskCount = entries.reduce((total, entry) =>
+    total + entry.tasks.filter((task) => isActiveTask(task.status)).length, 0);
+  const activeBookCount = entries.filter((entry) =>
+    entry.tasks.some((task) => isActiveTask(task.status))).length;
   return (
     <section className="task-workspace" aria-labelledby="task-workspace-title">
       <header className="task-workspace-header">
-        <div><h2 id="task-workspace-title">任务中心</h2><p>集中查看创作进度、预算和需要您决定的事项。</p></div>
-        <div className="task-workspace-count"><strong>{activeTasks.length}</strong><span>项进行中</span></div>
+        <div><h2 id="task-workspace-title">任务中心</h2><p>按书查看后台创作进度、预算和待确认事项；切换页面不会停止其他书的任务。</p></div>
+        <div className="task-workspace-count"><strong>{activeTaskCount}</strong><span>{activeBookCount} 本书有后台任务</span></div>
       </header>
-      <div className="task-workspace-layout">
-        <div className="task-workspace-primary">
-          <section className="task-workspace-section" aria-labelledby="active-task-list-title">
-            <div className="task-workspace-heading"><h3 id="active-task-list-title">进行中的任务</h3><span>{activeTasks.length}</span></div>
-            {activeTasks.length === 0 ? <p className="task-workspace-empty">当前没有进行中的创作任务。</p> : (
-              <div className="task-list">{activeTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
-            )}
-          </section>
-          <section className="task-workspace-section" aria-labelledby="recent-task-list-title">
-            <div className="task-workspace-heading"><h3 id="recent-task-list-title">最近任务</h3><span>{historyTasks.length}</span></div>
-            {historyTasks.length === 0 ? <p className="task-workspace-empty">还没有已结束的任务记录。</p> : (
-              <div className="task-list">{historyTasks.map((task) => <TaskButton key={task.taskId} task={task} workspace={workspace!} onSelect={onSelect} />)}</div>
-            )}
-          </section>
+      {loadError !== null && <p className="task-workspace-warning" role="status">{loadError}</p>}
+      {loading && entries.length === 0 ? <WorkspaceSkeleton /> : entries.length === 0 ? (
+        <div className="task-workspace-empty-state">
+          <BooksIcon />
+          <h3>还没有可查看的书籍任务</h3>
+          <p>创建书籍后，主编讨论、正文生成和后台整理任务会按书显示在这里。</p>
         </div>
-        <div className="task-workspace-secondary">
-          <section className="task-workspace-section budget-section" aria-labelledby="task-budget-title">
-            <div className="task-workspace-heading"><h3 id="task-budget-title">预算</h3><span>{budgetRatio}%</span></div>
-            <div className="budget-numbers"><strong>{formatNumber(workspace?.budget?.spent_tokens ?? 0)}</strong><span> / {formatNumber(workspace?.budget?.token_limit ?? 0)} Token</span></div>
-            <dl className="budget-details">
-              <div><dt>已预留</dt><dd>{formatNumber(workspace?.budget?.reserved_tokens ?? 0)} Token</dd></div>
-              <div><dt>模式</dt><dd>{budgetModeLabel(workspace?.budget?.mode)}</dd></div>
-            </dl>
-            <p>现金保护线 {((workspace?.budget?.cash_limit_micros ?? 0) / 1_000_000).toFixed(2)} 元</p>
-          </section>
-          <ConfirmationsPanel workspace={workspace} busy={busy} onDecide={onDecide} />
+      ) : (
+        <div className="task-book-groups">
+          {entries.map((workspace) => {
+            const { book } = workspace;
+            const activeTasks = workspace.tasks.filter((task) => isActiveTask(task.status));
+            const historyTasks = workspace.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse();
+            const budgetRatio = workspace.budget === null || workspace.budget.token_limit === 0
+              ? 0
+              : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
+            return (
+              <section className="task-book-group" aria-label={`《${book.title}》的任务`} key={book.bookId}>
+                <header className="task-book-header">
+                  <div><span className="task-book-mark"><BooksIcon /></span><span><h3>{book.title}</h3><p>{activeTasks.length} 项进行中 · {historyTasks.length} 项最近记录</p></span></div>
+                  <small>正史修订 {workspace.book.canonRevision}</small>
+                </header>
+                <div className="task-workspace-layout">
+                  <div className="task-workspace-primary">
+                    <section className="task-workspace-section">
+                      <div className="task-workspace-heading"><h4>进行中的任务</h4><span>{activeTasks.length}</span></div>
+                      {activeTasks.length === 0 ? <p className="task-workspace-empty">这本书当前没有进行中的任务。</p> : (
+                        <div className="task-list">{activeTasks.map((task) =>
+                          <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                        )}</div>
+                      )}
+                    </section>
+                    <section className="task-workspace-section">
+                      <div className="task-workspace-heading"><h4>最近任务</h4><span>{historyTasks.length}</span></div>
+                      {historyTasks.length === 0 ? <p className="task-workspace-empty">还没有已结束的任务记录。</p> : (
+                        <div className="task-list">{historyTasks.map((task) =>
+                          <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                        )}</div>
+                      )}
+                    </section>
+                  </div>
+                  <div className="task-workspace-secondary">
+                    <section className="task-workspace-section budget-section">
+                      <div className="task-workspace-heading"><h4>预算</h4><span>{budgetRatio}%</span></div>
+                      <div className="budget-numbers"><strong>{formatNumber(workspace.budget?.spent_tokens ?? 0)}</strong><span> / {formatNumber(workspace.budget?.token_limit ?? 0)} Token</span></div>
+                      <dl className="budget-details">
+                        <div><dt>已预留</dt><dd>{formatNumber(workspace.budget?.reserved_tokens ?? 0)} Token</dd></div>
+                        <div><dt>模式</dt><dd>{budgetModeLabel(workspace.budget?.mode)}</dd></div>
+                      </dl>
+                      <p>现金保护线 {((workspace.budget?.cash_limit_micros ?? 0) / 1_000_000).toFixed(2)} 元</p>
+                    </section>
+                    <ConfirmationsPanel bookId={book.bookId} workspace={workspace} busy={busy} onDecide={onDecide} />
+                  </div>
+                </div>
+              </section>
+            );
+          })}
         </div>
-      </div>
+      )}
     </section>
   );
 }
 
-function ConfirmationsPanel({ workspace, busy, onDecide }: {
-  workspace: WorkspaceData | null;
+function ConfirmationsPanel({ bookId, workspace, busy, onDecide }: {
+  bookId: string;
+  workspace: TaskCenterBookData | null;
   busy: boolean;
-  onDecide: (confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
+  onDecide: (bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
 }): React.JSX.Element {
   const confirmations = workspace?.confirmations.items ?? [];
+  const headingId = `task-confirmations-${bookId}`;
   return (
-    <section className="task-workspace-section" aria-labelledby="task-confirmations-title">
-      <div className="task-workspace-heading"><h3 id="task-confirmations-title">待确认</h3><span>{workspace?.confirmations.count ?? 0}</span></div>
+    <section className="task-workspace-section" aria-labelledby={headingId}>
+      <div className="task-workspace-heading"><h3 id={headingId}>待确认</h3><span>{workspace?.confirmations.count ?? 0}</span></div>
       {confirmations.length === 0 ? <p className="task-workspace-empty">当前没有需要老板确认的重大事项。</p> : (
         <div className="confirmation-list">{confirmations.map((confirmation) => (
           <article className="confirmation-card" key={confirmation.confirmationId}>
@@ -2599,7 +2706,7 @@ function ConfirmationsPanel({ workspace, busy, onDecide }: {
             <span>对象 {shortId(confirmation.targetId)}，绑定正史 {confirmation.expectedCanonRevision}</span>
             <details><summary>查看范围与影响</summary><StructuredContent value={{ scope: confirmation.scope, impact: confirmation.impact, estimatedCashCny: '0 元' }} /></details>
             <p>接受会解除相关门禁；模糊回复不会生效。</p>
-            <div><button type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
+            <div><button type="button" disabled={busy} onClick={() => void onDecide(bookId, confirmation.confirmationId, confirmation.expectedCanonRevision, false)}>拒绝</button><button className="confirm-button" type="button" disabled={busy} onClick={() => void onDecide(bookId, confirmation.confirmationId, confirmation.expectedCanonRevision, true)}>明确接受</button></div>
           </article>
         ))}</div>
       )}
@@ -2893,12 +3000,13 @@ function WorkspaceSkeleton(): React.JSX.Element {
   return <div className="workspace-skeleton" aria-label="正在加载工作区"><span /><span /><span /><span /></div>;
 }
 
-function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onRetryTask, onClose }: {
+function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask, onRetryTask, onClose }: {
+  bookId: string;
   task: TaskData;
-  workspace: WorkspaceData;
+  workspace: TaskCenterBookData;
   busy: boolean;
-  onCancelTask: (taskId: string) => Promise<void>;
-  onRetryTask: (taskId: string) => Promise<void>;
+  onCancelTask: (bookId: string, taskId: string) => Promise<void>;
+  onRetryTask: (bookId: string, taskId: string) => Promise<void>;
   onClose: () => void;
 }): React.JSX.Element {
   const agent = workspace.agents.find((item) => item.agentId === task.assignedAgentId) ?? null;
@@ -2913,6 +3021,7 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onRetryTask, o
           <button className="icon-button" type="button" aria-label="关闭任务详情" disabled={busy} onClick={onClose}><XIcon /></button>
         </header>
         <dl className="task-detail-grid">
+          <div><dt>所属书籍</dt><dd>{workspace.book.title}</dd></div>
           <div><dt>当前状态</dt><dd><span className={`task-status-dot ${task.status}`} aria-hidden="true" />{task.cancelRequested ? '取消处理中' : statusLabel(task.status)}</dd></div>
           <div><dt>创作阶段</dt><dd>{phaseLabel(task.currentPhase)}</dd></div>
           <div><dt>执行成员</dt><dd>{agent === null ? '等待分派' : memberIdentity(agent)}</dd></div>
@@ -2924,8 +3033,8 @@ function TaskDetailsDialog({ task, workspace, busy, onCancelTask, onRetryTask, o
         </dl>
         <footer>
           <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>关闭</button>
-          {canRetry && <button className="primary-button" type="button" disabled={busy} onClick={() => void onRetryTask(task.taskId)}>{busy ? '正在重试' : '继续重试'}</button>}
-          {canCancel && <button className="danger-button" type="button" disabled={busy} onClick={() => void onCancelTask(task.taskId)}>{busy ? '正在取消' : '取消任务'}</button>}
+          {canRetry && <button className="primary-button" type="button" disabled={busy} onClick={() => void onRetryTask(bookId, task.taskId)}>{busy ? '正在重试' : '继续重试'}</button>}
+          {canCancel && <button className="danger-button" type="button" disabled={busy} onClick={() => void onCancelTask(bookId, task.taskId)}>{busy ? '正在取消' : '取消任务'}</button>}
         </footer>
       </section>
     </div>
@@ -3467,7 +3576,7 @@ function isActiveTask(status: string): boolean {
   return ['pending', 'queued', 'working', 'waiting_confirmation', 'paused', 'blocked', 'interrupted'].includes(status);
 }
 
-function taskChapterLabel(task: TaskData, workspace: WorkspaceData): string {
+function taskChapterLabel(task: TaskData, workspace: TaskCenterBookData): string {
   const chapter = workspace.chapters.find((item) => item.chapterId === task.chapterId);
   const briefNumber = task.brief !== undefined && typeof task.brief.chapterNumber === 'number' ? task.brief.chapterNumber : null;
   const chapterNumber = chapter?.chapterNumber ?? briefNumber;

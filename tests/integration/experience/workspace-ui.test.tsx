@@ -14,6 +14,11 @@ const book = {
   version: 2, positioningVersion: 1, updatedAt: '2026-07-16T12:00:00.000Z'
 };
 
+const secondBook = {
+  bookId: 'book-ui-2', title: '北境军报', status: 'active', canonRevision: 1,
+  version: 1, positioningVersion: 1, updatedAt: '2026-07-16T13:00:00.000Z'
+};
+
 const chapter = {
   chapterId: 'chapter-ui-1', chapterNumber: 1, title: '雾城初响', planStatus: 'planned',
   generationStatus: 'completed', settlementStatus: 'settled',
@@ -176,6 +181,7 @@ describe('完整创作工作台', () => {
     expect(shelf.closest('.bookshelf-home')?.querySelector('.bookshelf-scroll-region')).not.toBeNull();
     expect(screen.getByRole('button', { name: '打开《雾钟档案》' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '首页功能' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '任务' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '创作功能' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/books/book-ui-1/workspace'))).toBe(false);
 
@@ -239,9 +245,10 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究', '任务']) {
+    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究']) {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
+    expect(within(workspaceNavigation).queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
     expect(screen.queryByText('卷章目录')).not.toBeInTheDocument();
@@ -571,40 +578,83 @@ describe('完整创作工作台', () => {
     expect(document.body).not.toHaveTextContent(/chain.of.thought|system prompt|api key/i);
   });
 
-  it('左栏任务标签打开二级页面承载预算与待确认，右栏只显示团队成员', async () => {
-    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+  it('首页任务中心按书聚合后台任务、预算与待确认，书内不再重复显示任务入口', async () => {
+    window.history.replaceState(null, '', '/');
+    const secondWorkspace: WorkspaceData = {
+      ...workspace,
+      book: secondBook,
+      chapters: [],
+      volumes: [],
+      tasks: [{
+        taskId: 'task-ui-book-2', taskType: 'discussion', status: 'queued', currentPhase: 'queued',
+        pauseRequested: false, cancelRequested: false, attemptCount: 0, assignedAgentId: 'agent-3',
+        chapterId: null, brief: { summary: '讨论北境议和条件' }, checkpoint: {}
+      }],
+      budget: {
+        mode: 'standard', token_limit: 200_000, spent_tokens: 20_000, reserved_tokens: 5_000,
+        cash_limit_micros: 0, spent_cash_micros: 0, status: 'active'
+      }
+    };
+    const baseRouter = createFetchRouter();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/v1/books') return apiResponse([book, secondBook]);
+      if (path === '/api/v1/task-center') return apiResponse({
+        books: [
+          {
+            book,
+            chapters: workspace.chapters,
+            agents: workspace.agents,
+            tasks: workspace.tasks,
+            budget: workspace.budget,
+            confirmations: workspace.confirmations
+          },
+          {
+            book: secondBook,
+            chapters: secondWorkspace.chapters,
+            agents: secondWorkspace.agents,
+            tasks: secondWorkspace.tasks,
+            budget: secondWorkspace.budget,
+            confirmations: secondWorkspace.confirmations
+          }
+        ]
+      });
+      return baseRouter(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const teamRail = await screen.findByRole('complementary', { name: '创作团队' });
-    expect(within(teamRail).getByRole('heading', { name: '团队' })).toBeInTheDocument();
-    expect(within(teamRail).queryByRole('heading', { name: '预算' })).not.toBeInTheDocument();
-    expect(within(teamRail).queryByRole('heading', { name: '待确认' })).not.toBeInTheDocument();
-    expect(screen.queryByText('现金保护线 0.00 元')).not.toBeInTheDocument();
-
-    const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '任务' }));
+    expect(await screen.findByRole('heading', { name: '我的作品' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/workspace'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '任务' }));
     expect(screen.getByRole('heading', { name: '任务中心' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '预算' })).toBeInTheDocument();
-    expect(screen.getByText('现金保护线 0.00 元')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '待确认' })).toBeInTheDocument();
-    expect(screen.getByText('当前没有需要老板确认的重大事项。')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: '《雾钟档案》的任务' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '《北境军报》的任务' })).toBeInTheDocument();
+    expect(screen.getAllByText('2 本书有后台任务')).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/api/v1/task-center'))).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/workspace'))).toBe(false);
+    expect(screen.getAllByText('现金保护线 0.00 元')).toHaveLength(2);
+    const confirmationHeadingIds = screen.getAllByRole('heading', { name: '待确认' }).map((heading) => heading.id);
+    expect(new Set(confirmationHeadingIds).size).toBe(confirmationHeadingIds.length);
   });
 
   it('任务页面显示章节与阶段，可查看详情并调用真实取消接口', async () => {
+    window.history.replaceState(null, '', '/');
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '任务' }));
+    fireEvent.click(await screen.findByRole('button', { name: '任务' }));
     const taskButton = await screen.findByRole('button', { name: /第1章.*章节创作.*生成完整初稿/ });
     fireEvent.click(taskButton);
-    expect(screen.getByRole('dialog', { name: '任务详情' })).toBeInTheDocument();
-    expect(screen.getByText('task-ui-1')).toBeInTheDocument();
+    const taskDialog = screen.getByRole('dialog', { name: '任务详情' });
+    expect(taskDialog).toBeInTheDocument();
+    expect(within(taskDialog).getByText('雾钟档案')).toBeInTheDocument();
+    expect(within(taskDialog).getByText('task-ui-1')).toBeInTheDocument();
     expect(screen.getAllByText(/第 1 章/).length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByRole('button', { name: '取消任务' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).includes('/tasks/task-ui-1/cancel') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
+      String(input).includes('/books/book-ui-1/tasks/task-ui-1/cancel') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
   });
 
   it('设置可调整底色和字体并持久化', async () => {
@@ -998,6 +1048,7 @@ describe('完整创作工作台', () => {
   });
 
   it('重大确认展示对象、正史版本、影响和明确决策按钮', async () => {
+    window.history.replaceState(null, '', '/');
     const confirmationWorkspace = {
       ...workspace,
       confirmations: {
@@ -1013,8 +1064,7 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '任务' }));
+    fireEvent.click(await screen.findByRole('button', { name: '任务' }));
     expect(await screen.findByText('重大正史事实')).toBeInTheDocument();
     expect(screen.getByText(/绑定正史 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('查看范围与影响'));
@@ -1234,6 +1284,16 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       status: 'ready', worker: { workerId: 'worker-ui', heartbeatAt: new Date().toISOString(), currentTaskId: 'task-ui-1' }
     });
     if (path === '/api/v1/operations/status') return apiResponse({ releaseId: 'release-ui', schemaVersion: 18, disk: { totalBytes: 1000, freeBytes: 800 }, queue: { queued: 0, working: 1, blocked: 0 }, projection: { status: 'ready' }, latestBackup: null, portability: { completed: 0, failed: 0 }, diagnostics: { telemetrySent: false, secretsIncluded: false, listeningHost: '127.0.0.1' } });
+    if (path === '/api/v1/task-center') return apiResponse({
+      books: [{
+        book: workspaceData.book,
+        chapters: workspaceData.chapters,
+        agents: workspaceData.agents,
+        tasks: workspaceData.tasks,
+        budget: workspaceData.budget,
+        confirmations: workspaceData.confirmations
+      }]
+    });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
     if (path === '/api/v1/team-template') return apiResponse({
       members: agents.map((agent, index) => ({

@@ -308,6 +308,19 @@ export interface WorkspaceData {
   };
 }
 
+export interface TaskCenterBookData {
+  book: BookData;
+  chapters: ChapterData[];
+  agents: AgentData[];
+  tasks: TaskData[];
+  budget: WorkspaceData['budget'];
+  confirmations: WorkspaceData['confirmations'];
+}
+
+export interface TaskCenterData {
+  books: TaskCenterBookData[];
+}
+
 export interface CreativeSessionData {
   sessionId: string;
   status: 'exploring' | 'awaiting_direction' | 'planning' | 'awaiting_plan' | 'ready' | 'paused';
@@ -558,6 +571,10 @@ export function fetchTeamTemplate(signal?: AbortSignal): Promise<TeamTemplateDat
 
 export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {
   return request('/api/v1/books', signal === undefined ? {} : { signal });
+}
+
+export function fetchTaskCenter(signal?: AbortSignal): Promise<TaskCenterData> {
+  return request('/api/v1/task-center', signal === undefined ? {} : { signal });
 }
 
 export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxonomyData> {

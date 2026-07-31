@@ -233,6 +233,83 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get('/api/v1/books', async (request) => success(books.list(owner), request.id));
 
+  app.get('/api/v1/task-center', async (request) => {
+    const activeTaskStatuses = new Set([
+      'pending', 'queued', 'working', 'waiting_confirmation', 'paused', 'blocked', 'interrupted'
+    ]);
+    const chapterStatement = database.prepare(`
+      SELECT chapter_id AS chapterId, volume_id AS volumeId, chapter_number AS chapterNumber, title,
+             plan_status AS planStatus, generation_status AS generationStatus,
+             settlement_status AS settlementStatus,
+             current_manuscript_version_id AS currentManuscriptVersionId,
+             canon_manuscript_version_id AS canonManuscriptVersionId
+      FROM chapters
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+    `);
+    const taskBooks = books.list(owner)
+      .filter((book) => book.status !== 'archived')
+      .map((book) => {
+        const scope = { ...owner, bookId: book.bookId };
+        const allTasks = tasks.list(scope);
+        const activeTasks = allTasks.filter((task) => activeTaskStatuses.has(task.status));
+        const recentTasks = allTasks.filter((task) => !activeTaskStatuses.has(task.status)).slice(-8);
+        const visibleTasks = [...activeTasks, ...recentTasks];
+        const chapterIds = [...new Set(visibleTasks.flatMap((task) => task.chapterId === null ? [] : [task.chapterId]))];
+        const taskChapters = chapterIds.flatMap((chapterId) => {
+          const chapter = chapterStatement.get(scope.ownerId, scope.bookId, chapterId);
+          return chapter === undefined ? [] : [chapter];
+        });
+        const assignedAgentIds = new Set(visibleTasks.flatMap((task) =>
+          task.assignedAgentId === null ? [] : [task.assignedAgentId]));
+        const taskAgents = agents.list(scope)
+          .filter((agent) => assignedAgentIds.has(agent.agentId))
+          .map((agent) => {
+            const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
+            return {
+              ...agent,
+              publicSummary: contract?.publicSummary ?? agent.roleName,
+              responsibilities: contract?.responsibilities ?? [],
+              boundaries: contract?.boundaries ?? [],
+              retrievalFocus: contract?.retrievalFocus ?? [],
+              outputKinds: contract?.outputKinds ?? []
+            };
+          });
+        const budget = database.prepare(`
+          SELECT mode, token_limit, spent_tokens, reserved_tokens, cash_limit_micros, spent_cash_micros, status
+          FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at LIMIT 1
+        `).get(scope.ownerId, scope.bookId) ?? null;
+        const confirmationRows = database.prepare(`
+          SELECT confirmation_id, target_type, target_id, expected_canon_revision,
+                 scope_json, impact_json, created_at
+          FROM confirmations WHERE owner_id = ? AND book_id = ? AND status = 'pending'
+          ORDER BY created_at, confirmation_id
+        `).all(scope.ownerId, scope.bookId) as unknown as Array<{
+          confirmation_id: string; target_type: string; target_id: string;
+          expected_canon_revision: number; scope_json: string; impact_json: string; created_at: string;
+        }>;
+        return {
+          book,
+          chapters: taskChapters,
+          agents: taskAgents,
+          tasks: visibleTasks,
+          budget,
+          confirmations: {
+            count: confirmationRows.length,
+            items: confirmationRows.map((row) => ({
+              confirmationId: row.confirmation_id,
+              targetType: row.target_type,
+              targetId: row.target_id,
+              expectedCanonRevision: row.expected_canon_revision,
+              scope: JSON.parse(row.scope_json) as unknown,
+              impact: JSON.parse(row.impact_json) as unknown,
+              createdAt: row.created_at
+            }))
+          }
+        };
+      });
+    return success({ books: taskBooks }, request.id);
+  });
+
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/expression-profile', async (request) => {
     return success(expressionProfiles.active({ ...owner, bookId: request.params.bookId }), request.id);
   });

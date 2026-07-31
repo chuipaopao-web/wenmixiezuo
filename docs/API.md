@@ -195,11 +195,14 @@ DEC-066补充本书资料、规划状态、表达调色板和设定确认读写�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
+| GET | `/task-center` | 首页全局任务中心：按活动书返回进行中任务、每书最近8项历史任务、相关章节/执行成员、预算和待确认；不返回完整工作区、全部章节、消息或卷树 |
 | GET | `/books/{bookId}/tasks` | 查询当前和历史任务 |
 | GET | `/books/{bookId}/tasks/{taskId}` | 查询任务书、阶段、依赖、调用和产物 |
 | POST | `/books/{bookId}/tasks/{taskId}/pause` | 在安全检查点暂停 |
 | POST | `/books/{bookId}/tasks/{taskId}/resume` | 版本校验后继续 |
 | POST | `/books/{bookId}/tasks/{taskId}/cancel` | 真实取消底层调用并收口 |
+
+`GET /task-center` 是只读轻量聚合接口。它只返回非归档书，并且每组都保留真实 `book.bookId`；前端对任务取消、重试或重大确认的后续请求必须使用该组的书籍ID，不能使用上次打开书或当前URL推断。首页轮询不得为每本书下载完整 `/workspace`。
 
 结果不明的调用不能通过普通重试接口重新调用，必须先由活动主编处理。
 

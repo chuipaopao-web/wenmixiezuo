@@ -2174,6 +2174,109 @@ svg {
   font-size: calc(10px * var(--font-scale));
 }
 
+.task-workspace-warning {
+  margin: 16px 0 0;
+  border-left: 3px solid var(--accent);
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  background: var(--accent-wash);
+  font-size: calc(11px * var(--font-scale));
+}
+
+.task-workspace-empty-state {
+  display: grid;
+  min-height: 340px;
+  place-content: center;
+  justify-items: center;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.task-workspace-empty-state > svg {
+  width: 42px;
+  height: 42px;
+  color: var(--accent);
+}
+
+.task-workspace-empty-state h3 {
+  margin: 16px 0 5px;
+}
+
+.task-workspace-empty-state p {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--ink-faint);
+  line-height: 1.7;
+}
+
+.task-book-groups {
+  display: grid;
+  gap: 18px;
+  padding-top: 20px;
+}
+
+.task-book-group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+
+.task-book-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line-strong);
+  padding: 15px 18px;
+  background: var(--panel-muted);
+}
+
+.task-book-header > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 11px;
+}
+
+.task-book-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  color: var(--accent);
+  background: var(--panel);
+}
+
+.task-book-header h3,
+.task-book-header p {
+  margin: 0;
+}
+
+.task-book-header h3 {
+  overflow: hidden;
+  font-size: calc(15px * var(--font-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-book-header p,
+.task-book-header small {
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--font-scale));
+}
+
+.task-book-header p {
+  margin-top: 3px;
+}
+
+.task-book-group .task-workspace-layout {
+  padding: 0 18px;
+}
+
 .task-workspace-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(250px, 0.8fr);
@@ -2207,7 +2310,8 @@ svg {
   gap: 12px;
 }
 
-.task-workspace-heading h3 {
+.task-workspace-heading h3,
+.task-workspace-heading h4 {
   margin: 0;
   font-size: calc(14px * var(--font-scale));
 }
