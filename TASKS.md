@@ -1080,7 +1080,7 @@
 ### UX-20260731-02：移除资料库重复证据页
 
 - `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`。
-- 状态：实现与全量工程门禁已通过；待提交后执行干净工作树发布验收。
+- 状态：已通过；实现提交 `1076d34` 后发布验收3/3通过，审计 `failures: []`。
 - 目标：移除作者资料库中竖排、重复且暴露内部关系键的独立“证据”页，让证据只在对应资料卡中以简洁来源信息呈现。
 - 不做什么：不删除事实、来源、引用、正史或审计数据；不修改RAG、冲突检查、正史结算和高级诊断；不修改 `D:\AI智囊团`。
 - 唯一负责人 / 复核人：当前Codex / 当前Codex；不调用其他开发Agent。
@@ -1091,3 +1091,4 @@
 - 测试命令：工作区UI专项Vitest、`npm.cmd run typecheck`、`npm.cmd test`、`npm.cmd run build`、本地HTTP健康探针、`git diff --check`、`npm.cmd run acceptance`。
 - 停止条件：实体卡丢失来源、事实数据被修改、RAG/正史测试回退、出现跨书泄漏或需要生产数据恢复。
 - 回滚方法：Git revert作者视图与文档修改；无需数据恢复。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/author-evidence-tab-retirement-20260731.md`。
