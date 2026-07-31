@@ -10,6 +10,7 @@ import { createTestContext, FixedClock, SequenceIds, type TestContext } from '..
 import { DomainError } from '../../../apps/api/src/domain/errors.js';
 import { ModelBindingService } from '../../../apps/api/src/application/agents/model-binding-service.js';
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
+import { createHash } from 'node:crypto';
 
 describe('开放式主创对话', () => {
   let context: TestContext | undefined;
@@ -91,7 +92,31 @@ describe('开放式主创对话', () => {
       expect.objectContaining({ type: 'effective_output', version: 1, fullContent: expect.stringContaining('完整依据包含张三旧伤') })
     ]));
     expect(capturedPrompt).toContain('outputContract');
+    expect(capturedPrompt).toContain('当前设定大纲');
+    expect(capturedPrompt).toContain('规划参考，不是正史');
+    expect(capturedPrompt).not.toContain('story_bible');
+    expect(capturedPrompt).not.toContain('confirmed_decisions');
+    expect(capturedPrompt).not.toContain('sourceId');
+    expect(capturedPrompt).not.toContain('contextPackHash');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE task_id = ?`).get(taskId)).toEqual({ count: 1 });
+
+    const stored = context.database.prepare(`SELECT message_id FROM messages WHERE owner_id = ? AND book_id = ? AND sender_type = 'agent' LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { message_id: string };
+    const legacyFull = '故事圣经sourceId:077f3110的premise原文与老板说明不同；confirmed_decisions为空。';
+    context.database.prepare(`UPDATE messages SET content = ?, references_json = ? WHERE message_id = ?`).run(
+      '故事圣经premise需要更新。',
+      JSON.stringify([{ type: 'effective_output', version: 1, format: 'structured', fullContent: legacyFull,
+        contentHash: createHash('sha256').update(legacyFull).digest('hex') }]),
+      stored.message_id
+    );
+    const projected = (conversations.listMessages(scope) as Array<{ message_id: string; content: string; references_json: string }>)
+      .find((message) => message.message_id === stored.message_id)!;
+    expect(projected.content).toBe('设定大纲中的核心前提需要更新。');
+    const projectedReference = JSON.parse(projected.references_json)[0] as { fullContent: string; contentHash: string };
+    expect(projectedReference.fullContent).toContain('现有设定大纲中的核心前提');
+    expect(projectedReference.fullContent).toContain('目前还没有正式确认的讨论结论');
+    expect(projectedReference.fullContent).not.toMatch(/故事圣经|premise|sourceId|077f3110|confirmed_decisions/u);
+    expect(projectedReference.contentHash).toBe(createHash('sha256').update(projectedReference.fullContent).digest('hex'));
   });
 
   it('未点名的主编开放回复连续技术失败后由副编接管并从原任务恢复', async () => {

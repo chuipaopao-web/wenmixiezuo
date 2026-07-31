@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { sanitizeAuthorFacingConversationText } from './author-conversation-presentation.js';
 
 interface EffectiveAlternative {
   title: string;
@@ -45,13 +46,13 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
     risks: '事实冲突、代价、不确定项或资料缺口；不得为了简短而隐藏',
     questions: '只有继续工作确实需要时才问，最多3个',
     nextStep: '一项可执行下一步；没有则为null',
-    details: '可展开的补充证据与来源说明；不得写内部思维链，没有则为null',
+    details: '可展开的补充依据；只能使用作者能理解的产品术语，不得写内部字段名、追溯编号、校验值或内部思维链，没有则为null',
     workflowArtifact: '仅当任务明确要求机器落库时填写；对象格式为type和payload。普通讨论省略该字段'
   },
   rules: [
     '只输出一个JSON对象，不要代码围栏、开场客套、自我介绍、过程说明或重复老板原话',
     '不要重复同一结论；事实、风险、未知、异议和需要确认的重大选择不得省略',
-    '字段只写最终结论、依据和可展示说明，不输出内部思维链'
+    '字段只写最终结论、依据和可展示说明，不输出内部思维链、后台字段名、资料编号或校验值'
   ]
 } as const;
 
@@ -59,8 +60,8 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   const normalizedRaw = normalizeText(raw);
   const structured = parseStructuredReply(normalizedRaw) ?? parseTruncatedStructuredReply(normalizedRaw);
   if (structured !== null) {
-    const visibleContent = renderStructuredReply(structured, false);
-    const fullContent = renderStructuredReply(structured, true);
+    const visibleContent = sanitizeAuthorFacingConversationText(renderStructuredReply(structured, false));
+    const fullContent = sanitizeAuthorFacingConversationText(renderStructuredReply(structured, true));
     return {
       visibleContent,
       fullContent,
@@ -73,10 +74,10 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   const fallbackContent = cleaned.length > 0 ? cleaned : normalizedRaw;
   const visibleContent = looksLikeMachinePayload(fallbackContent)
     ? '这次回复的格式不适合直接展示，我已经把内部杂乱内容拦下了。请继续追问，我会重新整理成清楚的结论。'
-    : fallbackContent;
+    : sanitizeAuthorFacingConversationText(fallbackContent);
   return {
     visibleContent,
-    fullContent: normalizedRaw,
+    fullContent: sanitizeAuthorFacingConversationText(normalizedRaw),
     filtered: visibleContent !== normalizedRaw,
     format: 'fallback'
   };

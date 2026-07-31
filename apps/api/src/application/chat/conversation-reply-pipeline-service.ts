@@ -24,6 +24,12 @@ import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { CreativeSessionService } from '../discussions/creative-session-service.js';
 import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
 import { ArtifactService } from '../artifacts/artifact-service.js';
+import {
+  publicRoleTitle,
+  renderModelContextContent,
+  renderSettingOutlineContext,
+  toAuthorModelContextSources
+} from './author-conversation-presentation.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -175,23 +181,23 @@ export class ConversationReplyPipelineService {
         ...retrieved.optionalSources,
         ...(storyBible === undefined || brief.proactiveOnboarding === true ? [] : [{
           sourceType: 'story_bible', sourceId: storyBible.artifact_version_id,
-          content: clipContextSource(storyBible.content_json, 1_500),
-          reason: '当前书籍已选故事圣经；仅在本次问题相关且预算允许时带入', priority: 90
+          content: renderSettingOutlineContext(storyBible.content_json, 1_500),
+          reason: '当前设定大纲；它是可修订的规划参考，不是正史', priority: 90
         }]),
-        {
+        ...(history.length === 0 ? [] : [{
           sourceType: 'recent_conversation',
           sourceId: `history:${brief.messageId}`,
-          content: clipContextSource(JSON.stringify(history), 1_800),
+          content: renderModelContextContent('recent_conversation', JSON.stringify(history), 1_800),
           reason: '仅限本次回复的最近6条对话窗口；完整原文仍归档但默认不注入',
           priority: 70
-        },
-        {
+        }]),
+        ...(decisions.length === 0 ? [] : [{
           sourceType: 'confirmed_decisions',
           sourceId: `decisions:${scope.bookId}`,
-          content: clipContextSource(JSON.stringify(decisions), 1_200),
+          content: renderModelContextContent('confirmed_decisions', JSON.stringify(decisions), 1_200),
           reason: '老板已经确认的最近创作决定',
           priority: 80
-        }
+        }])
       ];
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId,
@@ -210,8 +216,8 @@ export class ConversationReplyPipelineService {
         .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
       if (budget === undefined) throw new Error('当前书籍没有活动预算');
       const prompt = JSON.stringify({
-        operation: 'open_conversation_reply',
-        identity: `${replyAgent.display_name}（${replyAgent.role_key}）`,
+        operation: '主创对话回复',
+        identity: `${replyAgent.display_name}（${publicRoleTitle(replyAgent.role_key)}）`,
         rules: [
           '直接回应老板，不要声称其他成员已经回复或已完成未执行的工作',
           brief.directNamedMember === true ? '老板明确点名了你；只以自己的岗位身份回答，不转交给主编代答' : '你是当前活动主编，负责回应并判断下一步',
@@ -228,14 +234,13 @@ export class ConversationReplyPipelineService {
             '优先保证JSON完整闭合；临近输出上限时省略次要细节，不得截断在字符串、数组或对象中'
           ]),
           '回答使用自然中文，可讨论但不得把闲聊写入正史',
+          '作者界面只使用“本书资料、设定大纲、剧情总纲、章纲”等当前产品名称；后台字段名、资料编号和校验值只用于内部追溯，不得写进回复',
+          '开书资料和未定稿设定属于可修订的规划参考；与老板新说明不同时称为“规划差异”，没有正式正史证据时不得声称发生“正史冲突”',
           '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
         ],
         outputContract: EFFECTIVE_OUTPUT_CONTRACT,
         currentMessage: brief.proactiveOnboarding === true ? '建书完成，请主动引导下一步创作讨论。' : brief.content,
-        contextSources: pack.sources.map((source) => ({
-          sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content
-        })),
-        contextPackHash: pack.contentHash
+        contextSources: toAuthorModelContextSources(pack.sources)
       });
       const budgets = new BudgetService(this.database, this.ids, this.clock);
       const adapter = this.modelAdapters.resolve(replyAgent.provider, replyAgent.model_id, 'discussion', replyAgent.role_key);
@@ -405,7 +410,7 @@ function saveSettingCandidate(
     WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'story_bible'
     LIMIT 1
   `).get(scope.ownerId, scope.bookId) as { artifact_id: string; active_version_id: string; content_json: string } | undefined;
-  if (artifact === undefined) throw new Error('设定拆解无法找到故事圣经');
+  if (artifact === undefined) throw new Error('设定拆解无法找到设定大纲');
   const content = JSON.parse(artifact.content_json) as Record<string, unknown>;
   const current = Array.isArray(content.settingCandidates) ? content.settingCandidates : [];
   new ArtifactService(database, ids, clock).addVersion(scope, artifact.artifact_id, {

@@ -3,6 +3,7 @@ import {
   createEffectiveOutputReference,
   prepareEffectiveOutput
 } from '../../apps/api/src/application/chat/effective-output-service.js';
+import { renderModelContextContent } from '../../apps/api/src/application/chat/author-conversation-presentation.js';
 
 describe('有效输出层', () => {
   it('把结构化岗位回复整理成结论优先的可见内容并保留完整依据', () => {
@@ -267,5 +268,40 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('"边缘型人格实验"');
     expect(result.visibleContent).toContain('老师具体用什么控制她');
     expect(result.visibleContent).not.toContain('格式不适合直接展示');
+  });
+
+  it('作者可见回复统一使用当前产品术语并隐藏内部追溯字段', () => {
+    const result = prepareEffectiveOutput(JSON.stringify({
+      answer: '故事圣经premise与老板最新说明不一致，需要先统一。',
+      keyPoints: ['故事圣经sourceId:077f3110的premise仍是旧版本'],
+      alternatives: [],
+      risks: ['confirmed_decisions为空，暂时没有正式确认决定'],
+      questions: [],
+      nextStep: '更新故事圣经premise后继续讨论。',
+      details: '故事圣经sourceId:077f3110的premise原文与老板本轮说明不同；confirmed_decisions为空。保留圣经版本或更新圣经premise都会导致正史冲突必须解决，两版当前正史版本无法并存。'
+    }));
+
+    expect(result.visibleContent).toContain('设定大纲');
+    expect(result.visibleContent).toContain('核心前提');
+    expect(result.fullContent).toContain('目前还没有正式确认的讨论结论');
+    expect(result.fullContent).toContain('保留设定大纲版本');
+    expect(result.fullContent).toContain('更新设定大纲中的核心前提');
+    expect(result.fullContent).toContain('规划差异需要先确认');
+    expect(result.fullContent).toContain('当前规划表述不能同时成立');
+    for (const leaked of ['故事圣经', 'premise', 'sourceId', '077f3110', 'confirmed_decisions']) {
+      expect(result.visibleContent).not.toContain(leaked);
+      expect(result.fullContent).not.toContain(leaked);
+    }
+  });
+
+  it('最近对话资料保留说话人身份但不泄漏内部字段', () => {
+    const rendered = renderModelContextContent('recent_conversation', JSON.stringify([
+      { sender_type: 'boss', role_key: null, content: '笔记要到900章后才发现', created_at: 'ignored' },
+      { sender_type: 'agent', role_key: 'deputy_editor', content: '故事圣经premise还是旧版', sourceId: 'hidden' }
+    ]), 1_000);
+
+    expect(rendered).toContain('老板：笔记要到900章后才发现');
+    expect(rendered).toContain('副编：设定大纲中的核心前提还是旧版');
+    expect(rendered).not.toMatch(/故事圣经|premise|sourceId|hidden/u);
   });
 });

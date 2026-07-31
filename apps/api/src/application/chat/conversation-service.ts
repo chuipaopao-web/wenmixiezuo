@@ -25,6 +25,8 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 import { SettingOutlineWorkspaceService } from '../knowledge/setting-outline-workspace-service.js';
 import { compactLockedDecisionSummary } from '../discussions/locked-planning-context.js';
+import { createHash } from 'node:crypto';
+import { sanitizeAuthorFacingConversationText } from './author-conversation-presentation.js';
 
 export { compactLockedDecisionSummary } from '../discussions/locked-planning-context.js';
 
@@ -86,6 +88,34 @@ function appendAttachmentContext(content: string, attachmentContext: string): st
     : `${content}\n\n以下附件只属于当前对话临时资料，不是正史；引用时保留不确定性：\n${attachmentContext}`;
 }
 
+function projectConversationMessageForAuthor(row: Record<string, unknown>): Record<string, unknown> {
+  if (row.sender_type === 'boss') return row;
+  const content = typeof row.content === 'string'
+    ? sanitizeAuthorFacingConversationText(row.content)
+    : row.content;
+  if (typeof row.references_json !== 'string') return { ...row, content };
+
+  let references: unknown;
+  try { references = JSON.parse(row.references_json) as unknown; } catch { return { ...row, content }; }
+  if (!Array.isArray(references)) return { ...row, content };
+  const projected = references.map((reference) => {
+    if (!isConversationRecord(reference) || reference.type !== 'effective_output' || typeof reference.fullContent !== 'string') {
+      return reference;
+    }
+    const fullContent = sanitizeAuthorFacingConversationText(reference.fullContent);
+    return {
+      ...reference,
+      fullContent,
+      contentHash: createHash('sha256').update(fullContent).digest('hex')
+    };
+  });
+  return { ...row, content, references_json: JSON.stringify(projected) };
+}
+
+function isConversationRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export class ConversationService {
   public constructor(
     private readonly database: DatabaseSync,
@@ -116,7 +146,7 @@ export class ConversationService {
       before?.created_at ?? null, before?.created_at ?? null,
       before?.created_at ?? null, before?.message_id ?? null, limit
     );
-    return rows.reverse();
+    return rows.reverse().map((row) => projectConversationMessageForAuthor(row as Record<string, unknown>));
   }
 
   public sendBossMessage(scope: BookScope, content: string, attachmentIds: string[] = []): { messageId: string; action: Record<string, unknown> } {
