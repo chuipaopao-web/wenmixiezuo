@@ -42,9 +42,6 @@ describe('自然语言讨论运行闭环', () => {
       'deputy_editor', true, 'independent', '【剧情总纲专项讨论资料包】', 'open_discussion'
     )).toBe(6_000);
     expect(discussionOutputTokenLimit(
-      'deputy_editor', true, 'independent', '【卷纲专项讨论资料包】', 'open_discussion'
-    )).toBe(4_500);
-    expect(discussionOutputTokenLimit(
       'second_screenwriter', false, 'independent', '【剧情总纲专项讨论资料包】', 'open_discussion'
     )).toBe(6_000);
     expect(discussionOutputTokenLimit(

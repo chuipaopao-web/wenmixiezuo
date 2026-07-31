@@ -54,51 +54,124 @@ describe('规划成果版本与题材适配失效传播', () => {
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM adaptation_snapshots WHERE owner_id = ? AND book_id = ?').get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
   });
 
-  it('keeps the staged planning pointer aligned with an author-selected volume revision', () => {
+  it('keeps the staged planning pointer aligned with an author-selected master outline revision', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, 'owner-one', ids, clock);
     const scope = { ownerId: 'owner-one', bookId: book.bookId };
     const artifacts = new ArtifactService(context.database, ids, clock);
-    const initial = artifacts.create(scope, 'volume_outline', '第一卷卷纲', {
-      volumeNumber: 1,
-      goal: '完成第一阶段生存验证',
-      arcs: [{
+    const initial = artifacts.create(scope, 'master_outline', '剧情总纲', {
+      outlineSchema: 'stage_master_v2',
+      premise: '主角必须在荒地中建立可持续的生存秩序。',
+      coreConflict: '有限资源与队伍互信之间的冲突。',
+      protagonistArc: '主角从独行者成长为可靠的组织者。',
+      majorStages: [{
+        stageNumber: 1,
         title: '荒地求生',
-        objective: '找到稳定水源',
-        turningPoints: ['发现水迹'],
-        payoff: '形成最小协作'
+        chapterRange: { start: 1, end: 50 },
+        mainline: {
+          encounter: '队伍在缺水和追兵压力下进入荒地。',
+          resolution: '主角通过观察和协作找到稳定水源。',
+          result: '队伍形成最小协作并取得继续探索的资格。'
+        },
+        structure: {
+          setup: '荒地缺水',
+          development: '寻找水迹',
+          turn: '发现追兵',
+          conclusion: '守住水源'
+        },
+        stageSummary: '主角带领队伍取得水源并建立最小协作。',
+        pendingThreads: ['追兵来源'],
+        followUpDirection: '追查追兵并扩大营地。'
+      }, {
+        stageNumber: 2,
+        title: '营地扩张',
+        chapterRange: { start: 51, end: 100 },
+        mainline: {
+          encounter: '临时营地面临外部势力争夺。',
+          resolution: '主角组织防守并公开资源分配规则。',
+          result: '营地获得稳定发展空间。'
+        },
+        structure: {
+          setup: '资源争夺',
+          development: '组织防守',
+          turn: '内部出现分歧',
+          conclusion: '公开规则化解分歧'
+        },
+        stageSummary: '主角通过公开规则守住并扩张营地。',
+        pendingThreads: ['外部势力的幕后支持者'],
+        followUpDirection: '追查幕后支持者。'
       }],
-      endingState: '主角取得继续探索的资格'
+      endingDirection: '建立公开、可持续的生存秩序。',
+      storyPromises: ['追兵来源最终会揭开'],
+      openQuestions: []
     }, 'candidate');
     artifacts.select(scope, initial.artifactId, initial.artifactVersionId);
     context.database.prepare(`
       UPDATE book_planning_states
-      SET version = 8, stage = 'volume_outline_ready', volume_outline_version_id = ?
+      SET version = 8, stage = 'master_outline_ready',
+          master_outline_version_id = ?, volume_outline_version_id = NULL
       WHERE owner_id = ? AND book_id = ?
     `).run(initial.artifactVersionId, scope.ownerId, scope.bookId);
 
     const revised = artifacts.addVersion(scope, initial.artifactId, {
-      volumeNumber: 1,
-      goal: '在不发明额外系统机制的前提下完成生存验证',
-      arcs: [{
+      outlineSchema: 'stage_master_v2',
+      premise: '主角必须在荒地中建立透明且可持续的生存秩序。',
+      coreConflict: '有限资源、外部追兵与队伍互信之间的冲突。',
+      protagonistArc: '主角从独行者成长为以可核验行动获得信任的组织者。',
+      majorStages: [{
+        stageNumber: 1,
         title: '荒地求生',
-        objective: '依靠观察和协作找到稳定水源',
-        turningPoints: ['从植被和动物活动判断水迹'],
-        payoff: '用透明分配形成最小协作'
+        chapterRange: { start: 1, end: 50 },
+        mainline: {
+          encounter: '队伍在缺水和追兵压力下进入荒地。',
+          resolution: '主角依据植被、动物活动和透明分配找到并守住水源。',
+          result: '主角取得同行者信任，队伍形成稳定协作。'
+        },
+        structure: {
+          setup: '荒地缺水',
+          development: '观察水迹',
+          turn: '追兵逼近',
+          conclusion: '共同守住水源'
+        },
+        stageSummary: '主角以可核验行动带领队伍守住水源并建立信任。',
+        pendingThreads: ['追兵来源'],
+        followUpDirection: '追查追兵并扩大营地。'
+      }, {
+        stageNumber: 2,
+        title: '营地扩张',
+        chapterRange: { start: 51, end: 100 },
+        mainline: {
+          encounter: '临时营地面临外部势力争夺和内部质疑。',
+          resolution: '主角组织防守并用公开账目完成资源分配。',
+          result: '营地获得稳定发展空间和成员信任。'
+        },
+        structure: {
+          setup: '资源争夺',
+          development: '组织防守',
+          turn: '内部出现分歧',
+          conclusion: '公开规则化解分歧'
+        },
+        stageSummary: '主角通过公开规则守住并扩张营地。',
+        pendingThreads: ['外部势力的幕后支持者'],
+        followUpDirection: '追查幕后支持者。'
       }],
-      endingState: '主角以可核验行动取得同行者信任'
+      endingDirection: '建立公开、可持续的生存秩序。',
+      storyPromises: ['追兵来源最终会揭开'],
+      openQuestions: []
     }, initial.artifactVersionId);
     artifacts.select(scope, initial.artifactId, revised.artifactVersionId);
 
     expect(context.database.prepare(`
-      SELECT version, stage, volume_outline_version_id FROM book_planning_states
+      SELECT version, stage, master_outline_version_id, volume_outline_version_id
+      FROM book_planning_states
       WHERE owner_id = ? AND book_id = ?
     `).get(scope.ownerId, scope.bookId)).toEqual({
       version: 9,
-      stage: 'volume_outline_ready',
-      volume_outline_version_id: revised.artifactVersionId
+      stage: 'master_outline_ready',
+      master_outline_version_id: revised.artifactVersionId,
+      volume_outline_version_id: null
     });
   });
 });

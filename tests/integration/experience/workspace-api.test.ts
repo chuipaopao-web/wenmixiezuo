@@ -48,9 +48,10 @@ describe('工作台API', () => {
     expect(artifactsResponse.statusCode).toBe(200);
     expect(artifactsResponse.json().data).toEqual(expect.arrayContaining([
       expect.objectContaining({ artifact_type: 'story_bible', status: 'active', active_content: expect.objectContaining({ mainPlot: expect.any(Object) }) }),
-      expect.objectContaining({ artifact_type: 'volume_outline', status: 'active', active_content: expect.objectContaining({ volumeNumber: 1 }) }),
+      expect.objectContaining({ artifact_type: 'master_outline', status: 'active', active_content: expect.any(Object) }),
       expect.objectContaining({ artifact_type: 'chapter_outline', status: 'active', active_content: expect.objectContaining({ sourceDecisionId: expect.any(String) }) })
     ]));
+    expect(artifactsResponse.json().data.some((item: Record<string, unknown>) => item.artifact_type === 'volume_outline')).toBe(false);
     const storyArtifact = artifactsResponse.json().data.find((item: Record<string, unknown>) => item.artifact_type === 'story_bible') as Record<string, unknown>;
     const candidate = (await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/artifacts/${storyArtifact.artifact_id}/versions`,
@@ -104,7 +105,7 @@ describe('工作台API', () => {
     expect(previewResponse.statusCode).toBe(200);
     expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 11 });
 
-    // 上面切换设定基线版本会按产品规则使总纲、卷纲和章纲失效。
+    // 上面切换设定基线版本会按产品规则使总纲和章纲失效。
     // 重新建立经确认的下游规划后，明确写作命令才允许进入正式生产。
     prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
     const commandResponse = await app.inject({

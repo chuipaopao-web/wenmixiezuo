@@ -820,7 +820,7 @@ export function confirmPlanningArtifact(
   bookId: string,
   expectedPlanningVersion: number,
   artifactVersionId: string,
-  artifactType: 'master_outline' | 'volume_outline' | 'chapter_outline'
+  artifactType: 'master_outline' | 'chapter_outline'
 ): Promise<{ stage: string; version: number; artifactVersionId: string }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/planning-artifacts/confirm`, {
     method: 'POST',

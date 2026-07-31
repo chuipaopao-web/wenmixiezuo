@@ -27,7 +27,7 @@ interface ChapterQualityRow {
 }
 
 interface PlanningArtifactRow {
-  artifact_type: 'master_outline' | 'volume_outline';
+  artifact_type: 'master_outline';
   title: string;
   content_json: string;
   artifact_version_id: string;
@@ -75,9 +75,9 @@ export class NarrativeProjectionService {
     const planningArtifacts = this.database.prepare(`
       SELECT a.artifact_type, a.title, v.content_json, v.artifact_version_id
       FROM artifact_versions v JOIN artifacts a ON a.artifact_id = v.artifact_id
-      WHERE v.owner_id = ? AND v.book_id = ? AND a.artifact_type IN ('master_outline', 'volume_outline')
+      WHERE v.owner_id = ? AND v.book_id = ? AND a.artifact_type = 'master_outline'
         AND v.status = 'selected'
-      ORDER BY CASE a.artifact_type WHEN 'volume_outline' THEN 0 ELSE 1 END, v.version DESC
+      ORDER BY v.version DESC
     `).all(scope.ownerId, scope.bookId) as unknown as PlanningArtifactRow[];
     const chapters = this.database.prepare(`
       SELECT c.chapter_id, c.chapter_number, q.scores_json
@@ -179,35 +179,6 @@ export class NarrativeProjectionService {
 }
 
 function plannedMainline(rows: PlanningArtifactRow[]): ProjectionDraft[] {
-  const volume = rows.find((row) => row.artifact_type === 'volume_outline');
-  if (volume !== undefined) {
-    const content = parseRecord(volume.content_json);
-    const stages = recordArray(content.arcs);
-    const volumeTitle = readableText(content.title, 100) ?? readableText(volume.title, 100) ?? '本卷';
-    const drafts = stages.flatMap((stage, index) => {
-      const title = readableText(stage.title, 100) ?? `阶段${index + 1}`;
-      const objective = readableText(stage.objective ?? stage.goal, 240);
-      const turningPoints = textList(stage.turningPoints ?? stage.turningPoint, 3, 160);
-      const payoff = readableText(stage.payoff ?? stage.result, 180);
-      const summary = conciseSummary([objective, ...turningPoints, payoff]);
-      if (summary === null) return [];
-      return [{
-        type: 'mainline' as const,
-        track: 'planned' as const,
-        order: index + 1,
-        content: compact({
-          scopeLabel: `${volumeTitle} · ${title}`,
-          summary,
-          chapterStart: positiveInteger(stage.chapterStart),
-          chapterEnd: positiveInteger(stage.chapterEnd),
-          result: payoff
-        }),
-        sourceIds: [volume.artifact_version_id]
-      }];
-    });
-    if (drafts.length > 0) return drafts;
-  }
-
   const master = rows.find((row) => row.artifact_type === 'master_outline');
   if (master === undefined) return [];
   const content = parseRecord(master.content_json);

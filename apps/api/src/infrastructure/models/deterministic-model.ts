@@ -32,7 +32,7 @@ function deterministicDiscussion(prompt: string): string | null {
   if (prompt.includes('章节跨度估算')) {
     return [
       '建议用三章完成当前滚动推进：第一章建立选择，第二章放大代价，第三章兑现转折。',
-      '章节跨度估算 {"minimum":3,"recommended":3,"maximum":3,"units":[{"unit":"建立选择","suggestedChapters":1},{"unit":"放大代价","suggestedChapters":1},{"unit":"兑现转折","suggestedChapters":1}],"assumptions":["上游设定与卷纲已经确认"],"uncertainty":["具体场景仍由主笔创作"]}'
+      '章节跨度估算 {"minimum":3,"recommended":3,"maximum":3,"units":[{"unit":"建立选择","suggestedChapters":1},{"unit":"放大代价","suggestedChapters":1},{"unit":"兑现转折","suggestedChapters":1}],"assumptions":["上游设定与剧情总纲已经确认"],"uncertainty":["具体场景仍由主笔创作"]}'
     ].join('\n');
   }
   const base = {
@@ -57,10 +57,8 @@ function deterministicDiscussion(prompt: string): string | null {
   }
   if (prompt.includes('剧情总纲落库')) {
     base.fields.details = `剧情总纲落库 ${JSON.stringify(deterministicMasterOutline())}`;
-  } else if (prompt.includes('卷纲落库')) {
-    base.fields.details = '卷纲落库 {"title":"建立第一个立足点","goal":"主角取得一项可公开核验且能持续运转的生存资格","startingState":"主角资源有限、身份未获承认且旧规则仍占优势","arcs":[{"title":"证明能力","objective":"用一次高风险选择证明新方案可以运转","turningPoints":["第一次成功引来旧势力干预","盟友因代价产生分歧"],"payoff":"主角保住成果并获得有限追随者"}],"climax":"主角放弃短期独占收益，公开关键规则以换取共同抵抗","endingState":"主角获得立足点和盟友，同时被更高层对手正式注意","openQuestions":["盟友分歧将在下一卷如何升级"]}';
   } else if (prompt.includes('规划落库')) {
-    base.fields.details = '规划落库 {"arcTitle":"当前卷滚动推进","arcGoal":"用三次递进选择推进本卷唯一目标","endingState":"主角完成阶段选择并面对新的可追踪问题","estimatedChapterRange":{"minimum":3,"recommended":3,"maximum":3},"chapters":[{"title":"必须作出的选择","goal":"让主角在两种有代价的方案中作出明确选择","beats":["暴露现实限制","提出互斥方案"],"hook":"选择触发意料之外的责任"},{"title":"代价开始兑现","goal":"让上一章的选择具体损害一段重要关系","beats":["短期收益出现","盟友发现被隐瞒的代价"],"hook":"对手掌握主角选择的证据"},{"title":"阶段结果落地","goal":"让主角承担代价并取得推进本卷目标的有限成果","beats":["对手公开施压","主角用行动回应"],"hook":"成果中出现指向更大冲突的异常"}]}';
+    base.fields.details = '规划落库 {"arcTitle":"当前故事弧滚动推进","arcGoal":"用三次递进选择推进当前阶段目标","endingState":"主角完成阶段选择并面对新的可追踪问题","estimatedChapterRange":{"minimum":3,"recommended":3,"maximum":3},"chapters":[{"title":"必须作出的选择","goal":"让主角在两种有代价的方案中作出明确选择","beats":["暴露现实限制","提出互斥方案"],"hook":"选择触发意料之外的责任"},{"title":"代价开始兑现","goal":"让上一章的选择具体损害一段重要关系","beats":["短期收益出现","盟友发现被隐瞒的代价"],"hook":"对手掌握主角选择的证据"},{"title":"阶段结果落地","goal":"让主角承担代价并取得推进当前阶段目标的有限成果","beats":["对手公开施压","主角用行动回应"],"hook":"成果中出现指向更大冲突的异常"}]}';
   }
   return JSON.stringify(base);
 }

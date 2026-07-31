@@ -106,11 +106,11 @@ export function prepareBookForWriting(
     UPDATE book_planning_states
     SET version = version + 1, stage = 'chapter_outline_ready',
       active_style_version_id = ?, setting_baseline_version_id = ?,
-      master_outline_version_id = ?, volume_outline_version_id = ?, updated_at = ?
+      master_outline_version_id = ?, volume_outline_version_id = NULL, updated_at = ?
     WHERE owner_id = ? AND book_id = ?
   `).run(
     styleVersionId, prepared.storyBibleVersionId, prepared.masterOutlineVersionId,
-    prepared.volumeOutlineVersionId, now, scope.ownerId, scope.bookId
+    now, scope.ownerId, scope.bookId
   );
   if (count > prepared.chapterOutlineVersionIds.length) {
     const artifacts = new ArtifactService(context.database, ids, clock);

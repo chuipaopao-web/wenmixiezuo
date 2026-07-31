@@ -356,16 +356,6 @@ export class ConversationService {
             null
           );
         }
-        if (usesStagedOpening && planningState !== undefined && ['master_outline_ready', 'volume_outline_in_progress'].includes(planningState.stage)) {
-          return this.scheduleDiscussion(
-            scope,
-            appendAttachmentContext(`【卷纲专项讨论资料包】\n${scopeText}`, attachmentContext),
-            messageId,
-            conversationId,
-            'open_discussion',
-            null
-          );
-        }
         return this.scheduleCreativeSessionMessage(
           scope, appendAttachmentContext(scopeText, attachmentContext), messageId, conversationId, false
         );
@@ -538,12 +528,12 @@ export class ConversationService {
         activeCreativeSession === null
         && usesStagedOpening
         && planningState !== undefined
-        && !['volume_outline_ready', 'chapter_outline_ready', 'writing_enabled'].includes(planningState.stage)
+        && !['master_outline_ready', 'chapter_outline_ready', 'writing_enabled'].includes(planningState.stage)
       ) {
         return this.scheduleConversationReply(
           scope,
           appendAttachmentContext(
-            `当前仍在“${planningState.stage}”阶段。请先按设定大纲、剧情总纲、卷纲的顺序完成并确认前置内容；本轮由主编先理解和追问，不启动正文规划。\n老板原话：${content}`,
+            `当前仍在“${planningState.stage}”阶段。请先按设定大纲、剧情总纲的顺序完成并确认前置内容；本轮由主编先理解和追问，不启动正文规划。\n老板原话：${content}`,
             attachmentContext
           ),
           messageId,
@@ -835,8 +825,7 @@ export class ConversationService {
     const creativePurpose = purpose === 'creative_exploration' || purpose === 'locked_planning';
     const settingWorkshop = scopeText.includes('【设定专项讨论资料包】')
       || scopeText.includes('【设定大纲成组讨论资料包】')
-      || scopeText.includes('【剧情总纲专项讨论资料包】')
-      || scopeText.includes('【卷纲专项讨论资料包】');
+      || scopeText.includes('【剧情总纲专项讨论资料包】');
     const collaborative = creativePurpose || settingWorkshop;
     const roleKeys = collaborative
       ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']

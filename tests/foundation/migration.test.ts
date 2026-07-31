@@ -47,7 +47,8 @@ describe('向前迁移器', () => {
         '0029_setting_outline_workspace.sql',
         '0030_planning_stage_and_style.sql',
         '0031_book_purge_retrieval_index.sql',
-        '0032_setting_outline_decision_content.sql'
+        '0032_setting_outline_decision_content.sql',
+        '0033_retire_volume_outline.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');

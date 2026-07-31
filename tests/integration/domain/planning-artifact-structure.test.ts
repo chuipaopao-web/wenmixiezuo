@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
 import {
-  mergeArcItems,
   mergeNumberedItems,
   nextChapterPlanningNumber,
   parseMasterOutlineDepositOutput,
   parsePlanningDepositOutput,
-  parseVolumeOutlineDepositOutput,
   PlanningArtifactService
 } from '../../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import { compactPlanningArtifactForDiscussion } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
@@ -207,13 +205,6 @@ describe('structured rolling chapter plans', () => {
       { chapterNumber: 2, title: '修订标题' },
       { chapterNumber: 3, title: '转折' }
     ]);
-    expect(mergeArcItems(
-      [{ title: '第一段', chapterStart: 1, chapterEnd: 3 }],
-      { title: '第二段', chapterStart: 4, chapterEnd: 6 }
-    )).toEqual([
-      { title: '第一段', chapterStart: 1, chapterEnd: 3 },
-      { title: '第二段', chapterStart: 4, chapterEnd: 6 }
-    ]);
   });
 
   it('starts after selected chapter outlines and rejects a model artifact with shifted absolute chapter numbers', () => {
@@ -305,31 +296,15 @@ describe('structured rolling chapter plans', () => {
     expect(nextChapterPlanningNumber(context.database, scope)).toBe(4);
   });
 
-  it('keeps the whole-book master outline structurally distinct from a volume outline', () => {
+  it('keeps the whole-book master outline stage-based instead of introducing an independent volume layer', () => {
     const master = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(stageMasterPayload())}`);
-    const volume = parseVolumeOutlineDepositOutput(`卷纲落库 ${JSON.stringify({
-      title: '被夺走的首胜',
-      goal: '取得第一份可公开核验的原创证据',
-      startingState: '主角刚被公司解约，只有未公开的旧版本记录',
-      arcs: [{
-        title: '匿名重返赛场',
-        objective: '进入历史副本并逼出抄袭者的规则漏洞',
-        turningPoints: ['原队友认出主角习惯', '副本奖励在现实到账'],
-        payoff: '主角拿到带时间戳的规则证据'
-      }],
-      climax: '主角在决赛中迫使对手公开使用抄袭机制',
-      endingState: '主角有了盟友和证据，但身份暴露给平台',
-      openQuestions: ['原队友是否公开站队']
-    })}`);
 
     expect(master?.majorStages).toHaveLength(2);
     expect(master?.outlineSchema).toBe('stage_master_v2');
     expect(master?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
     expect(master?.majorStages[0]?.mainline.result).toContain('参赛身份');
     expect(master?.coreConflict).toContain('规则解释权');
-    expect(volume?.arcs).toHaveLength(1);
-    expect(volume?.goal).toContain('原创证据');
-    expect(JSON.stringify(volume)).not.toContain(master?.endingDirection);
+    expect(JSON.stringify(master)).not.toContain('volumeNumber');
   });
 
   it('accepts planning artifacts embedded in the single structured reply object', () => {
@@ -339,7 +314,7 @@ describe('structured rolling chapter plans', () => {
       alternatives: [],
       risks: [],
       questions: [],
-      nextStep: '确认后讨论第一卷。',
+      nextStep: '确认后滚动规划未来三章。',
       details: null,
       workflowArtifact: {
         type: 'master_outline',
@@ -440,13 +415,6 @@ describe('structured rolling chapter plans', () => {
       endingDirection: '建立公开透明的竞技秩序'
     }, 'candidate');
     artifacts.select(scope, master.artifactId, master.artifactVersionId);
-    const volume = artifacts.create(scope, 'volume_outline', '第一卷卷纲', {
-      volumeNumber: 1,
-      goal: '完成第一轮生存与规则验证',
-      arcs: [{ title: '首次结算', objective: '证明游戏收益可以到账', turningPoints: ['第一次结算'], payoff: '保住住处' }],
-      endingState: '主角取得继续参赛资格'
-    }, 'candidate');
-    artifacts.select(scope, volume.artifactId, volume.artifactVersionId);
     let style = context.database.prepare(`
       SELECT style_version_id FROM book_style_versions
       WHERE owner_id = ? AND book_id = ? AND status = 'selected' LIMIT 1
@@ -462,13 +430,13 @@ describe('structured rolling chapter plans', () => {
     }
     context.database.prepare(`
       UPDATE book_planning_states
-      SET version = 20, stage = 'volume_outline_ready', active_style_version_id = ?,
+      SET version = 20, stage = 'master_outline_ready', active_style_version_id = ?,
         setting_baseline_version_id = ?, master_outline_version_id = ?,
-        volume_outline_version_id = ?
+        volume_outline_version_id = NULL
       WHERE owner_id = ? AND book_id = ?
     `).run(
       style.style_version_id, storyBible.artifactVersionId, master.artifactVersionId,
-      volume.artifactVersionId, scope.ownerId, scope.bookId
+      scope.ownerId, scope.bookId
     );
     const hasOpening = context.database.prepare(`
       SELECT 1 FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ? AND status = 'active'
@@ -574,13 +542,13 @@ describe('structured rolling chapter plans', () => {
     });
   });
 
-  it('replaces a confirmed master outline after downstream planning and invalidates the current volume pointer', () => {
+  it('replaces a confirmed master outline after downstream chapter planning without creating a volume layer', () => {
     context = createTestContext('wenmi-master-outline-replacement-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
       title: '剧情总纲替换测试',
-      text: '已经做过卷纲和章纲，但老板要求重做剧情总纲'
+      text: '已经做过章纲，但老板要求重做剧情总纲'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     context.database.prepare(`
@@ -606,23 +574,15 @@ describe('structured rolling chapter plans', () => {
       endingDirection: '旧版方向'
     }, 'candidate');
     artifacts.select(scope, oldMaster.artifactId, oldMaster.artifactVersionId);
-    const oldVolume = artifacts.create(scope, 'volume_outline', '第一卷卷纲', {
-      volumeNumber: 1,
-      goal: '旧版第一卷目标',
-      arcs: [{ title: '旧故事弧', objective: '旧目标', turningPoints: ['旧转折'], payoff: '旧回报' }],
-      endingState: '旧版卷末状态'
-    }, 'candidate');
-    artifacts.select(scope, oldVolume.artifactId, oldVolume.artifactVersionId);
     context.database.prepare(`
       UPDATE book_planning_states
       SET version = 20, stage = 'chapter_outline_ready',
         setting_baseline_version_id = ?, master_outline_version_id = ?,
-        volume_outline_version_id = ?
+        volume_outline_version_id = NULL
       WHERE owner_id = ? AND book_id = ?
     `).run(
       storyBible.artifactVersionId,
       oldMaster.artifactVersionId,
-      oldVolume.artifactVersionId,
       scope.ownerId,
       scope.bookId
     );
@@ -654,7 +614,7 @@ describe('structured rolling chapter plans', () => {
       alternatives: [],
       risks: [],
       questions: [],
-      nextStep: '确认后重新规划当前卷',
+      nextStep: '确认后重新滚动规划未来三章',
       details: null,
       workflowArtifact: {
         type: 'master_outline',
@@ -728,7 +688,6 @@ describe('structured rolling chapter plans', () => {
 
   it('rejects generic summaries and repeated stage goals instead of silently creating fake outlines', () => {
     expect(parseMasterOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
-    expect(parseVolumeOutlineDepositOutput('主编建议继续讨论。')).toBeNull();
     const missingResult = stageMasterPayload();
     const stages = missingResult.majorStages as Array<Record<string, unknown>>;
     stages[0] = { ...stages[0], mainline: { encounter: '遇到问题', resolution: '解决问题' } };

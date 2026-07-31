@@ -33,8 +33,7 @@ import {
 } from '../knowledge/setting-outline-workspace-service.js';
 import {
   nextChapterPlanningNumber,
-  parseMasterOutlineDepositOutput,
-  parseVolumeOutlineDepositOutput
+  parseMasterOutlineDepositOutput
 } from '../artifacts/planning-artifact-service.js';
 import { compactLockedPlanningScope } from './locked-planning-context.js';
 
@@ -408,7 +407,6 @@ export class DiscussionPipelineService {
         const output = isEditor && (
           brief.purpose === 'locked_planning'
           || brief.scopeText.includes('【剧情总纲专项讨论资料包】')
-          || brief.scopeText.includes('【卷纲专项讨论资料包】')
           || groupedSettingDiscussion
         )
           ? result.output
@@ -474,7 +472,6 @@ export class DiscussionPipelineService {
       const settingSpecialistDiscussion = brief.scopeText.includes('【设定专项讨论资料包】')
         || brief.scopeText.includes('【设定大纲成组讨论资料包】');
       const masterOutlineDiscussion = brief.scopeText.includes('【剧情总纲专项讨论资料包】');
-      const volumeOutlineDiscussion = brief.scopeText.includes('【卷纲专项讨论资料包】');
       if (masterOutlineDiscussion) {
         for (const opinion of independent) {
           if (!isValidMasterOutlineOutput(opinion.output)) {
@@ -485,8 +482,7 @@ export class DiscussionPipelineService {
       const creativePurpose = brief.purpose === 'creative_exploration'
         || brief.purpose === 'locked_planning'
         || settingSpecialistDiscussion
-        || masterOutlineDiscussion
-        || volumeOutlineDiscussion;
+        || masterOutlineDiscussion;
       if (creativePurpose) {
         const current = discussions.require(scope, brief.discussionId);
         if (current.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'cross_review');
@@ -505,10 +501,6 @@ export class DiscussionPipelineService {
       if (masterOutlineDiscussion
         && !isValidMasterOutlineOutput(editorOpinion.output)) {
         throw new Error('活动主编回复缺少有效的剧情总纲落库结构，不能把普通讨论总结伪装成剧情总纲');
-      }
-      if (volumeOutlineDiscussion
-        && parseVolumeOutlineDepositOutput(editorOpinion.output) === null) {
-        throw new Error('活动主编回复缺少有效的卷纲落库结构，不能把剧情总纲缩写或普通讨论总结伪装成卷纲');
       }
       const stage = discussions.require(scope, brief.discussionId).status;
       if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
@@ -740,28 +732,23 @@ function planningHierarchySources(
   purpose: DiscussionPurpose
 ): Array<{ sourceType: string; sourceId: string; content: string; reason: string; priority: number }> {
   const masterWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
-  const volumeWorkshop = scopeText.includes('【卷纲专项讨论资料包】');
   const rollingPlan = purpose === 'locked_planning';
-  if (!masterWorkshop && !volumeWorkshop && !rollingPlan) return [];
+  if (!masterWorkshop && !rollingPlan) return [];
   const state = database.prepare(`
     SELECT active_style_version_id, setting_baseline_version_id,
-      master_outline_version_id, volume_outline_version_id
+      master_outline_version_id
     FROM book_planning_states WHERE owner_id = ? AND book_id = ?
   `).get(scope.ownerId, scope.bookId) as {
     active_style_version_id: string | null;
     setting_baseline_version_id: string | null;
     master_outline_version_id: string | null;
-    volume_outline_version_id: string | null;
   } | undefined;
   if (state === undefined) return [];
   const requested = [
     { id: state.active_style_version_id, type: 'style', reason: '可追溯表达策略；规划按当前场景选择必要表达，不固定全书情绪' },
     { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定大纲，是剧情推演不可违背的上游边界' },
-    ...(volumeWorkshop || rollingPlan
-      ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲，当前卷只能在全书主线边界内展开' }]
-      : []),
     ...(rollingPlan
-      ? [{ id: state.volume_outline_version_id, type: 'volume_outline', reason: '已确认当前卷纲，章纲必须推进本卷目标' }]
+      ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲；只提取与当前故事弧和近期章纲相关的阶段边界' }]
       : [])
   ].filter((item): item is { id: string; type: string; reason: string } => item.id !== null);
   return requested.flatMap((item) => {
@@ -854,9 +841,6 @@ function hasRequiredWorkflowArtifact(
   if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
     return isValidMasterOutlineOutput(output);
   }
-  if (scopeText.includes('【卷纲专项讨论资料包】')) {
-    return parseVolumeOutlineDepositOutput(output) !== null;
-  }
   if (scopeText.includes('【设定大纲成组讨论资料包】')) {
     const requiredKeys = new Set(settingBatchKeys(scopeText));
     const deposits = parseSettingOutlineDeposit(output);
@@ -866,7 +850,7 @@ function hasRequiredWorkflowArtifact(
   }
   // 滚动章纲仍兼容历史确定性适配器的“规划落库”双段输出；其结构在老板
   // 确认时由 PlanningArtifactService 统一校验。这里仅拦截已统一为
-  // workflowArtifact 合同的设定、剧情总纲和卷纲。
+  // workflowArtifact 合同的设定和剧情总纲。
   void purpose;
   return true;
 }
@@ -884,7 +868,7 @@ export function discussionOutputTokenLimit(
   if (isEditor && scopeText.includes('【设定大纲成组讨论资料包】')) {
     // 成组设定必须逐项返回可解析的落库合同。固定 3.6k 会在 8—12 项批次中
     // 截断 JSON，造成“模型已成功、任务仍失败”的假性恢复循环。
-    // 预算随本批条目数有界增长，不影响普通聊天、总纲或卷纲的精简输出。
+    // 预算随本批条目数有界增长，不影响普通聊天或总纲的精简输出。
     return Math.min(8_000, Math.max(3_600, settingBatchKeys(scopeText).length * 700));
   }
   // 阶段式剧情总纲包含每阶段主线、起承转合、阶段总结、伏笔和后续方向。真实
@@ -894,12 +878,9 @@ export function discussionOutputTokenLimit(
   if (isEditor && scopeText.includes('【剧情总纲专项讨论资料包】')) {
     return 6_000;
   }
-  // 卷纲和滚动章纲的结构明显短于全书阶段总纲，4.5k 足以容纳面向作者的结论
+  // 滚动章纲的结构明显短于全书阶段总纲，4.5k 足以容纳面向作者的结论
   // 与完整 workflowArtifact；普通开放讨论仍保持较小上限。
-  if (isEditor && (
-    scopeText.includes('【卷纲专项讨论资料包】')
-    || purpose === 'locked_planning'
-  )) {
+  if (isEditor && purpose === 'locked_planning') {
     return 4_500;
   }
   // 剧情总纲要求两名编剧各自提交完整的阶段式落库结构。4k 在四阶段及以上
@@ -1070,7 +1051,6 @@ function buildDiscussionPrompt(input: {
     participant, purpose, phase, scopeText, requestedChapterCount, firstChapterNumber, evidenceContext, peerOpinions
   } = input;
   const isMasterOutlineWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
-  const isVolumeOutlineWorkshop = scopeText.includes('【卷纲专项讨论资料包】');
   const isGroupedSettingWorkshop = scopeText.includes('【设定大纲成组讨论资料包】');
   const groupedSettingKeys = isGroupedSettingWorkshop ? settingBatchKeys(scopeText) : [];
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
@@ -1086,10 +1066,8 @@ function buildDiscussionPrompt(input: {
       })))}`,
       isMasterOutlineWorkshop
         ? '这是剧情总纲专项讨论。只能综合两位编剧已经提交并通过结构校验的完整阶段方案；按连续章节范围规划全书阶段，写清每阶段的主线遭遇、解决方式、结果、起承转合、阶段总结、待回收信息与伏笔、后续方向。不得凭空补造第三套通用总纲，不得写逐章事件。'
-        : isVolumeOutlineWorkshop
-          ? '这是卷纲专项讨论。请以上一级已确认剧情总纲为边界，只处理当前卷：卷首状态、本卷唯一目标、故事弧与转折、高潮兑现和卷末状态。不得照抄或缩写整部剧情总纲。'
-          : isGroupedSettingWorkshop
-            ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、卷纲、章纲或正文。'
+        : isGroupedSettingWorkshop
+            ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
               ? '现在只做方向比较：整理2至5个候选方向，逐项写清收益、代价、因果风险、人物影响、关键分歧和未知项；提出最多3个高价值追问。不得估算章节数，不得生成章纲，不得安排主笔开写。'
               : purpose === 'locked_planning'
@@ -1101,9 +1079,6 @@ function buildDiscussionPrompt(input: {
       isMasterOutlineWorkshop
         ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":50},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。majorStages至少2项；stageNumber从1连续递增；章节范围从第1章开始且相邻阶段必须首尾相接、不得重叠或留空；主线三项、起承转合、阶段总结和后续方向不得为空。起承转合是阶段总结视角，不是每章机械公式。'
         : '',
-      isVolumeOutlineWorkshop
-        ? '在同一个JSON对象的workflowArtifact字段输出卷纲落库结构：{"type":"volume_outline","payload":{"title":"本卷名称","goal":"本卷唯一目标","startingState":"承接上级规划的卷首状态","arcs":[{"title":"本卷故事弧","objective":"弧目标","turningPoints":["转折"],"payoff":"本弧兑现"}],"climax":"本卷高潮及因果兑现","endingState":"进入下一卷时的角色与局势状态","openQuestions":["仍需老板确认的问题"]}}。不得重复剧情总纲原文。'
-        : '',
       purpose === 'locked_planning'
         ? [
             '在同一个JSON对象的workflowArtifact字段输出规划落库结构：{"type":"chapter_outline","payload":{"arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"chapterNumber":绝对章号,"title":"不含第N章前缀的章名","goal":"本章唯一叙事目标","beats":["推进节点1","推进节点2"],"hook":"本章唯一章末钩子"}]}}。',
@@ -1111,7 +1086,7 @@ function buildDiscussionPrompt(input: {
             '每章目标和钩子必须具体且互不重复。'
           ].join('')
         : '',
-      (isMasterOutlineWorkshop || isVolumeOutlineWorkshop || isGroupedSettingWorkshop || purpose === 'locked_planning')
+      (isMasterOutlineWorkshop || isGroupedSettingWorkshop || purpose === 'locked_planning')
         ? '这是必须落库的规划任务：先确保workflowArtifact完整、字段齐全且JSON闭合，再写面向老板的说明。answer不超过300字；keyPoints、risks、questions各最多3项；alternatives最多1项；details设为null。不要复述两位编剧的长篇论证，完整意见已经单独保存。'
         : '',
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
@@ -1139,9 +1114,7 @@ function buildDiscussionPrompt(input: {
     `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
     isMasterOutlineWorkshop
       ? '独立提出全书级方案：核心冲突如何持续升级、主角成长如何改变选择、各大阶段如何因果相接、结局如何兑现前文承诺。不要写逐章事件。'
-      : isVolumeOutlineWorkshop
-        ? '独立提出当前卷方案：从卷首状态出发，围绕一个本卷目标设计递进故事弧、关键转折、高潮兑现与卷末新状态。不要重述整部小说。'
-        : isGroupedSettingWorkshop
+      : isGroupedSettingWorkshop
           ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     isMasterOutlineWorkshop

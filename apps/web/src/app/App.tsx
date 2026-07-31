@@ -1204,7 +1204,7 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   </section>;
 }
 
-type PlanningTab = 'framework' | 'basic' | 'master' | 'volume' | 'chapter';
+type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter';
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
 const storyFrameworkFields = ['title', 'positioning', 'tags', 'openingReference', 'theme', 'mainPlot', 'characters', 'initialOrganizations', 'openQuestions', 'planningHistory'] as const;
@@ -1382,7 +1382,7 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterO
     const type = String(artifact.artifact_type);
     if (type === 'story_bible' && (tab === 'framework' || tab === 'basic')) return [{ artifact, projection: tab }];
     const typeByTab: Record<Exclude<PlanningTab, 'framework' | 'basic'>, string> = {
-      master: 'master_outline', volume: 'volume_outline', chapter: 'chapter_outline'
+      master: 'master_outline', chapter: 'chapter_outline'
     };
     if (tab === 'framework' && type === 'creative_plan') return [{ artifact, projection: 'complete' }];
     if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
@@ -1398,13 +1398,12 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterO
     return String(artifact.artifact_type) === 'master_outline'
       && content.outlineSchema !== 'stage_master_v2';
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['volume', '卷纲'], ['chapter', '章纲']];
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['chapter', '章纲']];
   const tabDescription: Record<PlanningTab, string> = {
     framework: '展示开书时确认的频道、分类、题材、主要标签和作品边界。',
     basic: '先建立足够支撑第一阶段创作的世界、人物与核心规则；不知道的内容可以后补或刻意留白。',
     master: '设定基线足够后，再讨论全书主线、推进阶段、重大承诺、开放问题和终局方向。',
-    volume: '按卷维护阶段目标、核心冲突、故事弧、高潮结果和卷末状态。',
-    chapter: '按章维护叙事目标、场景节拍、必须结果、读者信息和伏笔回收。'
+    chapter: '只细化未来1—3章的叙事目标、场景节拍、必须结果、读者信息和伏笔回收。'
   };
   return (
     <section className="reference-view planning-workspace" aria-labelledby="planning-title">
@@ -1413,7 +1412,7 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterO
       <ol className="creation-progress" aria-label="创作准备流程">
         <li className="done"><strong>1</strong><span>基本信息<small>已建书</small></span></li>
         <li className={tab === 'basic' ? 'active' : ''}><strong>2</strong><span>设定大纲<small>逐步完善</small></span></li>
-        <li className={tab === 'master' || tab === 'volume' || tab === 'chapter' ? 'active' : ''}><strong>3</strong><span>剧情大纲<small>设定后讨论</small></span></li>
+        <li className={tab === 'master' || tab === 'chapter' ? 'active' : ''}><strong>3</strong><span>剧情大纲<small>设定后讨论</small></span></li>
         <li><strong>4</strong><span>正文创作<small>滚动推进</small></span></li>
       </ol>
       <nav className="secondary-tabs" aria-label="规划层级">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
@@ -1640,7 +1639,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       `开书资料JSON：${JSON.stringify(compactBookProfile(bookProfile))}`,
       `本批设定项JSON：${JSON.stringify(packetTargets)}`,
       `已经确认的设定JSON：${JSON.stringify(confirmedContext)}`,
-      '工作要求：由主编主持，两名异模型编剧先独立提出相互兼容的完整方案，再进行一次有界交叉质疑。只处理本批非剧情设定；每项形成独立、明确、可直接保存的结论。不得生成剧情总纲、卷纲、章纲或正文。'
+      '工作要求：由主编主持，两名异模型编剧先独立提出相互兼容的完整方案，再进行一次有界交叉质疑。只处理本批非剧情设定；每项形成独立、明确、可直接保存的结论。不得生成剧情总纲、章纲或正文。'
     ].join('\n');
     setBusyKey('required-batch');
     setStatuses((current) => ({
@@ -3494,7 +3493,7 @@ function modelProfileValue(profile: TeamModelProfileData): string {
 }
 
 function artifactTypeLabel(type: string): string {
-  return ({ creative_plan: '本书资料', story_bible: '设定大纲', master_outline: '剧情总纲', volume_outline: '当前卷纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
+  return ({ creative_plan: '本书资料', story_bible: '设定大纲', master_outline: '剧情总纲', chapter_outline: '滚动章纲', writing_contract: '写作契约' } as Record<string, string>)[type] ?? type;
 }
 
 function authorityLabel(status: string): string {
@@ -3518,9 +3517,9 @@ function fieldLabel(key: string): string {
     resolution: '如何解决', result: '阶段结果', structure: '起承转合', setup: '起',
     development: '承', turn: '转', conclusion: '合', stageSummary: '阶段总结',
     pendingThreads: '待回收信息与伏笔', followUpDirection: '后续方向',
-    turningPoints: '关键转折', payoff: '阶段兑现', climax: '本卷高潮',
-    startingState: '卷首状态', endingDirection: '结局方向', volumeNumber: '卷号',
-    goal: '目标', arcs: '故事弧', endingState: '卷末状态',
+    turningPoints: '关键转折', payoff: '阶段兑现', climax: '阶段高潮',
+    startingState: '阶段起始状态', endingDirection: '结局方向',
+    goal: '目标', arcs: '故事弧', endingState: '阶段结束状态',
     chapterNumber: '章节', objective: '目标', beats: '场景节拍', hook: '章末钩子', status: '状态', track: '轨道',
     projection_type: '投影类型', chapter_number: '章节', canon_revision: '正史修订', content: '分析内容', sourceIds: '来源', rebuilt_at: '重建时间',
     canonical_name: '名称', entity_type: '类型', aliases: '别名', relation_key: '关系', value: '事实值', evidence: '证据', grade: '证据等级',

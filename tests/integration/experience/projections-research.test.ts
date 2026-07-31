@@ -139,24 +139,41 @@ describe('叙事投影与研究候选边界', () => {
           readerState: '读者已知'
         }]
       }), outlineRow.artifact_version_id);
-    const volumeRow = context.database.prepare(`
+    const masterRow = context.database.prepare(`
       SELECT v.artifact_version_id, v.content_json
       FROM artifact_versions v JOIN artifacts a ON a.artifact_id = v.artifact_id
-      WHERE v.owner_id = ? AND v.book_id = ? AND a.artifact_type = 'volume_outline' AND v.status = 'selected'
+      WHERE v.owner_id = ? AND v.book_id = ? AND a.artifact_type = 'master_outline' AND v.status = 'selected'
       LIMIT 1
     `).get(scope.ownerId, scope.bookId) as { artifact_version_id: string; content_json: string };
-    const volume = JSON.parse(volumeRow.content_json) as Record<string, unknown>;
     context.database.prepare(`UPDATE artifact_versions SET content_json = ? WHERE artifact_version_id = ?`)
       .run(JSON.stringify({
-        ...volume,
-        title: '荒原求生卷',
-        arcs: [{
+        outlineSchema: 'stage_master_v2',
+        premise: '夏炎必须在荒原追兵逼近前建立可持续的生存秩序。',
+        coreConflict: '生存资源、北营追捕与队伍互信之间的冲突。',
+        protagonistArc: '夏炎从独行求生者成长为能够分配任务的组织者。',
+        majorStages: [{
+          stageNumber: 1,
           title: '临时营地',
-          objective: '夏炎带领同伴建立临时营地并取得第一批补给。',
-          turningPoints: ['周老六交出北营追兵情报'],
-          payoff: '众人暂时站稳脚跟'
-        }]
-      }), volumeRow.artifact_version_id);
+          chapterRange: { start: 1, end: 50 },
+          mainline: {
+            encounter: '夏炎与同伴缺水且遭北营追兵逼近。',
+            resolution: '夏炎整合情报、分配任务并建立临时营地。',
+            result: '众人取得第一批补给并暂时站稳脚跟。'
+          },
+          structure: {
+            setup: '荒原缺水',
+            development: '寻找水源',
+            turn: '发现北营追兵',
+            conclusion: '建立临时营地'
+          },
+          stageSummary: '夏炎带领同伴建成临时营地并取得第一批补给。',
+          pendingThreads: ['北营为何追捕周老六'],
+          followUpDirection: '追查北营并巩固营地。'
+        }],
+        endingDirection: '建立可持续的生存秩序。',
+        storyPromises: ['北营追捕的真相最终会揭开'],
+        openQuestions: []
+      }), masterRow.artifact_version_id);
     const continuity = new LongformContinuityRepository(context.database);
     continuity.insertCommitment(scope, {
       id: ids.next(), type: 'foreshadowing', title: '北营旧徽记',
@@ -205,7 +222,7 @@ describe('叙事投影与研究候选边界', () => {
     expect(contents.filter((row) => row.projection_type === 'mainline' && row.track === 'planned')).toHaveLength(1);
     expect(contents.find((row) => row.projection_type === 'mainline' && row.track === 'planned')?.content)
       .toEqual(expect.objectContaining({
-        scopeLabel: '荒原求生卷 · 临时营地',
+        scopeLabel: '临时营地',
         summary: expect.stringContaining('建立临时营地')
       }));
     expect(contents.find((row) => row.projection_type === 'emotion' && row.track === 'planned')?.content)

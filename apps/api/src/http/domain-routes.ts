@@ -177,7 +177,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{
     Params: { bookId: string };
-    Body: { expectedPlanningVersion: number; artifactVersionId: string; artifactType: 'master_outline' | 'volume_outline' | 'chapter_outline' };
+    Body: { expectedPlanningVersion: number; artifactVersionId: string; artifactType: 'master_outline' | 'chapter_outline' };
   }>('/api/v1/books/:bookId/planning-artifacts/confirm', async (request) => {
     const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
     return success(planningStageArtifacts.confirm(
@@ -716,7 +716,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       SELECT a.artifact_id, a.artifact_type, a.title, a.active_version_id, a.status,
         a.version, a.updated_at, v.content_json, v.content_hash, v.status AS active_version_status
       FROM artifacts a LEFT JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
-      WHERE a.owner_id = ? AND a.book_id = ? ORDER BY a.artifact_type, a.title
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type <> 'volume_outline'
+      ORDER BY a.artifact_type, a.title
     `).all(config.ownerId, request.params.bookId) as unknown as Array<Record<string, unknown> & { content_json: string | null }>;
     return success(rows.map(({ content_json: contentJson, ...row }) => ({
       ...row,

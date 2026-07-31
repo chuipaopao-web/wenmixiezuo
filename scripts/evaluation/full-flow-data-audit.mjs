@@ -127,7 +127,7 @@ try {
   requireCheck(settingSummary.with_content === 60, `含有效内容设定应为60，实际为${settingSummary.with_content}`);
   requireCheck(storyBibles.length >= 1, '缺少活动设定基线');
   requireCheck(masterOutlines.length >= 1, '缺少活动剧情总纲');
-  requireCheck(volumeOutlines.length >= 1, '缺少活动卷纲');
+  requireCheck(volumeOutlines.length === 0, `活动流程不应再存在卷纲，实际为${volumeOutlines.length}`);
   requireCheck(JSON.stringify(chapterOutlines) === JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), `活动章纲不完整：${chapterOutlines.join(',')}`);
   requireCheck(chapters.length === 10, `正文应为10章，实际为${chapters.length}`);
   for (const chapter of chapters) {
@@ -152,7 +152,7 @@ try {
     artifacts: {
       storyBibleCount: storyBibles.length,
       masterOutlineCount: masterOutlines.length,
-      volumeOutlineCount: volumeOutlines.length,
+      retiredVolumeOutlineCount: volumeOutlines.length,
       chapterOutlineNumbers: chapterOutlines
     },
     chapters,

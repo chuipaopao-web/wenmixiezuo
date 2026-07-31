@@ -2,7 +2,7 @@
 
 ## 1. 总原则
 
-DEC-066沿用 `book_planning_states` 与不可变 `book_style_versions`，但将后者解释为表达调色板与动态规则的版本记录。开书快照必须包含1—8位主角；调色板可为空。总纲、卷纲与章纲分别确认并显式引用活动上游版本。旧书不由迁移猜测补齐主角、表达策略或设定。
+DEC-066沿用 `book_planning_states` 与不可变 `book_style_versions`，但将后者解释为表达调色板与动态规则的版本记录。开书快照必须包含1—8位主角；调色板可为空。按DEC-070，总纲与章纲分别确认，章纲显式引用活动总纲和当前已确认讨论决定；独立卷纲退役。旧书不由迁移猜测补齐主角、表达策略或设定。
 
 - SQLite是权威结构化事实源；正文文件是权威内容资产；FTS、缓存和图谱是可重建投影。
 - 除全局模板外，所有核心记录必须携带 `owner_id` 和 `book_id`。
@@ -123,9 +123,9 @@ collecting
 
 ### `artifacts`
 
-统一保存创作方案、故事圣经、总纲、卷纲、章纲、写作契约和其他结构化成果的版本元数据。不同类型通过Schema和版本化模板约束。
+统一保存创作方案、故事圣经、总纲、章纲、写作契约和其他结构化成果的版本元数据。不同类型通过Schema和版本化模板约束。历史 `volume_outline` 仅为兼容审计类型：旧版本保留，活动指针清空，Artifact归档，不能通过公共作者流程新建、确认或选择。
 
-新确认的 `master_outline` 使用 `outlineSchema = stage_master_v2`。`majorStages` 每项包含 `stageNumber`、`title`、`chapterRange { start, end }`、`mainline { encounter, resolution, result }`、`structure { setup, development, turn, conclusion }`、`stageSummary`、`pendingThreads[]` 和 `followUpDirection`。阶段范围连续但仅是活动规划；旧 `title/goal/turningPoint` 结构继续只读兼容。总纲版本显式引用活动设定版本，卷纲继续显式引用活动总纲版本。
+新确认的 `master_outline` 使用 `outlineSchema = stage_master_v2`。`majorStages` 每项包含 `stageNumber`、`title`、`chapterRange { start, end }`、`mainline { encounter, resolution, result }`、`structure { setup, development, turn, conclusion }`、`stageSummary`、`pendingThreads[]` 和 `followUpDirection`。阶段范围连续但仅是活动规划；旧 `title/goal/turningPoint` 结构继续只读兼容。总纲版本显式引用活动设定版本；章纲直接引用活动总纲的相关阶段和已确认故事弧决定，不经过独立卷纲。
 
 场景契约作为写作契约内的版本化结构，保存场景顺序、叙事功能、目标读者效果、冲突、信息变化、情绪变化、核心/辅助技法选择、选择理由、自由创作区和重大候选。技法选择是软建议，不能覆盖表达基线、硬事实或主笔自由创作权。
 

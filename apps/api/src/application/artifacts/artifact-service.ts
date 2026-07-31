@@ -41,6 +41,7 @@ export class ArtifactService {
 
   public create(scope: BookScope, type: ArtifactType, title: string, content: Record<string, unknown>, status: 'draft' | 'candidate' = 'draft'): ArtifactVersionRecord {
     assertBookScope(scope);
+    if (type === 'volume_outline') throw new Error('独立卷纲已经退役，不能创建新版本');
     validateArtifactContent(type, content);
     const book = this.database.prepare('SELECT positioning_version FROM books WHERE owner_id = ? AND book_id = ?')
       .get(scope.ownerId, scope.bookId) as { positioning_version: number } | undefined;
@@ -72,6 +73,7 @@ export class ArtifactService {
 
   public addVersion(scope: BookScope, artifactId: string, content: Record<string, unknown>, parentVersionId: string | null = null): ArtifactVersionRecord {
     const artifact = this.requireArtifact(scope, artifactId);
+    if (artifact.artifact_type === 'volume_outline') throw new Error('独立卷纲已经退役，不能新增版本');
     validateArtifactContent(artifact.artifact_type, content);
     const book = this.database.prepare('SELECT positioning_version FROM books WHERE owner_id = ? AND book_id = ?')
       .get(scope.ownerId, scope.bookId) as { positioning_version: number };
@@ -97,6 +99,7 @@ export class ArtifactService {
 
   public select(scope: BookScope, artifactId: string, versionId: string): ArtifactVersionRecord {
     const artifact = this.requireArtifact(scope, artifactId);
+    if (artifact.artifact_type === 'volume_outline') throw new Error('历史卷纲仅供审计，不能重新激活');
     const version = this.requireVersion(scope, versionId);
     if (version.artifactId !== artifactId) throw new Error('成果版本不属于指定成果');
     const now = this.clock.now().toISOString();
@@ -148,17 +151,6 @@ export class ArtifactService {
           )
       `).run(versionId, now, scope.ownerId, scope.bookId, artifactId);
       return;
-    }
-    if (artifactType === 'volume_outline') {
-      this.database.prepare(`
-        UPDATE book_planning_states
-        SET version = version + 1, stage = 'volume_outline_ready',
-            volume_outline_version_id = ?, updated_at = ?
-        WHERE owner_id = ? AND book_id = ?
-          AND volume_outline_version_id IN (
-            SELECT artifact_version_id FROM artifact_versions WHERE artifact_id = ?
-          )
-      `).run(versionId, now, scope.ownerId, scope.bookId, artifactId);
     }
   }
 

@@ -200,22 +200,15 @@ try {
   record('剧情总纲可见且属于当前书', text, ['剧情总纲', '夏炎']);
   report.screenshots.push(await screenshot('03-master-outline.png'));
 
-  await clickButton('卷纲');
-  text = await bodyText();
-  assertIncludes(text, '卷纲', '规划-卷纲');
-  assertIncludes(text, '第一桶金：从流民到屯长', '规划-卷纲');
-  assertIncludes(text, '护营战与合法化', '规划-卷纲');
-  assertNoInternalLeak(text, '规划-卷纲');
-  record('第一卷卷纲可见且具备本卷独有结构', text, ['卷纲', '第一桶金：从流民到屯长', '护营战与合法化']);
-  report.screenshots.push(await screenshot('04-volume-outline.png'));
-
   await clickButton('章纲');
   text = await bodyText();
   assertIncludes(text, '零元开局', '规划-章纲');
   assertIncludes(text, '模糊的脚印', '规划-章纲');
+  assertNotIncludes(text, '卷纲', '规划-章纲');
   assertNoInternalLeak(text, '规划-章纲');
   record('第1—10章章纲可见', text, ['零元开局', '模糊的脚印']);
-  report.screenshots.push(await screenshot('05-chapter-outlines.png'));
+  record('规划页不再提供独立卷纲入口', text, ['章纲']);
+  report.screenshots.push(await screenshot('04-chapter-outlines.png'));
 
   await clickButton('正文');
   text = await bodyText();

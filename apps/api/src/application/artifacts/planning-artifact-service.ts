@@ -42,26 +42,10 @@ interface StructuredArcPlan {
 
 type StructuredMasterOutline = StageMasterOutlineV2;
 
-interface StructuredVolumeOutline {
-  title: string;
-  goal: string;
-  startingState: string;
-  arcs: Array<{
-    title: string;
-    objective: string;
-    turningPoints: string[];
-    payoff: string;
-  }>;
-  climax: string;
-  endingState: string;
-  openQuestions: string[];
-}
-
 export interface PreparedPlanningArtifacts {
   creativePlanVersionId: string;
   storyBibleVersionId: string;
   masterOutlineVersionId: string;
-  volumeOutlineVersionId: string;
   chapterOutlineVersionIds: string[];
 }
 
@@ -102,7 +86,7 @@ export class PlanningArtifactService {
     scope: BookScope,
     discussionId: string,
     decisionId: string
-  ): { artifactType: 'master_outline' | 'volume_outline'; artifactVersionId: string; stage: string } | null {
+  ): { artifactType: 'master_outline'; artifactVersionId: string; stage: string } | null {
     return new UnitOfWork(this.database).run(
       () => this.promoteCurrentPlanningStageInTransaction(scope, discussionId, decisionId)
     );
@@ -112,7 +96,7 @@ export class PlanningArtifactService {
     scope: BookScope,
     discussionId: string,
     decisionId: string
-  ): { artifactType: 'master_outline' | 'volume_outline'; artifactVersionId: string; stage: string } | null {
+  ): { artifactType: 'master_outline'; artifactVersionId: string; stage: string } | null {
     assertBookScope(scope);
     const workflow = new PlanningWorkflowRepository(this.database);
     if (workflow.openingBlueprint(scope) === undefined) return null;
@@ -151,8 +135,8 @@ export class PlanningArtifactService {
         ...source
       });
       // 选定同一剧情总纲的新版本时，ArtifactService 会把规划状态回退到
-      // master_outline_ready 并清空依赖旧总纲的当前卷纲指针。这里不能再按
-      // 旧 version 调用 confirm，否则已经进入卷纲/章纲阶段的书无法替换总纲。
+      // master_outline_ready，并清空退役卷纲的兼容指针。这里不能再按旧
+      // version 调用 confirm，否则已经进入章纲阶段的书无法替换总纲。
       if (state.master_outline_version_id !== null) {
         const replaced = workflow.planningState(scope);
         if (replaced?.master_outline_version_id !== version.artifactVersionId) {
@@ -176,31 +160,6 @@ export class PlanningArtifactService {
       throw new Error('剧情总纲缺少有效的全书级结构，不能把普通讨论总结重复写入剧情总纲');
     }
 
-    if (['master_outline_ready', 'volume_outline_in_progress'].includes(state.stage)) {
-      if (state.master_outline_version_id === null) {
-        throw new Error('确认卷纲前必须先确认剧情总纲');
-      }
-      const structured = parseVolumeOutlineDepositOutput(rawSummary);
-      if (structured === null) {
-        throw new Error('卷纲缺少有效的本卷结构，不能用剧情总纲或普通讨论总结代替卷纲');
-      }
-      const volumeNumber = this.currentVolumeNumber(scope);
-      const version = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
-        volumeNumber,
-        title: structured.title,
-        goal: structured.goal,
-        startingState: structured.startingState,
-        arcs: structured.arcs,
-        climax: structured.climax,
-        endingState: structured.endingState,
-        openQuestions: structured.openQuestions,
-        sourceMasterOutlineVersionId: state.master_outline_version_id,
-        ...source
-      });
-      const advanced = new PlanningStageArtifactService(this.database, this.clock)
-        .confirm(scope, state.version, version.artifactVersionId, 'volume_outline');
-      return { artifactType: 'volume_outline', artifactVersionId: version.artifactVersionId, stage: advanced.stage };
-    }
     return null;
   }
 
@@ -213,19 +172,18 @@ export class PlanningArtifactService {
     assertBookScope(scope);
     const state = this.database.prepare(`
       SELECT version, active_style_version_id, setting_baseline_version_id,
-        master_outline_version_id, volume_outline_version_id
+        master_outline_version_id
       FROM book_planning_states
-      WHERE owner_id = ? AND book_id = ? AND stage IN ('volume_outline_ready', 'chapter_outline_ready', 'writing_enabled')
+      WHERE owner_id = ? AND book_id = ? AND stage IN ('master_outline_ready', 'chapter_outline_ready', 'writing_enabled')
     `).get(scope.ownerId, scope.bookId) as {
       version: number;
       active_style_version_id: string | null;
       setting_baseline_version_id: string | null;
       master_outline_version_id: string | null;
-      volume_outline_version_id: string | null;
     } | undefined;
     if (state === undefined || state.active_style_version_id === null || state.setting_baseline_version_id === null
-      || state.master_outline_version_id === null || state.volume_outline_version_id === null) {
-      throw new Error('滚动章纲只能在表达策略记录、设定、剧情总纲和当前卷纲依次就绪后生成');
+      || state.master_outline_version_id === null) {
+      throw new Error('滚动章纲只能在表达策略记录、设定和剧情总纲依次就绪后生成');
     }
     const decision = this.database.prepare(`
       SELECT x.scope_text, d.recommendation_json, d.alternatives_json, d.boss_confirmed
@@ -245,7 +203,7 @@ export class PlanningArtifactService {
     const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
     const chapterPlans = structured?.chapters ?? Array.from({ length: chapterCount }, (_, index) => ({
       title: `第${firstChapterNumber + index}章`,
-      goal: `推进当前卷已确认目标：${narrativeSummary}`,
+      goal: `推进当前故事弧与剧情总纲相关阶段：${narrativeSummary}`,
       beats,
       hook: extractHook(narrativeSummary, decision.scope_text)
     }));
@@ -254,7 +212,6 @@ export class PlanningArtifactService {
       sourceDiscussionId: discussionId,
       sourceDecisionId: decisionId,
       sourceMasterOutlineVersionId: state.master_outline_version_id,
-      sourceVolumeOutlineVersionId: state.volume_outline_version_id,
       sourceStyleVersionId: state.active_style_version_id,
       sourceSettingBaselineVersionId: state.setting_baseline_version_id
     };
@@ -283,7 +240,6 @@ export class PlanningArtifactService {
       creativePlanVersionId: state.active_style_version_id,
       storyBibleVersionId: state.setting_baseline_version_id,
       masterOutlineVersionId: state.master_outline_version_id,
-      volumeOutlineVersionId: state.volume_outline_version_id,
       chapterOutlineVersionIds
     };
   }
@@ -363,24 +319,6 @@ export class PlanningArtifactService {
       endingDirection: stringValue(positioning.ending?.value) ?? '尚未锁定；后续由老板确认',
       ...source
     });
-    const volumeNumber = this.currentVolumeNumber(scope);
-    const volumeTitle = `第${volumeNumber}卷卷纲`;
-    const currentVolumeOutline = this.currentArtifactContent(scope, 'volume_outline', volumeTitle);
-    const currentArcs = asArray(currentVolumeOutline.arcs).filter(isRecord);
-    const nextArc = {
-      title: structuredPlan?.arcTitle ?? '当前故事弧',
-      chapterStart: firstChapterNumber,
-      chapterEnd: firstChapterNumber + chapterCount - 1,
-      objective: structuredPlan?.arcGoal ?? narrativeSummary,
-      status: 'active'
-    };
-    const volumeOutline = this.upsert(scope, 'volume_outline', `第${volumeNumber}卷卷纲`, {
-      volumeNumber,
-      goal: structuredPlan?.arcGoal ?? narrativeSummary,
-      arcs: mergeArcItems(currentArcs, nextArc),
-      endingState: structuredPlan?.endingState ?? extractHook(narrativeSummary, decision.scope_text),
-      ...source
-    });
     const chapterOutlineVersionIds = Array.from({ length: chapterPlans.length }, (_, index) => {
       const chapterNumber = firstChapterNumber + index;
       const plan = chapterPlans[index]!;
@@ -390,6 +328,12 @@ export class PlanningArtifactService {
         goal: plan.goal,
         beats: plan.beats,
         hook: plan.hook,
+        sourceMasterOutlineVersionId: masterOutline.artifactVersionId,
+        storyArc: {
+          title: structuredPlan?.arcTitle ?? '当前故事弧',
+          goal: structuredPlan?.arcGoal ?? narrativeSummary,
+          endingState: structuredPlan?.endingState ?? extractHook(narrativeSummary, decision.scope_text)
+        },
         ...source
       });
       return outline.artifactVersionId;
@@ -398,7 +342,6 @@ export class PlanningArtifactService {
       creativePlanVersionId: creativePlan.artifactVersionId,
       storyBibleVersionId: storyBible.artifactVersionId,
       masterOutlineVersionId: masterOutline.artifactVersionId,
-      volumeOutlineVersionId: volumeOutline.artifactVersionId,
       chapterOutlineVersionIds
     };
   }
@@ -473,14 +416,6 @@ export class PlanningArtifactService {
 
   private nextChapterNumber(scope: BookScope): number {
     return nextChapterPlanningNumber(this.database, scope);
-  }
-
-  private currentVolumeNumber(scope: BookScope): number {
-    const row = this.database.prepare(`
-      SELECT COALESCE(MAX(volume_number), 1) AS volume_number FROM volumes
-      WHERE owner_id = ? AND book_id = ? AND status = 'active'
-    `).get(scope.ownerId, scope.bookId) as { volume_number: number };
-    return row.volume_number;
   }
 
   private recommendedChapterCount(scope: BookScope, discussionId: string): number {
@@ -599,43 +534,8 @@ export function parseMasterOutlineDepositOutput(summary: string): StructuredMast
   return parseStageMasterOutlineV2(value);
 }
 
-export function parseVolumeOutlineDepositOutput(summary: string): StructuredVolumeOutline | null {
-  const value = parseMarkedDeposit(summary, '卷纲落库');
-  if (value === null) return null;
-  const title = stringValue(value.title);
-  const goal = stringValue(value.goal);
-  const startingState = stringValue(value.startingState);
-  const climax = stringValue(value.climax);
-  const endingState = stringValue(value.endingState);
-  if (title === null || goal === null || startingState === null || climax === null || endingState === null) {
-    throw new Error('卷纲必须包含卷名、本卷目标、卷首状态、高潮和卷末状态');
-  }
-  if (!Array.isArray(value.arcs) || value.arcs.length < 1) throw new Error('卷纲必须包含至少一个本卷故事弧');
-  const arcs = value.arcs.map((item, index) => {
-    if (!isRecord(item)) throw new Error(`卷纲第${index + 1}个故事弧格式无效`);
-    const arcTitle = stringValue(item.title);
-    const objective = stringValue(item.objective);
-    const payoff = stringValue(item.payoff);
-    const turningPoints = stringArray(item.turningPoints).filter(Boolean);
-    if (arcTitle === null || objective === null || payoff === null || turningPoints.length < 1) {
-      throw new Error(`卷纲第${index + 1}个故事弧缺少标题、目标、转折或兑现`);
-    }
-    return { title: arcTitle, objective, turningPoints, payoff };
-  });
-  return {
-    title,
-    goal,
-    startingState,
-    arcs,
-    climax,
-    endingState,
-    openQuestions: stringArray(value.openQuestions).filter(Boolean)
-  };
-}
-
-function parseMarkedDeposit(summary: string, markerText: '剧情总纲落库' | '卷纲落库'): Record<string, unknown> | null {
-  const workflowType = markerText === '剧情总纲落库' ? 'master_outline' : 'volume_outline';
-  const workflowPayload = parseWorkflowArtifact(summary, workflowType);
+function parseMarkedDeposit(summary: string, markerText: '剧情总纲落库'): Record<string, unknown> | null {
+  const workflowPayload = parseWorkflowArtifact(summary, 'master_outline');
   if (workflowPayload !== null) return workflowPayload;
   const text = effectivePlanningText(summary);
   const marker = new RegExp(`${markerText}(?:\\*\\*)?`, 'u').exec(text);
@@ -820,20 +720,6 @@ export function mergeNumberedItems(
     if (number !== null) merged.set(number, item);
   }
   return [...merged.entries()].sort(([left], [right]) => left - right).map(([, item]) => item);
-}
-
-export function mergeArcItems(
-  current: Record<string, unknown>[],
-  incoming: Record<string, unknown>
-): Record<string, unknown>[] {
-  const start = integerValue(incoming.chapterStart);
-  const end = integerValue(incoming.chapterEnd);
-  const retained = current.filter((item) =>
-    integerValue(item.chapterStart) !== start || integerValue(item.chapterEnd) !== end
-  );
-  return [...retained, incoming].sort((left, right) =>
-    (integerValue(left.chapterStart) ?? 0) - (integerValue(right.chapterStart) ?? 0)
-  );
 }
 
 function stringArray(value: unknown): string[] {

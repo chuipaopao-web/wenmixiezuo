@@ -43,7 +43,7 @@ export class LocalAssistantService {
   }
 }
 function decide(text: string): RoutingDecision {
-  if (/^(?:讨论设定\s+)?【(?:设定专项讨论资料包|设定大纲成组讨论资料包|剧情总纲专项讨论资料包|卷纲专项讨论资料包)】/u.test(text)) {
+  if (/^(?:讨论设定\s+)?【(?:设定专项讨论资料包|设定大纲成组讨论资料包|剧情总纲专项讨论资料包)】/u.test(text)) {
     return {
       routeClass: 'editor_handoff',
       riskLevel: 'medium',

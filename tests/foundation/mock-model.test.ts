@@ -35,10 +35,6 @@ describe('确定性假模型', () => {
       ...request,
       prompt: '你是当前书籍的活动主编。剧情总纲落库 输出合同'
     });
-    const volume = await adapter.generate({
-      ...request,
-      prompt: '你是当前书籍的活动主编。卷纲落库 输出合同'
-    });
     const chapters = await adapter.generate({
       ...request,
       prompt: '你是当前书籍的活动主编。规划落库 输出合同'
@@ -49,8 +45,7 @@ describe('确定性假模型', () => {
     expect(parsedMaster?.outlineSchema).toBe('stage_master_v2');
     expect(parsedMaster?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
     expect(parsedMaster?.majorStages[0]?.pendingThreads).toBeDefined();
-    expect(volume.output).toContain('卷纲落库');
     expect(chapters.output).toContain('规划落库');
-    expect(master.output).not.toBe(volume.output);
+    expect(master.output).not.toBe(chapters.output);
   });
 });

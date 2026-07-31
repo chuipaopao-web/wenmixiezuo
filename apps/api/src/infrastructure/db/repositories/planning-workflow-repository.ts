@@ -119,7 +119,7 @@ export class PlanningWorkflowRepository {
     scope: BookScope,
     expected: number,
     stage: string,
-    column: 'master_outline_version_id' | 'volume_outline_version_id' | null,
+    column: 'master_outline_version_id' | null,
     id: string,
     now: string
   ): boolean {
@@ -129,13 +129,9 @@ export class PlanningWorkflowRepository {
         WHERE owner_id = ? AND book_id = ? AND version = ?
       `).run(stage, now, scope.ownerId, scope.bookId, expected).changes === 1;
     }
-    const sql = column === 'master_outline_version_id'
-      ? `UPDATE book_planning_states SET version = version + 1, stage = ?,
-          master_outline_version_id = ?, updated_at = ?
-         WHERE owner_id = ? AND book_id = ? AND version = ?`
-      : `UPDATE book_planning_states SET version = version + 1, stage = ?,
-          volume_outline_version_id = ?, updated_at = ?
-         WHERE owner_id = ? AND book_id = ? AND version = ?`;
+    const sql = `UPDATE book_planning_states SET version = version + 1, stage = ?,
+        master_outline_version_id = ?, updated_at = ?
+       WHERE owner_id = ? AND book_id = ? AND version = ?`;
     return this.database.prepare(sql).run(stage, id, now, scope.ownerId, scope.bookId, expected).changes === 1;
   }
 }

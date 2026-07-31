@@ -4,7 +4,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 
-type ConfirmablePlanningType = 'master_outline' | 'volume_outline' | 'chapter_outline';
+type ConfirmablePlanningType = 'master_outline' | 'chapter_outline';
 
 export class PlanningStageArtifactService {
   private readonly repository: PlanningWorkflowRepository;
@@ -29,13 +29,8 @@ export class PlanningStageArtifactService {
         stage: 'master_outline_ready',
         column: 'master_outline_version_id'
       },
-      volume_outline: {
-        allowed: ['master_outline_ready', 'volume_outline_in_progress'],
-        stage: 'volume_outline_ready',
-        column: 'volume_outline_version_id'
-      },
       chapter_outline: {
-        allowed: ['volume_outline_ready', 'chapter_outline_ready', 'writing_enabled'],
+        allowed: ['master_outline_ready', 'chapter_outline_ready', 'writing_enabled'],
         stage: 'chapter_outline_ready',
         column: null
       }
@@ -48,11 +43,8 @@ export class PlanningStageArtifactService {
     if (artifactType === 'master_outline' && state.setting_baseline_version_id === null) {
       throw new DomainError(errorCodes.operationIncomplete, '确认剧情总纲前必须先确认设定基线', {}, false, 409);
     }
-    if (artifactType === 'volume_outline' && state.master_outline_version_id === null) {
-      throw new DomainError(errorCodes.operationIncomplete, '确认卷纲前必须先确认剧情总纲', {}, false, 409);
-    }
-    if (artifactType === 'chapter_outline' && state.volume_outline_version_id === null) {
-      throw new DomainError(errorCodes.operationIncomplete, '确认章纲前必须先确认当前卷纲', {}, false, 409);
+    if (artifactType === 'chapter_outline' && state.master_outline_version_id === null) {
+      throw new DomainError(errorCodes.operationIncomplete, '确认章纲前必须先确认剧情总纲', {}, false, 409);
     }
     const changed = this.repository.advanceArtifact(
       scope, expectedPlanningVersion, rule.stage, rule.column, artifactVersionId, this.clock.now().toISOString()

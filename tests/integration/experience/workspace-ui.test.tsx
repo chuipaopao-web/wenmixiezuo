@@ -678,7 +678,8 @@ describe('完整创作工作台', () => {
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
     expect(await screen.findByRole('heading', { name: '创作准备' })).toBeInTheDocument();
-    for (const name of ['本书资料', '设定大纲', '剧情总纲', '卷纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['本书资料', '设定大纲', '剧情总纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '卷纲' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '章节列表' })).not.toBeInTheDocument();
     expect(await screen.findByText('游戏历史')).toBeInTheDocument();
     expect(screen.queryByText('钟响后可见未来一天')).not.toBeInTheDocument();
@@ -699,8 +700,6 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('神名禁忌')).toBeInTheDocument();
     expect(importBox).toHaveAttribute('maxlength', '10000');
     expect(screen.getAllByRole('button', { name: '跳转讨论' }).length).toBeGreaterThan(10);
-    fireEvent.click(screen.getByRole('button', { name: '卷纲' }));
-    expect(await screen.findByRole('heading', { name: '第一卷卷纲' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('守城与预见')).toBeInTheDocument();
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
@@ -1325,7 +1324,6 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         worldRules: ['钟响后可见未来一天']
       } },
       { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}', acts: ['雾城危机'], endingDirection: '待确认' } },
-      { artifact_id: 'volume-1', artifact_type: 'volume_outline', title: '第一卷卷纲', status: 'active', version: 1, active_version_status: 'active', active_content: { volumeNumber: 1, goal: '揭开钟声来源', arcs: ['雾城危机'], endingState: '城门失守' } },
       { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第1章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, title: '穷途末路的入口', goal: '确立生存压力并进入游戏舱', beats: ['确认余额', '接取任务'], hook: '完成度将影响收益' } },
       { artifact_id: 'chapter-2', artifact_type: 'chapter_outline', title: '第2章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 2, title: '第一笔血汗钱', goal: '确认游戏收入真实到账', beats: ['完成采集', '收到转账'], hook: '设备状态开始下降' } },
       { artifact_id: 'chapter-3', artifact_type: 'chapter_outline', title: '第3章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 3, title: '摔在同一个坑里', goal: '因规则盲区受损并开始记录规律', beats: ['连续登录', '建立规则表'], hook: '需要查清隐藏规则' } }
