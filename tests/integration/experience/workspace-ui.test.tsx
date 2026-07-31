@@ -710,6 +710,8 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('确认游戏收入真实到账')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
+    const libraryTabs = screen.getByRole('navigation', { name: '资料分类' });
+    expect(within(libraryTabs).queryByRole('button', { name: '证据' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '雾钟档案' })).toBeInTheDocument();
     expect(screen.getByText(/历史脑洞/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '已确认设定' }));

@@ -1057,6 +1057,9 @@
 - 实现约束：各类投影只从相应明确来源生成；主线按阶段、其余按章或阶段聚合；卡片不显示技术字段和章末原文；无证据允许为空。
 - 验收标准：满足 `docs/ACCEPTANCE.md` 的DEC-068七项；真实书重建后人工逐轨核读；正文、正史、规划哈希不变。
 - 测试命令：叙事投影专项Vitest、工作区UI专项Vitest、`npm.cmd run verify`、`npm.cmd run migrate`、`npm.cmd run acceptance`、`npm.cmd run verify:backup`、运行时图谱探针、`git diff --check`。
+- 停止条件：出现跨书泄漏、来源误配、正式数据变化、需要付费/新密钥/永久删除/生产恢复或重大额外架构变更。
+- 回滚方法：Git revert应用/UI/文档修改后按旧来源重建派生投影；不删除任何正式源。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/concise-narrative-graph-20260730.md`。
 
 ### WF-20260731-01：退役独立卷纲规划层
 
@@ -1073,6 +1076,18 @@
 - 测试命令：`npm.cmd run typecheck`、规划/讨论/工作区/投影/迁移专项Vitest、`npm.cmd run build`、`npm.cmd run migrate`、空库升级验证、`npm.cmd run verify:backup`、`npm.cmd run verify`、`git diff --check`。
 - 停止条件：历史版本丢失、已有可写书籍回退、越级章纲、跨书、总纲膨胀为逐章模板、上下文重复增加或需要生产数据恢复。
 - 回滚方法：业务代码Git revert；Schema只新增修复迁移；历史卷纲版本始终保留，不从备份覆盖生产数据。
-- 停止条件：出现跨书泄漏、来源误配、正式数据变化、需要付费/新密钥/永久删除/生产恢复或重大额外架构变更。
-- 回滚方法：Git revert应用/UI/文档修改后按旧来源重建派生投影；不删除任何正式源。
-- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/concise-narrative-graph-20260730.md`。
+
+### UX-20260731-02：移除资料库重复证据页
+
+- `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`。
+- 状态：实现与全量工程门禁已通过；待提交后执行干净工作树发布验收。
+- 目标：移除作者资料库中竖排、重复且暴露内部关系键的独立“证据”页，让证据只在对应资料卡中以简洁来源信息呈现。
+- 不做什么：不删除事实、来源、引用、正史或审计数据；不修改RAG、冲突检查、正史结算和高级诊断；不修改 `D:\AI智囊团`。
+- 唯一负责人 / 复核人：当前Codex / 当前Codex；不调用其他开发Agent。
+- 允许文件：Web资料库作者视图、工作区UI测试、当前产品/路线/验收/用户指南/决定/任务文档和release证据；禁止文件：数据库迁移、Repository、正式正文、正史源、API Key和其他项目。
+- 依赖：DEC-041资料库结构化卡片、DEC-038小文秘书展示边界、现有事实证据闭环。
+- 实现约束：作者导航无“证据”分类；实体资料卡继续显示来源章、证据等级和权威状态；API响应和后台事实数组保持兼容。
+- 验收标准：截图中的四列竖排证据页无法再进入；资料库其余分类可用；工作区专项测试、类型检查、全量测试、构建和本地运行通过。
+- 测试命令：工作区UI专项Vitest、`npm.cmd run typecheck`、`npm.cmd test`、`npm.cmd run build`、本地HTTP健康探针、`git diff --check`、`npm.cmd run acceptance`。
+- 停止条件：实体卡丢失来源、事实数据被修改、RAG/正史测试回退、出现跨书泄漏或需要生产数据恢复。
+- 回滚方法：Git revert作者视图与文档修改；无需数据恢复。
