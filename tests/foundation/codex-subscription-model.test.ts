@@ -4,6 +4,7 @@ import {
   type CodexProcessRunner
 } from '../../apps/api/src/infrastructure/models/codex-subscription-model.js';
 import { ModelAdapterError } from '../../apps/api/src/infrastructure/models/model-adapter.js';
+import { buildRoleSystemPrompt } from '../../apps/api/src/domain/role-prompts.js';
 
 const request = {
   requestId: 'request-codex-1', taskId: 'task-codex-1', ownerId: 'owner-1', bookId: 'book-1',
@@ -25,7 +26,7 @@ describe('Codex订阅模型适配器', () => {
     const adapter = new CodexSubscriptionModelAdapter({
       executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
       workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
-      purpose: 'novel_writer', roleKey: 'writer'
+      purpose: 'novel_writer', systemPrompt: buildRoleSystemPrompt('writer', 'novel_writer')
     }, { run });
 
     await expect(adapter.generate(request)).resolves.toMatchObject({
@@ -42,7 +43,7 @@ describe('Codex订阅模型适配器', () => {
     const adapter = new CodexSubscriptionModelAdapter({
       executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
       workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
-      purpose: 'discussion', roleKey: 'chief_editor'
+      purpose: 'discussion', systemPrompt: buildRoleSystemPrompt('chief_editor', 'discussion')
     }, { run });
 
     await expect(adapter.generate(request)).resolves.toMatchObject({
@@ -55,7 +56,7 @@ describe('Codex订阅模型适配器', () => {
     const adapter = new CodexSubscriptionModelAdapter({
       executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
       workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
-      purpose: 'discussion', roleKey: 'chief_editor'
+      purpose: 'discussion', systemPrompt: buildRoleSystemPrompt('chief_editor', 'discussion')
     }, { run });
     const controller = new AbortController();
     controller.abort(new Error('cancelled'));
@@ -68,7 +69,7 @@ describe('Codex订阅模型适配器', () => {
     const adapter = new CodexSubscriptionModelAdapter({
       executable: 'codex', provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol',
       workingDirectory: 'D:\\wenmixiezuo\\data\\cache\\codex-runtime', timeoutMs: 180_000,
-      purpose: 'discussion', roleKey: 'chief_editor'
+      purpose: 'discussion', systemPrompt: buildRoleSystemPrompt('chief_editor', 'discussion')
     }, { run: async () => { throw new Error('process closed'); } });
 
     const error = await adapter.generate(request).catch((reason: unknown) => reason);

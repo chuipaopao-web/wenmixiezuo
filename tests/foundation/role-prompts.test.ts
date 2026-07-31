@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildRoleSystemPrompt, rolePromptDefinitions } from '../../apps/api/src/domain/role-prompts.js';
+import { buildRuntimeRoleSystemPrompt } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 
 describe('九岗位定位提示词', () => {
   it('九个岗位都具备完整且互不混淆的运行约束', () => {
@@ -30,5 +31,28 @@ describe('九岗位定位提示词', () => {
     expect(synthesis).toContain('只综合三席');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('来源');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('当前模型调用不直接联网');
+  });
+
+  it('当前十一人团队使用各自真实身份而不是继承主岗位姓名', () => {
+    const deputyEditor = buildRuntimeRoleSystemPrompt('deputy_editor', 'discussion');
+    const secondScreenwriter = buildRuntimeRoleSystemPrompt('second_screenwriter', 'discussion');
+    const backupWriter = buildRuntimeRoleSystemPrompt('backup_writer', 'novel_writer');
+
+    expect(deputyEditor).toContain('西施（副编）');
+    expect(deputyEditor).not.toContain('貂蝉（主编）');
+    expect(secondScreenwriter).toContain('红玉（编剧）');
+    expect(secondScreenwriter).not.toContain('婉儿（编剧）');
+    expect(backupWriter).toContain('湘君（副笔）');
+    expect(backupWriter).not.toContain('秋香（主笔）');
+  });
+
+  it('主笔先消化章纲再写场景，并保留明确的自由创作区', () => {
+    const prompt = buildRuntimeRoleSystemPrompt('lead_writer', 'novel_writer');
+    expect(prompt).toContain('不要把章纲字段、设定标签或检查清单逐项翻译进正文');
+    expect(prompt).toContain('人物因欲望、认知和代价作出选择');
+    expect(prompt).toContain('属于自由创作区');
+    expect(prompt).toContain('允许留白');
+    expect(prompt).toContain('只输出正文');
+    expect(prompt.length).toBeLessThan(2_500);
   });
 });

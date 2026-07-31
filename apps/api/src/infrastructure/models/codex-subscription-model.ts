@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import type { RoleKey } from '../../domain/roles.js';
-import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
 import type { ModelPurpose } from './model-runtime-config.js';
 
@@ -31,7 +29,7 @@ export interface CodexSubscriptionModelOptions {
   workingDirectory: string;
   timeoutMs: number;
   purpose: ModelPurpose;
-  roleKey: RoleKey;
+  systemPrompt: string;
 }
 
 interface CodexJsonEvent {
@@ -146,9 +144,8 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     if (signal?.aborted === true) throw signal.reason ?? new DOMException('Codex调用已取消', 'AbortError');
-    const system = buildRoleSystemPrompt(this.options.roleKey, this.options.purpose);
     const prompt = [
-      system,
+      this.options.systemPrompt,
       ...(request.supplementalInstructions?.trim()
         ? [
             '【老板为本书设置的岗位补充要求】',

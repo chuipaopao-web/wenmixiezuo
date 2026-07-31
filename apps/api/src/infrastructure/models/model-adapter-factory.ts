@@ -11,7 +11,7 @@ import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
-import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
+import { creativeMemberContracts, type CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 
 export class ModelAdapterFactory {
   public constructor(
@@ -33,6 +33,7 @@ export class ModelAdapterFactory {
       if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起Codex真实调用');
       if (modelId !== this.config.codex.modelId) throw new Error(`未批准的Codex订阅模型：${modelId}`);
       if (roleKey === undefined) throw new Error('Codex订阅模型调用缺少岗位身份');
+      const systemPrompt = buildRuntimeRoleSystemPrompt(roleKey, purpose);
       return new CodexSubscriptionModelAdapter({
         executable: this.config.codex.executable,
         provider: this.config.codex.provider,
@@ -40,7 +41,7 @@ export class ModelAdapterFactory {
         workingDirectory: this.config.codex.workingDirectory,
         timeoutMs: this.config.codex.timeoutMs,
         purpose,
-        roleKey: legacyPromptRole(roleKey)
+        systemPrompt
       }, this.codexRunner);
     }
     const endpoint = provider === this.config.endpoints.coding.provider
@@ -62,9 +63,29 @@ export class ModelAdapterFactory {
       baseUrl: endpoint.baseUrl,
       apiKey: endpoint.apiKey,
       purpose,
-      ...(roleKey === undefined ? {} : { systemPrompt: buildRoleSystemPrompt(legacyPromptRole(roleKey), purpose) })
+      ...(roleKey === undefined ? {} : { systemPrompt: buildRuntimeRoleSystemPrompt(roleKey, purpose) })
     }, this.fetchImpl);
   }
+}
+
+export function buildRuntimeRoleSystemPrompt(
+  roleKey: RoleKey | CreativeRoleKey,
+  purpose: ModelPurpose
+): string {
+  const legacyRole = legacyPromptRole(roleKey);
+  const member = creativeMemberContracts.find((item) => item.roleKey === roleKey);
+  return buildRoleSystemPrompt(
+    legacyRole,
+    purpose,
+    member === undefined
+      ? undefined
+      : {
+          identity: `${member.memberName}（${member.shortTitle}）`,
+          positioning: member.publicSummary,
+          responsibilities: member.responsibilities,
+          boundaries: member.boundaries
+        }
+  );
 }
 
 function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literary' | 'experience' {

@@ -15,6 +15,13 @@ export interface RolePromptDefinition {
   stopConditions: string[];
 }
 
+export interface RuntimeRolePromptProfile {
+  identity?: string;
+  positioning?: string;
+  responsibilities?: string[];
+  boundaries?: string[];
+}
+
 export const rolePromptDefinitions: readonly RolePromptDefinition[] = [
   {
     roleKey: 'chief_editor', identity: '貂蝉（主编）',
@@ -123,8 +130,34 @@ export function requireRolePrompt(roleKey: RoleKey): RolePromptDefinition {
   return prompt;
 }
 
-export function buildRoleSystemPrompt(roleKey: RoleKey, purpose: RolePromptPurpose): string {
-  const role = requireRolePrompt(roleKey);
+export function buildRoleSystemPrompt(
+  roleKey: RoleKey,
+  purpose: RolePromptPurpose,
+  runtimeProfile?: RuntimeRolePromptProfile
+): string {
+  const baseRole = requireRolePrompt(roleKey);
+  const role: RolePromptDefinition = {
+    ...baseRole,
+    identity: runtimeProfile?.identity ?? baseRole.identity,
+    positioning: runtimeProfile?.positioning ?? baseRole.positioning,
+    responsibilities: runtimeProfile?.responsibilities ?? baseRole.responsibilities,
+    boundaries: runtimeProfile?.boundaries === undefined
+      ? baseRole.boundaries
+      : [...new Set([...baseRole.boundaries, ...runtimeProfile.boundaries])]
+  };
+  if (purpose === 'novel_writer') {
+    return [
+      `你是文秘写作中的${role.identity}。`,
+      role.positioning,
+      '本次任务：依据章纲、写作契约和正史写出一章真正发生着的故事。先在内部消化资料，再进入人物当下的处境；不要把章纲字段、设定标签或检查清单逐项翻译进正文。',
+      '写作方法：让人物因欲望、认知和代价作出选择，用动作、对话、感官、环境反应和具体后果呈现变化；能让场景本身说明的，不再由旁白总结。对白必须符合说话者的身份、关系、情绪和知识边界，不能让所有人物都替作者解释剧情。',
+      '约束层级：开场状态、必须结束状态、已确认正史、人物知识边界和“不得违反”属于硬约束；情绪、爽点、压力、描写重点、伏笔和钩子是期望效果，不要求逐项点名；对白、动作、意象、局部调度、段落节奏和过渡方式属于自由创作区。',
+      '自然性要求：具体、克制、有取舍。避免概括式复盘、连续解释、同义反复、模板化金句、整齐划一的段落和为了显得像真人而故意加入错误、口癖或碎句。允许留白，也允许人物在合理范围内出现不完美但有因果的反应。',
+      `硬边界：${role.boundaries.join('；')}。`,
+      `停止条件：${role.stopConditions.join('；')}。`,
+      '输出2500至3500有效字符的完整中文正文。只输出正文，不用Markdown围栏，不写解释、TODO、占位、创作说明或字段标题。'
+    ].join('\n');
+  }
   const reviewSchema = roleKey === 'reviewer'
     ? '除共同字段外必须返回aiStyle：riskScore、flaggedParagraphCount、totalParagraphCount、由计数计算的flaggedParagraphRatio、固定为false的isAuthorshipProbability、逐项evidence。AI腔风险不是AI作者概率。'
     : roleKey === 'reader_experience'
@@ -132,8 +165,6 @@ export function buildRoleSystemPrompt(roleKey: RoleKey, purpose: RolePromptPurpo
       : '只核对事实、连续性、人物状态、因果和硬约束；每项问题必须带位置、正文证据、严重度和修改目标。';
   const purposeRule = purpose === 'review_synthesis'
     ? '本次只综合三席已经提交的结构化报告，不读取正文进行第四次点评。只输出一个JSON对象，不使用Markdown；字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。recommendedVerdict只允许pass、rewrite、blocked；priorityIssueIndexes只写输入issues展开后的零基整数索引。'
-    : purpose === 'novel_writer'
-    ? '本次是正式正文任务：输出2500至3500有效字符的完整中文正文，只输出正文，不用Markdown围栏，不写解释、TODO或占位。'
     : purpose === 'novel_reviewer'
       ? `本次是独立审校任务：只输出JSON对象，共同字段为reviewerRole、manuscriptVersionId、modelSnapshotId、verdict、summary、issues、scores，不用Markdown围栏。必须原样回传任务给出的三个身份字段。${reviewSchema}`
       : '本次是岗位讨论：给出推荐、依据、风险、备选和一项可执行建议，不声称执行了未执行的操作。';

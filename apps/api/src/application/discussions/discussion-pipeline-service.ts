@@ -1112,6 +1112,12 @@ function buildDiscussionPrompt(input: {
   return [
     `你是${participant.display_name}。请在看不到另一位编剧答案的前提下，独立分析这个小说创作问题：${scopeText}。`,
     `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
+    '先从人物此刻想要什么、知道什么、害怕失去什么开始推演，再形成行动—阻力—选择—代价—后果的事件链。分类、题材和标签只说明作品承诺与可用方向，不得把标签名称机械拼成剧情，也不得为了填模板让人物做不合动机的事。',
+    participant.role_key === 'lead_screenwriter'
+      ? '你的侧重点是找出最自然、因果最稳而仍有惊喜的主路径，明确它为什么能持续推进，以及成功必须付出的代价。'
+      : participant.role_key === 'second_screenwriter'
+        ? '你的侧重点是提出因果成立但结构确实不同的路径，并压力测试最容易被默认接受的前提；不要为了显得不同而追求无根据的反转。'
+        : '',
     isMasterOutlineWorkshop
       ? '独立提出全书级方案：核心冲突如何持续升级、主角成长如何改变选择、各大阶段如何因果相接、结局如何兑现前文承诺。不要写逐章事件。'
       : isGroupedSettingWorkshop
