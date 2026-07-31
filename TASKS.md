@@ -1096,7 +1096,7 @@
 ### UX-20260731-03：恢复作者可读证据中心并精简图谱
 
 - `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`。
-- 状态：开发与验证中。
+- 状态：已完成并通过验收。
 - 目标：恢复按资料对象归类、去重且不暴露技术字段的“来源与证据”中心；从叙事图谱作者导航移除与剧情规划重复的主线、支线。
 - 不做什么：不删除事实、证据、主线/支线投影或历史记录；不修改正史、RAG、数据库迁移、模型上下文和 `D:\AI智囊团`。
 - 唯一负责人 / 复核人：当前Codex / 当前Codex；不调用其他开发Agent。
@@ -1107,3 +1107,4 @@
 - 测试命令：工作区UI专项Vitest、`npm.cmd run typecheck`、`npm.cmd test`、`npm.cmd run build`、迁移空库/升级验证、本地HTTP健康探针、`git diff --check`、`npm.cmd run acceptance`。
 - 停止条件：来源丢失、事实或投影数据被修改、跨书泄漏、规划查找明显退化、RAG/正史回归或需要生产数据恢复。
 - 回滚方法：Git revert作者视图与文档修改；后台数据始终保留，无需生产数据恢复。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/readable-evidence-graph-simplification-20260731.md`；实现提交 `73ed56b08d74c6c9c6908c55f5d45f1bd5b3894d`。
