@@ -11,6 +11,33 @@ import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/mod
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
+function runtimeChapterOutline(chapterNumber: number): Record<string, unknown> {
+  return {
+    chapterNumber,
+    title: `雾城推进${chapterNumber}`,
+    chapterFunction: `完成第${chapterNumber}步互不重复的选择与后果`,
+    openingState: '上一节点的选择已经生效',
+    requiredEndingState: '新的事实改变主角对敌友的判断',
+    cast: [{ name: '主角', objective: '查清雾城线索', knowledgeBoundary: '不知道盟友隐瞒的来源', chapterRole: '主动核验并选择' }],
+    conflict: { surface: '两条风险路线互相排斥', failureCost: '失去唯一安全退路' },
+    plotBeats: [
+      { order: 1, trigger: '异常回信出现', action: '主角核验来源', result: '排除伪造线索' },
+      { order: 2, trigger: '盟友阻止调查', action: '主角坚持追查', resistance: '关系受到压力', result: '隐瞒被揭开一角' },
+      { order: 3, trigger: '钟楼出现信物', action: '主角调整判断', turn: '新证据指向失踪者', result: '形成下一章可追踪问题' }
+    ],
+    ending: {
+      result: '主角取得新线索但失去安全退路',
+      stateChanges: ['对盟友的信任发生变化'],
+      hook: '钟楼出现失踪者信物',
+      nextChapterInterface: '下一章验证信物来源'
+    },
+    mustImplement: ['新判断必须由核验证据形成'],
+    mustNotViolate: ['不得把盟友隐瞒原因提前写明'],
+    allowedCandidates: [],
+    creativeFreedom: ['对白、动作、意象和局部场景调度由主笔创造']
+  };
+}
+
 describe('订阅与套餐模型真实流水线接线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
@@ -79,20 +106,23 @@ describe('订阅与套餐模型真实流水线接线', () => {
             outputTokens: 80
           };
         }
-        if (input.prompt.includes('规划落库')) {
+        if (input.prompt.includes('规划落库') || input.prompt.includes('章纲V2落库结构')) {
+          const range = input.prompt.match(/本次只能规划第(\d+)章至第(\d+)章，共(\d+)章/u);
+          const firstChapterNumber = range === null ? 1 : Number.parseInt(range[1]!, 10);
+          const chapterCount = range === null ? 3 : Number.parseInt(range[3]!, 10);
           return {
             output: [
               '建议把这一段设计成三章滚动窗口：先迫使主角选择，再让代价落地，最后用新的事实改变下一步判断。',
               `规划落库 ${JSON.stringify({
+                outlineSchema: 'chapter_outline_v2',
                 arcTitle: '雾城选择弧',
                 arcGoal: '让主角主动选择并承担代价',
                 endingState: '主角获得新线索，同时失去一条安全退路',
                 estimatedChapterRange: { minimum: 2, recommended: 3, maximum: 5 },
-                chapters: [
-                  { title: '雾中的选择', goal: '主角在两条风险路线中主动选择', beats: ['确认目标', '作出选择'], hook: '选择触发意外回信' },
-                  { title: '代价落地', goal: '让上一章选择产生具体损失', beats: ['损失显现', '关系受压'], hook: '盟友隐瞒被揭开一角' },
-                  { title: '钟楼新证', goal: '用新事实改变主角对敌友的判断', beats: ['验证线索', '调整行动'], hook: '钟楼出现失踪者信物' }
-                ]
+                chapters: Array.from(
+                  { length: chapterCount },
+                  (_, index) => runtimeChapterOutline(firstChapterNumber + index)
+                )
               })}`
             ].join('\n'),
             inputTokens: 400,

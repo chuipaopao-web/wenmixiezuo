@@ -127,6 +127,8 @@ collecting
 
 新确认的 `master_outline` 使用 `outlineSchema = stage_master_v2`。`majorStages` 每项包含 `stageNumber`、`title`、`chapterRange { start, end }`、`mainline { encounter, resolution, result }`、`structure { setup, development, turn, conclusion }`、`stageSummary`、`pendingThreads[]` 和 `followUpDirection`。阶段范围连续但仅是活动规划；旧 `title/goal/turningPoint` 结构继续只读兼容。总纲版本显式引用活动设定版本；章纲直接引用活动总纲的相关阶段和已确认故事弧决定，不经过独立卷纲。
 
+新确认的 `chapter_outline` 使用 `outlineSchema = chapter_outline_v2`。每份保存 `chapterNumber`、`sourceStage`、`chapterFunction`、`openingState`、`requiredEndingState`、`cast[]`、`conflict`、3—5项 `plotBeats[]`、可选 `experience`/`descriptionFocus`/`informationControl`、最多2项 `threadActions[]`、`ending`、`mustImplement[]`、`mustNotViolate[]`、`allowedCandidates[]` 与非空 `creativeFreedom[]`。`sourceStage` 在确认时由服务端依据活动 `stage_master_v2` 绑定，模型不能自行伪造；旧 `goal/beats/hook` 章纲只读兼容，不能继续进入新的正式主笔任务。
+
 场景契约作为写作契约内的版本化结构，保存场景顺序、叙事功能、目标读者效果、冲突、信息变化、情绪变化、核心/辅助技法选择、选择理由、自由创作区和重大候选。技法选择是软建议，不能覆盖表达基线、硬事实或主笔自由创作权。
 
 ### `technique_cards`

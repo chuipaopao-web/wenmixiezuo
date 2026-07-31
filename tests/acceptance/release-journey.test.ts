@@ -119,7 +119,7 @@ describe('首版全链路验收旅程', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE context_pack_id IS NULL`).get()).toEqual({ count: 0 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ? AND required_editor_epoch <> ? AND status NOT IN ('succeeded','failed','cancelled')`)
       .get(ownerId, mainBook.bookId, afterTakeover.editorEpoch)).toEqual({ count: 0 });
-    expect(new NarrativeProjectionService(context.database, ids, clock).rebuild(mainScope)).toBe(5);
+    expect(new NarrativeProjectionService(context.database, ids, clock).rebuild(mainScope)).toBe(12);
     expect(context.database.prepare(`
       SELECT projection_type, track, COUNT(*) AS count
       FROM narrative_projections
@@ -127,7 +127,9 @@ describe('首版全链路验收旅程', () => {
       GROUP BY projection_type, track
       ORDER BY projection_type, track
     `).all(ownerId, mainBook.bookId)).toEqual([
-      { projection_type: 'hook', track: 'planned', count: 5 }
+      { projection_type: 'emotion', track: 'planned', count: 5 },
+      { projection_type: 'hook', track: 'planned', count: 5 },
+      { projection_type: 'mainline', track: 'planned', count: 2 }
     ]);
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count
@@ -138,7 +140,7 @@ describe('首版全链路验收旅程', () => {
           OR content_json LIKE '%endingExcerpt%'
         )
     `).get(ownerId, mainBook.bookId)).toEqual({ count: 0 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM narrative_projections WHERE owner_id = ? AND book_id = ?`).get(ownerId, secondBook.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM narrative_projections WHERE owner_id = ? AND book_id = ?`).get(ownerId, secondBook.bookId)).toEqual({ count: 4 });
 
     const backupService = new BackupService(context.database, context.config);
     const backup = backupService.create();

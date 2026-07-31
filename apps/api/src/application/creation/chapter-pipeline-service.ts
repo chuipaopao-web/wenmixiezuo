@@ -41,6 +41,7 @@ import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
 import { ManuscriptQualitySnapshotService } from './manuscript-quality-snapshot-service.js';
+import { compileChapterOutlineForWriter } from './chapter-outline-compiler.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -293,7 +294,18 @@ export class ChapterPipelineService {
       const selectedContract = artifacts.select(scope, contract.artifactId, contract.artifactVersionId);
       const outlineContent = asObject(outline.content);
       const sourceDecisionId = requiredString(outlineContent.sourceDecisionId, '章纲缺少老板确认决定来源');
-      const objective = firstString(outlineContent.goal, outlineContent.objective) ?? `完成第${chapter.chapter_number}章已确认章纲`;
+      const objective = firstString(
+        outlineContent.chapterFunction,
+        outlineContent.goal,
+        outlineContent.objective
+      ) ?? `完成第${chapter.chapter_number}章已确认章纲`;
+      const outlineCast = Array.isArray(outlineContent.cast)
+        ? outlineContent.cast
+          .filter(isRecordValue)
+          .map((participant) => firstString(participant.name))
+          .filter((name): name is string => name !== null)
+        : [];
+      const outlineEnding = isRecordValue(outlineContent.ending) ? outlineContent.ending : {};
       const order = new WritingOrderService(new ProductionWorkflowRepository(this.database), this.ids, this.clock).create(scope, {
         chapterId: run.chapter_id,
         taskId: run.task_id,
@@ -306,8 +318,14 @@ export class ChapterPipelineService {
           title: chapter.title,
           pov: contractContent.pov,
           timeAndPlace: firstString(outlineContent.time, outlineContent.place) ?? '服从已确认章纲与前章结算状态',
-          participants: Array.isArray(outlineContent.participants) ? outlineContent.participants : [],
-          endingInterface: firstString(outlineContent.hook) ?? '形成可追踪的章末状态'
+          participants: outlineCast.length > 0
+            ? outlineCast
+            : Array.isArray(outlineContent.participants) ? outlineContent.participants : [],
+          endingInterface: firstString(
+            outlineEnding.nextChapterInterface,
+            outlineEnding.hook,
+            outlineContent.hook
+          ) ?? '形成可追踪的章末状态'
         },
         hardConstraints: contractContent.hardConstraints,
         creativeFreedom: ['具体动作、意象、对白和节奏由活动主笔创造', '软风格建议可按场景目的调整', '不得为提高审校分数抹平人物声音'],
@@ -1718,6 +1736,26 @@ export function compactWriterWorkOrder(
   contract: Record<string, unknown>,
   maxCharacters: number
 ): string {
+  if (outline.outlineSchema === 'chapter_outline_v2') {
+    const contractParts = [
+      typeof contract.targetWords === 'number' ? `目标字数约${contract.targetWords}字` : '',
+      typeof contract.pov === 'string' ? `视角：${contract.pov}` : '',
+      typeof contract.tense === 'string' ? `叙事时态：${contract.tense}` : '',
+      Array.isArray(contract.hardConstraints)
+        ? `写作硬约束：${contract.hardConstraints.filter((item): item is string => typeof item === 'string').join('；')}`
+        : ''
+    ].filter(Boolean);
+    const contractText = contractParts.join('；');
+    if (contractText.length > 240) {
+      throw new Error('写作契约硬信息超过240字，请先去除重复约束，不能静默截断');
+    }
+    const outlineMaximum = Math.min(1_350, maxCharacters - contractText.length - 6);
+    if (outlineMaximum < 800) throw new Error('章纲与写作契约的上下文预算不足');
+    const outlineText = compileChapterOutlineForWriter(outline, outlineMaximum);
+    const compiled = `${outlineText}\n写作契约：${contractText}`;
+    if (compiled.length > maxCharacters) throw new Error('章纲与写作契约超过主笔工单预算');
+    return compiled;
+  }
   const outlineKeys = ['chapterNumber', 'title', 'goal', 'objective', 'beats', 'scenes', 'hook', 'mustInclude', 'mustAvoid'];
   const contractKeys = [
     'targetCharacters', 'narrativePerson', 'viewpointDistance', 'languageTone', 'textDensity',

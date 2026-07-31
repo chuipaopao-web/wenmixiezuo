@@ -1854,7 +1854,12 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
     void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本加载失败')).finally(() => setBusy(false));
   };
   const stageMaster = artifactType === 'master_outline' && content.outlineSchema === 'stage_master_v2';
-  return <article className="artifact-card"><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(artifactType)}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header>{stageMaster ? <StageMasterOutlineContent value={visibleContent} /> : <StructuredContent value={visibleContent} />}
+  const chapterOutlineV2 = artifactType === 'chapter_outline' && content.outlineSchema === 'chapter_outline_v2';
+  return <article className="artifact-card"><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(artifactType)}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header>{stageMaster
+    ? <StageMasterOutlineContent value={visibleContent} />
+    : chapterOutlineV2
+      ? <ChapterOutlineV2Content value={visibleContent} />
+      : <StructuredContent value={visibleContent} />}
     {notice !== null && <p className="artifact-notice" role="status">{notice}</p>}
     {editing && <div className="artifact-editor"><h4>从当前内容创建候选版本</h4>{stageMaster ? <StageMasterOutlineEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /> : <ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} />}<div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
       if (bookId === null) return;
@@ -1872,6 +1877,72 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
         setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`版本 ${version.version} 已否决并保留追溯记录。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本否决失败')).finally(() => setBusy(false));
       }}>否决</button></>}</div></div>)}</div>}
     <footer><span>版本 {String(artifact.version ?? 1)}</span><span>来源和影响范围随版本保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>作者编辑</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看版本' : '刷新版本'}</button></span></footer></article>;
+}
+
+function ChapterOutlineV2Content({ value }: { value: Record<string, unknown> }): React.JSX.Element {
+  const sourceStage = masterRecord(value.sourceStage);
+  const range = masterRecord(sourceStage.chapterRange);
+  const cast = masterStageRecords(value.cast);
+  const conflict = masterRecord(value.conflict);
+  const beats = masterStageRecords(value.plotBeats);
+  const experience = masterRecord(value.experience);
+  const focus = masterRecord(value.descriptionFocus);
+  const information = masterRecord(value.informationControl);
+  const threads = masterStageRecords(value.threadActions);
+  const ending = masterRecord(value.ending);
+  const chapterNumber = Number(value.chapterNumber);
+  const stageStart = Number(range.start);
+  const stageEnd = Number(range.end);
+  const list = (items: unknown, empty = '本章不强制'): React.JSX.Element => {
+    const values = masterTextList(items);
+    return values.length === 0 ? <p className="chapter-outline-empty">{empty}</p> : <ul>{values.map((item) => <li key={item}>{item}</li>)}</ul>;
+  };
+  return <section className="chapter-outline-v2" aria-label="详细章纲">
+    <header className="chapter-outline-heading">
+      <div><small>{Number.isInteger(chapterNumber) ? `第${chapterNumber}章` : '当前章'}</small><h4>{masterText(value.title) || '未命名章节'}</h4></div>
+      <p>承接第{String(sourceStage.stageNumber ?? '—')}阶段《{masterText(sourceStage.title) || '剧情总纲'}》{Number.isInteger(stageStart) && Number.isInteger(stageEnd) ? `（第${stageStart}—${stageEnd}章）` : ''}</p>
+    </header>
+    <div className="chapter-outline-foundation">
+      <MasterSummaryItem label="本章功能" value={masterText(value.chapterFunction)} />
+      <MasterSummaryItem label="开场状态" value={masterText(value.openingState)} />
+      <MasterSummaryItem label="必须结束状态" value={masterText(value.requiredEndingState)} />
+    </div>
+    <section><h5>人物与当下状态</h5><div className="chapter-outline-cast">{cast.map((member, index) => <article key={`${masterText(member.name)}-${index}`}>
+      <h6>{masterText(member.name) || `人物${index + 1}`}</h6>
+      <dl><dt>当前目标</dt><dd>{masterText(member.objective) || '待明确'}</dd><dt>知情边界</dt><dd>{masterText(member.knowledgeBoundary) || '待明确'}</dd><dt>本章作用</dt><dd>{masterText(member.chapterRole) || '待明确'}</dd>{masterText(member.stateChange).length > 0 && <><dt>状态变化</dt><dd>{masterText(member.stateChange)}</dd></>}</dl>
+    </article>)}</div></section>
+    <section><h5>核心冲突</h5><dl className="chapter-outline-conflict">
+      <dt>表层冲突</dt><dd>{masterText(conflict.surface) || '待明确'}</dd>
+      {masterText(conflict.underlying).length > 0 && <><dt>深层冲突</dt><dd>{masterText(conflict.underlying)}</dd></>}
+      {masterText(conflict.oppositionGoal).length > 0 && <><dt>对手目标</dt><dd>{masterText(conflict.oppositionGoal)}</dd></>}
+      <dt>失败代价</dt><dd>{masterText(conflict.failureCost) || '待明确'}</dd>
+      {masterText(conflict.successCost).length > 0 && <><dt>成功代价</dt><dd>{masterText(conflict.successCost)}</dd></>}
+    </dl></section>
+    <section><h5>剧情推进</h5><ol className="chapter-outline-beats">{beats.map((beat, index) => <li key={String(beat.order ?? index + 1)}>
+      <strong>节点 {String(beat.order ?? index + 1)}</strong>
+      <p><b>触发</b>{masterText(beat.trigger)}</p><p><b>行动</b>{masterText(beat.action)}</p>
+      {masterText(beat.resistance).length > 0 && <p><b>阻力</b>{masterText(beat.resistance)}</p>}
+      {masterText(beat.turn).length > 0 && <p><b>转折</b>{masterText(beat.turn)}</p>}
+      <p><b>结果</b>{masterText(beat.result)}</p>
+    </li>)}</ol></section>
+    <div className="chapter-outline-soft-grid">
+      <section><h5>体验与情绪（软提示）</h5>{masterText(experience.primaryTone).length > 0 && <p><strong>主情绪</strong>{masterText(experience.primaryTone)}</p>}<p><strong>情绪变化</strong>{masterTextList(experience.emotionalCurve).join(' → ') || '不强制'}</p><p><strong>爽点</strong>{masterTextList(experience.payoffPoints).join('；') || '不强制'}</p><p><strong>压力 / 虐点</strong>{masterTextList(experience.pressurePoints).join('；') || '不强制'}</p>{masterText(experience.readerEffect).length > 0 && <p><strong>读者感受</strong>{masterText(experience.readerEffect)}</p>}</section>
+      <section><h5>描写重点（软提示）</h5><p><strong>主要描写</strong>{masterTextList(focus.primary).join('；') || '不强制'}</p><p><strong>次要描写</strong>{masterTextList(focus.secondary).join('；') || '不强制'}</p><p><strong>压缩处理</strong>{masterTextList(focus.compress).join('；') || '不强制'}</p></section>
+      <section><h5>信息控制（软提示）</h5><p><strong>本章揭示</strong>{masterTextList(information.reveals).join('；') || '不强制'}</p><p><strong>继续保留</strong>{masterTextList(information.concealed).join('；') || '不强制'}</p><p><strong>信息差</strong>{masterTextList(information.gaps).join('；') || '不强制'}</p></section>
+    </div>
+    {threads.length > 0 && <section><h5>伏笔动作</h5><ul>{threads.map((thread, index) => <li key={index}><strong>{threadActionDisplay(masterText(thread.action))}</strong>{masterText(thread.summary)}</li>)}</ul></section>}
+    <section><h5>章末闭环</h5><dl className="chapter-outline-conflict"><dt>本章结果</dt><dd>{masterText(ending.result) || '待明确'}</dd><dt>状态变化</dt><dd>{masterTextList(ending.stateChanges).join('；') || '暂无'}</dd><dt>章末钩子</dt><dd>{masterText(ending.hook) || '待明确'}</dd><dt>下一章承接</dt><dd>{masterText(ending.nextChapterInterface) || '待明确'}</dd></dl></section>
+    <div className="chapter-outline-rules">
+      <section><h5>必须实现</h5>{list(value.mustImplement, '尚未填写')}</section>
+      <section><h5>不得违反</h5>{list(value.mustNotViolate, '尚未填写')}</section>
+      <section><h5>允许候选</h5>{list(value.allowedCandidates)}</section>
+      <section className="creative"><h5>自由创作区</h5>{list(value.creativeFreedom, '对白、动作、意象与局部调度由主笔创造')}</section>
+    </div>
+  </section>;
+}
+
+function threadActionDisplay(action: string): string {
+  return action === 'plant' ? '埋设：' : action === 'advance' ? '推进：' : action === 'payoff' ? '回收：' : '';
 }
 
 function StageMasterOutlineContent({ value }: { value: Record<string, unknown> }): React.JSX.Element {

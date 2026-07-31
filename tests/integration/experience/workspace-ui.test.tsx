@@ -755,6 +755,12 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '章纲' }));
     expect(await screen.findByText('穷途末路的入口')).toBeInTheDocument();
+    expect(screen.getByText('本章功能')).toBeInTheDocument();
+    expect(screen.getByText('人物与当下状态')).toBeInTheDocument();
+    expect(screen.getByText('核心冲突')).toBeInTheDocument();
+    expect(screen.getByText('自由创作区')).toBeInTheDocument();
+    expect(screen.getByText('张三此时不知道伤害同步现实')).toBeInTheDocument();
+    expect(screen.queryByText(/outlineSchema|chapter_outline_v2|knowledgeBoundary|plotBeats/u)).not.toBeInTheDocument();
     expect(screen.getByText('第一笔血汗钱')).toBeInTheDocument();
     expect(screen.getByText('摔在同一个坑里')).toBeInTheDocument();
     expect(screen.getByText('确认游戏收入真实到账')).toBeInTheDocument();
@@ -1398,7 +1404,31 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         worldRules: ['钟响后可见未来一天']
       } },
       { artifact_id: 'master-1', artifact_type: 'master_outline', title: '总纲', status: 'active', version: 1, active_version_status: 'active', active_content: { premise: '守城与预见\n章节跨度估算 {"minimum":10,"recommended":10,"maximum":12,"units":[{"unit":"审计推进","suggestedChapters":3}]}', acts: ['雾城危机'], endingDirection: '待确认' } },
-      { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第1章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 1, title: '穷途末路的入口', goal: '确立生存压力并进入游戏舱', beats: ['确认余额', '接取任务'], hook: '完成度将影响收益' } },
+      { artifact_id: 'chapter-1', artifact_type: 'chapter_outline', title: '第1章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: {
+        outlineSchema: 'chapter_outline_v2',
+        chapterNumber: 1,
+        title: '穷途末路的入口',
+        sourceStage: { stageNumber: 1, title: '进入雾城', chapterRange: { start: 1, end: 50 } },
+        chapterFunction: '确立生存压力并进入游戏舱',
+        openingState: '张三只剩最后一笔生活费。',
+        requiredEndingState: '张三进入游戏，并确认完成度会影响真实收益。',
+        cast: [{ name: '张三', objective: '获得第一笔收入', knowledgeBoundary: '不知道游戏伤害会同步现实', chapterRole: '主动试探规则' }],
+        conflict: { surface: '必须在保住生活费和购买接入资格间选择', failureCost: '失去住所' },
+        plotBeats: [
+          { order: 1, trigger: '房租催缴', action: '确认余额', result: '发现只够维持一天' },
+          { order: 2, trigger: '游戏任务开放', action: '接取任务', resistance: '接入费会耗尽余额', result: '决定承担风险' },
+          { order: 3, trigger: '完成度提示出现', action: '进入游戏舱', turn: '提示收益可提现', result: '锁定第一项任务' }
+        ],
+        experience: { primaryTone: '压抑转决意', emotionalCurve: ['压抑', '犹豫', '决意'], payoffPoints: [], pressurePoints: ['失去住所'], readerEffect: '期待第一笔收益' },
+        descriptionFocus: { primary: ['选择瞬间'], secondary: ['游戏舱细节'], compress: ['缴费手续'] },
+        informationControl: { reveals: ['收益可提现'], concealed: ['伤害同步现实'], gaps: [] },
+        threadActions: [{ action: 'plant', summary: '完成度会影响收益' }],
+        ending: { result: '张三正式接入游戏', stateChanges: ['余额归零'], hook: '完成度将影响收益', nextChapterInterface: '完成第一项任务并验证到账' },
+        mustImplement: ['选择必须由生存压力推动'],
+        mustNotViolate: ['张三此时不知道伤害同步现实'],
+        allowedCandidates: [],
+        creativeFreedom: ['对白、动作和游戏舱细节由主笔创造']
+      } },
       { artifact_id: 'chapter-2', artifact_type: 'chapter_outline', title: '第2章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 2, title: '第一笔血汗钱', goal: '确认游戏收入真实到账', beats: ['完成采集', '收到转账'], hook: '设备状态开始下降' } },
       { artifact_id: 'chapter-3', artifact_type: 'chapter_outline', title: '第3章章纲', status: 'active', version: 1, active_version_status: 'active', active_content: { chapterNumber: 3, title: '摔在同一个坑里', goal: '因规则盲区受损并开始记录规律', beats: ['连续登录', '建立规则表'], hook: '需要查清隐藏规则' } }
     ]);

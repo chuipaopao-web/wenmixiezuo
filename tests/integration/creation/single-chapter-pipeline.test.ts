@@ -55,7 +55,7 @@ describe('单章完整创作流水线', () => {
       sourceType: string;
       content: string;
     }>;
-    expect(draftPack.policy_version).toBe('writer-draft-context-v2-4200chars');
+    expect(draftPack.policy_version).toBe('writer-draft-context-v3-chapter-outline-v2-4200chars');
     expect(draftPack.total_tokens).toBeLessThanOrEqual(4_200);
     expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_200);
     expect(draftSources.map((source) => source.sourceType)).not.toContain('creative_plan');

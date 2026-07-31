@@ -207,12 +207,12 @@ describe('叙事投影与研究候选边界', () => {
     });
     continuity.activateSettlement(scope, settlementId, 'story_arc', 'temporary-camp', clock.now().toISOString());
     const projections = new NarrativeProjectionService(context.database, ids, clock);
-    expect(projections.rebuild(scope)).toBe(11);
+    expect(projections.rebuild(scope)).toBe(12);
     const firstSnapshot = context.database.prepare(`
       SELECT projection_type, track, chapter_number, canon_revision, content_json
       FROM narrative_projections WHERE owner_id = ? AND book_id = ? ORDER BY projection_type, track
     `).all(scope.ownerId, scope.bookId);
-    expect(firstSnapshot).toHaveLength(11);
+    expect(firstSnapshot).toHaveLength(12);
     expect(new Set((firstSnapshot as Array<{ projection_type: string }>).map((row) => row.projection_type))).toEqual(new Set(['emotion', 'mainline', 'subplot', 'hook', 'information_gap']));
     const contents = (firstSnapshot as Array<{ projection_type: string; track: string; content_json: string }>).map((row) => ({
       ...row,
@@ -226,7 +226,7 @@ describe('叙事投影与研究候选边界', () => {
         summary: expect.stringContaining('建立临时营地')
       }));
     expect(contents.find((row) => row.projection_type === 'emotion' && row.track === 'planned')?.content)
-      .toEqual(expect.objectContaining({ emotionFlow: ['压抑', '警觉', '获得微弱希望'], baseline: '虐转爽' }));
+      .toEqual(expect.objectContaining({ emotionFlow: ['受压', '决断', '有限释放'], baseline: '紧张中保留决断感' }));
     expect(contents.find((row) => row.projection_type === 'emotion' && row.track === 'actual')?.content)
       .toEqual(expect.objectContaining({ emotionFlow: ['惊讶', '失落', '愤怒', '平静'], baseline: '爽' }));
     expect(contents.find((row) => row.projection_type === 'subplot' && row.track === 'actual')?.content)
@@ -239,7 +239,7 @@ describe('叙事投影与研究候选边界', () => {
       .toEqual(expect.objectContaining({
         items: [expect.objectContaining({ kind: '伏笔', status: '已回收', summary: '周老六认出了追兵身上的北营旧徽记。' })]
       }));
-    expect(contents.filter((row) => row.projection_type === 'emotion')).toHaveLength(2);
+    expect(contents.filter((row) => row.projection_type === 'emotion')).toHaveLength(3);
     expect(contents.filter((row) => row.projection_type === 'subplot' && row.track === 'actual')).toHaveLength(1);
     expect(JSON.stringify(contents)).not.toContain('陌生脚步的主人尚未揭晓');
     expect(JSON.stringify(contents)).not.toContain('endingExcerpt');

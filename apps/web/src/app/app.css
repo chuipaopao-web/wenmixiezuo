@@ -3719,6 +3719,63 @@ svg {
 .stage-master-edit-heading { display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px; gap: 8px; }
 .stage-master-edit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
 .stage-master-edit-card .text-button { margin-top: 8px; }
+
+.chapter-outline-v2 { display: grid; gap: 14px; color: var(--ink); }
+.chapter-outline-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.chapter-outline-heading small { color: var(--accent-strong); font-weight: 700; }
+.chapter-outline-heading h4 { margin: 3px 0 0; font-size: calc(18px * var(--font-scale)); }
+.chapter-outline-heading p { max-width: 58%; margin: 0; color: var(--ink-soft); line-height: 1.6; text-align: right; }
+.chapter-outline-foundation {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: var(--line);
+}
+.chapter-outline-foundation > div { min-width: 0; padding: 12px; background: var(--accent-soft); }
+.chapter-outline-foundation strong,
+.chapter-outline-v2 h5 { color: var(--accent-strong); font-size: calc(10px * var(--font-scale)); }
+.chapter-outline-foundation p { margin: 5px 0 0; line-height: 1.65; }
+.chapter-outline-v2 > section {
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  padding: 13px 14px;
+  background: var(--panel-raised);
+}
+.chapter-outline-v2 h5 { margin: 0 0 9px; }
+.chapter-outline-cast { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chapter-outline-cast article { border-left: 3px solid var(--accent-soft); padding: 9px 11px; background: var(--panel-muted); }
+.chapter-outline-cast h6 { margin: 0 0 7px; font-size: calc(11px * var(--font-scale)); }
+.chapter-outline-cast dl,
+.chapter-outline-conflict { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.chapter-outline-cast dt,
+.chapter-outline-conflict dt { color: var(--ink-faint); }
+.chapter-outline-cast dd,
+.chapter-outline-conflict dd { margin: 0; line-height: 1.65; }
+.chapter-outline-beats { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chapter-outline-beats li { border-left: 3px solid var(--accent); padding: 9px 11px; background: var(--panel-muted); }
+.chapter-outline-beats strong { color: var(--accent-strong); }
+.chapter-outline-beats p { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; margin: 5px 0 0; line-height: 1.6; }
+.chapter-outline-beats b { color: var(--ink-faint); font-weight: 500; }
+.chapter-outline-soft-grid,
+.chapter-outline-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.chapter-outline-soft-grid > section,
+.chapter-outline-rules > section { border: 1px solid var(--line); border-radius: var(--control-radius); padding: 12px; background: var(--panel-raised); }
+.chapter-outline-soft-grid p { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; margin: 5px 0; line-height: 1.6; }
+.chapter-outline-soft-grid strong { color: var(--ink-faint); font-weight: 500; }
+.chapter-outline-rules ul,
+.chapter-outline-v2 > section > ul { margin: 0; padding-left: 20px; line-height: 1.7; }
+.chapter-outline-rules .creative { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); }
+.chapter-outline-empty { margin: 0; color: var(--ink-faint); }
 @media (max-width: 900px) {
   .stage-master-overview,
   .stage-master-global-fields,
@@ -3726,6 +3783,12 @@ svg {
   .stage-structure-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stage-master-edit-heading { grid-template-columns: 1fr 1fr; }
   .stage-master-edit-heading > label:first-child { grid-column: 1 / -1; }
+  .chapter-outline-heading { display: grid; }
+  .chapter-outline-heading p { max-width: none; text-align: left; }
+  .chapter-outline-foundation,
+  .chapter-outline-cast,
+  .chapter-outline-soft-grid,
+  .chapter-outline-rules { grid-template-columns: 1fr; }
 }
 
 .authority-badge {

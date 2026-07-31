@@ -66,6 +66,41 @@ function stageMasterPayload(): Record<string, unknown> {
   };
 }
 
+function chapterOutlineV2Plan(chapterNumber: number): Record<string, unknown> {
+  return {
+    chapterNumber,
+    title: `第${chapterNumber}章`,
+    chapterFunction: `完成互不重复的章节功能${chapterNumber}`,
+    openingState: `第${chapterNumber}章开场局面已经成立`,
+    requiredEndingState: `第${chapterNumber}章必须形成可承接的新局面`,
+    cast: [{
+      name: '林砚',
+      objective: '取得第一笔合法收益',
+      knowledgeBoundary: '只知道已经公开的账目信息',
+      chapterRole: '主动核验规则并作出选择'
+    }],
+    conflict: {
+      surface: '旧规则阻止主角取得合法结算',
+      failureCost: '失去继续参赛资格'
+    },
+    plotBeats: [
+      { order: 1, trigger: '结算被拒', action: '林砚核对规则', result: '发现账目矛盾' },
+      { order: 2, trigger: '对手施压', action: '林砚公开证据', resistance: '旧势力封锁记录', result: '迫使对方回应' },
+      { order: 3, trigger: '新证据出现', action: '林砚完成核验', turn: '收益到账但暴露新问题', result: '获得继续参赛资格' }
+    ],
+    ending: {
+      result: '当前结算争议形成可验证结果',
+      stateChanges: ['主角取得继续参赛资格'],
+      hook: `留下具体钩子${chapterNumber}`,
+      nextChapterInterface: '下一章继续核验异常账目'
+    },
+    mustImplement: ['规则结论必须由证据推动'],
+    mustNotViolate: ['不得把未知幕后指使写成主角已知'],
+    allowedCandidates: [],
+    creativeFreedom: ['对白、动作、意象和局部调度由主笔创造']
+  };
+}
+
 describe('structured rolling chapter plans', () => {
   let context: TestContext | undefined;
   afterEach(() => {
@@ -408,11 +443,7 @@ describe('structured rolling chapter plans', () => {
     }, 'candidate');
     artifacts.select(scope, storyBible.artifactId, storyBible.artifactVersionId);
     const master = artifacts.create(scope, 'master_outline', '剧情总纲', {
-      premise: '主角在历史竞技世界中用公开规则重建秩序',
-      coreConflict: '个人生存与平台垄断规则冲突',
-      protagonistArc: '从求生者成长为规则维护者',
-      majorStages: [{ title: '求生', goal: '取得第一份合法收益', turningPoint: '拒绝垄断合同' }],
-      endingDirection: '建立公开透明的竞技秩序'
+      ...stageMasterPayload()
     }, 'candidate');
     artifacts.select(scope, master.artifactId, master.artifactVersionId);
     let style = context.database.prepare(`
@@ -468,13 +499,7 @@ describe('structured rolling chapter plans', () => {
         { agentId: writer.agent_id, reason: '编剧规划' }
       ]
     });
-    const chapters = [1, 2, 3].map((chapterNumber) => ({
-      chapterNumber,
-      title: `第${chapterNumber}章`,
-      goal: `完成互不重复的章节目标${chapterNumber}`,
-      beats: [`推进节点${chapterNumber}A`, `推进节点${chapterNumber}B`],
-      hook: `留下具体钩子${chapterNumber}`
-    }));
+    const chapters = [1, 2, 3].map(chapterOutlineV2Plan);
     const output = JSON.stringify({
       answer: '形成前三章滚动计划',
       keyPoints: [],
@@ -486,6 +511,7 @@ describe('structured rolling chapter plans', () => {
       workflowArtifact: {
         type: 'chapter_outline',
         payload: {
+          outlineSchema: 'chapter_outline_v2',
           arcTitle: '首次结算',
           arcGoal: '取得第一笔合法收益',
           endingState: '主角获得继续参赛资格',

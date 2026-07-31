@@ -29,13 +29,50 @@ export class DeterministicModelAdapter implements ModelAdapter {
 
 function deterministicDiscussion(prompt: string): string | null {
   if (!prompt.includes('小说创作问题') && !prompt.includes('当前书籍的活动主编')) return null;
+  // 主编汇总提示词会携带两名编剧已经提交的“章节跨度估算”。如果先按
+  // 这个短语分支，适配器会误把编剧的中间产物当成主编最终答复，导致正式
+  // 章纲合同缺失。最终落库合同必须优先于上下文里出现的中间产物。
+  if (prompt.includes('章纲V2落库结构')) {
+    const base = deterministicDiscussionReply();
+    base.fields.details = `规划落库 ${JSON.stringify(deterministicChapterOutlines(prompt))}`;
+    return JSON.stringify(base);
+  }
   if (prompt.includes('章节跨度估算')) {
     return [
       '建议用三章完成当前滚动推进：第一章建立选择，第二章放大代价，第三章兑现转折。',
       '章节跨度估算 {"minimum":3,"recommended":3,"maximum":3,"units":[{"unit":"建立选择","suggestedChapters":1},{"unit":"放大代价","suggestedChapters":1},{"unit":"兑现转折","suggestedChapters":1}],"assumptions":["上游设定与剧情总纲已经确认"],"uncertainty":["具体场景仍由主笔创作"]}'
     ].join('\n');
   }
-  const base = {
+  const base = deterministicDiscussionReply();
+  if (prompt.includes('现在进行且仅进行一次交叉质疑')) {
+    base.fields.answer = '对方方案的阶段因果能够成立，但需要检查阶段结果是否真正成为下一阶段起点，并为未回收伏笔留下明确承接位置。';
+    base.fields.keyPoints = ['保留两套方案真正不同的阶段升级方式', '检查章节范围连续性和阶段结果'];
+    base.fields.risks = ['阶段结论若不改变人物处境，后续会变成重复升级'];
+    base.fields.nextStep = '由主编只基于两份完整方案和本轮质疑形成阶段总纲';
+    return JSON.stringify(base);
+  }
+  if (prompt.includes('剧情总纲落库')) {
+    base.fields.details = `剧情总纲落库 ${JSON.stringify(deterministicMasterOutline())}`;
+  } else if (prompt.includes('规划落库')) {
+    base.fields.details = `规划落库 ${JSON.stringify(deterministicChapterOutlines(prompt))}`;
+  }
+  return JSON.stringify(base);
+}
+
+function deterministicDiscussionReply(): {
+  version: number;
+  format: string;
+  fields: {
+    answer: string;
+    keyPoints: string[];
+    alternatives: unknown[];
+    risks: string[];
+    questions: string[];
+    nextStep: string;
+    details: string;
+  };
+} {
+  return {
     version: 1,
     format: 'json_object',
     fields: {
@@ -48,19 +85,63 @@ function deterministicDiscussion(prompt: string): string | null {
       details: ''
     }
   };
-  if (prompt.includes('现在进行且仅进行一次交叉质疑')) {
-    base.fields.answer = '对方方案的阶段因果能够成立，但需要检查阶段结果是否真正成为下一阶段起点，并为未回收伏笔留下明确承接位置。';
-    base.fields.keyPoints = ['保留两套方案真正不同的阶段升级方式', '检查章节范围连续性和阶段结果'];
-    base.fields.risks = ['阶段结论若不改变人物处境，后续会变成重复升级'];
-    base.fields.nextStep = '由主编只基于两份完整方案和本轮质疑形成阶段总纲';
-    return JSON.stringify(base);
-  }
-  if (prompt.includes('剧情总纲落库')) {
-    base.fields.details = `剧情总纲落库 ${JSON.stringify(deterministicMasterOutline())}`;
-  } else if (prompt.includes('规划落库')) {
-    base.fields.details = '规划落库 {"arcTitle":"当前故事弧滚动推进","arcGoal":"用三次递进选择推进当前阶段目标","endingState":"主角完成阶段选择并面对新的可追踪问题","estimatedChapterRange":{"minimum":3,"recommended":3,"maximum":3},"chapters":[{"title":"必须作出的选择","goal":"让主角在两种有代价的方案中作出明确选择","beats":["暴露现实限制","提出互斥方案"],"hook":"选择触发意料之外的责任"},{"title":"代价开始兑现","goal":"让上一章的选择具体损害一段重要关系","beats":["短期收益出现","盟友发现被隐瞒的代价"],"hook":"对手掌握主角选择的证据"},{"title":"阶段结果落地","goal":"让主角承担代价并取得推进当前阶段目标的有限成果","beats":["对手公开施压","主角用行动回应"],"hook":"成果中出现指向更大冲突的异常"}]}';
-  }
-  return JSON.stringify(base);
+}
+
+function deterministicChapterOutlines(prompt: string): Record<string, unknown> {
+  const range = prompt.match(/本次只能规划第(\d+)章至第(\d+)章，共(\d+)章/u);
+  const first = range === null ? 1 : Number.parseInt(range[1]!, 10);
+  const count = range === null ? 3 : Math.max(1, Math.min(3, Number.parseInt(range[3]!, 10)));
+  const chapters = Array.from({ length: count }, (_, index) => {
+    const chapterNumber = first + index;
+    return {
+      chapterNumber,
+      title: index === 0 ? '必须作出的选择' : index === 1 ? '代价开始兑现' : '阶段结果落地',
+      chapterFunction: index === 0
+        ? '迫使主角在两种有代价的方案中作出明确选择'
+        : index === 1 ? '让上一章的选择产生不可忽略的具体代价' : '让主角承担代价并取得有限成果',
+      openingState: index === 0 ? '现实限制已经暴露，但主角尚未表态' : '上一章的选择已经生效',
+      requiredEndingState: index === 0 ? '主角完成选择并承担第一项责任' : '本章代价或成果已经改变下一步局面',
+      cast: [{
+        name: '主角',
+        objective: '推动当前阶段目标并守住核心底线',
+        knowledgeBoundary: '只知道已经验证的当前信息，不知道幕后真相',
+        chapterRole: '主动选择并承担结果'
+      }],
+      conflict: {
+        surface: '现实限制阻止主角直接达成目标',
+        underlying: '短期收益与长期责任互相冲突',
+        failureCost: '失去继续推进当前阶段目标的资格'
+      },
+      plotBeats: [
+        { order: 1, trigger: '限制条件公开', action: '主角核对事实并确认选择范围', result: '排除没有代价的虚假选项' },
+        { order: 2, trigger: '对手或环境施压', action: '主角作出可验证的行动', resistance: '行动立即引发反制', result: '选择的代价开始兑现' },
+        { order: 3, trigger: '新事实出现', action: '主角调整局部策略但不撤回选择', turn: '有限成果伴随新的责任', result: '局面进入下一章可承接状态' }
+      ],
+      experience: {
+        emotionalCurve: ['压迫', '决断', '释放'],
+        payoffPoints: ['主角用行动夺回局部主动权'],
+        pressurePoints: ['选择立即带来现实损失']
+      },
+      ending: {
+        result: '当前行动形成可验证结果',
+        stateChanges: ['主角处境发生变化'],
+        hook: '成果中出现指向更大冲突的异常',
+        nextChapterInterface: '下一章核验异常并处理选择的后果'
+      },
+      mustImplement: ['因果必须由人物行动推动，不能靠巧合解决'],
+      mustNotViolate: ['不得把未知信息写成主角已经知道'],
+      allowedCandidates: ['具体场景地点和道具细节可按现有设定选择'],
+      creativeFreedom: ['对白、动作、意象、局部调度和场景节奏由主笔创造']
+    };
+  });
+  return {
+    outlineSchema: 'chapter_outline_v2',
+    arcTitle: '当前故事弧滚动推进',
+    arcGoal: '用递进选择推进当前阶段目标',
+    endingState: '主角完成阶段选择并面对新的可追踪问题',
+    estimatedChapterRange: { minimum: count, recommended: count, maximum: count },
+    chapters
+  };
 }
 
 function deterministicMasterOutline(): Record<string, unknown> {

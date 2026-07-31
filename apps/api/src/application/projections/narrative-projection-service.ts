@@ -223,15 +223,22 @@ function plannedChapterProjections(outlines: ChapterOutlineRow[]): ProjectionDra
     const scopeLabel = `第${chapter}章`;
     const sourceIds = [outline.artifact_version_id];
     const drafts: ProjectionDraft[] = [];
+    const isChapterOutlineV2 = content.outlineSchema === 'chapter_outline_v2';
+    const experience = childRecord(content.experience);
+    const ending = childRecord(content.ending);
 
-    const emotionFlow = emotionList(content.emotionalArc ?? content.emotionFlow ?? content.emotion);
+    const emotionFlow = emotionList(isChapterOutlineV2
+      ? experience.emotionalCurve
+      : content.emotionalArc ?? content.emotionFlow ?? content.emotion);
     if (emotionFlow.length > 0) {
       drafts.push({
         type: 'emotion', track: 'planned', order: chapter, sourceIds,
         content: compact({
           scopeLabel,
           emotionFlow,
-          baseline: readableText(content.baseline ?? content.payoffTone ?? content.tone, 40)
+          baseline: readableText(isChapterOutlineV2
+            ? experience.primaryTone
+            : content.baseline ?? content.payoffTone ?? content.tone, 40)
         })
       });
     }
@@ -245,7 +252,7 @@ function plannedChapterProjections(outlines: ChapterOutlineRow[]): ProjectionDra
     }
 
     const hookItems = [
-      ...hookItemsFromValue(content.hook, '钩子', chapter),
+      ...hookItemsFromValue(isChapterOutlineV2 ? ending.hook : content.hook, '钩子', chapter),
       ...hookItemsFromValue(content.foreshadowings ?? content.foreshadowing, '伏笔', chapter)
     ];
     if (hookItems.length > 0) {

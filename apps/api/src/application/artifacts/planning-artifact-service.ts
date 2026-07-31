@@ -2,8 +2,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import {
+  parseChapterOutlineV2,
   parseStageMasterOutlineV2,
   type ArtifactType,
+  type ChapterOutlineV2,
   type StageMasterOutlineV2
 } from '../../domain/artifact-schemas.js';
 import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.js';
@@ -23,12 +25,28 @@ interface DecisionRow {
 interface StructuredChapterPlan {
   chapterNumber?: number;
   title: string;
-  goal: string;
-  beats: string[];
-  hook: string;
+  goal?: string;
+  beats?: string[];
+  hook?: string;
+  chapterFunction?: string;
+  openingState?: string;
+  requiredEndingState?: string;
+  cast?: ChapterOutlineV2['cast'];
+  conflict?: ChapterOutlineV2['conflict'];
+  plotBeats?: ChapterOutlineV2['plotBeats'];
+  experience?: ChapterOutlineV2['experience'];
+  descriptionFocus?: ChapterOutlineV2['descriptionFocus'];
+  informationControl?: ChapterOutlineV2['informationControl'];
+  threadActions?: ChapterOutlineV2['threadActions'];
+  ending?: ChapterOutlineV2['ending'];
+  mustImplement?: string[];
+  mustNotViolate?: string[];
+  allowedCandidates?: string[];
+  creativeFreedom?: string[];
 }
 
 interface StructuredArcPlan {
+  outlineSchema?: 'chapter_outline_v2';
   arcTitle: string;
   arcGoal: string;
   endingState: string;
@@ -192,22 +210,20 @@ export class PlanningArtifactService {
     `).get(decisionId, discussionId, scope.ownerId, scope.bookId) as DecisionRow | undefined;
     if (decision === undefined || decision.boss_confirmed !== 1) throw new Error('只有老板明确确认的讨论决定才能生成章纲');
     const recommendation = JSON.parse(decision.recommendation_json) as Record<string, unknown>;
-    const alternatives = JSON.parse(decision.alternatives_json) as unknown[];
     const summary = readableSummary(recommendation);
     const structured = parsePlanningDepositOutput(summary);
-    if (structured !== null && structured.chapters.length !== chapterCount) {
+    if (structured === null || structured.outlineSchema !== 'chapter_outline_v2') {
+      throw new Error('滚动章纲缺少chapter_outline_v2结构，不能用通用模板替代真实章纲');
+    }
+    if (structured.chapters.length !== chapterCount) {
       throw new Error(`滚动章纲必须只细化未来${chapterCount}章`);
     }
-    const narrativeSummary = stripPlanningDeposit(summary);
     const firstChapterNumber = this.nextChapterNumber(scope);
-    const beats = extractBeats(narrativeSummary, decision.scope_text, alternatives);
-    const chapterPlans = structured?.chapters ?? Array.from({ length: chapterCount }, (_, index) => ({
-      title: `第${firstChapterNumber + index}章`,
-      goal: `推进当前故事弧与剧情总纲相关阶段：${narrativeSummary}`,
-      beats,
-      hook: extractHook(narrativeSummary, decision.scope_text)
-    }));
+    const chapterPlans = structured.chapters;
     assertSequentialChapterPlans(chapterPlans, firstChapterNumber);
+    const masterOutline = parseStageMasterOutlineV2(
+      this.artifactVersionContent(scope, state.master_outline_version_id)
+    );
     const source = {
       sourceDiscussionId: discussionId,
       sourceDecisionId: decisionId,
@@ -215,20 +231,31 @@ export class PlanningArtifactService {
       sourceStyleVersionId: state.active_style_version_id,
       sourceSettingBaselineVersionId: state.setting_baseline_version_id
     };
-    const chapterOutlineVersionIds = chapterPlans.map((plan, index) => this.upsert(
-      scope,
-      'chapter_outline',
-      `第${firstChapterNumber + index}章章纲`,
-      {
-        chapterNumber: firstChapterNumber + index,
-        title: plan.title,
-        goal: plan.goal,
-        beats: plan.beats,
-        hook: plan.hook,
-        creativeFreedom: ['对白、动作、意象与局部调度由主笔决定', '允许按场景目的动态适配风格'],
-        ...source
+    const chapterOutlineVersionIds = chapterPlans.map((plan, index) => {
+      const chapterNumber = firstChapterNumber + index;
+      const stage = masterOutline.majorStages.find((item) => (
+        chapterNumber >= item.chapterRange.start && chapterNumber <= item.chapterRange.end
+      ));
+      if (stage === undefined) {
+        throw new Error(`剧情总纲没有覆盖第${chapterNumber}章，不能生成失去上游来源的章纲`);
       }
-    ).artifactVersionId);
+      const parsed = parseChapterOutlineV2({
+        ...plan,
+        outlineSchema: 'chapter_outline_v2',
+        chapterNumber,
+        sourceStage: {
+          stageNumber: stage.stageNumber,
+          title: stage.title,
+          chapterRange: stage.chapterRange
+        }
+      });
+      return this.upsert(
+        scope,
+        'chapter_outline',
+        `第${chapterNumber}章章纲`,
+        { ...parsed, ...source }
+      ).artifactVersionId;
+    });
     this.ensureConfirmedExpression(scope, decisionId);
     new PlanningStageArtifactService(this.database, this.clock).confirm(
       scope,
@@ -409,6 +436,16 @@ export class PlanningArtifactService {
     return row === undefined ? {} : JSON.parse(row.content_json) as Record<string, unknown>;
   }
 
+  private artifactVersionContent(scope: BookScope, artifactVersionId: string): Record<string, unknown> {
+    const row = this.database.prepare(`
+      SELECT content_json FROM artifact_versions
+      WHERE owner_id = ? AND book_id = ? AND artifact_version_id = ?
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, artifactVersionId) as { content_json: string } | undefined;
+    if (row === undefined) throw new Error('规划状态引用的成果版本不存在');
+    return JSON.parse(row.content_json) as Record<string, unknown>;
+  }
+
   private bookTitle(scope: BookScope): string {
     return (this.database.prepare(`SELECT title FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { title: string }).title;
@@ -503,26 +540,47 @@ export function parsePlanningDepositOutput(summary: string): StructuredArcPlan |
   if (!isRecord(value) || !Array.isArray(value.chapters) || value.chapters.length < 1 || value.chapters.length > 30) {
     throw new Error('滚动规划必须包含未来1至3个章节方案');
   }
+  const isV2 = value.outlineSchema === 'chapter_outline_v2';
   const chapters = value.chapters.map((item, index): StructuredChapterPlan => {
     if (!isRecord(item)) throw new Error(`规划落库第${index + 1}章不是有效对象`);
     const title = stringValue(item.title);
+    const chapterNumber = integerValue(item.chapterNumber) ?? (title === null ? null : chapterNumberFromTitle(title));
+    if (isV2) {
+      if (chapterNumber === null) throw new Error(`规划落库第${index + 1}章缺少绝对章号`);
+      const parsed = parseChapterOutlineV2({
+        ...item,
+        outlineSchema: 'chapter_outline_v2',
+        chapterNumber,
+        sourceStage: {
+          stageNumber: 1,
+          title: '待服务端绑定的剧情总纲阶段',
+          chapterRange: { start: chapterNumber, end: chapterNumber }
+        }
+      });
+      const { sourceStage: _sourceStage, outlineSchema: _outlineSchema, ...plan } = parsed;
+      return plan;
+    }
     const goal = stringValue(item.goal);
     const hook = stringValue(item.hook);
     const beats = stringArray(item.beats).map((beat) => beat.trim()).filter(Boolean);
     if (title === null || goal === null || hook === null || beats.length === 0) {
       throw new Error(`规划落库第${index + 1}章缺少标题、目标、推进节点或钩子`);
     }
-    const chapterNumber = integerValue(item.chapterNumber) ?? chapterNumberFromTitle(title);
     return { ...(chapterNumber === null ? {} : { chapterNumber }), title, goal, beats, hook };
   });
-  if (new Set(chapters.map((chapter) => chapter.goal)).size !== chapters.length) {
-    throw new Error('规划落库存在重复章节目标，不能生成模板化章纲');
+  const uniqueFunctions = chapters.map((chapter) => chapter.chapterFunction ?? chapter.goal);
+  if (new Set(uniqueFunctions).size !== chapters.length) {
+    throw new Error('规划落库存在重复章节功能，不能生成模板化章纲');
   }
   const estimatedChapterRange = parseChapterRange(value.estimatedChapterRange);
   return {
+    ...(isV2 ? { outlineSchema: 'chapter_outline_v2' as const } : {}),
     arcTitle: stringValue(value.arcTitle) ?? '当前故事弧',
-    arcGoal: stringValue(value.arcGoal) ?? chapters.map((chapter) => chapter.goal).join('；'),
-    endingState: stringValue(value.endingState) ?? chapters.at(-1)!.hook,
+    arcGoal: stringValue(value.arcGoal) ?? chapters.map((chapter) => chapter.chapterFunction ?? chapter.goal).join('；'),
+    endingState: stringValue(value.endingState)
+      ?? chapters.at(-1)!.ending?.nextChapterInterface
+      ?? chapters.at(-1)!.hook
+      ?? '继续下一章',
     estimatedChapterRange,
     chapters
   };
