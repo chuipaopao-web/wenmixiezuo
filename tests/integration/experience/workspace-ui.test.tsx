@@ -711,9 +711,19 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
     const libraryTabs = screen.getByRole('navigation', { name: '资料分类' });
-    expect(within(libraryTabs).queryByRole('button', { name: '证据' })).not.toBeInTheDocument();
+    const evidenceTab = within(libraryTabs).getByRole('button', { name: '来源与证据' });
+    expect(evidenceTab).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '雾钟档案' })).toBeInTheDocument();
     expect(screen.getByText(/历史脑洞/u)).toBeInTheDocument();
+    fireEvent.click(evidenceTab);
+    expect(await screen.findByRole('heading', { name: '来源与证据' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '张三' })).toBeInTheDocument();
+    expect(screen.getByText('身份来历')).toBeInTheDocument();
+    expect(screen.getAllByText('雾城边防军出身')).toHaveLength(1);
+    expect(screen.getByText(/第 1 章 · A级证据 · 活动正史/u)).toBeInTheDocument();
+    expect(screen.getByText('城门名册记载张三来自雾城边防军。')).toBeInTheDocument();
+    expect(screen.queryByText(/identity\.origin|fact-ui|source_chapter_number|internal-source-id/u)).not.toBeInTheDocument();
+    expect(document.querySelector('.library-workspace pre')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '已确认设定' }));
     expect(await screen.findByText('架空王朝的雾城边境。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '主角' })).toBeInTheDocument();
@@ -740,7 +750,9 @@ describe('完整创作工作台', () => {
     expect(document.querySelector('.library-workspace pre')).toBeNull();
     fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
     expect(await screen.findByRole('heading', { name: '叙事图谱' })).toBeInTheDocument();
-    for (const name of ['人物关系', '情绪', '主线', '支线', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['人物关系', '情绪', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '主线' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '支线' })).not.toBeInTheDocument();
     expect(screen.getByText('张三 —— 守城军（盟友）')).toBeInTheDocument();
     expect(document.querySelector('.graph-node-grid')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '情绪' }));
@@ -1349,7 +1361,13 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       facts: [{
         fact_id: 'fact-ui-1', subject_entity_id: 'entity-1', canonical_name: '张三',
         relation_key: 'identity.origin', value: '雾城边防军出身', grade: 'A', status: 'active',
-        source_chapter_number: 1, source_chapter_title: '雾城初响'
+        source_chapter_number: 1, source_chapter_title: '雾城初响',
+        evidence: JSON.stringify([{ excerpt: '城门名册记载张三来自雾城边防军。', source_id: 'internal-source-id' }])
+      }, {
+        fact_id: 'fact-ui-duplicate', subject_entity_id: 'entity-1', canonical_name: '张三',
+        relation_key: 'identity.origin', value: '雾城边防军出身', grade: 'A', status: 'active',
+        source_chapter_number: 1, source_chapter_title: '雾城初响',
+        evidence: [{ excerpt: '城门名册记载张三来自雾城边防军。' }]
       }],
       relations: [{ relationship_id: 'relation-ui-1', from_name: '张三', relation_key: 'ally_of', toValue: '守城军' }],
       tags: [], projections: [], gaps: [],

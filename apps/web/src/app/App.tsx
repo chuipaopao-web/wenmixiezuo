@@ -2000,14 +2000,14 @@ function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<stri
   })}</div>;
 }
 
-type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps';
+type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
 
 function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | null }): React.JSX.Element {
   const [tab, setTab] = useState<LibraryTab>('overview');
   const library = isLibraryData(data) ? data : emptyLibraryData();
   const tabs: Array<[LibraryTab, string]> = [
     ['overview', '总览'], ['settings', '已确认设定'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
-    ['rules', '规则'], ['tags', '标签'], ['gaps', '缺口']
+    ['rules', '规则'], ['tags', '标签'], ['gaps', '缺口'], ['evidence', '来源与证据']
   ];
   const entityTypes: Partial<Record<LibraryTab, string[]>> = {
     characters: ['character'], organizations: ['organization'], locations: ['location'], items: ['item', 'resource', 'skill', 'stat_panel'],
@@ -2028,6 +2028,7 @@ function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | nu
       {tab === 'locations' && <LocationLibrary entities={library.entities.filter((entity) => entity.entity_type === 'location')} facts={library.facts} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
+      {tab === 'evidence' && <EvidenceCenter facts={library.facts} />}
     </section>
   );
 }
@@ -2210,7 +2211,82 @@ function factSourceLabel(fact: Record<string, unknown>): string {
   const chapterNumber = Number(fact.source_chapter_number);
   const chapter = Number.isInteger(chapterNumber) && chapterNumber > 0 ? `第 ${chapterNumber} 章` : '已确认资料';
   const grade = typeof fact.grade === 'string' && fact.grade.length > 0 ? `${fact.grade}级证据` : '来源已记录';
-  return `${chapter} · ${grade} · ${authorityLabel(String(fact.status))}`;
+  const chapterTitle = typeof fact.source_chapter_title === 'string' && fact.source_chapter_title.trim().length > 0
+    ? ` ·《${fact.source_chapter_title.trim()}》`
+    : '';
+  return `${chapter} · ${grade} · ${authorityLabel(String(fact.status))}${chapterTitle}`;
+}
+
+function EvidenceCenter({ facts }: { facts: Array<Record<string, unknown>> }): React.JSX.Element {
+  const groups = new Map<string, { title: string; facts: Array<Record<string, unknown>> }>();
+  for (const fact of facts) {
+    const title = typeof fact.canonical_name === 'string' && fact.canonical_name.trim().length > 0
+      ? fact.canonical_name.trim()
+      : '未归属资料';
+    const key = `${String(fact.subject_entity_id ?? '')}\u0000${title}`;
+    const current = groups.get(key) ?? { title, facts: [] };
+    current.facts.push(fact);
+    groups.set(key, current);
+  }
+  const visibleGroups = [...groups.entries()]
+    .map(([key, group]) => ({ ...group, key, facts: uniqueEntityFacts(group.facts).sort(compareEvidenceFacts) }))
+    .filter((group) => group.facts.length > 0)
+    .sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'));
+  return <section className="evidence-center" aria-labelledby="evidence-center-title">
+    <header><div><h3 id="evidence-center-title">来源与证据</h3><p>按资料对象归类，只显示已经结算的事实、来源章节和权威状态；内部字段、原始 JSON 与重复记录不会展示。</p></div><span>{visibleGroups.reduce((total, group) => total + group.facts.length, 0)} 条可追溯事实</span></header>
+    {visibleGroups.length === 0
+      ? <EmptyReference icon={<DatabaseIcon />} title="还没有可展示的证据" description="定稿正文或作者确认资料结算后，会在这里形成可回查的事实来源。" />
+      : <div className="evidence-groups">{visibleGroups.map((group) => <article key={group.key}>
+        <header><h4>{group.title}</h4><span>{group.facts.length} 条</span></header>
+        <dl>{group.facts.map((fact) => {
+          const excerpts = authorEvidenceExcerpts(fact.evidence);
+          return <div key={String(fact.fact_id ?? `${fact.relation_key}-${JSON.stringify(fact.value)}`)}>
+            <dt>{authorFactRelationLabel(fact.relation_key)}</dt>
+            <dd><AuthorValue value={fact.value} /></dd>
+            <small>{factSourceLabel(fact)}</small>
+            {excerpts.length > 0 && <details><summary>查看依据</summary>{excerpts.map((excerpt) => <p key={excerpt}>{excerpt}</p>)}</details>}
+          </div>;
+        })}</dl>
+      </article>)}</div>}
+  </section>;
+}
+
+function compareEvidenceFacts(left: Record<string, unknown>, right: Record<string, unknown>): number {
+  const leftChapter = Number(left.source_chapter_number ?? Number.MAX_SAFE_INTEGER);
+  const rightChapter = Number(right.source_chapter_number ?? Number.MAX_SAFE_INTEGER);
+  if (leftChapter !== rightChapter) return leftChapter - rightChapter;
+  return authorFactRelationLabel(left.relation_key).localeCompare(authorFactRelationLabel(right.relation_key), 'zh-CN');
+}
+
+function authorEvidenceExcerpts(value: unknown): string[] {
+  const excerpts: string[] = [];
+  const add = (candidate: unknown): void => {
+    if (typeof candidate !== 'string') return;
+    const text = candidate.replace(/\s+/gu, ' ').trim();
+    if (text.length < 4 || /^[a-z0-9_.:/-]+$/iu.test(text) || excerpts.includes(text)) return;
+    excerpts.push(text.slice(0, 260));
+  };
+  const visit = (candidate: unknown): void => {
+    if (typeof candidate === 'string' && /^[\[{]/u.test(candidate.trim())) {
+      try {
+        visit(JSON.parse(candidate));
+      } catch {
+        // Raw serialized payloads are internal evidence, not author-facing copy.
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate.slice(0, 10)) visit(item);
+      return;
+    }
+    if (!isRecord(candidate)) {
+      add(candidate);
+      return;
+    }
+    for (const key of ['excerpt', 'quote', 'text', 'summary', 'sentence']) add(candidate[key]);
+  };
+  visit(value);
+  return excerpts.slice(0, 3);
 }
 
 function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>>; bookId: string | null }): React.JSX.Element {
@@ -2249,14 +2325,14 @@ function LocationLibrary({ entities, facts }: { entities: Array<Record<string, u
   return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">尚无作者确认的地图坐标。系统不会用力导向布局冒充地理事实。</p>}<EntityGrid entities={entities} facts={facts} /></div>;
 }
 
-type GraphTab = 'relations' | 'emotion' | 'mainline' | 'subplot' | 'hook' | 'information_gap';
+type GraphTab = 'relations' | 'emotion' | 'hook' | 'information_gap';
 
 function ProjectionWorkspace({ data }: { data: unknown }): React.JSX.Element {
   const [tab, setTab] = useState<GraphTab>('relations');
   const graph = isGraphWorkspaceData(data) ? data : { relations: [], projections: [] };
-  const tabs: Array<[GraphTab, string]> = [['relations', '人物关系'], ['emotion', '情绪'], ['mainline', '主线'], ['subplot', '支线'], ['hook', '钩子与伏笔'], ['information_gap', '信息差']];
+  const tabs: Array<[GraphTab, string]> = [['relations', '人物关系'], ['emotion', '情绪'], ['hook', '钩子与伏笔'], ['information_gap', '信息差']];
   const records = graph.projections.filter((record) => record.projection_type === tab);
-  return <section className="reference-view projection-workspace"><header><h2>叙事图谱</h2><p>关系和五类叙事轨迹集中在这里浏览；它们是可重建投影，不会自动改变剧情或正史。</p></header>
+  return <section className="reference-view projection-workspace"><header><h2>叙事图谱</h2><p>人物关系、情绪、钩子与伏笔、信息差集中在这里浏览；它们是可重建投影，不会自动改变剧情或正史。</p></header>
     <nav className="secondary-tabs" aria-label="图谱分类">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
     {tab === 'relations' ? <KnowledgeGraph records={graph.relations} /> : <ProjectionTracks records={records} />}
   </section>;
