@@ -77,6 +77,7 @@ describe('建书REST流程', () => {
         taxonomyVersion: taxonomy.version, channel: 'male', categoryKey: 'male-fantasy-brain',
         targetAudience: '喜欢玄幻成长与谋略冲突的男频读者',
         protagonists: [{ role: 'male_lead', name: '张三', age: '十八岁', background: '天安城边军斥候。', personalities: ['冷静'] }],
+        storyDirection: '张三从一封伪造军令入手，阻止天安城被卷入战争，并追查幕后操控城邦秩序的权臣。',
         worldBackground: '诸城邦以军功与盟约维持秩序。', openingBackground: '天安城拒绝缴纳边境军费。',
         stageOne: { start: '张三发现伪造军令。', development: '他阻止第一次宣战。', end: '他查出军令来自城内权臣。' },
         fullBookOutline: '张三调查城邦战争规则，最终重建联盟。', mainTags: ['玄幻', '谋略'], auxiliaryTags: [],
@@ -87,6 +88,12 @@ describe('建书REST流程', () => {
         payload: { title: '错误分类', text: '测试', openingBlueprint: { ...openingBlueprint, categoryKey: 'female-modern-brain' } }
       });
       expect(invalidResponse.statusCode).toBe(400);
+      const missingDirectionResponse = await app.inject({
+        method: 'POST', url: '/api/v1/books/drafts',
+        payload: { title: '缺少故事方向', text: '', openingBlueprint: { ...openingBlueprint, storyDirection: '' } }
+      });
+      expect(missingDirectionResponse.statusCode).toBe(400);
+      expect(missingDirectionResponse.json().error.message).toContain('故事方向');
       expect(invalidResponse.json().error.message).toContain('不属于当前频道');
       const missingTitleResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts', payload: { text: openingBlueprint.fullBookOutline, openingBlueprint }
@@ -101,10 +108,17 @@ describe('建书REST流程', () => {
       expect(longTitleResponse.json().error.message).toContain('120');
       const draftResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts',
-        payload: { title: '天安城军报', text: openingBlueprint.fullBookOutline, openingBlueprint }
+        payload: { title: '天安城军报', text: '这个旧定位文本不应覆盖故事方向', openingBlueprint }
       });
       expect(draftResponse.statusCode).toBe(200);
-      const draft = draftResponse.json().data as { draftId: string; version: number };
+      const draft = draftResponse.json().data as {
+        draftId: string;
+        version: number;
+        fields: Array<{ key: string; value: string | null }>;
+      };
+      expect(draft.fields).toEqual(expect.arrayContaining([
+        expect.objectContaining({ key: 'premise', value: openingBlueprint.storyDirection })
+      ]));
       const staleConfirmResponse = await app.inject({
         method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version + 1 }
       });
@@ -162,6 +176,8 @@ describe('建书REST流程', () => {
       expect(capturedPrompt).toContain('不得启动主笔或生成小说正文');
       expect(capturedPrompt).toContain('张三');
       expect(capturedPrompt).toContain('天安城');
+      expect(capturedPrompt).toContain(openingBlueprint.storyDirection);
+      expect(capturedPrompt.split(openingBlueprint.storyDirection).length - 1).toBe(1);
       const sourceManifest = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
         .get(created.kickoffTaskId) as { source_manifest_json: string };
       expect(JSON.parse(sourceManifest.source_manifest_json)).toEqual(expect.arrayContaining([

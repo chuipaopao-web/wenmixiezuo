@@ -62,6 +62,7 @@ export interface OpeningBlueprintInput {
   auxiliaryCategoryKeys?: string[];
   targetAudience: string;
   protagonists: OpeningProtagonistInput[];
+  storyDirection: string;
   worldBackground: string;
   openingBackground: string;
   stageOne: { start: string; development: string; end: string };
@@ -178,10 +179,10 @@ const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
 ]))];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-07-27-v5',
+  version: 'wenmi-single-category-subject-library-2026-08-01-v6',
   sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
-  updatedAt: '2026-07-23',
+  updatedAt: '2026-08-01',
   notice: '分类依据公开页面整理并在本地版本化，不代表平台永久不变；主要选择只定方向，其他元素可随剧情自由创作。',
   categories: [...maleCategories, ...femaleCategories],
   mainTags: allSelectableTags,
@@ -252,6 +253,8 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄或生命阶段、人物背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
+  const storyDirection = requiredText(input.storyDirection, '故事方向', 800);
+  if (storyDirection.length < 20) throw new Error('故事方向至少需要20个字符，请写清开篇处境、启动事件、主角目标和主要阻力');
   if (Array.isArray(input.mainTags)) {
     const distinctMainTags = new Set(input.mainTags
       .map((item) => typeof item === 'string' ? item.trim() : '')
@@ -291,6 +294,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     // 旧书和旧客户端继续保留该字段；新书入口不再要求作者预判目标读者。
     targetAudience: optionalText(input.targetAudience, '目标读者', 500),
     protagonists,
+    storyDirection,
     worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),
     openingBackground: optionalText(input.openingBackground, '故事起始背景', 10_000),
     stageOne: {

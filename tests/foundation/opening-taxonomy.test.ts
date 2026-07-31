@@ -20,6 +20,7 @@ function validBlueprint(): OpeningBlueprintInput {
       background: '边城驿卒之子，意外得到残缺军功册。',
       personalities: ['冷静', '有底线']
     }],
+    storyDirection: '陆沉从边城驿卒之子的处境出发，因未来军报卷入王朝危机；他想阻止北境失守，却必须对抗军中内鬼与被篡改的命令，最终走向重建边境秩序。',
     worldBackground: '王朝、宗门与边军共同维持脆弱秩序。',
     openingBackground: '北境失守前夜，驿站收到一封来自未来的军报。',
     stageOne: {
@@ -118,6 +119,9 @@ describe('完整开书分类与资料合同', () => {
     })).toThrow('0至3个');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '' })).toThrow('故事方向');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '主角开始冒险。' })).toThrow('至少需要20');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '长'.repeat(801) })).toThrow('不能超过800');
     expect(validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' }).targetAudience).toBe('');
     expect(() => validateOpeningBlueprint({
       ...validBlueprint(),

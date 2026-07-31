@@ -39,7 +39,7 @@ try {
   }
   console.log(JSON.stringify({
     smoke: 'passed',
-    schemaVersion: 25,
+    schemaVersion: 34,
     taxonomyVersion: taxonomy.version,
     categories: taxonomy.categories.length,
     channels: [...new Set(taxonomy.categories.map((category) => category.channel))],

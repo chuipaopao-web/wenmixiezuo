@@ -30,7 +30,7 @@ draft → active → paused → archived
 
 ### `book_configs` / `book_onboarding_profiles` / `positioning_versions` / `book_expression_profiles`
 
-`book_onboarding_profiles` 保留兼容字段；DEC-046后的完整资料保存在 `positioning_drafts.opening_blueprint_json` 和不可变 `book_opening_blueprints`。书名仍在 `books`，频道只允许男频/女频。世界观、开篇背景、阶段剧情、全书主线/结果和初始主角属于老板确认的规划参考，不自动成为正史；目标读者、预计规模、表达基线和具体技法仍在后续讨论。字段来源继续区分老板明确、系统建议、未指定或冲突。
+`book_onboarding_profiles` 保留兼容字段；当前开书资料保存在 `positioning_drafts.opening_blueprint_json` 和不可变 `book_opening_blueprints`。书名仍在 `books`，频道只允许男频/女频。DEC-078要求新书保存1—8位初始主角和20—800字 `storyDirection`；故事方向属于老板确认、可修订的软规划锚点，不自动成为正史。世界观、开篇背景、阶段剧情和全书主线/结果属于历史兼容或后续规划参考，同样不自动成为正史；目标读者、预计规模、表达基线和具体技法仍在后续讨论。字段来源继续区分老板明确、系统建议、未指定或冲突。
 
 `book_expression_profiles` 单独版本化保存全书表达基线，包括叙事人称与视角距离、语言气质、文字密度、目标读者、内容尺度、幽默或严肃倾向和作者声音证据。初始版本允许 `provisional`，叙事视角可由样文/试写推断后在首章正式工单前确认；后续变更创建新版本并保存影响范围。它与场景技法分离；默认属于软倾向，不能作为逐句模板或角色声音统一器。
 
@@ -425,6 +425,7 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 
 - `positioning_drafts.opening_blueprint_json`：定位草稿中的完整开书资料，JSON有效且随草稿版本一起确认；旧草稿默认空对象，仅走兼容路径。
 - `book_opening_blueprints`：确认建书后按 `owner_id + book_id + version` 保存不可变开书资料，记录分类目录版本、频道、分类键/显示名、完整资料JSON、内容哈希、状态和时间。它是老板确认的规划参考源，不是正史表。
+- 新书 `opening_blueprint_json` 必须包含1—8位完整初始主角和20—800字 `storyDirection`。读取历史快照时优先使用 `storyDirection`，缺失则只读回退到旧 `fullBookOutline`，不得迁移猜测或把回退值伪装成新确认字段。
 - 单次开书快照校验后的JSON总量不超过18,000字符，确保第一次主编开场可以完整带入24,000 Token上下文包；数据库不做静默截断。
 - 主角姓名投影到 `protagonist_profiles`，年龄、人物背景和性格以 `authority_layer='candidate'`、`source_kind='owner'` 的初始状态项保存，并引用开书资料版本；建书不会把这些候选资料冒充章节正史。
 - 番茄式分类目录是应用内版本化合同，不依赖第三方在线服务。旧书保留原目录版本和分类键；目录升级只影响新选择，不静默重写历史。

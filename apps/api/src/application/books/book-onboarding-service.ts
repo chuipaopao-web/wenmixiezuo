@@ -422,6 +422,8 @@ function storyBibleSkeleton(
       personalities: item.personalities, sourceStatus: 'owner_reference'
     })) ?? [],
     openingReference: openingBlueprint === null ? null : {
+      storyDirection: openingBlueprint.storyDirection,
+      storyDirectionAuthority: 'owner_confirmed_soft_direction_not_canon',
       worldBackground: openingBlueprint.worldBackground,
       openingBackground: openingBlueprint.openingBackground,
       stageOne: openingBlueprint.stageOne,
@@ -442,5 +444,5 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
   if (blueprint === null) {
     return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
   }
-  return `《${title}》已完成作品基本信息。请以活动主编身份主动进入“设定大纲”阶段：先简短说明已经确认的频道、分类、题材与主要标签，再提出1至3个最有价值的设定问题，优先帮助老板建立足以支撑第一阶段创作的世界规则、人物基础或核心机制。允许回答“不知道”“稍后补充”或“刻意留白”。不要讨论第一阶段剧情，不要生成总纲、章纲或正文，不要启动编剧和主笔。`;
+  return `《${title}》已完成作品基本信息。请读取本任务唯一的开书快照来源，并把其中的故事方向视为可讨论、可修订的软规划参考，而不是已发生正史。请以活动主编身份主动进入“设定大纲”阶段：先用一句话说明你对这个方向的理解，再提出1至3个最有价值的设定问题，优先建立足以支撑该方向的世界规则、人物基础或核心机制。分类、题材和标签只是可用方向，不得机械拼接；如果故事方向与必须遵守项冲突，明确指出并请老板决定；如果有更好的偏离方案，可以说明收益和代价，但不得静默改写老板原意。允许回答“不知道”“稍后补充”或“刻意留白”。不要直接生成剧情总纲、章纲或正文，不要启动编剧和主笔。`;
 }

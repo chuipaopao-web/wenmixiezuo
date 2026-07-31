@@ -4651,9 +4651,27 @@ svg {
 }
 
 .story-opening-section,
+.story-direction-section,
 .tag-direction-section {
   grid-column: 1 / -1;
 }
+
+.story-direction-intro,
+.story-direction-meta,
+.book-story-direction small {
+  color: var(--ink-faint);
+  font-size: calc(9px * var(--font-scale));
+  line-height: 1.55;
+}
+
+.story-direction-intro { margin: 0; }
+.story-direction-section textarea { min-height: 118px; resize: vertical; line-height: 1.7; }
+.story-direction-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; }
+.story-direction-meta strong { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.book-story-direction { margin: 14px 0; border-left: 3px solid var(--accent); padding: 10px 12px; background: var(--accent-soft); }
+.book-story-direction h4, .book-story-direction p { margin: 0; }
+.book-story-direction p { margin-top: 7px; line-height: 1.75; white-space: pre-wrap; }
+.book-story-direction small { display: block; margin-top: 7px; }
 
 .tag-direction-section .tag-options {
   max-height: 150px;

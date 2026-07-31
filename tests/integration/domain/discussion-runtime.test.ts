@@ -283,7 +283,10 @@ describe('自然语言讨论运行闭环', () => {
     const setting = compactPlanningArtifactForDiscussion('setting', JSON.stringify({
       title: '测试书',
       positioning: { genre: { value: '游戏体育' } },
-      openingReference: { mustFollow: ['不写多角恋'] },
+      openingReference: {
+        storyDirection: '夏炎进入历史游戏异界后必须靠公开竞技和领地经营获得资源，并查清游戏收益影响现实的代价。',
+        mustFollow: ['不写多角恋']
+      },
       settingOutline: {
         items: Array.from({ length: 60 }, (_, index) => ({
           itemKey: `setting-${index}`,
@@ -303,6 +306,7 @@ describe('自然语言讨论运行闭环', () => {
     }]);
 
     expect(setting.length).toBeLessThan(8_000);
+    expect(setting.match(/夏炎进入历史游戏异界/gu)).toHaveLength(1);
     expect(setting).toContain('不写多角恋');
     expect(peer[0]?.output).toContain('核心方案');
     expect(peer[0]?.output).toContain('章节跨度估算');
@@ -314,7 +318,10 @@ describe('自然语言讨论运行闭环', () => {
       title: '测试书',
       positioning: { genre: { value: '游戏体育' } },
       characters: [{ name: '夏炎', role: 'male_lead' }],
-      openingReference: { mustFollow: ['不写多角恋'] },
+      openingReference: {
+        storyDirection: '夏炎进入历史游戏异界后必须靠公开竞技和领地经营获得资源，并查清游戏收益影响现实的代价。',
+        mustFollow: ['不写多角恋']
+      },
       settingOutline: {
         items: Array.from({ length: 60 }, (_, index) => ({
           itemKey: `setting-${index}`,
@@ -325,6 +332,7 @@ describe('自然语言讨论运行闭环', () => {
     }), 12, false);
 
     expect(setting).toContain('夏炎');
+    expect(setting.match(/夏炎进入历史游戏异界/gu)).toHaveLength(1);
     expect(setting).toContain('不写多角恋');
     expect(setting).not.toContain('全书规则');
     expect(setting.length).toBeLessThan(1_000);

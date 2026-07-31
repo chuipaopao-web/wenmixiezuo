@@ -241,6 +241,7 @@ describe('设定大纲工作状态', () => {
             background: '大学毕业生。',
             personalities: ['幽默', '重情重义']
           }],
+          storyDirection: '夏炎进入游戏异界后，从一场资源危机起步，带领同伴建立领地并查清世界规则背后的真相。',
           worldBackground: '',
           openingBackground: '',
           stageOne: { start: '', development: '', end: '' },

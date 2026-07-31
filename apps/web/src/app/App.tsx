@@ -1700,6 +1700,7 @@ function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterO
 function BookProfilePanel({ profile }: { profile: BookProfileViewData }): React.JSX.Element {
   return <section className="book-profile-panel">
     <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category} · 第{profile.version}版</p></div><small>{profile.source}</small></header>
+    <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '这本旧书尚未提供独立故事方向，可在对话中请主编补充。'}</p><small>开书确认的软规划参考；可以继续讨论和修订，不是已发生正史。</small></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>
     <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'} · {item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
@@ -2008,6 +2009,7 @@ function compactBookProfile(profile: BookProfileViewData | null): Record<string,
     mainTags: profile.mainTags,
     customTags: profile.customTags,
     protagonists: profile.protagonists,
+    storyDirection: profile.storyDirection,
     mustFollow: profile.mustFollow
   };
 }
@@ -3503,6 +3505,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>([
     { role: 'co_lead', name: '', age: '', background: '', personalities: [] }
   ]);
+  const [storyDirection, setStoryDirection] = useState('');
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
@@ -3595,6 +3598,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       ...(item.background.trim().length === 0 ? [`主角${index + 1}人物背景`] : []),
       ...(item.personalities.length === 0 ? [`主角${index + 1}至少1个性格`] : [])
     ]),
+    ...(storyDirection.trim().length < 20 ? ['故事方向至少20字'] : []),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
@@ -3657,6 +3661,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
         age: item.age.trim(),
         background: item.background.trim()
       })),
+      storyDirection: storyDirection.trim(),
       worldBackground: '',
       openingBackground: '',
       stageOne: { start: '', development: '', end: '' },
@@ -3666,7 +3671,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       initialMap: ''
     };
     void onCreate({
-      title: title.trim(), text: `${category.name}。`, category: category.name,
+      title: title.trim(), text: storyDirection.trim(), category: category.name,
       classification: channel === 'male' ? '男频' : '女频',
       targetAudience: '',
       tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
@@ -3712,8 +3717,15 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </section>
         </div>
 
+        <section className="opening-form-section story-direction-section">
+          <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>必填 · 20—800字</small></div>
+          <p className="story-direction-intro">不用先写完整大纲。简要写清主角开篇处境、启动事件、想达成什么、主要阻力和大致走向，主编会据此引导完善设定与剧情。</p>
+          <label htmlFor="opening-story-direction">故事方向<textarea id="opening-story-direction" aria-label="故事方向" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="例如：林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因。她要找回姐姐，同时阻止下一次改写吞掉整座旧城。" rows={5} maxLength={800} /></label>
+          <div className="story-direction-meta"><span>这是可修订的软方向，不是剧情总纲或已发生正史。</span><strong>{storyDirection.length}/800</strong></div>
+        </section>
+
         <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>03</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
+          <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
           <section className="subject-library">
             <StringTagPicker title="融合题材（多选）" hint={`来自起点二级分类与番茄作品题材；建议2—5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
@@ -3948,7 +3960,7 @@ function fieldLabel(key: string): string {
     title: '书名', genre: '题材', sourceStatus: '来源状态', summary: '内容摘要', candidates: '候选',
     premise: '核心前提', audience: '目标读者', tone: '整体表达', constraints: '硬边界', confirmedRecommendation: '确认方案', alternatives: '保留备选',
     positioning: '作品定位', worldView: '世界观', worldRules: '世界规则', powerSystem: '力量体系', resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段', settingCandidates: '成员拆解候选', analysis: '拆解结果', notice: '确认说明',
-    openingReference: '开书基本资料', worldBackground: '世界观参考', openingBackground: '故事起始背景', stageOne: '第一阶段剧情', fullBookOutline: '全书简介', initialMap: '初始地图', mustFollow: '必须遵守',
+    openingReference: '开书基本资料', storyDirection: '故事方向', worldBackground: '世界观参考', openingBackground: '故事起始背景', stageOne: '第一阶段剧情', fullBookOutline: '全书简介', initialMap: '初始地图', mustFollow: '必须遵守',
     characters: '初始人物', initialOrganizations: '初始势力', mainPlot: '主线', planningHistory: '规划沿革', openQuestions: '开放问题', tags: '主要标签', theme: '主题',
     acts: '推进阶段', coreConflict: '核心冲突', protagonistArc: '主角成长线',
     majorStages: '全书推进阶段', storyPromises: '作品承诺', turningPoint: '关键转折',
@@ -3968,7 +3980,7 @@ function fieldLabel(key: string): string {
 }
 
 function isTechnicalField(key: string): boolean {
-  return ['owner_id', 'book_id', 'content_hash', 'model_snapshot_id', 'parameters_json', 'scope_json', 'impact_json', 'outlineSchema'].includes(key);
+  return ['owner_id', 'book_id', 'content_hash', 'model_snapshot_id', 'parameters_json', 'scope_json', 'impact_json', 'outlineSchema', 'storyDirectionAuthority'].includes(key);
 }
 
 function formatValue(value: unknown): string {

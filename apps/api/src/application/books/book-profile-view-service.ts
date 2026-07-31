@@ -11,6 +11,7 @@ export interface BookProfileView {
   mainTags: string[];
   customTags: string[];
   protagonists: OpeningBlueprintInput['protagonists'];
+  storyDirection: string;
   mustFollow: string[];
   style: {
     languageTones: string[];
@@ -51,6 +52,7 @@ export class BookProfileViewService {
       mainTags: blueprint.mainTags,
       customTags: blueprint.customTags,
       protagonists: blueprint.protagonists,
+      storyDirection: blueprint.storyDirection?.trim() || blueprint.fullBookOutline?.trim() || '',
       mustFollow: blueprint.mustFollow,
       style,
       source: '老板确认的开书资料',

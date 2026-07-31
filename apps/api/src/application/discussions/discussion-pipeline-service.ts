@@ -781,7 +781,11 @@ export function compactPlanningArtifactForDiscussion(
   try {
     const parsed = stripPlanningAuditMetadata(JSON.parse(contentJson)) as Record<string, unknown>;
     const positioning = parsed.positioning as Record<string, { value?: unknown }> | undefined;
-    const openingReference = parsed.openingReference as { mustFollow?: unknown } | undefined;
+    const openingReference = parsed.openingReference as {
+      storyDirection?: unknown;
+      fullBookOutline?: unknown;
+      mustFollow?: unknown;
+    } | undefined;
     const outline = parsed.settingOutline as { items?: unknown } | undefined;
     const items = Array.isArray(outline?.items) ? outline.items : [];
     return JSON.stringify({
@@ -795,6 +799,11 @@ export function compactPlanningArtifactForDiscussion(
           : tag)
         : [],
       characters: parsed.characters,
+      storyDirection: typeof openingReference?.storyDirection === 'string' && openingReference.storyDirection.trim().length > 0
+        ? openingReference.storyDirection.trim()
+        : typeof openingReference?.fullBookOutline === 'string'
+          ? openingReference.fullBookOutline.trim()
+          : undefined,
       mustFollow: openingReference?.mustFollow,
       // 总纲整理与滚动章纲都不应把六十余项全书设定全部塞给每个岗位。开书定位、
       // 角色和必须遵守项仍作为硬边界；与本轮剧情相关的详细设定由混合检索按需召回。

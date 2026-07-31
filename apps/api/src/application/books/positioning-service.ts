@@ -46,11 +46,12 @@ export class PositioningService {
   ): PositioningDraft {
     assertOwnerScope(scope);
     new OwnerRepository(this.database).ensure(scope, '老板', this.clock.now().toISOString());
-    const text = input.text.trim();
-    if (text.length < 2) throw new Error('定位描述至少需要2个字符');
     const requestedTitle = input.title?.trim() ?? '';
     if (input.openingBlueprint !== undefined && requestedTitle.length === 0) throw new Error('完整开书必须填写书名');
     if (requestedTitle.length > 120) throw new Error('书名不能超过120个字符');
+    const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint);
+    const text = openingBlueprint?.storyDirection ?? input.text.trim();
+    if (text.length < 2) throw new Error('定位描述至少需要2个字符');
     if (input.expectedScaleChars !== undefined && (
       !Number.isInteger(input.expectedScaleChars)
       || input.expectedScaleChars < 1_000
@@ -58,7 +59,6 @@ export class PositioningService {
     )) {
       throw new Error('预计规模必须是1,000至10,000,000之间的整数');
     }
-    const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint);
     const openingCategory = openingBlueprint === null
       ? null
       : OPENING_TAXONOMY.categories.find((item) => item.key === openingBlueprint.categoryKey)!;

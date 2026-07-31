@@ -5,6 +5,7 @@ import { BookRepository } from '../../../apps/api/src/infrastructure/db/reposito
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../../apps/api/src/infrastructure/db/repositories/protagonist-state-repository.js';
+import { BookProfileViewService } from '../../../apps/api/src/application/books/book-profile-view-service.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -26,6 +27,7 @@ describe('定位草稿与原子建书', () => {
         { role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] },
         { role: 'male_lead', name: '顾潮', age: '二十六岁', background: '轮渡工程师，掌握旧港水文档案。', personalities: ['克制', '有底线'] }
       ],
+      storyDirection: '林雾因一封未来日期的拆迁通知返回旧港，发现城市规划图会改写居民记忆；她要查清姐姐失踪与旧城改造的真相，并在真实代价和完美幻象之间作出选择。',
       worldBackground: '当代沿海城市，旧城区改造牵动多个家族。',
       openingBackground: '林雾收到一封盖着未来日期的拆迁通知。',
       stageOne: { start: '她回到旧宅核查通知。', development: '她发现每次改图都会改变一段现实。', end: '她保住旧街，却让失踪多年的姐姐重新出现。' },
@@ -42,7 +44,22 @@ describe('定位草稿与原子建书', () => {
     const stored = context.database.prepare(`SELECT taxonomy_version, channel, category_key, blueprint_json, status
       FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`).get('owner-one', result.bookId) as Record<string, unknown>;
     expect(stored).toMatchObject({ taxonomy_version: OPENING_TAXONOMY.version, channel: 'female', category_key: 'female-modern-brain', status: 'active' });
-    expect(JSON.parse(String(stored.blueprint_json))).toMatchObject({ initialMap: openingBlueprint.initialMap, protagonists: [{ name: '林雾' }, { name: '顾潮' }] });
+    expect(JSON.parse(String(stored.blueprint_json))).toMatchObject({ storyDirection: openingBlueprint.storyDirection, initialMap: openingBlueprint.initialMap, protagonists: [{ name: '林雾' }, { name: '顾潮' }] });
+    const storyBible = context.database.prepare(`SELECT content_json FROM artifact_versions WHERE artifact_id = ?`)
+      .get(result.storyBibleArtifactId) as { content_json: string };
+    expect(JSON.parse(storyBible.content_json)).toMatchObject({
+      openingReference: {
+        storyDirection: openingBlueprint.storyDirection,
+        storyDirectionAuthority: 'owner_confirmed_soft_direction_not_canon',
+        authority: 'owner_confirmed_reference_not_canon'
+      }
+    });
+    const kickoff = context.database.prepare(`SELECT content FROM messages WHERE owner_id = ? AND book_id = ? AND message_type = 'onboarding_trigger'`)
+      .get('owner-one', result.bookId) as { content: string };
+    expect(kickoff.content).not.toContain(openingBlueprint.storyDirection);
+    expect(kickoff.content).toContain('唯一的开书快照来源');
+    expect(kickoff.content).toContain('软规划参考');
+    expect(kickoff.content).toContain('不要直接生成剧情总纲');
     expect(context.database.prepare('SELECT display_name FROM protagonist_profiles WHERE owner_id = ? AND book_id = ?').all('owner-one', result.bookId))
       .toEqual([{ display_name: '林雾' }, { display_name: '顾潮' }]);
     expect(context.database.prepare(`SELECT label, authority_layer, source_kind FROM protagonist_state_entries
@@ -61,6 +78,8 @@ describe('定位草稿与原子建书', () => {
       .toEqual([{ sender_type: 'system', message_type: 'onboarding_trigger' }]);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
       .get('owner-one', result.bookId)).toEqual({ count: 10 });
+    expect(new BookProfileViewService(context.database).get({ ownerId: 'owner-one', bookId: result.bookId }).storyDirection)
+      .toBe(openingBlueprint.storyDirection);
   });
 
   it('区分老板明确、系统推断、未指定和冲突字段', () => {
@@ -74,6 +93,31 @@ describe('定位草稿与原子建书', () => {
     expect(draft.fields.find((field) => field.key === 'genre')?.sourceStatus).toBe('conflict');
     expect(draft.fields.find((field) => field.key === 'audience')?.sourceStatus).toBe('unspecified');
     expect(draft.tags.some((tag) => tag.name === '游戏' && tag.sourceStatus === 'conflict')).toBe(true);
+  });
+
+  it('旧书没有独立故事方向时只读回退到历史全书简介', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const service = new PositioningService(context.database, ids, clock);
+    const blueprint = completeOpeningBlueprint();
+    const draft = service.createDraft({ ownerId: 'owner-one' }, {
+      title: '旧书兼容测试', text: blueprint.fullBookOutline, openingBlueprint: blueprint
+    });
+    const result = new BookOnboardingService(context.database, ids, clock).confirmDraft(
+      { ownerId: 'owner-one' }, draft.draftId, draft.version
+    );
+    const row = context.database.prepare(`SELECT blueprint_json FROM book_opening_blueprints
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'`)
+      .get('owner-one', result.bookId) as { blueprint_json: string };
+    const legacy = JSON.parse(row.blueprint_json) as Record<string, unknown>;
+    delete legacy.storyDirection;
+    context.database.prepare(`UPDATE book_opening_blueprints SET blueprint_json = ?
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'`)
+      .run(JSON.stringify(legacy), 'owner-one', result.bookId);
+
+    expect(new BookProfileViewService(context.database).get({ ownerId: 'owner-one', bookId: result.bookId }).storyDirection)
+      .toBe(blueprint.fullBookOutline);
   });
 
   it('确认指定草稿版本后原子创建书、11岗位、预算、故事圣经和主编租约', () => {
@@ -158,6 +202,7 @@ function completeOpeningBlueprint(): OpeningBlueprintInput {
     channel: 'male', categoryKey: 'male-history-brain',
     targetAudience: '喜欢历史谋略、群像成长和边城经营的读者',
     protagonists: [{ role: 'male_lead', name: '沈砚', age: '十九岁', background: '边郡书记官。', personalities: ['冷静'] }],
+    storyDirection: '沈砚从被涂改的军粮账簿入手，追查边军粮道与军镇争权；他要在不牺牲百姓的前提下找出幕后主使，并逐步获得重建边境秩序的资格。',
     worldBackground: '架空王朝以军镇与州府共同治理边境。', openingBackground: '沈砚发现一份被涂改的军粮账簿。',
     stageOne: { start: '追查假账。', development: '牵出军镇争权。', end: '保住粮道并锁定幕后主使。' },
     fullBookOutline: '沈砚从边郡小吏成长为重建边境秩序的执政者。', mainTags: ['历史', '谋略'], auxiliaryTags: ['架空历史'],

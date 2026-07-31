@@ -98,6 +98,7 @@ export interface OpeningBlueprintData {
   auxiliaryCategoryKeys?: string[];
   targetAudience: string;
   protagonists: Array<{ role: ProtagonistRole; name: string; age: string; background: string; personalities: string[] }>;
+  storyDirection: string;
   worldBackground: string;
   openingBackground: string;
   stageOne: { start: string; development: string; end: string };
@@ -125,6 +126,7 @@ export interface BookProfileViewData {
   mainTags: string[];
   customTags: string[];
   protagonists: OpeningBlueprintData['protagonists'];
+  storyDirection: string;
   mustFollow: string[];
   style: OpeningBlueprintData['styleIntent'];
   source: string;

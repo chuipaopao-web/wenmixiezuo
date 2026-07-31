@@ -129,7 +129,7 @@ try {
     assert(counts.foreignKeyViolations === 0, 'foreign key violations detected');
     console.log(JSON.stringify({
       smoke: 'passed',
-      schemaVersion: 25,
+      schemaVersion: 34,
       validBooksCreated: 2,
       rejectedInputs: 4,
       boundaryGroups: taxonomy.boundaryGroups.length,
@@ -166,6 +166,7 @@ function blueprint({ taxonomyVersion, channel, categoryKey, role, name, mainTags
     taxonomyVersion,
     channel,
     categoryKey,
+    storyDirection: '主角从一场会改变既有秩序的异常事件起步，在持续付出代价的调查与选择中发现幕后冲突，最终重建规则并承担结果。',
     protagonists: [{
       role,
       name,
