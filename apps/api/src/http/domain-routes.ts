@@ -66,6 +66,7 @@ import { StyleBaselineService } from '../application/books/style-baseline-servic
 import type { StyleBaselineInput } from '../contracts/style-baseline.js';
 import { SettingBaselineService } from '../application/knowledge/setting-baseline-service.js';
 import { PlanningStageArtifactService } from '../application/artifacts/planning-stage-artifact-service.js';
+import { ExistingManuscriptContinuationService } from '../application/continuation/existing-manuscript-continuation-service.js';
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -112,6 +113,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const chatAttachments = new ChatAttachmentService(database, config.dataDir, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
   const ownerManuscripts = new OwnerManuscriptService(database, config.dataDir, config.releaseId, ids, clock);
+  const continuationImports = new ExistingManuscriptContinuationService(
+    database, config.dataDir, config.releaseId, ids, clock
+  );
   const protagonists = new ProtagonistStateService(database, ids, clock);
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
   const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
@@ -934,6 +938,32 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts', async (request) => {
     return success(database.prepare(`SELECT * FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at, manuscript_version_id`)
       .all(config.ownerId, request.params.bookId, request.params.chapterId), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { sourceName: string; text: string } }>(
+    '/api/v1/books/:bookId/continuation-imports/preview', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId };
+      return success(continuationImports.preview(scope, request.body), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/continuation-imports/latest', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    return success(continuationImports.latest(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; importId: string } }>(
+    '/api/v1/books/:bookId/continuation-imports/:importId', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId };
+      return success(continuationImports.get(scope, request.params.importId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; importId: string }; Body: {
+    chapters: Array<{ importChapterId: string; title: string; included: boolean }>;
+  } }>('/api/v1/books/:bookId/continuation-imports/:importId/confirm', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    return success(continuationImports.confirm(scope, request.params.importId, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/select-manuscript', async (request) => {

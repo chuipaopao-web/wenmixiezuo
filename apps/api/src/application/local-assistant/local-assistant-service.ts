@@ -43,6 +43,17 @@ export class LocalAssistantService {
   }
 }
 function decide(text: string): RoutingDecision {
+  if (/^【续写诊断资料包】/u.test(text)) {
+    return {
+      routeClass: 'editor_handoff',
+      riskLevel: 'medium',
+      confidenceBand: 'high',
+      selectedAction: 'preserve_continuation_handoff_packet',
+      selectedRoles: ['chief_editor'],
+      excludedActions: ['dual_screenwriter_session', 'automatic_writing', 'automatic_canon_promotion'],
+      receiptText: '已有正文的导入结果已交给主编。她会先做续写诊断，不会直接开写或提前拉起整组创作成员。'
+    };
+  }
   if (/^(?:讨论设定\s+)?【(?:设定专项讨论资料包|设定大纲成组讨论资料包|剧情总纲专项讨论资料包)】/u.test(text)) {
     return {
       routeClass: 'editor_handoff',

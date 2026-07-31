@@ -43,6 +43,10 @@ import {
   fetchCapabilities,
   fetchChapterContent,
   fetchChapterDetail,
+  previewContinuationImport,
+  confirmContinuationImport,
+  fetchContinuationImport,
+  fetchLatestContinuationImport,
   fetchHealth,
   fetchGraphWorkspace,
   fetchLibrary,
@@ -99,6 +103,7 @@ import {
   type CapabilityData,
   type ChapterData,
   type ChapterPageData,
+  type ContinuationImportData,
   type ChatAttachmentData,
   type CreativeSessionData,
   type HealthData,
@@ -777,6 +782,7 @@ export function App(): React.JSX.Element {
                 detail={chapterDetail}
                 onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
                 onChanged={() => void refreshWorkspace(selectedBook.bookId)}
+                onOpenConversation={() => setView('chat')}
               />
             )}
             {view === 'outline' && <PlanningWorkspace
@@ -1165,7 +1171,7 @@ function attachmentStatusLabel(status: ChatAttachmentData['parseStatus'], charCo
   return '已从待发送列表移除';
 }
 
-function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged }: {
+function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenConversation }: {
   workspace: WorkspaceData | null;
   selectedChapterId: string | null;
   chapter: ChapterData | null;
@@ -1173,13 +1179,191 @@ function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, de
   detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null;
   onSelectChapter: (chapter: ChapterData) => void;
   onChanged: () => void;
+  onOpenConversation: () => void;
 }): React.JSX.Element {
+  const [latestImport, setLatestImport] = useState<ContinuationImportData | null>(null);
+  const bookId = workspace?.book.bookId ?? null;
+  useEffect(() => {
+    setLatestImport(null);
+    if (bookId === null) return;
+    const controller = new AbortController();
+    void fetchLatestContinuationImport(bookId, controller.signal).then(setLatestImport).catch(() => undefined);
+    return () => controller.abort();
+  }, [bookId]);
   if (workspace === null) return <div className="text-skeleton" aria-label="正在加载章节列表" />;
+  const activeImport = latestImport !== null && ['parsed', 'importing', 'failed'].includes(latestImport.status);
+  if (activeImport || workspace.chapters.length === 0) {
+    return <ExistingManuscriptImportPanel
+      bookId={workspace.book.bookId}
+      initialImport={latestImport}
+      onImportChanged={setLatestImport}
+      onImported={onChanged}
+      onOpenConversation={onOpenConversation}
+    />;
+  }
   return <section className="manuscript-workspace">
     <aside className="manuscript-workspace-sidebar"><ManuscriptChapterBrowser workspace={workspace} selectedChapterId={selectedChapterId} onSelect={onSelectChapter} /></aside>
     <div className="manuscript-workspace-editor">{chapter === null
       ? <EmptyReference icon={<BookOpenTextIcon />} title="选择一章正文" description="左侧章节列表是正文的唯一目录；选中章节后可阅读或修改未定稿版本。" />
       : <ManuscriptView bookId={workspace.book.bookId} chapter={chapter} reader={reader} detail={detail} onChanged={onChanged} />}
+    </div>
+  </section>;
+}
+
+function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged, onImported, onOpenConversation }: {
+  bookId: string;
+  initialImport: ContinuationImportData | null;
+  onImportChanged: (value: ContinuationImportData) => void;
+  onImported: () => void;
+  onOpenConversation: () => void;
+}): React.JSX.Element {
+  const [sourceName, setSourceName] = useState('粘贴的已有正文.txt');
+  const [sourceText, setSourceText] = useState('');
+  const [preview, setPreview] = useState<ContinuationImportData | null>(initialImport);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState<'reading' | 'preview' | 'confirm' | 'handoff' | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (initialImport === null) return;
+    setPreview((current) => current === null || current.importId === initialImport.importId ? initialImport : current);
+  }, [initialImport]);
+
+  const updateChapter = (importChapterId: string, patch: { title?: string; included?: boolean }): void => {
+    setPreview((current) => current === null ? null : {
+      ...current,
+      chapters: current.chapters.map((item) => item.importChapterId === importChapterId ? { ...item, ...patch } : item)
+    });
+    setConfirmed(false);
+  };
+
+  const readFile = async (file: File): Promise<void> => {
+    if (busy !== null) return;
+    setBusy('reading'); setNotice(null); setPreview(null); setConfirmed(false);
+    try {
+      if (!file.name.toLocaleLowerCase('zh-CN').endsWith('.txt') && file.type !== 'text/plain') {
+        throw new Error('请选择 TXT 纯文本文件。');
+      }
+      if (file.size > 24 * 1024 * 1024) throw new Error('文件过大。已有正文最多支持约500万中文字符。');
+      const text = await file.text();
+      if (text.trim().length === 0) throw new Error('文件中没有可导入的正文。');
+      setSourceName(file.name);
+      setSourceText(text);
+      setNotice(`已读取 ${file.name}，共 ${text.length.toLocaleString('zh-CN')} 个字符。请先检查，再识别章节。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '读取文件失败。');
+    } finally {
+      setBusy(null);
+      if (fileInputRef.current !== null) fileInputRef.current.value = '';
+    }
+  };
+
+  const createPreview = async (): Promise<void> => {
+    if (busy !== null || sourceText.trim().length === 0) return;
+    setBusy('preview'); setNotice(null); setConfirmed(false);
+    try {
+      const result = await previewContinuationImport(bookId, { sourceName, text: sourceText });
+      setPreview(result);
+      onImportChanged(result);
+      setNotice(`已识别 ${result.chapters.length.toLocaleString('zh-CN')} 个章节。预览不会创建正文，也不会修改正史。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '章节识别没有完成。');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handoffToEditor = async (result: ContinuationImportData): Promise<void> => {
+    setBusy('handoff');
+    try {
+      await sendMessage(bookId, [
+        '【续写诊断资料包】',
+        `已确认导入${result.importedChapterCount}章，导入编号：${result.importId}。`,
+        '请主编先按需检索已确认资料和最近结尾，核对当前局面、关键角色状态、未回收线索、规则边界与原有语言特点。',
+        '先给我一份简洁的接续诊断和需要补充确认的问题；不要直接开写，不启动双编剧，也不要把整本原文塞入一次上下文。'
+      ].join('\n'));
+      setNotice('已有正文已保存，主编已收到续写诊断任务。正在为你打开对话。');
+      onOpenConversation();
+    } catch (reason) {
+      setNotice(`已有正文已经安全保存；主编接待暂未启动：${reason instanceof Error ? reason.message : '请稍后重试'}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmImport = async (): Promise<void> => {
+    if (preview === null || busy !== null || !confirmed) return;
+    const included = preview.chapters.filter((item) => item.included);
+    if (included.length === 0) { setNotice('至少保留一个章节。'); return; }
+    if (included.some((item) => item.title.trim().length === 0)) { setNotice('保留章节的标题不能为空。'); return; }
+    setBusy('confirm'); setNotice('正在把确认过的旧正文逐章保存并建立正史索引，请不要关闭页面。');
+    try {
+      const result = await confirmContinuationImport(bookId, preview.importId, preview.chapters.map((item) => ({
+        importChapterId: item.importChapterId,
+        title: item.title.trim(),
+        included: item.included
+      })));
+      setPreview(result);
+      onImportChanged(result);
+      setNotice(`导入完成：${result.importedChapterCount.toLocaleString('zh-CN')} 章已成为可追溯的前文正史。`);
+      onImported();
+      await handoffToEditor(result);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '导入没有完成；已保存的检查点不会重复写入。');
+      try {
+        const latest = await fetchContinuationImport(bookId, preview.importId);
+        setPreview(latest);
+        onImportChanged(latest);
+      } catch {
+        // 保留当前预览，作者仍可重新提交；服务端会按检查点幂等恢复。
+      }
+      setBusy(null);
+    }
+  };
+
+  const includedCount = preview?.chapters.filter((item) => item.included).length ?? 0;
+  return <section className="continuation-import-shell">
+    <div className="continuation-import-panel">
+      <header>
+        <span className="eyebrow">续写已有作品</span>
+        <h2>先把前文放进文秘写作</h2>
+        <p>支持粘贴整本正文或选择 TXT。系统先识别章节供你核对；只有你确认后，才会逐章保存为不可变的前文正史。</p>
+        <button className="text-button continuation-new-book-link" type="button" onClick={onOpenConversation}>没有旧稿？回对话让主编从新书开始引导</button>
+      </header>
+      <div className="continuation-source-actions">
+        <label className="continuation-source-name">资料名称<input value={sourceName} maxLength={240} onChange={(event) => setSourceName(event.target.value)} disabled={busy !== null || preview !== null} /></label>
+        <input ref={fileInputRef} className="visually-hidden" type="file" accept=".txt,text/plain" onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file !== undefined) void readFile(file);
+        }} />
+        <button className="secondary-button" type="button" disabled={busy !== null || preview !== null} onClick={() => fileInputRef.current?.click()}>{busy === 'reading' ? '正在读取…' : '选择 TXT'}</button>
+      </div>
+      {preview === null ? <>
+        <label className="continuation-source-text">已有正文
+          <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} maxLength={5_000_000} disabled={busy !== null} placeholder={'粘贴正文，例如：\n\n第一章 雨夜归来\n正文……\n\n第二章 故人\n正文……'} />
+        </label>
+        <div className="continuation-import-footer"><span>{sourceText.length.toLocaleString('zh-CN')} / 5,000,000 字符</span><button className="primary-button" type="button" disabled={busy !== null || sourceText.trim().length === 0} onClick={() => void createPreview()}>{busy === 'preview' ? '正在识别…' : '识别章节并预览'}</button></div>
+      </> : <>
+        <div className="continuation-preview-summary">
+          <div><strong>{preview.chapters.length.toLocaleString('zh-CN')}</strong><span>识别章节</span></div>
+          <div><strong>{includedCount.toLocaleString('zh-CN')}</strong><span>准备导入</span></div>
+          <div><strong>{preview.sourceCharacterCount.toLocaleString('zh-CN')}</strong><span>原文字符</span></div>
+        </div>
+        {preview.warnings.length > 0 && <div className="continuation-warnings"><strong>请留意</strong><ul>{preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
+        <div className="continuation-preview-list" aria-label="章节识别预览">{preview.chapters.map((item) => <article className={item.included ? '' : 'excluded'} key={item.importChapterId}>
+          <label className="continuation-include"><input type="checkbox" checked={item.included} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { included: event.target.checked })} /><span>纳入</span></label>
+          <span className="continuation-ordinal">{item.ordinal}</span>
+          <label className="continuation-title"><span className="visually-hidden">第{item.ordinal}项标题</span><input value={item.title} maxLength={120} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { title: event.target.value })} /></label>
+          <small>{item.characterCount.toLocaleString('zh-CN')} 字符 · 校验码 {item.contentHash.slice(0, 8)}</small>
+        </article>)}</div>
+        {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{preview.errorMessage ?? '已完成部分已经保留，可以从检查点继续。'}</p></div>}
+        {['parsed', 'failed', 'importing'].includes(preview.status) && <div className="continuation-confirm">
+          <label><input type="checkbox" checked={confirmed} disabled={busy !== null} onChange={(event) => setConfirmed(event.target.checked)} /><span>我已核对章节拆分；确认把所选正文作为这本书已经发生的前文正史。</span></label>
+          <div>{preview.status === 'parsed' && <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setPreview(null); setConfirmed(false); setNotice(null); }}>返回修改原文</button>}<button className="primary-button" type="button" disabled={busy !== null || !confirmed || includedCount === 0} onClick={() => void confirmImport()}>{busy === 'confirm' ? '正在导入…' : preview.status === 'parsed' ? `确认导入 ${includedCount} 章` : '从检查点继续导入'}</button></div>
+        </div>}
+        {preview.status === 'ready' && <div className="continuation-ready"><CheckCircleIcon /><div><strong>前文已安全导入</strong><span>共 {preview.importedChapterCount.toLocaleString('zh-CN')} 章，旧稿原文和来源校验均已保留。</span></div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void handoffToEditor(preview)}>{busy === 'handoff' ? '正在交接…' : '交给主编分析续写'}</button></div>}
+      </>}
+      {notice !== null && <p className="binding-status continuation-notice" role="status">{notice}</p>}
     </div>
   </section>;
 }

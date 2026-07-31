@@ -17,6 +17,23 @@ const modelCredentialNames = [
   'ANTHROPIC_AUTH_TOKEN', 'ARK_AGENTPLAN_KEY'
 ];
 
+if (existsSync(launcherRecordPath)) {
+  try {
+    const existingLauncher = readControlJson(launcherRecordPath);
+    if (existingLauncher.schemaVersion === 1
+      && existingLauncher.projectRoot?.toLocaleLowerCase('en-US') === projectRoot.toLocaleLowerCase('en-US')
+      && existingLauncher.entryPoint === 'scripts/start.mjs'
+      && Number.isInteger(existingLauncher.processId)
+      && existingLauncher.processId !== process.pid) {
+      process.kill(existingLauncher.processId, 0);
+      throw new Error(`文秘写作已经在运行（进程 ${existingLauncher.processId}），请先使用桌面停止入口`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('文秘写作已经在运行')) throw error;
+    // 旧记录对应的进程已经退出，可以由本次启动安全接管。
+  }
+}
+
 writeFileSync(launcherRecordPath, JSON.stringify({
   schemaVersion: 1,
   processId: process.pid,

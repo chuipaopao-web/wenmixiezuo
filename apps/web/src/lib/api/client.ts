@@ -182,6 +182,39 @@ export interface ChapterData {
   canonManuscriptVersionId: string | null;
 }
 
+export interface ContinuationImportChapterData {
+  importChapterId: string;
+  ordinal: number;
+  detectedTitle: string;
+  title: string;
+  characterCount: number;
+  contentHash: string;
+  included: boolean;
+  status: string;
+  targetChapterNumber: number | null;
+  targetChapterId: string | null;
+  targetManuscriptVersionId: string | null;
+}
+
+export interface ContinuationImportData {
+  importId: string;
+  sourceName: string;
+  sourceHash: string;
+  parserVersion: string;
+  status: 'parsed' | 'importing' | 'failed' | 'ready' | 'cancelled';
+  sourceCharacterCount: number;
+  includedChapterCount: number;
+  importedChapterCount: number;
+  lastCompletedOrdinal: number;
+  warnings: string[];
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+  completedAt: string | null;
+  chapters: ContinuationImportChapterData[];
+}
+
 export interface VolumeData {
   volumeId: string;
   volumeNumber: number;
@@ -699,6 +732,47 @@ export function fetchChapterContent(bookId: string, chapterId: string, signal?: 
   content: string;
 }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/content`, signal === undefined ? {} : { signal });
+}
+
+export function previewContinuationImport(
+  bookId: string,
+  input: { sourceName: string; text: string }
+): Promise<ContinuationImportData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/continuation-imports/preview`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function fetchContinuationImport(
+  bookId: string,
+  importId: string,
+  signal?: AbortSignal
+): Promise<ContinuationImportData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/continuation-imports/${encodeURIComponent(importId)}`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function fetchLatestContinuationImport(
+  bookId: string,
+  signal?: AbortSignal
+): Promise<ContinuationImportData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/continuation-imports/latest`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function confirmContinuationImport(
+  bookId: string,
+  importId: string,
+  chapters: Array<{ importChapterId: string; title: string; included: boolean }>
+): Promise<ContinuationImportData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/continuation-imports/${encodeURIComponent(importId)}/confirm`,
+    { method: 'POST', body: JSON.stringify({ chapters }) }
+  );
 }
 
 export function fetchChapterDetail(bookId: string, chapterId: string, signal?: AbortSignal): Promise<{

@@ -1175,3 +1175,18 @@
 - 停止条件：任一非副编绑定变化、运行任务快照变化、历史修订丢失、同源模型被计为异模型意见、需要新密钥/付费或真实Agent Plan DeepSeek型号未确认。
 - 回滚方法：创建指向历史兼容配置的新绑定修订；Git回滚默认映射和启动迁移；禁止删除新旧模型快照。
 - 审计证据：`docs/DEPUTY_EDITOR_AGENTPLAN_GLM_AUDIT.md`。
+### CORE-20260731-08：已有正文导入与接续创作
+
+- `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`；决定：DEC-077；`design_review_id`：`DR-20260731-existing-manuscript-continuation-v1`。
+- 状态：验收完成（E2 工程证据；不外推真实长篇文学质量）。
+- 目标：让作者预览并确认已有正文，将其建立为不可变前文正史，再由主编以最小接续包主持未来剧情讨论和滚动章纲。
+- 不做什么：不自动修改旧稿；不伪造历史点评；不把整本全文注入模型；不允许向已有章节书静默追加；不修改 `D:\AI智囊团`；不调用其他开发 Agent。
+- 唯一负责人 / 复核人：当前 Codex / 当前 Codex。
+- 允许文件：当前规格、向前迁移、续写导入应用/Repository/API、正文工作台UI、相关测试、release证据；禁止文件：已合并迁移、来源快照、API Key、其他项目和生产正文手工改写。
+- 依赖：DEC-049/054/069/070/074/075/076，不可变正文、章节结算、混合RAG、阶段结算和持续创作会话。
+- 实现约束：确认前零业务写入；空书门禁；逐章哈希与字符范围；事务/检查点；owner+book隔离；抽取候选不得冒充正史；新章仍走正式生产链。
+- 验收：粘贴与本地文本可预览；标题可改、章节可排除；确认后章节和正文可读且已结算；重复确认不重复；失败可恢复；主编接续动作可启动真实会话；跨书、恢复和上下文预算测试通过。
+- 测试命令：专项 Vitest、`npm.cmd run typecheck`、`npm.cmd test`、`npm.cmd run build`、`npm.cmd run migrate`、空库/升级迁移、`npm.cmd run verify:backup`、本地HTTP探针、`npm.cmd run acceptance`、`git diff --check`。
+- 停止条件：跨书、覆盖已有章节、确认前写入、重复正史、原文丢失、硬来源截断、绕过新章审校、需要付费/新密钥/生产恢复或重大架构扩张。
+- 回滚：停用UI与路由并Git revert业务代码；Schema只向前修复；已确认导入数据保留，不做生产数据覆盖恢复。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/existing-manuscript-continuation-20260731.md`。

@@ -53,6 +53,16 @@ describe('小文秘书', () => {
       messageId: 'm2',
       original: '婉儿，你单独说说这个冲突是否成立'
     })).toMatchObject({ routeClass: 'named_member', selectedRoles: ['婉儿'] });
+    expect(service.route(scope, {
+      conversationId: 'c',
+      messageId: 'm3',
+      original: '【续写诊断资料包】\n已确认导入36章，请先诊断，不要直接开写。'
+    })).toMatchObject({
+      routeClass: 'editor_handoff',
+      selectedAction: 'preserve_continuation_handoff_packet',
+      selectedRoles: ['chief_editor'],
+      excludedActions: expect.arrayContaining(['dual_screenwriter_session', 'automatic_writing'])
+    });
   });
   it('只学习工具、路由和故障恢复经验，且必须带反例', () => {
     context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();

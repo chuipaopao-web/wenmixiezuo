@@ -39,7 +39,10 @@ interface WorkerHealthRow {
 export async function createServer(config: RuntimeConfig, database: DatabaseSync, options: RequestPolicyOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' },
-    logController: new LogController({ disableRequestLogging: true })
+    logController: new LogController({ disableRequestLogging: true }),
+    // A five-million-character Chinese manuscript is roughly 15 MiB before JSON overhead.
+    // The continuation service still enforces the stricter character limit and localhost session gate.
+    bodyLimit: 24 * 1024 * 1024
   });
   await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
   await app.register(multipart, {

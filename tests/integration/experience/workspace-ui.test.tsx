@@ -1013,6 +1013,63 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: '定稿' })).toBeInTheDocument();
   });
 
+  it('空正文页可以预览旧稿、明确确认导入并自动交给主编做续写诊断', async () => {
+    const emptyWorkspace: WorkspaceData = {
+      ...workspace,
+      chapters: [],
+      volumes: [],
+      tasks: []
+    };
+    const preview = {
+      importId: 'continuation-ui-1', sourceName: '旧稿.txt', sourceHash: 'source-hash',
+      parserVersion: 'existing-manuscript-parser-v1', status: 'parsed', sourceCharacterCount: 18,
+      includedChapterCount: 0, importedChapterCount: 0, lastCompletedOrdinal: 0,
+      warnings: [], errorCode: null, errorMessage: null,
+      createdAt: '2026-07-31T12:00:00.000Z', confirmedAt: null, completedAt: null,
+      chapters: [
+        { importChapterId: 'continuation-chapter-ui-1', ordinal: 1, detectedTitle: '第一章 归来', title: '第一章 归来', characterCount: 5, contentHash: 'aaaaaaaa11111111', included: true, status: 'preview', targetChapterNumber: null, targetChapterId: null, targetManuscriptVersionId: null },
+        { importChapterId: 'continuation-chapter-ui-2', ordinal: 2, detectedTitle: '第二章 旧信', title: '第二章 旧信', characterCount: 5, contentHash: 'bbbbbbbb22222222', included: true, status: 'preview', targetChapterNumber: null, targetChapterId: null, targetManuscriptVersionId: null }
+      ]
+    };
+    const ready = {
+      ...preview,
+      status: 'ready', includedChapterCount: 2, importedChapterCount: 2, lastCompletedOrdinal: 2,
+      confirmedAt: '2026-07-31T12:01:00.000Z', completedAt: '2026-07-31T12:01:00.000Z',
+      chapters: preview.chapters.map((item, index) => ({
+        ...item, status: 'imported', targetChapterNumber: index + 1,
+        targetChapterId: `chapter-imported-${index + 1}`,
+        targetManuscriptVersionId: `manuscript-imported-${index + 1}`
+      }))
+    };
+    const baseRouter = createFetchRouter('', emptyWorkspace, []);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/continuation-imports/latest')) return apiResponse(null);
+      if (path.endsWith('/continuation-imports/preview') && init?.method === 'POST') return apiResponse(preview);
+      if (path.endsWith('/continuation-imports/continuation-ui-1/confirm') && init?.method === 'POST') return apiResponse(ready);
+      return baseRouter(input, init);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    expect(await screen.findByRole('heading', { name: '先把前文放进文秘写作' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('已有正文'), { target: { value: '第一章 归来\n旧门开了。\n第二章 旧信\n信上有血。' } });
+    fireEvent.click(screen.getByRole('button', { name: '识别章节并预览' }));
+    expect(await screen.findByDisplayValue('第一章 归来')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('第二章 旧信')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已核对章节拆分/u }));
+    fireEvent.click(screen.getByRole('button', { name: '确认导入 2 章' }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
+      if (!String(input).endsWith('/api/v1/books/book-ui-1/messages') || (init as RequestInit | undefined)?.method !== 'POST') return false;
+      const payload = JSON.parse(String((init as RequestInit).body)) as { content: string };
+      return payload.content.startsWith('【续写诊断资料包】') && payload.content.includes('不要直接开写');
+    })).toBe(true));
+    expect(await screen.findByLabelText('和创作团队说')).toBeInTheDocument();
+  });
+
   it('计划章无正文时直接显示空编辑器和动作状态，并以空基线保存第一稿', async () => {
     const plannedWorkspace: WorkspaceData = {
       ...workspace,

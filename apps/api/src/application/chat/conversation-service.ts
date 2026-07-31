@@ -203,6 +203,9 @@ export class ConversationService {
         topic: intake.selectedAction === 'explain_local_assistant_role' ? 'identity' : 'greeting'
       };
     }
+    if (intake?.selectedAction === 'preserve_continuation_handoff_packet') {
+      return this.scheduleConversationReply(scope, modelContent, messageId, conversationId);
+    }
     if (/^(?:试写|试写看看|试写一章|先试写一章)[！!。.？?\s]*$/u.test(content)) {
       const count: ChapterRequestCount = 1;
       const readiness = new WritingReadinessService(this.database).inspect(scope, count);
