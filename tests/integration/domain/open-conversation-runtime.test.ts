@@ -8,6 +8,8 @@ import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/mod
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { DomainError } from '../../../apps/api/src/domain/errors.js';
+import { ModelBindingService } from '../../../apps/api/src/application/agents/model-binding-service.js';
+import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 
 describe('开放式主创对话', () => {
   let context: TestContext | undefined;
@@ -148,12 +150,17 @@ describe('开放式主创对话', () => {
       title: 'Onboarding takeover book', text: 'A new book waiting for setting guidance'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const runtime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    new ModelBindingService(context.database, ids, clock, runtime.roleProfiles).bindAllBooks();
     const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const scheduled = conversations.sendBossMessage(scope, 'Please guide me through the setting');
     const taskId = String(scheduled.action.taskId);
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     const firstClaim = tasks.claimNext('worker-chief-unknown')!;
-    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
     const takeoverFactory = {
       resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
         if (purpose === 'discussion' && roleKey === 'chief_editor') {
@@ -165,7 +172,24 @@ describe('开放式主创对话', () => {
             }
           };
         }
-        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+        if (purpose === 'discussion' && roleKey === 'deputy_editor') {
+          return {
+            provider,
+            modelId,
+            async generate() {
+              return {
+                provider,
+                modelId,
+                output: '我已经接过这次开书引导。我们先确认您最想写出的核心体验，再按顺序完善设定。',
+                inputTokens: 120,
+                outputTokens: 45,
+                cashCostCny: 0,
+                state: 'succeeded' as const
+              };
+            }
+          };
+        }
+        throw new Error(`测试不应调用其他岗位：${String(roleKey)}`);
       }
     } as ModelAdapterFactory;
 
@@ -188,6 +212,41 @@ describe('开放式主创对话', () => {
       .filter((message) => message.sender_type === 'agent')).toEqual([
         expect.objectContaining({ role_key: 'deputy_editor' })
       ]);
+  });
+
+  it('历史失败的非点名回复在重试时对齐当前活动副编和模型快照', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '历史开场恢复书', text: '等待副编恢复开场引导'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const scheduled = conversations.sendBossMessage(scope, '请告诉我现在还缺哪些准备信息');
+    const taskId = String(scheduled.action.taskId);
+    const original = new TaskService(context.database, context.config.releaseId, clock).require(scope, taskId);
+    context.database.prepare(`UPDATE tasks SET status = 'failed', error_code = 'CONVERSATION_REPLY_FAILED' WHERE task_id = ?`)
+      .run(taskId);
+    const deputy = context.database.prepare(`
+      SELECT a.agent_id FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key = 'deputy_editor'
+    `).get(scope.ownerId, scope.bookId) as { agent_id: string };
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    const prepared = editors.prepareTakeover(scope, deputy.agent_id);
+    editors.completeTakeover(scope, prepared.takeoverId);
+
+    const retried = new TaskService(context.database, context.config.releaseId, clock).retryFailed(scope, taskId);
+    const deputySnapshot = context.database.prepare(`SELECT model_snapshot_id FROM agent_instances WHERE agent_id = ?`)
+      .get(deputy.agent_id) as { model_snapshot_id: string };
+    expect(retried).toMatchObject({
+      status: 'queued',
+      assignedAgentId: deputy.agent_id,
+      requiredEditorEpoch: 2,
+      brief: { modelSnapshotId: deputySnapshot.model_snapshot_id }
+    });
+    expect(retried.assignedAgentId).not.toBe(original.assignedAgentId);
   });
 
   it('问候、身份说明和任务查看由小文秘书本地完成且不创建模型任务', async () => {

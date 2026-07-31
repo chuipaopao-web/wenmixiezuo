@@ -248,4 +248,24 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('贸然迁城');
     expect(result.visibleContent).not.toContain('格式不适合直接展示');
   });
+
+  it('修复中文句子中模型误用的未转义英文引号并保留开书引导', () => {
+    const result = prepareEffectiveOutput(`\`\`\`json
+{
+  "answer": "核心悬念是苏念的情感究竟是"课题数据"还是真心。",
+  "keyPoints": ["主线依赖"边缘型人格实验"这个核心机制。"],
+  "alternatives": [],
+  "risks": ["前期必须明确情感边界。"],
+  "questions": ["老师具体用什么控制她？"],
+  "nextStep": "先锁定设定，再讨论剧情大纲。",
+  "details": null
+}
+\`\`\``);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('"课题数据"');
+    expect(result.visibleContent).toContain('"边缘型人格实验"');
+    expect(result.visibleContent).toContain('老师具体用什么控制她');
+    expect(result.visibleContent).not.toContain('格式不适合直接展示');
+  });
 });

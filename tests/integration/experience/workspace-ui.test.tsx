@@ -234,7 +234,8 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
     expect(screen.getByText('后台工作中')).toBeInTheDocument();
     expect(screen.getByText('排队中')).toBeInTheDocument();
-    expect(screen.getAllByText('空闲')).toHaveLength(9);
+    expect(screen.getAllByText('空闲')).toHaveLength(4);
+    expect(screen.getAllByText('待命')).toHaveLength(5);
     expect(screen.getByText('弄玉（版权）')).toBeInTheDocument();
     expect(screen.queryByText('按需专家 4')).not.toBeInTheDocument();
     expect(screen.queryByText('设定与连续性统筹')).not.toBeInTheDocument();

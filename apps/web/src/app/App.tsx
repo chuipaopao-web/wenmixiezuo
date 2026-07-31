@@ -3158,7 +3158,9 @@ function activeTaskForAgent(workspace: WorkspaceData | null, agentId: string): T
 function agentPresence(agent: AgentData, task: TaskData | null, worker: WorkerData | null): { label: string; className: string } {
   if (agent.activationState === 'disabled') return { label: '离线', className: 'offline' };
   if (agent.activationState === 'paused') return { label: '暂停', className: 'standby' };
-  if (task === null) return { label: '空闲', className: 'standby' };
+  if (task === null) return agent.activationState === 'standby'
+    ? { label: '待命', className: 'standby' }
+    : { label: '空闲', className: 'standby' };
   // P0-2 / R02: blocked/interrupted 不表示成员正在工作，只显示在任务中心，
   // 不把成员伪装成持续工作或“需要处理”；waiting_confirmation 显示等待老板。
   if (task.status === 'waiting_confirmation') return { label: '待老板确认', className: 'standby' };

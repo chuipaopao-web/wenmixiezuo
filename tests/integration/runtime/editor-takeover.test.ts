@@ -51,7 +51,7 @@ describe('双主编租约与接管', () => {
     expect(tasks.require(scope, 'task-handoff').requiredEditorEpoch).toBe(2);
   });
 
-  it('候任副编没有近期成功调用证据时拒绝盲目接管', () => {
+  it('候任副编没有历史调用时允许一次受控冷启动接管', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -69,8 +69,57 @@ describe('双主编租约与接管', () => {
       .get(scope.ownerId, scope.bookId) as { agent_id: string };
 
     expect(() => new EditorLeaseService(context!.database, ids, clock).prepareTakeover(scope, deputy.agent_id))
-      .toThrow('没有24小时内的成功调用证据');
+      .not.toThrow();
     expect(context.database.prepare(`SELECT takeover_state FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ takeover_state: 'ready' });
+  });
+
+  it('候任副编最近已有技术失败证据时拒绝重复接管', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '候任失败冷却测试书' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const runtime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    new ModelBindingService(context.database, ids, clock, runtime.roleProfiles).bindAllBooks();
+    const deputy = context.database.prepare(`SELECT a.agent_id, a.model_snapshot_id, m.provider, m.model_id
+      FROM agent_instances a
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key = 'deputy_editor'`)
+      .get(scope.ownerId, scope.bookId) as { agent_id: string; model_snapshot_id: string; provider: string; model_id: string };
+    const budget = new BudgetService(context.database, ids, clock).create(scope, 'standard', 100, 0);
+    new TaskService(context.database, context.config.releaseId, clock).create(scope, {
+      taskId: 'task-deputy-failure', taskType: 'runtime_probe', assignedAgentId: deputy.agent_id,
+      idempotencyKey: 'deputy-failure', budgetId: budget.budgetId, requiredEditorEpoch: 1,
+      initialPhase: 'execute', brief: {}
+    });
+    context.database.prepare(`
+      INSERT INTO budget_reservations (
+        reservation_id, budget_id, owner_id, book_id, request_id,
+        frozen_tokens, frozen_cash_micros, status, created_at
+      ) VALUES ('reservation-deputy-failure', ?, ?, ?, 'request-deputy-failure', 10, 0, 'reserved', ?)
+    `).run(budget.budgetId, scope.ownerId, scope.bookId, clock.now().toISOString());
+    context.database.prepare(`
+      INSERT INTO model_calls (
+        request_id, owner_id, book_id, task_id, phase_key, agent_id, provider, model_id,
+        model_snapshot_id, input_hash, parameters_hash, reservation_id, state, error_class,
+        started_at, completed_at, created_at
+      ) VALUES (
+        'request-deputy-failure', ?, ?, 'task-deputy-failure', 'probe', ?, ?, ?, ?,
+        ?, ?, 'reservation-deputy-failure', 'failed', 'technical_failure', ?, ?, ?
+      )
+    `).run(scope.ownerId, scope.bookId, deputy.agent_id, deputy.provider, deputy.model_id,
+      deputy.model_snapshot_id, 'a'.repeat(64), 'b'.repeat(64),
+      clock.now().toISOString(), clock.now().toISOString(), clock.now().toISOString());
+
+    expect(() => new EditorLeaseService(context!.database, ids, clock).prepareTakeover(scope, deputy.agent_id))
+      .toThrow('最近一次调用未成功');
+    expect(context!.database.prepare(`SELECT takeover_state FROM editor_leases WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId)).toEqual({ takeover_state: 'stable' });
   });
 });

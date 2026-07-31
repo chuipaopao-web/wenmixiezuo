@@ -253,7 +253,7 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
 
 function structuredJsonCandidates(raw: string): string[] {
   const direct = unwrapJsonFence(raw);
-  const candidates = [direct];
+  const candidates = [direct, repairUnescapedJsonQuotes(direct)];
 
   // 模型偶尔会在结构化答复前后附加岗位意见或“规划落库”。使用字符串感知的括号扫描，
   // 只抽取完整 JSON 对象；不使用贪婪正则，避免嵌套对象、转义引号导致截断。
@@ -275,7 +275,8 @@ function structuredJsonCandidates(raw: string): string[] {
       else if (char === '}') {
         depth -= 1;
         if (depth === 0) {
-          candidates.push(raw.slice(start, index + 1));
+          const object = raw.slice(start, index + 1);
+          candidates.push(object, repairUnescapedJsonQuotes(object));
           start = index;
           break;
         }
@@ -283,6 +284,46 @@ function structuredJsonCandidates(raw: string): string[] {
     }
   }
   return candidates;
+}
+
+function repairUnescapedJsonQuotes(value: string): string {
+  let inString = false;
+  let escaped = false;
+  let repaired = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (!inString) {
+      if (char === '"') inString = true;
+      repaired += char;
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      repaired += char;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      repaired += char;
+      continue;
+    }
+    if (char !== '"') {
+      repaired += char;
+      continue;
+    }
+    let nextIndex = index + 1;
+    while (nextIndex < value.length && /\s/u.test(value[nextIndex]!)) nextIndex += 1;
+    const next = value[nextIndex];
+    // JSON 字段名或字符串值的合法结束引号，后面只能接冒号、逗号、容器结束或文本结束。
+    // 其他位置的裸引号是模型在中文句子里误用的强调引号，转义后再按合同解析。
+    if (next === ':' || next === ',' || next === '}' || next === ']' || next === undefined) {
+      inString = false;
+      repaired += char;
+    } else {
+      repaired += '\\"';
+    }
+  }
+  return repaired;
 }
 
 function unwrapContractFields(value: Record<string, unknown>): Record<string, unknown> | null {

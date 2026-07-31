@@ -192,6 +192,17 @@ export class EditorLeaseService {
         WHERE owner_id = ? AND book_id = ? AND editor_epoch = ?
       `).run(lease.candidateEditorAgentId, nextEpoch, now.toISOString(), scope.ownerId, scope.bookId, lease.editorEpoch);
       if (bookUpdated.changes !== 1) throw new Error('书籍主编epoch已变化，接管事务已回滚');
+      // 岗位实例状态必须与真实租约一致：当前主持者为空闲常驻，退出主持者转为待命。
+      // 这里只表达可调度状态，不把没有活动任务的成员伪装成“工作中”。
+      this.database.prepare(`
+        UPDATE agent_instances SET activation_state = CASE
+          WHEN agent_id = ? THEN 'idle'
+          WHEN agent_id = ? THEN 'standby'
+          ELSE activation_state END,
+          updated_at = ?
+        WHERE owner_id = ? AND book_id = ? AND agent_id IN (?, ?) AND enabled = 1
+      `).run(lease.candidateEditorAgentId, lease.activeEditorAgentId, now.toISOString(),
+        scope.ownerId, scope.bookId, lease.candidateEditorAgentId, lease.activeEditorAgentId);
       const candidateModel = this.database.prepare(`SELECT model_snapshot_id FROM agent_instances
         WHERE agent_id = ? AND owner_id = ? AND book_id = ? AND enabled = 1`)
         .get(lease.candidateEditorAgentId, scope.ownerId, scope.bookId) as { model_snapshot_id: string } | undefined;
@@ -297,7 +308,7 @@ export class EditorLeaseService {
         takenOver: true,
         activeEditorAgentId: completed.activeEditorAgentId,
         editorEpoch: completed.editorEpoch,
-        reason: '活动主编连续两次技术调用失败，候任模型已有近期成功证据，已完成原子接管'
+        reason: '活动主编技术调用未能可靠完成，候任模型已通过接管门禁并完成原子接管'
       };
     } catch (error) {
       return {
@@ -417,18 +428,45 @@ export class EditorLeaseService {
     `).get(agentId, scope.ownerId, scope.bookId) as { provider: string; model_id: string; plan_type: string | null } | undefined;
     if (model === undefined) throw new Error('候任主编缺少有效模型快照');
     if (model.plan_type === 'deterministic' || model.provider.startsWith('local-deterministic')) return;
-    const since = new Date(this.clock.now().getTime() - 24 * 60 * 60 * 1_000).toISOString();
+    const now = this.clock.now();
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1_000).toISOString();
     const recentSuccess = this.database.prepare(`
       SELECT 1 FROM model_calls
       WHERE owner_id = ? AND provider = ? AND model_id = ?
         AND state = 'succeeded' AND completed_at >= ? LIMIT 1
     `).get(scope.ownerId, model.provider, model.model_id, since) !== undefined;
-    if (!recentSuccess) {
-      throw new DomainError(errorCodes.agentCapabilityUnavailable, '候任副编模型当前没有24小时内的成功调用证据，已停止接管并等待老板处理', {
+    if (recentSuccess) return;
+
+    // “必须先有成功记录才能接管”会让新书、新模型或清空调用历史后的第一轮
+    // 永远没有机会真正调用，形成冷启动死锁。没有历史成功时允许一次受任务租约、
+    // 预算和 epoch 保护的真实调用作为探测；但若候任模型正在调用，或刚刚已有
+    // 明确失败/结果未知证据，则停止接管，避免并发重复调用和故障风暴。
+    const working = this.database.prepare(`
+      SELECT 1 FROM model_calls
+      WHERE owner_id = ? AND provider = ? AND model_id = ? AND state = 'working'
+      LIMIT 1
+    `).get(scope.ownerId, model.provider, model.model_id) !== undefined;
+    const failureCooldownMinutes = 10;
+    const failureSince = new Date(now.getTime() - failureCooldownMinutes * 60 * 1_000).toISOString();
+    const recentFailure = this.database.prepare(`
+      SELECT state, error_class FROM model_calls
+      WHERE owner_id = ? AND provider = ? AND model_id = ?
+        AND state IN ('failed', 'interrupted')
+        AND COALESCE(completed_at, started_at, created_at) >= ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(scope.ownerId, model.provider, model.model_id, failureSince) as
+      { state: string; error_class: string | null } | undefined;
+    if (working || recentFailure !== undefined) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, working
+        ? '候任副编模型已有进行中的调用，已停止重复接管'
+        : '候任副编模型最近一次调用未成功，已暂停接管并等待冷却后重试', {
         candidateAgentId: agentId,
         provider: model.provider,
         modelId: model.model_id,
-        verificationWindowHours: 24
+        verificationWindowHours: 24,
+        failureCooldownMinutes,
+        recentFailureState: recentFailure?.state ?? null,
+        recentFailureClass: recentFailure?.error_class ?? null
       }, false, 409);
     }
   }

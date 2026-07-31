@@ -126,18 +126,46 @@ export class TaskService {
   }
 
   public retryFailed(scope: BookScope, taskId: string): TaskRecord {
-    this.require(scope, taskId);
+    const task = this.require(scope, taskId);
     const now = this.clock.now().toISOString();
-    const result = this.database.prepare(`
-      UPDATE tasks
-      SET status = 'queued', error_code = NULL, cancel_requested = 0,
-        lease_owner = NULL, lease_expires_at = NULL, lease_token = NULL,
-        heartbeat_at = NULL, updated_at = ?
-      WHERE task_id = ? AND owner_id = ? AND book_id = ?
-        AND status IN ('failed', 'interrupted')
-    `).run(now, taskId, scope.ownerId, scope.bookId);
-    if (result.changes !== 1) {
-      throw new DomainError(errorCodes.taskAlreadyRunning, '只有失败或中断的任务可以重试', {}, false, 409);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = this.database.prepare(`
+        UPDATE tasks
+        SET status = 'queued', error_code = NULL, cancel_requested = 0,
+          lease_owner = NULL, lease_expires_at = NULL, lease_token = NULL,
+          heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND owner_id = ? AND book_id = ?
+          AND status IN ('failed', 'interrupted')
+      `).run(now, taskId, scope.ownerId, scope.bookId);
+      if (result.changes !== 1) {
+        throw new DomainError(errorCodes.taskAlreadyRunning, '只有失败或中断的任务可以重试', {}, false, 409);
+      }
+      // 非点名的开放回复属于“活动主编”职责。历史失败任务重试时必须重新读取
+      // 当前租约，而不是继续携带故障主编的 agent/model/epoch 快照。
+      if (task.taskType === 'conversation_reply' && task.brief.directNamedMember !== true) {
+        const activeEditor = this.database.prepare(`
+          SELECT b.active_editor_agent_id AS agent_id, b.editor_epoch,
+                 a.model_snapshot_id
+          FROM books b JOIN agent_instances a
+            ON a.owner_id = b.owner_id AND a.book_id = b.book_id
+           AND a.agent_id = b.active_editor_agent_id AND a.enabled = 1
+          WHERE b.owner_id = ? AND b.book_id = ?
+        `).get(scope.ownerId, scope.bookId) as
+          { agent_id: string; editor_epoch: number; model_snapshot_id: string } | undefined;
+        if (activeEditor === undefined) throw new Error('当前书籍缺少可用的活动主编，无法恢复回复任务');
+        this.database.prepare(`
+          UPDATE tasks SET assigned_agent_id = ?, required_editor_epoch = ?,
+            task_brief_json = json_set(task_brief_json, '$.modelSnapshotId', ?),
+            updated_at = ?
+          WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'queued'
+        `).run(activeEditor.agent_id, activeEditor.editor_epoch, activeEditor.model_snapshot_id,
+          now, taskId, scope.ownerId, scope.bookId);
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
     }
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'queued', retry: true });
     return this.require(scope, taskId);
