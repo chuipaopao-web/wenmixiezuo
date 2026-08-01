@@ -1261,7 +1261,7 @@
 ### CORE-20260801-05：取名目录独立细分类
 
 - `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`；决定：DEC-082；`design_review_id`：`DR-20260801-local-naming-taxonomy-v2`。
-- 状态：开发与专项回归完成，等待全量门禁和release验收证据。
+- 状态：已完成。122个独立细类、逐类候选生成、双入口回归、全量门禁、迁移、运行、备份恢复和release验收均已通过。
 - 目标：把人工智能、机器人、仿生人、器灵、精怪等命名规则不同的对象完全拆开，并把取名目录扩充为不少于110个真实可用细类。
 - 不做什么：不调用模型/付费API，不新增岗位，不自动保存候选，不改数据库、正史、正文、模型绑定或 `D:\AI智囊团`。
 - 唯一负责人 / 复核人：当前Codex / 当前Codex；项目规则禁止调用其他开发Agent。
@@ -1272,4 +1272,4 @@
 - 测试命令：取名生成器与工作区UI专项Vitest、`npm.cmd run verify`、`npm.cmd run migrate`两次、`npm.cmd run verify:backup`、HTTP运行探针、`npm.cmd run acceptance`和`git diff --check`。
 - 停止条件：空类别、重复ID、候选自动写入业务、跨书、需要新密钥/付费/生产恢复/重大架构变更。
 - 回滚：Git回滚目录、映射和测试；无Schema或生产数据回滚。
-- 验收证据：完成后写入 `docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/local-naming-taxonomy-v2-20260801.md`。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/local-naming-taxonomy-v2-20260801.md`；实现提交 `1ffe8e6`。
