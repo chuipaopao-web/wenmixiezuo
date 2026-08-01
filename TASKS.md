@@ -1245,7 +1245,7 @@
 ### CORE-20260801-04：统一取名助手
 
 - `release_id`：`wm-longform-r1-20260719-003435-e4d7b8b7`；决定：DEC-081；`design_review_id`：`DR-20260801-local-naming-assistant-v1`。
-- 状态：开发中。
+- 状态：实现、专项/全量测试、类型检查、构建、迁移幂等、备份隔离恢复、运行探针和提交后验收均通过。
 - 目标：在开书角色姓名与书内工作台提供同一套覆盖人物、地点、势力、物品、生灵和能力的题材适配取名工具。
 - 不做什么：不调用模型或付费API，不新增岗位，不自动保存候选，不改数据库、正史、正文、岗位绑定或 `D:\AI智囊团`。
 - 唯一负责人 / 复核人：当前Codex / 当前Codex；项目规则禁止调用其他开发Agent。
@@ -1256,3 +1256,4 @@
 - 测试命令：取名生成器与工作区UI专项Vitest、`npm.cmd run typecheck`、`npm.cmd test`、`npm.cmd run build`、`npm.cmd run migrate`、既有迁移/备份/运行门禁和`git diff --check`。
 - 停止条件：跨书写入、候选自动进入正史、需要新密钥/实际付费/生产恢复或重大架构变更。
 - 回滚：Git回滚本地生成器、面板和两处入口；无Schema或生产数据回滚。
+- 验收证据：`docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/evidence/local-naming-assistant-20260801.md`；实现提交 `03ebf79`。
