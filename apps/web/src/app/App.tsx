@@ -18,6 +18,7 @@ import {
   GearSixIcon,
   ImageIcon,
   MagnifyingGlassIcon,
+  MagicWandIcon,
   MapTrifoldIcon,
   TagIcon,
   TrashIcon,
@@ -132,6 +133,8 @@ import {
 } from '../lib/api/client';
 import { cacheSnapshot, loadDraft, loadSnapshot, saveDraft } from '../lib/offline/offline-store';
 import { avatarPosition } from './role-avatars';
+import { NamingAssistantPanel } from './NamingAssistantPanel';
+import { recommendCharacterTarget, type NamingContext } from './naming-assistant';
 import {
   authorFactRelationLabel,
   authorFieldLabel,
@@ -150,7 +153,7 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type WorkspaceView = 'chat' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'team';
+type WorkspaceView = 'chat' | 'outline' | 'manuscript' | 'projections' | 'knowledge' | 'rights' | 'naming' | 'team';
 type HomeView = 'shelf' | 'tasks' | 'team';
 
 interface TaskSelection {
@@ -708,6 +711,7 @@ export function App(): React.JSX.Element {
             <RailViewButton active={view === 'projections'} onClick={() => { setView('projections'); setLeftOpen(false); }} icon={<DatabaseIcon />} label="图谱" />
             <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
             <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
+            <RailViewButton active={view === 'naming'} onClick={() => { setView('naming'); setLeftOpen(false); }} icon={<MagicWandIcon />} label="取名" />
           </nav>
         )}
       </aside>
@@ -815,6 +819,7 @@ export function App(): React.JSX.Element {
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
             {view === 'rights' && <RightsWorkspace data={referenceData} />}
+            {view === 'naming' && <NamingWorkspace book={selectedBook} />}
           </>
         )}
       </main>
@@ -2864,6 +2869,43 @@ function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: 
   );
 }
 
+function NamingWorkspace({ book }: { book: BookData }): React.JSX.Element {
+  const [profile, setProfile] = useState<BookProfileViewData | null>(null);
+  const [profileUnavailable, setProfileUnavailable] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setProfileUnavailable(false);
+    void fetchBookProfile(book.bookId, controller.signal)
+      .then((value) => setProfile(value))
+      .catch(() => {
+        if (!controller.signal.aborted) setProfileUnavailable(true);
+      });
+    return () => controller.abort();
+  }, [book.bookId]);
+
+  const context: NamingContext = profile === null ? {} : {
+    channel: profile.channel === '男频' || profile.channel === 'male' ? 'male'
+      : profile.channel === '女频' || profile.channel === 'female' ? 'female' : null,
+    category: profile.category,
+    subjects: profile.subjects,
+    tags: [...profile.mainTags, ...profile.customTags],
+    storyDirection: profile.storyDirection
+  };
+  const existingNames = profile?.protagonists.map((item) => item.name).filter(Boolean) ?? [];
+
+  return (
+    <div className="naming-workspace">
+      {profileUnavailable && (
+        <p className="naming-context-notice" role="status">
+          暂时没有读取到本书分类资料，当前使用通用语感；取名功能仍可正常使用。
+        </p>
+      )}
+      <NamingAssistantPanel context={context} exclude={existingNames} action="copy" />
+    </div>
+  );
+}
+
 function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelect, onDecide }: {
   entries: TaskCenterBookData[];
   loading: boolean;
@@ -3507,6 +3549,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>([
     { role: 'co_lead', name: '', age: '', background: '', personalities: [] }
   ]);
+  const [namingProtagonistIndex, setNamingProtagonistIndex] = useState<number | null>(null);
   const [storyDirection, setStoryDirection] = useState('');
   const [customTags, setCustomTags] = useState<string[]>([]);
   const [customTag, setCustomTag] = useState('');
@@ -3605,6 +3648,14 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
   const valid = missingRequirements.length === 0;
+  const namingProtagonist = namingProtagonistIndex === null ? null : protagonists[namingProtagonistIndex] ?? null;
+  const namingContext: NamingContext = {
+    channel,
+    category: category?.name ?? null,
+    subjects: auxiliaryTags,
+    tags: [...mainTags, ...customTags],
+    storyDirection
+  };
   const toggleTag = (tag: string, current: string[], setter: (value: string[]) => void, max?: number): void => {
     if (current.includes(tag)) setter(current.filter((item) => item !== tag));
     else if (max === undefined || current.length < max) setter([...current, tag]);
@@ -3711,7 +3762,13 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
             <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
             {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
               <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
-              <div className="form-row two"><label htmlFor={`protagonist-role-${index}`}>主角身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label htmlFor={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`}>姓名<input id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} placeholder="例如：林舟" maxLength={80} /></label></div>
+              <div className="form-row two">
+                <label htmlFor={`protagonist-role-${index}`}>主角身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                <div className="protagonist-name-field">
+                  <div><label htmlFor={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`}>姓名</label><button type="button" aria-label={`为角色${index + 1}取名`} onClick={() => setNamingProtagonistIndex(index)}><MagicWandIcon aria-hidden="true" />取名助手</button></div>
+                  <input id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} placeholder="例如：林舟" maxLength={80} />
+                </div>
+              </div>
               <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄或生命阶段<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：十八岁、成年、初入职场" maxLength={80} /></label>
               <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>人物背景<textarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={3} maxLength={2000} /></label>
               <StringTagPicker title="角色性格" hint="至少1个，最多6个" kind="角色性格" options={taxonomy?.personalityOptions ?? []} selected={protagonist.personalities} onToggle={(item) => toggleProtagonistPersonality(index, item)} />
@@ -3758,6 +3815,20 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
         </section>
       </div>
       <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后由主编接待并进入设定大纲</span>{missingRequirements.length > 0 && <small className="create-book-requirements" role={submitAttempted ? 'alert' : undefined}>{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
+      {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
+        <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
+          <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>
+          <NamingAssistantPanel
+            compact
+            action="fill"
+            context={namingContext}
+            initialTargetId={recommendCharacterTarget(namingProtagonist.role)}
+            exclude={protagonists.filter((_, index) => index !== namingProtagonistIndex).map((item) => item.name).filter(Boolean)}
+            onSelect={(name) => updateProtagonist(namingProtagonistIndex, { name })}
+          />
+          <footer><span>选中的名字只会填入姓名框，您仍可修改。</span><button className="primary-button" type="button" onClick={() => setNamingProtagonistIndex(null)}>完成</button></footer>
+        </section>
+      </div>}
     </section>
   </div>;
 }

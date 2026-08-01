@@ -246,7 +246,7 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究']) {
+    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究', '取名']) {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
     expect(within(workspaceNavigation).queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
@@ -406,6 +406,12 @@ describe('完整创作工作台', () => {
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '为角色1取名' }));
+    const namingDialog = await screen.findByRole('dialog', { name: '角色1取名助手' });
+    const firstCandidate = within(namingDialog).getAllByRole('button', { name: /^填入候选：/ })[0]!;
+    fireEvent.click(firstCandidate);
+    expect(dialog.querySelector<HTMLInputElement>('#opening-protagonist-name')?.value).not.toBe('');
+    fireEvent.click(within(namingDialog).getByRole('button', { name: '完成' }));
     expect(within(dialog).getByRole('button', { name: /增加角色/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('option', { name: '女主' })).toBeInTheDocument();
     expect(within(dialog).queryByText('表达调色板')).not.toBeInTheDocument();
@@ -427,6 +433,23 @@ describe('完整创作工作台', () => {
       const blueprint = payload.openingBlueprint as Record<string, unknown>;
       return blueprint.storyDirection === storyDirection && payload.text === storyDirection;
     })).toBe(true));
+  });
+
+  it('书内取名工作区按完整类别提供候选且不自动写入资料', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '取名' }));
+
+    expect(await screen.findByRole('heading', { name: '取名助手' })).toBeInTheDocument();
+    expect(screen.getByText('人物')).toBeInTheDocument();
+    expect(screen.getByText('地点')).toBeInTheDocument();
+    expect(screen.getByText('势力')).toBeInTheDocument();
+    expect(screen.getByText('物品')).toBeInTheDocument();
+    expect(screen.getByText('生灵')).toBeInTheDocument();
+    expect(screen.getByText('能力')).toBeInTheDocument();
+    expect(screen.getByText(/候选不会自动写入设定、正文或正史/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^复制候选：/ }).length).toBeGreaterThan(0);
   });
 
   it('智能推荐固定八个且不把跨频道标签或作者手选标签写坏', async () => {
