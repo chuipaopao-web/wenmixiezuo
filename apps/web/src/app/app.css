@@ -5412,6 +5412,8 @@ svg {
   display: grid;
   align-content: start;
   gap: 5px;
+  max-height: min(620px, calc(100dvh - 260px));
+  overflow-y: auto;
   border-right: 1px solid var(--line);
   padding: 15px 12px;
   background: var(--panel);
@@ -5632,6 +5634,10 @@ svg {
 
 .naming-assistant-panel.compact .naming-assistant-layout {
   min-height: 350px;
+}
+
+.naming-assistant-panel.compact .naming-target-list {
+  max-height: min(430px, calc(100dvh - 330px));
 }
 
 .archive-dialog {

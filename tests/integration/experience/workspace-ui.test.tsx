@@ -448,6 +448,13 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('物品')).toBeInTheDocument();
     expect(screen.getByText('生灵')).toBeInTheDocument();
     expect(screen.getByText('能力')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^人工智能/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^机器人/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^仿生人/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^器灵/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^精怪/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^人工智能/ }));
+    expect(screen.getByText('正在取：').parentElement).toHaveTextContent('人工智能');
     expect(screen.getByText(/候选不会自动写入设定、正文或正史/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^复制候选：/ }).length).toBeGreaterThan(0);
   });

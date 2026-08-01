@@ -14,17 +14,52 @@ const gameHistoryContext = {
 };
 
 describe('本地取名助手', () => {
-  it('覆盖人物、地点、势力、物品、生灵和能力六组常用命名目标', () => {
+  it('覆盖六组独立细分类，不能把命名规则不同的类型合并展示', () => {
     expect(NAMING_TARGET_GROUPS.map((group) => group.label)).toEqual([
       '人物', '地点', '势力', '物品', '生灵', '能力'
     ]);
 
     const labels = NAMING_TARGET_GROUPS.flatMap((group) => group.targets.map((target) => target.label));
+    expect(labels.length).toBeGreaterThanOrEqual(110);
     expect(labels).toEqual(expect.arrayContaining([
-      '男性人物', '女性人物', '非人角色', '山岳', '江河', '湖海', '村庄', '城镇', '都城',
-      '宗门', '家族', '王朝与国家', '公会', '道具', '药品与丹药', '法宝', '武器',
-      '坐骑', '灵兽', '魔物', '魔法', '技能', '功法', '武技', '天赋'
+      '男性人物', '女性人物', '人工智能', '机器人', '仿生人', '器灵', '精怪', '妖族', '异族', '神明', '亡灵',
+      '山脉', '山峰', '江河', '溪流', '湖泊', '海域', '村庄', '城镇', '都城',
+      '宗门', '门派', '家族', '氏族', '王朝', '帝国', '公会', '冒险团',
+      '药剂', '丹药', '毒物', '法宝', '神器', '武器', '防具', '饰品',
+      '陆地坐骑', '飞行坐骑', '水域坐骑', '机械坐骑', '灵兽', '神兽', '契约兽',
+      '元素魔法', '奥术', '禁咒', '主动技能', '被动技能', '功法', '心法', '武技', '天赋'
     ]));
+    expect(labels).not.toEqual(expect.arrayContaining([
+      '非人角色', '湖海', '王朝与国家', '药品与丹药', '血脉与体质', '职业与序列'
+    ]));
+  });
+
+  it('人工智能、器灵和精怪使用独立目录与独立候选语感', () => {
+    const ai = generateNamingCandidates({ targetId: 'character-ai', context: gameHistoryContext, count: 8 });
+    const artifactSpirit = generateNamingCandidates({ targetId: 'character-artifact-spirit', context: gameHistoryContext, count: 8 });
+    const sprite = generateNamingCandidates({ targetId: 'character-sprite', context: gameHistoryContext, count: 8 });
+
+    expect(ai).toHaveLength(8);
+    expect(artifactSpirit).toHaveLength(8);
+    expect(sprite).toHaveLength(8);
+    expect(ai.map((candidate) => candidate.name)).not.toEqual(artifactSpirit.map((candidate) => candidate.name));
+    expect(artifactSpirit.map((candidate) => candidate.name)).not.toEqual(sprite.map((candidate) => candidate.name));
+    expect(ai.every((candidate) => candidate.note.includes('人工智能'))).toBe(true);
+    expect(artifactSpirit.every((candidate) => candidate.note.includes('器灵'))).toBe(true);
+    expect(sprite.every((candidate) => candidate.note.includes('精怪'))).toBe(true);
+  });
+
+  it('每个前端可见细分类都有唯一标识并能生成候选', () => {
+    const targets = NAMING_TARGET_GROUPS.flatMap((group) => group.targets);
+    expect(new Set(targets.map((target) => target.id)).size).toBe(targets.length);
+    for (const target of targets) {
+      const candidates = generateNamingCandidates({
+        targetId: target.id,
+        context: gameHistoryContext,
+        count: 4
+      });
+      expect(candidates, `${target.label}（${target.id}）没有可用候选`).toHaveLength(4);
+    }
   });
 
   it('同一批次可复现，换一批会变化，并排除已有名称和重复候选', () => {
@@ -72,7 +107,7 @@ describe('本地取名助手', () => {
     expect(recommendCharacterTarget('female_lead')).toBe('character-female');
     expect(recommendCharacterTarget('co_lead')).toBe('character-neutral');
     expect(recommendCharacterTarget('ensemble')).toBe('character-neutral');
-    expect(recommendCharacterTarget('non_human')).toBe('character-nonhuman');
+    expect(recommendCharacterTarget('non_human')).toBe('character-neutral');
   });
 
   it('补充的字数和题材语感会真正改变人物候选', () => {
