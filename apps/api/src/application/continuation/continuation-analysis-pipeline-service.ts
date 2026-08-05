@@ -17,6 +17,7 @@ import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ContextPackService } from '../memory/context-pack-service.js';
 import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
+import { ArtifactService } from '../artifacts/artifact-service.js';
 
 type AnalysisAgentRow = ContinuationAnalysisAgentRow;
 
@@ -153,6 +154,7 @@ export class ContinuationAnalysisPipelineService {
       const analyses = this.repository.chapterAnalyses(scope, brief.importId)
         .filter((analysis) => analysis.status === 'ready');
       const baseline = buildBaseline(analyses, chapters);
+      this.projectReverseChapterOutlines(scope, brief.importId, analyses, chapters);
       this.repository.markBaselineReady(
         scope,
         brief.importId,
@@ -167,6 +169,77 @@ export class ContinuationAnalysisPipelineService {
       this.repository.markBaselineFailed(scope, brief.importId, safeMessage(error), this.clock.now().toISOString());
       try { tasks.fail(scope, taskId, workerId, 'CONTINUATION_ANALYSIS_FAILED', leaseFence); } catch { /* preserve root cause */ }
       throw error;
+    }
+  }
+
+  /**
+   * Publishes the rebuildable reverse outlines as author-visible planning
+   * references.  The immutable imported manuscript remains authoritative;
+   * these selected artifacts only make the derived chapter structure usable
+   * by the planning UI and by later bounded setting discussions.
+   *
+   * A retry after interruption is idempotent by import-chapter identity.  If
+   * the source analysis changed, a new immutable artifact version is selected
+   * instead of silently overwriting the previous projection.
+   */
+  private projectReverseChapterOutlines(
+    scope: BookScope,
+    importId: string,
+    analyses: ContinuationChapterAnalysisRow[],
+    chapters: ContinuationImportChapterRow[]
+  ): void {
+    const artifacts = new ArtifactService(this.database, this.ids, this.clock);
+    for (const chapter of chapters) {
+      const analysis = analyses.find((candidate) =>
+        candidate.continuation_import_chapter_id === chapter.continuation_import_chapter_id
+      );
+      if (analysis === undefined) continue;
+      const stored = parseStoredDocument(analysis.structured_json);
+      const reverseOutline = isRecord(stored.reverseOutline) ? stored.reverseOutline : {};
+      const ending = isRecord(reverseOutline.ending) ? reverseOutline.ending : {};
+      const chapterNumber = chapter.target_chapter_number ?? chapter.ordinal;
+      const title = chapter.edited_title.trim() || `第${chapterNumber}章`;
+      const content: Record<string, unknown> = {
+        chapterNumber,
+        title,
+        goal: stringValue(reverseOutline.chapterGoal),
+        beats: Array.isArray(reverseOutline.plotBeats) ? reverseOutline.plotBeats : [],
+        hook: stringValue(ending.hook),
+        reverseOutlineSchema: 'reverse_chapter_outline_v1',
+        sourceKind: 'author_existing_manuscript',
+        planningAuthority: 'derived_reference',
+        sourceImportId: importId,
+        sourceImportChapterId: chapter.continuation_import_chapter_id,
+        sourceAnalysisId: analysis.analysis_id,
+        sourceManuscriptVersionId: chapter.target_manuscript_version_id,
+        sourceHash: chapter.content_hash,
+        modelSnapshotId: analysis.model_snapshot_id,
+        summary: stringValue(stored.summary),
+        openingState: stringValue(reverseOutline.openingState),
+        cast: Array.isArray(reverseOutline.cast) ? reverseOutline.cast : [],
+        centralConflict: stringValue(reverseOutline.centralConflict),
+        emotionalArc: Array.isArray(reverseOutline.emotionalArc) ? reverseOutline.emotionalArc : [],
+        payoffOrPressure: Array.isArray(reverseOutline.payoffOrPressure) ? reverseOutline.payoffOrPressure : [],
+        threadActions: Array.isArray(reverseOutline.threadActions) ? reverseOutline.threadActions : [],
+        descriptionFocus: Array.isArray(reverseOutline.descriptionFocus) ? reverseOutline.descriptionFocus : [],
+        ending: {
+          result: stringValue(ending.result),
+          hook: stringValue(ending.hook),
+          nextChapterInterface: stringValue(ending.nextChapterInterface)
+        }
+      };
+      const existing = this.repository.reverseChapterOutlineArtifact(
+        scope,
+        chapter.continuation_import_chapter_id
+      );
+      if (existing === undefined) {
+        const created = artifacts.create(scope, 'chapter_outline', `${title} · 反向章纲`, content, 'candidate');
+        artifacts.select(scope, created.artifactId, created.artifactVersionId);
+        continue;
+      }
+      if (existing.content_json === JSON.stringify(content)) continue;
+      const updated = artifacts.addVersion(scope, existing.artifact_id, content, existing.active_version_id);
+      artifacts.select(scope, existing.artifact_id, updated.artifactVersionId);
     }
   }
 

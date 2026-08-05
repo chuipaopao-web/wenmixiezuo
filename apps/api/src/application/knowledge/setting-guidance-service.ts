@@ -161,6 +161,30 @@ export class SettingGuidanceService {
 
   private guidanceContext(scope: BookScope, suppliedBlueprint?: OpeningBlueprintInput): SettingGuidanceContext | null {
     const blueprint = suppliedBlueprint ?? this.opening(scope);
+    const baseline = this.continuations.latestReadyBaseline(scope);
+    if (blueprint?.creationMode === 'continuation') {
+      if (baseline === undefined) return null;
+      const category = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey)?.name
+        ?? blueprint.categoryKey;
+      return {
+        template: resolveContinuationSettingOutlineTemplate(),
+        positioningSummary: clip([
+          '创作方式：已有正文续写',
+          `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
+          `主分类：${category}`,
+          `题材：${(blueprint.auxiliaryTags ?? []).join('、') || '未填写'}`,
+          `主要标签：${(blueprint.mainTags ?? []).join('、') || '未填写'}`,
+          `主角：${(blueprint.protagonists ?? []).map((item) => `${item.name}（${item.age}）`).join('、') || '以正文为准'}`,
+          `必须遵守：${(blueprint.mustFollow ?? []).join('；') || '无额外要求'}`,
+          `正文分析：已完成 ${baseline.analyzed_chapter_count}/${baseline.total_chapter_count} 章`,
+          '事实边界：已导入正文和反向章纲优先；开书简介只提供定位和续写方向，不能覆盖正文事实'
+        ].join('\n'), 1_200),
+        storyDirectionReference: clip([
+          `开书方向参考：${(blueprint.storyDirection ?? '').trim() || '未填写'}`,
+          `正文反向分析：${(baseline.summary_text ?? '').trim() || '暂无总览'}`
+        ].join('\n'), 1_000)
+      };
+    }
     if (blueprint !== null) {
       const category = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey)?.name
         ?? blueprint.categoryKey;
@@ -178,7 +202,6 @@ export class SettingGuidanceService {
         storyDirectionReference: clip((blueprint.storyDirection ?? '').trim(), 500)
       };
     }
-    const baseline = this.continuations.latestReadyBaseline(scope);
     if (baseline === undefined) return null;
     return {
       template: resolveContinuationSettingOutlineTemplate(),

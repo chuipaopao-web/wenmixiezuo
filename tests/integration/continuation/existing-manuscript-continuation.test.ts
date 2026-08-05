@@ -12,6 +12,7 @@ import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import type { OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
 
 describe('已有正文续写导入', () => {
   let context: TestContext | null = null;
@@ -240,6 +241,49 @@ describe('已有正文续写导入', () => {
     expect(importedHashes.map((row) => row.chapter_number)).toEqual([1, 2]);
     expect(importedHashes.every((row) => row.content_hash === row.imported_content_hash)).toBe(true);
 
+    const reverseOutlineArtifacts = context.database.prepare(`
+      SELECT a.title, a.status, v.status AS version_status, v.content_json
+      FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'chapter_outline'
+      ORDER BY json_extract(v.content_json, '$.chapterNumber')
+    `).all(scope.ownerId, scope.bookId) as Array<{
+      title: string;
+      status: string;
+      version_status: string;
+      content_json: string;
+    }>;
+    expect(reverseOutlineArtifacts).toHaveLength(2);
+    expect(reverseOutlineArtifacts.map((row) => ({
+      status: row.status,
+      versionStatus: row.version_status,
+      content: JSON.parse(row.content_json) as Record<string, unknown>
+    }))).toEqual([
+      expect.objectContaining({
+        status: 'active',
+        versionStatus: 'selected',
+        content: expect.objectContaining({
+          chapterNumber: 1,
+          reverseOutlineSchema: 'reverse_chapter_outline_v1',
+          sourceKind: 'author_existing_manuscript',
+          planningAuthority: 'derived_reference',
+          goal: expect.any(String),
+          beats: expect.any(Array),
+          hook: expect.any(String),
+          cast: expect.any(Array),
+          emotionalArc: expect.any(Array)
+        })
+      }),
+      expect.objectContaining({
+        status: 'active',
+        versionStatus: 'selected',
+        content: expect.objectContaining({
+          chapterNumber: 2,
+          reverseOutlineSchema: 'reverse_chapter_outline_v1'
+        })
+      })
+    ]);
+
     const reception = new ConversationService(
       context.database, context.dataDir, context.config.releaseId, ids, clock
     ).enterConversation(scope);
@@ -272,11 +316,86 @@ describe('已有正文续写导入', () => {
       positioningSummary: expect.stringContaining('已有正文续写'),
       storyDirectionReference: expect.any(String)
     });
+    const continuationBlueprint: OpeningBlueprintInput = {
+      creationMode: 'continuation',
+      taxonomyVersion: 'continuation-authority-test',
+      channel: 'female',
+      categoryKey: 'female-real-life',
+      auxiliaryCategoryKeys: [],
+      targetAudience: '',
+      protagonists: [{
+        role: 'female_lead',
+        name: '林昭',
+        age: '二十二岁',
+        background: '开书时填写的软定位',
+        personalities: ['冷静']
+      }],
+      storyDirection: '开书简介只作为后续方向参考',
+      worldBackground: '',
+      openingBackground: '',
+      stageOne: { start: '', development: '', end: '' },
+      fullBookOutline: '',
+      mainTags: ['现实'],
+      auxiliaryTags: ['悬疑恋爱'],
+      storyTraits: [],
+      customTags: [],
+      initialMap: '',
+      mustFollow: ['不得改写已发生正文']
+    };
+    const continuationGuidance = new SettingGuidanceService(context.database, ids, clock)
+      .current(scope, continuationBlueprint);
+    expect(continuationGuidance).toMatchObject({
+      positioningSummary: expect.stringContaining('正文分析：已完成'),
+      storyDirectionReference: expect.stringContaining('正文反向分析')
+    });
+    expect(continuationGuidance?.positioningSummary).toContain('已导入正文和反向章纲优先');
+    expect(continuationGuidance?.storyDirectionReference).toContain('开书简介只作为后续方向参考');
     const readiness = new SettingBaselineService(context.database, ids, clock).inspect(scope);
     expect(readiness).toMatchObject({
       profileKey: 'continuation-reverse',
       ready: false,
       required: expect.arrayContaining(['creative-concept', 'era', 'protagonist'])
+    });
+
+    const guidanceWorkflow = new SettingGuidanceService(context.database, ids, clock);
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    let completionAction: Record<string, unknown> | null = null;
+    for (let round = 0; round < 20; round += 1) {
+      const current = guidanceWorkflow.current(scope);
+      if (current === null) break;
+      guidanceWorkflow.recordCandidate(scope, current.itemKey, JSON.stringify({
+        fields: {
+          workflowArtifact: {
+            type: 'setting_outline',
+            payload: {
+              items: [{
+                itemKey: current.itemKey,
+                content: `${current.label}以已导入正文和逐章反向章纲为依据，不新增原文外事实。`
+              }]
+            }
+          }
+        }
+      }));
+      const result = conversations.sendBossMessage(scope, '确认');
+      if (result.action.kind === 'setting_guidance_completed') {
+        completionAction = result.action as unknown as Record<string, unknown>;
+        break;
+      }
+    }
+    expect(completionAction).toMatchObject({
+      kind: 'setting_guidance_completed',
+      nextAction: 'continuation_stage_outline_scheduled',
+      participants: expect.any(Array)
+    });
+    expect(completionAction?.participants).toHaveLength(3);
+    const stageTask = context.database.prepare(`SELECT task_brief_json FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?`).get(
+      scope.ownerId, scope.bookId, String(completionAction?.taskId)
+    ) as { task_brief_json: string };
+    expect(JSON.parse(stageTask.task_brief_json)).toMatchObject({
+      scopeText: expect.stringContaining('【剧情总纲专项讨论资料包】')
     });
 
     const resumedReception = new ConversationService(

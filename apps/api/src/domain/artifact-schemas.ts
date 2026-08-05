@@ -1,6 +1,7 @@
 export type ArtifactType = 'creative_plan' | 'story_bible' | 'master_outline' | 'volume_outline' | 'chapter_outline' | 'writing_contract';
 
 export interface StageMasterOutlineStage {
+  detailSchema?: 'stage_detail_v1';
   stageNumber: number;
   title: string;
   chapterRange: {
@@ -21,6 +22,16 @@ export interface StageMasterOutlineStage {
   stageSummary: string;
   pendingThreads: string[];
   followUpDirection: string;
+  cast?: Array<{ name: string; stageRole: string; objective: string; stateChange?: string }>;
+  chapterBlocks?: Array<{ start: number; end: number; summary: string; estimatedWords: number }>;
+  estimatedWords?: number;
+  experience?: { emotionalArc: string[]; payoffPoints: string[]; pressurePoints: string[] };
+  turningPoints?: string[];
+  foreshadowing?: Array<{
+    summary: string;
+    action: 'plant' | 'advance' | 'payoff';
+    releaseWindow: string;
+  }>;
 }
 
 export interface StageMasterOutlineV2 {
@@ -318,7 +329,11 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
       throw new Error(`剧情总纲第${index + 1}个阶段缺少起承转合`);
     }
     const pendingThreads = textArray(candidate.pendingThreads, `剧情总纲第${index + 1}个阶段的待回收信息与伏笔`);
+    const detail = candidate.detailSchema === 'stage_detail_v1'
+      ? parseStageDetail(candidate, Number(start), Number(end), index)
+      : {};
     return {
+      ...detail,
       stageNumber: Number(stageNumber),
       title: requiredText(candidate.title, `第${index + 1}阶段标题`),
       chapterRange: { start: Number(start), end: Number(end) },
@@ -348,6 +363,75 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
     endingDirection,
     storyPromises: textArray(content.storyPromises, '作品承诺'),
     openQuestions: textArray(content.openQuestions, '开放问题')
+  };
+}
+
+function parseStageDetail(
+  candidate: Record<string, unknown>,
+  stageStart: number,
+  stageEnd: number,
+  index: number
+): Pick<StageMasterOutlineStage, 'detailSchema' | 'cast' | 'chapterBlocks' | 'estimatedWords' | 'experience' | 'turningPoints' | 'foreshadowing'> {
+  if (!Array.isArray(candidate.cast) || candidate.cast.length < 1) {
+    throw new Error(`剧情总纲第${index + 1}个阶段缺少出场人物`);
+  }
+  const cast = candidate.cast.map((item, castIndex) => {
+    if (!isRecord(item)) throw new Error(`剧情总纲第${index + 1}个阶段第${castIndex + 1}名人物格式无效`);
+    const stateChange = typeof item.stateChange === 'string' && item.stateChange.trim().length > 0
+      ? item.stateChange.trim()
+      : undefined;
+    return {
+      name: requiredText(item.name, `第${index + 1}阶段人物姓名`),
+      stageRole: requiredText(item.stageRole, `第${index + 1}阶段人物作用`),
+      objective: requiredText(item.objective, `第${index + 1}阶段人物目标`),
+      ...(stateChange === undefined ? {} : { stateChange })
+    };
+  });
+  if (!Array.isArray(candidate.chapterBlocks) || candidate.chapterBlocks.length < 1) {
+    throw new Error(`剧情总纲第${index + 1}个阶段缺少章节内容安排`);
+  }
+  let previousEnd = stageStart - 1;
+  const chapterBlocks = candidate.chapterBlocks.map((item, blockIndex) => {
+    if (!isRecord(item)) throw new Error(`剧情总纲第${index + 1}个阶段第${blockIndex + 1}个章节段格式无效`);
+    const start = Number(item.start);
+    const end = Number(item.end);
+    const estimatedWords = Number(item.estimatedWords);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start !== previousEnd + 1 || end < start || end > stageEnd) {
+      throw new Error(`剧情总纲第${index + 1}个阶段章节内容安排必须连续且位于阶段范围内`);
+    }
+    if (!Number.isInteger(estimatedWords) || estimatedWords < 1) {
+      throw new Error(`剧情总纲第${index + 1}个阶段章节段字数预估无效`);
+    }
+    previousEnd = end;
+    return { start, end, estimatedWords, summary: requiredText(item.summary, `第${index + 1}阶段章节段内容`) };
+  });
+  if (previousEnd !== stageEnd) throw new Error(`剧情总纲第${index + 1}个阶段章节内容安排未覆盖完整阶段`);
+  const estimatedWords = Number(candidate.estimatedWords);
+  if (!Number.isInteger(estimatedWords) || estimatedWords < 1) throw new Error(`剧情总纲第${index + 1}个阶段总字数预估无效`);
+  if (!isRecord(candidate.experience)) throw new Error(`剧情总纲第${index + 1}个阶段缺少读者体验设计`);
+  const experience = {
+    emotionalArc: textArray(candidate.experience.emotionalArc, `第${index + 1}阶段情绪曲线`),
+    payoffPoints: textArray(candidate.experience.payoffPoints, `第${index + 1}阶段爽点`),
+    pressurePoints: textArray(candidate.experience.pressurePoints, `第${index + 1}阶段压力或虐点`)
+  };
+  const foreshadowing = Array.isArray(candidate.foreshadowing) ? candidate.foreshadowing.map((item, threadIndex) => {
+    if (!isRecord(item) || !['plant', 'advance', 'payoff'].includes(String(item.action))) {
+      throw new Error(`剧情总纲第${index + 1}个阶段第${threadIndex + 1}条伏笔格式无效`);
+    }
+    return {
+      summary: requiredText(item.summary, `第${index + 1}阶段伏笔`),
+      action: item.action as 'plant' | 'advance' | 'payoff',
+      releaseWindow: requiredText(item.releaseWindow, `第${index + 1}阶段伏笔释放周期`)
+    };
+  }) : [];
+  return {
+    detailSchema: 'stage_detail_v1',
+    cast,
+    chapterBlocks,
+    estimatedWords,
+    experience,
+    turningPoints: textArray(candidate.turningPoints, `第${index + 1}阶段转折`),
+    foreshadowing
   };
 }
 

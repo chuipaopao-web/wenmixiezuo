@@ -284,16 +284,36 @@ function deterministicMasterOutline(): Record<string, unknown> {
     stageSummary: string,
     pendingThreads: string[],
     followUpDirection: string
-  ): Record<string, unknown> => ({
-    stageNumber,
-    title,
-    chapterRange: { start, end },
-    mainline: { encounter, resolution, result },
-    structure: { setup, development, turn, conclusion },
-    stageSummary,
-    pendingThreads,
-    followUpDirection
-  });
+  ): Record<string, unknown> => {
+    const middle = Math.max(start, Math.floor((start + end) / 2));
+    const blocks = middle >= end
+      ? [{ start, end, summary: `${setup}；${development}；${turn}；${conclusion}`, estimatedWords: (end - start + 1) * 3000 }]
+      : [
+          { start, end: middle, summary: `${setup}；${development}`, estimatedWords: (middle - start + 1) * 3000 },
+          { start: middle + 1, end, summary: `${turn}；${conclusion}`, estimatedWords: (end - middle) * 3000 }
+        ];
+    return {
+      detailSchema: 'stage_detail_v1',
+      stageNumber,
+      title,
+      chapterRange: { start, end },
+      mainline: { encounter, resolution, result },
+      structure: { setup, development, turn, conclusion },
+      cast: [{ name: '主角', stageRole: '推动阶段主事件并承担选择后果', objective: resolution, stateChange: result }],
+      chapterBlocks: blocks,
+      estimatedWords: (end - start + 1) * 3000,
+      experience: {
+        emotionalArc: ['压力建立', '希望出现', '代价升级', '阶段释放'],
+        payoffPoints: ['关键选择产生可见成果'],
+        pressurePoints: ['推进目标必须付出真实代价']
+      },
+      turningPoints: [turn],
+      foreshadowing: pendingThreads.map((summary) => ({ summary, action: 'advance', releaseWindow: followUpDirection })),
+      stageSummary,
+      pendingThreads,
+      followUpDirection
+    };
+  };
   return {
     outlineSchema: 'stage_master_v2',
     premise: '主角在既有秩序失效后被迫承担重建责任',

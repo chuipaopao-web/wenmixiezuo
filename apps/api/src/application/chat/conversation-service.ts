@@ -500,6 +500,32 @@ export class ConversationService {
         if (isNaturalSettingConfirmation(content) && guidance.status === '候选待确认') {
           const advanced = guidanceService.confirmCurrent(scope);
           if (advanced.completed || advanced.next === null) {
+            const continuationReference = this.continuationSettingReference(scope);
+            if (continuationReference !== null) {
+              const scheduled = this.scheduleDiscussion(
+                scope,
+                [
+                  '【剧情总纲专项讨论资料包】',
+                  '创作方式：已有正文续写。设定大纲已经由老板逐项确认。',
+                  '任务：依据已确认设定、已导入正文和逐章反向章纲，只整理正文已经覆盖的第一阶段剧情总纲。',
+                  '边界：不得重写正文，不得把开书简介当成已发生事实；阶段范围以现有正文首章到末章为准，最多50章。',
+                  continuationReference
+                ].join('\n'),
+                messageId,
+                conversationId,
+                'open_discussion',
+                null
+              );
+              return {
+                kind: 'setting_guidance_completed',
+                confirmedItemKey: advanced.confirmedItemKey,
+                settingStage: 'setting_ready',
+                nextAction: 'continuation_stage_outline_scheduled',
+                discussionId: scheduled.discussionId,
+                taskId: scheduled.taskId,
+                participants: scheduled.participants
+              };
+            }
             return {
               kind: 'setting_guidance_completed',
               confirmedItemKey: advanced.confirmedItemKey,

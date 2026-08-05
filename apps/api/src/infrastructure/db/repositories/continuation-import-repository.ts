@@ -99,6 +99,12 @@ export interface ContinuationAnalysisAgentRow {
   role_key: RoleKey;
 }
 
+export interface ReverseChapterOutlineArtifactRow {
+  artifact_id: string;
+  active_version_id: string;
+  content_json: string;
+}
+
 export class ContinuationImportRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -244,6 +250,22 @@ export class ContinuationImportRepository {
       JOIN continuation_import_chapters c ON c.continuation_import_chapter_id = a.continuation_import_chapter_id
       WHERE a.continuation_import_id = ? AND a.owner_id = ? AND a.book_id = ? ORDER BY c.ordinal`)
       .all(importId, scope.ownerId, scope.bookId) as unknown as ContinuationChapterAnalysisRow[];
+  }
+
+  public reverseChapterOutlineArtifact(
+    scope: BookScope,
+    importChapterId: string
+  ): ReverseChapterOutlineArtifactRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT a.artifact_id, a.active_version_id, v.content_json
+      FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'chapter_outline'
+        AND json_extract(v.content_json, '$.reverseOutlineSchema') = 'reverse_chapter_outline_v1'
+        AND json_extract(v.content_json, '$.sourceImportChapterId') = ?
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, importChapterId) as ReverseChapterOutlineArtifactRow | undefined;
   }
 
   public settingAgent(scope: BookScope): { agent_id: string; model_snapshot_id: string } | undefined {

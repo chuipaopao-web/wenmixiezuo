@@ -103,7 +103,7 @@ export class PlanningWorkflowRepository {
     return this.database.prepare(`
       UPDATE book_planning_states SET version = version + 1, stage = 'setting_ready',
         setting_baseline_version_id = ?, updated_at = ?
-      WHERE owner_id = ? AND book_id = ? AND version = ? AND active_style_version_id IS NOT NULL
+      WHERE owner_id = ? AND book_id = ? AND version = ?
     `).run(id, now, scope.ownerId, scope.bookId, expected).changes === 1;
   }
 

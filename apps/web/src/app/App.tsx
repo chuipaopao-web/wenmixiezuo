@@ -2439,10 +2439,14 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
   };
   const stageMaster = artifactType === 'master_outline' && content.outlineSchema === 'stage_master_v2';
   const chapterOutlineV2 = artifactType === 'chapter_outline' && content.outlineSchema === 'chapter_outline_v2';
+  const reverseChapterOutline = artifactType === 'chapter_outline'
+    && content.reverseOutlineSchema === 'reverse_chapter_outline_v1';
   return <article className="artifact-card"><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(artifactType)}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header>{stageMaster
     ? <StageMasterOutlineContent value={visibleContent} />
     : chapterOutlineV2
       ? <ChapterOutlineV2Content value={visibleContent} />
+      : reverseChapterOutline
+        ? <ReverseChapterOutlineContent value={visibleContent} />
       : <StructuredContent value={visibleContent} />}
     {notice !== null && <p className="artifact-notice" role="status">{notice}</p>}
     {editing && <div className="artifact-editor"><h4>从当前内容创建候选版本</h4>{stageMaster ? <StageMasterOutlineEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /> : <ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} />}<div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
@@ -2461,6 +2465,37 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
         setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`版本 ${version.version} 已否决并保留追溯记录。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本否决失败')).finally(() => setBusy(false));
       }}>否决</button></>}</div></div>)}</div>}
     <footer><span>版本 {String(artifact.version ?? 1)}</span><span>来源和影响范围随版本保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>作者编辑</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看版本' : '刷新版本'}</button></span></footer></article>;
+}
+
+function ReverseChapterOutlineContent({ value }: { value: Record<string, unknown> }): React.JSX.Element {
+  const cast = masterStageRecords(value.cast);
+  const conflict = masterRecord(value.centralConflict);
+  const emotion = masterRecord(value.emotionalArc);
+  const experience = masterRecord(value.payoffOrPressure);
+  const ending = masterRecord(value.ending);
+  const threads = masterStageRecords(value.threadActions);
+  return <section className="chapter-outline-v2 reverse-chapter-outline" aria-label="已有正文反向章纲">
+    <header className="chapter-outline-heading">
+      <div><small>第 {String(value.chapterNumber ?? '—')} 章</small><h4>{masterText(value.title) || '未命名章节'}</h4></div>
+      <p>根据作者已有正文提炼，可由作者修改；原文仍是事实依据。</p>
+    </header>
+    <div className="chapter-outline-foundation">
+      <MasterSummaryItem label="本章简介" value={masterText(value.summary)} />
+      <MasterSummaryItem label="开场状态" value={masterText(value.openingState)} />
+      <MasterSummaryItem label="本章作用" value={masterText(value.goal)} />
+    </div>
+    <section><h5>出场人物</h5><div className="chapter-outline-cast">{cast.map((member, index) => <article key={`${masterText(member.name)}-${index}`}>
+      <h6>{masterText(member.name) || `人物${index + 1}`}</h6>
+      <dl><dt>本章行动</dt><dd>{masterText(member.action) || masterText(member.chapterRole) || '正文未明确'}</dd><dt>状态变化</dt><dd>{masterText(member.stateChange) || '无明显变化'}</dd></dl>
+    </article>)}</div></section>
+    <section><h5>冲突与推进</h5><dl className="chapter-outline-conflict"><dt>冲突</dt><dd>{masterText(conflict.summary) || masterText(value.centralConflict) || '正文未形成明确冲突'}</dd><dt>剧情节点</dt><dd>{masterTextList(value.beats).join('；') || '暂无'}</dd></dl></section>
+    <div className="chapter-outline-soft-grid">
+      <section><h5>情绪变化</h5><p>{masterTextList(value.emotionalArc).join(' → ') || masterTextList(emotion.curve).join(' → ') || masterText(emotion.summary) || '正文未明确'}</p></section>
+      <section><h5>爽点与压力</h5><p><strong>爽点</strong>{masterTextList(value.payoffPoints).join('；') || masterTextList(experience.payoffPoints).join('；') || masterText(experience.payoff) || '暂无'}</p><p><strong>压力 / 虐点</strong>{masterTextList(value.pressurePoints).join('；') || masterTextList(experience.pressurePoints).join('；') || masterText(experience.pressure) || '暂无'}</p></section>
+      <section><h5>章末状态</h5><p>{masterText(ending.result) || masterText(value.hook) || '正文未明确'}</p></section>
+    </div>
+    {threads.length > 0 && <section><h5>伏笔与线索</h5><ul>{threads.map((thread, index) => <li key={index}>{masterText(thread.summary) || '未命名线索'}</li>)}</ul></section>}
+  </section>;
 }
 
 function ChapterOutlineV2Content({ value }: { value: Record<string, unknown> }): React.JSX.Element {
@@ -2545,6 +2580,10 @@ function StageMasterOutlineContent({ value }: { value: Record<string, unknown> }
         const range = masterRecord(stage.chapterRange);
         const mainline = masterRecord(stage.mainline);
         const structure = masterRecord(stage.structure);
+        const cast = masterStageRecords(stage.cast);
+        const blocks = masterStageRecords(stage.chapterBlocks);
+        const experience = masterRecord(stage.experience);
+        const foreshadowing = masterStageRecords(stage.foreshadowing);
         const start = Number(range.start);
         const end = Number(range.end);
         return <article className="stage-master-card" key={`${String(stage.stageNumber ?? index + 1)}-${masterText(stage.title)}`}>
@@ -2562,6 +2601,11 @@ function StageMasterOutlineContent({ value }: { value: Record<string, unknown> }
               <div key={key}><strong>{label}</strong><p>{masterText(structure[key]) || '待补充'}</p></div>
             )}
           </div></section>
+          {cast.length > 0 && <section><h5>出场人物与阶段任务</h5><div className="chapter-outline-cast">{cast.map((member, memberIndex) => <article key={`${masterText(member.name)}-${memberIndex}`}><h6>{masterText(member.name) || `人物${memberIndex + 1}`}</h6><dl><dt>阶段作用</dt><dd>{masterText(member.stageRole) || '待补充'}</dd><dt>当前目标</dt><dd>{masterText(member.objective) || '待补充'}</dd>{masterText(member.stateChange).length > 0 && <><dt>阶段变化</dt><dd>{masterText(member.stateChange)}</dd></>}</dl></article>)}</div></section>}
+          {blocks.length > 0 && <section><h5>章节内容安排</h5><ol className="chapter-outline-beats">{blocks.map((block, blockIndex) => <li key={blockIndex}><strong>第{String(block.start)}—{String(block.end)}章</strong><p>{masterText(block.summary) || '待补充'}</p><small>预计 {Number(block.estimatedWords).toLocaleString('zh-CN')} 字</small></li>)}</ol><p><strong>阶段总字数预估：</strong>{Number(stage.estimatedWords).toLocaleString('zh-CN')} 字</p></section>}
+          {masterTextList(experience.emotionalArc).length + masterTextList(experience.payoffPoints).length + masterTextList(experience.pressurePoints).length > 0 && <section><h5>读者体验</h5><div className="chapter-outline-soft-grid"><p><strong>情绪曲线</strong>{masterTextList(experience.emotionalArc).join(' → ') || '待补充'}</p><p><strong>爽点</strong>{masterTextList(experience.payoffPoints).join('；') || '按剧情需要'}</p><p><strong>压力 / 虐点</strong>{masterTextList(experience.pressurePoints).join('；') || '按剧情需要'}</p></div></section>}
+          {masterTextList(stage.turningPoints).length > 0 && <section><h5>关键转折</h5><ul>{masterTextList(stage.turningPoints).map((item) => <li key={item}>{item}</li>)}</ul></section>}
+          {foreshadowing.length > 0 && <section><h5>伏笔与释放周期</h5><ul>{foreshadowing.map((item, threadIndex) => <li key={threadIndex}><strong>{threadActionDisplay(masterText(item.action))}</strong>{masterText(item.summary)} <small>（预计{masterText(item.releaseWindow)}）</small></li>)}</ul></section>}
           <section><h5>阶段总结</h5><p>{masterText(stage.stageSummary) || '待补充'}</p></section>
           <section><h5>待回收信息与伏笔</h5>{masterTextList(stage.pendingThreads).length > 0
             ? <ul>{masterTextList(stage.pendingThreads).map((thread) => <li key={thread}>{thread}</li>)}</ul>

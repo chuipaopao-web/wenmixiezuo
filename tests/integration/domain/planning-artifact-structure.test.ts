@@ -743,4 +743,54 @@ describe('structured rolling chapter plans', () => {
     expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(oversized)}`))
       .toThrow('不能超过50章');
   });
+
+  it('preserves the detailed first-stage writing contract for continuation books', () => {
+    const detailed = stageMasterPayload();
+    const stage = (detailed.majorStages as Array<Record<string, unknown>>)[0];
+    detailed.majorStages = [{
+      ...stage,
+      detailSchema: 'stage_detail_v1',
+      cast: [
+        { name: '王怡', stageRole: '主动调查者', objective: '确认实验笔记的真实来源', stateChange: '从被动怀疑转为主动取证' },
+        { name: '夏炎', stageRole: '被调查者与共同解谜者', objective: '证明自己并非操控者' }
+      ],
+      chapterBlocks: [
+        { start: 1, end: 10, summary: '建立人物关系、笔记疑点和现实压力。', estimatedWords: 30000 },
+        { start: 11, end: 25, summary: '两人各自调查并因证据冲突分裂。', estimatedWords: 45000 },
+        { start: 26, end: 40, summary: '共同验证关键证据并识别幕后误导。', estimatedWords: 45000 },
+        { start: 41, end: 50, summary: '完成阶段对抗并留下下一阶段入口。', estimatedWords: 30000 }
+      ],
+      estimatedWords: 150000,
+      experience: {
+        emotionalArc: ['不安', '怀疑', '决裂', '并肩', '释然'],
+        payoffPoints: ['证据反转', '人物主动选择'],
+        pressurePoints: ['信任破裂', '现实代价']
+      },
+      turningPoints: ['笔记内容被证明并非伪造', '两人发现共同误判'],
+      foreshadowing: [
+        { summary: '笔记缺失的最后一页', action: 'plant', releaseWindow: '第41—50章' }
+      ]
+    }];
+
+    const parsed = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(detailed)}`);
+    const parsedStage = parsed?.majorStages[0];
+    expect(parsedStage).toMatchObject({
+      detailSchema: 'stage_detail_v1',
+      estimatedWords: 150000,
+      experience: { emotionalArc: ['不安', '怀疑', '决裂', '并肩', '释然'] },
+      foreshadowing: [{ action: 'plant', releaseWindow: '第41—50章' }]
+    });
+    expect(parsedStage?.cast).toHaveLength(2);
+    expect(parsedStage?.cast?.[0]).toMatchObject({ name: '王怡', stageRole: '主动调查者' });
+    expect(parsedStage?.chapterBlocks).toHaveLength(4);
+    expect(parsedStage?.chapterBlocks?.[0]).toMatchObject({ start: 1, end: 10, estimatedWords: 30000 });
+    expect(parsedStage?.chapterBlocks?.[1]).toMatchObject({ start: 11, end: 25, estimatedWords: 45000 });
+
+    const invalid = structuredClone(detailed);
+    const invalidStage = (invalid.majorStages as Array<Record<string, unknown>>)[0]!;
+    const blocks = invalidStage.chapterBlocks as Array<Record<string, unknown>>;
+    blocks[1] = { ...blocks[1], start: 12 };
+    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(invalid)}`))
+      .toThrow('章节内容安排必须连续');
+  });
 });

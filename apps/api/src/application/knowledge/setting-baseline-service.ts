@@ -103,7 +103,7 @@ export class SettingBaselineService {
       if (!changed) {
         throw new DomainError(
           errorCodes.bookVersionConflict,
-          '规划状态已经变化，或表达策略记录尚未建立',
+          '规划状态已经变化，请刷新后重试',
           {},
           true,
           409
