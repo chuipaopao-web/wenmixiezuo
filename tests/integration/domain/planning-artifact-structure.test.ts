@@ -726,4 +726,21 @@ describe('structured rolling chapter plans', () => {
     expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(gapped)}`))
       .toThrow('必须紧接上一阶段');
   });
+
+  it('accepts one complete current stage and rejects a stage longer than fifty chapters', () => {
+    const singleStage = stageMasterPayload();
+    singleStage.majorStages = (singleStage.majorStages as Array<Record<string, unknown>>).slice(0, 1);
+
+    const parsed = parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(singleStage)}`);
+    expect(parsed?.majorStages).toHaveLength(1);
+    expect(parsed?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
+
+    const oversized = stageMasterPayload();
+    const oversizedStages = (oversized.majorStages as Array<Record<string, unknown>>).slice(0, 1);
+    oversizedStages[0] = { ...oversizedStages[0], chapterRange: { start: 1, end: 51 } };
+    oversized.majorStages = oversizedStages;
+
+    expect(() => parseMasterOutlineDepositOutput(`剧情总纲落库 ${JSON.stringify(oversized)}`))
+      .toThrow('不能超过50章');
+  });
 });

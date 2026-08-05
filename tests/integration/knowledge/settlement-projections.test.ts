@@ -102,4 +102,42 @@ describe('正史投影与冲突', () => {
     expect(context.database.prepare(`SELECT status FROM fact_assertions WHERE fact_id = ?`).get(first.factId)).toEqual({ status: 'superseded' });
     expect(context.database.prepare(`SELECT status FROM fact_assertions WHERE fact_id = ?`).get(second.factId)).toEqual({ status: 'active' });
   });
+
+  it('兼容中文关系键并从说明文字中识别唯一关系对象', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const canon = new CanonService(context.database, ids, clock);
+    const reviewerId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '周敏' });
+    canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澄' });
+    canon.proposeFact(fixture.scope, {
+      subjectEntityId: reviewerId,
+      relationKey: '角色关系',
+      value: '档案科审核人，审批通过林澄的调阅申请，与林澄仅在例会上点头打招呼',
+      evidence: [{ quote: '周敏审批通过林澄的调阅申请' }],
+      grade: 'B',
+      sourceChapterId: fixture.chapterId,
+      sourceManuscriptVersionId: fixture.manuscriptVersionId
+    });
+
+    canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, {});
+
+    const relationship = context.database.prepare(`
+      SELECT e.canonical_name AS from_name, r.relation_key, r.to_value_json
+      FROM relationship_projection r
+      JOIN entities e ON e.entity_id = r.from_entity_id
+      WHERE r.owner_id = ? AND r.book_id = ?
+    `).get(fixture.scope.ownerId, fixture.scope.bookId) as {
+      from_name: string;
+      relation_key: string;
+      to_value_json: string;
+    };
+    expect(relationship.from_name).toBe('周敏');
+    expect(relationship.relation_key).toBe('角色关系');
+    expect(JSON.parse(relationship.to_value_json)).toEqual({
+      name: '林澄',
+      summary: '档案科审核人，审批通过林澄的调阅申请，与林澄仅在例会上点头打招呼'
+    });
+  });
 });

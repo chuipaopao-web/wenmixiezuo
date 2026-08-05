@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { RoleKey } from '../../../domain/roles.js';
 import { assertBookScope, type BookScope } from '../../../domain/scope.js';
 
 export type ContinuationImportStatus = 'parsed' | 'importing' | 'ready' | 'failed' | 'cancelled';
@@ -47,6 +48,55 @@ export interface ContinuationImportChapterRow {
   target_manuscript_version_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type ContinuationAnalysisStatus = 'pending' | 'analyzing' | 'ready' | 'failed';
+
+export interface ContinuationBaselineRow {
+  baseline_id: string;
+  continuation_import_id: string;
+  owner_id: string;
+  book_id: string;
+  status: ContinuationAnalysisStatus;
+  analyzed_chapter_count: number;
+  total_chapter_count: number;
+  summary_text: string | null;
+  structured_json: string;
+  active_task_id: string | null;
+  canon_revision: number;
+  attempt_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ContinuationChapterAnalysisRow {
+  analysis_id: string;
+  continuation_import_id: string;
+  continuation_import_chapter_id: string;
+  owner_id: string;
+  book_id: string;
+  chapter_id: string;
+  manuscript_version_id: string;
+  status: ContinuationAnalysisStatus;
+  summary_text: string | null;
+  structured_json: string;
+  source_hash: string;
+  model_snapshot_id: string | null;
+  agent_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ContinuationAnalysisAgentRow {
+  agent_id: string;
+  model_snapshot_id: string;
+  provider: string;
+  model_id: string;
+  role_key: RoleKey;
 }
 
 export class ContinuationImportRepository {
@@ -171,6 +221,126 @@ export class ContinuationImportRepository {
     return this.database.prepare(`SELECT * FROM continuation_import_chapters
       WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ? ORDER BY ordinal`)
       .all(importId, scope.ownerId, scope.bookId) as unknown as ContinuationImportChapterRow[];
+  }
+
+  public baseline(scope: BookScope, importId: string): ContinuationBaselineRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT * FROM continuation_baselines
+      WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(importId, scope.ownerId, scope.bookId) as ContinuationBaselineRow | undefined;
+  }
+
+  public latestReadyBaseline(scope: BookScope): ContinuationBaselineRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT * FROM continuation_baselines
+      WHERE owner_id = ? AND book_id = ? AND status = 'ready'
+      ORDER BY updated_at DESC, baseline_id DESC LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as ContinuationBaselineRow | undefined;
+  }
+
+  public chapterAnalyses(scope: BookScope, importId: string): ContinuationChapterAnalysisRow[] {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT a.* FROM continuation_chapter_analyses a
+      JOIN continuation_import_chapters c ON c.continuation_import_chapter_id = a.continuation_import_chapter_id
+      WHERE a.continuation_import_id = ? AND a.owner_id = ? AND a.book_id = ? ORDER BY c.ordinal`)
+      .all(importId, scope.ownerId, scope.bookId) as unknown as ContinuationChapterAnalysisRow[];
+  }
+
+  public settingAgent(scope: BookScope): { agent_id: string; model_snapshot_id: string } | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT a.agent_id, a.model_snapshot_id
+      FROM agent_instances a
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key = 'setting'
+      ORDER BY a.created_at, a.agent_id LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as { agent_id: string; model_snapshot_id: string } | undefined;
+  }
+
+  public analysisAgent(scope: BookScope, agentId: string, modelSnapshotId: string): ContinuationAnalysisAgentRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT a.agent_id, m.model_snapshot_id, m.provider, m.model_id, r.role_key
+      FROM agent_instances a
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      JOIN model_config_snapshots m ON m.model_snapshot_id = ? AND m.owner_id = a.owner_id AND m.book_id = a.book_id
+      WHERE a.agent_id = ? AND a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key = 'setting'
+    `).get(modelSnapshotId, agentId, scope.ownerId, scope.bookId) as ContinuationAnalysisAgentRow | undefined;
+  }
+
+  public activeBudgetId(scope: BookScope): string | null {
+    assertBookScope(scope);
+    const row = this.database.prepare(`SELECT budget_id FROM budgets
+      WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
+    return row?.budget_id ?? null;
+  }
+
+  public beginAnalysis(scope: BookScope, input: {
+    baselineId: string; importId: string; taskId: string; totalChapterCount: number; now: string;
+  }): void {
+    assertBookScope(scope);
+    this.database.prepare(`INSERT INTO continuation_baselines (
+      baseline_id, continuation_import_id, owner_id, book_id, status, total_chapter_count,
+      active_task_id, attempt_count, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
+    ON CONFLICT(owner_id, book_id, continuation_import_id) DO UPDATE SET
+      status = 'pending', active_task_id = excluded.active_task_id,
+      total_chapter_count = excluded.total_chapter_count,
+      attempt_count = continuation_baselines.attempt_count + 1,
+      error_message = NULL, completed_at = NULL, updated_at = excluded.updated_at`)
+      .run(input.baselineId, input.importId, scope.ownerId, scope.bookId, input.totalChapterCount,
+        input.taskId, input.now, input.now);
+  }
+
+  public markBaselineAnalyzing(scope: BookScope, importId: string, now: string): void {
+    assertBookScope(scope);
+    this.database.prepare(`UPDATE continuation_baselines SET status = 'analyzing', updated_at = ?
+      WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ? AND status IN ('pending','analyzing')`)
+      .run(now, importId, scope.ownerId, scope.bookId);
+  }
+
+  public saveChapterAnalysis(scope: BookScope, input: {
+    analysisId: string; importId: string; importChapterId: string; chapterId: string;
+    manuscriptVersionId: string; summary: string; structuredJson: string; sourceHash: string;
+    modelSnapshotId: string; agentId: string; now: string;
+  }): void {
+    assertBookScope(scope);
+    this.database.prepare(`INSERT INTO continuation_chapter_analyses (
+      analysis_id, continuation_import_id, continuation_import_chapter_id, owner_id, book_id,
+      chapter_id, manuscript_version_id, status, summary_text, structured_json, source_hash,
+      model_snapshot_id, agent_id, created_at, updated_at, completed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(owner_id, book_id, continuation_import_id, continuation_import_chapter_id) DO UPDATE SET
+      status = 'ready', summary_text = excluded.summary_text, structured_json = excluded.structured_json,
+      source_hash = excluded.source_hash, model_snapshot_id = excluded.model_snapshot_id,
+      agent_id = excluded.agent_id, error_message = NULL, updated_at = excluded.updated_at,
+      completed_at = excluded.completed_at`)
+      .run(input.analysisId, input.importId, input.importChapterId, scope.ownerId, scope.bookId,
+        input.chapterId, input.manuscriptVersionId, input.summary, input.structuredJson, input.sourceHash,
+        input.modelSnapshotId, input.agentId, input.now, input.now, input.now);
+    this.database.prepare(`UPDATE continuation_baselines SET analyzed_chapter_count = (
+      SELECT COUNT(*) FROM continuation_chapter_analyses
+      WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ? AND status = 'ready'
+    ), updated_at = ? WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ?`)
+      .run(input.importId, scope.ownerId, scope.bookId, input.now, input.importId, scope.ownerId, scope.bookId);
+  }
+
+  public markBaselineReady(scope: BookScope, importId: string, summary: string, structuredJson: string, canonRevision: number, now: string): void {
+    assertBookScope(scope);
+    const result = this.database.prepare(`UPDATE continuation_baselines SET status = 'ready', summary_text = ?,
+      structured_json = ?, analyzed_chapter_count = total_chapter_count, active_task_id = NULL,
+      canon_revision = ?, error_message = NULL, completed_at = ?, updated_at = ?
+      WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ? AND status IN ('pending','analyzing')`)
+      .run(summary, structuredJson, canonRevision, now, now, importId, scope.ownerId, scope.bookId);
+    if (result.changes !== 1) throw new Error('续写资料基线状态已经变化');
+  }
+
+  public markBaselineFailed(scope: BookScope, importId: string, message: string, now: string): void {
+    assertBookScope(scope);
+    this.database.prepare(`UPDATE continuation_baselines SET status = 'failed', active_task_id = NULL,
+      error_message = ?, updated_at = ? WHERE continuation_import_id = ? AND owner_id = ? AND book_id = ?`)
+      .run(message.slice(0, 500), now, importId, scope.ownerId, scope.bookId);
   }
 
   public applyConfirmation(scope: BookScope, importId: string, updates: Array<{

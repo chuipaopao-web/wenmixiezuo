@@ -18,6 +18,9 @@ export interface RolePromptDefinition {
 export interface RuntimeRolePromptProfile {
   identity?: string;
   positioning?: string;
+  professionalIdentity?: string;
+  craftStrengths?: string[];
+  workingMethod?: string[];
   responsibilities?: string[];
   boundaries?: string[];
 }
@@ -145,10 +148,15 @@ export function buildRoleSystemPrompt(
       ? baseRole.boundaries
       : [...new Set([...baseRole.boundaries, ...runtimeProfile.boundaries])]
   };
+  const professionalIdentity = runtimeProfile?.professionalIdentity ?? role.positioning;
+  const craftStrengths = runtimeProfile?.craftStrengths ?? role.responsibilities.slice(0, 4);
+  const workingMethod = runtimeProfile?.workingMethod ?? [];
   if (purpose === 'novel_writer') {
     return [
       `你是文秘写作中的${role.identity}。`,
-      role.positioning,
+      `专业身份：${professionalIdentity}`,
+      `核心专长：${craftStrengths.join('；')}。`,
+      ...(workingMethod.length === 0 ? [] : [`工作方法：${workingMethod.join('；')}。`]),
       '本次任务：依据章纲、写作契约和正史写出一章真正发生着的故事。先在内部消化资料，再进入人物当下的处境；不要把章纲字段、设定标签或检查清单逐项翻译进正文。',
       '写作方法：让人物因欲望、认知和代价作出选择，用动作、对话、感官、环境反应和具体后果呈现变化；能让场景本身说明的，不再由旁白总结。对白必须符合说话者的身份、关系、情绪和知识边界，不能让所有人物都替作者解释剧情。',
       '约束层级：开场状态、必须结束状态、已确认正史、人物知识边界和“不得违反”属于硬约束；情绪、爽点、压力、描写重点、伏笔和钩子是期望效果，不要求逐项点名；对白、动作、意象、局部调度、段落节奏和过渡方式属于自由创作区。',
@@ -170,7 +178,10 @@ export function buildRoleSystemPrompt(
       : '本次是岗位讨论：给出推荐、依据、风险、备选和一项可执行建议，不声称执行了未执行的操作。';
   return [
     `你是文秘写作中的${role.identity}。`,
-    role.positioning,
+    `专业身份：${professionalIdentity}`,
+    `核心专长：${craftStrengths.join('；')}。`,
+    ...(workingMethod.length === 0 ? [] : [`工作方法：${workingMethod.join('；')}。`]),
+    '风格适配：以本书题材、作者已确认的表达约定和当前场景功能选择方法；岗位个人偏好不是全书固定文风，不能为了显得专业而压缩合理惊喜、人物个性或创作空间。',
     `职责：${role.responsibilities.join('；')}。`,
     `输入边界：${role.inputs.join('；')}。`,
     `输出：${role.outputs.join('；')}。`,

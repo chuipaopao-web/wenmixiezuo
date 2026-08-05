@@ -11,10 +11,547 @@ import { DomainError } from '../../../apps/api/src/domain/errors.js';
 import { ModelBindingService } from '../../../apps/api/src/application/agents/model-binding-service.js';
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 import { createHash } from 'node:crypto';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
+import { SettingGuidanceService } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
+import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 
 describe('开放式主创对话', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
+
+  it('进入对话只补建一次接待任务，再次进入只观察进度', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，她必须查清真相并守住自己的记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '对话接待测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const before = (context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') IN ('creative_concept_panel', 'setting_proposal_panel')`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count;
+
+    const first = conversations.enterConversation(scope);
+    const second = conversations.enterConversation(scope);
+
+    expect(first).toMatchObject({ kind: 'guidance_scheduled', settingItemKey: 'creative-concept' });
+    expect(second).toMatchObject({ kind: 'guidance_in_progress', taskId: first.taskId });
+    expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') IN ('creative_concept_panel', 'setting_proposal_panel')`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count).toBe(before + 1);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'conversation_entry_trigger'`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+  });
+
+  it('旧书没有当前设定接待任务时只补建一次，并隐藏内部触发消息', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，她必须查清真相并守住自己的记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '旧书接待测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`DELETE FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+      AND json_extract(task_brief_json, '$.purpose') = 'creative_concept_panel'`)
+      .run(scope.ownerId, scope.bookId);
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    const first = conversations.enterConversation(scope);
+    const second = conversations.enterConversation(scope);
+
+    expect(first).toMatchObject({ kind: 'guidance_scheduled', settingItemKey: 'creative-concept' });
+    expect(second).toMatchObject({ kind: 'guidance_in_progress', taskId: first.taskId });
+    expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') IN ('creative_concept_panel', 'setting_proposal_panel')`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count).toBe(1);
+    expect(conversations.listMessages(scope)).toEqual([]);
+  });
+
+  it('接待任务失败后只报告真实故障，不自动重复调用模型', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，她必须查清真相并守住自己的记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '故障接待测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`DELETE FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+      AND json_extract(task_brief_json, '$.purpose') = 'creative_concept_panel'`)
+      .run(scope.ownerId, scope.bookId);
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    const first = conversations.enterConversation(scope);
+    context.database.prepare(`UPDATE tasks SET status = 'failed', error_code = 'MODEL_UNAVAILABLE'
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?`)
+      .run(scope.ownerId, scope.bookId, first.taskId!);
+    const reopened = conversations.enterConversation(scope);
+
+    expect(reopened).toMatchObject({
+      kind: 'guidance_failed', taskId: first.taskId, taskStatus: 'failed'
+    });
+    expect(reopened.message).toContain('不会自动重复调用模型');
+    expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') IN ('creative_concept_panel', 'setting_proposal_panel')`)
+      .get(scope.ownerId, scope.bookId) as { count: number }).count).toBe(1);
+  });
+
+  it('接待派单失败时原子回滚隐藏触发消息', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，她必须查清真相并守住自己的记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '接待事务测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`DELETE FROM tasks WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+      AND json_extract(task_brief_json, '$.purpose') = 'creative_concept_panel'`)
+      .run(scope.ownerId, scope.bookId);
+    context.database.prepare(`DELETE FROM budgets WHERE owner_id = ? AND book_id = ?`)
+      .run(scope.ownerId, scope.bookId);
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+
+    expect(() => conversations.enterConversation(scope)).toThrow('当前书籍没有活动预算');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'conversation_entry_trigger'`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
+
+  it('新书按设定清单逐项引导，确认后推进下一项且剧情请求不能越级', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female',
+      categoryKey: 'female-modern-brain',
+      targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '刚进入大学。', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，她必须查清老师操控实验的目的，同时守住自己的真实记忆。',
+      worldBackground: '', openingBackground: '',
+      stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['实验笔记的能力必须有代价']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '少女的实验笔记', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+
+    const answer = conversations.sendBossMessage(scope, '我想写人在记录和真实记忆发生冲突时，怎样守住自我。');
+    expect(answer.action).toMatchObject({
+      kind: 'discussion_scheduled'
+    });
+    const answerTaskId = String(answer.action.taskId);
+    expect(tasks.claimNext('worker-setting-answer')?.taskId).toBe(answerTaskId);
+    await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, answerTaskId, 'worker-setting-answer');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'succeeded'`)
+      .get(scope.ownerId, scope.bookId, answerTaskId)).toEqual({ count: 3 });
+    expect(context.database.prepare(`SELECT phase, COUNT(*) AS count FROM discussion_opinions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ? GROUP BY phase`)
+      .all(scope.ownerId, scope.bookId, String(answer.action.discussionId)))
+      .toEqual([{ phase: 'independent', count: 3 }]);
+    expect(context.database.prepare(`SELECT role_key FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+      ORDER BY role_key`).all(scope.ownerId, scope.bookId)).toEqual([
+        { role_key: 'chief_editor' },
+        { role_key: 'lead_screenwriter' },
+        { role_key: 'second_screenwriter' }
+      ]);
+    const numberedProposals = context.database.prepare(`SELECT content, references_json FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+      ORDER BY created_at, message_id`).all(scope.ownerId, scope.bookId) as Array<{
+        content: string; references_json: string;
+      }>;
+    expect(numberedProposals.map((row) => row.content.split('\n', 1)[0])).toEqual([
+      expect.stringMatching(/^方案1｜/),
+      expect.stringMatching(/^方案2｜/),
+      expect.stringMatching(/^方案3｜/)
+    ]);
+    expect(numberedProposals.map((row) => JSON.parse(row.references_json)[0].proposalNumber)).toEqual([1, 2, 3]);
+    expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`).get(scope.ownerId, scope.bookId))
+      .toEqual({ item_status: '讨论中', content_text: null });
+
+    const largeProposalSuffix = '保留现实约束、人物自主性、因果证据与可逆选择；避免复述剧情梗概。'.repeat(60);
+    const proposalRows = context.database.prepare(`SELECT message_id, content FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+      ORDER BY created_at, message_id`).all(scope.ownerId, scope.bookId) as Array<{
+        message_id: string; content: string;
+      }>;
+    const enlargeProposal = context.database.prepare(`UPDATE messages SET content = ? WHERE message_id = ?`);
+    for (const proposal of proposalRows) {
+      enlargeProposal.run(`${proposal.content}\n${largeProposalSuffix}`, proposal.message_id);
+    }
+
+    const selected = conversations.sendBossMessage(scope, '123');
+    expect(selected.action).toMatchObject({
+      kind: 'setting_guidance_scheduled',
+      settingItemKey: 'creative-concept',
+      settingPhase: 'revise'
+    });
+    const selectedTaskId = String(selected.action.taskId);
+    const selectedBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
+      .get(selectedTaskId) as { task_brief_json: string }).task_brief_json) as Record<string, any>;
+    expect(selectedBrief.settingGuidance).toMatchObject({
+      feedbackMode: 'numeric_selection',
+      selectionNumbers: [1, 2, 3]
+    });
+    expect(selectedBrief.settingGuidance.proposalOptions).toHaveLength(3);
+    expect(selectedBrief.settingGuidance.proposalOptions.map((option: { number: number }) => option.number))
+      .toEqual([1, 2, 3]);
+    expect(tasks.claimNext('worker-setting-selection')?.taskId).toBe(selectedTaskId);
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, selectedTaskId, 'worker-setting-selection');
+    expect(context.database.prepare(`SELECT policy_version FROM context_packs WHERE task_id = ?`)
+      .get(selectedTaskId)).toEqual({ policy_version: 'setting-guidance-v2-4500chars' });
+    expect(context.database.prepare(`SELECT item_status FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`).get(scope.ownerId, scope.bookId))
+      .toEqual({ item_status: '候选待确认' });
+
+    const confirmed = conversations.sendBossMessage(scope, '确定');
+    expect(confirmed.action).toMatchObject({
+      kind: 'discussion_scheduled',
+      purpose: 'setting_proposal_panel',
+      confirmedSettingItemKey: 'creative-concept',
+    });
+    expect(context.database.prepare(`SELECT item_status FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`).get(scope.ownerId, scope.bookId))
+      .toEqual({ item_status: '已确认' });
+
+    const readerPromiseTaskId = String(confirmed.action.taskId);
+    expect(tasks.claimNext('worker-reader-promise')?.taskId).toBe(readerPromiseTaskId);
+    await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, readerPromiseTaskId, 'worker-reader-promise');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 6 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'succeeded'`)
+      .get(scope.ownerId, scope.bookId, readerPromiseTaskId)).toEqual({ count: 3 });
+
+    const blocked = conversations.sendBossMessage(scope, '讨论剧情总纲');
+    expect(blocked.action).toMatchObject({
+      kind: 'setting_guidance_scheduled',
+      settingItemKey: 'reader-promise',
+      settingPhase: 'ask',
+      blockedBy: 'setting_baseline_not_confirmed'
+    });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussions WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') NOT IN ('creative_concept_panel', 'setting_proposal_panel')`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+
+    const settingAnswerMentioningFutureArtifacts = conversations.sendBossMessage(scope,
+      '这项设定采用现实程序和公平线索。剧情简介只是方向参考，后续具体情节以逐阶段确认的总纲和章纲为准。');
+    expect(settingAnswerMentioningFutureArtifacts.action).toMatchObject({
+      kind: 'setting_guidance_scheduled',
+      settingItemKey: 'reader-promise',
+      settingPhase: 'collect'
+    });
+    expect(settingAnswerMentioningFutureArtifacts.action).not.toHaveProperty('blockedBy');
+  });
+
+  it('设定还没有候选时不能用一句确认跳过当前项', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '她在入学第一天发现一本会改变现实记录的笔记，必须在老师清除记忆前查明真相并守住自己。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [], initialMap: '', mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '不能空确认', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const result = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '确认');
+
+    expect(result.action).toMatchObject({
+      kind: 'setting_guidance_scheduled',
+      settingItemKey: 'creative-concept',
+      settingPhase: 'ask'
+    });
+    expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`).get(scope.ownerId, scope.bookId))
+      .toEqual({ item_status: '讨论中', content_text: null });
+  });
+
+  it('作者不满意时按反馈类型确定性修订，不把原因继续盘问给作者', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，必须守住自己的真实记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [], initialMap: '',
+      mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '不满意收敛测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.recordCandidate(scope, 'creative-concept', JSON.stringify({
+      workflowArtifact: { type: 'setting_outline', payload: { items: [{
+        itemKey: 'creative-concept', content: '旧候选只笼统强调记忆与身份。'
+      }] } }
+    }));
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+
+    const first = conversations.sendBossMessage(scope, '不满意');
+    expect(first.action).toMatchObject({ kind: 'setting_guidance_scheduled', settingPhase: 'revise' });
+    const firstTaskId = String(first.action.taskId);
+    const firstBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
+      .get(firstTaskId) as { task_brief_json: string }).task_brief_json) as Record<string, any>;
+    expect(firstBrief.settingGuidance).toMatchObject({
+      feedbackMode: 'vague_dissatisfaction', dissatisfactionRound: 1,
+      previousCandidate: '旧候选只笼统强调记忆与身份。'
+    });
+    expect(tasks.claimNext('worker-dislike-1')?.taskId).toBe(firstTaskId);
+    await new ConversationReplyPipelineService(context.database, context.config.releaseId, ids, clock)
+      .executeClaimed(scope, firstTaskId, 'worker-dislike-1');
+    const firstReply = context.database.prepare(`SELECT content FROM messages
+      WHERE owner_id = ? AND book_id = ? AND sender_type = 'agent' ORDER BY created_at DESC, message_id DESC LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { content: string };
+    expect(firstReply.content).toContain('直接收紧重点');
+    expect(firstReply.content).not.toContain('为什么不满意');
+
+    const second = conversations.sendBossMessage(scope, '还是不满意');
+    const secondBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
+      .get(String(second.action.taskId)) as { task_brief_json: string }).task_brief_json) as Record<string, any>;
+    expect(secondBrief.settingGuidance).toMatchObject({
+      feedbackMode: 'vague_dissatisfaction', dissatisfactionRound: 2
+    });
+
+    const specific = conversations.sendBossMessage(scope, '悬疑太重，救赎感再强一点');
+    const specificBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
+      .get(String(specific.action.taskId)) as { task_brief_json: string }).task_brief_json) as Record<string, any>;
+    expect(specificBrief.settingGuidance).toMatchObject({ feedbackMode: 'specific_revision', dissatisfactionRound: 0 });
+  });
+
+  it('已有一轮候选后再次明确讨论同一设定项时重新启动三席独立提案', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会改变现实记录的实验笔记，必须守住自己的真实记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [], initialMap: '',
+      mustFollow: ['重要设定必须由作者确认后生效']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '重新讨论设定测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock);
+
+    const first = conversations.sendBossMessage(scope, '请为策划理念提出三份独立方案。');
+    expect(first.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'setting_proposal_panel' });
+    const firstTaskId = String(first.action.taskId);
+    expect(tasks.claimNext('worker-first-setting-panel')?.taskId).toBe(firstTaskId);
+    await pipeline.executeClaimed(scope, firstTaskId, 'worker-first-setting-panel');
+    new SettingGuidanceService(context.database, ids, clock).recordCandidate(scope, 'creative-concept', JSON.stringify({
+      workflowArtifact: {
+        type: 'setting_outline',
+        payload: { items: [{ itemKey: 'creative-concept', content: '上一轮整理出的候选方案。' }] }
+      }
+    }));
+
+    const repeated = conversations.sendBossMessage(scope, '请讨论设定：策划理念。');
+    expect(repeated.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'setting_proposal_panel' });
+    expect(String(repeated.action.taskId)).not.toBe(firstTaskId);
+    expect(repeated.action.participants).toHaveLength(3);
+
+    const repeatedTaskId = String(repeated.action.taskId);
+    expect(tasks.claimNext('worker-repeated-setting-panel')?.taskId).toBe(repeatedTaskId);
+    await pipeline.executeClaimed(scope, repeatedTaskId, 'worker-repeated-setting-panel');
+    expect(context.database.prepare(`SELECT role_key FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+      ORDER BY created_at DESC, message_id DESC LIMIT 3`).all(scope.ownerId, scope.bookId)
+      .map((row) => (row as { role_key: string }).role_key).sort()).toEqual([
+        'chief_editor', 'lead_screenwriter', 'second_screenwriter'
+      ]);
+  });
+
+  it('逐项确认全部必备设定后才开放剧情总纲讨论', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会修改现实记录的笔记，希望查明老师操控实验的目的并守住真实记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [], initialMap: '',
+      mustFollow: ['实验笔记的能力必须付出代价']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '逐项设定测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    const confirmedKeys: string[] = [];
+
+    for (;;) {
+      const current = guidance.current(scope);
+      if (current === null) break;
+      guidance.recordCandidate(scope, current.itemKey, JSON.stringify({
+        fields: {
+          workflowArtifact: {
+            type: 'setting_outline',
+            payload: {
+              items: [{
+                itemKey: current.itemKey,
+                content: `${current.label}采用与本书定位一致、可验证且不提前规定具体剧情结果的方案。`
+              }]
+            }
+          }
+        }
+      }));
+      const result = conversations.sendBossMessage(scope, '确认');
+      confirmedKeys.push(current.itemKey);
+      if (result.action.kind === 'setting_guidance_completed') break;
+      expect(result.action).toMatchObject({
+        kind: 'discussion_scheduled',
+        purpose: 'setting_proposal_panel',
+        confirmedSettingItemKey: current.itemKey
+      });
+    }
+
+    const planning = context.database.prepare(`SELECT stage, setting_baseline_version_id
+      FROM book_planning_states WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId) as {
+        stage: string; setting_baseline_version_id: string | null;
+      };
+    expect(confirmedKeys[0]).toBe('creative-concept');
+    expect(confirmedKeys.length).toBeGreaterThan(5);
+    expect(planning.stage).toBe('setting_ready');
+    expect(planning.setting_baseline_version_id).not.toBeNull();
+    expect(guidance.current(scope)).toBeNull();
+
+    const plot = conversations.sendBossMessage(scope, '讨论剧情总纲');
+    expect(plot.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'open_discussion' });
+    expect(plot.action).not.toHaveProperty('blockedBy');
+  });
+
+  it('最后一项结算失败时回滚确认状态，恢复依赖后可以原地重试', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '苏念', age: '二十岁', background: '大学新生', personalities: ['敏锐'] }],
+      storyDirection: '苏念发现一本会修改现实记录的笔记，希望查明老师操控实验的目的并守住真实记忆。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [], initialMap: '',
+      mustFollow: ['实验笔记的能力必须付出代价']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '设定结算恢复测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+
+    for (;;) {
+      const current = guidance.current(scope);
+      expect(current).not.toBeNull();
+      guidance.recordCandidate(scope, current!.itemKey, JSON.stringify({
+        workflowArtifact: {
+          type: 'setting_outline',
+          payload: { items: [{ itemKey: current!.itemKey, content: `${current!.label}的有效候选。` }] }
+        }
+      }));
+      if (current!.requiredIndex === current!.requiredCount) break;
+      expect(guidance.confirmCurrent(scope).completed).toBe(false);
+    }
+
+    const storyBible = context.database.prepare(`SELECT artifact_id, active_version_id FROM artifacts
+      WHERE owner_id = ? AND book_id = ? AND artifact_type = 'story_bible'`).get(scope.ownerId, scope.bookId) as {
+        artifact_id: string; active_version_id: string;
+      };
+    context.database.prepare(`UPDATE artifacts SET active_version_id = NULL
+      WHERE artifact_id = ? AND owner_id = ? AND book_id = ?`).run(storyBible.artifact_id, scope.ownerId, scope.bookId);
+
+    expect(() => guidance.confirmCurrent(scope)).toThrow('缺少设定资料版本');
+    const afterFailure = guidance.current(scope);
+    expect(afterFailure).toMatchObject({ phase: 'revise', status: '候选待确认' });
+    expect(context.database.prepare(`SELECT setting_baseline_version_id FROM book_planning_states
+      WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId))
+      .toEqual({ setting_baseline_version_id: null });
+
+    context.database.prepare(`UPDATE artifacts SET active_version_id = ?
+      WHERE artifact_id = ? AND owner_id = ? AND book_id = ?`)
+      .run(storyBible.active_version_id, storyBible.artifact_id, scope.ownerId, scope.bookId);
+    expect(guidance.confirmCurrent(scope)).toMatchObject({ completed: true });
+    expect(guidance.current(scope)).toBeNull();
+  });
 
   it('需要判断的普通消息由主编真实回复且不会写入长期记忆', async () => {
     context = createTestContext();

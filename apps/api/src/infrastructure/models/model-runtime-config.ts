@@ -68,6 +68,18 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return values.find((value) => value !== undefined && value.trim().length > 0)?.trim();
 }
 
+const retiredAgentPlanModelAliases = new Map<string, string>([
+  ['kimi-k2-6-modelhub', 'kimi-k3'],
+  ['glm-5-2-260617', 'glm-5.2'],
+  ['doubao-seed-2-0-pro-260215', 'doubao-seed-2.1-turbo']
+]);
+
+function currentAgentPlanModelId(value: string | undefined, fallback: string): string {
+  const configured = firstNonEmpty(value);
+  if (configured === undefined) return fallback;
+  return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
+}
+
 export function assertPlanBaseUrl(plan: 'coding' | 'agent', raw: string): string {
   let url: URL;
   try {
@@ -111,41 +123,51 @@ function defaultCodexExecutable(env: NodeJS.ProcessEnv): string {
 }
 
 function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
-  const codexGpt: RoleModelProfile = {
-    provider: 'openai-codex-subscription',
-    modelId: firstNonEmpty(env.WENMI_CODEX_MODEL) ?? 'gpt-5.6-sol',
-    plan: 'codex'
+  const agentDeepSeekPro: RoleModelProfile = {
+    provider: 'volcengine-ark-agent-plan',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL, 'deepseek-v4-pro'),
+    plan: 'agent'
   };
-  const codingDeepSeek: RoleModelProfile = {
-    provider: 'volcengine-ark-coding-plan',
-    modelId: firstNonEmpty(env.WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL) ?? 'deepseek-v4-pro',
-    plan: 'coding'
+  const agentDeepSeekFlash: RoleModelProfile = {
+    provider: 'volcengine-ark-agent-plan',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL, 'deepseek-v4-flash'),
+    plan: 'agent'
   };
   const agentGlm: RoleModelProfile = {
     provider: 'volcengine-ark-agent-plan',
-    modelId: firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_GLM_MODEL) ?? 'glm-5-2-260617',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_GLM_MODEL, 'glm-5.2'),
     plan: 'agent'
   };
   const agentDoubao: RoleModelProfile = {
     provider: 'volcengine-ark-agent-plan',
-    modelId: firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL) ?? 'doubao-seed-2-0-pro-260215',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL, 'doubao-seed-2.1-turbo'),
     plan: 'agent'
   };
-  const agentKimi: RoleModelProfile = {
+  const agentKimiK3: RoleModelProfile = {
     provider: 'volcengine-ark-agent-plan',
-    modelId: firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL) ?? 'kimi-k2-6-modelhub',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL, 'kimi-k3'),
+    plan: 'agent'
+  };
+  const agentKimiK27: RoleModelProfile = {
+    provider: 'volcengine-ark-agent-plan',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, 'kimi-k2.7-code'),
+    plan: 'agent'
+  };
+  const agentMinimax: RoleModelProfile = {
+    provider: 'volcengine-ark-agent-plan',
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL, 'minimax-m3'),
     plan: 'agent'
   };
   return {
-    chief_editor: { ...codexGpt },
-    plot_architect: { ...codingDeepSeek },
+    chief_editor: { ...agentKimiK3 },
+    plot_architect: { ...agentDeepSeekPro },
     continuity: { ...agentGlm },
-    writer: { ...codexGpt },
-    reviewer: { ...agentKimi },
+    writer: { ...agentDeepSeekPro },
+    reviewer: { ...agentMinimax },
     reader_experience: { ...agentDoubao },
-    style_editor: { ...agentKimi },
-    researcher: { ...agentGlm },
-    copyright: { ...codingDeepSeek }
+    style_editor: { ...agentKimiK27 },
+    researcher: { ...agentDeepSeekFlash },
+    copyright: { ...agentKimiK27 }
   };
 }
 
@@ -197,7 +219,6 @@ export function loadModelRuntimeConfig(
     }
   };
   const missingCredentials: ModelRuntimeConfig['missingCredentials'] = [];
-  if (codingKey === undefined) missingCredentials.push('coding-plan');
   if (agentKey === undefined) missingCredentials.push('agent-plan');
   const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && missingCredentials.length === 0 ? 'subscription-plan' : 'deterministic';
   const roleProfiles = activeMode === 'subscription-plan' ? subscriptionProfiles(env) : deterministicProfiles();

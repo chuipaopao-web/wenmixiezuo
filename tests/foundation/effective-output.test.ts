@@ -3,9 +3,41 @@ import {
   createEffectiveOutputReference,
   prepareEffectiveOutput
 } from '../../apps/api/src/application/chat/effective-output-service.js';
-import { renderModelContextContent } from '../../apps/api/src/application/chat/author-conversation-presentation.js';
+import {
+  projectBossMessageForAuthor,
+  renderModelContextContent
+} from '../../apps/api/src/application/chat/author-conversation-presentation.js';
 
 describe('有效输出层', () => {
+  it('把设定工作流的内部资料包投影为作者可读请求，同时不把JSON带入最近对话', () => {
+    const packet = [
+      '讨论设定 【设定专项讨论资料包】',
+      '书籍：少女的实验笔记',
+      '开书资料JSON：{"title":"少女的实验笔记","protagonists":[{"name":"苏念"}]}',
+      '当前板块：作品策划',
+      '当前设定项：策划理念',
+      '讨论目标：明确作品最核心的创作命题'
+    ].join('\n');
+
+    expect(projectBossMessageForAuthor(packet)).toBe('请讨论设定：策划理念。');
+    const recent = renderModelContextContent('recent_conversation', JSON.stringify([
+      { sender_type: 'boss', role_key: null, content: packet }
+    ]), 1_000);
+    expect(recent).toContain('请讨论设定：策划理念。');
+    expect(recent).not.toMatch(/开书资料JSON|protagonists/u);
+  });
+
+  it('把成组设定和剧情大纲资料包投影为简短专业请求', () => {
+    const grouped = [
+      '讨论设定 【设定大纲成组讨论资料包】',
+      '本批设定项JSON：[{"itemKey":"concept","label":"策划理念"},{"itemKey":"promise","label":"读者承诺"}]',
+      '已经确认的设定JSON：[]'
+    ].join('\n');
+    expect(projectBossMessageForAuthor(grouped)).toBe('请集中讨论这些设定：策划理念、读者承诺。');
+    expect(projectBossMessageForAuthor('讨论剧情总纲 【剧情总纲专项讨论资料包】\n开书资料JSON：{}'))
+      .toBe('请讨论并完善当前阶段的剧情大纲。');
+  });
+
   it('把结构化岗位回复整理成结论优先的可见内容并保留完整依据', () => {
     const result = prepareEffectiveOutput(JSON.stringify({
       answer: '不建议立即宣战，应先确认张三的真正目标。',
@@ -18,6 +50,7 @@ describe('有效输出层', () => {
     }));
 
     expect(result.format).toBe('structured');
+    expect(result.rejectedMachinePayload).toBe(false);
     expect(result.visibleContent).toContain('不建议立即宣战');
     expect(result.visibleContent).toContain('天安城仍受旧盟约保护');
     expect(result.visibleContent).toContain('缓攻方案');
@@ -57,6 +90,7 @@ describe('有效输出层', () => {
     ].join('\n'));
 
     expect(result.format).toBe('fallback');
+    expect(result.rejectedMachinePayload).toBe(false);
     expect(result.visibleContent).not.toContain('好的。');
     expect(result.visibleContent.match(/旧盟约可能让天安城获得援军/gu)).toHaveLength(1);
     expect(result.visibleContent).toContain('下一步：请两名编剧分别推演');
@@ -92,6 +126,23 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('结论');
     expect(result.visibleContent).toContain('- 四');
     expect(result.visibleContent).not.toContain('"keyPoints"');
+  });
+
+  it('作者可见回复最多保留一个真正需要确认的问题', () => {
+    const result = prepareEffectiveOutput(JSON.stringify({
+      answer: '建议先确定现实悬疑中的双向救赎关系。',
+      keyPoints: ['这与当前开书定位一致'],
+      alternatives: [],
+      risks: [],
+      questions: ['是否按这个方向确定？', '主角住在哪里？', '配角叫什么？'],
+      nextStep: '确认或直接修改',
+      details: null
+    }));
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('是否按这个方向确定');
+    expect(result.visibleContent).not.toContain('主角住在哪里');
+    expect(result.visibleContent).not.toContain('配角叫什么');
   });
 
   it('结构化回复可保留主编整理后的补充依据而不暴露其他岗位原始协议', () => {
@@ -202,6 +253,27 @@ describe('有效输出层', () => {
     expect(badFormat.format).toBe('fallback');
   });
 
+  it('抢救真实模型未转义引号造成的近似JSON，不再把三席方案误判为结构失败', () => {
+    const result = prepareEffectiveOutput(`\`\`\`json
+{"answer":"这本书值得写，因为它把"双向救赎"变成有代价的选择。","keyPoints":["实验笔记持续揭开真相"],"alternatives":[],"risks":[],"questions":[],"nextStep":"由作者选择是否保留这个方向","details":null}
+\`\`\``);
+
+    expect(result.format).toBe('structured');
+    expect(result.rejectedMachinePayload).toBe(false);
+    expect(result.visibleContent).toContain('这本书值得写');
+    expect(result.visibleContent).toContain('双向救赎');
+    expect(result.visibleContent).not.toContain('结构不完整');
+    expect(result.visibleContent).not.toContain('"keyPoints"');
+  });
+
+  it('无法安全恢复的机器载荷给调用方明确拒绝标记', () => {
+    const result = prepareEffectiveOutput('{"keyPoints":["缺少核心结论"]}');
+
+    expect(result.format).toBe('fallback');
+    expect(result.rejectedMachinePayload).toBe(true);
+    expect(result.visibleContent).toContain('格式不适合直接展示');
+  });
+
   it('包装对象 fields 缺 answer 或 fields 非对象时回退', () => {
     const noAnswer = prepareEffectiveOutput(JSON.stringify({ version: 1, format: 'json_object', fields: { keyPoints: ['x'] } }));
     expect(noAnswer.format).toBe('fallback');
@@ -216,6 +288,25 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('格式不适合直接展示');
     expect(result.visibleContent).not.toContain('"answer"');
     expect(result.fullContent).toContain('"answer"');
+  });
+
+  it('模型在核心结论中误用未转义引号时仍提取自然中文，不把三席提案误判为缺席', () => {
+    const result = prepareEffectiveOutput(`\`\`\`json
+{
+  "answer": "这本书值得写，因为它把"双向救赎"变成了一次有代价的追问。",
+  "keyPoints": ["第一条依据” "第二条依据"],
+  "alternatives": [],
+  "risks": [],
+  "questions": null,
+  "nextStep": "由作者选择或组合",
+  "details": null
+}
+\`\`\``);
+
+    expect(result.format).toBe('structured');
+    expect(result.visibleContent).toContain('它把“双向救赎”变成了一次有代价的追问');
+    expect(result.visibleContent).not.toContain('"answer"');
+    expect(result.visibleContent).not.toContain('格式不适合直接展示');
   });
 
   it('模型在输出上限截断JSON时安全保留已经完整返回的核心结论', () => {

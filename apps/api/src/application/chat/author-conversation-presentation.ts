@@ -65,6 +65,37 @@ export interface AuthorModelContextSource {
   content: string;
 }
 
+/**
+ * 规划按钮会把结构化资料包作为老板消息提交，供确定性路由和创作任务使用。
+ * 资料包需要完整留在审计记录中，但不应作为聊天正文展示给作者，也不应在
+ * 后续“最近对话”里被重复注入。这里仅生成作者当时真正发起的简短请求。
+ */
+export function projectBossMessageForAuthor(value: string): string {
+  const text = value.replace(/\r\n?/gu, '\n').trim();
+
+  if (/^(?:讨论设定\s+)?【设定专项讨论资料包】/u.test(text)) {
+    const item = packetLine(text, '当前设定项');
+    return item === null ? '请继续完善本书的设定大纲。' : `请讨论设定：${item}。`;
+  }
+
+  if (/^(?:讨论设定\s+)?【设定大纲成组讨论资料包】/u.test(text)) {
+    const labels = packetItemLabels(text, '本批设定项JSON');
+    return labels.length === 0
+      ? '请集中完善当前尚未确认的设定。'
+      : `请集中讨论这些设定：${labels.join('、')}。`;
+  }
+
+  if (/^(?:讨论(?:剧情)?总纲\s+)?【剧情总纲专项讨论资料包】/u.test(text)) {
+    return '请讨论并完善当前阶段的剧情大纲。';
+  }
+
+  if (/^【(?:续写诊断|已有正文设定整理)资料包】/u.test(text)) {
+    return '请依据已导入正文和反向章纲，从第一项开始整理设定大纲。';
+  }
+
+  return text;
+}
+
 export function sanitizeAuthorFacingConversationText(value: string): string {
   let text = value.replace(/\r\n?/gu, '\n');
   text = text.replace(
@@ -157,10 +188,36 @@ function renderRecentConversation(raw: string, maximum: number): string {
         : typeof item.role_key === 'string'
           ? publicRoleTitle(item.role_key)
           : '创作成员';
-    const content = sanitizeAuthorFacingConversationText(item.content);
+    const sourceContent = item.sender_type === 'boss'
+      ? projectBossMessageForAuthor(item.content)
+      : item.content;
+    const content = sanitizeAuthorFacingConversationText(sourceContent);
     return content.length === 0 ? [] : [`${speaker}：${content}`];
   });
   return clip(lines.join('\n'), maximum);
+}
+
+function packetLine(text: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const match = text.match(new RegExp(`(?:^|\\n)${escaped}[：:]\\s*([^\\n]+)`, 'u'));
+  const value = match?.[1]?.trim();
+  return value === undefined || value.length === 0 ? null : value;
+}
+
+function packetItemLabels(text: string, label: string): string[] {
+  const raw = packetLine(text, label);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => (
+      isRecord(item) && typeof item.label === 'string' && item.label.trim().length > 0
+        ? [item.label.trim()]
+        : []
+    )).slice(0, 6);
+  } catch {
+    return [];
+  }
 }
 
 export function toAuthorModelContextSources(sources: ContextSource[]): AuthorModelContextSource[] {

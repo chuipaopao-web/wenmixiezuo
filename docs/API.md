@@ -2,7 +2,7 @@
 
 ## 1. 通用规则
 
-DEC-066补充本书资料、规划状态、表达调色板和设定确认读写契约。表达调色板可为空，但系统仍保存可追溯的表达策略版本；按DEC-070，总纲确认后直接进入持续讨论与未来1—3章章纲，二者使用独立确认入口，任一入口不得顺带生成其他层级；越级调用返回缺项列表而不是内部错误。DEC-069进一步规定新确认的剧情总纲使用 `stage_master_v2`：两名编剧各自提交完整阶段结构后才允许主编综合；阶段章节范围必须从第1章开始、连续、无重叠且无空洞。DEC-074规定新确认章纲使用 `chapter_outline_v2`：模型提交候选结构，服务端依据活动总纲绑定来源阶段并校验章位、人物边界、冲突代价、3—5个剧情节点、章末接口、硬约束与自由区；正式主笔接口只接受该版本。
+DEC-066补充本书资料、规划状态、表达调色板和设定确认读写契约。表达调色板可为空，但系统仍保存可追溯的表达策略版本；按DEC-070，总纲确认后直接进入持续讨论与未来1—3章章纲，二者使用独立确认入口，任一入口不得顺带生成其他层级；越级调用返回缺项列表而不是内部错误。DEC-069和DEC-086进一步规定新确认的剧情总纲使用 `stage_master_v2`：两名编剧各自提交当前一个完整阶段后才允许主编综合；单阶段最多50章，阶段章节范围必须从第1章或上一已结算阶段之后开始、连续、无重叠且无空洞，当前阶段结算前不得追加下一阶段。DEC-074规定新确认章纲使用 `chapter_outline_v2`：模型提交候选结构，服务端依据活动总纲绑定来源阶段并校验章位、人物边界、冲突代价、3—5个剧情节点、章末接口、硬约束与自由区；正式主笔接口只接受该版本。
 
 - 基础路径：`/api/v1`。
 - 传输：JSON；文件上传和导出使用明确的文件接口。
@@ -77,6 +77,7 @@ DEC-066补充本书资料、规划状态、表达调色板和设定确认读写�
 |---|---|---|
 | GET | `/books/{bookId}/agents` | 分开返回 `utilityAssistant` 与 `creativeAgents`：小文秘书工具角色、团队模板版本、11个创作Agent、公开合同、模型和真实状态；旧书可返回历史9实例 |
 | GET | `/books/{bookId}/agents/{agentId}` | 返回公开职责、边界、激活条件、交付物、模型来源、当前任务、最后有效贡献和证据，不返回原始系统提示或思维链 |
+| POST | `/prompt-view` | 校验管理员查看密码后，按岗位和用途返回后端实际使用的稳定系统提示词；响应禁止缓存，不返回动态任务资料、密钥或思维链 |
 | POST | `/books/{bookId}/agents/{agentId}/activate` | 按任务激活按需专家 |
 | GET | `/books/{bookId}/editor-lease` | 返回活动主编、副编、epoch和可验证接管状态 |
 | POST | `/books/{bookId}/editor-handoffs` | 在老板指定、正式交接或故障条件下原子接管 |
@@ -94,6 +95,7 @@ DEC-066补充本书资料、规划状态、表达调色板和设定确认读写�
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/books/{bookId}/messages` | 分页查询书籍消息 |
+| POST | `/books/{bookId}/conversation-entry` | 作者实际进入对话时执行幂等状态观察；返回小文秘书接待卡，并仅在当前设定项从未有任务/回复时补建一个活动主编任务；不由轮询调用，不持久化接待卡，不自动重试失败/暂停/取消任务 |
 | POST | `/books/{bookId}/messages` | 原样持久化老板消息，可携带同书临时 `attachmentIds`，并返回 `messageId/contentHash/routingReceipt`；异步路由不能改写原文，本地回执统一以小文秘书身份呈现 |
 | POST | `/books/{bookId}/chat-attachments` | `multipart/form-data` 上传单个图片或文件，本地保存并返回真实解析状态；单文件最多20 MiB |
 | GET | `/books/{bookId}/chat-attachments/{attachmentId}/content` | 读取同书原附件内容，用于图片预览或文件查看 |
@@ -369,7 +371,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 | GET | `/books/{bookId}/agents/{agentId}/continuity` | 查询成员当前关注、最后有效贡献和可审计岗位日志 |
 | GET | `/books/{bookId}/quality-windows` | 查询20/50/100/200章滚动趋势和证据，不返回自动文学裁决 |
 
-成员连续性接口不得返回模型思维链、完整隐藏提示词、全部聊天或其他书籍日志。主编治理岗位日志必须使用版本、当前 `editor_epoch`、幂等键和可撤销操作；模型生成的日志只能先成为候选。
+成员连续性接口不得返回模型思维链、完整隐藏提示词、全部聊天或其他书籍日志。完整稳定岗位提示词只能通过独立的密码保护接口按单岗位读取，不能混入成员连续性、团队列表或普通页面响应。主编治理岗位日志必须使用版本、当前 `editor_epoch`、幂等键和可撤销操作；模型生成的日志只能先成为候选。
 
 阶段结算响应必须区分 `narratively_closed` 与 `technical_checkpoint`，逐项返回正史版本、来源范围和探针状态。下钻预览必须返回 `triggerReasons`、`activityClass`、`path`、`maxDepth`、`localCandidateCount`、`injectedItemCount`、`injectedTokens`、采用/排除理由和是否取得原文证据；不得返回原始向量或未授权整段正文。正式生产遇到失败探针、错误水位或关键依据不足时返回明确降级/阻断状态，不能用摘要猜测。
 
@@ -467,6 +469,7 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 ### 18.1 正文版本与生产动作
 
 - `POST /api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts`：提交 `baseManuscriptVersionId/content/note`，以CAS创建作者不可变新稿；章节尚无正文时允许 `baseManuscriptVersionId=null` 创建第一份作者草稿，已有正文时必须提交当前版本ID。已结算章节、陈旧基准和竞争任务拒绝写入。
+- `POST /api/v1/books/:bookId/chapters/:chapterId/manuscripts/current/withdraw`：提交 `expectedManuscriptVersionId`，从当前未定稿章节撤下已保存正文并清空编辑区。接口使用CAS校验当前版本，只允许尚未结算且未进入正史的正文；历史不可变版本继续保留用于追溯，不做物理删除。陈旧基准、竞争任务和已定稿正史返回冲突错误。
 - `POST /api/v1/books/:bookId/chapters/:chapterId/rewrite`：绑定 `manuscriptVersionId/instruction` 创建或恢复真实重写任务，旧稿保留。
 - `POST /api/v1/books/:bookId/chapters/:chapterId/finalize`：绑定当前稿创建正式审校任务；如果同稿已在等待老板确认则返回现有确认，不重复调用模型。
 - 旧 `select-manuscript` 与直接 `settle` 对活动流程返回409及替代入口，不能绕过三席和老板确认。
@@ -515,9 +518,14 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - 缺少来源时返回空集合。禁止用章末片段冒充钩子或信息差，禁止用审校全文冒充情绪，禁止用通用事实候选冒充支线。
 - 单项作者文案以一至两句为原则；详细来源仍通过既有证据链查询，不在图谱卡片展开。
 
-## 20. 团队配置与岗位补充提示词
+## 20. 团队配置、受保护提示词与岗位补充要求
 
-- `GET /api/v1/books/:bookId/team-config`：返回当前书籍11名成员的公开岗位合同、可公开默认岗位提示词、真实模型来源、激活状态及活动补充提示词版本；不返回内部安全门禁、密钥、工具参数、输出协议或隐藏防护规则。
+- `GET /api/v1/books/:bookId/team-config`：返回当前书籍11名成员的公开岗位合同、简短岗位表达、真实模型来源、激活状态、活动补充要求版本，以及完整提示词查看密码是否已配置；不返回完整提示词正文。
+- `GET /api/v1/team-template`：返回全局岗位模板、简短岗位表达和查看密码配置状态；不返回完整提示词正文。
+
+`GET /api/v1/books/:bookId/workspace` 与 `team-config` 的成员项同时返回 `availability` 和已脱敏的 `availabilityReason`。`availability=available` 只表示成员已启用且模型路线具备所需配置，可以接收新任务；不表示当前存在长连接或正在消耗模型额度。任务心跳过期属于活动任务待恢复，不得把成员可用性改成不可用。只有停用、缺少模型凭证或确认的服务/模型路线故障才能返回 `unavailable`。
+- `POST /api/v1/prompt-view`：请求体为 `{ password, roleKey, bookId?, agentId? }`。密码只和环境变量 `WENMI_PROMPT_VIEW_PASSWORD` 在服务端恒定时间比较，不写数据库、日志、URL或浏览器持久存储。连续失败会触发临时限流；未配置返回409，错误密码返回403，限流返回429。书籍成员视图必须同时校验 `bookId + agentId + roleKey`。
+- 解锁响应按岗位实际用途返回稳定系统提示词，如讨论与规划、正文写作、正文点评或点评综合，并设置 `Cache-Control: no-store`。每次任务动态追加的书籍补充要求、任务指令、检索资料包、密钥、工具实参和模型思维链不属于可查看内容。
 - `PUT /api/v1/books/:bookId/agents/:agentId/prompt-preference`：请求体为 `{ expectedVersion, content }`。内容最多4000字符，按书籍与Agent隔离，使用CAS防止并发覆盖；空内容创建“恢复默认”版本。
 - 保存后仅影响新发起的模型调用。`model_calls.prompt_preference_id`记录实际版本；确定性测试适配器保持原始结构化输入，真实方舟/Codex适配器把补充要求放入系统指令层，并明确硬规则优先。
 
@@ -525,8 +533,16 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 
 - `GET /api/v1/books/:bookId/setting-outline-workspace`：读取本书已保存的设定项状态和作者自定义项。动态模板未修改的默认项不重复落库。
 - `PUT /api/v1/books/:bookId/setting-outline-workspace/:itemKey`：保存一项的板块、名称、通俗说明、模板来源、状态、自定义标记和顺序。状态只接受待讨论、讨论中、候选待确认、已确认、稍后补充、刻意留白和不适用。
+- `GET /api/v1/books/:bookId/setting-baseline/readiness`：返回后端根据开书定位解析出的 `profileKey`、作者可读 `profileLabel`、`required`、`recommended`、`missing`、`unresolved` 和 `ready`。该响应是前端活动设定项和后续准备门禁的唯一来源；完整目录中的未激活项及旧版空白待讨论记录不进入缺口。
 - 所有记录按书籍作用域校验；接口不确认正史、不修改设定大纲、不启动模型。
 - Web点击“跳转讨论”通过既有消息接口发送 `讨论设定` 与结构化资料包。会话层固定建立活动主编加两名编剧的协同讨论任务，仍遵守预算、模型调用、任务恢复和候选确认门禁。
+
+### 21.1 逐项设定引导（DEC-084）
+
+- `POST /api/v1/book-drafts/:draftId/confirm` 在同一建书事务内初始化活动类型画像的必谈项和建议项，并把“策划理念”置为正在讨论；前端是否访问规划页不得影响初始化结果。
+- 设定阶段的 `conversation_reply` 任务携带服务端生成的 `settingGuidance` 快照：当前项键、中文名称、一个问题、少量已确认依赖、精简开书定位和相关故事方向。不得携带完整设定目录。
+- 主编回复中与当前项匹配的结构化候选保存为“候选待确认”，但不自动成为活动设定。作者自然确认当前候选后，服务端把该项改为“已确认”并激活下一项；重复确认必须幂等。
+- 活动画像全部必谈项确认后，服务端调用现有设定基线确认事务生成活动版本。此前剧情总纲、章纲与写作入口继续返回作者可读缺口，不创建下游创作任务。
 
 ## 23. 已有正文接续接口（DEC-077）
 
@@ -534,4 +550,6 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `GET /api/v1/books/:bookId/continuation-imports/latest`：返回当前书最近一次导入预览或检查点；没有记录时返回 `null`。用于刷新页面后恢复预览/导入进度，不跨书查找。
 - `GET /api/v1/books/:bookId/continuation-imports/:importId`：返回当前书作用域内的预览、逐章检查点、进度和错误；不返回服务器路径、内部SQL或其他书数据。
 - `POST /api/v1/books/:bookId/continuation-imports/:importId/confirm`：请求体为 `{ chapters: [{ importChapterId, title, included }] }`。服务端再次校验空书、源哈希、章节范围、至少一个纳入项及当前导入状态；随后幂等创建不可变导入正文并按顺序完成前文正史结算。中断后用同一接口继续未完成检查点。
+- `POST /api/v1/books/:bookId/continuation-imports/:importId/analyze`：为已经完成导入的正文创建或恢复逐章资料整理任务。文姬按有界章节片段提炼人物状态、事件、地点、关系、规则、资源、伏笔、已回收事项、语言证据、冲突和未知项，再生成可重建的续写基线；接口幂等返回最新导入视图。整理失败不得回滚已导入正文，可从失败状态重试。
+- 上述三个查询接口返回的 `analysis` 字段包含 `status`（`not_started | pending | analyzing | ready | failed`）、已分析章数、总章数、简短基线摘要、结构化续写资料、活动任务ID和失败说明。原始正文始终是事实权威，`analysis` 只是可重建派生资料。
 - 预览或确认中的书籍作用域不匹配返回404；已有章节、源哈希变化、重复标题/顺序、确认项不完整或无纳入章节返回可理解领域错误。大请求只在该入口按5,000,000字符业务上限接收，仍受本地会话、请求体总量和超时保护。

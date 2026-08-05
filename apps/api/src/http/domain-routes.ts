@@ -7,7 +7,7 @@ import { PositioningService } from '../application/books/positioning-service.js'
 import { BookOnboardingService } from '../application/books/book-onboarding-service.js';
 import { BookLifecycleService } from '../application/books/book-lifecycle-service.js';
 import { BookRepository } from '../infrastructure/db/repositories/book-repository.js';
-import { AgentTeamService } from '../application/agents/agent-team-service.js';
+import { AgentTeamService, type AgentRecord } from '../application/agents/agent-team-service.js';
 import { ArtifactService, type ArtifactType } from '../application/artifacts/artifact-service.js';
 import { DiscussionService, type DiscussionType } from '../application/discussions/discussion-service.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
@@ -28,7 +28,8 @@ import { TaskService } from '../application/tasks/task-service.js';
 import { BackupService } from '../infrastructure/recovery/backup-service.js';
 import { cancelActiveModelCall, ModelCallService } from '../application/calls/model-call-service.js';
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
-import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
+import { buildRuntimeRoleSystemPrompt, ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
+import type { ModelPurpose } from '../infrastructure/models/model-runtime-config.js';
 import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
 import { ChapterApprovalService } from '../application/creation/chapter-approval-service.js';
 import { EditorLeaseService, type EditorLeaseStatus } from '../application/editors/editor-lease-service.js';
@@ -67,6 +68,59 @@ import type { StyleBaselineInput } from '../contracts/style-baseline.js';
 import { SettingBaselineService } from '../application/knowledge/setting-baseline-service.js';
 import { PlanningStageArtifactService } from '../application/artifacts/planning-stage-artifact-service.js';
 import { ExistingManuscriptContinuationService } from '../application/continuation/existing-manuscript-continuation-service.js';
+import { PromptViewAccessService } from '../infrastructure/security/prompt-view-access.js';
+
+const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
+  discussion: '讨论与规划',
+  novel_writer: '正文写作',
+  novel_reviewer: '正文点评',
+  review_synthesis: '点评综合'
+};
+
+function isCreativeRoleKey(value: string | undefined): value is CreativeRoleKey {
+  return value !== undefined && (creativeRoleKeys as readonly string[]).includes(value);
+}
+
+function promptPurposesForRole(roleKey: CreativeRoleKey): ModelPurpose[] {
+  const purposes: ModelPurpose[] = ['discussion'];
+  if (roleKey === 'chief_editor' || roleKey === 'deputy_editor') purposes.push('review_synthesis');
+  if (roleKey === 'lead_writer' || roleKey === 'backup_writer') purposes.push('novel_writer');
+  if (roleKey === 'setting' || roleKey === 'literary_reviewer' || roleKey === 'experience_reviewer') {
+    purposes.push('novel_reviewer');
+  }
+  return purposes;
+}
+
+function publicRoleStatement(roleKey: CreativeRoleKey): string {
+  const contract = creativeMemberContracts.find((item) => item.roleKey === roleKey);
+  if (contract === undefined) return '按照当前岗位职责完成工作，不冒充其他成员，也不声称完成尚未执行的操作。';
+  const mainWork = contract.responsibilities.slice(0, 3).join('、');
+  return `${contract.memberName}是团队中的${contract.shortTitle}，${contract.publicSummary}。主要负责${mainWork}。`;
+}
+
+function agentAvailability(
+  agent: AgentRecord,
+  modelRuntime: RuntimeConfig['modelRuntime']
+): { availability: 'available' | 'unavailable'; availabilityReason: string | null } {
+  if (agent.activationState === 'disabled') {
+    return { availability: 'unavailable', availabilityReason: '成员已停用' };
+  }
+  if (agent.provider === 'local-deterministic' || agent.provider === 'openai-codex-subscription') {
+    return { availability: 'available', availabilityReason: null };
+  }
+  const publicProfile = modelRuntime.publicProfiles.find((profile) =>
+    profile.provider === agent.provider && profile.modelId === agent.modelId
+  );
+  const credentialConfigured = publicProfile?.credentialConfigured
+    ?? (agent.provider === modelRuntime.endpoints.coding.provider
+      ? modelRuntime.endpoints.coding.apiKey !== undefined
+      : agent.provider === modelRuntime.endpoints.agent.provider
+        ? modelRuntime.endpoints.agent.apiKey !== undefined
+        : false);
+  return credentialConfigured
+    ? { availability: 'available', availabilityReason: null }
+    : { availability: 'unavailable', availabilityReason: '模型路线缺少可用凭证' };
+}
 
 function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
   return {
@@ -87,6 +141,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const ids = new UuidGenerator();
   const clock = new SystemClock();
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
+  const promptViewAccess = new PromptViewAccessService(config.promptViewPassword);
   const owner = { ownerId: config.ownerId };
   const positioning = new PositioningService(database, ids, clock);
   const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId);
@@ -368,7 +423,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       }))
     };
     const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages
-      WHERE owner_id = ? AND book_id = ? AND message_type <> 'onboarding_trigger'`)
+      WHERE owner_id = ? AND book_id = ?
+        AND message_type NOT IN ('onboarding_trigger', 'conversation_entry_trigger')`)
       .get(scope.ownerId, scope.bookId) as { count: number }).count;
     const volumes = database.prepare(`
       SELECT v.volume_id AS volumeId, v.volume_number AS volumeNumber, v.title, v.status,
@@ -410,6 +466,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
       return {
         ...agent,
+        ...agentAvailability(agent, config.modelRuntime),
         publicSummary: contract?.publicSummary ?? agent.roleName,
         responsibilities: contract?.responsibilities ?? [],
         boundaries: contract?.boundaries ?? [],
@@ -450,20 +507,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
       return {
         ...agent,
+        ...agentAvailability(agent, config.modelRuntime),
         publicSummary: contract?.publicSummary ?? agent.roleName,
         responsibilities: contract?.responsibilities ?? [],
         boundaries: contract?.boundaries ?? [],
         retrievalFocus: contract?.retrievalFocus ?? [],
         outputKinds: contract?.outputKinds ?? [],
-        defaultPrompt: contract === undefined ? `你是文秘写作团队中的${agent.roleName}。请严格按当前岗位完成任务，不冒充其他成员。` : [
-          `你是文秘写作团队中的${contract.memberName}（${contract.shortTitle}）。`,
-          `岗位定位：${contract.publicSummary}`,
-          `主要职责：${contract.responsibilities.join('；')}。`,
-          `工作边界：${contract.boundaries.join('；')}。`,
-          `检索重点：${contract.retrievalFocus.join('；')}。`,
-          `交付内容：${contract.outputKinds.join('；')}。`,
-          '只依据当前书籍范围内的任务和资料工作；不冒充其他成员，不声称完成未执行的操作；遇到事实不足或重大分歧时明确指出。'
-        ].join('\n'),
+        roleStatement: isCreativeRoleKey(agent.roleKey)
+          ? publicRoleStatement(agent.roleKey)
+          : `按照${agent.roleName}的职责完成工作，不冒充其他成员。`,
         promptPreference: preferences.get(agent.agentId) ?? {
           promptPreferenceId: null,
           agentId: agent.agentId,
@@ -479,12 +531,19 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         editableLabel: '本书岗位补充要求',
         maxChars: 4000,
         priority: '软性要求不会覆盖系统硬约束、事实证据、正史、安全规则和输出格式。',
-        internalPromptVisible: false
+        fullPromptAccess: {
+          configured: promptViewAccess.configured,
+          passwordProtected: true
+        }
       }
     }, request.id);
   });
 
   app.get('/api/v1/team-template', async (request) => success({
+    fullPromptAccess: {
+      configured: promptViewAccess.configured,
+      passwordProtected: true
+    },
     members: creativeMemberContracts.map((contract) => ({
       roleTemplateId: contract.roleTemplateId,
       roleKey: contract.roleKey,
@@ -498,17 +557,45 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       outputKinds: contract.outputKinds,
       defaultActivation: contract.defaultActivation,
       defaultModel: contract.defaultModel,
-      defaultPrompt: [
-        `你是文秘写作团队中的${contract.memberName}（${contract.shortTitle}）。`,
-        `岗位定位：${contract.publicSummary}`,
-        `主要职责：${contract.responsibilities.join('；')}。`,
-        `工作边界：${contract.boundaries.join('；')}。`,
-        `检索重点：${contract.retrievalFocus.join('；')}。`,
-        `交付内容：${contract.outputKinds.join('；')}。`,
-        '只依据当前书籍范围内的任务和资料工作；不冒充其他成员，不声称完成未执行的操作；遇到事实不足或重大分歧时明确指出。'
-      ].join('\n')
+      roleStatement: publicRoleStatement(contract.roleKey)
     }))
   }, request.id));
+
+  app.post<{
+    Body: { password?: string; roleKey?: string; bookId?: string; agentId?: string };
+  }>('/api/v1/prompt-view', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store, max-age=0');
+    reply.header('Pragma', 'no-cache');
+    promptViewAccess.verify(request.body.password, request.ip);
+    if (!isCreativeRoleKey(request.body.roleKey)) {
+      throw new DomainError(errorCodes.validation, '请选择有效的团队岗位。');
+    }
+    const contract = creativeMemberContracts.find((item) => item.roleKey === request.body.roleKey);
+    if (contract === undefined) throw new DomainError(errorCodes.validation, '岗位合同不存在。');
+
+    if (request.body.bookId !== undefined || request.body.agentId !== undefined) {
+      if (request.body.bookId === undefined || request.body.agentId === undefined) {
+        throw new DomainError(errorCodes.validation, '查看本书成员提示词时，书籍和成员必须同时提供。');
+      }
+      const scope = { ...owner, bookId: request.body.bookId };
+      books.require(scope);
+      const agent = agents.list(scope).find((item) => item.agentId === request.body.agentId);
+      if (agent === undefined || agent.roleKey !== request.body.roleKey) {
+        throw new DomainError(errorCodes.validation, '成员与书籍或岗位不匹配。');
+      }
+    }
+
+    return success({
+      roleKey: contract.roleKey,
+      identity: `${contract.memberName}（${contract.shortTitle}）`,
+      note: '以下是后端实际使用的稳定岗位系统提示词。每次任务动态追加的本书补充要求、任务指令和检索资料包不会展示；查看密码也不会保存。',
+      variants: promptPurposesForRole(contract.roleKey).map((purpose) => ({
+        purpose,
+        label: promptPurposeLabels[purpose],
+        prompt: buildRuntimeRoleSystemPrompt(contract.roleKey, purpose)
+      }))
+    }, request.id);
+  });
 
   app.put<{
     Params: { bookId: string; agentId: string };
@@ -966,6 +1053,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(continuationImports.confirm(scope, request.params.importId, request.body), request.id);
   });
 
+  app.post<{ Params: { bookId: string; importId: string } }>(
+    '/api/v1/books/:bookId/continuation-imports/:importId/analyze', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId };
+      return success(continuationImports.analyze(scope, request.params.importId), request.id);
+    }
+  );
+
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/select-manuscript', async (request) => {
     throw new DomainError(errorCodes.operationIncomplete, '正文不能绕过审校直接选定；请使用定稿入口提交完整审校', {
       replacement: `/api/v1/books/${request.params.bookId}/chapters/${request.params.chapterId}/finalize`,
@@ -992,6 +1086,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts', async (request) => {
     return success(ownerManuscripts.saveDraft({ ...owner, bookId: request.params.bookId }, {
       chapterId: request.params.chapterId, ...request.body
+    }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: {
+    expectedManuscriptVersionId: string;
+  } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts/current/withdraw', async (request) => {
+    return success(ownerManuscripts.withdrawDraft({ ...owner, bookId: request.params.bookId }, {
+      chapterId: request.params.chapterId,
+      expectedManuscriptVersionId: request.body.expectedManuscriptVersionId
     }), request.id);
   });
 
@@ -1141,6 +1244,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(conversations.listMessages(
       { ...owner, bookId: request.params.bookId },
       { ...(request.query.limit === undefined ? {} : { limit: request.query.limit }), ...(request.query.before === undefined ? {} : { before: request.query.before }) }
+    ), request.id);
+  });
+
+  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/conversation-entry', async (request) => {
+    return success(conversations.enterConversation(
+      { ...owner, bookId: request.params.bookId }
     ), request.id);
   });
 

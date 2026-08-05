@@ -6,6 +6,11 @@ import {
 import {
   compileChapterOutlineForWriter
 } from '../../../apps/api/src/application/creation/chapter-outline-compiler.js';
+import {
+  bindChapterOutlineToAuthoritativeStage,
+  chapterOutlineStageBoundaryFailure,
+  stageBoundaryContractLine
+} from '../../../apps/api/src/domain/chapter-outline-stage-boundary.js';
 
 function chapterOutlineV2(): Record<string, unknown> {
   return {
@@ -119,17 +124,184 @@ describe('chapter outline v2', () => {
     expect(() => parseChapterOutlineV2(legacy)).toThrow(/结构版本/u);
   });
 
+  it('normalizes harmless model shorthand without discarding description or knowledge boundaries', () => {
+    const value = chapterOutlineV2();
+    value.descriptionFocus = ['重点描写失物登记核验', '补充描写人物停顿'];
+    value.informationControl = {
+      林澄: ['知道反查已经启动', '不知道通知由谁转交'],
+      罗知: ['知道登记表被调阅']
+    };
+
+    expect(parseChapterOutlineV2(value)).toEqual(expect.objectContaining({
+      descriptionFocus: {
+        primary: ['重点描写失物登记核验', '补充描写人物停顿'],
+        secondary: [],
+        compress: []
+      },
+      informationControl: {
+        reveals: [],
+        concealed: [],
+        gaps: [
+          '林澄：知道反查已经启动；不知道通知由谁转交',
+          '罗知：知道登记表被调阅'
+        ]
+      }
+    }));
+  });
+
   it('compiles a Chinese minimum work order without raw schema keys and never truncates hard facts', () => {
     const compiled = compileChapterOutlineForWriter(chapterOutlineV2(), 1_350);
     expect(compiled.length).toBeLessThanOrEqual(1_350);
     expect(compiled).toContain('本章功能');
     expect(compiled).toContain('人物与当下状态');
     expect(compiled).toContain('核心冲突');
-    expect(compiled).toContain('自由创作区');
+    expect(compiled).toContain('必须实现');
+    expect(compiled).toContain('不得违反');
     expect(compiled).not.toMatch(/outlineSchema|sourceStage|knowledgeBoundary|plotBeats/u);
 
     const oversized = chapterOutlineV2();
     oversized.mustImplement = ['必须保留'.repeat(800)];
     expect(() => compileChapterOutlineForWriter(oversized, 1_350)).toThrow(/硬信息超过/u);
+  });
+
+  it('keeps a detailed outline usable by prioritizing essential facts within a tight writer budget', () => {
+    const detailed = chapterOutlineV2();
+    detailed.cast = [
+      ...(detailed.cast as Array<Record<string, unknown>>),
+      {
+        name: '配角乙', objective: '确认关键证据', knowledgeBoundary: '只知道证据位置，不知道幕后身份',
+        chapterRole: '提供侧面证言', stateChange: '从回避转为愿意作证'
+      }
+    ];
+    detailed.creativeFreedom = ['对白节奏可自由调整', '动作细节可自由选择', '环境意象可自由发挥'];
+    const compiled = compileChapterOutlineForWriter(detailed, 1_050);
+    expect(compiled.length).toBeLessThanOrEqual(1_050);
+    expect(compiled).toContain('配角乙：目标确认关键证据；知情边界只知道证据位置，不知道幕后身份');
+    expect(compiled).toContain('必须实现');
+    expect(compiled).toContain('不得违反');
+  });
+
+  it('rejects a stage-ending outline that postpones the confirmed resolution', () => {
+    const master = {
+      outlineSchema: 'stage_master_v2',
+      premise: '失主必须在期限前找到证人',
+      coreConflict: '公开证据与私下操控冲突',
+      protagonistArc: '从被动应对到主动举证',
+      majorStages: [{
+        stageNumber: 1,
+        title: '明日归还单',
+        chapterRange: { start: 1, end: 10 },
+        mainline: {
+          encounter: '主角收到来源可疑的归还单',
+          resolution: '找到陈月并公开核对原始登记记录',
+          result: '确认直接造假者并恢复陈月证人身份'
+        },
+        structure: { setup: '收到归还单', development: '追查记录', turn: '找到陈月', conclusion: '公开证据' },
+        stageSummary: '主角完成第一次公开举证',
+        pendingThreads: ['幕后指使者身份'],
+        followUpDirection: '追查幕后指使者'
+      }],
+      endingDirection: '完成公开追责',
+      storyPromises: ['证据可追溯'],
+      openQuestions: []
+    };
+    const line = stageBoundaryContractLine([{ sourceType: 'planning:master_outline', content: JSON.stringify(master) }]);
+    expect(line).not.toBeNull();
+    const bad = parseChapterOutlineV2({
+      ...chapterOutlineV2(),
+      chapterNumber: 10,
+      sourceStage: { stageNumber: 1, title: '明日归还单', chapterRange: { start: 1, end: 10 } },
+      requiredEndingState: '证据仍未闭合，陈月身份不得恢复',
+      stageBoundary: {
+        mustCloseStage: true,
+        resolution: '找到陈月并公开核对原始登记记录',
+        result: '确认直接造假者并恢复陈月证人身份',
+        pendingThreads: ['幕后指使者身份']
+      }
+    });
+    expect(chapterOutlineStageBoundaryFailure(line!, bad)).toMatch(/未完成状态/u);
+
+    const good = parseChapterOutlineV2({
+      ...chapterOutlineV2(),
+      chapterNumber: 10,
+      sourceStage: { stageNumber: 1, title: '明日归还单', chapterRange: { start: 1, end: 10 } },
+      requiredEndingState: '陈月恢复证人身份，直接造假者被公开确认',
+      stageBoundary: {
+        mustCloseStage: true,
+        resolution: '找到陈月并公开核对原始登记记录',
+        result: '确认直接造假者并恢复陈月证人身份',
+        pendingThreads: ['幕后指使者身份']
+      }
+    });
+    expect(chapterOutlineStageBoundaryFailure(line!, good)).toBeNull();
+    expect(compileChapterOutlineForWriter({ ...good }, 1_500)).toContain('阶段终章硬要求');
+  });
+
+  it('server-binds an exact stage-final contract instead of trusting a model paraphrase', () => {
+    const stage = {
+      stageNumber: 1,
+      title: '明日归还单',
+      chapterRange: { start: 1, end: 10 },
+      mainline: {
+        encounter: '主角收到来源可疑的归还单',
+        resolution: '找到陈月并公开核对原始登记记录，依法固定完整证据链',
+        result: '确认直接造假者并恢复陈月证人身份，案件正式进入调查程序'
+      },
+      structure: { setup: '收到归还单', development: '追查记录', turn: '找到陈月', conclusion: '公开证据' },
+      stageSummary: '主角完成第一次公开举证',
+      pendingThreads: ['幕后指使者身份', '缺失的审批签名'],
+      followUpDirection: '追查幕后指使者'
+    };
+    const modelCandidate = parseChapterOutlineV2({
+      ...chapterOutlineV2(),
+      chapterNumber: 10,
+      sourceStage: { stageNumber: 9, title: '模型自拟阶段', chapterRange: { start: 10, end: 10 } },
+      stageBoundary: {
+        mustCloseStage: true,
+        resolution: '找到陈月并交证据',
+        result: '案件进入调查',
+        pendingThreads: ['幕后是谁']
+      }
+    });
+
+    const bound = bindChapterOutlineToAuthoritativeStage(modelCandidate, stage);
+    expect(bound.sourceStage).toEqual({
+      stageNumber: 1,
+      title: '明日归还单',
+      chapterRange: { start: 1, end: 10 }
+    });
+    expect(bound.stageBoundary).toEqual({
+      mustCloseStage: true,
+      resolution: stage.mainline.resolution,
+      result: stage.mainline.result,
+      pendingThreads: stage.pendingThreads
+    });
+  });
+
+  it('removes a model-invented stage boundary from a non-final chapter', () => {
+    const stage = {
+      stageNumber: 1,
+      title: '明日归还单',
+      chapterRange: { start: 1, end: 10 },
+      mainline: { encounter: '收到归还单', resolution: '公开核验', result: '案件立案' },
+      structure: { setup: '收到', development: '追查', turn: '找到证人', conclusion: '公开' },
+      stageSummary: '完成举证',
+      pendingThreads: ['幕后身份'],
+      followUpDirection: '继续追查'
+    };
+    const modelCandidate = parseChapterOutlineV2({
+      ...chapterOutlineV2(),
+      chapterNumber: 9,
+      sourceStage: { stageNumber: 1, title: '明日归还单', chapterRange: { start: 1, end: 10 } },
+      stageBoundary: {
+        mustCloseStage: true,
+        resolution: '提前解决全部问题',
+        result: '提前完结',
+        pendingThreads: []
+      }
+    });
+
+    const bound = bindChapterOutlineToAuthoritativeStage(modelCandidate, stage);
+    expect(bound.stageBoundary).toBeUndefined();
   });
 });

@@ -10,7 +10,9 @@ const userEnvironmentNames = [
   'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS',
   'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL',
   'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL',
-  'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL'
+  'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL',
+  'WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL', 'WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL',
+  'WENMI_PROMPT_VIEW_PASSWORD'
 ];
 const modelCredentialNames = [
   'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_API_KEY',
@@ -73,6 +75,7 @@ const workerToken = randomBytes(32).toString('base64url');
 const apiEnvironment = { ...process.env, WENMI_WORKER_TOKEN: workerToken };
 const nonModelEnvironment = { ...process.env, WENMI_WORKER_TOKEN: workerToken };
 for (const name of modelCredentialNames) delete nonModelEnvironment[name];
+delete nonModelEnvironment.WENMI_PROMPT_VIEW_PASSWORD;
 
 const children = [];
 const spawnService = (name, command, args, environment = nonModelEnvironment) => {
@@ -80,8 +83,10 @@ const spawnService = (name, command, args, environment = nonModelEnvironment) =>
   child.stdout.on('data', (chunk) => process.stdout.write(`[${name}] ${chunk}`));
   child.stderr.on('data', (chunk) => process.stderr.write(`[${name}] ${chunk}`));
   child.once('exit', (code, signal) => {
-    if (!stopping && code !== 0) {
-      console.error(`${name} 异常退出：code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+    // API、Worker 和 Web 都是常驻服务。即使某个子进程以 code=0
+    // 意外退出，桌面启动器也不能继续留下一个“进程还在、服务已死”的空壳。
+    if (!stopping) {
+      console.error(`${name} 意外退出：code=${code ?? 'null'} signal=${signal ?? 'null'}`);
       stopAll(1);
     }
   });

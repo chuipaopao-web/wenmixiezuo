@@ -4,19 +4,25 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
+import { ContinuationImportRepository } from '../../infrastructure/db/repositories/continuation-import-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { ArtifactService } from '../artifacts/artifact-service.js';
 import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
+import {
+  resolveContinuationSettingOutlineProfile,
+  resolveSettingOutlineProfile,
+  type SettingOutlineProfile
+} from './setting-outline-profile.js';
 
-const terminalStatuses = new Set(['已确认', '稍后补充', '刻意留白', '不适用']);
-const baseRequired = [
-  'creative-concept', 'reader-promise', 'differentiator', 'era', 'geography',
-  'governance', 'power-source', 'levels', 'costs', 'protagonist', 'motivation',
-  'factions', 'production', 'must-follow'
-];
+export interface SettingBaselineReadiness extends SettingOutlineProfile {
+  ready: boolean;
+  missing: string[];
+  unresolved: string[];
+}
 
 export class SettingBaselineService {
   private readonly repository: PlanningWorkflowRepository;
+  private readonly continuations: ContinuationImportRepository;
   private readonly artifacts: ArtifactService;
   private readonly workspace: SettingOutlineWorkspaceService;
 
@@ -26,26 +32,23 @@ export class SettingBaselineService {
     private readonly clock: Clock
   ) {
     this.repository = new PlanningWorkflowRepository(database);
+    this.continuations = new ContinuationImportRepository(database);
     this.artifacts = new ArtifactService(database, ids, clock);
     this.workspace = new SettingOutlineWorkspaceService(database, clock);
   }
 
-  public inspect(scope: BookScope): { ready: boolean; missing: string[]; unresolved: string[]; required: string[] } {
+  public inspect(scope: BookScope): SettingBaselineReadiness {
     assertBookScope(scope);
-    const blueprint = this.opening(scope);
-    const hints = [
-      blueprint.categoryKey, ...blueprint.auxiliaryTags, ...blueprint.mainTags, ...blueprint.customTags
-    ].join(' ');
-    const required = [...baseRequired];
-    if (/游戏|电竞|网游|系统/u.test(hints)) required.push('game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot');
-    if (/历史|古代|三国|架空/u.test(hints)) required.push('history-baseline', 'divergence', 'politics-military', 'technology-spread');
-    if (/领主|种田|经营|基建/u.test(hints)) required.push('territory', 'population', 'army', 'yield');
-    if (/玄幻|仙侠|修仙|奇幻|魔法/u.test(hints)) required.push('cultivation', 'bloodline', 'treasures');
+    const profile = this.profile(scope);
     const rows = this.repository.settingStatuses(scope);
     const statuses = new Map(rows.map((row) => [row.item_key, row.item_status]));
-    const missing = [...new Set(required)].filter((key) => statuses.get(key) !== '已确认');
-    const unresolved = rows.filter((row) => !terminalStatuses.has(row.item_status)).map((row) => row.item_key);
-    return { ready: missing.length === 0 && unresolved.length === 0, missing, unresolved, required: [...new Set(required)] };
+    const unresolved = profile.required.filter((key) => {
+      const status = statuses.get(key);
+      return status === '讨论中' || status === '候选待确认';
+    });
+    const unresolvedSet = new Set(unresolved);
+    const missing = profile.required.filter((key) => statuses.get(key) !== '已确认' && !unresolvedSet.has(key));
+    return { ...profile, ready: missing.length === 0 && unresolved.length === 0, missing, unresolved };
   }
 
   public confirm(scope: BookScope, expectedPlanningVersion: number): { stage: string; version: number } {
@@ -54,7 +57,7 @@ export class SettingBaselineService {
       throw new DomainError(
         errorCodes.operationIncomplete,
         '设定大纲尚未准备完成：题材必备项必须确认，其余可选择稍后补充、刻意留白或不适用',
-        readiness,
+        { ...readiness },
         false,
         409
       );
@@ -110,9 +113,17 @@ export class SettingBaselineService {
     });
   }
 
-  private opening(scope: BookScope): OpeningBlueprintInput {
+  private profile(scope: BookScope): SettingOutlineProfile {
     const blueprint = this.repository.openingBlueprint(scope);
-    if (blueprint === undefined) throw new DomainError(errorCodes.operationIncomplete, '缺少开书资料', {}, false, 409);
-    return JSON.parse(blueprint) as OpeningBlueprintInput;
+    if (blueprint !== undefined) {
+      const parsed = JSON.parse(blueprint) as Record<string, unknown>;
+      if (Object.keys(parsed).length > 0) {
+        return resolveSettingOutlineProfile(parsed as unknown as OpeningBlueprintInput);
+      }
+    }
+    if (this.continuations.latestReadyBaseline(scope) !== undefined) {
+      return resolveContinuationSettingOutlineProfile();
+    }
+    throw new DomainError(errorCodes.operationIncomplete, '缺少开书资料或可用的已有正文分析', {}, false, 409);
   }
 }

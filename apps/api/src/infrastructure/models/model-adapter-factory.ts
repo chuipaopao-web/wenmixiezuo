@@ -82,6 +82,9 @@ export function buildRuntimeRoleSystemPrompt(
       : {
           identity: `${member.memberName}（${member.shortTitle}）`,
           positioning: member.publicSummary,
+          professionalIdentity: member.professionalIdentity,
+          craftStrengths: member.craftStrengths,
+          workingMethod: member.workingMethod,
           responsibilities: member.responsibilities,
           boundaries: member.boundaries
         }

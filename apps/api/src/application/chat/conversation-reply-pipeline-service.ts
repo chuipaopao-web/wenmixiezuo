@@ -30,6 +30,10 @@ import {
   renderSettingOutlineContext,
   toAuthorModelContextSources
 } from './author-conversation-presentation.js';
+import {
+  SettingGuidanceService,
+  type SettingGuidanceSnapshot
+} from '../knowledge/setting-guidance-service.js';
 
 interface ReplyTaskRow {
   status: string;
@@ -90,6 +94,7 @@ export class ConversationReplyPipelineService {
         creativeSessionId?: string;
         creativeBlackboardRevision?: number;
         creativeSessionAction?: 'continue_discussion';
+        settingGuidance?: SettingGuidanceSnapshot;
       };
       const replyAgent = this.database.prepare(`
         SELECT a.agent_id, a.display_name, r.role_key, m.model_snapshot_id, m.provider, m.model_id
@@ -128,11 +133,61 @@ export class ConversationReplyPipelineService {
         WHERE d.owner_id = ? AND d.book_id = ? AND d.boss_confirmed = 1
         ORDER BY d.confirmed_at DESC LIMIT 3
       `).all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown>>;
+      const continuationBaseline = this.database.prepare(`
+        SELECT baseline_id, continuation_import_id, summary_text, structured_json,
+          analyzed_chapter_count, total_chapter_count, canon_revision
+        FROM continuation_baselines
+        WHERE owner_id = ? AND book_id = ? AND status = 'ready'
+        ORDER BY completed_at DESC, updated_at DESC LIMIT 1
+      `).get(scope.ownerId, scope.bookId) as {
+        baseline_id: string;
+        continuation_import_id: string;
+        summary_text: string | null;
+        structured_json: string;
+        analyzed_chapter_count: number;
+        total_chapter_count: number;
+        canon_revision: number;
+      } | undefined;
       const hardSources: ContextSource[] = [{
         sourceType: brief.proactiveOnboarding === true ? 'onboarding_trigger' : 'boss_message',
-        sourceId: brief.messageId, content: brief.content,
+        sourceId: brief.messageId,
+        content: brief.settingGuidance === undefined ? brief.content : clipContextSource(brief.content, 1_200),
         reason: brief.proactiveOnboarding === true ? '建书后主动引导合同' : '当前需要回复的老板消息', priority: 100
       }];
+      const settingProposalCollection = brief.settingGuidance !== undefined
+        && (brief.settingGuidance.proposalOptions?.length ?? 0) > 0;
+      if (continuationBaseline !== undefined && !settingProposalCollection) {
+        hardSources.push({
+          sourceType: 'continuation_baseline',
+          sourceId: continuationBaseline.baseline_id,
+          content: brief.settingGuidance === undefined
+            ? clipContextSource(JSON.stringify({
+              authority: 'derived_from_confirmed_manuscript',
+              originalManuscriptRemainsAuthoritative: true,
+              analyzedChapters: continuationBaseline.analyzed_chapter_count,
+              totalChapters: continuationBaseline.total_chapter_count,
+              canonRevision: continuationBaseline.canon_revision,
+              summary: continuationBaseline.summary_text,
+              data: JSON.parse(continuationBaseline.structured_json) as unknown
+            }), 4_800)
+            : compactContinuationSettingSource(continuationBaseline),
+          reason: brief.settingGuidance === undefined
+            ? '已有正文逐章提炼的续写基线；用于理解当前人物、事件、规则和未结事项，冲突时以正文原文为准'
+            : '已有正文反向章纲的最小摘录；只用于整理当前设定项，冲突时以正文原文为准',
+          priority: 100,
+          version: continuationBaseline.canon_revision
+        });
+      }
+      if (brief.settingGuidance !== undefined) {
+        const compactSettingGuidance = compactSettingGuidanceSource(brief.settingGuidance);
+        hardSources.push({
+          sourceType: 'setting_guidance',
+          sourceId: `setting:${brief.settingGuidance.itemKey}`,
+          content: JSON.stringify(compactSettingGuidance),
+          reason: '本轮唯一允许处理的设定项、最小开书定位和最多三项已确认依赖',
+          priority: 100
+        });
+      }
       if (brief.creativeSessionId !== undefined) {
         const sessionRepository = new CreativeSessionRepository(this.database);
         const blackboard = sessionRepository.blackboard(
@@ -150,7 +205,7 @@ export class ConversationReplyPipelineService {
           version: blackboard.revision
         });
       }
-      if (brief.proactiveOnboarding === true) {
+      if (brief.proactiveOnboarding === true && brief.settingGuidance === undefined) {
         if (brief.openingBlueprintId === undefined) throw new Error('主动开场任务缺少开书资料引用字段');
         if (typeof brief.openingBlueprintId === 'string') {
           const openingBlueprint = this.database.prepare(`
@@ -165,7 +220,7 @@ export class ConversationReplyPipelineService {
           });
         }
       }
-      const retrieved = brief.proactiveOnboarding === true
+      const retrieved = brief.proactiveOnboarding === true || brief.settingGuidance !== undefined
         ? { hardSources: [], optionalSources: [] }
         : await new RetrievalContextSourceService(this.retrieval).collect(scope, {
           query: brief.content,
@@ -179,19 +234,19 @@ export class ConversationReplyPipelineService {
       hardSources.push(...retrieved.hardSources);
       const optionalSources: ContextSource[] = [
         ...retrieved.optionalSources,
-        ...(storyBible === undefined || brief.proactiveOnboarding === true ? [] : [{
+        ...(storyBible === undefined || brief.proactiveOnboarding === true || brief.settingGuidance !== undefined ? [] : [{
           sourceType: 'story_bible', sourceId: storyBible.artifact_version_id,
           content: renderSettingOutlineContext(storyBible.content_json, 1_500),
           reason: '当前设定大纲；它是可修订的规划参考，不是正史', priority: 90
         }]),
-        ...(history.length === 0 ? [] : [{
+        ...(history.length === 0 || brief.settingGuidance !== undefined ? [] : [{
           sourceType: 'recent_conversation',
           sourceId: `history:${brief.messageId}`,
           content: renderModelContextContent('recent_conversation', JSON.stringify(history), 1_800),
           reason: '仅限本次回复的最近6条对话窗口；完整原文仍归档但默认不注入',
           priority: 70
         }]),
-        ...(decisions.length === 0 ? [] : [{
+        ...(decisions.length === 0 || brief.settingGuidance !== undefined ? [] : [{
           sourceType: 'confirmed_decisions',
           sourceId: `decisions:${scope.bookId}`,
           content: renderModelContextContent('confirmed_decisions', JSON.stringify(decisions), 1_200),
@@ -204,11 +259,13 @@ export class ConversationReplyPipelineService {
         agentId: replyAgent.agent_id,
         canonRevision: book.canon_revision,
         positioningVersion: book.positioning_version,
-        tokenBudget: brief.proactiveOnboarding === true ? 12_000 : 7_000,
-        characterBudget: brief.proactiveOnboarding === true ? 12_000 : 7_000,
-        policyVersion: brief.proactiveOnboarding === true
-          ? 'onboarding-editor-context-v2-12000chars'
-          : 'creative-editor-context-v2-7000chars',
+        tokenBudget: brief.settingGuidance !== undefined ? 4_500 : brief.proactiveOnboarding === true ? 12_000 : 7_000,
+        characterBudget: brief.settingGuidance !== undefined ? 4_500 : brief.proactiveOnboarding === true ? 12_000 : 7_000,
+        policyVersion: brief.settingGuidance !== undefined
+          ? 'setting-guidance-v2-4500chars'
+          : brief.proactiveOnboarding === true
+            ? 'onboarding-editor-context-v2-12000chars'
+            : 'creative-editor-context-v2-7000chars',
         hardSources,
         optionalSources
       });
@@ -216,14 +273,17 @@ export class ConversationReplyPipelineService {
         .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
       if (budget === undefined) throw new Error('当前书籍没有活动预算');
       const prompt = JSON.stringify({
-        operation: '主创对话回复',
+        operation: brief.settingGuidance === undefined ? '主创对话回复' : '设定大纲逐项引导',
         identity: `${replyAgent.display_name}（${publicRoleTitle(replyAgent.role_key)}）`,
         rules: [
           '直接回应老板，不要声称其他成员已经回复或已完成未执行的工作',
           brief.directNamedMember === true ? '老板明确点名了你；只以自己的岗位身份回答，不转交给主编代答' : '你是当前活动主编，负责回应并判断下一步',
-          '如果创作资料不足，指出缺口并提出一至三个具体问题',
+          brief.settingGuidance !== undefined
+            ? '是否提问、提几个问题严格服从当前设定项的专用规则'
+            : '如果创作资料不足，指出缺口并提出一至三个具体问题',
           '不要在没有确认方案和章纲时直接创作正文',
-          ...(brief.proactiveOnboarding === true ? [
+          ...(brief.settingGuidance === undefined ? [] : settingGuidanceRules(brief.settingGuidance)),
+          ...(brief.proactiveOnboarding === true && brief.settingGuidance === undefined ? [
             '这是建书后的主动开场，不要声称老板刚刚发送了这条内部触发指令',
             '先简短区分已知、待讨论和可能冲突，再只问一至三个最高价值问题',
             '不得复述完整开书表单，不得启动主笔或生成小说正文',
@@ -239,8 +299,19 @@ export class ConversationReplyPipelineService {
           '删除开场客套、自我介绍、过程说明和重复结论；只保留直接回答、关键依据、风险或未知、必要问题与下一步'
         ],
         outputContract: EFFECTIVE_OUTPUT_CONTRACT,
-        currentMessage: brief.proactiveOnboarding === true ? '建书完成，请主动引导下一步创作讨论。' : brief.content,
-        contextSources: toAuthorModelContextSources(pack.sources)
+        ...(brief.settingGuidance === undefined
+          ? {}
+          : { settingGuidance: compactSettingGuidanceSource(brief.settingGuidance) }),
+        currentMessage: brief.settingGuidance !== undefined
+          ? brief.settingGuidance.phase === 'ask'
+            ? `请开始询问当前设定项“${brief.settingGuidance.label}”。`
+            : brief.content
+          : brief.proactiveOnboarding === true ? '建书完成，请主动引导下一步创作讨论。' : brief.content,
+        // Keep setting_guidance in the persisted source manifest for traceability,
+        // but render it only once through the typed settingGuidance field above.
+        contextSources: toAuthorModelContextSources(
+          pack.sources.filter((source) => source.sourceType !== 'setting_guidance')
+        )
       });
       const budgets = new BudgetService(this.database, this.ids, this.clock);
       const adapter = this.modelAdapters.resolve(replyAgent.provider, replyAgent.model_id, 'discussion', replyAgent.role_key);
@@ -328,6 +399,10 @@ export class ConversationReplyPipelineService {
         }
       }
       if (result === undefined) throw lastError instanceof Error ? lastError : new Error('对话模型调用失败');
+      if (brief.settingGuidance !== undefined) {
+        new SettingGuidanceService(this.database, this.ids, this.clock)
+          .recordCandidate(scope, brief.settingGuidance.itemKey, result.output);
+      }
       const effective = prepareEffectiveOutput(result.output);
       const references: unknown[] = [{ replyToMessageId: brief.messageId, contextPackId: pack.contextPackId }];
       const effectiveReference = createEffectiveOutputReference(effective);
@@ -378,6 +453,209 @@ export class ConversationReplyPipelineService {
       throw error;
     }
   }
+}
+
+function settingGuidanceRules(guidance: SettingGuidanceSnapshot): string[] {
+  const artifactRule = `必须在JSON根对象增加workflowArtifact字段：{"type":"setting_outline","payload":{"items":[{"itemKey":"${guidance.itemKey}","content":"一个可直接确认的本项设定候选"}]}}`;
+  const common = [
+    `本轮唯一允许处理的设定项是“${guidance.label}”（${guidance.requiredIndex}/${guidance.requiredCount}）；不得跳到其他设定项`,
+    '开书剧情简介只是软参考，不得把它当成已经确定的剧情，不得围绕它追问具体剧情走向',
+    '不得启动编剧、剧情总纲、章纲或正文；不得一次列出后续全部问题',
+    '只使用当前设定项、最多三项已确认依赖和最小作品定位；没有注入的资料不要自行补全',
+    '回答要像真人主编，简短、清楚、只保留对作者有用的信息',
+    '若上文已有主编和两名编剧的三份独立提案，只能按老板明确选中、组合或补充的内容整理候选；不得自动投票、擅自折中，也不得合并老板没有选择的内容',
+    '主编的职责是分析老板已经给出的想法并尽快形成方向，不得把编辑判断连续退回给老板',
+    '次要未知项使用明确、可逆的合理假设补齐并标注为可修改，不得因为资料不完美阻止形成候选',
+    '每轮只给一个主推荐；只有确有重大取舍时才允许附带一个结构真正不同的备选，不得堆叠同义方向',
+    '每轮最多一个问题，而且只能询问会改变重大方向或导致候选无法成立的阻塞信息；否则只问是否确认或直接修改'
+  ];
+  const feedbackRules = settingFeedbackRules(guidance);
+  const revisionRule = settingRevisionRule(guidance);
+  if (guidance.itemKey === 'creative-concept') {
+    if (guidance.phase === 'ask') {
+      return [
+        ...common,
+        ...feedbackRules,
+        '不要先向老板抛抽象问题。直接根据开书定位和故事方向给出一个最合理、可修改的策划理念推荐',
+        '策划理念只回答三件事：为什么这本书值得写、主要探讨什么、准备给读者什么独特体验；不要复述剧情梗概或细化人物事件',
+        '只给一个推荐，禁止方案A/B/C、方向一/二/三、多个同义候选和选择题；alternatives、risks和details必须为空',
+        'answer不超过120个中文字符，keyPoints最多1条，questions最多1条且只能问“是否按这个确定”；nextStep只说明确认或直接修改',
+        artifactRule,
+        'workflowArtifact.content使用一段通俗完整的话，不超过180个中文字符，不写流程话术、备选项或待确认问题'
+      ];
+    }
+    return [
+      ...common,
+      ...feedbackRules,
+      revisionRule,
+      '只返回一个策划理念候选，不扩写剧情或再次分析标签',
+      '禁止方案A/B/C、方向一/二/三和选择题；alternatives、risks和details必须为空',
+      'answer不超过120个中文字符，keyPoints最多1条，questions只能是“是否按这个确定”；nextStep只说明确认或继续直接修改',
+      artifactRule,
+      'workflowArtifact.content使用一段通俗完整的话，不超过180个中文字符，不写流程话术、备选项或待确认问题'
+    ];
+  }
+  if (guidance.phase === 'ask') {
+    return [
+      ...common,
+      ...feedbackRules,
+      `直接依据当前作品定位分析这一项：${guidance.prompt}`,
+      '先用一句话说明你对老板意图的理解，再给出一个具体、通俗、可修改的主推荐；不要先问问题，不要列问卷',
+      'alternatives默认必须为空；只有主推荐与另一条路径存在真实且重大的创作代价差异时，才可保留一个备选',
+      'questions默认只写“是否按这个确定？如需调整，直接告诉我修改哪一点”；仅存在重大阻塞时可替换成一个必要问题，但仍须同时提交当前最佳候选',
+      artifactRule,
+      'workflowArtifact中的content必须是当前最佳判断，不写讨论过程、选项清单、流程话术或待补作业'
+    ];
+  }
+  return [
+    ...common,
+    ...feedbackRules,
+    revisionRule,
+    '只返回一个修订候选，不扩写成剧情',
+    '明确请老板回复“确认”或直接提出修改；确认前候选不进入正式设定',
+    artifactRule,
+    'workflowArtifact中的content必须至少8个中文字符，不得出现“待老板”“需确认”“主编”“编剧”“方案A/B/C”等流程话术'
+  ];
+}
+
+function settingRevisionRule(guidance: SettingGuidanceSnapshot): string {
+  if (guidance.feedbackMode === 'numeric_selection') {
+    const selected = guidance.selectionNumbers?.join('、') ?? '';
+    return `老板明确选择了方案${selected}。只能融合这些已选方案中互不冲突、适用于本书的内容；未选方案不得带入。输出一份已经消除重复和矛盾的完整候选，不要再列方案清单，也不要要求老板重新选择`;
+  }
+  if (guidance.feedbackMode === 'replace_direction'
+    || (guidance.feedbackMode === 'vague_dissatisfaction' && guidance.dissatisfactionRound >= 2)) {
+    return '旧候选只用于识别已被否定的方向；必须返回一个核心机制或表达重心明显不同的新候选，不得把旧候选强行合并回来';
+  }
+  if (guidance.feedbackMode === 'vague_dissatisfaction') {
+    return '诊断旧候选最可能的空泛或错位之处并直接改好；保留仍有价值的部分，但不得只做同义改写';
+  }
+  return '把老板明确指出的修改直接合并进原候选；保留未被否定的内容，不重新打开已经排除的方向';
+}
+
+function settingFeedbackRules(guidance: SettingGuidanceSnapshot): string[] {
+  if (guidance.phase !== 'revise') return [];
+  const previous = guidance.previousCandidate === null
+    ? '当前没有可复用的旧候选。'
+    : `上一版候选如下，只作为修订对象，不得原样复述：${guidance.previousCandidate}`;
+  if (guidance.feedbackMode === 'numeric_selection') {
+    const selected = new Set(guidance.selectionNumbers ?? []);
+    const options = (guidance.proposalOptions ?? [])
+      .filter((option) => selected.has(option.number))
+      .map((option) => `方案${option.number}（${option.memberName}）：${option.content}`);
+    return [
+      `老板本轮选择：${[...selected].sort((left, right) => left - right).join('、')}`,
+      `只允许使用以下入选内容：\n${options.join('\n')}`,
+      '先消除重复，再解决冲突；若两项存在不可同时成立的矛盾，优先保留更符合开书资料和已确认设定的一项，并用一句话说明取舍',
+      '本轮直接形成一份可确认的融合候选；questions只能询问“是否确认”，不得重新列出选项'
+    ];
+  }
+  if (guidance.feedbackMode === 'replace_direction') {
+    return [
+      previous,
+      '老板明确否定了原方向。本轮必须给出一个核心机制、价值冲突或读者体验明显不同的新候选，不得只换措辞',
+      '不得追问老板想换成什么；先给专业主推荐。只有新候选仍被否定且缺少决定性信息时，下一轮才可问一个关键问题'
+    ];
+  }
+  if (guidance.feedbackMode === 'vague_dissatisfaction') {
+    if (guidance.dissatisfactionRound <= 1) {
+      return [
+        previous,
+        '老板表示不满意但未说明原因。不要反问原因；先判断旧候选最可能的问题，并直接给出一个更具体、更贴合本书定位的修订候选',
+        '本轮questions必须为空；面向老板只说明新推荐和它比上一版改进的一点'
+      ];
+    }
+    if (guidance.dissatisfactionRound === 2) {
+      return [
+        previous,
+        '这是同一设定项第二次泛化不满意。本轮不要继续微调旧说法，必须换成一条结构明显不同的新方向',
+        '本轮questions必须为空，不列多个方向，不让老板做选择题'
+      ];
+    }
+    return [
+      previous,
+      '同一设定项已经连续两次以上未获认可。本轮仍须先给一个当前最佳新候选，然后只允许问一个能区分方向的通俗关键问题',
+      '问题不得使用专业术语，不得让老板填写问卷或一次回答多个子问题'
+    ];
+  }
+  return [
+    previous,
+    '老板已经给出具体修改意见。只修改她指出的部分，保留未被否定且不冲突的内容；不要借机重开整个方向',
+    '本轮不得追加新的选择题；直接提交合并后的完整候选'
+  ];
+}
+
+function compactContinuationSettingSource(baseline: {
+  summary_text: string | null;
+  structured_json: string;
+  analyzed_chapter_count: number;
+  total_chapter_count: number;
+  canon_revision: number;
+}): string {
+  let structured: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(baseline.structured_json) as unknown;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      structured = parsed as Record<string, unknown>;
+    }
+  } catch {
+    structured = {};
+  }
+  const rawOutlines = Array.isArray(structured.chapterOutlines)
+    ? structured.chapterOutlines.filter((item): item is Record<string, unknown> =>
+      item !== null && typeof item === 'object' && !Array.isArray(item))
+    : [];
+  const sampled = rawOutlines.length <= 8
+    ? rawOutlines
+    : [...rawOutlines.slice(0, 3), ...rawOutlines.slice(-5)];
+  const outlines = sampled.map((outline) => ({
+    chapterNumber: outline.chapterNumber,
+    title: outline.title,
+    chapterGoal: outline.chapterGoal,
+    cast: outline.cast,
+    centralConflict: outline.centralConflict,
+    ending: outline.ending
+  }));
+  return clipContextSource(JSON.stringify({
+    authority: 'derived_from_confirmed_manuscript',
+    originalManuscriptRemainsAuthoritative: true,
+    analyzedChapters: baseline.analyzed_chapter_count,
+    totalChapters: baseline.total_chapter_count,
+    canonRevision: baseline.canon_revision,
+    summary: baseline.summary_text,
+    reverseOutlines: outlines
+  }), 1_400);
+}
+
+/**
+ * 设定逐项讨论只携带作出当前判断所需的最小资料。三份独立方案已经吸收了
+ * 续写基线，主编汇总时不得再把整份逐章基线和三案重复装入硬上下文。
+ */
+function compactSettingGuidanceSource(guidance: SettingGuidanceSnapshot): SettingGuidanceSnapshot {
+  const selected = guidance.feedbackMode === 'numeric_selection'
+    ? new Set(guidance.selectionNumbers ?? [])
+    : null;
+  const proposals = guidance.proposalOptions
+    ?.filter((option) => selected === null || selected.has(option.number))
+    .slice(0, 3)
+    .map((option) => ({
+      number: option.number,
+      memberName: option.memberName,
+      content: clipContextSource(option.content, 420)
+    }));
+  return {
+    ...guidance,
+    positioningSummary: clipContextSource(guidance.positioningSummary, 300),
+    storyDirectionReference: clipContextSource(guidance.storyDirectionReference, 180),
+    confirmedContext: guidance.confirmedContext.slice(0, 3).map((item) => ({
+      ...item,
+      content: clipContextSource(item.content, 120)
+    })),
+    previousCandidate: guidance.previousCandidate === null
+      ? null
+      : clipContextSource(guidance.previousCandidate, 240),
+    ...(proposals === undefined ? {} : { proposalOptions: proposals })
+  };
 }
 
 function isSettingIntake(content: string, roleKey: RoleKey | CreativeRoleKey): boolean {

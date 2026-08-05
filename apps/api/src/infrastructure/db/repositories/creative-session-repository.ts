@@ -135,6 +135,46 @@ export class CreativeSessionRepository {
     return round?.status === 'confirmed';
   }
 
+  public latestLockedPlanningRoundStatus(scope: BookScope, sessionId: string): string | null {
+    assertBookScope(scope);
+    this.require(scope, sessionId);
+    const latest = this.database.prepare(`
+      SELECT d.status
+      FROM creative_session_rounds r
+      JOIN discussions d ON d.discussion_id = r.discussion_id
+        AND d.owner_id = r.owner_id AND d.book_id = r.book_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.creative_session_id = ?
+        AND r.round_kind = 'locked_planning'
+      ORDER BY r.round_number DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, sessionId) as { status: string } | undefined;
+    return latest?.status ?? null;
+  }
+
+  public latestRoundHasTerminalFailure(scope: BookScope, sessionId: string): boolean {
+    assertBookScope(scope);
+    this.require(scope, sessionId);
+    const latest = this.database.prepare(`
+      SELECT d.status AS discussion_status, t.status AS task_status
+      FROM creative_session_rounds r
+      JOIN discussions d ON d.discussion_id = r.discussion_id
+        AND d.owner_id = r.owner_id AND d.book_id = r.book_id
+      LEFT JOIN tasks t ON t.owner_id = r.owner_id AND t.book_id = r.book_id
+        AND t.task_type = 'discussion'
+        AND json_extract(t.task_brief_json, '$.discussionId') = r.discussion_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.creative_session_id = ?
+      ORDER BY r.round_number DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, sessionId) as {
+      discussion_status: string;
+      task_status: string | null;
+    } | undefined;
+    if (latest === undefined) return false;
+    const terminalFailures = new Set(['failed', 'blocked', 'interrupted', 'cancelled']);
+    return terminalFailures.has(latest.discussion_status)
+      || (latest.task_status !== null && terminalFailures.has(latest.task_status));
+  }
+
   public appendEvent(scope: BookScope, input: {
     eventId: string;
     sessionId: string;

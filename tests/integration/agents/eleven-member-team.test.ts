@@ -27,7 +27,7 @@ describe('十一人创作团队', () => {
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5-2-260617',
+      modelId: 'glm-5.2',
       plan: 'agent'
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('不同模型');
@@ -45,9 +45,9 @@ describe('十一人创作团队', () => {
     const panel = new ReviewModelCompatibilityService().select(writer, rows);
     expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).toHaveLength(4);
     expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).size).toBe(4);
-    const glmWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
-    const glmPanel = new ReviewModelCompatibilityService().select(glmWriter, rows);
-    expect(glmPanel.fact.roleKey).toBe('lead_screenwriter');
-    expect(glmPanel.fact.modelId).toContain('deepseek');
+    const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
+    const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
+    expect(backupPanel.fact.roleKey).toBe('setting');
+    expect(backupPanel.fact.modelId).toBe('kimi-k2.7-code');
   });
 });

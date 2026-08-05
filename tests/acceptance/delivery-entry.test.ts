@@ -21,6 +21,8 @@ describe('最终交付入口', () => {
     expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
     expect(launcher).toContain('*<div id="root"></div>*');
     expect(launcher).toContain('Test-WenmiReady');
+    expect(launcher).toContain('Test-WenmiBuildStale');
+    expect(launcher).toContain("& (Join-Path $PSScriptRoot 'stop-desktop.ps1')");
     expect(processLauncher).toContain('startedAtUtc');
     expect(launcher).toContain("[Environment]::SetEnvironmentVariable($name, $value, 'Process')");
     expect(launcher).toContain('Start-Process -FilePath $nodePath');

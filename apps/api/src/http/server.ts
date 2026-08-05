@@ -13,6 +13,7 @@ import { ChapterPipelineService } from '../application/creation/chapter-pipeline
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ConversationReplyPipelineService } from '../application/chat/conversation-reply-pipeline-service.js';
+import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
 import { RuntimeSessionService } from '../infrastructure/security/runtime-session.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerRuntimeRoutes } from './runtime-routes.js';
@@ -127,6 +128,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
         ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : task.task_type === 'conversation_reply'
           ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+        : task.task_type === 'continuation_analysis'
+          ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });
@@ -181,7 +184,10 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       });
       return;
     }
-    request.log.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'unhandled request error');
+    // Keep the public response deliberately generic, but retain the local
+    // exception message and stack so a failed workflow can be diagnosed and
+    // resumed instead of leaving only an unhelpful INTERNAL_ERROR marker.
+    request.log.error({ err: error }, 'unhandled request error');
     void reply.status(500).send({
       error: { code: 'INTERNAL_ERROR', message: '这次没有顺利完成，请稍后再试。问题已经留下本地追踪信息，方便继续排查。', details: {}, retryable: false },
       meta: { requestId }

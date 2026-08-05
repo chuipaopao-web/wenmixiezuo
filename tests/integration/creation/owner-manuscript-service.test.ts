@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { createServer } from '../../../apps/api/src/http/server.js';
 import { OwnerManuscriptService } from '../../../apps/api/src/application/creation/owner-manuscript-service.js';
 import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
@@ -9,6 +10,106 @@ import { resolveInside } from '../../../apps/api/src/infrastructure/files/file-u
 import { createKnowledgeFixture } from '../../helpers/knowledge-fixture.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds } from '../../helpers/test-context.js';
+
+describe('owner manuscript withdrawal', () => {
+  it('exposes the withdrawal through the scoped HTTP API', async () => {
+    const context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock, { content: 'Saved owner manuscript.' });
+    context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'completed' WHERE task_id = ?`)
+      .run(fixture.taskId);
+    const app = await createServer(context.config, context.database, { trustedTest: true });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/books/${fixture.scope.bookId}/chapters/${fixture.chapterId}/manuscripts/current/withdraw`,
+        payload: { expectedManuscriptVersionId: fixture.manuscriptVersionId }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toEqual({
+        withdrawnManuscriptVersionId: fixture.manuscriptVersionId,
+        currentManuscriptVersionId: null,
+        retainedInHistory: true
+      });
+      expect(context.database.prepare(`SELECT current_manuscript_version_id FROM chapters
+        WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
+        .get(fixture.scope.ownerId, fixture.scope.bookId, fixture.chapterId))
+        .toEqual({ current_manuscript_version_id: null });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions
+        WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ?`)
+        .get(fixture.scope.ownerId, fixture.scope.bookId, fixture.manuscriptVersionId))
+        .toEqual({ count: 1 });
+    } finally {
+      await app.close();
+      context.close();
+    }
+  });
+
+  it('withdraws the current unsettled manuscript without deleting immutable history', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { content: 'Author manuscript to withdraw.' });
+      context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'completed' WHERE task_id = ?`).run(fixture.taskId);
+      const service = new OwnerManuscriptService(
+        context.database, context.dataDir, context.config.releaseId, ids, clock
+      );
+
+      const result = service.withdrawDraft(fixture.scope, {
+        chapterId: fixture.chapterId,
+        expectedManuscriptVersionId: fixture.manuscriptVersionId
+      });
+
+      expect(result).toEqual({
+        withdrawnManuscriptVersionId: fixture.manuscriptVersionId,
+        currentManuscriptVersionId: null,
+        retainedInHistory: true
+      });
+      expect(context.database.prepare(`SELECT current_manuscript_version_id, canon_manuscript_version_id,
+          generation_status, settlement_status FROM chapters WHERE chapter_id = ?`)
+        .get(fixture.chapterId)).toEqual({
+        current_manuscript_version_id: null,
+        canon_manuscript_version_id: null,
+        generation_status: 'not_started',
+        settlement_status: 'unsettled'
+      });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions
+        WHERE manuscript_version_id = ?`).get(fixture.manuscriptVersionId)).toEqual({ count: 1 });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('refuses to withdraw a settled manuscript or a stale active version', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { content: 'Protected manuscript.' });
+      context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'completed' WHERE task_id = ?`).run(fixture.taskId);
+      const service = new OwnerManuscriptService(
+        context.database, context.dataDir, context.config.releaseId, ids, clock
+      );
+
+      expect(() => service.withdrawDraft(fixture.scope, {
+        chapterId: fixture.chapterId,
+        expectedManuscriptVersionId: 'stale-version'
+      })).toThrow('正文基线已经变化');
+
+      context.database.prepare(`UPDATE chapters SET settlement_status = 'settled',
+        canon_manuscript_version_id = current_manuscript_version_id WHERE chapter_id = ?`).run(fixture.chapterId);
+      expect(() => service.withdrawDraft(fixture.scope, {
+        chapterId: fixture.chapterId,
+        expectedManuscriptVersionId: fixture.manuscriptVersionId
+      })).toThrow('已定稿正史不能删除');
+    } finally {
+      context.close();
+    }
+  });
+});
 
 describe('作者正文修订', () => {
   it('允许已规划但尚无正文的章节以空CAS基线创建第一份作者草稿', () => {

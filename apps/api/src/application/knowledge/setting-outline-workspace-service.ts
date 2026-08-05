@@ -197,6 +197,91 @@ export class SettingOutlineWorkspaceService {
     return [this.list(scope).find((item) => item.itemKey === itemKey)!];
   }
 
+  public activateGuidanceItem(scope: BookScope, itemKey: string): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const items = this.list(scope);
+    const current = items.find((item) => item.itemKey === itemKey);
+    if (current === undefined) throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在', {}, false, 404);
+    const now = this.clock.now().toISOString();
+    for (const item of items) {
+      if (item.itemKey === itemKey || item.status !== '讨论中') continue;
+      this.repository.upsert(scope, {
+        itemKey: item.itemKey,
+        groupTitle: item.groupTitle,
+        label: item.label,
+        prompt: item.prompt,
+        sourceLabel: item.sourceLabel,
+        itemStatus: '待讨论',
+        isCustom: item.custom,
+        sortOrder: item.sortOrder,
+        contentText: item.content,
+        now
+      });
+    }
+    if (current.status === '已确认' || current.status === '候选待确认') return current;
+    this.repository.upsert(scope, {
+      itemKey: current.itemKey,
+      groupTitle: current.groupTitle,
+      label: current.label,
+      prompt: current.prompt,
+      sourceLabel: current.sourceLabel,
+      itemStatus: '讨论中',
+      isCustom: current.custom,
+      sortOrder: current.sortOrder,
+      contentText: current.content,
+      now
+    });
+    return this.list(scope).find((item) => item.itemKey === itemKey)!;
+  }
+
+  public recordGuidanceCandidate(scope: BookScope, itemKey: string, content: string): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const current = this.list(scope).find((item) => item.itemKey === itemKey);
+    if (current === undefined) throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在', {}, false, 404);
+    const normalized = required(content, `${current.label}候选内容`, 20_000);
+    const now = this.clock.now().toISOString();
+    this.repository.upsert(scope, {
+      itemKey: current.itemKey,
+      groupTitle: current.groupTitle,
+      label: current.label,
+      prompt: current.prompt,
+      sourceLabel: current.sourceLabel,
+      itemStatus: '候选待确认',
+      isCustom: current.custom,
+      sortOrder: current.sortOrder,
+      contentText: normalized,
+      candidateAt: now,
+      now
+    });
+    return this.list(scope).find((item) => item.itemKey === itemKey)!;
+  }
+
+  public confirmGuidanceCandidate(scope: BookScope, itemKey: string): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const current = this.list(scope).find((item) => item.itemKey === itemKey);
+    if (current === undefined) throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在', {}, false, 404);
+    if (current.status !== '候选待确认' || current.content === null) {
+      throw new DomainError(errorCodes.operationIncomplete, `“${current.label}”还没有可确认的候选内容`, {}, false, 409);
+    }
+    const now = this.clock.now().toISOString();
+    this.repository.upsert(scope, {
+      itemKey: current.itemKey,
+      groupTitle: current.groupTitle,
+      label: current.label,
+      prompt: current.prompt,
+      sourceLabel: current.sourceLabel,
+      itemStatus: '已确认',
+      isCustom: current.custom,
+      sortOrder: current.sortOrder,
+      contentText: current.content,
+      sourceDiscussionId: current.sourceDiscussionId,
+      sourceDecisionId: current.sourceDecisionId,
+      confirmedAt: now,
+      now
+    });
+    return this.list(scope).find((item) => item.itemKey === itemKey)!;
+  }
+
   public confirmDiscussionCandidate(scope: BookScope, discussionId: string, decisionId: string): SettingOutlineWorkspaceItem | null {
     return this.confirmDiscussionCandidates(scope, discussionId, decisionId)[0] ?? null;
   }
@@ -266,7 +351,11 @@ function parseSettingWorkflowArtifact(content: string): Array<{ itemKey: string;
     try {
       parsed = JSON.parse(candidate) as unknown;
     } catch {
-      continue;
+      try {
+        parsed = JSON.parse(repairUnescapedJsonQuotes(candidate)) as unknown;
+      } catch {
+        continue;
+      }
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue;
     const root = parsed as Record<string, unknown>;
@@ -293,7 +382,81 @@ function parseSettingWorkflowArtifact(content: string): Array<{ itemKey: string;
     }
     return normalized;
   }
+
+  // The author-facing answer and the workflow artifact share one model response.
+  // A stray, unescaped quote in the prose must not discard an otherwise valid,
+  // schema-checked artifact.  Recover only the exact workflowArtifact property;
+  // arbitrary prose is still never accepted as a setting candidate.
+  const isolatedArtifact = extractNamedJsonObject(content, 'workflowArtifact');
+  if (isolatedArtifact !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(isolatedArtifact) as unknown;
+    } catch {
+      try {
+        parsed = JSON.parse(repairUnescapedJsonQuotes(isolatedArtifact)) as unknown;
+      } catch {
+        return [];
+      }
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+    const workflow = parsed as Record<string, unknown>;
+    if (workflow.type !== 'setting_outline'
+      || typeof workflow.payload !== 'object' || workflow.payload === null || Array.isArray(workflow.payload)) return [];
+    const items = (workflow.payload as Record<string, unknown>).items;
+    if (!Array.isArray(items)) return [];
+    const normalized: Array<{ itemKey: string; content: string }> = [];
+    for (const value of items) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
+      const record = value as Record<string, unknown>;
+      if (typeof record.itemKey !== 'string' || typeof record.content !== 'string') return [];
+      const itemKey = record.itemKey.trim();
+      const itemContent = record.content.trim();
+      if (itemKey.length === 0 || itemContent.length < 8) return [];
+      if (/(?:待老板|老板裁定|需老板|婉儿|红玉|主编|编剧|共识：|分歧：|方案[ABC])/u.test(itemContent)) return [];
+      normalized.push({ itemKey, content: itemContent });
+    }
+    return normalized;
+  }
   return null;
+}
+
+function repairUnescapedJsonQuotes(value: string): string {
+  let inString = false;
+  let escaped = false;
+  let repaired = '';
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (!inString) {
+      if (character === '"') inString = true;
+      repaired += character;
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      repaired += character;
+      continue;
+    }
+    if (character === '\\') {
+      escaped = true;
+      repaired += character;
+      continue;
+    }
+    if (character !== '"') {
+      repaired += character;
+      continue;
+    }
+    let nextIndex = index + 1;
+    while (nextIndex < value.length && /\s/u.test(value[nextIndex]!)) nextIndex += 1;
+    const next = value[nextIndex];
+    if (next === ':' || next === ',' || next === '}' || next === ']' || next === undefined) {
+      inString = false;
+      repaired += character;
+    } else {
+      repaired += '\\"';
+    }
+  }
+  return repaired;
 }
 
 function parseSettingTarget(scopeText: string): {
@@ -359,6 +522,48 @@ function extractCompleteJsonObjects(value: string): string[] {
     }
   }
   return objects;
+}
+
+function extractNamedJsonObject(value: string, propertyName: string): string | null {
+  const propertyToken = `"${propertyName}"`;
+  let searchFrom = 0;
+  while (searchFrom < value.length) {
+    const propertyIndex = value.indexOf(propertyToken, searchFrom);
+    if (propertyIndex < 0) return null;
+    let cursor = propertyIndex + propertyToken.length;
+    while (/\s/u.test(value[cursor] ?? '')) cursor += 1;
+    if (value[cursor] !== ':') {
+      searchFrom = cursor;
+      continue;
+    }
+    cursor += 1;
+    while (/\s/u.test(value[cursor] ?? '')) cursor += 1;
+    if (value[cursor] !== '{') {
+      searchFrom = cursor;
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = cursor; index < value.length; index += 1) {
+      const character = value[index]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{') depth += 1;
+      else if (character === '}') {
+        depth -= 1;
+        if (depth === 0) return value.slice(cursor, index + 1);
+      }
+    }
+    return null;
+  }
+  return null;
 }
 
 function required(value: string, label: string, maxLength: number): string {

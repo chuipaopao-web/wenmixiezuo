@@ -22,6 +22,7 @@ export interface EffectiveOutputResult {
   fullContent: string;
   filtered: boolean;
   format: 'structured' | 'fallback';
+  rejectedMachinePayload: boolean;
 }
 
 export interface EffectiveOutputReference {
@@ -44,21 +45,24 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
     keyPoints: '最多3条决定结论的关键依据；没有则为空数组',
     alternatives: '仅在确有不同方向时提供，元素为title/content/tradeoff；必须保留结构不同的高潜少数方案',
     risks: '事实冲突、代价、不确定项或资料缺口；不得为了简短而隐藏',
-    questions: '只有继续工作确实需要时才问，最多3个',
+    questions: '默认不提问；只有会改变重大方向或使当前建议无法成立时才问，最多1个。能用可逆假设推进时不得提问',
     nextStep: '一项可执行下一步；没有则为null',
     details: '可展开的补充依据；只能使用作者能理解的产品术语，不得写内部字段名、追溯编号、校验值或内部思维链，没有则为null',
     workflowArtifact: '仅当任务明确要求机器落库时填写；对象格式为type和payload。普通讨论省略该字段'
   },
   rules: [
     '只输出一个JSON对象，不要代码围栏、开场客套、自我介绍、过程说明或重复老板原话',
-    '不要重复同一结论；事实、风险、未知、异议和需要确认的重大选择不得省略',
+    '不要重复同一结论；先给一个主推荐和理由，只有存在真实重大取舍时才保留一个结构不同的备选',
+    '不得连续盘问老板。作者信息足以形成建议时直接形成建议；次要未知项列为可修改假设，不得变成问题清单',
     '字段只写最终结论、依据和可展示说明，不输出内部思维链、后台字段名、资料编号或校验值'
   ]
 } as const;
 
 export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
   const normalizedRaw = normalizeText(raw);
-  const structured = parseStructuredReply(normalizedRaw) ?? parseTruncatedStructuredReply(normalizedRaw);
+  const structured = parseStructuredReply(normalizedRaw)
+    ?? parseMalformedStructuredReply(normalizedRaw)
+    ?? parseTruncatedStructuredReply(normalizedRaw);
   if (structured !== null) {
     const visibleContent = sanitizeAuthorFacingConversationText(renderStructuredReply(structured, false));
     const fullContent = sanitizeAuthorFacingConversationText(renderStructuredReply(structured, true));
@@ -66,21 +70,73 @@ export function prepareEffectiveOutput(raw: string): EffectiveOutputResult {
       visibleContent,
       fullContent,
       filtered: normalizeText(raw) !== visibleContent || fullContent !== visibleContent,
-      format: 'structured'
+      format: 'structured',
+      rejectedMachinePayload: false
     };
   }
 
   const cleaned = removeOnlyCertainNoise(normalizedRaw);
   const fallbackContent = cleaned.length > 0 ? cleaned : normalizedRaw;
-  const visibleContent = looksLikeMachinePayload(fallbackContent)
+  const rejectedMachinePayload = looksLikeMachinePayload(fallbackContent);
+  const visibleContent = rejectedMachinePayload
     ? '这次回复的格式不适合直接展示，我已经把内部杂乱内容拦下了。请继续追问，我会重新整理成清楚的结论。'
     : sanitizeAuthorFacingConversationText(fallbackContent);
   return {
     visibleContent,
     fullContent: sanitizeAuthorFacingConversationText(normalizedRaw),
     filtered: visibleContent !== normalizedRaw,
-    format: 'fallback'
+    format: 'fallback',
+    rejectedMachinePayload
   };
+}
+
+function parseMalformedStructuredReply(raw: string): StructuredEffectiveReply | null {
+  const value = unwrapJsonFence(raw).trim();
+  if (!value.startsWith('{')) return null;
+
+  // 部分模型会在 answer 的中文强调语中写入未转义的半角双引号，导致整份 JSON 无法解析。
+  // 这里只在后续合同字段边界完整存在时抢救 answer，绝不把任意机器载荷原样展示给作者。
+  const match = value.match(/"answer"\s*:\s*"([\s\S]*?)"\s*,\s*"(?:keyPoints|alternatives|risks|questions|nextStep|details)"\s*:/u);
+  const rawAnswer = match?.[1]?.trim();
+  if (rawAnswer === undefined || rawAnswer.length === 0) return null;
+  const answer = normalizeRecoveredAnswer(rawAnswer);
+  if (answer.length === 0) return null;
+
+  const keyPoints = completedStringList(value, 'keyPoints');
+  const alternatives = completedAlternativeList(value, 'alternatives');
+  const risks = completedStringList(value, 'risks');
+  const questions = completedStringList(value, 'questions');
+  const nextStep = optionalString(extractCompleteJsonProperty(value, 'nextStep'));
+  return {
+    answer,
+    keyPoints: keyPoints ?? [],
+    alternatives: alternatives ?? [],
+    risks: risks ?? [],
+    questions: (questions ?? []).slice(0, 1),
+    nextStep: nextStep === undefined ? null : nextStep,
+    details: null
+  };
+}
+
+function normalizeRecoveredAnswer(value: string): string {
+  const escapedQuote = '\u0000';
+  const escapedSlash = '\u0001';
+  let text = value
+    .replace(/\\\\/gu, escapedSlash)
+    .replace(/\\"/gu, escapedQuote)
+    .replace(/\\n/gu, '\n')
+    .replace(/\\r/gu, '')
+    .replace(/\\t/gu, ' ');
+  let opening = true;
+  text = text.replace(/"/gu, () => {
+    const quote = opening ? '“' : '”';
+    opening = !opening;
+    return quote;
+  });
+  return text
+    .replaceAll(escapedQuote, '"')
+    .replaceAll(escapedSlash, '\\')
+    .trim();
 }
 
 function parseTruncatedStructuredReply(raw: string): StructuredEffectiveReply | null {
@@ -100,7 +156,7 @@ function parseTruncatedStructuredReply(raw: string): StructuredEffectiveReply | 
     keyPoints: keyPoints ?? [],
     alternatives: alternatives ?? [],
     risks: risks ?? [],
-    questions: questions ?? [],
+    questions: (questions ?? []).slice(0, 1),
     nextStep: nextStep === undefined ? null : nextStep,
     details: details === undefined ? null : details
   };
@@ -232,11 +288,11 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
     if (answer === null) continue;
     const keyPoints = stringList(fields.keyPoints, MAX_LIST_ITEMS);
     const risks = stringList(fields.risks, MAX_LIST_ITEMS);
-    const questions = stringList(fields.questions, MAX_LIST_ITEMS);
+    const parsedQuestions = stringList(fields.questions, MAX_LIST_ITEMS);
     const alternatives = alternativeList(fields.alternatives);
     const nextStep = optionalString(fields.nextStep);
     const details = optionalDetails(fields.details);
-    if ([keyPoints, risks, questions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
+    if ([keyPoints, risks, parsedQuestions, alternatives].some((item) => item === null) || nextStep === undefined || details === undefined) {
       continue;
     }
     return {
@@ -244,7 +300,7 @@ function parseStructuredReply(raw: string): StructuredEffectiveReply | null {
       keyPoints: keyPoints!,
       alternatives: alternatives!,
       risks: risks!,
-      questions: questions!,
+      questions: parsedQuestions!.slice(0, 1),
       nextStep,
       details
     };

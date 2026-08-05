@@ -71,7 +71,8 @@ export function parseEditorReviewSynthesis(raw: string, expected: {
   panelId: string; manuscriptVersionId: string; issueCount: number;
 }, options: { normalizeRepairedShape?: boolean; normalizeMalformedJsonStrings?: boolean } = {}): EditorReviewSynthesis {
   const value = parseJsonObject(raw, options.normalizeMalformedJsonStrings === true);
-  if (value.panelId !== expected.panelId || value.manuscriptVersionId !== expected.manuscriptVersionId) {
+  if (options.normalizeRepairedShape !== true
+    && (value.panelId !== expected.panelId || value.manuscriptVersionId !== expected.manuscriptVersionId)) {
     throw new Error('主编综合结果与冻结点评轮次不一致');
   }
   if (!['pass', 'rewrite', 'blocked'].includes(String(value.recommendedVerdict))) throw new Error('主编综合recommendedVerdict无效');
@@ -135,23 +136,56 @@ export function parseProductionReview(
     normalizeIssueLocations?: boolean;
     normalizeRepairedSeverity?: boolean;
     normalizeIssueFieldAliases?: boolean;
+    normalizeFrozenBindings?: boolean;
+    normalizeProvisionalDraftBlockers?: boolean;
+    normalizeFactOmissionMajor?: boolean;
   } = {}
 ): ProductionReview {
   const value = parseJsonObject(raw, options.normalizeMalformedJsonStrings === true);
   for (const [field, expectedValue] of Object.entries(expected)) {
-    if (value[field] !== expectedValue) throw new Error(`点评结果${field}与冻结任务不一致`);
+    if (value[field] !== expectedValue && options.normalizeFrozenBindings !== true) {
+      throw new Error(`点评结果${field}与冻结任务不一致`);
+    }
   }
   let verdict = normalizeVerdict(value.verdict, options.normalizeRepairedVerdict === true);
   if (typeof value.summary !== 'string' || value.summary.trim().length === 0) throw new Error('点评结果summary缺失');
   if (!Array.isArray(value.issues)) throw new Error('点评结果issues必须是数组');
   if (value.issues.length > 8) throw new Error('单席点评问题超过8条上限，只保留影响最大的可执行问题');
-  const issues = value.issues.map((issue) => parseIssue(
+  const parsedIssues = value.issues.map((issue) => parseIssue(
     issue,
     options.normalizeLocalBlockers === true,
     options.normalizeIssueLocations === true,
     options.normalizeRepairedSeverity === true,
     options.normalizeIssueFieldAliases === true
   ));
+  const provisionalIssues = parsedIssues.map((issue) => expected.reviewerRole === 'fact'
+    && options.normalizeProvisionalDraftBlockers === true
+    && isProvisionalDraftConflict(issue)
+    ? { ...issue, severity: 'major' as const }
+    : issue);
+  let promotedObjectiveContradiction = false;
+  const objectiveCheckedIssues = provisionalIssues.map((issue) => {
+    if (expected.reviewerRole !== 'fact' || !isExplicitObjectiveContradiction(issue)) return issue;
+    promotedObjectiveContradiction = true;
+    return { ...issue, severity: 'major' as const };
+  });
+  const unsupportedFactOmissionMajor = expected.reviewerRole === 'fact'
+    ? objectiveCheckedIssues.find(isUnsupportedFactOmissionMajor)
+    : undefined;
+  if (unsupportedFactOmissionMajor !== undefined && options.normalizeFactOmissionMajor !== true) {
+    throw new Error('事实席不能把未重复前文细节判为major；只有正文矛盾、因果断裂或章纲硬要求缺失才可阻断');
+  }
+  const issues = objectiveCheckedIssues.map((issue) => expected.reviewerRole === 'fact'
+    && options.normalizeFactOmissionMajor === true
+    && isUnsupportedFactOmissionMajor(issue)
+    ? { ...issue, severity: 'minor' as const }
+    : issue);
+  if (promotedObjectiveContradiction && verdict === 'pass') verdict = 'rewrite';
+  if (options.normalizeRepairedVerdict === true
+    && verdict === 'rewrite'
+    && issues.every((issue) => issue.severity === 'minor' || issue.severity === 'observation')) {
+    verdict = 'pass';
+  }
   if (verdict === 'pass' && issues.some((issue) => issue.severity === 'major' || issue.severity === 'blocker')) {
     if (options.normalizeRepairedVerdict === true) verdict = 'rewrite';
     else throw new Error('pass结论不能包含major或blocker问题');
@@ -189,6 +223,37 @@ export function parseProductionReview(
     base.sexualContentRisk = parseRisk(value.sexualContentRisk, 'sexualContentRisk', options.normalizeRiskArrays === true);
   }
   return base;
+}
+
+function isExplicitObjectiveContradiction(issue: ProductionReviewIssue): boolean {
+  if (issue.severity !== 'minor' && issue.severity !== 'observation') return false;
+  const finding = `${issue.location}\n${issue.issueType}\n${issue.evidence}`;
+  const comparesCurrentWithAuthority = /(?:本章|当前正文|current_manuscript)/iu.test(finding)
+    && /(?:前章|上一章|已定稿|定稿|正史|已确认)/u.test(finding);
+  const statesConflict = /(?:矛盾|冲突|漂移|不一致|混淆|错置|误作|误认)/u.test(finding);
+  const objectiveDimension = /(?:编号|账号|日期|时间|颜色|材质|数量|尺寸|长度|宽度|高度|位置|地点|身份|生死|存活|死亡|已经完成|已完成|已发生)/u.test(finding);
+  const hasRepair = /(?:修正|修订|改为|统一|更正|替换|区分|恢复)/u.test(issue.requiredAction);
+  return comparesCurrentWithAuthority && statesConflict && objectiveDimension && hasRepair;
+}
+
+function isUnsupportedFactOmissionMajor(issue: ProductionReviewIssue): boolean {
+  if (issue.severity !== 'major') return false;
+  const finding = `${issue.issueType}\n${issue.evidence}`;
+  const isRepetitionOmission = /(?:遗漏|未提及|未重述|没有再次|完全未提|缺少复述)/u.test(finding);
+  const isLocalAddition = /(?:插入|补入|补充|增加|添加).{0,12}(?:一|1|两|2)(?:句|处|个细节)|(?:插入|补入|补充|增加|添加)(?:一句|一处)/u.test(issue.requiredAction);
+  const provesContradiction = /(?:直接|明确|相互|前后).{0,8}(?:矛盾|冲突|互斥)|(?:矛盾|冲突|互斥).{0,8}(?:直接|明确|相互|前后)/u.test(finding);
+  const missesMandatoryBeat = /(?:章纲|写作工单|硬约束|required(?:Beat|Ending|Action)|必须出现|强制信息)/iu.test(finding);
+  return isRepetitionOmission && isLocalAddition && !provesContradiction && !missesMandatoryBeat;
+}
+
+function isProvisionalDraftConflict(issue: ProductionReviewIssue): boolean {
+  if (issue.severity !== 'blocker') return false;
+  const evidence = `${issue.location}\n${issue.issueType}\n${issue.evidence}`;
+  const action = issue.requiredAction;
+  const comparesDraftWithAuthority = /(?:本章|当前正文|current_manuscript)/u.test(evidence)
+    && /(?:前章|定稿|正史|章纲|已确认|已固定)/u.test(evidence);
+  const canRepairCurrentDraft = /(?:修正|修订|改写|恢复|统一|删除|替换|补充).{0,20}(?:本章|当前正文|描写|钩子|位数|时间线)|(?:本章|当前正文).{0,20}(?:修正|修订|改写|恢复|统一|删除|替换|补充)/u.test(action);
+  return comparesDraftWithAuthority && canRepairCurrentDraft;
 }
 
 /**

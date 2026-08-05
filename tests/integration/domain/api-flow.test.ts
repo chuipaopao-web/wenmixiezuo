@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer } from '../../../apps/api/src/http/server.js';
 import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
+import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -149,6 +150,19 @@ describe('建书REST流程', () => {
       expect(messages.json().data).toEqual([]);
       const workspace = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/workspace` });
       expect(workspace.json().data.messageCount).toBe(0);
+      const entryBeforeReply = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/conversation-entry`, payload: {}
+      });
+      expect(entryBeforeReply.statusCode).toBe(200);
+      expect(entryBeforeReply.json().data).toMatchObject({
+        kind: 'guidance_in_progress',
+        taskId: created.kickoffTaskId,
+        settingItemKey: 'creative-concept'
+      });
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+        WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+          AND json_extract(task_brief_json, '$.purpose') = 'setting_proposal_panel'`)
+        .get(context.config.ownerId, created.bookId) as { count: number }).count).toBe(1);
       const clock = new FixedClock();
       const claimed = new TaskService(context.database, context.config.releaseId, clock).claimNext('worker-onboarding');
       expect(claimed?.taskId).toBe(created.kickoffTaskId);
@@ -160,20 +174,28 @@ describe('建书REST流程', () => {
           return {
             provider, modelId,
             output: JSON.stringify({
-              answer: '开书资料已经建立，第一阶段目标清楚。',
-              keyPoints: ['已知：主角、开篇地点和阶段终点已明确', '待讨论：宣战规则的具体代价'],
-              alternatives: [], risks: [], questions: ['张三最不能失去的东西是什么？'],
-              nextStep: '先围绕这项代价讨论第一段剧情。', details: '不启动正文。'
+              answer: '推荐把这本书写成：张三在城邦冲突中用有代价的选择守住人的尊严与共同体。',
+              keyPoints: ['重点是选择与代价，不是宣战流程本身。'],
+              alternatives: [], risks: [], questions: ['是否按这个确定？'],
+              nextStep: '回复“确认”，或直接说要修改哪一点。', details: null,
+              workflowArtifact: {
+                type: 'setting_outline',
+                payload: { items: [{
+                  itemKey: 'creative-concept',
+                  content: '通过张三在城邦冲突中的有代价选择，探讨个人尊严与共同体责任，让读者获得热血推进中的道德张力。'
+                }] }
+              }
             }), inputTokens: 120, outputTokens: 80, cashCostCny: 0, state: 'succeeded' as const
           };
         }
       }) } as unknown as ModelAdapterFactory;
-      await new ConversationReplyPipelineService(
+      await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, created.kickoffTaskId, 'worker-onboarding');
-      expect(capturedPrompt).toContain('这是建书后的主动开场');
-      expect(capturedPrompt).toContain('合计不超过600个中文字符');
-      expect(capturedPrompt).toContain('不得启动主笔或生成小说正文');
+      expect(capturedPrompt).toContain('策划理念');
+      expect(capturedPrompt).toContain('互相看不到答案');
+      expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的方案');
+      expect(capturedPrompt).toContain('不要展开具体剧情');
       expect(capturedPrompt).toContain('张三');
       expect(capturedPrompt).toContain('天安城');
       expect(capturedPrompt).toContain(openingBlueprint.storyDirection);
@@ -181,12 +203,32 @@ describe('建书REST流程', () => {
       const sourceManifest = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
         .get(created.kickoffTaskId) as { source_manifest_json: string };
       expect(JSON.parse(sourceManifest.source_manifest_json)).toEqual(expect.arrayContaining([
-        expect.objectContaining({ sourceType: 'opening_blueprint', hard: true })
+        expect.objectContaining({ sourceType: 'boss_discussion_scope', hard: true })
       ]));
       const proactiveMessages = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/messages` });
-      expect(proactiveMessages.json().data).toEqual([
-        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'conversation_reply' })
-      ]);
+      expect(proactiveMessages.json().data).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'setting_proposal' }),
+        expect.objectContaining({ sender_type: 'agent', role_key: 'lead_screenwriter', message_type: 'setting_proposal' }),
+        expect.objectContaining({ sender_type: 'agent', role_key: 'second_screenwriter', message_type: 'setting_proposal' })
+      ]));
+      expect(proactiveMessages.json().data).toHaveLength(3);
+      expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
+        WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`)
+        .get(context.config.ownerId, created.bookId)).toMatchObject({
+        item_status: '讨论中',
+        content_text: null
+      });
+      const entryAfterReply = await app.inject({
+        method: 'POST', url: `/api/v1/books/${created.bookId}/conversation-entry`, payload: {}
+      });
+      expect(entryAfterReply.json().data).toMatchObject({
+        kind: 'guidance_available',
+        settingItemKey: 'creative-concept'
+      });
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+        WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+          AND json_extract(task_brief_json, '$.purpose') = 'setting_proposal_panel'`)
+        .get(context.config.ownerId, created.bookId) as { count: number }).count).toBe(1);
     } finally {
       await app.close();
     }
@@ -224,13 +266,16 @@ describe('建书REST流程', () => {
           }), inputTokens: 80, outputTokens: 40, cashCostCny: 0, state: 'succeeded' as const
         })
       }) } as unknown as ModelAdapterFactory;
-      await new ConversationReplyPipelineService(
+      await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: book.bookId }, book.kickoffTaskId, 'worker-legacy-onboarding');
       const messages = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/messages` });
-      expect(messages.json().data).toEqual([
-        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'conversation_reply' })
-      ]);
+      expect(messages.json().data).toEqual(expect.arrayContaining([
+        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'setting_proposal' }),
+        expect.objectContaining({ sender_type: 'agent', role_key: 'lead_screenwriter', message_type: 'setting_proposal' }),
+        expect.objectContaining({ sender_type: 'agent', role_key: 'second_screenwriter', message_type: 'setting_proposal' })
+      ]));
+      expect(messages.json().data).toHaveLength(3);
     } finally {
       await app.close();
     }

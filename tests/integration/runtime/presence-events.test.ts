@@ -9,7 +9,7 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('真实Presence与SSE回放源', () => {
-  it('状态由任务和心跳驱动，过期后显示离线', () => {
+  it('状态由任务和心跳驱动，任务心跳过期只标记受阻而不把成员判为离线', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new MutableClock();
@@ -22,7 +22,10 @@ describe('真实Presence与SSE回放源', () => {
     const presence = new PresenceService(context.database, clock);
     expect(presence.list(scope).find((item) => item.agentId === agents[0]!.agentId)?.status).toBe('读取资料');
     clock.advance(16_000);
-    expect(presence.list(scope).find((item) => item.agentId === agents[0]!.agentId)?.status).toBe('离线');
+    expect(presence.list(scope).find((item) => item.agentId === agents[0]!.agentId)).toMatchObject({
+      status: '受阻',
+      availability: 'available'
+    });
   });
 
   it('事件按持久递增序号回放并按书隔离', () => {
@@ -119,4 +122,3 @@ describe('真实Presence与SSE回放源', () => {
     expect(rowsB).toHaveLength(agentsB.length);
   });
 });
-

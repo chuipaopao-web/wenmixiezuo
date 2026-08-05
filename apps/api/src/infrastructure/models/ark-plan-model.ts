@@ -13,7 +13,8 @@ export interface ArkPlanModelOptions {
 }
 
 interface ArkMessagesResponse {
-  content?: Array<{ type?: string; text?: string }>;
+  content?: Array<{ type?: string; text?: string; thinking?: string }>;
+  stop_reason?: string;
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
@@ -110,7 +111,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
-      '火山方舟套餐已执行但没有可提交文字，供应商结果状态未知',
+      `火山方舟套餐已执行但没有可提交文字，供应商结果状态未知（${describeEmptyResponse(body)}）`,
       'technical_failure', false, response.status, true
     );
     return {
@@ -125,6 +126,22 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   }
 }
 
+function describeEmptyResponse(body: ArkMessagesResponse): string {
+  const blocks = Array.isArray(body.content) ? body.content : [];
+  const types = [...new Set(blocks.map((item) => item.type).filter((value): value is string => typeof value === 'string'))];
+  const thinkingCharacters = blocks.reduce(
+    (total, item) => total + (typeof item.thinking === 'string' ? item.thinking.length : 0),
+    0
+  );
+  return [
+    `停止原因=${typeof body.stop_reason === 'string' ? body.stop_reason : '未知'}`,
+    `内容块=${blocks.length}`,
+    `类型=${types.length > 0 ? types.join(',') : '无'}`,
+    `思考字符=${thinkingCharacters}`,
+    `输出Token=${finiteTokenCount(body.usage?.output_tokens)}`
+  ].join('，');
+}
+
 function appendSupplement(systemPrompt: string, supplement: string | undefined): string {
   if (supplement === undefined || supplement.trim().length === 0) return systemPrompt;
   return [
@@ -136,6 +153,9 @@ function appendSupplement(systemPrompt: string, supplement: string | undefined):
 }
 
 function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean {
+  // Kimi K2.7 Code rejects the optional Anthropic-compatible `thinking` field
+  // on the Agent Plan endpoint. Keep this capability model-specific.
+  if (modelId === 'kimi-k2.7-code') return false;
   if (modelId.startsWith('glm-') || modelId.startsWith('kimi-')) return true;
   // DeepSeek's hidden reasoning can consume the complete review allowance before
   // the bounded JSON report is closed.  Disable it only for deterministic review

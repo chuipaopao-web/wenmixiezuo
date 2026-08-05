@@ -39,6 +39,7 @@ export class ModelBindingService {
   public bindAllBooks(options: {
     preserveActiveRevision?: boolean;
     migrateDeputyEditorToAgentPlan?: boolean;
+    migrateAllMembersToAgentPlan?: boolean;
   } = {}): ModelBindingResult {
     const v2Books = this.database.prepare(`
       SELECT DISTINCT a.owner_id, a.book_id
@@ -47,6 +48,10 @@ export class ModelBindingService {
       ORDER BY a.owner_id, a.book_id
     `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
     const creativeProfiles = toCreativeProfiles(this.roleProfiles);
+    const agentPlanPolicyActive = creativeRoleKeys.every((role) =>
+      creativeProfiles[role].provider === 'volcengine-ark-agent-plan'
+      && creativeProfiles[role].plan === 'agent'
+    );
     let updatedV2Agents = 0;
     let supersededV2WriterSelections = 0;
     for (const book of v2Books) {
@@ -64,8 +69,13 @@ export class ModelBindingService {
         && currentDeputy !== undefined
         && (currentDeputy.provider !== creativeProfiles.deputy_editor.provider
           || currentDeputy.modelId !== creativeProfiles.deputy_editor.modelId);
-      if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToAgentPlan) continue;
-      const targetProfiles = migrateDeputyEditorToAgentPlan
+      const migrateAllMembersToAgentPlan = options.migrateAllMembersToAgentPlan === true
+        && hasActiveRevision
+        && agentPlanPolicyActive;
+      if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToAgentPlan && !migrateAllMembersToAgentPlan) continue;
+      const targetProfiles = migrateAllMembersToAgentPlan
+        ? creativeProfiles
+        : migrateDeputyEditorToAgentPlan
         ? preserveCurrentProfilesWithDeputyMigration(current, creativeProfiles.deputy_editor)
         : creativeProfiles;
       const requiresRevision = creativeRoleKeys.some((role) => {
@@ -82,7 +92,9 @@ export class ModelBindingService {
           .reviseFuture(
             scope,
             targetProfiles,
-            migrateDeputyEditorToAgentPlan
+            migrateAllMembersToAgentPlan
+              ? 'DEC-099：十一名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务'
+              : migrateDeputyEditorToAgentPlan
               ? 'DEC-076：副编调整为火山方舟 Agent Plan GLM 5.2；只影响未来任务'
               : '运行时模型策略更新；只影响未来任务'
           );
@@ -174,9 +186,9 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     deputy_editor: profile('deputy_editor', profiles.continuity),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
-    setting: profile('setting', profiles.continuity),
+    setting: profile('setting', profiles.style_editor),
     lead_writer: profile('lead_writer', profiles.writer),
-    backup_writer: profile('backup_writer', profiles.continuity),
+    backup_writer: profile('backup_writer', profiles.chief_editor),
     literary_reviewer: profile('literary_reviewer', profiles.reviewer),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
     researcher: profile('researcher', profiles.researcher),
@@ -203,7 +215,7 @@ function preserveCurrentProfilesWithDeputyMigration(
 function legacyProfileRole(roleKey: string): RoleKey {
   const aliases: Record<string, RoleKey> = {
     chief_editor: 'chief_editor', deputy_editor: 'continuity', lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'continuity', setting: 'continuity', lead_writer: 'writer', backup_writer: 'continuity',
+    second_screenwriter: 'continuity', setting: 'style_editor', lead_writer: 'writer', backup_writer: 'chief_editor',
     literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright',
     plot_architect: 'plot_architect', continuity: 'continuity', writer: 'writer', reviewer: 'reviewer',
     reader_experience: 'reader_experience', style_editor: 'style_editor'

@@ -8,13 +8,13 @@ export function compileChapterOutlineForWriter(
   maximumCharacters = 1_350
 ): string {
   const outline = parseChapterOutlineV2(content);
-  const hardSections = compileHardSections(outline);
+  const hardSections = compileEssentialSections(outline);
   const hardText = hardSections.join('\n');
   if (hardText.length > maximumCharacters) {
     throw new Error(`章纲硬信息超过${maximumCharacters}字，不能静默截断；请由主编收缩重复信息`);
   }
   const selected = [...hardSections];
-  for (const optional of compileOptionalSections(outline)) {
+  for (const optional of compileEnhancementSections(outline)) {
     if (optional.length === 0) continue;
     const candidate = [...selected, optional].join('\n');
     if (candidate.length <= maximumCharacters) selected.push(optional);
@@ -22,35 +22,31 @@ export function compileChapterOutlineForWriter(
   return selected.join('\n');
 }
 
-function compileHardSections(outline: ChapterOutlineV2): string[] {
+function compileEssentialSections(outline: ChapterOutlineV2): string[] {
   const stage = outline.sourceStage;
   const cast = outline.cast.map((member) => {
-    const change = member.stateChange === undefined ? '' : `；变化：${member.stateChange}`;
-    return `- ${member.name}：目标：${member.objective}；知情边界：${member.knowledgeBoundary}；本章作用：${member.chapterRole}${change}`;
+    return `- ${member.name}：目标${member.objective}；知情边界${member.knowledgeBoundary}`;
   }).join('\n');
   const conflictDetails = [
     `表层：${outline.conflict.surface}`,
-    outline.conflict.underlying === undefined ? '' : `深层：${outline.conflict.underlying}`,
-    outline.conflict.oppositionGoal === undefined ? '' : `对手目标：${outline.conflict.oppositionGoal}`,
     `失败代价：${outline.conflict.failureCost}`,
     outline.conflict.successCost === undefined ? '' : `成功代价：${outline.conflict.successCost}`
   ].filter(Boolean).join('；');
   const beats = outline.plotBeats.map((beat) => {
-    const details = [
-      `触发：${beat.trigger}`,
-      `行动：${beat.action}`,
-      beat.resistance === undefined ? '' : `阻力：${beat.resistance}`,
-      beat.turn === undefined ? '' : `转折：${beat.turn}`,
-      `结果：${beat.result}`
-    ].filter(Boolean).join('；');
-    return `${beat.order}. ${details}`;
+    return `${beat.order}. 行动：${beat.action}；结果：${beat.result}`;
   }).join('\n');
   const ending = [
-    `结果：${outline.ending.result}`,
-    outline.ending.stateChanges.length === 0 ? '' : `状态变化：${outline.ending.stateChanges.join('；')}`,
     `钩子：${outline.ending.hook}`,
     `下一章接口：${outline.ending.nextChapterInterface}`
   ].filter(Boolean).join('；');
+  const stageBoundary = outline.stageBoundary === undefined ? '' : [
+    '阶段终章硬要求：必须在本章完成当前阶段主事件',
+    `解决方式：${outline.stageBoundary.resolution}`,
+    `阶段结果：${outline.stageBoundary.result}`,
+    outline.stageBoundary.pendingThreads.length === 0
+      ? '阶段结算后不保留未决线索'
+      : `仅可保留：${outline.stageBoundary.pendingThreads.join('；')}`
+  ].join('；');
   return [
     `第${outline.chapterNumber}章《${outline.title}》`,
     `对应总纲：第${stage.stageNumber}阶段《${stage.title}》（第${stage.chapterRange.start}—${stage.chapterRange.end}章）`,
@@ -61,13 +57,31 @@ function compileHardSections(outline: ChapterOutlineV2): string[] {
     `核心冲突：${conflictDetails}`,
     `剧情推进：\n${beats}`,
     `章末闭环：${ending}`,
+    stageBoundary,
     `必须实现：${outline.mustImplement.join('；')}`,
-    `不得违反：${outline.mustNotViolate.join('；')}`,
-    `自由创作区：${outline.creativeFreedom.join('；')}`
+    `不得违反：${outline.mustNotViolate.join('；')}`
   ];
 }
 
-function compileOptionalSections(outline: ChapterOutlineV2): string[] {
+function compileEnhancementSections(outline: ChapterOutlineV2): string[] {
+  const castEnhancements = outline.cast.flatMap((member) => {
+    const items = [`${member.name}本章作用：${member.chapterRole}`];
+    if (member.stateChange !== undefined) items.push(`${member.name}状态变化：${member.stateChange}`);
+    return items;
+  });
+  const conflictEnhancements = [
+    outline.conflict.underlying === undefined ? '' : `深层冲突：${outline.conflict.underlying}`,
+    outline.conflict.oppositionGoal === undefined ? '' : `对手目标：${outline.conflict.oppositionGoal}`
+  ];
+  const beatEnhancements = outline.plotBeats.flatMap((beat) => [
+    `节点${beat.order}触发：${beat.trigger}`,
+    beat.resistance === undefined ? '' : `节点${beat.order}阻力：${beat.resistance}`,
+    beat.turn === undefined ? '' : `节点${beat.order}转折：${beat.turn}`
+  ]);
+  const endingEnhancements = [
+    `章末结果补充：${outline.ending.result}`,
+    outline.ending.stateChanges.length === 0 ? '' : `章末状态变化：${outline.ending.stateChanges.join('；')}`
+  ];
   const experience = outline.experience;
   const experienceText = experience === undefined ? '' : [
     experience.primaryTone === undefined ? '' : `主情绪：${experience.primaryTone}`,
@@ -93,11 +107,16 @@ function compileOptionalSections(outline: ChapterOutlineV2): string[] {
     .join('；');
   const candidates = outline.allowedCandidates.length === 0 ? '' : `允许新增候选：${outline.allowedCandidates.join('；')}`;
   return [
+    ...castEnhancements,
+    ...conflictEnhancements,
+    ...beatEnhancements,
+    ...endingEnhancements,
     experienceText.length === 0 ? '' : `体验提示（软）：${experienceText}`,
     focusText.length === 0 ? '' : `描写重点（软）：${focusText}`,
     informationText.length === 0 ? '' : `信息控制（软）：${informationText}`,
     threadText.length === 0 ? '' : `伏笔动作（软）：${threadText}`,
-    candidates
+    candidates,
+    outline.creativeFreedom.length === 0 ? '' : `自由创作区（软）：${outline.creativeFreedom.join('；')}`
   ];
 }
 

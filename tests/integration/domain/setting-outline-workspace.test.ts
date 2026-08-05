@@ -4,16 +4,122 @@ import {
   SettingOutlineWorkspaceService
 } from '../../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
 import { SettingBaselineService } from '../../../apps/api/src/application/knowledge/setting-baseline-service.js';
+import { resolveSettingOutlineProfile } from '../../../apps/api/src/application/knowledge/setting-outline-profile.js';
 import { ArtifactService } from '../../../apps/api/src/application/artifacts/artifact-service.js';
 import { PositioningService } from '../../../apps/api/src/application/books/positioning-service.js';
 import { BookOnboardingService } from '../../../apps/api/src/application/books/book-onboarding-service.js';
-import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+
+function blueprint(overrides: Partial<OpeningBlueprintInput>): OpeningBlueprintInput {
+  return {
+    taxonomyVersion: OPENING_TAXONOMY.version,
+    channel: 'female',
+    categoryKey: 'female-modern-brain',
+    targetAudience: '',
+    protagonists: [{
+      role: 'female_lead', name: '林夏', age: '二十六岁', background: '都市医生。', personalities: ['理性']
+    }],
+    storyDirection: '林夏在一次医疗纠纷中重逢旧友，两人必须在职业压力与误解中重新建立信任。',
+    worldBackground: '',
+    openingBackground: '',
+    stageOne: { start: '', development: '', end: '' },
+    fullBookOutline: '',
+    mainTags: ['都市', '言情'],
+    auxiliaryTags: ['职场'],
+    storyTraits: ['情感细腻'],
+    customTags: [],
+    initialMap: '',
+    mustFollow: ['不写多角恋'],
+    ...overrides
+  };
+}
 
 describe('设定大纲工作状态', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
+
+  it('都市言情只激活关系和现实生活设定，不要求游戏或力量机制', () => {
+    const profile = resolveSettingOutlineProfile(blueprint({}));
+
+    expect(profile.profileKey).toContain('romance');
+    expect(profile.profileKey).toContain('urban');
+    expect(profile.required).toEqual(expect.arrayContaining([
+      'creative-concept', 'era', 'protagonist', 'relationship-premise', 'relationship-obstacle'
+    ]));
+    expect(profile.required).not.toEqual(expect.arrayContaining([
+      'power-source', 'levels', 'production', 'army', 'game-panel', 'ranking'
+    ]));
+    expect(profile.recommended).toEqual(expect.arrayContaining([
+      'relationship-growth', 'emotional-boundaries', 'life-circle'
+    ]));
+  });
+
+  it('商业经营和梗概中的普通经营词不会误激活领主领地模板', () => {
+    const profile = resolveSettingOutlineProfile(blueprint({
+      categoryKey: 'female-modern-brain',
+      mainTags: ['情感', '经营', '推理'],
+      auxiliaryTags: ['现代言情', '商业经营', '悬疑恋爱'],
+      storyDirection: '女主经营一家诊所，并调查一宗旧案，在现实压力下重新建立信任。'
+    }));
+
+    expect(profile.profileKey).toContain('business');
+    expect(profile.profileKey).toContain('mystery');
+    expect(profile.profileKey).not.toContain('lord');
+    expect(profile.required).not.toEqual(expect.arrayContaining(['territory', 'population', 'yield']));
+    expect(profile.recommended).toEqual(expect.arrayContaining(['production', 'currency']));
+  });
+
+  it('故事方向里的孤立类型词不会绕过作者分类和题材选择', () => {
+    const profile = resolveSettingOutlineProfile(blueprint({
+      mainTags: ['都市', '言情'],
+      auxiliaryTags: ['现代言情'],
+      storyDirection: '人物随口谈到游戏、领地、修仙和星际电影，但本书仍是现代关系故事。'
+    }));
+
+    expect(profile.profileKey).toBe('romance+urban');
+    expect(profile.required).not.toEqual(expect.arrayContaining([
+      'game-panel', 'territory', 'power-source', 'technology-boundary'
+    ]));
+  });
+
+  it('融合题材合并类型依赖，只有历史脑洞才把偏离点列为必须', () => {
+    const profile = resolveSettingOutlineProfile(blueprint({
+      channel: 'male',
+      categoryKey: 'male-game-sports',
+      mainTags: ['游戏', '竞技'],
+      auxiliaryTags: ['游戏异界', '历史脑洞'],
+      storyDirection: '主角进入历史游戏世界，以竞技战队身份影响既有历史。'
+    }));
+
+    expect(profile.profileKey).toContain('game');
+    expect(profile.profileKey).toContain('history');
+    expect(profile.required).toEqual(expect.arrayContaining([
+      'game-entry', 'game-panel', 'history-baseline', 'divergence'
+    ]));
+    expect(profile.required).not.toContain('politics-military');
+    expect(profile.recommended).toContain('politics-military');
+  });
+
+  it.each([
+    ['玄幻修真', 'male-fantasy-brain', ['玄幻'], '少年发现灵脉复苏并踏上修炼之路。', ['power-source', 'levels', 'costs'], ['game-panel', 'territory']],
+    ['领主经营', 'male-urban-farming', ['领主', '基建'], '主角经营边境领地，在资源约束下建设城镇。', ['territory', 'population', 'yield'], ['game-panel', 'case-rules']],
+    ['悬疑调查', 'male-suspense-brain', ['悬疑', '推理'], '刑警调查一宗密室案件并逐层验证证据。', ['case-rules', 'evidence-chain', 'truth-layers'], ['levels', 'territory']],
+    ['科幻未来', 'male-scifi-apocalypse', ['科幻', '末世'], '幸存者依靠受限能源科技穿越灾变后的城市。', ['technology-boundary', 'science-cost'], ['relationship-premise', 'army']]
+  ] as const)('%s分类只启用自己的关键设定', (_label, categoryKey, mainTags, storyDirection, required, excluded) => {
+    const profile = resolveSettingOutlineProfile(blueprint({
+      channel: 'male',
+      categoryKey,
+      mainTags: [...mainTags],
+      auxiliaryTags: [],
+      storyTraits: [],
+      storyDirection
+    }));
+
+    expect(profile.required).toEqual(expect.arrayContaining([...required]));
+    expect(profile.required).not.toEqual(expect.arrayContaining([...excluded]));
+  });
 
   it('拒绝把成员争论和待老板裁定文本伪装成可确认设定', () => {
     expect(parseSettingOutlineDeposit(
@@ -38,6 +144,28 @@ describe('设定大纲工作状态', () => {
       }
     }))).toEqual([
       { itemKey: 'world-entry', content: '玩家通过官方终端进入竞技世界，退出不会丢失已结算收入。' }
+    ]);
+  });
+
+  it('作者可见文案引号未转义时仍只恢复严格校验的设定工作流产物', () => {
+    const malformedEnvelope = '{"answer":"这个设定符合已确认的"公平线索"原则",'
+      + '"workflowArtifact":{"type":"setting_outline","payload":{"items":['
+      + '{"itemKey":"era","content":"故事发生在当代架空沿海城市雾江，现实程序与城市治理规则保持可核验。"}'
+      + ']}}}';
+
+    expect(parseSettingOutlineDeposit(malformedEnvelope)).toEqual([
+      { itemKey: 'era', content: '故事发生在当代架空沿海城市雾江，现实程序与城市治理规则保持可核验。' }
+    ]);
+  });
+
+  it('设定候选内容自身含未转义中文引号时仍恢复严格工作流产物', () => {
+    const malformedArtifact = '{"answer":"候选可确认",'
+      + '"workflowArtifact":{"type":"setting_outline","payload":{"items":['
+      + '{"itemKey":"relationship-premise","content":"两人都重视事实，但对"公开真相的时机"看法不同；吸引力来自能力互补。"}'
+      + ']}}}';
+
+    expect(parseSettingOutlineDeposit(malformedArtifact)).toEqual([
+      { itemKey: 'relationship-premise', content: '两人都重视事实，但对"公开真相的时机"看法不同；吸引力来自能力互补。' }
     ]);
   });
 

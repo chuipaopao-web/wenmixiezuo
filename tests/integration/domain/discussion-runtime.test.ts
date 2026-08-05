@@ -37,6 +37,45 @@ describe('自然语言讨论运行闭环', () => {
     context = undefined;
   });
 
+  it('后台保留设定讨论资料包，但聊天接口只向作者展示自然请求', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '资料包展示隔离测试',
+      text: '都市悬疑设定'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const rawPacket = [
+      '讨论设定 【设定专项讨论资料包】',
+      '书籍：资料包展示隔离测试',
+      '开书资料JSON：{"title":"资料包展示隔离测试","channel":"女频"}',
+      '当前设定项：策划理念',
+      '讨论目标：明确本书为什么值得持续创作'
+    ].join('\n');
+
+    const sent = conversations.sendBossMessage(scope, rawPacket);
+    const stored = context.database.prepare(`
+      SELECT content FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_id = ?
+    `).get(scope.ownerId, scope.bookId, sent.messageId) as { content: string };
+    expect(stored.content).toContain('开书资料JSON');
+
+    const visible = conversations.listMessages(scope) as Array<{
+      message_id: string;
+      sender_type: string;
+      content: string;
+    }>;
+    expect(visible.find((message) => message.message_id === sent.messageId)).toMatchObject({
+      sender_type: 'boss',
+      content: '请讨论设定：策划理念。'
+    });
+    expect(visible.map((message) => message.content).join('\n')).not.toContain('开书资料JSON');
+  });
+
   it('为必须落库的规划结构保留足够输出空间，但不放大普通讨论', () => {
     expect(discussionOutputTokenLimit(
       'deputy_editor', true, 'independent', '【剧情总纲专项讨论资料包】', 'open_discussion'
@@ -49,7 +88,58 @@ describe('自然语言讨论运行闭环', () => {
     )).toBe(3_600);
     expect(discussionOutputTokenLimit(
       'deputy_editor', true, 'independent', '未来三章', 'locked_planning'
-    )).toBe(4_500);
+    )).toBe(6_500);
+  });
+
+  it('retries a purely technical editor failure with the original prompt', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: 'technical retry prompt regression',
+      text: 'a grounded mystery discussion'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const scheduled = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '讨论人物动机与现实取证方向');
+    const taskId = String(scheduled.action.taskId);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const claim = tasks.claimNext('worker-technical-retry')!;
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const editorPrompts: string[] = [];
+    let editorCalls = 0;
+    const retryFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        const base = baseFactory.resolve(provider, modelId, purpose, roleKey);
+        if (purpose !== 'discussion' || roleKey !== 'chief_editor') return base;
+        return {
+          provider,
+          modelId,
+          async generate(request, signal) {
+            editorCalls += 1;
+            editorPrompts.push(request.prompt);
+            if (editorCalls === 1) {
+              throw new ModelAdapterError('transient editor outage', 'technical_failure', true);
+            }
+            return base.generate(request, signal);
+          }
+        };
+      }
+    } as ModelAdapterFactory;
+
+    const completed = await new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock, retryFactory
+    ).executeClaimed(scope, taskId, 'worker-technical-retry', {
+      leaseToken: claim.leaseToken!,
+      attemptNo: claim.currentAttemptNo
+    });
+
+    expect(completed.opinionCount).toBe(5);
+    expect(tasks.require(scope, taskId).status).toBe('succeeded');
+    expect(editorPrompts).toHaveLength(2);
+    expect(editorPrompts[1]).toBe(editorPrompts[0]);
+    expect(editorPrompts[1]).not.toContain('上一版');
   });
 
   it('compacts a locked creative decision before scheduling rolling chapter planning', () => {
@@ -223,16 +313,6 @@ describe('自然语言讨论运行闭环', () => {
               stageSummary: '完成队伍雏形。',
               pendingThreads: ['公证网络来源'],
               followUpDirection: '进入跨区竞争。'
-            },
-            {
-              stageNumber: 2,
-              title: '跨区竞争',
-              chapterRange: { start: 51, end: 150 },
-              mainline: { encounter: '跨区竞争', resolution: '建设据点', result: '形成影响力' },
-              structure: { setup: '入局', development: '经营', turn: '联盟破裂', conclusion: '建立秩序' },
-              stageSummary: '从队伍成长为稳定组织。',
-              pendingThreads: ['公证规则代价'],
-              followUpDirection: '进入文明级竞争。'
             }
           ],
           endingDirection: '建立公平公开的竞技秩序。',
@@ -683,6 +763,53 @@ describe('自然语言讨论运行闭环', () => {
     expect(parseMasterOutlineDepositOutput(recommendation)?.outlineSchema).toBe('stage_master_v2');
   });
 
+  it('设定大纲未确认时显式讨论剧情总纲只交给主编补齐前置设定，不启动双编剧', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '设定未确认门禁书',
+      text: '游戏异界与历史经营'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version, channel,
+        category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
+    `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET stage = 'setting_in_progress', setting_baseline_version_id = NULL
+      WHERE owner_id = ? AND book_id = ?
+    `).run(scope.ownerId, scope.bookId);
+
+    const scheduled = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '讨论 剧情总纲');
+
+    expect(scheduled.action).toMatchObject({
+      kind: 'conversation_reply_scheduled',
+      blockedBy: 'setting_baseline_not_confirmed',
+      missing: ['已确认的设定大纲']
+    });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM discussions WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    const replyTask = context.database.prepare(`
+      SELECT task_brief_json FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'conversation_reply'
+      ORDER BY created_at DESC, task_id DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as { task_brief_json: string };
+    const brief = JSON.parse(replyTask.task_brief_json) as { content: string };
+    expect(brief.content).toContain('设定大纲尚未确认');
+    expect(brief.content).toContain('老板原话：讨论 剧情总纲');
+  });
+
   it('剧情总纲已经确认后仍可显式重新发起新版总纲讨论，而不会误路由到卷纲', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -698,6 +825,7 @@ describe('自然语言讨论运行闭环', () => {
         category_key, category_name, blueprint_json, content_hash, status, created_at
       ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
     `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    prepareBookForWriting(context, scope, ids, clock, 1);
     context.database.prepare(`
       UPDATE book_planning_states
       SET stage = 'master_outline_ready'
@@ -731,6 +859,7 @@ describe('自然语言讨论运行闭环', () => {
         category_key, category_name, blueprint_json, content_hash, status, created_at
       ) VALUES (?, ?, ?, 1, 'test-v1', 'male', 'game', '游戏体育', '{}', ?, 'active', ?)
     `).run(ids.next(), scope.ownerId, scope.bookId, '0'.repeat(64), clock.now().toISOString());
+    prepareBookForWriting(context, scope, ids, clock, 1);
     context.database.prepare(`
       UPDATE book_planning_states
       SET stage = 'master_outline_ready'
@@ -772,6 +901,32 @@ describe('自然语言讨论运行闭环', () => {
       .executeClaimed(scope, planningTaskId, 'worker-rolling-planning');
     expect(context.database.prepare(`SELECT COUNT(DISTINCT model_snapshot_id) AS count FROM plot_span_estimates
       WHERE discussion_id = ? AND independence_attested = 1`).get(planningResult.discussionId)).toEqual({ count: 2 });
+    const validRecommendation = context.database.prepare(`
+      SELECT recommendation_json FROM discussion_decisions
+      WHERE owner_id = ? AND book_id = ? AND decision_id = ?
+    `).get(scope.ownerId, scope.bookId, planningResult.decisionId) as { recommendation_json: string };
+    context.database.prepare(`
+      UPDATE discussion_decisions SET recommendation_json = ?
+      WHERE owner_id = ? AND book_id = ? AND decision_id = ?
+    `).run(
+      JSON.stringify({ summary: '{"workflowArtifact":{"type":"chapter_outline","payload":{"outlineSchema":"chapter_outline_v2","chapters":[' }),
+      scope.ownerId,
+      scope.bookId,
+      planningResult.decisionId
+    );
+    expect(() => conversations.sendBossMessage(scope, '确认当前规划')).toThrow('滚动章纲缺少chapter_outline_v2结构');
+    expect(context.database.prepare(`
+      SELECT boss_confirmed FROM discussion_decisions
+      WHERE owner_id = ? AND book_id = ? AND decision_id = ?
+    `).get(scope.ownerId, scope.bookId, planningResult.decisionId)).toEqual({ boss_confirmed: 0 });
+    expect(context.database.prepare(`
+      SELECT status FROM discussions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?
+    `).get(scope.ownerId, scope.bookId, planningResult.discussionId)).toEqual({ status: 'awaiting_boss' });
+    context.database.prepare(`
+      UPDATE discussion_decisions SET recommendation_json = ?
+      WHERE owner_id = ? AND book_id = ? AND decision_id = ?
+    `).run(validRecommendation.recommendation_json, scope.ownerId, scope.bookId, planningResult.decisionId);
     const confirmed = conversations.sendBossMessage(scope, '确认当前规划');
     expect(confirmed.action).toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
     expect(context.database.prepare(`

@@ -1,6 +1,7 @@
 import { OPENING_TAG_GROUPS, uniqueTagValues, type OpeningTagGroup } from './opening-tag-library.js';
 
 export type OpeningChannel = 'male' | 'female';
+export type BookCreationMode = 'new' | 'continuation';
 export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
 
 export interface OpeningTaxonomyCategory {
@@ -56,6 +57,7 @@ export interface OpeningStyleIntent {
 }
 
 export interface OpeningBlueprintInput {
+  creationMode?: BookCreationMode;
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
@@ -161,7 +163,8 @@ const subjects: OpeningSubjectOption[] = [
   ...subject(['history'], '军事战争', '军旅生涯', '战争幻想', '抗战烽火', '谍战特工', '抗战谍战'),
   ...subject(['game'], '游戏异界', '虚拟网游', '电子竞技', '游戏竞技', '体育赛事', '篮球运动', '足球运动'),
   ...subject(['urban'], '都市脑洞', '都市生活', '都市日常', '异术超能', '都市高武', '都市修真', '都市种田', '青春校园', '商战职场', '娱乐明星', '现实生活'),
-  ...subject(['lord', 'business'], '领主争霸', '种田经营', '基建发展', '商业经营'),
+  ...subject(['lord'], '领主争霸', '种田经营', '基建发展'),
+  ...subject(['business'], '商业经营'),
   ...subject(['suspense'], '悬疑脑洞', '悬疑灵异', '侦探推理', '诡秘悬疑', '民俗悬疑', '规则怪谈', '盗墓探险', '奇妙世界'),
   ...subject(['scifi', 'apocalypse'], '科幻末世', '未来世界', '星际文明', '古武机甲', '超级科技', '进化变异', '时空穿梭', '赛博朋克', '废土求生'),
   ...subject(['western_fantasy'], '西方奇幻', '史诗奇幻', '剑与魔法', '黑暗幻想', '现代魔法', '历史神话'),
@@ -226,6 +229,8 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
 const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human']);
 
 export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningBlueprintInput {
+  const creationMode = input.creationMode ?? 'new';
+  if (creationMode !== 'new' && creationMode !== 'continuation') throw new Error('创作方式必须选择从零创作或已有正文续写');
   if (input.taxonomyVersion !== OPENING_TAXONOMY.version) throw new Error('开书分类目录版本无效或已经过期，请刷新后重试');
   if (input.channel !== 'male' && input.channel !== 'female') throw new Error('创作频道必须选择男频或女频');
   const category = OPENING_TAXONOMY.categories.find((item) => item.key === input.categoryKey);
@@ -287,6 +292,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
   };
   const validated: OpeningBlueprintInput = {
+    creationMode,
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
     categoryKey: input.categoryKey,

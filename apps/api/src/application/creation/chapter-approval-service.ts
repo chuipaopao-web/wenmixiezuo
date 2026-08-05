@@ -7,6 +7,7 @@ import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import type { ProtagonistStateService } from '../knowledge/protagonist-state-service.js';
+import { buildChapterContinuityAnchors } from './continuity-anchor-service.js';
 
 export class ChapterApprovalService {
   public constructor(
@@ -112,6 +113,7 @@ export class ChapterApprovalService {
         chapterNumber: chapter.chapterNumber,
         manuscriptVersionId: gate.manuscriptVersionId,
         endingExcerpt: endingExcerpt(content),
+        continuityAnchors: buildChapterContinuityAnchors(content),
         source: 'owner_confirmed_manuscript'
       }, undefined, expectedCanonRevision);
       this.protagonists?.projectCanonFacts(scope, gate.chapterId);

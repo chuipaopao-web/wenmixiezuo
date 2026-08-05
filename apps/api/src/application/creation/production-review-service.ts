@@ -82,6 +82,9 @@ export class ProductionReviewService {
     normalizeIssueLocations?: boolean;
     normalizeRepairedSeverity?: boolean;
     normalizeIssueFieldAliases?: boolean;
+    normalizeFrozenBindings?: boolean;
+    normalizeProvisionalDraftBlockers?: boolean;
+    normalizeFactOmissionMajor?: boolean;
   }): ProductionReview {
     const report = parseProductionReview(input.raw, {
       reviewerRole: input.role, manuscriptVersionId: input.manuscriptVersionId, modelSnapshotId: input.modelSnapshotId
@@ -95,7 +98,10 @@ export class ProductionReviewService {
       normalizeScoreArray: input.normalizeScoreArray === true,
       normalizeIssueLocations: input.normalizeIssueLocations === true,
       normalizeRepairedSeverity: input.normalizeRepairedSeverity === true,
-      normalizeIssueFieldAliases: input.normalizeIssueFieldAliases === true
+      normalizeIssueFieldAliases: input.normalizeIssueFieldAliases === true,
+      normalizeFrozenBindings: input.normalizeFrozenBindings === true,
+      normalizeProvisionalDraftBlockers: input.normalizeProvisionalDraftBlockers === true,
+      normalizeFactOmissionMajor: input.normalizeFactOmissionMajor === true
     });
     const reportJson = JSON.stringify(report);
     this.repository.insertReviewReport(scope, {

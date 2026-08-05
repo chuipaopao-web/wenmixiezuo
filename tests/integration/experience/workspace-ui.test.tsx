@@ -145,8 +145,9 @@ describe('完整创作工作台', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '主编正在整理开书资料' })).toBeInTheDocument();
-    expect(screen.getByText(/一至三个最值得先确定的设定问题/u)).toBeInTheDocument();
+    expect(await screen.findByText('貂蝉正在接待')).toBeInTheDocument();
+    expect(screen.getByText('小文秘书已核对进度：当前先完善“策划理念”，不会提前进入剧情规划。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '继续完善“策划理念”' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '从故事想法开始聊' })).not.toBeInTheDocument();
   });
 
@@ -187,6 +188,11 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '打开《雾钟档案》' }));
     expect(await screen.findByRole('navigation', { name: '创作功能' })).toBeInTheDocument();
+    expect(await screen.findByText('貂蝉正在接待')).toBeInTheDocument();
+    expect(screen.getByText('小文秘书已核对进度：当前先完善“策划理念”，不会提前进入剧情规划。')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/books/book-ui-1/conversation-entry') && init?.method === 'POST'
+    )).toBe(true);
     expect(new URL(window.location.href).searchParams.get('book')).toBe('book-ui-1');
     fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
     expect(await screen.findByRole('heading', { name: '我的作品' })).toBeInTheDocument();
@@ -221,6 +227,33 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('Codex订阅 · gpt-5.6-sol')).toBeInTheDocument();
   });
 
+  it('前后端短暂版本不一致时团队页仍能打开', async () => {
+    window.history.replaceState(null, '', '/');
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await baseRouter(input, init);
+      const path = new URL(String(input)).pathname;
+      if (path !== '/api/v1/team-template' && !path.endsWith('/team-config')) return response;
+      const payload = await response.json() as { data: Record<string, unknown> };
+      if (path === '/api/v1/team-template') {
+        const { fullPromptAccess: _legacyMissingField, ...legacyData } = payload.data;
+        return apiResponse(legacyData);
+      }
+      const promptPolicy = payload.data.promptPolicy as Record<string, unknown>;
+      const { fullPromptAccess: _legacyMissingField, ...legacyPromptPolicy } = promptPolicy;
+      return apiResponse({ ...payload.data, promptPolicy: legacyPromptPolicy });
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '团队' }));
+    expect(await screen.findByRole('heading', { name: '创作团队' })).toBeInTheDocument();
+    expect(screen.getByText('11 名成员')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '雾钟档案' }));
+    expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
+    expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
+  });
+
   it('显示内容优先三栏、仅十一名女性创作成员、原型头像与真实状态并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
@@ -233,9 +266,9 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
     expect(screen.getByText('后台工作中')).toBeInTheDocument();
-    expect(screen.getByText('排队中')).toBeInTheDocument();
-    expect(screen.getAllByText('空闲')).toHaveLength(4);
-    expect(screen.getAllByText('待命')).toHaveLength(5);
+    expect(screen.getByText('在线·排队中')).toBeInTheDocument();
+    expect(screen.getAllByText('在线·空闲')).toHaveLength(4);
+    expect(screen.getAllByText('在线·待命')).toHaveLength(5);
     expect(screen.getByText('弄玉（版权）')).toBeInTheDocument();
     expect(screen.queryByText('按需专家 4')).not.toBeInTheDocument();
     expect(screen.queryByText('设定与连续性统筹')).not.toBeInTheDocument();
@@ -283,8 +316,12 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
     expect(within(team).getByText('岗位职责')).toBeInTheDocument();
     expect(within(team).getByText('工作边界')).toBeInTheDocument();
-    expect(within(team).getByText('默认岗位提示词')).toBeInTheDocument();
-    expect(within(team).getByText(/你是文秘写作团队中的貂蝉/)).toBeInTheDocument();
+    expect(within(team).getByText('岗位表达')).toBeInTheDocument();
+    expect(within(team).getByText(/貂蝉是团队中的主编/)).toBeInTheDocument();
+    expect(within(team).queryByText('受保护的完整运行提示词')).not.toBeInTheDocument();
+    fireEvent.change(within(team).getByLabelText('完整提示词查看密码'), { target: { value: 'test-prompt-view-password' } });
+    fireEvent.click(within(team).getByRole('button', { name: '解锁查看' }));
+    expect(await within(team).findByText('受保护的完整运行提示词')).toBeInTheDocument();
     const editor = within(team).getByRole('textbox', { name: '貂蝉（主编）的本书岗位补充要求' });
     fireEvent.change(editor, { target: { value: '讨论时先指出最大风险，再给推荐方向。' } });
     fireEvent.click(within(team).getByRole('button', { name: '保存提示词' }));
@@ -305,6 +342,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.composer-wrap\s*\{[^}]*grid-row:\s*3/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
+    expect(css).toMatch(/\.manuscript-view\s*\{[^}]*padding:\s*0\s+clamp\(10px,\s*1\.4vw,\s*22px\)/su);
+    expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
   });
 
   it('在聊天顶部显示持续剧情会话、候选方向和自然操作', async () => {
@@ -540,8 +579,11 @@ describe('完整创作工作台', () => {
     const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('请先补充');
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('故事方向至少20字');
+    const summary = within(dialog).getByRole('alert');
+    expect(summary).toHaveClass('create-book-validation-summary');
+    expect(summary).toHaveTextContent('还不能创建，请先补充以下开书资料');
+    expect(summary).toHaveTextContent('故事方向至少20字');
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('姓名')));
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
@@ -605,7 +647,7 @@ describe('完整创作工作台', () => {
   it('成员详情显示公开职责、边界、模型和真实证据，不展示隐藏提示', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: /貂蝉（主编），空闲，打开岗位详情/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /貂蝉（主编），在线·空闲，打开岗位详情/ }));
     expect(screen.getByRole('dialog', { name: /貂蝉（主编）/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '负责' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '不负责' })).toBeInTheDocument();
@@ -776,15 +818,26 @@ describe('完整创作工作台', () => {
     const importBox = screen.getByRole('textbox', { name: '已有设定原文' });
     const catalogHeading = screen.getByRole('heading', { name: '设定大纲' });
     expect(catalogHeading.compareDocumentPosition(importBox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('searchbox', { name: '搜索设定项' })).toBeInTheDocument();
-    expect(screen.getByText('策划理念')).toBeInTheDocument();
-    expect(screen.getByText('游戏世界接入方式')).toBeInTheDocument();
-    expect(screen.getByText('历史基线')).toBeInTheDocument();
+    expect(screen.getByText('游戏竞技＋历史古代')).toBeInTheDocument();
+    expect(screen.getByText('本书必谈')).toBeInTheDocument();
+    expect(screen.getByText('建议完善')).toBeInTheDocument();
+    expect(screen.getByText('当前只讨论：策划理念')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '继续当前项：策划理念' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '分批讨论未完成项' })).not.toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: '搜索完整资料库' })).toBeInTheDocument();
+    const requiredSection = document.querySelector('.setting-outline-section.required');
+    expect(requiredSection).toBeInstanceOf(HTMLElement);
+    if (!(requiredSection instanceof HTMLElement)) throw new Error('本书必谈区域不存在');
+    expect(within(requiredSection).getByText('策划理念')).toBeInTheDocument();
+    expect(within(requiredSection).getByText('游戏世界接入方式')).toBeInTheDocument();
+    expect(within(requiredSection).getByText('历史基线')).toBeInTheDocument();
+    expect(within(requiredSection).queryByText('核心关系与吸引基础')).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: '自定义设定项' }), { target: { value: '神名禁忌' } });
     fireEvent.click(screen.getByRole('button', { name: '添加到清单' }));
     expect(screen.getByText('神名禁忌')).toBeInTheDocument();
     expect(importBox).toHaveAttribute('maxlength', '10000');
-    expect(screen.getAllByRole('button', { name: '跳转讨论' }).length).toBeGreaterThan(10);
+    expect(screen.getAllByRole('button', { name: '跳转讨论' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '按顺序等待' }).length).toBeGreaterThan(10);
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('守城与预见')).toBeInTheDocument();
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
@@ -1026,7 +1079,7 @@ describe('完整创作工作台', () => {
     });
   });
 
-  it('未定稿正文可编辑保存，并提供重写与定稿审校入口', async () => {
+  it('未定稿正文可编辑保存，并提供表达优化、自然化、自定义优化与AI点评入口', async () => {
     const draftWorkspace: WorkspaceData = {
       ...workspace,
       chapters: [{ ...chapter, volumeId: 'volume-ui-1', settlementStatus: 'awaiting_confirmation', currentManuscriptVersionId: 'manuscript-draft-1', canonManuscriptVersionId: null }],
@@ -1040,15 +1093,66 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
+    expect(screen.getByRole('heading', { name: '第1章 · 雾城初响' })).toBeInTheDocument();
+    expect(screen.queryByText('第 1 章')).not.toBeInTheDocument();
+    expect(screen.getByText('草稿可直接粘贴修改')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '导入本章 TXT' })).toBeInTheDocument();
     fireEvent.change(editor, { target: { value: '作者修改后的正文' } });
     expect(screen.getByText(/未保存修改/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith('/manuscripts/owner-drafts') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
-    expect(screen.getByRole('button', { name: '重写' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '定稿' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '优化表达' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自然化（去AI腔）' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '自定义优化' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'AI点评' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '优化表达' }));
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/rewrite') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(request).toBeDefined();
+      expect(JSON.parse(String((request![1] as RequestInit).body))).toMatchObject({
+        manuscriptVersionId: 'manuscript-owner-2',
+        instruction: expect.stringContaining('不要擅自新增剧情')
+      });
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'AI点评' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'AI点评' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith('/finalize') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
   });
 
-  it('空正文页可以预览旧稿、明确确认导入并自动交给主编做续写诊断', async () => {
+  it('作者可以从当前章节撤下已保存但未定稿的正文', async () => {
+    const draftWorkspace: WorkspaceData = {
+      ...workspace,
+      chapters: [{ ...chapter, volumeId: 'volume-ui-1', settlementStatus: 'awaiting_confirmation', currentManuscriptVersionId: 'manuscript-draft-1', canonManuscriptVersionId: null }],
+      tasks: [],
+      volumes: [{ ...workspace.volumes![0]!, settledCount: 0 }]
+    };
+    const fetchMock = vi.fn(createFetchRouter('待撤下的作者正文', draftWorkspace));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    expect(await screen.findByRole('textbox', { name: '正文编辑器' })).toHaveValue('待撤下的作者正文');
+
+    fireEvent.click(screen.getByRole('button', { name: '删除正文' }));
+    expect(screen.getByRole('alertdialog', { name: '确认删除当前正文' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
+
+    await waitFor(() => {
+      const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/manuscripts/current/withdraw') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(request).toBeDefined();
+      expect(JSON.parse(String((request![1] as RequestInit).body))).toEqual({
+        expectedManuscriptVersionId: 'manuscript-draft-1'
+      });
+    });
+    expect(screen.queryByRole('alertdialog', { name: '确认删除当前正文' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '正文编辑器' })).toHaveValue('');
+    expect(screen.getByText('当前正文已撤下；历史版本仍安全保留，不会被物理删除。')).toBeInTheDocument();
+  });
+
+  it('空正文页先确认旧稿、生成反向章纲后再交给主编与双编剧整理设定', async () => {
     const emptyWorkspace: WorkspaceData = {
       ...workspace,
       chapters: [],
@@ -1070,18 +1174,52 @@ describe('完整创作工作台', () => {
       ...preview,
       status: 'ready', includedChapterCount: 2, importedChapterCount: 2, lastCompletedOrdinal: 2,
       confirmedAt: '2026-07-31T12:01:00.000Z', completedAt: '2026-07-31T12:01:00.000Z',
+      analysis: {
+        status: 'pending', analyzedChapterCount: 0, totalChapterCount: 2,
+        summary: null, structuredData: null, activeTaskId: 'continuation-analysis-task-ui-1', errorMessage: null
+      },
       chapters: preview.chapters.map((item, index) => ({
         ...item, status: 'imported', targetChapterNumber: index + 1,
         targetChapterId: `chapter-imported-${index + 1}`,
         targetManuscriptVersionId: `manuscript-imported-${index + 1}`
       }))
     };
+    const analyzedReady = {
+      ...ready,
+      analysis: {
+        status: 'ready', analyzedChapterCount: 2, totalChapterCount: 2,
+        summary: '前两章已经逐章整理。', structuredData: {
+          currentSituation: '雨夜归来后发现旧信。',
+          chapterOutlines: [
+            {
+              chapterNumber: 1, title: '归来', chapterGoal: '让主角回到旧宅', openingState: '雨夜抵达',
+              cast: ['林舟'], plotBeats: ['推开旧门'], centralConflict: '是否面对过去', emotionalArc: ['警惕', '疑惑'],
+              payoffOrPressure: ['旧门开启'], threadActions: ['屋内旧信'], descriptionFocus: ['雨夜环境'], ending: ['看到信封']
+            },
+            {
+              chapterNumber: 2, title: '旧信', chapterGoal: '揭出第一个旧事线索', openingState: '拆开信封',
+              cast: ['林舟'], plotBeats: ['读到留言'], centralConflict: '信中内容是否可信', emotionalArc: ['疑惑', '不安'],
+              payoffOrPressure: ['线索落地'], threadActions: ['约定地点'], descriptionFocus: ['信纸细节'], ending: ['决定赴约']
+            }
+          ]
+        },
+        activeTaskId: null, errorMessage: null
+      }
+    };
+    let latestContinuation: typeof ready | typeof analyzedReady | null = null;
     const baseRouter = createFetchRouter('', emptyWorkspace, []);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(String(input)).pathname;
-      if (path.endsWith('/continuation-imports/latest')) return apiResponse(null);
+      if (path.endsWith('/continuation-imports/latest')) return apiResponse(latestContinuation);
       if (path.endsWith('/continuation-imports/preview') && init?.method === 'POST') return apiResponse(preview);
-      if (path.endsWith('/continuation-imports/continuation-ui-1/confirm') && init?.method === 'POST') return apiResponse(ready);
+      if (path.endsWith('/continuation-imports/continuation-ui-1/confirm') && init?.method === 'POST') {
+        latestContinuation = ready;
+        return apiResponse(ready);
+      }
+      if (path.endsWith('/continuation-imports/continuation-ui-1') && (init?.method === undefined || init.method === 'GET')) {
+        latestContinuation = analyzedReady;
+        return apiResponse(analyzedReady);
+      }
       return baseRouter(input, init);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -1089,7 +1227,11 @@ describe('完整创作工作台', () => {
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
-    expect(await screen.findByRole('heading', { name: '先把前文放进文秘写作' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '从第1章开始导入' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /第1章/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '批量识别整本TXT' }));
+    expect(await screen.findByRole('heading', { name: '导入已有正文继续写' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('已有正文'), { target: { value: '第一章 归来\n旧门开了。\n第二章 旧信\n信上有血。' } });
     fireEvent.click(screen.getByRole('button', { name: '识别章节并预览' }));
     expect(await screen.findByDisplayValue('第一章 归来')).toBeInTheDocument();
@@ -1097,12 +1239,50 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /我已核对章节拆分/u }));
     fireEvent.click(screen.getByRole('button', { name: '确认导入 2 章' }));
 
+    expect(await screen.findByText('正文已保存，正在逐章整理')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith('/api/v1/books/book-ui-1/messages') && (init as RequestInit | undefined)?.method === 'POST')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '刷新整理进度' }));
+    await waitFor(() => expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain('http://127.0.0.1:43111/api/v1/books/book-ui-1/continuation-imports/continuation-ui-1'));
+    expect(await screen.findByText('逐章整理已经完成。主编会以已有正文为准，只确认缺口、冲突和接下来的创作方向。')).toBeInTheDocument();
+    expect(await screen.findByText('前文与反向章纲均已准备好')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('查看逐章反向章纲（2章）'));
+    expect(await screen.findByText('第1章 归来')).toBeInTheDocument();
+    expect(screen.getByText('让主角回到旧宅')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '交给主编整理设定' }));
+
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/books/book-ui-1/messages') || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const payload = JSON.parse(String((init as RequestInit).body)) as { content: string };
-      return payload.content.startsWith('【续写诊断资料包】') && payload.content.includes('不要直接开写');
+      return payload.content.startsWith('【已有正文设定整理资料包】')
+        && payload.content.includes('主编和两名编剧')
+        && payload.content.includes('不要直接开写');
     })).toBe(true));
     expect(await screen.findByLabelText('和创作团队说')).toBeInTheDocument();
+  });
+
+  it('空正文页以第1章占位并可按章建立目录，不会创建整本输入框', async () => {
+    const emptyWorkspace: WorkspaceData = {
+      ...workspace,
+      chapters: [],
+      volumes: [],
+      tasks: []
+    };
+    const fetchMock = vi.fn(createFetchRouter('', emptyWorkspace, []));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    expect(await screen.findByRole('button', { name: /第1章/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /第1章.*等待导入作者原文/ }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith('/volumes') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true);
+      const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/chapters') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(request).toBeDefined();
+      expect(JSON.parse(String((request![1] as RequestInit).body))).toEqual({ volumeId: 'volume-ui-created', chapterNumber: 1, title: '第1章' });
+    });
   });
 
   it('计划章无正文时直接显示空编辑器和动作状态，并以空基线保存第一稿', async () => {
@@ -1121,19 +1301,23 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
     expect(editor).toHaveValue('');
-    expect(screen.getByRole('button', { name: '重写' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '定稿' })).toBeDisabled();
-    expect(screen.getByText(/先输入或粘贴正文并保存第一稿/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '优化表达' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '自然化（去AI腔）' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '自定义优化' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'AI点评' })).toBeDisabled();
+    expect(screen.getByText(/先输入或导入当前章并保存作者原文/)).toBeInTheDocument();
 
     fireEvent.change(editor, { target: { value: '这是作者从空白章节写下的第一稿。' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存草稿' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存原文' }));
     await waitFor(() => {
       const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/manuscripts/owner-drafts') && (init as RequestInit | undefined)?.method === 'POST');
       expect(request).toBeDefined();
       expect(JSON.parse(String((request![1] as RequestInit).body))).toMatchObject({ baseManuscriptVersionId: null, content: '这是作者从空白章节写下的第一稿。' });
     });
-    await waitFor(() => expect(screen.getByRole('button', { name: '重写' })).toBeEnabled());
-    expect(screen.getByRole('button', { name: '定稿' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: '优化表达' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: '自然化（去AI腔）' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '自定义优化' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'AI点评' })).toBeEnabled();
   });
 
   it('版权与研究入口只展示隔离后的真实摘要', async () => {
@@ -1273,6 +1457,29 @@ describe('完整创作工作台', () => {
       return payload.content === '讨论附件剧情' && payload.attachmentIds[0] === 'attachment-ui-1';
     })).toBe(true));
   });
+
+  it('聊天输入框按 Enter 发送，Shift+Enter 与输入法选字不会误发送', async () => {
+    const fetchMock = vi.fn(createFetchRouter('正文内容', workspace, []));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    const composer = await screen.findByLabelText('和创作团队说');
+    const sentMessages = () => fetchMock.mock.calls.filter(([input, init]) =>
+      String(input).endsWith('/api/v1/books/book-ui-1/messages')
+      && (init as RequestInit | undefined)?.method === 'POST');
+
+    fireEvent.change(composer, { target: { value: '讨论第一章开局' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', shiftKey: true });
+    expect(sentMessages()).toHaveLength(0);
+
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', isComposing: true });
+    expect(sentMessages()).toHaveLength(0);
+
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    await waitFor(() => expect(sentMessages()).toHaveLength(1));
+    const payload = JSON.parse(String((sentMessages()[0]![1] as RequestInit).body)) as { content: string };
+    expect(payload.content).toBe('讨论第一章开局');
+  });
 });
 
 function createFetchRouter(chapterContent = '正文内容', workspaceData = workspace, messages: unknown[] = []) {
@@ -1394,6 +1601,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
     if (path === '/api/v1/team-template') return apiResponse({
+      fullPromptAccess: { configured: true, passwordProtected: true },
       members: agents.map((agent, index) => ({
         roleTemplateId: `role-template-${agent.roleKey}`,
         roleKey: agent.roleKey,
@@ -1409,13 +1617,13 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         defaultModel: index === 0
           ? { provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol', plan: 'codex' }
           : { provider: agent.provider, modelId: agent.modelId, plan: 'deterministic' },
-        defaultPrompt: `你是文秘写作团队中的${agent.displayName}（${agent.roleName}）。`
+        roleStatement: `${agent.displayName}是团队中的${agent.roleName}，负责完成岗位任务。`
       }))
     });
     if (path.endsWith('/team-config')) return apiResponse({
       members: agents.map((agent) => ({
         ...agent,
-        defaultPrompt: `你是文秘写作团队中的${agent.displayName}（${agent.roleName}）。\n主要职责：完成岗位任务。`,
+        roleStatement: `${agent.displayName}是团队中的${agent.roleName}，负责完成岗位任务。`,
         promptPreference: {
           promptPreferenceId: null, agentId: agent.agentId, version: 0, content: '', createdAt: null
         }
@@ -1424,9 +1632,18 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         editableLabel: '本书岗位补充要求',
         maxChars: 4000,
         priority: '软性要求不会覆盖系统硬约束、事实证据、正史、安全规则和输出格式。',
-        internalPromptVisible: false
+        fullPromptAccess: { configured: true, passwordProtected: true }
       }
     });
+    if (path === '/api/v1/prompt-view' && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { roleKey: string };
+      return apiResponse({
+        roleKey: payload.roleKey,
+        identity: '貂蝉（主编）',
+        note: '后端实际使用的稳定岗位系统提示词。',
+        variants: [{ purpose: 'discussion', label: '讨论与规划', prompt: '受保护的完整运行提示词' }]
+      });
+    }
     if (path.endsWith('/prompt-preference') && init?.method === 'PUT') {
       const payload = JSON.parse(String(init.body)) as { expectedVersion: number; content: string };
       const agentId = path.split('/').at(-2) ?? '';
@@ -1436,15 +1653,65 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         createdAt: '2026-07-26T12:00:00.000Z'
       });
     }
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/volumes` && init?.method === 'POST') {
+      return apiResponse({ volumeId: 'volume-ui-created' });
+    }
+    if (path === `/api/v1/books/${workspaceData.book.bookId}/chapters` && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { volumeId: string; chapterNumber: number; title: string };
+      return apiResponse({
+        ...chapter,
+        chapterId: `chapter-ui-created-${payload.chapterNumber}`,
+        volumeId: payload.volumeId,
+        chapterNumber: payload.chapterNumber,
+        title: payload.title,
+        generationStatus: 'not_started',
+        settlementStatus: 'unsettled',
+        currentManuscriptVersionId: null,
+        canonManuscriptVersionId: null
+      });
+    }
     if (path.includes('/volumes/') && path.endsWith('/chapters')) return apiResponse({
       items: workspaceData.chapters,
       total: workspaceData.chapters.length,
       offset: Number(url.searchParams.get('offset') ?? 0),
       limit: Number(url.searchParams.get('limit') ?? 80)
     });
+    if (path.endsWith('/conversation-entry') && init?.method === 'POST') return apiResponse({
+      kind: 'guidance_in_progress',
+      headline: '貂蝉正在接待',
+      message: '小文秘书已核对进度：当前先完善“策划理念”，不会提前进入剧情规划。',
+      settingItemKey: 'creative-concept',
+      settingLabel: '策划理念',
+      taskId: 'task-onboarding-1',
+      taskStatus: 'working',
+      editorAgentId: 'agent-1',
+      editorName: '貂蝉'
+    });
     if (path.endsWith('/messages') && init?.method === 'POST') return apiResponse({ messageId: 'message-ui-new', action: { kind: 'conversation_reply_scheduled' } });
     if (path.endsWith('/messages')) return apiResponse(messages);
+    if (path.endsWith('/setting-baseline/readiness')) return apiResponse({
+      ready: false,
+      missing: ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow', 'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'history-baseline', 'divergence'],
+      unresolved: [],
+      required: ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow', 'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'history-baseline', 'divergence'],
+      recommended: ['theme-intent', 'differentiator', 'tone-boundary', 'geography', 'strength-flaw', 'supporting', 'relations', 'open', 'intentional-unknown', 'levels', 'costs', 'abilities', 'equipment', 'quest-instance', 'ranking', 'governance', 'history', 'class', 'culture', 'politics-military', 'technology-spread', 'historical-names'],
+      profileKey: 'game+history',
+      profileLabel: '游戏竞技＋历史古代'
+    });
     if (path.endsWith('/setting-outline-workspace') && init?.method !== 'PUT') return apiResponse([]);
+    if (path.endsWith('/setting-outline-workspace/initialize') && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { items: Array<Record<string, unknown>> };
+      return apiResponse(payload.items.map((item) => ({
+        ...item,
+        status: '待讨论',
+        content: null,
+        custom: false,
+        sourceDiscussionId: null,
+        sourceDecisionId: null,
+        confirmedAt: null,
+        updatedAt: '2026-08-01T12:00:00.000Z'
+      })));
+    }
     if (path.includes('/setting-outline-workspace/') && init?.method === 'PUT') {
       const payload = JSON.parse(String(init.body)) as Record<string, unknown>;
       return apiResponse({
@@ -1456,6 +1723,14 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     if (path.endsWith('/manuscripts/owner-drafts') && init?.method === 'POST') {
       const payload = JSON.parse(String(init.body)) as { baseManuscriptVersionId: string | null };
       return apiResponse({ manuscriptVersionId: 'manuscript-owner-2', parentVersionId: payload.baseManuscriptVersionId, contentHash: 'hash-owner-2', wordCount: 8, status: 'candidate', unchanged: false });
+    }
+    if (path.endsWith('/manuscripts/current/withdraw') && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body)) as { expectedManuscriptVersionId: string };
+      return apiResponse({
+        withdrawnManuscriptVersionId: payload.expectedManuscriptVersionId,
+        currentManuscriptVersionId: null,
+        retainedInHistory: true
+      });
     }
     if (path.endsWith('/rewrite') && init?.method === 'POST') return apiResponse({ taskId: 'task-rewrite-1', operation: 'rewrite_existing', manuscriptVersionId: 'manuscript-owner-2' });
     if (path.endsWith('/finalize') && init?.method === 'POST') return apiResponse({ taskId: 'task-review-1', operation: 'review_existing' });

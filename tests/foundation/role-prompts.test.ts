@@ -46,6 +46,41 @@ describe('九岗位定位提示词', () => {
     expect(backupWriter).not.toContain('秋香（主笔）');
   });
 
+  it('十一名成员都使用具体专业身份、核心专长和差异化方法', () => {
+    const prompts = [
+      ['chief_editor', '长篇网文主编', '只推进当前最需要确认的一步'],
+      ['deputy_editor', '流程接管编辑', '未接管时只报告遗漏和风险'],
+      ['lead_screenwriter', '长篇类型小说编剧', '不超过五十章的完整事件弧'],
+      ['second_screenwriter', '结构挑战者', '不为猎奇强行反转'],
+      ['setting', '连续性编辑', '明确事实、合理推断和未知'],
+      ['lead_writer', '长篇类型小说作者', '人物通过选择、行动和后果推动场景'],
+      ['backup_writer', '接替写手', '先核对活动写手、版本和接管原因'],
+      ['literary_reviewer', '小说文学编辑', '避免把全文修成同一种安全腔'],
+      ['experience_reviewer', '读者体验编辑', '区分有意留白与信息缺失'],
+      ['researcher', '事实核查员', '区分事实、争议、推断与创作许可'],
+      ['copyright', '原创性风险编辑', '不用换名改写规避']
+    ] as const;
+    for (const [roleKey, identity, method] of prompts) {
+      const prompt = buildRuntimeRoleSystemPrompt(roleKey, 'discussion');
+      expect(prompt).toContain('专业身份：');
+      expect(prompt).toContain('核心专长：');
+      expect(prompt).toContain('工作方法：');
+      expect(prompt).toContain(identity);
+      expect(prompt).toContain(method);
+    }
+  });
+
+  it('岗位专业化不会把个人偏好固化为全书文风', () => {
+    for (const roleKey of ['chief_editor', 'lead_screenwriter', 'setting', 'literary_reviewer'] as const) {
+      const prompt = buildRuntimeRoleSystemPrompt(roleKey, 'discussion');
+      expect(prompt).toContain('岗位个人偏好不是全书固定文风');
+      expect(prompt).toContain('合理惊喜');
+    }
+    const writer = buildRuntimeRoleSystemPrompt('lead_writer', 'novel_writer');
+    expect(writer).toContain('能随本书题材与当前剧情调整技法');
+    expect(writer).not.toContain('大神作者');
+  });
+
   it('主笔先消化章纲再写场景，并保留明确的自由创作区', () => {
     const prompt = buildRuntimeRoleSystemPrompt('lead_writer', 'novel_writer');
     expect(prompt).toContain('不要把章纲字段、设定标签或检查清单逐项翻译进正文');

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
+import { stageResultSummary, stageTitleFromKey } from '../continuity/stage-settlement-presentation.js';
 
 export type NarrativeProjectionType = 'emotion' | 'mainline' | 'subplot' | 'hook' | 'information_gap';
 
@@ -275,11 +276,12 @@ function plannedChapterProjections(outlines: ChapterOutlineRow[]): ProjectionDra
 
 function actualStageProjections(rows: StageSettlementRow[]): ProjectionDraft[] {
   return rows.flatMap((row, index) => {
-    const scopeLabel = rangeLabel(row.chapter_start, row.chapter_end);
+    const range = rangeLabel(row.chapter_start, row.chapter_end);
+    const title = stageTitleFromKey(row.stage_key);
+    const scopeLabel = `${range} · ${title}`;
     const sourceIds = [row.stage_settlement_id];
     const drafts: ProjectionDraft[] = [];
-    const results = textList(parseJson(row.irreversible_results_json), 4, 180);
-    const summary = conciseSummary(results);
+    const summary = stageResultSummary(parseJson(row.irreversible_results_json));
     if (summary !== null) {
       drafts.push({
         type: 'mainline', track: 'actual', order: index + 1, sourceIds,

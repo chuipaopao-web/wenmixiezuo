@@ -15,6 +15,7 @@ export interface RuntimeConfig {
   ownerId: string;
   webOrigin: string;
   workerToken: string;
+  promptViewPassword: string | null;
   modelRuntime: ModelRuntimeConfig;
 }
 
@@ -48,6 +49,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     ownerId: env.WENMI_OWNER_ID ?? 'owner-local-boss',
     webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110',
     workerToken: env.WENMI_WORKER_TOKEN?.trim() || randomBytes(32).toString('base64url'),
+    promptViewPassword: env.WENMI_PROMPT_VIEW_PASSWORD?.trim() || null,
     modelRuntime: loadModelRuntimeConfig(env, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })
   };
 }

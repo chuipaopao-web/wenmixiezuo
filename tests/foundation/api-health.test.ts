@@ -27,6 +27,7 @@ describe('API健康检查', () => {
       ownerId: 'owner-local-boss',
       webOrigin: 'http://127.0.0.1:43110',
       workerToken: 'test-worker-token-00000000000000000000000000000000',
+      promptViewPassword: 'test-prompt-view-password',
       modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(tempDirectory, 'cache', 'codex-runtime') })
     };
     const database = openDatabase(config.databasePath);

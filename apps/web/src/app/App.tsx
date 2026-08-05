@@ -46,6 +46,7 @@ import {
   fetchChapterDetail,
   previewContinuationImport,
   confirmContinuationImport,
+  analyzeContinuationImport,
   fetchContinuationImport,
   fetchLatestContinuationImport,
   fetchHealth,
@@ -54,6 +55,8 @@ import {
   fetchMessages,
   fetchModelBindings,
   fetchVolumeChapters,
+  createManuscriptVolume,
+  createManuscriptChapter,
   fetchOperationsStatus,
   fetchProtagonists,
   fetchAttributeFormulas,
@@ -68,6 +71,7 @@ import {
   fetchWorkspace,
   fetchTeamConfig,
   fetchTeamTemplate,
+  fetchProtectedRolePrompt,
   sendMessage,
   resolveConfirmation,
   activateModelBindings,
@@ -84,9 +88,11 @@ import {
   uploadChatAttachment,
   discardChatAttachment,
   chatAttachmentContentUrl,
+  enterConversation,
   compareArtifactVersions,
   createLibraryTag,
   saveOwnerManuscript,
+  withdrawOwnerManuscript,
   rewriteChapter,
   finalizeChapter,
   saveProtagonistProfile,
@@ -106,6 +112,7 @@ import {
   type ChapterPageData,
   type ContinuationImportData,
   type ChatAttachmentData,
+  type ConversationReceptionData,
   type CreativeSessionData,
   type HealthData,
   type LibraryData,
@@ -128,6 +135,7 @@ import {
   type TeamModelProfileData,
   type TeamConfigData,
   type TeamTemplateData,
+  type ProtectedRolePromptData,
   type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
@@ -177,6 +185,7 @@ export function App(): React.JSX.Element {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [messages, setMessages] = useState<MessageData[]>([]);
+  const [conversationReception, setConversationReception] = useState<ConversationReceptionData | null>(null);
   const [view, setView] = useState<WorkspaceView>('chat');
   const [homeView, setHomeView] = useState<HomeView>('shelf');
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
@@ -291,6 +300,36 @@ export function App(): React.JSX.Element {
       window.clearInterval(poll);
     };
   }, [refreshWorkspace, selectedBookId]);
+
+  useEffect(() => {
+    if (selectedBookId === null || view !== 'chat') {
+      setConversationReception(null);
+      return;
+    }
+    const bookId = selectedBookId;
+    const controller = new AbortController();
+    void enterConversation(bookId, controller.signal)
+      .then((reception) => {
+        if (controller.signal.aborted) return;
+        setConversationReception(reception);
+        if (reception.kind === 'guidance_scheduled') {
+          void refreshWorkspace(bookId, controller.signal).catch(() => undefined);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : '小文秘书暂时无法核对当前创作进度');
+        }
+      });
+    return () => controller.abort();
+  }, [refreshWorkspace, selectedBookId, view]);
+
+  useEffect(() => {
+    if (conversationReception?.taskId === undefined || workspace === null) return;
+    const task = workspace.tasks.find((item) => item.taskId === conversationReception.taskId);
+    if (task === undefined || task.status === conversationReception.taskStatus) return;
+    setConversationReception((current) => current === null ? null : syncReceptionWithTask(current, task));
+  }, [conversationReception?.taskId, conversationReception?.taskStatus, workspace]);
 
   useEffect(() => {
     if (selectedBookId !== null || homeView !== 'team' || teamTemplate !== null) return;
@@ -514,6 +553,7 @@ export function App(): React.JSX.Element {
       const created = await createBook(input);
       await loadBooks();
       selectBook(created.bookId);
+      setView(input.openingBlueprint?.creationMode === 'continuation' ? 'manuscript' : 'chat');
       setCreateOpen(false);
       setError(null);
     } catch (reason) {
@@ -754,6 +794,7 @@ export function App(): React.JSX.Element {
             {view === 'chat' && (
               <ChatWorkspace
                 bookId={selectedBook.bookId}
+                reception={conversationReception}
                 messages={messages}
                 agents={workspace?.agents ?? []}
                 totalMessageCount={workspace?.messageCount ?? messages.length}
@@ -891,6 +932,7 @@ function RailViewButton({ active, onClick, icon, label, accessibleLabel }: {
 
 function ChatWorkspace(props: {
   bookId: string;
+  reception: ConversationReceptionData | null;
   messages: MessageData[];
   agents: AgentData[];
   totalMessageCount: number;
@@ -916,9 +958,20 @@ function ChatWorkspace(props: {
     && ['pending', 'queued', 'working'].includes(props.onboardingTask.status);
   const onboardingFailed = props.onboardingTask !== null
     && ['failed', 'blocked', 'interrupted'].includes(props.onboardingTask.status);
+  const showActiveFlowTask = props.activeFlowTask !== null
+    && props.activeFlowTask.taskId !== props.reception?.taskId;
   return (
     <section className="chat-workspace" aria-label="主创作对话">
-      {(props.creativeSession !== null || props.activeFlowTask !== null) && <div className="chat-status-stack">
+      {(props.reception !== null || props.creativeSession !== null || showActiveFlowTask) && <div className="chat-status-stack">
+        {props.reception !== null && (
+          <section className={`conversation-reception ${receptionTone(props.reception.kind)}`} role="status" aria-live="polite">
+            <ChatsCircleIcon aria-hidden="true" />
+            <div>
+              <strong>{props.reception.headline}</strong>
+              <p>{props.reception.message}</p>
+            </div>
+          </section>
+        )}
         {props.creativeSession !== null && (
           <CreativeSessionStrip
             session={props.creativeSession}
@@ -926,7 +979,7 @@ function ChatWorkspace(props: {
             onQuickAction={props.onQuickAction}
           />
         )}
-        {props.activeFlowTask !== null && (
+        {showActiveFlowTask && props.activeFlowTask !== null && (
           <section className="conversation-progress" role="status" aria-live="polite">
             <span className="conversation-progress-pulse" aria-hidden="true" />
             <div>
@@ -940,8 +993,12 @@ function ChatWorkspace(props: {
         {props.messages.length === 0 ? (
           <div className="conversation-empty">
             <ChatsCircleIcon />
-            <h2>{onboardingPending ? '主编正在整理开书资料' : onboardingFailed ? '主编这次没有成功接入' : '从故事想法开始聊'}</h2>
-            <p>{onboardingPending
+            <h2>{props.reception?.settingLabel !== undefined
+              ? `继续完善“${props.reception.settingLabel}”`
+              : onboardingPending ? '主编正在整理开书资料' : onboardingFailed ? '主编这次没有成功接入' : '从故事想法开始聊'}</h2>
+            <p>{props.reception?.settingLabel !== undefined
+              ? '可以直接回答主编的问题，也可以补充或纠正这一项；确认后才会按顺序进入下一项。'
+              : onboardingPending
               ? '貂蝉会先核对您已经填写的作品定位，再主动提出一至三个最值得先确定的设定问题。这里不会自动写正文，也不会把讨论直接写入正史。'
               : onboardingFailed
                 ? '开场任务保留了完整记录，没有伪造回复。您可以在左侧“任务”查看故障；恢复后会继续使用原来的开场任务，不会重复创建。'
@@ -981,12 +1038,79 @@ function ChatWorkspace(props: {
             }}
           />
           <button className="attachment-button" type="button" aria-label="添加图片或文件" disabled={props.busy || props.pendingAttachments.length >= 6} onClick={() => fileInputRef.current?.click()}><PlusIcon /></button>
-          <textarea id="boss-message" value={props.composer} onChange={(event) => props.setComposer(event.target.value)} placeholder="例如：我想先讨论主角、核心冲突和第一章开局" rows={3} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void props.onSubmit(); }} />
+          <textarea
+            id="boss-message"
+            value={props.composer}
+            onChange={(event) => props.setComposer(event.target.value)}
+            placeholder="例如：我想先讨论主角、核心冲突和第一章开局"
+            rows={3}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              void props.onSubmit();
+            }}
+          />
           <button className="send-button" type="button" disabled={!canSend} onClick={() => void props.onSubmit()}><PaperPlaneTiltIcon />发送</button>
         </div>
       </div>
     </section>
   );
+}
+
+function receptionTone(kind: ConversationReceptionData['kind']): 'active' | 'ready' | 'warning' {
+  if (['guidance_failed', 'guidance_cancelled', 'guidance_paused'].includes(kind)) return 'warning';
+  if (['guidance_available', 'awaiting_confirmation', 'setting_complete'].includes(kind)) return 'ready';
+  return 'active';
+}
+
+function syncReceptionWithTask(reception: ConversationReceptionData, task: TaskData): ConversationReceptionData {
+  const label = reception.settingLabel === undefined ? '当前事项' : `“${reception.settingLabel}”`;
+  if (['pending', 'queued', 'working'].includes(task.status)) {
+    return { ...reception, kind: 'guidance_in_progress', taskStatus: task.status };
+  }
+  if (task.status === 'succeeded') {
+    return {
+      ...reception,
+      kind: 'guidance_available',
+      headline: `${label}已有主编回复`,
+      message: '小文秘书已核对进度：回复已经送达，可以继续回答、补充或纠正；系统不会替您确认设定。',
+      taskStatus: task.status
+    };
+  }
+  if (task.status === 'waiting_confirmation') {
+    return {
+      ...reception,
+      kind: 'awaiting_confirmation',
+      headline: `${label}等待您确认`,
+      message: '小文秘书已核对进度：请查看候选方案。满意就确认，不满意可以继续补充或要求调整。',
+      taskStatus: task.status
+    };
+  }
+  if (task.status === 'paused') {
+    return {
+      ...reception,
+      kind: 'guidance_paused',
+      headline: `${label}已暂停`,
+      message: '小文秘书已保留当前进度；可以到首页“任务”继续或取消，不会重复创建任务。',
+      taskStatus: task.status
+    };
+  }
+  if (['failed', 'blocked', 'interrupted'].includes(task.status)) {
+    return {
+      ...reception,
+      kind: 'guidance_failed',
+      headline: `${label}这次没有完成`,
+      message: '小文秘书已保留故障和进度记录，没有伪造回复或自动重试。请到首页“任务”查看原因并决定是否继续。',
+      taskStatus: task.status
+    };
+  }
+  return {
+    ...reception,
+    kind: 'guidance_cancelled',
+    headline: `${label}任务已结束`,
+    message: '小文秘书已保留现有讨论记录；如需继续，可以直接告诉团队想完善哪一项。',
+    taskStatus: task.status
+  };
 }
 
 function flowTaskProgress(task: TaskData): string {
@@ -1187,46 +1311,137 @@ function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, de
   onOpenConversation: () => void;
 }): React.JSX.Element {
   const [latestImport, setLatestImport] = useState<ContinuationImportData | null>(null);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [creatingChapter, setCreatingChapter] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const bookId = workspace?.book.bookId ?? null;
   useEffect(() => {
     setLatestImport(null);
+    setBatchImportOpen(false);
+    setNotice(null);
     if (bookId === null) return;
     const controller = new AbortController();
-    void fetchLatestContinuationImport(bookId, controller.signal).then(setLatestImport).catch(() => undefined);
+    void fetchLatestContinuationImport(bookId, controller.signal).then((value) => {
+      setLatestImport(value);
+      if (value !== null && ['parsed', 'importing', 'failed'].includes(value.status)) setBatchImportOpen(true);
+    }).catch(() => undefined);
     return () => controller.abort();
   }, [bookId]);
   if (workspace === null) return <div className="text-skeleton" aria-label="正在加载章节列表" />;
-  const activeImport = latestImport !== null && ['parsed', 'importing', 'failed'].includes(latestImport.status);
-  if (activeImport || workspace.chapters.length === 0) {
-    return <ExistingManuscriptImportPanel
-      bookId={workspace.book.bookId}
-      initialImport={latestImport}
-      onImportChanged={setLatestImport}
-      onImported={onChanged}
-      onOpenConversation={onOpenConversation}
-    />;
-  }
+  const createNextChapter = async (): Promise<void> => {
+    if (creatingChapter) return;
+    setCreatingChapter(true);
+    setNotice(null);
+    try {
+      const total = (workspace.volumes ?? []).reduce((sum, volume) => sum + volume.chapterCount, 0);
+      const lastPage = total > 0
+        ? await fetchVolumeChapters(workspace.book.bookId, 'all', { offset: Math.max(0, total - 1), limit: 1 })
+        : { items: [], total: 0, offset: 0, limit: 1 };
+      const existingLast = lastPage.items[0] ?? workspace.chapters.at(-1);
+      const chapterNumber = (existingLast?.chapterNumber ?? 0) + 1;
+      let volumeId = existingLast?.volumeId ?? workspace.volumes?.[0]?.volumeId;
+      if (volumeId === undefined) {
+        volumeId = (await createManuscriptVolume(workspace.book.bookId, { volumeNumber: 1, title: '正文' })).volumeId;
+      }
+      const created = await createManuscriptChapter(workspace.book.bookId, {
+        volumeId,
+        chapterNumber,
+        title: `第${chapterNumber}章`
+      });
+      onSelectChapter(created);
+      setNotice(`第${chapterNumber}章已加入目录。请在右侧粘贴原文或选择单章 TXT。`);
+      onChanged();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '章节没有创建成功，请稍后重试。');
+    } finally {
+      setCreatingChapter(false);
+    }
+  };
   return <section className="manuscript-workspace">
-    <aside className="manuscript-workspace-sidebar"><ManuscriptChapterBrowser workspace={workspace} selectedChapterId={selectedChapterId} onSelect={onSelectChapter} /></aside>
-    <div className="manuscript-workspace-editor">{chapter === null
-      ? <EmptyReference icon={<BookOpenTextIcon />} title="选择一章正文" description="左侧章节列表是正文的唯一目录；选中章节后可阅读或修改未定稿版本。" />
-      : <ManuscriptView bookId={workspace.book.bookId} chapter={chapter} reader={reader} detail={detail} onChanged={onChanged} />}
+    <aside className="manuscript-workspace-sidebar"><ManuscriptChapterBrowser
+      workspace={workspace}
+      selectedChapterId={selectedChapterId}
+      onSelect={onSelectChapter}
+      onCreateChapter={() => void createNextChapter()}
+      onOpenBatchImport={() => setBatchImportOpen(true)}
+      creatingChapter={creatingChapter}
+      batchImportActive={latestImport !== null && ['parsed', 'importing', 'failed'].includes(latestImport.status)}
+    /></aside>
+    <div className="manuscript-workspace-editor">
+      {notice !== null && <p className="binding-status manuscript-workspace-notice" role="status">{notice}</p>}
+      {batchImportOpen ? <ExistingManuscriptImportPanel
+        bookId={workspace.book.bookId}
+        initialImport={latestImport}
+        onImportChanged={setLatestImport}
+        onImported={onChanged}
+        onOpenConversation={onOpenConversation}
+        onClose={() => setBatchImportOpen(false)}
+      /> : chapter === null
+        ? <div className="manuscript-chapter-empty"><BookOpenTextIcon /><h2>{workspace.chapters.length === 0 ? '从第1章开始导入' : '选择一章正文'}</h2><p>{workspace.chapters.length === 0 ? '点击左侧章节列表中的“第1章”，再在右侧粘贴作者原文或选择单章 TXT。每章独立保存和处理，不需要一次导入整本。' : '从左侧章节目录选中一章，即可阅读、修改、点评或生成优化候选。'}</p></div>
+        : <ManuscriptView bookId={workspace.book.bookId} chapter={chapter} reader={reader} detail={detail} onChanged={onChanged} />}
     </div>
   </section>;
 }
 
-function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged, onImported, onOpenConversation }: {
+function continuationAnalysisOf(value: ContinuationImportData): ContinuationImportData['analysis'] {
+  return value.analysis ?? {
+    status: 'not_started',
+    analyzedChapterCount: 0,
+    totalChapterCount: value.importedChapterCount,
+    summary: null,
+    structuredData: null,
+    activeTaskId: null,
+    errorMessage: null
+  };
+}
+
+interface ContinuationChapterOutlineView {
+  chapterNumber: number | null;
+  title: string;
+  chapterGoal: string;
+  openingState: string;
+  plotBeats: unknown[];
+  cast: unknown[];
+  centralConflict: string;
+  emotionalArc: unknown[];
+  payoffOrPressure: unknown[];
+  threadActions: unknown[];
+  descriptionFocus: unknown[];
+  ending: Record<string, unknown>;
+}
+
+function continuationChapterOutlinesOf(analysis: ContinuationImportData['analysis']): ContinuationChapterOutlineView[] {
+  const values = analysis.structuredData?.chapterOutlines;
+  if (!Array.isArray(values)) return [];
+  return values.filter(isRecord).map((value) => ({
+    chapterNumber: typeof value.chapterNumber === 'number' ? value.chapterNumber : null,
+    title: typeof value.title === 'string' ? value.title : '未命名章节',
+    chapterGoal: typeof value.chapterGoal === 'string' ? value.chapterGoal : '',
+    openingState: typeof value.openingState === 'string' ? value.openingState : '',
+    plotBeats: Array.isArray(value.plotBeats) ? value.plotBeats : [],
+    cast: Array.isArray(value.cast) ? value.cast : [],
+    centralConflict: typeof value.centralConflict === 'string' ? value.centralConflict : '',
+    emotionalArc: Array.isArray(value.emotionalArc) ? value.emotionalArc : [],
+    payoffOrPressure: Array.isArray(value.payoffOrPressure) ? value.payoffOrPressure : [],
+    threadActions: Array.isArray(value.threadActions) ? value.threadActions : [],
+    descriptionFocus: Array.isArray(value.descriptionFocus) ? value.descriptionFocus : [],
+    ending: isRecord(value.ending) ? value.ending : {}
+  }));
+}
+
+function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged, onImported, onOpenConversation, onClose }: {
   bookId: string;
   initialImport: ContinuationImportData | null;
   onImportChanged: (value: ContinuationImportData) => void;
   onImported: () => void;
   onOpenConversation: () => void;
+  onClose: () => void;
 }): React.JSX.Element {
   const [sourceName, setSourceName] = useState('粘贴的已有正文.txt');
   const [sourceText, setSourceText] = useState('');
   const [preview, setPreview] = useState<ContinuationImportData | null>(initialImport);
   const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState<'reading' | 'preview' | 'confirm' | 'handoff' | null>(null);
+  const [busy, setBusy] = useState<'reading' | 'preview' | 'confirm' | 'analyze' | 'handoff' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
@@ -1282,12 +1497,12 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
     setBusy('handoff');
     try {
       await sendMessage(bookId, [
-        '【续写诊断资料包】',
+        '【已有正文设定整理资料包】',
         `已确认导入${result.importedChapterCount}章，导入编号：${result.importId}。`,
-        '请主编先按需检索已确认资料和最近结尾，核对当前局面、关键角色状态、未回收线索、规则边界与原有语言特点。',
-        '先给我一份简洁的接续诊断和需要补充确认的问题；不要直接开写，不启动双编剧，也不要把整本原文塞入一次上下文。'
+        '请主编和两名编剧按需检索逐章反向章纲、已确认资料和最近结尾，不要把整本原文塞入一次上下文。',
+        '三人先对当前设定项独立提出可直接选择的建议和理由；由老板选择或组合后，主编整理成单一候选供确认。不要直接开写，不自动改动已发生正文或正史。'
       ].join('\n'));
-      setNotice('已有正文已保存，主编已收到续写诊断任务。正在为你打开对话。');
+      setNotice('已有正文已保存，主编与两名编剧已收到设定整理任务。正在为你打开对话。');
       onOpenConversation();
     } catch (reason) {
       setNotice(`已有正文已经安全保存；主编接待暂未启动：${reason instanceof Error ? reason.message : '请稍后重试'}`);
@@ -1312,7 +1527,9 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       onImportChanged(result);
       setNotice(`导入完成：${result.importedChapterCount.toLocaleString('zh-CN')} 章已成为可追溯的前文正史。`);
       onImported();
-      await handoffToEditor(result);
+      const analysis = continuationAnalysisOf(result);
+      if (analysis.status === 'ready') await handoffToEditor(result);
+      else setNotice(`正文已安全保存。文姬正在逐章提炼设定、人物状态、事件和未回收线索（${analysis.analyzedChapterCount}/${analysis.totalChapterCount}），整理完成后再交给主编。`);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '导入没有完成；已保存的检查点不会重复写入。');
       try {
@@ -1322,18 +1539,49 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       } catch {
         // 保留当前预览，作者仍可重新提交；服务端会按检查点幂等恢复。
       }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const refreshAnalysis = async (): Promise<void> => {
+    if (preview === null || busy !== null) return;
+    setBusy('analyze'); setNotice(null);
+    try {
+      const currentAnalysis = continuationAnalysisOf(preview);
+      const result = currentAnalysis.status === 'failed' || currentAnalysis.status === 'not_started'
+        ? await analyzeContinuationImport(bookId, preview.importId)
+        : await fetchContinuationImport(bookId, preview.importId);
+      const analysis = continuationAnalysisOf(result);
+      setPreview(result);
+      onImportChanged(result);
+      if (analysis.status === 'ready') {
+        setNotice('逐章整理已经完成。主编会以已有正文为准，只确认缺口、冲突和接下来的创作方向。');
+      } else if (analysis.status === 'failed') {
+        setNotice(`逐章整理未完成：${analysis.errorMessage ?? '可点击重试；已经导入的正文不会回滚或丢失。'}`);
+      } else {
+        setNotice(`文姬正在逐章整理（${analysis.analyzedChapterCount}/${analysis.totalChapterCount}）。正文已经保存，可以稍后再查看进度。`);
+      }
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '没有取得最新整理进度。');
+    } finally {
       setBusy(null);
     }
   };
 
   const includedCount = preview?.chapters.filter((item) => item.included).length ?? 0;
+  const analysis = preview === null ? null : continuationAnalysisOf(preview);
+  const reverseOutlines = analysis === null ? [] : continuationChapterOutlinesOf(analysis);
   return <section className="continuation-import-shell">
-    <div className="continuation-import-panel">
-      <header>
-        <span className="eyebrow">续写已有作品</span>
-        <h2>先把前文放进文秘写作</h2>
-        <p>支持粘贴整本正文或选择 TXT。系统先识别章节供你核对；只有你确认后，才会逐章保存为不可变的前文正史。</p>
-        <button className="text-button continuation-new-book-link" type="button" onClick={onOpenConversation}>没有旧稿？回对话让主编从新书开始引导</button>
+    <div className="continuation-import-panel" id="continuation-import-panel">
+      <header className="continuation-import-header">
+        <div>
+          <span className="eyebrow">按需使用</span>
+          <h2>导入已有正文继续写</h2>
+          <p>这个入口只用于已有整本旧稿。系统先识别章节供你核对；日常导入请关闭本页，直接在左侧选择单章。</p>
+          <button className="text-button continuation-new-book-link" type="button" onClick={onOpenConversation}>不导入旧稿，回对话规划新书</button>
+        </div>
+        <button className="icon-button continuation-collapse-button" type="button" aria-label="关闭整本导入" disabled={busy === 'confirm' || busy === 'handoff'} onClick={onClose}><XIcon /></button>
       </header>
       <div className="continuation-source-actions">
         <label className="continuation-source-name">资料名称<input value={sourceName} maxLength={240} onChange={(event) => setSourceName(event.target.value)} disabled={busy !== null || preview !== null} /></label>
@@ -1366,7 +1614,8 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
           <label><input type="checkbox" checked={confirmed} disabled={busy !== null} onChange={(event) => setConfirmed(event.target.checked)} /><span>我已核对章节拆分；确认把所选正文作为这本书已经发生的前文正史。</span></label>
           <div>{preview.status === 'parsed' && <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setPreview(null); setConfirmed(false); setNotice(null); }}>返回修改原文</button>}<button className="primary-button" type="button" disabled={busy !== null || !confirmed || includedCount === 0} onClick={() => void confirmImport()}>{busy === 'confirm' ? '正在导入…' : preview.status === 'parsed' ? `确认导入 ${includedCount} 章` : '从检查点继续导入'}</button></div>
         </div>}
-        {preview.status === 'ready' && <div className="continuation-ready"><CheckCircleIcon /><div><strong>前文已安全导入</strong><span>共 {preview.importedChapterCount.toLocaleString('zh-CN')} 章，旧稿原文和来源校验均已保留。</span></div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void handoffToEditor(preview)}>{busy === 'handoff' ? '正在交接…' : '交给主编分析续写'}</button></div>}
+        {preview.status === 'ready' && analysis !== null && analysis.status !== 'ready' && <div className="continuation-ready"><ClockCountdownIcon /><div><strong>正文已保存，正在逐章整理</strong><span>{analysis.analyzedChapterCount.toLocaleString('zh-CN')} / {analysis.totalChapterCount.toLocaleString('zh-CN')} 章；整理失败也不会影响已导入正文。</span>{analysis.errorMessage !== null && <small>{analysis.errorMessage}</small>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void refreshAnalysis()}>{busy === 'analyze' ? '正在检查…' : analysis.status === 'failed' || analysis.status === 'not_started' ? '开始逐章整理' : '刷新整理进度'}</button></div>}
+        {preview.status === 'ready' && analysis?.status === 'ready' && <div className="continuation-ready"><CheckCircleIcon /><div><strong>前文与反向章纲均已准备好</strong><span>共 {preview.importedChapterCount.toLocaleString('zh-CN')} 章。人物状态、剧情事件、规则、线索和逐章章纲已经整理；这些是可重建参考，原文仍是权威来源。</span>{analysis.summary !== null && analysis.summary.trim().length > 0 && <details className="continuation-analysis-summary"><summary>查看前文章节摘要</summary><p>{analysis.summary}</p></details>}{reverseOutlines.length > 0 && <details className="continuation-reverse-outlines"><summary>查看逐章反向章纲（{reverseOutlines.length}章）</summary><div>{reverseOutlines.map((outline) => <article key={`${outline.chapterNumber ?? 'unknown'}-${outline.title}`}><h4>{outline.chapterNumber === null ? '' : `第${outline.chapterNumber}章 `}{outline.title}</h4><dl><div><dt>本章目标</dt><dd>{outline.chapterGoal || '原文没有足够信息'}</dd></div><div><dt>开场状态</dt><dd>{outline.openingState || '原文没有足够信息'}</dd></div><div><dt>出场人物</dt><dd><StructuredContent value={outline.cast} /></dd></div><div><dt>剧情推进</dt><dd><StructuredContent value={outline.plotBeats} /></dd></div><div><dt>主要冲突</dt><dd>{outline.centralConflict || '原文没有明确冲突'}</dd></div><div><dt>情绪变化</dt><dd><StructuredContent value={outline.emotionalArc} /></dd></div><div><dt>爽点与压力</dt><dd><StructuredContent value={outline.payoffOrPressure} /></dd></div><div><dt>伏笔与钩子</dt><dd><StructuredContent value={outline.threadActions} /></dd></div><div><dt>描写重点</dt><dd><StructuredContent value={outline.descriptionFocus} /></dd></div><div><dt>章末承接</dt><dd><StructuredContent value={outline.ending} /></dd></div></dl></article>)}</div></details>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void handoffToEditor(preview)}>{busy === 'handoff' ? '正在交接…' : '交给主编整理设定'}</button></div>}
       </>}
       {notice !== null && <p className="binding-status continuation-notice" role="status">{notice}</p>}
     </div>
@@ -1384,21 +1633,24 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   const [baselineContent, setBaselineContent] = useState('');
   const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
   const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState('保留已确认事实和人物声音，重新组织本章正文。');
-  const [busyAction, setBusyAction] = useState<'save' | 'rewrite' | 'finalize' | null>(null);
+  const [busyAction, setBusyAction] = useState<'save' | 'rewrite' | 'review' | 'reading' | 'delete' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const singleChapterFileRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     setDraft(reader?.content ?? '');
     setBaselineContent(reader?.content ?? '');
     setBaseVersionId(reader?.manuscriptVersionId ?? chapter.currentManuscriptVersionId ?? chapter.canonManuscriptVersionId);
     setNotice(null);
     setRewriteOpen(false);
+    setDeleteOpen(false);
   }, [chapter.chapterId, chapter.currentManuscriptVersionId, chapter.canonManuscriptVersionId, reader?.content, reader?.manuscriptVersionId]);
   const settled = chapter.settlementStatus === 'settled';
   const editable = !settled && reader !== null && !reader.offline;
   const hasVersion = baseVersionId !== null;
   const changed = reader !== null && draft !== baselineContent;
-  const perform = async (kind: 'save' | 'rewrite' | 'finalize'): Promise<void> => {
+  const perform = async (kind: 'save' | 'rewrite' | 'review', instruction = rewriteInstruction.trim()): Promise<void> => {
     const actionVersionId = baseVersionId;
     if (busyAction !== null || (kind !== 'save' && actionVersionId === null)) return;
     setBusyAction(kind); setNotice(null);
@@ -1410,15 +1662,15 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         setNotice(result.unchanged ? '正文没有变化。' : '修改已保存为新的不可变草稿版本，旧版本仍可追溯。');
       } else if (kind === 'rewrite') {
         if (actionVersionId === null) return;
-        const result = await rewriteChapter(bookId, chapter.chapterId, actionVersionId, rewriteInstruction.trim());
+        const result = await rewriteChapter(bookId, chapter.chapterId, actionVersionId, instruction);
         setRewriteOpen(false);
-        setNotice(`重写任务已进入队列（${shortId(result.taskId)}），完成后会生成新草稿，不覆盖当前版本。`);
+        setNotice(`优化任务已进入队列（${shortId(result.taskId)}），完成后会生成候选版本，不覆盖作者原文。`);
       } else {
         if (actionVersionId === null) return;
         const result = await finalizeChapter(bookId, chapter.chapterId, actionVersionId);
         setNotice(result.confirmationId === undefined
-          ? `定稿审校任务已进入队列（${shortId(result.taskId)}）。通过三席点评后仍需你确认，才会进入正史。`
-          : '本章已完成审校，正在等待你的最终确认。');
+          ? `AI点评与定稿审校已进入队列（${shortId(result.taskId)}）。点评完成后仍需你确认，才会进入正史。`
+          : '本章点评已经完成，正在等待你决定是否定稿。');
       }
       onChanged();
     } catch (reason) {
@@ -1427,23 +1679,81 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
       setBusyAction(null);
     }
   };
+  const readSingleChapter = async (file: File): Promise<void> => {
+    if (busyAction !== null || !editable) return;
+    setBusyAction('reading');
+    setNotice(null);
+    try {
+      if (!file.name.toLocaleLowerCase('zh-CN').endsWith('.txt') && file.type !== 'text/plain') throw new Error('请选择 TXT 纯文本文件。');
+      if (file.size > 2 * 1024 * 1024) throw new Error('单章文件过大，请确认只选择了当前一章。');
+      const text = await file.text();
+      if (text.trim().length === 0) throw new Error('文件中没有正文。');
+      if (text.length > 100_000) throw new Error('单章最多导入100,000个字符；整本旧稿请使用左侧批量识别入口。');
+      setDraft(text);
+      setNotice(`已把 ${file.name} 放入第${chapter.chapterNumber}章编辑区。请检查后点击保存，原文件不会被修改。`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '单章文件读取失败。');
+    } finally {
+      setBusyAction(null);
+      if (singleChapterFileRef.current !== null) singleChapterFileRef.current.value = '';
+    }
+  };
+  const withdrawCurrentDraft = async (): Promise<void> => {
+    if (busyAction !== null || !editable || baseVersionId === null || changed) return;
+    setBusyAction('delete');
+    setNotice(null);
+    try {
+      await withdrawOwnerManuscript(bookId, chapter.chapterId, baseVersionId);
+      setDraft('');
+      setBaselineContent('');
+      setBaseVersionId(null);
+      setDeleteOpen(false);
+      setRewriteOpen(false);
+      setNotice('当前正文已撤下；历史版本仍安全保留，不会被物理删除。');
+      onChanged();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '正文没有删除成功，请稍后重试。');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+  const expressionInstruction = '仅优化当前章的表达清晰度、节奏、场景衔接和句式变化；保留作者原意、已确认事实、人物动机、人物声音和情绪强度。不要擅自新增剧情、设定或结论，输出完整候选正文。';
+  const naturalInstruction = '对当前章做自然化润色，定位并减少模板化总结、空泛修辞、机械排比、重复解释、过度工整和同质句式；保留作者原意、剧情事实、人物声音、节奏与情绪力度。不得为了所谓去AI味故意加入错别字、病句、低俗口语或虚假细节，输出完整候选正文。';
+  const genericChapterTitle = `第${chapter.chapterNumber}章`;
+  const normalizedChapterTitle = chapter.title.trim().replace(/\s+/gu, '');
+  const displayChapterTitle = normalizedChapterTitle === genericChapterTitle
+    ? genericChapterTitle
+    : `${genericChapterTitle} · ${chapter.title.trim()}`;
   return (
     <article className="manuscript-view">
-      <header><span>第 {chapter.chapterNumber} 章</span><h2>{chapter.title}</h2><div>{settled ? <><CheckCircleIcon />正史已定稿</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</div></header>
-      {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
-        <p className="offline-note">{reader.offline ? <><WifiSlashIcon />离线缓存，只读</> : settled ? <><WifiHighIcon />已确认正史正文，只读</> : <><WifiHighIcon />当前草稿，可修改</>}</p>
-        {settled ? <div className="novel-text">{reader.content}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
-        {!settled && <div className="manuscript-actions">
-          <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : hasVersion ? '保存修改' : '保存草稿'}</button>
-          <button className="secondary-button" type="button" title={!hasVersion ? '先保存第一份正文草稿' : changed ? '请先保存当前修改' : '创建真实主笔重写任务'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>重写</button>
-          <button className="primary-button" type="button" title={!hasVersion ? '先保存第一份正文草稿' : changed ? '请先保存当前修改' : '提交硬检查、三席点评和老板确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('finalize')}>{busyAction === 'finalize' ? '提交中…' : '定稿'}</button>
+      {!settled && <input ref={singleChapterFileRef} className="visually-hidden" type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file !== undefined) void readSingleChapter(file); }} />}
+      <header>
+        <div className="manuscript-heading">
+          <h2>{displayChapterTitle}</h2>
+          <span>{settled ? <><CheckCircleIcon />正史已定稿</> : <><ClockCountdownIcon />{chapterStatus(chapter)}</>}</span>
+        </div>
+        {reader !== null && <div className="manuscript-header-tools">
+          <span>{reader.offline ? <><WifiSlashIcon />离线缓存，只读</> : settled ? <><WifiHighIcon />正史正文，只读</> : <><WifiHighIcon />草稿可直接粘贴修改</>}</span>
+          {!settled && <button className="secondary-button" type="button" disabled={!editable || busyAction !== null} onClick={() => singleChapterFileRef.current?.click()}><FileTextIcon />{busyAction === 'reading' ? '正在读取…' : '导入本章 TXT'}</button>}
         </div>}
-        {rewriteOpen && <div className="rewrite-panel"><label>重写要求<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '开始重写'}</button></div></div>}
+      </header>
+      {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
+        {settled ? <div className="novel-text">{reader.content}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" placeholder={`粘贴第${chapter.chapterNumber}章作者原文……`} value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
+        {!settled && <div className="manuscript-actions">
+          <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : hasVersion ? '保存修改' : '保存原文'}</button>
+          <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '生成表达优化候选，不覆盖原文'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', expressionInstruction)}><MagicWandIcon />优化表达</button>
+          <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '减少模板化AI腔，不故意制造错误'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', naturalInstruction)}>自然化（去AI腔）</button>
+          <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '填写本章专属优化要求'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>自定义优化</button>
+          <button className="primary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '提交三席点评；是否定稿仍由作者确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('review')}>{busyAction === 'review' ? '提交中…' : 'AI点评'}</button>
+          <button className="danger-text-button" type="button" title={!hasVersion ? '本章还没有已保存正文' : changed ? '请先保存或撤销当前未保存修改' : '从当前章节撤下正文，历史版本仍保留'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setDeleteOpen(true)}><TrashIcon />删除正文</button>
+        </div>}
+        {rewriteOpen && <div className="rewrite-panel"><label>自定义优化要求<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><p>只会生成新的候选版本；作者原文和历史版本都会保留。</p><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '生成优化候选'}</button></div></div>}
+        {deleteOpen && <div className="rewrite-panel manuscript-delete-panel" role="alertdialog" aria-label="确认删除当前正文"><strong>删除当前正文？</strong><p>正文会从本章编辑区撤下，但不可变历史版本仍会保留用于追溯，不会被物理删除。已经定稿进入正史的正文不能删除。</p><div><button className="secondary-button" type="button" disabled={busyAction !== null} onClick={() => setDeleteOpen(false)}>取消</button><button className="danger-button" type="button" disabled={busyAction !== null} onClick={() => void withdrawCurrentDraft()}>{busyAction === 'delete' ? '正在删除…' : '确认删除'}</button></div></div>}
         {!settled && <p className="manuscript-unsaved">{!hasVersion
-          ? '先输入或粘贴正文并保存第一稿，保存后才能重写或提交定稿审校。'
+          ? '先输入或导入当前章并保存作者原文，保存后才能点评或生成优化候选。'
           : changed
-            ? '正文有未保存修改。保存后才能重写或提交定稿审校。'
-            : '当前草稿已保存。重写会创建主笔任务，定稿会进入完整审校和老板确认。'}</p>}
+            ? '当前章有未保存修改。保存后才能点评或优化。'
+            : '作者原文已保存。所有AI处理都会生成候选版本，不会直接覆盖原文；点评完成后由你决定是否定稿。'}</p>}
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
       </>}
       {detail !== null && <ChapterProductionEvidence detail={detail} />}
@@ -1575,6 +1885,13 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
 ];
 
 const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup }> = [
+  { match: /言情|现言|恋爱|爱情|甜宠|婚恋|豪门|情感|青春/u, group: { key: 'romance-extension', title: '题材扩展：人物关系', description: '言情、都市情感和人物关系类作品按需启用。', items: [
+    { key: 'relationship-premise', label: '核心关系与吸引基础', prompt: '核心人物因什么相遇、持续接触并产生不可替代的吸引，关系成立的现实基础是什么？', source: '言情扩展', required: true },
+    { key: 'relationship-obstacle', label: '关系阻力与不可速解矛盾', prompt: '阻碍关系发展的内外矛盾是什么，为什么不能靠一次坦白或误会解除就解决？', source: '言情扩展', required: true },
+    { key: 'relationship-growth', label: '关系变化与双向成长', prompt: '双方的信任、依赖和边界如何逐步改变，各自需要付出什么真实代价？', source: '言情扩展' },
+    { key: 'emotional-boundaries', label: '情感边界与相处原则', prompt: '这段关系明确不能越过哪些人格、伦理和表达边界？', source: '言情扩展' },
+    { key: 'life-circle', label: '生活圈、职业与日常压力', prompt: '人物日常生活由哪些工作、家庭和社交关系构成，现实压力如何持续影响选择？', source: '都市言情扩展' }
+  ] } },
   { match: /游戏|电竞|网游|系统/u, group: { key: 'game-extension', title: '题材扩展：游戏规则', description: '由游戏相关分类或题材自动加入。', items: [
     { key: 'game-entry', label: '游戏世界接入方式', prompt: '通过头盔、穿越、现实融合还是其他方式进入，边界是什么？', source: '游戏扩展', required: true },
     { key: 'player-npc', label: '玩家与NPC边界', prompt: '玩家和NPC如何识别、互动、死亡和承担后果？', source: '游戏扩展', required: true },
@@ -1607,8 +1924,21 @@ const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup
     { key: 'case-rules', label: '案件与作案边界', prompt: '案件成立必须满足哪些客观条件，凶手能力边界是什么？', source: '悬疑扩展' },
     { key: 'evidence-chain', label: '证据链与验证规则', prompt: '哪些证据有效，如何验证、污染、隐藏或误导？', source: '悬疑扩展' },
     { key: 'truth-layers', label: '真相层级与公平线索', prompt: '读者何时能够接触关键线索，怎样避免事后补设定？', source: '悬疑扩展' }
+  ] } },
+  { match: /科幻|末世|星际|未来世界|赛博|机甲/u, group: { key: 'scifi-extension', title: '题材扩展：科技与未来', description: '由科幻、末世、星际、赛博或机甲题材按需启用。', items: [
+    { key: 'technology-boundary', label: '核心科技与能力边界', prompt: '核心科技能够做到什么、明确不能做到什么，使用者需要哪些前置条件？', source: '科幻扩展', required: true },
+    { key: 'science-cost', label: '技术代价与失效条件', prompt: '技术的能源、维护、伦理和失效代价是什么，为什么不能无限解决冲突？', source: '科幻扩展', required: true },
+    { key: 'social-impact', label: '科技的社会影响', prompt: '核心科技如何改变职业、阶层、治理、战争与普通人的生活？', source: '科幻扩展' },
+    { key: 'space-rules', label: '空间、星域与航行规则', prompt: '涉及星际或多空间时，距离、通信、航行和补给遵守什么客观限制？', source: '科幻扩展' }
   ] } }
 ];
+
+const ALL_SETTING_TEMPLATE_GROUPS: SettingOutlineGroup[] = [
+  ...BASE_SETTING_OUTLINE,
+  ...SETTING_EXTENSION_PACKS.map((pack) => pack.group)
+];
+
+type SettingReadinessView = Awaited<ReturnType<typeof fetchSettingReadiness>>;
 
 function PlanningWorkspace({ data, workspace, onDiscussSetting, onDiscussMasterOutline }: {
   data: unknown;
@@ -1729,58 +2059,95 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
   const [customGroupDraft, setCustomGroupDraft] = useState('本书扩展');
   const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
   const [contents, setContents] = useState<Record<string, string>>({});
+  const [profile, setProfile] = useState<SettingReadinessView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const hintText = templateHints.join('、');
-  const extensionGroups = SETTING_EXTENSION_PACKS
-    .filter((pack) => pack.match.test(hintText))
-    .map((pack) => pack.group);
   const customGroups = [...new Set(customItems.map((item) => item.groupTitle ?? '本书扩展'))].map((groupTitle, index) => ({
     key: `custom-${index}-${groupTitle}`,
     title: groupTitle,
     description: '由作者补充的本书专属设定项。',
     items: customItems.filter((item) => (item.groupTitle ?? '本书扩展') === groupTitle)
   }));
-  const groups: SettingOutlineGroup[] = [
-    ...BASE_SETTING_OUTLINE.slice(0, 3),
-    ...extensionGroups.filter((group) => group.key === 'history-extension'),
-    ...BASE_SETTING_OUTLINE.slice(3, 7),
-    ...extensionGroups.filter((group) => group.key !== 'history-extension'),
-    ...BASE_SETTING_OUTLINE.slice(7),
-    ...customGroups
-  ];
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleGroups = groups.map((group) => ({
+  const requiredKeys = new Set(profile?.required ?? []);
+  const recommendedKeys = new Set(profile?.recommended ?? []);
+  const alreadyUsedKeys = new Set([
+    ...Object.entries(statuses).filter(([, status]) => status !== '待讨论').map(([key]) => key),
+    ...Object.keys(contents)
+  ]);
+  const activeKeys = new Set([
+    ...requiredKeys,
+    ...recommendedKeys,
+    ...alreadyUsedKeys,
+    ...customItems.map((item) => item.key)
+  ]);
+  const activeTemplateGroups = ALL_SETTING_TEMPLATE_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => normalizedQuery.length === 0
-      || `${group.title}${item.label}${item.prompt}${item.source}`.toLocaleLowerCase().includes(normalizedQuery))
+    items: group.items.filter((item) => activeKeys.has(item.key))
+  })).filter((group) => group.items.length > 0);
+  const groups: SettingOutlineGroup[] = [...activeTemplateGroups, ...customGroups];
+  const requiredGroups = groups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => requiredKeys.has(item.key))
+  })).filter((group) => group.items.length > 0);
+  const recommendedGroups = groups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !requiredKeys.has(item.key))
+  })).filter((group) => group.items.length > 0);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const optionalGroups = ALL_SETTING_TEMPLATE_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !activeKeys.has(item.key) && (normalizedQuery.length === 0
+      || `${group.title}${item.label}${item.prompt}${item.source}`.toLocaleLowerCase().includes(normalizedQuery)))
   })).filter((group) => group.items.length > 0);
   const allItems = groups.flatMap((group) => group.items);
-  const confirmed = allItems.filter((item) => statuses[item.key] === '已确认').length;
+  const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
+  const confirmedRequired = [...requiredKeys].filter((key) => statuses[key] === '已确认').length;
+  const currentGuidanceItem = allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] === '讨论中')
+    ?? allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] !== '已确认');
+  const currentGuidanceGroup = currentGuidanceItem === undefined
+    ? undefined
+    : groups.find((group) => group.items.some((item) => item.key === currentGuidanceItem.key));
 
   useEffect(() => {
     if (bookId === null) {
       setCustomItems([]);
       setStatuses({});
       setContents({});
+      setProfile(null);
       return;
     }
     const controller = new AbortController();
-    const templateItems = groups.flatMap((group) => group.items.map((item) => ({
-      itemKey: item.key,
-      groupTitle: group.title,
-      label: item.label,
-      prompt: item.prompt,
-      sourceLabel: item.source,
-      custom: item.source === '作者自定义',
-      sortOrder: allItems.findIndex((candidate) => candidate.key === item.key)
-    })));
-    void fetchSettingOutlineWorkspace(bookId, controller.signal).then(async (items) => {
+    void Promise.all([
+      fetchSettingOutlineWorkspace(bookId, controller.signal),
+      fetchSettingReadiness(bookId)
+    ]).then(async ([items, readiness]) => {
+      if (controller.signal.aborted) return;
+      const normalizedReadiness: SettingReadinessView = {
+        ...readiness,
+        recommended: readiness.recommended ?? [],
+        profileKey: readiness.profileKey ?? 'common',
+        profileLabel: readiness.profileLabel ?? '通用故事'
+      };
+      setProfile(normalizedReadiness);
+      const initialKeys = new Set([...normalizedReadiness.required, ...normalizedReadiness.recommended]);
+      const templateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items
+        .filter((item) => initialKeys.has(item.key))
+        .map((item) => ({
+          itemKey: item.key,
+          groupTitle: group.title,
+          label: item.label,
+          prompt: item.prompt,
+          sourceLabel: item.source,
+          custom: false,
+          sortOrder: allTemplateItems.findIndex((candidate) => candidate.key === item.key)
+        })));
       const existingKeys = new Set(items.map((item) => item.itemKey));
       const missing = templateItems.filter((item) => !existingKeys.has(item.itemKey));
       const completeItems = missing.length === 0
         ? items
         : await initializeSettingOutlineWorkspace(bookId, missing);
+      if (controller.signal.aborted) return;
       setStatuses(Object.fromEntries(completeItems.map((item) => [item.itemKey, item.status])));
       setContents(Object.fromEntries(completeItems.flatMap((item) => item.content === null ? [] : [[item.itemKey, item.content]])));
       setCustomItems(completeItems.filter((item) => item.custom).map((item) => ({
@@ -1798,7 +2165,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
 
   const persistItem = (group: SettingOutlineGroup, item: SettingOutlineItem, status: SettingOutlineStatus, custom = false): void => {
     if (bookId === null) return;
-    const sortOrder = allItems.findIndex((candidate) => candidate.key === item.key);
+    const sortOrder = allTemplateItems.findIndex((candidate) => candidate.key === item.key);
     void saveSettingOutlineItem(bookId, {
       itemKey: item.key,
       groupTitle: group.title,
@@ -1807,7 +2174,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       sourceLabel: item.source,
       status,
       custom,
-      sortOrder: sortOrder < 0 ? allItems.length : sortOrder,
+      sortOrder: sortOrder < 0 ? allTemplateItems.length + customItems.length : sortOrder,
       content: contents[item.key] ?? null
     }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
   };
@@ -1852,8 +2219,8 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
   };
 
   const discussRequiredBatch = (): void => {
-    const pendingRequired = allItems.filter((item) => item.required === true && statuses[item.key] !== '已确认');
-    const targets = pendingRequired.slice(0, 5);
+    const pendingRequired = allItems.filter((item) => requiredKeys.has(item.key) && statuses[item.key] !== '已确认');
+    const targets = pendingRequired.slice(0, 3);
     if (targets.length === 0) {
       setNotice('当前阶段的必需设定已经全部确认。');
       return;
@@ -1927,7 +2294,8 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
     void fetchSettingReadiness(bookId).then((readiness) => {
       if (!readiness.ready) {
         const outstanding = [...readiness.missing, ...readiness.unresolved].slice(0, 12);
-        setNotice(`设定大纲还不能确认，请先处理：${outstanding.join('、') || '未完成项目'}`);
+        const labels = new Map(allTemplateItems.map((item) => [item.key, item.label]));
+        setNotice(`设定大纲还不能确认，请先处理：${outstanding.map((key) => labels.get(key) ?? key).join('、') || '未完成项目'}`);
         return;
       }
       return confirmSettingBaseline(bookId, planningState.version).then(async () => {
@@ -1939,42 +2307,67 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
     }).finally(() => setBusyKey(null));
   };
 
+  const addOptionalItem = (group: SettingOutlineGroup, item: SettingOutlineItem): void => {
+    setStatuses((current) => ({ ...current, [item.key]: '稍后补充' }));
+    persistItem(group, item, '稍后补充');
+    setNotice(`“${item.label}”已加入本书的建议完善清单，不会阻塞进入剧情规划。`);
+  };
+
+  const renderSettingGroups = (sectionGroups: SettingOutlineGroup[]): React.JSX.Element => <div className="setting-outline-list">
+    {sectionGroups.map((group) => <section key={group.key} className="setting-outline-group">
+      <header><div><small>{String(groups.findIndex((candidate) => candidate.key === group.key) + 1).padStart(2, '0')}</small><div><h4>{group.title}</h4><p>{group.description}</p></div></div><span>{group.items.length} 项</span></header>
+      <div>{group.items.map((item) => {
+        const index = allItems.findIndex((candidate) => candidate.key === item.key) + 1;
+        const status = statuses[item.key] ?? '待讨论';
+        const canDiscussNow = currentGuidanceItem === undefined || currentGuidanceItem.key === item.key;
+        return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
+          <strong className="setting-outline-index">{String(index).padStart(2, '0')}</strong>
+          <div className="setting-outline-copy">
+            <div><h5>{item.label}</h5><span>{item.source}{requiredKeys.has(item.key) ? ' · 本书必谈' : ' · 建议完善'}</span></div>
+            <p>{contents[item.key] ?? item.prompt}</p>
+          </div>
+          <select aria-label={`${item.label}状态`} value={status} onChange={(event) => {
+            const nextStatus = event.target.value as SettingOutlineStatus;
+            setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
+            persistItem(group, item, nextStatus, item.source === '作者自定义');
+          }}>
+            {(['待讨论', '讨论中', '候选待确认', '已确认', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value}>{value}</option>)}
+          </select>
+          <button className="setting-discuss-button" type="button" disabled={bookId === null || busyKey !== null || !canDiscussNow} onClick={() => discuss(group, item)}>{busyKey === item.key ? '正在启动…' : canDiscussNow ? '跳转讨论' : '按顺序等待'}</button>
+        </article>;
+      })}</div>
+    </section>)}
+  </div>;
+
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
-      <div><span>动态设定模板</span><h3>设定大纲</h3><p>按前置依赖从上到下讨论。模板足够完整，但允许稍后补充、刻意留白或标记不适用。</p></div>
-      <div className="setting-outline-progress"><strong>{confirmed} / {allItems.length}</strong><span>已确认</span><div><i style={{ width: `${allItems.length === 0 ? 0 : Math.round(confirmed / allItems.length * 100)}%` }} /></div><button className="secondary-button" type="button" disabled={bookId === null || busyKey !== null} onClick={discussRequiredBatch}>{busyKey === 'required-batch' ? '正在启动…' : '讨论全部必需设定'}</button></div>
+      <div><span>按书籍类型动态生成</span><h3>设定大纲</h3><p>先完成真正影响这本书的核心设定；建议项可后补，完整资料库只在需要时展开。</p></div>
+      <div className="setting-outline-progress"><strong>{confirmedRequired} / {requiredKeys.size}</strong><span>本书必谈已确认</span><div><i style={{ width: `${requiredKeys.size === 0 ? 0 : Math.round(confirmedRequired / requiredKeys.size * 100)}%` }} /></div>{currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <button className="secondary-button" type="button" disabled={bookId === null || busyKey !== null || profile === null} onClick={() => discuss(currentGuidanceGroup, currentGuidanceItem)}>{busyKey === currentGuidanceItem.key ? '正在启动…' : `继续当前项：${currentGuidanceItem.label}`}</button>}</div>
     </header>
-    <div className="setting-template-sources"><strong>本书模板：</strong>{templateHints.length === 0 ? <span>通用设定</span> : templateHints.slice(0, 12).map((hint) => <span key={hint}>{hint}</span>)}</div>
+    {currentGuidanceItem !== undefined && <aside className="planning-stage-banner setting-current-banner"><strong>当前只讨论：{currentGuidanceItem.label}</strong><span>{currentGuidanceItem.prompt}</span><small>主编会把您的回答整理成候选；您确认后，系统才会进入下一项。未完成设定前不会启动剧情总纲。</small></aside>}
+    <div className="setting-template-sources"><strong>本书类型：</strong><span>{profile?.profileLabel ?? '正在识别'}</span>{templateHints.slice(0, 8).map((hint) => <span key={hint}>{hint}</span>)}</div>
     <section className="setting-import compact">
       <div><h4>已有设定可以直接粘贴</h4><p>可选；没有现成资料就直接按下方清单讨论。</p></div>
       <textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="粘贴世界观、力量体系、人物设定、数值规则或完整策划案……" />
       <footer><span>{source.length}/10000</span><button className="secondary-button" type="button" disabled={busyKey !== null || bookId === null || source.trim().length === 0} onClick={submitSource}>{busyKey === 'source' ? '正在提交…' : '交给文姬拆解'}</button></footer>
     </section>
-    <label className="setting-search">搜索设定项<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：力量、死亡、装备、姓名、历史分歧点" /></label>
-    <div className="setting-outline-list">
-      {visibleGroups.map((group, groupIndex) => <section key={group.key} className="setting-outline-group">
-        <header><div><small>{String(groupIndex + 1).padStart(2, '0')}</small><div><h4>{group.title}</h4><p>{group.description}</p></div></div><span>{group.items.length} 项</span></header>
-        <div>{group.items.map((item) => {
-          const index = allItems.findIndex((candidate) => candidate.key === item.key) + 1;
-          const status = statuses[item.key] ?? '待讨论';
-          return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
-            <strong className="setting-outline-index">{String(index).padStart(2, '0')}</strong>
-            <div className="setting-outline-copy">
-              <div><h5>{item.label}</h5><span>{item.source}{item.required === true ? ' · 当前阶段重要' : ''}</span></div>
-              <p>{contents[item.key] ?? item.prompt}</p>
-            </div>
-            <select aria-label={`${item.label}状态`} value={status} onChange={(event) => {
-              const nextStatus = event.target.value as SettingOutlineStatus;
-              setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
-              persistItem(group, item, nextStatus, item.source === '作者自定义');
-            }}>
-              {(['待讨论', '讨论中', '候选待确认', '已确认', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value}>{value}</option>)}
-            </select>
-            <button className="setting-discuss-button" type="button" disabled={bookId === null || busyKey !== null} onClick={() => discuss(group, item)}>{busyKey === item.key ? '正在启动…' : '跳转讨论'}</button>
-          </article>;
-        })}</div>
-      </section>)}
-    </div>
+    <section className="setting-outline-section required">
+      <header><div><strong>本书必谈</strong><p>只包含不确认就会让当前题材失去方向或规则基础的项目。</p></div><span>{requiredKeys.size} 项</span></header>
+      {requiredGroups.length === 0 ? <p className="setting-empty-state">正在根据开书资料生成本书清单……</p> : renderSettingGroups(requiredGroups)}
+    </section>
+    <section className="setting-outline-section recommended">
+      <header><div><strong>建议完善</strong><p>能提升稳定性，但允许稍后补充、刻意留白或标记不适用，不阻塞剧情规划。</p></div><span>{recommendedGroups.reduce((total, group) => total + group.items.length, 0)} 项</span></header>
+      {recommendedGroups.length === 0 ? <p className="setting-empty-state">暂无建议项。</p> : renderSettingGroups(recommendedGroups)}
+    </section>
+    <details className="setting-optional-library">
+      <summary><span><strong>完整设定资料库</strong><small>需要特殊设定时再展开，未加入的条目不会进入待办或占用讨论上下文。</small></span><b>{optionalGroups.reduce((total, group) => total + group.items.length, 0)} 项可选</b></summary>
+      <label className="setting-search">搜索完整资料库<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：力量、死亡、装备、历史分歧点" /></label>
+      <div className="setting-library-groups">{optionalGroups.map((group) => <section key={group.key}>
+        <header><div><h4>{group.title}</h4><p>{group.description}</p></div><span>{group.items.length} 项</span></header>
+        <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><button type="button" disabled={bookId === null || busyKey !== null} onClick={() => addOptionalItem(group, item)}>加入本书</button></article>)}</div>
+      </section>)}</div>
+      {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
+    </details>
     <section className="custom-setting-builder">
       <header><div><h4>补充本书专属设定</h4><p>缺少的标签或整块内容都可以添加，加入后同样能够一键发起讨论。</p></div></header>
       <form onSubmit={(event) => {
@@ -2794,64 +3187,67 @@ function EmptyReference({ icon, title, description }: { icon: React.ReactNode; t
   return <div className="view-empty compact">{icon}<h3>{title}</h3><p>{description}</p></div>;
 }
 
-function ManuscriptChapterBrowser({ workspace, selectedChapterId, onSelect }: {
-  workspace: WorkspaceData; selectedChapterId: string | null; onSelect: (chapter: ChapterData) => void;
+function ManuscriptChapterBrowser({ workspace, selectedChapterId, onSelect, onCreateChapter, onOpenBatchImport, creatingChapter, batchImportActive }: {
+  workspace: WorkspaceData;
+  selectedChapterId: string | null;
+  onSelect: (chapter: ChapterData) => void;
+  onCreateChapter: () => void;
+  onOpenBatchImport: () => void;
+  creatingChapter: boolean;
+  batchImportActive: boolean;
 }): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
-  const [pages, setPages] = useState<Record<string, ChapterPageData>>({});
-  const [loadingPage, setLoadingPage] = useState<string | null>(null);
-  const activeRequests = useRef(new Set<AbortController>());
-  const derivedVolumes = workspace.volumes?.length ? workspace.volumes : Array.from(new Set(workspace.chapters.map((chapter) => chapter.volumeId ?? 'unassigned'))).map((volumeId, index) => ({
-    volumeId, volumeNumber: index + 1, title: '未命名卷', status: 'active',
-    chapterCount: workspace.chapters.filter((chapter) => (chapter.volumeId ?? 'unassigned') === volumeId).length,
-    settledCount: workspace.chapters.filter((chapter) => (chapter.volumeId ?? 'unassigned') === volumeId && chapter.settlementStatus === 'settled').length
-  }));
-  const totalChapters = derivedVolumes.reduce((sum, volume) => sum + volume.chapterCount, 0);
-  const searchMode = query.trim().length > 0 || status.length > 0;
-  const loadPage = useCallback((volumeId: string, offset = 0, searchQuery = query, searchStatus = status) => {
-    const key = volumeId === 'all' ? 'search' : volumeId;
+  const [page, setPage] = useState<ChapterPageData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const activeRequest = useRef<AbortController | null>(null);
+  const totalChapters = (workspace.volumes ?? []).reduce((sum, volume) => sum + volume.chapterCount, 0) || workspace.chapters.length;
+  const loadPage = useCallback((offset = 0, searchQuery = query, searchStatus = status) => {
+    activeRequest.current?.abort();
     const controller = new AbortController();
-    activeRequests.current.add(controller);
-    setLoadingPage(key);
-    void fetchVolumeChapters(workspace.book.bookId, volumeId, { offset, limit: 80, query: searchQuery, status: searchStatus, signal: controller.signal })
-      .then((page) => setPages((current) => ({ ...current, [key]: page })))
+    activeRequest.current = controller;
+    setLoading(true);
+    void fetchVolumeChapters(workspace.book.bookId, 'all', { offset, limit: 80, query: searchQuery, status: searchStatus, signal: controller.signal })
+      .then(setPage)
       .catch(() => undefined)
-      .finally(() => { activeRequests.current.delete(controller); setLoadingPage((current) => current === key ? null : current); });
+      .finally(() => { if (activeRequest.current === controller) { activeRequest.current = null; setLoading(false); } });
   }, [query, status, workspace.book.bookId]);
   useEffect(() => {
-    setPages({});
-    setQuery('');
-    setStatus('');
-    const first = derivedVolumes[0];
-    if (first !== undefined) loadPage(first.volumeId, 0, '', '');
-    return () => { for (const controller of activeRequests.current) controller.abort(); activeRequests.current.clear(); };
-  }, [workspace.book.bookId]);
+    setPage(null);
+    loadPage(0, query, status);
+    return () => activeRequest.current?.abort();
+  }, [workspace.book.bookId, totalChapters]);
   useEffect(() => {
-    if (!searchMode) return;
-    const timeout = window.setTimeout(() => loadPage('all', 0), 250);
+    const timeout = window.setTimeout(() => loadPage(0), 250);
     return () => window.clearTimeout(timeout);
   }, [query, status]);
-  const chapterButton = (chapter: ChapterData): React.JSX.Element => <button className={selectedChapterId === chapter.chapterId ? 'chapter-button active' : 'chapter-button'} type="button" key={chapter.chapterId} onClick={() => onSelect(chapter)}>
-    <span className={`chapter-state ${chapter.settlementStatus}`} aria-hidden="true" />
-    <span><strong>{chapter.chapterNumber}. {chapter.title}</strong><small>{chapterStatus(chapter, workspace.tasks)}</small></span>
-  </button>;
-  const pager = (volumeId: string, page: ChapterPageData | undefined): React.JSX.Element | null => page === undefined || page.total <= page.limit ? null : <div className="chapter-pager" aria-label="章节分页">
-    <button type="button" disabled={page.offset === 0 || loadingPage !== null} onClick={() => loadPage(volumeId, Math.max(0, page.offset - page.limit))}>上一页</button>
+  const chapterButton = (chapter: ChapterData): React.JSX.Element => {
+    const numberedPlaceholder = /^第\s*[一二三四五六七八九十百千万零〇两\d]+\s*章$/u.test(chapter.title.trim());
+    const label = numberedPlaceholder ? chapter.title.trim() : `${chapter.chapterNumber}. ${chapter.title}`;
+    return <button className={selectedChapterId === chapter.chapterId ? 'chapter-button active' : 'chapter-button'} type="button" key={chapter.chapterId} onClick={() => onSelect(chapter)}>
+      <span className={`chapter-state ${chapter.settlementStatus}`} aria-hidden="true" />
+      <span><strong>{label}</strong><small>{chapterStatus(chapter, workspace.tasks)}</small></span>
+    </button>;
+  };
+  const pager = page === null || page.total <= page.limit ? null : <div className="chapter-pager" aria-label="章节分页">
+    <button type="button" disabled={page.offset === 0 || loading} onClick={() => loadPage(Math.max(0, page.offset - page.limit))}>上一页</button>
     <span>{page.offset + 1}-{Math.min(page.total, page.offset + page.items.length)} / {page.total}</span>
-    <button type="button" disabled={page.offset + page.items.length >= page.total || loadingPage !== null} onClick={() => loadPage(volumeId, page.offset + page.limit)}>下一页</button>
+    <button type="button" disabled={page.offset + page.items.length >= page.total || loading} onClick={() => loadPage(page.offset + page.limit)}>下一页</button>
   </div>;
   return <section className="manuscript-chapter-browser" aria-label="正文章节列表">
-    <div className="manuscript-chapter-browser-heading"><span>章节列表</span><small>{totalChapters} 章</small></div>
+    <div className="manuscript-chapter-browser-heading"><span>章节列表</span><small>{page?.total ?? totalChapters} 章</small></div>
+    <div className="manuscript-browser-actions">
+      {totalChapters > 0 && <button className="primary-button" type="button" disabled={creatingChapter} onClick={onCreateChapter}><PlusIcon />{creatingChapter ? '正在添加…' : '新增下一章'}</button>}
+      <button className="secondary-button" type="button" onClick={onOpenBatchImport}><FileTextIcon />{batchImportActive ? '继续整本导入' : '批量识别整本TXT'}</button>
+    </div>
     {totalChapters > 20 && <div className="chapter-filter"><label className="chapter-search"><MagnifyingGlassIcon /><span className="sr-only">搜索章节、人物或状态</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="章节、人物或标题" /></label><select aria-label="按章节状态筛选" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option><option value="planned">已规划</option><option value="working">写作中</option><option value="review">待点评</option><option value="settled">已结算</option><option value="blocked">受阻</option></select></div>}
-    {searchMode ? <div className="chapter-search-results">{loadingPage === 'search' && <p className="rail-empty">正在定位章节</p>}{pages.search?.items.map(chapterButton)}{pages.search !== undefined && pages.search.items.length === 0 && <p className="rail-empty">没有符合条件的章节。</p>}{pager('all', pages.search)}</div> : derivedVolumes.map((volume) => {
-      const page = pages[volume.volumeId];
-      return <details className="volume-group" key={volume.volumeId} open={selectedChapterId !== null && page?.items.some((chapter) => chapter.chapterId === selectedChapterId) || volume.volumeNumber === derivedVolumes[0]?.volumeNumber}>
-        <summary onClick={() => { if (pages[volume.volumeId] === undefined) loadPage(volume.volumeId); }}><span><strong>第 {volume.volumeNumber} 卷</strong><small>{volume.title}</small></span><em>{volume.settledCount}/{volume.chapterCount}</em></summary>
-        <div className="volume-chapters">{loadingPage === volume.volumeId && page === undefined ? <p className="rail-empty">正在加载本卷</p> : page?.items.map(chapterButton)}{pager(volume.volumeId, page)}</div>
-      </details>;
-    })}
-    {totalChapters === 0 && <p className="record-empty">章节尚未规划。先在对话中自然讨论剧情与跨度。</p>}
+    <div className="chapter-search-results">
+      {loading && page === null && <p className="rail-empty">正在加载章节</p>}
+      {page?.items.map(chapterButton)}
+      {page !== null && page.items.length === 0 && totalChapters > 0 && <p className="rail-empty">没有符合条件的章节。</p>}
+      {totalChapters === 0 && <button className="chapter-button chapter-button-placeholder" type="button" disabled={creatingChapter} onClick={onCreateChapter}><span className="chapter-state planned" aria-hidden="true" /><span><strong>{creatingChapter ? '正在添加第1章…' : '第1章'}</strong><small>等待导入作者原文</small></span></button>}
+      {pager}
+    </div>
   </section>;
 }
 
@@ -3013,6 +3409,79 @@ function ConfirmationsPanel({ bookId, workspace, busy, onDecide }: {
   );
 }
 
+function ProtectedPromptViewer({ roleKey, configured, bookId, agentId }: {
+  roleKey: string;
+  configured: boolean;
+  bookId?: string;
+  agentId?: string;
+}): React.JSX.Element {
+  const [password, setPassword] = useState('');
+  const [result, setResult] = useState<ProtectedRolePromptData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const unlock = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (password.length === 0 || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await fetchProtectedRolePrompt({
+        password,
+        roleKey,
+        ...(bookId === undefined ? {} : { bookId }),
+        ...(agentId === undefined ? {} : { agentId })
+      });
+      setResult(next);
+      setPassword('');
+    } catch (reason) {
+      setResult(null);
+      setPassword('');
+      setError(reason instanceof Error ? reason.message : '完整提示词暂时无法查看');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (result !== null) {
+    return <section className="protected-prompt-view" aria-label={`${result.identity}完整提示词`}>
+      <div className="protected-prompt-heading">
+        <span><h3>完整运行提示词</h3><p>{result.note}</p></span>
+        <button className="secondary-button" type="button" onClick={() => setResult(null)}>锁定</button>
+      </div>
+      <div className="protected-prompt-variants">
+        {result.variants.map((variant) => <details key={variant.purpose} open={result.variants.length === 1}>
+          <summary>{variant.label}</summary>
+          <pre>{variant.prompt}</pre>
+        </details>)}
+      </div>
+    </section>;
+  }
+
+  return <section className="protected-prompt-view locked">
+    <div className="protected-prompt-heading">
+      <span><h3><EyeIcon />查看完整提示词</h3><p>完整内容受密码保护，不会提前发送到浏览器，也不会保存查看密码。</p></span>
+    </div>
+    {!configured ? <p className="protected-prompt-unconfigured">管理员尚未设置查看密码，请先配置 WENMI_PROMPT_VIEW_PASSWORD 并重启应用。</p> : (
+      <form className="protected-prompt-form" onSubmit={(event) => void unlock(event)}>
+        <label htmlFor={`prompt-password-${roleKey}-${agentId ?? 'template'}`}>完整提示词查看密码</label>
+        <div>
+          <input
+            id={`prompt-password-${roleKey}-${agentId ?? 'template'}`}
+            type="password"
+            autoComplete="off"
+            value={password}
+            maxLength={1024}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button className="primary-button" type="submit" disabled={loading || password.length === 0}>{loading ? '验证中…' : '解锁查看'}</button>
+        </div>
+      </form>
+    )}
+    {error !== null && <p className="inline-error" role="alert">{error}</p>}
+  </section>;
+}
+
 function TeamWorkspace({ bookId, workspace, onError }: {
   bookId: string;
   workspace: WorkspaceData | null;
@@ -3088,7 +3557,11 @@ function TeamWorkspace({ bookId, workspace, onError }: {
             return <button className={item.agentId === selectedId ? 'team-member-card active' : 'team-member-card'} type="button" key={item.agentId} onClick={() => setSelectedId(item.agentId)}>
               <AgentAvatar roleKey={item.roleKey} roleName={memberIdentity(item)} />
               <span><strong>{memberIdentity(item)}</strong><small>{item.publicSummary ?? item.roleName}</small></span>
-              <i>{task === null ? (item.activationState === 'standby' ? '待命' : '空闲') : '工作中'}</i>
+              <i>{item.availability === 'unavailable' || item.activationState === 'disabled'
+                ? '模型不可用'
+                : task === null
+                  ? (item.activationState === 'standby' ? '在线·待命' : '在线·空闲')
+                  : '有活动任务'}</i>
             </button>;
           })}
         </nav>
@@ -3108,11 +3581,18 @@ function TeamWorkspace({ bookId, workspace, onError }: {
             </div>
             <section className="default-prompt-view">
               <div>
-                <h3>默认岗位提示词</h3>
-                <p>这是成员始终携带的公开岗位要求，只读。内部安全门禁和输出协议不会在作者界面展开。</p>
+                <h3>岗位表达</h3>
+                <p>默认只显示容易理解的岗位身份和主要职责。</p>
               </div>
-              <pre>{member.defaultPrompt}</pre>
+              <p>{member.roleStatement}</p>
             </section>
+            <ProtectedPromptViewer
+              key={`${bookId}-${member.agentId}`}
+              roleKey={member.roleKey}
+              configured={config.promptPolicy.fullPromptAccess?.configured ?? false}
+              bookId={bookId}
+              agentId={member.agentId}
+            />
             <section className="prompt-editor">
               <div className="prompt-editor-heading">
                 <span><h3>{config.promptPolicy.editableLabel}</h3><p>{config.promptPolicy.priority}</p></span>
@@ -3198,20 +3678,20 @@ function activeTaskForAgent(workspace: WorkspaceData | null, agentId: string): T
 }
 
 function agentPresence(agent: AgentData, task: TaskData | null, worker: WorkerData | null): { label: string; className: string } {
-  if (agent.activationState === 'disabled') return { label: '离线', className: 'offline' };
-  if (agent.activationState === 'paused') return { label: '暂停', className: 'standby' };
+  if (agent.availability === 'unavailable' || agent.activationState === 'disabled') return { label: '模型不可用', className: 'offline' };
+  if (agent.activationState === 'paused') return { label: '在线·暂停', className: 'standby' };
   if (task === null) return agent.activationState === 'standby'
-    ? { label: '待命', className: 'standby' }
-    : { label: '空闲', className: 'standby' };
+    ? { label: '在线·待命', className: 'standby' }
+    : { label: '在线·空闲', className: 'standby' };
   // P0-2 / R02: blocked/interrupted 不表示成员正在工作，只显示在任务中心，
   // 不把成员伪装成持续工作或“需要处理”；waiting_confirmation 显示等待老板。
-  if (task.status === 'waiting_confirmation') return { label: '待老板确认', className: 'standby' };
-  if (task.status === 'blocked' || task.status === 'interrupted') return { label: '待命', className: 'standby' };
-  if (task.status === 'queued' || task.status === 'pending') return { label: '排队中', className: 'queued' };
+  if (task.status === 'waiting_confirmation') return { label: '在线·待老板确认', className: 'standby' };
+  if (task.status === 'blocked' || task.status === 'interrupted') return { label: '在线·任务待恢复', className: 'blocked' };
+  if (task.status === 'queued' || task.status === 'pending') return { label: '在线·排队中', className: 'queued' };
   if (task.status === 'working' && worker?.status === 'ready' && worker.worker?.currentTaskId === task.taskId) {
     return { label: '后台工作中', className: 'working' };
   }
-  return { label: '需要处理', className: 'blocked' };
+  return { label: '在线·任务待恢复', className: 'blocked' };
 }
 
 function BookshelfHome({
@@ -3270,7 +3750,8 @@ function TeamTemplateWorkspace({ data, books, onManageBook }: { data: TeamTempla
         <DetailList title="工作边界" values={selected.boundaries} />
         <DetailList title="检索重点" values={selected.retrievalFocus} />
         <section><h4>默认模型</h4><p>{modelProviderLabel(selected.defaultModel.provider)} · {selected.defaultModel.modelId}</p></section>
-        <section><h4>公开默认提示词</h4><pre>{selected.defaultPrompt}</pre></section>
+        <section><h4>岗位表达</h4><p>{selected.roleStatement}</p></section>
+        <ProtectedPromptViewer key={selected.roleKey} roleKey={selected.roleKey} configured={data.fullPromptAccess?.configured ?? false} />
       </article>}
     </div>
   </section>;
@@ -3541,6 +4022,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [taxonomy, setTaxonomy] = useState<OpeningTaxonomyData | null>(null);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
+  const [creationMode, setCreationMode] = useState<'new' | 'continuation'>('new');
   const [channel, setChannel] = useState<OpeningChannel | null>(null);
   const [categoryKey, setCategoryKey] = useState<string | null>(null);
   const [mainTags, setMainTags] = useState<string[]>([]);
@@ -3559,6 +4041,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
   const [mustFollowText, setMustFollowText] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const validationSummaryRef = useRef<HTMLDivElement>(null);
   const automaticTagSignature = useRef('');
   const automaticTagValues = useRef<string[]>([]);
   const automaticTagCategory = useRef<string | null>(null);
@@ -3701,9 +4184,33 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const submit = (): void => {
     if (!valid || taxonomy === null || channel === null || category === null) {
       setSubmitAttempted(true);
+      window.requestAnimationFrame(() => {
+        const firstMissingTarget = taxonomy === null
+          ? null
+          : title.trim().length === 0
+            ? document.getElementById('complete-book-title')
+            : channel === null
+              ? document.querySelector<HTMLInputElement>('input[name="complete-book-channel"]')
+              : category === null
+                ? document.getElementById('opening-category-section')
+                : mainTags.length < 2
+                  ? document.getElementById('opening-tag-search')
+                  : protagonists.flatMap((item, index) => [
+                      ...(item.name.trim().length === 0 ? [index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`] : []),
+                      ...(item.age.trim().length === 0 ? [index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`] : []),
+                      ...(item.background.trim().length === 0 ? [index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`] : [])
+                    ]).map((id) => document.getElementById(id)).find((element) => element !== null)
+                    ?? (protagonists.some((item) => item.personalities.length === 0) ? document.getElementById('opening-protagonist-section') : null)
+                    ?? (storyDirection.trim().length < 20 ? document.getElementById('opening-story-direction') : null)
+                    ?? document.getElementById('must-follow');
+        const target = firstMissingTarget ?? validationSummaryRef.current;
+        target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+      });
       return;
     }
     const openingBlueprint: OpeningBlueprintData = {
+      creationMode,
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
@@ -3734,10 +4241,25 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第一步 · 基本信息</span><h2 id="complete-create-book-title">创建一本新书</h2><p>这里只确定作品定位。建书后由主编先引导完善设定大纲，再讨论剧情。</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第一步 · 基本信息</span><h2 id="complete-create-book-title">创建一本新书</h2><p>{creationMode === 'continuation' ? '先建立书籍档案，建书后直接导入已有正文，再按章拆解已有内容。' : '这里只确定作品定位。建书后由主编先引导完善设定大纲，再讨论剧情。'}</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
       <div className="complete-create-book-body">
+        {submitAttempted && missingRequirements.length > 0 && <div className="create-book-validation-summary" role="alert" aria-live="assertive" tabIndex={-1} ref={validationSummaryRef}>
+          <strong>还不能创建，请先补充以下开书资料</strong>
+          <span>{missingRequirements.join('、')}</span>
+        </div>}
+        <section className="opening-form-section creation-mode-section">
+          <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div><small>请选择一种</small></div>
+          <div className="creation-mode-options">
+            <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
+              <strong>从零创作</strong><span>先完善设定大纲，再规划阶段剧情和正文。</span>
+            </button>
+            <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
+              <strong>已有正文续写</strong><span>建书后直接进入正文，导入并逐章拆解已有内容。</span>
+            </button>
+          </div>
+        </section>
         <div className="opening-primary-stack">
-          <section className="opening-form-section">
+          <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
@@ -3758,7 +4280,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           })}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
           </section>
-          <section className="opening-form-section">
+          <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
             {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
               <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
@@ -3814,7 +4336,7 @@ function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
           </details>
         </section>
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · 建书后由主编接待并进入设定大纲</span>{missingRequirements.length > 0 && <small className="create-book-requirements" role={submitAttempted ? 'alert' : undefined}>{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : '创建并进入设定'}</button></div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · {creationMode === 'continuation' ? '建书后直接导入已有正文' : '建书后由主编接待并进入设定大纲'}</span>{missingRequirements.length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button></div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>

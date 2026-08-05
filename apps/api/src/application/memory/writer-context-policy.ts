@@ -1,9 +1,10 @@
 export const WRITER_CONTEXT_POLICY = Object.freeze({
   draft: Object.freeze({
-    characterBudget: 4_200,
-    tokenBudget: 4_200,
-    policyVersion: 'writer-draft-context-v3-chapter-outline-v2-4200chars',
+    characterBudget: 4_800,
+    tokenBudget: 4_800,
+    policyVersion: 'writer-draft-context-v5-opening-profile-continuity-4800chars',
     workOrderMaximum: 1_500,
+    openingProfileMaximum: 650,
     stageSettlementMaximum: 600,
     previousStateMaximum: 400,
     previousTailMaximum: 500,

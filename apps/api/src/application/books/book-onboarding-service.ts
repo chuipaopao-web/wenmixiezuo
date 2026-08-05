@@ -19,6 +19,7 @@ import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../contracts/op
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
 import { TaskService } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
+import { SettingGuidanceService } from '../knowledge/setting-guidance-service.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -88,9 +89,11 @@ export class BookOnboardingService {
     const storyBibleVersionId = this.ids.next();
     const conversationId = this.ids.next();
     const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
+    const isContinuation = draft.openingBlueprint?.creationMode === 'continuation';
     const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
     const onboardingTriggerMessageId = this.ids.next();
     const kickoffTaskId = this.ids.next();
+    const kickoffDiscussionId = this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
 
     this.database.exec('BEGIN IMMEDIATE');
@@ -220,28 +223,69 @@ export class BookOnboardingService {
         UPDATE books SET positioning_version = 1, active_editor_agent_id = ?, editor_epoch = 1,
           updated_at = ? WHERE owner_id = ? AND book_id = ?
       `).run(editor.agent_id, now, scope.ownerId, draft.proposedBookId);
-      if (this.releaseId !== undefined) {
-        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint);
+      const settingGuidance = draft.openingBlueprint === null || isContinuation
+        ? null
+        : new SettingGuidanceService(this.database, this.ids, this.clock)
+            .ensureInitialized(bookScope, draft.openingBlueprint);
+      if (this.releaseId !== undefined && !isContinuation) {
+        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label);
         this.database.prepare(`
           INSERT INTO messages (
             message_id, conversation_id, owner_id, book_id, sender_type,
             message_type, content, references_json, created_at
           ) VALUES (?, ?, ?, ?, 'system', 'onboarding_trigger', ?, '[]', ?)
         `).run(onboardingTriggerMessageId, conversationId, scope.ownerId, draft.proposedBookId, kickoffContent, now);
+        const screenwriters = this.database.prepare(`
+          SELECT a.agent_id, a.model_snapshot_id, r.role_key
+          FROM agent_instances a
+          JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+          WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+            AND r.role_key IN ('lead_screenwriter', 'second_screenwriter')
+          ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 ELSE 1 END
+        `).all(scope.ownerId, draft.proposedBookId) as unknown as Array<{
+          agent_id: string;
+          model_snapshot_id: string;
+          role_key: string;
+        }>;
+        if (screenwriters.length !== 2) throw new Error('策划理念独立提案必须有两名真实编剧');
+        this.database.prepare(`
+          INSERT INTO discussions (
+            discussion_id, owner_id, book_id, discussion_type, scope_text, status,
+            call_limit, token_limit, created_by_agent_id, created_at, updated_at
+          ) VALUES (?, ?, ?, 'quick', ?, 'collecting', 3, 40000, ?, ?, ?)
+        `).run(kickoffDiscussionId, scope.ownerId, draft.proposedBookId, kickoffContent, editor.agent_id, now, now);
+        const insertParticipant = this.database.prepare(`
+          INSERT INTO discussion_participants (
+            discussion_id, owner_id, book_id, agent_id, invited_reason, model_snapshot_id
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        insertParticipant.run(
+          kickoffDiscussionId, scope.ownerId, draft.proposedBookId, editor.agent_id,
+          '活动主编独立提出编辑视角的策划理念', editor.model_snapshot_id
+        );
+        for (const screenwriter of screenwriters) {
+          insertParticipant.run(
+            kickoffDiscussionId, scope.ownerId, draft.proposedBookId, screenwriter.agent_id,
+            '编剧独立提出策划理念，不读取其他成员答案', screenwriter.model_snapshot_id
+          );
+        }
         const taskService = new TaskService(this.database, this.requireReleaseId(), this.clock);
         taskService.create(bookScope, {
           taskId: kickoffTaskId,
-          taskType: 'conversation_reply',
+          taskType: 'discussion',
           assignedAgentId: editor.agent_id,
           idempotencyKey: `onboarding-kickoff:${draft.proposedBookId}`,
           budgetId,
           requiredEditorEpoch: 1,
-          initialPhase: 'reply',
+          initialPhase: 'collecting',
           brief: {
+            discussionId: kickoffDiscussionId,
+            scopeText: kickoffContent,
             conversationId,
-            messageId: onboardingTriggerMessageId,
-            content: kickoffContent,
-            modelSnapshotId: editor.model_snapshot_id,
+            purpose: 'setting_proposal_panel',
+            settingItemKey: 'creative-concept',
+            settingItemLabel: '策划理念',
+            requestedChapterCount: null,
             proactiveOnboarding: true,
             openingBlueprintId
           }
@@ -265,7 +309,7 @@ export class BookOnboardingService {
         expressionProfileId,
         activeEditorAgentId: editor.agent_id,
         openingBlueprintId,
-        kickoffTaskId: this.releaseId === undefined ? null : kickoffTaskId,
+        kickoffTaskId: this.releaseId === undefined || isContinuation ? null : kickoffTaskId,
         agentCount: createdTeam.length
       };
     } catch (error) {
@@ -386,9 +430,9 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     deputy_editor: profiles.continuity,
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
-    setting: profiles.continuity,
+    setting: profiles.style_editor,
     lead_writer: profiles.writer,
-    backup_writer: profiles.continuity,
+    backup_writer: profiles.chief_editor,
     literary_reviewer: profiles.reviewer,
     experience_reviewer: profiles.reader_experience,
     researcher: profiles.researcher,
@@ -440,9 +484,39 @@ function storyBibleSkeleton(
   };
 }
 
-function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null): string {
+function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null, firstSettingLabel?: string): string {
   if (blueprint === null) {
     return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
   }
-  return `《${title}》已完成作品基本信息。请读取本任务唯一的开书快照来源，并把其中的故事方向视为可讨论、可修订的软规划参考，而不是已发生正史。请以活动主编身份主动进入“设定大纲”阶段：先用一句话说明你对这个方向的理解，再提出1至3个最有价值的设定问题，优先建立足以支撑该方向的世界规则、人物基础或核心机制。分类、题材和标签只是可用方向，不得机械拼接；如果故事方向与必须遵守项冲突，明确指出并请老板决定；如果有更好的偏离方案，可以说明收益和代价，但不得静默改写老板原意。允许回答“不知道”“稍后补充”或“刻意留白”。不要直接生成剧情总纲、章纲或正文，不要启动编剧和主笔。`;
+  const categoryName = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey)?.name
+    ?? blueprint.categoryKey;
+  const protagonistSummary = blueprint.protagonists.length === 0
+    ? '暂未填写'
+    : blueprint.protagonists.map((item) => [
+      `${item.name || '未命名角色'}（${item.role}，${item.age || '年龄未定'}）`,
+      item.background?.trim(),
+      item.personalities.length > 0 ? `性格：${item.personalities.join('、')}` : ''
+    ].filter(Boolean).join('；')).join('；');
+  const creativeTags = [
+    ...(blueprint.auxiliaryTags ?? []),
+    ...(blueprint.mainTags ?? []),
+    ...(blueprint.customTags ?? [])
+  ].filter(Boolean);
+  const openingReference = [
+    `频道：${blueprint.channel}`,
+    `分类：${categoryName}`,
+    `主角：${protagonistSummary}`,
+    `故事方向（可修改的软参考）：${blueprint.storyDirection || '暂未填写'}`,
+    `创意线索：${creativeTags.length > 0 ? creativeTags.join('、') : '暂未填写'}`,
+    `必须遵守：${(blueprint.mustFollow ?? []).length > 0 ? (blueprint.mustFollow ?? []).join('；') : '无额外限制'}`
+  ].join('\n');
+  return [
+    '【策划理念三席独立提案】',
+    `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '策划理念'}”。`,
+    '请读取本任务唯一的开书快照来源。故事方向只是可讨论、可修订的软规划参考，不是已发生正史；分类、题材和标签只是创意线索，不得机械拼接。',
+    openingReference,
+    '活动主编与两名编剧分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么策划理念？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。',
+    '三人互相看不到答案，不交叉质疑、不投票、不综合，也不替作者确认。每人只给一个自然、具体、容易理解的候选。',
+    '不要展开具体剧情，不生成剧情总纲、章纲或正文，不启动主笔。三份候选全部展示给作者后，等待作者选择其中一份、组合指定内容，或直接提交自己的版本。'
+  ].join('\n');
 }

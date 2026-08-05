@@ -451,7 +451,6 @@ export class CanonService {
       this.insertDerivedMemory(scope, endMemoryId, 'chapter_end', stableJson(chapterEndState), 'chapter_end_state', chapterEndStateId, nextRevision, book.positioning_version, now);
       this.invalidateDerivedState(scope, nextRevision, now);
       this.rebuildProjectionsWithinTransaction(scope, nextRevision, activeFacts, now);
-      new NarrativeProjectionService(this.database, this.ids, this.clock).rebuild(scope);
       this.updateLongformContinuity(scope, {
         chapterId,
         manuscriptVersionId,
@@ -460,6 +459,10 @@ export class CanonService {
         chapterEndState,
         additions
       });
+      // The stage settlement can be created while advancing longform continuity.
+      // Rebuild narrative projections afterwards so the author-facing graph reflects
+      // the newly closed story arc in the same atomic settlement.
+      new NarrativeProjectionService(this.database, this.ids, this.clock).rebuild(scope);
       this.database.prepare(`
         INSERT INTO canon_index_requests (
           canon_index_request_id, owner_id, book_id, canon_revision, source_chapter_id,
@@ -644,6 +647,34 @@ export class CanonService {
         canonRevision: input.canonRevision
       });
     }
+
+    const activeMaster = this.database.prepare(`
+      SELECT v.content_json
+      FROM artifacts a
+      JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type = 'master_outline'
+        AND a.status = 'active' AND v.status = 'selected'
+      ORDER BY v.version DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as { content_json: string } | undefined;
+    if (activeMaster !== undefined) {
+      const content = JSON.parse(activeMaster.content_json) as Record<string, unknown>;
+      const stages = Array.isArray(content.majorStages) ? content.majorStages : [];
+      const completedStage = stages.find((candidate) => {
+        if (candidate === null || typeof candidate !== 'object') return false;
+        const chapterRange = (candidate as Record<string, unknown>).chapterRange;
+        return chapterRange !== null
+          && typeof chapterRange === 'object'
+          && Number((chapterRange as Record<string, unknown>).end) === chapter.chapter_number;
+      }) as Record<string, unknown> | undefined;
+      if (completedStage !== undefined && continuityRepository.latestStageEnd(scope, 'story_arc') < chapter.chapter_number) {
+        new StageSettlementService(
+          continuityRepository,
+          new UnitOfWork(this.database),
+          this.ids,
+          this.clock
+        ).closeCurrentStoryArc(scope, typeof completedStage.title === 'string' ? completedStage.title : `第${chapter.chapter_number}章结束的剧情阶段`);
+      }
+    }
   }
 
   private rebuildProjectionsWithinTransaction(scope: BookScope, revision: number, facts: FactRow[], now: string): void {
@@ -775,7 +806,25 @@ function normalizeRelationshipProjection(
     };
   }
 
-  const endpoints = subject.canonical_name.split(/\s*(?:与|和)\s*/u).filter(Boolean);
+  if (explicitTargetName !== null) {
+    const mentionedTargets = [...entitiesByName.values()]
+      .filter((entity) => entity.entity_id !== subject.entity_id)
+      .filter((entity) => explicitTargetName.includes(entity.canonical_name))
+      .sort((left, right) => right.canonical_name.length - left.canonical_name.length);
+    const unambiguousTargets = mentionedTargets.filter((candidate, index) => !mentionedTargets.some((other, otherIndex) => (
+      otherIndex !== index
+      && other.canonical_name.length > candidate.canonical_name.length
+      && other.canonical_name.includes(candidate.canonical_name)
+    )));
+    if (unambiguousTargets.length === 1) {
+      return {
+        fromEntityId: fact.subject_entity_id,
+        toValueJson: stableJson({ name: unambiguousTargets[0]!.canonical_name, summary: explicitTargetName })
+      };
+    }
+  }
+
+  const endpoints = subject.canonical_name.split(/\s*(?:与|和|、|—|－|-)\s*/u).filter(Boolean);
   if (endpoints.length !== 2) return { fromEntityId: fact.subject_entity_id, toValueJson: fact.value_json };
   const from = entitiesByName.get(endpoints[0] ?? '');
   const to = entitiesByName.get(endpoints[1] ?? '');
@@ -789,7 +838,10 @@ function normalizeRelationshipProjection(
 }
 
 function isRelationshipFactKey(relationKey: string): boolean {
-  return relationKey.startsWith('relationship:') || relationKey.startsWith('relationship.');
+  const normalized = relationKey.trim().toLowerCase();
+  return normalized.startsWith('relationship:')
+    || normalized.startsWith('relationship.')
+    || /^(?:人物|角色)?关系(?:[.:：]|$)/u.test(relationKey.trim());
 }
 
 export function stableJson(value: unknown): string {

@@ -113,7 +113,12 @@ export class CreativeSessionService {
     if (session === null) return session;
     const completedRollingPlan = session.status === 'awaiting_plan'
       && this.hasCompletedRollingPlan(scope, session.sessionId);
-    if (session.status !== 'ready' && !completedRollingPlan) return session;
+    const confirmedPlanMissingArtifacts = session.status === 'awaiting_plan'
+      && !completedRollingPlan
+      && this.hasConfirmedRollingPlanRound(scope, session.sessionId);
+    const failedLatestRound = !completedRollingPlan
+      && this.hasTerminalFailedLatestRound(scope, session.sessionId);
+    if (session.status !== 'ready' && !completedRollingPlan && !confirmedPlanMissingArtifacts && !failedLatestRound) return session;
     const now = this.clock.now().toISOString();
     const closed = this.repository.updateStatus(scope, {
       sessionId: session.sessionId,
@@ -126,7 +131,13 @@ export class CreativeSessionService {
       sessionId: session.sessionId,
       eventType: 'session_closed',
       sourceMessageId,
-      payload: { reason: 'next_rolling_planning_scope' },
+      payload: {
+        reason: failedLatestRound
+          ? 'failed_creative_round_recovery'
+          : confirmedPlanMissingArtifacts
+            ? 'confirmed_rolling_plan_missing_artifacts'
+            : 'next_rolling_planning_scope'
+      },
       now
     });
     return closed;
@@ -134,6 +145,18 @@ export class CreativeSessionService {
 
   private hasCompletedRollingPlan(scope: BookScope, sessionId: string): boolean {
     return this.repository.hasCompletedRollingPlan(scope, sessionId);
+  }
+
+  private hasConfirmedRollingPlanRound(scope: BookScope, sessionId: string): boolean {
+    // A confirmed locked-planning round without selected chapter outlines is an
+    // inconsistent legacy/recovery state. Starting a new bounded topic through
+    // the public workflow is safer than attaching more free chat to an unusable
+    // locked direction. Current transactions prevent new data from reaching it.
+    return this.repository.latestLockedPlanningRoundStatus(scope, sessionId) === 'confirmed';
+  }
+
+  private hasTerminalFailedLatestRound(scope: BookScope, sessionId: string): boolean {
+    return this.repository.latestRoundHasTerminalFailure(scope, sessionId);
   }
 
   public pauseActive(scope: BookScope, sourceMessageId: string): CreativeSessionRecord | null {
@@ -298,7 +321,7 @@ function nextBlackboard(previous: CreativeBlackboard | null, content: string): C
     ownerMessages: [...previous.ownerMessages, clipText(content, 1_200)].slice(-8),
     currentGoal: clipText(content, 1_200),
     maturity: previous.maturity === 'ready' ? 'comparing' : previous.maturity,
-    nextStep: '主编结合当前会话继续追问或比较方案'
+    nextStep: '主编分析当前想法并给出一个主推荐；仅重大分歧需要老板确认'
   };
 }
 

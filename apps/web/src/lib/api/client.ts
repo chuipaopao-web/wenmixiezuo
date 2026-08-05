@@ -47,6 +47,27 @@ export interface BookData {
   updatedAt: string;
 }
 
+export interface ConversationReceptionData {
+  kind:
+    | 'guidance_scheduled'
+    | 'guidance_in_progress'
+    | 'guidance_available'
+    | 'awaiting_confirmation'
+    | 'guidance_paused'
+    | 'guidance_failed'
+    | 'guidance_cancelled'
+    | 'setting_complete'
+    | 'planning_next';
+  headline: string;
+  message: string;
+  settingItemKey?: string;
+  settingLabel?: string;
+  taskId?: string;
+  taskStatus?: string;
+  editorAgentId?: string;
+  editorName?: string;
+}
+
 export interface SettingOutlineWorkspaceData {
   itemKey: string;
   groupTitle: string;
@@ -65,6 +86,7 @@ export interface SettingOutlineWorkspaceData {
 }
 
 export type OpeningChannel = 'male' | 'female';
+export type BookCreationMode = 'new' | 'continuation';
 export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
 
 export interface OpeningTaxonomyData {
@@ -92,6 +114,7 @@ export interface OpeningTaxonomyData {
 }
 
 export interface OpeningBlueprintData {
+  creationMode: BookCreationMode;
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
@@ -215,6 +238,15 @@ export interface ContinuationImportData {
   confirmedAt: string | null;
   completedAt: string | null;
   chapters: ContinuationImportChapterData[];
+  analysis: {
+    status: 'not_started' | 'pending' | 'analyzing' | 'ready' | 'failed';
+    analyzedChapterCount: number;
+    totalChapterCount: number;
+    summary: string | null;
+    structuredData: Record<string, unknown> | null;
+    activeTaskId: string | null;
+    errorMessage: string | null;
+  };
 }
 
 export interface VolumeData {
@@ -242,6 +274,8 @@ export interface AgentData {
   provider: string;
   modelId: string;
   activationState: string;
+  availability?: 'available' | 'unavailable';
+  availabilityReason?: string | null;
   publicSummary?: string;
   responsibilities?: string[];
   boundaries?: string[];
@@ -258,7 +292,7 @@ export interface AgentPromptPreferenceData {
 }
 
 export interface TeamMemberConfigData extends AgentData {
-  defaultPrompt: string;
+  roleStatement: string;
   promptPreference: AgentPromptPreferenceData;
 }
 
@@ -268,11 +302,18 @@ export interface TeamConfigData {
     editableLabel: string;
     maxChars: number;
     priority: string;
-    internalPromptVisible: false;
+    fullPromptAccess?: {
+      configured: boolean;
+      passwordProtected: true;
+    };
   };
 }
 
 export interface TeamTemplateData {
+  fullPromptAccess?: {
+    configured: boolean;
+    passwordProtected: true;
+  };
   members: Array<{
     roleTemplateId: string;
     roleKey: string;
@@ -286,7 +327,18 @@ export interface TeamTemplateData {
     outputKinds: string[];
     defaultActivation: 'resident' | 'standby';
     defaultModel: { provider: string; modelId: string; plan: string };
-    defaultPrompt: string;
+    roleStatement: string;
+  }>;
+}
+
+export interface ProtectedRolePromptData {
+  roleKey: string;
+  identity: string;
+  note: string;
+  variants: Array<{
+    purpose: 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
+    label: string;
+    prompt: string;
   }>;
 }
 
@@ -630,6 +682,18 @@ export function fetchTeamConfig(bookId: string, signal?: AbortSignal): Promise<T
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/team-config`, signal === undefined ? {} : { signal });
 }
 
+export function fetchProtectedRolePrompt(input: {
+  password: string;
+  roleKey: string;
+  bookId?: string;
+  agentId?: string;
+}): Promise<ProtectedRolePromptData> {
+  return request('/api/v1/prompt-view', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
 export function saveAgentPromptPreference(
   bookId: string,
   agentId: string,
@@ -644,6 +708,14 @@ export function saveAgentPromptPreference(
 
 export function fetchMessages(bookId: string, signal?: AbortSignal): Promise<MessageData[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages?limit=500`, signal === undefined ? {} : { signal });
+}
+
+export function enterConversation(bookId: string, signal?: AbortSignal): Promise<ConversationReceptionData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/conversation-entry`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    ...(signal === undefined ? {} : { signal })
+  });
 }
 
 export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
@@ -777,6 +849,16 @@ export function confirmContinuationImport(
   );
 }
 
+export function analyzeContinuationImport(
+  bookId: string,
+  importId: string
+): Promise<ContinuationImportData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/continuation-imports/${encodeURIComponent(importId)}/analyze`,
+    { method: 'POST', body: JSON.stringify({}) }
+  );
+}
+
 export function fetchChapterDetail(bookId: string, chapterId: string, signal?: AbortSignal): Promise<{
   chapter: ChapterData;
   manuscripts: Array<Record<string, unknown>>;
@@ -797,6 +879,20 @@ export function saveOwnerManuscript(bookId: string, chapterId: string, input: {
 }): Promise<{ manuscriptVersionId: string; parentVersionId: string | null; contentHash: string; wordCount: number; status: 'candidate'; unchanged: boolean }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/manuscripts/owner-drafts`, {
     method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function withdrawOwnerManuscript(
+  bookId: string,
+  chapterId: string,
+  expectedManuscriptVersionId: string
+): Promise<{
+  withdrawnManuscriptVersionId: string;
+  currentManuscriptVersionId: null;
+  retainedInHistory: true;
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/manuscripts/current/withdraw`, {
+    method: 'POST', body: JSON.stringify({ expectedManuscriptVersionId })
   });
 }
 
@@ -895,7 +991,13 @@ export function fetchStyleBaseline(bookId: string, signal?: AbortSignal): Promis
 }
 
 export function fetchSettingReadiness(bookId: string): Promise<{
-  ready: boolean; missing: string[]; unresolved: string[]; required: string[];
+  ready: boolean;
+  missing: string[];
+  unresolved: string[];
+  required: string[];
+  recommended: string[];
+  profileKey: string;
+  profileLabel: string;
 }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/readiness`);
 }
@@ -1008,6 +1110,24 @@ export function fetchVolumeChapters(
   if (options.status?.trim()) parameters.set('status', options.status.trim());
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/volumes/${encodeURIComponent(volumeId)}/chapters?${parameters.toString()}`,
     options.signal === undefined ? {} : { signal: options.signal });
+}
+
+export function createManuscriptVolume(
+  bookId: string,
+  input: { volumeNumber: number; title: string }
+): Promise<{ volumeId: string }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volumes`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function createManuscriptChapter(
+  bookId: string,
+  input: { volumeId: string; chapterNumber: number; title: string }
+): Promise<ChapterData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
 }
 
 export function fetchModelBindings(bookId: string, signal?: AbortSignal): Promise<ModelBindingsData> {

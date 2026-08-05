@@ -90,7 +90,7 @@ describe('启动时保留书籍模型方案', () => {
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
     expect(team.find((agent) => agent.roleKey === 'deputy_editor')).toMatchObject({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5-2-260617'
+      modelId: 'glm-5.2'
     });
     expect(team.find((agent) => agent.roleKey === 'researcher')).toMatchObject({
       modelId: 'glm-5-2-custom-research'
@@ -100,5 +100,85 @@ describe('启动时保留书籍模型方案', () => {
         provider: 'volcengine-ark-coding-plan',
         modelId: 'deepseek-v4-pro'
       });
+  });
+
+  it('把十一名成员的未来任务统一迁移到Agent Plan并保留旧修订快照', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '十一人Agent Plan迁移测试书'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const runtime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    const binding = new ModelBindingService(context.database, ids, clock, runtime.roleProfiles);
+    binding.bindAllBooks();
+
+    const repository = new AgentGovernanceRepository(context.database);
+    const previousProfiles = Object.fromEntries(repository.listTeam(scope).map((agent) => [agent.roleKey, {
+      provider: agent.provider,
+      modelId: `${agent.modelId}-previous`,
+      plan: agent.plan ?? 'agent'
+    }])) as Record<CreativeRoleKey, TeamModelProfile>;
+    new ModelBindingV2Service(repository, new UnitOfWork(context.database), ids, clock)
+      .reviseFuture(scope, previousProfiles, '构造迁移前模型修订');
+    const previousRevision = context.database.prepare(`
+      SELECT agent_model_binding_revision_id AS id
+      FROM agent_model_binding_revisions
+      WHERE owner_id = ? AND book_id = ? AND status = 'active'
+    `).get(scope.ownerId, scope.bookId) as { id: string };
+
+    const result = binding.bindAllBooks({
+      preserveActiveRevision: true,
+      migrateAllMembersToAgentPlan: true
+    });
+
+    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 11 });
+    expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
+      .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
+      chief_editor: 'volcengine-ark-agent-plan/kimi-k3',
+      deputy_editor: 'volcengine-ark-agent-plan/glm-5.2',
+      lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
+      second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
+      setting: 'volcengine-ark-agent-plan/kimi-k2.7-code',
+      lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
+      backup_writer: 'volcengine-ark-agent-plan/kimi-k3',
+      literary_reviewer: 'volcengine-ark-agent-plan/minimax-m3',
+      experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',
+      researcher: 'volcengine-ark-agent-plan/deepseek-v4-flash',
+      copyright: 'volcengine-ark-agent-plan/kimi-k2.7-code'
+    });
+    expect(repository.revisionBindings(scope, previousRevision.id)
+      .every((agent) => agent.modelId.endsWith('-previous'))).toBe(true);
+  });
+
+  it('Agent Plan凭证缺失时不把现有真实绑定迁移为确定性假模型', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '凭证缺失保留绑定测试书'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const agentRuntime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    new ModelBindingService(context.database, ids, clock, agentRuntime.roleProfiles).bindAllBooks();
+    const before = new AgentTeamService(context.database, ids, clock).list(scope)
+      .map(({ roleKey, provider, modelId }) => ({ roleKey, provider, modelId }));
+
+    const missingCredentialRuntime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan'
+    });
+    const result = new ModelBindingService(context.database, ids, clock, missingCredentialRuntime.roleProfiles)
+      .bindAllBooks({ preserveActiveRevision: true, migrateAllMembersToAgentPlan: true });
+
+    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 0 });
+    expect(new AgentTeamService(context.database, ids, clock).list(scope)
+      .map(({ roleKey, provider, modelId }) => ({ roleKey, provider, modelId }))).toEqual(before);
   });
 });

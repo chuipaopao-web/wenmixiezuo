@@ -34,13 +34,13 @@ describe('现有书籍模型快照绑定', () => {
     expect(context.database.prepare(`SELECT status FROM writer_selections WHERE writer_selection_id = ?`)
       .get(selection.writerSelectionId)).toEqual({ status: 'superseded' });
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
-    expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol' });
-    expect(team.find((agent) => agent.roleKey as string === 'lead_writer')).toMatchObject({ provider: 'openai-codex-subscription', modelId: 'gpt-5.6-sol' });
-    expect(team.find((agent) => agent.roleKey as string === 'lead_screenwriter')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' });
-    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617' });
-    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617' });
-    expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2-6-modelhub' });
-    expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2-0-pro-260215' });
+    expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3' });
+    expect(team.find((agent) => agent.roleKey as string === 'lead_writer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' });
+    expect(team.find((agent) => agent.roleKey as string === 'lead_screenwriter')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' });
+    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.2' });
+    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code' });
+    expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3' });
+    expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
 
     const fallback = loadModelRuntimeConfig({ WENMI_MODEL_MODE: 'subscription-plan' });
     const fallbackResult = new ModelBindingService(context.database, ids, clock, fallback.roleProfiles).bindAllBooks();

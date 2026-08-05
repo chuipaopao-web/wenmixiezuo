@@ -56,12 +56,12 @@ describe('小文秘书', () => {
     expect(service.route(scope, {
       conversationId: 'c',
       messageId: 'm3',
-      original: '【续写诊断资料包】\n已确认导入36章，请先诊断，不要直接开写。'
+      original: '【已有正文设定整理资料包】\n已确认导入36章，请依据反向章纲整理设定。'
     })).toMatchObject({
       routeClass: 'editor_handoff',
       selectedAction: 'preserve_continuation_handoff_packet',
-      selectedRoles: ['chief_editor'],
-      excludedActions: expect.arrayContaining(['dual_screenwriter_session', 'automatic_writing'])
+      selectedRoles: ['chief_editor', 'lead_screenwriter', 'second_screenwriter'],
+      excludedActions: expect.arrayContaining(['automatic_writing', 'automatic_canon_promotion'])
     });
   });
   it('只学习工具、路由和故障恢复经验，且必须带反例', () => {

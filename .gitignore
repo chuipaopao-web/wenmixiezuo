@@ -15,3 +15,4 @@ test-results/
 Thumbs.db
 .repair-backup-*.patch
 pnpm-workspace.yaml
+pnpm-lock.yaml

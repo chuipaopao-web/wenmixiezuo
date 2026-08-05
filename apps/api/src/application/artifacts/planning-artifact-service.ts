@@ -8,6 +8,7 @@ import {
   type ChapterOutlineV2,
   type StageMasterOutlineV2
 } from '../../domain/artifact-schemas.js';
+import { bindChapterOutlineToAuthoritativeStage } from '../../domain/chapter-outline-stage-boundary.js';
 import { ArtifactService, type ArtifactVersionRecord } from './artifact-service.js';
 import { ExpressionProfileService } from '../books/expression-profile-service.js';
 import { ExpressionProfileRepository } from '../../infrastructure/db/repositories/expression-profile-repository.js';
@@ -43,6 +44,8 @@ interface StructuredChapterPlan {
   mustNotViolate?: string[];
   allowedCandidates?: string[];
   creativeFreedom?: string[];
+  stageBoundary?: ChapterOutlineV2['stageBoundary'];
+  sourceStage?: ChapterOutlineV2['sourceStage'];
 }
 
 interface StructuredArcPlan {
@@ -239,7 +242,7 @@ export class PlanningArtifactService {
       if (stage === undefined) {
         throw new Error(`剧情总纲没有覆盖第${chapterNumber}章，不能生成失去上游来源的章纲`);
       }
-      const parsed = parseChapterOutlineV2({
+      const parsedCandidate = parseChapterOutlineV2({
         ...plan,
         outlineSchema: 'chapter_outline_v2',
         chapterNumber,
@@ -249,6 +252,7 @@ export class PlanningArtifactService {
           chapterRange: stage.chapterRange
         }
       });
+      const parsed = bindChapterOutlineToAuthoritativeStage(parsedCandidate, stage);
       return this.upsert(
         scope,
         'chapter_outline',
@@ -551,13 +555,13 @@ export function parsePlanningDepositOutput(summary: string): StructuredArcPlan |
         ...item,
         outlineSchema: 'chapter_outline_v2',
         chapterNumber,
-        sourceStage: {
+        sourceStage: item.sourceStage ?? {
           stageNumber: 1,
           title: '待服务端绑定的剧情总纲阶段',
           chapterRange: { start: chapterNumber, end: chapterNumber }
         }
       });
-      const { sourceStage: _sourceStage, outlineSchema: _outlineSchema, ...plan } = parsed;
+      const { outlineSchema: _outlineSchema, ...plan } = parsed;
       return plan;
     }
     const goal = stringValue(item.goal);

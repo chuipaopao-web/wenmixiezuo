@@ -3,6 +3,23 @@ import { parseEditorReviewSynthesis, parseProductionReview } from '../../apps/ap
 
 const expected = { reviewerRole: 'literary' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-1' };
 
+it('仅一次性修复通道可以恢复冻结绑定标识', () => {
+  const frozen = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-correct', modelSnapshotId: 'model-correct' };
+  const raw = JSON.stringify({
+    ...frozen,
+    manuscriptVersionId: 'manuscript-miscopied',
+    verdict: 'pass',
+    summary: '事实检查通过',
+    issues: [],
+    scores: { continuity: 90 },
+    factCandidates: []
+  });
+
+  expect(() => parseProductionReview(raw, frozen)).toThrow('manuscriptVersionId与冻结任务不一致');
+  expect(parseProductionReview(raw, frozen, { normalizeFrozenBindings: true }))
+    .toEqual(expect.objectContaining(frozen));
+});
+
 describe('三点评结构化契约', () => {
   it('接受可解释的AI腔风险但明确拒绝作者概率', () => {
     const report = parseProductionReview(JSON.stringify({
@@ -65,6 +82,40 @@ describe('三点评结构化契约', () => {
     const repaired = parseProductionReview(raw, fact, { normalizeRepairedVerdict: true });
     expect(repaired.verdict).toBe('rewrite');
     expect(repaired.issues[0]?.severity).toBe('major');
+  });
+
+  it('事实席不能把未重复前文细节升级为major，修复路径降为软提醒并通过', () => {
+    const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
+    const raw = JSON.stringify({
+      ...fact, verdict: 'rewrite', summary: '遗漏了一项前章细节',
+      issues: [{
+        location: '归还单检查段落', issueType: '遗漏关键物证细节', severity: 'major',
+        evidence: '前章定稿写过日期栏涂改痕迹，本章详细检查时完全未提及该痕迹。',
+        requiredAction: '在检查段落中插入一句对日期栏涂改痕迹的观察。'
+      }],
+      scores: { continuity: 80 }, factCandidates: []
+    });
+    expect(() => parseProductionReview(raw, fact)).toThrow('不能把未重复前文细节判为major');
+    const repaired = parseProductionReview(raw, fact, {
+      normalizeFactOmissionMajor: true,
+      normalizeRepairedVerdict: true
+    });
+    expect(repaired.verdict).toBe('pass');
+    expect(repaired.issues[0]?.severity).toBe('minor');
+  });
+
+  it('事实席仍把章纲硬要求缺失保留为major', () => {
+    const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
+    const raw = JSON.stringify({
+      ...fact, verdict: 'rewrite', summary: '缺少章纲强制结尾',
+      issues: [{
+        location: '章末', issueType: '遗漏章纲硬要求', severity: 'major',
+        evidence: '章纲requiredEnding要求主角取得账本，本章完全未提及且导致下一章因果无法成立。',
+        requiredAction: '在章末补充一句取得账本的明确动作。'
+      }],
+      scores: { continuity: 50 }, factCandidates: []
+    });
+    expect(parseProductionReview(raw, fact).issues[0]?.severity).toBe('major');
   });
 
   it('拒绝把可以定点修改的普通质量问题标成阻断', () => {
@@ -322,5 +373,24 @@ describe('三点评结构化契约', () => {
     expect(parsed.preservedDisagreements).toEqual([
       '{"issueIndex":0,"disagreement":"事实席通过，文学席要求重写。"}'
     ]);
+  });
+
+  it('binds repaired editor synthesis to the server-known panel and manuscript ids', () => {
+    const expected = { panelId: 'panel-canonical', manuscriptVersionId: 'manuscript-canonical', issueCount: 1 };
+    const raw = JSON.stringify({
+      panelId: 'panel-one-character-typo',
+      manuscriptVersionId: 'manuscript-one-character-typo',
+      recommendedVerdict: 'pass',
+      priorityIssueIndexes: [0],
+      preservedDisagreements: [],
+      rationale: 'All three submitted reports passed.'
+    });
+
+    expect(() => parseEditorReviewSynthesis(raw, expected)).toThrow();
+    expect(parseEditorReviewSynthesis(raw, expected, { normalizeRepairedShape: true })).toMatchObject({
+      panelId: expected.panelId,
+      manuscriptVersionId: expected.manuscriptVersionId,
+      recommendedVerdict: 'pass'
+    });
   });
 });

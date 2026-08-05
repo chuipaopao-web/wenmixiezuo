@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { ContinuationAnalysisPipelineService } from '../../../apps/api/src/application/continuation/continuation-analysis-pipeline-service.js';
 import { ExistingManuscriptContinuationService } from '../../../apps/api/src/application/continuation/existing-manuscript-continuation-service.js';
+import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
+import { SettingBaselineService } from '../../../apps/api/src/application/knowledge/setting-baseline-service.js';
+import { SettingGuidanceService } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
+import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 
 describe('已有正文续写导入', () => {
   let context: TestContext | null = null;
@@ -94,7 +101,191 @@ describe('已有正文续写导入', () => {
       .toThrow('不能再导入整本前文基线');
   });
 
-  it('HTTP入口完成预览、确认和主编诊断交接，不误启双编剧', async () => {
+  it('确认已有正文后逐章提炼续写基线，分析结果可恢复且不改写原文', async () => {
+    context = createTestContext('wenmi-continuation-analysis-');
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '已有正文分析' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    context.database.prepare(`
+      UPDATE tasks SET status = 'cancelled', cancel_requested = 1
+      WHERE owner_id = ? AND book_id = ? AND status IN ('pending', 'queued')
+    `).run(scope.ownerId, scope.bookId);
+    const service = new ExistingManuscriptContinuationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const preview = service.preview(scope, {
+      sourceName: '前文.txt',
+      text: '第一章 雨夜归来\n林昭推开旧门，发现失踪多年的账本。\n\n第二章 缺页账本\n账本少了一页，门外却留下陌生脚印。'
+    });
+    const ready = service.confirm(scope, preview.importId, {
+      chapters: preview.chapters.map((chapter) => ({
+        importChapterId: chapter.importChapterId,
+        title: chapter.title,
+        included: true
+      }))
+    });
+    expect(ready.analysis).toMatchObject({ status: 'pending', analyzedChapterCount: 0, totalChapterCount: 2 });
+
+    let modelCallCount = 0;
+    const compactAnalysis = JSON.stringify({
+      summary: '章节事实摘要',
+      reverseOutline: {
+        chapterGoal: '找回失踪账本',
+        openingState: '人物回到旧居',
+        plotBeats: ['发现账本线索'],
+        cast: ['林昕'],
+        centralConflict: '账本缺页且来源不明',
+        emotionalArc: ['警觉', '疑惑'],
+        payoffOrPressure: ['确认线索仍在'],
+        threadActions: ['继续追查缺页'],
+        descriptionFocus: ['旧居环境'],
+        ending: { result: '发现新线索', hook: '门外脚印', nextChapterInterface: '追查来访者' }
+      },
+      characters: [],
+      events: [],
+      locations: [],
+      relations: [],
+      rules: [],
+      resources: [],
+      openThreads: [],
+      resolvedThreads: [],
+      styleEvidence: [],
+      endingState: '人物掌握账本线索',
+      conflicts: [],
+      unknowns: []
+    });
+    const modelAdapters = {
+      resolve(provider: string, modelId: string): ModelAdapter {
+        return {
+          provider,
+          modelId,
+          async generate() {
+            modelCallCount += 1;
+            return {
+              provider,
+              modelId,
+              output: modelCallCount === 1 ? '{"summary":"truncated"' : compactAnalysis,
+              inputTokens: 100,
+              outputTokens: 100,
+              cashCostCny: 0,
+              state: 'succeeded'
+            };
+          }
+        };
+      }
+    } as unknown as ModelAdapterFactory;
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const claim = tasks.claimNext('worker-continuation-analysis');
+    expect(claim).toMatchObject({ taskType: 'continuation_analysis', assignedAgentId: expect.any(String) });
+    await new ContinuationAnalysisPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock, modelAdapters
+    ).executeClaimed(scope, claim!.taskId, 'worker-continuation-analysis', {
+      leaseToken: claim!.leaseToken!,
+      attemptNo: claim!.currentAttemptNo
+    });
+    expect(modelCallCount).toBe(3);
+
+    const analyzed = service.get(scope, preview.importId);
+    expect(analyzed.analysis).toMatchObject({
+      status: 'ready',
+      analyzedChapterCount: 2,
+      totalChapterCount: 2,
+      summary: expect.any(String),
+      activeTaskId: null,
+      errorMessage: null
+    });
+    expect(analyzed.analysis.structuredData).toMatchObject({
+      sourceKind: 'author_existing_manuscript',
+      authority: 'derived_from_confirmed_manuscript',
+      chapterCount: 2,
+      chapterSummaries: expect.arrayContaining([
+        expect.objectContaining({ chapterNumber: 1, title: expect.stringContaining('第一章') }),
+        expect.objectContaining({ chapterNumber: 2, title: expect.stringContaining('第二章') })
+      ]),
+      chapterOutlines: [
+        expect.objectContaining({
+          chapterNumber: 1,
+          title: expect.stringContaining('第一章'),
+          chapterGoal: expect.any(String),
+          openingState: expect.any(String),
+          plotBeats: expect.any(Array),
+          cast: expect.any(Array),
+          centralConflict: expect.any(String),
+          emotionalArc: expect.any(Array),
+          threadActions: expect.any(Array),
+          ending: expect.objectContaining({
+            result: expect.any(String),
+            hook: expect.any(String),
+            nextChapterInterface: expect.any(String)
+          })
+        }),
+        expect.objectContaining({ chapterNumber: 2, title: expect.stringContaining('第二章') })
+      ]
+    });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM continuation_chapter_analyses
+      WHERE owner_id = ? AND book_id = ? AND continuation_import_id = ? AND status = 'ready'`)
+      .get(scope.ownerId, scope.bookId, preview.importId)).toEqual({ count: 2 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions
+      WHERE owner_id = ? AND book_id = ? AND creator_kind = 'import' AND status = 'canon'`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 2 });
+    const importedHashes = context.database.prepare(`
+      SELECT c.chapter_number, mv.content_hash, cic.content_hash AS imported_content_hash
+      FROM manuscript_versions mv
+      JOIN chapters c ON c.chapter_id = mv.chapter_id AND c.owner_id = mv.owner_id AND c.book_id = mv.book_id
+      JOIN continuation_import_chapters cic ON cic.target_manuscript_version_id = mv.manuscript_version_id
+      WHERE mv.owner_id = ? AND mv.book_id = ? AND mv.creator_kind = 'import'
+      ORDER BY c.chapter_number
+    `).all(scope.ownerId, scope.bookId) as Array<{ chapter_number: number; content_hash: string; imported_content_hash: string }>;
+    expect(importedHashes.map((row) => row.chapter_number)).toEqual([1, 2]);
+    expect(importedHashes.every((row) => row.content_hash === row.imported_content_hash)).toBe(true);
+
+    const reception = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).enterConversation(scope);
+    expect(reception).toMatchObject({
+      kind: 'continuation_ready',
+      headline: expect.stringContaining('已有正文'),
+      message: expect.stringContaining('不会要求您重新从空白设定大纲开始')
+    });
+
+    const handoff = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).sendBossMessage(scope, '【已有正文设定整理资料包】请依据已导入正文和逐章反向章纲，整理可以确认的设定。');
+    expect(handoff.action).toMatchObject({
+      kind: 'discussion_scheduled',
+      purpose: 'setting_proposal_panel',
+      participants: expect.any(Array)
+    });
+    expect((handoff.action as { participants: unknown[] }).participants).toHaveLength(3);
+    const handoffBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
+      .get(String((handoff.action as { taskId: string }).taskId)) as { task_brief_json: string }).task_brief_json) as {
+        scopeText: string;
+      };
+    expect(handoffBrief.scopeText).toContain('已有正文反向整理参考');
+    expect(handoffBrief.scopeText).toContain('逐章反向章纲');
+    expect(handoffBrief.scopeText).toContain('第一章');
+
+    const guidance = new SettingGuidanceService(context.database, ids, clock).current(scope);
+    expect(guidance).toMatchObject({
+      itemKey: 'creative-concept',
+      positioningSummary: expect.stringContaining('已有正文续写'),
+      storyDirectionReference: expect.any(String)
+    });
+    const readiness = new SettingBaselineService(context.database, ids, clock).inspect(scope);
+    expect(readiness).toMatchObject({
+      profileKey: 'continuation-reverse',
+      ready: false,
+      required: expect.arrayContaining(['creative-concept', 'era', 'protagonist'])
+    });
+
+    const resumedReception = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).enterConversation(scope);
+    expect(resumedReception.kind).not.toBe('continuation_ready');
+  });
+
+  it('HTTP入口完成预览和确认，反向整理未完成时不提前启动设定讨论', async () => {
     context = createTestContext('wenmi-continuation-api-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -133,7 +324,7 @@ describe('已有正文续写导入', () => {
       const handoff = await app.inject({
         method: 'POST',
         url: `/api/v1/books/${book.bookId}/messages`,
-        payload: { content: '【续写诊断资料包】\n已确认导入2章，请主编先诊断，不要直接开写。', attachmentIds: [] }
+        payload: { content: '【已有正文设定整理资料包】\n已确认导入2章，请在反向章纲就绪后整理设定。', attachmentIds: [] }
       });
       expect(handoff.statusCode).toBe(200);
       expect(handoff.json().data.action).toMatchObject({

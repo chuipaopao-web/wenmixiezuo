@@ -12,13 +12,21 @@ import { ChapterCatalogService } from '../../apps/api/src/application/chapters/c
 import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
 import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
 import { ArtifactService } from '../../apps/api/src/application/artifacts/artifact-service.js';
+import type { OpeningBlueprintInput } from '../../apps/api/src/contracts/opening-blueprint.js';
 
 export function initializeDomainBook(
   context: TestContext,
   ownerId: string,
   ids: IdGenerator,
   clock: Clock,
-  input: { title?: string; text?: string; category?: string; tags?: string[]; style?: string } = {}
+  input: {
+    title?: string;
+    text?: string;
+    category?: string;
+    tags?: string[];
+    style?: string;
+    openingBlueprint?: OpeningBlueprintInput;
+  } = {}
 ): OnboardingResult {
   const positioning = new PositioningService(context.database, ids, clock);
   const draft = positioning.createDraft(
@@ -28,7 +36,8 @@ export function initializeDomainBook(
       text: input.text ?? '一个游戏副本中的成长故事',
       ...(input.category === undefined ? {} : { category: input.category }),
       ...(input.tags === undefined ? {} : { tags: input.tags }),
-      ...(input.style === undefined ? {} : { style: input.style })
+      ...(input.style === undefined ? {} : { style: input.style }),
+      ...(input.openingBlueprint === undefined ? {} : { openingBlueprint: input.openingBlueprint })
     }
   );
   return new BookOnboardingService(context.database, ids, clock).confirmDraft({ ownerId }, draft.draftId, draft.version);
@@ -88,7 +97,7 @@ export function prepareBookForWriting(
   const currentMaster = artifacts.addVersion(
     scope,
     legacyMaster.artifactId,
-    testStageMasterOutlineV2()
+    testStageMasterOutlineV2(count)
   );
   artifacts.select(scope, currentMaster.artifactId, currentMaster.artifactVersionId);
   const currentChapterOutlineVersionIds = prepared.chapterOutlineVersionIds.map((versionId, index) => {
@@ -152,7 +161,7 @@ export function prepareBookForWriting(
   return { discussionId: discussion.discussionId, decisionId };
 }
 
-function testStageMasterOutlineV2(): Record<string, unknown> {
+function testStageMasterOutlineV2(chapterEnd = 50): Record<string, unknown> {
   return {
     outlineSchema: 'stage_master_v2',
     premise: '主角必须在既有秩序失效后用可验证行动重新取得选择权',
@@ -162,7 +171,7 @@ function testStageMasterOutlineV2(): Record<string, unknown> {
       {
         stageNumber: 1,
         title: '取得立足点',
-        chapterRange: { start: 1, end: 50 },
+        chapterRange: { start: 1, end: chapterEnd },
         mainline: {
           encounter: '主角失去原有退路并面对第一轮现实限制',
           resolution: '通过可验证行动建立临时立足点',
@@ -181,7 +190,7 @@ function testStageMasterOutlineV2(): Record<string, unknown> {
       {
         stageNumber: 2,
         title: '争夺规则权',
-        chapterRange: { start: 51, end: 100 },
+        chapterRange: { start: chapterEnd + 1, end: chapterEnd + 50 },
         mainline: {
           encounter: '既得利益者利用规则围堵主角',
           resolution: '主角联合受损者公开证据并建立替代方案',

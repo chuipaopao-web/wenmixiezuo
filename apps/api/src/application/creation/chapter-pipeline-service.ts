@@ -39,9 +39,18 @@ import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/ch
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
+import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
 import { ManuscriptQualitySnapshotService } from './manuscript-quality-snapshot-service.js';
 import { compileChapterOutlineForWriter } from './chapter-outline-compiler.js';
+import { BookProfileViewService } from '../books/book-profile-view-service.js';
+import {
+  buildChapterContinuityAnchors,
+  checkChapterContinuityAnchors,
+  compactChapterContinuityAnchors,
+  parseChapterContinuityAnchors,
+  type ChapterContinuityAnchors
+} from './continuity-anchor-service.js';
 
 export type PipelinePhase = 'preflight' | 'context' | 'draft' | 'hard_check' | 'review' | 'rewrite' | 'facts' | 'settlement' | 'completed';
 
@@ -379,6 +388,7 @@ export class ChapterPipelineService {
     const commitments = continuity.listCommitments(scope, chapter.chapter_number).slice(0, 8);
     const draftPolicy = WRITER_CONTEXT_POLICY.draft;
     const style = new StyleCapsuleService(this.database).active(scope);
+    const openingProfile = new BookProfileViewService(this.database).find(scope);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
       {
@@ -396,6 +406,28 @@ export class ChapterPipelineService {
         priority: 100,
         version: `${outline.version}:${contract.version}`
       },
+      ...(openingProfile === null ? [] : [{
+        sourceType: 'opening_profile',
+        sourceId: `opening-profile:${scope.bookId}:${openingProfile.version}`,
+        content: clipContext(JSON.stringify({
+          title: openingProfile.title,
+          category: openingProfile.category,
+          subjects: openingProfile.subjects,
+          mainTags: openingProfile.mainTags,
+          protagonists: openingProfile.protagonists.map((protagonist) => ({
+            role: protagonist.role,
+            name: protagonist.name,
+            age: protagonist.age,
+            background: protagonist.background,
+            personalities: protagonist.personalities
+          })),
+          storyDirection: openingProfile.storyDirection,
+          mustFollow: openingProfile.mustFollow
+        }), draftPolicy.openingProfileMaximum),
+        reason: '老板确认的开书定位、人物、故事方向和必须遵守项；正文不得擅自改写专名或核心方向',
+        priority: 100,
+        version: openingProfile.version
+      }]),
       {
         sourceType: 'style_baseline',
         sourceId: style.styleVersionId,
@@ -407,11 +439,7 @@ export class ChapterPipelineService {
       ...(settlements.length === 0 ? [] : [{
         sourceType: 'stage_settlement_context',
         sourceId: settlements.map((item) => item.settlementId).join(':'),
-        content: clipContext(JSON.stringify(settlements.map((settlement) => ({
-          type: settlement.stageType,
-          chapterRange: [settlement.chapterStart, settlement.chapterEnd],
-          payload: settlement.payload
-        }))), draftPolicy.stageSettlementMaximum),
+        content: compactStageSettlementContext(settlements, draftPolicy.stageSettlementMaximum),
         reason: '按卷总结、最近剧情阶段和阶段后章节分层压缩；需要细节时再按来源回查正史原文',
         priority: 99,
         version: settlements.map((item) => item.version).join(':')
@@ -433,6 +461,8 @@ export class ChapterPipelineService {
       });
     }
     if (previous !== undefined) {
+      const previousAnchors = parseChapterContinuityAnchors(previous.state_json)
+        ?? buildChapterContinuityAnchors(this.loadManuscript(scope, previous.canon_manuscript_version_id));
       hardSources.push({
         sourceType: 'previous_chapter_end',
         sourceId: `previous:${chapter.chapter_number - 1}`,
@@ -445,6 +475,13 @@ export class ChapterPipelineService {
         sourceId: previous.canon_manuscript_version_id,
         content: tailContext(this.loadManuscript(scope, previous.canon_manuscript_version_id), draftPolicy.previousTailMaximum),
         reason: '前章结尾原文，用于保持相邻章动作、语气和钩子连续',
+        priority: 100
+      });
+      hardSources.push({
+        sourceType: 'previous_chapter_anchors',
+        sourceId: `anchors:${previous.canon_manuscript_version_id}`,
+        content: clipContext(compactChapterContinuityAnchors(previousAnchors), 450),
+        reason: '前章全文提取的稳定编号、专名和机构锚点；相同对象不得无解释改名或改号',
         priority: 100
       });
     }
@@ -546,33 +583,9 @@ export class ChapterPipelineService {
   private hardCheck(scope: BookScope, run: PipelineRow): PipelineRow {
     if (run.current_manuscript_version_id === null) throw new Error('硬检查缺少正文版本');
     const content = this.loadManuscript(scope, run.current_manuscript_version_id);
-    const characterCount = countNovelCharacters(content);
-    const targetMinimum = 2_500;
-    const targetMaximum = 3_500;
-    const hardMinimum = 2_350;
-    const hardMaximum = 3_650;
-    const checks = {
-      fullImmutableVersion: true,
-      length: {
-        passed: characterCount >= hardMinimum && characterCount <= hardMaximum,
-        targetMet: characterCount >= targetMinimum && characterCount <= targetMaximum,
-        characterCount,
-        targetMinimum,
-        targetMaximum,
-        minimum: hardMinimum,
-        maximum: hardMaximum,
-        policy: 'target-with-bounded-hard-tolerance-v1'
-      },
-      noPlaceholder: { passed: !containsExplicitPlaceholder(content) },
-      hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
-    };
-    const passed = checks.length.passed && checks.noPlaceholder.passed;
-    this.database.prepare(`
-      INSERT INTO hard_check_results (
-        hard_check_id, owner_id, book_id, chapter_id, manuscript_version_id,
-        passed, checks_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(this.ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.current_manuscript_version_id, passed ? 1 : 0, JSON.stringify(checks), this.clock.now().toISOString());
+    const hardCheck = this.evaluateHardChecks(scope, run, content);
+    this.recordHardCheck(scope, run, run.current_manuscript_version_id, hardCheck);
+    const { passed } = hardCheck;
     if (!passed) {
       if (run.rewrite_count >= 2) throw new QualityBlockedError('两轮定点修复后正文硬检查仍未通过，已停止机械补写');
       return this.advance(run, 'rewrite');
@@ -628,6 +641,13 @@ export class ChapterPipelineService {
         sourceType: 'previous_chapter_tail', sourceId: previousChapter.canon_manuscript_version_id,
         content: tailContext(this.loadManuscript(scope, previousChapter.canon_manuscript_version_id), 800),
         reason: '前一章定稿结尾；只用于核对相邻章动作、人物位置和因果衔接', priority: 98
+      }, {
+        sourceType: 'previous_chapter_anchors', sourceId: `anchors:${previousChapter.canon_manuscript_version_id}`,
+        content: compactChapterContinuityAnchors(
+          parseChapterContinuityAnchors(previousChapter.state_json)
+            ?? buildChapterContinuityAnchors(this.loadManuscript(scope, previousChapter.canon_manuscript_version_id))
+        ),
+        reason: '前章全文提取的稳定编号、专名和机构锚点；核对同一对象是否无解释漂移', priority: 99
       }])
     ];
     const boundedFrozenReviewSources = frozenReviewSources.map((source) => ({
@@ -636,6 +656,7 @@ export class ChapterPipelineService {
         source.sourceType === 'writing_contract' ? 1_000
           : source.sourceType === 'previous_chapter_end' ? 500
             : source.sourceType === 'previous_chapter_tail' ? 400
+              : source.sourceType === 'previous_chapter_anchors' ? 450
               : 700)
     }));
     const manuscriptHash = createHash('sha256').update(content).digest('hex');
@@ -695,15 +716,31 @@ export class ChapterPipelineService {
             : ['manuscript', 'outline', 'setting', 'wiki'],
         limit: reviewer.role === 'fact' ? 8 : 6
       });
+      const factPreviousChapterSource: ContextSource[] = reviewer.role === 'fact' && previousChapter !== undefined
+        ? [{
+            sourceType: 'previous_chapter_full',
+            sourceId: previousChapter.canon_manuscript_version_id,
+            content: clipContext(this.loadManuscript(scope, previousChapter.canon_manuscript_version_id), 6_000),
+            reason: '事实席专用的前一章完整定稿；先逐项对照实体客观字段，再核对因果与知情状态',
+            priority: 100
+          }]
+        : [];
+      const roleFrozenReviewSources = reviewer.role === 'fact'
+        ? boundedFrozenReviewSources.filter((source) => !['previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
+        : boundedFrozenReviewSources;
+      const reviewCharacterBudget = reviewer.role === 'fact' ? 15_000 : 8_500;
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId: run.task_id, agentId: reviewer.agent.agentId, chapterId: run.chapter_id,
         canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-        tokenBudget: 8_500,
-        characterBudget: 8_500,
-        policyVersion: `production-review-${reviewer.role}-context-v2-8500chars`,
+        tokenBudget: reviewCharacterBudget,
+        characterBudget: reviewCharacterBudget,
+        policyVersion: reviewer.role === 'fact'
+          ? 'production-review-fact-context-v4-adjacent-compare-15000chars'
+          : `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: [
           { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
-          ...boundedFrozenReviewSources,
+          ...roleFrozenReviewSources,
+          ...factPreviousChapterSource,
           ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
             ...source,
             content: clipContext(source.content, 300)
@@ -725,6 +762,8 @@ export class ChapterPipelineService {
           requiredSchema,
           sourceBoundaryContract: [
             'sources中sourceType=current_manuscript且order=0的是本轮唯一待审正文；所有retrieval:*来源都是已定稿前史或参考资料，不是本章的重复片段。',
+            '事实席还会收到sourceType=previous_chapter_full的前一章完整定稿；它只用于逐项核对相邻章节中同一人物、物件、场所、制度和时间细节，不得把前章动作归入本章。',
+            '事实席必须执行两遍检查：第一遍按同一实体逐项比较编号及编号种类、日期时间、颜色材质、数量尺寸、位置、身份/状态和已经完成的动作；第二遍再检查因果链、人物知情与规则。发现明确不同值时必须引用当前稿和前章定稿两端。',
             '评价本章动机、节奏、视角和语言时，只能把current_manuscript中的动作归入本章；检索前史仅用于核对时间顺序与已确认事实，不得把前史事件冒充本章事件。',
             '声称人物动机矛盾时，必须分别引用current_manuscript中的当前动机证据和已定稿前史中的冲突证据，并说明两者为何不能按时间先后、意外后果、信息差或开放谜团同时成立。',
             '不得仅凭行为后果推断主观故意；文本没有明确建立故意时，意外携带、争抢、失误和未知原因不能改写成蓄意行为。'
@@ -734,7 +773,8 @@ export class ChapterPipelineService {
                 'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
                 'major必须证明同一稿件内部自相矛盾、违反已确认正史/规则、人物状态不可能或因果动作不可成立，并引用冲突两端。',
                 '局部说明不足、可由常识合理推断的动作、开放谜团、尚未解释的异常机制和可选设定建议只能是minor或observation；缺少解释本身不是矛盾。',
-                '若问题存在两个都自洽的阅读方式，或只需补充、删除、替换一两句便能澄清，severity最高只能是minor且verdict应为pass；不得用major迫使正文选择会改写章纲、伤亡或人物状态的方案。',
+                '只有问题存在两个都自洽的阅读方式、属于措辞偏好或局部说明不足时，才可判minor/pass。若同一实体的编号种类、日期时间、颜色材质、数量尺寸、位置、身份/状态或已完成动作与前章定稿明确不同，必须判major/rewrite；即使只需补充、删除或替换一两句，也不得因修复成本低而降级。',
+                '前文已经出现但本章没有再次复述的细节，不能仅凭“未提及”判为major。只有本章明确否认该事实、遗漏使因果动作无法成立，或该细节属于章纲/写作工单硬要求时，才可判major；否则最多minor。',
                 'retrieval:fact中的H车道objective正史事实优先于人物说法、旧章节中的当时认知和conflicted/claim资料；早期误认死亡、后续发现假尸或本人归队属于时间推进，不是正文自相矛盾。',
                 '发现资料冲突时必须比较认识状态、正史修订与叙事先后；claim或conflicted资料不能单独推翻objective事实，也不能要求老板重复裁决已经在后续正史中解决的信息。'
               ]
@@ -759,7 +799,7 @@ export class ChapterPipelineService {
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'
               ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
-              : '核对连续性、人物状态、因果与硬约束，最多返回8个最重要问题；另返回最多16条factCandidates，只保留会影响后续章节的持久事实。每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
+              : '核对连续性、人物状态、因果与硬约束，最多返回8个最重要问题；另返回最多16条factCandidates，只保留会影响后续章节的持久事实。每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。人物关系必须使用 relationship.<关系类型> 作为 relationKey（例如 relationship.acquaintance），value只填写另一方的准确姓名，不得使用“角色关系”等自由键，也不得把整段关系说明塞进value。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
         });
       let output: string;
       try {
@@ -797,7 +837,9 @@ export class ChapterPipelineService {
             inputTokens: estimateTokens(content), allowDroppingInvalidFactCandidates: true, normalizeLocalBlockers: true,
             normalizeAiStyleEvidence: true, normalizeRepairedVerdict: true, normalizeMalformedJsonStrings: true,
             normalizeRiskArrays: true, normalizeScoreArray: true, normalizeIssueLocations: true,
-            normalizeRepairedSeverity: true, normalizeIssueFieldAliases: true
+            normalizeRepairedSeverity: true, normalizeIssueFieldAliases: true,
+            normalizeFrozenBindings: true, normalizeProvisionalDraftBlockers: true,
+            normalizeFactOmissionMajor: true
           });
         } catch (repairError) {
           throw new QualityBlockedError(`点评报告定向修复一次后仍未通过：${repairError instanceof Error ? repairError.message : String(repairError)}`);
@@ -1025,6 +1067,11 @@ export class ChapterPipelineService {
             minimum?: number; maximum?: number;
           };
           noPlaceholder?: { passed?: boolean };
+          noMarkdownChapterHeading?: { passed?: boolean };
+          continuityAnchors?: {
+            passed?: boolean;
+            conflicts?: Array<{ field: string; expected: string[]; actual: string[] }>;
+          };
         };
         if (checks.length?.passed === false) {
           const characterCount = checks.length.characterCount;
@@ -1037,9 +1084,18 @@ export class ChapterPipelineService {
           );
         }
         if (checks.noPlaceholder?.passed === false) requiredActions.push('删除全部占位标记并补成完整、可阅读的叙事内容');
+        if (checks.noMarkdownChapterHeading?.passed === false) requiredActions.push('删除正文中的Markdown章节标题行；章节标题由系统单独显示，正文只能保留小说内容');
+        if (checks.continuityAnchors?.passed === false) {
+          for (const conflict of checks.continuityAnchors.conflicts ?? []) {
+            requiredActions.push(
+              `${conflict.field}发生无解释漂移：前章已确认值为${conflict.expected.join('、')}，本稿写成${conflict.actual.join('、')}；同一对象必须恢复前章值，除非正文明确写出更正、转移或另一个对象的因果`
+            );
+          }
+        }
       }
     }
     if (requiredActions.length === 0) throw new QualityBlockedError('硬检查未通过但没有形成可执行的定点修改要求');
+    requiredActions.push(rewriteLengthGuardAction(countNovelCharacters(content)));
     const rewriteSources: ContextSource[] = [
       { sourceType: 'current_manuscript', sourceId: run.current_manuscript_version_id, content, reason: '待定点重写的完整正文', priority: 100 },
       { sourceType: 'review_issues', sourceId: `review:${run.rewrite_count + 1}`, content: JSON.stringify(requiredActions), reason: '结构化修改要求', priority: 100 }
@@ -1063,8 +1119,15 @@ export class ChapterPipelineService {
             ...(source.version === null ? {} : { version: source.version }),
             hard: source.hard
           }));
-    const rewriteHardSources = [...rewriteSources, ...inheritedSources.filter((source) => source.hard)];
-    const rewriteOptionalSources = inheritedSources.filter((source) => !source.hard);
+    // A targeted rewrite already carries the complete current manuscript. Re-injecting the
+    // draft pack's stage summary, previous chapter tail and retrieval hits duplicates material
+    // that is now embodied in that manuscript, consumes the bounded rewrite budget and can pull
+    // the writer away from the requested local edits. Keep only the compact contracts that still
+    // govern the replacement text; the immutable work order remains the authority for facts and
+    // boundaries, while the current manuscript preserves the realised scene and continuity.
+    const rewriteContracts = inheritedSources.filter((source) => isTargetedRewriteContractSource(source.sourceType));
+    const rewriteHardSources = [...rewriteSources, ...rewriteContracts];
+    const rewriteOptionalSources: ContextSource[] = [];
     new CopyrightService(this.database, this.ids, this.clock).assertWriterContextSafe([...rewriteHardSources, ...rewriteOptionalSources]);
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id, agentId: run.writer_agent_id, chapterId: run.chapter_id,
@@ -1088,8 +1151,51 @@ export class ChapterPipelineService {
       return this.takeOverWriterOrBlock(scope, run, 'rewrite', error.message);
     }
     writerLease.assertCanCommit(scope, run.writer_agent_id, run.writer_epoch!);
+    const candidateHardCheck = this.evaluateHardChecks(scope, run, output);
+    const currentPassedHardCheck = (this.database.prepare(`
+      SELECT passed FROM hard_check_results
+      WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ?
+      ORDER BY created_at DESC, hard_check_id DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, run.current_manuscript_version_id) as { passed: number } | undefined)?.passed === 1;
     this.promoteManuscript(scope, run, output, run.current_manuscript_version_id, adapter, 'candidate', (nextVersionId) => {
       const now = this.clock.now().toISOString();
+      const recovery = decideRewriteCandidateRecovery(
+        currentPassedHardCheck,
+        candidateHardCheck.passed,
+        run.rewrite_count
+      );
+      if (recovery !== 'accept') {
+        // A literary/experience rewrite is not allowed to destroy an objective gate already met
+        // by the reviewed manuscript. Keep the rejected immutable candidate for audit, restore the
+        // hard-valid reviewed version, and spend at most the existing two-attempt rewrite budget.
+        // After the second rejected candidate, preserve the unresolved reviewer disagreement for
+        // the owner instead of either accepting defective prose or starting an unbounded loop.
+        this.database.prepare(`UPDATE manuscript_versions SET status = 'rejected'
+          WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ?`)
+          .run(nextVersionId, scope.ownerId, scope.bookId);
+        this.database.prepare(`UPDATE chapters
+          SET current_manuscript_version_id = ?, generation_status = 'completed', updated_at = ?
+          WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+          .run(run.current_manuscript_version_id, now, run.chapter_id, scope.ownerId, scope.bookId);
+        this.recordHardCheck(scope, run, nextVersionId, candidateHardCheck);
+        const nextRewriteCount = run.rewrite_count + 1;
+        if (recovery === 'retain_for_owner') {
+          this.database.prepare(`UPDATE revision_orders SET status = 'cancelled'
+            WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND status = 'active'`)
+            .run(scope.ownerId, scope.bookId, run.current_manuscript_version_id);
+        }
+        this.database.prepare(`
+          UPDATE chapter_pipeline_runs SET current_manuscript_version_id = ?, rewrite_count = ?,
+            phase = ?, updated_at = ? WHERE pipeline_run_id = ?
+        `).run(
+          run.current_manuscript_version_id,
+          nextRewriteCount,
+          recovery === 'retain_for_owner' ? 'facts' : 'rewrite',
+          now,
+          run.pipeline_run_id
+        );
+        return;
+      }
       this.database.prepare(`UPDATE revision_orders SET status = 'completed'
         WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND status = 'active'`)
         .run(scope.ownerId, scope.bookId, run.current_manuscript_version_id);
@@ -1099,6 +1205,53 @@ export class ChapterPipelineService {
       `).run(nextVersionId, now, run.pipeline_run_id);
     });
     return this.reload(run.pipeline_run_id);
+  }
+
+  private evaluateHardChecks(scope: BookScope, run: PipelineRow, content: string) {
+    const characterCount = countNovelCharacters(content);
+    const targetMinimum = 2_500;
+    const targetMaximum = 3_500;
+    const hardMinimum = 2_350;
+    const hardMaximum = 3_650;
+    const checks = {
+      fullImmutableVersion: true,
+      length: {
+        passed: characterCount >= hardMinimum && characterCount <= hardMaximum,
+        targetMet: characterCount >= targetMinimum && characterCount <= targetMaximum,
+        characterCount,
+        targetMinimum,
+        targetMaximum,
+        minimum: hardMinimum,
+        maximum: hardMaximum,
+        policy: 'target-with-bounded-hard-tolerance-v1'
+      },
+      noPlaceholder: { passed: !containsExplicitPlaceholder(content) },
+      noMarkdownChapterHeading: { passed: !containsMarkdownChapterHeading(content) },
+      continuityAnchors: checkChapterContinuityAnchors(content, this.previousContinuityAnchors(scope, run.chapter_id)),
+      hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
+    };
+    return {
+      checks,
+      passed: checks.length.passed && checks.noPlaceholder.passed
+        && checks.noMarkdownChapterHeading.passed && checks.continuityAnchors.passed
+    };
+  }
+
+  private recordHardCheck(
+    scope: BookScope,
+    run: PipelineRow,
+    manuscriptVersionId: string,
+    hardCheck: ReturnType<ChapterPipelineService['evaluateHardChecks']>
+  ): void {
+    this.database.prepare(`
+      INSERT INTO hard_check_results (
+        hard_check_id, owner_id, book_id, chapter_id, manuscript_version_id,
+        passed, checks_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      this.ids.next(), scope.ownerId, scope.bookId, run.chapter_id, manuscriptVersionId,
+      hardCheck.passed ? 1 : 0, JSON.stringify(hardCheck.checks), this.clock.now().toISOString()
+    );
   }
 
   private extractFacts(scope: BookScope, run: PipelineRow): PipelineRow {
@@ -1131,13 +1284,28 @@ export class ChapterPipelineService {
     const existing = this.database.prepare(`SELECT * FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, chapterId) as PipelineRow | undefined;
     if (existing !== undefined) {
+      if (existing.status === 'failed' && existing.task_id === taskId) {
+        if (existing.writing_order_id !== null && existing.writer_epoch !== null) {
+          new WriterLeaseService(new WriterLeaseRepository(this.database), this.clock).resumeExactOrder(
+            scope,
+            existing.writer_agent_id,
+            existing.writer_epoch,
+            existing.writing_order_id,
+            { taskId, chapterId, phase: existing.phase, resumedFromFailure: true }
+          );
+        }
+        this.database.prepare(`UPDATE chapter_pipeline_runs
+          SET status = 'working', error_code = NULL, updated_at = ? WHERE pipeline_run_id = ?`)
+          .run(this.clock.now().toISOString(), existing.pipeline_run_id);
+        return this.reload(existing.pipeline_run_id);
+      }
       if (existing.status === 'paused' && existing.task_id === taskId) {
         this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'working', updated_at = ? WHERE pipeline_run_id = ?`)
           .run(this.clock.now().toISOString(), existing.pipeline_run_id);
         return this.reload(existing.pipeline_run_id);
       }
       const explicitExistingOperation = taskBrief.operation === 'review_existing' || taskBrief.operation === 'rewrite_existing';
-      if ((existing.status === 'failed' && (existing.current_manuscript_version_id === null || existing.task_id !== taskId))
+      if ((existing.status === 'failed' && existing.task_id !== taskId)
         || (explicitExistingOperation && existing.task_id !== taskId && ['completed', 'paused'].includes(existing.status))) {
         const requestedManuscriptVersionId = typeof taskBrief.manuscriptVersionId === 'string'
           ? taskBrief.manuscriptVersionId
@@ -1283,6 +1451,14 @@ export class ChapterPipelineService {
           WHERE request_id = ? AND owner_id = ? AND book_id = ?`)
           .get(requestId, scope.ownerId, scope.bookId) as { state: string; error_class: string | null } | undefined;
         const retryableTechnicalFailure = call?.state === 'failed' && call.error_class === 'technical_failure';
+        const providerResultUnknown = call?.state === 'interrupted' && call.error_class === 'provider_result_unknown';
+        if (providerResultUnknown) {
+          // 结果未知时不能对同一模型盲目重试；把它提升为写手接管信号。旧写手即使
+          // 迟到返回，也会被随后递增的 writer_epoch 提交栅栏拒绝。
+          throw new ModelTechnicalFailureError(
+            `模型调用结果状态未知，停止原模型重试并请求副笔从安全检查点接管：${error instanceof Error ? error.message : String(error)}`
+          );
+        }
         if (!retryableTechnicalFailure) throw error;
         if (technicalTry === 2) {
           throw new ModelTechnicalFailureError(
@@ -1462,6 +1638,21 @@ export class ChapterPipelineService {
     return readFileSync(resolveInside(this.dataDir, row.relative_path), 'utf8');
   }
 
+  private previousContinuityAnchors(scope: BookScope, chapterId: string): ChapterContinuityAnchors | null {
+    const chapter = this.requireChapter(scope, chapterId);
+    const previous = this.database.prepare(`
+      SELECT e.state_json, c.canon_manuscript_version_id
+      FROM chapters c JOIN chapter_end_states e ON e.chapter_end_state_id = c.chapter_end_state_id
+      WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ? AND c.settlement_status = 'settled'
+      ORDER BY c.chapter_number DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as {
+      state_json: string; canon_manuscript_version_id: string;
+    } | undefined;
+    if (previous === undefined) return null;
+    return parseChapterContinuityAnchors(previous.state_json)
+      ?? buildChapterContinuityAnchors(this.loadManuscript(scope, previous.canon_manuscript_version_id));
+  }
+
   private promptWithContext(scope: BookScope, contextPackId: string, phaseKey: string, taskInput: string): string {
     const row = this.database.prepare(`
       SELECT source_manifest_json, content_hash FROM context_packs
@@ -1543,6 +1734,14 @@ export function compactChapterModelTaskInput(phaseKey: string, parsedTaskInput: 
       : { operation: 'rewrite' };
   }
   return parsedTaskInput;
+}
+
+export function isTargetedRewriteContractSource(sourceType: string): boolean {
+  return sourceType === 'system_rule'
+    || sourceType === 'chapter_work_order'
+    || sourceType === 'opening_profile'
+    || sourceType === 'style_baseline'
+    || sourceType === 'previous_chapter_anchors';
 }
 
 export function hasExhaustedExactManuscriptReviewAttempts(completedAttempts: number, resumingIncompletePanel: boolean): boolean {
@@ -1633,7 +1832,7 @@ function productionReviewOutputContract(
       type: 'array', maxItems: 16, note: '只保留会影响后续章节的持久事实',
       items: {
         subjectName: '实体原名', entityType: { enum: ['character', 'location', 'organization', 'item', 'resource', 'skill', 'stat_panel', 'world_rule', 'event', 'foreshadowing', 'hook'] },
-        relationKey: '稳定关系键', value: '事实值', evidenceQuote: '正文原句', evidenceLocation: '正文位置',
+        relationKey: '稳定关系键；人物关系固定使用 relationship.<关系类型>', value: '事实值；人物关系仅填另一方准确姓名', evidenceQuote: '正文原句', evidenceLocation: '正文位置',
         epistemicStatus: { enum: ['objective', 'claim', 'belief', 'lie', 'dream', 'plan', 'counterfactual', 'ambiguous', 'conflicted'] },
         negated: false, viewpointName: null, knowledgeSubjectName: null, knowledgeTimeStart: null,
         knowledgeTimeEnd: null, storyTimeStart: null, storyTimeEnd: null
@@ -1816,8 +2015,25 @@ function writerLengthContract(): Record<string, unknown> {
   };
 }
 
+export function rewriteLengthGuardAction(characterCount: number): string {
+  return `修订前正文为${characterCount}个有效字符。本轮所有文学性、体验和事实修改必须同时满足字数硬约束：修订后优先保持在2700至3200个有效汉字、字母或数字，严禁少于2350或超过3650；要求冲突时压缩解释、同义复述和无因果段落，不得破坏已通过的硬门禁。`;
+}
+
+export function decideRewriteCandidateRecovery(
+  currentPassedHardCheck: boolean,
+  candidatePassedHardCheck: boolean,
+  rewriteCount: number
+): 'accept' | 'retry_rewrite' | 'retain_for_owner' {
+  if (!currentPassedHardCheck || candidatePassedHardCheck) return 'accept';
+  return rewriteCount + 1 >= 2 ? 'retain_for_owner' : 'retry_rewrite';
+}
+
 export function containsExplicitPlaceholder(content: string): boolean {
   return /(?:【|\[|<)\s*(?:TODO|待补|待填写|占位)\s*(?:】|\]|>)|(?:^|\n)\s*(?:TODO|待补|待填写|占位)\s*(?=\n|$)/iu.test(content);
+}
+
+export function containsMarkdownChapterHeading(content: string): boolean {
+  return /(?:^|\n)\s*#\s+\S/u.test(content);
 }
 
 function firstString(...values: unknown[]): string | null {

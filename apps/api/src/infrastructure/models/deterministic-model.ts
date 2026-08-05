@@ -12,9 +12,11 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const digest = createHash('sha256')
       .update(`${request.bookId}\n${request.agentId}\n${request.prompt}`)
       .digest('hex');
+    const continuationAnalysis = deterministicContinuationAnalysis(request.prompt);
     const synthesis = reviewSynthesis(request.prompt);
+    const settingGuidance = deterministicSettingGuidance(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = synthesis ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = continuationAnalysis ?? synthesis ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -27,7 +29,129 @@ export class DeterministicModelAdapter implements ModelAdapter {
   }
 }
 
+function deterministicContinuationAnalysis(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'continuation_chapter_analysis_v1') return null;
+  const source = typeof root.content === 'string' ? root.content.trim() : '';
+  const chapter = isRecord(root.chapter) ? root.chapter : {};
+  const chapterTitle = typeof chapter.title === 'string' ? chapter.title : '本章';
+  const compact = source.replace(/\s+/gu, ' ').slice(0, 320);
+  return JSON.stringify({
+    summary: compact.length > 0 ? `${chapterTitle}：${compact}` : `${chapterTitle}暂无可提炼正文。`,
+    characters: [],
+    events: compact.length > 0 ? [{ event: chapterTitle, result: compact.slice(0, 180), evidence: compact.slice(0, 80) }] : [],
+    locations: [],
+    relations: [],
+    rules: [],
+    resources: [],
+    openThreads: [],
+    resolvedThreads: [],
+    styleEvidence: compact.length > 0 ? [compact.slice(0, 120)] : [],
+    endingState: compact.slice(-160),
+    reverseOutline: {
+      chapterGoal: compact.length > 0 ? `推进“${chapterTitle}”中已经发生的核心事件` : '原文不足，无法提炼本章目标',
+      openingState: compact.slice(0, 100),
+      plotBeats: compact.length > 0 ? [{ order: 1, action: compact.slice(0, 120), result: compact.slice(-120) }] : [],
+      cast: [],
+      centralConflict: compact.length > 0 ? '人物需要面对本章已经出现的新事实或阻力' : '',
+      emotionalArc: compact.length > 0 ? ['察觉', '应对'] : [],
+      payoffOrPressure: [],
+      threadActions: [],
+      descriptionFocus: compact.length > 0 ? ['本章核心事件'] : [],
+      ending: {
+        result: compact.slice(-120),
+        hook: '',
+        nextChapterInterface: compact.slice(-120)
+      }
+    },
+    conflicts: [],
+    unknowns: []
+  });
+}
+
+function deterministicSettingGuidance(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== '设定大纲逐项引导' || !isRecord(root.settingGuidance)) return null;
+  const guidance = root.settingGuidance;
+  const label = typeof guidance.label === 'string' ? guidance.label : '当前设定项';
+  const itemKey = typeof guidance.itemKey === 'string' ? guidance.itemKey : 'unknown';
+  const phase = guidance.phase;
+  const feedbackMode = guidance.feedbackMode;
+  const dissatisfactionRound = typeof guidance.dissatisfactionRound === 'number' ? guidance.dissatisfactionRound : 0;
+  const fields: Record<string, unknown> = {
+    answer: phase === 'ask' && itemKey === 'creative-concept'
+      ? '推荐把这本书写成：人在外部记录与真实记忆冲突时，仍要靠自己的选择守住身份与关系。'
+      : phase === 'ask'
+        ? `根据当前开书信息，我建议先把“${label}”确定为一个简洁、可修改的版本，不延伸到剧情。`
+      : feedbackMode === 'replace_direction' || (feedbackMode === 'vague_dissatisfaction' && dissatisfactionRound >= 2)
+        ? `我换了一条明显不同的“${label}”方向，不沿用上一版的核心说法。`
+        : feedbackMode === 'vague_dissatisfaction'
+          ? `上一版不够贴合，我已经直接收紧重点，给出一个更具体的“${label}”候选。`
+          : `我只合并了您指出的修改，保留“${label}”中未被否定的部分。`,
+    keyPoints: [],
+    alternatives: [],
+    risks: [],
+    questions: phase === 'revise' && ['vague_dissatisfaction', 'replace_direction'].includes(String(feedbackMode)) && dissatisfactionRound <= 2
+      ? []
+      : phase === 'ask' && itemKey === 'creative-concept'
+      ? ['是否按这个确定？']
+      : phase === 'ask' ? ['是否按这个确定？如需调整，直接告诉我修改哪一点。'] : ['这项是否按这个版本确认？如需调整，直接告诉我修改哪一点。'],
+    nextStep: phase === 'ask' && itemKey === 'creative-concept'
+      ? '回复“确认”，或直接说要修改哪一点'
+      : phase === 'ask' ? '回复“确认”，或直接说要修改哪一点' : '回复“确认”后进入下一项设定',
+    details: null
+  };
+  if (typeof phase === 'string') {
+    const currentMessage = typeof root.currentMessage === 'string' ? root.currentMessage.trim() : '';
+    const content = phase === 'ask' && itemKey === 'creative-concept'
+      ? '通过外部记录与真实记忆的冲突，探讨人在被操控和怀疑中如何守住自我与重要关系，让读者获得悬疑推进中的共情、紧张与双向救赎。'
+      : itemKey === 'creative-concept'
+        ? '以人物在真相揭开后的主动选择推动双向救赎，探讨信任如何承受欺骗与控制，让读者同时获得现实共鸣、关系张力和悬疑反转。'
+      : phase === 'ask'
+        ? `${label}建议采用与当前作品定位一致、边界清楚且允许后续创作自然展开的设定。`
+      : feedbackMode === 'replace_direction' || (feedbackMode === 'vague_dissatisfaction' && dissatisfactionRound >= 2)
+        ? `${label}改为采用与上一版核心机制明显不同、但仍符合本书定位的新方向。`
+      : feedbackMode === 'vague_dissatisfaction'
+        ? `${label}重新聚焦本书最独特的矛盾与读者体验，删去空泛表达，形成更具体的候选。`
+      : currentMessage.length >= 8
+      ? currentMessage.slice(0, 1_000)
+      : `${label}按老板本轮说明确定为：${currentMessage || '保持简洁并等待进一步补充'}。`;
+    fields.workflowArtifact = {
+      type: 'setting_outline',
+      payload: { items: [{ itemKey, content }] }
+    };
+  }
+  return JSON.stringify({ version: 1, format: 'json_object', fields });
+}
+
 function deterministicDiscussion(prompt: string): string | null {
+  const settingProposalMatch = prompt.match(/正在参加本书“([^”]+)”独立提案/u);
+  if (settingProposalMatch !== null) {
+    const base = deterministicDiscussionReply();
+    const itemLabel = settingProposalMatch[1] ?? '当前设定项';
+    if (prompt.includes('人物欲望、关系变化')) {
+      base.fields.answer = itemLabel === '策划理念'
+        ? '让人物在互相拯救与互相利用之间不断重新选择，借关系变化讨论爱能否承受真相，并给读者兼具心疼、悬念和主动成长的体验。'
+        : `${itemLabel}以人物欲望和关系变化为核心，明确成立条件、行为边界与代价，并为后续冲突保留自然生长空间。`;
+    } else if (prompt.includes('打破最直觉的同类套路')) {
+      base.fields.answer = itemLabel === '策划理念'
+        ? '把看似被拯救的一方写成更早看清真相的人，借认知错位讨论善意是否也会成为控制，并让读者在反转后重新理解两个人的每次靠近。'
+        : `${itemLabel}避开同类题材最常见的默认答案，以认知错位形成区别，但所有规则仍须能被人物行动和现实代价验证。`;
+    } else {
+      base.fields.answer = itemLabel === '策划理念'
+        ? '用一段必须付出真实代价的双向救赎，讨论人在被欺骗后是否仍能自主选择信任，让读者既获得现实共鸣，也持续期待关系真相被逐层揭开。'
+        : `${itemLabel}优先服务本书定位和读者承诺，采用清楚、可执行且可修改的规则，同时避免提前锁死具体剧情结果。`;
+    }
+    base.fields.keyPoints = [];
+    base.fields.alternatives = [];
+    base.fields.risks = [];
+    base.fields.questions = [];
+    base.fields.nextStep = '等待作者选择、组合或提交自己的版本';
+    base.fields.details = '';
+    return JSON.stringify(base);
+  }
   if (!prompt.includes('小说创作问题') && !prompt.includes('当前书籍的活动主编')) return null;
   // 主编汇总提示词会携带两名编剧已经提交的“章节跨度估算”。如果先按
   // 这个短语分支，适配器会误把编剧的中间产物当成主编最终答复，导致正式

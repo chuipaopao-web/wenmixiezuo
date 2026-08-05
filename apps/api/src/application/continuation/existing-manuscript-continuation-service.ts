@@ -5,7 +5,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
-import { ContinuationImportRepository, type ContinuationImportChapterRow, type ContinuationImportRow } from '../../infrastructure/db/repositories/continuation-import-repository.js';
+import {
+  ContinuationImportRepository,
+  type ContinuationBaselineRow,
+  type ContinuationImportChapterRow,
+  type ContinuationImportRow
+} from '../../infrastructure/db/repositories/continuation-import-repository.js';
 import { OwnerManuscriptRepository } from '../../infrastructure/db/repositories/owner-manuscript-repository.js';
 import { resolveInside, sha256File } from '../../infrastructure/files/file-utils.js';
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
@@ -48,6 +53,15 @@ export interface ContinuationImportView {
   createdAt: string;
   confirmedAt: string | null;
   completedAt: string | null;
+  analysis: {
+    status: 'not_started' | 'pending' | 'analyzing' | 'ready' | 'failed';
+    analyzedChapterCount: number;
+    totalChapterCount: number;
+    summary: string | null;
+    structuredData: Record<string, unknown> | null;
+    activeTaskId: string | null;
+    errorMessage: string | null;
+  };
   chapters: ContinuationImportChapterView[];
 }
 
@@ -128,21 +142,79 @@ export class ExistingManuscriptContinuationService {
     assertBookScope(scope);
     const record = this.repository.requireImport(scope, importId);
     if (record === undefined) throw new DomainError(errorCodes.bookScopeViolation, '续写导入不存在或不属于当前书籍', {}, false, 404);
-    return mapImport(record, this.repository.chapters(scope, importId));
+    return mapImport(record, this.repository.chapters(scope, importId), this.repository.baseline(scope, importId));
   }
 
   public latest(scope: BookScope): ContinuationImportView | null {
     assertBookScope(scope);
     this.repository.assertBookExists(scope);
     const record = this.repository.latest(scope);
-    return record === undefined ? null : mapImport(record, this.repository.chapters(scope, record.continuation_import_id));
+    return record === undefined ? null : mapImport(
+      record,
+      this.repository.chapters(scope, record.continuation_import_id),
+      this.repository.baseline(scope, record.continuation_import_id)
+    );
+  }
+
+  public analyze(scope: BookScope, importId: string): ContinuationImportView {
+    assertBookScope(scope);
+    const record = this.repository.requireImport(scope, importId);
+    if (record === undefined) {
+      throw new DomainError(errorCodes.bookScopeViolation, '续写导入不存在或不属于当前书籍', {}, false, 404);
+    }
+    if (record.status !== 'ready') {
+      throw new DomainError(errorCodes.operationIncomplete, '请先确认并保存已有正文，再整理前文资料', { status: record.status }, false, 409);
+    }
+    const existing = this.repository.baseline(scope, importId);
+    if (existing?.status === 'ready') return this.get(scope, importId);
+    if (existing?.active_task_id !== null && existing?.active_task_id !== undefined) {
+      try {
+        const activeTask = new TaskService(this.database, this.releaseId, this.clock).require(scope, existing.active_task_id);
+        if (['pending', 'queued', 'working', 'paused', 'interrupted'].includes(activeTask.status)) return this.get(scope, importId);
+      } catch { /* a missing/stale task is safely replaced below */ }
+    }
+
+    const settingAgent = this.repository.settingAgent(scope);
+    if (settingAgent === undefined) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, '本书缺少可用的设定整理成员，已有正文已经保存，但暂时无法整理资料', {}, false, 409);
+    }
+    const totalChapterCount = this.repository.chapters(scope, importId)
+      .filter((chapter) => chapter.included === 1 && chapter.status === 'imported').length;
+    if (totalChapterCount === 0) {
+      throw new DomainError(errorCodes.operationIncomplete, '没有可整理的已导入章节', {}, false, 409);
+    }
+    const taskId = this.ids.next();
+    const attemptNo = (existing?.attempt_count ?? 0) + 1;
+    const tasks = new TaskService(this.database, this.releaseId, this.clock);
+    const now = this.clock.now().toISOString();
+    this.repository.runInTransaction(() => {
+      tasks.create(scope, {
+        taskId,
+        taskType: 'continuation_analysis',
+        assignedAgentId: settingAgent.agent_id,
+        idempotencyKey: `continuation-analysis:${importId}:attempt:${attemptNo}`,
+        initialPhase: 'analyzing',
+        brief: { importId, modelSnapshotId: settingAgent.model_snapshot_id }
+      });
+      this.repository.beginAnalysis(scope, {
+        baselineId: existing?.baseline_id ?? this.ids.next(),
+        importId,
+        taskId,
+        totalChapterCount,
+        now
+      });
+      tasks.queue(scope, taskId);
+    });
+    return this.get(scope, importId);
   }
 
   public confirm(scope: BookScope, importId: string, input: { chapters: ContinuationConfirmationChapter[] }): ContinuationImportView {
     assertBookScope(scope);
     const record = this.repository.requireImport(scope, importId);
     if (record === undefined) throw new DomainError(errorCodes.bookScopeViolation, '续写导入不存在或不属于当前书籍', {}, false, 404);
-    if (record.status === 'ready') return this.get(scope, importId);
+    if (record.status === 'ready') {
+      try { return this.analyze(scope, importId); } catch { return this.get(scope, importId); }
+    }
     if (record.status === 'cancelled') throw new DomainError(errorCodes.operationIncomplete, '这次导入已经取消', {}, false, 409);
     if (!['parsed', 'failed', 'importing'].includes(record.status)) {
       throw new DomainError(errorCodes.operationIncomplete, '这次导入当前不能确认', { status: record.status }, false, 409);
@@ -192,7 +264,8 @@ export class ExistingManuscriptContinuationService {
       this.repository.markTaskFailed(scope, taskId, now);
       throw error;
     }
-    return this.get(scope, importId);
+    // 正文导入与资料整理是两个故障域。整理无法排队时，正文仍保持已保存状态，前端可稍后重试。
+    try { return this.analyze(scope, importId); } catch { return this.get(scope, importId); }
   }
 
   private performImport(scope: BookScope, importId: string, taskId: string): void {
@@ -351,7 +424,11 @@ function normalizeSourceName(value: string): string {
   return sourceName.replace(/[\\/\u0000-\u001f]/gu, '_');
 }
 
-function mapImport(record: ContinuationImportRow, chapters: ContinuationImportChapterRow[]): ContinuationImportView {
+function mapImport(
+  record: ContinuationImportRow,
+  chapters: ContinuationImportChapterRow[],
+  baseline?: ContinuationBaselineRow
+): ContinuationImportView {
   return {
     importId: record.continuation_import_id,
     sourceName: record.source_name,
@@ -368,6 +445,23 @@ function mapImport(record: ContinuationImportRow, chapters: ContinuationImportCh
     createdAt: record.created_at,
     confirmedAt: record.confirmed_at,
     completedAt: record.completed_at,
+    analysis: baseline === undefined ? {
+      status: 'not_started',
+      analyzedChapterCount: 0,
+      totalChapterCount: record.imported_chapter_count,
+      summary: null,
+      structuredData: null,
+      activeTaskId: null,
+      errorMessage: null
+    } : {
+      status: baseline.status,
+      analyzedChapterCount: baseline.analyzed_chapter_count,
+      totalChapterCount: baseline.total_chapter_count,
+      summary: baseline.summary_text,
+      structuredData: parseStructuredData(baseline.structured_json),
+      activeTaskId: baseline.active_task_id,
+      errorMessage: baseline.error_message
+    },
     chapters: chapters.map((chapter) => ({
       importChapterId: chapter.continuation_import_chapter_id,
       ordinal: chapter.ordinal,
@@ -382,6 +476,17 @@ function mapImport(record: ContinuationImportRow, chapters: ContinuationImportCh
       targetManuscriptVersionId: chapter.target_manuscript_version_id
     }))
   };
+}
+
+function parseStructuredData(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseWarnings(value: string): string[] {

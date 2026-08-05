@@ -166,4 +166,143 @@ describe('持续剧情创作会话', () => {
     `).get(String(next.action.taskId), scope.ownerId, scope.bookId) as { task_brief_json: string };
     expect(JSON.parse(task.task_brief_json)).toMatchObject({ requestedChapterCount: 3 });
   });
+
+  it('旧版已确认滚动规划没有落下章纲时，重新规划会关闭坏会话并启动可锁定的新轮次', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '滚动规划恢复书',
+      text: '旧规划已确认但章纲缺失'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+
+    const first = service.sendBossMessage(scope, '讨论并规划第1—3章');
+    const firstSessionId = String(first.action.sessionId);
+    context.database.prepare(`
+      UPDATE discussions SET status = 'confirmed'
+      WHERE discussion_id = ? AND owner_id = ? AND book_id = ?
+    `).run(String(first.action.discussionId), scope.ownerId, scope.bookId);
+    context.database.prepare(`
+      UPDATE creative_session_rounds
+      SET round_kind = 'locked_planning', status = 'completed'
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).run(firstSessionId, scope.ownerId, scope.bookId);
+    new CreativeSessionRepository(context.database).updateStatus(scope, {
+      sessionId: firstSessionId,
+      expectedStatus: 'exploring',
+      status: 'awaiting_plan',
+      mode: 'formal_production',
+      now: clock.now().toISOString()
+    });
+
+    const retry = service.sendBossMessage(scope, '讨论并规划第1—3章，重新形成可落库方案');
+
+    expect(retry.action).toMatchObject({
+      kind: 'creative_session_started',
+      roundKind: 'initial_exploration'
+    });
+    expect(String(retry.action.sessionId)).not.toBe(firstSessionId);
+    expect(context.database.prepare(`
+      SELECT status FROM creative_sessions
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).get(firstSessionId, scope.ownerId, scope.bookId)).toEqual({ status: 'closed' });
+  });
+
+  it('滚动章纲已经完成但等待确认时不重复调用成员，而是要求先处理现有方案', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '待确认规划恢复书',
+      text: '第五章规划已经完成，只差老板确认'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+
+    const first = service.sendBossMessage(scope, '讨论并规划第5章');
+    const sessionId = String(first.action.sessionId);
+    const discussionId = String(first.action.discussionId);
+    const taskId = String(first.action.taskId);
+    const decisionId = ids.next();
+    context.database.prepare(`
+      UPDATE tasks SET task_brief_json = json_set(task_brief_json, '$.purpose', 'locked_planning')
+      WHERE task_id = ? AND owner_id = ? AND book_id = ?
+    `).run(taskId, scope.ownerId, scope.bookId);
+    context.database.prepare(`
+      UPDATE discussions SET status = 'awaiting_boss'
+      WHERE discussion_id = ? AND owner_id = ? AND book_id = ?
+    `).run(discussionId, scope.ownerId, scope.bookId);
+    context.database.prepare(`
+      INSERT INTO discussion_decisions (
+        decision_id, discussion_id, owner_id, book_id, recommendation_json,
+        alternatives_json, disagreements_json, impacts_json, created_at
+      ) VALUES (?, ?, ?, ?, '{}', '[]', '[]', '[]', ?)
+    `).run(decisionId, discussionId, scope.ownerId, scope.bookId, clock.now().toISOString());
+    context.database.prepare(`
+      UPDATE creative_session_rounds
+      SET round_kind = 'locked_planning', status = 'completed', completed_decision_id = ?
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).run(decisionId, sessionId, scope.ownerId, scope.bookId);
+    new CreativeSessionRepository(context.database).updateStatus(scope, {
+      sessionId,
+      expectedStatus: 'exploring',
+      status: 'awaiting_plan',
+      mode: 'formal_production',
+      now: clock.now().toISOString()
+    });
+
+    const retry = service.sendBossMessage(scope, '讨论并规划第5章，重新形成章纲');
+
+    expect(retry.action).toMatchObject({
+      kind: 'planning_confirmation_required',
+      sessionId,
+      discussionId,
+      decisionId
+    });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM discussions WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+  });
+
+  it('closes a terminally failed creative round before retrying the same chapter', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: 'rolling-plan-failure-recovery',
+      text: 'bounded first-stage story'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+
+    const first = service.sendBossMessage(scope, '\u8ba8\u8bba\u5e76\u89c4\u5212\u7b2c1\u7ae0');
+    const failedSessionId = String(first.action.sessionId);
+    context.database.prepare(`
+      UPDATE tasks SET status = 'failed', error_code = 'MODEL_OUTPUT_INVALID'
+      WHERE task_id = ? AND owner_id = ? AND book_id = ?
+    `).run(String(first.action.taskId), scope.ownerId, scope.bookId);
+
+    const retry = service.sendBossMessage(scope, '\u8ba8\u8bba\u5e76\u89c4\u5212\u7b2c1\u7ae0');
+
+    expect(retry.action).toMatchObject({
+      kind: 'creative_session_started',
+      roundKind: 'initial_exploration'
+    });
+    expect(String(retry.action.sessionId)).not.toBe(failedSessionId);
+    expect(context.database.prepare(`
+      SELECT status FROM creative_sessions
+      WHERE creative_session_id = ? AND owner_id = ? AND book_id = ?
+    `).get(failedSessionId, scope.ownerId, scope.bookId)).toEqual({ status: 'closed' });
+  });
 });

@@ -7,6 +7,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
+import { DomainError } from '../../domain/errors.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 import { DiscussionService } from './discussion-service.js';
@@ -33,9 +34,16 @@ import {
 } from '../knowledge/setting-outline-workspace-service.js';
 import {
   nextChapterPlanningNumber,
-  parseMasterOutlineDepositOutput
+  parseMasterOutlineDepositOutput,
+  parsePlanningDepositOutput
 } from '../artifacts/planning-artifact-service.js';
 import { compactLockedPlanningScope } from './locked-planning-context.js';
+import { chapterOutlineHardBoundaryFailure } from '../../domain/chapter-outline-boundaries.js';
+import type { ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
+import {
+  chapterOutlineStageBoundaryFailure,
+  stageBoundaryContractLine
+} from '../../domain/chapter-outline-stage-boundary.js';
 
 interface DiscussionTaskRow {
   status: string;
@@ -55,7 +63,7 @@ interface ParticipantRow {
   model_id: string;
 }
 
-type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel';
 type DiscussionPhase = 'independent' | 'cross_review';
 
 interface CollectedOpinion {
@@ -287,15 +295,16 @@ export class DiscussionPipelineService {
         const evidenceContext = pack.sources
           .filter((source) => source.sourceType.startsWith('retrieval:') || source.sourceType.startsWith('planning:'))
           .map((source) => ({ sourceType: source.sourceType, sourceId: source.sourceId, reason: source.reason, content: source.content }));
+        const firstChapterNumber = brief.purpose === 'locked_planning'
+          ? nextChapterPlanningNumber(this.database, scope)
+          : null;
         const prompt = buildDiscussionPrompt({
           participant,
           purpose: brief.purpose ?? 'open_discussion',
           phase,
           scopeText: promptScopeText,
           requestedChapterCount: brief.requestedChapterCount ?? null,
-          firstChapterNumber: brief.purpose === 'locked_planning'
-            ? nextChapterPlanningNumber(this.database, scope)
-            : null,
+          firstChapterNumber,
           evidenceContext,
           peerOpinions: promptPeerOpinions
         });
@@ -314,7 +323,13 @@ export class DiscussionPipelineService {
           && phase === 'independent'
           && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key);
         let reusableIsValid = reusable !== undefined
-          && (!isEditor || hasRequiredWorkflowArtifact(brief.scopeText, brief.purpose ?? 'open_discussion', reusable.output_text))
+          && (!isEditor || hasRequiredWorkflowArtifact(
+            prompt,
+            brief.purpose ?? 'open_discussion',
+            reusable.output_text,
+            firstChapterNumber,
+            brief.requestedChapterCount ?? null
+          ))
           && (!specialistMasterOutlineRequired || isValidMasterOutlineOutput(reusable.output_text));
         if (reusableIsValid && spanEstimateRequired) {
           try {
@@ -336,6 +351,8 @@ export class DiscussionPipelineService {
           state: 'succeeded' as const
         };
         let lastError: unknown;
+        let invalidStructuredOutput: string | null = null;
+        let structuredValidationFailure: string | null = null;
         const maxOutputTokens = discussionOutputTokenLimit(
           participant.role_key,
           isEditor,
@@ -344,6 +361,18 @@ export class DiscussionPipelineService {
           brief.purpose ?? 'open_discussion'
         );
         for (let technicalTry = 1; result === undefined && technicalTry <= 2; technicalTry += 1) {
+          const needsStructuredRecovery = invalidStructuredOutput !== null
+            || structuredValidationFailure !== null;
+          const attemptPrompt = technicalTry === 1 || !needsStructuredRecovery
+            ? prompt
+            : buildStructuredArtifactRecoveryPrompt(
+                prompt,
+                brief.purpose ?? 'open_discussion',
+                firstChapterNumber,
+                brief.requestedChapterCount ?? null,
+                invalidStructuredOutput,
+                structuredValidationFailure
+              );
           const requestId = this.ids.next();
           const reservationId = budgets.reserve(
             scope, budget.budget_id, requestId,
@@ -355,7 +384,7 @@ export class DiscussionPipelineService {
               phaseKey: `${phase}:${participant.role_key}:attempt-${claimedTask.currentAttemptNo}:try-${technicalTry}`,
               agentId: participant.agent_id,
               modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
-              input: prompt,
+              input: attemptPrompt,
               parameters: JSON.stringify({
                 maxOutputTokens,
                 planOnly: !participant.provider.startsWith('local-deterministic'),
@@ -366,8 +395,24 @@ export class DiscussionPipelineService {
               attemptNo: leaseFence?.attemptNo ?? claimedTask.currentAttemptNo
             }, adapter, {
               requestId, taskId, ownerId: scope.ownerId, bookId: scope.bookId,
-              agentId: participant.agent_id, prompt, maxOutputTokens
+              agentId: participant.agent_id, prompt: attemptPrompt, maxOutputTokens
             });
+            const artifactFailure = isEditor
+              ? workflowArtifactValidationFailure(
+                  prompt,
+                  brief.purpose ?? 'open_discussion',
+                  result.output,
+                  firstChapterNumber,
+                  brief.requestedChapterCount ?? null
+                )
+              : null;
+            if (artifactFailure !== null) {
+              invalidStructuredOutput = result.output;
+              structuredValidationFailure = artifactFailure;
+              lastError = new Error(`活动主编回复缺少当前规划阶段要求的完整落库结构：${artifactFailure}`);
+              result = undefined;
+              if (technicalTry === 2) throw lastError;
+            }
           } catch (error) {
             lastError = error;
             const call = this.database.prepare(`SELECT state, error_class FROM model_calls
@@ -412,9 +457,11 @@ export class DiscussionPipelineService {
           ? result.output
           : effective?.fullContent ?? result.output;
         if (isEditor && !hasRequiredWorkflowArtifact(
-          brief.scopeText,
+          prompt,
           brief.purpose ?? 'open_discussion',
-          output
+          output,
+          firstChapterNumber,
+          brief.requestedChapterCount ?? null
         )) {
           throw new Error('活动主编回复缺少当前规划阶段要求的完整落库结构，残缺输出不会保存或在重试时复用');
         }
@@ -467,6 +514,47 @@ export class DiscussionPipelineService {
       const independent: CollectedOpinion[] = [];
       for (const specialist of specialists) {
         independent.push(await collectOpinion(specialist, 'independent'));
+      }
+
+      if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel') {
+        const editorOpinion = await collectOpinion(editor, 'independent', []);
+        const proposals = [editorOpinion, ...independent];
+        const preparedProposals = proposals.map((opinion) => ({
+          opinion,
+          output: prepareEffectiveOutput(opinion.output)
+        }));
+        const unusable = preparedProposals.find((proposal) => proposal.output.rejectedMachinePayload);
+        if (unusable !== undefined) {
+          throw new Error(`${unusable.opinion.role}的独立方案无法安全展示，三席讨论不能伪装成已完成`);
+        }
+        const stage = discussions.require(scope, brief.discussionId).status;
+        if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
+        const decisionId = discussions.synthesize(scope, brief.discussionId, {
+          recommendation: {
+            summary: '三席设定方案均为独立候选，等待老板选择、组合或改写；未自动形成共识。',
+            evidence: proposals.map((opinion) => ({ opinionId: opinion.opinionId, role: opinion.role }))
+          },
+          alternatives: proposals.map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
+          disagreements: [{ status: '保留三个独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
+          impacts: [{ scope: 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
+        });
+        for (const [index, proposal] of preparedProposals.entries()) {
+          const { opinion, output } = proposal;
+          const participant = participants.find((item) => item.agent_id === opinion.agentId);
+          if (participant === undefined) throw new Error('策划理念提案缺少真实参与成员');
+          this.addSettingProposalMessage(
+            scope,
+            brief.conversationId,
+            participant,
+            brief.discussionId,
+            decisionId,
+            output,
+            index + 1,
+            index === proposals.length - 1
+          );
+        }
+        new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
+        return { discussionId: brief.discussionId, decisionId, opinionCount: proposals.length };
       }
 
       const settingSpecialistDiscussion = brief.scopeText.includes('【设定专项讨论资料包】')
@@ -564,6 +652,11 @@ export class DiscussionPipelineService {
     } catch (error) {
       const now = this.clock.now().toISOString();
       const cancelled = (this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number }).cancel_requested === 1;
+      const failureCode = cancelled
+        ? 'TASK_CANCELLED'
+        : error instanceof DomainError
+          ? error.code
+          : 'DISCUSSION_FAILED';
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(now, scope.ownerId, scope.bookId, participant.agent_id);
@@ -576,14 +669,14 @@ export class DiscussionPipelineService {
           AND (required_editor_epoch = 0 OR required_editor_epoch = (
             SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
           ))
-      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
+      `).run(cancelled ? 'cancelled' : 'failed', failureCode, now,
         taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
         leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0, scope.ownerId, scope.bookId);
       if (failure.changes !== 1) throw error;
       this.database.prepare(`
         UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
         WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
-      `).run(cancelled ? 'cancelled' : 'failed', cancelled ? 'TASK_CANCELLED' : 'DISCUSSION_FAILED', now,
+      `).run(cancelled ? 'cancelled' : 'failed', failureCode, now,
         scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? claimedTask.currentAttemptNo);
       this.database.prepare(`
         UPDATE task_phases
@@ -723,6 +816,45 @@ export class DiscussionPipelineService {
     );
     return messageId;
   }
+
+  private addSettingProposalMessage(
+    scope: BookScope,
+    conversationId: string,
+    participant: ParticipantRow,
+    discussionId: string,
+    decisionId: string,
+    proposal: EffectiveOutputResult,
+    proposalNumber: number,
+    isLast: boolean
+  ): string {
+    const visible = proposal.rejectedMachinePayload
+      ? '这份提案返回的结构不完整，我没有把内部格式或杂乱内容展示给您。请稍后单独重试这名成员。'
+      : proposal.visibleContent;
+    const guidance = isLast
+      ? '\n\n三份都是独立候选。回复 1、2 或 3 可选单项；回复 13、123，或“1+2+3”可融合对应方案；也可以直接写自己的版本。主编只会整理您选中的内容，整理后仍需您再次确认。'
+      : '';
+    const references: unknown[] = [{
+      discussionId,
+      decisionId,
+      proposalKind: 'setting_item_independent',
+      proposalNumber
+    }];
+    const effectiveReference = createEffectiveOutputReference(proposal);
+    if (effectiveReference !== null) references.push(effectiveReference);
+    const messageId = this.ids.next();
+    this.database.prepare(`
+      INSERT INTO messages (
+        message_id, conversation_id, owner_id, book_id, sender_type, sender_agent_id,
+        role_key, model_provider, model_id, message_type, content, references_json, created_at
+      ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'setting_proposal', ?, ?, ?)
+    `).run(
+      messageId, conversationId, scope.ownerId, scope.bookId, participant.agent_id,
+      participant.role_key, participant.provider, participant.model_id,
+      `方案${proposalNumber}｜${participant.display_name}\n${visible}${guidance}`,
+      JSON.stringify(references), this.clock.now().toISOString()
+    );
+    return messageId;
+  }
 }
 
 function planningHierarchySources(
@@ -733,7 +865,8 @@ function planningHierarchySources(
 ): Array<{ sourceType: string; sourceId: string; content: string; reason: string; priority: number }> {
   const masterWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
   const rollingPlan = purpose === 'locked_planning';
-  if (!masterWorkshop && !rollingPlan) return [];
+  const creativeExploration = purpose === 'creative_exploration';
+  if (!masterWorkshop && !rollingPlan && !creativeExploration) return [];
   const state = database.prepare(`
     SELECT active_style_version_id, setting_baseline_version_id,
       master_outline_version_id
@@ -747,11 +880,11 @@ function planningHierarchySources(
   const requested = [
     { id: state.active_style_version_id, type: 'style', reason: '可追溯表达策略；规划按当前场景选择必要表达，不固定全书情绪' },
     { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定大纲，是剧情推演不可违背的上游边界' },
-    ...(rollingPlan
+    ...(rollingPlan || creativeExploration
       ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲；只提取与当前故事弧和近期章纲相关的阶段边界' }]
       : [])
   ].filter((item): item is { id: string; type: string; reason: string } => item.id !== null);
-  return requested.flatMap((item) => {
+  const sources = requested.flatMap((item) => {
     const row = database.prepare(`
       SELECT artifact_version_id, content_json FROM artifact_versions
       WHERE artifact_version_id = ? AND owner_id = ? AND book_id = ? AND status = 'selected'
@@ -769,6 +902,81 @@ function planningHierarchySources(
       priority: 99
     }];
   });
+  if (rollingPlan || creativeExploration) {
+    const previous = previousChapterOutlineSource(database, scope, nextChapterPlanningNumber(database, scope));
+    if (previous !== null) sources.push(previous);
+  }
+  return sources;
+}
+
+function previousChapterOutlineSource(
+  database: DatabaseSync,
+  scope: BookScope,
+  nextChapterNumber: number
+): { sourceType: string; sourceId: string; content: string; reason: string; priority: number } | null {
+  if (nextChapterNumber <= 1) return null;
+  const row = database.prepare(`
+    SELECT v.artifact_version_id, v.content_json
+    FROM artifacts a
+    JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
+    WHERE a.owner_id = ? AND a.book_id = ?
+      AND a.artifact_type = 'chapter_outline'
+      AND a.status = 'active' AND v.status = 'selected'
+      AND CAST(json_extract(v.content_json, '$.chapterNumber') AS INTEGER) < ?
+    ORDER BY CAST(json_extract(v.content_json, '$.chapterNumber') AS INTEGER) DESC
+    LIMIT 1
+  `).get(scope.ownerId, scope.bookId, nextChapterNumber) as {
+    artifact_version_id: string;
+    content_json: string;
+  } | undefined;
+  if (row === undefined) return null;
+  return {
+    sourceType: 'planning:previous_chapter_outline',
+    sourceId: row.artifact_version_id,
+    content: compactPreviousChapterOutlineForDiscussion(row.content_json),
+    reason: '上一章已确认章纲的结束状态与下一章承接点；用于保持逐章连续，不注入全部历史章纲',
+    priority: 100
+  };
+}
+
+export function compactPreviousChapterOutlineForDiscussion(contentJson: string): string {
+  try {
+    const value = JSON.parse(contentJson) as Record<string, unknown>;
+    const ending = value.ending !== null && typeof value.ending === 'object'
+      ? value.ending as Record<string, unknown>
+      : {};
+    const cast = Array.isArray(value.cast)
+      ? value.cast.slice(0, 5).map((entry) => {
+          const character = entry !== null && typeof entry === 'object'
+            ? entry as Record<string, unknown>
+            : {};
+          return {
+            name: character.name,
+            objective: character.objective,
+            knowledgeBoundary: character.knowledgeBoundary,
+            stateChange: character.stateChange
+          };
+        })
+      : [];
+    return JSON.stringify({
+      outlineSchema: value.outlineSchema,
+      chapterNumber: value.chapterNumber,
+      title: value.title,
+      requiredEndingState: value.requiredEndingState,
+      cast,
+      informationControl: value.informationControl,
+      threadActions: value.threadActions,
+      mustNotViolate: value.mustNotViolate,
+      ending: {
+        result: ending.result,
+        stateChanges: ending.stateChanges,
+        hook: ending.hook,
+        nextChapterInterface: ending.nextChapterInterface
+      }
+    });
+  } catch {
+    return boundedHeadAndTail(contentJson, 1_000);
+  }
 }
 
 export function compactPlanningArtifactForDiscussion(
@@ -845,23 +1053,97 @@ function stripPlanningAuditMetadata(value: unknown): unknown {
 function hasRequiredWorkflowArtifact(
   scopeText: string,
   purpose: DiscussionPurpose,
-  output: string
+  output: string,
+  firstChapterNumber: number | null = null,
+  requestedChapterCount: number | null = null
 ): boolean {
+  return workflowArtifactValidationFailure(
+    scopeText,
+    purpose,
+    output,
+    firstChapterNumber,
+    requestedChapterCount
+  ) === null;
+}
+
+function workflowArtifactValidationFailure(
+  scopeText: string,
+  purpose: DiscussionPurpose,
+  output: string,
+  firstChapterNumber: number | null = null,
+  requestedChapterCount: number | null = null
+): string | null {
   if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
-    return isValidMasterOutlineOutput(output);
+    return isValidMasterOutlineOutput(output) ? null : '剧情总纲缺少完整的stage_master_v2结构';
   }
   if (scopeText.includes('【设定大纲成组讨论资料包】')) {
     const requiredKeys = new Set(settingBatchKeys(scopeText));
     const deposits = parseSettingOutlineDeposit(output);
     return requiredKeys.size > 0
       && requiredKeys.size === deposits.length
-      && deposits.every((deposit) => requiredKeys.has(deposit.itemKey));
+      && deposits.every((deposit) => requiredKeys.has(deposit.itemKey))
+      ? null
+      : '设定大纲没有逐项覆盖本批全部设定编号';
   }
-  // 滚动章纲仍兼容历史确定性适配器的“规划落库”双段输出；其结构在老板
-  // 确认时由 PlanningArtifactService 统一校验。这里仅拦截已统一为
-  // workflowArtifact 合同的设定和剧情总纲。
-  void purpose;
-  return true;
+  if (purpose === 'locked_planning') {
+    try {
+      const planning = parsePlanningDepositOutput(output);
+      if (planning === null || planning.outlineSchema !== 'chapter_outline_v2') return '缺少chapter_outline_v2结构';
+      if (requestedChapterCount !== null && planning.chapters.length !== requestedChapterCount) {
+        return `必须且只能包含${requestedChapterCount}章`;
+      }
+      if (firstChapterNumber !== null && planning.chapters.some((chapter, index) => (
+        chapter.chapterNumber !== firstChapterNumber + index
+      ))) return `章号必须从第${firstChapterNumber}章连续递增`;
+      for (const chapter of planning.chapters) {
+        const boundaryFailure = chapterOutlineHardBoundaryFailure(scopeText, chapter);
+        if (boundaryFailure !== null) return boundaryFailure;
+        const stageFailure = chapterOutlineStageBoundaryFailure(scopeText, chapter as ChapterOutlineV2);
+        if (stageFailure !== null) return stageFailure;
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : '章纲结构无法解析';
+    }
+  }
+  return null;
+}
+
+function buildStructuredArtifactRecoveryPrompt(
+  prompt: string,
+  purpose: DiscussionPurpose,
+  firstChapterNumber: number | null,
+  requestedChapterCount: number | null,
+  invalidOutput: string | null,
+  validationFailure: string | null
+): string {
+  if (purpose !== 'locked_planning') {
+    return [
+      prompt,
+      `上一次回复的落库结构残缺或无法解析${validationFailure === null ? '' : `：${validationFailure}`}。`,
+      invalidOutput === null ? '' : `【上一版无效输出，仅供结构纠错】\n${boundedHeadAndTail(invalidOutput, 3_500)}`,
+      '请重新输出，先给完整闭合的workflowArtifact，再给不超过160字的作者说明；不要复述讨论过程。'
+    ].filter(Boolean).join('\n');
+  }
+  const first = firstChapterNumber ?? 1;
+  const count = requestedChapterCount ?? 3;
+  const semanticBoundaryFailure = validationFailure?.startsWith('硬边界冲突') === true
+    || validationFailure?.startsWith('阶段边界冲突') === true;
+  return [
+    semanticBoundaryFailure
+      ? '上一版章纲违反了作者已经明确确认的硬边界。必须放弃冲突的机制，回到开书资料、已确认设定和剧情总纲，用现实可追溯的人物行动、制度流程与因果证据重做本章；不得只改字段名或在mustNotViolate里口头否认。'
+      : '你正在修复上一版章纲的机器结构，不是在重新讨论或另写方案。保留上一版已经形成的剧情判断，只修正JSON、缺失字段、字段类型和节点编号。',
+    `校验失败原因：${validationFailure ?? '章纲结构无法解析'}`,
+    invalidOutput === null ? '上一版输出不可用，请按下列合同重建同一结论。' : `【上一版无效输出】\n${boundedHeadAndTail(invalidOutput, 3_500)}`,
+    '【章纲V2落库结构修复合同】workflowArtifact.type必须为chapter_outline；payload.outlineSchema必须为chapter_outline_v2。每章必须含chapterNumber、title、chapterFunction、openingState、requiredEndingState、cast、conflict、plotBeats、ending、mustImplement、mustNotViolate、creativeFreedom。',
+    'cast是1至4名必要人物的数组；conflict至少含surface和failureCost；plotBeats必须是恰好3个对象，每个对象都同时包含连续的order、trigger、action、result，可选resistance和turn；不得把result拆成单独对象。',
+    'experience、descriptionFocus、informationControl中的子列表以及allowedCandidates只能是字符串数组；无内容时使用[]，不得使用null。threadActions必须是对象数组，每项包含action（plant、advance或payoff）和summary，最多2项。mustImplement、mustNotViolate、creativeFreedom各至少一项。ending必须含result、hook、nextChapterInterface，stateChanges使用字符串数组。',
+    `必须先输出一个完整闭合的workflowArtifact，且只包含第${first}章至第${first + count - 1}章共${count}章；JSON闭合后再写不超过120字的作者说明。`,
+    `本次只能规划第${first}章至第${first + count - 1}章，共${count}章。chapters必须按绝对章号连续给出。`,
+    '为保证完整：每章只保留1至4名必要人物、恰好3个推进节点、最多2项伏笔动作；每个文本字段只写一句具体结论，单项不超过80个汉字；可选数组没有必要时使用空数组。',
+    '不得输出Markdown代码围栏、前置分析、候选方案、重复字段或workflowArtifact之外的第二份JSON。',
+    `外层输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
+  ].join('\n');
 }
 
 export function discussionOutputTokenLimit(
@@ -871,6 +1153,7 @@ export function discussionOutputTokenLimit(
   scopeText: string,
   purpose: DiscussionPurpose = 'open_discussion'
 ): number {
+  if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') return 1_200;
   // 主编只需要输出面向作者的结论和一个结构化规划产物。完整编剧意见已经
   // 单独保存在 discussion_opinions；继续申请 4k 输出会让真实方舟 Plan
   // 在 7k 级输入下更容易被上游网关中断。
@@ -887,10 +1170,10 @@ export function discussionOutputTokenLimit(
   if (isEditor && scopeText.includes('【剧情总纲专项讨论资料包】')) {
     return 6_000;
   }
-  // 滚动章纲的结构明显短于全书阶段总纲，4.5k 足以容纳面向作者的结论
-  // 与完整 workflowArtifact；普通开放讨论仍保持较小上限。
+  // 三章V2章纲包含人物边界、冲突、节点、信息控制和章末接口。4.5k在真实
+  // 方舟调用中会截断第三章，故给出6.5k上限并配合逐字段精简和结构重试。
   if (isEditor && purpose === 'locked_planning') {
-    return 4_500;
+    return 6_500;
   }
   // 剧情总纲要求两名编剧各自提交完整的阶段式落库结构。4k 在四阶段及以上
   // 方案中会把末尾 JSON 截断；这里与主编保持同一有界上限，重试时再依据结构
@@ -1063,6 +1346,30 @@ function buildDiscussionPrompt(input: {
   const isGroupedSettingWorkshop = scopeText.includes('【设定大纲成组讨论资料包】');
   const groupedSettingKeys = isGroupedSettingWorkshop ? settingBatchKeys(scopeText) : [];
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
+  const stageContract = purpose === 'locked_planning'
+    ? stageBoundaryContractLine(evidenceContext)
+    : null;
+  if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') {
+    const itemLabel = scopeText.match(/当前设定项：([^\n]+)/u)?.[1]?.trim() || '当前设定项';
+    const itemPrompt = scopeText.match(/当前问题：([^\n]+)/u)?.[1]?.trim() || '请给出最适合本书的明确设定方案';
+    const creativeConcept = scopeText.includes('当前设定项编号：creative-concept') || purpose === 'creative_concept_panel';
+    return [
+      `你是${participant.display_name}，正在参加本书“${itemLabel}”独立提案。`,
+      `统一命题与开书资料：${scopeText}`,
+      `与你的判断直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
+      '你看不到另外两名成员的答案，也不得猜测、评价、汇总或迎合她们。只提交一个你自己真正推荐、可供作者选择的方案。',
+      creativeConcept
+        ? '策划理念必须用小白作者也能读懂的自然中文，明确回答：一、这本书为什么值得写；二、主要想探讨什么；三、准备给读者什么独特体验。三者要形成同一个创作机制，不能只是标签、广告语或剧情梗概。'
+        : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的设定，不提前规定具体剧情结果，也不扩写剧情总纲、章纲或正文。`,
+      participant.role_key === 'lead_screenwriter'
+        ? '侧重人物欲望、关系变化和长期可持续的戏剧机制。'
+        : participant.role_key === 'second_screenwriter'
+          ? '侧重打破最直觉的同类套路，提出仍符合人物因果的独特体验。'
+          : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
+      '只写一个候选，正文建议80至220字；不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
+      `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
+    ].join('\n');
+  }
   if (isEditor) {
     return [
       `你是${participant.display_name}，是当前书籍的活动主编。`,
@@ -1078,27 +1385,32 @@ function buildDiscussionPrompt(input: {
         : isGroupedSettingWorkshop
             ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
-              ? '现在只做方向比较：整理2至5个候选方向，逐项写清收益、代价、因果风险、人物影响、关键分歧和未知项；提出最多3个高价值追问。不得估算章节数，不得生成章纲，不得安排主笔开写。'
+              ? '现在只做方向推演：综合编剧意见后先给一个明确主推荐，写清收益、代价、因果风险和人物影响；只有确有重大取舍时保留一个结构不同的备选。最多提出1个会改变重大方向的必要问题；其余未知项用可逆假设推进。不得估算章节数，不得生成章纲，不得安排主笔开写。'
               : purpose === 'locked_planning'
                 ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
-                : '请明确回应老板，综合岗位意见给出推荐、理由、风险和可执行下一步。',
+                : '请明确回应老板，先分析老板的真实意图，再给出一个主推荐、简短理由、必要风险和可执行下一步。不得把判断责任变成连续问题；资料足够时直接形成可确认方案。',
       isGroupedSettingWorkshop
         ? `在同一个JSON对象的workflowArtifact字段输出设定大纲落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
         : '',
       isMasterOutlineWorkshop
-        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":50},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。majorStages至少2项；stageNumber从1连续递增；章节范围从第1章开始且相邻阶段必须首尾相接、不得重叠或留空；主线三项、起承转合、阶段总结和后续方向不得为空。起承转合是阶段总结视角，不是每章机械公式。'
+        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留，stageNumber和章节范围连续且不得重叠或留空。主线三项、起承转合、阶段总结和后续方向不得为空。起承转合是阶段总结视角，不是每章机械公式。'
         : '',
       purpose === 'locked_planning'
         ? [
-            '在同一个JSON对象的workflowArtifact字段输出章纲V2落库结构：{"type":"chapter_outline","payload":{"outlineSchema":"chapter_outline_v2","arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"chapterNumber":绝对章号,"title":"不含第N章前缀的章名","chapterFunction":"本章在当前剧情阶段中的唯一作用","openingState":"开章时已经成立的局面","requiredEndingState":"本章结束时必须形成的局面","cast":[{"name":"姓名","objective":"本章当下目标","knowledgeBoundary":"此人此刻知道与不知道什么","chapterRole":"本章作用","stateChange":"可选，本章后变化"}],"conflict":{"surface":"表层冲突","underlying":"可选，深层冲突","oppositionGoal":"可选，对手目标","failureCost":"失败代价","successCost":"可选，成功代价"},"plotBeats":[{"order":1,"trigger":"触发","action":"人物行动","resistance":"可选，阻力","turn":"可选，转折","result":"该节点结果"}],"experience":{"primaryTone":"可选，本章主情绪","emotionalCurve":["3至5个情绪变化"],"payoffPoints":["0至2个爽点"],"pressurePoints":["0至2个压力或虐点"],"readerEffect":"可选，预期读者感受"},"descriptionFocus":{"primary":["主要描写"],"secondary":["次要描写"],"compress":["压缩处理"]},"informationControl":{"reveals":["本章揭示"],"concealed":["本章保留"],"gaps":["信息差"]},"threadActions":[{"action":"plant或advance或payoff","summary":"伏笔动作，最多2项"}],"ending":{"result":"章末结果","stateChanges":["状态变化"],"hook":"章末钩子","nextChapterInterface":"下一章承接点"},"mustImplement":["必须实现"],"mustNotViolate":["不得违反"],"allowedCandidates":["允许主笔选择的候选"],"creativeFreedom":["对白、动作、意象、局部调度等自由区"]}]}}。',
+            '在同一个JSON对象的workflowArtifact字段输出章纲V2落库结构：{"type":"chapter_outline","payload":{"outlineSchema":"chapter_outline_v2","arcTitle":"故事弧标题","arcGoal":"本弧目标","endingState":"本弧结束状态","estimatedChapterRange":{"minimum":最少章数,"recommended":建议章数,"maximum":最多章数},"chapters":[{"chapterNumber":绝对章号,"title":"不含第N章前缀的章名","chapterFunction":"本章在当前剧情阶段中的唯一作用","openingState":"开章时已经成立的局面","requiredEndingState":"本章结束时必须形成的局面","sourceStage":{"stageNumber":阶段编号,"title":"阶段名","chapterRange":{"start":起始章,"end":结束章}},"stageBoundary":{"mustCloseStage":true,"resolution":"仅阶段终章填写总纲解决方式","result":"仅阶段终章填写总纲结果","pendingThreads":["仅保留总纲允许后续回收的线索"]},"cast":[{"name":"姓名","objective":"本章当下目标","knowledgeBoundary":"此人此刻知道与不知道什么","chapterRole":"本章作用","stateChange":"可选，本章后变化"}],"conflict":{"surface":"表层冲突","underlying":"可选，深层冲突","oppositionGoal":"可选，对手目标","failureCost":"失败代价","successCost":"可选，成功代价"},"plotBeats":[{"order":1,"trigger":"触发","action":"人物行动","resistance":"可选，阻力","turn":"可选，转折","result":"该节点结果"}],"experience":{"primaryTone":"可选，本章主情绪","emotionalCurve":["3至5个情绪变化"],"payoffPoints":["0至2个爽点"],"pressurePoints":["0至2个压力或虐点"],"readerEffect":"可选，预期读者感受"},"descriptionFocus":{"primary":["主要描写"],"secondary":["次要描写"],"compress":["压缩处理"]},"informationControl":{"reveals":["本章揭示"],"concealed":["本章保留"],"gaps":["信息差"]},"threadActions":[{"action":"plant或advance或payoff","summary":"伏笔动作，最多2项"}],"ending":{"result":"章末结果","stateChanges":["状态变化"],"hook":"章末钩子","nextChapterInterface":"下一章承接点"},"mustImplement":["必须实现"],"mustNotViolate":["不得违反"],"allowedCandidates":["允许主笔选择的候选"],"creativeFreedom":["对白、动作、意象、局部调度等自由区"]}]}}。非阶段终章省略stageBoundary；阶段终章必须填写并原样承接阶段边界合同。',
+            stageContract ?? '',
+            stageContract === null ? '' : '阶段边界合同是已确认剧情总纲的机器门禁：sourceStage必须与所属阶段完全一致；若本批包含阶段结束章，该章必须解决阶段主事件、形成总纲确认的结果，只能把pendingThreads列出的信息留待后续。不得在章节功能、结束状态、节点、章末或不得违反项中写“尚未完成、未闭合、不恢复、不解决”等反闭环要求。',
             `本次只能规划第${firstChapterNumber ?? 1}章至第${(firstChapterNumber ?? 1) + (requestedChapterCount ?? 3) - 1}章，共${requestedChapterCount ?? 3}章。chapters必须按绝对章号连续给出且chapterNumber逐项严格等于该范围；不得从第5章等其他章位开始，不得跳章、错位或只写后续章节。已有候选正文也必须在相应章位生成修正版章纲。`,
-            '每章必须有3至5个连续编号的剧情推进节点、1至12名出场人物、明确失败代价和章末承接；章节功能不得重复。体验、描写和信息控制是软提示，可按本章需要留空，不能为了填表硬造爽点或虐点。不要复述人物完整传记、世界观全文或前章全文。'
+            '每章必须有3至5个连续编号的剧情推进节点、1至12名出场人物、明确失败代价和章末承接；章节功能不得重复。体验、描写和信息控制是软提示，可按本章需要留空，不能为了填表硬造爽点或虐点。不要复述人物完整传记、世界观全文或前章全文。',
+            '开书资料、已确认设定和剧情总纲中的作者硬边界必须落实到每一个事件本身，不能只抄进mustNotViolate后继续写冲突机制。现实题材不得让无来源的界面、倒计时、惩罚规则或“交出物品换延期”自行裁决人物；若需要限期、交换或追责，必须落到可追溯的现实人物、机构、书面规则与因果证据。',
+            '为避免结构被截断，每章只写当前创作必需信息：优先1至4名必要人物和3个推进节点；每个文本字段只写一句具体结论，单项不超过80个汉字；可选列表无必要时使用空数组。'
           ].join('')
         : '',
       (isMasterOutlineWorkshop || isGroupedSettingWorkshop || purpose === 'locked_planning')
         ? '这是必须落库的规划任务：先确保workflowArtifact完整、字段齐全且JSON闭合，再写面向老板的说明。answer不超过300字；keyPoints、risks、questions各最多3项；alternatives最多1项；details设为null。不要复述两位编剧的长篇论证，完整意见已经单独保存。'
         : '',
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
+      '讨论必须有界收敛：每轮最多一个真正阻塞的问题；老板表示“不知道、你推荐、你决定”时必须给出当前最佳推荐；已经明确或排除的方向不得无新证据反复重开。',
       '保留结构不同的高潜少数方案和有证据的分歧，不用多数票，不把意见压成没有代价的安全折中。',
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
     ].filter(Boolean).join('\n');
@@ -1128,12 +1440,12 @@ function buildDiscussionPrompt(input: {
         ? '你的侧重点是提出因果成立但结构确实不同的路径，并压力测试最容易被默认接受的前提；不要为了显得不同而追求无根据的反转。'
         : '',
     isMasterOutlineWorkshop
-      ? '独立提出全书级方案：核心冲突如何持续升级、主角成长如何改变选择、各大阶段如何因果相接、结局如何兑现前文承诺。不要写逐章事件。'
+      ? '独立提出当前唯一剧情阶段的完整方案：围绕一个主事件形成起承转合和明确结算，预计不超过50章；只保留全书核心前提、冲突、成长与结局方向作为远期锚点，不提前规划后续阶段或逐章事件。'
       : isGroupedSettingWorkshop
           ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     isMasterOutlineWorkshop
-      ? '这是剧情总纲落库任务。你必须直接提交一份完整可校验的阶段总纲，不是只提建议。在同一个JSON对象的workflowArtifact字段输出：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"阶段名","chapterRange":{"start":1,"end":50},"mainline":{"encounter":"主角遇到什么","resolution":"怎么解决","result":"什么结果"},"structure":{"setup":"起","development":"承","turn":"转","conclusion":"合"},"stageSummary":"阶段总结","pendingThreads":["待回收信息与伏笔"],"followUpDirection":"后续方向"}],"endingDirection":"结局方向","storyPromises":["作品承诺"],"openQuestions":["仍需老板确认的问题"]}}。至少2阶段；编号和章节连续；每个必填文本都要具体。起承转合只总结阶段变化，不得压成逐章公式。'
+      ? '这是剧情总纲落库任务。你必须直接提交一份完整可校验的当前阶段总纲，不是只提建议。在同一个JSON对象的workflowArtifact字段输出：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"阶段名","chapterRange":{"start":1,"end":10},"mainline":{"encounter":"主角遇到什么","resolution":"怎么解决","result":"什么结果"},"structure":{"setup":"起","development":"承","turn":"转","conclusion":"合"},"stageSummary":"阶段总结","pendingThreads":["待回收信息与伏笔"],"followUpDirection":"后续方向"}],"endingDirection":"结局方向","storyPromises":["作品承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只能规划1个完整阶段，单阶段最多50章；当前阶段完成并结算前不得提前设计下一阶段。每个必填文本都要具体。起承转合只总结阶段变化，不得压成逐章公式。'
       : '',
     purpose === 'creative_exploration'
       ? '当前仍是开放推演阶段：不得估算章节数，不得生成章纲，不得假定老板已经锁定方向。'

@@ -4,6 +4,7 @@ import { assertBookScope, type BookScope } from '../../../domain/scope.js';
 export interface OwnerManuscriptChapterRow {
   settlement_status: string;
   current_manuscript_version_id: string | null;
+  canon_manuscript_version_id: string | null;
 }
 
 export interface OwnerManuscriptVersionRow {
@@ -36,9 +37,26 @@ export class OwnerManuscriptRepository {
 
   public chapter(scope: BookScope, chapterId: string): OwnerManuscriptChapterRow | undefined {
     assertBookScope(scope);
-    return this.database.prepare(`SELECT settlement_status, current_manuscript_version_id FROM chapters
+    return this.database.prepare(`SELECT settlement_status, current_manuscript_version_id, canon_manuscript_version_id FROM chapters
       WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
       .get(chapterId, scope.ownerId, scope.bookId) as OwnerManuscriptChapterRow | undefined;
+  }
+
+  public withdrawCurrentManuscript(
+    scope: BookScope,
+    chapterId: string,
+    expectedManuscriptVersionId: string,
+    now: string
+  ): boolean {
+    assertBookScope(scope);
+    const result = this.database.prepare(`UPDATE chapters
+      SET current_manuscript_version_id = NULL, generation_status = 'not_started',
+        settlement_status = 'unsettled', updated_at = ?, version = version + 1
+      WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+        AND current_manuscript_version_id = ? AND canon_manuscript_version_id IS NULL
+        AND settlement_status <> 'settled'`)
+      .run(now, chapterId, scope.ownerId, scope.bookId, expectedManuscriptVersionId);
+    return result.changes === 1;
   }
 
   public hasUnsafeTask(scope: BookScope, chapterId: string): boolean {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ChapterPipelineService, containsExplicitPlaceholder } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
+import { ChapterPipelineService, containsExplicitPlaceholder, containsMarkdownChapterHeading } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -9,9 +9,11 @@ import { ChapterCatalogService } from '../../../apps/api/src/application/chapter
 import { CanonService } from '../../../apps/api/src/application/knowledge/canon-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
-import type { ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import { ModelAdapterError, type ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { countNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
+import { WRITER_CONTEXT_POLICY } from '../../../apps/api/src/application/memory/writer-context-policy.js';
 
 describe('单章完整创作流水线', () => {
   let context: TestContext | undefined;
@@ -22,6 +24,90 @@ describe('单章完整创作流水线', () => {
     expect(containsExplicitPlaceholder('正文\n【TODO】\n正文')).toBe(true);
     expect(containsExplicitPlaceholder('正文\n[待补]\n正文')).toBe(true);
     expect(containsExplicitPlaceholder('正文\n占位\n正文')).toBe(true);
+  });
+
+  it('拒绝正文内重复输出Markdown章节标题', () => {
+    expect(containsMarkdownChapterHeading('# 第九章 可移送的重量\n正文开始。')).toBe(true);
+    expect(containsMarkdownChapterHeading('正文开始。\n# 可移送的重量\n继续正文。')).toBe(true);
+    expect(containsMarkdownChapterHeading('正文开始。\n## 场景切换\n继续正文。')).toBe(false);
+    expect(containsMarkdownChapterHeading('正文里的#号不是标题。')).toBe(false);
+  });
+
+  it('把老板确认的开书方向和人物作为主笔硬来源，但保持资料包在4800字内', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const openingBlueprint: OpeningBlueprintInput = {
+      taxonomyVersion: OPENING_TAXONOMY.version,
+      channel: 'female', categoryKey: 'female-modern-brain', targetAudience: '',
+      protagonists: [{ role: 'female_lead', name: '林澄', age: '二十七岁', background: '失物招领中心档案员', personalities: ['敏锐'] }],
+      storyDirection: '林澄在失物招领中心追查一张日期来自明天的归还单。',
+      worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['成长'], customTags: [],
+      initialMap: '', mustFollow: ['机构名称固定为失物招领中心']
+    };
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '开书资料入包测试', text: openingBlueprint.storyDirection, openingBlueprint
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 1);
+    await batches.run(scope, batch.batchId);
+    const draftCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'draft:%' AND state = 'succeeded'
+      ORDER BY created_at LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
+    const pack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
+      .get(draftCall.context_pack_id) as { source_manifest_json: string };
+    const sources = JSON.parse(pack.source_manifest_json) as Array<{ sourceType: string; content: string }>;
+    const profile = sources.find((source) => source.sourceType === 'opening_profile');
+    expect(profile?.content).toContain('失物招领中心');
+    expect(WRITER_CONTEXT_POLICY.draft.characterBudget).toBe(4_800);
+    expect(sources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_800);
+  });
+
+  it('结算时保存前章全文锚点，并在下一章写作与审校资料包中强制携带', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '跨章锚点测试书', text: '旧城档案追踪' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 3);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 3);
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    approvePendingManuscript(context, scope, ids, clock);
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+
+    const state = context.database.prepare(`SELECT e.state_json FROM chapters c JOIN chapter_end_states e
+      ON e.chapter_end_state_id = c.chapter_end_state_id WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number = 1`)
+      .get(scope.ownerId, scope.bookId) as { state_json: string };
+    expect(JSON.parse(state.state_json)).toHaveProperty('continuityAnchors');
+    const calls = context.database.prepare(`SELECT p.source_manifest_json FROM model_calls m JOIN context_packs p
+      ON p.context_pack_id = m.context_pack_id WHERE m.owner_id = ? AND m.book_id = ? AND m.task_id = ?
+      AND m.state = 'succeeded' AND (m.phase_key LIKE 'draft:%' OR m.phase_key LIKE 'review-%')`)
+      .all(scope.ownerId, scope.bookId, batch.taskIds[1]!) as unknown as Array<{ source_manifest_json: string }>;
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    for (const call of calls) {
+      const sourceTypes = (JSON.parse(call.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
+      expect(sourceTypes.some((sourceType) => ['previous_chapter_anchors', 'previous_chapter_full'].includes(sourceType))).toBe(true);
+    }
+    const reviewCalls = context.database.prepare(`SELECT m.phase_key, p.policy_version, p.source_manifest_json
+      FROM model_calls m JOIN context_packs p ON p.context_pack_id = m.context_pack_id
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.task_id = ? AND m.state = 'succeeded'
+        AND m.phase_key LIKE 'review-%'`)
+      .all(scope.ownerId, scope.bookId, batch.taskIds[1]!) as unknown as Array<{
+        phase_key: string; policy_version: string; source_manifest_json: string;
+      }>;
+    const factReview = reviewCalls.find((call) => call.phase_key.includes('-fact-'));
+    expect(factReview?.policy_version).toBe('production-review-fact-context-v4-adjacent-compare-15000chars');
+    const factSources = JSON.parse(factReview?.source_manifest_json ?? '[]') as Array<{ sourceType: string; content: string }>;
+    expect(factSources.map((source) => source.sourceType)).toContain('previous_chapter_full');
+    expect(factSources.find((source) => source.sourceType === 'previous_chapter_full')?.content.length).toBeGreaterThan(800);
+    for (const reviewCall of reviewCalls.filter((call) => !call.phase_key.includes('-fact-'))) {
+      const sourceTypes = (JSON.parse(reviewCall.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
+      expect(sourceTypes).not.toContain('previous_chapter_full');
+    }
   });
 
   it('完成工单、三异模型点评和定点重写，老板确认前不入正史，确认后才结算', async () => {
@@ -55,14 +141,21 @@ describe('单章完整创作流水线', () => {
       sourceType: string;
       content: string;
     }>;
-    expect(draftPack.policy_version).toBe('writer-draft-context-v3-chapter-outline-v2-4200chars');
-    expect(draftPack.total_tokens).toBeLessThanOrEqual(4_200);
-    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_200);
+    expect(draftPack.policy_version).toBe('writer-draft-context-v5-opening-profile-continuity-4800chars');
+    expect(draftPack.total_tokens).toBeLessThanOrEqual(4_800);
+    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_800);
     expect(draftSources.map((source) => source.sourceType)).not.toContain('creative_plan');
-    const rewritePack = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
-      .get(rewriteCall.context_pack_id) as { source_manifest_json: string };
-    const rewriteSourceTypes = (JSON.parse(rewritePack.source_manifest_json) as Array<{ sourceType: string }>).map((source) => source.sourceType);
+    const rewritePack = context.database.prepare(`SELECT policy_version, source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
+      .get(rewriteCall.context_pack_id) as { policy_version: string; source_manifest_json: string };
+    const rewriteSources = JSON.parse(rewritePack.source_manifest_json) as Array<{ sourceType: string; content: string }>;
+    const rewriteSourceTypes = rewriteSources.map((source) => source.sourceType);
     expect(rewriteSourceTypes).toEqual(expect.arrayContaining(['current_manuscript', 'review_issues', 'chapter_work_order']));
+    expect(rewriteSourceTypes).not.toEqual(expect.arrayContaining([
+      'stage_settlement_context', 'previous_chapter_end', 'previous_chapter_tail', 'retrieval:fact', 'retrieval:manuscript'
+    ]));
+    expect(rewritePack.policy_version).toBe('writer-targeted-rewrite-context-v2-9000chars');
+    expect(rewriteSources.reduce((total, source) => total + source.content.length, 0))
+      .toBeLessThanOrEqual(9_000);
     const reviewCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'review-%' AND state = 'succeeded'
       ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
@@ -198,6 +291,11 @@ describe('单章完整创作流水线', () => {
       SELECT COUNT(*) AS count FROM stage_settlements
       WHERE owner_id = ? AND book_id = ? AND stage_type = 'chapter' AND stage_key = ? AND status = 'active'
     `).get(scope.ownerId, scope.bookId, chapterId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM stage_settlements
+      WHERE owner_id = ? AND book_id = ? AND stage_type = 'story_arc'
+        AND chapter_start = 1 AND chapter_end = 1 AND status = 'active'
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM agent_focus_snapshots
       WHERE owner_id = ? AND book_id = ? AND canon_revision = 1 AND status = 'active'
@@ -407,6 +505,53 @@ describe('单章完整创作流水线', () => {
     expect(frozen.fact_model_snapshot_id).not.toBe(frozen.writer_model_snapshot_id);
   });
 
+  it('主笔调用结果状态未知时不盲目重试原模型，改由副笔从安全检查点接管', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '结果未知接管测试书', text: '雨夜失物招领处' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const takeoverFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'novel_writer' && provider === 'local-deterministic-writer') {
+          return {
+            provider, modelId,
+            async generate() {
+              throw new ModelAdapterError('模拟订阅通道退出但结果状态未知', 'technical_failure', false, undefined, true);
+            }
+          };
+        }
+        if (purpose === 'novel_writer' && modelId.includes('backup_writer')) {
+          return {
+            provider, modelId,
+            async generate() {
+              return { provider, modelId, output: buildTakeoverNovel(), inputTokens: 400, outputTokens: 1_600, cashCostCny: 0, state: 'succeeded' };
+            }
+          };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, takeoverFactory);
+    const batch = batches.scheduleNewChapters(scope, 1, { firstChapterTitle: '未知结果后的接管' });
+
+    const result = await batches.run(scope, batch.batchId);
+
+    expect(result.batch.status).toBe('paused');
+    const run = context.database.prepare(`SELECT writer_takeover_count, writer_takeover_reason FROM chapter_pipeline_runs
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
+      .get(scope.ownerId, scope.bookId, batch.chapterIds[0]!) as { writer_takeover_count: number; writer_takeover_reason: string };
+    expect(run.writer_takeover_count).toBe(1);
+    expect(run.writer_takeover_reason).toContain('结果状态未知');
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?
+      AND task_id = ? AND state = 'interrupted' AND error_class = 'provider_result_unknown'`)
+      .get(scope.ownerId, scope.bookId, batch.taskIds[0]!)).toEqual({ count: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE owner_id = ? AND book_id = ?
+      AND chapter_id = ?`).get(scope.ownerId, scope.bookId, batch.chapterIds[0]!)).toEqual({ count: 1 });
+  });
+
   it('硬检查发现初稿超出有界容差时自动定点补写，而不是让整章任务失败', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -480,6 +625,31 @@ describe('单章完整创作流水线', () => {
       WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { passed: number; checks_json: string };
     expect(row.passed).toBe(1);
     expect(JSON.parse(row.checks_json).length).toMatchObject({ passed: true, targetMet: false, minimum: 2350, maximum: 3650 });
+  });
+  it('作者可重试因审校报告缺席而技术阻断的章节，但不能绕过完整三席门禁', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '审校中断恢复测试书', text: '林澈在旧城追查导师失踪之谜'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 1, { firstChapterTitle: '缺席的报告' });
+    await batches.run(scope, batch.batchId);
+    const taskId = batch.taskIds[0]!;
+    const panel = context.database.prepare(`
+      SELECT review_panel_id FROM chapter_pipeline_runs
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+    `).get(scope.ownerId, scope.bookId, taskId) as { review_panel_id: string };
+    context.database.prepare(`DELETE FROM review_reports
+      WHERE review_panel_id = ? AND reviewer_role = 'fact'`).run(panel.review_panel_id);
+    context.database.prepare(`UPDATE tasks SET status = 'blocked', error_code = 'QUALITY_BLOCKED', current_phase = 'review'
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?`).run(scope.ownerId, scope.bookId, taskId);
+
+    expect(new TaskService(context.database, context.config.releaseId, clock).retryFailed(scope, taskId))
+      .toMatchObject({ status: 'queued', errorCode: null, currentPhase: 'review' });
   });
 });
 

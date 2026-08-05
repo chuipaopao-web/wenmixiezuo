@@ -10,6 +10,7 @@ export interface AgentPresence {
   provider: string;
   modelId: string;
   status: PresenceStatus;
+  availability: 'available' | 'unavailable';
   taskId: string | null;
   heartbeatAt: string | null;
 }
@@ -74,6 +75,7 @@ export class PresenceService {
       provider: row.provider,
       modelId: row.model_id,
       status: deriveStatus(row, this.clock.now()),
+      availability: row.activation_state === 'disabled' ? 'unavailable' : 'available',
       taskId: row.task_id,
       heartbeatAt: row.heartbeat_at
     }));
@@ -86,7 +88,9 @@ function deriveStatus(row: PresenceRow, now: Date): PresenceStatus {
   if (row.task_status === 'blocked') return '受阻';
   if (row.task_status === 'waiting_confirmation') return '等待确认';
   if (row.task_status !== 'working' || row.task_id === null) return '待命';
-  if (row.heartbeat_at === null || now.getTime() - Date.parse(row.heartbeat_at) > 15_000) return '离线';
+  // 心跳属于当前任务，不属于成员身份。任务心跳过期表示任务需要恢复，
+  // 不能把一个仍已启用、仍可接新任务的成员误判为离线。
+  if (row.heartbeat_at === null || now.getTime() - Date.parse(row.heartbeat_at) > 15_000) return '受阻';
   if (row.tool_working === 1) return '调用工具';
   if (row.model_working === 1 && row.current_phase?.includes('write')) return '写作';
   if (row.model_working === 1 && row.current_phase?.includes('review')) return '审校';

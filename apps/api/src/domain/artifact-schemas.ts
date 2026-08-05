@@ -60,6 +60,12 @@ export interface ChapterOutlineV2 {
     title: string;
     chapterRange: { start: number; end: number };
   };
+  stageBoundary?: {
+    mustCloseStage: boolean;
+    resolution: string;
+    result: string;
+    pendingThreads: string[];
+  };
   chapterFunction: string;
   openingState: string;
   requiredEndingState: string;
@@ -208,6 +214,9 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
   const threadActions = content.threadActions === undefined
     ? []
     : parseThreadActions(content.threadActions);
+  const stageBoundary = content.stageBoundary === undefined
+    ? undefined
+    : parseChapterStageBoundary(content.stageBoundary);
   const mustImplement = requiredTextList(content.mustImplement, '章纲必须实现', 1);
   const mustNotViolate = requiredTextList(content.mustNotViolate, '章纲不得违反', 1);
   const creativeFreedom = requiredTextList(content.creativeFreedom, '章纲自由创作区', 1);
@@ -221,6 +230,7 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
       title: requiredChapterText(sourceStage.title, '剧情总纲阶段名称'),
       chapterRange: { start: Number(chapterRange.start), end: Number(chapterRange.end) }
     },
+    ...(stageBoundary === undefined ? {} : { stageBoundary }),
     chapterFunction: requiredChapterText(content.chapterFunction, '本章功能'),
     openingState: requiredChapterText(content.openingState, '开场状态'),
     requiredEndingState: requiredChapterText(content.requiredEndingState, '必须结束状态'),
@@ -250,6 +260,19 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
   };
 }
 
+function parseChapterStageBoundary(value: unknown): NonNullable<ChapterOutlineV2['stageBoundary']> {
+  const boundary = requiredRecord(value, '阶段终章闭环合同格式无效');
+  if (boundary.mustCloseStage !== true) {
+    throw new Error('阶段终章闭环合同必须明确要求完成当前阶段');
+  }
+  return {
+    mustCloseStage: true,
+    resolution: requiredChapterText(boundary.resolution, '阶段终章解决方式'),
+    result: requiredChapterText(boundary.result, '阶段终章结果'),
+    pendingThreads: optionalTextList(boundary.pendingThreads, '阶段终章保留伏笔', 12)
+  };
+}
+
 export function parseStageMasterOutlineV2(content: Record<string, unknown>): StageMasterOutlineV2 {
   if (content.outlineSchema !== 'stage_master_v2') {
     throw new Error('剧情总纲缺少有效的阶段式结构版本');
@@ -258,8 +281,8 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
   const coreConflict = requiredText(content.coreConflict, '核心冲突');
   const protagonistArc = requiredText(content.protagonistArc, '主角成长线');
   const endingDirection = requiredText(content.endingDirection, '结局方向');
-  if (!Array.isArray(content.majorStages) || content.majorStages.length < 2) {
-    throw new Error('剧情总纲必须包含至少两个全书推进阶段');
+  if (!Array.isArray(content.majorStages) || content.majorStages.length < 1) {
+    throw new Error('剧情总纲必须包含至少一个完整剧情阶段');
   }
 
   let previousEnd = 0;
@@ -276,6 +299,9 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
     const end = candidate.chapterRange.end;
     if (!Number.isInteger(start) || !Number.isInteger(end) || Number(start) < 1 || Number(end) < Number(start)) {
       throw new Error(`剧情总纲第${index + 1}个阶段章节范围无效`);
+    }
+    if (Number(end) - Number(start) + 1 > 50) {
+      throw new Error(`剧情总纲第${index + 1}个阶段不能超过50章`);
     }
     if (Number(start) !== previousEnd + 1) {
       throw new Error(`剧情总纲第${index + 1}个阶段必须紧接上一阶段，不能重叠或留空`);
@@ -352,6 +378,13 @@ function parseExperience(value: unknown): NonNullable<ChapterOutlineV2['experien
 }
 
 function parseDescriptionFocus(value: unknown): NonNullable<ChapterOutlineV2['descriptionFocus']> {
+  if (Array.isArray(value)) {
+    return {
+      primary: optionalTextList(value, '主要描写', 5),
+      secondary: [],
+      compress: []
+    };
+  }
   const item = requiredRecord(value, '章纲描写重点格式无效');
   return {
     primary: optionalTextList(item.primary, '主要描写', 5),
@@ -361,12 +394,39 @@ function parseDescriptionFocus(value: unknown): NonNullable<ChapterOutlineV2['de
 }
 
 function parseInformationControl(value: unknown): NonNullable<ChapterOutlineV2['informationControl']> {
+  if (Array.isArray(value)) {
+    return {
+      reveals: [],
+      concealed: [],
+      gaps: optionalTextList(value, '本章信息差', 5)
+    };
+  }
   const item = requiredRecord(value, '章纲信息控制格式无效');
+  const canonicalKeys = ['reveals', 'concealed', 'gaps'];
+  if (!canonicalKeys.some((key) => key in item)) {
+    const groupedBoundaries = Object.entries(item).map(([entity, boundaries]) => {
+      const statements = optionalTextList(boundaries, `${entity}的知情边界`, 12);
+      return `${entity}：${statements.join('；')}`;
+    });
+    return {
+      reveals: [],
+      concealed: [],
+      gaps: compactTextGroups(groupedBoundaries, 5)
+    };
+  }
   return {
     reveals: optionalTextList(item.reveals, '本章揭示', 5),
     concealed: optionalTextList(item.concealed, '本章保留', 5),
     gaps: optionalTextList(item.gaps, '本章信息差', 5)
   };
+}
+
+function compactTextGroups(items: string[], maximum: number): string[] {
+  if (items.length <= maximum) return items;
+  return [
+    ...items.slice(0, maximum - 1),
+    items.slice(maximum - 1).join('；')
+  ];
 }
 
 function parseThreadActions(value: unknown): ChapterOutlineV2['threadActions'] {

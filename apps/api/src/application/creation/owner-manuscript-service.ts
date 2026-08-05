@@ -16,6 +16,12 @@ export interface OwnerDraftResult {
   unchanged: boolean;
 }
 
+export interface WithdrawOwnerDraftResult {
+  withdrawnManuscriptVersionId: string;
+  currentManuscriptVersionId: null;
+  retainedInHistory: true;
+}
+
 export class OwnerManuscriptService {
   private readonly repository: OwnerManuscriptRepository;
 
@@ -90,6 +96,48 @@ export class OwnerManuscriptService {
     return {
       manuscriptVersionId, parentVersionId: input.baseManuscriptVersionId, contentHash: staged.contentHash,
       wordCount: countCharacters(input.content), status: 'candidate', unchanged: false
+    };
+  }
+
+  public withdrawDraft(scope: BookScope, input: {
+    chapterId: string;
+    expectedManuscriptVersionId: string;
+  }): WithdrawOwnerDraftResult {
+    assertBookScope(scope);
+    if (typeof input.expectedManuscriptVersionId !== 'string' || input.expectedManuscriptVersionId.trim().length === 0) {
+      throw new DomainError(errorCodes.validation, '缺少要删除的正文版本');
+    }
+    const chapter = this.repository.chapter(scope, input.chapterId);
+    if (chapter === undefined) {
+      throw new DomainError(errorCodes.bookScopeViolation, '章节不存在或越权', {}, false, 404);
+    }
+    if (chapter.settlement_status === 'settled' || chapter.canon_manuscript_version_id !== null) {
+      throw new DomainError(errorCodes.operationIncomplete, '已定稿正史不能删除；如需修改请创建正式修订任务', {}, false, 409);
+    }
+    if (chapter.current_manuscript_version_id !== input.expectedManuscriptVersionId) {
+      throw new DomainError(errorCodes.operationIncomplete, '正文基线已经变化，请重新载入后再删除', {}, true, 409);
+    }
+    if (this.repository.hasUnsafeTask(scope, input.chapterId)) {
+      throw new DomainError(errorCodes.taskAlreadyRunning, '本章正在处理任务，请先等待或取消任务后再删除正文', {}, false, 409);
+    }
+    const now = this.clock.now().toISOString();
+    this.repository.runInTransaction(() => {
+      for (const gate of this.repository.awaitingGates(scope, input.chapterId)) {
+        this.repository.supersedeGate(scope, gate, now);
+      }
+      if (!this.repository.withdrawCurrentManuscript(
+        scope,
+        input.chapterId,
+        input.expectedManuscriptVersionId,
+        now
+      )) {
+        throw new DomainError(errorCodes.operationIncomplete, '正文基线已经变化，请重新载入后再删除', {}, true, 409);
+      }
+    });
+    return {
+      withdrawnManuscriptVersionId: input.expectedManuscriptVersionId,
+      currentManuscriptVersionId: null,
+      retainedInHistory: true
     };
   }
 }

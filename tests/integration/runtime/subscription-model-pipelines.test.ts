@@ -42,7 +42,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('剧情讨论使用GPT主编与DeepSeek、GLM双编剧，章节使用GPT主笔和Kimi审校', async () => {
+  it('剧情讨论使用K3主编与DeepSeek、GLM双编剧，章节保持写手和三点评四模型来源', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -58,6 +58,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
 
     const codexPrompts: string[] = [];
     let malformedSynthesisSent = false;
+    let malformedPlanningSent = false;
     const codexRunner: CodexProcessRunner = {
       async run(input) {
         codexPrompts.push(input.prompt);
@@ -107,6 +108,14 @@ describe('订阅与套餐模型真实流水线接线', () => {
           };
         }
         if (input.prompt.includes('规划落库') || input.prompt.includes('章纲V2落库结构')) {
+          if (!malformedPlanningSent) {
+            malformedPlanningSent = true;
+            return {
+              output: '{"workflowArtifact":{"type":"chapter_outline","payload":{"outlineSchema":"chapter_outline_v2"',
+              inputTokens: 380,
+              outputTokens: 45
+            };
+          }
           const range = input.prompt.match(/本次只能规划第(\d+)章至第(\d+)章，共(\d+)章/u);
           const firstChapterNumber = range === null ? 1 : Number.parseInt(range[1]!, 10);
           const chapterCount = range === null ? 3 : Number.parseInt(range[3]!, 10);
@@ -136,22 +145,62 @@ describe('订阅与套餐模型真实流水线接线', () => {
     let malformedLiterarySent = false;
     const fetchImpl: typeof fetch = async (input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: Array<{ content: string }> };
-      calls.push({ url: String(input), model: body.model, prompt: body.messages[0]?.content ?? '', maxTokens: body.max_tokens });
-      const prompt = parseObject(body.messages[0]?.content);
+      const discussionPrompt = body.messages.map((message) => message.content).join('\n');
+      calls.push({ url: String(input), model: body.model, prompt: discussionPrompt, maxTokens: body.max_tokens });
+      const prompt = parseObject(body.messages.at(-1)?.content) ?? parseObject(discussionPrompt);
       const taskInput = parseObject(prompt?.taskInput);
       const role = taskInput?.reviewerRole;
-      const discussionPrompt = body.messages[0]?.content ?? '';
       const repairContract = parseObject(taskInput?.originalContract);
       const repairRole = repairContract?.reviewerRole;
-      const text = taskInput?.operation === 'repair_review_json' && typeof repairRole === 'string'
+      const text = taskInput?.operation === 'draft'
+        ? buildValidNovel()
+        : taskInput?.operation === 'repair_editor_synthesis_json'
+          ? JSON.stringify({
+              panelId: taskInput.panelId,
+              manuscriptVersionId: taskInput.manuscriptVersionId,
+              recommendedVerdict: 'pass',
+              priorityIssueIndexes: Array.from({ length: Number(taskInput.issueCount ?? 0) }, (_, index) => index),
+              preservedDisagreements: [],
+              rationale: '按三席结构化报告完成技术修复。'
+            })
+        : taskInput?.operation === 'review_synthesis'
+          ? !malformedSynthesisSent
+            ? (malformedSynthesisSent = true, '{"recommendedVerdict":"pass"')
+            : JSON.stringify({
+              panelId: taskInput.panelId,
+              manuscriptVersionId: taskInput.manuscriptVersionId,
+              recommendedVerdict: 'pass',
+              priorityIssueIndexes: [],
+              preservedDisagreements: [],
+              rationale: '按三席结构化报告综合，不进行第四次正文点评。'
+            })
+        : discussionPrompt.includes('方向已经锁定') && discussionPrompt.includes('章节跨度估算 {')
+          ? '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。\n章节跨度估算 {"minimum":2,"recommended":3,"maximum":5,"units":[{"unit":"推进单元","suggestedChapters":3}],"assumptions":["基于当前简报"],"uncertainty":["后续信息可能改变跨度"]}'
+        : discussionPrompt.includes('章纲V2落库结构')
+          ? (() => {
+              if (!malformedPlanningSent) {
+                malformedPlanningSent = true;
+                return '{"workflowArtifact":{"type":"chapter_outline","payload":{"outlineSchema":"chapter_outline_v2"';
+              }
+              return [
+                '建议采用三章滚动窗口。',
+                `规划落库 ${JSON.stringify({
+                  outlineSchema: 'chapter_outline_v2',
+                  arcTitle: '雾城选择弧',
+                  arcGoal: '让主角主动选择并承担代价',
+                  endingState: '主角获得新线索，同时失去一条安全退路',
+                  estimatedChapterRange: { minimum: 2, recommended: 3, maximum: 5 },
+                  chapters: Array.from({ length: 3 }, (_, index) => runtimeChapterOutline(index + 2))
+                })}`
+              ].join('\n');
+            })()
+        : taskInput?.operation === 'repair_review_json' && typeof repairRole === 'string'
         ? JSON.stringify(reviewResult(repairRole, repairContract?.manuscriptVersionId, repairContract?.modelSnapshotId))
         : role === 'literary' && !malformedLiterarySent
           ? (malformedLiterarySent = true, '{"verdict":"pass"')
           : typeof role === 'string'
         ? JSON.stringify(reviewResult(role, taskInput?.manuscriptVersionId, taskInput?.modelSnapshotId))
-        : discussionPrompt.includes('章节跨度估算')
-          ? '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。\n章节跨度估算 {"minimum":2,"recommended":3,"maximum":5,"units":[{"unit":"推进单元","suggestedChapters":3}],"assumptions":["基于当前简报"],"uncertainty":["后续信息可能改变跨度"]}'
-          : '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
+        : '从当前岗位角度，读者需要在章末获得一个具体发现，同时留下可验证的新疑问。';
       return new Response(JSON.stringify({ content: [{ type: 'text', text }], usage: { input_tokens: 50, output_tokens: 35 } }), {
         status: 200,
         headers: { 'content-type': 'application/json' }
@@ -166,12 +215,42 @@ describe('订阅与套餐模型真实流水线接线', () => {
     expect(tasks.claimNext('subscription-discussion-worker')?.taskId).toBe(discussionTaskId);
     const discussionResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, discussionTaskId, 'subscription-discussion-worker');
+    const explorationContinuitySources = context.database.prepare(`
+      SELECT source_manifest_json FROM context_packs
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+    `).all(scope.ownerId, scope.bookId, discussionTaskId) as unknown as Array<{ source_manifest_json: string }>;
+    const explorationPreviousOutlines = explorationContinuitySources.flatMap((row) =>
+      (JSON.parse(row.source_manifest_json) as Array<{ sourceType: string; content: string }>)
+        .filter((source) => source.sourceType === 'planning:previous_chapter_outline')
+    );
+    expect(explorationPreviousOutlines.length).toBeGreaterThan(0);
+    expect(explorationPreviousOutlines.every((source) => {
+      const previous = JSON.parse(source.content) as { chapterNumber?: number; ending?: { nextChapterInterface?: unknown } };
+      return previous.chapterNumber === 1 && previous.ending?.nextChapterInterface !== undefined;
+    })).toBe(true);
     const locked = conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`);
     expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', roundKind: 'locked_planning' });
     const planningTaskId = String(locked.action.taskId);
     expect(tasks.claimNext('subscription-planning-worker')?.taskId).toBe(planningTaskId);
     const planningResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, planningTaskId, 'subscription-planning-worker');
+    const planningContinuitySources = context.database.prepare(`
+      SELECT source_manifest_json FROM context_packs
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+    `).all(scope.ownerId, scope.bookId, planningTaskId) as unknown as Array<{ source_manifest_json: string }>;
+    const planningPreviousOutlines = planningContinuitySources.flatMap((row) =>
+      (JSON.parse(row.source_manifest_json) as Array<{ sourceType: string; content: string }>)
+        .filter((source) => source.sourceType === 'planning:previous_chapter_outline')
+    );
+    expect(planningPreviousOutlines.length).toBeGreaterThan(0);
+    expect(planningPreviousOutlines.every((source) =>
+      (JSON.parse(source.content) as { chapterNumber?: number }).chapterNumber === 1
+    )).toBe(true);
+    const planningPrompts = calls.map((call) => call.prompt).filter((prompt) => prompt.includes('章纲V2落库结构'));
+    expect(planningPrompts).toHaveLength(2);
+    expect(planningPrompts[1]).toContain('上一版无效输出');
+    expect(planningPrompts[1]).toContain('"outlineSchema":"chapter_outline_v2"');
+    expect(planningPrompts[1]).toContain('校验失败原因');
     expect(conversations.sendBossMessage(scope, `确认方案 ${planningResult.decisionId}`).action)
       .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
 
@@ -187,14 +266,16 @@ describe('订阅与套餐模型真实流水线接线', () => {
       WHERE owner_id = ? AND book_id = ? ORDER BY created_at, request_id
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ provider: string; model_id: string; cash_micros: number; state: string }>;
     expect(modelCalls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ provider: 'openai-codex-subscription', model_id: 'gpt-5.6-sol', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-coding-plan', model_id: 'deepseek-v4-pro', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5-2-260617', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2-6-modelhub', cash_micros: 0, state: 'succeeded' })
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k3', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'deepseek-v4-pro', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5.2', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2.7-code', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'minimax-m3', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'doubao-seed-2.1-turbo', cash_micros: 0, state: 'succeeded' })
     ]));
-    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
+    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(false);
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
-    expect(calls.filter((call) => call.prompt.includes('最后必须另起一行输出：章节跨度估算'))
+    expect(calls.filter((call) => call.prompt.includes('方向已经锁定') && call.prompt.includes('章节跨度估算 {'))
       .every((call) => call.maxTokens >= 3_000)).toBe(true);
     expect(calls.some((call) => call.prompt.includes('repair_review_json'))).toBe(true);
     expect(calls.filter((call) => call.prompt.includes('repair_review_json')).every((call) =>
@@ -204,8 +285,9 @@ describe('订阅与套餐模型真实流水线接线', () => {
       && call.prompt.includes('pass|rewrite|blocked'))).toBe(true);
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
-    expect(codexPrompts.some((prompt) => prompt.includes('chapter_work_order'))).toBe(true);
-    expect(codexPrompts.some((prompt) => prompt.includes('repair_editor_synthesis_json'))).toBe(true);
+    expect(codexPrompts).toHaveLength(0);
+    expect(calls.some((call) => call.prompt.includes('chapter_work_order'))).toBe(true);
+    expect(calls.some((call) => call.prompt.includes('repair_editor_synthesis_json'))).toBe(true);
   });
 });
 

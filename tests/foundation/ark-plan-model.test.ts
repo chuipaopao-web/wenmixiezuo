@@ -186,4 +186,22 @@ describe('火山方舟严格套餐适配器', () => {
       failureClass: 'technical_failure', retryable: false, statusCode: 200, outcomeUnknown: true
     });
   });
+
+  it('Kimi K2.7 Code does not send the unsupported thinking parameter', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      expect(body.thinking).toBeUndefined();
+      return Response.json({
+        content: [{ type: 'text', text: '{"chapterGoal":"reverse analysis"}' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
 });

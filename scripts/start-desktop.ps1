@@ -8,7 +8,7 @@ $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_
 
 # Explorer may not have inherited recently saved user variables.
 # Import only allowlisted Wenmi settings; never print or persist their values.
-$wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL'
+$wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL', 'WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL', 'WENMI_PROMPT_VIEW_PASSWORD'
 foreach ($name in $wenmiEnvironmentNames) {
   $value = [Environment]::GetEnvironmentVariable($name, 'User')
   if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
@@ -42,10 +42,36 @@ function Test-WenmiReady {
   }
 }
 
+function Test-WenmiBuildStale {
+  if (-not (Test-Path -LiteralPath $pidPath)) { return $true }
+  try {
+    $record = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($record.schemaVersion -ne 1 -or $record.entryPoint -ne 'scripts/start.mjs') { return $true }
+    $startedAt = [DateTimeOffset]::Parse([string]$record.startedAtUtc).UtcDateTime
+    $watchedFiles = @(
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\api\src') -Recurse -File
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\web\src') -Recurse -File
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\worker\src') -Recurse -File
+      Get-Item -LiteralPath (Join-Path $projectRoot 'apps\api\dist\main.js') -ErrorAction SilentlyContinue
+      Get-Item -LiteralPath (Join-Path $projectRoot 'apps\web\dist\index.html') -ErrorAction SilentlyContinue
+      Get-Item -LiteralPath (Join-Path $projectRoot 'apps\worker\dist\main.js') -ErrorAction SilentlyContinue
+      Get-Item -LiteralPath (Join-Path $projectRoot 'package.json')
+      Get-Item -LiteralPath (Join-Path $projectRoot 'package-lock.json')
+    )
+    return $null -ne ($watchedFiles | Where-Object { $_.LastWriteTimeUtc -gt $startedAt } | Select-Object -First 1)
+  } catch {
+    return $true
+  }
+}
+
 if (Test-WenmiReady) {
-  if ($env:WENMI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
-  Write-Host 'Wenmi Writing is already running. The workspace is open.'
-  exit 0
+  if (Test-WenmiBuildStale) {
+    & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
+  } else {
+    if ($env:WENMI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
+    Write-Host 'Wenmi Writing is already running. The workspace is open.'
+    exit 0
+  }
 }
 
 $occupiedPorts = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |

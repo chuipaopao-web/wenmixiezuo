@@ -127,6 +127,11 @@ export class TaskService {
 
   public retryFailed(scope: BookScope, taskId: string): TaskRecord {
     const task = this.require(scope, taskId);
+    const canResumeIncompleteQualityReview = task.status === 'blocked'
+      && task.errorCode === 'QUALITY_BLOCKED'
+      && task.taskType === 'chapter_creation'
+      && task.currentPhase === 'review'
+      && this.hasIncompleteReviewPanel(scope, taskId);
     const now = this.clock.now().toISOString();
     this.database.exec('BEGIN IMMEDIATE');
     try {
@@ -136,8 +141,8 @@ export class TaskService {
           lease_owner = NULL, lease_expires_at = NULL, lease_token = NULL,
           heartbeat_at = NULL, updated_at = ?
         WHERE task_id = ? AND owner_id = ? AND book_id = ?
-          AND status IN ('failed', 'interrupted')
-      `).run(now, taskId, scope.ownerId, scope.bookId);
+          AND (status IN ('failed', 'interrupted') OR (? = 1 AND status = 'blocked'))
+      `).run(now, taskId, scope.ownerId, scope.bookId, canResumeIncompleteQualityReview ? 1 : 0);
       if (result.changes !== 1) {
         throw new DomainError(errorCodes.taskAlreadyRunning, '只有失败或中断的任务可以重试', {}, false, 409);
       }
@@ -169,6 +174,26 @@ export class TaskService {
     }
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'queued', retry: true });
     return this.require(scope, taskId);
+  }
+
+  private hasIncompleteReviewPanel(scope: BookScope, taskId: string): boolean {
+    const row = this.database.prepare(`
+      SELECT COUNT(r.review_report_id) AS report_count
+      FROM chapter_pipeline_runs run
+      JOIN review_panels panel
+        ON panel.review_panel_id = run.review_panel_id
+       AND panel.owner_id = run.owner_id AND panel.book_id = run.book_id
+      LEFT JOIN review_reports r
+        ON r.review_panel_id = panel.review_panel_id
+       AND r.owner_id = panel.owner_id AND r.book_id = panel.book_id
+       AND r.status = 'submitted'
+      WHERE run.owner_id = ? AND run.book_id = ? AND run.task_id = ?
+        AND run.review_panel_id IS NOT NULL
+      GROUP BY panel.review_panel_id
+      ORDER BY run.updated_at DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, taskId) as { report_count: number } | undefined;
+    return row !== undefined && row.report_count < 3;
   }
 
   public completeSynchronous(scope: BookScope, taskId: string, phase = 'completed'): TaskRecord {
@@ -353,6 +378,31 @@ export class TaskService {
     this.finishCurrentAttempt(scope, taskId, task.status === 'cancelled' ? 'cancelled' : 'succeeded', now);
     this.events?.append(scope, task.status === 'succeeded' ? 'task.completed' : 'task.phase.changed', { taskId, status: task.status });
     return task;
+  }
+
+  public fail(
+    scope: BookScope,
+    taskId: string,
+    workerId: string,
+    errorCode: string,
+    fence?: TaskLeaseFence
+  ): TaskRecord {
+    const now = this.clock.now().toISOString();
+    const result = this.database.prepare(`
+      UPDATE tasks SET status = 'failed', current_phase = 'failed', error_code = ?,
+        lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working' AND lease_owner = ?
+        AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
+    `).run(errorCode, now, taskId, scope.ownerId, scope.bookId, workerId, now,
+      fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0);
+    if (result.changes !== 1) throw new Error('任务失败状态被租约门禁拒绝');
+    this.database.prepare(`
+      UPDATE task_phases SET status = 'failed', error_code = ?, completed_at = ?, heartbeat_at = ?
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'
+    `).run(errorCode, now, now, taskId, scope.ownerId, scope.bookId);
+    this.finishCurrentAttempt(scope, taskId, 'failed', now, errorCode);
+    this.events?.append(scope, 'task.phase.changed', { taskId, status: 'failed', errorCode });
+    return this.require(scope, taskId);
   }
 
   public waitForConfirmation(scope: BookScope, taskId: string, workerId: string, fence?: TaskLeaseFence): TaskRecord {
