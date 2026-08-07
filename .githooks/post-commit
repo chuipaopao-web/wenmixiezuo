@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# Keep the protected main branch backed up after every successful commit.
+branch="$(git symbolic-ref --quiet --short HEAD)" || exit 0
+
+if [ "$branch" != "main" ]; then
+  exit 0
+fi
+
+if ! git push origin main; then
+  echo "warning: automatic push failed; the commit is safe locally and can be pushed later" >&2
+fi
+
+exit 0
