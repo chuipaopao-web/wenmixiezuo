@@ -15,6 +15,7 @@ import { PlotSpanEstimateService } from '../continuity/plot-span-estimate-servic
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import {
   createEffectiveOutputReference,
+  AUTHOR_PLAIN_LANGUAGE_RULES,
   EFFECTIVE_OUTPUT_CONTRACT,
   prepareEffectiveOutput,
   type EffectiveOutputResult
@@ -63,7 +64,7 @@ interface ParticipantRow {
   model_id: string;
 }
 
-type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'stage_outline_panel' | 'stage_outline_synthesis';
 type DiscussionPhase = 'independent' | 'cross_review';
 
 interface CollectedOpinion {
@@ -124,9 +125,16 @@ export class DiscussionPipelineService {
       JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id)
       WHERE p.discussion_id = ? AND p.owner_id = ? AND p.book_id = ?
-        AND (a.agent_id = ? OR r.role_key NOT IN ('chief_editor', 'deputy_editor'))
+        AND (a.agent_id = ? OR ? = 1 OR r.role_key NOT IN ('chief_editor', 'deputy_editor'))
       ORDER BY CASE WHEN a.agent_id = ? THEN 1 ELSE 0 END, p.agent_id
-    `).all(brief.discussionId, scope.ownerId, scope.bookId, task.assigned_agent_id, task.assigned_agent_id) as unknown as ParticipantRow[];
+    `).all(
+      brief.discussionId,
+      scope.ownerId,
+      scope.bookId,
+      task.assigned_agent_id,
+      brief.purpose === 'stage_outline_panel' ? 1 : 0,
+      task.assigned_agent_id
+    ) as unknown as ParticipantRow[];
     const budget = this.database.prepare(`SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? AND status = 'active' ORDER BY created_at LIMIT 1`)
       .get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined;
     if (budget === undefined) throw new Error('讨论书籍没有活动预算');
@@ -516,7 +524,34 @@ export class DiscussionPipelineService {
         independent.push(await collectOpinion(specialist, 'independent'));
       }
 
-      if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel') {
+      if (brief.purpose === 'stage_outline_synthesis') {
+        if (specialists.length !== 0) throw new Error('阶段剧情整理只能由活动主编执行');
+        const editorOpinion = await collectOpinion(editor, 'independent', []);
+        if (!isValidMasterOutlineOutput(editorOpinion.output)) {
+          throw new Error('活动主编没有提交有效的当前阶段剧情总纲，不能把普通回复伪装成可保存规划');
+        }
+        const stage = discussions.require(scope, brief.discussionId).status;
+        if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
+        const decisionId = discussions.synthesize(scope, brief.discussionId, {
+          recommendation: { summary: editorOpinion.output, evidence: [{ opinionId: editorOpinion.opinionId, role: editorOpinion.role }] },
+          alternatives: [],
+          disagreements: [],
+          impacts: [{ scope: 'current_stage_master_outline_candidate', cashCostCny: 0, requiresBossConfirmation: true }]
+        });
+        this.addEditorMessage(
+          scope,
+          brief.conversationId,
+          editor,
+          brief.discussionId,
+          decisionId,
+          prepareEffectiveOutput(editorOpinion.output),
+          brief.purpose
+        );
+        new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
+        return { discussionId: brief.discussionId, decisionId, opinionCount: 1 };
+      }
+
+      if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel' || brief.purpose === 'stage_outline_panel') {
         const editorOpinion = await collectOpinion(editor, 'independent', []);
         const proposals = [editorOpinion, ...independent];
         const preparedProposals = proposals.map((opinion) => ({
@@ -529,16 +564,34 @@ export class DiscussionPipelineService {
         }
         const stage = discussions.require(scope, brief.discussionId).status;
         if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
+        const stageCandidates = brief.purpose === 'stage_outline_panel'
+          ? preparedProposals.map(({ opinion, output }) => ({ opinion, candidate: output.visibleContent }))
+          : [];
+        if (brief.purpose === 'stage_outline_panel' && stageCandidates.length !== 3) {
+          throw new Error('阶段剧情抽卡必须由主编、副编和一名编剧各提交一份独立候选，不能伪装成已完成');
+        }
         const decisionId = discussions.synthesize(scope, brief.discussionId, {
           recommendation: {
             summary: '三席设定方案均为独立候选，等待老板选择、组合或改写；未自动形成共识。',
             evidence: proposals.map((opinion) => ({ opinionId: opinion.opinionId, role: opinion.role }))
           },
-          alternatives: proposals.map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
+          alternatives: brief.purpose === 'stage_outline_panel'
+            ? stageCandidates.map(({ opinion, candidate }, index) => ({ number: index + 1, role: opinion.role, proposal: candidate }))
+            : proposals.map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
           disagreements: [{ status: '保留三个独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
-          impacts: [{ scope: 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
+          impacts: [{ scope: brief.purpose === 'stage_outline_panel' ? 'stage_outline_candidate_only' : 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
         });
-        for (const [index, proposal] of preparedProposals.entries()) {
+        if (brief.purpose === 'stage_outline_panel') {
+          for (const [index, proposal] of stageCandidates.entries()) {
+            const participant = participants.find((item) => item.agent_id === proposal.opinion.agentId);
+            if (participant === undefined) throw new Error('阶段剧情候选缺少真实参与成员');
+            this.addSettingProposalMessage(
+              scope, brief.conversationId, participant, brief.discussionId, decisionId,
+              prepareEffectiveOutput(proposal.candidate),
+              index + 1, index === stageCandidates.length - 1, 'stage_outline_independent'
+            );
+          }
+        } else for (const [index, proposal] of preparedProposals.entries()) {
           const { opinion, output } = proposal;
           const participant = participants.find((item) => item.agent_id === opinion.agentId);
           if (participant === undefined) throw new Error('策划理念提案缺少真实参与成员');
@@ -825,18 +878,21 @@ export class DiscussionPipelineService {
     decisionId: string,
     proposal: EffectiveOutputResult,
     proposalNumber: number,
-    isLast: boolean
+    isLast: boolean,
+    proposalKind: 'setting_item_independent' | 'stage_outline_independent' = 'setting_item_independent'
   ): string {
     const visible = proposal.rejectedMachinePayload
       ? '这份提案返回的结构不完整，我没有把内部格式或杂乱内容展示给您。请稍后单独重试这名成员。'
       : proposal.visibleContent;
     const guidance = isLast
-      ? '\n\n三份都是独立候选。回复 1、2 或 3 可选单项；回复 13、123，或“1+2+3”可融合对应方案；也可以直接写自己的版本。主编只会整理您选中的内容，整理后仍需您再次确认。'
+      ? proposalKind === 'stage_outline_independent'
+        ? '\n\n三份都是独立候选。回复“1”“2”或“3”可选单项；回复“1+2”或“1+2+3”可融合多项；也可以直接写自己的阶段方案或要求重抽。主编只整理您选中的内容，整理后仍需您确认，确认前不会写入剧情总纲。'
+        : '\n\n三份都是独立候选。回复 1、2 或 3 可选单项；回复 13、123，或“1+2+3”可融合对应方案；也可以直接写自己的版本。主编只会整理您选中的内容，整理后仍需您再次确认。'
       : '';
     const references: unknown[] = [{
       discussionId,
       decisionId,
-      proposalKind: 'setting_item_independent',
+      proposalKind,
       proposalNumber
     }];
     const effectiveReference = createEffectiveOutputReference(proposal);
@@ -855,6 +911,18 @@ export class DiscussionPipelineService {
     );
     return messageId;
   }
+}
+
+function splitStageCandidateText(content: string): string[] {
+  const normalized = content.replace(/\r\n?/gu, '\n').trim();
+  const marker = /(?:^|\n)\s*(?:[一二三][、.．]|[123][、.．)])\s*/gu;
+  const matches = [...normalized.matchAll(marker)];
+  if (matches.length !== 3) return [];
+  return matches.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[index + 1]?.index ?? normalized.length;
+    return normalized.slice(start, end).trim();
+  }).filter((candidate) => candidate.length > 0);
 }
 
 function planningHierarchySources(
@@ -1153,6 +1221,7 @@ export function discussionOutputTokenLimit(
   scopeText: string,
   purpose: DiscussionPurpose = 'open_discussion'
 ): number {
+  if (purpose === 'stage_outline_panel') return 2_400;
   if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') return 1_200;
   // 主编只需要输出面向作者的结论和一个结构化规划产物。完整编剧意见已经
   // 单独保存在 discussion_opinions；继续申请 4k 输出会让真实方舟 Plan
@@ -1349,6 +1418,37 @@ function buildDiscussionPrompt(input: {
   const stageContract = purpose === 'locked_planning'
     ? stageBoundaryContractLine(evidenceContext)
     : null;
+  if (purpose === 'stage_outline_panel') {
+    const emphasis = participant.role_key === 'lead_screenwriter'
+      ? '优先从人物欲望、关系变化和持续戏剧张力出发。'
+      : participant.role_key === 'second_screenwriter'
+        ? '优先避开同类作品最直觉的套路，寻找合理但有惊喜的变化。'
+        : '优先判断作品定位、读者体验、阶段闭环和后续创作空间。';
+    return [
+      `你是${participant.display_name}，正在为本书当前剧情阶段独立设计候选方案。`,
+      `统一命题与开书资料：${scopeText}`,
+      `与你的判断直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
+      '你看不到另外两名成员的答案，也不得猜测、评价、汇总或迎合她们。',
+      emphasis,
+      '只提交1个你真正推荐的独立候选，不要列第二、第三方案，不要编号，不要询问作者。候选必须明确：剧情类型或组合、代入本书人物后的具体故事过程、起承转合与阶段结果、建议章节范围（单阶段最多50章）、主要爽点或满足点、压力或虐点、情绪变化、关键转折、需要埋设或推进的伏笔，以及推荐理由。',
+      '剧情模式只作为创意启发，不能照抄公式。不得生成正式剧情总纲JSON、章纲或正文，不得要求作者先回答问题。方案控制在180至350个中文字符，面向作者自然表达，不显示内部字段、模型信息、检索过程或JSON。',
+      AUTHOR_PLAIN_LANGUAGE_RULES,
+      `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
+    ].join('\n');
+  }
+  if (purpose === 'stage_outline_synthesis') {
+    return [
+      `你是${participant.display_name}，是本书当前活动主编。`,
+      `老板已经选择或补充的阶段剧情方向：${scopeText}`,
+      `与你的整理直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
+      '只整理老板明确选中的候选和补充，不得把未选方案混入，不得另起炉灶。若多项组合存在冲突，要做最小必要取舍并在作者可见摘要中说清。',
+      '形成且只形成当前阶段的一份可确认剧情总纲：阶段不超过50章；写清阶段名称、连续章节范围、剧情类型或组合、出场人物、核心事件、起承转合、阶段结果、章节内容安排、字数预估、爽点、虐点或压力、情绪曲线、关键转折、后续伏笔、伏笔预计释放范围和进入下一阶段的接口。',
+      '不得生成章纲或正文，不得改写既有已确认阶段；旧阶段只作为边界和因果来源。',
+      '必须同时给出自然中文作者摘要与 workflowArtifact。workflowArtifact 使用 schema=stage_master_v2，majorStages 只包含本次当前阶段，且字段满足后端剧情总纲解析合同。确认前只是候选。',
+      AUTHOR_PLAIN_LANGUAGE_RULES,
+      `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
+    ].join('\n');
+  }
   if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') {
     const itemLabel = scopeText.match(/当前设定项：([^\n]+)/u)?.[1]?.trim() || '当前设定项';
     const itemPrompt = scopeText.match(/当前问题：([^\n]+)/u)?.[1]?.trim() || '请给出最适合本书的明确设定方案';
@@ -1367,6 +1467,7 @@ function buildDiscussionPrompt(input: {
           ? '侧重打破最直觉的同类套路，提出仍符合人物因果的独特体验。'
           : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
       '只写一个候选，正文建议80至220字；不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
+      AUTHOR_PLAIN_LANGUAGE_RULES,
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
     ].join('\n');
   }
@@ -1393,7 +1494,7 @@ function buildDiscussionPrompt(input: {
         ? `在同一个JSON对象的workflowArtifact字段输出设定大纲落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
         : '',
       isMasterOutlineWorkshop
-        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留，stageNumber和章节范围连续且不得重叠或留空。主线三项、起承转合、阶段总结和后续方向不得为空。起承转合是阶段总结视角，不是每章机械公式。'
+        ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"plotPatterns":{"primary":{"id":"模式ID可省略","name":"主剧情模式","reason":"为什么适合本阶段"},"supporting":[{"name":"辅助模式","reason":"承担什么作用"}]},"dramaticQuestion":"这段剧情最终必须回答的核心问题","stageGoal":"本阶段必须完成的可验证目标","startState":"阶段开始时人物、关系和局势状态","conflictDesign":{"surface":"表层冲突","underlying":"深层冲突","stakes":"成功与失败牵动什么","failureCost":"失败的具体代价"},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"completionCriteria":["满足什么才算本段写完"],"hardConstraints":["不得偏移的事实、人物和因果边界"],"creativeFreedom":["允许主笔自由发挥的空间"],"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。剧情模式只是软参考，不得照搬公式；反向拆解也必须用同一结构总结真实正文，而不是事后硬套模式。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留。主线、起承转合、结束验收条件和防偏移边界必须具体。'
         : '',
       isMasterOutlineWorkshop
         ? 'majorStages中的每个阶段还必须写detailSchema="stage_detail_v1"，并补齐：cast（name、stageRole、objective、可选stateChange）；chapterBlocks（连续覆盖阶段全部章号的start、end、summary、estimatedWords，按剧情单元分段而非逐章）；estimatedWords；experience（emotionalArc、payoffPoints、pressurePoints）；turningPoints；foreshadowing（summary、action=plant/advance/payoff、releaseWindow）。这些字段用于作者查看和主笔后续细化，必须具体、简洁，不得用空数组逃避已经可判断的内容。'
@@ -1415,6 +1516,7 @@ function buildDiscussionPrompt(input: {
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
       '讨论必须有界收敛：每轮最多一个真正阻塞的问题；老板表示“不知道、你推荐、你决定”时必须给出当前最佳推荐；已经明确或排除的方向不得无新证据反复重开。',
       '保留结构不同的高潜少数方案和有证据的分歧，不用多数票，不把意见压成没有代价的安全折中。',
+      AUTHOR_PLAIN_LANGUAGE_RULES,
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
     ].filter(Boolean).join('\n');
   }
@@ -1430,7 +1532,8 @@ function buildDiscussionPrompt(input: {
       isMasterOutlineWorkshop
         ? '只质疑对方阶段总纲：检查章节范围是否连续、阶段结果能否成为下一阶段起点、主角动机与代价是否成立、起承转合是否真正总结了阶段变化、待回收伏笔是否能被后续方向承接。指出最强之处、一个关键盲点、一个失败条件和一项改进；不得重新生成完整总纲。'
         : '指出对方方案最强之处、一个关键盲点、一个会使方案失败的条件，并给出一项改进；保留你与对方真正不同的判断，不得为形成共识而趋同。',
-      '不得重新估算章节跨度，不得生成章纲，不得复述老板原话。'
+      '不得重新估算章节跨度，不得生成章纲，不得复述老板原话。',
+      AUTHOR_PLAIN_LANGUAGE_RULES
     ].join('\n');
   }
   return [
@@ -1448,7 +1551,7 @@ function buildDiscussionPrompt(input: {
           ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     isMasterOutlineWorkshop
-      ? '这是剧情总纲落库任务。你必须直接提交一份完整可校验的当前阶段总纲，不是只提建议。在同一个JSON对象的workflowArtifact字段输出：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"阶段名","chapterRange":{"start":1,"end":10},"mainline":{"encounter":"主角遇到什么","resolution":"怎么解决","result":"什么结果"},"structure":{"setup":"起","development":"承","turn":"转","conclusion":"合"},"stageSummary":"阶段总结","pendingThreads":["待回收信息与伏笔"],"followUpDirection":"后续方向"}],"endingDirection":"结局方向","storyPromises":["作品承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只能规划1个完整阶段，单阶段最多50章；当前阶段完成并结算前不得提前设计下一阶段。每个必填文本都要具体。起承转合只总结阶段变化，不得压成逐章公式。'
+      ? '这是剧情总纲落库任务。你必须提交一个完整、可执行、可验收的当前阶段剧情约束契约，不是全书流水账，也不是逐章章纲。workflowArtifact.payload必须使用stage_master_v2，并在阶段内写明：剧情主模式和最多两个辅助模式及采用理由；戏剧问题；阶段目标；开场状态；表层冲突、深层冲突、利害关系和失败代价；章节范围（最多50章）；主线遭遇、解决和结果；阶段级起承转合；结束验收条件；防偏移硬约束；创作自由区；阶段总结、待回收线索和后续方向。剧情模式是软参考，可以组合或弃用，不得公式化照搬。反向拆解时只总结正文中真实存在的结构，不得倒推不存在的模式。当前阶段完成并结算前不得设计下一阶段。'
       : '',
     isMasterOutlineWorkshop
       ? '每个阶段同时必须提供detailSchema="stage_detail_v1"、出场人物cast、连续覆盖章段的chapterBlocks及每段estimatedWords、阶段estimatedWords、情绪/爽点/压力experience、turningPoints，以及带释放周期releaseWindow的foreshadowing。反向拆解已有正文时必须优先依据已确认正文与反向章纲，不得用开书简介覆盖正文事实。'
@@ -1458,7 +1561,8 @@ function buildDiscussionPrompt(input: {
       : '',
     purpose === 'locked_planning' && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key)
       ? '方向已经锁定。回复的第一行必须先输出且完整闭合：章节跨度估算 {"minimum":最少章数,"recommended":建议章数,"maximum":最多章数,"units":[{"unit":"推进单元","suggestedChapters":章数}],"assumptions":["假设"],"uncertainty":["不确定项"]}。必须先写这行，再写其他分析；章数必须为1至30的整数，且最少≤建议≤最多。'
-      : ''
+      : '',
+    AUTHOR_PLAIN_LANGUAGE_RULES
   ].filter(Boolean).join('\n');
 }
 

@@ -1,7 +1,7 @@
 export type ArtifactType = 'creative_plan' | 'story_bible' | 'master_outline' | 'volume_outline' | 'chapter_outline' | 'writing_contract';
 
 export interface StageMasterOutlineStage {
-  detailSchema?: 'stage_detail_v1';
+  detailSchema?: 'stage_detail_v1' | 'stage_detail_v2';
   stageNumber: number;
   title: string;
   chapterRange: {
@@ -32,6 +32,22 @@ export interface StageMasterOutlineStage {
     action: 'plant' | 'advance' | 'payoff';
     releaseWindow: string;
   }>;
+  plotPatterns?: {
+    primary?: { id?: string; name: string; reason: string };
+    supporting?: Array<{ id?: string; name: string; reason: string }>;
+  };
+  dramaticQuestion?: string;
+  stageGoal?: string;
+  conflictDesign?: {
+    surface: string;
+    underlying: string;
+    stakes: string;
+    failureCost: string;
+  };
+  startState?: string;
+  completionCriteria?: string[];
+  hardConstraints?: string[];
+  creativeFreedom?: string[];
 }
 
 export interface StageMasterOutlineV2 {
@@ -329,9 +345,30 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
       throw new Error(`剧情总纲第${index + 1}个阶段缺少起承转合`);
     }
     const pendingThreads = textArray(candidate.pendingThreads, `剧情总纲第${index + 1}个阶段的待回收信息与伏笔`);
-    const detail = candidate.detailSchema === 'stage_detail_v1'
+    const detail = candidate.detailSchema === 'stage_detail_v1' || candidate.detailSchema === 'stage_detail_v2'
       ? parseStageDetail(candidate, Number(start), Number(end), index)
       : {};
+    const plotPatterns = isRecord(candidate.plotPatterns) ? {
+      ...(isRecord(candidate.plotPatterns.primary) ? { primary: {
+        ...(typeof candidate.plotPatterns.primary.id === 'string' ? { id: candidate.plotPatterns.primary.id.trim() } : {}),
+        name: requiredText(candidate.plotPatterns.primary.name, `第${index + 1}阶段主剧情模式`),
+        reason: requiredText(candidate.plotPatterns.primary.reason, `第${index + 1}阶段主剧情模式理由`)
+      } } : {}),
+      supporting: Array.isArray(candidate.plotPatterns.supporting) ? candidate.plotPatterns.supporting.flatMap((item) => {
+        if (!isRecord(item)) return [];
+        return [{
+          ...(typeof item.id === 'string' ? { id: item.id.trim() } : {}),
+          name: requiredText(item.name, `第${index + 1}阶段辅助剧情模式`),
+          reason: requiredText(item.reason, `第${index + 1}阶段辅助剧情模式理由`)
+        }];
+      }) : []
+    } : undefined;
+    const conflictDesign = isRecord(candidate.conflictDesign) ? {
+      surface: requiredText(candidate.conflictDesign.surface, `第${index + 1}阶段表层冲突`),
+      underlying: requiredText(candidate.conflictDesign.underlying, `第${index + 1}阶段深层冲突`),
+      stakes: requiredText(candidate.conflictDesign.stakes, `第${index + 1}阶段利害关系`),
+      failureCost: requiredText(candidate.conflictDesign.failureCost, `第${index + 1}阶段失败代价`)
+    } : undefined;
     return {
       ...detail,
       stageNumber: Number(stageNumber),
@@ -350,7 +387,15 @@ export function parseStageMasterOutlineV2(content: Record<string, unknown>): Sta
       },
       stageSummary: requiredText(candidate.stageSummary, `第${index + 1}阶段总结`),
       pendingThreads,
-      followUpDirection: requiredText(candidate.followUpDirection, `第${index + 1}阶段后续方向`)
+      followUpDirection: requiredText(candidate.followUpDirection, `第${index + 1}阶段后续方向`),
+      ...(plotPatterns === undefined ? {} : { plotPatterns }),
+      ...(typeof candidate.dramaticQuestion === 'string' && candidate.dramaticQuestion.trim().length > 0 ? { dramaticQuestion: candidate.dramaticQuestion.trim() } : {}),
+      ...(typeof candidate.stageGoal === 'string' && candidate.stageGoal.trim().length > 0 ? { stageGoal: candidate.stageGoal.trim() } : {}),
+      ...(conflictDesign === undefined ? {} : { conflictDesign }),
+      ...(typeof candidate.startState === 'string' && candidate.startState.trim().length > 0 ? { startState: candidate.startState.trim() } : {}),
+      completionCriteria: textArray(candidate.completionCriteria, `第${index + 1}阶段结束验收条件`),
+      hardConstraints: textArray(candidate.hardConstraints, `第${index + 1}阶段硬约束`),
+      creativeFreedom: textArray(candidate.creativeFreedom, `第${index + 1}阶段创作自由区`)
     };
   });
 
@@ -425,7 +470,7 @@ function parseStageDetail(
     };
   }) : [];
   return {
-    detailSchema: 'stage_detail_v1',
+    detailSchema: candidate.detailSchema === 'stage_detail_v2' ? 'stage_detail_v2' : 'stage_detail_v1',
     cast,
     chapterBlocks,
     estimatedWords,

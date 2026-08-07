@@ -81,6 +81,18 @@ describe('九岗位定位提示词', () => {
     expect(writer).not.toContain('大神作者');
   });
 
+  it('所有面向作者的成员讨论都要求使用具体的大白话', () => {
+    for (const roleKey of rolePromptDefinitions.map((role) => role.roleKey)) {
+      const prompt = buildRoleSystemPrompt(roleKey, 'discussion');
+      expect(prompt).toContain('作者平时会说的话');
+      expect(prompt).toContain('人物姓名');
+      expect(prompt).toContain('具体动作');
+      expect(prompt).toContain('不要用“结构边界”');
+    }
+    expect(buildRoleSystemPrompt('writer', 'novel_writer')).not.toContain('不要用“结构边界”');
+    expect(buildRoleSystemPrompt('reviewer', 'novel_reviewer')).not.toContain('作者平时会说的话');
+  });
+
   it('主笔先消化章纲再写场景，并保留明确的自由创作区', () => {
     const prompt = buildRuntimeRoleSystemPrompt('lead_writer', 'novel_writer');
     expect(prompt).toContain('不要把章纲字段、设定标签或检查清单逐项翻译进正文');

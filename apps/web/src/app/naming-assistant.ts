@@ -390,7 +390,7 @@ export function generateNamingCandidates(request: NamingRequest): NamingCandidat
     unique.add(normalized);
     result.push({
       name,
-      note: `${styleLabel(style)}语感的${target.label}候选，请结合人物、地域和世界规则确认。`,
+      note: `这是偏${styleLabel(style)}的${target.label}名字，请结合人物、地域和世界规则判断是否合适。`,
       style,
       status: 'candidate'
     });

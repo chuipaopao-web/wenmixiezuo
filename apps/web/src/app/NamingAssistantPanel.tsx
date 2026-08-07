@@ -84,7 +84,7 @@ export function NamingAssistantPanel({
         <div className="naming-assistant-title-mark"><MagicWandIcon aria-hidden="true" /></div>
         <div>
           <h2 id={headingId}>取名助手</h2>
-          <p>按本书题材推荐，也可以自由切换类型。候选不会自动写入设定、正文或正史。</p>
+          <p>按本书题材推荐，也可以自由切换类型。名字建议只供挑选，不会自动改动设定或正文。</p>
         </div>
       </header>
 
@@ -152,7 +152,7 @@ export function NamingAssistantPanel({
           </div>
 
           {candidates.length === 0 ? (
-            <div className="naming-empty" role="status">当前条件没有生成可用候选，请换一个类型或减少排除项。</div>
+            <div className="naming-empty" role="status">按当前条件没有找到合适的名字，请换个类型或少填一些排除项。</div>
           ) : (
             <div className="naming-candidate-grid">
               {candidates.map((candidate) => {
@@ -165,7 +165,7 @@ export function NamingAssistantPanel({
                     </div>
                     <button
                       type="button"
-                      aria-label={`${action === 'fill' ? '填入候选' : '复制候选'}：${candidate.name}`}
+                      aria-label={`${action === 'fill' ? '填入名字' : '复制名字'}：${candidate.name}`}
                       onClick={() => void useCandidate(candidate.name)}
                     >
                       {completed ? <CheckIcon aria-hidden="true" /> : action === 'copy' ? <CopyIcon aria-hidden="true" /> : <MagicWandIcon aria-hidden="true" />}

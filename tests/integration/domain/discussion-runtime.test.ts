@@ -1246,4 +1246,107 @@ describe('自然语言讨论运行闭环', () => {
     expect(summary?.content).not.toContain('{"');
     expect(summary?.content).not.toContain('立场可信但利益冲突的邻地领主');
   });
+
+  it('阶段剧情工作台完成三人三案、作者融合和主编定稿，但不提前生成章纲或正文', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '阶段剧情抽卡闭环书',
+      text: '女频现实悬疑与双向救赎'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const now = clock.now().toISOString();
+    context.database.prepare(`
+      INSERT INTO book_opening_blueprints (
+        opening_blueprint_id, owner_id, book_id, version, taxonomy_version, channel,
+        category_key, category_name, blueprint_json, content_hash, status, created_at
+      ) VALUES (?, ?, ?, 1, 'test-v1', 'female', 'realistic', '现实生活', '{}', ?, 'active', ?)
+    `).run(ids.next(), scope.ownerId, scope.bookId, '1'.repeat(64), now);
+    context.database.prepare(`
+      UPDATE book_planning_states
+      SET stage = 'setting_ready', setting_baseline_version_id = ?, updated_at = ?
+      WHERE owner_id = ? AND book_id = ?
+    `).run('confirmed-setting-baseline', now, scope.ownerId, scope.bookId);
+
+    const conversations = new ConversationService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    );
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const pipeline = new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock
+    );
+    const scheduled = conversations.sendBossMessage(scope, [
+      '【阶段剧情抽卡资料包】',
+      '请设计第一阶段：主角发现实验笔记被篡改，并决定追查真相。'
+    ].join('\n'));
+    expect(scheduled.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'stage_outline_panel' });
+
+    const panelTaskId = String(scheduled.action.taskId);
+    const panelClaim = tasks.claimNext('worker-stage-panel')!;
+    expect(panelClaim.taskId).toBe(panelTaskId);
+    const panel = await pipeline.executeClaimed(scope, panelTaskId, 'worker-stage-panel', {
+      leaseToken: panelClaim.leaseToken!,
+      attemptNo: panelClaim.currentAttemptNo
+    });
+    expect(panel.opinionCount).toBe(3);
+    const panelRoles = context.database.prepare(`
+      SELECT r.role_key
+      FROM discussion_participants p
+      JOIN agent_instances a ON a.agent_id = p.agent_id
+      JOIN role_templates r
+        ON r.role_template_id = a.role_template_id
+       AND r.version = a.role_template_version
+      WHERE p.discussion_id = ?
+      ORDER BY r.role_key
+    `).all(panel.discussionId) as Array<{ role_key: string }>;
+    expect(panelRoles).toHaveLength(3);
+    expect(panelRoles.filter(({ role_key }) =>
+      ['chief_editor', 'deputy_editor'].includes(role_key)
+    )).toHaveLength(2);
+    expect(panelRoles.filter(({ role_key }) =>
+      ['lead_screenwriter', 'second_screenwriter'].includes(role_key)
+    )).toHaveLength(1);
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+        AND EXISTS (
+          SELECT 1 FROM json_each(messages.references_json)
+          WHERE json_extract(json_each.value, '$.discussionId') = ?
+            AND json_extract(json_each.value, '$.proposalKind') = 'stage_outline_independent'
+        )
+    `).get(scope.ownerId, scope.bookId, panel.discussionId)).toEqual({ count: 3 });
+
+    const fused = conversations.sendBossMessage(scope, '融合1、2、3');
+    expect(fused.action).toMatchObject({ kind: 'discussion_scheduled', purpose: 'stage_outline_synthesis' });
+    const synthesisTaskId = String(fused.action.taskId);
+    const synthesisClaim = tasks.claimNext('worker-stage-synthesis')!;
+    expect(synthesisClaim.taskId).toBe(synthesisTaskId);
+    const synthesis = await pipeline.executeClaimed(scope, synthesisTaskId, 'worker-stage-synthesis', {
+      leaseToken: synthesisClaim.leaseToken!,
+      attemptNo: synthesisClaim.currentAttemptNo
+    });
+    expect(synthesis.opinionCount).toBe(1);
+
+    const decision = context.database.prepare(`
+      SELECT decision_id FROM discussion_decisions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?
+    `).get(scope.ownerId, scope.bookId, synthesis.discussionId) as { decision_id: string };
+    const confirmed = conversations.sendBossMessage(scope, `确认方案 ${decision.decision_id}`);
+    expect(confirmed.action).toMatchObject({
+      kind: 'discussion_confirmed',
+      planningArtifactType: 'master_outline'
+    });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM artifacts
+      WHERE owner_id = ? AND book_id = ? AND artifact_type = 'master_outline'
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 1 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM artifacts
+      WHERE owner_id = ? AND book_id = ? AND artifact_type = 'chapter_outline'
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM chapters WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+  });
 });

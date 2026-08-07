@@ -56,13 +56,30 @@ describe('有效输出层', () => {
     expect(result.visibleContent).toContain('缓攻方案');
     expect(result.visibleContent).toContain('张三可能误判盟军态度');
     expect(result.visibleContent).toContain('这次宣战是否需要公开进行');
+    expect(result.visibleContent).toContain('为什么这样安排：');
+    expect(result.visibleContent).toContain('还可以这样写：');
+    expect(result.visibleContent).toContain('要留意：');
+    expect(result.visibleContent).toContain('想请你定一下：');
+    expect(result.visibleContent).not.toMatch(/关键依据|可选方向|风险与未知|需要确认/u);
     expect(result.visibleContent).not.toContain('证据来自旧盟约');
     expect(result.fullContent).toContain('证据来自旧盟约');
+    expect(result.fullContent).toContain('展开说说：');
 
     const reference = createEffectiveOutputReference(result);
     expect(reference).toMatchObject({ type: 'effective_output', version: 1, format: 'structured' });
     expect(reference?.fullContent).toBe(result.fullContent);
     expect(reference?.contentHash).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it('作者回复合同要求把抽象判断说成人物、动作、原因和结果', async () => {
+    const { AUTHOR_PLAIN_LANGUAGE_RULES, EFFECTIVE_OUTPUT_CONTRACT } = await import('../../apps/api/src/application/chat/effective-output-service.js');
+
+    expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('人物姓名');
+    expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('具体动作');
+    expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('原因');
+    expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('结果');
+    expect(JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)).toContain('作者平时会说的话');
+    expect(JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)).not.toContain('可执行下一步');
   });
 
   it('兼容代码围栏并只读取白名单字段', () => {

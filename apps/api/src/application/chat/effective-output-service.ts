@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { sanitizeAuthorFacingConversationText } from './author-conversation-presentation.js';
+import { AUTHOR_PLAIN_LANGUAGE_RULES } from '../../domain/author-language.js';
+
+export { AUTHOR_PLAIN_LANGUAGE_RULES } from '../../domain/author-language.js';
 
 interface EffectiveAlternative {
   title: string;
@@ -41,12 +44,12 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
   version: 1,
   format: 'json_object',
   fields: {
-    answer: '直接回答老板的核心结论，使用自然中文',
-    keyPoints: '最多3条决定结论的关键依据；没有则为空数组',
+    answer: '直接回答作者，使用作者平时会说的话；谈剧情时写具体的人、动作、原因和结果',
+    keyPoints: '最多3条为什么这样安排；没有则为空数组，每条都要说具体事实或人物表现',
     alternatives: '仅在确有不同方向时提供，元素为title/content/tradeoff；必须保留结构不同的高潜少数方案',
     risks: '事实冲突、代价、不确定项或资料缺口；不得为了简短而隐藏',
     questions: '默认不提问；只有会改变重大方向或使当前建议无法成立时才问，最多1个。能用可逆假设推进时不得提问',
-    nextStep: '一项可执行下一步；没有则为null',
+    nextStep: '接下来最值得做的一件事；没有则为null',
     details: '可展开的补充依据；只能使用作者能理解的产品术语，不得写内部字段名、追溯编号、校验值或内部思维链，没有则为null',
     workflowArtifact: '仅当任务明确要求机器落库时填写；对象格式为type和payload。普通讨论省略该字段'
   },
@@ -54,7 +57,8 @@ export const EFFECTIVE_OUTPUT_CONTRACT = {
     '只输出一个JSON对象，不要代码围栏、开场客套、自我介绍、过程说明或重复老板原话',
     '不要重复同一结论；先给一个主推荐和理由，只有存在真实重大取舍时才保留一个结构不同的备选',
     '不得连续盘问老板。作者信息足以形成建议时直接形成建议；次要未知项列为可修改假设，不得变成问题清单',
-    '字段只写最终结论、依据和可展示说明，不输出内部思维链、后台字段名、资料编号或校验值'
+    '字段只写最终结论、依据和可展示说明，不输出内部思维链、后台字段名、资料编号或校验值',
+    AUTHOR_PLAIN_LANGUAGE_RULES
   ]
 } as const;
 
@@ -396,17 +400,17 @@ function unwrapContractFields(value: Record<string, unknown>): Record<string, un
 
 function renderStructuredReply(reply: StructuredEffectiveReply, includeDetails: boolean): string {
   const sections = [reply.answer];
-  appendList(sections, '关键依据', reply.keyPoints);
+  appendList(sections, '为什么这样安排', reply.keyPoints);
   if (reply.alternatives.length > 0) {
-    sections.push(`可选方向：\n${reply.alternatives.map((alternative) => {
-      const tradeoff = alternative.tradeoff === undefined ? '' : `；代价：${alternative.tradeoff}`;
+    sections.push(`还可以这样写：\n${reply.alternatives.map((alternative) => {
+      const tradeoff = alternative.tradeoff === undefined ? '' : `；但要接受：${alternative.tradeoff}`;
       return `- ${alternative.title}：${alternative.content}${tradeoff}`;
     }).join('\n')}`);
   }
-  appendList(sections, '风险与未知', reply.risks);
-  appendList(sections, '需要确认', reply.questions);
-  if (reply.nextStep !== null) sections.push(`下一步：${reply.nextStep}`);
-  if (includeDetails && reply.details !== null) sections.push(`完整依据：\n${reply.details}`);
+  appendList(sections, '要留意', reply.risks);
+  appendList(sections, '想请你定一下', reply.questions);
+  if (reply.nextStep !== null) sections.push(`接下来：${reply.nextStep}`);
+  if (includeDetails && reply.details !== null) sections.push(`展开说说：\n${reply.details}`);
   return sections.join('\n\n');
 }
 

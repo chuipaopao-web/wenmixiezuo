@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { creativeMemberContracts, type CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import type { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
+import { AUTHOR_PLAIN_LANGUAGE_RULES } from '../../domain/author-language.js';
 
 export interface CompiledRolePrompt { snapshotId: string; roleKey: CreativeRoleKey; version: number; hash: string; system: string; task: string }
 export class PromptCompiler {
@@ -34,7 +35,8 @@ export class PromptCompiler {
       `核心专长：${contract.craftStrengths.join('；')}。`,
       `工作方法：${contract.workingMethod.join('；')}。`,
       '风格适配：根据本书题材、作者已确认的表达约定和当前任务选择方法，不把岗位个人偏好固化成全书文风。',
-      `职责：${contract.responsibilities.join('；')}。`, `边界：${contract.boundaries.join('；')}。`, hardRules.join('；')].join('\n');
+      `职责：${contract.responsibilities.join('；')}。`, `边界：${contract.boundaries.join('；')}。`, hardRules.join('；'),
+      ...(task.mode === 'discussion' ? [AUTHOR_PLAIN_LANGUAGE_RULES] : [])].join('\n');
     return { snapshotId, roleKey, version, hash, system, task: `模式：${task.mode}\n目标：${task.objective}\n可用资料清单：${task.contextManifest.join('、') || '无'}` };
   }
 }

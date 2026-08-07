@@ -1,3 +1,5 @@
+import { authorErrorMessage } from './author-error';
+
 export interface HealthData {
   service: string;
   status: string;
@@ -632,7 +634,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
     if (!response.ok) {
       const message = 'error' in body ? body.error?.message : undefined;
-      throw new Error(message ?? `这次没有顺利完成（状态 ${response.status}），请稍后再试。`);
+      throw new Error(authorErrorMessage(message ?? '', response.status));
     }
     return (body as ApiResponse<T>).data;
   } catch (error) {
@@ -1175,5 +1177,5 @@ export async function fetchRightsWorkspace(bookId: string, signal?: AbortSignal)
     request(`/api/v1/books/${encodeURIComponent(bookId)}/research/sources`, options),
     request(`/api/v1/books/${encodeURIComponent(bookId)}/research/claims`, options)
   ]);
-  return [{ section: '版权隔离', data: copyright }, { section: '研究来源', data: sources }, { section: '候选主张', data: claims }];
+  return [{ section: '版权隔离', data: copyright }, { section: '研究来源', data: sources }, { section: '待核对说法', data: claims }];
 }

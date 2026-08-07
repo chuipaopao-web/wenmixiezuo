@@ -14,9 +14,10 @@ export class DeterministicModelAdapter implements ModelAdapter {
       .digest('hex');
     const continuationAnalysis = deterministicContinuationAnalysis(request.prompt);
     const synthesis = reviewSynthesis(request.prompt);
+    const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = continuationAnalysis ?? synthesis ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -27,6 +28,45 @@ export class DeterministicModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function deterministicStageOutlineWorkflow(prompt: string): string | null {
+  if (
+    prompt.includes('正在为本书当前剧情阶段独立设计候选方案')
+    && prompt.includes('只提交1个你真正推荐的独立候选')
+  ) {
+    const fields = deterministicDiscussionReply().fields;
+    const variants = [
+      '危机接管型：主角被迫接手一个即将崩溃的局面，先发现表面损失，再追到规则漏洞；中段首次方案失败并付出关系代价，最终靠重新分配责任守住底线。建议18—24章，满足点是夺回主动权，压力来自信任破裂，并埋下幕后受益者线索。',
+      '身份误判型：众人把主角当成最不可能解决问题的人，她利用信息差逐步验证真因；中段因错误判断失去关键盟友，随后公开承担责任完成反转。建议15—20章，满足点是认知翻盘，虐点是被亲近者误解，伏笔指向一份被改写的旧记录。',
+      '有限合作型：两个目标相反的人因共同危机短暂结盟，合作每推进一步都会暴露新的利益冲突；高潮不是彻底和解，而是在明确代价后完成一次可信选择。建议20—28章，满足点是强强协作，压力来自互不信任，结尾保留下一阶段可追查的第三方证据。'
+    ];
+    const digest = createHash('sha256').update(prompt).digest('hex');
+    fields.answer = variants[Number.parseInt(digest.slice(0, 2), 16) % variants.length] ?? variants[0]!;
+    fields.keyPoints = [];
+    fields.alternatives = [];
+    fields.risks = [];
+    fields.questions = [];
+    fields.nextStep = '看看三个人写出的不同走向，选一个，或告诉主编要把哪几部分合在一起';
+    fields.details = '';
+    return JSON.stringify({ version: 1, format: 'json_object', fields });
+  }
+  if (prompt.includes('workflowArtifact 使用 schema=stage_master_v2')) {
+    const fields = deterministicDiscussionReply().fields;
+    fields.answer = '我已经把你选中的内容合成这一阶段的剧情大纲：故事从哪里开始，中间怎么出事，最后人物得到什么结果都写清了。确认后不会马上写章纲或正文。';
+    fields.keyPoints = ['这一段最多写50章', '这一阶段会解决眼前这件事，同时留下下一阶段要接的线索'];
+    fields.alternatives = [];
+    fields.risks = [];
+    fields.questions = [];
+    fields.nextStep = '请确认当前阶段剧情总纲';
+    fields.details = '';
+    (fields as Record<string, unknown>).workflowArtifact = {
+      type: 'master_outline',
+      payload: deterministicMasterOutline()
+    };
+    return JSON.stringify({ version: 1, format: 'json_object', fields });
+  }
+  return null;
 }
 
 function deterministicContinuationAnalysis(prompt: string): string | null {
@@ -110,7 +150,7 @@ function deterministicSettingGuidance(prompt: string): string | null {
       : itemKey === 'creative-concept'
         ? '以人物在真相揭开后的主动选择推动双向救赎，探讨信任如何承受欺骗与控制，让读者同时获得现实共鸣、关系张力和悬疑反转。'
       : phase === 'ask'
-        ? `${label}建议采用与当前作品定位一致、边界清楚且允许后续创作自然展开的设定。`
+        ? `${label}先按现在这本书最需要的内容来定，写清人物能做什么、不能做什么，其他细节以后遇到剧情时再补。`
       : feedbackMode === 'replace_direction' || (feedbackMode === 'vague_dissatisfaction' && dissatisfactionRound >= 2)
         ? `${label}改为采用与上一版核心机制明显不同、但仍符合本书定位的新方向。`
       : feedbackMode === 'vague_dissatisfaction'
@@ -134,15 +174,15 @@ function deterministicDiscussion(prompt: string): string | null {
     if (prompt.includes('人物欲望、关系变化')) {
       base.fields.answer = itemLabel === '策划理念'
         ? '让人物在互相拯救与互相利用之间不断重新选择，借关系变化讨论爱能否承受真相，并给读者兼具心疼、悬念和主动成长的体验。'
-        : `${itemLabel}以人物欲望和关系变化为核心，明确成立条件、行为边界与代价，并为后续冲突保留自然生长空间。`;
+        : `${itemLabel}从人物真正想要什么开始写，再说明他会怎么做、不能做什么，以及这样做要付出什么代价。`;
     } else if (prompt.includes('打破最直觉的同类套路')) {
       base.fields.answer = itemLabel === '策划理念'
         ? '把看似被拯救的一方写成更早看清真相的人，借认知错位讨论善意是否也会成为控制，并让读者在反转后重新理解两个人的每次靠近。'
-        : `${itemLabel}避开同类题材最常见的默认答案，以认知错位形成区别，但所有规则仍须能被人物行动和现实代价验证。`;
+        : `${itemLabel}不走同类题材最常见的路，让人物因为知道的信息不同而作出不同选择，而且每个选择都会带来现实后果。`;
     } else {
       base.fields.answer = itemLabel === '策划理念'
         ? '用一段必须付出真实代价的双向救赎，讨论人在被欺骗后是否仍能自主选择信任，让读者既获得现实共鸣，也持续期待关系真相被逐层揭开。'
-        : `${itemLabel}优先服务本书定位和读者承诺，采用清楚、可执行且可修改的规则，同时避免提前锁死具体剧情结果。`;
+        : `${itemLabel}先写清读者会看到什么、人物会怎么受影响；现在只定必要内容，不把后面的剧情提前写死。`;
     }
     base.fields.keyPoints = [];
     base.fields.alternatives = [];
@@ -200,12 +240,12 @@ function deterministicDiscussionReply(): {
     version: 1,
     format: 'json_object',
     fields: {
-      answer: '已按当前阶段整理可验证的创作方案，先确认结构边界，再进入下一级规划。',
-      keyPoints: ['保持人物选择、冲突升级与结果兑现之间的因果关系', '不把未确认的候选内容写入正史'],
+      answer: '这一阶段已经整理好了：人物先碰上麻烦，再作出选择，最后承担这个选择带来的结果。你点头后，我们再往下拆每一章。',
+      keyPoints: ['人物做出的选择会真的改变后面的局面', '你没有确认的内容只放在这里讨论，不会当成已经发生的故事'],
       alternatives: [],
-      risks: ['真实模型接入后仍需由老板审核创造性与题材适配'],
+      risks: ['还要看这条剧情是否符合你想要的题材味道，人物反应也不能写得不像本人'],
       questions: [],
-      nextStep: '确认当前阶段方案后进入下一阶段',
+      nextStep: '你确认这一阶段后，再开始拆分章纲',
       details: ''
     }
   };
@@ -269,100 +309,58 @@ function deterministicChapterOutlines(prompt: string): Record<string, unknown> {
 }
 
 function deterministicMasterOutline(): Record<string, unknown> {
-  const stage = (
-    stageNumber: number,
-    title: string,
-    start: number,
-    end: number,
-    encounter: string,
-    resolution: string,
-    result: string,
-    setup: string,
-    development: string,
-    turn: string,
-    conclusion: string,
-    stageSummary: string,
-    pendingThreads: string[],
-    followUpDirection: string
-  ): Record<string, unknown> => {
-    const middle = Math.max(start, Math.floor((start + end) / 2));
-    const blocks = middle >= end
-      ? [{ start, end, summary: `${setup}；${development}；${turn}；${conclusion}`, estimatedWords: (end - start + 1) * 3000 }]
-      : [
-          { start, end: middle, summary: `${setup}；${development}`, estimatedWords: (middle - start + 1) * 3000 },
-          { start: middle + 1, end, summary: `${turn}；${conclusion}`, estimatedWords: (end - middle) * 3000 }
-        ];
-    return {
-      detailSchema: 'stage_detail_v1',
-      stageNumber,
-      title,
-      chapterRange: { start, end },
-      mainline: { encounter, resolution, result },
-      structure: { setup, development, turn, conclusion },
-      cast: [{ name: '主角', stageRole: '推动阶段主事件并承担选择后果', objective: resolution, stateChange: result }],
-      chapterBlocks: blocks,
-      estimatedWords: (end - start + 1) * 3000,
-      experience: {
-        emotionalArc: ['压力建立', '希望出现', '代价升级', '阶段释放'],
-        payoffPoints: ['关键选择产生可见成果'],
-        pressurePoints: ['推进目标必须付出真实代价']
-      },
-      turningPoints: [turn],
-      foreshadowing: pendingThreads.map((summary) => ({ summary, action: 'advance', releaseWindow: followUpDirection })),
-      stageSummary,
-      pendingThreads,
-      followUpDirection
-    };
-  };
   return {
     outlineSchema: 'stage_master_v2',
     premise: '主角在既有秩序失效后被迫承担重建责任',
     coreConflict: '个人生存选择与重建公共秩序的责任持续冲突',
     protagonistArc: '从只保护自己成长为愿意承担选择后果的领导者',
     majorStages: [
-      stage(
-        1, '取得立足点', 1, 50,
-        '主角接管濒临崩溃的据点并遭遇资源断供',
-        '查清账目、重建分配规则并团结幸存者',
-        '据点恢复运转，主角取得第一份规则解释权',
-        '旧秩序失效，主角被迫接手烂摊子',
-        '资源、关系和外部压力同步升级',
-        '第一次胜利暴露规则被人为操纵',
-        '主角守住据点并决定追查规则源头',
-        '主角由自保转向承担集体生存责任，获得继续行动的基础',
-        ['规则操纵者的身份', '旧账中缺失的一页'],
-        '进入规则权争夺，追查资源断供背后的利益链'
-      ),
-      stage(
-        2, '争夺规则权', 51, 100,
-        '旧势力利用制度和舆论围堵新据点',
-        '主角联合受损群体公开证据并建立替代规则',
-        '旧势力失去垄断，但真正对手暴露',
-        '新据点扩张触动既得利益',
-        '联盟建立又因利益分配出现裂缝',
-        '盟友背叛迫使主角公开关键证据',
-        '主角赢得阶段性规则权并看见更大敌人',
-        '主角从据点管理者成长为能够组织联盟的领导者',
-        ['背叛者未交代的动机', '规则源头的维护者'],
-        '把局部改革推向全域，准备承担公开挑战旧秩序的代价'
-      ),
-      stage(
-        3, '完成新秩序', 101, 150,
-        '真正对手发动终局清算并逼迫主角独占胜利',
-        '主角公开规则来源、分散权力并承担个人损失',
-        '新秩序建立且拥有可追责的维护机制',
-        '全域冲突爆发，既有联盟面临瓦解',
-        '主角在效率与公开之间反复受挫',
-        '最亲近的人付出代价，迫使主角改变胜利定义',
-        '主角放弃独占成果，以可追责制度兑现承诺',
-        '主角完成从求生者到规则建设者的成长，并让胜利不依赖个人永续掌权',
-        [],
-        '收束主要因果，同时为世界继续运转保留余韵'
-      )
+      {
+        detailSchema: 'stage_detail_v2',
+        stageNumber: 1,
+        title: '取得立足点',
+        chapterRange: { start: 1, end: 24 },
+        plotPatterns: {
+          primary: { id: 'underdog-counterattack', name: '绝境逆袭', reason: '当前阶段需要用一次完整危机证明主角能够承担重建责任' },
+          supporting: [{ id: 'territory-building', name: '领地经营', reason: '让胜利落实为资源、制度和关系的可见变化' }]
+        },
+        dramaticQuestion: '主角能否在资源断供与内部失信同时爆发时守住据点，并建立可持续的新规则？',
+        stageGoal: '完成一次从危机暴露、寻找解法到新规则经受检验的完整事件闭环。',
+        startState: '据点资源将尽、旧账失真、成员互不信任，主角只有临时管理权。',
+        conflictDesign: '外部封锁制造生存倒计时，内部既得利益阻止查账，主角每推进一步都必须在效率、公平和关系代价间选择。',
+        mainline: {
+          encounter: '主角接管濒临崩溃的据点并发现资源断供并非偶然。',
+          resolution: '查清账目、重建分配规则、团结关键成员并抵御一次外部施压。',
+          result: '据点恢复基本运转，主角取得有限规则解释权，同时确认幕后操纵者仍未现身。'
+        },
+        structure: {
+          setup: '1—5章：资源危机公开，主角被迫接手并锁定账目矛盾。',
+          development: '6—13章：查账与求援并行，内部阻力升级，第一套方案失败并付出代价。',
+          turn: '14—19章：主角发现真正断供链条，改变策略并联合此前不信任的成员。',
+          conclusion: '20—24章：新规则在外部施压中经受检验，阶段危机结束并留下幕后线索。'
+        },
+        cast: [{ name: '主角', stageRole: '决策者与代价承担者', objective: '守住据点并建立可信规则', stateChange: '由临时接手转为获得有限信任' }],
+        chapterBlocks: [
+          { start: 1, end: 5, summary: '危机公开与接手', estimatedWords: 15000 },
+          { start: 6, end: 13, summary: '查账、试错与代价升级', estimatedWords: 24000 },
+          { start: 14, end: 19, summary: '真因揭示与策略反转', estimatedWords: 18000 },
+          { start: 20, end: 24, summary: '规则验证与阶段结算', estimatedWords: 15000 }
+        ],
+        estimatedWords: 72000,
+        completionCriteria: ['资源断供危机得到可验证解决', '新分配规则至少经历一次真实压力测试', '主角的阶段身份与关系发生可见变化'],
+        hardConstraints: ['不能靠无来源资源或巧合解除危机', '幕后操纵者只留证据，不在本阶段被彻底解决'],
+        creativeFreedom: ['具体冲突场景、配角行动和局部反转由后续章纲自由设计'],
+        experience: { emotionalArc: ['压迫', '希望', '受挫', '反击', '释放'], payoffPoints: ['新规则首次成功运转'], pressurePoints: ['失败会造成真实人员与资源损失'] },
+        turningPoints: ['第一次方案失败并暴露断供链条'],
+        foreshadowing: [{ summary: '幕后操纵者的身份', action: 'plant', releaseWindow: '下一阶段继续推进' }],
+        stageSummary: '主角守住据点、建立第一套可信规则，并确认局部危机背后存在更大的利益链。',
+        pendingThreads: ['幕后操纵者的身份', '旧账中缺失的一页'],
+        followUpDirection: '阶段结算后再规划下一段剧情；不提前锁死下一阶段的具体事件。'
+      }
     ],
-    endingDirection: '主角以承担真实代价的选择兑现重建承诺',
+    endingDirection: '这里只约束当前阶段的结束状态，不预写全书结局。',
     storyPromises: ['每次胜利产生后续代价', '人物关系随选择真实变化'],
-    openQuestions: ['最终治理形式仍由老板确认']
+    openQuestions: ['幕后操纵者如何进入下一阶段，由阶段结算后再讨论']
   };
 }
 

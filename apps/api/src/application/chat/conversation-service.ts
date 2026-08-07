@@ -39,7 +39,7 @@ import { NarrativeProjectionService } from '../projections/narrative-projection-
 
 export { compactLockedDecisionSummary } from '../discussions/locked-planning-context.js';
 
-type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'stage_outline_panel' | 'stage_outline_synthesis';
 type CreativeRoundKind = 'initial_exploration' | 'major_redirect' | 'locked_planning';
 
 export type ConversationReceptionKind =
@@ -451,6 +451,64 @@ export class ConversationService {
     const modelContent = appendAttachmentContext(content, attachmentContext);
     if (intake?.routeClass === 'protected_operation') {
       return { kind: 'protected_operation_blocked', selectedAction: intake.selectedAction, receiptText: intake.receiptText };
+    }
+    if (content.includes('【阶段剧情抽卡资料包】')) {
+      const planningState = new PlanningWorkflowRepository(this.database).planningState(scope);
+      const settingBaselineConfirmed = planningState !== undefined
+        && planningState.setting_baseline_version_id !== null
+        && !['style_in_progress', 'style_ready', 'setting_in_progress'].includes(planningState.stage);
+      if (!settingBaselineConfirmed) {
+        return {
+          ...this.scheduleConversationReply(
+            scope,
+            [
+              '老板希望设计当前阶段剧情，但本书设定大纲尚未确认。',
+              '请只说明还缺少哪些最小前置设定，并引导老板先完成设定；不得提前生成剧情候选、章纲或正文。',
+              `老板原话：${modelContent}`
+            ].join('\n'),
+            messageId,
+            conversationId
+          ),
+          blockedBy: 'setting_baseline_not_confirmed',
+          missing: ['已确认的设定大纲']
+        };
+      }
+      return this.scheduleDiscussion(
+        scope,
+        modelContent,
+        messageId,
+        conversationId,
+        'stage_outline_panel',
+        null
+      );
+    }
+    const stagePanel = this.findStageOutlineProposalPanel(scope);
+    if (stagePanel !== null) {
+      const selectedNumbers = parseSettingSelectionNumbers(content, stagePanel.options.map((option) => option.number));
+      const explicitStageChoice = selectedNumbers.length > 0
+        || /(?:选择|采用|融合|组合|保留|按这个|重抽|换一批|我的方案|我想要|修改)/u.test(content);
+      if (explicitStageChoice) {
+        const selected = selectedNumbers.length > 0
+          ? stagePanel.options.filter((option) => selectedNumbers.includes(option.number))
+          : [];
+        return this.scheduleDiscussion(
+          scope,
+          [
+            '【剧情总纲专项讨论资料包】',
+            '【阶段剧情抽卡整理】',
+            `抽卡讨论编号：${stagePanel.discussionId}`,
+            `老板本轮原话：${modelContent}`,
+            selected.length === 0
+              ? '老板没有用编号选择；请把老板原话视为自定义方向或重抽要求，只在信息足够形成方案时整理。'
+              : `老板选中的候选：${selected.map((option) => `方案${option.number}｜${option.content}`).join('\n')}`,
+            '任务：仅由活动主编整理老板选中的内容，形成一份当前阶段候选总纲。不得调用编剧重新扩写，不得生成章纲或正文；作者确认后才保存。'
+          ].join('\n'),
+          messageId,
+          conversationId,
+          'stage_outline_synthesis',
+          null
+        );
+      }
     }
     if (intake?.selectedAction === 'preserve_continuation_handoff_packet') {
       const continuationReference = this.continuationSettingReference(scope);
@@ -1462,7 +1520,9 @@ export class ConversationService {
         chapterOutlineCount: prepared.chapterOutlineVersionIds.length
       };
     }
-    const stagedConfirmation = (brief.purpose === 'open_discussion' || brief.purpose === undefined)
+    const stagedConfirmation = (brief.purpose === 'open_discussion'
+        || brief.purpose === 'stage_outline_synthesis'
+        || brief.purpose === undefined)
       && new PlanningWorkflowRepository(this.database).openingBlueprint(scope) !== undefined;
     const stagedResult = stagedConfirmation
       ? new UnitOfWork(this.database).run(() => {
@@ -1605,30 +1665,57 @@ export class ConversationService {
     const creativePurpose = purpose === 'creative_exploration'
       || purpose === 'locked_planning'
       || purpose === 'creative_concept_panel'
-      || purpose === 'setting_proposal_panel';
+      || purpose === 'setting_proposal_panel'
+      || purpose === 'stage_outline_panel'
+      || purpose === 'stage_outline_synthesis';
     const settingWorkshop = scopeText.includes('【设定专项讨论资料包】')
       || scopeText.includes('【设定大纲成组讨论资料包】')
       || scopeText.includes('【剧情总纲专项讨论资料包】');
+    const editorOnly = purpose === 'stage_outline_synthesis';
     const collaborative = creativePurpose || settingWorkshop;
-    const roleKeys = collaborative
-      ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']
-      : discussionRoleCandidates(scopeText);
-    const placeholders = roleKeys.map(() => '?').join(', ');
-    const specialists = this.database.prepare(`
-      SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
-        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
-        AND r.role_key IN (${placeholders})
-      ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, r.role_key
-      LIMIT ?
-    `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, collaborative ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
-    if (specialists.length === 0) throw new Error('没有与讨论范围匹配的岗位');
+    let specialists: Array<{ agent_id: string; role_key: string }> = [];
+    if (purpose === 'stage_outline_panel') {
+      const peerEditor = this.database.prepare(`
+        SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
+          ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+        WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
+          AND r.role_key IN ('chief_editor', 'deputy_editor')
+        ORDER BY CASE r.role_key WHEN 'deputy_editor' THEN 0 ELSE 1 END, a.agent_id
+        LIMIT 1
+      `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id) as { agent_id: string; role_key: string } | undefined;
+      const screenwriter = this.database.prepare(`
+        SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
+          ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+        WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
+          AND r.role_key IN ('lead_screenwriter', 'second_screenwriter')
+        ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 ELSE 1 END, a.agent_id
+        LIMIT 1
+      `).get(scope.ownerId, scope.bookId, lease.active_editor_agent_id) as { agent_id: string; role_key: string } | undefined;
+      if (peerEditor === undefined || screenwriter === undefined) {
+        throw new Error('阶段剧情抽卡需要当前主编、另一位编辑和一名编剧同时可用');
+      }
+      specialists = [peerEditor, screenwriter];
+    } else if (!editorOnly) {
+      const roleKeys = collaborative
+        ? ['lead_screenwriter', 'second_screenwriter', 'plot_architect']
+        : discussionRoleCandidates(scopeText);
+      const placeholders = roleKeys.map(() => '?').join(', ');
+      specialists = this.database.prepare(`
+        SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
+          ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+        WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.agent_id <> ?
+          AND r.role_key IN (${placeholders})
+        ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, r.role_key
+        LIMIT ?
+      `).all(scope.ownerId, scope.bookId, lease.active_editor_agent_id, ...roleKeys, collaborative ? 2 : 1) as unknown as Array<{ agent_id: string; role_key: string }>;
+    }
+    if (!editorOnly && specialists.length === 0) throw new Error('没有与讨论范围匹配的岗位');
     for (const specialist of specialists) {
       this.database.prepare(`UPDATE agent_instances SET activation_state = 'idle', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
         .run(this.clock.now().toISOString(), scope.ownerId, scope.bookId, specialist.agent_id);
     }
     const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
-      type: collaborative ? 'collaborative' : 'quick',
+      type: editorOnly ? 'quick' : collaborative ? 'collaborative' : 'quick',
       scopeText,
       createdByAgentId: lease.active_editor_agent_id,
       participants: [
@@ -1735,6 +1822,63 @@ export class ConversationService {
       status: task.status,
       participants: participants.map((participant) => participant.agent_id)
     };
+  }
+
+  private findStageOutlineProposalPanel(scope: BookScope): {
+    taskId: string;
+    discussionId: string;
+    options: Array<{ number: number; content: string }>;
+  } | null {
+    const task = this.database.prepare(`
+      SELECT task_id, task_brief_json, created_at
+      FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND status = 'succeeded'
+        AND json_extract(task_brief_json, '$.purpose') = 'stage_outline_panel'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as {
+      task_id: string;
+      task_brief_json: string;
+      created_at: string;
+    } | undefined;
+    if (task === undefined) return null;
+    const newerSynthesis = this.database.prepare(`
+      SELECT 1 AS found FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
+        AND json_extract(task_brief_json, '$.purpose') = 'stage_outline_synthesis'
+        AND created_at >= ?
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, task.created_at) as { found: number } | undefined;
+    if (newerSynthesis !== undefined) return null;
+    const brief = JSON.parse(task.task_brief_json) as { discussionId: string };
+    const rows = this.database.prepare(`
+      SELECT content, references_json FROM messages
+      WHERE owner_id = ? AND book_id = ? AND message_type = 'setting_proposal'
+        AND EXISTS (
+          SELECT 1 FROM json_each(messages.references_json)
+          WHERE json_extract(json_each.value, '$.discussionId') = ?
+            AND json_extract(json_each.value, '$.proposalKind') = 'stage_outline_independent'
+        )
+      ORDER BY created_at, message_id
+    `).all(scope.ownerId, scope.bookId, brief.discussionId) as unknown as Array<{
+      content: string;
+      references_json: string;
+    }>;
+    const options = rows.flatMap((row) => {
+      const references = JSON.parse(row.references_json) as Array<Record<string, unknown>>;
+      const reference = references.find((item) => item.proposalKind === 'stage_outline_independent');
+      const number = typeof reference?.proposalNumber === 'number' ? reference.proposalNumber : null;
+      if (number === null) return [];
+      const content = row.content
+        .replace(/^方案\d+｜[^\n]+\n/u, '')
+        .split(/\n\n(?:三份|九份)都是独立候选。/u, 1)[0]
+        ?.trim() ?? '';
+      return content.length === 0 ? [] : [{ number, content }];
+    });
+    return (options.length === 3 || options.length === 9)
+      ? { taskId: task.task_id, discussionId: brief.discussionId, options }
+      : null;
   }
 
   private requireEditorLease(scope: BookScope): { active_editor_agent_id: string; editor_epoch: number; active_editor_name: string } {
@@ -1934,7 +2078,9 @@ function actionNotice(action: Record<string, unknown>): string {
     case 'trial_draft_not_ready': return `可以先试写，但还缺少唯一下一章所需的信息：${(action.missing as string[]).join('、')}。${editorName}会在当前会话里继续问清，不会直接让主笔盲写。`;
     case 'discussion_scheduled': return action.purpose === 'setting_proposal_panel'
       ? `收到。本轮由${editorName}主持，婉儿和红玉会分别独立提出一份方案，三人不会互相照抄。完成后会直接在这里显示三份候选，供您选择、组合或提出自己的版本。`
-      : `收到，我已经把您的原话交给${editorName}，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。`;
+      : action.purpose === 'stage_outline_panel'
+        ? `收到。本轮由${editorName}、另一位编辑和一名编剧各自独立设计1个当前阶段剧情候选，共3个方向。这里只做创意抽卡，不会自动确认、生成章纲或启动正文；您可以选择、组合或要求重抽。`
+        : `收到，我已经把您的原话交给${editorName}，并请相关成员从各自岗位出发讨论。她们完成后会直接在这里回复您，进度可以在左侧“任务”查看。`;
     case 'planning_discussion_scheduled': return action.requestedChapterCount === null
       ? `我没有让主笔贸然批量开写。${editorName}和两位编剧会先评估这段剧情适合展开多少章，并把唯一下一章理清后请您确认。`
       : `目前还缺少可执行的下一章方案，我没有启动主笔。${editorName}会先和相关成员补齐剧情与章纲，再回来请您确认。`;

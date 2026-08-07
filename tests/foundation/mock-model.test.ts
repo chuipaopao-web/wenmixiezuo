@@ -43,7 +43,7 @@ describe('确定性假模型', () => {
     expect(master.output).toContain('剧情总纲落库');
     const parsedMaster = parseMasterOutlineDepositOutput(master.output);
     expect(parsedMaster?.outlineSchema).toBe('stage_master_v2');
-    expect(parsedMaster?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
+    expect(parsedMaster?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 24 });
     expect(parsedMaster?.majorStages[0]?.pendingThreads).toBeDefined();
     expect(chapters.output).toContain('规划落库');
     expect(master.output).not.toBe(chapters.output);

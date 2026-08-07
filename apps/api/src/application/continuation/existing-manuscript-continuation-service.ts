@@ -18,6 +18,7 @@ import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { CanonService } from '../knowledge/canon-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import { countCharacters, existingManuscriptParserVersion, parseExistingManuscript } from './existing-manuscript-parser.js';
+import { ContinuationAnalysisPipelineService } from './continuation-analysis-pipeline-service.js';
 
 const maximumSourceCharacters = 5_000_000;
 const maximumSourceNameCharacters = 240;
@@ -166,7 +167,16 @@ export class ExistingManuscriptContinuationService {
       throw new DomainError(errorCodes.operationIncomplete, '请先确认并保存已有正文，再整理前文资料', { status: record.status }, false, 409);
     }
     const existing = this.repository.baseline(scope, importId);
-    if (existing?.status === 'ready') return this.get(scope, importId);
+    if (existing?.status === 'ready') {
+      new ContinuationAnalysisPipelineService(
+        this.database,
+        this.dataDir,
+        this.releaseId,
+        this.ids,
+        this.clock
+      ).projectReadyReverseChapterOutlines(scope, importId);
+      return this.get(scope, importId);
+    }
     if (existing?.active_task_id !== null && existing?.active_task_id !== undefined) {
       try {
         const activeTask = new TaskService(this.database, this.releaseId, this.clock).require(scope, existing.active_task_id);

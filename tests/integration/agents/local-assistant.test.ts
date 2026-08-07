@@ -63,6 +63,11 @@ describe('小文秘书', () => {
       selectedRoles: ['chief_editor', 'lead_screenwriter', 'second_screenwriter'],
       excludedActions: expect.arrayContaining(['automatic_writing', 'automatic_canon_promotion'])
     });
+    expect(service.route(scope, {
+      conversationId: 'c',
+      messageId: 'm4',
+      original: '讨论设定 【剧情总纲专项讨论资料包】\n当前阶段：救援之后'
+    }).receiptText).toBe('收到，我已经把你的要求和本书现有内容交给貂蝉，她会直接回复你。');
   });
   it('只学习工具、路由和故障恢复经验，且必须带反例', () => {
     context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();

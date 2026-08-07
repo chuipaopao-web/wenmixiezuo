@@ -279,9 +279,10 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
     const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['返回书架', '对话', '规划', '正文', '图谱', '资料库', '版权与研究', '取名']) {
+    for (const name of ['返回书架', '对话', '创作台', '图谱', '资料库', '版权与研究', '取名']) {
       expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
+    expect(within(workspaceNavigation).queryByRole('button', { name: '正文' })).not.toBeInTheDocument();
     expect(within(workspaceNavigation).queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
@@ -293,7 +294,7 @@ describe('完整创作工作台', () => {
     expect(within(bookSummary).getByText('创作中')).toBeInTheDocument();
     expect(within(bookSummary).getByText('1 卷')).toBeInTheDocument();
     expect(within(bookSummary).getByText('1 章')).toBeInTheDocument();
-    expect(within(bookSummary).getByText('正史修订 3')).toBeInTheDocument();
+    expect(within(bookSummary).getByText('正式内容版本 3')).toBeInTheDocument();
     expect(document.querySelector('.topbar-center')).toBeNull();
     expect(document.querySelector('.workspace-book-summary')).toBeNull();
     expect(screen.queryByText('规划成果')).not.toBeInTheDocument();
@@ -315,7 +316,8 @@ describe('完整创作工作台', () => {
     expect(within(team).getByText('11 名成员')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
     expect(within(team).getByText('岗位职责')).toBeInTheDocument();
-    expect(within(team).getByText('工作边界')).toBeInTheDocument();
+    expect(within(team).getByText('负责什么')).toBeInTheDocument();
+    expect(team).not.toHaveTextContent('边界');
     expect(within(team).getByText('岗位表达')).toBeInTheDocument();
     expect(within(team).getByText(/貂蝉是团队中的主编/)).toBeInTheDocument();
     expect(within(team).queryByText('受保护的完整运行提示词')).not.toBeInTheDocument();
@@ -390,7 +392,7 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('平')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '规划' }));
+    fireEvent.click(screen.getByRole('button', { name: '创作台' }));
     expect(await screen.findByText('作品定位与全书框架')).toBeInTheDocument();
     expect(screen.queryByText('sourceStatus')).not.toBeInTheDocument();
     expect(screen.queryByText('explicit')).not.toBeInTheDocument();
@@ -398,7 +400,7 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '版权与研究' }));
     expect(await screen.findByText('作者提供')).toBeInTheDocument();
-    expect(screen.getAllByText('候选判断').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('待确认判断').length).toBeGreaterThan(0);
     expect(screen.queryByText('source_status')).not.toBeInTheDocument();
     expect(screen.queryByText('candidate_status')).not.toBeInTheDocument();
   });
@@ -447,7 +449,7 @@ describe('完整创作工作台', () => {
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '为角色1取名' }));
     const namingDialog = await screen.findByRole('dialog', { name: '角色1取名助手' });
-    const firstCandidate = within(namingDialog).getAllByRole('button', { name: /^填入候选：/ })[0]!;
+    const firstCandidate = within(namingDialog).getAllByRole('button', { name: /^填入名字：/ })[0]!;
     fireEvent.click(firstCandidate);
     expect(dialog.querySelector<HTMLInputElement>('#opening-protagonist-name')?.value).not.toBe('');
     fireEvent.click(within(namingDialog).getByRole('button', { name: '完成' }));
@@ -494,8 +496,8 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: /^精怪/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^人工智能/ }));
     expect(screen.getByText('正在取：').parentElement).toHaveTextContent('人工智能');
-    expect(screen.getByText(/候选不会自动写入设定、正文或正史/)).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^复制候选：/ }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/名字建议只供挑选，不会自动改动设定或正文/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^复制名字：/ }).length).toBeGreaterThan(0);
   });
 
   it('智能推荐固定八个且不把跨频道标签或作者手选标签写坏', async () => {
@@ -758,11 +760,12 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter(longText)));
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('region', { name: '正文章节列表' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     await waitFor(() => expect(document.querySelector('.novel-text')?.textContent).toBe(longText));
-    expect(await screen.findByRole('heading', { name: '工单与三席点评' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '写作要求与AI点评' })).toBeInTheDocument();
     expect(screen.getByText('文学与AI腔席')).toBeInTheDocument();
     expect(screen.getByText(/10%/u)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: '正文章节列表' })).toBeInTheDocument();
@@ -793,19 +796,22 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     const chapterButton = await screen.findByRole('button', { name: /1\. 雾城初响/u });
-    expect(chapterButton).toHaveTextContent('正史已结算');
+    expect(chapterButton).toHaveTextContent('正式正文');
     expect(chapterButton).not.toHaveTextContent('受阻');
   });
 
-  it('规划工作台显示五个层级且资料库使用结构化卡片而非原始JSON', async () => {
+  it('创作台直接显示五个创作层级且资料库使用结构化卡片而非原始JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
-    expect(await screen.findByRole('heading', { name: '创作准备' })).toBeInTheDocument();
-    for (const name of ['本书资料', '设定大纲', '剧情总纲', '章纲']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
+    for (const name of ['本书资料', '设定大纲', '剧情总纲', '章纲', '正文']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    expect(screen.queryByText('先确认作品定位，再建立设定大纲；设定足够支撑当前阶段后，才进入剧情规划。')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('创作准备流程')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '卷纲' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '章节列表' })).not.toBeInTheDocument();
     expect(await screen.findByText('游戏历史')).toBeInTheDocument();
@@ -813,23 +819,24 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '设定大纲' }));
     expect(await screen.findByText('钟响后可见未来一天')).toBeInTheDocument();
     expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
-    expect(screen.getByText('游戏历史')).toBeInTheDocument();
+    expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
     const importBox = screen.getByRole('textbox', { name: '已有设定原文' });
     const catalogHeading = screen.getByRole('heading', { name: '设定大纲' });
     expect(catalogHeading.compareDocumentPosition(importBox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText('游戏竞技＋历史古代')).toBeInTheDocument();
-    expect(screen.getByText('本书必谈')).toBeInTheDocument();
+    expect(screen.queryByText('游戏竞技＋历史古代')).not.toBeInTheDocument();
+    expect(screen.getAllByText('待讨论').length).toBeGreaterThan(0);
     expect(screen.getByText('建议完善')).toBeInTheDocument();
-    expect(screen.getByText('当前只讨论：策划理念')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '继续当前项：策划理念' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { name: '核心看点' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '讨论' })).toBeInTheDocument();
+    expect(screen.queryByText('当前只讨论：核心看点')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '分批讨论未完成项' })).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: '搜索完整资料库' })).toBeInTheDocument();
     const requiredSection = document.querySelector('.setting-outline-section.required');
     expect(requiredSection).toBeInstanceOf(HTMLElement);
-    if (!(requiredSection instanceof HTMLElement)) throw new Error('本书必谈区域不存在');
-    expect(within(requiredSection).getByText('策划理念')).toBeInTheDocument();
-    expect(within(requiredSection).getByText('游戏世界接入方式')).toBeInTheDocument();
+    if (!(requiredSection instanceof HTMLElement)) throw new Error('待讨论区域不存在');
+    expect(within(requiredSection).getByText('核心看点')).toBeInTheDocument();
+    expect(within(requiredSection).getByText('怎样进入游戏世界')).toBeInTheDocument();
     expect(within(requiredSection).getByText('历史基线')).toBeInTheDocument();
     expect(within(requiredSection).queryByText('核心关系与吸引基础')).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: '自定义设定项' }), { target: { value: '神名禁忌' } });
@@ -855,16 +862,16 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
     const libraryTabs = screen.getByRole('navigation', { name: '资料分类' });
-    const evidenceTab = within(libraryTabs).getByRole('button', { name: '来源与证据' });
+    const evidenceTab = within(libraryTabs).getByRole('button', { name: '内容来源' });
     expect(evidenceTab).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '雾钟档案' })).toBeInTheDocument();
     expect(screen.getByText(/历史脑洞/u)).toBeInTheDocument();
     fireEvent.click(evidenceTab);
-    expect(await screen.findByRole('heading', { name: '来源与证据' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '内容来自哪里' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '张三' })).toBeInTheDocument();
     expect(screen.getByText('身份来历')).toBeInTheDocument();
     expect(screen.getAllByText('雾城边防军出身')).toHaveLength(1);
-    expect(screen.getByText(/第 1 章 · A级证据 · 活动正史/u)).toBeInTheDocument();
+    expect(screen.getByText(/第 1 章 · A级证据 · 当前正式内容/u)).toBeInTheDocument();
     expect(screen.getByText('城门名册记载张三来自雾城边防军。')).toBeInTheDocument();
     expect(screen.queryByText(/identity\.origin|fact-ui|source_chapter_number|internal-source-id/u)).not.toBeInTheDocument();
     expect(document.querySelector('.library-workspace pre')).toBeNull();
@@ -890,14 +897,14 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '角色' }));
     expect(await screen.findByText('张三')).toBeInTheDocument();
     expect(screen.getByText('雾城边防军出身')).toBeInTheDocument();
-    expect(screen.getByText(/第 1 章 · A级证据 · 活动正史/u)).toBeInTheDocument();
+    expect(screen.getByText(/第 1 章 · A级证据 · 当前正式内容/u)).toBeInTheDocument();
     expect(document.querySelector('.library-workspace pre')).toBeNull();
     fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
-    expect(await screen.findByRole('heading', { name: '叙事图谱' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '剧情关系' })).toBeInTheDocument();
     for (const name of ['人物关系', '情绪', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '主线' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '支线' })).not.toBeInTheDocument();
-    expect(screen.getByText('张三 —— 守城军（盟友）')).toBeInTheDocument();
+    expect(screen.getByText('张三 → 守城军（盟友）')).toBeInTheDocument();
     expect(document.querySelector('.graph-node-grid')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '情绪' }));
     expect(await screen.findByText('压抑 → 决意')).toBeInTheDocument();
@@ -936,20 +943,65 @@ describe('完整创作工作台', () => {
             protagonistArc: '从独自求生到承担共同治理。',
             majorStages: [{
               stageNumber: 1,
+              title: '河边相救',
+              chapterRange: { start: 1, end: 9 },
+              stageSummary: '王怡在河边救下夏炎，两人暂时结伴。',
+              mainline: {
+                encounter: '王怡发现落水的夏炎。',
+                resolution: '王怡把夏炎救上岸。',
+                result: '两人决定先一起处理眼前的麻烦。'
+              },
+              structure: {
+                setup: '发现落水者',
+                development: '完成救援',
+                turn: '债务追上门',
+                conclusion: '暂时结伴'
+              },
+              estimatedWords: 27000
+            }, {
+              stageNumber: 2,
               title: '荒原立足',
-              chapterRange: { start: 1, end: 50 },
+              chapterRange: { start: 10, end: 50 },
+              plotPatterns: {
+                primary: { name: '创业求生', reason: '用可核验经营成果建立新秩序' },
+                supporting: [{ name: '打脸反转', reason: '以旧账本证据完成公开纠偏' }]
+              },
+              dramaticQuestion: '夏炎能否在资源耗尽前建立一套可持续且可审计的生存秩序？',
+              stageGoal: '取得合法领地并让净水营地独立运转。',
+              startState: '夏炎失去水源与合法身份。',
+              conflictDesign: {
+                surface: '水源、身份与领地资格竞争。',
+                underlying: '个人求生与共同治理责任冲突。',
+                stakes: '流民生存和新秩序的可信度。',
+                failureCost: '营地解体并失去合法身份。'
+              },
               mainline: {
                 encounter: '夏炎失去水源与合法身份。',
-                resolution: '夏炎带领流民建立净水营地。',
-                result: '夏炎取得第一块合法领地。'
+                resolution: '两人先说清赔偿边界，再建立可撤回的记录制度。',
+                result: '救援已经从危机事件转化为有边界的长期支持。'
               },
+              subplots: ['旧账本来源：沈梦暗查账本经手人，为下一阶段的王都调查留下入口。'],
               structure: {
                 setup: '流落荒原',
                 development: '修复净水装置',
                 turn: '发现旧账本',
                 conclusion: '建立营地'
               },
+              estimatedWords: 150000,
+              chapterBlocks: [],
+              experience: {
+                primaryTone: '压迫中逐步建立希望',
+                readerEffect: '先感到生存压力，再获得经营成果落地的满足感。',
+                emotionalArc: ['压迫', '希望', '受挫', '反击', '释放'],
+                payoffPoints: ['净水规则首次成功运转'],
+                pressurePoints: ['营地可能解体并失去合法资格']
+              },
+              cast: [{ name: '夏炎', stageRole: '营地规则建立者', objective: '取得合法领地', stateChange: '从独自求生转为承担共同治理责任' }],
+              foreshadowing: [{ summary: '旧账本背后的王都利益链', action: 'plant', releaseWindow: '下一阶段继续推进' }],
               stageSummary: '夏炎从流民变成营地负责人。',
+              completionCriteria: ['取得第一块合法领地', '净水营地可独立运转'],
+              hardConstraints: ['经营成果必须有资源来源与代价'],
+              creativeFreedom: ['营地成员摩擦与净水过程可自由设计'],
               pendingThreads: ['旧账本由谁伪造'],
               followUpDirection: '追查王都账本来源。'
             }],
@@ -964,18 +1016,54 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
     expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
     expect(screen.queryByText('暂无可展示内容')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
-    expect(await screen.findByText('夏炎从流民求生走向经营自持。')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '荒原立足' })).toBeInTheDocument();
-    expect(screen.getByText('第1—50章')).toBeInTheDocument();
-    for (const label of ['主线剧情', '起承转合', '阶段总结', '待回收信息与伏笔', '后续方向']) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '荒原立足' })).toBeInTheDocument();
+    expect(screen.queryByText('夏炎从流民求生走向经营自持。')).not.toBeInTheDocument();
+    const stageNavigation = screen.getByLabelText('剧情阶段导航');
+    expect(within(stageNavigation).getByText('查看阶段')).toBeInTheDocument();
+    const stageSelector = within(stageNavigation).getByRole('combobox', { name: '选择剧情阶段' });
+    expect(stageSelector).toHaveDisplayValue('第2阶段：荒原立足（当前）');
+    expect(within(stageNavigation).getByRole('button', { name: '上一阶段' })).toBeEnabled();
+    expect(within(stageNavigation).getByRole('button', { name: '下一阶段' })).toBeDisabled();
+    fireEvent.change(stageSelector, { target: { value: '0' } });
+    expect(screen.getByRole('heading', { name: '河边相救' })).toBeInTheDocument();
+    expect(within(stageNavigation).getByRole('button', { name: '下一阶段' })).toBeEnabled();
+    fireEvent.change(stageSelector, { target: { value: '1' } });
+    expect(screen.getAllByText('第10章').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('第50章').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '创作下一阶段' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'AI设计' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '打开剧情库' })).toBeInTheDocument();
+    expect(screen.queryByText('剧情库 · 主流题材模式')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '打开剧情库' }));
+    expect(screen.getByText('剧情库 · 主流题材模式')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '阶段约束契约' })).not.toBeInTheDocument();
+    expect(screen.getByText('夏炎能否在资源耗尽前建立一套能长期运行、也能查清过程的生存秩序？')).toBeInTheDocument();
+    expect(screen.getByText('取得第一块合法领地')).toBeInTheDocument();
+    for (const label of ['阶段剧情概述', '阶段主线', '阶段支线', '起承转合', '新增出场人物', '人物成长', '剧情与字数安排', '阶段情绪与阅读体验', '事件收获', '长线伏笔', '下一阶段']) {
+      expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
     }
+    for (const label of ['阶段情绪基调', '给读者的阅读体验', '爽点', '虐点']) expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText('第10至50章')).toBeInTheDocument();
+    expect(screen.getAllByText('夏炎从流民变成营地负责人。').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('预计 150,000 字').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('章纲参考')).toBeInTheDocument();
+    expect(screen.getByText('旧账本来源：沈梦暗查账本经手人，为下一阶段的王都调查留下入口。')).toBeInTheDocument();
+    const stageCard = document.querySelector('.stage-master-card');
+    expect(stageCard).toBeInstanceOf(HTMLElement);
+    expect(stageCard?.querySelector('.stage-chapter-blocks')).toBeInstanceOf(HTMLOListElement);
+    expect(stageCard?.querySelector('.chapter-outline-beats')).toBeNull();
+    expect(stageCard?.textContent).toContain('赔偿到什么程度');
+    expect(stageCard?.textContent).toContain('记录可以撤销');
+    expect(stageCard?.textContent).not.toContain('边界');
+    expect(stageCard?.textContent).not.toContain('这份总纲没有单独记录');
+    expect(screen.queryByText('这阶段写什么')).not.toBeInTheDocument();
+    expect(screen.queryByText('查看全书方向')).not.toBeInTheDocument();
     expect(screen.queryByText('stage_master_v2')).not.toBeInTheDocument();
     expect(screen.queryByText('chapterRange')).not.toBeInTheDocument();
     expect(screen.getByText('已确认')).toBeInTheDocument();
@@ -1014,17 +1102,17 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
 
-    expect(await screen.findByText('当前显示的是历史总纲格式')).toBeInTheDocument();
-    expect(screen.getByText(/尚未包含章节范围、主线解决与结果、阶段级起承转合/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '按新版阶段格式重新讨论' }));
+    expect(await screen.findByText('旧版剧情总纲')).toBeInTheDocument();
+    expect(screen.queryByText(/尚未包含章节范围、主线解决与结果、阶段级起承转合/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新讨论' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).endsWith('/api/v1/books/book-ui-1/messages')
         || (init as RequestInit | undefined)?.method !== 'POST') return false;
       const payload = JSON.parse(String((init as RequestInit).body)) as { content: string };
-      return payload.content.startsWith('讨论 剧情总纲升级：');
+      return payload.content.startsWith('讨论阶段剧情 【阶段剧情抽卡资料包】');
     })).toBe(true));
   });
 
@@ -1044,7 +1132,7 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
     expect(screen.queryByText('守城与预见')).not.toBeInTheDocument();
 
@@ -1061,11 +1149,11 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '规划' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
-    fireEvent.click(await screen.findByRole('button', { name: '作者编辑' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑内容' }));
     fireEvent.change(screen.getByRole('textbox', { name: '世界观' }), { target: { value: '钟声只展示与守城有关的未来碎片' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存候选' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存待确认版本' }));
 
     await waitFor(() => {
       const request = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith('/artifacts/story-1/versions') && (init as RequestInit | undefined)?.method === 'POST');
@@ -1090,7 +1178,8 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
     expect(screen.getByRole('heading', { name: '第1章 · 雾城初响' })).toBeInTheDocument();
@@ -1133,8 +1222,10 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
-    expect(await screen.findByRole('textbox', { name: '正文编辑器' })).toHaveValue('待撤下的作者正文');
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
+    const manuscriptEditor = await screen.findByRole('textbox', { name: '正文编辑器' });
+    await waitFor(() => expect(manuscriptEditor).toHaveValue('待撤下的作者正文'));
 
     fireEvent.click(screen.getByRole('button', { name: '删除正文' }));
     expect(screen.getByRole('alertdialog', { name: '确认删除当前正文' })).toBeInTheDocument();
@@ -1226,7 +1317,8 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('heading', { name: '从第1章开始导入' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /第1章/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
@@ -1236,7 +1328,7 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '识别章节并预览' }));
     expect(await screen.findByDisplayValue('第一章 归来')).toBeInTheDocument();
     expect(screen.getByDisplayValue('第二章 旧信')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('checkbox', { name: /我已核对章节拆分/u }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已检查章节拆分/u }));
     fireEvent.click(screen.getByRole('button', { name: '确认导入 2 章' }));
 
     expect(await screen.findByText('正文已保存，正在逐章整理')).toBeInTheDocument();
@@ -1272,7 +1364,8 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('button', { name: /第1章/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
 
@@ -1296,7 +1389,8 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '正文' }));
+    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
+    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
 
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
@@ -1325,7 +1419,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '版权与研究' }));
     expect(await screen.findByRole('heading', { name: '版权与研究' })).toBeInTheDocument();
-    expect(screen.getByText(/隔离原文不进入主笔上下文/)).toBeInTheDocument();
+    expect(screen.getByText(/受版权保护的原文不会直接交给主笔仿写/)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('隔离原文正文不得显示');
   });
 
@@ -1347,11 +1441,11 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '任务' }));
-    expect(await screen.findByText('重大正史事实')).toBeInTheDocument();
-    expect(screen.getByText(/绑定正史 3/)).toBeInTheDocument();
+    expect(await screen.findByText('重要正式事实')).toBeInTheDocument();
+    expect(screen.getByText(/对应正式内容版本 3/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('查看范围与影响'));
     expect(screen.getByText('可能影响')).toBeInTheDocument();
-    expect(screen.getByText('是否阻止定稿结算')).toBeInTheDocument();
+    expect(screen.getByText('是否影响定稿')).toBeInTheDocument();
     expect(screen.queryByText(/blocksSettlement|relationKey/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '明确接受' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>

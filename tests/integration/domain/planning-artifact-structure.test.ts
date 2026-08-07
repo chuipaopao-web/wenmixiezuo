@@ -25,6 +25,19 @@ function stageMasterPayload(): Record<string, unknown> {
         stageNumber: 1,
         title: '夺回身份',
         chapterRange: { start: 1, end: 50 },
+        plotPatterns: {
+          primary: { name: '打脸反转', reason: '通过可核验战绩夺回署名，不依赖围观者降智' },
+          supporting: [{ name: '创业求生', reason: '把独立战队经营作为持续代价线' }]
+        },
+        dramaticQuestion: '夏炎能否在不接受控制性合同的前提下夺回身份并让队伍活下来？',
+        stageGoal: '夺回参赛身份并建立可持续的独立战队。',
+        startState: '夏炎失业、署名被夺，只能匿名参赛。',
+        conflictDesign: {
+          surface: '平台封锁参赛资格与收益入口。',
+          underlying: '个人证明与共同责任冲突。',
+          stakes: '署名、收入与队伍生存。',
+          failureCost: '失去最后一次公开证明原创的机会。'
+        },
         mainline: {
           encounter: '夏炎被夺走署名后进入历史游戏世界，发现冠军结算会影响现实。',
           resolution: '夏炎以公开战绩、队友证词和规则漏洞逐步建立原创证据链。',
@@ -36,6 +49,9 @@ function stageMasterPayload(): Record<string, unknown> {
           turn: '首个冠军奖励在现实兑现，同时暴露数据所有权陷阱。',
           conclusion: '夏炎拒绝控制性合同，带队独立。'
         },
+        completionCriteria: ['夏炎夺回参赛身份', '独立战队具备下一阶段生存条件'],
+        hardConstraints: ['反转必须由已铺设证据完成'],
+        creativeFreedom: ['比赛过程和队员间的具体摩擦可自由设计'],
         stageSummary: '夏炎从孤立求生者变成拥有队伍和证据的独立选手。',
         pendingThreads: ['历史入口由谁控制', '原队友是否公开作证'],
         followUpDirection: '追查平台如何利用历史入口垄断赛事。'
@@ -338,6 +354,9 @@ describe('structured rolling chapter plans', () => {
     expect(master?.outlineSchema).toBe('stage_master_v2');
     expect(master?.majorStages[0]?.chapterRange).toEqual({ start: 1, end: 50 });
     expect(master?.majorStages[0]?.mainline.result).toContain('参赛身份');
+    expect(master?.majorStages[0]?.plotPatterns?.primary?.name).toBe('打脸反转');
+    expect(master?.majorStages[0]?.dramaticQuestion).toContain('夺回身份');
+    expect(master?.majorStages[0]?.completionCriteria).toContain('夏炎夺回参赛身份');
     expect(master?.coreConflict).toContain('规则解释权');
     expect(JSON.stringify(master)).not.toContain('volumeNumber');
   });

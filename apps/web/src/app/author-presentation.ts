@@ -7,17 +7,17 @@ const TECHNICAL_FIELDS = new Set([
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
-  title: '标题', answer: '结论', keyPoints: '关键依据', alternatives: '可选方向', risks: '风险与未知',
-  questions: '需要确认', nextStep: '下一步', details: '补充依据', content: '内容', summary: '摘要',
+  title: '标题', answer: '结论', keyPoints: '为什么这样安排', alternatives: '还可以这样写', risks: '要留意',
+  questions: '想请你定一下', nextStep: '接下来', details: '展开说说', content: '内容', summary: '摘要',
   goal: '目标', objective: '目标', beats: '剧情节点', hook: '章末钩子', status: '状态', track: '轨迹',
-  chapterNumber: '章节', chapter_number: '章节', canonRevision: '正史修订', canon_revision: '正史修订',
-  projectionType: '图谱类型', projection_type: '图谱类型', section: '区域', data: '内容', source: '来源',
+  chapterNumber: '章节', chapter_number: '章节', canonRevision: '正式内容版本', canon_revision: '正式内容版本',
+  projectionType: '资料类型', projection_type: '资料类型', section: '区域', data: '内容', source: '来源',
   canonical_name: '名称', canonicalName: '名称', entity_type: '类型', entityType: '类型', aliases: '别名',
   relation_key: '关系', relationKey: '关系', value: '事实', evidence: '依据', grade: '证据等级',
   namespace: '标签类别', name: '名称', description: '说明', diagnosis: '待补信息', severity: '重要程度',
   intentional_unknown: '刻意留白', narrative_goal: '叙事目标', from_name: '起点', toValue: '终点或数值',
   tradeoff: '代价', fields: '内容', quality: '分析结果', manuscript: '正文分析',
-  genre: '题材', sourceStatus: '来源状态', source_status: '来源状态', candidates: '候选', premise: '核心前提',
+  genre: '题材', sourceStatus: '内容来源', source_status: '内容来源', candidates: '待确认内容', premise: '核心前提',
   audience: '目标读者', tone: '整体表达', constraints: '必须遵守', confirmedRecommendation: '确认方案',
   positioning: '作品定位', worldView: '世界观', worldRules: '世界规则', powerSystem: '力量体系',
   resourceSystem: '资源体系', equipmentTiers: '装备等级', economicRules: '经济规则', attributeFields: '属性字段',
@@ -30,11 +30,11 @@ const FIELD_LABELS: Record<string, string> = {
   turn: '转', conclusion: '合', stageSummary: '阶段总结', pendingThreads: '待回收信息与伏笔',
   followUpDirection: '后续方向',
   turningPoints: '关键转折', payoff: '阶段兑现', climax: '阶段高潮',
-  volumeNumber: '历史卷号', arcs: '故事弧', endingState: '阶段结束状态', created_source: '记录来源',
-  assignment_count: '使用次数', candidate_status: '确认状态', claim_text: '候选判断',
-  sources: '资料来源', structureCards: '结构参考卡', cleanroomPackages: '隔离资料包', checks: '版权检查',
+  volumeNumber: '历史卷号', arcs: '故事弧', endingState: '阶段结束状态', created_source: '内容来源',
+  assignment_count: '使用次数', candidate_status: '是否已确认', claim_text: '待确认判断',
+  sources: '资料来源', structureCards: '写法参考', cleanroomPackages: '仅供核对的资料', checks: '是否可以安全使用',
   recentChecks: '最近检查', count: '数量', scope: '涉及范围', impact: '可能影响',
-  estimatedCashCny: '预计现金费用', blocksSettlement: '是否阻止定稿结算',
+  estimatedCashCny: '预计现金费用', blocksSettlement: '是否影响定稿',
   chapterTitle: '章节标题', emotionalArc: '情绪变化', planningBasis: '规划依据',
   subplots: '支线安排', endingExcerpt: '章末内容', hookStrength: '钩子强度',
   scores: '体验评分', emotionalFulfillment: '情绪兑现', overallExperience: '整体体验',
@@ -45,7 +45,7 @@ const FIELD_LABELS: Record<string, string> = {
 const ENUM_LABELS: Record<string, string> = {
   planned: '规划', actual: '实际', emotion: '情绪', mainline: '主线', subplot: '支线', hook: '钩子与伏笔',
   information_gap: '信息差', not_extracted: '暂无可展示内容', chapter_outline: '章纲', active: '有效',
-  archived: '已归档', proposed: '待确认', confirmed: '已确认', candidate: '候选', derived: '分析结果',
+  archived: '已归档', proposed: '待确认', confirmed: '已确认', candidate: '待确认', derived: '系统整理',
   provided: '作者提供', manual: '人工记录', explicit: '明确确认', inferred: '根据资料推断', unspecified: '尚未说明',
   selected_manuscript: '正式正文', owner_reference: '作者资料', conflict: '信息存在冲突',
   dynamic: '按本书动态整理', common: '通用内容', extension: '题材扩展', formula: '计算规则',
@@ -59,6 +59,65 @@ const ENUM_LABELS: Record<string, string> = {
 export interface AuthorReplyProjection {
   visibleContent: string;
   fullContent: string;
+}
+
+const AUTHOR_FACING_PHRASES: ReadonlyArray<readonly [string, string]> = [
+  ['小文秘书已核对进度', '小文秘书已看过当前进度'],
+  ['策划理念', '核心看点'],
+  ['游戏世界接入方式', '怎样进入游戏世界'],
+  ['可持续且可审计', '能长期运行、也能查清过程'],
+  ['救援已经从危机事件转化为有边界的长期支持。', '救援结束后，王怡继续帮助夏炎，但不会替她做决定。'],
+  ['两人先说清赔偿边界，再建立可撤回的记录制度。', '两人先说清赔偿到什么程度；记录可以撤销，再慢慢建立信任。'],
+  ['王怡要保留自己的边界', '王怡仍然自己做决定'],
+  ['王怡仍保留自己的边界', '王怡仍然自己做决定'],
+  ['夏炎需要一套可撤回的记录制度', '夏炎需要确认记录可以撤销'],
+  ['明确的赔偿边界', '说清赔偿到什么程度'],
+  ['赔偿边界', '赔偿到什么程度'],
+  ['帮助的边界', '能帮到什么程度'],
+  ['保留自己的边界', '仍然自己做决定'],
+  ['可撤回的行动记录', '可以撤销的行动记录'],
+  ['可撤回的记录制度', '记录可以撤销'],
+  ['可撤回的记录', '可以撤销的记录'],
+  ['分立账户', '各自的钱分开管理'],
+  ['关系边界', '相处分寸'],
+  ['情感边界', '相处分寸'],
+  ['人格边界', '不能越过的人格底线'],
+  ['伦理边界', '不能越过的伦理底线'],
+  ['能力边界', '能力限制'],
+  ['表达边界', '不能出现的内容'],
+  ['规则边界', '规则适用范围'],
+  ['交通边界', '交通能到哪里'],
+  ['自然边界', '自然环境限制'],
+  ['功能边界', '人物作用'],
+  ['工作边界', '负责什么'],
+  ['知情边界', '知道哪些事'],
+  ['硬边界', '不能改变的要求'],
+  ['正史修订', '正式内容版本'],
+  ['活动正史', '当前正式内容'],
+  ['前文正史', '已经确认的前文'],
+  ['进入正史', '成为正式内容'],
+  ['写入正史', '保存为正式内容'],
+  ['正史', '正式内容'],
+  ['候选方案', '待确认方案'],
+  ['候选内容', '待确认内容'],
+  ['候选', '待确认'],
+  ['分析投影', '分析结果'],
+  ['派生投影', '整理结果'],
+  ['投影', '分析结果'],
+  ['硬约束', '不能改变的要求'],
+  ['软约束', '参考要求'],
+  ['约束', '要求'],
+  ['可核验', '能核对'],
+  ['可审计', '能查清'],
+  ['记录制度', '记录办法'],
+  ['边界', '范围']
+];
+
+/** 只转换作者界面上的副本；调用方不得把返回值写回规划、正文或资料。 */
+export function toAuthorFacingText(value: string): string {
+  let result = value;
+  for (const [source, replacement] of AUTHOR_FACING_PHRASES) result = result.replaceAll(source, replacement);
+  return result;
 }
 
 export function collectSettingTemplateHints(artifacts: Record<string, unknown>[]): string[] {
@@ -98,8 +157,9 @@ export function toAuthorDisplayValue(value: unknown, depth = 0): unknown {
   if (parsed !== value) return toAuthorDisplayValue(parsed, depth + 1);
   if (typeof value === 'string') {
     const readable = stripTrailingMachineProtocol(value);
-    if (readable !== value) return readable;
+    if (readable !== value) return toAuthorFacingText(readable);
     if (looksLikeMachinePayload(value)) return '这项内容的格式异常，内部原件已保留，但不会在作者界面直接展示。';
+    return toAuthorFacingText(value);
   }
   if (Array.isArray(value)) return value.slice(0, 100).map((item) => toAuthorDisplayValue(item, depth + 1));
   if (!isRecord(value)) return value;
@@ -157,7 +217,7 @@ export function authorFormatScalar(value: unknown): string {
   const known = ENUM_LABELS[text];
   if (known !== undefined) return known;
   if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/u.test(text)) return '待整理资料';
-  return text;
+  return toAuthorFacingText(text);
 }
 
 export function authorRelationshipLabel(value: unknown): string {
@@ -256,7 +316,7 @@ export function structuredReplyFromMixedText(raw: string): AuthorReplyProjection
 
 function renderReply(fields: Record<string, unknown>, details: boolean): string {
   const sections = [String(fields.answer).trim()];
-  appendList(sections, '关键依据', fields.keyPoints, 3);
+  appendList(sections, '为什么这样安排', fields.keyPoints, 3);
   if (Array.isArray(fields.alternatives)) {
     const alternatives = fields.alternatives.slice(0, 8).flatMap((item) => {
       if (!isRecord(item)) return [];
@@ -264,17 +324,17 @@ function renderReply(fields: Record<string, unknown>, details: boolean): string 
       const content = nonEmptyString(item.content);
       if (title === null || content === null) return [];
       const tradeoff = nonEmptyString(item.tradeoff);
-      return [`- ${title}：${content}${tradeoff === null ? '' : `；代价：${tradeoff}`}`];
+      return [`- ${title}：${content}${tradeoff === null ? '' : `；但要接受：${tradeoff}`}`];
     });
-    if (alternatives.length > 0) sections.push(`可选方向：\n${alternatives.join('\n')}`);
+    if (alternatives.length > 0) sections.push(`还可以这样写：\n${alternatives.join('\n')}`);
   }
-  appendList(sections, '风险与未知', fields.risks, 8);
-  appendList(sections, '需要确认', fields.questions, 3);
+  appendList(sections, '要留意', fields.risks, 8);
+  appendList(sections, '想请你定一下', fields.questions, 3);
   const nextStep = nonEmptyString(fields.nextStep);
-  if (nextStep !== null) sections.push(`下一步：${nextStep}`);
+  if (nextStep !== null) sections.push(`接下来：${nextStep}`);
   const detail = nonEmptyString(fields.details);
-  if (details && detail !== null) sections.push(`补充依据：\n${detail}`);
-  return sections.join('\n\n');
+  if (details && detail !== null) sections.push(`展开说说：\n${detail}`);
+  return toAuthorFacingText(sections.join('\n\n'));
 }
 
 function appendList(sections: string[], title: string, value: unknown, limit: number): void {

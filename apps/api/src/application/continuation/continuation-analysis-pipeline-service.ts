@@ -154,7 +154,7 @@ export class ContinuationAnalysisPipelineService {
       const analyses = this.repository.chapterAnalyses(scope, brief.importId)
         .filter((analysis) => analysis.status === 'ready');
       const baseline = buildBaseline(analyses, chapters);
-      this.projectReverseChapterOutlines(scope, brief.importId, analyses, chapters);
+      this.projectReadyReverseChapterOutlines(scope, brief.importId);
       this.repository.markBaselineReady(
         scope,
         brief.importId,
@@ -170,6 +170,22 @@ export class ContinuationAnalysisPipelineService {
       try { tasks.fail(scope, taskId, workerId, 'CONTINUATION_ANALYSIS_FAILED', leaseFence); } catch { /* preserve root cause */ }
       throw error;
     }
+  }
+
+  /**
+   * Backfills author-visible reverse chapter outlines from an already-ready
+   * continuation analysis. This deliberately performs no model call, so old
+   * imports created before the projection existed can be repaired safely.
+   */
+  public projectReadyReverseChapterOutlines(scope: BookScope, importId: string): number {
+    assertBookScope(scope);
+    const chapters = this.repository.chapters(scope, importId)
+      .filter((chapter) => chapter.included === 1 && chapter.status === 'imported')
+      .sort((left, right) => left.ordinal - right.ordinal);
+    const analyses = this.repository.chapterAnalyses(scope, importId)
+      .filter((analysis) => analysis.status === 'ready');
+    this.projectReverseChapterOutlines(scope, importId, analyses, chapters);
+    return analyses.length;
   }
 
   /**

@@ -7,7 +7,8 @@ import {
   collectSettingTemplateHints,
   projectionForAuthor,
   structuredReplyFromMixedText,
-  toAuthorDisplayValue
+  toAuthorDisplayValue,
+  toAuthorFacingText
 } from '../../apps/web/src/app/author-presentation';
 
 describe('作者展示层', () => {
@@ -63,6 +64,14 @@ describe('作者展示层', () => {
     expect(authorFormatScalar('severe_pain_with_mobility_loss')).toBe('剧烈疼痛并伴有活动受限');
   });
 
+  it('只在作者展示副本中把抽象说法改成具体的人和事', () => {
+    const source = '救援已经从危机事件转化为有边界的长期支持。王怡仍保留自己的边界。';
+    expect(toAuthorFacingText(source)).toBe('救援结束后，王怡继续帮助夏炎，但不会替她做决定。王怡仍然自己做决定。');
+    expect(source).toContain('边界');
+    expect(toAuthorFacingText('两人先说清赔偿边界，再建立可撤回的记录制度。'))
+      .toBe('两人先说清赔偿到什么程度；记录可以撤销，再慢慢建立信任。');
+  });
+
   it('移除剧情总纲和卷纲的内部落库合同', () => {
     expect(toAuthorDisplayValue('这是给作者看的剧情总纲结论。\n剧情总纲落库 {"premise":"内部结构"}'))
       .toBe('这是给作者看的剧情总纲结论。');
@@ -104,8 +113,26 @@ describe('作者展示层', () => {
     const result = structuredReplyFromMixedText(`【婉儿】原始意见\n${contract}\n规划落库 {"chapters":[1,2,3]}`);
 
     expect(result?.visibleContent).toContain('第一阶段先解决灰塔迁移');
+    expect(result?.visibleContent).toContain('为什么这样安排：');
+    expect(result?.visibleContent).toContain('要留意：');
+    expect(result?.visibleContent).toContain('接下来：');
+    expect(result?.visibleContent).not.toMatch(/关键依据|风险与未知|下一步：/u);
     expect(result?.visibleContent).not.toContain('规划落库');
     expect(result?.visibleContent).not.toContain('rules');
-    expect(result?.fullContent).toContain('证据来自现有正史');
+    expect(result?.fullContent).toContain('证据来自现有正式内容');
+  });
+
+  it('AI成员回复也使用作者能直接看懂的说法', () => {
+    const contract = JSON.stringify({
+      version: 1, format: 'json_object', fields: {
+        answer: '王怡要保留自己的边界，夏炎需要一套可撤回的记录制度。',
+        keyPoints: [], alternatives: [], risks: [], questions: [], nextStep: '两人先把赔偿边界说清楚。'
+      }
+    });
+    const result = structuredReplyFromMixedText(contract);
+    expect(result?.visibleContent).toContain('王怡仍然自己做决定');
+    expect(result?.visibleContent).toContain('记录可以撤销');
+    expect(result?.visibleContent).toContain('赔偿到什么程度');
+    expect(result?.visibleContent).not.toContain('边界');
   });
 });

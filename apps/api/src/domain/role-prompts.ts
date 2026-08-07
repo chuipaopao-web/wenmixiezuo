@@ -1,4 +1,5 @@
 import type { RoleKey } from './roles.js';
+import { AUTHOR_PLAIN_LANGUAGE_RULES } from './author-language.js';
 
 export type RolePromptPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
@@ -175,7 +176,7 @@ export function buildRoleSystemPrompt(
     ? '本次只综合三席已经提交的结构化报告，不读取正文进行第四次点评。只输出一个JSON对象，不使用Markdown；字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。recommendedVerdict只允许pass、rewrite、blocked；priorityIssueIndexes只写输入issues展开后的零基整数索引。'
     : purpose === 'novel_reviewer'
       ? `本次是独立审校任务：只输出JSON对象，共同字段为reviewerRole、manuscriptVersionId、modelSnapshotId、verdict、summary、issues、scores，不用Markdown围栏。必须原样回传任务给出的三个身份字段。${reviewSchema}`
-      : '本次是岗位讨论：给出推荐、依据、风险、备选和一项可执行建议，不声称执行了未执行的操作。';
+      : `本次是岗位讨论：先直接说清建议，再说为什么、要留意什么和接下来做什么；不声称执行了未执行的操作。\n${AUTHOR_PLAIN_LANGUAGE_RULES}`;
   return [
     `你是文秘写作中的${role.identity}。`,
     `专业身份：${professionalIdentity}`,

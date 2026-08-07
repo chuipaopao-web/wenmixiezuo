@@ -25,7 +25,7 @@ export class LocalAssistantService {
       const semantic = intent === 'plot_discussion' && candidate.confidence >= 0.58 && margin >= 0.015
         ? { routeClass: 'plot_discussion', riskLevel: 'medium', confidenceBand: 'medium',
           selectedAction: 'start_editor_hosted_dual_screenwriter_session', selectedRoles: ['chief_editor', 'lead_screenwriter', 'second_screenwriter'],
-          excludedActions: ['local_assistant_story_conclusion', 'doubao_plot_seat'], receiptText: '本地语义候选识别为剧情讨论；已保留原话并交给主编与双编剧。' } satisfies RoutingDecision
+          excludedActions: ['local_assistant_story_conclusion', 'doubao_plot_seat'], receiptText: '收到，我已经把你的原话交给貂蝉和两位编剧，她们会直接讨论这段剧情。' } satisfies RoutingDecision
         : deterministic;
       return this.persist(scope, input, semantic, [{ type: 'local_semantic_candidate', modelSnapshotId: candidate.modelSnapshotId,
         task: candidate.task, confidence: candidate.confidence, values: candidate.values, sourceTextHash: candidate.sourceTextHash }]);
@@ -51,7 +51,7 @@ function decide(text: string): RoutingDecision {
       selectedAction: 'preserve_continuation_handoff_packet',
       selectedRoles: ['chief_editor', 'lead_screenwriter', 'second_screenwriter'],
       excludedActions: ['automatic_writing', 'automatic_canon_promotion'],
-      receiptText: '已有正文和反向章纲已交给主编与两名编剧。她们会先整理设定候选，不会直接开写或自动改动正史。'
+      receiptText: '已有正文已经交给貂蝉和两位编剧。她们会先看清前面写了什么、还有哪些设定没说清，不会马上续写。'
     };
   }
   if (/^(?:讨论设定\s+)?【(?:设定专项讨论资料包|设定大纲成组讨论资料包|剧情总纲专项讨论资料包)】/u.test(text)) {
@@ -62,7 +62,7 @@ function decide(text: string): RoutingDecision {
       selectedAction: 'preserve_structured_workflow_packet',
       selectedRoles: ['chief_editor'],
       excludedActions: ['named_member_inference_from_evidence', 'automatic_canon_promotion'],
-      receiptText: '收到，我会按资料包指定的流程交给主编，不会把证据中的成员姓名误当成点名。'
+      receiptText: '收到，我已经把你的要求和本书现有内容交给貂蝉，她会直接回复你。'
     };
   }
   if (requestsProtectedOperation(text)) return { routeClass: 'protected_operation', riskLevel: 'irreversible', confidenceBand: 'high',
