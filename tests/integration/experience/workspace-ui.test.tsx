@@ -122,47 +122,6 @@ afterEach(() => {
 });
 
 describe('完整创作工作台', () => {
-  it('新书等待主编主动开场时显示真实任务状态而不是普通空白提示', async () => {
-    const onboardingWorkspace: WorkspaceData = {
-      ...workspace,
-      messageCount: 0,
-      creativeSession: null,
-      tasks: [{
-        taskId: 'task-onboarding-1',
-        taskType: 'conversation_reply',
-        status: 'working',
-        currentPhase: 'reply',
-        pauseRequested: false,
-        cancelRequested: false,
-        attemptCount: 1,
-        assignedAgentId: 'agent-1',
-        chapterId: null,
-        brief: { proactiveOnboarding: true, openingBlueprintId: 'blueprint-1' },
-        checkpoint: {}
-      }]
-    };
-    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', onboardingWorkspace, [])));
-
-    render(<App />);
-
-    expect(await screen.findByText('貂蝉正在接待')).toBeInTheDocument();
-    expect(screen.getByText('小文秘书已核对进度：当前先完善“策划理念”，不会提前进入剧情规划。')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '继续完善“策划理念”' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '从故事想法开始聊' })).not.toBeInTheDocument();
-  });
-
-  it('讨论任务尚未完成时显示真实进度并说明结果会自动出现', async () => {
-    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', workspace, [])));
-
-    render(<App />);
-
-    const progressTitle = await screen.findByText('主编与编剧正在讨论');
-    const progress = progressTitle.closest('[role="status"]');
-    expect(progress).toBeInstanceOf(HTMLElement);
-    if (!(progress instanceof HTMLElement)) throw new Error('讨论进度没有可访问状态容器');
-    expect(within(progress).getByText(/完成后会自动显示在这里/u)).toBeInTheDocument();
-  });
-
   it('服务未启动时显示中文恢复提示，不暴露Failed to fetch', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
@@ -171,7 +130,7 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
   });
 
-  it('根入口先显示书架，打开书后才显示书内功能，返回书架不发送任务控制请求', async () => {
+  it('根入口先显示书架，打开书后只显示书籍左栏和统一创作台，返回书架不发送任务控制请求', async () => {
     window.history.replaceState(null, '', '/');
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
@@ -182,24 +141,23 @@ describe('完整创作工作台', () => {
     expect(shelf.closest('.bookshelf-home')?.querySelector('.bookshelf-scroll-region')).not.toBeNull();
     expect(screen.getByRole('button', { name: '打开《雾钟档案》' })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '首页功能' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '任务' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '创作功能' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/books/book-ui-1/workspace'))).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: '打开《雾钟档案》' }));
-    expect(await screen.findByRole('navigation', { name: '创作功能' })).toBeInTheDocument();
-    expect(await screen.findByText('貂蝉正在接待')).toBeInTheDocument();
-    expect(screen.getByText('小文秘书已核对进度：当前先完善“策划理念”，不会提前进入剧情规划。')).toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith('/books/book-ui-1/conversation-entry') && init?.method === 'POST'
-    )).toBe(true);
+    expect(await screen.findByRole('complementary', { name: '书籍' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '创作台内容' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/books/book-ui-1/conversation-entry'))).toBe(false);
     expect(new URL(window.location.href).searchParams.get('book')).toBe('book-ui-1');
+
     fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
     expect(await screen.findByRole('heading', { name: '我的作品' })).toBeInTheDocument();
     expect(new URL(window.location.href).searchParams.get('book')).toBeNull();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
-
   it('空书架只显示一个创建新书入口', async () => {
     window.history.replaceState(null, '', '/');
     const baseRouter = createFetchRouter();
@@ -254,40 +212,39 @@ describe('完整创作工作台', () => {
     expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
   });
 
-  it('显示内容优先三栏、仅十一名女性创作成员、原型头像与真实状态并通过自动无障碍检查', async () => {
+  it('显示内容优先三栏、左栏只切换书籍、创作功能全部集中在创作台并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
     expect((await screen.findAllByText('雾钟档案')).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('complementary', { name: '书籍与功能' })).toBeInTheDocument();
+    const bookRail = screen.getByRole('complementary', { name: '书籍' });
     expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
     expect(await screen.findByText('11 名成员')).toBeInTheDocument();
     expect(screen.queryByText('小文秘书（本地秘书）')).not.toBeInTheDocument();
     expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
-    expect(screen.getByText('后台工作中')).toBeInTheDocument();
-    expect(screen.getByText('在线·排队中')).toBeInTheDocument();
-    expect(screen.getAllByText('在线·空闲')).toHaveLength(4);
-    expect(screen.getAllByText('在线·待命')).toHaveLength(5);
     expect(screen.getByText('弄玉（版权）')).toBeInTheDocument();
-    expect(screen.queryByText('按需专家 4')).not.toBeInTheDocument();
-    expect(screen.queryByText('设定与连续性统筹')).not.toBeInTheDocument();
-    expect(screen.queryByText('local-deterministic/wenmi-fixture-v1')).not.toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(11);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
     expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
 
-    const bookRail = screen.getByRole('complementary', { name: '书籍与功能' });
-    const workspaceNavigation = within(bookRail).getByRole('navigation', { name: '创作功能' });
-    for (const name of ['返回书架', '对话', '创作台', '图谱', '资料库', '版权与研究', '取名']) {
-      expect(within(workspaceNavigation).getByRole('button', { name })).toBeInTheDocument();
+    expect(within(bookRail).getByRole('button', { name: '返回书架' })).toBeInTheDocument();
+    expect(within(bookRail).getByRole('button', { name: '新建书籍' })).toBeInTheDocument();
+    expect(within(bookRail).getByRole('navigation', { name: '选择书籍' })).toBeInTheDocument();
+    expect(within(bookRail).queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
+    expect(within(bookRail).queryByRole('button', { name: '图谱' })).not.toBeInTheDocument();
+    expect(within(bookRail).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
+
+    const creationNavigation = screen.getByRole('navigation', { name: '创作台内容' });
+    for (const name of ['本书资料', '设定大纲', '当前卷', '事件设计', '章纲', '正文', '图谱', '资料库', '取名']) {
+      expect(within(creationNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
-    expect(within(workspaceNavigation).queryByRole('button', { name: '正文' })).not.toBeInTheDocument();
-    expect(within(workspaceNavigation).queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
+    expect(within(creationNavigation).queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
+    expect(within(creationNavigation).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
-    expect(screen.queryByText('卷章目录')).not.toBeInTheDocument();
     expect(document.querySelector('.workspace-tabs')).toBeNull();
+
     const bookSummary = document.querySelector('.topbar-book-summary') as HTMLElement;
     expect(bookSummary).toBeInTheDocument();
     expect(within(bookSummary).getByText('雾钟档案')).toBeInTheDocument();
@@ -295,15 +252,10 @@ describe('完整创作工作台', () => {
     expect(within(bookSummary).getByText('1 卷')).toBeInTheDocument();
     expect(within(bookSummary).getByText('1 章')).toBeInTheDocument();
     expect(within(bookSummary).getByText('正式内容版本 3')).toBeInTheDocument();
-    expect(document.querySelector('.topbar-center')).toBeNull();
-    expect(document.querySelector('.workspace-book-summary')).toBeNull();
-    expect(screen.queryByText('规划成果')).not.toBeInTheDocument();
-    expect(screen.queryByText('知识与正史')).not.toBeInTheDocument();
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
   });
-
   it('团队页展示公开岗位配置并保存书籍级补充提示词', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
@@ -340,34 +292,15 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/html\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/#root\s*\{[^}]*height:\s*100dvh[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/su);
-    expect(css).toMatch(/\.conversation-stream\s*\{[^}]*grid-row:\s*2[^}]*overflow:\s*auto/su);
-    expect(css).toMatch(/\.composer-wrap\s*\{[^}]*grid-row:\s*3/su);
+    expect(css).toMatch(/\.creation-desk-body\s*\{[^}]*overflow:\s*auto/su);
+    expect(css).not.toMatch(/\.conversation-stream|\.composer-wrap|\.chat-workspace/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.manuscript-view\s*\{[^}]*padding:\s*0\s+clamp\(10px,\s*1\.4vw,\s*22px\)/su);
     expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
   });
 
-  it('在聊天顶部显示持续剧情会话、候选方向和自然操作', async () => {
-    const fetchMock = vi.fn(createFetchRouter());
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
-
-    const strip = await screen.findByRole('region', { name: '当前剧情会话' });
-    expect(within(strip).getByText('待锁定方向')).toBeInTheDocument();
-    expect(within(strip).getByText('比较张三潜入天安城的两条剧情方向')).toBeInTheDocument();
-    expect(within(strip).getByText('商队伪装线')).toBeInTheDocument();
-    expect(within(strip).getByText('守将邀约线')).toBeInTheDocument();
-    fireEvent.click(within(strip).getByRole('button', { name: '锁定方向' }));
-
-    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (!String(input).endsWith('/api/v1/books/book-ui-1/messages')
-        || (init as RequestInit | undefined)?.method !== 'POST') return false;
-      return JSON.parse(String((init as RequestInit).body)).content === '锁定当前方向';
-    })).toBe(true));
-  });
-
-  it('图谱、规划和版权页只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
+  it('图谱和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
     const baseRouter = createFetchRouter();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), 'http://localhost').pathname;
@@ -392,17 +325,13 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('平')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '创作台' }));
+    fireEvent.click(screen.getByRole('button', { name: '本书资料' }));
     expect(await screen.findByText('作品定位与全书框架')).toBeInTheDocument();
     expect(screen.queryByText('sourceStatus')).not.toBeInTheDocument();
     expect(screen.queryByText('explicit')).not.toBeInTheDocument();
     expect(screen.getAllByText('明确确认').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: '版权与研究' }));
-    expect(await screen.findByText('作者提供')).toBeInTheDocument();
-    expect(screen.getAllByText('待确认判断').length).toBeGreaterThan(0);
-    expect(screen.queryByText('source_status')).not.toBeInTheDocument();
-    expect(screen.queryByText('candidate_status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
   });
 
   it('把归档书移出主书架并放入可恢复的归档区', async () => {
@@ -775,8 +704,6 @@ describe('完整创作工作台', () => {
     const longText = '雾城的钟声穿过石墙。'.repeat(250);
     vi.stubGlobal('fetch', vi.fn(createFetchRouter(longText)));
     render(<App />);
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('region', { name: '正文章节列表' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
@@ -811,8 +738,6 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter('已经结算的正文', settledWithBlockedHistory)));
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     const chapterButton = await screen.findByRole('button', { name: /1\. 雾城初响/u });
     expect(chapterButton).toHaveTextContent('正式正文');
@@ -822,8 +747,6 @@ describe('完整创作工作台', () => {
   it('创作台直接显示五个创作层级且资料库使用结构化卡片而非原始JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
     for (const name of ['本书资料', '设定大纲', '当前卷', '章纲', '正文']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByText('先确认作品定位，再建立设定大纲；设定足够支撑当前阶段后，才进入剧情规划。')).not.toBeInTheDocument();
@@ -867,17 +790,9 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: '开始规划第一卷' })).toBeInTheDocument();
     expect(screen.queryByText('守城与预见')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '章纲' }));
-    expect(await screen.findByText('穷途末路的入口')).toBeInTheDocument();
-    expect(screen.getByText('本章功能')).toBeInTheDocument();
-    expect(screen.getByText('人物与当下状态')).toBeInTheDocument();
-    expect(screen.getByText('核心冲突')).toBeInTheDocument();
-    expect(screen.getByText('自由创作区')).toBeInTheDocument();
-    expect(screen.getByText('张三此时不知道伤害同步现实')).toBeInTheDocument();
-    expect(screen.queryByText(/outlineSchema|chapter_outline_v2|knowledgeBoundary|plotBeats/u)).not.toBeInTheDocument();
-    expect(screen.getByText('第一笔血汗钱')).toBeInTheDocument();
-    expect(screen.getByText('摔在同一个坑里')).toBeInTheDocument();
-    expect(screen.getByText('确认游戏收入真实到账')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '资料库' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '章纲' })).toHaveClass('active'));
+
+    expect(screen.queryByText(/outlineSchema|chapter_outline_v2|knowledgeBoundary|plotBeats/u)).not.toBeInTheDocument();    fireEvent.click(screen.getByRole('button', { name: '资料库' }));
     expect(await screen.findByRole('heading', { name: '资料库' })).toBeInTheDocument();
     const libraryTabs = screen.getByRole('navigation', { name: '资料分类' });
     const evidenceTab = within(libraryTabs).getByRole('button', { name: '内容来源' });
@@ -917,7 +832,7 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('雾城边防军出身')).toBeInTheDocument();
     expect(screen.getByText(/第 1 章 · A级证据 · 当前正式内容/u)).toBeInTheDocument();
     expect(document.querySelector('.library-workspace pre')).toBeNull();
-    fireEvent.click(within(bookRail).getByRole('button', { name: '图谱' }));
+    fireEvent.click(screen.getByRole('button', { name: '图谱' }));
     expect(await screen.findByRole('heading', { name: '剧情关系' })).toBeInTheDocument();
     for (const name of ['人物关系', '情绪', '钩子与伏笔', '信息差']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '主线' })).not.toBeInTheDocument();
@@ -945,8 +860,6 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '当前卷' }));
 
     expect(await screen.findByRole('heading', { name: '先确定这一卷要改变什么，再拆事件' })).toBeInTheDocument();
@@ -960,8 +873,6 @@ describe('完整创作工作台', () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
     fireEvent.click(await screen.findByRole('button', { name: '编辑内容' }));
     fireEvent.change(screen.getByRole('textbox', { name: '世界观' }), { target: { value: '钟声只展示与守城有关的未来碎片' } });
@@ -989,8 +900,6 @@ describe('完整创作工作台', () => {
     const fetchMock = vi.fn(createFetchRouter('旧稿正文', draftWorkspace));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
@@ -1033,8 +942,6 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     const manuscriptEditor = await screen.findByRole('textbox', { name: '正文编辑器' });
     await waitFor(() => expect(manuscriptEditor).toHaveValue('待撤下的作者正文'));
@@ -1128,8 +1035,6 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('heading', { name: '从第1章开始导入' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /第1章/ })).toBeInTheDocument();
@@ -1161,7 +1066,7 @@ describe('完整创作工作台', () => {
         && payload.content.includes('主编和两名编剧')
         && payload.content.includes('不要直接开写');
     })).toBe(true));
-    expect(await screen.findByLabelText('和创作团队说')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '设定大纲' })).toHaveClass('active'));
   });
 
   it('空正文页以第1章占位并可按章建立目录，不会创建整本输入框', async () => {
@@ -1175,8 +1080,6 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
     expect(await screen.findByRole('button', { name: /第1章/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
@@ -1200,8 +1103,6 @@ describe('完整创作工作台', () => {
     const fetchMock = vi.fn(createFetchRouter('', plannedWorkspace));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     fireEvent.click(await screen.findByRole('button', { name: '正文' }));
 
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
@@ -1226,15 +1127,13 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: 'AI点评' })).toBeEnabled();
   });
 
-  it('版权与研究入口只展示隔离后的真实摘要', async () => {
+  it('独立版权页已经移除，但创作台不再暴露受保护原文', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: '版权与研究' }));
-    expect(await screen.findByRole('heading', { name: '版权与研究' })).toBeInTheDocument();
-    expect(screen.getByText(/受版权保护的原文不会直接交给主笔仿写/)).toBeInTheDocument();
+    await screen.findByRole('heading', { name: '创作台' });
+    expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('隔离原文正文不得显示');
   });
-
   it('重大确认展示对象、正史版本、影响和明确决策按钮', async () => {
     window.history.replaceState(null, '', '/');
     const confirmationWorkspace = {
@@ -1264,128 +1163,6 @@ describe('完整创作工作台', () => {
       String(input).includes('/confirmations/confirmation-ui-1/accept') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
   });
 
-  it('长对话只挂载最近两百条消息并明确提示历史仍已保存', async () => {
-    const messages = Array.from({ length: 500 }, (_, index) => ({
-      message_id: `message-${index + 1}`,
-      sender_type: index % 2 === 0 ? 'boss' as const : 'agent' as const,
-      sender_agent_id: index % 2 === 0 ? null : 'agent-1',
-      role_key: index % 2 === 0 ? null : 'chief_editor',
-      model_provider: index % 2 === 0 ? null : 'local-deterministic',
-      model_id: index % 2 === 0 ? null : 'wenmi-fixture-v1',
-      message_type: 'text', content: `消息 ${index + 1}`, references_json: '{}',
-      created_at: '2026-07-16T12:00:00.000Z'
-    }));
-    vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: messages.length }, messages)));
-    render(<App />);
-
-    expect(await screen.findByText(/当前显示最近 200 条消息/)).toHaveTextContent('更早的 300 条仍保存在本地记录中');
-    expect(document.querySelectorAll('.message')).toHaveLength(200);
-    expect(screen.queryByText('消息 1')).not.toBeInTheDocument();
-    expect(screen.getByText('消息 500')).toBeInTheDocument();
-  });
-
-  it('聊天按成员左老板右显示，并可通过加号上传解析附件后发送引用', async () => {
-    const chatMessages = [{
-      message_id: 'boss-message', sender_type: 'boss' as const, sender_agent_id: null, role_key: null,
-      model_provider: null, model_id: null, message_type: 'text', content: '老板消息', references_json: '[]',
-      created_at: '2026-07-16T12:00:00.000Z'
-    }, {
-      message_id: 'agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
-      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'text', content: '主编回复', references_json: '[]',
-      created_at: '2026-07-16T12:01:00.000Z'
-    }, {
-      message_id: 'legacy-system-message', sender_type: 'system' as const, sender_agent_id: null, role_key: null,
-      model_provider: null, model_id: null, message_type: 'capability_notice', content: '消息已保存。当前使用确定性离线适配器，不会把开放式创作对话伪装成真实模型回复。你可以使用“写一章”等明确命令。', references_json: '[]',
-      created_at: '2026-07-16T12:02:00.000Z'
-    }, {
-      message_id: 'effective-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
-      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'conversation_reply', content: '精简结论：先核对双方实力。',
-      references_json: JSON.stringify([{ type: 'effective_output', version: 1, format: 'structured',
-        fullContent: '精简结论：先核对双方实力。\n\n完整依据：旧盟约仍然有效。', contentHash: 'a'.repeat(64) }]),
-      created_at: '2026-07-16T12:03:00.000Z'
-    }, {
-      message_id: 'invalid-effective-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
-      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'conversation_reply', content: '损坏引用安全降级。',
-      references_json: JSON.stringify([{ type: 'effective_output', version: 1,
-        fullContent: '这段损坏引用不得展示。', contentHash: 'invalid' }]),
-      created_at: '2026-07-16T12:04:00.000Z'
-    }, {
-      message_id: 'legacy-fallback-agent-message', sender_type: 'agent' as const, sender_agent_id: 'agent-1', role_key: 'chief_editor',
-      model_provider: 'local-deterministic', model_id: 'fixture', message_type: 'discussion_summary',
-      content: '主编汇总未能解析为结构化结论，请查看原始结果。',
-      references_json: JSON.stringify([{ type: 'effective_output', version: 1, format: 'fallback',
-        fullContent: `【婉儿】原始意见\n${JSON.stringify({ version: 1, format: 'json_object', fields: { answer: '先查清灰塔账簿，再决定是否迁移。', keyPoints: ['账簿有断页'], alternatives: [], risks: ['水源不足'], questions: [], nextStep: null, details: null } })}\n规划落库 {"chapters":[1,2,3]}`,
-        contentHash: 'b'.repeat(64) }]),
-      created_at: '2026-07-16T12:05:00.000Z'
-    }];
-    const fetchMock = vi.fn(createFetchRouter('正文内容', { ...workspace, messageCount: chatMessages.length }, chatMessages));
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
-
-    expect(await screen.findByText('老板消息')).toBeInTheDocument();
-    expect(document.querySelector('.message.boss')).toHaveClass('align-right');
-    expect(document.querySelector('.message.agent')).toHaveClass('align-left');
-    expect(screen.getByRole('img', { name: '老板头像' })).toBeInTheDocument();
-    expect(within(document.querySelector('.message.agent') as HTMLElement).getByRole('img', { name: /貂蝉（主编）头像/ })).toBeInTheDocument();
-    const legacyNotice = screen.getByText(/您的消息我已经收好/).closest('.message') as HTMLElement;
-    expect(within(legacyNotice).getByText('小文秘书')).toBeInTheDocument();
-    expect(within(legacyNotice).getByRole('img', { name: '小文秘书头像' })).toBeInTheDocument();
-    expect(within(legacyNotice).queryByText('系统')).not.toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: '系统头像' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/确定性离线适配器/)).not.toBeInTheDocument();
-    expect(screen.queryByText('聊天只按需带入最近上下文，不会自动写入正史。Ctrl + Enter 发送。')).not.toBeInTheDocument();
-    expect(screen.getByText('精简结论：先核对双方实力。')).toBeInTheDocument();
-    expect(screen.queryByText(/完整依据：旧盟约仍然有效/u)).not.toBeInTheDocument();
-    const expandReply = screen.getByRole('button', { name: '查看完整回复' });
-    expect(expandReply).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(expandReply);
-    expect(screen.getByText(/完整依据：旧盟约仍然有效/u)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '收起完整回复' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('损坏引用安全降级。')).toBeInTheDocument();
-    expect(screen.queryByText('这段损坏引用不得展示。')).not.toBeInTheDocument();
-    expect(screen.getByText(/先查清灰塔账簿/)).toBeInTheDocument();
-    expect(screen.queryByText(/主编汇总未能解析/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/规划落库/)).not.toBeInTheDocument();
-    expect(screen.queryByText('local-deterministic/fixture')).not.toBeInTheDocument();
-
-    const addButton = screen.getByRole('button', { name: '添加图片或文件' });
-    expect(addButton).toBeInTheDocument();
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = new File(['张三与天安城'], 'plot.txt', { type: 'text/plain' });
-    fireEvent.change(input, { target: { files: [file] } });
-    expect(await screen.findByText('已解析 7 字符')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('和创作团队说'), { target: { value: '讨论附件剧情' } });
-    fireEvent.click(screen.getByRole('button', { name: '发送' }));
-
-    await waitFor(() => expect(fetchMock.mock.calls.some(([inputUrl, init]) => {
-      if (!String(inputUrl).endsWith('/api/v1/books/book-ui-1/messages') || (init as RequestInit | undefined)?.method !== 'POST') return false;
-      const payload = JSON.parse(String((init as RequestInit).body)) as { content: string; attachmentIds: string[] };
-      return payload.content === '讨论附件剧情' && payload.attachmentIds[0] === 'attachment-ui-1';
-    })).toBe(true));
-  });
-
-  it('聊天输入框按 Enter 发送，Shift+Enter 与输入法选字不会误发送', async () => {
-    const fetchMock = vi.fn(createFetchRouter('正文内容', workspace, []));
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
-
-    const composer = await screen.findByLabelText('和创作团队说');
-    const sentMessages = () => fetchMock.mock.calls.filter(([input, init]) =>
-      String(input).endsWith('/api/v1/books/book-ui-1/messages')
-      && (init as RequestInit | undefined)?.method === 'POST');
-
-    fireEvent.change(composer, { target: { value: '讨论第一章开局' } });
-    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', shiftKey: true });
-    expect(sentMessages()).toHaveLength(0);
-
-    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', isComposing: true });
-    expect(sentMessages()).toHaveLength(0);
-
-    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
-    await waitFor(() => expect(sentMessages()).toHaveLength(1));
-    const payload = JSON.parse(String((sentMessages()[0]![1] as RequestInit).body)) as { content: string };
-    expect(payload.content).toBe('讨论第一章开局');
-  });
 });
 
 function createFetchRouter(chapterContent = '正文内容', workspaceData = workspace, messages: unknown[] = []) {

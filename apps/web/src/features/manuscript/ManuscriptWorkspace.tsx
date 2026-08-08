@@ -36,7 +36,7 @@ import {
 import { shortId } from '../../app/display-labels';
 import { StructuredContent, authorityLabel, isRecord } from '../shared/StructuredContent';
 
-export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenConversation }: {
+export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenPlanning }: {
   workspace: WorkspaceData | null;
   selectedChapterId: string | null;
   chapter: ChapterData | null;
@@ -44,7 +44,7 @@ export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, rea
   detail: Awaited<ReturnType<typeof fetchChapterDetail>> | null;
   onSelectChapter: (chapter: ChapterData) => void;
   onChanged: () => void;
-  onOpenConversation: () => void;
+  onOpenPlanning: () => void;
 }): React.JSX.Element {
   const [latestImport, setLatestImport] = useState<ContinuationImportData | null>(null);
   const [batchImportOpen, setBatchImportOpen] = useState(false);
@@ -110,7 +110,7 @@ export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, rea
         initialImport={latestImport}
         onImportChanged={setLatestImport}
         onImported={onChanged}
-        onOpenConversation={onOpenConversation}
+        onOpenPlanning={onOpenPlanning}
         onClose={() => setBatchImportOpen(false)}
       /> : chapter === null
         ? <div className="manuscript-chapter-empty"><BookOpenTextIcon /><h2>{workspace.chapters.length === 0 ? '从第1章开始导入' : '选择一章正文'}</h2><p>{workspace.chapters.length === 0 ? '点击左侧章节列表中的“第1章”，再在右侧粘贴作者原文或选择单章 TXT。每章独立保存和处理，不需要一次导入整本。' : '从左侧章节目录选中一章，即可阅读、修改、点评或生成待确认的优化稿。'}</p></div>
@@ -165,12 +165,12 @@ function continuationChapterOutlinesOf(analysis: ContinuationImportData['analysi
   }));
 }
 
-function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged, onImported, onOpenConversation, onClose }: {
+function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged, onImported, onOpenPlanning, onClose }: {
   bookId: string;
   initialImport: ContinuationImportData | null;
   onImportChanged: (value: ContinuationImportData) => void;
   onImported: () => void;
-  onOpenConversation: () => void;
+  onOpenPlanning: () => void;
   onClose: () => void;
 }): React.JSX.Element {
   const [sourceName, setSourceName] = useState('粘贴的已有正文.txt');
@@ -239,7 +239,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
         '三人先分别说清建议和理由，让作者可以直接选择；作者选择或组合后，主编整理成一份方案交作者确认。不要直接开写，也不要自动改动已经发生的正文。'
       ].join('\n'));
       setNotice('已有正文已保存，主编与两名编剧已收到设定整理任务。正在为你打开对话。');
-      onOpenConversation();
+      onOpenPlanning();
     } catch (reason) {
       setNotice(`已有正文已经安全保存；主编接待暂未启动：${reason instanceof Error ? reason.message : '请稍后重试'}`);
     } finally {
@@ -315,7 +315,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
           <span className="eyebrow">按需使用</span>
           <h2>导入已有正文继续写</h2>
           <p>这个入口只用于已有整本旧稿。系统先识别章节供你核对；日常导入请关闭本页，直接在左侧选择单章。</p>
-          <button className="text-button continuation-new-book-link" type="button" onClick={onOpenConversation}>不导入旧稿，回对话规划新书</button>
+          <button className="text-button continuation-new-book-link" type="button" onClick={onOpenPlanning}>不导入旧稿，返回设定与规划</button>
         </div>
         <button className="icon-button continuation-collapse-button" type="button" aria-label="关闭整本导入" disabled={busy === 'confirm' || busy === 'handoff'} onClick={onClose}><XIcon /></button>
       </header>

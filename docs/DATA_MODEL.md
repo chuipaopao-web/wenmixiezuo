@@ -496,3 +496,26 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 `volume_plan_versions`只新增不更新内容；确认只更新状态和指针。第一卷依赖`book_opening_blueprints`活动版与`story_bible`已选版；后续卷额外依赖上一卷活动计划版及`stage_settlements(stage_type='volume')`活动结算。迁移为现有书建立工作流投影，但不猜测生成卷规划内容。
 
 DEC-109不新增表：`volume_plan_generation`复用`tasks/task_attempts/task_phases`保存租约与检查点，复用`context_packs/model_calls/budget_reservations`保存每席冻结上下文、模型调用和预算证据，最终只向`volume_plan_versions`追加带`source_task_id`的A/B/融合候选。作者意见ID必须同时匹配owner、book、`surface='volume_plan'`、`subject_type='volume_plan'`和当前`volume_plan_id`，避免其他卷意见串入。
+
+## Schema 0039—0041实际落地（DEC-110）
+
+### 0039 事件规划
+
+- `event_sequences`：每个规划卷一条卷内事件序列，保存活动卷版本、序列修订和状态；
+- `story_events`：保存顺序、前后事件、前序结算、活动版本、修订和状态；
+- `story_event_versions`：不可变保存作者、编剧A/B和主编融合候选、模板实例、卷依赖、作者原话引用、内容哈希、任务和幂等信息；
+- `event_sequence_operations`：保存插入、移动、拆分、合并等结构操作的不可变预览，应用时再次校验序列修订。
+
+### 0040 事件章链与详细章纲
+
+- `event_chapter_sequences` / `event_chapter_sequence_versions`：保存活动事件的完整粗章链及事件闭环覆盖；
+- `event_chapter_outlines` / `event_chapter_outline_versions`：按章保存粗职责、不可变详细章纲、卷/事件/章链版本、作者原话引用、Artifact版本和冻结状态；
+- 工作流保存活动事件引用和本轮冻结章纲引用。只允许最近1—3章进入冻结清单，已结算章纲不会被上层修订覆盖。
+
+### 0041 计划—实际结算
+
+- `planning_settlement_assessments`：把活动事件或卷计划版本与已有`stage_settlements`的正式实际结果并列保存，记录计划、实际、偏差、正史修订和创建时间；
+- 事件结算完成后清除活动事件并推进下一事件或卷结算；卷结算完成后进入`ready_for_next_volume`；
+- 下一卷创建必须引用上一卷活动确认版和真实卷结算，禁止把上一卷计划内容当作已经发生的事实。
+
+公共`SCHEMA_VERSION=41`。所有新业务表均携带`owner_id + book_id`并通过Repository隔离；迁移只向前新增，重跑幂等。

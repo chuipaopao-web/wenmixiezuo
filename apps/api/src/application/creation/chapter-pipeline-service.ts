@@ -43,6 +43,8 @@ import { compactStageSettlementContext } from '../continuity/stage-settlement-pr
 import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
 import { ManuscriptQualitySnapshotService } from './manuscript-quality-snapshot-service.js';
 import { compileChapterOutlineForWriter } from './chapter-outline-compiler.js';
+import { PlanningChainContextService } from './planning-chain-context-service.js';
+import { CreationWorkflowProgressService } from './creation-workflow-progress-service.js';
 import { BookProfileViewService } from '../books/book-profile-view-service.js';
 import {
   buildChapterContinuityAnchors,
@@ -287,6 +289,7 @@ export class ChapterPipelineService {
       const artifacts = new ArtifactService(this.database, this.ids, this.clock);
       const outlineVersionId = new WritingReadinessService(this.database).outlineVersionId(scope, chapter.chapter_number);
       const outline = artifacts.requireVersion(scope, outlineVersionId);
+      new PlanningChainContextService(this.database).validate(scope, outline.artifactVersionId);
       const contractContent = {
         chapterId: run.chapter_id,
         pov: '服从老板已确认的创作方案；未明确时采用第三人称限知',
@@ -650,6 +653,8 @@ export class ChapterPipelineService {
         reason: '前章全文提取的稳定编号、专名和机构锚点；核对同一对象是否无解释漂移', priority: 99
       }])
     ];
+    const planningFactSources = new PlanningChainContextService(this.database)
+      .factReviewSources(scope, frozenOutline.artifactVersionId);
     const boundedFrozenReviewSources = frozenReviewSources.map((source) => ({
       ...source,
       content: clipContext(source.content,
@@ -735,12 +740,13 @@ export class ChapterPipelineService {
         tokenBudget: reviewCharacterBudget,
         characterBudget: reviewCharacterBudget,
         policyVersion: reviewer.role === 'fact'
-          ? 'production-review-fact-context-v4-adjacent-compare-15000chars'
+          ? 'production-review-fact-context-v5-planning-chain-15000chars'
           : `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: [
           { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
           ...roleFrozenReviewSources,
           ...factPreviousChapterSource,
+          ...(reviewer.role === 'fact' ? planningFactSources : []),
           ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
             ...source,
             content: clipContext(source.content, 300)
@@ -1271,6 +1277,7 @@ export class ChapterPipelineService {
         .run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
       this.database.prepare(`UPDATE chapter_pipeline_runs SET confirmation_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
         .run(confirmationId, this.clock.now().toISOString(), run.pipeline_run_id);
+      new CreationWorkflowProgressService(this.database).markWaitingForAuthor(scope, run.task_id);
       return this.advance(run, 'settlement');
     });
   }

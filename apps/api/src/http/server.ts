@@ -36,6 +36,16 @@ import { BudgetService } from '../application/budget/budget-service.js';
 import { ModelCallService } from '../application/calls/model-call-service.js';
 import { ContextPackService } from '../application/memory/context-pack-service.js';
 import { RetrievalContextSourceService } from '../application/memory/retrieval-context-source-service.js';
+import { StoryEventGenerationPipelineService } from '../application/planning/story-event-generation-pipeline-service.js';
+import { StoryEventGenerationRepository } from '../infrastructure/db/repositories/story-event-generation-repository.js';
+import { StoryEventRepository } from '../infrastructure/db/repositories/story-event-repository.js';
+import { StoryEventService } from '../application/planning/story-event-service.js';
+import { EventChapterGenerationPipelineService } from '../application/planning/event-chapter-generation-pipeline-service.js';
+import { EventChapterGenerationRepository } from '../infrastructure/db/repositories/event-chapter-generation-repository.js';
+import { EventChapterOutlineRepository } from '../infrastructure/db/repositories/event-chapter-outline-repository.js';
+import { EventChapterOutlineService } from '../application/planning/event-chapter-outline-service.js';
+import { EventChapterGenerationService } from '../application/planning/event-chapter-generation-service.js';
+import { ArtifactService } from '../application/artifacts/artifact-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -90,7 +100,39 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     modelAdapters,
     new RetrievalContextSourceService(productionRetrieval)
   );
-  const capabilities = new CapabilityService(
+  const storyEventRepository = new StoryEventRepository(database);
+  const storyEventGenerationPipeline = new StoryEventGenerationPipelineService(
+    new StoryEventGenerationRepository(database),
+    storyEventRepository,
+    new StoryEventService(storyEventRepository, new UnitOfWork(database), volumePlanIds, volumePlanClock),
+    new TaskService(database, config.releaseId, volumePlanClock),
+    volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds,
+    volumePlanClock,
+    modelAdapters,
+    new RetrievalContextSourceService(productionRetrieval)
+  );
+  const eventChapterOutlineRepository = new EventChapterOutlineRepository(database);
+  const eventChapterTaskService = new TaskService(database, config.releaseId, volumePlanClock);
+  const eventChapterOutlineService = new EventChapterOutlineService(
+    eventChapterOutlineRepository, new UnitOfWork(database),
+    new ArtifactService(database, volumePlanIds, volumePlanClock), volumePlanIds, volumePlanClock
+  );
+  const eventChapterGenerationRepository = new EventChapterGenerationRepository(database);
+  const eventChapterGenerationService = new EventChapterGenerationService(
+    eventChapterGenerationRepository, eventChapterOutlineService,
+    new VolumePlanGenerationRepository(database), eventChapterTaskService,
+    new UnitOfWork(database), volumePlanIds, volumePlanClock
+  );
+  const eventChapterGenerationPipeline = new EventChapterGenerationPipelineService(
+    eventChapterGenerationRepository, eventChapterOutlineRepository, eventChapterOutlineService,
+    eventChapterGenerationService, eventChapterTaskService, volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds, volumePlanClock, modelAdapters
+  );  const capabilities = new CapabilityService(
     new RuntimeCapabilityProbe(database, config.dataDir),
     new ModelAssetRegistry(config.dataDir),
     config.modelRuntime,
@@ -162,7 +204,11 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
           ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
           : task.task_type === 'volume_plan_generation'
             ? await volumePlanGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
-            : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
+            : task.task_type === 'story_event_generation'
+              ? await storyEventGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+              : task.task_type === 'event_chapter_sequence_generation' || task.task_type === 'event_chapter_detail_generation'
+                ? await eventChapterGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+              : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });
 
@@ -180,8 +226,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     return success(result, request.id);
   });
 
-  app.get<{ Querystring: { after?: string; bookId?: string } }>('/api/v1/events', async (request, reply) => {
-    const after = Number(request.query.after ?? '0');
+  app.get<{ Querystring: { after?: string; bookId?: string }; Headers: { 'last-event-id'?: string } }>('/api/v1/events', async (request, reply) => {
+    const after = Number(request.query.after ?? request.headers['last-event-id'] ?? '0');
     if (!Number.isInteger(after) || after < 0) throw new DomainError('VALIDATION_ERROR', 'after必须是非负整数');
     reply.hijack();
     reply.raw.writeHead(200, {

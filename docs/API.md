@@ -598,3 +598,31 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/confirm`：在同一事务中校验依赖和三重CAS后切换活动版。
 
 卷规划AI生成不提供同步`/candidates`接口。Worker领取任务后，两位编剧分别产生独立ContextPack与ModelCall并保存`candidate_a/candidate_b`；二者都成功后主编才产生`fusion`。任务失败保留已保存候选与检查点，`failed/interrupted`可重试，取消复用通用任务接口并清理工作流等待引用；结果不明不自动重试。候选完成后仍须作者通过影响预览和`confirm`显式确认。
+
+## Schema 0039—0041已实现接口（DEC-110）
+
+### 事件序列与事件候选
+
+- `GET /api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence`：读取卷内事件顺序、活动版本与衔接；
+- `POST .../event-sequence/initialize`：按活动卷计划种子幂等建立事件序列；
+- `POST .../event-sequence/operations/preview|apply`：预览并应用插入、移动、拆分、合并，应用时校验序列修订；
+- `GET/POST /api/v1/books/:bookId/story-events/:eventId/versions`：读取或新增不可变事件候选；
+- `GET/POST .../story-events/:eventId/generation|generate`：读取状态或创建持久`story_event_generation`任务；
+- `POST .../story-events/:eventId/impact-preview|confirm`：预览影响并以事件/工作流CAS激活版本。
+
+### 完整事件章链与近期详细章纲
+
+- `GET/POST .../story-events/:eventId/chapter-sequence|chapter-sequence/initialize`：读取或建立当前事件章链容器；
+- `POST .../chapter-sequence/versions|confirm`：新增不可变完整章链候选并确认；
+- `GET/POST .../chapter-sequence/generation|generate`：读取状态或创建完整章链任务；
+- `POST .../story-events/:eventId/chapter-outlines/generate`：创建最近1—3章详细章纲任务；
+- `GET/POST /api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions`：读取或新增单章不可变详细版本；
+- `POST .../story-events/:eventId/chapter-outlines/freeze`：校验卷、事件、章链、章纲版本后冻结最近1—3章。
+
+### 事件/卷结算
+
+- `GET/POST .../story-events/:eventId/settlement|settle`：读取或建立事件计划—实际结算；
+- `GET/POST .../volume-plans/:volumePlanId/settlement|settle`：读取或建立卷计划—实际结算；
+- 卷结算把工作流推进到`ready_for_next_volume`；现有`POST /volume-plans`在该状态下创建下一卷，并强制上一卷活动确认版与真实结算存在。
+
+所有写接口显式校验本书作用域、预期修订或工作流版本；生成只建立持久任务，Worker通过检查点提交候选。读取状态、SSE重连和轮询不会产生模型调用。

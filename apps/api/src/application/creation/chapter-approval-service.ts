@@ -8,6 +8,7 @@ import { CanonService } from '../knowledge/canon-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import type { ProtagonistStateService } from '../knowledge/protagonist-state-service.js';
 import { buildChapterContinuityAnchors } from './continuity-anchor-service.js';
+import type { CreationWorkflowProgressService } from './creation-workflow-progress-service.js';
 
 export class ChapterApprovalService {
   public constructor(
@@ -19,7 +20,8 @@ export class ChapterApprovalService {
     private readonly chapters: ChapterCatalogService,
     private readonly canon: CanonService,
     private readonly tasks: TaskService,
-    private readonly protagonists?: ProtagonistStateService
+    private readonly protagonists?: ProtagonistStateService,
+    private readonly progress?: CreationWorkflowProgressService
   ) {}
 
   public resolve(scope: BookScope, confirmationId: string, expectedCanonRevision: number, accept: boolean, note: string | null = null): {
@@ -31,6 +33,7 @@ export class ChapterApprovalService {
     if (gate.expectedCanonRevision !== expectedCanonRevision) throw new Error('正文确认单绑定的正史版本不匹配');
     if (!accept) {
       this.repository.prepareOwnerRejectedRewrite(scope, gate, note ?? '当前正文未获老板确认，需要按意见定点重写', this.ids.next(), this.clock.now().toISOString());
+      this.progress?.markAuthorRejected(scope,gate.taskId);
       return { status: 'rejected' };
     }
     const reference = this.repository.manuscriptReference(scope, gate.manuscriptVersionId);
@@ -44,6 +47,7 @@ export class ChapterApprovalService {
       if (liveGate.expectedCanonRevision !== expectedCanonRevision) throw new Error('正文确认单绑定的正史版本不匹配');
       if (this.repository.canonRevision(scope) !== expectedCanonRevision) throw new Error('正史修订已经变化，正文确认必须重新生成');
       if (!liveRetry) this.repository.resolveGate(scope, confirmationId, true, note, now);
+      this.progress?.markChapterSettlementStarted(scope,gate.taskId);
       this.chapters.selectManuscript(scope, gate.chapterId, gate.manuscriptVersionId);
       for (const candidate of this.repository.factCandidatesForPanel(scope, liveGate.reviewPanelId)) {
         const rejectionReason = candidate.evidenceQuote.length > 600
@@ -122,6 +126,7 @@ export class ChapterApprovalService {
         reviewPanelId: liveGate.reviewPanelId,
         rewriteCount: this.repository.rewriteCount(scope, gate.chapterId, gate.taskId), now
       });
+      this.progress?.markChapterSettled(scope,chapter.chapterNumber);
       this.repository.markGateSettlement(scope, confirmationId, true, now);
       this.tasks.resolveWaitingConfirmation(scope, gate.taskId, true);
       return { status: 'settled', canonRevision: result.canonRevision };

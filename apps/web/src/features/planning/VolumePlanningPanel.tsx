@@ -19,6 +19,7 @@ import {
   previewVolumePlanImpact,
   resumeTask,
   retryTask,
+  settleVolumePlan,
   startVolumePlanGeneration,
   type VolumePlanData,
   type VolumePlanGenerationData,
@@ -219,6 +220,11 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     });
   };
 
+  const settleCurrentVolume = (): void => {
+    if (selectedPlan === null || snapshot === null) return;
+    void run(async () => { await settleVolumePlan(bookId, selectedPlan.volumePlanId, snapshot.workflow.planningVersion); await load(); });
+  };
+
   if (snapshot === null) {
     return <section className="volume-planning-panel"><p>{error ?? '正在读取当前卷规划…'}</p></section>;
   }
@@ -245,6 +251,10 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     </ol>
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
+{snapshot.workflow.stage === 'volume_settlement_in_progress' && selectedPlan !== null && <section className="writing-launch-card volume-settlement-card">
+      <div><small>本卷事件已全部完成</small><h4>核对实际后果，完成本卷</h4><p>卷结算只汇总已结算事件和正式正史；原卷规划单独用于差异对照。完成后才会解锁下一卷规划。</p></div>
+      <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentVolume}>完成本卷，规划下一卷</button></div>
+    </section>}
 
     {selectedPlan !== null && <>
       <section className="volume-plan-status-card">

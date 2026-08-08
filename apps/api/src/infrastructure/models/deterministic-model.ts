@@ -13,12 +13,15 @@ export class DeterministicModelAdapter implements ModelAdapter {
       .update(`${request.bookId}\n${request.agentId}\n${request.prompt}`)
       .digest('hex');
     const volumePlan = deterministicVolumePlan(request.prompt);
+    const storyEvent = deterministicStoryEvent(request.prompt);
+    const eventChapterSequence = deterministicEventChapterSequence(request.prompt);
+    const eventChapterDetails = deterministicEventChapterDetails(request.prompt);
     const continuationAnalysis = deterministicContinuationAnalysis(request.prompt);
     const synthesis = reviewSynthesis(request.prompt);
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -104,6 +107,190 @@ function deterministicVolumePlan(prompt: string): string | null {
     }
   });
 }
+function deterministicStoryEvent(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'story_event_generation_v1') return null;
+  const seat = isRecord(root.seat) ? root.seat : {};
+  const roleKey = typeof seat.roleKey === 'string' ? seat.roleKey : 'lead_screenwriter';
+  const fusion = seat.mode === 'chief_editor_fusion';
+  const alternative = roleKey === 'second_screenwriter';
+  const title = fusion ? '代价之后的新入口' : alternative ? '盟友提出的第三条路' : '胜利留下的缺口';
+  const mainChoice = alternative
+    ? '主角放弃最省力的正面对抗，接受盟友带有条件的合作，并公开承担合作失败的责任'
+    : '主角主动放弃短期收益，以已有证据和关系换取一次风险更高但可持续的行动机会';
+  return JSON.stringify({
+    title,
+    volumeResponsibility: '把本卷当前阶段的局部进展转化为必须处理的现实矛盾，并推动人物向卷高潮迈进一步',
+    startingState: '主角刚取得有限进展，但旧秩序留下的责任、关系裂痕和未知威胁同时压来',
+    trigger: '上一事件的结果暴露出一项无法继续回避的后果，迫使主角立即选择立场',
+    participants: ['主角', alternative ? '立场摇摆的盟友' : '掌握关键证据的同伴', '维护旧秩序的对手'],
+    characterGoals: ['主角要守住已取得的行动资格', '同伴要验证主角是否值得继续信任', '对手要把局部进展解释成主角的失误'],
+    obstacles: ['证据不足以直接定论', '盟友的信任附带条件', '主角现有能力无法无代价解决冲突'],
+    choicesAndCosts: [mainChoice, '主角若坚持目标，就必须失去一条轻松退路，并让关系承担可见后果'],
+    informationMoves: ['先确认表面危机并非偶然', '再发现危机背后存在可追查的利益关系', '结尾只揭开更大问题的一层入口'],
+    localProgression: ['后果落地，主角不能再旁观', '第一次方案受挫并暴露人物分歧', '主角修正判断，作出带代价的选择', '局部目标完成，但新状态触发下一事件'],
+    requiredResult: '本事件结束时必须产生可验证的状态变化，主角获得有限主动权，同时承担下一阶段会继续生效的代价',
+    flexibleExecution: ['具体场景地点和对话方式', '配角采取行动的局部顺序', '不改变核心因果的惊喜与误判'],
+    endingConditions: ['事件核心问题得到有限解决', '人物关系因选择发生可见变化', '下一事件的触发条件已经在行动结果中形成'],
+    nextEventImpact: '受到局部结果影响的一方开始反制，并利用主角刚暴露的软肋制造新的必然冲突',
+    characterArcImpact: '主角从证明自己转向承担选择后果，关键同伴从被动协助转向有条件的共同决策',
+    volumeClimaxImpact: '为卷高潮积累可使用的证据、关系和代价，避免最终胜利依靠临时能力或巧合',
+    estimatedChapterRange: { minimum: 5, likely: 8, maximum: 12 },
+    uncertaintyNotes: fusion ? ['融合方案仍需作者确认具体对手身份与场景表达'] : ['若需要新增核心能力、道具或人物身份，必须先由作者确认']
+  });
+}
+
+
+function deterministicEventChapterSequence(prompt: string): string | null {
+  const root = parseOperation(prompt, 'event_chapter_sequence_generation_v1');
+  if (root === null) return null;
+  const event = parsedSource(root, 'planning:story_event');
+  if (!isRecord(event)) return null;
+  const start = typeof root.startChapterNumber === 'number' && Number.isInteger(root.startChapterNumber)
+    ? root.startChapterNumber : 1;
+  const title = textValue(event.title, '当前事件');
+  const opening = textValue(event.startingState, '人物正站在当前事件的起点');
+  const required = textValue(event.requiredResult, '事件产生可验证的状态变化');
+  const nextImpact = textValue(event.nextEventImpact, '结果自然触发下一事件');
+  const conditions = textArray(event.endingConditions, [required]);
+  const middleState = '人物第一次行动后发现表面问题背后还有必须承担的代价';
+  const pressureState = '人物修正判断并作出不能轻易撤回的选择，冲突进入收束阶段';
+  const endings = [middleState, pressureState, required];
+  const responsibilities = [
+    '让事件触发条件真正落地，并让人物不能继续旁观',
+    '升级阻力，让人物通过选择和代价推动因果链',
+    '完成事件必须得到的结果，并形成下一事件的接口'
+  ];
+  const chapters = endings.map((endingState, index) => {
+    const chapterNumber = start + index;
+    return {
+      chapterNumber,
+      title: index === 0 ? '后果落地' : index === 1 ? '选择的代价' : '局面改写',
+      eventResponsibility: responsibilities[index],
+      openingState: index === 0 ? opening : endings[index - 1],
+      characterGoals: ['主角要在现有能力和关系边界内推进当前目标'],
+      conflicts: ['对手与现实限制同时阻止主角取得无代价的胜利'],
+      choicesAndCosts: ['主角必须放弃一条轻松退路，换取可持续的推进机会'],
+      informationChanges: [index === 2 ? '事件核心事实得到验证，但更大的后果开始显现' : '新证据改变人物对当前阻力的判断'],
+      storyBeats: ['状态变化落地', '行动遭遇有效阻力', '人物作出带代价的选择', '结果改变下一步条件'],
+      endingState,
+      nextChapterInterface: index === 2 ? nextImpact : endings[index],
+      softSuggestions: ['具体场景、对话和局部反转可由写作阶段依据人物即时反应调整'],
+      creativeFreedom: ['场景调度、语言节奏、人物微反应与不破坏因果链的合理惊喜']
+    };
+  });
+  return JSON.stringify({
+    eventTitle: title,
+    startChapterNumber: start,
+    chapters,
+    eventEndingConditions: conditions,
+    closureCoverage: conditions.map((endingCondition) => ({
+      endingCondition,
+      evidenceChapterNumber: start + chapters.length - 1
+    })),
+    flexibilityNotes: ['章节数量和局部节拍可在尚未冻结时根据实际叙事密度调整']
+  });
+}
+
+function deterministicEventChapterDetails(prompt: string): string | null {
+  const root = parseOperation(prompt, 'event_chapter_detail_generation_v1');
+  if (root === null) return null;
+  const slots = parsedSource(root, 'planning:recent_chapter_slots');
+  const planned = Array.isArray(slots) ? slots.filter(isRecord) : [];
+  const numbers = Array.isArray(root.chapterNumbers)
+    ? root.chapterNumbers.filter((value): value is number => typeof value === 'number' && Number.isInteger(value))
+    : [];
+  const outlines = numbers.map((chapterNumber) => {
+    const slot = planned.find((item) => item.chapterNumber === chapterNumber) ?? {};
+    const title = textValue(slot.title, '推进中的选择');
+    const openingState = textValue(slot.openingState, '承接上一章已经发生的状态变化');
+    const endingState = textValue(slot.endingState, '本章行动形成可验证的新状态');
+    const chapterFunction = textValue(slot.eventResponsibility, '推进当前事件的一项明确责任');
+    const nextInterface = textValue(slot.nextChapterInterface, endingState);
+    return {
+      outlineSchema: 'chapter_outline_v2',
+      chapterNumber,
+      title,
+      sourceStage: { stageNumber: 1, title: '当前事件', chapterRange: { start: chapterNumber, end: chapterNumber } },
+      chapterFunction,
+      openingState,
+      requiredEndingState: endingState,
+      cast: [{
+        name: '主角',
+        objective: '在既有约束下完成本章目标',
+        knowledgeBoundary: '只知道当前已经获得的证据，不预知后续真相',
+        chapterRole: '作出推动因果链的关键选择',
+        stateChange: '因本章选择承担新的代价或获得有限主动权'
+      }],
+      conflict: {
+        surface: textArray(slot.conflicts, ['当前阻力直接阻止目标完成']).join('；'),
+        underlying: '人物想得到结果，却不能回避选择带来的真实代价',
+        oppositionGoal: '迫使主角退出或接受不利条件',
+        failureCost: '失去当前行动机会并损害关键关系',
+        successCost: '即使推进成功也必须暴露弱点或承担承诺'
+      },
+      plotBeats: [
+        { order: 1, trigger: openingState, action: '人物确认眼前最急迫的问题并开始行动', resistance: '已有条件不足以直接解决问题', result: '行动目标和风险被具体化' },
+        { order: 2, trigger: '第一次行动没有得到预期结果', action: '人物依据新信息修正办法', resistance: '对手或环境抓住人物的限制反制', turn: '一个已存在但被忽略的条件改变判断', result: '人物被迫在两种代价之间选择' },
+        { order: 3, trigger: '退路被压缩到不能继续拖延', action: '人物作出符合性格与当前目标的选择', resistance: '选择立即产生可见损失', result: endingState }
+      ],
+      experience: {
+        primaryTone: '逐步加压后释放有限回报',
+        emotionalCurve: ['警觉', '受阻', '权衡', '决断', '余波'],
+        payoffPoints: ['人物用行动兑现此前建立的能力或关系'],
+        pressurePoints: ['成功不能抹去已经付出的代价'],
+        readerEffect: '既得到本章推进，也愿意追看选择造成的后果'
+      },
+      descriptionFocus: {
+        primary: ['关键选择发生时的人物动作与反应'],
+        secondary: ['场景中能够成为证据或阻力的具体细节'],
+        compress: ['重复解释已经明确的设定和目标']
+      },
+      informationControl: {
+        reveals: textArray(slot.informationChanges, ['揭示足以改变当前判断的一项信息']),
+        concealed: ['暂不提前说明下一事件的完整答案'],
+        gaps: ['保留人物尚未验证的推断']
+      },
+      threadActions: [],
+      ending: {
+        result: endingState,
+        stateChanges: [endingState],
+        hook: nextInterface,
+        nextChapterInterface: nextInterface
+      },
+      mustImplement: [chapterFunction, endingState],
+      mustNotViolate: ['不得凭空增加解决冲突的核心能力、道具或身份', '不得让人物无代价撤回已经作出的关键选择'],
+      allowedCandidates: ['局部场景顺序、配角反应和表达方式可形成候选'],
+      creativeFreedom: textArray(slot.creativeFreedom, ['对话、动作、意象、节奏和局部合理惊喜'])
+    };
+  });
+  return JSON.stringify({ outlines });
+}
+
+function parseOperation(prompt: string, operation: string): Record<string, unknown> | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  return isRecord(root) && root.operation === operation ? root : null;
+}
+
+function parsedSource(root: Record<string, unknown>, sourceType: string): unknown {
+  if (!Array.isArray(root.sources)) return null;
+  const source = root.sources.find((item) => isRecord(item) && item.sourceType === sourceType);
+  if (!isRecord(source) || typeof source.content !== 'string') return null;
+  try { return JSON.parse(source.content) as unknown; } catch { return null; }
+}
+
+function textValue(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function textArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  const items = [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
+  return items.length > 0 ? items : fallback;
+}
+
 function deterministicStageOutlineWorkflow(prompt: string): string | null {
   if (
     prompt.includes('正在为本书当前剧情阶段独立设计候选方案')

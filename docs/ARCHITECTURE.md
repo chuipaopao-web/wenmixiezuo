@@ -278,3 +278,11 @@ HTTP只调用`VolumePlanService`，业务服务只通过`VolumePlanRepository`�
 正文物理卷不是卷规划正式源。规划卷可选关联物理卷，但跨书关联、卷号错位和后续卷绕过结算均由领域服务拒绝。旧Artifact规划服务继续作为兼容边界，新的当前卷页面不读取或写入`master_outline`。
 
 `VolumePlanGenerationService`只负责校验CAS、冻结来源/三席/预算并创建持久`volume_plan_generation`任务；`VolumePlanGenerationPipelineService`由Worker持有租约后执行。两位编剧并行但拥有独立ContextPack/ModelCall，主编只在A/B都已经通过Schema并保存后获得两份候选。所有模型产物只能由`VolumePlanService`追加不可变版本，Worker无权切换活动版。结果未知停止自动重试；成功候选、调用与上下文检查点允许安全复用。浏览器只调用任务接口并读取持久状态，当前P7使用有界轮询，SSE游标恢复归P13。
+
+## 卷驱动V2实际架构（DEC-110）
+
+活动写路径由专用规划领域承担：`VolumePlan`负责当前卷，`StoryEvent`负责卷内顺序、因果和单事件不可变候选，`EventChapterOutline`负责完整事件章链与近期详细章纲，`CreationSettlement`负责事件/卷计划—实际对照。物理卷、旧剧情总纲和历史Artifact继续只读兼容，不成为新权威源。
+
+应用层只经Repository读写新表；事件、章纲和结算的多表更新使用`UnitOfWork`或Repository事务。Worker只领取持久生成任务并提交候选/checkpoint，不直接激活规划、修改正式正文或正史。正文管线在建单和审查前校验活动卷、活动事件、完整章链与冻结章纲版本，取消、epoch、租约和晚到提交栅栏沿用现有基础设施。
+
+Web使用REST执行命令和读取快照，任务事件使用标准SSE `Last-Event-ID`、按书/首页持久游标和断线重连；30秒轮询只作恢复兜底。左栏成为纯书籍切换，主步骤和辅助工具都由中间创作台承载。独立对话/版权组件删除不影响消息、附件、来源、研究和安全领域。

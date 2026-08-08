@@ -7,7 +7,10 @@ import type {
   CreationWorkflowStateView,
   PlanningTemplateInstance,
   PlanningScope,
-  VolumePlanContent
+  VolumePlanContent,
+  StoryEventContent,
+  ChapterOutlineContent,
+  EventChapterSequenceContent
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
 
@@ -58,27 +61,6 @@ export interface BookData {
   canonRevision: number;
   positioningVersion: number;
   updatedAt: string;
-}
-
-export interface ConversationReceptionData {
-  kind:
-    | 'guidance_scheduled'
-    | 'guidance_in_progress'
-    | 'guidance_available'
-    | 'awaiting_confirmation'
-    | 'guidance_paused'
-    | 'guidance_failed'
-    | 'guidance_cancelled'
-    | 'setting_complete'
-    | 'planning_next';
-  headline: string;
-  message: string;
-  settingItemKey?: string;
-  settingLabel?: string;
-  taskId?: string;
-  taskStatus?: string;
-  editorAgentId?: string;
-  editorName?: string;
 }
 
 export interface SettingOutlineWorkspaceData {
@@ -279,6 +261,157 @@ export interface VolumePlanGenerationData {
   };
   createdAt: string;
   updatedAt: string;
+}
+export type StoryEventCandidateKind = 'candidate_a' | 'candidate_b' | 'author_edit' | 'fusion' | 'volume_seed';
+
+export interface StoryEventVersionData {
+  storyEventVersionId: string;
+  eventId: string;
+  version: number;
+  parentVersionId: string | null;
+  status: 'candidate' | 'active' | 'superseded' | 'archived';
+  candidateKind: StoryEventCandidateKind;
+  volumePlanVersionId: string;
+  previousSettlementId: string | null;
+  dependencies: CreationWorkflowStateView['frozenChapterOutlineRefs'];
+  template: PlanningTemplateInstance;
+  authorInputRefs: string[];
+  content: StoryEventContent;
+  contentHash: string;
+  sourceTaskId: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+}
+
+export interface StoryEventData {
+  eventId: string;
+  volumePlanId: string;
+  order: number;
+  status: 'planning' | 'active' | 'settled' | 'archived';
+  revision: number;
+  previousEventId: string | null;
+  activeVersionId: string | null;
+  activeVersion: StoryEventVersionData | null;
+  latestVersion: StoryEventVersionData | null;
+  downstreamDependencyCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EventOperationProposal =
+  | { operationKind: 'reorder'; eventIds: string[] }
+  | { operationKind: 'insert'; afterEventId: string | null; content: StoryEventContent }
+  | { operationKind: 'split'; eventId: string; first: StoryEventContent; second: StoryEventContent }
+  | { operationKind: 'merge'; eventIds: [string, string]; merged: StoryEventContent };
+
+export interface EventOperationImpactData {
+  affectedEventIds: string[];
+  settledEventIds: string[];
+  activeEventIds: string[];
+  downstreamDependencyCount: number;
+  resultingTitles: string[];
+  blocked: boolean;
+  note: string;
+}
+
+export interface EventOperationData {
+  operationId: string;
+  operationKind: EventOperationProposal['operationKind'];
+  expectedSequenceRevision: number;
+  resultSequenceRevision: number | null;
+  proposal: EventOperationProposal;
+  impact: EventOperationImpactData;
+  status: 'previewed' | 'applied' | 'cancelled';
+  createdAt: string;
+  appliedAt: string | null;
+}
+
+export interface EventSequenceData {
+  volumePlanId: string;
+  volumePlanVersionId: string;
+  revision: number;
+  events: StoryEventData[];
+  operations: EventOperationData[];
+  updatedAt: string;
+}
+
+export interface StoryEventImpactData {
+  eventId: string;
+  candidateVersionId: string;
+  activeVersionId: string | null;
+  changedFields: string[];
+  downstreamDependencyCount: number;
+  requiresDownstreamReview: boolean;
+  note: string;
+}
+
+export interface StoryEventGenerationData {
+  taskId: string;
+  status: string;
+  currentPhase: string;
+  errorCode: string | null;
+  checkpoint: Record<string, unknown>;
+  modelDiversityVerified: boolean;
+  members: Array<{ roleKey: string; agentId: string; displayName: string; provider: string; modelId: string }>;
+  candidateVersionIds: { candidateA: string | null; candidateB: string | null; fusion: string | null };
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+export interface ChapterOutlineV2Data {
+  outlineSchema:'chapter_outline_v2';chapterNumber:number;title:string;chapterFunction:string;openingState:string;requiredEndingState:string;
+  cast:Array<{name:string;objective:string;knowledgeBoundary:string;chapterRole:string;stateChange?:string}>;
+  conflict:{surface:string;underlying?:string;oppositionGoal?:string;failureCost:string;successCost?:string};
+  plotBeats:Array<{order:number;trigger:string;action:string;resistance?:string;turn?:string;result:string}>;
+  experience?:{primaryTone?:string;emotionalCurve:string[];payoffPoints:string[];pressurePoints:string[];readerEffect?:string};
+  ending:{result:string;stateChanges:string[];hook:string;nextChapterInterface:string};
+  mustImplement:string[];mustNotViolate:string[];allowedCandidates:string[];creativeFreedom:string[];
+}
+export interface EventChapterSequenceVersionData {
+  sequenceVersionId:string;sequenceId:string;version:number;parentVersionId:string|null;
+  status:'candidate'|'active'|'superseded'|'archived';dependencies:CreationWorkflowStateView['frozenChapterOutlineRefs'];
+  authorInputRefs:string[];content:EventChapterSequenceContent;contentHash:string;sourceTaskId:string|null;
+  createdAt:string;confirmedAt:string|null;
+}
+export interface EventChapterOutlineVersionData {
+  outlineVersionId:string;outlineId:string;version:number;parentVersionId:string|null;
+  status:'candidate'|'frozen'|'superseded'|'archived';sequenceVersionId:string;
+  dependencies:CreationWorkflowStateView['frozenChapterOutlineRefs'];authorInputRefs:string[];
+  content:ChapterOutlineV2Data;contentHash:string;artifactVersionId:string|null;sourceTaskId:string|null;
+  createdAt:string;frozenAt:string|null;
+}
+export interface EventChapterOutlineData {
+  outlineId:string;eventId:string;chapterNumber:number;order:number;revision:number;
+  status:'planned'|'candidate'|'frozen'|'settled'|'archived';activeVersionId:string|null;
+  planned:ChapterOutlineContent;activeVersion:EventChapterOutlineVersionData|null;
+  versions:EventChapterOutlineVersionData[];createdAt:string;updatedAt:string;
+}
+export interface EventChapterSequenceData {
+  sequenceId:string;eventId:string;eventVersionId:string;volumePlanVersionId:string;revision:number;
+  status:'planning'|'active'|'stale'|'settled';activeVersionId:string|null;
+  activeVersion:EventChapterSequenceVersionData|null;versions:EventChapterSequenceVersionData[];
+  outlines:EventChapterOutlineData[];nextChapterNumber:number;valid:boolean;createdAt:string;updatedAt:string;
+}
+export interface EventChapterGenerationData {
+  taskId:string;kind:'sequence'|'details';status:string;currentPhase:string;errorCode:string|null;
+  checkpoint:Record<string,unknown>;member:{roleKey:string;agentId:string;displayName:string;provider:string;modelId:string};
+  createdAt:string;updatedAt:string;
+}
+export interface PlanningSettlementData {
+  settlementId:string;stageKind:'event'|'volume';stageObjectId:string;planVersionId:string;version:number;
+  chapterStart:number;chapterEnd:number;canonRevision:number;planned:unknown;actual:unknown;deviation:unknown;createdAt:string;
+}
+export interface ExpressionProfileData {
+  expressionProfileId:string;version:number;narrativePerson:'first'|'third'|'mixed'|null;
+  viewpointDistance:'close'|'medium'|'distant'|'adaptive'|null;languageTone:unknown;
+  textDensity:'light'|'balanced'|'dense'|'adaptive'|null;targetAudience:string|null;
+  contentBoundaries:unknown;humorSeriousness:'humorous'|'balanced'|'serious'|'adaptive'|null;
+  voiceEvidence:unknown;impactScope:unknown;status:'provisional'|'confirmed'|'superseded'|'archived';
+}
+export interface ChapterBatchData {
+  batchId:string;chapterIds:string[];taskIds:string[];nextIndex:number;
+  status:'pending'|'working'|'paused'|'failed'|'completed'|'cancelled';checkpoint:Record<string,unknown>;
 }
 export interface OpeningSynopsisAnalysisData {
   schemaVersion: 'opening-synopsis-suggestions-v1';
@@ -760,6 +893,50 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
+export interface RuntimeEventData {
+  eventSeq:number;eventId:string;eventType:string;ownerId:string;bookId:string|null;occurredAt:string;data:Record<string,unknown>;
+}
+export type RuntimeEventConnectionState='connecting'|'open'|'reconnecting'|'closed';
+export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:RuntimeEventData)=>void;
+  onState?:(state:RuntimeEventConnectionState)=>void}):()=>void{
+  let stopped=false;let controller:AbortController|null=null;let reconnectTimer:ReturnType<typeof setTimeout>|null=null;
+  const cursorKey=`wenmi-event-cursor:${input.bookId??'all'}`;
+  let cursor=readEventCursor(cursorKey);
+  const pause=()=>new Promise<void>(resolve=>{reconnectTimer=setTimeout(resolve,1_000);});
+  const run=async()=>{
+    input.onState?.('connecting');
+    while(!stopped){
+      controller=new AbortController();
+      try{
+        await ensureRuntimeSession();
+        const query=new URLSearchParams({after:String(cursor)});if(input.bookId!==undefined)query.set('bookId',input.bookId);
+        let response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,{credentials:'include',signal:controller.signal,
+          headers:{accept:'text/event-stream','last-event-id':String(cursor)}});
+        if(response.status===401){sessionPromise=null;await ensureRuntimeSession();response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,
+          {credentials:'include',signal:controller.signal,headers:{accept:'text/event-stream','last-event-id':String(cursor)}});}
+        if(!response.ok||response.body===null)throw new Error('事件流连接失败');
+        input.onState?.('open');
+        const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+        while(!stopped){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true}).replace(/\r\n/gu,'\n');
+          let boundary=buffer.indexOf('\n\n');while(boundary>=0){const block=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);
+            const event=parseSseBlock(block);if(event!==null&&event.eventSeq>cursor){cursor=event.eventSeq;writeEventCursor(cursorKey,cursor);input.onEvent(event);}
+            boundary=buffer.indexOf('\n\n');}}
+      }catch(error){if(stopped||error instanceof DOMException&&error.name==='AbortError')break;}
+      if(!stopped){input.onState?.('reconnecting');await pause();}
+    }
+    input.onState?.('closed');
+  };
+  void run();
+  return()=>{stopped=true;controller?.abort();if(reconnectTimer!==null)clearTimeout(reconnectTimer);input.onState?.('closed');};
+}
+function parseSseBlock(block:string):RuntimeEventData|null{
+  const data=block.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+  if(data.length===0)return null;
+  try{const parsed=JSON.parse(data) as Partial<RuntimeEventData>;return typeof parsed.eventSeq==='number'&&typeof parsed.eventType==='string'
+    ?parsed as RuntimeEventData:null;}catch{return null;}
+}
+function readEventCursor(key:string):number{try{const value=Number(globalThis.localStorage?.getItem(key)??'0');return Number.isInteger(value)&&value>=0?value:0;}catch{return 0;}}
+function writeEventCursor(key:string,value:number):void{try{globalThis.localStorage?.setItem(key,String(value));}catch{}}
 export function fetchHealth(signal?: AbortSignal): Promise<HealthData> {
   return request('/health', signal === undefined ? {} : { signal });
 }
@@ -792,6 +969,33 @@ export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, sig
 }
 export function fetchCreationWorkflow(bookId: string, signal?: AbortSignal): Promise<CreationWorkflowStateView> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/workflow`, signal === undefined ? {} : { signal });
+}
+
+export function fetchExpressionProfile(bookId:string,signal?:AbortSignal):Promise<ExpressionProfileData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/expression-profile`,signal===undefined?{}:{signal});
+}
+export function saveExpressionProfile(bookId:string,input:{
+  narrativePerson?:'first'|'third'|'mixed'|null;viewpointDistance?:'close'|'medium'|'distant'|'adaptive'|null;
+  languageTone?:string[];textDensity?:'light'|'balanced'|'dense'|'adaptive'|null;targetAudience?:string|null;
+  contentBoundaries?:Record<string,unknown>;humorSeriousness?:'humorous'|'balanced'|'serious'|'adaptive'|null;
+  voiceEvidence?:unknown[];impactScope?:Record<string,unknown>;confirm:boolean;
+}):Promise<ExpressionProfileData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/expression-profile`,{method:'POST',body:JSON.stringify(input)});
+}
+
+export function fetchEventSettlement(bookId:string,eventId:string,signal?:AbortSignal):Promise<PlanningSettlementData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/settlement`,signal===undefined?{}:{signal});
+}
+export function settleStoryEvent(bookId:string,eventId:string,expectedWorkflowVersion:number):Promise<PlanningSettlementData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/settle`,
+    {method:'POST',body:JSON.stringify({expectedWorkflowVersion})});
+}
+export function fetchVolumeSettlement(bookId:string,volumePlanId:string,signal?:AbortSignal):Promise<PlanningSettlementData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/settlement`,signal===undefined?{}:{signal});
+}
+export function settleVolumePlan(bookId:string,volumePlanId:string,expectedWorkflowVersion:number):Promise<PlanningSettlementData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/settle`,
+    {method:'POST',body:JSON.stringify({expectedWorkflowVersion})});
 }
 
 export function fetchVolumePlans(bookId: string, signal?: AbortSignal): Promise<VolumePlanData[]> {
@@ -883,6 +1087,144 @@ export function confirmVolumePlanVersion(bookId: string, volumePlanId: string, i
     { method: 'POST', body: JSON.stringify(input) }
   );
 }
+export function fetchEventSequence(
+  bookId: string, volumePlanId: string, signal?: AbortSignal
+): Promise<EventSequenceData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-sequence`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function initializeEventSequence(bookId: string, volumePlanId: string, input: {
+  expectedWorkflowVersion: number; idempotencyKey: string;
+}): Promise<EventSequenceData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-sequence/initialize`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function fetchStoryEventVersions(
+  bookId: string, eventId: string, signal?: AbortSignal
+): Promise<StoryEventVersionData[]> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/versions`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function addStoryEventVersion(bookId: string, eventId: string, input: {
+  expectedEventRevision: number;
+  candidateKind: StoryEventCandidateKind;
+  parentVersionId?: string | null;
+  sourceTaskId?: string | null;
+  authorInputRefs?: string[];
+  template: PlanningTemplateInstance;
+  content: StoryEventContent;
+  idempotencyKey: string;
+}): Promise<StoryEventVersionData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/versions`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function fetchStoryEventGeneration(
+  bookId: string, eventId: string, signal?: AbortSignal
+): Promise<StoryEventGenerationData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/generation`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function startStoryEventGeneration(bookId: string, eventId: string, input: {
+  expectedEventRevision: number;
+  expectedActiveVersionId?: string | null;
+  expectedWorkflowVersion: number;
+  template: PlanningTemplateInstance;
+  authorInputRefs?: string[];
+  idempotencyKey: string;
+}): Promise<StoryEventGenerationData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/generate`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function previewStoryEventImpact(
+  bookId: string, eventId: string, versionId: string
+): Promise<StoryEventImpactData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/impact-preview`,
+    { method: 'POST', body: JSON.stringify({ versionId }) }
+  );
+}
+
+export function confirmStoryEventVersion(bookId: string, eventId: string, input: {
+  versionId: string; expectedEventRevision: number; expectedWorkflowVersion: number;
+}): Promise<StoryEventData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/confirm`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function previewEventOperation(bookId: string, volumePlanId: string, input: {
+  expectedSequenceRevision: number; proposal: EventOperationProposal; idempotencyKey: string;
+}): Promise<EventOperationData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-sequence/operations/preview`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function applyEventOperation(bookId: string, volumePlanId: string, input: {
+  operationId: string; expectedSequenceRevision: number;
+}): Promise<EventSequenceData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-sequence/operations/apply`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+
+export function fetchEventChapterSequence(bookId:string,eventId:string,signal?:AbortSignal):Promise<EventChapterSequenceData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence`,
+    signal===undefined?{}:{signal});
+}
+export function initializeEventChapterSequence(bookId:string,eventId:string,input:{expectedWorkflowVersion:number;idempotencyKey:string}):
+  Promise<EventChapterSequenceData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/initialize`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function fetchEventChapterGeneration(bookId:string,eventId:string,kind:'sequence'|'details',signal?:AbortSignal):
+  Promise<EventChapterGenerationData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generation?kind=${kind}`,
+    signal===undefined?{}:{signal});
+}
+export function startEventChapterSequenceGeneration(bookId:string,eventId:string,input:{expectedSequenceRevision:number;
+  expectedWorkflowVersion:number;authorInputRefs?:string[];idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generate`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function confirmEventChapterSequence(bookId:string,eventId:string,input:{sequenceVersionId:string;
+  expectedSequenceRevision:number;expectedWorkflowVersion:number}):Promise<EventChapterSequenceData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/confirm`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function startEventChapterDetailGeneration(bookId:string,eventId:string,input:{count:number;expectedSequenceRevision:number;
+  expectedWorkflowVersion:number;authorInputRefs?:string[];idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-outlines/generate`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function freezeRecentEventChapterOutlines(bookId:string,eventId:string,input:{items:Array<{outlineId:string;
+  outlineVersionId:string;expectedOutlineRevision:number}>;expectedWorkflowVersion:number}):Promise<EventChapterSequenceData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-outlines/freeze`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+
 export type AuthorPlanningInputData = AuthorPlanningInput;
 
 export function fetchAuthorPlanningInputs(bookId: string, filter: {
@@ -963,14 +1305,6 @@ export function fetchMessages(bookId: string, signal?: AbortSignal): Promise<Mes
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages?limit=500`, signal === undefined ? {} : { signal });
 }
 
-export function enterConversation(bookId: string, signal?: AbortSignal): Promise<ConversationReceptionData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/conversation-entry`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-    ...(signal === undefined ? {} : { signal })
-  });
-}
-
 export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
   return request('/api/v1/runtime/worker', signal === undefined ? {} : { signal });
 }
@@ -1018,14 +1352,14 @@ export function discardChatAttachment(bookId: string, attachmentId: string): Pro
   });
 }
 
-export function chatAttachmentContentUrl(bookId: string, attachmentId: string): string {
-  return `${API_ORIGIN}/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments/${encodeURIComponent(attachmentId)}/content`;
-}
-
 export function sendMessage(bookId: string, content: string, attachmentIds: string[] = []): Promise<{ messageId: string; action: Record<string, unknown> }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages`, {
     method: 'POST', body: JSON.stringify({ content, attachmentIds })
   });
+}
+
+export function startWritingRun(bookId:string,input:{volumeTitle?:string;chapterTitle?:string}={}):Promise<ChapterBatchData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/writing-runs`,{method:'POST',body:JSON.stringify(input)});
 }
 
 export function scheduleChapters(bookId: string, count: 1 | 3 | 4 | 5): Promise<{ batchId: string }> {
@@ -1447,14 +1781,4 @@ export function importBookCopy(packageName: string): Promise<{ bookId: string; t
 
 export function fetchProjections(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/projections`, signal === undefined ? {} : { signal });
-}
-
-export async function fetchRightsWorkspace(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
-  const options = signal === undefined ? {} : { signal };
-  const [copyright, sources, claims] = await Promise.all([
-    request(`/api/v1/books/${encodeURIComponent(bookId)}/copyright/summary`, options),
-    request(`/api/v1/books/${encodeURIComponent(bookId)}/research/sources`, options),
-    request(`/api/v1/books/${encodeURIComponent(bookId)}/research/claims`, options)
-  ]);
-  return [{ section: '版权隔离', data: copyright }, { section: '研究来源', data: sources }, { section: '待核对说法', data: claims }];
 }

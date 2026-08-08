@@ -27,8 +27,10 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
 import { VolumePlanningPanel } from './VolumePlanningPanel';
+import { EventPlanningPanel } from './EventPlanningPanel';
+import { EventChapterPlanningPanel } from './EventChapterPlanningPanel';
 
-type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
+type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'graph' | 'library' | 'naming';
 
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
@@ -193,12 +195,15 @@ const ALL_SETTING_TEMPLATE_GROUPS: SettingOutlineGroup[] = [
 
 type SettingReadinessView = Awaited<ReturnType<typeof fetchSettingReadiness>>;
 
-export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onBookProfileChanged }: {
+export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, graph, library, naming, onBookProfileChanged }: {
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
   data: unknown;
   workspace: WorkspaceData | null;
   manuscript: ReactNode;
+  graph: ReactNode;
+  library: ReactNode;
+  naming: ReactNode;
   onBookProfileChanged?: () => Promise<void> | void;
 }): React.JSX.Element {
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
@@ -251,24 +256,25 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
     const source = isRecord(artifact.active_content) ? artifact.active_content : {};
     return hasMeaningfulArtifactValue(projectArtifactContent(source, projection));
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '当前卷'], ['chapter', '章纲'], ['manuscript', '正文']];
-  const ideaContext: Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }> = {
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '当前卷'], ['event', '事件设计'], ['chapter', '章纲'], ['manuscript', '正文'], ['graph', '图谱'], ['library', '资料库'], ['naming', '取名']];
+  const ideaContext: Partial<Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }>> = {
     framework: { surface: 'book_profile', subjectType: 'book', title: '补充开书想法' },
     basic: { surface: 'setting', subjectType: 'setting', title: '补充设定想法' },
     master: { surface: 'volume_plan', subjectType: 'volume_plan', title: '补充当前卷想法' },
+    event: { surface: 'volume_plan', subjectType: 'story_event', title: '补充当前事件想法' },
     chapter: { surface: 'chapter_outline', subjectType: 'chapter_outline', title: '补充章纲想法' },
     manuscript: { surface: 'manuscript', subjectType: 'manuscript', title: '给正文创作的提示' }
   };
-  const currentIdeaContext = ideaContext[tab];
+  const currentIdeaContext = ideaContext[tab] ?? null;
   return (
-    <section className={`creation-desk ${tab === 'manuscript' ? 'manuscript-mode' : ''}`} aria-labelledby="creation-desk-title">
+    <section className={`creation-desk ${tab === 'manuscript' ? 'manuscript-mode' : ''} ${['graph','library','naming'].includes(tab) ? 'tool-mode' : ''}`} aria-labelledby="creation-desk-title">
       <header className="creation-desk-header">
         <h2 id="creation-desk-title">创作台</h2>
         <nav className="creation-desk-tabs" aria-label="创作台内容">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => onTabChange(key)}>{label}</button>)}</nav>
       </header>
       <div className="creation-desk-body">
-      {tab === 'manuscript' ? manuscript : <>
-      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
+      {tab === 'manuscript' ? manuscript : tab === 'graph' ? graph : tab === 'library' ? library : tab === 'naming' ? naming : <>
+      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'event' && bookId !== null ? <EventPlanningPanel bookId={bookId} /> : tab === 'chapter' && bookId !== null ? <EventChapterPlanningPanel bookId={bookId} onOpenManuscript={()=>onTabChange('manuscript')} {...(onBookProfileChanged===undefined?{}:{onChanged:onBookProfileChanged})} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`暂无${tabs.find(([key]) => key === tab)?.[1] ?? '内容'}`} description="" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -277,7 +283,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         onPlanningStateChanged={refreshPlanningState}
       />}
       </>}
-      {bookId !== null && tab !== 'basic' && tab !== 'master' && <AuthorIdeaComposer
+      {bookId !== null && currentIdeaContext !== null && tab !== 'basic' && tab !== 'master' && tab !== 'event' && tab !== 'chapter' && <AuthorIdeaComposer
         bookId={bookId}
         surface={currentIdeaContext.surface}
         subjectType={currentIdeaContext.subjectType}

@@ -33,6 +33,7 @@ import { buildRuntimeRoleSystemPrompt, ModelAdapterFactory } from '../infrastruc
 import type { ModelPurpose } from '../infrastructure/models/model-runtime-config.js';
 import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
 import { ChapterApprovalService } from '../application/creation/chapter-approval-service.js';
+import { CreationWorkflowProgressService } from '../application/creation/creation-workflow-progress-service.js';
 import { EditorLeaseService, type EditorLeaseStatus } from '../application/editors/editor-lease-service.js';
 import { ProductionWorkflowRepository } from '../infrastructure/db/repositories/production-workflow-repository.js';
 import { ExpressionProfileService } from '../application/books/expression-profile-service.js';
@@ -84,6 +85,18 @@ import { VolumePlanService, type VolumePlanCandidateKind } from '../application/
 import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
 import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { VolumePlanGenerationService } from '../application/planning/volume-plan-generation-service.js';
+import { StoryEventService } from '../application/planning/story-event-service.js';
+import { StoryEventRepository, type StoryEventCandidateKind } from '../infrastructure/db/repositories/story-event-repository.js';
+import { StoryEventGenerationRepository } from '../infrastructure/db/repositories/story-event-generation-repository.js';
+import { StoryEventGenerationService } from '../application/planning/story-event-generation-service.js';
+import { EventChapterOutlineService } from '../application/planning/event-chapter-outline-service.js';
+import { EventChapterOutlineRepository } from '../infrastructure/db/repositories/event-chapter-outline-repository.js';
+import { EventChapterGenerationRepository } from '../infrastructure/db/repositories/event-chapter-generation-repository.js';
+import { EventChapterGenerationService, type EventChapterGenerationKind } from '../application/planning/event-chapter-generation-service.js';
+import { CreationSettlementService } from '../application/planning/creation-settlement-service.js';
+import { CreationSettlementRepository } from '../infrastructure/db/repositories/creation-settlement-repository.js';
+import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
+import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -204,7 +217,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const modelCalls = new ModelCallService(database, clock, budgets);
   const editors = new EditorLeaseService(database, ids, clock);
   const chapterApprovals = new ChapterApprovalService(
-    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists
+    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists, new CreationWorkflowProgressService(database)
   );
   const backups = new BackupService(database, config);
   const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
@@ -227,6 +240,30 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     volumePlanGenerationRepository, volumePlans, tasks, new UnitOfWork(database), ids, clock
   );
 
+  const storyEventRepository = new StoryEventRepository(database);
+  const storyEvents = new StoryEventService(
+    storyEventRepository, new UnitOfWork(database), ids, clock
+  );
+  const storyEventGenerationRepository = new StoryEventGenerationRepository(database);
+  const storyEventGenerations = new StoryEventGenerationService(
+    storyEventGenerationRepository, storyEventRepository, volumePlanGenerationRepository, tasks,
+    new UnitOfWork(database), ids, clock
+  );
+  const eventChapterOutlineRepository = new EventChapterOutlineRepository(database);
+  const eventChapterOutlines = new EventChapterOutlineService(
+    eventChapterOutlineRepository, new UnitOfWork(database), artifacts, ids, clock
+  );
+  const eventChapterGenerationRepository = new EventChapterGenerationRepository(database);
+  const eventChapterGenerations = new EventChapterGenerationService(
+    eventChapterGenerationRepository, eventChapterOutlines, volumePlanGenerationRepository, tasks,
+    new UnitOfWork(database), ids, clock
+  );
+  const continuityRepository = new LongformContinuityRepository(database);
+  const creationSettlements = new CreationSettlementService(
+    new CreationSettlementRepository(database), continuityRepository,
+    new StageSettlementService(continuityRepository, new UnitOfWork(database), ids, clock), ids, clock
+  );
+
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workflow', async (request) => {
@@ -234,6 +271,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     books.require(scope);
     return success(volumePlans.workflow(scope), request.id);
   });
+
+  app.get<{Params:{bookId:string;eventId:string}}>(
+    '/api/v1/books/:bookId/story-events/:eventId/settlement',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(creationSettlements.getEvent(scope,request.params.eventId),request.id);
+    });
+  app.post<{Params:{bookId:string;eventId:string};Body:{expectedWorkflowVersion:number}}>(
+    '/api/v1/books/:bookId/story-events/:eventId/settle',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(creationSettlements.settleEvent(scope,request.params.eventId,request.body.expectedWorkflowVersion),request.id);
+    });
+  app.get<{Params:{bookId:string;volumePlanId:string}}>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/settlement',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(creationSettlements.getVolume(scope,request.params.volumePlanId),request.id);
+    });
+  app.post<{Params:{bookId:string;volumePlanId:string};Body:{expectedWorkflowVersion:number}}>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/settle',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(creationSettlements.settleVolume(scope,request.params.volumePlanId,request.body.expectedWorkflowVersion),request.id);
+    });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/volume-plans', async (request) => {
     const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
@@ -325,6 +383,141 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     books.require(scope);
     return success(volumePlans.confirm(scope, request.params.volumePlanId, request.body), request.id);
   });
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(storyEvents.getSequence(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    expectedWorkflowVersion: number; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/initialize', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEvents.initialize(scope, request.params.volumePlanId, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    expectedSequenceRevision: number; proposal: unknown; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/operations/preview', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEvents.previewOperation(scope, request.params.volumePlanId, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    operationId: string; expectedSequenceRevision: number;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/operations/apply', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEvents.applyOperation(scope, request.params.volumePlanId, request.body), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; eventId: string } }>(
+    '/api/v1/books/:bookId/story-events/:eventId/generation', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(storyEventGenerations.latest(scope, request.params.eventId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; eventId: string }; Body: {
+    expectedEventRevision: number; expectedActiveVersionId?: string | null;
+    expectedWorkflowVersion: number; template: unknown; authorInputRefs?: string[]; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/story-events/:eventId/generate', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEventGenerations.start(scope, request.params.eventId, request.body), request.id);
+  });
+  app.get<{ Params: { bookId: string; eventId: string } }>(
+    '/api/v1/books/:bookId/story-events/:eventId/versions', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(storyEvents.listVersions(scope, request.params.eventId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; eventId: string }; Body: {
+    expectedEventRevision: number; candidateKind: StoryEventCandidateKind;
+    parentVersionId?: string | null; sourceTaskId?: string | null; authorInputRefs?: string[];
+    template: unknown; content: unknown; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/story-events/:eventId/versions', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEvents.addVersion(scope, request.params.eventId, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; eventId: string }; Body: { versionId: string } }>(
+    '/api/v1/books/:bookId/story-events/:eventId/impact-preview', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(storyEvents.impactPreview(scope, request.params.eventId, request.body.versionId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; eventId: string }; Body: {
+    versionId: string; expectedEventRevision: number; expectedWorkflowVersion: number;
+  } }>('/api/v1/books/:bookId/story-events/:eventId/confirm', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(storyEvents.confirm(scope, request.params.eventId, request.body), request.id);
+  });
+  app.get<{ Params:{bookId:string;eventId:string} }>('/api/v1/books/:bookId/story-events/:eventId/chapter-sequence',async(request)=>{
+    const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+    return success(eventChapterOutlines.get(scope,request.params.eventId),request.id);
+  });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{expectedWorkflowVersion:number;idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/initialize',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.initialize(scope,request.params.eventId,request.body),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{expectedSequenceRevision:number;parentVersionId?:string|null;
+    authorInputRefs?:string[];content:unknown;sourceTaskId?:string|null;idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.addSequenceVersion(scope,request.params.eventId,request.body),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{sequenceVersionId:string;expectedSequenceRevision:number;expectedWorkflowVersion:number} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/confirm',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.confirmSequence(scope,request.params.eventId,request.body),request.id);
+    });
+  app.get<{ Params:{bookId:string;eventId:string};Querystring:{kind?:EventChapterGenerationKind} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generation',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterGenerations.latest(scope,request.params.eventId,request.query.kind??'sequence'),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{expectedSequenceRevision:number;expectedWorkflowVersion:number;
+    authorInputRefs?:string[];idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generate',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{count:number;expectedSequenceRevision:number;expectedWorkflowVersion:number;
+    authorInputRefs?:string[];idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/generate',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
+    });
+  app.get<{ Params:{bookId:string;outlineId:string} }>(
+    '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.listOutlineVersions(scope,request.params.outlineId),request.id);
+    });
+  app.post<{ Params:{bookId:string;outlineId:string};Body:{expectedOutlineRevision:number;parentVersionId?:string|null;
+    authorInputRefs?:string[];content:Record<string,unknown>;sourceTaskId?:string|null;idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.addOutlineVersion(scope,request.params.outlineId,request.body),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string};Body:{items:Array<{outlineId:string;outlineVersionId:string;expectedOutlineRevision:number}>;
+    expectedWorkflowVersion:number} }>('/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/freeze',async(request)=>{
+      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterOutlines.freezeRecent(scope,request.params.eventId,request.body),request.id);
+    });
 
   app.get<{ Params: { bookId: string }; Querystring: { scope?: string } }>(
     '/api/v1/books/:bookId/planning-templates',

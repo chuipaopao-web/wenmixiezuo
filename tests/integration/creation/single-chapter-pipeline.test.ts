@@ -100,7 +100,7 @@ describe('单章完整创作流水线', () => {
         phase_key: string; policy_version: string; source_manifest_json: string;
       }>;
     const factReview = reviewCalls.find((call) => call.phase_key.includes('-fact-'));
-    expect(factReview?.policy_version).toBe('production-review-fact-context-v4-adjacent-compare-15000chars');
+    expect(factReview?.policy_version).toBe('production-review-fact-context-v5-planning-chain-15000chars');
     const factSources = JSON.parse(factReview?.source_manifest_json ?? '[]') as Array<{ sourceType: string; content: string }>;
     expect(factSources.map((source) => source.sourceType)).toContain('previous_chapter_full');
     expect(factSources.find((source) => source.sourceType === 'previous_chapter_full')?.content.length).toBeGreaterThan(800);

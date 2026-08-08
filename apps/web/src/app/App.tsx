@@ -6,27 +6,21 @@ import {
   ArrowsOutSimpleIcon,
   BookOpenTextIcon,
   BooksIcon,
-  BrainIcon,
   CaretRightIcon,
-  ChatsCircleIcon,
   CheckCircleIcon,
   ClockCountdownIcon,
-  DatabaseIcon,
   DotsThreeVerticalIcon,
   EyeIcon,
   FileTextIcon,
   GearSixIcon,
   ImageIcon,
   MagnifyingGlassIcon,
-  MagicWandIcon,
   MapTrifoldIcon,
   TagIcon,
   TrashIcon,
   TreeStructureIcon,
   ListIcon,
-  PaperPlaneTiltIcon,
   PlusIcon,
-  ShieldCheckIcon,
   UserCircleIcon,
   UsersThreeIcon,
   WifiHighIcon,
@@ -66,14 +60,13 @@ import {
   fetchPlanningState,
   fetchSettingReadiness,
   confirmSettingBaseline,
-  fetchRightsWorkspace,
   fetchTaskCenter,
   fetchWorker,
   fetchWorkspace,
   fetchTeamConfig,
   fetchTeamTemplate,
   fetchProtectedRolePrompt,
-  sendMessage,
+  subscribeRuntimeEvents,
   resolveConfirmation,
   activateModelBindings,
   previewModelBindings,
@@ -86,10 +79,6 @@ import {
   restoreBook,
   purgeBook,
   retryTask,
-  uploadChatAttachment,
-  discardChatAttachment,
-  chatAttachmentContentUrl,
-  enterConversation,
   compareArtifactVersions,
   createLibraryTag,
   saveOwnerManuscript,
@@ -112,9 +101,6 @@ import {
   type ChapterData,
   type ChapterPageData,
   type ContinuationImportData,
-  type ChatAttachmentData,
-  type ConversationReceptionData,
-  type CreativeSessionData,
   type HealthData,
   type LibraryData,
   type GraphWorkspaceData,
@@ -140,7 +126,7 @@ import {
   type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
-import { cacheSnapshot, loadDraft, loadSnapshot, saveDraft } from '../lib/offline/offline-store';
+import { cacheSnapshot, loadSnapshot } from '../lib/offline/offline-store';
 import { avatarPosition } from './role-avatars';
 import { NamingAssistantPanel } from './NamingAssistantPanel';
 import { recommendCharacterTarget, type NamingContext } from './naming-assistant';
@@ -155,12 +141,10 @@ import { FORMULA_CATEGORIES, PlanningWorkspace } from '../features/planning/Plan
 import { EmptyReference, RecordCollection, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../features/shared/StructuredContent';
 import { KnowledgeGraph, LibraryWorkspace } from '../features/library/LibraryWorkspace';
 import { ProjectionWorkspace } from '../features/graph/ProjectionWorkspace';
-import { RightsWorkspace } from '../features/rights/LegacyRightsWorkspace';
 import { budgetModeLabel, confirmationLabel, formatBytes, formatNumber, formatTime, isActiveTask, phaseLabel, statusLabel, taskChapterFromBrief, taskChapterLabel, taskCheckpointLabel, taskGoal, taskLabel } from '../features/shared/task-presentation';
 import { memberIdentity } from '../features/shared/agent-presentation';
 import { AgentAvatar } from '../features/shared/AgentAvatar';
 import { WorkspaceSkeleton } from '../features/shared/WorkspaceSkeleton';
-import { ChatWorkspace, syncReceptionWithTask, type PendingChatAttachment } from '../features/collaboration/LegacyChatWorkspace';
 import { ConfirmationsPanel, GlobalTaskWorkspace, TaskDetailsDialog } from '../features/tasks/TaskWorkspace';
 import { AgentDetailsDialog, TeamInspector, TeamTemplateWorkspace, TeamWorkspace, activeTaskForAgent, roleSummary } from '../features/team/TeamWorkspace';
 import { SettingsDialog } from '../features/settings/SettingsDialog';
@@ -183,9 +167,8 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type WorkspaceView = 'chat' | 'outline' | 'projections' | 'knowledge' | 'rights' | 'naming' | 'team';
 type HomeView = 'shelf' | 'tasks' | 'team';
-type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
+type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'graph' | 'library' | 'naming';
 
 interface TaskSelection {
   bookId: string;
@@ -200,8 +183,6 @@ export function App(): React.JSX.Element {
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [messages, setMessages] = useState<MessageData[]>([]);
-  const [conversationReception, setConversationReception] = useState<ConversationReceptionData | null>(null);
-  const [view, setView] = useState<WorkspaceView>('chat');
   const [creationTab, setCreationTab] = useState<PlanningTab>('framework');
   const [homeView, setHomeView] = useState<HomeView>('shelf');
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
@@ -216,7 +197,6 @@ export function App(): React.JSX.Element {
   const [referenceData, setReferenceData] = useState<unknown>([]);
   const [modelBindings, setModelBindings] = useState<ModelBindingsData | null>(null);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatusData | null>(null);
-  const [composer, setComposer] = useState('');
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
@@ -225,7 +205,6 @@ export function App(): React.JSX.Element {
   const [bookMenuId, setBookMenuId] = useState<string | null>(null);
   const [archiveCandidate, setArchiveCandidate] = useState<BookData | null>(null);
   const [purgeCandidate, setPurgeCandidate] = useState<BookData | null>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<PendingChatAttachment[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskSelection | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -308,44 +287,18 @@ export function App(): React.JSX.Element {
     void refreshWorkspace(selectedBookId, controller.signal).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '工作区加载失败');
     });
-    const poll = window.setInterval(() => {
-      void refreshWorkspace(selectedBookId).catch(() => undefined);
-    }, 5_000);
+    let refreshTimer: number | null = null;
+    const unsubscribe = subscribeRuntimeEvents({ bookId: selectedBookId, onEvent: () => {
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(() => { refreshTimer = null; void refreshWorkspace(selectedBookId).catch(() => undefined); }, 80);
+    }});
+    const poll = window.setInterval(() => { void refreshWorkspace(selectedBookId).catch(() => undefined); }, 30_000);
     return () => {
-      controller.abort();
+      controller.abort(); unsubscribe();
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       window.clearInterval(poll);
     };
   }, [refreshWorkspace, selectedBookId]);
-
-  useEffect(() => {
-    if (selectedBookId === null || view !== 'chat') {
-      setConversationReception(null);
-      return;
-    }
-    const bookId = selectedBookId;
-    const controller = new AbortController();
-    void enterConversation(bookId, controller.signal)
-      .then((reception) => {
-        if (controller.signal.aborted) return;
-        setConversationReception(reception);
-        if (reception.kind === 'guidance_scheduled') {
-          void refreshWorkspace(bookId, controller.signal).catch(() => undefined);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : '小文秘书暂时无法核对当前创作进度');
-        }
-      });
-    return () => controller.abort();
-  }, [refreshWorkspace, selectedBookId, view]);
-
-  useEffect(() => {
-    if (conversationReception?.taskId === undefined || workspace === null) return;
-    const task = workspace.tasks.find((item) => item.taskId === conversationReception.taskId);
-    if (task === undefined || task.status === conversationReception.taskStatus) return;
-    setConversationReception((current) => current === null ? null : syncReceptionWithTask(current, task));
-  }, [conversationReception?.taskId, conversationReception?.taskStatus, workspace]);
 
   useEffect(() => {
     if (selectedBookId !== null || homeView !== 'team' || teamTemplate !== null) return;
@@ -366,33 +319,18 @@ export function App(): React.JSX.Element {
         setHomeTasksLoading(false);
       }
     });
-    const poll = window.setInterval(() => {
-      void refreshHomeTasks().catch(() => undefined);
-    }, 5_000);
+    let refreshTimer: number | null = null;
+    const unsubscribe = subscribeRuntimeEvents({ onEvent: () => {
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(() => { refreshTimer = null; void refreshHomeTasks().catch(() => undefined); }, 80);
+    }});
+    const poll = window.setInterval(() => { void refreshHomeTasks().catch(() => undefined); }, 30_000);
     return () => {
-      controller.abort();
+      controller.abort(); unsubscribe();
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       window.clearInterval(poll);
     };
   }, [homeView, refreshHomeTasks, selectedBookId]);
-
-  useEffect(() => {
-    setPendingAttachments([]);
-    if (selectedBookId === null) {
-      setComposer('');
-      return;
-    }
-    let active = true;
-    void loadDraft(selectedBookId).then((draft) => {
-      if (active) setComposer(draft);
-    });
-    return () => { active = false; };
-  }, [selectedBookId]);
-
-  useEffect(() => {
-    if (selectedBookId === null) return;
-    const timeout = window.setTimeout(() => void saveDraft(selectedBookId, composer), 250);
-    return () => window.clearTimeout(timeout);
-  }, [composer, selectedBookId]);
 
   useEffect(() => {
     saveWorkspacePreferences(preferences);
@@ -424,26 +362,25 @@ export function App(): React.JSX.Element {
   }, [selectedBookId, selectedChapterId, selectedWorkspaceChapter?.currentManuscriptVersionId, selectedWorkspaceChapter?.canonManuscriptVersionId, selectedChapter?.currentManuscriptVersionId, selectedChapter?.canonManuscriptVersionId, workspace?.book.canonRevision]);
 
   useEffect(() => {
-    if (view !== 'outline' || creationTab !== 'manuscript' || workspace === null || workspace.chapters.length === 0) return;
+    if (creationTab !== 'manuscript' || workspace === null || workspace.chapters.length === 0) return;
     if (selectedChapterId !== null && selectedChapter?.chapterId === selectedChapterId) return;
     const firstChapter = [...workspace.chapters].sort((left, right) => left.chapterNumber - right.chapterNumber)[0];
     if (firstChapter === undefined) return;
     setSelectedChapterId(firstChapter.chapterId);
     setSelectedChapter(firstChapter);
-  }, [creationTab, selectedChapterId, selectedChapter?.chapterId, view, workspace]);
+  }, [creationTab, selectedChapterId, selectedChapter?.chapterId, workspace]);
 
   useEffect(() => {
-    if (selectedBookId === null || workspace === null || !['outline', 'knowledge', 'projections', 'rights'].includes(view)) return;
-    const cacheKey = `${view}:${selectedBookId}`;
+    if (selectedBookId === null || workspace === null) return;
+    if (creationTab === 'naming') { setReferenceData([]); return; }
+    const cacheKey = `${creationTab}:${selectedBookId}`;
     const controller = new AbortController();
     const refreshReferenceData = async (useCacheFallback: boolean): Promise<void> => {
-      const request = view === 'outline'
-        ? fetchArtifacts(selectedBookId, controller.signal)
-        : view === 'knowledge'
-          ? fetchLibrary(selectedBookId, controller.signal)
-          : view === 'projections'
-            ? fetchGraphWorkspace(selectedBookId, controller.signal)
-            : fetchRightsWorkspace(selectedBookId, controller.signal);
+      const request = creationTab === 'library'
+        ? fetchLibrary(selectedBookId, controller.signal)
+        : creationTab === 'graph'
+          ? fetchGraphWorkspace(selectedBookId, controller.signal)
+          : fetchArtifacts(selectedBookId, controller.signal);
       try {
         const data = await request;
         if (controller.signal.aborted) return;
@@ -451,16 +388,13 @@ export function App(): React.JSX.Element {
         await cacheSnapshot(cacheKey, selectedBookId, workspace.book.canonRevision, data);
       } catch {
         if (!useCacheFallback || controller.signal.aborted) return;
-        setReferenceData(await loadSnapshot<unknown[]>(cacheKey, workspace.book.canonRevision) ?? []);
+        setReferenceData(await loadSnapshot<unknown>(cacheKey, workspace.book.canonRevision) ?? []);
       }
     };
     void refreshReferenceData(true);
-    const poll = window.setInterval(() => void refreshReferenceData(false), 5_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(poll);
-    };
-  }, [selectedBookId, view, workspace?.book.canonRevision]);
+    const poll = window.setInterval(() => void refreshReferenceData(false), 30_000);
+    return () => { controller.abort(); window.clearInterval(poll); };
+  }, [creationTab, selectedBookId, workspace?.book.canonRevision]);
 
   useEffect(() => {
     if (!settingsOpen || selectedBookId === null) {
@@ -478,16 +412,11 @@ export function App(): React.JSX.Element {
   }, [selectedBookId, settingsOpen]);
 
   const selectBook = (bookId: string): void => {
-    if (bookId !== selectedBookId && pendingAttachments.length > 0) {
-      setError('切换书籍前请先发送或移除当前附件，避免留下未引用资料。');
-      return;
-    }
     setSelectedBookId(bookId);
     persistSelectedBook(bookId);
     setSelectedChapterId(null);
     setSelectedChapter(null);
     setSelectedTask(null);
-    setView('chat');
     setLeftOpen(false);
   };
 
@@ -506,64 +435,10 @@ export function App(): React.JSX.Element {
   };
 
   const returnToShelf = (): void => {
-    if (pendingAttachments.length > 0) {
-      setError('返回书架前请先发送或移除当前附件，避免留下未引用资料。');
-      return;
-    }
     openHomeView('shelf');
   };
 
-  const submitMessage = async (overrideContent?: string): Promise<void> => {
-    const isQuickAction = overrideContent !== undefined;
-    const readyAttachments = isQuickAction
-      ? []
-      : pendingAttachments.filter((item) => item.status === 'ready' && item.data !== null);
-    const outgoingContent = overrideContent ?? composer;
-    if (selectedBookId === null || (outgoingContent.trim().length === 0 && readyAttachments.length === 0) || busy) return;
-    const switchMatch = /^(?:切书|切换到)\s*[《「]?(.+?)[》」]?$/u.exec(outgoingContent.trim());
-    if (switchMatch !== null) {
-      if (pendingAttachments.length > 0) {
-        setError('切换书籍前请先发送或移除当前附件，避免资料进入错误书籍。');
-        return;
-      }
-      const target = books.find((book) => book.title === switchMatch[1]!.trim());
-      if (target === undefined) {
-        setError(`没有找到书籍“${switchMatch[1]!.trim()}”`);
-        return;
-      }
-      setComposer('');
-      await saveDraft(selectedBookId, '');
-      selectBook(target.bookId);
-      return;
-    }
-    setBusy(true);
-    try {
-      const messageBookId = selectedBookId;
-      const sent = await sendMessage(messageBookId, outgoingContent, readyAttachments.map((item) => item.data!.attachmentId));
-      if (sent.action.kind === 'knowledge_workspace_opened') setView('knowledge');
-      if (!isQuickAction) {
-        setComposer('');
-        setPendingAttachments([]);
-        await saveDraft(messageBookId, '');
-      }
-      if (sent.action.kind === 'task_overview') {
-        openHomeView('tasks');
-      } else {
-        await refreshWorkspace(messageBookId);
-      }
-      setError(null);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '消息发送失败');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const createNewBook = async (input: Parameters<typeof createBook>[0]): Promise<boolean> => {
-    if (pendingAttachments.length > 0) {
-      setError('创建并切换新书前请先发送或移除当前附件。');
-      return false;
-    }
     setBusy(true);
     try {
       const created = await createBook(input);
@@ -571,10 +446,9 @@ export function App(): React.JSX.Element {
       selectBook(created.bookId);
       if (input.openingBlueprint?.creationMode === 'continuation') {
         setCreationTab('manuscript');
-        setView('outline');
-      } else {
-        setView('chat');
-      }
+          } else {
+        setCreationTab('basic');
+          }
       setCreateOpen(false);
       setError(null);
       return true;
@@ -632,10 +506,6 @@ export function App(): React.JSX.Element {
 
   const archiveSelectedBook = async (): Promise<void> => {
     if (archiveCandidate === null || busy) return;
-    if (pendingAttachments.length > 0) {
-      setError('归档当前书籍前请先发送或移除待发附件。');
-      return;
-    }
     setBusy(true);
     try {
       await archiveBook(archiveCandidate.bookId, archiveCandidate.version);
@@ -652,10 +522,6 @@ export function App(): React.JSX.Element {
 
   const restoreArchivedBook = async (book: BookData): Promise<void> => {
     if (busy) return;
-    if (pendingAttachments.length > 0) {
-      setError('恢复并切换书籍前请先发送或移除当前附件。');
-      return;
-    }
     setBusy(true);
     try {
       await restoreBook(book.bookId, book.version);
@@ -667,36 +533,6 @@ export function App(): React.JSX.Element {
       setError(reason instanceof Error ? reason.message : '恢复书籍失败');
     } finally {
       setBusy(false);
-    }
-  };
-
-  const uploadSelectedFiles = async (files: File[]): Promise<void> => {
-    if (selectedBookId === null || files.length === 0) return;
-    const slots = Math.max(0, 6 - pendingAttachments.length);
-    const selected = files.slice(0, slots);
-    if (selected.length < files.length) setError('每条消息最多附加6个文件。');
-    const bookId = selectedBookId;
-    for (const file of selected) {
-      const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      setPendingAttachments((current) => [...current, {
-        localId, fileName: file.name, status: 'uploading', data: null, error: null
-      }]);
-      void uploadChatAttachment(bookId, file).then((data) => {
-        setPendingAttachments((current) => current.map((item) => item.localId === localId
-          ? { ...item, status: 'ready', data, error: data.parseError }
-          : item));
-      }).catch((reason: unknown) => {
-        setPendingAttachments((current) => current.map((item) => item.localId === localId
-          ? { ...item, status: 'failed', error: reason instanceof Error ? reason.message : '附件上传失败' }
-          : item));
-      });
-    }
-  };
-
-  const removePendingAttachment = (attachment: PendingChatAttachment): void => {
-    setPendingAttachments((current) => current.filter((item) => item.localId !== attachment.localId));
-    if (selectedBookId !== null && attachment.data !== null) {
-      void discardChatAttachment(selectedBookId, attachment.data.attachmentId).catch(() => undefined);
     }
   };
 
@@ -734,7 +570,7 @@ export function App(): React.JSX.Element {
     >
       <header className="topbar">
         <div className="brand-lockup">
-          <button className="icon-button mobile-only" type="button" aria-label="打开书籍与功能" onClick={() => setLeftOpen(true)}><ListIcon /></button>
+          <button className="icon-button mobile-only" type="button" aria-label="打开书籍" onClick={() => setLeftOpen(true)}><ListIcon /></button>
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
@@ -756,8 +592,8 @@ export function App(): React.JSX.Element {
         </div>
       </header>
 
-      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label={selectedBook === null ? '首页功能' : '书籍与功能'}>
-        <DrawerHeader title="书籍与功能" onClose={() => setLeftOpen(false)} />
+      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label={selectedBook === null ? '首页功能' : '书籍'}>
+        <DrawerHeader title="书籍" onClose={() => setLeftOpen(false)} />
         {selectedBook === null ? (
           <nav className="home-navigation" aria-label="首页功能">
             <RailViewButton active={homeView === 'shelf'} onClick={() => { setHomeView('shelf'); setLeftOpen(false); }} icon={<BooksIcon />} label="书架" />
@@ -766,15 +602,15 @@ export function App(): React.JSX.Element {
             <button type="button" onClick={() => { setSettingsOpen(true); setLeftOpen(false); }}><GearSixIcon /><span>设置</span></button>
           </nav>
         ) : (
-          <nav className="rail-navigation" aria-label="创作功能">
+          <div className="rail-book-switcher" aria-label="书籍切换">
             <button className="back-to-shelf" type="button" onClick={returnToShelf}><BooksIcon /><span>返回书架</span></button>
-            <RailViewButton active={view === 'chat'} onClick={() => { setView('chat'); setLeftOpen(false); }} icon={<ChatsCircleIcon />} label="对话" />
-            <RailViewButton active={view === 'outline'} onClick={() => { setView('outline'); setLeftOpen(false); }} icon={<BookOpenTextIcon />} label="创作台" />
-            <RailViewButton active={view === 'projections'} onClick={() => { setView('projections'); setLeftOpen(false); }} icon={<DatabaseIcon />} label="图谱" />
-            <RailViewButton active={view === 'knowledge'} onClick={() => { setView('knowledge'); setLeftOpen(false); }} icon={<BrainIcon />} label="资料库" />
-            <RailViewButton active={view === 'rights'} onClick={() => { setView('rights'); setLeftOpen(false); }} icon={<ShieldCheckIcon />} label="版权" accessibleLabel="版权与研究" />
-            <RailViewButton active={view === 'naming'} onClick={() => { setView('naming'); setLeftOpen(false); }} icon={<MagicWandIcon />} label="取名" />
-          </nav>
+            <button className="rail-new-book" type="button" onClick={() => { setCreateOpen(true); setLeftOpen(false); }}><PlusIcon /><span>新建书籍</span></button>
+            <p>我的书籍</p>
+            <nav aria-label="选择书籍">{activeBooks.map((book) => <button type="button" key={book.bookId}
+              className={book.bookId === selectedBookId ? 'active' : ''} onClick={() => selectBook(book.bookId)}>
+              <BookOpenTextIcon /><span><strong>{book.title}</strong><small>{book.bookId === selectedBookId ? '当前书籍' : bookStatusLabel(book.status)}</small></span>
+            </button>)}</nav>
+          </div>
         )}
       </aside>
 
@@ -813,38 +649,15 @@ export function App(): React.JSX.Element {
                 </section>
         ) : (
           <>
-            {view === 'chat' && (
-              <ChatWorkspace
-                bookId={selectedBook.bookId}
-                reception={conversationReception}
-                messages={messages}
-                agents={workspace?.agents ?? []}
-                totalMessageCount={workspace?.messageCount ?? messages.length}
-                creativeSession={workspace?.creativeSession ?? null}
-                onboardingTask={workspace?.tasks.find((task) =>
-                  task.taskType === 'conversation_reply' && task.brief.proactiveOnboarding === true
-                ) ?? null}
-                activeFlowTask={workspace?.tasks.find((task) =>
-                  ['discussion', 'conversation_reply'].includes(task.taskType)
-                  && task.brief.proactiveOnboarding !== true
-                  && ['pending', 'queued', 'working'].includes(task.status)
-                ) ?? null}
-                busy={busy}
-                composer={composer}
-                setComposer={setComposer}
-                pendingAttachments={pendingAttachments}
-                onFilesSelected={uploadSelectedFiles}
-                onRemoveAttachment={removePendingAttachment}
-                onSubmit={submitMessage}
-                onQuickAction={(content) => submitMessage(content)}
-              />
-            )}
-            {view === 'outline' && <PlanningWorkspace
+            <PlanningWorkspace
               tab={creationTab}
               onTabChange={setCreationTab}
               data={referenceData}
               workspace={workspace}
               onBookProfileChanged={() => refreshWorkspace(selectedBook.bookId)}
+              graph={<ProjectionWorkspace data={referenceData} />}
+              library={<LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
+              naming={<NamingWorkspace book={selectedBook} />}
               manuscript={<ManuscriptWorkspace
                 key={selectedBook.bookId}
                 workspace={workspace}
@@ -854,13 +667,9 @@ export function App(): React.JSX.Element {
                 detail={chapterDetail}
                 onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
                 onChanged={() => void refreshWorkspace(selectedBook.bookId)}
-                onOpenConversation={() => setView('chat')}
+                onOpenPlanning={() => setCreationTab('basic')}
               />}
-            />}
-            {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
-            {view === 'projections' && <ProjectionWorkspace data={referenceData} />}
-            {view === 'rights' && <RightsWorkspace data={referenceData} />}
-            {view === 'naming' && <NamingWorkspace book={selectedBook} />}
+            />
           </>
         )}
       </main>

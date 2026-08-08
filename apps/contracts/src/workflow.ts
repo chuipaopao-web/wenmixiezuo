@@ -52,7 +52,7 @@ export type PlanningScope = 'volume' | 'event';
 export type TemplateSelectionMode = 'template' | 'custom' | 'none';
 
 export interface VersionReference {
-  kind: 'book_profile' | 'setting' | 'volume_plan' | 'story_event' | 'chapter_outline' | 'chapter' | 'settlement' | 'canon_revision';
+  kind: 'book_profile' | 'setting' | 'volume_plan' | 'story_event' | 'event_chapter_sequence' | 'chapter_outline' | 'chapter' | 'settlement' | 'canon_revision';
   id: string;
   version: number;
   contentHash: string;
@@ -252,6 +252,20 @@ export interface ChapterOutlineContent {
   creativeFreedom: string[];
 }
 
+export interface EventChapterClosureCoverage {
+  endingCondition: string;
+  evidenceChapterNumber: number;
+}
+
+export interface EventChapterSequenceContent {
+  eventTitle: string;
+  startChapterNumber: number;
+  chapters: ChapterOutlineContent[];
+  eventEndingConditions: string[];
+  closureCoverage: EventChapterClosureCoverage[];
+  flexibilityNotes: string[];
+}
+
 export interface ChapterOutlineVersion {
   ownerId: string;
   bookId: string;
@@ -353,6 +367,90 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
   };
 }
 
+export function parseStoryEventContent(input: unknown): StoryEventContent {
+  const value = requireRecord(input, '事件规划');
+  return {
+    title: requireText(value.title, '事件标题'),
+    volumeResponsibility: requireText(value.volumeResponsibility, '事件对本卷的作用'),
+    startingState: requireText(value.startingState, '事件开始状态'),
+    trigger: requireText(value.trigger, '事件触发条件'),
+    participants: requireUniqueTextArray(value.participants, '参与人物'),
+    characterGoals: requireUniqueTextArray(value.characterGoals, '人物目标'),
+    obstacles: requireUniqueTextArray(value.obstacles, '主要阻力'),
+    choicesAndCosts: requireUniqueTextArray(value.choicesAndCosts, '选择与代价'),
+    informationMoves: requireUniqueTextArray(value.informationMoves, '信息推进'),
+    localProgression: requireUniqueTextArray(value.localProgression, '事件内部推进'),
+    requiredResult: requireText(value.requiredResult, '事件必须得到的结果'),
+    flexibleExecution: requireUniqueTextArray(value.flexibleExecution, '自由发挥空间'),
+    endingConditions: requireUniqueTextArray(value.endingConditions, '事件结束条件'),
+    nextEventImpact: requireText(value.nextEventImpact, '下一事件接口'),
+    characterArcImpact: requireText(value.characterArcImpact, '人物变化作用'),
+    volumeClimaxImpact: requireText(value.volumeClimaxImpact, '卷高潮作用'),
+    estimatedChapterRange: parseEstimatedChapterRange(value.estimatedChapterRange),
+    uncertaintyNotes: requireUniqueTextArray(value.uncertaintyNotes, '未知与待确认')
+  };
+}
+export function parseChapterOutlineContent(input: unknown): ChapterOutlineContent {
+  const value = requireRecord(input, '章纲');
+  const chapterNumber = requirePositiveInteger(value.chapterNumber, '章号');
+  const storyBeats = requireUniqueTextArray(value.storyBeats, '剧情推进节点');
+  const creativeFreedom = requireUniqueTextArray(value.creativeFreedom, '自由创作区');
+  if (storyBeats.length === 0) throw new Error('章纲至少需要一个推进节点。');
+  if (creativeFreedom.length === 0) throw new Error('章纲必须保留自由创作空间。');
+  return {
+    chapterNumber,
+    title: requireText(value.title, '章节标题'),
+    eventResponsibility: requireText(value.eventResponsibility, '本章对事件的作用'),
+    openingState: requireText(value.openingState, '开章状态'),
+    characterGoals: requireUniqueTextArray(value.characterGoals, '人物目标'),
+    conflicts: requireUniqueTextArray(value.conflicts, '冲突与阻力'),
+    choicesAndCosts: requireUniqueTextArray(value.choicesAndCosts, '选择与代价'),
+    informationChanges: requireUniqueTextArray(value.informationChanges, '信息变化'),
+    storyBeats,
+    endingState: requireText(value.endingState, '章末状态'),
+    nextChapterInterface: requireText(value.nextChapterInterface, '下一章接口'),
+    softSuggestions: requireUniqueTextArray(value.softSuggestions, '软建议'),
+    creativeFreedom
+  };
+}
+
+export function parseEventChapterSequenceContent(input: unknown): EventChapterSequenceContent {
+  const value = requireRecord(input, '事件章纲序列');
+  const startChapterNumber = requirePositiveInteger(value.startChapterNumber, '事件起始章号');
+  if (!Array.isArray(value.chapters) || value.chapters.length === 0 || value.chapters.length > 50) {
+    throw new Error('事件章纲序列必须包含一至五十章。');
+  }
+  const chapters = value.chapters.map(parseChapterOutlineContent);
+  chapters.forEach((chapter, index) => {
+    if (chapter.chapterNumber !== startChapterNumber + index) throw new Error('事件章号必须从起始章连续递增。');
+  });
+  const eventEndingConditions = requireUniqueTextArray(value.eventEndingConditions, '事件结束条件');
+  if (eventEndingConditions.length === 0) throw new Error('事件章纲序列必须保留事件结束条件。');
+  if (!Array.isArray(value.closureCoverage)) throw new Error('事件闭环说明必须是列表。');
+  const closureCoverage = value.closureCoverage.map((item) => {
+    const coverage = requireRecord(item, '事件闭环说明');
+    return {
+      endingCondition: requireText(coverage.endingCondition, '闭环条件'),
+      evidenceChapterNumber: requirePositiveInteger(coverage.evidenceChapterNumber, '闭环发生章')
+    };
+  });
+  if (new Set(closureCoverage.map((item) => item.endingCondition)).size !== closureCoverage.length) {
+    throw new Error('每项事件结束条件只能登记一次闭环位置。');
+  }
+  if (closureCoverage.some((item) => item.evidenceChapterNumber < startChapterNumber
+    || item.evidenceChapterNumber >= startChapterNumber + chapters.length)) {
+    throw new Error('事件闭环位置必须属于当前事件章纲序列。');
+  }
+  return {
+    eventTitle: requireText(value.eventTitle, '事件名称'),
+    startChapterNumber,
+    chapters,
+    eventEndingConditions,
+    closureCoverage,
+    flexibilityNotes: requireUniqueTextArray(value.flexibilityNotes, '序列弹性说明')
+  };
+}
+
 export function parsePlanningTemplateInstance(input: unknown, expectedScope?: PlanningScope): PlanningTemplateInstance {
   const value = requireRecord(input, '推进参考');
   const selectionMode = requireOneOf(value.selectionMode, ['template', 'custom', 'none'] as const, '推进参考选择方式');
@@ -393,7 +491,7 @@ export function parsePlanningTemplateInstance(input: unknown, expectedScope?: Pl
 export function parseVersionReferences(input: unknown): VersionReference[] {
   const values = requireRecordArray(input, '依赖版本').map((item) => ({
     kind: requireOneOf(item.kind, [
-      'book_profile', 'setting', 'volume_plan', 'story_event', 'chapter_outline', 'chapter', 'settlement', 'canon_revision'
+      'book_profile', 'setting', 'volume_plan', 'story_event', 'event_chapter_sequence', 'chapter_outline', 'chapter', 'settlement', 'canon_revision'
     ] as const, '依赖类型'),
     id: requireText(item.id, '依赖标识'),
     version: requireNonNegativeInteger(item.version, '依赖版本'),

@@ -9,6 +9,7 @@ import { WriterSelectionService } from './writer-selection-service.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
 import { WritingReadinessService, type ChapterRequestCount } from './writing-readiness-service.js';
+import { CreationWorkflowProgressService } from './creation-workflow-progress-service.js';
 
 export interface ChapterBatchRecord {
   batchId: string;
@@ -160,6 +161,7 @@ export class ChapterBatchService {
         next_index, status, checkpoint_json, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, 0, 'pending', '{}', ?, ?)
     `).run(batchId, scope.ownerId, scope.bookId, JSON.stringify(chapterIds), JSON.stringify(taskIds), now, now);
+    new CreationWorkflowProgressService(this.database).markManuscriptStarted(scope, taskIds[0]!);
     return this.require(scope, batchId);
   }
 
