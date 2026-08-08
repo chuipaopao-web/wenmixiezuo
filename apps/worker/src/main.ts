@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { CREATION_WORKFLOW_CONTRACT_VERSION } from '@wenmi/contracts';
 import { WorkerHeartbeat } from './health/heartbeat.js';
 import { loadWorkerConfig } from './runtime/config.js';
 import { TaskClaimer } from './scheduler/task-claimer.js';
@@ -17,7 +18,7 @@ database.exec('PRAGMA journal_mode = WAL');
 database.exec('PRAGMA synchronous = FULL');
 database.exec('PRAGMA busy_timeout = 5000');
 
-const heartbeat = new WorkerHeartbeat(database, config, ['vector-projection-starting']);
+const heartbeat = new WorkerHeartbeat(database, config, [`workflow-contract-v${CREATION_WORKFLOW_CONTRACT_VERSION}`, 'vector-projection-starting']);
 heartbeat.start();
 let vectorRuntime;
 try {

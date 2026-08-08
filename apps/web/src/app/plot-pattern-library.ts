@@ -1,80 +1,70 @@
+import {
+  getPublicNarrativeTemplateCatalog,
+  type PublicNarrativeTemplate
+} from '@wenmi/contracts';
 import type { BookProfileViewData } from '../lib/api/client';
 
 export interface PlotPattern {
   id: string;
+  version: number;
+  contentHash: string;
   name: string;
   group: string;
   summary: string;
   suitable: string[];
-  structure: [string, string, string, string];
+  structure: string[];
+  questions: string[];
+  preview: string;
   promise: string;
   risk: string;
 }
 
-const pattern = (id: string, name: string, group: string, summary: string, suitable: string[], structure: [string, string, string, string], promise: string, risk: string): PlotPattern => ({ id, name, group, summary, suitable, structure, promise, risk });
+function groupFor(template: PublicNarrativeTemplate): string {
+  if (template.templateKey.includes('truth') || template.templateKey.includes('strategy')) return '真相与局势';
+  if (template.templateKey.includes('relationship')) return '人物关系';
+  if (template.templateKey.includes('build')) return '积累与建设';
+  if (template.templateKey.includes('pressure') || template.templateKey.includes('escalating')) return '压力与反击';
+  return '人物成长';
+}
 
-export const PLOT_PATTERNS: PlotPattern[] = [
-  pattern('hidden-power-reveal', '扮猪吃虎', '逆袭与反转', '主角隐藏真实能力，在持续低估和压迫后选择关键节点揭示。', ['玄幻', '仙侠', '都市', '游戏', '爽文', '逆袭'], ['建立低估与限制', '对手加码、主角暗中准备', '关键局面被迫或主动揭底', '完成身份与局势重估'], '压抑后的集中释放与身份反差', '隐藏过久会显得主角被动，揭示过早会透支后续张力'),
-  pattern('face-slap-reversal', '打脸反转', '逆袭与反转', '围绕一个可验证的误判或轻视，逐层积累证据并在公开节点反转。', ['都市', '玄幻', '言情', '职场', '爽文'], ['明确误判与代价', '对手公开加码', '证据或实力反转', '让反转改变关系和后续目标'], '即时爽感与秩序重排', '只重复围观震惊会快速同质化'),
-  pattern('underdog-counterattack', '绝境逆袭', '逆袭与反转', '主角在资源、身份或时间全面不利时找到唯一突破口。', ['玄幻', '游戏', '历史', '都市', '生存'], ['压入绝境', '试错并付出代价', '发现规则漏洞或新解', '逆转但留下更高层代价'], '高压下的能力证明', '无代价开挂会削弱可信度'),
-  pattern('trap-countertrap', '局中局反杀', '逆袭与反转', '表层陷阱之下还有双方各自准备的后手，最终由信息差决定胜负。', ['悬疑', '权谋', '商战', '历史', '谍战'], ['诱饵出现', '双方布置与误导', '假胜负触发深层后手', '揭示真正目标并结算代价'], '智力博弈与二次回看价值', '后手没有前置证据会像强行反转'),
-  pattern('continuous-leveling', '连续升级', '成长与升级', '围绕明确成长门槛、资源获取和能力验证形成阶段闭环。', ['玄幻', '仙侠', '游戏', '高武', '系统'], ['展示门槛与差距', '获取资源并训练试错', '关键战斗验证成长', '升级后打开更大地图或矛盾'], '稳定成长反馈与阶段成就', '数值增长不能替代人物选择和代价'),
-  pattern('trial-breakthrough', '试炼突破', '成长与升级', '用一场有规则、有淘汰代价的试炼迫使主角完成能力与认知突破。', ['玄幻', '仙侠', '游戏', '学院'], ['宣布规则与奖励', '遭遇针对性难题', '旧方法失效并突破', '带着新能力和新关系离场'], '目标清晰的能力展示', '规则若只服务主角会失去公平感'),
-  pattern('territory-building', '领地经营', '成长与升级', '从资源匮乏据点出发，通过制度、人才和外部冲突完成阶段建设。', ['领主', '历史', '游戏', '种田', '经营'], ['盘点缺口', '解决生存与生产瓶颈', '外敌或内部矛盾检验体系', '形成可持续的新秩序'], '可视化积累与群像成就', '流水账建设会缺少人物冲突'),
-  pattern('career-rise', '事业进阶', '成长与升级', '以职业难题、能力证明和组织关系变化推动主角上升。', ['职场', '都市', '医疗', '律政', '娱乐圈'], ['接到高难任务', '资源受限与团队摩擦', '专业突破或责任选择', '成果改变职位和关系'], '专业能力与现实成就感', '只升职不改变人物会变成履历表'),
-  pattern('mutual-redemption', '双向救赎', '情感与关系', '两人各有真实缺口，在共同事件中互相看见、帮助又彼此改变。', ['现言', '青春', '都市', '悬疑恋爱', '治愈'], ['写清各自的伤口和相处分寸', '互助中出现误解或依赖冲突', '真相迫使双方主动选择', '用更健康的方式相处并完成阶段和解'], '情绪共鸣与人物共同成长', '一方长期充当工具人会失去“双向”'),
-  pattern('wife-chasing', '追妻火葬场', '情感与关系', '失去之后才看见长期忽略的伤害，追回过程必须包含认知、代价和行为改变。', ['现言', '古言', '豪门', '婚恋'], ['关系破裂并明确伤害', '追求受阻、旧方式失效', '承担不可撤销的代价', '复合或不复合都完成价值结算'], '强烈情绪释放与迟来醒悟', '只有纠缠没有改变会美化伤害'),
-  pattern('enemies-to-lovers', '欢喜冤家', '情感与关系', '立场或性格冲突的两人，在共同任务中逐步修正对彼此的判断。', ['言情', '古言', '现言', '奇幻'], ['制造真实立场冲突', '被迫合作并发现优点', '重大分歧考验信任', '在保留差异的前提下选择关系'], '高密度互动与化学反应', '纯嘴硬没有共同经历会显得悬浮'),
-  pattern('reunion-repair', '破镜重圆', '情感与关系', '旧关系因真实问题破裂，多年后重逢必须面对当年的原因而非直接复合。', ['现言', '古言', '婚恋', '青春'], ['重逢触发旧伤', '现实任务迫使接触', '旧真相与新变化同时揭开', '决定重新开始或彻底告别'], '怀旧、遗憾与成熟后的选择', '靠误会拖延会削弱人物责任'),
-  pattern('closed-circle-mystery', '封闭空间谜案', '悬疑与调查', '限定人物、空间和时间，用证据链逐步排除不可能。', ['悬疑', '推理', '惊悚', '无限流'], ['封闭与案件发生', '证据冲突、嫌疑扩大', '关键证据重释', '还原因果并结算余波'], '高密度推理与群体压力', '答案依赖未展示信息属于作弊'),
-  pattern('dual-timeline-truth', '双时间线拼图', '悬疑与调查', '过去与现在交替提供互补证据，最终在同一因果点汇合。', ['悬疑', '现实', '历史', '言情'], ['两条时间线分别立问', '相似事件产生误导', '关键对应关系被识别', '汇合揭示完整真相'], '信息拼合与命运回声', '时间跳转过密会破坏阅读清晰度'),
-  pattern('hidden-identity', '身份谜局', '悬疑与调查', '人物公开身份与真实目的存在差异，揭示过程持续改变关系判断。', ['悬疑', '权谋', '都市', '言情', '奇幻'], ['植入身份矛盾', '异常行为累积', '部分揭示制造错误结论', '完整身份改变阵营与目标'], '人物关系反转与持续悬念', '只靠隐瞒不靠行动证据会显得刻意'),
-  pattern('countdown-rescue', '限时营救', '悬疑与调查', '用明确倒计时、线索链和牺牲选择推进营救。', ['悬疑', '刑侦', '灾难', '战争'], ['建立倒计时与受困者', '多线搜证和阻碍', '错误线索造成时间损失', '最后选择决定救援结果'], '紧迫感与道德选择', '不断延长倒计时会破坏可信度'),
-  pattern('court-power-rise', '朝堂进阶', '权谋与历史', '主角受制度、派系和身份限制，只能一步步争取说话的分量。', ['历史', '古代', '权谋', '官场'], ['进入权力场并识别规则', '小胜引来派系阻击', '用制度或证据完成转折', '获得权力同时承担新责任'], '制度博弈与身份成长', '靠现代常识碾压会削弱时代真实感'),
-  pattern('campaign-victory', '战役攻防', '权谋与历史', '围绕一个战略目标组织侦察、资源、战术和战后结算。', ['历史', '战争', '军事', '领主'], ['明确战场目标与双方资源', '试探和局部受挫', '抓住战机改变战局', '战后清算损失与政治影响'], '规模感、策略感与牺牲感', '只写战术胜利不结算伤亡和政治后果会失真'),
-  pattern('reform-resistance', '改革破局', '权谋与历史', '新制度触碰既得利益，主角必须在效果、联盟和代价间取舍。', ['历史', '官场', '经营', '科幻'], ['提出改革目标', '利益集团反制', '试点失败或代价暴露', '调整方案并建立新平衡'], '现实阻力与制度成长', '把反对者写成纯蠢坏会失去深度'),
-  pattern('dungeon-first-clear', '副本首通', '游戏与竞技', '围绕未知机制、队伍协作和资源分配完成首次攻略。', ['游戏', '电竞', '无限流', '虚拟网游'], ['进入副本并试探规则', '机制升级、队伍分歧', '识破核心机制', '首通并结算奖励与影响'], '机制破解与团队高光', '只堆技能名称会削弱场景理解'),
-  pattern('season-championship', '赛季夺冠', '游戏与竞技', '从队伍磨合、常规赛挫折到淘汰赛完成阶段冠军目标。', ['电竞', '体育', '竞技'], ['建立队伍短板', '赛季推进与关键失败', '战术和关系共同突破', '决赛兑现成长并结算去留'], '长期积累后的竞技释放', '所有对手工具化会削弱冠军含金量'),
-  pattern('guild-war', '公会争霸', '游戏与竞技', '资源点、联盟和成员信任共同决定大型势力对抗。', ['网游', '游戏异界', '领主'], ['争夺目标出现', '联盟谈判与内部矛盾', '背叛或奇袭改变战局', '重划资源和势力格局'], '群像协作与战略版图变化', '成员数量多但无辨识度会造成信息噪声'),
-  pattern('startup-survival', '创业求生', '都市与经营', '产品、现金流、团队与市场压力构成连续决策链。', ['都市', '商业', '职场', '科技'], ['发现机会并组队', '产品或资金危机', '关键客户/技术/关系破局', '活下来并面对扩张代价'], '现实成就感与商业博弈', '用巧合融资会削弱专业可信度'),
-  pattern('family-comeback', '家族翻盘', '都市与经营', '从债务、名誉或内部裂痕出发重建家族或企业。', ['豪门', '都市', '商战', '历史'], ['危机公开', '清理内部问题并找资源', '对手阻击与旧账揭露', '恢复基本盘但留下更大竞争'], '身份回归与共同体重建', '一人全能会挤压群像空间'),
-  pattern('revenge-settlement', '复仇清算', '逆袭与反转', '围绕一笔明确旧债逐层取得证据和行动能力，最终由人物选择决定清算尺度。', ['都市', '历史', '玄幻', '悬疑', '复仇'], ['确认旧债与现实代价', '积累证据和能力', '面对复仇反噬', '完成清算并承担结果'], '压抑释放与价值选择', '把所有对手写成纯恶会让复仇失去重量'),
-  pattern('rebirth-correction', '重生纠错', '成长与升级', '主角带着有限前世认知重走关键节点，改变命运也制造新的变量。', ['重生', '年代', '都市', '古代', '商战'], ['回到关键节点', '利用旧知取得小胜', '蝴蝶效应使经验失效', '靠当下能力完成真正选择'], '弥补遗憾与命运改写', '前世信息全知全能会消灭悬念'),
-  pattern('system-task-chain', '系统任务链', '成长与升级', '任务、奖励与代价围绕人物目标形成连续闭环，而不是机械发放福利。', ['系统', '玄幻', '游戏', '都市'], ['系统规则亮相', '任务与人物目标冲突', '完成或拒绝带来代价', '发现系统更深层限制'], '清晰反馈与选择压力', '系统替主角做决定会削弱人物主动性'),
-  pattern('farming-development', '种田发展', '成长与升级', '从生存缺口出发，以生产、交易、人口和关系变化形成阶段积累。', ['种田', '经营', '历史', '领主', '年代'], ['盘点生产缺口', '建立第一条稳定产出', '外部冲突检验成果', '完成阶段丰收与分配'], '踏实积累与生活改善', '只有物资清单没有人物冲突会像经营报表'),
-  pattern('academy-competition', '学院竞赛', '成长与升级', '以选拔、课程或竞赛规则检验人物能力，并让同伴关系随竞争变化。', ['学院', '校园', '玄幻', '游戏', '青春'], ['进入竞争体系', '暴露能力短板', '团队或个人关键赛', '结果改变身份与关系'], '成长验证与同辈群像', '对手全是垫脚石会降低胜利含金量'),
-  pattern('mentor-legacy', '师徒传承', '成长与升级', '传承不只交付力量，还要求弟子理解、质疑并承担师门遗留问题。', ['仙侠', '武侠', '玄幻', '历史'], ['建立师徒契约', '训练与理念冲突', '师门旧事逼迫选择', '弟子形成自己的道路'], '传承感与代际成长', '师父只是功法发放器会使关系空洞'),
-  pattern('contract-romance', '契约关系转真心', '情感与关系', '两人因现实条件建立关系，在共同生活和相处冲突中产生真实感情。', ['现言', '古言', '豪门', '婚恋'], ['说清相处分寸和交换条件', '相处中产生合同之外的关心', '利益冲突迫使关系破裂', '以自由选择重建或结束关系'], '克制暧昧与选择确认', '用强迫替代感情成长会破坏可信度'),
-  pattern('secret-love-realized', '暗恋成真', '情感与关系', '长期单向认知经过共同事件和自我成长，最终获得对等表达机会。', ['青春', '校园', '现言', '都市'], ['建立距离与暗恋原因', '共同事件改变认知', '误解或时机错位', '坦白并接受真实结果'], '细腻期待与情感兑现', '只靠误会拖延会显得人物失去行动力'),
-  pattern('family-repair', '家庭修复', '情感与关系', '家庭成员因旧伤和现实危机重新相处，修复来自承担而不是一句原谅。', ['现实', '家庭', '年代', '治愈'], ['旧伤被现实事件触发', '各方立场正面冲突', '真相与责任被重新认识', '找到新的相处方式'], '生活共鸣与关系重建', '强迫受伤者原谅会美化伤害'),
-  pattern('serial-investigation', '连环追凶', '悬疑与调查', '多个案件由同一因果链相连，每次侦破都改变对主案的理解。', ['刑侦', '悬疑', '推理', '犯罪'], ['首案建立模式', '新案推翻旧判断', '锁定共同因果', '终案对决并回收证据链'], '持续悬念与证据累积', '凶手能力无限会破坏公平推理'),
-  pattern('survival-evacuation', '灾变撤离', '生存与科幻', '有限时间与资源下组织撤离，路线选择持续产生人员和道德代价。', ['末世', '灾难', '科幻', '生存'], ['灾变确认与集结', '路线受阻和资源冲突', '牺牲选择改变队伍', '抵达阶段安全点并结算损失'], '紧迫生存与群体选择', '危机只靠更大怪物升级会迅速疲劳'),
-  pattern('post-disaster-rebuild', '灾后重建', '生存与科幻', '灾难结束后围绕秩序、资源、创伤和权力完成一个重建阶段。', ['末世', '科幻', '现实', '经营'], ['盘点损失与核心缺口', '建立临时秩序', '内外危机检验规则', '形成可持续基本盘'], '废墟中的希望与共同体成长', '忽略创伤和利益分配会显得轻飘'),
-  pattern('interstellar-expedition', '星际远征', '生存与科幻', '用航程目标、未知环境和团队分歧推动探索，并让发现改变原任务。', ['科幻', '星际', '探索', '群像'], ['确立远征目标', '遭遇未知与资源压力', '发现颠覆任务前提', '作出返航、深入或改道选择'], '宏大探索与未知惊奇', '只罗列奇观没有决策代价会缺少故事'),
-  pattern('entertainment-rise', '文娱登顶', '都市与经营', '作品生产、舆论竞争和团队关系共同推动阶段事业目标。', ['娱乐圈', '文娱', '都市', '事业'], ['获得关键项目', '创作与资源受阻', '作品上线接受市场检验', '取得阶段位置并面对名利代价'], '创作成就与公众反馈', '只复制现实作品会触及版权并削弱原创性'),
-  pattern('medical-breakthrough', '医疗攻坚', '都市与经营', '围绕一个真实病例或公共卫生目标展开专业协作、伦理选择与结果结算。', ['医疗', '职场', '现实', '都市'], ['病例与限制明确', '诊疗分歧和时间压力', '证据改变方案', '治疗结果与伦理后果结算'], '专业紧张感与生命重量', '万能神医和虚假医学会破坏可信度'),
-  pattern('legal-reversal', '律政翻案', '悬疑与调查', '从不利证据出发重建事实链，在程序、证人和利益阻力中完成翻案。', ['律政', '悬疑', '现实', '职场'], ['接手不利案件', '调查发现证据矛盾', '关键证人或程序受阻', '庭审重构事实并结算代价'], '证据反转与正义兑现', '临场口才不能替代合法证据'),
-  pattern('espionage-infiltration', '谍战潜伏', '权谋与历史', '人物以双重身份执行任务，在信任、情报和暴露风险间连续选择。', ['谍战', '历史', '悬疑', '战争'], ['建立身份和任务', '取得信任并传递情报', '身份裂缝与误导升级', '完成阶段任务或被迫撤离'], '高压信息差与身份撕裂', '随意变换身份规则会削弱紧张感'),
-  pattern('succession-struggle', '夺嫡权谋', '权谋与历史', '围绕继承资格、联盟和制度限制展开阶段权力争夺。', ['古代', '权谋', '历史', '宫斗'], ['继承危机公开', '各方结盟与试探', '关键证据或背叛改变格局', '阶段胜负重新划分权力'], '多方博弈与关系反转', '只靠阴谋巧合会忽略制度和利益'),
-  pattern('slice-of-life-healing', '日常治愈', '情感与关系', '用一连串有关联的生活事件修复人物状态，阶段结束必须有可见变化。', ['治愈', '日常', '现实', '美食', '萌宠'], ['建立生活缺口', '重复相处产生微小改变', '一次危机检验关系', '形成新的日常秩序'], '陪伴感与细腻回甘', '没有阶段目标会变成松散片段'),
-  pattern('rule-horror', '规则怪谈', '惊悚与奇谭', '角色在真假混杂的规则中通过验证、代价和信息差求生。', ['规则怪谈', '惊悚', '无限流', '悬疑'], ['获得不完整规则', '验证规则并付出代价', '发现规则制定者或漏洞', '逃离/改写局部规则并留下更深谜团'], '认知恐惧与规则推理', '规则随意变化会失去公平性'),
-  pattern('folklore-investigation', '民俗调查', '惊悚与奇谭', '从地方禁忌和异常事件追溯真实历史与利益关系。', ['民俗悬疑', '灵异', '乡土', '奇谭'], ['进入地方并触碰禁忌', '口述与证据互相矛盾', '仪式/历史真相揭开', '解决事件并结算地方关系'], '地域感、历史感与未知恐惧', '只堆民俗名词会显得猎奇空洞')
-];
+function toPlotPattern(template: PublicNarrativeTemplate): PlotPattern {
+  return {
+    id: template.templateKey,
+    version: template.templateVersion,
+    contentHash: template.contentHash,
+    name: template.publicTitle,
+    group: groupFor(template),
+    summary: template.publicExplanation,
+    suitable: template.fitConditions,
+    structure: template.beats.map((item) => `${item.publicFunction}：${item.expectedChange}`),
+    questions: template.authorQuestions,
+    preview: template.previewPrompt,
+    promise: template.beats.at(-1)?.expectedChange ?? '让事件结果改变后续状态',
+    risk: template.knownRisks.join('；')
+  };
+}
 
+const volumeCatalog = getPublicNarrativeTemplateCatalog('volume');
+export const PLOT_PATTERNS: PlotPattern[] = volumeCatalog.templates.map(toPlotPattern);
 export const PLOT_PATTERN_GROUPS = [...new Set(PLOT_PATTERNS.map((item) => item.group))];
 
 export function recommendPlotPatterns(profile: BookProfileViewData | null): PlotPattern[] {
-  if (profile === null) return PLOT_PATTERNS.slice(0, 8);
-  const signals = [profile.category, ...profile.subjects, ...profile.mainTags, ...profile.customTags].join('');
-  return PLOT_PATTERNS
-    .map((item) => ({ item, score: item.suitable.reduce((score, tag) => score + (signals.includes(tag) ? 3 : 0), 0) }))
-    .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name, 'zh-CN'))
-    .slice(0, 10)
-    .map(({ item }) => item);
+  const signals = profile === null
+    ? []
+    : [profile.category, ...profile.subjects, ...profile.mainTags, ...profile.customTags];
+  const recommended = getPublicNarrativeTemplateCatalog('volume', signals).templates;
+  return recommended.map(toPlotPattern);
 }
 
 export function buildPlotPatternDiscussionPacket(primary: PlotPattern | null, supporting: PlotPattern[]): string {
   if (primary === null) return '';
-  const render = (item: PlotPattern): string => `${item.name}（${item.summary}；起承转合参考：${item.structure.join(' → ')}；风险：${item.risk}）`;
-  return `\n剧情模式仅供参考，不要照搬：\n主模式：${render(primary)}\n辅助模式：${supporting.length > 0 ? supporting.map(render).join('；') : '无'}\n请主编与两名编剧分别判断这些模式是否适合本书当前阶段；可以调整、组合或不用。作者确认阶段总纲后，后面的章纲要以它为准。`;
+  const render = (item: PlotPattern): string => [
+    `${item.name}（模板 ${item.id}@${item.version}，${item.contentHash}）`,
+    item.summary,
+    `推进参考：${item.structure.join(' → ')}`,
+    `请先问作者：${item.questions.join('；')}`,
+    `可能风险：${item.risk}`,
+    `代入本书时：${item.preview}`
+  ].join('；');
+  return `\n推进方式只供参考，不是必须照做：\n主要参考：${render(primary)}\n补充参考：${supporting.length > 0 ? supporting.map(render).join('；') : '无'}\n请主编与两名编剧分别判断它是否适合当前一卷；可以调整、混合、完全不用，也不能把节拍当成固定章数。作者确认卷纲后，事件设计必须说明怎样服务卷纲；有价值的偏离要先交给作者决定。`;
 }

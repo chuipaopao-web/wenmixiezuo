@@ -15,9 +15,9 @@
   ],
   "scripts": {
     "acceptance": "vitest run tests/acceptance && node scripts/acceptance-audit.mjs",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @wenmi/contracts && npm run build -w @wenmi/api && npm run build -w @wenmi/worker && npm run build -w @wenmi/web",
     "clean": "node scripts/clean.mjs",
-    "dev": "concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
+    "dev": "npm run build -w @wenmi/contracts && concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
     "evaluate:scale": "tsx scripts/evaluation/final-scale-replay.ts",
     "ledger:init": "node scripts/release-ledger.mjs init",
     "ledger:status": "node scripts/release-ledger.mjs status",
@@ -30,9 +30,9 @@
     "evaluate:retrieval-gold": "tsx scripts/evaluation/retrieval-gold-evaluation.ts",
     "verify:backup": "tsx scripts/evaluation/production-backup-verify.ts",
     "start": "node scripts/start.mjs",
-    "test": "vitest run",
+    "test": "npm run build -w @wenmi/contracts && vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.tests.json --noEmit",
+    "typecheck": "npm run build -w @wenmi/contracts && npm run typecheck -w @wenmi/api && npm run typecheck -w @wenmi/worker && npm run typecheck -w @wenmi/web && tsc -p tsconfig.tests.json --noEmit",
     "verify": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {

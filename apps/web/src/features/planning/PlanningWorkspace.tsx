@@ -337,9 +337,9 @@ function PlotPatternLibrary({ profile, onDiscuss }: {
       : [...current.slice(-1), item.id]);
   };
   return <section className="plot-pattern-library" aria-labelledby="plot-pattern-title">
-    <header><div><small>剧情库 · 主流题材模式</small><h3 id="plot-pattern-title">选择这段剧情的推进方式</h3><p>模式是编剧的思考参考，不是照搬公式。主模式决定核心推进，最多再选两个辅助模式；未选择的模式仍可自由使用。</p></div><span>{PLOT_PATTERNS.length} 种模式</span></header>
+    <header><div><small>当前卷 · 推进参考</small><h3 id="plot-pattern-title">这一卷想怎么推进？</h3><p>每张卡都只说明一种思路，可以混合、修改或不用，不会锁死章数、反转和人物选择。</p></div><span>{PLOT_PATTERNS.length} 种白话思路</span></header>
     <div className="plot-pattern-toolbar">
-      <label><MagnifyingGlassIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索打脸、救赎、破案、经营……" /></label>
+      <label><MagnifyingGlassIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索成长、低谷、真相、关系、建设……" /></label>
       <nav className="plot-pattern-groups" aria-label="剧情模式分组">{['推荐', ...PLOT_PATTERN_GROUPS].map((item) => <button type="button" className={group === item ? 'active' : ''} key={item} onClick={() => { setGroup(item); setExpanded(false); }}>{item}</button>)}</nav>
     </div>
     <div className="plot-pattern-grid">{visible.map((item) => {
@@ -349,7 +349,7 @@ function PlotPatternLibrary({ profile, onDiscuss }: {
       </button>;
     })}</div>
     {candidates.length > 6 && normalizedQuery.length === 0 && <button className="text-button" type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? '收起本组' : `展开本组全部 ${candidates.length} 种`}</button>}
-    <footer><div><strong>当前组合：</strong>{primary === null ? '尚未选择主模式' : `${primary.name}${supporting.length > 0 ? ` ＋ ${supporting.map((item) => item.name).join(' ＋ ')}` : ''}`}</div><button className="primary-button" type="button" disabled={primary === null} onClick={() => void onDiscuss(buildPlotPatternDiscussionPacket(primary, supporting))}>带入阶段总纲讨论</button></footer>
+    <footer><div><strong>当前组合：</strong>{primary === null ? '还没选择，也可以自己安排' : `${primary.name}${supporting.length > 0 ? ` ＋ ${supporting.map((item) => item.name).join(' ＋ ')}` : ''}`}</div><div className="plot-pattern-actions"><button className="text-button" type="button" onClick={() => void onDiscuss('作者选择自己安排本卷推进。请保留作者原话，只协助检查卷目标、事件因果、人物变化、失败代价和下一卷接口，不套用预设模板。')}>我自己安排</button><button className="text-button" type="button" onClick={() => void onDiscuss('作者选择本卷不用模板。请根据人物当下状态、活动设定和作者想法自然设计两份不同卷纲，不使用固定幕式、章数比例、反转频率或爽点间隔。')}>这次不用模板</button><button className="primary-button" type="button" disabled={primary === null} onClick={() => void onDiscuss(buildPlotPatternDiscussionPacket(primary, supporting))}>带入卷纲讨论</button></div></footer>
   </section>;
 }
 

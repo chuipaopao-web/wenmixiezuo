@@ -33,13 +33,7 @@ import {
   WifiSlashIcon,
   XIcon
 } from '@phosphor-icons/react';
-import {
-  PLOT_PATTERNS,
-  PLOT_PATTERN_GROUPS,
-  buildPlotPatternDiscussionPacket,
-  recommendPlotPatterns,
-  type PlotPattern
-} from './plot-pattern-library';
+
 import {
   archiveBook,
   cancelTask,

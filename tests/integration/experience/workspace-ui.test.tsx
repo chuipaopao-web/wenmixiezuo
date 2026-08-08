@@ -1039,9 +1039,9 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: '创作下一阶段' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'AI设计' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '打开剧情库' })).toBeInTheDocument();
-    expect(screen.queryByText('剧情库 · 主流题材模式')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前卷 · 推进参考')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '打开剧情库' }));
-    expect(screen.getByText('剧情库 · 主流题材模式')).toBeInTheDocument();
+    expect(screen.getByText('当前卷 · 推进参考')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '阶段约束契约' })).not.toBeInTheDocument();
     expect(screen.getByText('夏炎能否在资源耗尽前建立一套能长期运行、也能查清过程的生存秩序？')).toBeInTheDocument();
     expect(screen.getByText('取得第一块合法领地')).toBeInTheDocument();

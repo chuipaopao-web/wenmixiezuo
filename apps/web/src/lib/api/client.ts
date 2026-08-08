@@ -1,3 +1,4 @@
+import type { NarrativeTemplateCatalogView, PlanningScope } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
 
 export interface HealthData {
@@ -668,6 +669,13 @@ export function fetchTaskCenter(signal?: AbortSignal): Promise<TaskCenterData> {
 
 export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxonomyData> {
   return request('/api/v1/opening-taxonomy', signal === undefined ? {} : { signal });
+}
+
+export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, signal?: AbortSignal): Promise<NarrativeTemplateCatalogView> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/planning-templates?scope=${encodeURIComponent(scope)}`,
+    signal === undefined ? {} : { signal }
+  );
 }
 
 export function analyzeOpeningSynopsis(synopsis: string): Promise<OpeningSynopsisAnalysisData> {

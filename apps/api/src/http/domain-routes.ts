@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { getPublicNarrativeTemplateCatalog, parsePlanningScope } from '@wenmi/contracts';
 import type { DatabaseSync } from 'node:sqlite';
 import { readFileSync, statfsSync } from 'node:fs';
 import { success } from '../contracts/api.js';
@@ -197,6 +198,25 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
+  app.get<{ Params: { bookId: string }; Querystring: { scope?: string } }>(
+    '/api/v1/books/:bookId/planning-templates',
+    async (request) => {
+      const bookScope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(bookScope);
+      let templateScope: 'volume' | 'event';
+      try {
+        templateScope = parsePlanningScope(request.query.scope);
+      } catch {
+        throw new DomainError(errorCodes.validation, '请选择“当前卷”或“当前事件”的推进参考。');
+      }
+      const profile = bookProfileView.find(bookScope);
+      const signals = profile === null
+        ? []
+        : [profile.category, ...profile.subjects, ...profile.mainTags, ...profile.customTags];
+      return success(getPublicNarrativeTemplateCatalog(templateScope, signals), request.id);
+    }
+  );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/book-profile', async (request) => {
     const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };

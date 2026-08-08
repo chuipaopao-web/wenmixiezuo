@@ -64,7 +64,7 @@ if (process.platform === 'win32') {
   }
 }
 
-const required = ['apps/api/dist/main.js', 'apps/worker/dist/main.js', 'apps/web/dist/index.html'];
+const required = ['apps/contracts/dist/index.js', 'apps/api/dist/main.js', 'apps/worker/dist/main.js', 'apps/web/dist/index.html'];
 for (const relativePath of required) {
   if (!existsSync(resolve(projectRoot, relativePath))) {
     throw new Error(`缺少构建产物 ${relativePath}，请先运行 npm run build`);
