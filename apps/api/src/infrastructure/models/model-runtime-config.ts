@@ -208,7 +208,7 @@ export function loadModelRuntimeConfig(
     coding: {
       plan: 'coding',
       provider: 'volcengine-ark-coding-plan',
-      baseUrl: assertPlanBaseUrl('coding', firstNonEmpty(env.WENMI_ARK_CODING_PLAN_BASE_URL, env.ANTHROPIC_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/coding'),
+      baseUrl: assertPlanBaseUrl('coding', firstNonEmpty(env.WENMI_ARK_CODING_PLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/coding'),
       apiKey: codingKey
     },
     agent: {

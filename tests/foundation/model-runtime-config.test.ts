@@ -61,6 +61,20 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
   });
 
+  it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
+    const config = loadModelRuntimeConfig({
+      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan'
+    });
+
+    expect(config.endpoints.coding.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/coding');
+  });
+
+  it('仍然拒绝文秘写作专用Coding Plan变量中的错误套餐路径', () => {
+    expect(() => loadModelRuntimeConfig({
+      WENMI_ARK_CODING_PLAN_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan'
+    })).toThrow('只允许火山方舟套餐端点');
+  });
+
   it('拒绝普通按量计费地址和未知运行模式', () => {
     expect(() => loadModelRuntimeConfig({ WENMI_MODEL_MODE: 'unknown' })).toThrow('WENMI_MODEL_MODE');
     expect(() => loadModelRuntimeConfig({
