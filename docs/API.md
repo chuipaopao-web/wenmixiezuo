@@ -179,7 +179,7 @@ DEC-066补充本书资料、规划状态、表达调色板和设定确认读写�
 
 ## 7. 章节与稿件
 
-当前使用 `POST /books/{bookId}/writing-runs` 从已确认规划启动“下一章”，不要求作者提交1/3/5批次数。若创作方案、活动设定大纲、剧情总纲或下一章的老板确认章纲缺失，接口返回结构化 `409 OPERATION_INCOMPLETE`，且不会创建章节或章节任务；对话入口不会把错误直接展示给作者，而是在当前自由聊天中发起或复用规划讨论。历史 `/chapter-batches` 仅作为弃用兼容入口，不能在新UI出现，也不能调度多章；带 `count > 1` 的旧请求返回迁移提示。
+旧版兼容入口使用 `POST /books/{bookId}/writing-runs` 从已确认规划启动“下一章”；DEC-107的新创作台不再直接暴露该入口，待卷—事件—章入口落地后只用于旧任务恢复和迁移。兼容模式，不要求作者提交1/3/5批次数。若创作方案、活动设定大纲、剧情总纲或下一章的老板确认章纲缺失，接口返回结构化 `409 OPERATION_INCOMPLETE`，且不会创建章节或章节任务；对话入口不会把错误直接展示给作者，而是在当前自由聊天中发起或复用规划讨论。历史 `/chapter-batches` 仅作为弃用兼容入口，不能在新UI出现，也不能调度多章；带 `count > 1` 的旧请求返回迁移提示。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -553,3 +553,29 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `POST /api/v1/books/:bookId/continuation-imports/:importId/analyze`：为已经完成导入的正文创建或恢复逐章资料整理任务。文姬按有界章节片段提炼人物状态、事件、地点、关系、规则、资源、伏笔、已回收事项、语言证据、冲突和未知项，再生成可重建的续写基线；接口幂等返回最新导入视图。整理失败不得回滚已导入正文，可从失败状态重试。
 - 上述三个查询接口返回的 `analysis` 字段包含 `status`（`not_started | pending | analyzing | ready | failed`）、已分析章数、总章数、简短基线摘要、结构化续写资料、活动任务ID和失败说明。原始正文始终是事实权威，`analysis` 只是可重建派生资料。
 - 预览或确认中的书籍作用域不匹配返回404；已有章节、源哈希变化、重复标题/顺序、确认项不完整或无纳入章节返回可理解领域错误。大请求只在该入口按5,000,000字符业务上限接收，仍受本地会话、请求体总量和超时保护。
+
+## 卷驱动 V2 API增量（DEC-107）
+
+资源候选：
+
+- GET /api/v1/books/:bookId/workflow；
+- GET /api/v1/books/:bookId/planning-templates；
+- GET/POST/PATCH /api/v1/books/:bookId/author-planning-inputs；
+- GET/POST /api/v1/books/:bookId/volume-plans；
+- GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/versions；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/candidates；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/confirm；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview；
+- GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/events；
+- GET/POST /api/v1/books/:bookId/story-events/:eventId/versions；
+- POST /api/v1/books/:bookId/story-events/:eventId/candidates；
+- POST /api/v1/books/:bookId/story-events/:eventId/confirm；
+- POST /api/v1/books/:bookId/story-events/:eventId/reorder-preview；
+- POST /api/v1/books/:bookId/story-events/:eventId/chapter-outline-candidates；
+- POST /api/v1/books/:bookId/story-events/:eventId/settle；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/settle；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/start-next。
+
+所有写接口携带owner/book作用域、幂等键、预期活动版本和作者想法引用。生成接口只创建持久任务并返回task_id；状态经现有SSE推送。活动版本冲突返回可比较差异，不做最后写入覆盖。取消后晚到结果被提交栅栏拒绝。
+
+旧Artifact、discussion、message、chapter-batches等接口先保留兼容读取；新正式写作不再调用批量正式章节入口。删除接口必须等待P16零依赖证据。

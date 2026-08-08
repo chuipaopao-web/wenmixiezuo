@@ -2,7 +2,7 @@
 
 ## 1. 总原则
 
-DEC-066沿用 `book_planning_states` 与不可变 `book_style_versions`，但将后者解释为表达调色板与动态规则的版本记录。开书快照必须包含1—8位主角；调色板可为空。按DEC-070，总纲与章纲分别确认，章纲显式引用活动总纲和当前已确认讨论决定；独立卷纲退役。旧书不由迁移猜测补齐主角、表达策略或设定。
+DEC-107沿用 `book_planning_states` 与不可变 `book_style_versions`，并恢复独立、版本化的卷与事件规划层。开书快照必须包含1—8位主角；表达策略可为空。活动卷纲引用活动设定和上一卷结算，活动事件引用卷纲和前序事件状态，章纲同时引用活动卷纲与活动事件；旧 `stage_master_v2` 和历史 `volume_outline` 只读兼容，迁移不得猜测补齐旧书内容。
 
 - SQLite是权威结构化事实源；正文文件是权威内容资产；FTS、缓存和图谱是可重建投影。
 - 除全局模板外，所有核心记录必须携带 `owner_id` 和 `book_id`。
@@ -125,7 +125,7 @@ collecting
 
 统一保存创作方案、故事圣经、总纲、章纲、写作契约和其他结构化成果的版本元数据。不同类型通过Schema和版本化模板约束。历史 `volume_outline` 仅为兼容审计类型：旧版本保留，活动指针清空，Artifact归档，不能通过公共作者流程新建、确认或选择。
 
-新确认的 `master_outline` 使用 `outlineSchema = stage_master_v2`。`majorStages` 每项包含 `stageNumber`、`title`、`chapterRange { start, end }`、`mainline { encounter, resolution, result }`、`structure { setup, development, turn, conclusion }`、`stageSummary`、`pendingThreads[]` 和 `followUpDirection`。阶段范围连续但仅是活动规划；旧 `title/goal/turningPoint` 结构继续只读兼容。总纲版本显式引用活动设定版本；章纲直接引用活动总纲的相关阶段和已确认故事弧决定，不经过独立卷纲。
+DEC-107的新规划正式源使用独立的不可变卷蓝图版本、事件版本和事件章纲版本，并通过活动指针与乐观并发控制切换。卷蓝图保存卷目标、预计范围、软结构任务、事件职责、卷末目标状态和下一卷接口；事件保存因果前置、服务的卷任务、推进与转折、预期结束状态和下一事件接口；章纲直接引用活动卷与事件版本。`stage_master_v2`、旧 `title/goal/turningPoint` 和历史 `volume_outline` 继续只读兼容，不能成为新创作入口的权威来源。
 
 新确认的 `chapter_outline` 使用 `outlineSchema = chapter_outline_v2`。每份保存 `chapterNumber`、`sourceStage`、`chapterFunction`、`openingState`、`requiredEndingState`、`cast[]`、`conflict`、3—5项 `plotBeats[]`、可选 `experience`/`descriptionFocus`/`informationControl`、最多2项 `threadActions[]`、`ending`、`mustImplement[]`、`mustNotViolate[]`、`allowedCandidates[]` 与非空 `creativeFreedom[]`。`sourceStage` 在确认时由服务端依据活动 `stage_master_v2` 绑定，模型不能自行伪造；旧 `goal/beats/hook` 章纲只读兼容，不能继续进入新的正式主笔任务。
 
@@ -465,3 +465,21 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 - 同一书与同一源哈希只允许一个导入记录；同一导入顺序唯一。所有读写必须同时验证 `owner_id + book_id + import_id`。
 - 状态为 `parsed` 前后都不创建业务章节；只有显式确认可以进入 `importing`。逐章完成后记录检查点，重复确认或失败恢复只继续未结算项，不重复创建章节、稿件或正史修订。
 - 导入正文的 `manuscript_versions.creator_kind` 固定为 `import`；其活动模型快照只记录“历史资料导入”，不能冒充AI写作。旧章可以直接由作者确认结算，不补造事实/文学/体验三席报告；其后新写章节仍遵守三异模型审校合同。
+
+## 卷驱动 V2 数据增量（DEC-107）
+
+下一向前迁移新增候选：
+
+- planning_template_versions：模板范围、内部来源、白话标题/说明/问题/风险、版本和哈希；
+- author_planning_inputs：作者原话、对象、意图强度、状态、owner/book和时间；
+- author_planning_input_links：想法与附件、任务、候选和版本的引用；
+- volume_plans：规划卷身份、物理卷ID、顺序、状态、活动版本和前后卷关系；
+- volume_plan_versions：不可变完整卷纲、模板实例、作者引用、来源版本集、父版本和哈希；
+- story_events：事件身份、规划卷、稳定顺序、预计范围、状态和活动版本；
+- story_event_versions：不可变事件大纲、因果接口、模板实例、作者引用、来源版本集和哈希；
+- planning_dependencies：上层/下层版本、依赖种类、有效性和复核原因；
+- story_event_settlements：正式正文派生的事件结果、正史修订、章节范围和下一接口；
+- volume_settlements：卷实际结果、来源事件、正史修订、开放线索和下一卷接口；
+- collaboration_context_links：历史消息、讨论、附件与新创作对象的定位关系。
+
+所有表从第一天携带owner_id和book_id。卷纲/事件版本不可变；活动切换使用预期版本CAS。物理volumes继续组织正文，不承担规划权威。旧volume_outline、旧阶段Artifact和历史讨论保留读取，不静默转换。普通删除为归档；作者原话、规划版本、结算、正文、正史、任务和调用不得因界面精简物理删除。
