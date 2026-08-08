@@ -8,6 +8,7 @@ describe('最终交付入口', () => {
     const start = readFileSync(resolve(root, '文秘写作-启动.cmd'), 'utf8');
     const stop = readFileSync(resolve(root, '文秘写作-停止.cmd'), 'utf8');
     const launcher = readFileSync(resolve(root, 'scripts/start-desktop.ps1'), 'utf8');
+    const shortcutCreator = readFileSync(resolve(root, 'scripts/create-desktop-shortcut.ps1'), 'utf8');
     const processLauncher = readFileSync(resolve(root, 'scripts/start.mjs'), 'utf8');
     const stopper = readFileSync(resolve(root, 'scripts/stop-desktop.ps1'), 'utf8');
     const guide = readFileSync(resolve(root, 'docs/USER_GUIDE.md'), 'utf8');
@@ -17,7 +18,12 @@ describe('最终交付入口', () => {
     expect(start).toContain('set "PATH=%WENMI_SAVED_PATH%"');
     expect(stop).toContain('stop-desktop.ps1');
     expect(launcher).toContain("Start-Process 'http://127.0.0.1:43110'");
-    expect(launcher).toContain('npm.cmd run migrate');
+    expect(launcher).toContain('Resolve-WenmiNodePath');
+    expect(launcher).toContain('node-v24.16.0-win-x64');
+    expect(launcher).toContain("Join-Path $nodeDirectory 'npm.cmd'");
+    expect(launcher).toContain("$candidateNpm = Join-Path (Split-Path -Parent $candidate) 'npm.cmd'");
+    expect(launcher).toContain('& $npmPath run migrate');
+    expect(launcher).toContain('& $npmPath run build');
     expect(launcher).toContain('$health.data.releaseId -eq $expectedReleaseId');
     expect(launcher).toContain('*<div id="root"></div>*');
     expect(launcher).toContain('Test-WenmiReady');
@@ -41,7 +47,13 @@ describe('最终交付入口', () => {
     expect(stopper).toContain('desktop-stop.request.json');
     expect(stopper).not.toContain('Get-CimInstance');
     expect(processLauncher).toContain('consumeVerifiedStopRequest');
+    expect(shortcutCreator).toContain("[Environment]::GetFolderPath('Desktop')");
+    expect(shortcutCreator).toContain('CreateShortcut($shortcutPath)');
+    expect(shortcutCreator).toContain('$productName = -join');
+    expect(shortcutCreator).toContain("$shortcutPath = Join-Path $desktop ($productName + '.lnk')");
+    expect(shortcutCreator).toContain('$shortcut.WorkingDirectory = $projectRoot');
     expect(guide).toContain('双击项目根目录');
+    expect(guide).toContain('桌面的“文秘写作”');
     expect(guide).toContain('确定性假模型');
     expect(guide).toContain('第二物理备份');
   });

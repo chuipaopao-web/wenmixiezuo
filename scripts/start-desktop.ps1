@@ -64,6 +64,29 @@ function Test-WenmiBuildStale {
   }
 }
 
+function Resolve-WenmiNodePath {
+  $candidates = @()
+  $pathNode = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($null -ne $pathNode) { $candidates += $pathNode.Source }
+  $candidates += (Join-Path $projectRoot 'data\cache\runtime\node-v24.16.0-win-x64\node.exe')
+
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (-not (Test-Path -LiteralPath $candidate)) { continue }
+    try {
+      $version = (& $candidate --version 2>$null).Trim()
+      if ($version -match '^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$' -and
+        [int]$Matches.major -eq 24 -and [int]$Matches.minor -ge 16) {
+        $candidateNpm = Join-Path (Split-Path -Parent $candidate) 'npm.cmd'
+        if (-not (Test-Path -LiteralPath $candidateNpm)) { continue }
+        return [System.IO.Path]::GetFullPath($candidate)
+      }
+    } catch {
+      # Try the next approved local runtime candidate.
+    }
+  }
+  throw 'Node.js 24.16 or newer in the 24.x line is required. The Wenmi portable runtime is missing.'
+}
+
 if (Test-WenmiReady) {
   if (Test-WenmiBuildStale) {
     & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
@@ -80,15 +103,22 @@ if ($occupiedPorts) {
   throw "Wenmi ports are occupied: $($occupiedPorts -join ', ')"
 }
 
-& npm.cmd run migrate
+$nodePath = Resolve-WenmiNodePath
+$nodeDirectory = Split-Path -Parent $nodePath
+$npmPath = Join-Path $nodeDirectory 'npm.cmd'
+if (-not (Test-Path -LiteralPath $npmPath)) {
+  throw "The approved Node.js runtime does not include npm.cmd: $nodeDirectory"
+}
+$env:Path = "$nodeDirectory;$env:Path"
+
+& $npmPath run migrate
 if ($LASTEXITCODE -ne 0) { throw 'Database migration failed. Startup stopped.' }
-& npm.cmd run build
+& $npmPath run build
 if ($LASTEXITCODE -ne 0) { throw 'Production build failed. Startup stopped.' }
 
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $stdoutPath = Join-Path $logDirectory "desktop-$timestamp.out.log"
 $stderrPath = Join-Path $logDirectory "desktop-$timestamp.err.log"
-$nodePath = (Get-Command node.exe).Source
 Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
 $launcherProcess = Start-Process -FilePath $nodePath `
   -ArgumentList @('scripts/start.mjs') `
