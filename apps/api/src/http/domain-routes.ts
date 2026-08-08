@@ -80,6 +80,8 @@ import {
   type DecideAuthorPlanningInput
 } from '../application/planning/author-collaboration-service.js';
 import { AuthorPlanningInputRepository } from '../infrastructure/db/repositories/author-planning-input-repository.js';
+import { VolumePlanService, type VolumePlanCandidateKind } from '../application/planning/volume-plan-service.js';
+import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -211,11 +213,90 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const openingSynopsisAnalysis = new OpeningSynopsisAnalysisService();
   const agentPromptPreferences = new AgentPromptPreferenceService(
     new AgentPromptPreferenceRepository(database), ids, clock
-  );  const authorCollaboration = new AuthorCollaborationService(
+  );
+  const authorCollaboration = new AuthorCollaborationService(
     new AuthorPlanningInputRepository(database), new UnitOfWork(database), ids, clock
+  );
+  const volumePlans = new VolumePlanService(
+    new VolumePlanRepository(database), new UnitOfWork(database), ids, clock
   );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workflow', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlans.workflow(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/volume-plans', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlans.list(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: {
+    expectedWorkflowVersion: number;
+    planNumber: number;
+    physicalVolumeId?: string | null;
+    idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlans.create(scope, request.body), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(volumePlans.get(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/versions', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(volumePlans.listVersions(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    expectedPlanRevision: number;
+    candidateKind: VolumePlanCandidateKind;
+    parentVersionId?: string | null;
+    sourceTaskId?: string | null;
+    authorInputRefs?: string[];
+    template: unknown;
+    content: unknown;
+    idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/versions', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlans.addVersion(scope, request.params.volumePlanId, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { volumePlanVersionId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(volumePlans.impactPreview(
+        scope, request.params.volumePlanId, request.body.volumePlanVersionId
+      ), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    volumePlanVersionId: string;
+    expectedPlanRevision: number;
+    expectedActiveVersionId?: string | null;
+    expectedWorkflowVersion: number;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/confirm', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlans.confirm(scope, request.params.volumePlanId, request.body), request.id);
+  });
 
   app.get<{ Params: { bookId: string }; Querystring: { scope?: string } }>(
     '/api/v1/books/:bookId/planning-templates',

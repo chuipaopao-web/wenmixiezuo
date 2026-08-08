@@ -107,6 +107,29 @@ export class PlanningWorkflowRepository {
     `).run(id, now, scope.ownerId, scope.bookId, expected).changes === 1;
   }
 
+  public synchronizeCreationWorkflowAfterSetting(scope: BookScope, now: string): void {
+    this.database.prepare(`
+      INSERT INTO creation_workflow_states (
+        owner_id, book_id, planning_version, stage, frozen_chapter_outline_refs_json, updated_at
+      ) VALUES (?, ?, 1, 'setting_confirmed', '[]', ?)
+      ON CONFLICT(owner_id, book_id) DO UPDATE SET
+        planning_version = CASE
+          WHEN creation_workflow_states.stage IN (
+            'book_profile_draft', 'book_profile_confirmed', 'setting_in_progress'
+          ) THEN creation_workflow_states.planning_version + 1
+          ELSE creation_workflow_states.planning_version
+        END,
+        stage = CASE
+          WHEN creation_workflow_states.stage IN (
+            'book_profile_draft', 'book_profile_confirmed', 'setting_in_progress'
+          ) THEN 'setting_confirmed'
+          ELSE creation_workflow_states.stage
+        END,
+        blocking_reason = NULL,
+        updated_at = excluded.updated_at
+    `).run(scope.ownerId, scope.bookId, now);
+  }
+
   public artifactVersion(scope: BookScope, id: string) {
     return this.database.prepare(`
       SELECT a.artifact_type, v.status FROM artifact_versions v

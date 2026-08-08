@@ -486,3 +486,11 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 所有表从第一天携带owner_id和book_id。卷纲/事件版本不可变；活动切换使用预期版本CAS。物理volumes继续组织正文，不承担规划权威。旧volume_outline、旧阶段Artifact和历史讨论保留读取，不静默转换。普通删除为归档；作者原话、规划版本、结算、正文、正史、任务和调用不得因界面精简物理删除。
 
 设定页内协作不新增另一套提案表：当前候选继续由 `setting_outline_workspace` 承载，三席任务、讨论、独立意见、可见消息和模型来源分别沿用现有 `tasks`、`discussions`、`discussion_opinions`/`discussion_decisions`、`messages` 与冻结调用证据；作者已有设定原文进入 `author_planning_inputs` 并绑定当前 `setting_module`。只读协作投影按 owner/book/itemKey 聚合这些正式记录，不把聚合结果另存为事实源，也不得因刷新生成新记录。单项确认仍是工作区状态，只有设定基线确认产生不可变正式设定版本。
+### Schema 0038实际落地（DEC-108）
+
+- `volume_plans`：独立规划卷、可选物理卷引用、上一规划卷/结算引用、状态、CAS修订和活动版本；
+- `volume_plan_versions`：不可变候选全文、父版本、候选来源、冻结依赖、模板实例、作者原话引用、来源任务、内容哈希与幂等证据；
+- `planning_dependencies`：上游种类、ID、版本、哈希、下游版本、有效性和失效原因；
+- `creation_workflow_states`：书级规划版本、当前阶段、活动卷/事件、冻结章纲引用、真实等待任务与阻塞原因。
+
+`volume_plan_versions`只新增不更新内容；确认只更新状态和指针。第一卷依赖`book_opening_blueprints`活动版与`story_bible`已选版；后续卷额外依赖上一卷活动计划版及`stage_settlements(stage_type='volume')`活动结算。迁移为现有书建立工作流投影，但不猜测生成卷规划内容。

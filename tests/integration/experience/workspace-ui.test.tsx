@@ -825,7 +825,7 @@ describe('完整创作工作台', () => {
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
     expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
-    for (const name of ['本书资料', '设定大纲', '剧情总纲', '章纲', '正文']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['本书资料', '设定大纲', '当前卷', '章纲', '正文']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(screen.queryByText('先确认作品定位，再建立设定大纲；设定足够支撑当前阶段后，才进入剧情规划。')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('创作准备流程')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '卷纲' })).not.toBeInTheDocument();
@@ -862,9 +862,10 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('button', { name: '跳转讨论' })).not.toBeInTheDocument();
     expect(screen.getByText('正在上方处理')).toBeInTheDocument();
     expect(screen.getAllByText('等待前一项').length).toBeGreaterThan(10);
-    fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
-    expect(await screen.findByText('守城与预见')).toBeInTheDocument();
-    expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '当前卷' }));
+    expect(await screen.findByRole('heading', { name: '先确定这一卷要改变什么，再拆事件' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始规划第一卷' })).toBeInTheDocument();
+    expect(screen.queryByText('守城与预见')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '章纲' }));
     expect(await screen.findByText('穷途末路的入口')).toBeInTheDocument();
     expect(screen.getByText('本章功能')).toBeInTheDocument();
@@ -930,188 +931,14 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('实际曲线')).not.toBeInTheDocument();
   });
 
-  it('设定清单完整时不显示空旧卡片，并把正式规划状态翻译为中文', async () => {
-    const baseRouter = createFetchRouter();
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const path = new URL(String(input), 'http://localhost').pathname;
-      if (path.endsWith('/artifacts')) return apiResponse([
-        {
-          artifact_id: 'story-empty',
-          artifact_type: 'story_bible',
-          title: '故事圣经',
-          status: 'selected',
-          version: 3,
-          active_version_id: 'story-empty-version',
-          active_version_status: 'selected',
-          active_content: {}
-        },
-        {
-          artifact_id: 'master-selected',
-          artifact_type: 'master_outline',
-          title: '剧情总纲',
-          status: 'selected',
-          version: 2,
-          active_version_id: 'master-selected-version',
-          active_version_status: 'selected',
-          active_content: {
-            outlineSchema: 'stage_master_v2',
-            premise: '夏炎从流民求生走向经营自持。',
-            coreConflict: '生存选择与重建秩序的责任冲突。',
-            protagonistArc: '从独自求生到承担共同治理。',
-            majorStages: [{
-              stageNumber: 1,
-              title: '河边相救',
-              chapterRange: { start: 1, end: 9 },
-              stageSummary: '王怡在河边救下夏炎，两人暂时结伴。',
-              mainline: {
-                encounter: '王怡发现落水的夏炎。',
-                resolution: '王怡把夏炎救上岸。',
-                result: '两人决定先一起处理眼前的麻烦。'
-              },
-              structure: {
-                setup: '发现落水者',
-                development: '完成救援',
-                turn: '债务追上门',
-                conclusion: '暂时结伴'
-              },
-              estimatedWords: 27000
-            }, {
-              stageNumber: 2,
-              title: '荒原立足',
-              chapterRange: { start: 10, end: 50 },
-              plotPatterns: {
-                primary: { name: '创业求生', reason: '用可核验经营成果建立新秩序' },
-                supporting: [{ name: '打脸反转', reason: '以旧账本证据完成公开纠偏' }]
-              },
-              dramaticQuestion: '夏炎能否在资源耗尽前建立一套可持续且可审计的生存秩序？',
-              stageGoal: '取得合法领地并让净水营地独立运转。',
-              startState: '夏炎失去水源与合法身份。',
-              conflictDesign: {
-                surface: '水源、身份与领地资格竞争。',
-                underlying: '个人求生与共同治理责任冲突。',
-                stakes: '流民生存和新秩序的可信度。',
-                failureCost: '营地解体并失去合法身份。'
-              },
-              mainline: {
-                encounter: '夏炎失去水源与合法身份。',
-                resolution: '两人先说清赔偿边界，再建立可撤回的记录制度。',
-                result: '救援已经从危机事件转化为有边界的长期支持。'
-              },
-              subplots: ['旧账本来源：沈梦暗查账本经手人，为下一阶段的王都调查留下入口。'],
-              structure: {
-                setup: '流落荒原',
-                development: '修复净水装置',
-                turn: '发现旧账本',
-                conclusion: '建立营地'
-              },
-              estimatedWords: 150000,
-              chapterBlocks: [],
-              experience: {
-                primaryTone: '压迫中逐步建立希望',
-                readerEffect: '先感到生存压力，再获得经营成果落地的满足感。',
-                emotionalArc: ['压迫', '希望', '受挫', '反击', '释放'],
-                payoffPoints: ['净水规则首次成功运转'],
-                pressurePoints: ['营地可能解体并失去合法资格']
-              },
-              cast: [{ name: '夏炎', stageRole: '营地规则建立者', objective: '取得合法领地', stateChange: '从独自求生转为承担共同治理责任' }],
-              foreshadowing: [{ summary: '旧账本背后的王都利益链', action: 'plant', releaseWindow: '下一阶段继续推进' }],
-              stageSummary: '夏炎从流民变成营地负责人。',
-              completionCriteria: ['取得第一块合法领地', '净水营地可独立运转'],
-              hardConstraints: ['经营成果必须有资源来源与代价'],
-              creativeFreedom: ['营地成员摩擦与净水过程可自由设计'],
-              pendingThreads: ['旧账本由谁伪造'],
-              followUpDirection: '追查王都账本来源。'
-            }],
-            endingDirection: '建立公开可审计的新秩序。',
-            storyPromises: ['经营成长必须有真实代价'],
-            openQuestions: []
-          }
-        }
-      ]);
-      return baseRouter(input, init);
-    }));
-    render(<App />);
-
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
-    fireEvent.click(await screen.findByRole('button', { name: '设定大纲' }));
-    expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
-    expect(screen.queryByText('暂无可展示内容')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
-    expect(await screen.findByRole('heading', { name: '荒原立足' })).toBeInTheDocument();
-    expect(screen.queryByText('夏炎从流民求生走向经营自持。')).not.toBeInTheDocument();
-    const stageNavigation = screen.getByLabelText('剧情阶段导航');
-    expect(within(stageNavigation).getByText('查看阶段')).toBeInTheDocument();
-    const stageSelector = within(stageNavigation).getByRole('combobox', { name: '选择剧情阶段' });
-    expect(stageSelector).toHaveDisplayValue('第2阶段：荒原立足（当前）');
-    expect(within(stageNavigation).getByRole('button', { name: '上一阶段' })).toBeEnabled();
-    expect(within(stageNavigation).getByRole('button', { name: '下一阶段' })).toBeDisabled();
-    fireEvent.change(stageSelector, { target: { value: '0' } });
-    expect(screen.getByRole('heading', { name: '河边相救' })).toBeInTheDocument();
-    expect(within(stageNavigation).getByRole('button', { name: '下一阶段' })).toBeEnabled();
-    fireEvent.change(stageSelector, { target: { value: '1' } });
-    expect(screen.getAllByText('第10章').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('第50章').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('button', { name: '创作下一阶段' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'AI设计' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '打开剧情库' })).toBeInTheDocument();
-    expect(screen.queryByText('当前卷 · 推进参考')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '打开剧情库' }));
-    expect(screen.getByText('当前卷 · 推进参考')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '阶段约束契约' })).not.toBeInTheDocument();
-    expect(screen.getByText('夏炎能否在资源耗尽前建立一套能长期运行、也能查清过程的生存秩序？')).toBeInTheDocument();
-    expect(screen.getByText('取得第一块合法领地')).toBeInTheDocument();
-    for (const label of ['阶段剧情概述', '阶段主线', '阶段支线', '起承转合', '新增出场人物', '人物成长', '剧情与字数安排', '阶段情绪与阅读体验', '事件收获', '长线伏笔', '下一阶段']) {
-      expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
-    }
-    for (const label of ['阶段情绪基调', '给读者的阅读体验', '爽点', '虐点']) expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByText('第10至50章')).toBeInTheDocument();
-    expect(screen.getAllByText('夏炎从流民变成营地负责人。').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('预计 150,000 字').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('章纲参考')).toBeInTheDocument();
-    expect(screen.getByText('旧账本来源：沈梦暗查账本经手人，为下一阶段的王都调查留下入口。')).toBeInTheDocument();
-    const stageCard = document.querySelector('.stage-master-card');
-    expect(stageCard).toBeInstanceOf(HTMLElement);
-    expect(stageCard?.querySelector('.stage-chapter-blocks')).toBeInstanceOf(HTMLOListElement);
-    expect(stageCard?.querySelector('.chapter-outline-beats')).toBeNull();
-    expect(stageCard?.textContent).toContain('赔偿到什么程度');
-    expect(stageCard?.textContent).toContain('记录可以撤销');
-    expect(stageCard?.textContent).not.toContain('边界');
-    expect(stageCard?.textContent).not.toContain('这份总纲没有单独记录');
-    expect(screen.queryByText('这阶段写什么')).not.toBeInTheDocument();
-    expect(screen.queryByText('查看全书方向')).not.toBeInTheDocument();
-    expect(screen.queryByText('stage_master_v2')).not.toBeInTheDocument();
-    expect(screen.queryByText('chapterRange')).not.toBeInTheDocument();
-    expect(screen.getByText('已确认')).toBeInTheDocument();
-    expect(screen.queryByText('selected')).not.toBeInTheDocument();
-  });
-
-  it('旧版剧情总纲明确提示缺少新版阶段字段，并可一键重新发起总纲讨论', async () => {
+  it('旧剧情总纲不再驱动当前卷，也不会把作者带回聊天页', async () => {
     const baseRouter = createFetchRouter();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), 'http://localhost').pathname;
       if (path.endsWith('/artifacts')) return apiResponse([{
-        artifact_id: 'legacy-master-selected',
-        artifact_type: 'master_outline',
-        title: '剧情总纲',
-        status: 'selected',
-        version: 2,
-        active_version_id: 'legacy-master-version',
-        active_version_status: 'selected',
-        active_content: {
-          premise: '夏炎从流民求生走向经营自持。',
-          coreConflict: '生存选择与重建秩序的责任冲突。',
-          protagonistArc: '从独自求生到承担共同治理。',
-          majorStages: [{
-            title: '流民求生',
-            goal: '取得水源与合法身份',
-            turningPoint: '发现旧账本'
-          }],
-          endingDirection: '建立公开可审计的新秩序。',
-          storyPromises: ['经营成长必须有真实代价'],
-          openQuestions: []
-        }
+        artifact_id: 'legacy-master-selected', artifact_type: 'master_outline', title: '旧剧情总纲',
+        status: 'selected', version: 2, active_version_id: 'legacy-master-version',
+        active_version_status: 'selected', active_content: { premise: '旧流程内容', majorStages: [] }
       }]);
       return baseRouter(input, init);
     });
@@ -1120,47 +947,15 @@ describe('完整创作工作台', () => {
 
     const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
     fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
-    fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
+    fireEvent.click(await screen.findByRole('button', { name: '当前卷' }));
 
-    expect(await screen.findByText('旧版剧情总纲')).toBeInTheDocument();
-    expect(screen.queryByText(/尚未包含章节范围、主线解决与结果、阶段级起承转合/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新讨论' }));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
-      if (!String(input).endsWith('/api/v1/books/book-ui-1/messages')
-        || (init as RequestInit | undefined)?.method !== 'POST') return false;
-      const payload = JSON.parse(String((init as RequestInit).body)) as { content: string };
-      return payload.content.startsWith('讨论阶段剧情 【阶段剧情抽卡资料包】');
-    })).toBe(true));
+    expect(await screen.findByRole('heading', { name: '先确定这一卷要改变什么，再拆事件' })).toBeInTheDocument();
+    expect(screen.queryByText('旧剧情总纲')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始规划第一卷' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/messages') && (init as RequestInit | undefined)?.method === 'POST'
+    )).toBe(false);
   });
-
-  it('停留在规划页时自动刷新后台随后产出的规划成果', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    const baseRouter = createFetchRouter();
-    let artifactReads = 0;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const path = new URL(String(input)).pathname;
-      if (path.endsWith('/artifacts')) {
-        artifactReads += 1;
-        if (artifactReads === 1) return apiResponse([]);
-      }
-      return baseRouter(input, init);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    render(<App />);
-
-    const bookRail = await screen.findByRole('complementary', { name: '书籍与功能' });
-    fireEvent.click(within(bookRail).getByRole('button', { name: '创作台' }));
-    fireEvent.click(await screen.findByRole('button', { name: '剧情总纲' }));
-    expect(screen.queryByText('守城与预见')).not.toBeInTheDocument();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-
-    expect(await screen.findByText('守城与预见')).toBeInTheDocument();
-    expect(artifactReads).toBeGreaterThanOrEqual(2);
-  });
-
   it('编辑基本设定时保留同一故事圣经中的全书框架字段', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
@@ -1800,6 +1595,28 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     });
     if (path.endsWith('/messages') && init?.method === 'POST') return apiResponse({ messageId: 'message-ui-new', action: { kind: 'conversation_reply_scheduled' } });
     if (path.endsWith('/messages')) return apiResponse(messages);
+    if (path.endsWith('/workflow')) return apiResponse({
+      ownerId: 'owner-ui', bookId: workspaceData.book.bookId, stage: 'setting_confirmed', planningVersion: 2,
+      activeVolumePlanRef: null, activeEventRef: null, frozenChapterOutlineRefs: [],
+      waitingTaskId: null, blockingReason: null, updatedAt: '2026-08-08T12:00:00.000Z'
+    });
+    if (path.endsWith('/planning-templates')) return apiResponse({
+      contractVersion: 1, registryVersion: 1, registryHash: 'sha256:' + '1'.repeat(64), scope: 'volume',
+      templates: [{
+        templateKey: 'volume-escalating-goals', templateVersion: 1, contentHash: 'sha256:' + '2'.repeat(64),
+        scope: 'volume', publicTitle: '解决一个麻烦，又引出更大的目标',
+        publicExplanation: '每次解决都改变人物状态并暴露更大的问题。',
+        fitConditions: ['持续推进'], knownRisks: ['不能只换更强敌人'], authorQuestions: ['这次结果改变了什么？'],
+        beats: [{ beatId: 'cause', publicFunction: '先解决眼前问题', expectedChange: '人物状态发生变化', optional: false, order: 1 }],
+        previewPrompt: '按因果推进', recommended: true
+      }],
+      alternativeChoices: [
+        { mode: 'custom', publicTitle: '按我的想法推进', publicExplanation: '不套系统节奏。' },
+        { mode: 'none', publicTitle: '暂时不选', publicExplanation: '让因果自然决定。' }
+      ]
+    });
+    if (path.endsWith('/volume-plans') && init?.method !== 'POST') return apiResponse([]);
+    if (path.endsWith('/author-planning-inputs') && init?.method !== 'POST') return apiResponse([]);
     if (path.endsWith('/setting-baseline/readiness')) return apiResponse({
       ready: false,
       missing: ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow', 'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'history-baseline', 'divergence'],

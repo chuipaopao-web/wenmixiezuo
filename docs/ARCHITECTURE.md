@@ -271,3 +271,8 @@ LanceDB、Wiki和关系投影不承担数据恢复权威。备份可以携带投
 规划卷与正文物理卷是不同聚合；二者只通过显式ID关联。公共类型、迁移、活动版本CAS、核心编排和正文结算保持串行。Worker只执行模型/投影任务并提交候选，应用服务校验后写Repository；Worker不能直接切换活动规划、写正式正文或正史。
 
 旧阶段总纲和Artifact进入兼容适配层。新写入不依赖旧volume_outline类型。功能开关按书切换：先影子构建和差异验证，再激活新策略；回滚只切回入口和策略指针，不删除新版本。
+### 独立卷规划切片（DEC-108）
+
+HTTP只调用`VolumePlanService`，业务服务只通过`VolumePlanRepository`访问`volume_plans`、`volume_plan_versions`、`planning_dependencies`和`creation_workflow_states`。卷候选版本是不可变完整快照；活动切换在同一事务内执行版本状态变化、卷指针更新和工作流推进，并同时校验卷修订、旧活动版本、工作流版本及上游依赖哈希。
+
+正文物理卷不是卷规划正式源。规划卷可选关联物理卷，但跨书关联、卷号错位和后续卷绕过结算均由领域服务拒绝。旧Artifact规划服务继续作为兼容边界，新的当前卷页面不读取或写入`master_outline`。AI候选将复用现有持久任务、租约、ContextPack、ModelCall和SSE，不允许从浏览器直接调用模型或伪造成员状态。

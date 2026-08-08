@@ -89,6 +89,7 @@ export class SettingBaselineService {
         }
       }, activeStoryBible.artifactVersionId);
       this.artifacts.select(scope, activeStoryBible.artifactId, nextStoryBible.artifactVersionId);
+      this.repository.synchronizeCreationWorkflowAfterSetting(scope, now);
       const synchronized = this.repository.planningState(scope);
       if (
         synchronized?.version === expectedPlanningVersion + 1

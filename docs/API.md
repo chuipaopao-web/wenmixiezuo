@@ -584,3 +584,14 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 所有写接口携带owner/book作用域、幂等键、预期活动版本和作者想法引用。生成接口只创建持久任务并返回task_id；状态经现有SSE推送。活动版本冲突返回可比较差异，不做最后写入覆盖。取消后晚到结果被提交栅栏拒绝。
 
 旧Artifact、discussion、message、chapter-batches等接口先保留兼容读取；新正式写作不再调用批量正式章节入口。删除接口必须等待P16零依赖证据。
+### Schema 0038已实现接口（DEC-108）
+
+- `GET /api/v1/books/:bookId/workflow`：返回带规划版本的当前流程状态；
+- `GET /api/v1/books/:bookId/volume-plans`：按顺序返回规划卷及活动版；
+- `POST /api/v1/books/:bookId/volume-plans`：用工作流CAS和幂等键建立规划卷；第一卷要求开书+设定，后续卷要求上一卷活动结算；
+- `GET /api/v1/books/:bookId/volume-plans/:volumePlanId`：返回当前书作用域内单个规划卷；
+- `GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/versions`：列出或追加不可变候选；写入要求卷修订、合法模板实例、作者引用和幂等键；
+- `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview`：比较候选与活动版并计算下游复核数量；
+- `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/confirm`：在同一事务中校验依赖和三重CAS后切换活动版。
+
+本阶段尚未把`/candidates`暴露为同步生成接口。AI生成必须先创建持久任务并返回真实`taskId`，完成后再由任务写入带`sourceTaskId`的候选版本；在该任务编排落地前，客户端只允许作者候选与历史版本操作。

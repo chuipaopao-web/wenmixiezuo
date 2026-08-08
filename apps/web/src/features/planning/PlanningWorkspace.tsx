@@ -20,19 +20,13 @@ import {
   type PlanningStateData,
   type WorkspaceData
 } from '../../lib/api/client';
-import {
-  PLOT_PATTERNS,
-  PLOT_PATTERN_GROUPS,
-  buildPlotPatternDiscussionPacket,
-  recommendPlotPatterns,
-  type PlotPattern
-} from '../../app/plot-pattern-library';
 import { toAuthorFacingText } from '../../app/author-presentation';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
+import { VolumePlanningPanel } from './VolumePlanningPanel';
 
 type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
 
@@ -199,16 +193,14 @@ const ALL_SETTING_TEMPLATE_GROUPS: SettingOutlineGroup[] = [
 
 type SettingReadinessView = Awaited<ReturnType<typeof fetchSettingReadiness>>;
 
-export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onDiscussMasterOutline, onBookProfileChanged }: {
+export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onBookProfileChanged }: {
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
   data: unknown;
   workspace: WorkspaceData | null;
   manuscript: ReactNode;
-  onDiscussMasterOutline: (plotPatternPacket?: string) => Promise<void>;
   onBookProfileChanged?: () => Promise<void> | void;
 }): React.JSX.Element {
-  const [plotLibraryOpen, setPlotLibraryOpen] = useState(false);
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
@@ -250,11 +242,8 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   const visible = artifacts.flatMap<{ artifact: Record<string, unknown>; projection: ArtifactProjection }>((artifact) => {
     const type = String(artifact.artifact_type);
     if (type === 'story_bible' && (tab === 'framework' || tab === 'basic')) return [{ artifact, projection: tab }];
-    const typeByTab: Partial<Record<PlanningTab, string>> = {
-      master: 'master_outline', chapter: 'chapter_outline'
-    };
     if (tab === 'framework' && type === 'creative_plan') return [{ artifact, projection: 'complete' }];
-    if (tab !== 'framework' && tab !== 'basic' && type === typeByTab[tab]) return [{ artifact, projection: 'complete' }];
+    if (tab === 'chapter' && type === 'chapter_outline') return [{ artifact, projection: 'complete' }];
     return [];
   });
   const renderableArtifacts = visible.filter(({ artifact, projection }) => {
@@ -262,12 +251,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
     const source = isRecord(artifact.active_content) ? artifact.active_content : {};
     return hasMeaningfulArtifactValue(projectArtifactContent(source, projection));
   });
-  const hasLegacyMasterOutline = tab === 'master' && renderableArtifacts.some(({ artifact }) => {
-    const content = isRecord(artifact.active_content) ? artifact.active_content : {};
-    return String(artifact.artifact_type) === 'master_outline'
-      && content.outlineSchema !== 'stage_master_v2';
-  });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['chapter', '章纲'], ['manuscript', '正文']];
+  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '当前卷'], ['chapter', '章纲'], ['manuscript', '正文']];
   const ideaContext: Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }> = {
     framework: { surface: 'book_profile', subjectType: 'book', title: '补充开书想法' },
     basic: { surface: 'setting', subjectType: 'setting', title: '补充设定想法' },
@@ -284,25 +268,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       </header>
       <div className="creation-desk-body">
       {tab === 'manuscript' ? manuscript : <>
-      {hasLegacyMasterOutline && <aside className="legacy-outline-upgrade">
-        <div>
-          <strong>旧版剧情总纲</strong>
-        </div>
-        <button type="button" onClick={() => void onDiscussMasterOutline()}>重新讨论</button>
-      </aside>}
-      {tab === 'master' && <section className="stage-story-toolbar" aria-label="当前剧情阶段操作">
-        <h3>当前剧情阶段</h3>
-        <div className="stage-story-designer-actions">
-          <button className="primary-button" type="button" onClick={() => void onDiscussMasterOutline()}>
-            创作下一阶段
-          </button>
-          <button type="button" onClick={() => setPlotLibraryOpen((open) => !open)}>
-            {plotLibraryOpen ? '收起剧情库' : '打开剧情库'}
-          </button>
-        </div>
-      </section>}
-      {tab === 'master' && plotLibraryOpen && <PlotPatternLibrary profile={bookProfile} onDiscuss={onDiscussMasterOutline} />}
-      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
+      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`暂无${tabs.find(([key]) => key === tab)?.[1] ?? '内容'}`} description="" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -340,52 +306,6 @@ function BookProfilePanel({ profile, onEdit }: { profile: BookProfileViewData; o
     <h4>初始主角</h4>
     <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'} · {item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
     <h4>必须遵守</h4><ul>{profile.mustFollow.map((item) => <li key={item}>{item}</li>)}</ul>
-  </section>;
-}
-
-function PlotPatternLibrary({ profile, onDiscuss }: {
-  profile: BookProfileViewData | null;
-  onDiscuss: (packet?: string) => Promise<void>;
-}): React.JSX.Element {
-  const recommended = recommendPlotPatterns(profile);
-  const [query, setQuery] = useState('');
-  const [group, setGroup] = useState('推荐');
-  const [primaryId, setPrimaryId] = useState<string | null>(null);
-  const [supportingIds, setSupportingIds] = useState<string[]>([]);
-  const [expanded, setExpanded] = useState(false);
-  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
-  const candidates = (group === '推荐' ? recommended : PLOT_PATTERNS.filter((item) => item.group === group))
-    .filter((item) => normalizedQuery.length === 0 || [item.name, item.summary, item.group, ...item.suitable].join(' ').toLocaleLowerCase('zh-CN').includes(normalizedQuery));
-  const visible = expanded || normalizedQuery.length > 0 ? candidates : candidates.slice(0, 6);
-  const primary = PLOT_PATTERNS.find((item) => item.id === primaryId) ?? null;
-  const supporting = supportingIds.flatMap((id) => {
-    const item = PLOT_PATTERNS.find((pattern) => pattern.id === id);
-    return item === undefined ? [] : [item];
-  });
-  const selectPattern = (item: PlotPattern): void => {
-    if (primaryId === null || primaryId === item.id) {
-      setPrimaryId(primaryId === item.id ? null : item.id);
-      setSupportingIds((current) => current.filter((id) => id !== item.id));
-      return;
-    }
-    setSupportingIds((current) => current.includes(item.id)
-      ? current.filter((id) => id !== item.id)
-      : [...current.slice(-1), item.id]);
-  };
-  return <section className="plot-pattern-library" aria-labelledby="plot-pattern-title">
-    <header><div><small>当前卷 · 推进参考</small><h3 id="plot-pattern-title">这一卷想怎么推进？</h3><p>每张卡都只说明一种思路，可以混合、修改或不用，不会锁死章数、反转和人物选择。</p></div><span>{PLOT_PATTERNS.length} 种白话思路</span></header>
-    <div className="plot-pattern-toolbar">
-      <label><MagnifyingGlassIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索成长、低谷、真相、关系、建设……" /></label>
-      <nav className="plot-pattern-groups" aria-label="剧情模式分组">{['推荐', ...PLOT_PATTERN_GROUPS].map((item) => <button type="button" className={group === item ? 'active' : ''} key={item} onClick={() => { setGroup(item); setExpanded(false); }}>{item}</button>)}</nav>
-    </div>
-    <div className="plot-pattern-grid">{visible.map((item) => {
-      const role = primaryId === item.id ? '主模式' : supportingIds.includes(item.id) ? '辅助模式' : '';
-      return <button type="button" className={role.length > 0 ? 'selected' : ''} key={item.id} onClick={() => selectPattern(item)}>
-        <span>{role || item.group}</span><strong>{item.name}</strong><p>{item.summary}</p><small>读者体验：{item.promise}</small><em>风险：{item.risk}</em>
-      </button>;
-    })}</div>
-    {candidates.length > 6 && normalizedQuery.length === 0 && <button className="text-button" type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? '收起本组' : `展开本组全部 ${candidates.length} 种`}</button>}
-    <footer><div><strong>当前组合：</strong>{primary === null ? '还没选择，也可以自己安排' : `${primary.name}${supporting.length > 0 ? ` ＋ ${supporting.map((item) => item.name).join(' ＋ ')}` : ''}`}</div><div className="plot-pattern-actions"><button className="text-button" type="button" onClick={() => void onDiscuss('作者选择自己安排本卷推进。请保留作者原话，只协助检查卷目标、事件因果、人物变化、失败代价和下一卷接口，不套用预设模板。')}>我自己安排</button><button className="text-button" type="button" onClick={() => void onDiscuss('作者选择本卷不用模板。请根据人物当下状态、活动设定和作者想法自然设计两份不同卷纲，不使用固定幕式、章数比例、反转频率或爽点间隔。')}>这次不用模板</button><button className="primary-button" type="button" disabled={primary === null} onClick={() => void onDiscuss(buildPlotPatternDiscussionPacket(primary, supporting))}>带入卷纲讨论</button></div></footer>
   </section>;
 }
 
@@ -681,19 +601,16 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
     setBusy(true);
     void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本加载失败')).finally(() => setBusy(false));
   };
-  const stageMaster = artifactType === 'master_outline' && content.outlineSchema === 'stage_master_v2';
   const chapterOutlineV2 = artifactType === 'chapter_outline' && content.outlineSchema === 'chapter_outline_v2';
   const reverseChapterOutline = artifactType === 'chapter_outline'
     && content.reverseOutlineSchema === 'reverse_chapter_outline_v1';
-  return <article className={`artifact-card${stageMaster ? ' stage-master-artifact' : ''}`}><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(artifactType)}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header>{stageMaster
-    ? <StageMasterOutlineContent value={visibleContent} />
-    : chapterOutlineV2
+  return <article className="artifact-card"><header><div><h3>{displayTitle}</h3><p>{artifactTypeLabel(artifactType)}</p></div><span className={`authority-badge ${status}`}>{authorityLabel(status)}</span></header>{chapterOutlineV2
       ? <ChapterOutlineV2Content value={visibleContent} />
       : reverseChapterOutline
         ? <ReverseChapterOutlineContent value={visibleContent} />
       : <StructuredContent value={visibleContent} />}
     {notice !== null && <p className="artifact-notice" role="status">{notice}</p>}
-    {editing && <div className="artifact-editor"><h4>编辑一份待确认版本</h4>{stageMaster ? <StageMasterOutlineContractEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /> : <ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} />}<div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
+    {editing && <div className="artifact-editor"><h4>编辑一份待确认版本</h4><ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
       if (bookId === null) return;
       setBusy(true); setNotice(null);
       void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`版本 ${created.version} 已保存，确认后才会成为正式内容。`); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '保存失败')).finally(() => setBusy(false));
@@ -763,7 +680,7 @@ function ChapterOutlineV2Content({ value }: { value: Record<string, unknown> }):
   return <section className="chapter-outline-v2" aria-label="详细章纲">
     <header className="chapter-outline-heading">
       <div><small>{Number.isInteger(chapterNumber) ? `第${chapterNumber}章` : '当前章'}</small><h4>{masterText(value.title) || '未命名章节'}</h4></div>
-      <p>承接第{String(sourceStage.stageNumber ?? '未记录')}阶段《{masterText(sourceStage.title) || '剧情总纲'}》{Number.isInteger(stageStart) && Number.isInteger(stageEnd) ? `（第${stageStart}至${stageEnd}章）` : ''}</p>
+      <p>承接第{String(sourceStage.stageNumber ?? '未记录')}阶段《{masterText(sourceStage.title) || '当前卷规划'}》{Number.isInteger(stageStart) && Number.isInteger(stageEnd) ? `（第${stageStart}至${stageEnd}章）` : ''}</p>
     </header>
     <div className="chapter-outline-foundation">
       <MasterSummaryItem label="本章功能" value={masterText(value.chapterFunction)} />
@@ -808,232 +725,8 @@ function threadActionDisplay(action: string): string {
   return action === 'plant' ? '埋设：' : action === 'advance' ? '推进：' : action === 'payoff' ? '回收：' : '';
 }
 
-function StageMasterOutlineContent({ value }: { value: Record<string, unknown> }): React.JSX.Element {
-  const stages = masterStageRecords(value.majorStages);
-  const [selectedStageIndex, setSelectedStageIndex] = useState(Math.max(0, stages.length - 1));
-  const activeStageIndex = Math.min(Math.max(0, selectedStageIndex), Math.max(0, stages.length - 1));
-  return <section className="stage-master-outline" aria-label="阶段式剧情总纲">
-    <div className="stage-master-list">
-      {stages.length > 0 && <div className="stage-master-navigator" aria-label="剧情阶段导航">
-        <span className="stage-master-navigation-label">查看阶段</span>
-        <div className="stage-master-navigation">
-          <button type="button" disabled={activeStageIndex === 0} onClick={() => setSelectedStageIndex((index) => Math.max(0, index - 1))}>上一阶段</button>
-          <select aria-label="选择剧情阶段" value={activeStageIndex} onChange={(event) => setSelectedStageIndex(Number(event.target.value))}>{stages.map((stage, index) => <option value={index} key={index}>第{String(stage.stageNumber ?? index + 1)}阶段：{masterDisplayText(stage.title) || `阶段${index + 1}`}{index === stages.length - 1 ? '（当前）' : ''}</option>)}</select>
-          <button type="button" disabled={activeStageIndex >= stages.length - 1} onClick={() => setSelectedStageIndex((index) => Math.min(stages.length - 1, index + 1))}>下一阶段</button>
-        </div>
-      </div>}
-      {stages.length === 0 ? <p className="stage-master-empty">尚未形成阶段剧情总纲。</p> : stages.slice(activeStageIndex, activeStageIndex + 1).map((stage) => {
-        const index = activeStageIndex;
-        const range = masterRecord(stage.chapterRange);
-        const mainline = masterRecord(stage.mainline);
-        const structure = masterRecord(stage.structure);
-        const cast = masterStageRecords(stage.cast);
-        const blocks = masterStageRecords(stage.chapterBlocks);
-        const experience = masterRecord(stage.experience);
-        const plotPatterns = masterRecord(stage.plotPatterns);
-        const primaryPattern = masterRecord(plotPatterns.primary);
-        const supportingPatterns = masterStageRecords(plotPatterns.supporting);
-        const conflictDesign = masterRecord(stage.conflictDesign);
-        const foreshadowing = masterStageRecords(stage.foreshadowing);
-        const subplots = stageMasterSubplots(stage);
-        const start = Number(range.start);
-        const end = Number(range.end);
-        const estimatedWords = Number(stage.estimatedWords) || blocks.reduce((total, block) => total + (Number(block.estimatedWords) || 0), 0);
-        const stageSummary = masterDisplayText(stage.stageSummary)
-          || masterDisplayText(stage.summary)
-          || masterDisplayText(stage.stageGoal)
-          || masterDisplayText(mainline.resolution)
-          || masterDisplayText(stage.goal);
-        const displayBlocks = blocks.length > 0 ? blocks : Number.isInteger(start) && Number.isInteger(end) && stageSummary.length > 0
-          ? [{ start, end, summary: stageSummary, estimatedWords }]
-          : [];
-        const hasWritingReference = masterText(primaryPattern.name).length > 0
-          || supportingPatterns.length > 0
-          || masterText(stage.dramaticQuestion).length > 0
-          || masterText(stage.stageGoal).length > 0
-          || masterText(stage.startState).length > 0
-          || masterText(conflictDesign.surface).length > 0
-          || masterTextList(stage.turningPoints).length > 0
-          || masterTextList(stage.completionCriteria).length > 0
-          || masterTextList(stage.hardConstraints).length > 0
-          || masterTextList(stage.creativeFreedom).length > 0;
-        return <article className="stage-master-card" key={`${String(stage.stageNumber ?? index + 1)}-${masterText(stage.title)}`}>
-          <header>
-            <div><small>第{String(stage.stageNumber ?? index + 1)}阶段</small><h4>{masterText(stage.title) || `阶段${index + 1}`}</h4></div>
-            <div className="stage-master-meta">
-              <span><b>开始</b>{Number.isInteger(start) ? `第${start}章` : '未记录'}</span>
-              <span><b>结束</b>{Number.isInteger(end) ? `第${end}章` : '未记录'}</span>
-              <span><b>预估</b>{estimatedWords > 0 ? `${estimatedWords.toLocaleString('zh-CN')}字` : '未记录'}</span>
-            </div>
-          </header>
-          <section className="stage-outline-summary"><h5>阶段剧情概述</h5><p>{stageSummary || '未记录'}</p></section>
-          <div className="stage-storyline-grid">
-            <section aria-labelledby={`stage-mainline-${index}`}><h5 id={`stage-mainline-${index}`}>阶段主线</h5><dl>
-              <dt>开始</dt><dd>{masterDisplayText(mainline.encounter) || masterDisplayText(stage.startState) || '未记录'}</dd>
-              <dt>经过</dt><dd>{masterDisplayText(mainline.resolution) || masterDisplayText(stage.stageGoal) || masterDisplayText(stage.goal) || '未记录'}</dd>
-              <dt>结果</dt><dd>{masterDisplayText(mainline.result) || masterDisplayText(stage.eventGains) || '未记录'}</dd>
-            </dl></section>
-            <section aria-labelledby={`stage-subplot-${index}`}><h5 id={`stage-subplot-${index}`}>阶段支线</h5>{subplots.length > 0
-              ? <ul>{subplots.map((subplot, subplotIndex) => <li key={`${subplot}-${subplotIndex}`}>{subplot}</li>)}</ul>
-              : <p className="stage-subplot-empty">未记录</p>}</section>
-          </div>
-          <section><h5>起承转合</h5><div className="stage-structure-grid">
-            {([['起', 'setup'], ['承', 'development'], ['转', 'turn'], ['合', 'conclusion']] as const).map(([label, key]) =>
-              <div key={key}><strong>{label}</strong><p>{masterDisplayText(structure[key]) || '未记录'}</p></div>
-            )}
-          </div></section>
-          <div className="stage-character-grid">
-            <section><h5>新增出场人物</h5>{cast.length > 0 ? <ul className="stage-character-list">{cast.map((member, memberIndex) => <li key={`${masterDisplayText(member.name)}-${memberIndex}`}><strong>{masterDisplayText(member.name) || `人物${memberIndex + 1}`}</strong><span>{masterDisplayText(member.stageRole) || masterDisplayText(member.objective) || '未记录'}</span></li>)}</ul> : <p className="stage-subplot-empty">未记录</p>}</section>
-            <section><h5>人物成长</h5>{cast.length > 0 ? <ul className="stage-character-list">{cast.map((member, memberIndex) => <li key={`${masterDisplayText(member.name)}-growth-${memberIndex}`}><strong>{masterDisplayText(member.name) || `人物${memberIndex + 1}`}</strong><span>{masterDisplayText(member.stateChange) || '未记录'}</span></li>)}</ul> : <p className="stage-subplot-empty">未记录</p>}</section>
-          </div>
-          <section className="stage-chapter-plan"><h5>剧情与字数安排</h5>{displayBlocks.length > 0 ? <ol className="stage-chapter-blocks">{displayBlocks.map((block, blockIndex) => {
-            const blockWords = Number(block.estimatedWords);
-            const blockStart = Number(block.start);
-            const blockEnd = Number(block.end);
-            return <li key={blockIndex}><strong>{Number.isInteger(blockStart) && Number.isInteger(blockEnd) ? `第${blockStart}至${blockEnd}章` : '章节未记录'}</strong><p>{masterDisplayText(block.summary) || stageSummary || '未记录'}</p><small>{blockWords > 0 ? `预计 ${blockWords.toLocaleString('zh-CN')} 字` : '字数未预估'}</small></li>;
-          })}</ol> : <p className="stage-subplot-empty">未记录</p>}</section>
-          <section className="stage-experience"><h5>阶段情绪与阅读体验</h5><dl className="stage-experience-grid"><div><dt>阶段情绪基调</dt><dd>{masterDisplayText(experience.primaryTone) || masterDisplayTextList(experience.emotionalArc).join(' → ') || '未记录'}</dd></div><div><dt>给读者的阅读体验</dt><dd>{masterDisplayText(experience.readerEffect) || masterDisplayText(experience.readerExperience) || '未记录'}</dd></div><div><dt>爽点</dt><dd>{masterDisplayTextList(experience.payoffPoints).join('；') || '未记录'}</dd></div><div><dt>虐点</dt><dd>{masterDisplayTextList(experience.pressurePoints).join('；') || '未记录'}</dd></div></dl></section>
-          <div className="stage-outcome-grid">
-            <section><h5>事件收获</h5><p>{masterDisplayText(stage.eventGains) || masterDisplayText(mainline.result) || '未记录'}</p></section>
-            <section><h5>长线伏笔</h5>{foreshadowing.length > 0 ? <ul>{foreshadowing.map((item, threadIndex) => <li key={threadIndex}><strong>{threadActionDisplay(masterText(item.action))}</strong>{masterDisplayText(item.summary)}{masterDisplayText(item.releaseWindow).length > 0 && <small>（预计{masterDisplayText(item.releaseWindow)}）</small>}</li>)}</ul> : masterDisplayTextList(stage.pendingThreads).length > 0 ? <ul>{masterDisplayTextList(stage.pendingThreads).map((thread) => <li key={thread}>{thread}</li>)}</ul> : <p className="stage-subplot-empty">未记录</p>}</section>
-            <section><h5>下一阶段</h5><p>{masterDisplayText(stage.followUpDirection) || '未记录'}</p></section>
-          </div>
-          {hasWritingReference && <details className="stage-writing-reference"><summary>章纲参考</summary><div>
-            {(masterText(primaryPattern.name).length > 0 || supportingPatterns.length > 0) && <section><h5>采用的剧情模式</h5><p><strong>主要：</strong>{masterDisplayText(primaryPattern.name) || '未记录'}{masterDisplayText(primaryPattern.reason).length > 0 ? `，${masterDisplayText(primaryPattern.reason)}` : ''}</p>{supportingPatterns.length > 0 && <p><strong>辅助：</strong>{supportingPatterns.map((item) => `${masterDisplayText(item.name)}${masterDisplayText(item.reason).length > 0 ? `（${masterDisplayText(item.reason)}）` : ''}`).join('；')}</p>}</section>}
-            {(masterText(stage.dramaticQuestion).length > 0 || masterText(stage.stageGoal).length > 0 || masterText(stage.startState).length > 0) && <section><h5>剧情要回答的问题</h5><dl><dt>要回答什么</dt><dd>{masterDisplayText(stage.dramaticQuestion) || '未记录'}</dd><dt>要达到什么结果</dt><dd>{masterDisplayText(stage.stageGoal) || '未记录'}</dd><dt>从哪里开始</dt><dd>{masterDisplayText(stage.startState) || '未记录'}</dd></dl></section>}
-            {masterText(conflictDesign.surface).length > 0 && <section><h5>主要冲突</h5><dl><dt>眼前冲突</dt><dd>{masterDisplayText(conflictDesign.surface)}</dd><dt>背后冲突</dt><dd>{masterDisplayText(conflictDesign.underlying)}</dd><dt>牵涉什么</dt><dd>{masterDisplayText(conflictDesign.stakes)}</dd><dt>失败会怎样</dt><dd>{masterDisplayText(conflictDesign.failureCost)}</dd></dl></section>}
-            {masterTextList(stage.turningPoints).length > 0 && <section><h5>关键转折</h5><ul>{masterDisplayTextList(stage.turningPoints).map((item) => <li key={item}>{item}</li>)}</ul></section>}
-            {masterTextList(stage.completionCriteria).length > 0 && <section><h5>写到什么算完成</h5><ul>{masterDisplayTextList(stage.completionCriteria).map((item) => <li key={item}>{item}</li>)}</ul></section>}
-            {masterTextList(stage.hardConstraints).length > 0 && <section><h5>不能违背的内容</h5><ul>{masterDisplayTextList(stage.hardConstraints).map((item) => <li key={item}>{item}</li>)}</ul></section>}
-            {masterTextList(stage.creativeFreedom).length > 0 && <section><h5>可以自由发挥</h5><ul>{masterDisplayTextList(stage.creativeFreedom).map((item) => <li key={item}>{item}</li>)}</ul></section>}
-          </div></details>}
-        </article>;
-      })}
-    </div>
-  </section>;
-}
-
-function stageMasterSubplots(stage: Record<string, unknown>): string[] {
-  const source = Array.isArray(stage.subplots) ? stage.subplots : Array.isArray(stage.subplot) ? stage.subplot : [];
-  return source.flatMap((item) => {
-    if (typeof item === 'string') return item.trim().length > 0 ? [toAuthorFacingText(item.trim())] : [];
-    const record = masterRecord(item);
-    const title = masterDisplayText(record.title);
-    const summary = masterDisplayText(record.summary) || masterDisplayText(record.content);
-    if (title.length === 0) return summary.length > 0 ? [summary] : [];
-    return [`${title}${summary.length > 0 ? `：${summary}` : ''}`];
-  });
-}
-
 function MasterSummaryItem({ label, value }: { label: string; value: string }): React.JSX.Element {
   return <div><strong>{label}</strong><p>{value || '待补充'}</p></div>;
-}
-
-function StageMasterOutlineContractEditFields({ value, onChange }: {
-  value: Record<string, unknown>;
-  onChange: (value: Record<string, unknown>) => void;
-}): React.JSX.Element {
-  const stages = masterStageRecords(value.majorStages);
-  const stageIndex = Math.max(0, stages.length - 1);
-  const stage = stages[stageIndex] ?? {
-    stageNumber: 1, title: '第一阶段', chapterRange: { start: 1, end: 30 },
-    mainline: {}, structure: {}, conflictDesign: {}, plotPatterns: {}, pendingThreads: [],
-    completionCriteria: [], hardConstraints: [], creativeFreedom: []
-  };
-  const updateText = (key: string, next: string): void => onChange({ ...value, [key]: next });
-  const updateList = (key: string, next: string): void => onChange({
-    ...value,
-    [key]: next.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean)
-  });
-  const updateStage = (next: Record<string, unknown>): void => {
-    const nextStages = stages.length > 0 ? [...stages] : [];
-    nextStages[stageIndex] = { ...next, stageNumber: Number(next.stageNumber) || stageIndex + 1 };
-    onChange({ ...value, outlineSchema: 'stage_master_v2', majorStages: nextStages });
-  };
-  const updateStageText = (key: string, next: string): void => updateStage({ ...stage, [key]: next });
-  const updateStageList = (key: string, next: string): void => updateStage({
-    ...stage, [key]: next.split(/\r?\n/u).map((item) => item.trim()).filter(Boolean)
-  });
-  const updateNested = (parent: string, key: string, next: string): void => {
-    const current = masterRecord(stage[parent]);
-    updateStage({ ...stage, [parent]: { ...current, [key]: next } });
-  };
-  const range = masterRecord(stage.chapterRange);
-  const start = Math.max(1, Number(range.start) || 1);
-  const end = Math.min(start + 49, Math.max(start, Number(range.end) || start));
-  const patterns = masterRecord(stage.plotPatterns);
-  const primaryPattern = masterRecord(patterns.primary);
-  const supportingPatterns = masterStageRecords(patterns.supporting);
-  const updatePattern = (kind: 'primary' | 'supporting', index: number, key: string, next: string): void => {
-    if (kind === 'primary') {
-      updateStage({ ...stage, plotPatterns: { ...patterns, primary: { ...primaryPattern, [key]: next } } });
-      return;
-    }
-    const updated = [0, 1].map((item) => item === index
-      ? { ...(supportingPatterns[item] ?? {}), [key]: next }
-      : supportingPatterns[item] ?? {});
-    updateStage({ ...stage, plotPatterns: { ...patterns, supporting: updated.filter((item) => masterText(item.name) || masterText(item.reason)) } });
-  };
-  return <div className="stage-master-editor stage-master-contract-editor">
-    <aside className="stage-contract-editor-note"><strong>一次只规划一个完整大剧情</strong><span>1至50章；这一阶段写完并确认后，再创建下一阶段。剧情模式只提供结构参考，不是逐章清单。</span></aside>
-    <div className="stage-master-global-fields">
-      {([
-        ['premise', '核心前提'], ['coreConflict', '核心冲突'], ['protagonistArc', '主角成长线'],
-        ['endingDirection', '结局方向']
-      ] as const).map(([key, label]) => <label key={key}><span>{label}</span><textarea rows={3} value={masterText(value[key])} onChange={(event) => updateText(key, event.target.value)} /></label>)}
-      <label><span>作品承诺（每行一条）</span><textarea rows={3} value={masterTextList(value.storyPromises).join('\n')} onChange={(event) => updateList('storyPromises', event.target.value)} /></label>
-      <label><span>仍待确认（每行一条）</span><textarea rows={3} value={masterTextList(value.openQuestions).join('\n')} onChange={(event) => updateList('openQuestions', event.target.value)} /></label>
-    </div>
-      <fieldset className="stage-master-edit-card">
-        <legend>当前阶段写作要求</legend>
-        <div className="stage-master-edit-heading">
-          <label><span>大剧情名称</span><input value={masterText(stage.title)} onChange={(event) => updateStageText('title', event.target.value)} /></label>
-          <label><span>起始章</span><input type="number" min={1} value={start} onChange={(event) => { const nextStart = Math.max(1, Number(event.target.value) || 1); updateStage({ ...stage, chapterRange: { start: nextStart, end: Math.min(nextStart + 49, Math.max(nextStart, end)) } }); }} /></label>
-          <label><span>预计结束章（最多50章）</span><input type="number" min={start} max={start + 49} value={end} onChange={(event) => updateStage({ ...stage, chapterRange: { start, end: Math.min(start + 49, Math.max(start, Number(event.target.value) || start)) } })} /></label>
-        </div>
-        <section className="stage-pattern-editor"><h5>剧情模式</h5><div className="stage-contract-editor-grid">
-          <label><span>主模式</span><input value={masterText(primaryPattern.name)} placeholder="例如：双向救赎" onChange={(event) => updatePattern('primary', 0, 'name', event.target.value)} /></label>
-          <label><span>采用理由</span><textarea rows={2} value={masterText(primaryPattern.reason)} onChange={(event) => updatePattern('primary', 0, 'reason', event.target.value)} /></label>
-          {[0, 1].map((index) => <label key={index}><span>辅助模式 {index + 1}（可空）</span><input value={masterText(supportingPatterns[index]?.name)} onChange={(event) => updatePattern('supporting', index, 'name', event.target.value)} /></label>)}
-        </div></section>
-        <div className="stage-master-edit-grid">
-          <label><span>戏剧问题</span><textarea rows={3} value={masterText(stage.dramaticQuestion)} onChange={(event) => updateStageText('dramaticQuestion', event.target.value)} /></label>
-          <label><span>阶段目标</span><textarea rows={3} value={masterText(stage.stageGoal)} onChange={(event) => updateStageText('stageGoal', event.target.value)} /></label>
-          <label><span>开场状态</span><textarea rows={3} value={masterText(stage.startState)} onChange={(event) => updateStageText('startState', event.target.value)} /></label>
-          {([['encounter', '遇到什么'], ['resolution', '如何解决'], ['result', '阶段结果']] as const).map(([key, label]) =>
-            <label key={key}><span>{label}</span><textarea rows={3} value={masterText(masterRecord(stage.mainline)[key])} onChange={(event) => updateNested('mainline', key, event.target.value)} /></label>
-          )}
-          {([['setup', '起'], ['development', '承'], ['turn', '转'], ['conclusion', '合']] as const).map(([key, label]) =>
-            <label key={key}><span>{label}</span><textarea rows={3} value={masterText(masterRecord(stage.structure)[key])} onChange={(event) => updateNested('structure', key, event.target.value)} /></label>
-          )}
-          <label><span>结束判定（每行一条）</span><textarea rows={3} value={masterTextList(stage.completionCriteria).join('\n')} onChange={(event) => updateStageList('completionCriteria', event.target.value)} /></label>
-          <label><span>不能改变的内容（每行一条）</span><textarea rows={3} value={masterTextList(stage.hardConstraints).join('\n')} onChange={(event) => updateStageList('hardConstraints', event.target.value)} /></label>
-          <label><span>创作自由区（每行一条）</span><textarea rows={3} value={masterTextList(stage.creativeFreedom).join('\n')} onChange={(event) => updateStageList('creativeFreedom', event.target.value)} /></label>
-          <label><span>阶段总结</span><textarea rows={3} value={masterText(stage.stageSummary)} onChange={(event) => updateStageText('stageSummary', event.target.value)} /></label>
-          <label><span>待回收信息与伏笔（每行一条）</span><textarea rows={3} value={masterTextList(stage.pendingThreads).join('\n')} onChange={(event) => updateStageList('pendingThreads', event.target.value)} /></label>
-          <label><span>后续方向</span><textarea rows={3} value={masterText(stage.followUpDirection)} onChange={(event) => updateStageText('followUpDirection', event.target.value)} /></label>
-        </div>
-      </fieldset>
-  </div>;
-}
-
-function normalizeMasterStages(stages: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-  let nextStart = 1;
-  return stages.map((stage, index) => {
-    const range = masterRecord(stage.chapterRange);
-    const oldStart = Number(range.start);
-    const oldEnd = Number(range.end);
-    const length = Number.isInteger(oldStart) && Number.isInteger(oldEnd) && oldEnd >= oldStart
-      ? oldEnd - oldStart + 1
-      : 50;
-    const normalized = {
-      ...stage,
-      stageNumber: index + 1,
-      chapterRange: { start: nextStart, end: nextStart + length - 1 }
-    };
-    nextStart += length;
-    return normalized;
-  });
 }
 
 function masterStageRecords(value: unknown): Array<Record<string, unknown>> {

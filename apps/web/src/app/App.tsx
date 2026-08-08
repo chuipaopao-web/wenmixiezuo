@@ -856,19 +856,6 @@ export function App(): React.JSX.Element {
                 onChanged={() => void refreshWorkspace(selectedBook.bookId)}
                 onOpenConversation={() => setView('chat')}
               />}
-              onDiscussMasterOutline={async (plotPatternPacket = '') => {
-                if (selectedBookId === null) return;
-                setError(null);
-                try {
-                  await sendMessage(
-                    selectedBookId,
-                    `讨论阶段剧情 【阶段剧情抽卡资料包】请依据当前开书资料、已确认设定、反向拆解章纲和现有正式总纲，只规划下一个不超过50章、具有完整起承转合的大剧情。活动主编、副编与一名不同模型的编剧先分别思考，每人提出1个能独立成立的方案，共3案；每案说明剧情类型、放进本书后具体怎样发生、怎样结束、预计从哪章到哪章、主要爽点或压力、关键转折、伏笔和推荐理由。现在只给待选方案，不直接写总纲、章纲或正文；作者选择一案或融合多案后，再由主编整理确认稿。保留旧版本，不直接修改正式正文。${plotPatternPacket}`
-                  );
-                  setView('chat');
-                } catch (reason) {
-                  setError(reason instanceof Error ? reason.message : '剧情总纲升级讨论启动失败');
-                }
-              }}
             />}
             {view === 'knowledge' && <LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
             {view === 'projections' && <ProjectionWorkspace data={referenceData} />}

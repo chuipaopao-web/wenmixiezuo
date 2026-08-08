@@ -4,7 +4,10 @@ import type {
   CreateAuthorPlanningInputCommand,
   DecideAuthorPlanningInputCommand,
   NarrativeTemplateCatalogView,
-  PlanningScope
+  CreationWorkflowStateView,
+  PlanningTemplateInstance,
+  PlanningScope,
+  VolumePlanContent
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
 
@@ -212,6 +215,48 @@ export interface PlanningStateData {
   nextAction: string;
 }
 
+export type VolumePlanCandidateKind = 'candidate_a' | 'candidate_b' | 'author_edit' | 'fusion' | 'legacy';
+
+export interface VolumePlanVersionData {
+  volumePlanVersionId: string;
+  volumePlanId: string;
+  version: number;
+  parentVersionId: string | null;
+  status: 'candidate' | 'active' | 'superseded' | 'archived';
+  candidateKind: VolumePlanCandidateKind;
+  dependencies: CreationWorkflowStateView['frozenChapterOutlineRefs'];
+  template: PlanningTemplateInstance;
+  authorInputRefs: string[];
+  content: VolumePlanContent;
+  contentHash: string;
+  sourceTaskId: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+}
+
+export interface VolumePlanData {
+  volumePlanId: string;
+  planNumber: number;
+  physicalVolumeId: string | null;
+  previousVolumePlanId: string | null;
+  previousSettlementId: string | null;
+  status: 'planning' | 'active' | 'completed' | 'archived';
+  revision: number;
+  activeVersionId: string | null;
+  activeVersion: VolumePlanVersionData | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VolumePlanImpactData {
+  volumePlanId: string;
+  candidateVersionId: string;
+  activeVersionId: string | null;
+  changedFields: string[];
+  downstreamDependencyCount: number;
+  requiresDownstreamReview: boolean;
+  note: string;
+}
 export interface OpeningSynopsisAnalysisData {
   schemaVersion: 'opening-synopsis-suggestions-v1';
   analysisMode: 'local-deterministic';
@@ -720,6 +765,74 @@ export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, sig
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/planning-templates?scope=${encodeURIComponent(scope)}`,
     signal === undefined ? {} : { signal }
+  );
+}
+export function fetchCreationWorkflow(bookId: string, signal?: AbortSignal): Promise<CreationWorkflowStateView> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/workflow`, signal === undefined ? {} : { signal });
+}
+
+export function fetchVolumePlans(bookId: string, signal?: AbortSignal): Promise<VolumePlanData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans`, signal === undefined ? {} : { signal });
+}
+
+export function createVolumePlan(bookId: string, input: {
+  expectedWorkflowVersion: number;
+  planNumber: number;
+  physicalVolumeId?: string | null;
+  idempotencyKey: string;
+}): Promise<VolumePlanData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function fetchVolumePlanVersions(
+  bookId: string,
+  volumePlanId: string,
+  signal?: AbortSignal
+): Promise<VolumePlanVersionData[]> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/versions`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function addVolumePlanVersion(bookId: string, volumePlanId: string, input: {
+  expectedPlanRevision: number;
+  candidateKind: VolumePlanCandidateKind;
+  parentVersionId?: string | null;
+  sourceTaskId?: string | null;
+  authorInputRefs?: string[];
+  template: PlanningTemplateInstance;
+  content: VolumePlanContent;
+  idempotencyKey: string;
+}): Promise<VolumePlanVersionData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/versions`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function previewVolumePlanImpact(
+  bookId: string,
+  volumePlanId: string,
+  volumePlanVersionId: string
+): Promise<VolumePlanImpactData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/impact-preview`,
+    { method: 'POST', body: JSON.stringify({ volumePlanVersionId }) }
+  );
+}
+
+export function confirmVolumePlanVersion(bookId: string, volumePlanId: string, input: {
+  volumePlanVersionId: string;
+  expectedPlanRevision: number;
+  expectedActiveVersionId?: string | null;
+  expectedWorkflowVersion: number;
+}): Promise<VolumePlanData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/confirm`,
+    { method: 'POST', body: JSON.stringify(input) }
   );
 }
 export type AuthorPlanningInputData = AuthorPlanningInput;
