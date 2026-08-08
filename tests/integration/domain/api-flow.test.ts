@@ -146,6 +146,22 @@ describe('建书REST流程', () => {
         message: expect.stringContaining('已经确认或结束'),
         retryable: false
       });
+      const profileBefore = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/book-profile` });
+      expect(profileBefore.statusCode).toBe(200);
+      expect(profileBefore.json().data).toMatchObject({ version: 1, title: '天安城军报', openingBlueprint: { initialMap: openingBlueprint.initialMap } });
+      const revisedDirection = '张三利用伪造军令中的时间差反向布局，既要阻止城邦开战，也要找出权臣控制盟约的真实目的。';
+      const revisedProfile = await app.inject({
+        method: 'PUT', url: `/api/v1/books/${created.bookId}/book-profile`,
+        payload: { expectedVersion: 1, title: '天安城盟约', openingBlueprint: { ...openingBlueprint, storyDirection: revisedDirection } }
+      });
+      expect(revisedProfile.statusCode).toBe(200);
+      expect(revisedProfile.json().data).toMatchObject({ version: 2, title: '天安城盟约', storyDirection: revisedDirection });
+      const staleProfile = await app.inject({
+        method: 'PUT', url: `/api/v1/books/${created.bookId}/book-profile`,
+        payload: { expectedVersion: 1, title: '过期标题', openingBlueprint }
+      });
+      expect(staleProfile.statusCode).toBe(409);
+      expect(staleProfile.json().error).toMatchObject({ code: 'BOOK_VERSION_CONFLICT' });
       const messages = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/messages` });
       expect(messages.json().data).toEqual([]);
       const workspace = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/workspace` });

@@ -88,5 +88,18 @@ export class BookRepository {
     }
     return this.require(scope);
   }
+
+  public updateTitle(scope: BookScope, expectedVersion: number, title: string, now: string): BookRecord {
+    assertBookScope(scope);
+    const result = this.database.prepare(`
+      UPDATE books SET title = ?, version = version + 1, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND version = ?
+    `).run(title, now, scope.ownerId, scope.bookId, expectedVersion);
+    if (result.changes !== 1) {
+      if (this.find(scope) === null) throw new DomainError(errorCodes.bookNotFound, '书籍不存在', {}, false, 404);
+      throw new DomainError(errorCodes.bookVersionConflict, '书籍版本已经变化', { expectedVersion }, false, 409);
+    }
+    return this.require(scope);
+  }
 }
 

@@ -22,6 +22,7 @@ export interface BookProfileView {
   };
   source: string;
   version: number;
+  openingBlueprint: OpeningBlueprintInput;
 }
 
 export class BookProfileViewService {
@@ -40,7 +41,12 @@ export class BookProfileViewService {
     assertBookScope(scope);
     const row = this.repository.openingProfile(scope);
     if (row === undefined) return null;
-    const blueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
+    const storedBlueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
+    const blueprint: OpeningBlueprintInput = {
+      ...storedBlueprint,
+      creationMode: storedBlueprint.creationMode ?? 'new',
+      storyDirection: storedBlueprint.storyDirection?.trim() || storedBlueprint.fullBookOutline?.trim() || ''
+    };
     const style = blueprint.styleIntent ?? {
       languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []
     };
@@ -52,11 +58,12 @@ export class BookProfileViewService {
       mainTags: blueprint.mainTags,
       customTags: blueprint.customTags,
       protagonists: blueprint.protagonists,
-      storyDirection: blueprint.storyDirection?.trim() || blueprint.fullBookOutline?.trim() || '',
+      storyDirection: blueprint.storyDirection,
       mustFollow: blueprint.mustFollow,
       style,
       source: '老板确认的开书资料',
-      version: row.version
+      version: row.version,
+      openingBlueprint: blueprint
     };
   }
 }

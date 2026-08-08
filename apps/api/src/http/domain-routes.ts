@@ -63,6 +63,8 @@ import { AgentPromptPreferenceService } from '../application/agents/agent-prompt
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
+import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
+import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
 import { PlanningStateService } from '../application/books/planning-state-service.js';
 import { StyleBaselineService } from '../application/books/style-baseline-service.js';
 import type { StyleBaselineInput } from '../contracts/style-baseline.js';
@@ -182,6 +184,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
   const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
   const bookProfileView = new BookProfileViewService(database);
+  const openingBlueprints = new OpeningBlueprintService(
+    new OpeningBlueprintRepository(database), books, new UnitOfWork(database), ids, clock
+  );
   const planningStates = new PlanningStateService(database);
   const styleBaselines = new StyleBaselineService(database, ids, clock);
   const settingBaselines = new SettingBaselineService(database, ids, clock);
@@ -228,6 +233,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/book-profile', async (request) => {
     const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    return success(bookProfileView.get(scope), request.id);
+  });
+  app.put<{ Params: { bookId: string }; Body: {
+    expectedVersion: number;
+    title: string;
+    openingBlueprint: OpeningBlueprintInput;
+  } }>('/api/v1/books/:bookId/book-profile', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    openingBlueprints.revise(scope, request.body);
     return success(bookProfileView.get(scope), request.id);
   });
   app.get<{

@@ -10,6 +10,7 @@ import {
   fetchSettingOutlineWorkspace,
   fetchSettingReadiness,
   initializeSettingOutlineWorkspace,
+  updateBookProfile,
   rejectArtifactVersion,
   saveSettingOutlineItem,
   sendMessage,
@@ -33,6 +34,7 @@ import {
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 
 type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
 
@@ -199,7 +201,7 @@ const ALL_SETTING_TEMPLATE_GROUPS: SettingOutlineGroup[] = [
 
 type SettingReadinessView = Awaited<ReturnType<typeof fetchSettingReadiness>>;
 
-export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onDiscussSetting, onDiscussMasterOutline }: {
+export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onDiscussSetting, onDiscussMasterOutline, onBookProfileChanged }: {
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
   data: unknown;
@@ -207,9 +209,12 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   manuscript: ReactNode;
   onDiscussSetting: (packet: string) => Promise<void>;
   onDiscussMasterOutline: (plotPatternPacket?: string) => Promise<void>;
+  onBookProfileChanged?: () => Promise<void> | void;
 }): React.JSX.Element {
   const [plotLibraryOpen, setPlotLibraryOpen] = useState(false);
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const [planningState, setPlanningState] = useState<PlanningStateData | null>(null);
   const bookId = workspace?.book.bookId ?? null;
   const refreshPlanningState = useCallback(async (): Promise<void> => {
@@ -231,6 +236,19 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
     });
     return () => controller.abort();
   }, [bookId]);
+  const saveBookProfile = async (input: Parameters<typeof updateBookProfile>[1]): Promise<boolean> => {
+    if (bookId === null) return false;
+    setProfileSaving(true);
+    try {
+      const updated = await updateBookProfile(bookId, input);
+      setBookProfile(updated);
+      setProfileEditing(false);
+      await onBookProfileChanged?.();
+      return true;
+    } finally {
+      setProfileSaving(false);
+    }
+  };
   const artifacts = Array.isArray(data) ? data.filter(isRecord) : [];
   const visible = artifacts.flatMap<{ artifact: Record<string, unknown>; projection: ArtifactProjection }>((artifact) => {
     const type = String(artifact.artifact_type);
@@ -287,7 +305,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         </div>
       </section>}
       {tab === 'master' && plotLibraryOpen && <PlotPatternLibrary profile={bookProfile} onDiscuss={onDiscussMasterOutline} />}
-      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} /> : renderableArtifacts.length === 0 ? (
+      {tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`暂无${tabs.find(([key]) => key === tab)?.[1] ?? '内容'}`} description="" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -311,13 +329,19 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         }))}
       />}
       </div>
+      {profileEditing && bookProfile !== null && <CompleteCreateBookDialog
+        busy={profileSaving}
+        initialProfile={bookProfile}
+        onCancel={() => setProfileEditing(false)}
+        onUpdate={saveBookProfile}
+      />}
     </section>
   );
 }
 
-function BookProfilePanel({ profile }: { profile: BookProfileViewData }): React.JSX.Element {
+function BookProfilePanel({ profile, onEdit }: { profile: BookProfileViewData; onEdit: () => void }): React.JSX.Element {
   return <section className="book-profile-panel">
-    <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category}</p></div></header>
+    <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category} · 第 {profile.version} 版</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
     <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>

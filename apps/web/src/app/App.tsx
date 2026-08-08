@@ -560,10 +560,10 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const createNewBook = async (input: Parameters<typeof createBook>[0]): Promise<void> => {
+  const createNewBook = async (input: Parameters<typeof createBook>[0]): Promise<boolean> => {
     if (pendingAttachments.length > 0) {
       setError('创建并切换新书前请先发送或移除当前附件。');
-      return;
+      return false;
     }
     setBusy(true);
     try {
@@ -578,8 +578,10 @@ export function App(): React.JSX.Element {
       }
       setCreateOpen(false);
       setError(null);
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '建书失败');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -843,6 +845,7 @@ export function App(): React.JSX.Element {
               onTabChange={setCreationTab}
               data={referenceData}
               workspace={workspace}
+              onBookProfileChanged={() => refreshWorkspace(selectedBook.bookId)}
               manuscript={<ManuscriptWorkspace
                 key={selectedBook.bookId}
                 workspace={workspace}

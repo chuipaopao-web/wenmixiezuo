@@ -63,6 +63,8 @@ DEC-066补充本书资料、规划状态、表达调色板和设定确认读写�
 | POST | `/books/drafts` | 创建开书草稿；当前Web提交完整 `openingBlueprint`，旧字段只用于历史兼容 |
 | PATCH | `/book-drafts/{draftId}` | 修改开书草稿及其定位版本 |
 | POST | `/book-drafts/{draftId}/confirm` | 原子创建书、开书资料、主角候选、11个创作Agent、预算、会话和主编主动开场任务 |
+| GET | `/books/{bookId}/book-profile` | 读取当前开书资料版本和完整可编辑蓝图 |
+| PUT | `/books/{bookId}/book-profile` | 以期望版本修订书名与开书资料；保留旧版本且不改写正史 |
 | GET | `/books` | 查询当前老板的书籍 |
 | GET | `/books/{bookId}` | 查询书籍、定位、版本和生命周期 |
 | POST | `/books/{bookId}/archive` | 归档书籍 |
@@ -497,6 +499,8 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - 8项标签自动勾选由Web根据版本化分类目录确定性完成，不新增模型调用或API字段。
 - `GET /api/v1/opening-taxonomy` 同时返回 `boundaryGroups`。客户端可以与自定义边界合并提交，最终由 `openingBlueprint.mustFollow` 的1—15条服务端校验兜底。
 - `POST /api/v1/book-drafts/:draftId/confirm`：在同一事务创建版本化开书资料、初始主角候选资料与主编主动开场任务，返回 `kickoffTaskId`。主编开场必须引用同一快照中的故事方向，先校准理解再问1—3个设定问题，不直接生成总纲、章纲或正文；故事方向在上下文中标记为软规划参考而非正史。事务失败不得留下书、团队、资料或任务。陈旧版本返回HTTP 409与 `BOOK_VERSION_CONFLICT`，客户端刷新草稿后可以重试；重复确认返回HTTP 409与 `BOOK_STATUS_CONFLICT`，不得重复创建。
+- `GET /api/v1/books/:bookId/book-profile`：返回书名、作者可读摘要、当前版本号和完整 `openingBlueprint`。历史旧书缺少 `storyDirection` 时只读回退到旧简介；返回值不会把回退内容写回数据库。
+- `PUT /api/v1/books/:bookId/book-profile`：请求体为 `{ expectedVersion, title, openingBlueprint }`。服务端重新执行完整开书校验，在单一事务中把当前版本标记为 `superseded`、插入新的 `active` 版本并以书籍版本CAS更新书名。创作方式不能在建书后切换；过期版本返回HTTP 409与 `BOOK_VERSION_CONFLICT`。修改仅更新后续规划读取的当前开书参考，不自动重写已确认设定、主角正史、正式正文或历史上下文包。
 - 旧草稿仍可按旧字段确认，避免升级后破坏已存在的编辑中草稿；新Web不再产生旧式不完整草稿。
 
 ## 19. DEC-049工作区会话投影

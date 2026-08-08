@@ -164,6 +164,7 @@ export interface BookProfileViewData {
   style: OpeningBlueprintData['styleIntent'];
   source: string;
   version: number;
+  openingBlueprint: OpeningBlueprintData;
 }
 
 export interface PlanningStateData {
@@ -1034,6 +1035,17 @@ export function fetchSettingOutlineWorkspace(bookId: string, signal?: AbortSigna
 
 export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfileViewData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/book-profile`, signal === undefined ? {} : { signal });
+}
+
+export function updateBookProfile(bookId: string, input: {
+  expectedVersion: number;
+  title: string;
+  openingBlueprint: OpeningBlueprintData;
+}): Promise<BookProfileViewData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/book-profile`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  });
 }
 
 export function fetchPlanningState(bookId: string, signal?: AbortSignal): Promise<PlanningStateData> {

@@ -10,6 +10,7 @@ import {
 import {
   createBook,
   fetchOpeningTaxonomy,
+  type BookProfileViewData,
   type OpeningBlueprintData,
   type OpeningChannel,
   type OpeningTaxonomyData,
@@ -18,43 +19,61 @@ import {
 import { NamingAssistantPanel } from '../../app/NamingAssistantPanel';
 import { recommendCharacterTarget, type NamingContext } from '../../app/naming-assistant';
 import { OPENING_CHANNELS, PROTAGONIST_ROLES } from './opening-options';
+import {
+  clearOpeningWizardDraft,
+  emptyOpeningWizardDraft,
+  hasMeaningfulOpeningDraft,
+  loadOpeningWizardDraft,
+  saveOpeningWizardDraft,
+  type OpeningProtagonistDraft,
+  type OpeningWizardDraft
+} from './opening-draft-store';
 
-interface OpeningProtagonistDraft {
-  role: ProtagonistRole;
-  name: string;
-  age: string;
-  background: string;
-  personalities: string[];
-}
-
-export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
+export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProfile, onUpdate }: {
   busy: boolean;
   onCancel: () => void;
-  onCreate: (input: Parameters<typeof createBook>[0]) => Promise<void>;
+  onCreate?: (input: Parameters<typeof createBook>[0]) => Promise<boolean>;
+  initialProfile?: BookProfileViewData;
+  onUpdate?: (input: { expectedVersion: number; title: string; openingBlueprint: OpeningBlueprintData }) => Promise<boolean>;
 }): React.JSX.Element {
+  const editing = initialProfile !== undefined;
+  const [restoredDraft] = useState(() => editing ? null : loadOpeningWizardDraft());
+  const [initialDraft] = useState(() => initialProfile === undefined
+    ? restoredDraft ?? emptyOpeningWizardDraft()
+    : openingProfileDraft(initialProfile));
   const [taxonomy, setTaxonomy] = useState<OpeningTaxonomyData | null>(null);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
-  const [creationMode, setCreationMode] = useState<'new' | 'continuation'>('new');
-  const [channel, setChannel] = useState<OpeningChannel | null>(null);
-  const [categoryKey, setCategoryKey] = useState<string | null>(null);
-  const [mainTags, setMainTags] = useState<string[]>([]);
-  const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>([]);
-  const [storyTraits] = useState<string[]>([]);
-  const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>([
-    { role: 'co_lead', name: '', age: '', background: '', personalities: [] }
-  ]);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(initialDraft.step);
+  const [title, setTitle] = useState(initialDraft.title);
+  const [creationMode, setCreationMode] = useState<'new' | 'continuation'>(initialDraft.creationMode);
+  const [channel, setChannel] = useState<OpeningChannel | null>(initialDraft.channel);
+  const [categoryKey, setCategoryKey] = useState<string | null>(initialDraft.categoryKey);
+  const [mainTags, setMainTags] = useState<string[]>(initialDraft.mainTags);
+  const [auxiliaryTags, setAuxiliaryTags] = useState<string[]>(initialDraft.auxiliaryTags);
+  const [storyTraits, setStoryTraits] = useState<string[]>(initialDraft.storyTraits);
+  const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>(initialDraft.protagonists);
   const [namingProtagonistIndex, setNamingProtagonistIndex] = useState<number | null>(null);
-  const [storyDirection, setStoryDirection] = useState('');
-  const [customTags, setCustomTags] = useState<string[]>([]);
+  const [storyDirection, setStoryDirection] = useState(initialDraft.storyDirection);
+  const [targetAudience, setTargetAudience] = useState(initialDraft.targetAudience);
+  const [worldBackground, setWorldBackground] = useState(initialDraft.worldBackground);
+  const [openingBackground, setOpeningBackground] = useState(initialDraft.openingBackground);
+  const [stageOne, setStageOne] = useState(initialDraft.stageOne);
+  const [fullBookOutline, setFullBookOutline] = useState(initialDraft.fullBookOutline);
+  const [initialMap, setInitialMap] = useState(initialDraft.initialMap);
+  const [customTags, setCustomTags] = useState<string[]>(initialDraft.customTags);
   const [customTag, setCustomTag] = useState('');
   const [tagQuery, setTagQuery] = useState('');
-  const [allSubjectsOpen, setAllSubjectsOpen] = useState(false);
-  const [activeTagGroupKey, setActiveTagGroupKey] = useState('recommended');
-  const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>([]);
-  const [mustFollowText, setMustFollowText] = useState('');
+  const [allSubjectsOpen, setAllSubjectsOpen] = useState(initialDraft.allSubjectsOpen);
+  const [activeTagGroupKey, setActiveTagGroupKey] = useState(initialDraft.activeTagGroupKey);
+  const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>(initialDraft.selectedMustFollow);
+  const [mustFollowText, setMustFollowText] = useState(initialDraft.mustFollowText);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [restoredNotice, setRestoredNotice] = useState(restoredDraft !== null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
   const validationSummaryRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const automaticTagSignature = useRef('');
   const automaticTagValues = useRef<string[]>([]);
   const automaticTagCategory = useRef<string | null>(null);
@@ -69,6 +88,33 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (editing) return;
+    const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
+      step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+      protagonists, storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+      fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
+      allSubjectsOpen, activeTagGroupKey
+    };
+    const timer = window.setTimeout(() => {
+      try {
+        if (hasMeaningfulOpeningDraft(snapshot)) {
+          const saved = saveOpeningWizardDraft(snapshot);
+          setDraftSaveMessage(`草稿已自动保存 · ${new Date(saved.updatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+        } else {
+          clearOpeningWizardDraft();
+          setDraftSaveMessage(null);
+        }
+      } catch {
+        setDraftSaveMessage('当前浏览器无法自动保存草稿，请不要关闭页面。');
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+    protagonists, storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+    fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
+    allSubjectsOpen, activeTagGroupKey, editing]);
 
   const categories = taxonomy?.categories.filter((item) => item.channel === channel) ?? [];
   const category = taxonomy?.categories.find((item) => item.key === categoryKey) ?? null;
@@ -111,6 +157,11 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
   const tagRecommendationSignature = `${taxonomy?.version ?? ''}|${categoryKey ?? ''}|${[...auxiliaryTags].sort().join('|')}`;
   useEffect(() => {
     if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
+    if (editing && automaticTagSignature.current === '') {
+      automaticTagSignature.current = tagRecommendationSignature;
+      automaticTagCategory.current = category.key;
+      return;
+    }
     if (automaticTagCategory.current !== category.key) {
       dismissedAutomaticTags.current.clear();
       automaticTagCategory.current = category.key;
@@ -124,25 +175,31 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       return [...new Set([...manualTags, ...nextAutomaticTags])];
     });
     automaticTagValues.current = nextAutomaticTags;
-  }, [taxonomy, category, tagRecommendationSignature]);
+  }, [taxonomy, category, tagRecommendationSignature, editing]);
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
-  const missingRequirements = [
+  const directionRequirements = [
     ...(taxonomy === null ? ['分类目录'] : []),
     ...(title.trim().length === 0 ? ['书名'] : []),
     ...(channel === null ? ['创作频道'] : []),
     ...(category === null ? ['作品分类'] : []),
+    ...(storyDirection.trim().length < 20 ? ['故事方向至少20字'] : [])
+  ];
+  const protagonistRequirements = protagonists.flatMap((item, index) => [
+    ...(item.name.trim().length === 0 ? [`主角${index + 1}姓名`] : []),
+    ...(item.age.trim().length === 0 ? [`主角${index + 1}年龄或生命阶段`] : []),
+    ...(item.background.trim().length === 0 ? [`主角${index + 1}人物背景`] : []),
+    ...(item.personalities.length === 0 ? [`主角${index + 1}至少1个性格`] : [])
+  ]);
+  const preferenceRequirements = [
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
-    ...protagonists.flatMap((item, index) => [
-      ...(item.name.trim().length === 0 ? [`主角${index + 1}姓名`] : []),
-      ...(item.age.trim().length === 0 ? [`主角${index + 1}年龄或生命阶段`] : []),
-      ...(item.background.trim().length === 0 ? [`主角${index + 1}人物背景`] : []),
-      ...(item.personalities.length === 0 ? [`主角${index + 1}至少1个性格`] : [])
-    ]),
-    ...(storyDirection.trim().length < 20 ? ['故事方向至少20字'] : []),
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
+  const missingByStep: Record<1 | 2 | 3 | 4, string[]> = {
+    1: [], 2: directionRequirements, 3: protagonistRequirements, 4: preferenceRequirements
+  };
+  const missingRequirements = [...directionRequirements, ...protagonistRequirements, ...preferenceRequirements];
   const valid = missingRequirements.length === 0;
   const namingProtagonist = namingProtagonistIndex === null ? null : protagonists[namingProtagonistIndex] ?? null;
   const namingContext: NamingContext = {
@@ -194,32 +251,79 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
     if (mustFollow.length >= 15) return;
     setSelectedMustFollow([...selectedMustFollow.filter((value) => value !== '无额外限制'), item]);
   };
-  const submit = (): void => {
-    if (!valid || taxonomy === null || channel === null || category === null) {
+  const focusMissingStep = (targetStep: 2 | 3 | 4): void => {
+    window.requestAnimationFrame(() => {
+      const protagonistTarget = protagonists.flatMap((item, index) => [
+        ...(item.name.trim().length === 0 ? [index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`] : []),
+        ...(item.age.trim().length === 0 ? [index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`] : []),
+        ...(item.background.trim().length === 0 ? [index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`] : [])
+      ]).map((id) => document.getElementById(id)).find((element) => element !== null);
+      const target = targetStep === 2
+        ? taxonomy === null ? validationSummaryRef.current
+          : title.trim().length === 0 ? document.getElementById('complete-book-title')
+            : channel === null ? document.querySelector<HTMLInputElement>('input[name="complete-book-channel"]')
+              : category === null ? document.getElementById('opening-category-section')
+                : document.getElementById('opening-story-direction')
+        : targetStep === 3
+          ? protagonistTarget ?? document.getElementById('opening-protagonist-section')
+          : mainTags.length < 2 ? document.getElementById('opening-tag-search') : document.getElementById('must-follow');
+      target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+    });
+  };
+  const moveToStep = (nextStep: 1 | 2 | 3 | 4): void => {
+    if (nextStep > step && missingByStep[step].length > 0) {
       setSubmitAttempted(true);
-      window.requestAnimationFrame(() => {
-        const firstMissingTarget = taxonomy === null
-          ? null
-          : title.trim().length === 0
-            ? document.getElementById('complete-book-title')
-            : channel === null
-              ? document.querySelector<HTMLInputElement>('input[name="complete-book-channel"]')
-              : category === null
-                ? document.getElementById('opening-category-section')
-                : mainTags.length < 2
-                  ? document.getElementById('opening-tag-search')
-                  : protagonists.flatMap((item, index) => [
-                      ...(item.name.trim().length === 0 ? [index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`] : []),
-                      ...(item.age.trim().length === 0 ? [index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`] : []),
-                      ...(item.background.trim().length === 0 ? [index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`] : [])
-                    ]).map((id) => document.getElementById(id)).find((element) => element !== null)
-                    ?? (protagonists.some((item) => item.personalities.length === 0) ? document.getElementById('opening-protagonist-section') : null)
-                    ?? (storyDirection.trim().length < 20 ? document.getElementById('opening-story-direction') : null)
-                    ?? document.getElementById('must-follow');
-        const target = firstMissingTarget ?? validationSummaryRef.current;
-        target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-        if (target instanceof HTMLElement) target.focus({ preventScroll: true });
-      });
+      if (step > 1) focusMissingStep(step as 2 | 3 | 4);
+      return;
+    }
+    setSubmitAttempted(false);
+    setSubmitError(null);
+    setStep(nextStep);
+    if (typeof bodyRef.current?.scrollTo === 'function') bodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    else if (bodyRef.current !== null) bodyRef.current.scrollTop = 0;
+  };
+  const resetDraft = (): void => {
+    const empty = emptyOpeningWizardDraft();
+    setStep(empty.step);
+    setCreationMode(empty.creationMode);
+    setTitle(empty.title);
+    setChannel(empty.channel);
+    setCategoryKey(empty.categoryKey);
+    setMainTags(empty.mainTags);
+    setAuxiliaryTags(empty.auxiliaryTags);
+    setStoryTraits(empty.storyTraits);
+    setProtagonists(empty.protagonists);
+    setStoryDirection(empty.storyDirection);
+    setTargetAudience(empty.targetAudience);
+    setWorldBackground(empty.worldBackground);
+    setOpeningBackground(empty.openingBackground);
+    setStageOne(empty.stageOne);
+    setFullBookOutline(empty.fullBookOutline);
+    setInitialMap(empty.initialMap);
+    setCustomTags(empty.customTags);
+    setSelectedMustFollow(empty.selectedMustFollow);
+    setMustFollowText(empty.mustFollowText);
+    setAllSubjectsOpen(empty.allSubjectsOpen);
+    setActiveTagGroupKey(empty.activeTagGroupKey);
+    setSubmitAttempted(false);
+    setSubmitError(null);
+    setRestoredNotice(false);
+    setDraftSaveMessage(null);
+    automaticTagSignature.current = '';
+    automaticTagValues.current = [];
+    automaticTagCategory.current = null;
+    dismissedAutomaticTags.current.clear();
+    clearOpeningWizardDraft();
+  };
+  const submit = async (): Promise<void> => {
+    if (submitting || busy) return;
+    if (!valid || taxonomy === null || channel === null || category === null) {
+      const firstMissingStep: 2 | 3 | 4 = directionRequirements.length > 0 ? 2
+        : protagonistRequirements.length > 0 ? 3 : 4;
+      setSubmitAttempted(true);
+      setStep(firstMissingStep);
+      focusMissingStep(firstMissingStep);
       return;
     }
     const openingBlueprint: OpeningBlueprintData = {
@@ -227,7 +331,10 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
-      targetAudience: '',
+      ...(initialProfile?.openingBlueprint.auxiliaryCategoryKeys === undefined
+        ? {}
+        : { auxiliaryCategoryKeys: initialProfile.openingBlueprint.auxiliaryCategoryKeys }),
+      targetAudience: targetAudience.trim(),
       protagonists: protagonists.map((item) => ({
         ...item,
         name: item.name.trim(),
@@ -235,44 +342,79 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
         background: item.background.trim()
       })),
       storyDirection: storyDirection.trim(),
-      worldBackground: '',
-      openingBackground: '',
-      stageOne: { start: '', development: '', end: '' },
-      fullBookOutline: '',
+      worldBackground: worldBackground.trim(),
+      openingBackground: openingBackground.trim(),
+      stageOne: { start: stageOne.start.trim(), development: stageOne.development.trim(), end: stageOne.end.trim() },
+      fullBookOutline: fullBookOutline.trim(),
       mainTags, auxiliaryTags, storyTraits, customTags, mustFollow,
-      styleIntent: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
-      initialMap: ''
+      styleIntent: initialProfile?.openingBlueprint.styleIntent
+        ?? { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
+      initialMap: initialMap.trim()
     };
-    void onCreate({
-      title: title.trim(), text: storyDirection.trim(), category: category.name,
-      classification: channel === 'male' ? '男频' : '女频',
-      targetAudience: '',
-      tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
-      openingBlueprint
-    });
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      let saved = false;
+      if (editing) {
+        if (initialProfile === undefined || onUpdate === undefined) throw new Error('缺少开书资料修改处理程序。');
+        saved = await onUpdate({
+          expectedVersion: initialProfile.version,
+          title: title.trim(),
+          openingBlueprint
+        });
+      } else {
+        if (onCreate === undefined) throw new Error('缺少创建新书处理程序。');
+        saved = await onCreate({
+          title: title.trim(), text: storyDirection.trim(), category: category.name,
+          classification: channel === 'male' ? '男频' : '女频',
+          targetAudience: targetAudience.trim(),
+          tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
+          openingBlueprint
+        });
+      }
+      if (saved && !editing) clearOpeningWizardDraft();
+      else if (!saved) setSubmitError(editing ? '修改没有保存，请检查提示后重试。' : '创建没有完成，已保留全部草稿，可以检查提示后重试。');
+    } catch (reason) {
+      setSubmitError(reason instanceof Error ? reason.message : editing ? '修改没有保存。' : '创建没有完成，已保留全部草稿。');
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const wizardSteps = [
+    { number: 1 as const, title: '选择起点', description: creationMode === 'new' ? '从零开始' : '接着旧稿写' },
+    { number: 2 as const, title: '作品方向', description: '书名、分类与故事方向' },
+    { number: 3 as const, title: '初始主角', description: '支持一至八位主角' },
+    { number: 4 as const, title: '题材与边界', description: '软方向与明确底线' }
+  ];
+  const currentStep = wizardSteps[step - 1]!;
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第一步 · 基本信息</span><h2 id="complete-create-book-title">创建一本新书</h2><p>{creationMode === 'continuation' ? '先建立书籍档案，建书后直接导入已有正文，再按章拆解已有内容。' : '这里只确定作品定位。建书后由主编先引导完善设定大纲，再讨论剧情。'}</p></div><button className="icon-button" type="button" aria-label="关闭创建新书" onClick={onCancel}><XIcon /></button></div>
-      <div className="complete-create-book-body">
-        {submitAttempted && missingRequirements.length > 0 && <div className="create-book-validation-summary" role="alert" aria-live="assertive" tabIndex={-1} ref={validationSummaryRef}>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2><p>{editing ? '修改会成为新的开书参考版本；已确认设定、人物正史和正文不会被自动改写。' : creationMode === 'continuation' ? '先建立书籍档案，完成后直接导入已有正文，不要求从空白设定重新开始。' : '先确定作品起点，完成后进入设定讨论，不会直接生成正文。'}</p></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
+      <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong><small>{item.description}</small></button>)}</nav>
+      <div className="complete-create-book-body" ref={bodyRef}>
+        {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没有完成的开书资料</strong><span>可以从第{step}步继续；只有创建成功后草稿才会清除。</span></div><button type="button" className="text-button" onClick={resetDraft}>清空并重新开始</button></aside>}
+        {draftSaveMessage !== null && !restoredNotice && <p className="opening-draft-save-state" role="status">{draftSaveMessage}</p>}
+        {submitError !== null && <div className="create-book-validation-summary" role="alert"><strong>创建没有完成</strong><span>{submitError}</span></div>}
+        {submitAttempted && missingByStep[step].length > 0 && <div className="create-book-validation-summary" role="alert" aria-live="assertive" tabIndex={-1} ref={validationSummaryRef}>
           <strong>还不能创建，请先补充以下开书资料</strong>
-          <span>{missingRequirements.join('、')}</span>
+          <span>{missingByStep[step].join('、')}</span>
         </div>}
-        <section className="opening-form-section creation-mode-section">
+        {step === 1 && <section className="opening-form-section creation-mode-section">
           <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div><small>请选择一种</small></div>
           <div className="creation-mode-options">
-            <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
+            <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
               <strong>从零创作</strong><span>先完善设定大纲，再规划阶段剧情和正文。</span>
             </button>
-            <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
+            <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
               <strong>已有正文续写</strong><span>建书后直接进入正文，导入并逐章拆解已有内容。</span>
             </button>
           </div>
-        </section>
+          {editing && <p className="opening-edit-scope-note">创作起点已经固定，不能在这里切换；其他开书资料可以继续修改。</p>}
+        </section>}
         <div className="opening-primary-stack">
-          <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
+          {step === 2 && <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
           <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
@@ -292,8 +434,8 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
             }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
           {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
-          </section>
-          <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
+          </section>}
+          {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
             {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
               <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
@@ -308,24 +450,41 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
               <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>人物背景<textarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={3} maxLength={2000} /></label>
               <StringTagPicker title="角色性格" hint="至少1个，最多6个" kind="角色性格" options={taxonomy?.personalityOptions ?? []} selected={protagonist.personalities} onToggle={(item) => toggleProtagonistPersonality(index, item)} />
             </article>)}
-          </section>
+          </section>}
         </div>
 
-        <section className="opening-form-section story-direction-section">
+        {step === 2 && <section className="opening-form-section story-direction-section">
           <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>必填 · 20至800字</small></div>
           <p className="story-direction-intro">不用先写完整大纲。简要写清主角开篇处境、启动事件、想达成什么、主要阻力和大致走向，主编会据此引导完善设定与剧情。</p>
           <label htmlFor="opening-story-direction">故事方向<textarea id="opening-story-direction" aria-label="故事方向" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="例如：林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因。她要找回姐姐，同时阻止下一次改写吞掉整座旧城。" rows={5} maxLength={800} /></label>
           <div className="story-direction-meta"><span>这只是可以继续修改的故事方向，不是剧情总纲，也不代表故事已经发生。</span><strong>{storyDirection.length}/800</strong></div>
-        </section>
+        </section>}
 
-        <section className="opening-form-section tag-direction-section">
+        {step === 2 && <details className="opening-more-options opening-advanced-options">
+          <summary><span><strong>我已经想好的补充（选填）</strong><small>有就填写，没有可以留到设定讨论</small></span><b>展开填写</b></summary>
+          <div className="opening-more-options-body opening-advanced-fields">
+            <p>这些内容都是可修改的参考，不会因为写在这里就变成正史，也不会锁死后续剧情。</p>
+            <label htmlFor="opening-target-audience">希望吸引的读者<input id="opening-target-audience" value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={500} placeholder="例如：喜欢城市悬疑、女性成长和群像关系的读者" /></label>
+            <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="写你已经确定的时代、地点和特殊规则；不确定可留空" /></label>
+            <label htmlFor="opening-background">开篇时正在发生什么<textarea id="opening-background" value={openingBackground} onChange={(event) => setOpeningBackground(event.target.value)} maxLength={10000} rows={3} placeholder="例如：主角收到一封来自十年后的失踪通知" /></label>
+            <div className="stage-one-grid">
+              <label>前段怎样开始<textarea value={stageOne.start} onChange={(event) => setStageOne({ ...stageOne, start: event.target.value })} maxLength={10000} rows={3} /></label>
+              <label>中间怎样升级<textarea value={stageOne.development} onChange={(event) => setStageOne({ ...stageOne, development: event.target.value })} maxLength={10000} rows={3} /></label>
+              <label>阶段想落到哪里<textarea value={stageOne.end} onChange={(event) => setStageOne({ ...stageOne, end: event.target.value })} maxLength={10000} rows={3} /></label>
+            </div>
+            <label htmlFor="opening-full-outline">已有的全书想法<textarea id="opening-full-outline" value={fullBookOutline} onChange={(event) => setFullBookOutline(event.target.value)} maxLength={20000} rows={4} placeholder="只写你已经想清楚的长期方向；不是必填，也不会要求从头照做" /></label>
+            <label htmlFor="opening-map">已有地点与地图<textarea id="opening-map" value={initialMap} onChange={(event) => setInitialMap(event.target.value)} maxLength={5000} rows={3} placeholder="例如：旧港区、档案馆、废弃轮渡站，以及它们的关系" /></label>
+          </div>
+        </details>}
+
+        {step === 4 && <section className="opening-form-section tag-direction-section">
           <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
           <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
           <section className="subject-library">
             <StringTagPicker title="融合题材（多选）" hint={`来自起点二级分类与番茄作品题材；建议2至5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
             <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
           </section>
-          <section className="full-tag-library">
+          <details className="full-tag-library opening-more-options"><summary><span><strong>查看和调整主要标签</strong><small>系统已按分类推荐，可按需修改</small></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
             <header className="tag-library-heading"><div><strong>完整标签库</strong><small>根据主分类和题材优先推荐，也可切换分组或搜索全部词条</small></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
             <label htmlFor="opening-tag-search">搜索全部标签<input id="opening-tag-search" aria-label="搜索全部标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
             <nav aria-label="标签库分组">
@@ -334,7 +493,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
             </nav>
             <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
             <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已自动推荐8个；当前共选 ${mainTags.length} 个，不限数量，可继续增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} />
-          </section>
+          </div></details>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
           <details className="boundary-panel" open>
@@ -347,9 +506,9 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
             })}</div></section>)}
             <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 15 && <small className="inline-error" role="alert">必须遵守最多15条，请减少{mustFollow.length - 15}条。</small>}</section>
           </details>
-        </section>
+        </section>}
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>{channel === null ? '请选择频道' : channel === 'male' ? '男频' : '女频'} · {category?.name ?? '未选分类'} · {creationMode === 'continuation' ? '建书后直接导入已有正文' : '建书后由主编接待并进入设定大纲'}</span>{missingRequirements.length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '还需填写'}：{missingRequirements.join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button><button className="primary-button" type="button" disabled={busy} onClick={submit}>{busy ? '正在创建' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button></div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title} · {editing ? `将保存为第 ${initialProfile.version + 1} 版` : creationMode === 'continuation' ? '完成后导入已有正文' : '完成后进入设定讨论'}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存为新版本' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>
@@ -366,6 +525,32 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate }: {
       </div>}
     </section>
   </div>;
+}
+
+function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
+  const blueprint = profile.openingBlueprint;
+  return {
+    ...emptyOpeningWizardDraft(),
+    step: 2,
+    creationMode: blueprint.creationMode,
+    title: profile.title,
+    channel: blueprint.channel,
+    categoryKey: blueprint.categoryKey,
+    mainTags: [...blueprint.mainTags],
+    auxiliaryTags: [...blueprint.auxiliaryTags],
+    storyTraits: [...blueprint.storyTraits],
+    protagonists: blueprint.protagonists.map((item) => ({ ...item, personalities: [...item.personalities] })),
+    storyDirection: blueprint.storyDirection,
+    targetAudience: blueprint.targetAudience,
+    worldBackground: blueprint.worldBackground,
+    openingBackground: blueprint.openingBackground,
+    stageOne: { ...blueprint.stageOne },
+    fullBookOutline: blueprint.fullBookOutline,
+    initialMap: blueprint.initialMap,
+    customTags: [...blueprint.customTags],
+    selectedMustFollow: blueprint.mustFollow.includes('无额外限制') ? ['无额外限制'] : [],
+    mustFollowText: blueprint.mustFollow.filter((item) => item !== '无额外限制').join('\n')
+  };
 }
 
 function StringTagPicker({ title, hint, kind, options, selected, onToggle }: {

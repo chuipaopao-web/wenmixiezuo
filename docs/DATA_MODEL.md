@@ -425,6 +425,7 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 
 - `positioning_drafts.opening_blueprint_json`：定位草稿中的完整开书资料，JSON有效且随草稿版本一起确认；旧草稿默认空对象，仅走兼容路径。
 - `book_opening_blueprints`：确认建书后按 `owner_id + book_id + version` 保存不可变开书资料，记录分类目录版本、频道、分类键/显示名、完整资料JSON、内容哈希、状态和时间。它是老板确认的规划参考源，不是正史表。
+- 建书后修改开书资料继续在同一表追加版本：旧活动版本改为 `superseded`，新版本成为唯一 `active`；以活动版本号做并发比较，失败时整笔事务回滚。修改书名同时用 `books.version` 做事务内比较更新。该操作不回写或覆盖已经确认的设定、人物正史、正文、任务上下文包和历史调用记录。
 - 新书 `opening_blueprint_json` 必须包含1—8位完整初始主角和20—800字 `storyDirection`。读取历史快照时优先使用 `storyDirection`，缺失则只读回退到旧 `fullBookOutline`，不得迁移猜测或把回退值伪装成新确认字段。
 - 单次开书快照校验后的JSON总量不超过18,000字符，确保第一次主编开场可以完整带入24,000 Token上下文包；数据库不做静默截断。
 - 主角姓名投影到 `protagonist_profiles`，年龄、人物背景和性格以 `authority_layer='candidate'`、`source_kind='owner'` 的初始状态项保存，并引用开书资料版本；建书不会把这些候选资料冒充章节正史。

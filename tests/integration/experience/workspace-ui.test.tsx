@@ -425,14 +425,22 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    expect(within(dialog).getByRole('navigation', { name: '开书步骤' })).toBeInTheDocument();
+    expect(within(dialog).queryByText('主要选择 + 其他自由发挥')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+
+    const storyDirection = '林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因；她要找回失踪的姐姐，同时阻止下一次改写吞掉整座旧城。';
+    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
+    fireEvent.change(within(dialog).getByLabelText('故事方向'), { target: { value: storyDirection } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
+
     expect(within(dialog).getByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
     expect(within(dialog).getByText(/标签只确定主要方向/)).toBeInTheDocument();
     expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('目标读者推荐')).not.toBeInTheDocument();
-
-    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
-    fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
-    fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
+    fireEvent.click(within(dialog).getByText('查看和调整主要标签'));
     await waitFor(() => expect(within(dialog).getByText(/已自动推荐8个；当前共选 8 个/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
     expect(within(dialog).getByText(/当前共选 7 个/)).toBeInTheDocument();
@@ -446,6 +454,7 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText(/当前共选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始主角' }));
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '为角色1取名' }));
     const namingDialog = await screen.findByRole('dialog', { name: '角色1取名助手' });
@@ -458,15 +467,14 @@ describe('完整创作工作台', () => {
     expect(within(dialog).queryByText('表达调色板')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('世界观背景')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('第一阶段起始剧情')).not.toBeInTheDocument();
-    const storyDirection = '林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因；她要找回失踪的姐姐，同时阻止下一次改写吞掉整座旧城。';
     fireEvent.change(dialog.querySelector('#opening-protagonist-name')!, { target: { value: '林舟' } });
     fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '十八岁' } });
     fireEvent.change(dialog.querySelector('#opening-protagonist-background')!, { target: { value: '普通玩家' } });
-    fireEvent.change(within(dialog).getByLabelText('故事方向'), { target: { value: storyDirection } });
     for (const picker of Array.from(dialog.querySelectorAll('.tag-picker'))) {
       const firstChoice = picker.querySelector('.tag-choice');
       if (firstChoice !== null) fireEvent.click(firstChoice);
     }
+    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '创建并进入设定' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) => {
       if (!String(input).includes('/api/v1/books/drafts')) return false;
@@ -552,8 +560,15 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '测试推荐' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：游戏体育' }));
+    fireEvent.change(within(dialog).getByLabelText('故事方向'), {
+      target: { value: '主角进入失控的竞技世界寻找失踪队友，同时揭开赛事背后的操控者。' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
+    fireEvent.click(within(dialog).getByText('查看和调整主要标签'));
 
     await waitFor(() => expect(within(dialog).getByText(/已自动推荐8个；当前共选 8 个/)).toBeInTheDocument());
     expect(within(dialog).queryByRole('button', { name: /主要标签：女性成长/u })).not.toBeInTheDocument();
@@ -574,18 +589,19 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '待完善的新书' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '男频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：玄幻脑洞' }));
 
-    const submit = within(dialog).getByRole('button', { name: '创建并进入设定' });
-    expect(submit).toBeEnabled();
-    fireEvent.click(submit);
+    const next = within(dialog).getByRole('button', { name: '下一步' });
+    expect(next).toBeEnabled();
+    fireEvent.click(next);
     const summary = within(dialog).getByRole('alert');
     expect(summary).toHaveClass('create-book-validation-summary');
     expect(summary).toHaveTextContent('还不能创建，请先补充以下开书资料');
     expect(summary).toHaveTextContent('故事方向至少20字');
-    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('姓名')));
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByLabelText('故事方向')));
   });
 
   it('书籍菜单只提供可逆归档，并使用真实版本调用归档接口', async () => {
