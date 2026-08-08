@@ -70,6 +70,12 @@ import { SettingBaselineService } from '../application/knowledge/setting-baselin
 import { PlanningStageArtifactService } from '../application/artifacts/planning-stage-artifact-service.js';
 import { ExistingManuscriptContinuationService } from '../application/continuation/existing-manuscript-continuation-service.js';
 import { PromptViewAccessService } from '../infrastructure/security/prompt-view-access.js';
+import {
+  AuthorCollaborationService,
+  type CreateAuthorPlanningInput,
+  type DecideAuthorPlanningInput
+} from '../application/planning/author-collaboration-service.js';
+import { AuthorPlanningInputRepository } from '../infrastructure/db/repositories/author-planning-input-repository.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -195,6 +201,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const openingSynopsisAnalysis = new OpeningSynopsisAnalysisService();
   const agentPromptPreferences = new AgentPromptPreferenceService(
     new AgentPromptPreferenceRepository(database), ids, clock
+  );  const authorCollaboration = new AuthorCollaborationService(
+    new AuthorPlanningInputRepository(database), new UnitOfWork(database), ids, clock
   );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
@@ -221,6 +229,45 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/book-profile', async (request) => {
     const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
     return success(bookProfileView.get(scope), request.id);
+  });
+  app.get<{
+    Params: { bookId: string };
+    Querystring: { surface?: string; subjectType?: string; subjectId?: string };
+  }>('/api/v1/books/:bookId/author-planning-inputs', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(authorCollaboration.list(scope, {
+      ...(request.query.surface === undefined ? {} : { surface: request.query.surface as CreateAuthorPlanningInput['surface'] }),
+      ...(request.query.subjectType === undefined ? {} : { subjectType: request.query.subjectType }),
+      ...(request.query.subjectId === undefined ? {} : { subjectId: request.query.subjectId })
+    }), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: CreateAuthorPlanningInput }>(
+    '/api/v1/books/:bookId/author-planning-inputs',
+    async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(authorCollaboration.create(scope, request.body), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string; authorInputId: string } }>(
+    '/api/v1/books/:bookId/author-planning-inputs/:authorInputId',
+    async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(authorCollaboration.get(scope, request.params.authorInputId), request.id);
+    }
+  );
+
+  app.post<{
+    Params: { bookId: string; authorInputId: string };
+    Body: DecideAuthorPlanningInput;
+  }>('/api/v1/books/:bookId/author-planning-inputs/:authorInputId/decisions', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(authorCollaboration.decide(scope, request.params.authorInputId, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/planning-state', async (request) => {

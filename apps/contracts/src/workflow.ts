@@ -13,6 +13,9 @@ export const authorInputStatuses = [
 ] as const;
 export type AuthorInputStatus = typeof authorInputStatuses[number];
 
+export const authorPlanningDecisionStatuses = ['adopted', 'adapted', 'parked', 'rejected', 'withdrawn'] as const;
+export type AuthorPlanningDecisionStatus = typeof authorPlanningDecisionStatuses[number];
+
 export const planningVersionStatuses = [
   'draft', 'generating', 'candidate', 'waiting_confirmation', 'active', 'superseded', 'completed', 'archived'
 ] as const;
@@ -93,12 +96,16 @@ export interface AuthorPlanningInput {
   subjectId: string | null;
   intentStrength: AuthorIntentStrength;
   originalText: string;
+  originalTextHash: string;
   attachmentRefs: string[];
+  mentionedAgentIds: string[];
   scopeNotes: string | null;
   status: AuthorInputStatus;
   appliedToRefs: VersionReference[];
   handlingReason: string | null;
+  links: AuthorPlanningInputLink[];
   createdAt: string;
+  updatedAt: string;
   decidedAt: string | null;
 }
 
@@ -109,7 +116,31 @@ export interface AuthorPlanningInputDraft {
   intentStrength: AuthorIntentStrength;
   originalText: string;
   attachmentRefs: string[];
+  mentionedAgentIds: string[];
   scopeNotes: string | null;
+}
+export interface CreateAuthorPlanningInputCommand extends AuthorPlanningInputDraft {
+  idempotencyKey: string;
+}
+
+export interface DecideAuthorPlanningInputCommand {
+  expectedStatus: AuthorInputStatus;
+  status: AuthorPlanningDecisionStatus;
+  handlingReason: string;
+  appliedToRefs: VersionReference[];
+  idempotencyKey: string;
+}
+
+export interface AuthorPlanningInputLink {
+  linkId: string;
+  linkType: 'attachment' | 'mention' | 'application' | 'supersedes';
+  sortOrder: number;
+  targetType: string;
+  targetId: string;
+  targetVersion: number | null;
+  targetHash: string | null;
+  relation: 'attached' | 'mentioned' | 'adopted' | 'adapted' | 'supersedes';
+  createdAt: string;
 }
 
 export interface CreativeBoundarySet {
@@ -295,6 +326,7 @@ export const AUTHOR_PLANNING_INPUT_DRAFT_SCHEMA = {
     intentStrength: { enum: authorIntentStrengths },
     originalText: { type: 'string', minLength: 1 },
     attachmentRefs: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true },
+    mentionedAgentIds: { type: 'array', items: { type: 'string', minLength: 1 }, uniqueItems: true },
     scopeNotes: { type: ['string', 'null'] }
   }
 } as const;
@@ -308,6 +340,7 @@ export function parseAuthorPlanningInputDraft(input: unknown): AuthorPlanningInp
     intentStrength: requireOneOf(value.intentStrength, authorIntentStrengths, '意图强度'),
     originalText: requireText(value.originalText, '作者原话'),
     attachmentRefs: requireUniqueTextArray(value.attachmentRefs, '附件引用'),
+    mentionedAgentIds: requireUniqueTextArray(value.mentionedAgentIds ?? [], '点名成员'),
     scopeNotes: optionalText(value.scopeNotes, '作用范围说明')
   };
 }

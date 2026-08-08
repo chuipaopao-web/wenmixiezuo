@@ -32,6 +32,7 @@ import {
 } from '../../app/author-presentation';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
+import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 
 type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
 
@@ -252,6 +253,14 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       && content.outlineSchema !== 'stage_master_v2';
   });
   const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '剧情总纲'], ['chapter', '章纲'], ['manuscript', '正文']];
+  const ideaContext: Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }> = {
+    framework: { surface: 'book_profile', subjectType: 'book', title: '补充开书想法' },
+    basic: { surface: 'setting', subjectType: 'setting', title: '补充设定想法' },
+    master: { surface: 'volume_plan', subjectType: 'volume_plan', title: '补充当前卷想法' },
+    chapter: { surface: 'chapter_outline', subjectType: 'chapter_outline', title: '补充章纲想法' },
+    manuscript: { surface: 'manuscript', subjectType: 'manuscript', title: '给正文创作的提示' }
+  };
+  const currentIdeaContext = ideaContext[tab];
   return (
     <section className={`creation-desk ${tab === 'manuscript' ? 'manuscript-mode' : ''}`} aria-labelledby="creation-desk-title">
       <header className="creation-desk-header">
@@ -291,6 +300,16 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         onPlanningStateChanged={refreshPlanningState}
       />}
       </>}
+      {bookId !== null && <AuthorIdeaComposer
+        bookId={bookId}
+        surface={currentIdeaContext.surface}
+        subjectType={currentIdeaContext.subjectType}
+        subjectId={tab === 'framework' ? bookId : null}
+        title={currentIdeaContext.title}
+        agents={(workspace?.agents ?? []).map((agent) => ({
+          agentId: agent.agentId, displayName: agent.displayName, roleName: agent.roleName
+        }))}
+      />}
       </div>
     </section>
   );

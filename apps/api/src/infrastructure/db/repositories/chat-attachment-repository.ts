@@ -187,6 +187,11 @@ export class ChatAttachmentRepository {
   public discard(attachmentId: string): ChatAttachmentRecord {
     const existing = this.require(attachmentId);
     if (existing.messageId !== null) throw new DomainError(errorCodes.validation, '已发送附件不能从历史消息中移除', {}, false, 409);
+    if (this.database.prepare(`SELECT 1 FROM author_planning_input_links
+      WHERE owner_id = ? AND book_id = ? AND link_type = 'attachment' AND target_id = ? LIMIT 1`)
+      .get(this.scope.ownerId, this.scope.bookId, attachmentId) !== undefined) {
+      throw new DomainError(errorCodes.validation, '这个附件已被作者想法引用，不能移除。', {}, false, 409);
+    }
     this.database.prepare(`UPDATE chat_attachments SET parse_status = 'discarded'
       WHERE attachment_id = ? AND owner_id = ? AND book_id = ?`)
       .run(attachmentId, this.scope.ownerId, this.scope.bookId);

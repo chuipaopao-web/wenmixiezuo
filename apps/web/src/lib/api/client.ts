@@ -1,4 +1,11 @@
-import type { NarrativeTemplateCatalogView, PlanningScope } from '@wenmi/contracts';
+import type {
+  AuthorInputSurface,
+  AuthorPlanningInput,
+  CreateAuthorPlanningInputCommand,
+  DecideAuthorPlanningInputCommand,
+  NarrativeTemplateCatalogView,
+  PlanningScope
+} from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
 
 export interface HealthData {
@@ -675,6 +682,43 @@ export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, sig
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/planning-templates?scope=${encodeURIComponent(scope)}`,
     signal === undefined ? {} : { signal }
+  );
+}
+export type AuthorPlanningInputData = AuthorPlanningInput;
+
+export function fetchAuthorPlanningInputs(bookId: string, filter: {
+  surface?: AuthorInputSurface; subjectType?: string; subjectId?: string;
+} = {}, signal?: AbortSignal): Promise<AuthorPlanningInputData[]> {
+  const query = new URLSearchParams();
+  if (filter.surface !== undefined) query.set('surface', filter.surface);
+  if (filter.subjectType !== undefined) query.set('subjectType', filter.subjectType);
+  if (filter.subjectId !== undefined) query.set('subjectId', filter.subjectId);
+  const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/author-planning-inputs${suffix}`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function createAuthorPlanningInput(
+  bookId: string,
+  input: CreateAuthorPlanningInputCommand,
+  signal?: AbortSignal
+): Promise<AuthorPlanningInputData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/author-planning-inputs`, {
+    method: 'POST', body: JSON.stringify(input), ...(signal === undefined ? {} : { signal })
+  });
+}
+
+export function decideAuthorPlanningInput(
+  bookId: string,
+  authorInputId: string,
+  input: DecideAuthorPlanningInputCommand,
+  signal?: AbortSignal
+): Promise<AuthorPlanningInputData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/author-planning-inputs/${encodeURIComponent(authorInputId)}/decisions`,
+    { method: 'POST', body: JSON.stringify(input), ...(signal === undefined ? {} : { signal }) }
   );
 }
 

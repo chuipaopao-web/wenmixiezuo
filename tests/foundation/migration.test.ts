@@ -49,7 +49,8 @@ describe('向前迁移器', () => {
         '0031_book_purge_retrieval_index.sql',
         '0032_setting_outline_decision_content.sql',
         '0033_retire_volume_outline.sql',
-        '0034_existing_manuscript_continuation.sql', '0035_continuation_analysis.sql'
+        '0034_existing_manuscript_continuation.sql', '0035_continuation_analysis.sql',
+        '0036_author_planning_inputs.sql', '0037_author_input_link_order.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -67,6 +68,9 @@ describe('向前迁移器', () => {
       expect(tables.map((row) => row.name)).toContain('setting_outline_workspace');
       expect(tables.map((row) => row.name)).toContain('continuation_imports');
       expect(tables.map((row) => row.name)).toContain('continuation_import_chapters');
+      expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'author_planning_inputs', 'author_planning_input_decisions', 'author_planning_input_links'
+      ]));
       const settingOutlineColumns = database.prepare('PRAGMA table_info(setting_outline_workspace)').all() as Array<{ name: string }>;
       expect(settingOutlineColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
         'content_text', 'source_discussion_id', 'source_decision_id', 'candidate_at', 'confirmed_at'

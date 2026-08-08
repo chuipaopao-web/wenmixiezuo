@@ -66,15 +66,21 @@ describe('创作工作流共享合同', () => {
   it('作者想法保留原话、意图和作用位置并拒绝非法值', () => {
     expect(parseAuthorPlanningInputDraft({
       surface: 'event', subjectType: 'story_event', subjectId: 'event-1', intentStrength: 'must',
-      originalText: '  主角这次必须靠前文的阵法知识取胜。  ', attachmentRefs: ['note-1', 'note-1'], scopeNotes: null
+      originalText: '  主角这次必须靠前文的阵法知识取胜。  ', attachmentRefs: ['note-1', 'note-1'],
+      mentionedAgentIds: ['writer-1', 'writer-1'], scopeNotes: null
     })).toEqual({
       surface: 'event', subjectType: 'story_event', subjectId: 'event-1', intentStrength: 'must',
-      originalText: '主角这次必须靠前文的阵法知识取胜。', attachmentRefs: ['note-1'], scopeNotes: null
+      originalText: '主角这次必须靠前文的阵法知识取胜。', attachmentRefs: ['note-1'],
+      mentionedAgentIds: ['writer-1'], scopeNotes: null
     });
     expect(() => parseAuthorPlanningInputDraft({
       surface: 'event', subjectType: 'story_event', subjectId: null, intentStrength: 'hard',
       originalText: '想法', attachmentRefs: [], scopeNotes: null
     })).toThrow('意图强度');
+    expect(parseAuthorPlanningInputDraft({
+      surface: 'setting', subjectType: 'setting', subjectId: null, intentStrength: 'preference',
+      originalText: '保留旧客户端写下的想法。', attachmentRefs: [], scopeNotes: null
+    }).mentionedAgentIds).toEqual([]);
   });
 
   it('状态机覆盖从开书到下一卷，预览不替作者虚构桥段', () => {
