@@ -55,7 +55,7 @@ export class WorkerHeartbeat {
         process.pid,
         this.#startedAt,
         new Date().toISOString(),
-        JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim', ...this.#extraCapabilities]),
+        JSON.stringify(['conversation-reply', 'role-discussion', 'chapter-creation', 'task-heartbeat', 'persistent-task-claim', 'volume-plan-generation', ...this.#extraCapabilities]),
         this.#currentTaskId
       );
     } catch (error) {

@@ -12,12 +12,13 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const digest = createHash('sha256')
       .update(`${request.bookId}\n${request.agentId}\n${request.prompt}`)
       .digest('hex');
+    const volumePlan = deterministicVolumePlan(request.prompt);
     const continuationAnalysis = deterministicContinuationAnalysis(request.prompt);
     const synthesis = reviewSynthesis(request.prompt);
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -30,6 +31,79 @@ export class DeterministicModelAdapter implements ModelAdapter {
   }
 }
 
+function deterministicVolumePlan(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'volume_plan_generation_v1') return null;
+  const seat = isRecord(root.seat) ? root.seat : {};
+  const roleKey = typeof seat.roleKey === 'string' ? seat.roleKey : 'chief_editor';
+  const book = isRecord(root.book) ? root.book : {};
+  const volumeNumber = typeof book.volumeNumber === 'number' ? book.volumeNumber : 1;
+  const fusion = seat.mode === 'chief_editor_fusion';
+  const alternative = roleKey === 'second_screenwriter';
+  const eventRoot = `volume-${volumeNumber}-${fusion ? 'fusion' : alternative ? 'b' : 'a'}`;
+  const openingState = '主角刚取得有限立足点，但旧秩序留下的责任、关系裂痕和未知威胁同时压来。';
+  const events = [
+    {
+      eventId: `${eventRoot}-1`,
+      order: 1,
+      title: fusion ? '胜利留下的缺口' : alternative ? '被忽略的代价' : '新责任落到肩上',
+      responsibility: '把上一阶段结果转化为本卷必须处理的现实问题',
+      entryState: openingState,
+      trigger: '上一阶段的有限胜利暴露出一项无法继续回避的后果',
+      action: '主角主动核验局势并选择承担最难但可持续的路径',
+      result: '主角取得第一项可验证进展，同时失去一条轻松退路',
+      leadsToNext: '被触动的既得利益者开始反制，并利用主角刚暴露的软肋',
+      estimatedChapterRange: { minimum: 6, likely: 8, maximum: 10 }
+    },
+    {
+      eventId: `${eventRoot}-2`,
+      order: 2,
+      title: fusion ? '错误胜利' : alternative ? '盟友提出代价' : '反制逼近',
+      responsibility: '升级冲突并让人物关系真正承受选择后果',
+      entryState: '主角获得局部主动，但对手已经摸清他的目标与限制',
+      trigger: '对手把局部进展包装成主角的失误，迫使盟友重新站队',
+      action: alternative
+        ? '主角接受盟友的质疑，改变原计划并公开承担由此产生的损失'
+        : '主角坚持核心目标，却主动放弃一项短期利益来保护关键关系',
+      result: '表面局势跌入低点，但主角获得理解真正矛盾所需的证据与信任',
+      leadsToNext: '新证据证明本卷冲突并非个人恩怨，而是规则和利益结构的问题',
+      estimatedChapterRange: { minimum: 7, likely: 9, maximum: 12 }
+    },
+    {
+      eventId: `${eventRoot}-3`,
+      order: 3,
+      title: fusion ? '用新选择改变规则' : alternative ? '把关系变成力量' : '承担代价后的反击',
+      responsibility: '完成本卷核心对抗并留下下一卷必然承接的新局面',
+      entryState: '主角看清真正矛盾，也明确知道取胜会付出什么',
+      trigger: '对手发动最后一次封锁，迫使所有人公开选择立场',
+      action: '主角利用前两次事件积累的证据、关系和能力发起有代价的反击',
+      result: '本卷核心危机得到可验证解决，主角身份与关系发生不可逆变化',
+      leadsToNext: null,
+      estimatedChapterRange: { minimum: 8, likely: 10, maximum: 13 }
+    }
+  ];
+  return JSON.stringify({
+    title: `第${volumeNumber}卷·代价与新局`,
+    openingState,
+    coreGoal: '让主角把有限立足点变成能够承担下一阶段冲突的真实位置。',
+    coreConflict: '主角想用新的选择改变局面，但既得利益、关系裂痕和自身能力边界不断要求他付出代价。',
+    failureCost: '失去刚建立的信任与行动资格，并让下一阶段威胁在无人制衡的情况下成形。',
+    characterChanges: ['主角从证明自己转向主动承担选择后果', '关键盟友从被动协助转向有条件的共同决策'],
+    eventSequence: events,
+    informationPlan: ['先揭示表面危机', '再证明危机背后的利益结构', '卷末只揭开更大问题的一层入口'],
+    escalationAndRecovery: ['每次局部进展都引发更具体的反制', '人物通过行动兑现承诺获得有限喘息', '高潮前让一次错误判断造成真实损失'],
+    endingState: '本卷核心问题已经解决，人物关系和行动资格发生不可逆变化，更大冲突因本卷结果而被触发。',
+    openThreads: ['真正推动旧规则的人仍未完全现身', '盟友提出的条件将在下一阶段继续生效'],
+    nextVolumeTrigger: '本卷胜利改变了力量平衡，受影响的新势力主动介入，迫使主角进入更大的局面。',
+    boundaries: {
+      mustAchieve: ['本卷核心危机必须得到可验证结果', '主角的选择必须造成后续可见变化'],
+      mustNotViolate: ['不能用无来源的新能力或巧合解决高潮', '不能让人物忘记前面已经付出的代价'],
+      creativeFreedom: ['事件内的具体场景、对白、局部反转和配角行动', '事件章数可随实际叙事密度调整'],
+      openQuestions: ['下一卷介入势力的具体身份由事件结算后再确认']
+    }
+  });
+}
 function deterministicStageOutlineWorkflow(prompt: string): string | null {
   if (
     prompt.includes('正在为本书当前剧情阶段独立设计候选方案')

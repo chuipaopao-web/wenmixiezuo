@@ -494,3 +494,5 @@ Schema 0023—0025只向前增加。测试必须覆盖空库/升级/重复迁移
 - `creation_workflow_states`：书级规划版本、当前阶段、活动卷/事件、冻结章纲引用、真实等待任务与阻塞原因。
 
 `volume_plan_versions`只新增不更新内容；确认只更新状态和指针。第一卷依赖`book_opening_blueprints`活动版与`story_bible`已选版；后续卷额外依赖上一卷活动计划版及`stage_settlements(stage_type='volume')`活动结算。迁移为现有书建立工作流投影，但不猜测生成卷规划内容。
+
+DEC-109不新增表：`volume_plan_generation`复用`tasks/task_attempts/task_phases`保存租约与检查点，复用`context_packs/model_calls/budget_reservations`保存每席冻结上下文、模型调用和预算证据，最终只向`volume_plan_versions`追加带`source_task_id`的A/B/融合候选。作者意见ID必须同时匹配owner、book、`surface='volume_plan'`、`subject_type='volume_plan'`和当前`volume_plan_id`，避免其他卷意见串入。

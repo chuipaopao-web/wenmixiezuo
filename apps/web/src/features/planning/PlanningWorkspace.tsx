@@ -277,7 +277,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         onPlanningStateChanged={refreshPlanningState}
       />}
       </>}
-      {bookId !== null && tab !== 'basic' && <AuthorIdeaComposer
+      {bookId !== null && tab !== 'basic' && tab !== 'master' && <AuthorIdeaComposer
         bookId={bookId}
         surface={currentIdeaContext.surface}
         subjectType={currentIdeaContext.subjectType}

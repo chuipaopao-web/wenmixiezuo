@@ -26,6 +26,7 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
     if (path.endsWith('/workflow')) return apiResponse(workflow);
     if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
     if (path.endsWith('/author-planning-inputs')) return apiResponse([]);
+    if (path.endsWith('/generation') && method === 'GET') return apiResponse(null);
     if (path.endsWith('/volume-plans') && method === 'GET') return apiResponse(plans);
     if (path.endsWith('/volume-plans') && method === 'POST') {
       const plan = volumePlan(null, 1);
@@ -92,6 +93,72 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
     expectedActiveVersionId: null, expectedWorkflowVersion: 3
   }));
   expect(versions).toHaveLength(1);
+});
+
+it('只显示真实卷规划任务和模型来源，并把当前卷作者原话交给本轮任务', async () => {
+  const plan = volumePlan(null, 1);
+  let generation: Record<string, unknown> | null = null;
+  const requests: Array<{ path: string; method: string; body: Record<string, unknown> | null; query: string }> = [];
+  const ideas = [{
+    ownerId: 'owner-volume-ui', bookId: 'book-volume-ui', authorInputId: 'idea-volume-1',
+    surface: 'volume_plan', subjectType: 'volume_plan', subjectId: 'plan-1', intentStrength: 'preference',
+    originalText: '希望主角靠承担代价解决问题。', originalTextHash: 'hash', attachmentRefs: [],
+    mentionedAgentIds: [], scopeNotes: null, status: 'new', appliedToRefs: [], handlingReason: null,
+    links: [], createdAt: '2026-08-08T12:00:00.000Z', updatedAt: '2026-08-08T12:00:00.000Z', decidedAt: null
+  }];
+
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://127.0.0.1');
+    const path = url.pathname;
+    const method = init?.method ?? 'GET';
+    const body = init?.body === undefined ? null : JSON.parse(String(init.body)) as Record<string, unknown>;
+    requests.push({ path, method, body, query: url.search });
+    if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
+    if (path.endsWith('/workflow')) return apiResponse(workflowView('volume_plan_in_progress', 3, 'plan-1'));
+    if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
+    if (path.endsWith('/author-planning-inputs')) return apiResponse(ideas);
+    if (path.endsWith('/volume-plans') && method === 'GET') return apiResponse([plan]);
+    if (path.endsWith('/versions') && method === 'GET') return apiResponse([]);
+    if (path.endsWith('/generation') && method === 'GET') return apiResponse(generation);
+    if (path.endsWith('/generate') && method === 'POST') {
+      generation = {
+        taskId: 'task-volume-ai', status: 'succeeded', currentPhase: 'fusion_complete', errorCode: null,
+        checkpoint: { awaitingAuthorChoice: true }, modelDiversityVerified: false,
+        members: [
+          { roleKey: 'lead_screenwriter', agentId: 'agent-a', displayName: '婉儿', provider: 'local-deterministic', modelId: 'fixture-a' },
+          { roleKey: 'second_screenwriter', agentId: 'agent-b', displayName: '红玉', provider: 'local-deterministic', modelId: 'fixture-b' },
+          { roleKey: 'main_editor', agentId: 'agent-editor', displayName: '昭昭', provider: 'local-deterministic', modelId: 'fixture-editor' }
+        ],
+        candidateVersionIds: { candidateA: 'version-a', candidateB: 'version-b', fusion: 'version-fusion' },
+        createdAt: '2026-08-08T12:00:00.000Z', updatedAt: '2026-08-08T12:01:00.000Z'
+      };
+      return apiResponse(generation);
+    }
+    return new Response(JSON.stringify({ error: { message: `未配置测试接口 ${method} ${path}` } }), { status: 404 });
+  }));
+
+  render(<VolumePlanningPanel bookId="book-volume-ui" />);
+  expect(await screen.findByRole('heading', { name: '两位编剧独立设计，主编最后融合' })).toBeInTheDocument();
+  expect(await screen.findByText('希望主角靠承担代价解决问题。')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '让团队开始设计' }));
+
+  expect(await screen.findByText('三个方案已完成')).toBeInTheDocument();
+  expect(screen.getByText('3/3 个候选版本')).toBeInTheDocument();
+  expect(screen.getByText(/只验证任务、上下文和版本流程/u)).toBeInTheDocument();
+  expect(screen.getByText('婉儿')).toBeInTheDocument();
+  expect(screen.getByText('红玉')).toBeInTheDocument();
+  expect(screen.getByText('昭昭')).toBeInTheDocument();
+  const generated = requests.find((request) => request.path.endsWith('/generate') && request.method === 'POST');
+  expect(generated?.body).toMatchObject({
+    expectedPlanRevision: 1,
+    expectedActiveVersionId: null,
+    expectedWorkflowVersion: 3,
+    authorInputRefs: ['idea-volume-1'],
+    template: { selectionMode: 'none', scope: 'volume' }
+  });
+  expect(requests.some((request) => request.path.endsWith('/author-planning-inputs')
+    && request.query.includes('subjectType=volume_plan')
+    && request.query.includes('subjectId=plan-1'))).toBe(true);
 });
 
 function change(label: string, value: string): void {

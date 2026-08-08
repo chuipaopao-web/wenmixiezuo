@@ -6342,9 +6342,29 @@ svg {
 .volume-impact-card dd { margin: 0; }
 .volume-impact-card .button-row { display: flex; gap: 8px; }
 .inline-error { border-radius: 9px; padding: 9px 11px; color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--panel-raised)); }
+.volume-generation-card { display: grid; gap: 14px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); border-radius: 16px; padding: 17px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 34%, var(--panel-raised)), var(--panel-raised) 54%); }
+.volume-generation-card.working { border-color: color-mix(in srgb, var(--accent) 58%, var(--line)); box-shadow: 0 10px 28px rgb(0 0 0 / .07); }
+.volume-generation-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.volume-generation-card > header > div { max-width: 780px; }
+.volume-generation-card > header span { color: var(--accent-strong); font-size: .78em; font-weight: 800; letter-spacing: .08em; }
+.volume-generation-card h4 { margin: 4px 0 5px; }
+.volume-generation-card header p, .volume-generation-empty p { margin: 0; color: var(--ink-soft); line-height: 1.65; }
+.volume-generation-empty { border: 1px dashed var(--line-strong); border-radius: 12px; padding: 14px; background: color-mix(in srgb, var(--panel-muted) 76%, transparent); }
+.volume-generation-empty strong { display: block; margin-bottom: 4px; }
+.volume-generation-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.volume-generation-summary > div { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; background: var(--panel-raised); }
+.volume-generation-summary small, .volume-generation-members small { color: var(--ink-soft); }
+.volume-generation-notice { margin: 0; border-radius: 9px; padding: 9px 11px; color: var(--ink-soft); background: color-mix(in srgb, var(--warning) 10%, var(--panel-raised)); }
+.volume-generation-members { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.volume-generation-members article { display: grid; gap: 6px; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel-muted); }
+.volume-generation-members article > div { display: flex; align-items: baseline; justify-content: space-between; gap: 9px; }
+.volume-generation-members article > div span { overflow: hidden; color: var(--ink-soft); font-size: .86em; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.volume-generation-members p { margin: 0; line-height: 1.5; }
+.volume-generation-members small { overflow-wrap: anywhere; }
+.volume-generation-card > footer { display: flex; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 900px) {
-  .volume-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .volume-template-grid, .volume-generation-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .volume-plan-status-card { grid-template-columns: 1fr 1fr; }
   .volume-plan-status-card button { grid-column: 1 / -1; }
   .volume-impact-card { position: static; grid-template-columns: 1fr; }
@@ -6352,8 +6372,8 @@ svg {
 }
 
 @media (max-width: 650px) {
-  .volume-planning-header, .volume-template-section > header, .volume-version-section > header, .volume-plan-editor > header { align-items: stretch; flex-direction: column; }
+  .volume-planning-header, .volume-template-section > header, .volume-version-section > header, .volume-plan-editor > header, .volume-generation-card > header { align-items: stretch; flex-direction: column; }
   .volume-workflow-strip { grid-template-columns: 1fr 1fr; gap: 10px; }
   .volume-workflow-strip li::after { display: none; }
-  .volume-template-grid, .volume-editor-grid, .volume-editor-grid.compact, .volume-version-grid, .volume-plan-status-card { grid-template-columns: 1fr; }
+  .volume-template-grid, .volume-editor-grid, .volume-editor-grid.compact, .volume-version-grid, .volume-plan-status-card, .volume-generation-summary, .volume-generation-members { grid-template-columns: 1fr; }
 }

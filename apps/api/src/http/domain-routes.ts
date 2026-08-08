@@ -82,6 +82,8 @@ import {
 import { AuthorPlanningInputRepository } from '../infrastructure/db/repositories/author-planning-input-repository.js';
 import { VolumePlanService, type VolumePlanCandidateKind } from '../application/planning/volume-plan-service.js';
 import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
+import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
+import { VolumePlanGenerationService } from '../application/planning/volume-plan-generation-service.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -220,6 +222,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const volumePlans = new VolumePlanService(
     new VolumePlanRepository(database), new UnitOfWork(database), ids, clock
   );
+  const volumePlanGenerationRepository = new VolumePlanGenerationRepository(database);
+  const volumePlanGenerations = new VolumePlanGenerationService(
+    volumePlanGenerationRepository, volumePlans, tasks, new UnitOfWork(database), ids, clock
+  );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
 
@@ -277,6 +283,28 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(volumePlans.addVersion(scope, request.params.volumePlanId, request.body), request.id);
   });
 
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/generation', async (request) => {
+      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(volumePlanGenerations.latest(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    expectedPlanRevision: number;
+    expectedActiveVersionId?: string | null;
+    expectedWorkflowVersion: number;
+    template: unknown;
+    authorInputRefs?: string[];
+    idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/generate', async (request) => {
+    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(volumePlanGenerations.start(
+      scope, request.params.volumePlanId, request.body
+    ), request.id);
+  });
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { volumePlanVersionId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview', async (request) => {
       const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
@@ -1509,7 +1537,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
-    tasks.requestCancel(scope, request.params.taskId);
+    const cancelledTask = tasks.requestCancel(scope, request.params.taskId);
+    volumePlanGenerations.reconcileTerminal(scope, cancelledTask);
     const modelCalls = database.prepare(`SELECT request_id FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
       .all(scope.ownerId, scope.bookId, request.params.taskId) as unknown as Array<{ request_id: string }>;
     const toolCalls = database.prepare(`SELECT tool_call_id FROM tool_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)

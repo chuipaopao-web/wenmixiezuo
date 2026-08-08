@@ -26,6 +26,16 @@ import { RetrievalOrchestrationRepository } from '../infrastructure/db/repositor
 import { KnowledgeRepository } from '../infrastructure/db/repositories/knowledge-repository.js';
 import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
+import { VolumePlanGenerationPipelineService } from '../application/planning/volume-plan-generation-pipeline-service.js';
+import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
+import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
+import { VolumePlanService } from '../application/planning/volume-plan-service.js';
+import { UnitOfWork } from '../infrastructure/db/unit-of-work.js';
+import { TaskService } from '../application/tasks/task-service.js';
+import { BudgetService } from '../application/budget/budget-service.js';
+import { ModelCallService } from '../application/calls/model-call-service.js';
+import { ContextPackService } from '../application/memory/context-pack-service.js';
+import { RetrievalContextSourceService } from '../application/memory/retrieval-context-source-service.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -59,6 +69,26 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     new RetrievalOrchestrationRepository(database), new KnowledgeRepository(database),
     new ChunkSnapshotRepository(database), retrievalIds, retrievalClock,
     loadLocalRetrievalRuntime(config.dataDir)
+  );
+  const volumePlanIds = new UuidGenerator();
+  const volumePlanClock = new SystemClock();
+  const volumePlanBudgets = new BudgetService(database, volumePlanIds, volumePlanClock);
+  const volumePlanGenerationPipeline = new VolumePlanGenerationPipelineService(
+    new VolumePlanGenerationRepository(database),
+    new VolumePlanService(
+      new VolumePlanRepository(database),
+      new UnitOfWork(database),
+      volumePlanIds,
+      volumePlanClock
+    ),
+    new TaskService(database, config.releaseId, volumePlanClock),
+    volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds,
+    volumePlanClock,
+    modelAdapters,
+    new RetrievalContextSourceService(productionRetrieval)
   );
   const capabilities = new CapabilityService(
     new RuntimeCapabilityProbe(database, config.dataDir),
@@ -130,7 +160,9 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
           ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : task.task_type === 'continuation_analysis'
           ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
-        : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
+          : task.task_type === 'volume_plan_generation'
+            ? await volumePlanGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+            : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });
 

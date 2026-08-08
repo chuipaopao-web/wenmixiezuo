@@ -422,7 +422,8 @@ features/team-status
 
 - `GET /books/:bookId/planning-templates?scope=volume|event`：返回白话卡，不返回内部方法名作为标题。
 - `POST /books/:bookId/author-planning-inputs`：保存作者想法卡。
-- `POST /books/:bookId/volume-plans/candidates`：生成独立卷纲候选。
+- `GET /books/:bookId/volume-plans/:id/generation`：读取最近一轮真实任务与候选检查点，不触发模型。
+- `POST /books/:bookId/volume-plans/:id/generate`：创建持久任务，生成两份独立卷纲候选和主编融合候选。
 - `POST /books/:bookId/volume-plans/:id/confirm`：确认活动卷纲版本。
 - `POST /books/:bookId/volume-plans/:id/impact-preview`：预览修订影响。
 - `POST /books/:bookId/story-events/candidates`：在活动卷纲下设计事件。
@@ -430,7 +431,7 @@ features/team-status
 - `POST /books/:bookId/volume-plans/:id/settle`：从正式正文结算当前卷。
 - `POST /books/:bookId/volume-plans/:id/start-next`：以上一卷结算为输入启动下一卷候选。
 
-所有生成型接口返回持久任务并通过SSE汇报真实状态；携带幂等键、活动版本前置条件和结果不明处理。具体路径在API规格阶段冻结。
+所有生成型接口返回持久任务并保存真实状态；携带幂等键、活动版本前置条件和结果不明处理。当前卷P7以读取端点和有界轮询恢复，P13统一接入SSE游标。具体路径以API规格为准。
 
 ## 11. 来源、历史与项目精简
 
@@ -713,14 +714,14 @@ Worker只提交候选，由应用服务校验并写入；不得直接切换活�
 - GET/POST/PATCH books/:bookId/author-planning-inputs；
 - GET/POST books/:bookId/volume-plans；
 - GET/POST volume-plans/:id/versions；
-- POST volume-plans/:id/candidates、confirm、impact-preview、settle、start-next；
+- GET volume-plans/:id/generation；POST volume-plans/:id/generate、confirm、impact-preview、settle、start-next；
 - GET/POST volume-plans/:id/events；
 - GET/POST story-events/:id/versions；
 - POST story-events/:id/candidates、confirm、reorder-preview、chapter-outline-candidates、settle。
 
 所有写接口带幂等键、预期活动版本、作者想法引用；生成接口返回task_id，通过SSE报告真实状态。
 
-新增Worker执行器：volume_plan_candidates、volume_plan_consolidation、story_event_candidates、story_event_consolidation、event_chapter_outline_candidates、planning_impact_analysis、event_settlement、volume_settlement、next_volume_seed。
+新增Worker执行器：`volume_plan_generation`已落地并在一个持久任务内并行生成A/B、后置生成融合稿；后续继续新增story_event_candidates、story_event_consolidation、event_chapter_outline_candidates、planning_impact_analysis、event_settlement、volume_settlement、next_volume_seed。
 
 并发、超时、重试按通道策略配置。继续使用operation、attempt、epoch、租约和提交栅栏处理取消、晚到结果与结果不明。
 

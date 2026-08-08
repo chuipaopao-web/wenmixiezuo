@@ -275,4 +275,6 @@ LanceDB、Wiki和关系投影不承担数据恢复权威。备份可以携带投
 
 HTTP只调用`VolumePlanService`，业务服务只通过`VolumePlanRepository`访问`volume_plans`、`volume_plan_versions`、`planning_dependencies`和`creation_workflow_states`。卷候选版本是不可变完整快照；活动切换在同一事务内执行版本状态变化、卷指针更新和工作流推进，并同时校验卷修订、旧活动版本、工作流版本及上游依赖哈希。
 
-正文物理卷不是卷规划正式源。规划卷可选关联物理卷，但跨书关联、卷号错位和后续卷绕过结算均由领域服务拒绝。旧Artifact规划服务继续作为兼容边界，新的当前卷页面不读取或写入`master_outline`。AI候选将复用现有持久任务、租约、ContextPack、ModelCall和SSE，不允许从浏览器直接调用模型或伪造成员状态。
+正文物理卷不是卷规划正式源。规划卷可选关联物理卷，但跨书关联、卷号错位和后续卷绕过结算均由领域服务拒绝。旧Artifact规划服务继续作为兼容边界，新的当前卷页面不读取或写入`master_outline`。
+
+`VolumePlanGenerationService`只负责校验CAS、冻结来源/三席/预算并创建持久`volume_plan_generation`任务；`VolumePlanGenerationPipelineService`由Worker持有租约后执行。两位编剧并行但拥有独立ContextPack/ModelCall，主编只在A/B都已经通过Schema并保存后获得两份候选。所有模型产物只能由`VolumePlanService`追加不可变版本，Worker无权切换活动版。结果未知停止自动重试；成功候选、调用与上下文检查点允许安全复用。浏览器只调用任务接口并读取持久状态，当前P7使用有界轮询，SSE游标恢复归P13。

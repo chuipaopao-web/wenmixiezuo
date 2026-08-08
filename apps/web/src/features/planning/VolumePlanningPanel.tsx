@@ -7,18 +7,25 @@ import type {
 } from '@wenmi/contracts';
 import {
   addVolumePlanVersion,
+  cancelTask,
   confirmVolumePlanVersion,
   createVolumePlan,
   fetchAuthorPlanningInputs,
   fetchCreationWorkflow,
   fetchPlanningTemplates,
+  fetchVolumePlanGeneration,
   fetchVolumePlans,
   fetchVolumePlanVersions,
   previewVolumePlanImpact,
+  resumeTask,
+  retryTask,
+  startVolumePlanGeneration,
   type VolumePlanData,
+  type VolumePlanGenerationData,
   type VolumePlanImpactData,
   type VolumePlanVersionData
 } from '../../lib/api/client';
+import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 
 interface VolumePlanningSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -30,6 +37,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [snapshot, setSnapshot] = useState<VolumePlanningSnapshot | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VolumePlanVersionData[]>([]);
+  const [generation, setGeneration] = useState<VolumePlanGenerationData | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<PublicNarrativeTemplate | null>(null);
   const [templateMode, setTemplateMode] = useState<'template' | 'custom' | 'none'>('none');
   const [customDirection, setCustomDirection] = useState('');
@@ -69,17 +77,40 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   useEffect(() => {
     if (selectedPlan === null) {
       setVersions([]);
+      setGeneration(null);
       return;
     }
     const controller = new AbortController();
-    void fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal)
-      .then(setVersions)
-      .catch((reason) => { if (!controller.signal.aborted) setError(messageOf(reason)); });
+    void Promise.all([
+      fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal),
+      fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId, controller.signal)
+    ]).then(([nextVersions, nextGeneration]) => {
+      setVersions(nextVersions);
+      setGeneration(nextGeneration);
+    }).catch((reason) => { if (!controller.signal.aborted) setError(messageOf(reason)); });
     setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber));
     setEditing(selectedPlan.activeVersion === null);
     setImpact(null);
     return () => controller.abort();
   }, [bookId, selectedPlan?.volumePlanId, selectedPlan?.activeVersionId]);
+
+  useEffect(() => {
+    if (selectedPlan === null || generation === null || !generationIsActive(generation.status)) return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      void Promise.all([
+        fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId, controller.signal),
+        fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal)
+      ]).then(([nextGeneration, nextVersions]) => {
+        setGeneration(nextGeneration);
+        setVersions(nextVersions);
+        if (nextGeneration !== null && !generationIsActive(nextGeneration.status)) void load();
+      }).catch((reason) => {
+        if (!controller.signal.aborted) setError(messageOf(reason));
+      });
+    }, 1_250);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [bookId, generation?.status, generation?.taskId, load, selectedPlan?.volumePlanId]);
 
   const run = async (work: () => Promise<void>): Promise<void> => {
     setBusy(true); setError(null);
@@ -105,7 +136,9 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const saveAuthorDraft = (): void => {
     if (selectedPlan === null) return;
     void run(async () => {
-      const authorIdeas = await fetchAuthorPlanningInputs(bookId, { surface: 'volume_plan' });
+      const authorIdeas = await fetchAuthorPlanningInputs(bookId, {
+        surface: 'volume_plan', subjectType: 'volume_plan', subjectId: selectedPlan.volumePlanId
+      });
       const saved = await addVolumePlanVersion(bookId, selectedPlan.volumePlanId, {
         expectedPlanRevision: selectedPlan.revision,
         candidateKind: 'author_edit',
@@ -120,6 +153,50 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
       setVersions(await fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId));
       setEditing(false);
       setImpact(await previewVolumePlanImpact(bookId, selectedPlan.volumePlanId, saved.volumePlanVersionId));
+    });
+  };
+
+  const startTeamGeneration = (): void => {
+    if (selectedPlan === null || snapshot === null) return;
+    void run(async () => {
+      const authorIdeas = await fetchAuthorPlanningInputs(bookId, {
+        surface: 'volume_plan', subjectType: 'volume_plan', subjectId: selectedPlan.volumePlanId
+      });
+      const nextGeneration = await startVolumePlanGeneration(bookId, selectedPlan.volumePlanId, {
+        expectedPlanRevision: selectedPlan.revision,
+        expectedActiveVersionId: selectedPlan.activeVersionId,
+        expectedWorkflowVersion: snapshot.workflow.planningVersion,
+        template: templateInstance(templateMode, selectedTemplate, customDirection),
+        authorInputRefs: authorIdeas
+          .filter((idea) => !['withdrawn', 'superseded'].includes(idea.status))
+          .map((idea) => idea.authorInputId),
+        idempotencyKey: key(`volume-team-${selectedPlan.volumePlanId}`)
+      });
+      setGeneration(nextGeneration);
+    });
+  };
+
+  const cancelGeneration = (): void => {
+    if (selectedPlan === null || generation === null) return;
+    void run(async () => {
+      await cancelTask(bookId, generation.taskId);
+      setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
+    });
+  };
+
+  const retryGeneration = (): void => {
+    if (selectedPlan === null || generation === null) return;
+    void run(async () => {
+      await retryTask(bookId, generation.taskId);
+      setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
+    });
+  };
+
+  const resumeGeneration = (): void => {
+    if (selectedPlan === null || generation === null) return;
+    void run(async () => {
+      await resumeTask(bookId, generation.taskId);
+      setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
     });
   };
 
@@ -190,6 +267,23 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         onCustomDirection={setCustomDirection}
       />
 
+      <AuthorIdeaComposer
+        bookId={bookId}
+        surface="volume_plan"
+        subjectType="volume_plan"
+        subjectId={selectedPlan.volumePlanId}
+        title="补充你对这一卷的想法"
+      />
+
+      <VolumeGenerationCard
+        generation={generation}
+        busy={busy}
+        onStart={startTeamGeneration}
+        onCancel={cancelGeneration}
+        onRetry={retryGeneration}
+        onResume={resumeGeneration}
+      />
+
       {editing && <VolumePlanEditor value={draft} onChange={setDraft} onSave={saveAuthorDraft} busy={busy} />}
 
       {versions.length > 0 && <section className="volume-version-section">
@@ -234,6 +328,60 @@ function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onS
       <button type="button" className={mode === 'none' ? 'selected' : ''} onClick={() => onMode('none')}><span>自由设计</span><strong>暂时不选推进参考</strong><p>让人物目标和已有因果自然决定本卷结构。</p></button>
     </div>
     {mode === 'custom' && <label className="volume-custom-direction"><span>我的推进方向</span><textarea rows={3} value={customDirection} onChange={(event) => onCustomDirection(event.target.value)} placeholder="例如：前半卷让主角以为自己找对了方向，中段发现胜利反而伤害了盟友，后半卷必须换一种办法。" /></label>}
+  </section>;
+}
+
+function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, onResume }: {
+  generation: VolumePlanGenerationData | null;
+  busy: boolean;
+  onStart: () => void;
+  onCancel: () => void;
+  onRetry: () => void;
+  onResume: () => void;
+}): React.JSX.Element {
+  const active = generation !== null && generationIsActive(generation.status);
+  const canRetry = generation?.status === 'failed' || generation?.status === 'interrupted';
+  const candidateCount = generation === null ? 0 : [
+    generation.candidateVersionIds.candidateA,
+    generation.candidateVersionIds.candidateB,
+    generation.candidateVersionIds.fusion
+  ].filter(Boolean).length;
+  return <section className={`volume-generation-card ${active ? 'working' : ''}`} aria-label="卷规划团队设计">
+    <header>
+      <div>
+        <span>AI协作</span>
+        <h4>两位编剧独立设计，主编最后融合</h4>
+        <p>两位编剧使用同一份事实底稿，但互不查看对方答案；主编只在两份方案完成后比较取舍。模板是参考，不会把人物和剧情锁死。</p>
+      </div>
+      <button className="primary-button" type="button" disabled={busy || active} onClick={onStart}>
+        {generation?.status === 'succeeded' ? '再设计一组方案' : '让团队开始设计'}
+      </button>
+    </header>
+
+    {generation === null
+      ? <div className="volume-generation-empty"><strong>尚未启动</strong><p>先选择推进参考、补充作者想法，再启动团队。你也可以随时手工填写自己的方案。</p></div>
+      : <>
+        <div className="volume-generation-summary">
+          <div><small>本轮状态</small><strong>{generationStatusLabel(generation.status)}</strong></div>
+          <div><small>当前步骤</small><strong>{generationPhaseLabel(generation.currentPhase)}</strong></div>
+          <div><small>已保存</small><strong>{candidateCount}/3 个候选版本</strong></div>
+          <div><small>独立性</small><strong>{generation.modelDiversityVerified ? '两位编剧来自不同模型' : '本地流程测试配置'}</strong></div>
+        </div>
+        {!generation.modelDiversityVerified && <p className="volume-generation-notice">当前两位编剧使用本地确定性测试模型，只验证任务、上下文和版本流程，不冒充异模型独立复核。</p>}
+        <div className="volume-generation-members">
+          {generation.members.map((member) => <article key={`${member.roleKey}:${member.agentId}`}>
+            <div><strong>{generationRoleLabel(member.roleKey)}</strong><span>{member.displayName}</span></div>
+            <p>{generationMemberState(generation, member.roleKey)}</p>
+            <small>{member.provider} · {member.modelId}</small>
+          </article>)}
+        </div>
+        {generation.errorCode !== null && <p className="inline-error">本轮没有完整结束（{generation.errorCode}）。已成功保存的候选不会丢失。</p>}
+        <footer className="button-row">
+          {active && generation.status !== 'paused' && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
+          {generation.status === 'paused' && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
+          {canRetry && <button type="button" disabled={busy} onClick={onRetry}>从已保存进度重试</button>}
+        </footer>
+      </>}
   </section>;
 }
 
@@ -333,6 +481,54 @@ function lines(value: string): string[] {
 function key(prefix: string): string {
   const randomId = globalThis.crypto?.randomUUID?.();
   return `${prefix}:${randomId ?? `${Date.now()}-${Math.random()}`}`;
+}
+
+function generationIsActive(status: string): boolean {
+  return ['pending', 'queued', 'working', 'paused'].includes(status);
+}
+
+function generationStatusLabel(status: string): string {
+  return ({
+    pending: '正在准备', queued: '已进入任务队列', working: '团队正在设计', paused: '已暂停',
+    succeeded: '三个方案已完成', failed: '本轮未完成', interrupted: '任务被中断',
+    cancelled: '本轮已停止', blocked: '等待处理'
+  } as Record<string, string>)[status] ?? status;
+}
+
+function generationPhaseLabel(phase: string): string {
+  return ({
+    preparing_context: '准备事实、设定与作者意见',
+    screenwriter_candidates: '两份独立方案已保存，主编正在融合',
+    fusion_complete: '主编融合方案已保存',
+    failed: '保留检查点，等待重试'
+  } as Record<string, string>)[phase] ?? phase;
+}
+
+function generationRoleLabel(roleKey: string): string {
+  return ({
+    lead_screenwriter: '编剧A', second_screenwriter: '编剧B',
+    main_editor: '主编', deputy_editor: '代理主编'
+  } as Record<string, string>)[roleKey] ?? roleKey;
+}
+
+function generationMemberState(generation: VolumePlanGenerationData, roleKey: string): string {
+  const storedId = roleKey === 'lead_screenwriter'
+    ? generation.candidateVersionIds.candidateA
+    : roleKey === 'second_screenwriter'
+      ? generation.candidateVersionIds.candidateB
+      : generation.candidateVersionIds.fusion;
+  if (storedId !== null) return '方案已保存为不可覆盖的新版本';
+  if (generation.status === 'cancelled') return '本轮已停止';
+  if (generation.status === 'failed' || generation.status === 'interrupted') return '本轮未完成，可从检查点重试';
+  if (generation.status === 'paused') return '已暂停，等待作者继续';
+  if (['pending', 'queued'].includes(generation.status)) return '等待后台领取任务';
+  const screenwritersReady = generation.candidateVersionIds.candidateA !== null
+    && generation.candidateVersionIds.candidateB !== null;
+  if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey) && screenwritersReady) {
+    return '正在比较两份完整方案并融合';
+  }
+  if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey)) return '等待两位编剧独立完成';
+  return '正在使用独立上下文设计方案';
 }
 
 function messageOf(reason: unknown): string {

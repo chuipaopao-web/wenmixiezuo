@@ -568,7 +568,8 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - GET/POST/PATCH /api/v1/books/:bookId/author-planning-inputs；
 - GET/POST /api/v1/books/:bookId/volume-plans；
 - GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/versions；
-- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/candidates；
+- GET /api/v1/books/:bookId/volume-plans/:volumePlanId/generation；
+- POST /api/v1/books/:bookId/volume-plans/:volumePlanId/generate；
 - POST /api/v1/books/:bookId/volume-plans/:volumePlanId/confirm；
 - POST /api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview；
 - GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/events；
@@ -591,7 +592,9 @@ D级事实未确认时，当前章节不能结算，依赖该事实的任务暂�
 - `POST /api/v1/books/:bookId/volume-plans`：用工作流CAS和幂等键建立规划卷；第一卷要求开书+设定，后续卷要求上一卷活动结算；
 - `GET /api/v1/books/:bookId/volume-plans/:volumePlanId`：返回当前书作用域内单个规划卷；
 - `GET/POST /api/v1/books/:bookId/volume-plans/:volumePlanId/versions`：列出或追加不可变候选；写入要求卷修订、合法模板实例、作者引用和幂等键；
+- `GET /api/v1/books/:bookId/volume-plans/:volumePlanId/generation`：返回本卷最近一轮真实任务、阶段、错误、三席成员/模型来源、模型独立性证据和A/B/融合版本ID；无任务返回`null`，读取不触发模型；
+- `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/generate`：请求体包含卷修订、活动版、工作流版本、模板实例、当前卷作者意见ID和幂等键；只创建并排队持久`volume_plan_generation`任务，返回真实`taskId`。同一幂等键复用原任务，不允许改写请求；活动任务存在时返回409；
 - `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview`：比较候选与活动版并计算下游复核数量；
 - `POST /api/v1/books/:bookId/volume-plans/:volumePlanId/confirm`：在同一事务中校验依赖和三重CAS后切换活动版。
 
-本阶段尚未把`/candidates`暴露为同步生成接口。AI生成必须先创建持久任务并返回真实`taskId`，完成后再由任务写入带`sourceTaskId`的候选版本；在该任务编排落地前，客户端只允许作者候选与历史版本操作。
+卷规划AI生成不提供同步`/candidates`接口。Worker领取任务后，两位编剧分别产生独立ContextPack与ModelCall并保存`candidate_a/candidate_b`；二者都成功后主编才产生`fusion`。任务失败保留已保存候选与检查点，`failed/interrupted`可重试，取消复用通用任务接口并清理工作流等待引用；结果不明不自动重试。候选完成后仍须作者通过影响预览和`confirm`显式确认。

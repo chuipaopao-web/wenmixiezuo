@@ -257,6 +257,29 @@ export interface VolumePlanImpactData {
   requiresDownstreamReview: boolean;
   note: string;
 }
+
+export interface VolumePlanGenerationData {
+  taskId: string;
+  status: string;
+  currentPhase: string;
+  errorCode: string | null;
+  checkpoint: Record<string, unknown>;
+  modelDiversityVerified: boolean;
+  members: Array<{
+    roleKey: string;
+    agentId: string;
+    displayName: string;
+    provider: string;
+    modelId: string;
+  }>;
+  candidateVersionIds: {
+    candidateA: string | null;
+    candidateB: string | null;
+    fusion: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
 export interface OpeningSynopsisAnalysisData {
   schemaVersion: 'opening-synopsis-suggestions-v1';
   analysisMode: 'local-deterministic';
@@ -794,6 +817,31 @@ export function fetchVolumePlanVersions(
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/versions`,
     signal === undefined ? {} : { signal }
+  );
+}
+
+export function fetchVolumePlanGeneration(
+  bookId: string,
+  volumePlanId: string,
+  signal?: AbortSignal
+): Promise<VolumePlanGenerationData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/generation`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function startVolumePlanGeneration(bookId: string, volumePlanId: string, input: {
+  expectedPlanRevision: number;
+  expectedActiveVersionId?: string | null;
+  expectedWorkflowVersion: number;
+  template: PlanningTemplateInstance;
+  authorInputRefs?: string[];
+  idempotencyKey: string;
+}): Promise<VolumePlanGenerationData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/generate`,
+    { method: 'POST', body: JSON.stringify(input) }
   );
 }
 
