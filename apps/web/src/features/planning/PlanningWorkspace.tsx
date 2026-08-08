@@ -7,13 +7,13 @@ import {
   fetchArtifactVersions,
   fetchBookProfile,
   fetchPlanningState,
+  type SettingOutlineWorkspaceData,
   fetchSettingOutlineWorkspace,
   fetchSettingReadiness,
   initializeSettingOutlineWorkspace,
   updateBookProfile,
   rejectArtifactVersion,
   saveSettingOutlineItem,
-  sendMessage,
   selectArtifactVersion,
   type ArtifactVersionData,
   type BookProfileViewData,
@@ -27,14 +27,12 @@ import {
   recommendPlotPatterns,
   type PlotPattern
 } from '../../app/plot-pattern-library';
-import {
-  collectSettingTemplateHints,
-  toAuthorFacingText
-} from '../../app/author-presentation';
+import { toAuthorFacingText } from '../../app/author-presentation';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
+import { SettingCollaborationPanel } from './SettingCollaborationPanel';
 
 type PlanningTab = 'framework' | 'basic' | 'master' | 'chapter' | 'manuscript';
 
@@ -201,13 +199,12 @@ const ALL_SETTING_TEMPLATE_GROUPS: SettingOutlineGroup[] = [
 
 type SettingReadinessView = Awaited<ReturnType<typeof fetchSettingReadiness>>;
 
-export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onDiscussSetting, onDiscussMasterOutline, onBookProfileChanged }: {
+export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscript, onDiscussMasterOutline, onBookProfileChanged }: {
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
   data: unknown;
   workspace: WorkspaceData | null;
   manuscript: ReactNode;
-  onDiscussSetting: (packet: string) => Promise<void>;
   onDiscussMasterOutline: (plotPatternPacket?: string) => Promise<void>;
   onBookProfileChanged?: () => Promise<void> | void;
 }): React.JSX.Element {
@@ -310,15 +307,11 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
         bookId={workspace?.book.bookId ?? null}
-        bookTitle={workspace?.book.title ?? '当前书籍'}
-        bookProfile={bookProfile}
-        templateHints={collectSettingTemplateHints(artifacts)}
-        onDiscuss={onDiscussSetting}
         planningState={planningState}
         onPlanningStateChanged={refreshPlanningState}
       />}
       </>}
-      {bookId !== null && <AuthorIdeaComposer
+      {bookId !== null && tab !== 'basic' && <AuthorIdeaComposer
         bookId={bookId}
         surface={currentIdeaContext.surface}
         subjectType={currentIdeaContext.subjectType}
@@ -396,16 +389,11 @@ function PlotPatternLibrary({ profile, onDiscuss }: {
   </section>;
 }
 
-function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscuss, planningState, onPlanningStateChanged }: {
+function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
   bookId: string | null;
-  bookTitle: string;
-  bookProfile: BookProfileViewData | null;
-  templateHints: string[];
-  onDiscuss: (packet: string) => Promise<void>;
   planningState: PlanningStateData | null;
   onPlanningStateChanged: () => Promise<void>;
 }): React.JSX.Element {
-  const [source, setSource] = useState('');
   const [query, setQuery] = useState('');
   const [customItems, setCustomItems] = useState<SettingOutlineItem[]>([]);
   const [customDraft, setCustomDraft] = useState('');
@@ -415,7 +403,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
   const [profile, setProfile] = useState<SettingReadinessView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const hintText = templateHints.join('、');
+  const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
   const customGroups = [...new Set(customItems.map((item) => item.groupTitle ?? '本书扩展'))].map((groupTitle, index) => ({
     key: `custom-${index}-${groupTitle}`,
     title: groupTitle,
@@ -454,13 +442,31 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       || `${group.title}${item.label}${item.prompt}${item.source}`.toLocaleLowerCase().includes(normalizedQuery)))
   })).filter((group) => group.items.length > 0);
   const allItems = groups.flatMap((group) => group.items);
-  const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
   const confirmedRequired = [...requiredKeys].filter((key) => statuses[key] === '已确认').length;
   const currentGuidanceItem = allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] === '讨论中')
     ?? allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] !== '已确认');
   const currentGuidanceGroup = currentGuidanceItem === undefined
     ? undefined
     : groups.find((group) => group.items.some((item) => item.key === currentGuidanceItem.key));
+
+  const applySnapshot = useCallback((snapshot: SettingOutlineWorkspaceData): void => {
+    setStatuses((current) => ({ ...current, [snapshot.itemKey]: snapshot.status }));
+    setContents((current) => {
+      const next = { ...current };
+      if (snapshot.content === null) delete next[snapshot.itemKey];
+      else next[snapshot.itemKey] = snapshot.content;
+      return next;
+    });
+    if (snapshot.custom) {
+      setCustomItems((current) => current.some((item) => item.key === snapshot.itemKey) ? current : [...current, {
+        key: snapshot.itemKey,
+        label: snapshot.label,
+        prompt: snapshot.prompt,
+        source: snapshot.sourceLabel,
+        groupTitle: snapshot.groupTitle
+      }]);
+    }
+  }, []);
 
   useEffect(() => {
     if (bookId === null) {
@@ -529,116 +535,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       custom,
       sortOrder: sortOrder < 0 ? allTemplateItems.length + customItems.length : sortOrder,
       content: contents[item.key] ?? null
-    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
-  };
-
-  const submitSource = (): void => {
-    const text = source.trim();
-    if (bookId === null || text.length === 0 || text.length > 10_000) return;
-    setBusyKey('source');
-    const instruction = `@文姬 请按本书设定大纲整理以下作者原文。只整理待确认内容并保留来源，不补造名字、数字或关系，不自动当成正式内容。参考题材：${hintText || '通用设定'}。原文：\n\n${text}`;
-    void sendMessage(bookId, instruction).then(() => {
-      setSource('');
-      setNotice('资料已交给文姬整理，结果会在对话中作为待确认内容显示。');
-    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定资料提交失败')).finally(() => setBusyKey(null));
-  };
-
-  const discuss = (group: SettingOutlineGroup, item: SettingOutlineItem): void => {
-    const prior = allItems
-      .filter((candidate) => candidate.key !== item.key && statuses[candidate.key] === '已确认')
-      .slice(-8)
-      .map((candidate) => candidate.label);
-    const packet = [
-      `【设定专项讨论资料包】`,
-      `书籍：${bookTitle}`,
-      `开书资料JSON：${JSON.stringify(compactBookProfile(bookProfile))}`,
-      `当前板块：${group.title}`,
-      `当前设定项：${item.label}`,
-      `设定项编号：${item.key}`,
-      `讨论目标：${item.prompt}`,
-      `模板来源：${item.source}`,
-      `开书分类与题材：${hintText || '尚未读取到题材标签，按通用框架讨论'}`,
-      `已经确认的前置设定：${prior.length === 0 ? '暂无' : prior.join('、')}`,
-      `当前状态：${statuses[item.key] ?? '待讨论'}`,
-      `工作要求：由主编主持，两名不同模型的编剧先分别提出方案，再互相指出一次问题；不得直接生成剧情总纲、章纲或正文。请只输出能成立的待选方案、意见不同的地方、各自代价、还不知道的内容，以及需要老板确认的问题。`
-    ].join('\n');
-    setBusyKey(item.key);
-    setStatuses((current) => ({ ...current, [item.key]: '讨论中' }));
-    persistItem(group, item, '讨论中', item.source === '作者自定义');
-    void onDiscuss(packet).catch(() => {
-      setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
-      persistItem(group, item, '待讨论', item.source === '作者自定义');
-    }).finally(() => setBusyKey(null));
-  };
-
-  const discussRequiredBatch = (): void => {
-    const pendingRequired = allItems.filter((item) => requiredKeys.has(item.key) && statuses[item.key] !== '已确认');
-    const targets = pendingRequired.slice(0, 3);
-    if (targets.length === 0) {
-      setNotice('当前阶段的必需设定已经全部确认。');
-      return;
-    }
-    const packetTargets = targets.map((item) => {
-      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key))!;
-      return {
-        itemKey: item.key,
-        groupTitle: group.title,
-        label: item.label,
-        prompt: item.prompt,
-        sourceLabel: item.source
-      };
-    });
-    const contextPriority = new Map<string, number>([
-      ['creative-concept', 100],
-      ['reader-promise', 95],
-      ['differentiator', 90],
-      ['era', 85],
-      ['geography', 80],
-      ['governance', 75],
-      ['protagonist', 70],
-      ['motivation', 65],
-      ['must-follow', 60],
-      ['game-entry', 55],
-      ['game-panel', 50]
-    ]);
-    const targetGroupTitles = new Set(packetTargets.map((item) => item.groupTitle));
-    const confirmedContext = allItems.flatMap((item) => {
-      const content = contents[item.key];
-      if (statuses[item.key] !== '已确认' || content === undefined) return [];
-      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key));
-      return [{
-        itemKey: item.key,
-        label: item.label,
-        content,
-        priority: (group !== undefined && targetGroupTitles.has(group.title) ? 200 : 0)
-          + (contextPriority.get(item.key) ?? 0)
-      }];
-    }).sort((left, right) => right.priority - left.priority || left.itemKey.localeCompare(right.itemKey))
-      .slice(0, 8)
-      .map(({ itemKey, label, content }) => ({ itemKey, label, content }));
-    const packet = [
-      '讨论设定 【设定大纲成组讨论资料包】',
-      `书籍：${bookTitle}`,
-      `开书资料JSON：${JSON.stringify(compactBookProfile(bookProfile))}`,
-      `本批设定项JSON：${JSON.stringify(packetTargets)}`,
-      `已经确认的设定JSON：${JSON.stringify(confirmedContext)}`,
-      '工作要求：由主编主持，两名异模型编剧先独立提出相互兼容的完整方案，再进行一次有界交叉质疑。只处理本批非剧情设定；每项形成独立、明确、可直接保存的结论。不得生成剧情总纲、章纲或正文。'
-    ].join('\n');
-    setBusyKey('required-batch');
-    setStatuses((current) => ({
-      ...current,
-      ...Object.fromEntries(targets.map((item) => [item.key, '讨论中' as const]))
-    }));
-    for (const item of targets) {
-      const group = groups.find((candidate) => candidate.items.some((entry) => entry.key === item.key))!;
-      persistItem(group, item, '讨论中', item.source === '作者自定义');
-    }
-    void onDiscuss(packet).catch(() => {
-      setStatuses((current) => ({
-        ...current,
-        ...Object.fromEntries(targets.map((item) => [item.key, '待讨论' as const]))
-      }));
-    }).finally(() => setBusyKey(null));
+    }).then(applySnapshot).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
   };
 
   const confirmSetting = (): void => {
@@ -652,7 +549,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
         return;
       }
       return confirmSettingBaseline(bookId, planningState.version).then(async () => {
-        setNotice('设定大纲已确认。现在可以进入“剧情总纲”，讨论全书主线与结局方向。');
+        setNotice('设定大纲已形成新的正式版本。现在可以进入“卷纲设计”，只规划当前一卷。');
         await onPlanningStateChanged();
       });
     }).catch((reason: unknown) => {
@@ -663,7 +560,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
   const addOptionalItem = (group: SettingOutlineGroup, item: SettingOutlineItem): void => {
     setStatuses((current) => ({ ...current, [item.key]: '稍后补充' }));
     persistItem(group, item, '稍后补充');
-    setNotice(`“${item.label}”已加入本书的建议完善清单，不会阻塞进入剧情规划。`);
+    setNotice(`“${item.label}”已加入本书的建议完善清单，不会阻塞进入卷纲设计。`);
   };
 
   const renderSettingGroups = (sectionGroups: SettingOutlineGroup[]): React.JSX.Element => <div className="setting-outline-list">
@@ -671,20 +568,23 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       <header><h4>{group.title}</h4><span>{group.items.length} 项</span></header>
       <div>{group.items.map((item) => {
         const status = statuses[item.key] ?? '待讨论';
-        const canDiscussNow = currentGuidanceItem === undefined || currentGuidanceItem.key === item.key;
+        const isCurrent = currentGuidanceItem?.key === item.key;
         return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
           <div className="setting-outline-copy">
-            <div><h5>{item.label}</h5><span>{status}</span></div>
+            <div><h5>{item.label}</h5><span>{status === '候选待确认' ? '方案待确认' : status}</span></div>
             {contents[item.key] !== undefined && <p>{contents[item.key]}</p>}
           </div>
-          <select aria-label={`${item.label}状态`} value={status} onChange={(event) => {
+          <select aria-label={`${item.label}状态`} value={status} disabled={isCurrent && status === '候选待确认'} onChange={(event) => {
             const nextStatus = event.target.value as SettingOutlineStatus;
             setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
             persistItem(group, item, nextStatus, item.source === '作者自定义');
           }}>
-            {(['待讨论', '讨论中', '候选待确认', '已确认', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value} value={value}>{value === '候选待确认' ? '方案待确认' : value}</option>)}
+            {(['待讨论', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value} value={value}>{value}</option>)}
+            {status === '讨论中' && <option value="讨论中">讨论中</option>}
+            {status === '候选待确认' && <option value="候选待确认">方案待确认</option>}
+            {status === '已确认' && <option value="已确认">已确认</option>}
           </select>
-          <button className="setting-discuss-button" type="button" disabled={bookId === null || busyKey !== null || !canDiscussNow} onClick={() => discuss(group, item)}>{busyKey === item.key ? '正在启动…' : canDiscussNow ? '跳转讨论' : '按顺序等待'}</button>
+          <span className={`setting-row-position ${isCurrent ? 'current' : ''}`}>{isCurrent ? '正在上方处理' : status === '已确认' ? '已完成' : requiredKeys.has(item.key) ? '等待前一项' : '按需完善'}</span>
         </article>;
       })}</div>
     </section>)}
@@ -692,16 +592,28 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
 
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
-      <h3>设定大纲</h3>
+      <div><h3>设定大纲</h3><p>{profile === null ? '正在识别本书需要的设定。' : `${profile.profileLabel} · 只要求当前故事真正需要的内容`}</p></div>
       <div className="setting-outline-progress"><strong>{confirmedRequired} / {requiredKeys.size}</strong><span>已确认</span><div><i style={{ width: `${requiredKeys.size === 0 ? 0 : Math.round(confirmedRequired / requiredKeys.size * 100)}%` }} /></div></div>
     </header>
-    {currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <aside className="setting-current-card"><div><h4>{currentGuidanceItem.label}</h4><span>{statuses[currentGuidanceItem.key] ?? '待讨论'}</span></div><button className="primary-button" type="button" disabled={bookId === null || busyKey !== null || profile === null} onClick={() => discuss(currentGuidanceGroup, currentGuidanceItem)}>{busyKey === currentGuidanceItem.key ? '正在启动…' : '讨论'}</button></aside>}
-    <section className="setting-import compact">
-      <textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="输入或粘贴本书设定……" />
-      <footer><span>{source.length}/10000</span><button className="secondary-button" type="button" disabled={busyKey !== null || bookId === null || source.trim().length === 0} onClick={submitSource}>{busyKey === 'source' ? '正在提交…' : '提交'}</button></footer>
-    </section>
+    {bookId !== null && currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <SettingCollaborationPanel
+      key={currentGuidanceItem.key}
+      bookId={bookId}
+      item={{
+        itemKey: currentGuidanceItem.key,
+        groupTitle: currentGuidanceGroup.title,
+        label: currentGuidanceItem.label,
+        prompt: currentGuidanceItem.prompt,
+        sourceLabel: currentGuidanceItem.source,
+        status: statuses[currentGuidanceItem.key] ?? '待讨论',
+        custom: currentGuidanceItem.source === '作者自定义',
+        sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === currentGuidanceItem.key)),
+        content: contents[currentGuidanceItem.key] ?? null
+      }}
+      onSnapshot={applySnapshot}
+    />}
+    {profile !== null && requiredKeys.size > 0 && currentGuidanceItem === undefined && <p className="setting-complete-note">本书必谈设定已经逐项确认。建议项仍可继续补充，也可以确认整份设定大纲并进入卷纲设计。</p>}
     <section className="setting-outline-section required">
-      <header><strong>待讨论</strong><span>{Math.max(0, requiredKeys.size - confirmedRequired)} 项</span></header>
+      <header><strong>当前必须确定</strong><span>{Math.max(0, requiredKeys.size - confirmedRequired)} 项未完成</span></header>
       {requiredGroups.length === 0 ? <p className="setting-empty-state">正在根据开书资料生成本书清单……</p> : renderSettingGroups(requiredGroups)}
     </section>
     <details className="setting-optional-library setting-recommended">
@@ -718,7 +630,7 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
     </details>
     <section className="custom-setting-builder">
-      <header><h4>补充设定</h4></header>
+      <header><h4>本书自定义</h4><p>只添加这本书确实需要的设定问题。</p></header>
       <form onSubmit={(event) => {
         event.preventDefault();
         const value = customDraft.trim();
@@ -737,29 +649,13 @@ function SettingCatalog({ bookId, bookTitle, bookProfile, templateHints, onDiscu
       </form>
     </section>
     <section className="planning-stage-action">
-      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null} onClick={confirmSetting}>
-        {busyKey === 'confirm-setting' ? '正在检查…' : '确认设定大纲'}
+      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || currentGuidanceItem !== undefined} onClick={confirmSetting}>
+        {busyKey === 'confirm-setting' ? '正在检查…' : '确认整份设定大纲'}
       </button>
     </section>
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
 }
-
-function compactBookProfile(profile: BookProfileViewData | null): Record<string, unknown> {
-  if (profile === null) return {};
-  return {
-    title: profile.title,
-    channel: profile.channel,
-    category: profile.category,
-    subjects: profile.subjects,
-    mainTags: profile.mainTags,
-    customTags: profile.customTags,
-    protagonists: profile.protagonists,
-    storyDirection: profile.storyDirection,
-    mustFollow: profile.mustFollow
-  };
-}
-
 function settingStatusClass(status: SettingOutlineStatus): string {
   return status === '已确认' ? 'confirmed' : status === '讨论中' ? 'active' : status === '候选待确认' ? 'candidate' : 'pending';
 }

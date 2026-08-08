@@ -170,7 +170,6 @@ import {
   authorFieldLabel,
   authorFormatScalar,
   authorRelationshipLabel,
-  collectSettingTemplateHints,
   structuredReplyFromMixedText,
   toAuthorDisplayValue,
   toAuthorFacingText
@@ -868,16 +867,6 @@ export function App(): React.JSX.Element {
                   setView('chat');
                 } catch (reason) {
                   setError(reason instanceof Error ? reason.message : '剧情总纲升级讨论启动失败');
-                }
-              }}
-              onDiscussSetting={async (packet) => {
-                if (selectedBookId === null) return;
-                setError(null);
-                try {
-                  await sendMessage(selectedBookId, `讨论设定 ${packet}`);
-                  setView('chat');
-                } catch (reason) {
-                  setError(reason instanceof Error ? reason.message : '设定讨论启动失败');
                 }
               }}
             />}

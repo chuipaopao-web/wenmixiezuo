@@ -95,6 +95,43 @@ export interface SettingOutlineWorkspaceData {
   updatedAt: string;
 }
 
+export interface SettingCollaborationData {
+  item: SettingOutlineWorkspaceData;
+  panel: null | {
+    taskId: string;
+    discussionId: string;
+    taskStatus: string;
+    discussionStatus: string;
+    errorCode: string | null;
+    createdAt: string;
+    updatedAt: string;
+    proposals: Array<{
+      number: number;
+      messageId: string;
+      agentId: string | null;
+      memberName: string;
+      roleKey: string | null;
+      modelProvider: string | null;
+      modelId: string | null;
+      content: string;
+      decisionId: string | null;
+      createdAt: string;
+    }>;
+  };
+  revisionTask: null | {
+    taskId: string;
+    status: string;
+    errorCode: string | null;
+    updatedAt: string;
+  };
+  historyCount: number;
+  impact: {
+    changesCanon: false;
+    changesManuscript: false;
+    formalVersionTiming: 'setting_baseline_confirmation';
+  };
+}
+
 export type OpeningChannel = 'male' | 'female';
 export type BookCreationMode = 'new' | 'continuation';
 export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
@@ -848,6 +885,12 @@ export function retryTask(bookId: string, taskId: string): Promise<TaskData> {
   });
 }
 
+export function resumeTask(bookId: string, taskId: string): Promise<TaskData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}/resume`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+
 export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<unknown> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/confirmations/${encodeURIComponent(confirmationId)}/${accept ? 'accept' : 'reject'}`, {
     method: 'POST', body: JSON.stringify({ expectedCanonRevision })
@@ -1031,6 +1074,17 @@ export function fetchAttributeFormulas(bookId: string, signal?: AbortSignal): Pr
 
 export function fetchSettingOutlineWorkspace(bookId: string, signal?: AbortSignal): Promise<SettingOutlineWorkspaceData[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace`, signal === undefined ? {} : { signal });
+}
+
+export function fetchSettingCollaboration(
+  bookId: string,
+  itemKey: string,
+  signal?: AbortSignal
+): Promise<SettingCollaborationData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration`,
+    signal === undefined ? {} : { signal }
+  );
 }
 
 export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfileViewData> {

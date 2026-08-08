@@ -62,6 +62,8 @@ import { CreativeSessionRepository } from '../infrastructure/db/repositories/cre
 import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
+import { SettingCollaborationService } from '../application/knowledge/setting-collaboration-service.js';
+import { SettingCollaborationRepository } from '../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
@@ -183,6 +185,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const protagonists = new ProtagonistStateService(database, ids, clock);
   const attributeFormulas = new AttributeFormulaService(database, ids, clock);
   const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
+  const settingCollaboration = new SettingCollaborationService(
+    new SettingCollaborationRepository(database), settingOutlineWorkspace
+  );
   const bookProfileView = new BookProfileViewService(database);
   const openingBlueprints = new OpeningBlueprintService(
     new OpeningBlueprintRepository(database), books, new UnitOfWork(database), ids, clock
@@ -855,6 +860,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
     return success(settingOutlineWorkspace.list(scope), request.id);
   });
+  app.get<{ Params: { bookId: string; itemKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(settingCollaboration.inspect(scope, request.params.itemKey), request.id);
+    }
+  );
 
   app.put<{ Params: { bookId: string; itemKey: string }; Body: {
     groupTitle: string;

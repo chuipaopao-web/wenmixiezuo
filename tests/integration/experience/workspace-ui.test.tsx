@@ -837,15 +837,15 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('军功与精神力双轨成长')).toBeInTheDocument();
     expect(screen.queryByText('游戏历史')).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '设定大纲' })).toBeInTheDocument();
-    const importBox = screen.getByRole('textbox', { name: '已有设定原文' });
+    const importBox = await screen.findByRole('textbox', { name: '已有设定原文' });
     const catalogHeading = screen.getByRole('heading', { name: '设定大纲' });
     expect(catalogHeading.compareDocumentPosition(importBox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText('游戏竞技＋历史古代')).not.toBeInTheDocument();
     expect(screen.getAllByText('待讨论').length).toBeGreaterThan(0);
     expect(screen.getByText('建议完善')).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { name: '核心看点' }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: '讨论' })).toBeInTheDocument();
-    expect(screen.queryByText('当前只讨论：核心看点')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '让三名成员各自给方案' })).toBeInTheDocument();
+    expect(screen.getByText('当前只处理这一项')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '分批讨论未完成项' })).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: '搜索完整资料库' })).toBeInTheDocument();
     const requiredSection = document.querySelector('.setting-outline-section.required');
@@ -859,8 +859,9 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加到清单' }));
     expect(screen.getByText('神名禁忌')).toBeInTheDocument();
     expect(importBox).toHaveAttribute('maxlength', '10000');
-    expect(screen.getAllByRole('button', { name: '跳转讨论' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: '按顺序等待' }).length).toBeGreaterThan(10);
+    expect(screen.queryByRole('button', { name: '跳转讨论' })).not.toBeInTheDocument();
+    expect(screen.getByText('正在上方处理')).toBeInTheDocument();
+    expect(screen.getAllByText('等待前一项').length).toBeGreaterThan(10);
     fireEvent.click(screen.getByRole('button', { name: '剧情总纲' }));
     expect(await screen.findByText('守城与预见')).toBeInTheDocument();
     expect(screen.queryByText(/minimum|recommended|suggestedChapters/u)).not.toBeInTheDocument();
@@ -1807,6 +1808,17 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       recommended: ['theme-intent', 'differentiator', 'tone-boundary', 'geography', 'strength-flaw', 'supporting', 'relations', 'open', 'intentional-unknown', 'levels', 'costs', 'abilities', 'equipment', 'quest-instance', 'ranking', 'governance', 'history', 'class', 'culture', 'politics-military', 'technology-spread', 'historical-names'],
       profileKey: 'game+history',
       profileLabel: '游戏竞技＋历史古代'
+    });
+    if (path.endsWith('/setting-outline-workspace/creative-concept/collaboration')) return apiResponse({
+      item: {
+        itemKey: 'creative-concept', groupTitle: '作品策划', label: '核心看点',
+        prompt: '这本书最吸引人的地方是什么，为什么读者愿意一直看下去？', sourceLabel: '通用',
+        status: '待讨论', custom: false, sortOrder: 0, content: null,
+        sourceDiscussionId: null, sourceDecisionId: null, candidateAt: null, confirmedAt: null,
+        updatedAt: '2026-08-01T12:00:00.000Z'
+      },
+      panel: null, revisionTask: null, historyCount: 0,
+      impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
     });
     if (path.endsWith('/setting-outline-workspace') && init?.method !== 'PUT') return apiResponse([]);
     if (path.endsWith('/setting-outline-workspace/initialize') && init?.method === 'POST') {

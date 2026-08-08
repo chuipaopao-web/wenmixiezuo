@@ -175,6 +175,21 @@ describe('建书REST流程', () => {
         taskId: created.kickoffTaskId,
         settingItemKey: 'creative-concept'
       });
+      const settingCollaboration = await app.inject({
+        method: 'GET',
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/creative-concept/collaboration`
+      });
+      expect(settingCollaboration.statusCode).toBe(200);
+      expect(settingCollaboration.json().data).toMatchObject({
+        item: { itemKey: 'creative-concept' },
+        panel: { taskId: created.kickoffTaskId },
+        impact: { changesCanon: false, changesManuscript: false }
+      });
+      const unknownSettingCollaboration = await app.inject({
+        method: 'GET',
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/not-a-real-item/collaboration`
+      });
+      expect(unknownSettingCollaboration.statusCode).toBe(404);
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
         WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
           AND json_extract(task_brief_json, '$.purpose') = 'setting_proposal_panel'`)

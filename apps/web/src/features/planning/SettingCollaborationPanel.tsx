@@ -1,0 +1,253 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  createAuthorPlanningInput,
+  fetchSettingCollaboration,
+  resumeTask,
+  retryTask,
+  saveSettingOutlineItem,
+  sendMessage,
+  type SettingCollaborationData,
+  type SettingOutlineWorkspaceData
+} from '../../lib/api/client';
+
+const activeTaskStatuses = new Set(['pending', 'queued', 'working']);
+
+export function SettingCollaborationPanel({
+  bookId,
+  item,
+  onSnapshot
+}: {
+  bookId: string;
+  item: Pick<SettingOutlineWorkspaceData, 'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder' | 'content'>;
+  onSnapshot: (item: SettingOutlineWorkspaceData) => void;
+}): React.JSX.Element {
+  const [data, setData] = useState<SettingCollaborationData | null>(null);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [source, setSource] = useState('');
+  const [idea, setIdea] = useState('');
+  const [draft, setDraft] = useState(item.content ?? '');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const ideaKey = useRef<string | null>(null);
+  const sourceKey = useRef<string | null>(null);
+
+  const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    const next = await fetchSettingCollaboration(bookId, item.itemKey, signal);
+    setData(next);
+    setDraft((current) => next.item.content === null ? current : next.item.content!);
+    onSnapshot(next.item);
+  }, [bookId, item.itemKey, onSnapshot]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null);
+    setSelected([]);
+    setSource('');
+    setDraft(item.content ?? '');
+    void refresh(controller.signal).catch((reason: unknown) => {
+      if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '协作状态读取失败');
+    });
+    return () => controller.abort();
+  }, [item.content, refresh]);
+
+  const panelStatus = data?.panel?.taskStatus ?? null;
+  const revisionStatus = data?.revisionTask?.status ?? null;
+  const polling = (panelStatus !== null && activeTaskStatuses.has(panelStatus))
+    || (revisionStatus !== null && activeTaskStatuses.has(revisionStatus));
+  useEffect(() => {
+    if (!polling) return undefined;
+    const timer = window.setInterval(() => {
+      void refresh().catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '协作状态刷新失败'));
+    }, 1_800);
+    return () => window.clearInterval(timer);
+  }, [polling, refresh]);
+
+  const start = async (): Promise<void> => {
+    if (busy !== null) return;
+    setBusy('start'); setNotice(null);
+    try {
+      const existingSource = source.trim();
+      if (existingSource.length > 0) {
+        sourceKey.current ??= createClientKey();
+        await createAuthorPlanningInput(bookId, {
+          surface: 'setting',
+          subjectType: 'setting_module',
+          subjectId: item.itemKey,
+          intentStrength: 'preference',
+          originalText: existingSource,
+          attachmentRefs: [],
+          mentionedAgentIds: [],
+          scopeNotes: `作者为“${item.label}”提供的已有设定原文，作为本轮发散参考，不自动确认。`,
+          idempotencyKey: sourceKey.current
+        });
+      }
+      await sendMessage(bookId, [
+        `请让活动主编和两位编剧分别独立提出当前设定项“${item.label}”的方案。`,
+        `只回答这个问题：${item.prompt}`,
+        existingSource.length === 0 ? '作者没有提供已有设定原文。' : `作者已有设定原文（只作参考）：\n${existingSource}`,
+        '三人互相不要看答案、不要投票、不要自动合并，也不要生成卷纲、章纲或正文。'
+      ].join('\n'));
+      setSource('');
+      sourceKey.current = null;
+      setNotice('三名成员已开始各自构思；刷新页面不会重复创建任务。');
+      await refresh();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '启动协作失败');
+    } finally { setBusy(null); }
+  };
+
+  const synthesize = async (): Promise<void> => {
+    if (busy !== null || data?.panel === null || selected.length === 0) return;
+    setBusy('synthesize'); setNotice(null);
+    try {
+      const authorIdea = idea.trim();
+      if (authorIdea.length > 0) {
+        ideaKey.current ??= createClientKey();
+        await createAuthorPlanningInput(bookId, {
+          surface: 'setting',
+          subjectType: 'setting_module',
+          subjectId: item.itemKey,
+          intentStrength: 'preference',
+          originalText: authorIdea,
+          attachmentRefs: [],
+          mentionedAgentIds: [],
+          scopeNotes: `用于“${item.label}”方案整理`,
+          idempotencyKey: ideaKey.current
+        });
+      }
+      await sendMessage(bookId, [
+        `当前设定项“${item.label}”，我选择方案${[...selected].sort((a, b) => a - b).join('+')}。`,
+        authorIdea.length === 0 ? '没有额外补充。' : `我的补充想法：${authorIdea}`,
+        '请只由活动主编忠实整理成一个待确认版本；保留我选中的核心内容，不重新召集三人，不生成后续剧情。'
+      ].join('\n'));
+      ideaKey.current = null;
+      setNotice('主编正在按你的选择整理一个待确认版本。');
+      await refresh();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '提交选择失败');
+    } finally { setBusy(null); }
+  };
+
+  const saveCandidate = async (status: '候选待确认' | '已确认'): Promise<void> => {
+    if (busy !== null || draft.trim().length === 0) return;
+    setBusy(status); setNotice(null);
+    try {
+      const saved = await saveSettingOutlineItem(bookId, {
+        itemKey: item.itemKey,
+        groupTitle: item.groupTitle,
+        label: item.label,
+        prompt: item.prompt,
+        sourceLabel: item.sourceLabel,
+        status,
+        custom: item.custom,
+        sortOrder: item.sortOrder,
+        content: draft
+      });
+      onSnapshot(saved);
+      setData((current) => current === null ? current : { ...current, item: saved });
+      setNotice(status === '已确认'
+        ? '这一项已确认。它不会改写正文或正史；完成全部必谈项后才生成新的正式设定版本。'
+        : '修改已保存为待确认内容。');
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '设定内容保存失败');
+    } finally { setBusy(null); }
+  };
+
+  const revise = async (): Promise<void> => {
+    if (busy !== null || idea.trim().length === 0) return;
+    setBusy('revise'); setNotice(null);
+    try {
+      await sendMessage(bookId, [
+        `请修改当前设定项“${item.label}”的待确认版本。`,
+        `我的修改意见：${idea.trim()}`,
+        '只由活动主编在现有候选上定点修改，不重新召集三人，不扩展到卷纲、章纲或正文。'
+      ].join('\n'));
+      setIdea('');
+      setNotice('修改意见已交给主编，现有版本和三份原始方案都会保留。');
+      await refresh();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '提交修改意见失败');
+    } finally { setBusy(null); }
+  };
+
+  const retry = async (): Promise<void> => {
+    const revisionFailed = data?.revisionTask != null
+      && ['failed', 'interrupted'].includes(data.revisionTask.status);
+    const panelFailed = data?.panel != null
+      && ['failed', 'interrupted'].includes(data.panel.taskStatus);
+    const taskId = revisionFailed
+      ? data.revisionTask!.taskId
+      : panelFailed
+        ? data.panel!.taskId
+        : undefined;
+    if (taskId === undefined || busy !== null) return;
+    setBusy('retry'); setNotice(null);
+    try {
+      await retryTask(bookId, taskId);
+      setNotice('任务会从已经保存的检查点继续，成功的成员不会重复调用。');
+      await refresh();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '任务重试失败');
+    } finally { setBusy(null); }
+  };
+
+  const resume = async (): Promise<void> => {
+    const taskId = data?.revisionTask?.status === 'paused'
+      ? data.revisionTask.taskId
+      : data?.panel?.taskStatus === 'paused'
+        ? data.panel.taskId
+        : undefined;
+    if (taskId === undefined || busy !== null) return;
+    setBusy('resume'); setNotice(null);
+    try {
+      await resumeTask(bookId, taskId);
+      setNotice('任务已从保留的检查点继续。');
+      await refresh();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '任务继续失败');
+    } finally { setBusy(null); }
+  };
+
+  const proposals = data?.panel?.proposals ?? [];
+  const panelFailed = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus);
+  const revisionFailed = data?.revisionTask != null && ['failed', 'interrupted'].includes(data.revisionTask.status);
+  const paused = data?.panel?.taskStatus === 'paused' || data?.revisionTask?.status === 'paused';
+  const blocked = data?.panel?.taskStatus === 'blocked' || data?.revisionTask?.status === 'blocked';
+  const revisionRunning = data?.revisionTask != null && activeTaskStatuses.has(data.revisionTask.status);
+  const candidateReady = (data?.item.status ?? item.status) === '候选待确认' && draft.trim().length > 0;
+
+  return <section className="setting-collaboration" aria-labelledby={`setting-collaboration-${item.itemKey}`}>
+    <header>
+      <div><small>当前只处理这一项</small><h4 id={`setting-collaboration-${item.itemKey}`}>{item.label}</h4><p>{item.prompt}</p></div>
+      <span>{data?.historyCount ?? 0} 轮记录</span>
+    </header>
+
+    {data === null ? <p className="setting-collaboration-state">正在读取当前进度……</p> : <>
+      {data.panel === null && !candidateReady && <div className="setting-collaboration-start">
+        <p>三名成员会读取同一份最小资料，各自给出真正推荐的方案。作者选择前不会自动合并或确认。</p>
+        <label>已有设定原文（选填）<textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；会保留原话并只作为本轮参考。" /></label>
+        <footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在启动…' : '让三名成员各自给方案'}</button></footer>
+      </div>}
+      {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <p className="setting-collaboration-state">三名成员正在独立构思；已完成的结果会逐项保留。</p>}
+      {(panelFailed || revisionFailed) && <div className="setting-collaboration-error"><p>这轮任务没有完成，已有方案和检查点仍然保留。</p><button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在恢复…' : '从检查点继续'}</button></div>}
+      {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果和检查点都已保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
+      {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
+      {proposals.length > 0 && <div className="setting-proposal-grid">{proposals.map((proposal) => {
+        const checked = selected.includes(proposal.number);
+        return <button type="button" className={checked ? 'selected' : ''} key={proposal.messageId} aria-pressed={checked} onClick={() => setSelected((current) => checked ? current.filter((number) => number !== proposal.number) : [...current, proposal.number])}>
+          <span>方案 {proposal.number}</span><strong>{proposal.memberName}</strong><p>{proposal.content}</p><small>{checked ? '已选入整理' : '点击选择，可多选'}</small>
+        </button>;
+      })}</div>}
+      {proposals.length > 0 && !candidateReady && <section className="setting-author-choice"><label>你的补充想法<textarea rows={4} maxLength={4000} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2；这一点只是参考，不要写死。" /></label><footer><span>{selected.length === 0 ? '请先选择至少一份方案' : `已选择 ${[...selected].sort((a, b) => a - b).join('、')}`}</span><button className="primary-button" type="button" disabled={busy !== null || selected.length === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的选择整理'}</button></footer></section>}
+      {revisionRunning && <p className="setting-collaboration-state">主编正在按你的选择或修改意见整理候选，完成前暂不覆盖当前编辑稿。</p>}
+      {candidateReady && <section className="setting-candidate-editor"><header><div><small>待确认版本</small><strong>主编已整理，可直接修改</strong></div><span>确认后仍不直接进入正史</span></header><textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} /><label>还想怎么改？<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；只会让主编定点调整，不重复启动三人提案。" /></label><div className="setting-candidate-actions"><button type="button" disabled={busy !== null || revisionRunning || idea.trim().length === 0} onClick={() => void revise()}>{busy === 'revise' ? '正在提交…' : '让主编按意见修改'}</button><button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button><button className="primary-button" type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('已确认')}>{busy === '已确认' ? '正在确认…' : '确认这一项'}</button></div></section>}
+      <p className="setting-impact-note">这里的选择只影响设定大纲候选，不会改写已写正文或正史。全部必谈项完成后，系统才生成一份新的正式设定版本。</p>
+    </>}
+    {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+  </section>;
+}
+
+function createClientKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `setting-idea-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
