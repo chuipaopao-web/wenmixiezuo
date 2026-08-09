@@ -41,6 +41,9 @@ describe('事件链与事件大纲',()=>{
     const confirmed=service.confirm(scope,firstEvent.eventId,{versionId:candidate.storyEventVersionId,
       expectedEventRevision:firstEvent.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
     expect(confirmed.activeVersion?.content.requiredResult).toBe('主角承担公开代价');
+    expect(volumes.workflow(scope).activeEventRef).toMatchObject({
+      kind:'story_event',id:firstEvent.eventId,version:candidate.version,contentHash:candidate.contentHash,required:true
+    });
     expect(()=>service.addVersion(scope,secondEvent.eventId,{expectedEventRevision:secondEvent.revision,
       candidateKind:'candidate_a',template:noTemplate('event'),content:eventContent('追查后果','主角找到下一层线索'),
       idempotencyKey:'event-two-too-early'})).toThrow('请先完成上一事件实际结算');

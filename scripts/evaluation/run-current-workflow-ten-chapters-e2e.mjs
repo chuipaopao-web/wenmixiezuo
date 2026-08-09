@@ -244,39 +244,75 @@ async function ensureTestBudget(bookId) {
 async function completeSettings(bookId) {
   if (state.settingsCompleted) return;
   activePhase = 'setting-outline';
-  const attempts = new Map();
-  for (let guard = 0; guard < 50; guard += 1) {
-    const workflow = await request(`/api/v1/books/${bookId}/workflow`);
-    if (!['book_profile_draft', 'book_profile_confirmed', 'setting_in_progress'].includes(workflow.stage)) {
-      save({ settingsCompleted: true, workflowAfterSettings: workflow });
-      log('settings_ready', { stage: workflow.stage, planningVersion: workflow.planningVersion });
-      return;
-    }
-    const items = await request(`/api/v1/books/${bookId}/setting-outline-workspace`);
-    const candidate = items.find((item) => item.status === '候选待确认');
-    if (candidate) {
-      const confirmed = await request(`/api/v1/books/${bookId}/messages`, {
-        method: 'POST', body: { content: '确认', attachmentIds: [] }
-      });
-      log('setting_confirmed', { itemKey: candidate.itemKey, action: confirmed.action });
-      if (typeof confirmed.action?.taskId === 'string') {
-        await waitForTask(bookId, confirmed.action.taskId, `setting-next-${confirmed.action.settingItemKey ?? 'item'}`);
-      }
-      continue;
-    }
-    const current = items.find((item) => ['讨论中', '待讨论'].includes(item.status));
-    assert(current, `workflow stage ${workflow.stage} has no current setting item`);
-    const attempt = (attempts.get(current.itemKey) ?? 0) + 1;
-    attempts.set(current.itemKey, attempt);
-    assert(attempt <= 3, `${current.itemKey} requested more than three author follow-ups`);
-    const sent = await request(`/api/v1/books/${bookId}/messages`, {
-      method: 'POST', body: { content: answerFor(current, attempt), attachmentIds: [] }
+  const readiness = await request(`/api/v1/books/${bookId}/setting-baseline/readiness`);
+  for (const itemKey of readiness.required) {
+    let items = await request(`/api/v1/books/${bookId}/setting-outline-workspace`);
+    let item = items.find((candidate) => candidate.itemKey === itemKey);
+    assert(item, `required setting item ${itemKey} is missing from workspace`);
+    if (item.status === '已确认') continue;
+
+    const authorInput = await createIdea(bookId, {
+      surface: 'setting', subjectType: 'setting_module', subjectId: item.itemKey,
+      originalText: answerFor(item), scopeNotes: `用于“${item.label}”三席方案与融合`,
+      idempotencyLabel: `setting-${item.itemKey}-idea`
     });
-    assert(typeof sent.action?.taskId === 'string', `setting answer did not schedule task: ${JSON.stringify(sent)}`);
-    log('setting_answered', { itemKey: current.itemKey, label: current.label, attempt, taskId: sent.action.taskId });
-    await waitForTask(bookId, sent.action.taskId, `setting-${current.itemKey}`);
+    const panel = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/start`, {
+      method: 'POST', body: {
+        authorInputId: authorInput.authorInputId,
+        idempotencyKey: key(`setting-${item.itemKey}-panel`)
+      }
+    });
+    await waitForTask(bookId, panel.taskId, `setting-${item.itemKey}-three-proposals`);
+    const collaboration = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration`);
+    const proposals = collaboration.panel?.proposals ?? [];
+    assert(proposals.length === 3, `${item.itemKey} expected three independent proposals, got ${proposals.length}`);
+    assert(new Set(proposals.map((proposal) => proposal.agentId)).size === 3,
+      `${item.itemKey} proposals do not come from three distinct members`);
+    log('setting_proposals_ready', {
+      itemKey: item.itemKey,
+      members: proposals.map((proposal) => ({ agentId: proposal.agentId, modelProvider: proposal.modelProvider, modelId: proposal.modelId }))
+    });
+
+    const synthesis = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/synthesize`, {
+      method: 'POST', body: {
+        proposalIds: proposals.map((proposal) => proposal.proposalId),
+        authorInputId: authorInput.authorInputId,
+        idempotencyKey: key(`setting-${item.itemKey}-synthesis`)
+      }
+    });
+    const synthesisDetail = await request(`/api/v1/books/${bookId}/tasks/${synthesis.taskId}`);
+    if (terminalFailures.has(synthesisDetail.task.status)) {
+      await request(`/api/v1/books/${bookId}/tasks/${synthesis.taskId}/retry`, { method: 'POST', body: {} });
+      log('setting_synthesis_retried', {
+        itemKey: item.itemKey, taskId: synthesis.taskId, previousStatus: synthesisDetail.task.status
+      });
+    }
+    await waitForTask(bookId, synthesis.taskId, `setting-${item.itemKey}-editor-synthesis`);
+    items = await request(`/api/v1/books/${bookId}/setting-outline-workspace`);
+    item = items.find((candidate) => candidate.itemKey === itemKey);
+    assert(item?.status === '候选待确认' && typeof item.content === 'string' && item.content.trim().length > 0,
+      `${itemKey} synthesis did not produce a confirmable setting candidate`);
+    const confirmed = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}`, {
+      method: 'PUT', body: {
+        groupTitle: item.groupTitle, label: item.label, prompt: item.prompt,
+        sourceLabel: item.sourceLabel, status: '已确认', custom: item.custom,
+        sortOrder: item.sortOrder, content: item.content
+      }
+    });
+    assert(confirmed.status === '已确认', `${itemKey} did not become confirmed`);
+    log('setting_confirmed', { itemKey: confirmed.itemKey, sourceDiscussionId: confirmed.sourceDiscussionId });
   }
-  throw new Error('setting outline loop exceeded 50 iterations');
+
+  const ready = await request(`/api/v1/books/${bookId}/setting-baseline/readiness`);
+  assert(ready.ready, `setting baseline is not ready: ${JSON.stringify({ missing: ready.missing, unresolved: ready.unresolved })}`);
+  const workflow = await request(`/api/v1/books/${bookId}/workflow`);
+  const confirmedBaseline = await request(`/api/v1/books/${bookId}/setting-baseline/confirm`, {
+    method: 'POST', body: { expectedPlanningVersion: workflow.planningVersion }
+  });
+  assert(confirmedBaseline.stage === 'setting_ready', `setting baseline ended as ${confirmedBaseline.stage}`);
+  const completedWorkflow = await request(`/api/v1/books/${bookId}/workflow`);
+  save({ settingsCompleted: true, workflowAfterSettings: completedWorkflow });
+  log('settings_ready', { stage: completedWorkflow.stage, planningVersion: completedWorkflow.planningVersion });
 }
 
 async function createIdea(bookId, input) {
@@ -800,8 +836,8 @@ async function collectEvidence(bookId, volumePlan, event, settlements) {
     .filter((call) => call.provider && call.modelId)
     .map((call) => [`${call.agentId}:${call.provider}:${call.modelId}`, call])).values()];
   const evidence = {
-    testId: TEST_ID, releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: 'E2-short-real-flow',
-    limitation: '十章真实流程可证明短流程运行与可追溯性，不代表1500章长期质量已经达到E3/E4。',
+    testId: TEST_ID, releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: 'E2-current-workflow-deterministic',
+    limitation: '本地确定性模型十章流程只证明对象链、任务、审查、正文与结算可运行和可追溯；不代表真实套餐模型文学质量，也不代表1500章长期质量已经达到E3/E4。',
     book: { bookId, title: book.title, status: book.status, canonRevision: book.canonRevision },
     profile, workflow, settings: settings.map((item) => ({ itemKey: item.itemKey, label: item.label, status: item.status })),
     team: workspace.agents.map((agent) => ({

@@ -23,6 +23,7 @@
 ## 最常用文档
 
 - [可搜索文档中心](docs/PROJECT_DOCUMENT_CENTER.html)：只展示当前正式文档和长篇质量 Skill。
+- [当前项目完整合订版](docs/PROJECT_REFERENCE_BUNDLE.md)：按六个目录合并全部现行资料，可整页复制给外部顾问。
 - [完整当前文档目录](docs/PROJECT_DOCUMENT_INDEX.md)：显示当前文件、摘要、大小和内容指纹。
 - [产品说明](docs/PRODUCT.md)：产品定位、功能和边界。
 - [创作工作流 V2](docs/CREATION_WORKFLOW_V2_DESIGN.md)：页面、交互、对象链和AI介入时机。

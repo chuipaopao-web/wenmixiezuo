@@ -1,10 +1,10 @@
 import { useCallback,useEffect,useMemo,useState } from 'react';
 import {
   cancelTask,confirmEventChapterSequence,fetchAuthorPlanningInputs,fetchCreationWorkflow,fetchExpressionProfile,
-  fetchEventChapterGeneration,fetchEventChapterSequence,freezeRecentEventChapterOutlines,
+  fetchEventChapterGeneration,fetchEventChapterSequence,fetchEventSequence,fetchVolumePlans,freezeRecentEventChapterOutlines,
   initializeEventChapterSequence,retryTask,saveExpressionProfile,settleStoryEvent,startEventChapterDetailGeneration,startWritingRun,
   startEventChapterSequenceGeneration,type EventChapterGenerationData,type EventChapterOutlineData,
-  type EventChapterSequenceData,type EventChapterSequenceVersionData,type ExpressionProfileData
+  type EventChapterSequenceData,type EventChapterSequenceVersionData,type ExpressionProfileData,type StoryEventData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 
@@ -21,15 +21,34 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   const[freezeCount,setFreezeCount]=useState(1);
   const[busy,setBusy]=useState(false);
   const[error,setError]=useState<string|null>(null);
-  const eventId=workflow?.activeEventRef?.id??null;
+  const[eventId,setEventId]=useState<string|null>(null);
+  const[historyMode,setHistoryMode]=useState(false);
+  const[historyEvents,setHistoryEvents]=useState<StoryEventData[]>([]);
 
   const load=useCallback(async(signal?:AbortSignal)=>{
     const[nextWorkflow,nextExpression]=await Promise.all([fetchCreationWorkflow(bookId,signal),fetchExpressionProfile(bookId,signal)]);
     setWorkflow(nextWorkflow);setExpression(nextExpression);
     if(nextExpression?.narrativePerson)setNarrativePerson(nextExpression.narrativePerson);
     if(nextExpression?.viewpointDistance)setViewpointDistance(nextExpression.viewpointDistance);
-    const nextEventId=nextWorkflow.activeEventRef?.id??null;
+    let nextEventId=nextWorkflow.activeEventRef?.id??null;
+    let nextHistoryMode=false;
+    let nextHistoryEvents:StoryEventData[]=[];
+    if(nextEventId===null){
+      const plans=await fetchVolumePlans(bookId,signal);
+      const historicalPlan=[...plans].reverse().find(item=>['active','completed'].includes(item.status)&&item.activeVersionId!==null)??null;
+      if(historicalPlan!==null){
+        const eventSequence=await fetchEventSequence(bookId,historicalPlan.volumePlanId,signal);
+        nextHistoryEvents=(eventSequence?.events??[]).filter(item=>['active','settled'].includes(item.status));
+        const historicalEvent=[...nextHistoryEvents].reverse()[0]??null;
+        nextEventId=historicalEvent?.eventId??null;
+        nextHistoryMode=historicalEvent?.status==='settled'||historicalPlan.status==='completed';
+      }
+    }
+    setEventId(nextEventId);setHistoryMode(nextHistoryMode);setHistoryEvents(nextHistoryEvents);
     if(nextEventId===null){setSequence(null);setSequenceTask(null);setDetailTask(null);return;}
+    if(nextHistoryMode){
+      setSequence(await fetchEventChapterSequence(bookId,nextEventId,signal));setSequenceTask(null);setDetailTask(null);return;
+    }
     const[nextSequence,nextSequenceTask,nextDetailTask]=await Promise.all([
       fetchEventChapterSequence(bookId,nextEventId,signal),
       fetchEventChapterGeneration(bookId,nextEventId,'sequence',signal),
@@ -48,6 +67,10 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   },[detailTask?.status,detailTask?.taskId,load,sequenceTask?.status,sequenceTask?.taskId]);
 
   const pending=useMemo(()=>sequence?.outlines.filter(item=>!['frozen','settled'].includes(item.status))??[],[sequence]);
+  const readOnly=historyMode||sequence?.status==='completed';
+  const detailItems=useMemo(()=>readOnly
+    ?sequence?.outlines.filter(item=>item.activeVersion!==null||item.versions.length>0)??[]
+    :pending.slice(0,3),[pending,readOnly,sequence]);
   const available=Math.min(3,pending.length);
   useEffect(()=>{if(available>0){setDetailCount(value=>Math.min(Math.max(1,value),available));setFreezeCount(value=>Math.min(Math.max(1,value),available));}},[available]);
 
@@ -105,6 +128,10 @@ const confirmExpression=()=>void run(async()=>{
   const taskControl=(task:EventChapterGenerationData,action:'cancel'|'retry')=>void run(async()=>{
     if(action==='cancel')await cancelTask(bookId,task.taskId);else await retryTask(bookId,task.taskId);
   });
+  const selectHistoryEvent=(nextEventId:string)=>{if(!historyMode)return;setBusy(true);setError(null);
+    void fetchEventChapterSequence(bookId,nextEventId).then(nextSequence=>{setEventId(nextEventId);setSequence(nextSequence);})
+      .catch(reason=>setError(messageOf(reason))).finally(()=>setBusy(false));
+  };
 
   if(workflow===null)return <section className="event-chapter-panel"><p>正在读取当前创作进度…</p></section>;
   if(eventId===null)return <section className="event-chapter-panel chapter-empty"><small>章纲设计</small><h3>先确认当前事件</h3>
@@ -116,13 +143,16 @@ const confirmExpression=()=>void run(async()=>{
 
   const candidates=sequence.versions.filter(version=>version.status==='candidate');
   const nextIdeaOutline=pending[0]??null;
-  return <section className="event-chapter-panel">
+  return <section className="event-chapter-panel" aria-label={readOnly?'completed-event-chapter-history':undefined}>
     <header className="event-chapter-header"><div><span className="eyebrow">事件 → 完整章链 → 最近1—3章</span>
       <h3>{sequence.activeVersion?.content.eventTitle??candidates[0]?.content.eventTitle??'当前事件章纲'}</h3>
       <p>完整章链先保证事件因果与结尾闭环；详细章纲只冻结眼前要写的章节，给人物反应和现场创造保留空间。</p></div>
-      <span className={"sequence-health "+(sequence.valid?'ready':'stale')}>{sequence.valid?'上层版本有效':'上层已变化，需重建'}</span></header>
+      <div>{readOnly&&historyEvents.length>1&&<label>查看已完成事件<select aria-label="查看已完成事件" value={eventId??''}
+        disabled={busy} onChange={event=>selectHistoryEvent(event.target.value)}>{historyEvents.map((item,index)=><option key={item.eventId} value={item.eventId}>
+          {item.activeVersion?.content.title??item.latestVersion?.content.title??`事件 ${item.order??index+1}`}</option>)}</select></label>}
+        <span className={"sequence-health "+(sequence.valid?'ready':'stale')}>{sequence.valid?'上层版本有效':'上层已变化，需重建'}</span></div></header>
 
-    {sequence.activeVersionId===null&&<section className="chapter-sequence-design">
+    {sequence.activeVersionId===null&&!readOnly&&<section className="chapter-sequence-design">
       <div className="planning-section-heading"><div><small>第一步</small><h4>设计完整事件章链</h4>
         <p>章数由事件实际需要决定，不固定为六章或十章；相邻章节的开场与结尾必须连续。</p></div>
         <button className="primary-button" type="button" disabled={busy||activeTask(sequenceTask?.status)}
@@ -141,22 +171,22 @@ const confirmExpression=()=>void run(async()=>{
         last={index===sequence.outlines.length-1}/>)}</div>
     </section>
     <section className="recent-detail-section">
-      <div className="planning-section-heading"><div><small>第二步</small><h4>只细化最近要写的章节</h4>
-        <p>一次选择1—3章。后面的章暂不锁死，会根据正文实际结果继续滚动设计。</p></div>
-        <div className="chapter-count-actions"><label>本轮细化<select value={detailCount} onChange={e=>setDetailCount(Number(e.target.value))}>
+      <div className="planning-section-heading"><div><small>{readOnly?'已完成事件 · 只读记录':'第二步'}</small><h4>{readOnly?'详细章纲完整保留':'只细化最近要写的章节'}</h4>
+        <p>{readOnly?'这里展示正文生成时实际绑定的冻结章纲；进入下一卷后也不会隐藏。':'一次选择1—3章。后面的章暂不锁死，会根据正文实际结果继续滚动设计。'}</p></div>
+        {!readOnly&&<div className="chapter-count-actions"><label>本轮细化<select value={detailCount} onChange={e=>setDetailCount(Number(e.target.value))}>
           {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
           <button className="primary-button" disabled={busy||available===0||activeTask(detailTask?.status)} type="button" onClick={generateDetails}>
-            {activeTask(detailTask?.status)?'主编正在细化…':'生成详细章纲'}</button></div></div>
-      {nextIdeaOutline!==null&&<AuthorIdeaComposer key={nextIdeaOutline.outlineId} bookId={bookId} surface="chapter_outline"
+            {activeTask(detailTask?.status)?'主编正在细化…':'生成详细章纲'}</button></div>}</div>
+      {!readOnly&&nextIdeaOutline!==null&&<AuthorIdeaComposer key={nextIdeaOutline.outlineId} bookId={bookId} surface="chapter_outline"
         subjectType="event_chapter_outline" subjectId={nextIdeaOutline.outlineId} title={`对第${nextIdeaOutline.chapterNumber}章的想法`}/>}
-      {detailTask!==null&&<TaskStrip task={detailTask} onCancel={()=>taskControl(detailTask,'cancel')} onRetry={()=>taskControl(detailTask,'retry')}/>}
-      <div className="detailed-outline-grid">{pending.slice(0,3).map(item=><DetailedOutlineCard key={item.outlineId} item={item}/>)}</div>
-      {available>0&&<div className="freeze-chapters"><label>确认并冻结<select value={freezeCount} onChange={e=>setFreezeCount(Number(e.target.value))}>
+      {!readOnly&&detailTask!==null&&<TaskStrip task={detailTask} onCancel={()=>taskControl(detailTask,'cancel')} onRetry={()=>taskControl(detailTask,'retry')}/>}
+      <div className="detailed-outline-grid" aria-label={readOnly?'历史详细章纲':undefined}>{detailItems.map(item=><DetailedOutlineCard key={item.outlineId} item={item}/>)}</div>
+      {!readOnly&&available>0&&<div className="freeze-chapters"><label>确认并冻结<select value={freezeCount} onChange={e=>setFreezeCount(Number(e.target.value))}>
         {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
         <button className="primary-button" disabled={busy||pending.slice(0,freezeCount).some(item=>item.versions.length===0)}
           type="button" onClick={freeze}>确认近期章纲，进入正文</button></div>}
     </section></>}
-    {workflow.frozenChapterOutlineRefs.length>0&&<section className="writing-launch-card" aria-label="正文开始前确认">
+    {!readOnly&&workflow.frozenChapterOutlineRefs.length>0&&<section className="writing-launch-card" aria-label="正文开始前确认">
       <div><small>第三步 · 正文准备</small><h4>{expression?.status==='confirmed'?'叙事方式已确认':'先确认这本书怎么讲述'}</h4>
         <p>{expression?.status==='confirmed'?'系统只会安排最前面一章，上一章未定稿前不会启动下一章。':'这不是固定文风模板，只确定人称和镜头距离；人物声音、对白和现场发挥仍由主笔完成。'}</p></div>
       {expression?.status!=='confirmed'?<div className="expression-confirmation">
@@ -170,7 +200,7 @@ const confirmExpression=()=>void run(async()=>{
       </div>:<div className="writing-launch-action"><span>{expression.narrativePerson==='first'?'第一人称':expression.narrativePerson==='mixed'?'按场景切换':'第三人称'} · {viewpointLabel(expression.viewpointDistance)}</span>
         <button className="primary-button" type="button" disabled={busy||writingTaskId!==null} onClick={startWriting}>{writingTaskId===null?'开始撰写下一章':'正文任务已建立'}</button></div>}
     </section>}
-{workflow.stage==='event_settlement_in_progress'&&<section className="writing-launch-card event-settlement-card">
+{!readOnly&&workflow.stage==='event_settlement_in_progress'&&<section className="writing-launch-card event-settlement-card">
       <div><small>当前事件已写完</small><h4>核对实际结果，完成事件结算</h4><p>结算只读取已经定稿的正文和正史；原事件大纲只用于对照偏差，不会反过来覆盖实际剧情。</p></div>
       <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentEvent}>完成事件，继续下一事件</button></div>
     </section>}

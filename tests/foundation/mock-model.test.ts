@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DeterministicModelAdapter } from '../../apps/api/src/infrastructure/models/deterministic-model.js';
 import { DeterministicNovelWriterAdapter } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { parseMasterOutlineDepositOutput } from '../../apps/api/src/application/artifacts/planning-artifact-service.js';
+import { parseSettingOutlineDeposit } from '../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
 
 const request = {
   requestId: 'request-1',
@@ -74,6 +75,24 @@ describe('确定性假模型', () => {
     expect(sequence.closureCoverage.every((item) => item.evidenceChapterNumber === 10)).toBe(true);
   });
 
+
+  it('为设定对象融合返回可落库结构，不依赖已删除的聊天确认流程', async () => {
+    const adapter = new DeterministicModelAdapter();
+    const generated = await adapter.generate({
+      ...request,
+      prompt: [
+        '你是当前书籍的活动主编。',
+        '老板的问题：【设定大纲成组讨论资料包】',
+        '本批设定项JSON：[{"itemKey":"creative-concept","label":"策划理念"}]',
+        '作者本轮原话：每卷围绕一件普通失物展开，所有结论必须来自现实证据。'
+      ].join('\n')
+    });
+
+    expect(parseSettingOutlineDeposit(generated.output)).toEqual([{
+      itemKey: 'creative-concept',
+      content: '每卷围绕一件普通失物展开，所有结论必须来自现实证据。'
+    }]);
+  });
   it('正文写手不会把上一章机器状态JSON复制进可见正文，重写也会清除已有泄露', async () => {
     const adapter = new DeterministicNovelWriterAdapter();
     const previousState = JSON.stringify({ chapterNumber: 2, continuityAnchors: { identifiers: ['MV-SECRET'] } });

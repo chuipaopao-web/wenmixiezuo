@@ -85,6 +85,9 @@ export class VolumePlanService {
     const activeVersion = row.active_volume_plan_id === null || row.active_volume_plan_version_id === null
       ? undefined
       : this.repository.version(scope, row.active_volume_plan_id, row.active_volume_plan_version_id);
+    const activeEventVersion = row.active_event_id === null || row.active_event_version_id === null
+      ? undefined
+      : this.repository.activeEventVersion(scope, row.active_event_id, row.active_event_version_id);
     return {
       ownerId: scope.ownerId,
       bookId: scope.bookId,
@@ -97,7 +100,13 @@ export class VolumePlanService {
         contentHash: activeVersion.content_hash,
         required: true
       },
-      activeEventRef: null,
+      activeEventRef: activeEventVersion === undefined ? null : {
+        kind: 'story_event',
+        id: activeEventVersion.event_id,
+        version: activeEventVersion.version,
+        contentHash: activeEventVersion.content_hash,
+        required: true
+      },
       frozenChapterOutlineRefs: JSON.parse(row.frozen_chapter_outline_refs_json) as VersionReference[],
       waitingTaskId: row.waiting_task_id,
       blockingReason: row.blocking_reason,

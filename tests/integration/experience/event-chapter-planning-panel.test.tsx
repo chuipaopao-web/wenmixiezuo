@@ -55,6 +55,33 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
     .toMatchObject({expectedWorkflowVersion:8,items:[{outlineId:'outline-1',outlineVersionId:'outline-version-1',expectedOutlineRevision:2}]}));
 });
 
+it('事件结算后仍展示正文实际绑定的完整详细章纲',async()=>{
+  const sequence=historySequenceView();
+  const requests:string[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
+    if(path==='/api/v1/runtime/session')return api({authenticated:true,expiresInSeconds:1800});
+    if(path.endsWith('/workflow'))return api({...workflow(),stage:'ready_for_next_volume',planningVersion:23,activeEventRef:null,frozenChapterOutlineRefs:[]});
+    if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-history',version:1,narrativePerson:'third',viewpointDistance:'close',languageTone:[],textDensity:'adaptive',targetAudience:null,contentBoundaries:{},humorSeriousness:'adaptive',voiceEvidence:[],impactScope:{},status:'confirmed'});
+    if(path.endsWith('/volume-plans'))return api([{volumePlanId:'volume-1',planNumber:1,status:'completed',activeVersionId:'volume-v1'}]);
+    if(path.endsWith('/event-sequence'))return api({volumePlanId:'volume-1',revision:1,events:[
+      {eventId:'event-1',order:1,status:'settled'},{eventId:'event-2',order:2,status:'settled'}
+    ],operations:[]});
+    if(path.endsWith('/chapter-sequence'))return api(sequence);
+    return new Response(JSON.stringify({error:{message:`unhandled ${method} ${path}`}}),{status:404});
+  }));
+
+  const{container}=render(<EventChapterPlanningPanel bookId="book-chapters-history"/>);
+  expect(await screen.findByLabelText('completed-event-chapter-history')).toBeInTheDocument();
+  expect(screen.getByText('详细章纲完整保留')).toBeInTheDocument();
+  expect(container.querySelectorAll('.detailed-outline')).toHaveLength(3);
+  expect(screen.queryByRole('button',{name:'生成详细章纲'})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('查看已完成事件'),{target:{value:'event-1'}});
+  await waitFor(()=>expect(requests.some(item=>item.endsWith('/story-events/event-1/chapter-sequence'))).toBe(true));
+  expect(requests.filter(item=>item.endsWith('/chapter-sequence'))).toHaveLength(2);
+  expect(requests.some(item=>item.includes('/chapter-sequence/generation'))).toBe(false);
+});
+
 function workflow(){return{ownerId:'owner',bookId:'book-chapters-ui',stage:'chapter_outlines_in_progress',planningVersion:8,
   activeVolumePlanRef:{kind:'volume_plan',id:'volume-1',version:1,contentHash:'v',required:true},
   activeEventRef:{kind:'story_event',id:'event-1',version:1,contentHash:'e',required:true},
@@ -90,5 +117,17 @@ function outline(chapterNumber:number,planned:ReturnType<typeof coarse>):EventCh
   return{outlineId:'outline-'+chapterNumber,eventId:'event-1',chapterNumber,order:chapterNumber,
     revision:candidate===null?1:2,status:candidate===null?'planned':'candidate',activeVersionId:null,planned,activeVersion:null,
     versions:candidate===null?[]:[candidate],createdAt:'2026-08-09T00:01:00.000Z',updatedAt:'2026-08-09T00:02:00.000Z'};}
+function historySequenceView():EventChapterSequenceData{
+  const base=sequenceView();
+  const template=base.outlines[0]!.versions[0]!;
+  const outlines=base.outlines.map(item=>{
+    const version={...template,outlineVersionId:`history-version-${item.chapterNumber}`,outlineId:item.outlineId,status:'frozen' as const,
+      content:{...template.content,chapterNumber:item.chapterNumber,title:item.planned.title,openingState:item.planned.openingState,
+        requiredEndingState:item.planned.endingState,ending:{...template.content.ending,result:item.planned.endingState,
+          stateChanges:[item.planned.endingState],nextChapterInterface:item.planned.nextChapterInterface}},frozenAt:'2026-08-09T01:00:00.000Z'};
+    return{...item,status:'settled' as const,revision:3,activeVersionId:version.outlineVersionId,activeVersion:version,versions:[version]};
+  });
+  return{...base,status:'completed',outlines,nextChapterNumber:4};
+}
 function api(data:unknown){return new Response(JSON.stringify({data,meta:{requestId:'chapter-ui',version:1}}),{
   status:200,headers:{'content-type':'application/json'}});}

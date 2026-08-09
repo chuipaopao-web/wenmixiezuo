@@ -72,6 +72,30 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
   await waitFor(()=>expect(requests.some(item=>item.path.endsWith('/operations/apply')&&item.method==='POST')).toBe(true));
 });
 
+it('已完成卷仍可回看事件链与事件大纲，不会被当成空白当前卷',async()=>{
+  const completedPlan={...volumePlan(),status:'completed'};
+  const completedSequence={...sequenceView(),events:sequenceView().events.map(item=>({...item,status:'settled'}))};
+  const requests:string[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
+    if(path==='/api/v1/runtime/session')return response({authenticated:true,expiresInSeconds:1800});
+    if(path.endsWith('/workflow'))return response({...workflow(),stage:'ready_for_next_volume',planningVersion:23});
+    if(path.endsWith('/volume-plans'))return response([completedPlan]);
+    if(path.endsWith('/planning-templates'))return response(templateCatalog());
+    if(path.endsWith('/event-sequence'))return response(completedSequence);
+    if(path.endsWith('/versions')){const eventId=path.split('/').at(-2)!;return response(completedSequence.events.find(item=>item.eventId===eventId)?.versions??[]);}
+    if(path.endsWith('/generation'))return response(null);
+    return new Response(JSON.stringify({error:{message:`unhandled ${method} ${path}`}}),{status:404});
+  }));
+
+  render(<EventPlanningPanel bookId="book-event-history"/>);
+  expect(await screen.findByLabelText('completed-event-history')).toBeInTheDocument();
+  expect(screen.getByText('事件链和事件大纲仍然完整保留')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:/事件 1.*胜利留下的缺口/u})).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'开始设计事件'})).not.toBeInTheDocument();
+  expect(requests.some(item=>item.endsWith('/event-sequence'))).toBe(true);
+});
+
 function workflow(){return{ownerId:'owner',bookId:'book-event-ui',stage:'event_sequence_in_progress',planningVersion:5,
   activeVolumePlanRef:{volumePlanId:'volume-1',volumePlanVersionId:'volume-version-1'},activeEventRef:null,
   frozenChapterOutlineRefs:[],waitingTaskId:null,blockingReason:null,updatedAt:'2026-08-09T00:00:00.000Z'};}

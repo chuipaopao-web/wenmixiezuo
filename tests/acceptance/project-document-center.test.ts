@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 describe('桌面项目文档中心', () => {
   it('只展示当前白名单并能在同一页面阅读全文', () => {
     const html = readFileSync(resolve(process.cwd(), 'docs/PROJECT_DOCUMENT_CENTER.html'), 'utf8');
+    const bundle = readFileSync(resolve(process.cwd(), 'docs/PROJECT_REFERENCE_BUNDLE.md'), 'utf8');
     const dom = new JSDOM(html, {
       runScripts: 'dangerously',
       url: 'file:///D:/wenmixiezuo/docs/PROJECT_DOCUMENT_CENTER.html?v=test'
@@ -17,14 +18,23 @@ describe('桌面项目文档中心', () => {
     const reader = document.querySelector<HTMLDialogElement>('#reader');
     const close = document.querySelector<HTMLButtonElement>('#close-reader');
     const search = document.querySelector<HTMLInputElement>('#search');
+    const bundleButton = document.querySelector<HTMLButtonElement>("[data-open-document='project-reference-bundle']");
+    const copyButton = document.querySelector<HTMLButtonElement>('#copy-reader');
 
     expect(cards).toHaveLength(34);
-    expect(templates).toHaveLength(cards.length);
+    expect(templates).toHaveLength(cards.length + 1);
     expect(html).not.toContain('openai.yaml');
     expect(cards.every((card) => card.textContent?.includes('阅读全文'))).toBe(true);
     expect(reader).not.toBeNull();
     expect(close).not.toBeNull();
     expect(search).not.toBeNull();
+    expect(bundleButton).not.toBeNull();
+    expect(copyButton).not.toBeNull();
+    expect(Buffer.byteLength(bundle, 'utf8')).toBeGreaterThan(150_000);
+    expect(bundle).toContain('# 文秘写作当前项目完整合订版');
+    expect(bundle).toContain('## 一、产品定位与完整工作流');
+    expect(bundle).toContain('## 六、长篇质量审查 Skill');
+    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(34);
 
     Object.defineProperty(reader!, 'showModal', {
       configurable: true,
@@ -42,6 +52,13 @@ describe('桌面项目文档中心', () => {
 
     close!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(reader!.open).toBe(false);
+
+    bundleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(reader!.open).toBe(true);
+    expect(document.querySelector('#reader-title')?.textContent).toContain('完整合订版');
+    const bundledReaderText = document.querySelector('#reader-content')?.textContent?.trim() ?? '';
+    expect(Buffer.byteLength(bundledReaderText, 'utf8')).toBeGreaterThan(150_000);
+    close!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     search!.value = '当前API';
     search!.dispatchEvent(new Event('input', { bubbles: true }));

@@ -37,7 +37,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     const[workflow,plans,templates]=await Promise.all([
       fetchCreationWorkflow(bookId,signal),fetchVolumePlans(bookId,signal),fetchPlanningTemplates(bookId,'event',signal)
     ]);
-    const plan=[...plans].reverse().find(item=>item.status==='active'&&item.activeVersionId!==null)??null;
+    const plan=[...plans].reverse().find(item=>['active','completed'].includes(item.status)&&item.activeVersionId!==null)??null;
     const nextSequence=plan===null?null:await fetchEventSequence(bookId,plan.volumePlanId,signal);
     setSnapshot({workflow,plan,templates});setSequence(nextSequence);
     setSelectedId(current=>current!==null&&nextSequence?.events.some(item=>item.eventId===current)
@@ -150,6 +150,8 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   if(sequence===null)return <section className="event-planning-panel event-empty-state"><span className="eyebrow">当前卷已经确认</span>
     <h3>把卷规划拆成可以连续创作的小事件</h3><p>系统会保留卷纲给出的事件任务，但不会把预计章数变成硬限制。</p>
     {error!==null&&<p className="inline-error">{error}</p>}<button className="primary-button" type="button" disabled={busy} onClick={initialize}>建立事件链</button></section>;
+  if(snapshot.plan.status==='completed')return <CompletedEventPlanningView plan={snapshot.plan} sequence={sequence}
+    selected={selected} selectedId={selectedId} versions={versions} onSelect={setSelectedId}/>;
 
   return <section className="event-planning-panel" aria-labelledby="event-planning-title">
     <header className="event-planning-header"><div><span className="eyebrow">事件设计台</span>
@@ -241,6 +243,38 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
         <dt>结果</dt><dd>{operation.impact.resultingTitles.join('、')}</dd></dl>
       <div className="button-row"><button onClick={()=>setOperation(null)}>取消</button>
         <button className="primary-button" disabled={busy||operation.impact.blocked} onClick={applyStructure}>应用调整</button></div></aside>}
+  </section>;
+}
+
+function CompletedEventPlanningView({plan,sequence,selected,selectedId,versions,onSelect}:{
+  plan:VolumePlanData;sequence:EventSequenceData;selected:StoryEventData|null;selectedId:string|null;
+  versions:StoryEventVersionData[];onSelect:(eventId:string)=>void;
+}):React.JSX.Element{
+  const content=selected?.activeVersion?.content??selected?.latestVersion?.content??null;
+  return <section className="event-planning-panel completed-planning-history" aria-label="completed-event-history">
+    <header className="event-planning-header"><div><span className="eyebrow">已完成卷 · 只读记录</span>
+      <h3>事件链和事件大纲仍然完整保留</h3><p>本卷已经结算。这里展示当时确认的事件设计与全部历史版本，不会因为进入下一卷而隐藏。</p></div>
+      <div className="event-sequence-meta"><small>已完成卷</small><strong>{plan.activeVersion?.content.title}</strong><span>事件链第 {sequence.revision} 版</span></div></header>
+    <div className="event-chain" aria-label="已完成事件因果链">{sequence.events.map((item,index)=><div className="event-chain-node" key={item.eventId}>
+      <button type="button" className={item.eventId===selectedId?'selected':''} onClick={()=>onSelect(item.eventId)}>
+        <small>事件 {item.order} · {eventStatus(item.status)}</small><strong>{item.activeVersion?.content.title??item.latestVersion?.content.title??'未命名事件'}</strong>
+        <span>{item.activeVersion?.content.requiredResult??item.latestVersion?.content.requiredResult??'未记录事件结果'}</span>
+      </button>{index<sequence.events.length-1&&<i aria-hidden="true">→</i>}</div>)}</div>
+    {content!==null&&<div className="event-workspace-grid"><main>
+      <section className="event-focus-card"><header><div><small>事件 {selected?.order} · 已确认大纲</small><h4>{content.title}</h4></div><span>历史只读</span></header>
+        <dl><div><dt>服务本卷</dt><dd>{content.volumeResponsibility}</dd></div><div><dt>进入状态</dt><dd>{content.startingState}</dd></div>
+          <div><dt>触发原因</dt><dd>{content.trigger}</dd></div><div><dt>必须产生的结果</dt><dd>{content.requiredResult}</dd></div>
+          <div><dt>引向后续</dt><dd>{content.nextEventImpact}</dd></div><div><dt>人物变化</dt><dd>{content.characterArcImpact}</dd></div></dl></section>
+      <section className="event-version-section"><header><div><h4>方案与历史版本</h4><p>编剧方案、融合稿和作者确认稿均保留，可逐项复制核对。</p></div></header>
+        <div className="event-version-grid">{versions.map(version=><article key={version.storyEventVersionId} className={version.storyEventVersionId===selected?.activeVersionId?'active':''}>
+          <header><span>{candidateLabel(version.candidateKind)}</span><strong>第 {version.version} 版 · {versionStatus(version.status)}</strong></header>
+          <h5>{version.content.title}</h5><p>{version.content.volumeResponsibility}</p><dl>
+            <dt>参与人物</dt><dd>{version.content.participants.join('、')||'未记录'}</dd><dt>阻力</dt><dd>{version.content.obstacles.join('；')||'未记录'}</dd>
+            <dt>选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'未记录'}</dd><dt>事件推进</dt><dd>{version.content.localProgression.join(' → ')||'未记录'}</dd>
+            <dt>结束条件</dt><dd>{version.content.endingConditions.join('；')||'未记录'}</dd><dt>自由发挥</dt><dd>{version.content.flexibleExecution.join('；')||'未记录'}</dd>
+          </dl></article>)}</div></section>
+    </main><aside className="event-side-panel"><section><h4>已完成事件边界</h4><dl><dt>必须得到</dt><dd>{content.requiredResult}</dd>
+      <dt>对卷高潮的作用</dt><dd>{content.volumeClimaxImpact}</dd><dt>仍可自由发挥</dt><dd>{content.flexibleExecution.join('；')}</dd></dl></section></aside></div>}
   </section>;
 }
 

@@ -383,13 +383,13 @@ export interface EventChapterOutlineVersionData {
 }
 export interface EventChapterOutlineData {
   outlineId:string;eventId:string;chapterNumber:number;order:number;revision:number;
-  status:'planned'|'candidate'|'frozen'|'settled'|'archived';activeVersionId:string|null;
+  status:'planned'|'candidate'|'frozen'|'settled'|'stale'|'archived';activeVersionId:string|null;
   planned:ChapterOutlineContent;activeVersion:EventChapterOutlineVersionData|null;
   versions:EventChapterOutlineVersionData[];createdAt:string;updatedAt:string;
 }
 export interface EventChapterSequenceData {
   sequenceId:string;eventId:string;eventVersionId:string;volumePlanVersionId:string;revision:number;
-  status:'planning'|'active'|'stale'|'settled';activeVersionId:string|null;
+  status:'planning'|'active'|'completed'|'stale'|'archived';activeVersionId:string|null;
   activeVersion:EventChapterSequenceVersionData|null;versions:EventChapterSequenceVersionData[];
   outlines:EventChapterOutlineData[];nextChapterNumber:number;valid:boolean;createdAt:string;updatedAt:string;
 }

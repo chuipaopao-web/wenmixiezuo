@@ -460,6 +460,38 @@ function deterministicDiscussion(prompt: string): string | null {
     base.fields.details = '';
     return JSON.stringify(base);
   }
+  if (prompt.includes('【设定大纲成组讨论资料包】')) {
+    const itemsLine = prompt.match(/本批设定项JSON：([^\n]+)/u)?.[1];
+    let items: Array<{ itemKey: string; label?: string }> = [];
+    try {
+      const parsed = JSON.parse(itemsLine ?? '[]') as unknown;
+      if (Array.isArray(parsed)) {
+        items = parsed.filter((item): item is { itemKey: string; label?: string } => (
+          isRecord(item) && typeof item.itemKey === 'string'
+        ));
+      }
+    } catch {
+      items = [];
+    }
+    const authorText = prompt.match(/作者本轮原话：([^\n]+)/u)?.[1]?.trim() ?? '';
+    const base = deterministicDiscussionReply();
+    base.fields.answer = '已按作者选中的独立方案和补充，整理为一份可确认的当前设定。';
+    const fields = base.fields as typeof base.fields & {
+      workflowArtifact?: { type: 'setting_outline'; payload: { items: Array<{ itemKey: string; content: string }> } };
+    };
+    fields.workflowArtifact = {
+      type: 'setting_outline',
+      payload: {
+        items: items.map((item) => ({
+          itemKey: item.itemKey,
+          content: authorText.length >= 8
+            ? authorText.slice(0, 2_000)
+            : `${item.label ?? item.itemKey}以本书开书信息、作者约束和已经确认的前置设定为边界，保留后续剧情的创作空间。`
+        }))
+      }
+    };
+    return JSON.stringify(base);
+  }
   if (!prompt.includes('小说创作问题') && !prompt.includes('当前书籍的活动主编')) return null;
   // 主编汇总提示词会携带两名编剧已经提交的“章节跨度估算”。如果先按
   // 这个短语分支，适配器会误把编剧的中间产物当成主编最终答复，导致正式

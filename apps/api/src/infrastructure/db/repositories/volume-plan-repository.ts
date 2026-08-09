@@ -265,6 +265,24 @@ export class VolumePlanRepository {
     `).all(scope.ownerId, scope.bookId, volumePlanId) as unknown as VolumePlanVersionRow[];
   }
 
+  public activeEventVersion(scope: BookScope, eventId: string, eventVersionId: string): {
+    event_id: string;
+    version: number;
+    content_hash: string;
+  } | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT event_id, version, content_hash
+      FROM story_event_versions
+      WHERE owner_id = ? AND book_id = ? AND event_id = ?
+        AND story_event_version_id = ? AND status = 'active'
+    `).get(scope.ownerId, scope.bookId, eventId, eventVersionId) as {
+      event_id: string;
+      version: number;
+      content_hash: string;
+    } | undefined;
+  }
+
   public insertVersion(scope: BookScope, input: {
     volumePlanVersionId: string;
     volumePlanId: string;
