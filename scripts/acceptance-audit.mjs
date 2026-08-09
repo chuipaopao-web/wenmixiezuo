@@ -21,7 +21,7 @@ const trackedText = trackedFiles
 
 check('release_id格式', /^wm-(?:v[1-9]\d*|[a-z][a-z0-9-]*-r[1-9]\d*)-\d{8}-\d{6}-[a-f0-9]{8}$/u.test(releaseId), releaseId);
 const currentDocumentIndex = readFileSync(resolve(root, 'docs/PROJECT_DOCUMENT_INDEX.md'), 'utf8');
-check('当前文档白名单', currentDocumentIndex.includes('当前项目文档索引'), 'docs/PROJECT_DOCUMENT_INDEX.md');
+check('当前文档白名单', currentDocumentIndex.includes('文秘写作当前文档目录'), 'docs/PROJECT_DOCUMENT_INDEX.md');
 
 const contract = readFileSync(resolve(root, 'apps/api/src/contracts/api.ts'), 'utf8');
 const migrations = trackedFiles.filter((file) => file.startsWith('apps/api/src/infrastructure/db/migrations/') && file.endsWith('.sql')).sort();
