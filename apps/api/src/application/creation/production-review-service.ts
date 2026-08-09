@@ -4,7 +4,7 @@ import type { BookScope } from '../../domain/scope.js';
 import { parseEditorReviewSynthesis, parseProductionReview, type EditorReviewSynthesis, type ProductionReview, type ReviewerRole } from '../../contracts/production-review.js';
 import { ReviewModelCompatibilityService } from '../agents/model-binding-v2-service.js';
 import type { TeamAgentRow } from '../../infrastructure/db/repositories/agent-governance-repository.js';
-import type { ProductionWorkflowRepository, ReviewPanelRecord } from '../../infrastructure/db/repositories/production-workflow-repository.js';
+import type { ProductionWorkflowRepository } from '../../infrastructure/db/repositories/production-workflow-repository.js';
 
 export interface FrozenReviewer {
   role: ReviewerRole;

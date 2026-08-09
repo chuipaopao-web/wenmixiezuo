@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DeterministicModelAdapter } from '../../apps/api/src/infrastructure/models/deterministic-model.js';
-import { DeterministicNovelWriterAdapter } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
+import {
+  countNovelCharacters, DeterministicNovelWriterAdapter
+} from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { parseMasterOutlineDepositOutput } from '../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import { parseSettingOutlineDeposit } from '../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
 
@@ -111,5 +113,29 @@ describe('确定性假模型', () => {
     expect(rewrite.output).not.toContain('chapterNumber');
     expect(rewrite.output).not.toContain('continuityAnchors');
     expect(rewrite.output).not.toContain('MV-SECRET');
+  });
+
+  it('正文验收写手读取正式上下文包，不会把修仙书写成固定的旧城悬疑样稿', async () => {
+    const adapter = new DeterministicNovelWriterAdapter();
+    const draft = await adapter.generate({ ...request, bookId: 'xianxia-context-book', prompt: JSON.stringify({
+      phase: 'draft', contextPackHash: 'hash',
+      sources: [
+        { sourceType: 'chapter_work_order', content: '第1章：沈砚在试剑台拒签做过手脚的生死状，必须以阵纹借力而不是修为暴涨。' },
+        { sourceType: 'opening_profile', content: JSON.stringify({
+          title: '烬骨问天', category: '东方仙侠',
+          protagonists: [{ name: '沈砚' }],
+          storyDirection: '沈砚与许小川在试剑台对抗韩烈，追查宗门阵法与灵矿黑账。',
+          mustFollow: ['残缺阵盘只能看见阵纹破绽，不能提供无限力量']
+        }) }
+      ],
+      taskInput: { operation: 'draft', chapterNumber: 1, title: '生死状锁命', previousState: '故事刚刚开始' }
+    }) });
+    expect(draft.output).toContain('沈砚');
+    expect(draft.output).toContain('试剑台');
+    expect(draft.output).toContain('韩烈');
+    expect(draft.output).not.toContain('林澈');
+    expect(draft.output).not.toContain('铜钥匙');
+    expect(countNovelCharacters(draft.output)).toBeGreaterThanOrEqual(2_500);
+    expect(countNovelCharacters(draft.output)).toBeLessThanOrEqual(3_500);
   });
 });

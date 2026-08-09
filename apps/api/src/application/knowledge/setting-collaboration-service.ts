@@ -1,7 +1,10 @@
 import type { BookScope } from '../../domain/scope.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
+import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
 import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
+
+type MemberStatus = 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
 
 export interface SettingCollaborationView {
   item: ReturnType<SettingOutlineWorkspaceService['list']>[number];
@@ -24,6 +27,16 @@ export interface SettingCollaborationView {
       content: string;
       decisionId: string | null;
       createdAt: string;
+    }>;
+    members: Array<{
+      agentId: string;
+      memberName: string;
+      roleKey: string;
+      modelProvider: string;
+      modelId: string;
+      status: MemberStatus;
+      contextSummary: string;
+      outputSummary: string | null;
     }>;
   };
   revisionTask: null | {
@@ -49,10 +62,23 @@ export class SettingCollaborationService {
   public inspect(scope: BookScope, itemKey: string): SettingCollaborationView {
     const item = this.workspace.list(scope).find((candidate) => candidate.itemKey === itemKey);
     if (item === undefined) {
-      throw new DomainError(errorCodes.operationIncomplete, '��ǰ�趨����ڻ������Ȿ��', {}, false, 404);
+      throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在，或者不属于这本书', {}, false, 404);
     }
     const panel = this.repository.latestPanel(scope, itemKey);
     const revisionTask = this.repository.latestRevisionTask(scope, itemKey);
+    const proposalRows = panel === undefined ? [] : this.repository.proposals(scope, panel.discussion_id);
+    const proposals = proposalRows.map((proposal, index) => ({
+      number: index + 1,
+      proposalId: proposal.proposal_id,
+      agentId: proposal.sender_agent_id,
+      memberName: proposal.member_name?.trim() || '成员' + (index + 1),
+      roleKey: proposal.role_key,
+      modelProvider: proposal.model_provider,
+      modelId: proposal.model_id,
+      content: proposalContent(proposal.content),
+      decisionId: proposal.decision_id,
+      createdAt: proposal.created_at
+    }));
     return {
       item,
       panel: panel === undefined ? null : {
@@ -63,18 +89,20 @@ export class SettingCollaborationService {
         errorCode: panel.error_code,
         createdAt: panel.created_at,
         updatedAt: panel.updated_at,
-        proposals: this.repository.proposals(scope, panel.discussion_id).map((proposal, index) => ({
-          number: index + 1,
-          proposalId: proposal.proposal_id,
-          agentId: proposal.sender_agent_id,
-          memberName: proposal.member_name?.trim() || '��Ա' + (index + 1),
-          roleKey: proposal.role_key,
-          modelProvider: proposal.model_provider,
-          modelId: proposal.model_id,
-          content: proposalContent(proposal.content),
-          decisionId: proposal.decision_id,
-          createdAt: proposal.created_at
-        }))
+        proposals,
+        members: this.repository.panelMembers(scope, panel.discussion_id).map((member) => {
+          const proposal = proposalRows.find((candidate) => candidate.sender_agent_id === member.agent_id);
+          return {
+            agentId: member.agent_id,
+            memberName: member.member_name,
+            roleKey: member.role_key,
+            modelProvider: member.model_provider,
+            modelId: member.model_id,
+            status: memberStatus(panel.task_status, member.responded === 1),
+            contextSummary: '本书完整开书资料 · 当前设定项 · 已确认的直接依赖设定 · 作者本项原话',
+            outputSummary: proposal === undefined ? null : proposalContent(proposal.content).slice(0, 160)
+          };
+        })
       },
       revisionTask: revisionTask === undefined ? null : {
         taskId: revisionTask.task_id,
@@ -93,5 +121,13 @@ export class SettingCollaborationService {
 }
 
 function proposalContent(value: string): string {
-  return value.trim();
+  return prepareEffectiveOutput(value).visibleContent.trim();
+}
+
+function memberStatus(taskStatus: string, responded: boolean): MemberStatus {
+  if (responded) return 'completed';
+  if (['failed', 'interrupted', 'cancelled', 'blocked'].includes(taskStatus)) return 'failed';
+  if (taskStatus === 'paused') return 'paused';
+  if (taskStatus === 'working') return 'working';
+  return 'preparing';
 }

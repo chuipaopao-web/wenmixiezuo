@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe('Web基础入口', () => {
-  it('显示产品名称和真实健康状态', async () => {
+  it('显示统一创作台入口并按产品决定隐藏连接状态图标', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
       const data = path === '/health'
@@ -23,7 +23,8 @@ describe('Web基础入口', () => {
     }));
     render(<App />);
     expect(screen.getByRole('heading', { name: '文秘写作' })).toBeInTheDocument();
-    expect(await screen.findByText(/本地服务已就绪/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '创建第一本书' })).toBeInTheDocument();
+    expect(screen.queryByText(/本地服务已就绪/)).not.toBeInTheDocument();
   });
 });
 

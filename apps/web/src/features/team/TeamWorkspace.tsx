@@ -14,16 +14,16 @@ import {
   type WorkspaceData
 } from '../../lib/api/client';
 import { toAuthorFacingText } from '../../app/author-presentation';
-import { shortId } from '../../app/display-labels';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
 import { memberIdentity } from '../shared/agent-presentation';
 import {
-  formatTime,
   isActiveTask,
   phaseLabel,
   statusLabel,
-  taskChapterFromBrief
+  taskChapterFromBrief,
+  taskCheckpointLabel,
+  taskGoal
 } from '../shared/task-presentation';
 
 function ProtectedPromptViewer({ roleKey, configured, bookId, agentId }: {
@@ -128,6 +128,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
   }, [load, onError]);
 
   const member = config?.members.find((item) => item.agentId === selectedId) ?? null;
+  const memberTask = member === null ? null : activeTaskForAgent(workspace, member.agentId);
   useEffect(() => {
     setDraft(member?.promptPreference.content ?? '');
     setNotice(null);
@@ -188,6 +189,17 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
               <div className="agent-dialog-identity"><AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} /><span><h3>{memberIdentity(member)}</h3><p>{toAuthorFacingText(member.publicSummary ?? '未记录')}</p></span></div>
               <span className="model-source">{member.provider}/{member.modelId}</span>
             </header>
+            <section className="team-live-task-card">
+              <header><div><h3>当前工作状态</h3><p>只显示真实任务、上下文摘要和已保存输出，不展示内部思维过程。</p></div><span className={memberTask === null ? 'idle' : 'working'}>{memberTask === null ? '空闲' : statusLabel(memberTask.status)}</span></header>
+              {memberTask === null
+                ? <p>当前没有分配给这名成员的任务；成员保持在线待命。</p>
+                : <dl>
+                  <div><dt>正在做什么</dt><dd>{taskGoal(memberTask, taskChapterFromBrief(memberTask))}</dd></div>
+                  <div><dt>当前阶段</dt><dd>{phaseLabel(memberTask.currentPhase)}</dd></div>
+                  <div><dt>本轮上下文</dt><dd>{memberContextSummary(memberTask)}</dd></div>
+                  <div><dt>已保存输出</dt><dd>{taskCheckpointLabel(memberTask.checkpoint)}</dd></div>
+                </dl>}
+            </section>
             <div className="agent-detail-groups">
               {([
                 ['岗位职责', member.responsibilities ?? []],
@@ -236,6 +248,17 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
       </div>
     </section>
   );
+}
+
+function memberContextSummary(task: TaskData): string {
+  const purpose = typeof task.brief.purpose === 'string' ? task.brief.purpose : '';
+  const settingItem = typeof task.brief.settingItemKey === 'string' ? task.brief.settingItemKey : '';
+  const chapter = taskChapterFromBrief(task);
+  if (settingItem.length > 0) return `本书开书资料、当前设定项（${settingItem}）、已确认前置设定和作者本项原话`;
+  if (chapter !== '全书任务') return `当前卷纲、事件链、事件大纲、完整${chapter}章纲和相关正式原文`;
+  if (purpose.includes('volume')) return '本书开书资料、活动设定、当前卷目标、作者卷想法与相关正史';
+  if (purpose.includes('event')) return '活动卷纲、完整事件链、当前事件、作者想法与相关人物/因果证据';
+  return '根据当前任务冻结的本书活动版本与按需检索证据';
 }
 
 export function TeamInspector({ workspace, worker, onSelectAgent }: { workspace: WorkspaceData | null; worker: WorkerData | null; onSelectAgent: (agent: AgentData) => void }): React.JSX.Element {
@@ -347,4 +370,3 @@ export function roleSummary(roleKey: string): string {
     reader_experience: '评估读者体验', style_editor: '精修对白与语言'
   } as Record<string, string>)[roleKey] ?? '按岗位合同完成本书任务';
 }
-

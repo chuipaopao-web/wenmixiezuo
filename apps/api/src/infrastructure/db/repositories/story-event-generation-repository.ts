@@ -58,7 +58,7 @@ export class StoryEventGenerationRepository {
       "'closedThreads',json(closed_threads_json),'openThreads',json(open_threads_json),"+
       "'relationshipChanges',json(relationship_changes_json),'knowledgeChanges',json(knowledge_changes_json),"+
       "'resourceChanges',json(resource_changes_json),'ruleChanges',json(rule_changes_json),'exclusions',json(exclusions_json)) AS content "+
-      "FROM stage_settlements WHERE owner_id=? AND book_id=? AND stage_type='event' AND stage_key=? AND status='active'"
+      "FROM stage_settlements WHERE owner_id=? AND book_id=? AND stage_type='story_arc' AND stage_key=? AND status='active'"
     ).get(scope.ownerId,scope.bookId,previous.previous_event_id) as {id:string;version:number;content:string}|undefined;
     if(previous.previous_event_id!==null&&settlement===undefined)return undefined;
     return{eventId:row.event_id,eventRevision:row.event_revision,eventStatus:row.event_status,

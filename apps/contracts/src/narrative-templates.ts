@@ -1,6 +1,6 @@
 import type { PlanningScope, TemplateSelectionMode } from './workflow.js';
 
-export const NARRATIVE_TEMPLATE_REGISTRY_VERSION = 1 as const;
+export const NARRATIVE_TEMPLATE_REGISTRY_VERSION = 2 as const;
 
 export interface NarrativeTemplateBeat {
   beatId: string;
@@ -15,6 +15,7 @@ export interface NarrativeTemplateDefinition {
   templateVersion: number;
   contentHash: string;
   sourceMethod: string;
+  sourceLabel?: string;
   scope: PlanningScope;
   publicTitle: string;
   publicExplanation: string;
@@ -32,6 +33,7 @@ export interface PublicNarrativeTemplate {
   templateVersion: number;
   contentHash: string;
   scope: PlanningScope;
+  sourceLabel: string;
   publicTitle: string;
   publicExplanation: string;
   fitConditions: string[];
@@ -68,6 +70,36 @@ function defineTemplate(input: TemplateInput): NarrativeTemplateDefinition {
 }
 
 const templates: NarrativeTemplateDefinition[] = [
+  defineTemplate({
+    templateKey: 'volume-save-the-cat', sourceMethod: 'save-the-cat', sourceLabel: '救猫咪结构', scope: 'volume',
+    publicTitle: '先让读者在意主角，再把他推入无法回头的变化',
+    publicExplanation: '先用具体行动建立人物好感和缺口，再打破日常、升级压力、制造最低谷，最后让主角用新的选择完成本卷兑现。',
+    fitConditions: ['希望首卷人物与主线都清楚', '需要一条由触发到低谷再反击的完整情绪线'],
+    knownRisks: ['节拍只是顺序参考，不能机械卡章数', '最低谷必须来自前面选择而非突然惩罚'],
+    authorQuestions: ['读者最先因什么愿意跟随主角？', '什么变化让他不能回到原来的生活？', '卷末的新选择证明了什么？'],
+    beats: [beat('care', '用行动让读者认识人物的欲望、优点和缺口', '读者愿意跟随主角', 1), beat('break', '发生一件打破日常的事', '旧生活不再稳定', 2), beat('commit', '让主角主动跨过不能轻易回头的门槛', '本卷目标真正启动', 3), beat('pressure', '让收获、对抗和代价持续升级', '能力与关系同时受检验', 4), beat('lowest', '让旧办法在关键处失效', '人物不得不面对核心缺口', 5), beat('new_choice', '用新的选择完成高潮并结算余波', '卷末状态发生不可逆变化', 6)],
+    previewPrompt: '用本书人物和本卷目标说明“建立在意—打破日常—主动进入—压力升级—低谷—新选择”的推进，不机械分配章节。', suitableSignals: ['首卷', '成长', '快节奏', '修仙', '都市', '冒险'], legacyIds: []
+  }),
+  defineTemplate({
+    templateKey: 'volume-three-act', sourceMethod: 'three-act-structure', sourceLabel: '三幕式', scope: 'volume',
+    publicTitle: '先把目标推上轨道，中段不断加码，最后集中解决',
+    publicExplanation: '前段建立人物、目标和进入行动的理由；中段用连续后果扩大难题；后段关闭退路，集中兑现本卷核心冲突。',
+    fitConditions: ['希望大方向清晰但保留事件自由', '本卷有明确的启动、对抗和收束'],
+    knownRisks: ['中段不能只是重复遭遇', '收束不能跳过人物选择和前置积累'],
+    authorQuestions: ['主角何时真正进入本卷行动？', '中段哪次变化会改写目标？', '最后必须解决哪一个卷级问题？'],
+    beats: [beat('setup', '建立当前处境、欲望和卷级矛盾', '读者知道为什么要行动', 1), beat('enter', '用主动选择进入主要对抗', '目标与代价清楚', 2), beat('escalate', '用因果相连的事件升级局势', '每次结果都改变下一步', 3), beat('turn', '让中段变化迫使主角调整方法或目标', '后半卷不再重复前半卷', 4), beat('resolve', '关闭退路并集中解决卷级问题', '高潮兑现并形成下一卷接口', 5)],
+    previewPrompt: '把本卷按“进入—升级—调整—解决”的大方向展示，事件数量由故事自然决定。', suitableSignals: ['通用', '冒险', '悬疑', '成长', '言情'], legacyIds: []
+  }),
+  defineTemplate({
+    templateKey: 'volume-five-act', sourceMethod: 'five-act-structure', sourceLabel: '五幕式', scope: 'volume',
+    publicTitle: '分五次抬高局势，让高潮前的每一步都改变玩法',
+    publicExplanation: '从建立矛盾、主动推进、局势反转、危机逼近到最终结算，适合人物多、事件多、阵营和信息持续变化的卷。',
+    fitConditions: ['本卷人物或势力较多', '希望中段有两次以上实质变化'],
+    knownRisks: ['不能为了五段硬塞转折', '每段必须改变状态而非只换场景'],
+    authorQuestions: ['哪次变化会把私人问题变成更大局势？', '谁会在中后段改变立场？', '高潮前最后失去的退路是什么？'],
+    beats: [beat('establish', '建立人物、冲突与不稳定平衡', '多方目标可理解', 1), beat('rise', '让主角主动行动并取得带代价的进展', '冲突范围扩大', 2), beat('reverse', '用信息、关系或结果改变原先判断', '故事玩法发生变化', 3), beat('crisis', '让反制和代价逼近，关闭简单退路', '人物必须作价值选择', 4), beat('climax', '让前面累积的人物与因果共同结算', '卷末新格局成立', 5)],
+    previewPrompt: '用本卷现有人物与冲突展示五次状态变化，不预设固定章数或固定高潮频率。', suitableSignals: ['群像', '权谋', '多事件', '战争', '宗门', '长卷'], legacyIds: []
+  }),
   defineTemplate({
     templateKey: 'volume-grow-into-role', sourceMethod: 'hero-journey-and-coming-of-age', scope: 'volume',
     publicTitle: '从还没准备好，到真正担起责任',
@@ -247,6 +279,7 @@ export function toPublicTemplate(template: NarrativeTemplateDefinition, recommen
     templateVersion: template.templateVersion,
     contentHash: template.contentHash,
     scope: template.scope,
+    sourceLabel: template.sourceLabel ?? '通用叙事经验',
     publicTitle: template.publicTitle,
     publicExplanation: template.publicExplanation,
     fitConditions: [...template.fitConditions],

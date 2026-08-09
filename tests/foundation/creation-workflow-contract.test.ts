@@ -38,7 +38,9 @@ describe('创作工作流共享合同', () => {
     expect(event.templates.length).toBeGreaterThanOrEqual(6);
     expect(volume.templates.every((item) => item.scope === 'volume')).toBe(true);
     expect(event.templates.every((item) => item.scope === 'event')).toBe(true);
-    expect(JSON.stringify(volume)).not.toMatch(/sourceMethod|legacyIds|三幕|五幕|猫咪|Save the Cat/iu);
+    expect(JSON.stringify(volume)).not.toMatch(/sourceMethod|legacyIds|Save the Cat/iu);
+    expect(volume.templates.every((item) => !/三幕|五幕|猫咪/iu.test(`${item.publicTitle}${item.publicExplanation}`))).toBe(true);
+    expect(volume.templates.map((item) => item.sourceLabel)).toEqual(expect.arrayContaining(['三幕式', '五幕式', '救猫咪结构']));
     expect(volume.templates[0]).toMatchObject({ recommended: true });
     expect(volume.alternativeChoices.map((item) => item.mode)).toEqual(['custom', 'none']);
   });
@@ -46,7 +48,7 @@ describe('创作工作流共享合同', () => {
   it('模板版本与内容哈希稳定、唯一且不包含作品事实', () => {
     expect(NARRATIVE_TEMPLATE_REGISTRY_HASH).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(new Set(NARRATIVE_TEMPLATE_REGISTRY.map((item) => item.templateKey)).size).toBe(NARRATIVE_TEMPLATE_REGISTRY.length);
-    expect(NARRATIVE_TEMPLATE_REGISTRY.every((item) => item.templateVersion === 1 && /^sha256:[0-9a-f]{64}$/u.test(item.contentHash))).toBe(true);
+    expect(NARRATIVE_TEMPLATE_REGISTRY.every((item) => item.templateVersion === 2 && /^sha256:[0-9a-f]{64}$/u.test(item.contentHash))).toBe(true);
     expect(hashStableContractContent('abc')).toBe(`sha256:${createHash('sha256').update(JSON.stringify('abc')).digest('hex')}`);
     const serialized = JSON.stringify(NARRATIVE_TEMPLATE_REGISTRY);
     expect(serialized).not.toContain('ownerId');

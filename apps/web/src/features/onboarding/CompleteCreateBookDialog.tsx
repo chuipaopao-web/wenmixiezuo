@@ -230,7 +230,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
     if (current === undefined) return;
     const next = current.personalities.includes(personality)
       ? current.personalities.filter((item) => item !== personality)
-      : current.personalities.length >= 6 ? current.personalities : [...current.personalities, personality];
+      : current.personalities.length >= 8 ? current.personalities : [...current.personalities, personality];
     updateProtagonist(index, { personalities: next });
   };
   const addCustomTag = (): void => {
@@ -448,7 +448,11 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
               </div>
               <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄或生命阶段<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：十八岁、成年、初入职场" maxLength={80} /></label>
               <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>人物背景<textarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={3} maxLength={2000} /></label>
-              <StringTagPicker title="角色性格" hint="至少1个，最多6个" kind="角色性格" options={taxonomy?.personalityOptions ?? []} selected={protagonist.personalities} onToggle={(item) => toggleProtagonistPersonality(index, item)} />
+              <PersonalityPicker
+                groups={taxonomy?.personalityGroups ?? [{ key: 'all', name: '性格特点', description: '选择最能影响角色行动的特点。', options: taxonomy?.personalityOptions ?? [] }]}
+                selected={protagonist.personalities}
+                onToggle={(item) => toggleProtagonistPersonality(index, item)}
+              />
             </article>)}
           </section>}
         </div>
@@ -560,5 +564,39 @@ function StringTagPicker({ title, hint, kind, options, selected, onToggle }: {
     const active = selected.includes(name);
     return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}${kind}：${name}`} key={name} onClick={() => onToggle(name)}>{active && <CheckCircleIcon />}{name}</button>;
   })}</div></section>;
+}
+
+function PersonalityPicker({ groups, selected, onToggle }: {
+  groups: OpeningTaxonomyData['personalityGroups'];
+  selected: string[];
+  onToggle: (name: string) => void;
+}): React.JSX.Element {
+  const [custom, setCustom] = useState('');
+  const addCustom = (): void => {
+    const value = custom.trim();
+    if (value.length === 0 || value.length > 40 || selected.includes(value) || selected.length >= 8) return;
+    onToggle(value);
+    setCustom('');
+  };
+  const known = new Set(groups.flatMap((group) => group.options));
+  const customSelected = selected.filter((item) => !known.has(item));
+  return <section className="personality-picker">
+    <header>
+      <div><strong>角色性格</strong><small>从不同维度选1—8个；优先选择会影响行动和冲突的特点</small></div>
+      <span>{selected.length}/8</span>
+    </header>
+    <div className="personality-group-grid">{groups.map((group) => <details key={group.key} open={group.key === 'surface' || group.key === 'decision'}>
+      <summary><span><strong>{group.name}</strong><small>{group.description}</small></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>
+      <div className="tag-options">{group.options.map((name) => {
+        const active = selected.includes(name);
+        return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}角色性格：${name}`} key={name} onClick={() => onToggle(name)} disabled={!active && selected.length >= 8}>{active && <CheckCircleIcon />}{name}</button>;
+      })}</div>
+    </details>)}</div>
+    <div className="personality-custom-row">
+      <label htmlFor="opening-custom-personality">没有合适的？写下角色独有的性格</label>
+      <div><input id="opening-custom-personality" value={custom} maxLength={40} onChange={(event) => setCustom(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustom(); } }} placeholder="例如：越害怕越爱说反话" /><button type="button" disabled={selected.length >= 8 || custom.trim().length === 0} onClick={addCustom}><PlusIcon />添加</button></div>
+    </div>
+    {customSelected.length > 0 && <div className="selected-tag-strip">{customSelected.map((item) => <button type="button" key={item} onClick={() => onToggle(item)}>{item}<XIcon /></button>)}</div>}
+  </section>;
 }
 

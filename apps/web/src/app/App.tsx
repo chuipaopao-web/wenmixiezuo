@@ -1,30 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import {
   ArchiveBoxIcon,
-  ArrowCounterClockwiseIcon,
-  ArrowsInSimpleIcon,
-  ArrowsOutSimpleIcon,
   BookOpenTextIcon,
   BooksIcon,
   CaretRightIcon,
-  CheckCircleIcon,
-  ClockCountdownIcon,
-  DotsThreeVerticalIcon,
-  EyeIcon,
   FileTextIcon,
   GearSixIcon,
-  ImageIcon,
-  MagnifyingGlassIcon,
   MapTrifoldIcon,
+  LightbulbIcon,
   TagIcon,
-  TrashIcon,
   TreeStructureIcon,
   ListIcon,
   PlusIcon,
-  UserCircleIcon,
   UsersThreeIcon,
-  WifiHighIcon,
-  WifiSlashIcon,
   XIcon
 } from '@phosphor-icons/react';
 
@@ -33,131 +21,44 @@ import {
   cancelTask,
   createBook,
   fetchArtifacts,
-  fetchArtifactVersions,
   fetchBooks,
-  fetchOpeningTaxonomy,
   fetchCapabilities,
   fetchChapterContent,
   fetchChapterDetail,
-  previewContinuationImport,
-  confirmContinuationImport,
-  analyzeContinuationImport,
-  fetchContinuationImport,
-  fetchLatestContinuationImport,
   fetchHealth,
-  fetchGraphWorkspace,
   fetchLibrary,
   fetchModelBindings,
-  fetchVolumeChapters,
-  createManuscriptVolume,
-  createManuscriptChapter,
   fetchOperationsStatus,
-  fetchProtagonists,
-  fetchAttributeFormulas,
-  fetchSettingOutlineWorkspace,
-  fetchBookProfile,
-  fetchPlanningState,
-  fetchSettingReadiness,
-  confirmSettingBaseline,
   fetchTaskCenter,
-  fetchWorker,
   fetchWorkspace,
-  fetchTeamConfig,
-  fetchTeamTemplate,
-  fetchProtectedRolePrompt,
   subscribeRuntimeEvents,
   resolveConfirmation,
-  activateModelBindings,
-  previewModelBindings,
-  restoreModelBindingRevision,
-  exportBookPackage,
-  importBookCopy,
-  addArtifactVersion,
-  selectArtifactVersion,
-  rejectArtifactVersion,
   restoreBook,
   purgeBook,
   retryTask,
-  compareArtifactVersions,
-  createLibraryTag,
-  saveOwnerManuscript,
-  withdrawOwnerManuscript,
-  rewriteChapter,
-  finalizeChapter,
-  saveProtagonistProfile,
-  appendProtagonistState,
-  archiveProtagonistState,
-  classifyProtagonistState,
-  createAttributeFormula,
-  evaluateAttributeFormula,
-  initializeSettingOutlineWorkspace,
-  saveSettingOutlineItem,
-  saveAgentPromptPreference,
-  type AgentData,
-  type ArtifactVersionData,
   type BookData,
   type CapabilityData,
   type ChapterData,
-  type ChapterPageData,
-  type ContinuationImportData,
-  type HealthData,
-  type LibraryData,
-  type GraphWorkspaceData,
-  type ProtagonistDashboardData,
-  type ProtagonistProfileData,
-  type ProtagonistStateData,
-  type AttributeFormulaData,
   type ModelBindingsData,
   type OperationsStatusData,
-  type OpeningBlueprintData,
-  type OpeningChannel,
-  type ProtagonistRole,
-  type OpeningTaxonomyData,
-  type BookProfileViewData,
-  type PlanningStateData,
-  type TaskData,
   type TaskCenterBookData,
-  type TeamModelProfileData,
-  type TeamConfigData,
-  type TeamTemplateData,
-  type ProtectedRolePromptData,
-  type WorkerData,
   type WorkspaceData
 } from '../lib/api/client';
 import { cacheSnapshot, loadSnapshot } from '../lib/offline/offline-store';
-import { avatarPosition } from './role-avatars';
-import { NamingAssistantPanel } from './NamingAssistantPanel';
-import { recommendCharacterTarget, type NamingContext } from './naming-assistant';
 import { NamingWorkspace } from '../features/naming/NamingWorkspace';
-import { BookshelfHome } from '../features/bookshelf/BookshelfHome';
 import { ArchiveBookDialog, PurgeBookDialog } from '../features/bookshelf/BookLifecycleDialogs';
-import { bookStatusLabel, shortId } from './display-labels';
-import { DrawerHeader, RailViewButton, ServiceState, TopbarBookSummary } from '../features/creation-desk/WorkspaceShell';
+import { bookStatusLabel } from './display-labels';
+import { DrawerHeader } from '../features/creation-desk/WorkspaceShell';
 import { CompleteCreateBookDialog } from '../features/onboarding/CompleteCreateBookDialog';
-import { PROTAGONIST_ROLES } from '../features/onboarding/opening-options';
-import { FORMULA_CATEGORIES, PlanningWorkspace } from '../features/planning/PlanningWorkspace';
-import { EmptyReference, RecordCollection, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../features/shared/StructuredContent';
-import { KnowledgeGraph, LibraryWorkspace } from '../features/library/LibraryWorkspace';
-import { ProjectionWorkspace } from '../features/graph/ProjectionWorkspace';
-import { budgetModeLabel, confirmationLabel, formatBytes, formatNumber, formatTime, isActiveTask, phaseLabel, statusLabel, taskChapterFromBrief, taskChapterLabel, taskCheckpointLabel, taskGoal, taskLabel } from '../features/shared/task-presentation';
-import { memberIdentity } from '../features/shared/agent-presentation';
-import { AgentAvatar } from '../features/shared/AgentAvatar';
+import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
+import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
 import { WorkspaceSkeleton } from '../features/shared/WorkspaceSkeleton';
-import { ConfirmationsPanel, GlobalTaskWorkspace, TaskDetailsDialog } from '../features/tasks/TaskWorkspace';
-import { AgentDetailsDialog, TeamInspector, TeamTemplateWorkspace, TeamWorkspace, activeTaskForAgent, roleSummary } from '../features/team/TeamWorkspace';
+import { GlobalTaskWorkspace, TaskDetailsDialog } from '../features/tasks/TaskWorkspace';
+import { TeamWorkspace } from '../features/team/TeamWorkspace';
 import { SettingsDialog } from '../features/settings/SettingsDialog';
-import { ManuscriptChapterBrowser, ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
+import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
+import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
 import {
-  authorFactRelationLabel,
-  authorFieldLabel,
-  authorFormatScalar,
-  authorRelationshipLabel,
-  structuredReplyFromMixedText,
-  toAuthorDisplayValue,
-  toAuthorFacingText
-} from './author-presentation';
-import {
-  DEFAULT_WORKSPACE_PREFERENCES,
   FONT_SCALE,
   readWorkspacePreferences,
   saveWorkspacePreferences,
@@ -165,8 +66,8 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type HomeView = 'shelf' | 'tasks' | 'team';
-type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'graph' | 'library' | 'naming';
+type UtilityView = 'tasks' | 'team' | 'ideas' | null;
+type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'library' | 'naming';
 
 interface TaskSelection {
   bookId: string;
@@ -174,19 +75,15 @@ interface TaskSelection {
 }
 
 export function App(): React.JSX.Element {
-  const [health, setHealth] = useState<HealthData | null>(null);
   const [capabilities, setCapabilities] = useState<CapabilityData | null>(null);
-  const [worker, setWorker] = useState<WorkerData | null>(null);
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [creationTab, setCreationTab] = useState<PlanningTab>('framework');
-  const [homeView, setHomeView] = useState<HomeView>('shelf');
+  const [utilityView, setUtilityView] = useState<UtilityView>(null);
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
   const [homeTasksLoading, setHomeTasksLoading] = useState(false);
   const [homeTasksError, setHomeTasksError] = useState<string | null>(null);
-  const [teamTemplate, setTeamTemplate] = useState<TeamTemplateData | null>(null);
-  const [teamBookId, setTeamBookId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterData | null>(null);
   const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
@@ -195,16 +92,12 @@ export function App(): React.JSX.Element {
   const [modelBindings, setModelBindings] = useState<ModelBindingsData | null>(null);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatusData | null>(null);
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
-  const [readerMode, setReaderMode] = useState(false);
   const [createOpen, setCreateOpen] = useState(() => new URLSearchParams(window.location.search).get('newBook') === '1');
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [bookMenuId, setBookMenuId] = useState<string | null>(null);
   const [archiveCandidate, setArchiveCandidate] = useState<BookData | null>(null);
   const [purgeCandidate, setPurgeCandidate] = useState<BookData | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskSelection | null>(null);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<WorkspacePreferences>(() => readWorkspacePreferences());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -225,25 +118,23 @@ export function App(): React.JSX.Element {
           : { bookId: selectedTask.bookId, workspace: taskWorkspace, task };
       })();
   const selectedWorkspaceChapter = workspace?.chapters.find((chapter) => chapter.chapterId === selectedChapterId) ?? null;
-  const homeTaskBookCount = homeTaskEntries.filter((entry) => entry.tasks.some((task) => isActiveTask(task.status))).length;
 
   const loadBooks = useCallback(async (signal?: AbortSignal) => {
     const nextBooks = await fetchBooks(signal);
     setBooks(nextBooks);
     setSelectedBookId((current) => {
       const nextActiveBooks = nextBooks.filter((book) => book.status !== 'archived');
-      const next = current !== null && nextActiveBooks.some((book) => book.bookId === current) ? current : null;
+      const next = current !== null && nextActiveBooks.some((book) => book.bookId === current)
+        ? current
+        : nextActiveBooks[0]?.bookId ?? null;
       persistSelectedBook(next);
       return next;
     });
   }, []);
 
   const refreshWorkspace = useCallback(async (bookId: string, signal?: AbortSignal) => {
-    const [nextWorkspace, nextWorker] = await Promise.all([
-      fetchWorkspace(bookId, signal), fetchWorker(signal)
-    ]);
+    const nextWorkspace = await fetchWorkspace(bookId, signal);
     setWorkspace(nextWorkspace);
-    setWorker(nextWorker);
   }, []);
 
   const refreshHomeTasks = useCallback(async (signal?: AbortSignal) => {
@@ -257,10 +148,8 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal), fetchWorker(controller.signal), fetchCapabilities(controller.signal)])
-      .then(([nextHealth, , nextWorker, nextCapabilities]) => {
-        setHealth(nextHealth);
-        setWorker(nextWorker);
+    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal), fetchCapabilities(controller.signal)])
+      .then(([, , nextCapabilities]) => {
         setCapabilities(nextCapabilities);
         setError(null);
       })
@@ -296,16 +185,7 @@ export function App(): React.JSX.Element {
   }, [refreshWorkspace, selectedBookId]);
 
   useEffect(() => {
-    if (selectedBookId !== null || homeView !== 'team' || teamTemplate !== null) return;
-    const controller = new AbortController();
-    void fetchTeamTemplate(controller.signal).then(setTeamTemplate).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '团队模板加载失败');
-    });
-    return () => controller.abort();
-  }, [homeView, selectedBookId, teamTemplate]);
-
-  useEffect(() => {
-    if (selectedBookId !== null || homeView !== 'tasks') return;
+    if (utilityView !== 'tasks') return;
     const controller = new AbortController();
     setHomeTasksLoading(true);
     void refreshHomeTasks(controller.signal).catch((reason: unknown) => {
@@ -325,7 +205,7 @@ export function App(): React.JSX.Element {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       window.clearInterval(poll);
     };
-  }, [homeView, refreshHomeTasks, selectedBookId]);
+  }, [refreshHomeTasks, utilityView]);
 
   useEffect(() => {
     saveWorkspacePreferences(preferences);
@@ -373,9 +253,7 @@ export function App(): React.JSX.Element {
     const refreshReferenceData = async (useCacheFallback: boolean): Promise<void> => {
       const request = creationTab === 'library'
         ? fetchLibrary(selectedBookId, controller.signal)
-        : creationTab === 'graph'
-          ? fetchGraphWorkspace(selectedBookId, controller.signal)
-          : fetchArtifacts(selectedBookId, controller.signal);
+        : fetchArtifacts(selectedBookId, controller.signal);
       try {
         const data = await request;
         if (controller.signal.aborted) return;
@@ -412,24 +290,8 @@ export function App(): React.JSX.Element {
     setSelectedChapterId(null);
     setSelectedChapter(null);
     setSelectedTask(null);
+    setUtilityView(null);
     setLeftOpen(false);
-  };
-
-  const openHomeView = (nextHomeView: HomeView): void => {
-    setSelectedBookId(null);
-    persistSelectedBook(null);
-    setWorkspace(null);
-    setSelectedChapterId(null);
-    setSelectedChapter(null);
-    setSelectedTask(null);
-    setReaderMode(false);
-    setHomeView(nextHomeView);
-    setLeftOpen(false);
-    setRightOpen(false);
-  };
-
-  const returnToShelf = (): void => {
-    openHomeView('shelf');
   };
 
   const createNewBook = async (input: Parameters<typeof createBook>[0]): Promise<boolean> => {
@@ -504,7 +366,6 @@ export function App(): React.JSX.Element {
     try {
       await archiveBook(archiveCandidate.bookId, archiveCandidate.version);
       setArchiveCandidate(null);
-      setBookMenuId(null);
       await loadBooks();
       setError(null);
     } catch (reason) {
@@ -557,7 +418,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div
-      className={`app-shell ${readerMode ? 'reader-mode' : ''} ${selectedBook === null ? 'home-mode' : ''}`}
+      className="app-shell unified-desk"
       data-theme={preferences.theme}
       style={{ '--font-scale': String(FONT_SCALE[preferences.fontSize]) } as CSSProperties}
     >
@@ -567,80 +428,68 @@ export function App(): React.JSX.Element {
           <div className="brand-mark" aria-hidden="true">文</div>
           <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
         </div>
-        {selectedBook === null
-          ? <div className="home-topbar-title">
-              <strong>{homeView === 'shelf' ? '我的书架' : homeView === 'tasks' ? '任务中心' : '创作团队'}</strong>
-              <span>{homeView === 'shelf' ? `${activeBooks.length} 本创作中的书` : homeView === 'tasks' ? `${homeTaskBookCount} 本书有后台任务` : '全局岗位模板'}</span>
-            </div>
-          : <TopbarBookSummary book={selectedBook} workspace={workspace} />}
+        <div className="topbar-current-object">
+          <strong>{selectedBook?.title ?? '还没有书籍'}</strong>
+          <span>{utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}</span>
+        </div>
         <div className="topbar-actions">
-          <ServiceState health={health} worker={worker} error={error} />
-          <button className="icon-button settings-button" type="button" aria-label="界面设置" onClick={() => setSettingsOpen(true)}><GearSixIcon /></button>
-          {selectedBook !== null && (
-            <button className="icon-button" type="button" aria-label={readerMode ? '退出沉浸阅读' : '进入沉浸阅读'} onClick={() => setReaderMode((value) => !value)}>
-              {readerMode ? <ArrowsInSimpleIcon /> : <ArrowsOutSimpleIcon />}
-            </button>
-          )}
-          {selectedBook !== null && <button className="icon-button mobile-only" type="button" aria-label="打开创作团队" onClick={() => setRightOpen(true)}><UsersThreeIcon /></button>}
+          <button className={utilityView === 'team' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'team' ? null : 'team')}><UsersThreeIcon />团队</button>
+          <button className={utilityView === 'tasks' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'tasks' ? null : 'tasks')}><FileTextIcon />任务</button>
+          <button className={utilityView === 'ideas' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'ideas' ? null : 'ideas')}><LightbulbIcon />灵感讨论</button>
+          <button className="topbar-text-button" type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon />设置</button>
         </div>
       </header>
 
-      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label={selectedBook === null ? '首页功能' : '书籍'}>
+      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍与创作导航">
         <DrawerHeader title="书籍" onClose={() => setLeftOpen(false)} />
-        {selectedBook === null ? (
-          <nav className="home-navigation" aria-label="首页功能">
-            <RailViewButton active={homeView === 'shelf'} onClick={() => { setHomeView('shelf'); setLeftOpen(false); }} icon={<BooksIcon />} label="书架" />
-            <RailViewButton active={homeView === 'tasks'} onClick={() => { setHomeView('tasks'); setLeftOpen(false); }} icon={<FileTextIcon />} label="任务" />
-            <RailViewButton active={homeView === 'team'} onClick={() => { setHomeView('team'); setLeftOpen(false); }} icon={<UsersThreeIcon />} label="团队" />
-            <button type="button" onClick={() => { setSettingsOpen(true); setLeftOpen(false); }}><GearSixIcon /><span>设置</span></button>
-          </nav>
-        ) : (
-          <div className="rail-book-switcher" aria-label="书籍切换">
-            <button className="back-to-shelf" type="button" onClick={returnToShelf}><BooksIcon /><span>返回书架</span></button>
+          <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
             <button className="rail-new-book" type="button" onClick={() => { setCreateOpen(true); setLeftOpen(false); }}><PlusIcon /><span>新建书籍</span></button>
             <p>我的书籍</p>
             <nav aria-label="选择书籍">{activeBooks.map((book) => <button type="button" key={book.bookId}
               className={book.bookId === selectedBookId ? 'active' : ''} onClick={() => selectBook(book.bookId)}>
               <BookOpenTextIcon /><span><strong>{book.title}</strong><small>{book.bookId === selectedBookId ? '当前书籍' : bookStatusLabel(book.status)}</small></span>
             </button>)}</nav>
+            {archivedBooks.length > 0 && <details className="rail-archived-books" open={archiveOpen} onToggle={(event) => setArchiveOpen(event.currentTarget.open)}>
+              <summary>已归档书籍 · {archivedBooks.length}</summary>
+              <div>{archivedBooks.map((book) => <article key={book.bookId}>
+                <span><ArchiveBoxIcon /><strong>{book.title}</strong></span>
+                <div><button type="button" disabled={busy} onClick={() => void restoreArchivedBook(book)}>恢复</button>
+                  <button type="button" disabled={busy} onClick={() => setPurgeCandidate(book)}>彻底删除</button></div>
+              </article>)}</div>
+            </details>}
+            {selectedBook !== null && <nav className="desk-object-navigation" aria-label="当前书创作流程">
+              {([
+                ['framework', '本书资料', BookOpenTextIcon],
+                ['basic', '设定大纲', TreeStructureIcon],
+                ['master', '当前卷纲', MapTrifoldIcon],
+                ['event', '事件设计', CaretRightIcon],
+                ['chapter', '章纲', ListIcon],
+                ['manuscript', '正文', FileTextIcon],
+                ['library', '故事资料库', BooksIcon],
+                ['naming', '取名', TagIcon]
+              ] as const).map(([key, label, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''} key={key} onClick={() => { setCreationTab(key); setUtilityView(null); setLeftOpen(false); }}><Icon /><span>{label}</span></button>)}
+              <button className="archive-current-book" type="button" onClick={() => setArchiveCandidate(selectedBook)}><ArchiveBoxIcon /><span>归档当前书籍</span></button>
+            </nav>}
           </div>
-        )}
       </aside>
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
-        {loading ? <WorkspaceSkeleton /> : selectedBook === null ? (
-          homeView === 'shelf'
-            ? <BookshelfHome
-                activeBooks={activeBooks}
-                archivedBooks={archivedBooks}
-                busy={busy}
-                archiveOpen={archiveOpen}
-                bookMenuId={bookMenuId}
-                onCreate={() => setCreateOpen(true)}
-                onOpen={selectBook}
-                onToggleMenu={setBookMenuId}
-                onArchive={setArchiveCandidate}
-                onToggleArchive={() => setArchiveOpen((value) => !value)}
-                onRestore={restoreArchivedBook}
-                onPurge={setPurgeCandidate}
-              />
-            : homeView === 'tasks'
-              ? <GlobalTaskWorkspace
-                  entries={homeTaskEntries}
-                  loading={homeTasksLoading}
-                  loadError={homeTasksError}
-                  busy={busy}
-                  onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
-                  onDecide={decideConfirmation}
-                />
-            : teamBookId === null
-              ? <TeamTemplateWorkspace data={teamTemplate} books={activeBooks} onManageBook={setTeamBookId} />
-              : <section className="home-team-book-config">
-                  <button className="secondary-button" type="button" onClick={() => setTeamBookId(null)}>返回团队模板</button>
-                  <TeamWorkspace bookId={teamBookId} workspace={null} onError={setError} />
-                </section>
-        ) : (
+        {loading ? <WorkspaceSkeleton /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
+          entries={homeTaskEntries}
+          loading={homeTasksLoading}
+          loadError={homeTasksError}
+          busy={busy}
+          onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
+          onDecide={decideConfirmation}
+        /> : utilityView === 'team' ? (selectedBook === null
+          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部11名创作成员。" onCreate={() => setCreateOpen(true)} />
+          : <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />)
+        : utilityView === 'ideas' ? (selectedBook === null
+          ? <UnifiedEmptyState title="先创建一本书" description="灵感讨论只读取当前书籍资料，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
+          : <IdeationWorkspace bookId={selectedBook.bookId} currentLocation={creationTab} onError={setError} />)
+        : selectedBook === null ? <UnifiedEmptyState title="创建第一本书" description="填写开书资料后，会从设定、卷纲、事件、章纲到正文逐步推进。" onCreate={() => setCreateOpen(true)} />
+        : (
           <>
             <PlanningWorkspace
               tab={creationTab}
@@ -648,8 +497,7 @@ export function App(): React.JSX.Element {
               data={referenceData}
               workspace={workspace}
               onBookProfileChanged={() => refreshWorkspace(selectedBook.bookId)}
-              graph={<ProjectionWorkspace data={referenceData} />}
-              library={<LibraryWorkspace data={referenceData} bookId={selectedBookId} />}
+              library={<StoryKnowledgeWorkspace bookId={selectedBook.bookId} />}
               naming={<NamingWorkspace book={selectedBook} />}
               manuscript={<ManuscriptWorkspace
                 key={selectedBook.bookId}
@@ -667,12 +515,7 @@ export function App(): React.JSX.Element {
         )}
       </main>
 
-      {selectedBook !== null && <aside className={`right-rail ${rightOpen ? 'drawer-open' : ''}`} aria-label="创作团队">
-          <DrawerHeader title="创作团队" onClose={() => setRightOpen(false)} />
-          <TeamInspector workspace={workspace} worker={worker} onSelectAgent={(agent) => setSelectedAgentId(agent.agentId)} />
-        </aside>}
-
-      {(leftOpen || rightOpen) && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />}
+      {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
       {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
@@ -688,12 +531,31 @@ export function App(): React.JSX.Element {
           onClose={() => setSelectedTask(null)}
         />
       )}
-      {selectedAgentId !== null && workspace !== null && (() => {
-        const agent = workspace.agents.find((item) => item.agentId === selectedAgentId);
-        return agent === undefined ? null : <AgentDetailsDialog agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} onClose={() => setSelectedAgentId(null)} />;
-      })()}
     </div>
   );
+}
+
+function UnifiedEmptyState({ title, description, onCreate }: { title: string; description: string; onCreate?: () => void }): React.JSX.Element {
+  return <section className="unified-empty-state">
+    <div className="brand-mark" aria-hidden="true">文</div>
+    <span className="eyebrow">统一创作台</span>
+    <h2>{title}</h2>
+    <p>{description}</p>
+    {onCreate !== undefined && <button className="primary-button" type="button" onClick={onCreate}><PlusIcon />新建书籍</button>}
+  </section>;
+}
+
+function sectionLabel(tab: PlanningTab): string {
+  return ({
+    framework: '本书资料',
+    basic: '设定大纲',
+    master: '当前卷纲',
+    event: '事件设计',
+    chapter: '章纲',
+    manuscript: '正文',
+    library: '故事资料库',
+    naming: '取名'
+  } as const)[tab];
 }
 
 function readSelectedBook(): string | null {

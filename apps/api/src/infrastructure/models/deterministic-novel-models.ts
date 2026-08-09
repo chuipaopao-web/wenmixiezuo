@@ -15,6 +15,16 @@ interface RewritePrompt {
   requiredActions: string[];
 }
 
+interface WriterContextSource {
+  sourceType: string | undefined;
+  content: string | undefined;
+}
+
+interface WriterPromptEnvelope {
+  taskInput: DraftPrompt | RewritePrompt;
+  sources: WriterContextSource[];
+}
+
 export interface StructuredReviewIssue {
   location: string;
   issueType: string;
@@ -36,10 +46,11 @@ export class DeterministicNovelWriterAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
-    const prompt = JSON.parse(request.prompt) as DraftPrompt | RewritePrompt;
+    const parsed = parseWriterPrompt(request.prompt);
+    const prompt = parsed.taskInput;
     const output = prompt.operation === 'rewrite'
       ? rewriteNovel(prompt.content, prompt.requiredActions)
-      : buildNovel(request.bookId, prompt.chapterNumber, prompt.title, prompt.previousState ?? '故事刚刚开始');
+      : buildContextAwareNovel(request.bookId, prompt, parsed.sources);
     return result(this.provider, this.modelId, request.prompt, output);
   }
 }
@@ -50,10 +61,11 @@ export class DeterministicNovelCandidateBAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
-    const prompt = JSON.parse(request.prompt) as DraftPrompt | RewritePrompt;
+    const parsed = parseWriterPrompt(request.prompt);
+    const prompt = parsed.taskInput;
     const output = prompt.operation === 'rewrite'
       ? rewriteNovel(prompt.content, prompt.requiredActions).replaceAll('他', '林澈')
-      : buildNovel(request.bookId, prompt.chapterNumber, `${prompt.title}·备选`, prompt.previousState ?? '故事刚刚开始').replaceAll('他', '林澈');
+      : buildContextAwareNovel(request.bookId, { ...prompt, title: `${prompt.title}·备选` }, parsed.sources);
     return result(this.provider, this.modelId, request.prompt, output);
   }
 }
@@ -192,6 +204,139 @@ function deterministicFactCandidates(content: string): Array<Record<string, unkn
 function sentenceContaining(content: string, ...needles: string[]): string | null {
   const sentence = content.split(/(?<=[。！？])/u).find((item) => needles.every((needle) => item.includes(needle)))?.trim();
   return sentence === undefined || sentence.length === 0 ? null : sentence;
+}
+
+function parseWriterPrompt(raw: string): WriterPromptEnvelope {
+  const parsed = JSON.parse(raw) as unknown;
+  if (isObject(parsed) && isObject(parsed.taskInput)) {
+    return {
+      taskInput: parsed.taskInput as unknown as DraftPrompt | RewritePrompt,
+      sources: Array.isArray(parsed.sources)
+        ? parsed.sources.filter(isObject).map((source) => ({
+            sourceType: typeof source.sourceType === 'string' ? source.sourceType : undefined,
+            content: typeof source.content === 'string' ? source.content : undefined
+          }))
+        : []
+    };
+  }
+  if (isObject(parsed)) {
+    return {
+      taskInput: parsed as unknown as DraftPrompt | RewritePrompt,
+      sources: Array.isArray(parsed.sources)
+        ? parsed.sources.filter(isObject).map((source) => ({
+            sourceType: typeof source.sourceType === 'string' ? source.sourceType : undefined,
+            content: typeof source.content === 'string' ? source.content : undefined
+          }))
+        : []
+    };
+  }
+  return { taskInput: parsed as DraftPrompt | RewritePrompt, sources: [] };
+}
+
+function buildContextAwareNovel(bookId: string, prompt: DraftPrompt, sources: WriterContextSource[]): string {
+  const context = sources.map((source) => source.content ?? '').join('\n');
+  if (/(东方仙侠|修仙|灵根|阵法|宗门|试剑台|猎场)/u.test(context)) {
+    return buildXianxiaNovel(bookId, prompt.chapterNumber, prompt.title, context);
+  }
+  return buildNovel(bookId, prompt.chapterNumber, prompt.title, prompt.previousState ?? '故事刚刚开始');
+}
+
+interface XianxiaChapterPlan {
+  location: string;
+  objective: string;
+  opponent: string;
+  ally: string;
+  setback: string;
+  insight: string;
+  payoff: string;
+  hook: string;
+}
+
+function buildXianxiaNovel(bookId: string, chapterNumber: number, title: string, context: string): string {
+  const hero = context.includes('沈砚') ? '沈砚' : extractProfileProtagonist(context) ?? '主角';
+  const xu = context.includes('许小川') ? '许小川' : '机灵同伴';
+  const su = context.includes('苏青萝') ? '苏青萝' : '冷面剑修';
+  const ajiu = context.includes('阿九') ? '阿九' : '神秘商贩';
+  const han = context.includes('韩烈') ? '韩烈' : '外门强敌';
+  const wei = context.includes('魏长庚') ? '魏长庚' : '执事';
+  const plan = xianxiaPlan(chapterNumber, { hero, xu, su, ajiu, han, wei });
+  const digest = createHash('sha256').update(`${bookId}:${chapterNumber}:${title}:xianxia`).digest('hex');
+  const weather = ['晨雾压着石阶', '山雨敲在青瓦上', '冷风卷过试剑坪', '暮色沉进松林'][Number.parseInt(digest.slice(0, 2), 16) % 4]!;
+  const paragraphs: string[] = [
+    `第${chapterNumber}章 ${title}\n\n${weather}，${plan.location}的灵灯一盏盏亮起。${hero}没有跟着人群抬头，他先看地面：三道阵纹在砖缝下交错，其中一道比昨夜偏了半寸。今天真正要争的不是一句口舌，而是${plan.objective}。`,
+    `${plan.opponent}没有等他准备好便先动了。对方把规矩、身份和围观者的目光一起压下来，每一步都留有退路，显然并不打算做一个只会叫嚣的蠢人。${hero}若当场硬顶，输掉的不只是脸面，还有继续追查父亲旧案的资格。`,
+    `${plan.ally}也没有站在旁边等命令。对方借着整理器具或查看地形的动作绕到另一侧，把最危险的位置留给自己，只丢来一句极短的提醒。那句话并不温顺，却替${hero}补上了他视线之外的一块空白。`,
+    `${hero}按住袖中的残缺阵盘。阵盘没有送来灵力，只把灵气流动中细小的不协调放大：阵眼附近有一线灰白，像被人用钝刀反复刮过。看见破绽不等于能够取胜，他仍要判断谁会在什么时候踩进那道破绽。`,
+    `第一次尝试果然失败了。${plan.setback}。反震顺着手臂撞进胸口，喉间立刻涌上一股铁锈味。围观者发出压低的笑声，${hero}却借着后退的两步重新量过距离——代价已经付出，至少不能白付。`,
+    `“还要继续？”${plan.opponent}问。\n\n${hero}擦掉嘴角的血，只回了一句：“你若真有把握，就不会问。”\n\n这句话不是逞强。对方越急着让他认输，越说明眼前这套安排存在必须在众目睽睽下完成的部分。`,
+    `${plan.ally}听懂了他的意思，却没有完全赞同。两人用最短的几句话分清目标：一个负责把人逼向阵眼，一个负责守住退路；若局势超出判断，先保人，再保证据。合作不是无条件服从，分歧也没有被一句“相信我”轻轻抹掉。`,
+    `${hero}故意露出右侧空当。${plan.opponent}果然调整脚步，却没有立刻追击，而是先封住他能借力的石柱。这个应对让${hero}心里一沉，也让他更确定对手一直在观察。胜负从来不是等人排队犯错，而是谁能迫使对方在两种坏选择中先选一个。`,
+    `阵纹在他眼中重新连成一张网。${plan.insight}。父亲留下的知识并没有替他给出答案，只教他把灵力、地形和人的欲望放在同一张图上。真正可用的破绽，往往不是阵法坏了，而是操阵者相信别人不敢碰它。`,
+    `${hero}改变了原先的顺序。他先让出一小步，换${plan.ally}取得主动位置；又故意放弃最显眼的收益，逼${plan.opponent}亲自来收尾。这个选择立刻带来损失：灵石碎了一角，旧伤重新裂开，退路也从两条缩成了一条。`,
+    `冲突在下一息爆开。剑气擦着石面掠过，阵纹被震得一明一灭。${hero}不与更强的灵力正面对撞，而是踏进先前量好的半步空隙，让对方的力量撞上被改动过的导流纹。石屑迸起时，他仍能感觉到骨头发麻，借力从来不等于没有代价。`,
+    `${plan.opponent}很快察觉不对，立即收招改向，还命人切断${plan.ally}的支援。对手的修正比预想更快，原本足以取胜的布置只剩一次机会。${hero}没有临时长出新的本领，只能把已经验证过的条件压到极限。`,
+    `关键处，${plan.ally}作出了自己的选择。对方没有照搬${hero}的手势，而是根据眼前变化提前截住另一条线，承担了本不属于自己的风险。那一瞬间，几个人第一次不像临时拼起的队伍，而像真正知道彼此为什么站在这里。`,
+    `${hero}抓住这半息，将残阵最后一段导向改了方向。灵光贴地横扫，没有壮观到遮天蔽日，却准确切断了${plan.opponent}最依赖的落点。${plan.payoff}。先前所有观察、受伤和让步，终于在这一刻得到可以复盘的结果。`,
+    `胜负落下后，场面并没有立刻安静。有人想抢先解释，有人悄悄后退，还有人盯住地上的阵纹而不是倒下的人。${hero}记住这些反应，因为真正危险的从来不只是台前的对手，而是谁会因这次结果失去利益。`,
+    `${plan.opponent}也没有因为一次受挫便失去判断。对方带走能带走的人，舍掉暴露的棋子，同时留下一个足以牵制${hero}的后手。短暂的兑现因此没有变成无代价碾压，反而把下一轮对抗推向更窄、更凶险的地方。`,
+    `${hero}检查同伴伤势，又把取得的证据分成两份保管。他没有把所有人都变成自己的工具：有人要救亲人，有人要洗清旧债，有人只是不能容忍宗门继续把弱者当耗材。目标并不完全相同，但眼下仍能沿同一条因果链向前。`,
+    `离开${plan.location}前，${hero}最后回头看了一眼阵眼。那里多出一道不属于本次交手的旧刻痕，与父亲残阵图上的缺口恰好相合。${plan.hook}。他把疑问压在心里，知道下一步必须主动踏进去。`
+  ];
+  let cursor = Number.parseInt(digest.slice(2, 4), 16) % xianxiaExpansion.length;
+  while (countNovelCharacters(paragraphs.join('\n\n')) < 2_780) {
+    paragraphs.splice(paragraphs.length - 1, 0,
+      xianxiaExpansion[cursor % xianxiaExpansion.length]!(hero, plan.ally, plan.opponent, plan));
+    cursor += 1;
+  }
+  return paragraphs.join('\n\n');
+}
+
+function xianxiaPlan(chapterNumber: number, names: {
+  hero: string; xu: string; su: string; ajiu: string; han: string; wei: string;
+}): XianxiaChapterPlan {
+  const plans: XianxiaChapterPlan[] = [
+    { location:'杂役院试剑台', objective:'保住妹妹的药钱并拒绝一份做过手脚的生死状', opponent:names.han, ally:names.xu, setback:'生死状上的禁制先一步锁住气机', insight:'擂台东南角的卸力纹被人反向接入杀阵', payoff:'他让第一记重剑偏开三寸，当众撕破必败的假象', hook:'生死状背面浮出父亲独有的阵师暗记' },
+    { location:'杂役院药房外', objective:'追回被扣走的灵石并查清生死状从何而来', opponent:names.han, ally:names.xu, setback:'药房账册被临时换走，妹妹的药已断供', insight:'灵石箱底的阵灰与试剑台完全相同', payoff:'两人拿到一枚能指向阵库的封签', hook:'封签登记人竟在三年前已经死亡' },
+    { location:'废阵修补库', objective:'在执事封库前复原父亲暗记的读取顺序', opponent:names.wei, ally:names.xu, setback:'修补阵突然反噬，许小川为护住图纸受伤', insight:'所谓废阵其实在替试剑台转移反震', payoff:'他们留下拓印并让执事无法销毁全部证据', hook:'苏青萝持剑堵住唯一出口' },
+    { location:'外门问剑廊', objective:'说服苏青萝暂缓交人并验证她掌握的另一半事实', opponent:names.su, ally:names.xu, setback:'苏青萝只认剑痕证据，不接受对宗门的猜测', insight:'她剑鞘上的裂痕来自同一种逆接阵纹', payoff:'双方以一次有限合作换来半日调查时间', hook:'韩烈提前宣布三日后公开再战' },
+    { location:'后山废弃阵坪', objective:'完成一套能在不提升修为的前提下借地势卸力的阵法', opponent:names.han, ally:names.su, setback:'第一次布阵烧毁最后三块灵石', insight:'苏青萝的剑路能替代一处昂贵阵眼', payoff:'两人第一次完成可复现的配合', hook:'阿九带来韩烈私换擂台阵图的消息' },
+    { location:'山门坊市暗巷', objective:'从阿九手中换到阵图又不把同伴拖进无底债务', opponent:names.ajiu, ally:names.su, setback:'阿九不要灵石，只要他们在猎场替他取回一件东西', insight:'交易条件与父亲旧案指向同一座废矿', payoff:'沈砚用另一条真消息压低代价并保留拒绝权', hook:'阵图上写着魏长庚的私印编号' },
+    { location:'试剑台封阵区', objective:'在公开再战前验证阵眼而不惊动操阵者', opponent:names.wei, ally:names.xu, setback:'守阵弟子临时更换巡查路线', insight:'许小川发现供能灵石的磨损方向与账面相反', payoff:'他们用假故障逼出真正维护者', hook:'维护者看见沈砚后喊出他父亲的名字' },
+    { location:'外门公议坪', objective:'让证据进入公开记录，阻止魏长庚私下抹平事件', opponent:names.wei, ally:names.su, setback:'执事以证据来源非法为由反咬沈砚', insight:'苏青萝主动承认自己参与取证，迫使长老审理', payoff:'试剑台被临时封存，韩烈失去暗中改阵的机会', hook:'韩烈要求在未封存的旧台立刻决胜' },
+    { location:'旧试剑台', objective:'在韩烈改变策略后守住同伴和公开证据', opponent:names.han, ally:names.su, setback:'韩烈舍弃重剑改用速度，绕开原有卸力布置', insight:'对手每次变向都依赖同一只受过伤的脚', payoff:'沈砚用连续逼位把韩烈送进唯一仍有效的阵区', hook:'魏长庚在台下启动了毁台禁制' },
+    { location:'崩裂的试剑台', objective:'赢下决斗并救出被毁台阵波及的杂役弟子', opponent:names.han, ally:names.xu, setback:'救人会失去直接击败韩烈的最佳时机', insight:'同伴能替他守住证据，胜利不必由一人独占', payoff:'沈砚救人后仍借韩烈自己的剑势完成反杀，取得外门资格', hook:'外门令牌中弹出黑风猎场的灭口任务' },
+    { location:'黑风猎场入口', objective:'带四人小队进入猎场并确认首旗规则是否被篡改', opponent:names.wei, ally:names.ajiu, setback:'入场后地图立刻失效，出口阵也被封死', insight:'风向与地脉显示他们被送进废矿旧区', payoff:'阿九凭自己的渠道找到未登记的补给点', hook:'补给箱里有一截父亲旧阵图' },
+    { location:'赤松谷旗点', objective:'抢在围猎队前夺下第一枚阵旗并保全退路', opponent:names.han, ally:names.xu, setback:'旗点下埋着会引来妖兽的诱灵粉', insight:'诱灵粉只铺在沈砚一队的路线', payoff:'许小川反用机关把兽群引向空旗点', hook:'真正的旗被苏青萝从敌队手中夺走' },
+    { location:'裂石涧', objective:'接应独自持旗的苏青萝并查出规则突变来源', opponent:names.han, ally:names.su, setback:'韩烈用救援信号逼迫两队同时暴露位置', insight:'信号符的编号属于魏长庚管辖的库房', payoff:'苏青萝不等救援，主动切断追兵绳桥', hook:'队伍因此被迫分成两路' },
+    { location:'废矿北井', objective:'在分队状态下重建联络并避开魏长庚的封锁', opponent:names.wei, ally:names.ajiu, setback:'阿九隐瞒了自己来猎场寻找失踪兄长的目的', insight:'他的私心与队伍目标并非完全冲突，失踪者可能握有黑账', payoff:'沈砚给出有期限的合作条件而非强迫服从', hook:'井壁后传来被困弟子的敲击暗号' },
+    { location:'坍塌矿道', objective:'救出被困弟子并决定是否放弃夺旗时机', opponent:names.wei, ally:names.xu, setback:'支撑阵只能再维持半刻，救人会耗尽阵盘', insight:'被困者知道黑账藏处，却没人能保证他可信', payoff:'众人共同承担损耗救出活口，换来可交叉验证的证词', hook:'阵盘裂开，沈砚短时间失去看破阵纹的依仗' },
+    { location:'风骨岭', objective:'在失去阵盘辅助后穿过韩烈的追击线', opponent:names.han, ally:names.su, setback:'沈砚必须只靠此前学会的观察方法判断破绽', insight:'能力可以损坏，已经形成的判断习惯不会消失', payoff:'苏青萝正面牵制，沈砚用地形完成第一次无阵盘反制', hook:'韩烈交出魏长庚灭口令换取活路' },
+    { location:'废矿阵眼', objective:'验证灭口令并取出黑账而不触发自毁', opponent:names.wei, ally:names.ajiu, setback:'黑账与阿九兄长被锁在不同方向，时间只够救一边', insight:'锁阵将两处灵力汇入同一阵眼，可以先改写读取顺序', payoff:'阿九自己承担危险去救兄长，沈砚与同伴取得账页', hook:'魏长庚带执法队堵住矿口' },
+    { location:'废矿出口', objective:'带人证和账页突破执法队反追杀', opponent:names.wei, ally:names.xu, setback:'魏长庚公开宣称他们杀人夺旗，其他参赛者开始动摇', insight:'只有让旁观者看见规则矛盾，证据才不会被私下销毁', payoff:'许小川把账页编号刻上所有阵旗，逼更多队伍卷入见证', hook:'魏长庚启动封山大阵' },
+    { location:'猎场主峰', objective:'在封山前夺得首旗并让黑账进入长老视线', opponent:names.wei, ally:names.su, setback:'阵盘只修复一半，强行借阵会伤及经脉', insight:'四名同伴分别掌握一段阵路，必须同时行动', payoff:'群像配合让封山阵反向照亮黑账位置，沈砚夺旗而不独占功劳', hook:'魏长庚抛下韩烈独自逃向旧矿深处' },
+    { location:'黑风猎场祭旗台', objective:'完成事件结算、保住同伴并截住最后灭口者', opponent:names.wei, ally:names.ajiu, setback:'追击与救治伤员只能选择一个优先', insight:'真正的胜利是让证据和人都能走出猎场，而非亲手抓住每个敌人', payoff:'队伍夺得首旗、救出同门并公开黑账，魏长庚失去宗门庇护', hook:'父亲旧阵图的一角指出黑账背后还有内门长老' }
+  ];
+  return plans[Math.max(0, Math.min(plans.length - 1, chapterNumber - 1))]!;
+}
+
+const xianxiaExpansion: Array<(
+  hero: string, ally: string, opponent: string, plan: XianxiaChapterPlan
+) => string> = [
+  (hero,ally)=>`${hero}没有替${ally}决定该冒什么险。他把已知条件和最坏结果说清，让同伴自己选择站位。${ally}沉默片刻后改了其中一步，证明这支队伍的配合来自各自判断，而不是所有人围着主角旋转。`,
+  (hero,_ally,opponent)=>`${hero}重新检查${opponent}留下的痕迹，把亲眼所见、合理推断和仍未确认的部分分开。越是接近父亲旧案，他越不允许愿望代替证据；一个漂亮猜测若不能被下一步行动验证，就只能暂时留在纸外。`,
+  (hero,ally,_opponent,plan)=>`${plan.location}的灵气仍在缓慢回流。${hero}与${ally}逐段复盘方才的变化，确认哪一处来自阵法、哪一处来自人的临时决定。这样做拖慢了离开的速度，却让下一次交手不必靠重复受伤换取答案。`,
+  (hero,_ally,opponent)=>`${opponent}的后手并非凭空出现。此前被忽略的一次调度、一枚封签和一道改过的巡查令此刻连成线，说明对方也在根据${hero}的选择修正计划。对手越像真实的人，接下来的每一步就越不能侥幸。`,
+  (hero,ally)=>`${ally}提出另一条更稳的路，代价是放弃眼前的兑现。${hero}没有立即否决，两人把时间、伤势和证据存活率逐项摆开，最终保留一条撤离界线。热血不是假装没有恐惧，而是知道何时值得把退路押上去。`,
+  (hero,_ally,_opponent,plan)=>`${hero}把${plan.insight}记进阵图边缘，又刻意留出一块空白。那块空白提醒他：目前的解释只能支撑当前行动，不能提前替下一章、下一场战斗或更大的旧案写死答案。`
+];
+
+function extractProfileProtagonist(context: string): string | null {
+  const match = context.match(/"protagonists"\s*:\s*\[\s*\{[\s\S]{0,600}?"name"\s*:\s*"([^"\\]{1,12})"/u);
+  return match?.[1] ?? null;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function buildNovel(bookId: string, chapterNumber: number, title: string, previousState: string): string {

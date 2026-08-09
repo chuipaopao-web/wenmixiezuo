@@ -91,35 +91,22 @@ describe('完整创作工作台', () => {
     expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
   });
 
-  it('根入口先显示书架，打开书后只显示书籍左栏和统一创作台，返回书架不发送任务控制请求', async () => {
+  it('根入口直接进入最近书籍的统一创作台，不再经过书架或返回书架', async () => {
     window.history.replaceState(null, '', '/');
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    const shelf = await screen.findByRole('heading', { name: '我的作品' });
-    expect(shelf).toBeInTheDocument();
-    expect(shelf.closest('.bookshelf-home')?.querySelector('.bookshelf-scroll-region')).not.toBeNull();
-    expect(screen.getByRole('button', { name: '打开《雾钟档案》' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '首页功能' })).toBeInTheDocument();
-    expect(screen.queryByRole('navigation', { name: '创作功能' })).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/books/book-ui-1/workspace'))).toBe(false);
-
-    fireEvent.click(screen.getByRole('button', { name: '打开《雾钟档案》' }));
-    expect(await screen.findByRole('complementary', { name: '书籍' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: '书籍与创作导航' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '创作台内容' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '当前书创作流程' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/books/book-ui-1/conversation-entry'))).toBe(false);
-    expect(new URL(window.location.href).searchParams.get('book')).toBe('book-ui-1');
-
-    fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
-    expect(await screen.findByRole('heading', { name: '我的作品' })).toBeInTheDocument();
-    expect(new URL(window.location.href).searchParams.get('book')).toBeNull();
+    expect(screen.queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
-  it('空书架只显示一个创建新书入口', async () => {
+  it('没有书时直接显示统一创作台的新建引导', async () => {
     window.history.replaceState(null, '', '/');
     const baseRouter = createFetchRouter();
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -129,21 +116,19 @@ describe('完整创作工作台', () => {
     }));
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '把第一本书放进工作台' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: '创建新书' })).toHaveLength(1);
+    expect(await screen.findByRole('heading', { name: '创建第一本书' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('首页团队显示全局岗位模板，不把模板状态伪装成实时工作状态', async () => {
+  it('顶部团队入口显示当前书11名真实成员状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
-    expect(await screen.findByRole('heading', { name: '创作团队' })).toBeInTheDocument();
-    expect(screen.getAllByText('全局岗位模板').length).toBeGreaterThan(0);
+    expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
     expect(screen.getByText('11 名成员')).toBeInTheDocument();
-    expect(screen.queryByText('后台工作中')).not.toBeInTheDocument();
-    expect(screen.getAllByText('貂蝉（主编）').length).toBeGreaterThan(0);
-    expect(screen.getByText('Codex订阅 · gpt-5.6-sol')).toBeInTheDocument();
+    expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/只显示真实任务/)).toBeInTheDocument();
   });
 
   it('前后端短暂版本不一致时团队页仍能打开', async () => {
@@ -165,54 +150,37 @@ describe('完整创作工作台', () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
-    expect(await screen.findByRole('heading', { name: '创作团队' })).toBeInTheDocument();
-    expect(screen.getByText('11 名成员')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '雾钟档案' }));
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
+    expect(screen.getByText('11 名成员')).toBeInTheDocument();
     expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
   });
 
-  it('显示内容优先三栏、左栏只切换书籍、创作功能全部集中在创作台并通过自动无障碍检查', async () => {
+  it('使用左侧书籍与流程、中央内容和顶部工具的统一布局并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
     expect((await screen.findAllByText('雾钟档案')).length).toBeGreaterThanOrEqual(1);
-    const bookRail = screen.getByRole('complementary', { name: '书籍' });
-    expect(screen.getByRole('complementary', { name: '创作团队' })).toBeInTheDocument();
-    expect(await screen.findByText('11 名成员')).toBeInTheDocument();
+    const bookRail = screen.getByRole('complementary', { name: '书籍与创作导航' });
     expect(screen.queryByText('小文秘书（本地秘书）')).not.toBeInTheDocument();
-    expect(screen.getByText('秋香（主笔）')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /秋香（主笔），后台工作中/ })).toBeInTheDocument();
-    expect(screen.getByText('弄玉（版权）')).toBeInTheDocument();
-    expect(screen.getAllByRole('img', { name: /头像/ })).toHaveLength(11);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
     expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
 
-    expect(within(bookRail).getByRole('button', { name: '返回书架' })).toBeInTheDocument();
+    expect(within(bookRail).queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(within(bookRail).getByRole('button', { name: '新建书籍' })).toBeInTheDocument();
     expect(within(bookRail).getByRole('navigation', { name: '选择书籍' })).toBeInTheDocument();
     expect(within(bookRail).queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
-    expect(within(bookRail).queryByRole('button', { name: '图谱' })).not.toBeInTheDocument();
     expect(within(bookRail).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
 
-    const creationNavigation = screen.getByRole('navigation', { name: '创作台内容' });
-    for (const name of ['本书资料', '设定大纲', '当前卷', '事件设计', '章纲', '正文', '图谱', '资料库', '取名']) {
+    const creationNavigation = screen.getByRole('navigation', { name: '当前书创作流程' });
+    for (const name of ['本书资料', '设定大纲', '当前卷纲', '事件设计', '章纲', '正文', '故事资料库', '取名']) {
       expect(within(creationNavigation).getByRole('button', { name })).toBeInTheDocument();
     }
-    expect(within(creationNavigation).queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
-    expect(within(creationNavigation).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
+    for (const name of ['团队', '任务', '灵感讨论', '设置']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
     expect(document.querySelector('.workspace-tabs')).toBeNull();
-
-    const bookSummary = document.querySelector('.topbar-book-summary') as HTMLElement;
-    expect(bookSummary).toBeInTheDocument();
-    expect(within(bookSummary).getByText('雾钟档案')).toBeInTheDocument();
-    expect(within(bookSummary).getByText('创作中')).toBeInTheDocument();
-    expect(within(bookSummary).getByText('1 卷')).toBeInTheDocument();
-    expect(within(bookSummary).getByText('1 章')).toBeInTheDocument();
-    expect(within(bookSummary).getByText('正式内容版本 3')).toBeInTheDocument();
+    expect(document.querySelector('.team-rail')).toBeNull();
+    expect(document.querySelector('.topbar-book-summary')).toBeNull();
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
@@ -222,9 +190,7 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     await screen.findAllByText('雾钟档案');
-    fireEvent.click(screen.getByRole('button', { name: '返回书架' }));
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
-    fireEvent.click(await screen.findByRole('button', { name: '雾钟档案' }));
     const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
     expect(within(team).getByText('11 名成员')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
@@ -261,7 +227,7 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
   });
 
-  it('图谱和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
+  it('合并后的故事资料库和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
     const baseRouter = createFetchRouter();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), 'http://localhost').pathname;
@@ -279,7 +245,8 @@ describe('完整创作工作台', () => {
     }));
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '图谱' }));
+    fireEvent.click(await screen.findByRole('button', { name: '故事资料库' }));
+    fireEvent.click(await screen.findByRole('button', { name: '关系与轨迹' }));
     fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
     expect(await screen.findByText('第12章')).toBeInTheDocument();
     expect(screen.getByText('紧张 → 平静')).toBeInTheDocument();
@@ -295,15 +262,15 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
   });
 
-  it('把归档书移出主书架并放入可恢复的归档区', async () => {
+  it('把归档书移出活动书籍并放入左栏可恢复区域', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter('正文内容', { ...workspace, book: { ...book, status: 'archived' } })));
     render(<App />);
-    const archiveToggle = await screen.findByRole('button', { name: '查看已归档书籍，共 1 本' });
-    expect(screen.queryByRole('button', { name: /打开《雾钟档案》/ })).not.toBeInTheDocument();
+    const archiveToggle = await screen.findByText('已归档书籍 · 1');
+    expect(screen.queryByRole('navigation', { name: '当前书创作流程' })).not.toBeInTheDocument();
     fireEvent.click(archiveToggle);
     expect(screen.getByText('雾钟档案')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '恢复《雾钟档案》' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '彻底删除《雾钟档案》' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '恢复' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '彻底删除' })).toBeInTheDocument();
     expect(screen.queryByText('archived')).not.toBeInTheDocument();
   });
 
@@ -313,7 +280,7 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '创建新书' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '新建书籍' }))[0]!);
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
     expect(within(dialog).getByRole('navigation', { name: '开书步骤' })).toBeInTheDocument();
     expect(within(dialog).queryByText('主要选择 + 其他自由发挥')).not.toBeInTheDocument();
@@ -360,10 +327,7 @@ describe('完整创作工作台', () => {
     fireEvent.change(dialog.querySelector('#opening-protagonist-name')!, { target: { value: '林舟' } });
     fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '十八岁' } });
     fireEvent.change(dialog.querySelector('#opening-protagonist-background')!, { target: { value: '普通玩家' } });
-    for (const picker of Array.from(dialog.querySelectorAll('.tag-picker'))) {
-      const firstChoice = picker.querySelector('.tag-choice');
-      if (firstChoice !== null) fireEvent.click(firstChoice);
-    }
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '创建并进入设定' }));
     expect(fetchMock.mock.calls.some(([input, init]) =>

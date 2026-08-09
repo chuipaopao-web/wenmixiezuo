@@ -15,7 +15,7 @@ import {
 } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
-import type { ContextPackService, ContextSource } from '../memory/context-pack-service.js';
+import { estimateTokens, type ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import type { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
 import { TaskService, type TaskLeaseFence, type TaskRecord } from '../tasks/task-service.js';
 import {
@@ -238,12 +238,18 @@ export class VolumePlanGenerationPipelineService {
           continue;
         }
       }
+      const maxOutputTokens = 6_000;
+      const protocolOverhead = adapter.provider === 'openai-codex-subscription' ? 24_000 : 0;
+      const estimatedInputCeiling = Math.max(
+        Math.ceil(prompt.length / 2),
+        Math.ceil(estimateTokens(prompt) * 1.35)
+      );
       const requestId = this.ids.next();
       const reservationId = this.budgets.reserve(
         scope,
         task.budgetId,
         requestId,
-        adapter.provider === 'openai-codex-subscription' ? 30_000 : 12_000,
+        Math.max(12_000, estimatedInputCeiling + maxOutputTokens + protocolOverhead),
         0
       );
       try {
@@ -257,7 +263,7 @@ export class VolumePlanGenerationPipelineService {
           modelId: seat.modelId,
           input: prompt,
           parameters: JSON.stringify({
-            maxOutputTokens: 6_000,
+            maxOutputTokens,
             planOnly: !seat.provider.startsWith('local-deterministic'),
             cashFallbackAllowed: false
           }),
@@ -272,7 +278,7 @@ export class VolumePlanGenerationPipelineService {
           bookId: scope.bookId,
           agentId: seat.agentId,
           prompt,
-          maxOutputTokens: 6_000
+          maxOutputTokens
         });
         try {
           return parseVolumePlanModelOutput(result.output);

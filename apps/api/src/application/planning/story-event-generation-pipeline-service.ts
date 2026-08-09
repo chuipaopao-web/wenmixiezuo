@@ -12,7 +12,7 @@ import type { VolumePlanGenerationSeat } from '../../infrastructure/db/repositor
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
-import type { ContextPackService,ContextSource } from '../memory/context-pack-service.js';
+import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
 import type { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
 import { TaskService,type TaskLeaseFence,type TaskRecord } from '../tasks/task-service.js';
 import {
@@ -97,15 +97,27 @@ export class StoryEventGenerationPipelineService {
       const saved=this.repo.succeededResult(scope,{taskId:task.taskId,agentId:member.agentId,
         modelSnapshotId:member.modelSnapshotId,inputHash});
       if(saved!==undefined){try{return parseOutput(saved.output_text);}catch(error){issue=message(error);last=error;continue;}}
-      const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
-        adapter.provider==='openai-codex-subscription'?24000:9000,0);
+      const maxOutputTokens=4500;
+      // A following event carries the previous event settlement, so its prompt can be
+      // materially larger than the first event. Freeze against the actual request
+      // instead of a fixed first-event allowance. The two estimators cover both the
+      // deterministic fixture and real tokenizers; subscription protocol overhead is
+      // kept separate from the content allowance.
+      const protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
+      const estimatedInputCeiling=Math.max(
+        Math.ceil(input.length/2),Math.ceil(estimateTokens(input)*1.35)
+      );
+      const reservedTokens=Math.max(9000,estimatedInputCeiling+maxOutputTokens+protocolOverhead);
+      const requestId=this.ids.next(),reservationId=this.budgets.reserve(
+        scope,task.budgetId,requestId,reservedTokens,0
+      );
       try{
         const result=await this.calls.execute(scope,{requestId,taskId:task.taskId,
           phaseKey:kind+':attempt-'+task.currentAttemptNo+':try-'+attempt,agentId:member.agentId,
           modelSnapshotId:member.modelSnapshotId,provider:member.provider,modelId:member.modelId,input,
-          parameters:JSON.stringify({maxOutputTokens:4500,planOnly:!member.provider.startsWith('local-deterministic'),cashFallbackAllowed:false}),
+          parameters:JSON.stringify({maxOutputTokens,planOnly:!member.provider.startsWith('local-deterministic'),cashFallbackAllowed:false}),
           reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
-          requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:member.agentId,prompt:input,maxOutputTokens:4500
+          requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:member.agentId,prompt:input,maxOutputTokens
         });
         try{return parseOutput(result.output);}catch(error){issue=message(error);last=error;}
       }catch(error){last=error;if(this.repo.hasUnresolved(scope,task.taskId))throw error;}
@@ -155,7 +167,7 @@ function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,
     content:JSON.stringify(peers),reason:'两位编剧独立候选，供主编取舍融合',priority:100});
   return result;
 }
-function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,sources:unknown[]){
+function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerationSnapshot,_b:StoryEventGenerationBrief,sources:unknown[]){
   const fusion=kind==='fusion';return JSON.stringify({operation:'story_event_generation_v1',language:'zh-CN',
     seat:{roleKey:member.roleKey,displayName:member.displayName,mode:fusion?'chief_editor_fusion':'independent_screenwriter'},
     book:{title:s.bookTitle,eventOrder:s.order},instructions:fusion?[

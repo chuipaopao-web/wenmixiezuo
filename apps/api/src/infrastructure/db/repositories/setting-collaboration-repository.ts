@@ -23,6 +23,15 @@ export interface SettingProposalRow {
   created_at: string;
 }
 
+export interface SettingPanelMemberRow {
+  agent_id: string;
+  member_name: string;
+  role_key: string;
+  model_provider: string;
+  model_id: string;
+  responded: number;
+}
+
 export interface SettingRevisionTaskRow {
   task_id: string;
   status: string;
@@ -56,6 +65,13 @@ export class SettingCollaborationRepository {
     return this.database.prepare(
       "SELECT o.opinion_id AS proposal_id, o.agent_id AS sender_agent_id, a.display_name AS member_name, r.role_key, m.provider AS model_provider, m.model_id, CAST(json_extract(o.content_json, '$.recommendation') AS TEXT) AS content, (SELECT d.decision_id FROM discussion_decisions d WHERE d.owner_id = o.owner_id AND d.book_id = o.book_id AND d.discussion_id = o.discussion_id ORDER BY d.created_at DESC, d.decision_id DESC LIMIT 1) AS decision_id, o.created_at FROM discussion_opinions o JOIN agent_instances a ON a.agent_id = o.agent_id AND a.owner_id = o.owner_id AND a.book_id = o.book_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = o.model_snapshot_id WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent' ORDER BY o.created_at, o.opinion_id"
     ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingProposalRow[];
+  }
+
+  public panelMembers(scope: BookScope, discussionId: string): SettingPanelMemberRow[] {
+    assertBookScope(scope);
+    return this.database.prepare(
+      "SELECT p.agent_id, a.display_name AS member_name, r.role_key, m.provider AS model_provider, m.model_id, p.responded FROM discussion_participants p JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id) WHERE p.owner_id = ? AND p.book_id = ? AND p.discussion_id = ? ORDER BY CASE r.role_key WHEN 'chief_editor' THEN 0 WHEN 'lead_screenwriter' THEN 1 WHEN 'second_screenwriter' THEN 2 ELSE 9 END, p.agent_id"
+    ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingPanelMemberRow[];
   }
 
   public latestRevisionTask(scope: BookScope, itemKey: string): SettingRevisionTaskRow | undefined {

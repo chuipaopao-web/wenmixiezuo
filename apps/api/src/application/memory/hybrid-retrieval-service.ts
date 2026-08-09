@@ -1,4 +1,4 @@
-import type { EvidenceClosure, RetrievalCandidate, RetrievalMode } from '../../contracts/retrieval-plan.js';
+import type { EvidenceClosure, RetrievalMode } from '../../contracts/retrieval-plan.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';

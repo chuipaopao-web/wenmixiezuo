@@ -157,7 +157,11 @@ function deterministicEventChapterSequence(prompt: string): string | null {
   const estimatedRange = isRecord(event.estimatedChapterRange) ? event.estimatedChapterRange : {};
   const likelyCount = typeof estimatedRange.likely === 'number' && Number.isInteger(estimatedRange.likely)
     && estimatedRange.likely >= 1 && estimatedRange.likely <= 50 ? estimatedRange.likely : 3;
-  const titles = ['后果落地', '第一条线索', '阻力现身', '判断受挫', '代价兑现', '主动修正', '证据合流', '反制逼近', '最后选择', '局面改写'];
+  const titles = title.includes('试剑台')
+    ? ['生死状锁命', '药钱被扣', '废阵藏刃', '剑修拦路', '第一次布阵', '阿九的价码', '封阵区取证', '公议坪反咬', '旧台决战', '救人后反杀']
+    : title.includes('黑风猎场')
+      ? ['猎场错传', '赤松谷夺旗', '裂石涧接应', '废矿分队', '救人碎阵盘', '无阵盘反制', '阵眼取黑账', '出口反追杀', '主峰破封山阵', '祭旗台见真章']
+      : ['后果落地', '第一条线索', '阻力现身', '判断受挫', '代价兑现', '主动修正', '证据合流', '反制逼近', '最后选择', '局面改写'];
   const chapters = [];
   let previousState = opening;
   for (let index = 0; index < likelyCount; index += 1) {

@@ -4,7 +4,6 @@ import {
   appendProtagonistState,
   archiveProtagonistState,
   classifyProtagonistState,
-  createAttributeFormula,
   createLibraryTag,
   evaluateAttributeFormula,
   fetchAttributeFormulas,
@@ -13,7 +12,6 @@ import {
   type AttributeFormulaData,
   type LibraryData,
   type ProtagonistDashboardData,
-  type ProtagonistProfileData,
   type ProtagonistStateData
 } from '../../lib/api/client';
 import {
@@ -22,7 +20,6 @@ import {
   authorRelationshipLabel
 } from '../../app/author-presentation';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
-import { FORMULA_CATEGORIES } from '../planning/PlanningWorkspace';
 import { EmptyReference, RecordCollection, StructuredContent, authorityLabel, formatValue, isRecord } from '../shared/StructuredContent';
 
 type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
@@ -158,24 +155,6 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
     {formulas.length > 0 && <FormulaCalculator bookId={bookId} formulas={formulas} />}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </div>;
-}
-
-function AttributeFormulaManager({ bookId }: { bookId: string | null }): React.JSX.Element {
-  const [formulas, setFormulas] = useState<AttributeFormulaData[]>([]);
-  const [label, setLabel] = useState('');
-  const [expression, setExpression] = useState('');
-  const [variablesText, setVariablesText] = useState('');
-  const [unit, setUnit] = useState('');
-  const [category, setCategory] = useState(FORMULA_CATEGORIES[0]!);
-  const [notice, setNotice] = useState<string | null>(null);
-  const refresh = useCallback(() => bookId === null ? Promise.resolve() : fetchAttributeFormulas(bookId).then(setFormulas), [bookId]);
-  useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
-  const variables = parseFormulaVariables(variablesText);
-  return <section className="formula-manager"><header><h3>属性计算公式</h3><p>公式属于基本设定。只允许数字、已声明变量、括号和四则运算，不执行任何脚本。</p></header><form onSubmit={(event) => {
-    event.preventDefault(); if (bookId === null || !label.trim() || !expression.trim() || variables.length === 0) return;
-    void createAttributeFormula(bookId, { formulaKey: normalizeStateKey(label), label: label.trim(), category, expression: expression.trim(), variables, unit: unit.trim() || null }).then(async () => { setLabel(''); setExpression(''); setVariablesText(''); setUnit(''); await refresh(); setNotice('公式新版本已保存。'); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '公式保存失败'));
-  }}><div><label>用途分类<select value={category} onChange={(event) => setCategory(event.target.value)}>{FORMULA_CATEGORIES.map((value) => <option key={value}>{value}</option>)}</select></label><label>公式名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：主角综合战力" /></label><label>表达式<input value={expression} onChange={(event) => setExpression(event.target.value)} placeholder="攻击 * 2 + 防御" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="可留空" /></label></div><label>变量（每行：变量名:显示名）<textarea rows={4} value={variablesText} onChange={(event) => setVariablesText(event.target.value)} placeholder={'攻击:攻击力\n防御:防御力'} /></label><button className="primary-button" disabled={bookId === null || !label.trim() || !expression.trim() || variables.length === 0}>保存公式</button></form>
-    <RecordCollection records={formulas.map((formula) => ({ 分类: formula.category === 'uncategorized' ? '未分类' : formula.category, 名称: formula.label, 表达式: formula.expression, 变量: formula.variables.map((item) => item.label), 单位: formula.unit, 版本: formula.version }))} empty="还没有属性计算公式。非游戏题材可以不设置。" />{notice !== null && <p className="binding-status" role="status">{notice}</p>}</section>;
 }
 
 function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formulas: AttributeFormulaData[] }): React.JSX.Element {
@@ -364,18 +343,6 @@ function isLibraryData(value: unknown): value is LibraryData {
     && Array.isArray(value.settings) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
 }
 
-function parseFormulaVariables(value: string): Array<{ key: string; label: string }> {
-  const seen = new Set<string>();
-  return value.split(/\r?\n/u).flatMap((line) => {
-    const [rawKey, rawLabel] = line.split(':', 2);
-    if (rawKey === undefined || !rawKey.trim()) return [];
-    const key = normalizeStateKey(rawKey);
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ key, label: rawLabel?.trim() || rawKey.trim() }];
-  });
-}
-
 function emptyLibraryData(): LibraryData {
   return { canonRevision: 0, entities: [], facts: [], relations: [], tags: [], projections: [], gaps: [], settings: [], bookProfile: null, summary: { entityCount: 0, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } };
 }
@@ -408,4 +375,3 @@ function normalizeStateKey(value: string): string {
   const normalized = value.trim().replace(/\s+/gu, '_').replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/^([\p{N}-])/u, '_$1');
   return normalized.slice(0, 80) || '未命名';
 }
-

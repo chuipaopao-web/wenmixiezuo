@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { hashStableContractContent,parseEventChapterSequenceContent,type EventChapterSequenceContent } from '@wenmi/contracts';
+import { parseEventChapterSequenceContent,type EventChapterSequenceContent } from '@wenmi/contracts';
 import { parseChapterOutlineV2,type ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
@@ -16,7 +16,7 @@ import { EventChapterOutlineService } from './event-chapter-outline-service.js';
 
 export class EventChapterGenerationPipelineService {
   public constructor(private readonly repo:EventChapterGenerationRepository,private readonly outlineRepo:EventChapterOutlineRepository,
-    private readonly plans:EventChapterOutlineService,private readonly generations:EventChapterGenerationService,
+    private readonly plans:EventChapterOutlineService,_generations:EventChapterGenerationService,
     private readonly tasks:TaskService,private readonly budgets:BudgetService,private readonly calls:ModelCallService,
     private readonly packs:ContextPackService,private readonly ids:IdGenerator,private readonly clock:Clock,
     private readonly adapters:ModelAdapterFactory){}

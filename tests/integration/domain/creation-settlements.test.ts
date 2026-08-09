@@ -10,6 +10,7 @@ import {CreationSettlementRepository} from '../../../apps/api/src/infrastructure
 import {EventChapterOutlineRepository} from '../../../apps/api/src/infrastructure/db/repositories/event-chapter-outline-repository.js';
 import {LongformContinuityRepository} from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
 import {StoryEventRepository} from '../../../apps/api/src/infrastructure/db/repositories/story-event-repository.js';
+import {StoryEventGenerationRepository} from '../../../apps/api/src/infrastructure/db/repositories/story-event-generation-repository.js';
 import {VolumePlanRepository} from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
 import {UnitOfWork} from '../../../apps/api/src/infrastructure/db/unit-of-work.js';
 import {initializeDomainBook} from '../../helpers/domain-fixture.js';
@@ -100,6 +101,37 @@ describe('事件与卷结算',()=>{
     expect(next.previousVolumePlanId).toBe(plan.volumePlanId);
     expect(next.previousSettlementId).toBe(volumeResult.settlementId);
     expect(()=>settlements.settleVolume(otherScope,plan.volumePlanId,1)).toThrow();
+  });
+
+  it('下一事件能读取上一事件的story_arc结算作为上下文',()=>{
+    context=createTestContext('wenmi-next-event-settlement-');
+    const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
+    const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'双事件接力书'});
+    const scope={ownerId:context.config.ownerId,bookId:book.bookId};
+    prepare(context,scope,ids,clock);
+    const volumeRepo=new VolumePlanRepository(context.database);
+    const volumes=new VolumePlanService(volumeRepo,uow,ids,clock);
+    const plan=volumes.create(scope,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,planNumber:1,idempotencyKey:'next-event-volume'});
+    const content=volumeContent();
+    content.eventSequence.push({...content.eventSequence[0]!,eventId:'seed-2',order:2,title:'第二事件'});
+    const volumeVersion=volumes.addVersion(scope,plan.volumePlanId,{expectedPlanRevision:plan.revision,candidateKind:'author_edit',
+      template:noTemplate('volume'),content,idempotencyKey:'next-event-volume-v1'});
+    volumes.confirm(scope,plan.volumePlanId,{volumePlanVersionId:volumeVersion.volumePlanVersionId,expectedPlanRevision:plan.revision,
+      expectedActiveVersionId:null,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
+    const events=new StoryEventService(new StoryEventRepository(context.database),uow,ids,clock);
+    const chain=events.initialize(scope,plan.volumePlanId,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      idempotencyKey:'next-event-chain'});
+    const first=chain.events[0]!,second=chain.events[1]!;
+    const continuity=new LongformContinuityRepository(context.database);
+    const built=new StageSettlementService(continuity,uow,ids,clock).build(scope,{stageType:'story_arc',stageKey:first.eventId,
+      chapterStart:1,chapterEnd:3,canonRevision:3,payload:{irreversibleResults:['第一事件已完成']},
+      sources:[{sourceType:'chapter_settlement',sourceId:'chapter-source',sourceHash:'a'.repeat(64),locator:{chapterNumber:3}}],
+      probes:[{type:'source',expected:1,actual:1,passed:true}]});
+    context.database.prepare('UPDATE story_events SET previous_settlement_id=? WHERE owner_id=? AND book_id=? AND event_id=?')
+      .run(built.settlementId,scope.ownerId,scope.bookId,second.eventId);
+
+    const snapshot=new StoryEventGenerationRepository(context.database).snapshot(scope,second.eventId);
+    expect(snapshot?.previousSettlement).toMatchObject({id:built.settlementId,version:1});
   });
 });
 

@@ -26,7 +26,7 @@ describe('白话叙事模板接口', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toMatchObject({
       contractVersion: 1,
-      registryVersion: 1,
+      registryVersion: 2,
       scope: 'volume',
       registryHash: expect.stringMatching(/^sha256:/u),
       alternativeChoices: [
@@ -35,7 +35,9 @@ describe('白话叙事模板接口', () => {
       ]
     });
     expect(response.json().data.templates.every((item: Record<string, unknown>) => item.scope === 'volume')).toBe(true);
-    expect(response.body).not.toMatch(/sourceMethod|legacyIds|三幕|五幕|猫咪/iu);
+    expect(response.body).not.toMatch(/sourceMethod|legacyIds|Save the Cat/iu);
+    expect(response.json().data.templates.map((item: Record<string, unknown>) => item.sourceLabel))
+      .toEqual(expect.arrayContaining(['三幕式', '五幕式', '救猫咪结构']));
   });
 
   it('拒绝非法范围和不存在的书', async () => {

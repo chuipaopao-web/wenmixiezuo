@@ -236,7 +236,7 @@ function cleanPersonName(value: string | undefined): string | null {
 }
 
 function matchPersonalities(text: string): string[] {
-  const matched = matchTerms(text, OPENING_TAXONOMY.personalityOptions, 6);
+  const matched = matchTerms(text, OPENING_TAXONOMY.personalityOptions, 8);
   for (const [alias, canonical] of personalityAliases) {
     if (text.includes(alias) && !matched.includes(canonical) && matched.length < 6) matched.push(canonical);
   }

@@ -79,6 +79,7 @@ import {
   type DecideAuthorPlanningInput
 } from '../application/planning/author-collaboration-service.js';
 import { AuthorPlanningInputRepository } from '../infrastructure/db/repositories/author-planning-input-repository.js';
+import { IdeationService } from '../application/ideation/ideation-service.js';
 import { VolumePlanService, type VolumePlanCandidateKind } from '../application/planning/volume-plan-service.js';
 import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
 import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
@@ -231,6 +232,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
   const authorCollaboration = new AuthorCollaborationService(
     new AuthorPlanningInputRepository(database), new UnitOfWork(database), ids, clock
+  );
+  const ideation = new IdeationService(
+    database, ids, clock, discussions, tasks, authorCollaboration
   );
   const volumePlans = new VolumePlanService(
     new VolumePlanRepository(database), new UnitOfWork(database), ids, clock
@@ -1317,10 +1321,48 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; discussionId: string }; Body: { decisionId: string } }>('/api/v1/books/:bookId/discussions/:discussionId/confirm', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
+    if (ideation.isIdeationDiscussion(scope, request.params.discussionId)) {
+      throw new DomainError(errorCodes.validation,
+        '灵感讨论不能整轮确认或直接写入正式内容；请只选择需要的一条建议，转为指定创作对象的作者意见。', {}, false, 409);
+    }
     const discussion = discussions.confirm(scope, request.params.discussionId, request.body.decisionId);
     const planning = new PlanningArtifactService(database, ids, clock)
       .promoteIfPlanningTask(scope, request.params.discussionId, request.body.decisionId);
     return success({ discussion, planning }, request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/ideation/members', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(ideation.members(scope), request.id);
+  });
+
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/ideation/rounds', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(ideation.rounds(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: {
+    message: string; participantAgentIds: string[]; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/ideation/rounds', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(ideation.startRound(scope, request.body), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; roundId: string }; Body: {
+    opinionId: string;
+    surface: import('@wenmi/contracts').AuthorInputSurface;
+    subjectType: string;
+    subjectId?: string | null;
+    intentStrength?: import('@wenmi/contracts').AuthorIntentStrength;
+    scopeNotes?: string | null;
+    idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/ideation/rounds/:roundId/promote', async (request) => {
+    const scope = { ...owner, bookId: request.params.bookId };
+    books.require(scope);
+    return success(ideation.promote(scope, request.params.roundId, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { volumeNumber: number; title: string } }>('/api/v1/books/:bookId/volumes', async (request) => {

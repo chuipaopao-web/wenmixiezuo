@@ -77,11 +77,18 @@ export interface PlanningTemplateBeatInstance {
   authorAdjustment?: string;
 }
 
+export interface PlanningTemplateReference {
+  templateKey: string;
+  templateVersion: number;
+  templateHash: string;
+}
+
 export interface PlanningTemplateInstance {
   selectionMode: TemplateSelectionMode;
   templateKey: string | null;
   templateVersion: number | null;
   templateHash: string | null;
+  templateRefs?: PlanningTemplateReference[];
   scope: PlanningScope;
   beats: PlanningTemplateBeatInstance[];
   customDirection: string | null;
@@ -459,11 +466,22 @@ export function parsePlanningTemplateInstance(input: unknown, expectedScope?: Pl
   const templateKey = optionalText(value.templateKey, '推进参考标识');
   const templateVersion = optionalPositiveInteger(value.templateVersion, '推进参考版本');
   const templateHash = optionalHash(value.templateHash, '推进参考哈希');
+  const templateRefs = requireRecordArray(value.templateRefs ?? [], '混合推进参考').map((item) => ({
+    templateKey: requireText(item.templateKey, '混合推进参考标识'),
+    templateVersion: requirePositiveInteger(item.templateVersion, '混合推进参考版本'),
+    templateHash: requireHash(item.templateHash, '混合推进参考哈希')
+  }));
+  if (new Set(templateRefs.map((item) => item.templateKey)).size !== templateRefs.length) {
+    throw new Error('混合推进参考不能重复。');
+  }
   if (selectionMode === 'template' && (templateKey === null || templateVersion === null || templateHash === null)) {
     throw new Error('选择系统推进参考时，必须记录模板标识、版本和哈希。');
   }
   if (selectionMode !== 'template' && (templateKey !== null || templateVersion !== null || templateHash !== null)) {
     throw new Error('自定义或不使用推进参考时，不应绑定系统模板版本。');
+  }
+  if (selectionMode !== 'template' && templateRefs.length > 0) {
+    throw new Error('自定义或不使用推进参考时，不应绑定混合模板。');
   }
   const beats = requireRecordArray(value.beats, '推进节点').map((item) => {
     const authorAdjustment = optionalText(item.authorAdjustment, '作者调整');
@@ -482,6 +500,7 @@ export function parsePlanningTemplateInstance(input: unknown, expectedScope?: Pl
     templateKey,
     templateVersion,
     templateHash,
+    ...(templateRefs.length > 0 ? { templateRefs } : {}),
     scope,
     beats,
     customDirection: optionalText(value.customDirection, '自定义推进方向')

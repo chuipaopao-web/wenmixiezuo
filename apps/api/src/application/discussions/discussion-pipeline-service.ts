@@ -668,18 +668,6 @@ export class DiscussionPipelineService {
 
 }
 
-function splitStageCandidateText(content: string): string[] {
-  const normalized = content.replace(/\r\n?/gu, '\n').trim();
-  const marker = /(?:^|\n)\s*(?:[一二三][、.．]|[123][、.．)])\s*/gu;
-  const matches = [...normalized.matchAll(marker)];
-  if (matches.length !== 3) return [];
-  return matches.map((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = matches[index + 1]?.index ?? normalized.length;
-    return normalized.slice(start, end).trim();
-  }).filter((candidate) => candidate.length > 0);
-}
-
 function planningHierarchySources(
   database: DatabaseSync,
   scope: BookScope,

@@ -760,13 +760,6 @@ export class CanonService {
     return row;
   }
 
-  private requireFact(scope: BookScope, factId: string): FactRow {
-    const row = this.database.prepare(`SELECT * FROM fact_assertions WHERE fact_id = ? AND owner_id = ? AND book_id = ?`)
-      .get(factId, scope.ownerId, scope.bookId) as FactRow | undefined;
-    if (row === undefined) throw new Error('事实不存在或越权');
-    return row;
-  }
-
   private findConflictingFact(scope: BookScope, input: FactInput): FactRow | undefined {
     const conflict = this.database.prepare(`
       SELECT * FROM fact_assertions

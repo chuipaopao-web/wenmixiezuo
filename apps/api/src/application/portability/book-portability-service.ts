@@ -66,7 +66,7 @@ export class BookPortabilityService {
       for (const table of this.repository.bookScopedTables(excludedTables)) {
         tables[table] = this.repository.rows(scope, table);
       }
-      const files = this.collectFiles(scope, tables.file_registry ?? []);
+      const files = this.collectFiles(tables.file_registry ?? []);
       const core: PortablePackageCore = {
         format: FORMAT,
         formatVersion: FORMAT_VERSION,
@@ -141,7 +141,7 @@ export class BookPortabilityService {
     return this.repository.listOperations(ownerId);
   }
 
-  private collectFiles(scope: BookScope, rows: Array<Record<string, unknown>>): PortableFile[] {
+  private collectFiles(rows: Array<Record<string, unknown>>): PortableFile[] {
     const files: PortableFile[] = [];
     for (const row of rows) {
       if (row.status !== 'active' || typeof row.relative_path !== 'string' || typeof row.file_id !== 'string') continue;

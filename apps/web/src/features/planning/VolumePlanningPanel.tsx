@@ -39,7 +39,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VolumePlanVersionData[]>([]);
   const [generation, setGeneration] = useState<VolumePlanGenerationData | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<PublicNarrativeTemplate | null>(null);
+  const [selectedTemplates, setSelectedTemplates] = useState<PublicNarrativeTemplate[]>([]);
   const [templateMode, setTemplateMode] = useState<'template' | 'custom' | 'none'>('none');
   const [customDirection, setCustomDirection] = useState('');
   const [draft, setDraft] = useState<VolumePlanContent>(() => emptyVolumePlan(1));
@@ -147,7 +147,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         authorInputRefs: authorIdeas
           .filter((idea) => !['withdrawn', 'superseded'].includes(idea.status))
           .map((idea) => idea.authorInputId),
-        template: templateInstance(templateMode, selectedTemplate, customDirection),
+        template: templateInstance(templateMode, selectedTemplates, customDirection),
         content: draft,
         idempotencyKey: key(`volume-author-${selectedPlan.volumePlanId}`)
       });
@@ -167,7 +167,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         expectedPlanRevision: selectedPlan.revision,
         expectedActiveVersionId: selectedPlan.activeVersionId,
         expectedWorkflowVersion: snapshot.workflow.planningVersion,
-        template: templateInstance(templateMode, selectedTemplate, customDirection),
+        template: templateInstance(templateMode, selectedTemplates, customDirection),
         authorInputRefs: authorIdeas
           .filter((idea) => !['withdrawn', 'superseded'].includes(idea.status))
           .map((idea) => idea.authorInputId),
@@ -270,10 +270,18 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
       <TemplateChooser
         catalog={snapshot.templates}
         mode={templateMode}
-        selected={selectedTemplate}
+        selected={selectedTemplates}
         customDirection={customDirection}
         onMode={setTemplateMode}
-        onSelect={(template) => { setSelectedTemplate(template); setTemplateMode('template'); }}
+        onSelect={(template) => {
+          setSelectedTemplates((current) => {
+            const next = current.some((item) => item.templateKey === template.templateKey)
+              ? current.filter((item) => item.templateKey !== template.templateKey)
+              : [...current, template].slice(-3);
+            setTemplateMode(next.length === 0 ? 'none' : 'template');
+            return next;
+          });
+        }}
         onCustomDirection={setCustomDirection}
       />
 
@@ -319,21 +327,22 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
 function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onSelect, onCustomDirection }: {
   catalog: NarrativeTemplateCatalogView;
   mode: 'template' | 'custom' | 'none';
-  selected: PublicNarrativeTemplate | null;
+  selected: PublicNarrativeTemplate[];
   customDirection: string;
   onMode: (mode: 'template' | 'custom' | 'none') => void;
   onSelect: (template: PublicNarrativeTemplate) => void;
   onCustomDirection: (value: string) => void;
 }): React.JSX.Element {
   return <section className="volume-template-section">
-    <header><div><h4>这一卷想怎么推进？</h4><p>这些是大白话的节奏参考，可以调整，也可以完全不用。</p></div></header>
+    <header><div><h4>这一卷想怎么推进？</h4><p>主标题用大白话说明效果，角标标出叙事方法来源；最多混合3种，也可以完全不用。</p></div>{mode === 'template' && <span>已选 {selected.length}/3</span>}</header>
     <div className="volume-template-grid">
       {catalog.templates.map((template) => <button
         type="button"
-        className={mode === 'template' && selected?.templateKey === template.templateKey ? 'selected' : ''}
+        className={mode === 'template' && selected.some((item) => item.templateKey === template.templateKey) ? 'selected' : ''}
         key={template.templateKey}
         onClick={() => onSelect(template)}
-      ><span>{template.recommended ? '推荐' : '推进参考'}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p></button>)}
+        disabled={mode === 'template' && selected.length >= 3 && !selected.some((item) => item.templateKey === template.templateKey)}
+      ><span>{template.recommended ? '推荐' : template.sourceLabel}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>)}
       <button type="button" className={mode === 'custom' ? 'selected' : ''} onClick={() => onMode('custom')}><span>自定义</span><strong>按我的想法推进</strong><p>只记录你的方向，不套用固定节奏。</p></button>
       <button type="button" className={mode === 'none' ? 'selected' : ''} onClick={() => onMode('none')}><span>自由设计</span><strong>暂时不选推进参考</strong><p>让人物目标和已有因果自然决定本卷结构。</p></button>
     </div>
@@ -470,13 +479,20 @@ function emptyVolumePlan(planNumber: number): VolumePlanContent {
 
 function templateInstance(
   mode: 'template' | 'custom' | 'none',
-  selected: PublicNarrativeTemplate | null,
+  selected: PublicNarrativeTemplate[],
   customDirection: string
 ): PlanningTemplateInstance {
-  if (mode === 'template' && selected !== null) return {
-    selectionMode: 'template', templateKey: selected.templateKey, templateVersion: selected.templateVersion,
-    templateHash: selected.contentHash, scope: 'volume',
-    beats: selected.beats.map((beat) => ({ ...beat, authorIdeaRefs: [] })), customDirection: null
+  const primary = selected[0] ?? null;
+  if (mode === 'template' && primary !== null) return {
+    selectionMode: 'template', templateKey: primary.templateKey, templateVersion: primary.templateVersion,
+    templateHash: primary.contentHash,
+    templateRefs: selected.map((template) => ({
+      templateKey: template.templateKey, templateVersion: template.templateVersion, templateHash: template.contentHash
+    })),
+    scope: 'volume',
+    beats: selected.flatMap((template, templateIndex) => template.beats.map((beat) => ({
+      ...beat, beatId: `${template.templateKey}:${beat.beatId}`, order: templateIndex * 100 + beat.order, authorIdeaRefs: []
+    }))), customDirection: null
   };
   return {
     selectionMode: mode, templateKey: null, templateVersion: null, templateHash: null,

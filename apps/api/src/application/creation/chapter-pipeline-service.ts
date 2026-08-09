@@ -5,7 +5,6 @@ import { ArtifactService } from '../artifacts/artifact-service.js';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
-import { CanonService } from '../knowledge/canon-service.js';
 import { ContextPackService, estimateTokens, type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
@@ -1302,7 +1301,7 @@ export class ChapterPipelineService {
     });
   }
 
-  private settle(scope: BookScope, run: PipelineRow): PipelineRow {
+  private settle(_scope: BookScope, run: PipelineRow): PipelineRow {
     if (run.confirmation_id === null) throw new Error('结算阶段缺少老板确认单');
     return this.advance(run, 'completed');
   }
@@ -1441,8 +1440,16 @@ export class ChapterPipelineService {
     `).get(run.task_id, scope.ownerId, scope.bookId) as { lease_token: string | null; current_attempt_no: number } | undefined;
     if (lease === undefined || lease.lease_token === null) throw new Error('模型调用缺少活动任务租约');
     const budgets = new BudgetService(this.database, this.ids, this.clock);
+    // The deterministic writer is an acceptance fixture, but it must still receive
+    // the same compiled book/volume/event/outline context as a real writer. Keeping
+    // draft prompts context-free made technical E2E runs silently produce an
+    // unrelated canned story, so those runs could not validate the workflow's most
+    // important context contract. Deterministic reviewers keep their compact schema
+    // input because they validate protocol behavior rather than story generation.
     const modelPrompt = adapter.provider.startsWith('local-deterministic')
-      ? prompt
+      ? phaseKey === 'draft'
+        ? this.deterministicDraftPromptWithContext(scope, contextPackId, prompt)
+        : prompt
       : this.promptWithContext(scope, contextPackId, phaseKey, prompt);
     const inputHash = createHash('sha256').update(modelPrompt).digest('hex');
     const reusable = this.database.prepare(`
@@ -1712,6 +1719,20 @@ export class ChapterPipelineService {
       contextPackHash: row.content_hash,
       sources: JSON.parse(row.source_manifest_json) as unknown,
       taskInput: compactTaskInput
+    });
+  }
+
+  private deterministicDraftPromptWithContext(scope: BookScope, contextPackId: string, taskInput: string): string {
+    const row = this.database.prepare(`
+      SELECT source_manifest_json FROM context_packs
+      WHERE context_pack_id = ? AND owner_id = ? AND book_id = ? AND status = 'active'
+    `).get(contextPackId, scope.ownerId, scope.bookId) as { source_manifest_json: string } | undefined;
+    if (row === undefined) throw new Error('本地验收写手的上下文包不存在、已失效或越权');
+    const parsed = JSON.parse(taskInput) as unknown;
+    if (!isRecordValue(parsed)) throw new Error('本地验收写手任务格式无效');
+    return JSON.stringify({
+      ...parsed,
+      sources: JSON.parse(row.source_manifest_json) as unknown
     });
   }
 

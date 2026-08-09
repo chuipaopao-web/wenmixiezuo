@@ -63,6 +63,31 @@ export interface BookData {
   updatedAt: string;
 }
 
+export interface IdeationMemberData extends AgentData {
+  host: boolean;
+}
+
+export interface IdeationRoundData {
+  roundId: string;
+  taskId: string;
+  status: string;
+  phase: string;
+  errorCode: string | null;
+  authorMessage: string;
+  createdAt: string;
+  updatedAt: string;
+  responses: Array<{
+    opinionId: string;
+    agentId: string;
+    memberName: string;
+    roleKey: string;
+    provider: string;
+    modelId: string;
+    content: string;
+    createdAt: string;
+  }>;
+}
+
 export interface SettingOutlineWorkspaceData {
   itemKey: string;
   groupTitle: string;
@@ -102,6 +127,16 @@ export interface SettingCollaborationData {
       decisionId: string | null;
       createdAt: string;
     }>;
+    members: Array<{
+      agentId: string;
+      memberName: string;
+      roleKey: string;
+      modelProvider: string;
+      modelId: string;
+      status: 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
+      contextSummary: string;
+      outputSummary: string | null;
+    }>;
   };
   revisionTask: null | {
     taskId: string;
@@ -132,6 +167,7 @@ export interface OpeningTaxonomyData {
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
+  personalityGroups: Array<{ key: string; name: string; description: string; options: string[] }>;
   boundaryGroups: Array<{ name: string; description: string; options: string[] }>;
   subjects: Array<{ name: string; packKeys: string[] }>;
   tagGroups: Array<{
@@ -1760,4 +1796,36 @@ export function importBookCopy(packageName: string): Promise<{ bookId: string; t
 
 export function fetchProjections(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/projections`, signal === undefined ? {} : { signal });
+}
+
+export function fetchIdeationMembers(bookId: string, signal?: AbortSignal): Promise<IdeationMemberData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/ideation/members`, signal === undefined ? {} : { signal });
+}
+
+export function fetchIdeationRounds(bookId: string, signal?: AbortSignal): Promise<IdeationRoundData[]> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/ideation/rounds`, signal === undefined ? {} : { signal });
+}
+
+export function startIdeationRound(bookId: string, input: {
+  message: string;
+  participantAgentIds: string[];
+  idempotencyKey: string;
+}): Promise<IdeationRoundData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/ideation/rounds`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function promoteIdeationOpinion(bookId: string, roundId: string, input: {
+  opinionId: string;
+  surface: AuthorInputSurface;
+  subjectType: string;
+  subjectId?: string | null;
+  intentStrength?: 'must' | 'strong_preference' | 'inspiration' | 'question';
+  scopeNotes?: string | null;
+  idempotencyKey: string;
+}): Promise<AuthorPlanningInput> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/ideation/rounds/${encodeURIComponent(roundId)}/promote`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
 }

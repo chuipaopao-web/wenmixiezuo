@@ -14,7 +14,7 @@ export class ChapterApprovalService {
   public constructor(
     private readonly repository: ProductionWorkflowRepository,
     private readonly dataDir: string,
-    private readonly releaseId: string,
+    _releaseId: string,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly chapters: ChapterCatalogService,

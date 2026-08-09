@@ -24,7 +24,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const [versions,setVersions]=useState<StoryEventVersionData[]>([]);
   const [generation,setGeneration]=useState<StoryEventGenerationData|null>(null);
   const [mode,setMode]=useState<'template'|'custom'|'none'>('none');
-  const [selectedTemplate,setSelectedTemplate]=useState<PublicNarrativeTemplate|null>(null);
+  const [selectedTemplates,setSelectedTemplates]=useState<PublicNarrativeTemplate[]>([]);
   const [customDirection,setCustomDirection]=useState('');
   const [draft,setDraft]=useState<StoryEventContent>(()=>emptyEvent('新事件'));
   const [editing,setEditing]=useState(false);
@@ -85,7 +85,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const generate=()=>{if(selected===null||snapshot===null)return;void run(async()=>{
     setGeneration(await startStoryEventGeneration(bookId,selected.eventId,{
       expectedEventRevision:selected.revision,expectedActiveVersionId:selected.activeVersionId,
-      expectedWorkflowVersion:snapshot.workflow.planningVersion,template:templateInstance(mode,selectedTemplate,customDirection),
+      expectedWorkflowVersion:snapshot.workflow.planningVersion,template:templateInstance(mode,selectedTemplates,customDirection),
       authorInputRefs:await authorRefs(selected.eventId),idempotencyKey:key('event-team')
     }));
   });};
@@ -93,7 +93,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const saveDraft=()=>{if(selected===null)return;void run(async()=>{
     const saved=await addStoryEventVersion(bookId,selected.eventId,{
       expectedEventRevision:selected.revision,candidateKind:'author_edit',parentVersionId:selected.activeVersionId,
-      authorInputRefs:await authorRefs(selected.eventId),template:templateInstance(mode,selectedTemplate,customDirection),
+      authorInputRefs:await authorRefs(selected.eventId),template:templateInstance(mode,selectedTemplates,customDirection),
       content:draft,idempotencyKey:key('event-author')
     });setVersions(await fetchStoryEventVersions(bookId,selected.eventId));setEditing(false);
     setImpact(await previewStoryEventImpact(bookId,selected.eventId,saved.storyEventVersionId));
@@ -183,11 +183,13 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
             <button type="button" disabled={busy||selected.order===sequence.events.length} onClick={mergeNext}>与下一个合并</button></div>
         </section>
 
-        <section className="event-template-section"><header><h4>这个事件想怎么推进？</h4><p>以下是大白话参考，不是剧情公式。</p></header>
+        <section className="event-template-section"><header><h4>这个事件想怎么推进？</h4><p>以下是大白话参考，不是剧情公式；最多可以混合3种。</p><span>已选 {selectedTemplates.length}/3</span></header>
           <div className="event-template-grid">{snapshot.templates.templates.map(template=><button type="button"
-            className={mode==='template'&&selectedTemplate?.templateKey===template.templateKey?'selected':''}
-            key={template.templateKey} onClick={()=>{setMode('template');setSelectedTemplate(template);}}>
-            <span>{template.recommended?'适合本书':'可选参考'}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p></button>)}
+            className={mode==='template'&&selectedTemplates.some(item=>item.templateKey===template.templateKey)?'selected':''}
+            disabled={mode==='template'&&selectedTemplates.length>=3&&!selectedTemplates.some(item=>item.templateKey===template.templateKey)}
+            key={template.templateKey} onClick={()=>{setSelectedTemplates(current=>{const next=current.some(item=>item.templateKey===template.templateKey)
+              ?current.filter(item=>item.templateKey!==template.templateKey):[...current,template].slice(-3);setMode(next.length===0?'none':'template');return next;});}}>
+            <span>{template.recommended?'适合本书':template.sourceLabel}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>)}
             <button type="button" className={mode==='custom'?'selected':''} onClick={()=>setMode('custom')}><span>自己决定</span><strong>按我的方向推进</strong><p>只把你的方向交给团队，不套固定顺序。</p></button>
             <button type="button" className={mode==='none'?'selected':''} onClick={()=>setMode('none')}><span>自由设计</span><strong>让人物和因果自然推动</strong><p>不选择结构参考，由当前局面决定事件形态。</p></button></div>
           {mode==='custom'&&<textarea rows={3} value={customDirection} onChange={e=>setCustomDirection(e.target.value)}
@@ -319,10 +321,13 @@ function mergeEvents(a:StoryEventContent,b:StoryEventContent):StoryEventContent{
     likely:add(a.estimatedChapterRange.likely,b.estimatedChapterRange.likely),maximum:add(a.estimatedChapterRange.maximum,b.estimatedChapterRange.maximum)},
   uncertaintyNotes:[...new Set([...a.uncertaintyNotes,...b.uncertaintyNotes])]};}
 function add(a:number|null,b:number|null){return a===null||b===null?null:a+b;}
-function templateInstance(mode:'template'|'custom'|'none',selected:PublicNarrativeTemplate|null,direction:string):PlanningTemplateInstance{
-  if(mode==='template'&&selected!==null)return{selectionMode:'template',templateKey:selected.templateKey,
-    templateVersion:selected.templateVersion,templateHash:selected.contentHash,scope:'event',
-    beats:selected.beats.map(beat=>({...beat,authorIdeaRefs:[]})),customDirection:null};
+function templateInstance(mode:'template'|'custom'|'none',selected:PublicNarrativeTemplate[],direction:string):PlanningTemplateInstance{
+  const primary=selected[0]??null;
+  if(mode==='template'&&primary!==null)return{selectionMode:'template',templateKey:primary.templateKey,
+    templateVersion:primary.templateVersion,templateHash:primary.contentHash,
+    templateRefs:selected.map(template=>({templateKey:template.templateKey,templateVersion:template.templateVersion,templateHash:template.contentHash})),
+    scope:'event',beats:selected.flatMap((template,index)=>template.beats.map(beat=>({...beat,
+      beatId:template.templateKey+':'+beat.beatId,order:index*100+beat.order,authorIdeaRefs:[]}))),customDirection:null};
   return{selectionMode:mode,templateKey:null,templateVersion:null,templateHash:null,scope:'event',beats:[],
     customDirection:mode==='custom'?direction.trim()||null:null};}
 function lines(value:string){return[...new Set(value.split(/\r?\n/u).map(item=>item.trim()).filter(Boolean))];}

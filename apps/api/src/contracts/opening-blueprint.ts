@@ -24,6 +24,13 @@ export interface OpeningBoundaryGroup {
   options: string[];
 }
 
+export interface OpeningPersonalityGroup {
+  key: string;
+  name: string;
+  description: string;
+  options: string[];
+}
+
 export interface OpeningTaxonomy {
   version: string;
   sourceLabel: string;
@@ -35,6 +42,7 @@ export interface OpeningTaxonomy {
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
+  personalityGroups: OpeningPersonalityGroup[];
   boundaryGroups: OpeningBoundaryGroup[];
   tagGroups: OpeningTagGroup[];
   subjects: OpeningSubjectOption[];
@@ -181,8 +189,53 @@ const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
   ...group.storyTraits
 ]))];
 
+const personalityGroups: OpeningPersonalityGroup[] = [
+  {
+    key: 'surface',
+    name: '外在气质',
+    description: '别人初见这个角色时最容易感受到的一面。',
+    options: ['冷静', '沉稳', '热情', '温柔', '克制', '幽默', '毒舌', '疏离', '亲和', '骄傲', '叛逆', '慢热']
+  },
+  {
+    key: 'decision',
+    name: '思考与决策',
+    description: '角色遇到问题时怎样观察、判断和行动。',
+    options: ['理性', '敏锐', '果断', '谨慎', '多疑', '冲动', '务实', '理想主义', '善于谋划', '随机应变', '执拗', '优柔寡断']
+  },
+  {
+    key: 'drive',
+    name: '核心驱动力',
+    description: '真正推动角色长期选择的内在需要。',
+    options: ['野心勃勃', '责任感强', '渴望认可', '追求自由', '重视公平', '强烈求知欲', '保护欲强', '复仇心重', '害怕失去', '渴望归属', '证明自己', '守护承诺']
+  },
+  {
+    key: 'relationship',
+    name: '人际模式',
+    description: '角色怎样信任、靠近、合作或对抗别人。',
+    options: ['重情重义', '外冷内热', '嘴硬心软', '敢爱敢恨', '独立疏离', '善于共情', '控制欲强', '讨好型', '戒备心强', '慕强', '护短', '社牛', '社恐']
+  },
+  {
+    key: 'pressure',
+    name: '压力反应',
+    description: '危险、失败和失控时会暴露的真实反应。',
+    options: ['越挫越勇', '临危不乱', '逞强硬撑', '逃避拖延', '自我怀疑', '迁怒他人', '极端冒险', '过度控制', '沉默封闭', '以笑掩饰', '先保全再反击', '宁折不弯']
+  },
+  {
+    key: 'moral',
+    name: '道德边界',
+    description: '角色愿意做什么、绝不会做什么，以及底线如何被考验。',
+    options: ['善良有底线', '杀伐果断', '原则至上', '结果至上', '恩怨分明', '宽容克制', '睚眦必报', '利益优先', '不伤无辜', '愿为大局牺牲', '绝不背叛', '底线会随代价动摇']
+  },
+  {
+    key: 'contradiction',
+    name: '矛盾与成长面',
+    description: '让人物不扁平的内外反差、缺点或潜在变化。',
+    options: ['自信但怕失败', '强势却缺乏安全感', '善良但不敢拒绝', '聪明却过度自负', '勇敢但容易冲动', '理性却不懂表达', '渴望亲密又害怕依赖', '追求正义却手段激进', '看似随和实则固执', '看似冷漠实则重情', '会从自保走向担当', '会从依赖走向独立']
+  }
+];
+
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-08-01-v6',
+  version: 'wenmi-single-category-subject-library-2026-08-10-v7',
   sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-08-01',
@@ -196,10 +249,8 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
     ...uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary')
   ])],
   storyTraits: uniqueTagValues(OPENING_TAG_GROUPS, 'trait'),
-  personalityOptions: [
-    '冷静', '果断', '敏锐', '理性', '坚韧', '乐观', '温柔', '克制', '善良有底线', '责任感强', '外冷内热', '嘴硬心软',
-    '幽默', '毒舌', '腹黑', '谨慎', '多疑', '骄傲', '叛逆', '野心勃勃', '重情重义', '敢爱敢恨', '慢热', '社恐', '社牛'
-  ],
+  personalityOptions: [...new Set(personalityGroups.flatMap((group) => group.options))],
+  personalityGroups,
   boundaryGroups: [
     {
       name: '感情与关系',
@@ -253,7 +304,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     const name = requiredText(item.name, `第${index + 1}位主角姓名`, 80);
     const age = requiredText(item.age, `第${index + 1}位主角年龄`, 80);
     const background = requiredText(item.background, `第${index + 1}位主角人物背景`, 2_000);
-    const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 6, 40);
+    const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 8, 40);
     return { role: item.role, name, age, background, personalities };
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄或生命阶段、人物背景和性格');
