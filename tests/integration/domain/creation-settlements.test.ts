@@ -89,10 +89,12 @@ describe('事件与卷结算',()=>{
     expect(eventResult.deviation).toMatchObject({authority:'non_canon',automaticVerdict:null});
     expect(volumes.workflow(scope).stage).toBe('volume_settlement_in_progress');
     expect(eventRepo.activeEventSettlement(scope,event.eventId)?.id).toBe(eventResult.settlementId);
+    expect(outlines.get(scope,event.eventId)).toMatchObject({status:'completed',valid:true});
 
     const volumeResult=settlements.settleVolume(scope,plan.volumePlanId,volumes.workflow(scope).planningVersion);
     expect(volumeResult).toMatchObject({stageKind:'volume',stageObjectId:plan.volumePlanId,chapterStart:1,chapterEnd:3});
     expect(volumes.workflow(scope).stage).toBe('ready_for_next_volume');
+    expect(outlines.get(scope,event.eventId)).toMatchObject({status:'completed',valid:true});
     const next=volumes.create(scope,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,planNumber:2,
       idempotencyKey:'settle-volume-2'});
     expect(next.previousVolumePlanId).toBe(plan.volumePlanId);

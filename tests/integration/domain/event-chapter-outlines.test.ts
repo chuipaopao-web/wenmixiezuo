@@ -94,6 +94,7 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(volumes.workflow(scope).frozenChapterOutlineRefs).toHaveLength(1);
     context.database.prepare("UPDATE event_chapter_sequences SET status='stale' WHERE owner_id=? AND book_id=? AND event_id=?")
       .run(scope.ownerId,scope.bookId,event.eventId);
+    expect(service.get(scope,event.eventId)).toMatchObject({status:'stale',valid:false});
     expect(new WritingReadinessService(context.database).inspect(scope,2).missing).toContain('confirmed_outline:2');
     expect(()=>planningContext.validate(scope,secondFrozenArtifactVersionId)).toThrow();
   });

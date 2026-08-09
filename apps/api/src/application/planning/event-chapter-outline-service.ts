@@ -200,7 +200,9 @@ export class EventChapterOutlineService {
   private assertDependencies(stored:string,current:VersionReference[]){if(digest(JSON.parse(stored))!==digest(current))throw conflict('章纲上游版本已经变化。');}
   private view(scope:BookScope,row:EventChapterSequenceRow):EventChapterSequenceView{
     const versions=this.repo.listSequenceVersions(scope,row.event_chapter_sequence_id),active=versions.find(item=>item.event_chapter_sequence_version_id===row.active_version_id);
-    const snapshot=this.repo.activeSnapshot(scope,row.event_id);
+    const snapshot=['completed','archived'].includes(row.status)
+      ?this.repo.referencedSnapshot(scope,row.event_id,row.event_version_id,row.volume_plan_version_id)
+      :this.repo.activeSnapshot(scope,row.event_id);
     return{sequenceId:row.event_chapter_sequence_id,eventId:row.event_id,eventVersionId:row.event_version_id,
       volumePlanVersionId:row.volume_plan_version_id,revision:row.revision,status:row.status,activeVersionId:row.active_version_id,
       activeVersion:active===undefined?null:sequenceVersionView(active),versions:versions.map(sequenceVersionView),

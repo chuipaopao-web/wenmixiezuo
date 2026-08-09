@@ -49,6 +49,17 @@ export class EventChapterOutlineRepository {
       JOIN volume_plan_versions v ON v.owner_id=p.owner_id AND v.book_id=p.book_id AND v.volume_plan_version_id=p.active_version_id AND v.status='active'
       WHERE e.owner_id=? AND e.book_id=? AND e.event_id=? AND e.status='active'`).get(scope.ownerId,scope.bookId,eventId) as ActiveEventChapterSnapshot|undefined;
   }
+  public referencedSnapshot(scope:BookScope,eventId:string,eventVersionId:string,volumePlanVersionId:string):ActiveEventChapterSnapshot|undefined{
+    assertBookScope(scope);return this.db.prepare(`SELECT e.event_id AS eventId,e.sequence_order AS eventOrder,e.revision AS eventRevision,
+      ev.story_event_version_id AS eventVersionId,ev.version AS eventVersion,ev.content_hash AS eventHash,ev.content_json AS eventContent,
+      e.volume_plan_id AS volumePlanId,v.volume_plan_version_id AS volumePlanVersionId,v.version AS volumeVersion,v.content_hash AS volumeHash,v.content_json AS volumeContent
+      FROM story_events e JOIN story_event_versions ev ON ev.owner_id=e.owner_id AND ev.book_id=e.book_id
+        AND ev.event_id=e.event_id AND ev.story_event_version_id=?
+      JOIN volume_plans p ON p.owner_id=e.owner_id AND p.book_id=e.book_id AND p.volume_plan_id=e.volume_plan_id
+      JOIN volume_plan_versions v ON v.owner_id=p.owner_id AND v.book_id=p.book_id
+        AND v.volume_plan_id=p.volume_plan_id AND v.volume_plan_version_id=?
+      WHERE e.owner_id=? AND e.book_id=? AND e.event_id=?`).get(eventVersionId,volumePlanVersionId,scope.ownerId,scope.bookId,eventId) as ActiveEventChapterSnapshot|undefined;
+  }
   public nextChapterNumber(scope:BookScope){
     assertBookScope(scope);return(this.db.prepare(`SELECT MAX(value) AS maximum FROM (
       SELECT chapter_number AS value FROM chapters WHERE owner_id=? AND book_id=?

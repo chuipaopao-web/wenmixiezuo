@@ -73,6 +73,8 @@ it('事件结算后仍展示正文实际绑定的完整详细章纲',async()=>{
 
   const{container}=render(<EventChapterPlanningPanel bookId="book-chapters-history"/>);
   expect(await screen.findByLabelText('completed-event-chapter-history')).toBeInTheDocument();
+  expect(screen.getByText('结算版本已锁定')).toBeInTheDocument();
+  expect(screen.queryByText('上层已变化，需重建')).not.toBeInTheDocument();
   expect(screen.getByText('详细章纲完整保留')).toBeInTheDocument();
   expect(container.querySelectorAll('.detailed-outline')).toHaveLength(3);
   expect(screen.queryByRole('button',{name:'生成详细章纲'})).not.toBeInTheDocument();

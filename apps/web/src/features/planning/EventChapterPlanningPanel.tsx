@@ -143,6 +143,9 @@ const confirmExpression=()=>void run(async()=>{
 
   const candidates=sequence.versions.filter(version=>version.status==='candidate');
   const nextIdeaOutline=pending[0]??null;
+  const sequenceHealth=['completed','archived'].includes(sequence.status)
+    ?(sequence.valid?'结算版本已锁定':'历史版本异常，需检查')
+    :(sequence.valid?'上层版本有效':'上层已变化，需重建');
   return <section className="event-chapter-panel" aria-label={readOnly?'completed-event-chapter-history':undefined}>
     <header className="event-chapter-header"><div><span className="eyebrow">事件 → 完整章链 → 最近1—3章</span>
       <h3>{sequence.activeVersion?.content.eventTitle??candidates[0]?.content.eventTitle??'当前事件章纲'}</h3>
@@ -150,7 +153,7 @@ const confirmExpression=()=>void run(async()=>{
       <div>{readOnly&&historyEvents.length>1&&<label>查看已完成事件<select aria-label="查看已完成事件" value={eventId??''}
         disabled={busy} onChange={event=>selectHistoryEvent(event.target.value)}>{historyEvents.map((item,index)=><option key={item.eventId} value={item.eventId}>
           {item.activeVersion?.content.title??item.latestVersion?.content.title??`事件 ${item.order??index+1}`}</option>)}</select></label>}
-        <span className={"sequence-health "+(sequence.valid?'ready':'stale')}>{sequence.valid?'上层版本有效':'上层已变化，需重建'}</span></div></header>
+        <span className={"sequence-health "+(sequence.valid?'ready':'stale')}>{sequenceHealth}</span></div></header>
 
     {sequence.activeVersionId===null&&!readOnly&&<section className="chapter-sequence-design">
       <div className="planning-section-heading"><div><small>第一步</small><h4>设计完整事件章链</h4>
