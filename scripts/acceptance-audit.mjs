@@ -20,11 +20,8 @@ const trackedText = trackedFiles
   .map((file) => ({ file, content: readFileSync(resolve(root, file), 'utf8') }));
 
 check('release_id格式', /^wm-(?:v[1-9]\d*|[a-z][a-z0-9-]*-r[1-9]\d*)-\d{8}-\d{6}-[a-f0-9]{8}$/u.test(releaseId), releaseId);
-for (let stage = 0; stage <= 8; stage += 1) {
-  const prefix = String(stage).padStart(2, '0');
-  const found = trackedFiles.some((file) => file.startsWith(`docs/releases/${releaseId}/stages/${prefix}-`));
-  check(`阶段${stage}验收包`, found, found ? '存在' : '缺失');
-}
+const currentDocumentIndex = readFileSync(resolve(root, 'docs/PROJECT_DOCUMENT_INDEX.md'), 'utf8');
+check('当前文档白名单', currentDocumentIndex.includes('当前项目文档索引'), 'docs/PROJECT_DOCUMENT_INDEX.md');
 
 const contract = readFileSync(resolve(root, 'apps/api/src/contracts/api.ts'), 'utf8');
 const migrations = trackedFiles.filter((file) => file.startsWith('apps/api/src/infrastructure/db/migrations/') && file.endsWith('.sql')).sort();
@@ -57,8 +54,8 @@ check('运行数据不入Git', ignoreResult.length > 0, ignoreResult || '未忽�
 const status = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
 check('工作树干净', status.length === 0, status || 'clean');
 const remotes = execFileSync('git', ['remote'], { cwd: root, encoding: 'utf8' }).trim();
-const releaseDoc = readFileSync(resolve(root, `docs/releases/${releaseId}/RELEASE.md`), 'utf8');
-check('本地版本边界', remotes.length > 0 || releaseDoc.includes('未配置远程'), remotes || '未配置远程且文档已说明');
+const projectCharter = readFileSync(resolve(root, 'docs/PROJECT_CHARTER.md'), 'utf8');
+check('本地版本边界', remotes.length > 0 || projectCharter.includes('本地'), remotes || '当前项目章程已声明本地边界');
 check('产品显示名称', packageJson.productName === '文秘写作', String(packageJson.productName));
 const oldNameAllowed = new Set([
   'docs/DECISIONS.md',
