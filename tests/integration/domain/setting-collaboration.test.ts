@@ -56,7 +56,7 @@ describe('设定页内协作读模型', () => {
       tokens: 20
     }));
     discussionService.setStage(firstScope, discussion.discussionId, 'collecting', 'synthesizing');
-    const decisionId = discussionService.synthesize(firstScope, discussion.discussionId, {
+    discussionService.synthesize(firstScope, discussion.discussionId, {
       recommendation: { summary: '保留三份独立候选等待作者选择', evidence: opinionIds },
       alternatives: [], disagreements: [], impacts: []
     });
@@ -70,22 +70,6 @@ describe('设定页内协作读模型', () => {
       brief: { purpose: 'setting_proposal_panel', settingItemKey: 'creative-concept', discussionId: discussion.discussionId }
     });
     context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'complete' WHERE task_id = ?`).run(taskId);
-    const conversation = context.database.prepare(`SELECT conversation_id FROM conversations WHERE owner_id = ? AND book_id = ? LIMIT 1`)
-      .get(firstScope.ownerId, firstScope.bookId) as { conversation_id: string };
-    const insert = context.database.prepare(`
-      INSERT INTO messages (
-        message_id, conversation_id, owner_id, book_id, sender_type, sender_agent_id,
-        role_key, model_provider, model_id, message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'setting_proposal', ?, ?, ?)
-    `);
-    members.forEach((member, index) => insert.run(
-      ids.next(), conversation.conversation_id, firstScope.ownerId, firstScope.bookId,
-      member.agent_id, member.role_key, member.provider, member.model_id,
-      `方案${index + 1}｜${member.display_name}\n独立方案${index + 1}：从不同的人物困境和读者体验建立长期看点。`,
-      JSON.stringify([{ discussionId: discussion.discussionId, decisionId, proposalKind: 'setting_item_independent', proposalNumber: index + 1 }]),
-      clock.now().toISOString()
-    ));
-
     const firstView = new SettingCollaborationService(
       new SettingCollaborationRepository(context.database), firstWorkspace
     ).inspect(firstScope, 'creative-concept');
@@ -123,9 +107,9 @@ describe('设定页内协作读模型', () => {
       .get(scope.ownerId, scope.bookId) as { budget_id: string };
     const taskId = ids.next();
     new TaskService(context.database, context.config.releaseId, clock).create(scope, {
-      taskId, taskType: 'conversation_reply', assignedAgentId: editor.agent_id,
+      taskId, taskType: 'discussion', assignedAgentId: editor.agent_id,
       idempotencyKey: 'setting-revision:era', budgetId: budget.budget_id,
-      initialPhase: 'reply', brief: { settingGuidance: { itemKey: 'era' } }
+      initialPhase: 'synthesizing', brief: { purpose: 'setting_synthesis', settingItemKey: 'era' }
     });
     context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'complete' WHERE task_id = ?`).run(taskId);
     const service = new SettingCollaborationService(new SettingCollaborationRepository(context.database), workspace);

@@ -234,11 +234,11 @@ export class VolumePlanGenerationRepository {
     const attachmentQuery = this.database.prepare(`
       SELECT a.attachment_id, a.original_name, a.parse_status, a.context_excerpt
       FROM author_planning_input_links l
-      JOIN chat_attachments a
+      JOIN author_attachments a
         ON a.owner_id = l.owner_id AND a.book_id = l.book_id
        AND a.attachment_id = l.target_id
       WHERE l.owner_id = ? AND l.book_id = ? AND l.author_input_id = ?
-        AND l.link_type = 'attachment' AND l.target_type = 'chat_attachment'
+        AND l.link_type = 'attachment' AND l.target_type = 'author_attachment'
         AND a.parse_status <> 'discarded'
       ORDER BY l.sort_order, l.link_id
     `);

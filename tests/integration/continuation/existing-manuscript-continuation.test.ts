@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ContinuationAnalysisPipelineService } from '../../../apps/api/src/application/continuation/continuation-analysis-pipeline-service.js';
 import { ExistingManuscriptContinuationService } from '../../../apps/api/src/application/continuation/existing-manuscript-continuation-service.js';
-import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
+import { SettingCollaborationCommandService } from '../../../apps/api/src/application/knowledge/setting-collaboration-command-service.js';
 import { SettingBaselineService } from '../../../apps/api/src/application/knowledge/setting-baseline-service.js';
 import { SettingGuidanceService } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -284,30 +284,14 @@ describe('已有正文续写导入', () => {
       })
     ]);
 
-    const reception = new ConversationService(
-      context.database, context.dataDir, context.config.releaseId, ids, clock
-    ).enterConversation(scope);
-    expect(reception).toMatchObject({
-      kind: 'continuation_ready',
-      headline: expect.stringContaining('已有正文'),
-      message: expect.stringContaining('不会要求您重新从空白设定大纲开始')
-    });
-
-    const handoff = new ConversationService(
-      context.database, context.dataDir, context.config.releaseId, ids, clock
-    ).sendBossMessage(scope, '【已有正文设定整理资料包】请依据已导入正文和逐章反向章纲，整理可以确认的设定。');
-    expect(handoff.action).toMatchObject({
-      kind: 'discussion_scheduled',
-      purpose: 'setting_proposal_panel',
-      participants: expect.any(Array)
-    });
-    expect((handoff.action as { participants: unknown[] }).participants).toHaveLength(3);
+    const handoff = new SettingCollaborationCommandService(
+      context.database, context.config.releaseId, ids, clock
+    ).start(scope, 'creative-concept', { idempotencyKey: 'continuation-setting-start' });
+    expect(handoff).toMatchObject({ status: 'queued', reused: false });
     const handoffBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
-      .get(String((handoff.action as { taskId: string }).taskId)) as { task_brief_json: string }).task_brief_json) as {
-        scopeText: string;
-      };
-    expect(handoffBrief.scopeText).toContain('已有正文反向整理参考');
-    expect(handoffBrief.scopeText).toContain('逐章反向章纲');
+      .get(handoff.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
+    expect(handoffBrief.scopeText).toContain('作品定位摘要：创作方式：已有正文续写');
+    expect(handoffBrief.scopeText).toContain('正文分析：已完成 2/2 章');
     expect(handoffBrief.scopeText).toContain('第一章');
 
     const guidance = new SettingGuidanceService(context.database, ids, clock).current(scope);
@@ -358,10 +342,7 @@ describe('已有正文续写导入', () => {
     });
 
     const guidanceWorkflow = new SettingGuidanceService(context.database, ids, clock);
-    const conversations = new ConversationService(
-      context.database, context.dataDir, context.config.releaseId, ids, clock
-    );
-    let completionAction: Record<string, unknown> | null = null;
+    let settingCompleted = false;
     for (let round = 0; round < 20; round += 1) {
       const current = guidanceWorkflow.current(scope);
       if (current === null) break;
@@ -378,30 +359,17 @@ describe('已有正文续写导入', () => {
           }
         }
       }));
-      const result = conversations.sendBossMessage(scope, '确认');
-      if (result.action.kind === 'setting_guidance_completed') {
-        completionAction = result.action as unknown as Record<string, unknown>;
+      const confirmation = guidanceWorkflow.confirmCurrent(scope);
+      if (confirmation.completed) {
+        settingCompleted = true;
         break;
       }
     }
-    expect(completionAction).toMatchObject({
-      kind: 'setting_guidance_completed',
-      nextAction: 'continuation_stage_outline_scheduled',
-      participants: expect.any(Array)
-    });
-    expect(completionAction?.participants).toHaveLength(3);
-    const stageTask = context.database.prepare(`SELECT task_brief_json FROM tasks
-      WHERE owner_id = ? AND book_id = ? AND task_id = ?`).get(
-      scope.ownerId, scope.bookId, String(completionAction?.taskId)
-    ) as { task_brief_json: string };
-    expect(JSON.parse(stageTask.task_brief_json)).toMatchObject({
-      scopeText: expect.stringContaining('【剧情总纲专项讨论资料包】')
-    });
-
-    const resumedReception = new ConversationService(
-      context.database, context.dataDir, context.config.releaseId, ids, clock
-    ).enterConversation(scope);
-    expect(resumedReception.kind).not.toBe('continuation_ready');
+    expect(settingCompleted).toBe(true);
+    expect(new SettingBaselineService(context.database, ids, clock).inspect(scope).ready).toBe(true);
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type IN ('stage_outline_generation', 'conversation_reply')`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
   });
 
   it('HTTP入口完成预览和确认，反向整理未完成时不提前启动设定讨论', async () => {
@@ -440,16 +408,12 @@ describe('已有正文续写导入', () => {
       expect(content.statusCode).toBe(200);
       expect(content.json().data.content).toBe('门外有人。');
 
-      const handoff = await app.inject({
+      const prematureStart = await app.inject({
         method: 'POST',
-        url: `/api/v1/books/${book.bookId}/messages`,
-        payload: { content: '【已有正文设定整理资料包】\n已确认导入2章，请在反向章纲就绪后整理设定。', attachmentIds: [] }
+        url: `/api/v1/books/${book.bookId}/setting-outline-workspace/creative-concept/collaboration/start`,
+        payload: { idempotencyKey: 'continuation-premature-setting-start' }
       });
-      expect(handoff.statusCode).toBe(200);
-      expect(handoff.json().data.action).toMatchObject({
-        kind: 'conversation_reply_scheduled',
-        intake: { selectedAction: 'preserve_continuation_handoff_packet' }
-      });
+      expect(prematureStart.statusCode).toBe(409);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
         WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'`).get(context.config.ownerId, book.bookId)).toEqual({ count: 0 });
     } finally {

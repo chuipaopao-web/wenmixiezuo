@@ -33,7 +33,7 @@ export class StageSettlementService {
       knowledgeChanges: uniqueJson(chapters.flatMap((item) => arrayValue(item.payload.knowledgeChanges))),
       resourceChanges: uniqueJson(chapters.flatMap((item) => arrayValue(item.payload.resourceChanges))),
       ruleChanges: uniqueJson(chapters.flatMap((item) => arrayValue(item.payload.ruleChanges))),
-      exclusions: ['聊天原文', '未定稿正文', '未锁定剧情预测', '被否决或已替代方案']
+      exclusions: ['旧版会话原文', '未定稿正文', '未锁定剧情预测', '被否决或已替代方案']
     };
     const built = this.build(scope, {
       stageType: 'story_arc',

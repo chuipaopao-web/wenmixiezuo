@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diagnoseTextEncoding, DamagedTextError } from '../../apps/api/src/application/chat/text-encoding-diagnostics.js';
+import { diagnoseTextEncoding, DamagedTextError } from '../../apps/api/src/application/presentation/text-encoding-diagnostics.js';
 
 describe('文本编码健康诊断', () => {
   it('正常中文与单个问号不判损坏', () => {

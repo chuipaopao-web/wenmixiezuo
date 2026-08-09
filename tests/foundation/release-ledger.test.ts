@@ -31,10 +31,10 @@ describe('长篇 release 机器账本', () => {
     run(cwd, 'init');
     run(cwd, 'init');
     const status = run(cwd, 'status');
-    expect(status.release).toMatchObject({ release_id: 'wm-longform-test', status: 'active', definition_version: 'longform-r1-v2' });
+    expect(status.release).toMatchObject({ release_id: 'wm-longform-test', status: 'active', definition_version: 'object-workflow-v3' });
     expect(status.stages).toHaveLength(9);
     expect((status.stages as Array<{ stage: number; status: string }>).map((row) => row.stage)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
-    expect((status.stages as Array<{ goal: string }>)[3]?.goal).toContain('向量投影');
+    expect((status.stages as Array<{ goal: string }>)[3]?.goal).toContain('混合检索');
   });
 
   it('所有阶段 passed 前拒绝把 release 标为 complete', () => {

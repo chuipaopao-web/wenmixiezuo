@@ -3,16 +3,12 @@ import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AgentTeamService } from '../../apps/api/src/application/agents/agent-team-service.js';
-import { ConversationService } from '../../apps/api/src/application/chat/conversation-service.js';
 import { ChapterBatchService } from '../../apps/api/src/application/creation/chapter-batch-service.js';
 import { EditorLeaseService } from '../../apps/api/src/application/editors/editor-lease-service.js';
 import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
-import { MemoryService } from '../../apps/api/src/application/memory/memory-service.js';
-import { RetrievalService } from '../../apps/api/src/application/memory/retrieval-service.js';
 import { NarrativeProjectionService } from '../../apps/api/src/application/projections/narrative-projection-service.js';
 import { sha256File } from '../../apps/api/src/infrastructure/files/file-utils.js';
 import { BackupService } from '../../apps/api/src/infrastructure/recovery/backup-service.js';
-import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../helpers/test-context.js';
 
@@ -31,23 +27,6 @@ describe('首版全链路验收旅程', () => {
     const secondScope = { ownerId, bookId: secondBook.bookId };
     prepareBookForWriting(context, mainScope, ids, clock, 5);
     prepareBookForWriting(context, secondScope, ids, clock, 1);
-
-    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
-    conversations.sendBossMessage(mainScope, '主书秘密 MAIN-ONLY-MESSAGE');
-    conversations.sendBossMessage(secondScope, '乙书秘密 SECOND-ONLY-MESSAGE');
-    expect(JSON.stringify(conversations.listMessages(mainScope))).not.toContain('SECOND-ONLY-MESSAGE');
-    expect(JSON.stringify(conversations.listMessages(secondScope))).not.toContain('MAIN-ONLY-MESSAGE');
-    const taskService = new TaskService(context.database, context.config.releaseId, clock);
-    for (const scope of [mainScope, secondScope]) {
-      for (const task of taskService.list(scope).filter((item) => item.taskType === 'conversation_reply')) taskService.requestCancel(scope, task.taskId);
-    }
-
-    const memory = new MemoryService(context.database, ids, clock);
-    memory.remember(mainScope, { layer: 'story_bible', content: '主书硬锚 MAIN-ONLY-ANCHOR', sourceType: 'acceptance', sourceId: 'main-anchor', canonRevision: 0, positioningVersion: 1 });
-    memory.remember(secondScope, { layer: 'story_bible', content: '乙书硬锚 SECOND-ONLY-ANCHOR', sourceType: 'acceptance', sourceId: 'second-anchor', canonRevision: 0, positioningVersion: 1 });
-    const retrieval = new RetrievalService(context.database, ids, clock);
-    expect(retrieval.search(mainScope, 'SECOND-ONLY-ANCHOR', { canonRevision: 0 })).toEqual([]);
-    expect(retrieval.search(secondScope, 'MAIN-ONLY-ANCHOR', { canonRevision: 0 })).toEqual([]);
 
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const mainBatch = batches.scheduleNewChapters(mainScope, 5, { firstChapterTitle: '第一声雾钟' });

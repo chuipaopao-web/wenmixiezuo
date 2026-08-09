@@ -2,42 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   createEffectiveOutputReference,
   prepareEffectiveOutput
-} from '../../apps/api/src/application/chat/effective-output-service.js';
-import {
-  projectBossMessageForAuthor,
-  renderModelContextContent
-} from '../../apps/api/src/application/chat/author-conversation-presentation.js';
+} from '../../apps/api/src/application/presentation/author-output-service.js';
 
 describe('有效输出层', () => {
-  it('把设定工作流的内部资料包投影为作者可读请求，同时不把JSON带入最近对话', () => {
-    const packet = [
-      '讨论设定 【设定专项讨论资料包】',
-      '书籍：少女的实验笔记',
-      '开书资料JSON：{"title":"少女的实验笔记","protagonists":[{"name":"苏念"}]}',
-      '当前板块：作品策划',
-      '当前设定项：策划理念',
-      '讨论目标：明确作品最核心的创作命题'
-    ].join('\n');
-
-    expect(projectBossMessageForAuthor(packet)).toBe('请讨论设定：策划理念。');
-    const recent = renderModelContextContent('recent_conversation', JSON.stringify([
-      { sender_type: 'boss', role_key: null, content: packet }
-    ]), 1_000);
-    expect(recent).toContain('请讨论设定：策划理念。');
-    expect(recent).not.toMatch(/开书资料JSON|protagonists/u);
-  });
-
-  it('把成组设定和剧情大纲资料包投影为简短专业请求', () => {
-    const grouped = [
-      '讨论设定 【设定大纲成组讨论资料包】',
-      '本批设定项JSON：[{"itemKey":"concept","label":"策划理念"},{"itemKey":"promise","label":"读者承诺"}]',
-      '已经确认的设定JSON：[]'
-    ].join('\n');
-    expect(projectBossMessageForAuthor(grouped)).toBe('请集中讨论这些设定：策划理念、读者承诺。');
-    expect(projectBossMessageForAuthor('讨论剧情总纲 【剧情总纲专项讨论资料包】\n开书资料JSON：{}'))
-      .toBe('请讨论并完善当前阶段的剧情大纲。');
-  });
-
   it('把结构化岗位回复整理成结论优先的可见内容并保留完整依据', () => {
     const result = prepareEffectiveOutput(JSON.stringify({
       answer: '不建议立即宣战，应先确认张三的真正目标。',
@@ -72,7 +39,7 @@ describe('有效输出层', () => {
   });
 
   it('作者回复合同要求把抽象判断说成人物、动作、原因和结果', async () => {
-    const { AUTHOR_PLAIN_LANGUAGE_RULES, EFFECTIVE_OUTPUT_CONTRACT } = await import('../../apps/api/src/application/chat/effective-output-service.js');
+    const { AUTHOR_PLAIN_LANGUAGE_RULES, EFFECTIVE_OUTPUT_CONTRACT } = await import('../../apps/api/src/application/presentation/author-output-service.js');
 
     expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('人物姓名');
     expect(AUTHOR_PLAIN_LANGUAGE_RULES).toContain('具体动作');
@@ -402,14 +369,4 @@ describe('有效输出层', () => {
     }
   });
 
-  it('最近对话资料保留说话人身份但不泄漏内部字段', () => {
-    const rendered = renderModelContextContent('recent_conversation', JSON.stringify([
-      { sender_type: 'boss', role_key: null, content: '笔记要到900章后才发现', created_at: 'ignored' },
-      { sender_type: 'agent', role_key: 'deputy_editor', content: '故事圣经premise还是旧版', sourceId: 'hidden' }
-    ]), 1_000);
-
-    expect(rendered).toContain('老板：笔记要到900章后才发现');
-    expect(rendered).toContain('副编：设定大纲中的核心前提还是旧版');
-    expect(rendered).not.toMatch(/故事圣经|premise|sourceId|hidden/u);
-  });
 });

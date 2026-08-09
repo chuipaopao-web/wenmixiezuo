@@ -14,12 +14,11 @@ import { DiscussionService } from './discussion-service.js';
 import { PlotSpanEstimateService } from '../continuity/plot-span-estimate-service.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import {
-  createEffectiveOutputReference,
   AUTHOR_PLAIN_LANGUAGE_RULES,
   EFFECTIVE_OUTPUT_CONTRACT,
   prepareEffectiveOutput,
   type EffectiveOutputResult
-} from '../chat/effective-output-service.js';
+} from '../presentation/author-output-service.js';
 import { HybridRetrievalService } from '../memory/hybrid-retrieval-service.js';
 import { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
 import { RetrievalOrchestrationRepository } from '../../infrastructure/db/repositories/retrieval-orchestration-repository.js';
@@ -27,8 +26,6 @@ import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowle
 import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { createHash } from 'node:crypto';
-import { CreativeSessionRepository } from '../../infrastructure/db/repositories/creative-session-repository.js';
-import { CreativeSessionService } from './creative-session-service.js';
 import {
   parseSettingOutlineDeposit,
   SettingOutlineWorkspaceService
@@ -64,7 +61,7 @@ interface ParticipantRow {
   model_id: string;
 }
 
-type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'stage_outline_panel' | 'stage_outline_synthesis';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'setting_synthesis' | 'stage_outline_panel' | 'stage_outline_synthesis';
 type DiscussionPhase = 'independent' | 'cross_review';
 
 interface CollectedOpinion {
@@ -104,13 +101,8 @@ export class DiscussionPipelineService {
     const brief = JSON.parse(task.task_brief_json) as {
       discussionId: string;
       scopeText: string;
-      conversationId: string;
       purpose?: DiscussionPurpose;
       requestedChapterCount?: 1 | 3 | 4 | 5 | null;
-      creativeSessionId?: string;
-      creativeBlackboardRevision?: number;
-      creativeSourceFingerprint?: string;
-      roundKind?: 'initial_exploration' | 'major_redirect' | 'locked_planning';
     };
     const discussions = new DiscussionService(this.database, this.ids, this.clock);
     const discussion = discussions.require(scope, brief.discussionId);
@@ -297,6 +289,7 @@ export class DiscussionPipelineService {
           // 这些均是不可截断的审计硬来源，真实长方案会稳定超过编剧单席的 8k 上限。
           // 这里只提高讨论汇总包上限；正文主笔的精简资料包预算不受影响。
           tokenBudget: discussionContextTokenBudget(isEditor),
+          policyVersion: 'object-collaboration-context-v2',
           hardSources,
           optionalSources: retrieved.optionalSources
         });
@@ -538,15 +531,6 @@ export class DiscussionPipelineService {
           disagreements: [],
           impacts: [{ scope: 'current_stage_master_outline_candidate', cashCostCny: 0, requiresBossConfirmation: true }]
         });
-        this.addEditorMessage(
-          scope,
-          brief.conversationId,
-          editor,
-          brief.discussionId,
-          decisionId,
-          prepareEffectiveOutput(editorOpinion.output),
-          brief.purpose
-        );
         new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
         return { discussionId: brief.discussionId, decisionId, opinionCount: 1 };
       }
@@ -581,31 +565,6 @@ export class DiscussionPipelineService {
           disagreements: [{ status: '保留三个独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
           impacts: [{ scope: brief.purpose === 'stage_outline_panel' ? 'stage_outline_candidate_only' : 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
         });
-        if (brief.purpose === 'stage_outline_panel') {
-          for (const [index, proposal] of stageCandidates.entries()) {
-            const participant = participants.find((item) => item.agent_id === proposal.opinion.agentId);
-            if (participant === undefined) throw new Error('阶段剧情候选缺少真实参与成员');
-            this.addSettingProposalMessage(
-              scope, brief.conversationId, participant, brief.discussionId, decisionId,
-              prepareEffectiveOutput(proposal.candidate),
-              index + 1, index === stageCandidates.length - 1, 'stage_outline_independent'
-            );
-          }
-        } else for (const [index, proposal] of preparedProposals.entries()) {
-          const { opinion, output } = proposal;
-          const participant = participants.find((item) => item.agent_id === opinion.agentId);
-          if (participant === undefined) throw new Error('策划理念提案缺少真实参与成员');
-          this.addSettingProposalMessage(
-            scope,
-            brief.conversationId,
-            participant,
-            brief.discussionId,
-            decisionId,
-            output,
-            index + 1,
-            index === proposals.length - 1
-          );
-        }
         new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
         return { discussionId: brief.discussionId, decisionId, opinionCount: proposals.length };
       }
@@ -631,9 +590,6 @@ export class DiscussionPipelineService {
           const peers = independent.filter((opinion) => opinion.agentId !== specialist.agent_id);
           if (peers.length === 0) throw new Error('双编剧交叉质疑缺少另一份独立方案');
           await collectOpinion(specialist, 'cross_review', peers);
-        }
-        if (brief.purpose === 'creative_exploration' && brief.creativeSessionId !== undefined) {
-          this.persistForecast(scope, brief, book.canon_revision, independent, opinions);
         }
       }
 
@@ -665,36 +621,6 @@ export class DiscussionPipelineService {
       });
       if (brief.scopeText.includes('【设定大纲成组讨论资料包】') && settingCandidates.length === 0) {
         throw new Error('活动主编回复缺少有效的“设定大纲落库”结构，不能把整段讨论摘要伪装成多项设定');
-      }
-      const summaryMessageId = this.addEditorMessage(
-        scope,
-        brief.conversationId,
-        editor,
-        brief.discussionId,
-        decisionId,
-        effectiveEditorOutput,
-        brief.purpose ?? 'open_discussion'
-      );
-      if (brief.creativeSessionId !== undefined) {
-        const sessions = new CreativeSessionRepository(this.database);
-        new CreativeSessionService(this.database, this.ids, this.clock).appendEditorReply(scope, {
-          sessionId: brief.creativeSessionId,
-          messageId: summaryMessageId,
-          content: editorOpinion.output
-        });
-        const session = sessions.require(scope, brief.creativeSessionId);
-        sessions.updateStatus(scope, {
-          sessionId: session.sessionId,
-          expectedStatus: session.status,
-          status: brief.purpose === 'locked_planning' ? 'awaiting_plan' : 'awaiting_direction',
-          now: this.clock.now().toISOString()
-        });
-        sessions.completeRound(scope, {
-          sessionId: session.sessionId,
-          discussionId: brief.discussionId,
-          decisionId,
-          now: this.clock.now().toISOString()
-        });
       }
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
@@ -736,181 +662,10 @@ export class DiscussionPipelineService {
         SET status = ?, heartbeat_at = ?, completed_at = ?
         WHERE owner_id = ? AND book_id = ? AND task_id = ? AND status = 'working'
       `).run(cancelled ? 'cancelled' : 'failed', now, now, scope.ownerId, scope.bookId, taskId);
-      if (!cancelled) {
-        this.addTaskFailureMessage(scope, brief.conversationId, taskId);
-      }
       throw error;
     }
   }
 
-  private addTaskFailureMessage(scope: BookScope, conversationId: string, taskId: string): void {
-    const existing = this.database.prepare(`
-      SELECT 1 FROM messages
-      WHERE conversation_id = ? AND owner_id = ? AND book_id = ?
-        AND message_type = 'task_failure'
-        AND json_extract(references_json, '$[0].taskId') = ?
-      LIMIT 1
-    `).get(conversationId, scope.ownerId, scope.bookId, taskId);
-    if (existing !== undefined) return;
-    const completedOpinions = (this.database.prepare(`
-      SELECT COUNT(*) AS count
-      FROM discussion_opinions o
-      JOIN tasks t
-        ON json_extract(t.task_brief_json, '$.discussionId') = o.discussion_id
-        AND t.owner_id = o.owner_id AND t.book_id = o.book_id
-      WHERE t.task_id = ? AND t.owner_id = ? AND t.book_id = ?
-    `).get(taskId, scope.ownerId, scope.bookId) as { count: number }).count;
-    const progress = completedOpinions > 0
-      ? `已经完成的 ${completedOpinions} 份成员意见和讨论进度都已保存，重试时会从检查点继续，不会重复调用已经成功的成员。`
-      : '讨论资料和任务记录都已保存，恢复模型服务后可以从当前任务继续。';
-    const content = `这轮讨论在主编整理时没有顺利完成。${progress}请在左侧“任务”中打开这项失败任务，点击“继续重试”。`;
-    this.database.prepare(`
-      INSERT INTO messages (
-        message_id, conversation_id, owner_id, book_id, sender_type,
-        message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'system', 'task_failure', ?, ?, ?)
-    `).run(
-      this.ids.next(),
-      conversationId,
-      scope.ownerId,
-      scope.bookId,
-      content,
-      JSON.stringify([{ taskId, completedOpinions }]),
-      this.clock.now().toISOString()
-    );
-  }
-
-  private persistForecast(
-    scope: BookScope,
-    brief: {
-      discussionId: string;
-      creativeSessionId?: string;
-      creativeBlackboardRevision?: number;
-      creativeSourceFingerprint?: string;
-    },
-    canonRevision: number,
-    independent: CollectedOpinion[],
-    opinions: CollectedOpinion[]
-  ): void {
-    if (
-      brief.creativeSessionId === undefined
-      || brief.creativeBlackboardRevision === undefined
-      || brief.creativeSourceFingerprint === undefined
-    ) {
-      throw new Error('创意预演缺少创作会话来源信息');
-    }
-    const repository = new CreativeSessionRepository(this.database);
-    const reusable = repository.listForecasts(scope, brief.creativeSessionId).find((forecast) =>
-      forecast.status === 'active'
-      && forecast.canonRevision === canonRevision
-      && forecast.blackboardRevision === brief.creativeBlackboardRevision
-      && forecast.sourceFingerprint === brief.creativeSourceFingerprint
-    );
-    if (reusable !== undefined) return;
-    repository.createForecast(scope, {
-      forecastId: this.ids.next(),
-      sessionId: brief.creativeSessionId,
-      discussionId: brief.discussionId,
-      canonRevision,
-      blackboardRevision: brief.creativeBlackboardRevision,
-      sourceFingerprint: brief.creativeSourceFingerprint,
-      branches: independent.map((opinion, index) => ({
-        branchId: this.ids.next(),
-        ordinal: index + 1,
-        title: `${opinion.role}方案`,
-        proposal: {
-          independentProposal: opinion.output,
-          crossReview: opinions.find((candidate) =>
-            candidate.agentId === opinion.agentId && candidate.phase === 'cross_review'
-          )?.output ?? null
-        },
-        sourceAgentId: opinion.agentId,
-        sourceOpinionId: opinion.opinionId
-      })),
-      now: this.clock.now().toISOString()
-    });
-  }
-
-  private addEditorMessage(
-    scope: BookScope,
-    conversationId: string,
-    editor: ParticipantRow,
-    discussionId: string,
-    decisionId: string,
-    editorSummary: EffectiveOutputResult,
-    purpose: DiscussionPurpose
-  ): string {
-    const confirmation = purpose === 'creative_exploration'
-      ? '您可以继续讨论、要求重大改向或试写；方向明确后直接说“锁定当前方向”。'
-      : purpose === 'locked_planning'
-        ? '如果认可故事弧跨度和未来1至3章的滚动规划，直接说“确认当前规划”。'
-        : '如果接受这份方案，直接说“确认当前方案”。';
-    // 原始岗位意见仍保存在 discussion_opinions 与模型调用审计中；作者聊天只显示主编整理后的结论。
-    const editorVisible = editorSummary.format === 'fallback'
-      ? '这轮意见已经收齐了，但整理时出了点问题。为了不把内部杂乱内容发给您，我先把它拦下；您可以继续追问，我会沿着当前讨论接着处理。'
-      : editorSummary.visibleContent;
-    const summary = [
-      editorVisible,
-      confirmation
-    ].filter(Boolean).join('\n\n');
-    const references: unknown[] = [{ discussionId, decisionId }];
-    const effectiveReference = createEffectiveOutputReference(editorSummary);
-    if (effectiveReference !== null) references.push(effectiveReference);
-    const messageId = this.ids.next();
-    this.database.prepare(`
-      INSERT INTO messages (
-        message_id, conversation_id, owner_id, book_id, sender_type, sender_agent_id,
-        role_key, model_provider, model_id, message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'discussion_summary', ?, ?, ?)
-    `).run(
-      messageId, conversationId, scope.ownerId, scope.bookId, editor.agent_id,
-      editor.role_key, editor.provider, editor.model_id, summary,
-      JSON.stringify(references), this.clock.now().toISOString()
-    );
-    return messageId;
-  }
-
-  private addSettingProposalMessage(
-    scope: BookScope,
-    conversationId: string,
-    participant: ParticipantRow,
-    discussionId: string,
-    decisionId: string,
-    proposal: EffectiveOutputResult,
-    proposalNumber: number,
-    isLast: boolean,
-    proposalKind: 'setting_item_independent' | 'stage_outline_independent' = 'setting_item_independent'
-  ): string {
-    const visible = proposal.rejectedMachinePayload
-      ? '这份提案返回的结构不完整，我没有把内部格式或杂乱内容展示给您。请稍后单独重试这名成员。'
-      : proposal.visibleContent;
-    const guidance = isLast
-      ? proposalKind === 'stage_outline_independent'
-        ? '\n\n三份都是独立候选。回复“1”“2”或“3”可选单项；回复“1+2”或“1+2+3”可融合多项；也可以直接写自己的阶段方案或要求重抽。主编只整理您选中的内容，整理后仍需您确认，确认前不会写入剧情总纲。'
-        : '\n\n三份都是独立候选。回复 1、2 或 3 可选单项；回复 13、123，或“1+2+3”可融合对应方案；也可以直接写自己的版本。主编只会整理您选中的内容，整理后仍需您再次确认。'
-      : '';
-    const references: unknown[] = [{
-      discussionId,
-      decisionId,
-      proposalKind,
-      proposalNumber
-    }];
-    const effectiveReference = createEffectiveOutputReference(proposal);
-    if (effectiveReference !== null) references.push(effectiveReference);
-    const messageId = this.ids.next();
-    this.database.prepare(`
-      INSERT INTO messages (
-        message_id, conversation_id, owner_id, book_id, sender_type, sender_agent_id,
-        role_key, model_provider, model_id, message_type, content, references_json, created_at
-      ) VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, 'setting_proposal', ?, ?, ?)
-    `).run(
-      messageId, conversationId, scope.ownerId, scope.bookId, participant.agent_id,
-      participant.role_key, participant.provider, participant.model_id,
-      `方案${proposalNumber}｜${participant.display_name}\n${visible}${guidance}`,
-      JSON.stringify(references), this.clock.now().toISOString()
-    );
-    return messageId;
-  }
 }
 
 function splitStageCandidateText(content: string): string[] {
@@ -1229,7 +984,7 @@ export function discussionOutputTokenLimit(
   if (isEditor && scopeText.includes('【设定大纲成组讨论资料包】')) {
     // 成组设定必须逐项返回可解析的落库合同。固定 3.6k 会在 8—12 项批次中
     // 截断 JSON，造成“模型已成功、任务仍失败”的假性恢复循环。
-    // 预算随本批条目数有界增长，不影响普通聊天或总纲的精简输出。
+    // 预算随本批条目数有界增长，不影响其他对象协作任务的精简输出。
     return Math.min(8_000, Math.max(3_600, settingBatchKeys(scopeText).length * 700));
   }
   // 阶段式剧情总纲包含每阶段主线、起承转合、阶段总结、伏笔和后续方向。真实

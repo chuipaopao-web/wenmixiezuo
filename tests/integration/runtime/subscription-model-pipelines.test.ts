@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
+import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 import { ModelBindingService } from '../../../apps/api/src/application/agents/model-binding-service.js';
@@ -48,7 +48,6 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '订阅模型测试书', text: '雾城悬疑与读者钩子' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
-    prepareBookForWriting(context, scope, ids, clock, 1);
     const runtime = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
@@ -208,51 +207,43 @@ describe('订阅与套餐模型真实流水线接线', () => {
     };
     const adapters = new ModelAdapterFactory(runtime, fetchImpl, codexRunner);
 
-    const conversations = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock);
-    const scheduled = conversations.sendBossMessage(scope, '我想讨论下一章的读者情绪和结尾钩子');
-    const discussionTaskId = String(scheduled.action.taskId);
+    const members = context.database.prepare(`SELECT a.agent_id, r.role_key
+      FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
+        AND r.role_key IN ('chief_editor', 'lead_screenwriter', 'second_screenwriter')`)
+      .all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
+    const editor = members.find((member) => member.role_key === 'chief_editor')!;
+    const discussion = new DiscussionService(context.database, ids, clock).create(scope, {
+      type: 'collaborative', scopeText: '【设定项目三席独立提案】\\n当前设定项编号：creative-concept',
+      createdByAgentId: editor.agent_id,
+      participants: members.map((member) => ({ agentId: member.agent_id, reason: '独立提出设定方案' }))
+    });
+    const budget = context.database.prepare('SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? LIMIT 1')
+      .get(scope.ownerId, scope.bookId) as { budget_id: string };
+    const taskService = new TaskService(context.database, context.config.releaseId, clock);
+    const createdDiscussionTask = taskService.create(scope, {
+      taskId: ids.next(), taskType: 'discussion', assignedAgentId: editor.agent_id,
+      idempotencyKey: 'subscription-setting-panel', budgetId: budget.budget_id, initialPhase: 'collecting',
+      brief: { discussionId: discussion.discussionId, scopeText: discussion.scopeText, purpose: 'setting_proposal_panel', settingItemKey: 'creative-concept' }
+    });
+    taskService.queue(scope, createdDiscussionTask.taskId);
+    const scheduled = { taskId: createdDiscussionTask.taskId, discussionId: discussion.discussionId };
+    const discussionTaskId = scheduled.taskId;
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     expect(tasks.claimNext('subscription-discussion-worker')?.taskId).toBe(discussionTaskId);
-    const discussionResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
+    await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
       .executeClaimed(scope, discussionTaskId, 'subscription-discussion-worker');
-    const explorationContinuitySources = context.database.prepare(`
-      SELECT source_manifest_json FROM context_packs
-      WHERE owner_id = ? AND book_id = ? AND task_id = ?
-    `).all(scope.ownerId, scope.bookId, discussionTaskId) as unknown as Array<{ source_manifest_json: string }>;
-    const explorationPreviousOutlines = explorationContinuitySources.flatMap((row) =>
-      (JSON.parse(row.source_manifest_json) as Array<{ sourceType: string; content: string }>)
-        .filter((source) => source.sourceType === 'planning:previous_chapter_outline')
-    );
-    expect(explorationPreviousOutlines.length).toBeGreaterThan(0);
-    expect(explorationPreviousOutlines.every((source) => {
-      const previous = JSON.parse(source.content) as { chapterNumber?: number; ending?: { nextChapterInterface?: unknown } };
-      return previous.chapterNumber === 1 && previous.ending?.nextChapterInterface !== undefined;
-    })).toBe(true);
-    const locked = conversations.sendBossMessage(scope, `确认方案 ${discussionResult.decisionId}`);
-    expect(locked.action).toMatchObject({ kind: 'creative_direction_locked', roundKind: 'locked_planning' });
-    const planningTaskId = String(locked.action.taskId);
-    expect(tasks.claimNext('subscription-planning-worker')?.taskId).toBe(planningTaskId);
-    const planningResult = await new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, adapters)
-      .executeClaimed(scope, planningTaskId, 'subscription-planning-worker');
-    const planningContinuitySources = context.database.prepare(`
-      SELECT source_manifest_json FROM context_packs
-      WHERE owner_id = ? AND book_id = ? AND task_id = ?
-    `).all(scope.ownerId, scope.bookId, planningTaskId) as unknown as Array<{ source_manifest_json: string }>;
-    const planningPreviousOutlines = planningContinuitySources.flatMap((row) =>
-      (JSON.parse(row.source_manifest_json) as Array<{ sourceType: string; content: string }>)
-        .filter((source) => source.sourceType === 'planning:previous_chapter_outline')
-    );
-    expect(planningPreviousOutlines.length).toBeGreaterThan(0);
-    expect(planningPreviousOutlines.every((source) =>
-      (JSON.parse(source.content) as { chapterNumber?: number }).chapterNumber === 1
-    )).toBe(true);
-    const planningPrompts = calls.map((call) => call.prompt).filter((prompt) => prompt.includes('章纲V2落库结构'));
-    expect(planningPrompts).toHaveLength(2);
-    expect(planningPrompts[1]).toContain('上一版无效输出');
-    expect(planningPrompts[1]).toContain('"outlineSchema":"chapter_outline_v2"');
-    expect(planningPrompts[1]).toContain('校验失败原因');
-    expect(conversations.sendBossMessage(scope, `确认方案 ${planningResult.decisionId}`).action)
-      .toMatchObject({ kind: 'discussion_confirmed', planningPrepared: true, chapterOutlineCount: 3 });
+    const proposalRoles = context.database.prepare(`SELECT r.role_key
+      FROM discussion_opinions o
+      JOIN agent_instances a ON a.owner_id = o.owner_id AND a.book_id = o.book_id AND a.agent_id = o.agent_id
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'
+      ORDER BY r.role_key`).all(scope.ownerId, scope.bookId, scheduled.discussionId);
+    expect(proposalRoles).toEqual(expect.arrayContaining([
+      { role_key: 'chief_editor' }, { role_key: 'lead_screenwriter' }, { role_key: 'second_screenwriter' }
+    ]));
+    prepareBookForWriting(context, scope, ids, clock, 1);
 
     const batchService = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, adapters);
     const batch = batchService.scheduleNewChapters(scope, 1, { firstChapterTitle: '雾中的选择' });

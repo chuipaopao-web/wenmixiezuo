@@ -15,7 +15,7 @@ export interface SettingCollaborationView {
     updatedAt: string;
     proposals: Array<{
       number: number;
-      messageId: string;
+      proposalId: string;
       agentId: string | null;
       memberName: string;
       roleKey: string | null;
@@ -49,7 +49,7 @@ export class SettingCollaborationService {
   public inspect(scope: BookScope, itemKey: string): SettingCollaborationView {
     const item = this.workspace.list(scope).find((candidate) => candidate.itemKey === itemKey);
     if (item === undefined) {
-      throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在或不属于这本书', {}, false, 404);
+      throw new DomainError(errorCodes.operationIncomplete, '��ǰ�趨����ڻ������Ȿ��', {}, false, 404);
     }
     const panel = this.repository.latestPanel(scope, itemKey);
     const revisionTask = this.repository.latestRevisionTask(scope, itemKey);
@@ -64,10 +64,10 @@ export class SettingCollaborationService {
         createdAt: panel.created_at,
         updatedAt: panel.updated_at,
         proposals: this.repository.proposals(scope, panel.discussion_id).map((proposal, index) => ({
-          number: proposal.proposal_number ?? index + 1,
-          messageId: proposal.message_id,
+          number: index + 1,
+          proposalId: proposal.proposal_id,
           agentId: proposal.sender_agent_id,
-          memberName: proposal.member_name?.trim() || `成员${index + 1}`,
+          memberName: proposal.member_name?.trim() || '��Ա' + (index + 1),
           roleKey: proposal.role_key,
           modelProvider: proposal.model_provider,
           modelId: proposal.model_id,
@@ -93,8 +93,5 @@ export class SettingCollaborationService {
 }
 
 function proposalContent(value: string): string {
-  return value
-    .replace(/^方案\d+｜[^\n]+\n/u, '')
-    .split(/\n\n三份都是独立候选。/u, 1)[0]
-    ?.trim() ?? '';
+  return value.trim();
 }

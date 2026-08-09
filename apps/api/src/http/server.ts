@@ -12,7 +12,6 @@ import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
-import { ConversationReplyPipelineService } from '../application/chat/conversation-reply-pipeline-service.js';
 import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
 import { RuntimeSessionService } from '../infrastructure/security/runtime-session.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
@@ -198,8 +197,6 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       ? await new ChapterPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, undefined, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
       : task.task_type === 'discussion'
         ? await new DiscussionPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
-        : task.task_type === 'conversation_reply'
-          ? await new ConversationReplyPipelineService(database, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters, productionRetrieval).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
         : task.task_type === 'continuation_analysis'
           ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
           : task.task_type === 'volume_plan_generation'

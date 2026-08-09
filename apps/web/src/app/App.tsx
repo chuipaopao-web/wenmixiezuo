@@ -47,7 +47,6 @@ import {
   fetchHealth,
   fetchGraphWorkspace,
   fetchLibrary,
-  fetchMessages,
   fetchModelBindings,
   fetchVolumeChapters,
   createManuscriptVolume,
@@ -108,7 +107,6 @@ import {
   type ProtagonistProfileData,
   type ProtagonistStateData,
   type AttributeFormulaData,
-  type MessageData,
   type ModelBindingsData,
   type OperationsStatusData,
   type OpeningBlueprintData,
@@ -182,7 +180,6 @@ export function App(): React.JSX.Element {
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [messages, setMessages] = useState<MessageData[]>([]);
   const [creationTab, setCreationTab] = useState<PlanningTab>('framework');
   const [homeView, setHomeView] = useState<HomeView>('shelf');
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
@@ -242,11 +239,10 @@ export function App(): React.JSX.Element {
   }, []);
 
   const refreshWorkspace = useCallback(async (bookId: string, signal?: AbortSignal) => {
-    const [nextWorkspace, nextMessages, nextWorker] = await Promise.all([
-      fetchWorkspace(bookId, signal), fetchMessages(bookId, signal), fetchWorker(signal)
+    const [nextWorkspace, nextWorker] = await Promise.all([
+      fetchWorkspace(bookId, signal), fetchWorker(signal)
     ]);
     setWorkspace(nextWorkspace);
-    setMessages(nextMessages);
     setWorker(nextWorker);
   }, []);
 
@@ -280,7 +276,6 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (selectedBookId === null) {
       setWorkspace(null);
-      setMessages([]);
       return;
     }
     const controller = new AbortController();
@@ -424,7 +419,6 @@ export function App(): React.JSX.Element {
     setSelectedBookId(null);
     persistSelectedBook(null);
     setWorkspace(null);
-    setMessages([]);
     setSelectedChapterId(null);
     setSelectedChapter(null);
     setSelectedTask(null);
@@ -547,8 +541,7 @@ export function App(): React.JSX.Element {
         setSelectedBookId(null);
         persistSelectedBook(null);
         setWorkspace(null);
-        setMessages([]);
-        setSelectedChapterId(null);
+          setSelectedChapterId(null);
         setSelectedChapter(null);
         setSelectedTask(null);
       }
@@ -697,7 +690,7 @@ export function App(): React.JSX.Element {
       )}
       {selectedAgentId !== null && workspace !== null && (() => {
         const agent = workspace.agents.find((item) => item.agentId === selectedAgentId);
-        return agent === undefined ? null : <AgentDetailsDialog agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} messages={messages} onClose={() => setSelectedAgentId(null)} />;
+        return agent === undefined ? null : <AgentDetailsDialog agent={agent} task={activeTaskForAgent(workspace, agent.agentId)} onClose={() => setSelectedAgentId(null)} />;
       })()}
     </div>
   );

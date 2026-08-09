@@ -6,7 +6,6 @@ import { FixedClock, SequenceIds, createTestContext, type TestContext } from '..
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../../apps/api/src/contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../../apps/api/src/infrastructure/db/repositories/protagonist-state-repository.js';
 import { BookProfileViewService } from '../../../apps/api/src/application/books/book-profile-view-service.js';
-import { ConversationService } from '../../../apps/api/src/application/chat/conversation-service.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -55,13 +54,6 @@ describe('定位草稿与原子建书', () => {
         authority: 'owner_confirmed_reference_not_canon'
       }
     });
-    const kickoff = context.database.prepare(`SELECT content FROM messages WHERE owner_id = ? AND book_id = ? AND message_type = 'onboarding_trigger'`)
-      .get('owner-one', result.bookId) as { content: string };
-    expect(kickoff.content).toContain(openingBlueprint.storyDirection);
-    expect(kickoff.content).toContain('可修改的软参考');
-    expect(kickoff.content).toContain('唯一的开书快照来源');
-    expect(kickoff.content).toContain('软规划参考');
-    expect(kickoff.content).toContain('不生成剧情总纲');
     expect(context.database.prepare('SELECT display_name FROM protagonist_profiles WHERE owner_id = ? AND book_id = ?').all('owner-one', result.bookId))
       .toEqual([{ display_name: '林雾' }, { display_name: '顾潮' }]);
     expect(context.database.prepare(`SELECT label, authority_layer, source_kind FROM protagonist_state_entries
@@ -88,26 +80,11 @@ describe('定位草稿与原子建书', () => {
       purpose: 'setting_proposal_panel',
       proactiveOnboarding: true
     });
+    expect(JSON.parse(kickoffTask.task_brief_json).scopeText).toContain(openingBlueprint.storyDirection);
+    expect(JSON.parse(kickoffTask.task_brief_json).scopeText).toContain('唯一的开书快照来源');
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants
       WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
       .get('owner-one', result.bookId, JSON.parse(kickoffTask.task_brief_json).discussionId)).toEqual({ count: 3 });
-    const inProgress = new ConversationService(context.database, context.dataDir, context.config.releaseId, ids, clock)
-      .sendBossMessage({ ownerId: 'owner-one', bookId: result.bookId }, '我补充：作品要突出人在失去记忆后仍能主动选择关系。');
-    expect(inProgress.action).toMatchObject({
-      kind: 'discussion_scheduled',
-      purpose: 'setting_proposal_panel',
-      taskId: result.kickoffTaskId
-    });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
-      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
-        AND json_extract(task_brief_json, '$.purpose') = 'setting_proposal_panel'`)
-      .get('owner-one', result.bookId)).toEqual({ count: 1 });
-    expect(context.database.prepare(`SELECT sender_type, message_type FROM messages WHERE owner_id = ? AND book_id = ?`).all('owner-one', result.bookId))
-      .toEqual([
-        { sender_type: 'system', message_type: 'onboarding_trigger' },
-        { sender_type: 'boss', message_type: 'text' },
-        { sender_type: 'system', message_type: 'local_assistant_notice' }
-      ]);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
       .get('owner-one', result.bookId)).toEqual({ count: 10 });
     expect(new BookProfileViewService(context.database).get({ ownerId: 'owner-one', bookId: result.bookId }).storyDirection)

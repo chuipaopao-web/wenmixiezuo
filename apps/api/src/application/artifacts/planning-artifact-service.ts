@@ -301,7 +301,7 @@ export class PlanningArtifactService {
     const positioning = this.positioning(scope);
     this.ensureConfirmedExpression(scope, decisionId);
     const premise = stringValue(positioning.premise?.value) ?? decision.scope_text;
-    const audience = stringValue(positioning.audience?.value) ?? '后续对话继续细化';
+    const audience = stringValue(positioning.audience?.value) ?? '后续规划继续细化';
     const tone = stringValue(positioning.style?.value) ?? '服从老板确认的方案与后续修订';
     const source = { sourceDiscussionId: discussionId, sourceDecisionId: decisionId };
     const creativePlan = this.upsert(scope, 'creative_plan', '创作方案', {

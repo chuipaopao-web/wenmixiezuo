@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
   createAuthorPlanningInput: vi.fn(),
-  discardChatAttachment: vi.fn(),
+  discardAuthorAttachment: vi.fn(),
   fetchAuthorPlanningInputs: vi.fn(),
-  uploadChatAttachment: vi.fn()
+  uploadAuthorAttachment: vi.fn()
 }));
 
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
@@ -27,7 +27,7 @@ const savedIdea = {
 beforeEach(() => {
   api.fetchAuthorPlanningInputs.mockResolvedValue([]);
   api.createAuthorPlanningInput.mockResolvedValue(savedIdea);
-  api.discardChatAttachment.mockResolvedValue(undefined);
+  api.discardAuthorAttachment.mockResolvedValue(undefined);
 });
 
 afterEach(() => {

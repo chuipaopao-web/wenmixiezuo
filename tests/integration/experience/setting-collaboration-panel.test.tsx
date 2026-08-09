@@ -9,7 +9,9 @@ const api = vi.hoisted(() => ({
   resumeTask: vi.fn(),
   retryTask: vi.fn(),
   saveSettingOutlineItem: vi.fn(),
-  sendMessage: vi.fn()
+  startSettingCollaboration: vi.fn(),
+  synthesizeSettingCollaboration: vi.fn(),
+  reviseSettingCollaboration: vi.fn()
 }));
 
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
@@ -35,7 +37,9 @@ beforeEach(() => {
   api.createAuthorPlanningInput.mockResolvedValue({ authorInputId: 'idea-1' });
   api.resumeTask.mockResolvedValue({});
   api.retryTask.mockResolvedValue({});
-  api.sendMessage.mockResolvedValue({ messageId: 'message-1', action: { taskId: 'task-2' } });
+  api.startSettingCollaboration.mockResolvedValue({ taskId: 'task-1', discussionId: 'discussion-1', status: 'queued' });
+  api.synthesizeSettingCollaboration.mockResolvedValue({ taskId: 'task-2', discussionId: 'discussion-2', status: 'queued' });
+  api.reviseSettingCollaboration.mockResolvedValue({ taskId: 'task-3', discussionId: 'discussion-3', status: 'queued' });
   api.fetchSettingCollaboration.mockResolvedValue({
     item: workspaceItem,
     panel: {
@@ -77,7 +81,9 @@ describe('设定页内协作', () => {
       originalText: '雾钟只能展示未来一天，而且每次使用都会遗忘一段私人记忆。',
       intentStrength: 'preference', idempotencyKey: expect.any(String)
     })));
-    expect(api.sendMessage).toHaveBeenCalledWith('book-1', expect.stringMatching(/已有设定原文[\s\S]*雾钟只能展示未来一天/u));
+    expect(api.startSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
+      authorInputId: 'idea-1', idempotencyKey: expect.any(String)
+    });
   });
   it('从当前页继续暂停任务并复用已有检查点', async () => {
     api.fetchSettingCollaboration.mockResolvedValue({
@@ -115,7 +121,9 @@ describe('设定页内协作', () => {
       originalText: '保留方案一的代价，同时采用方案二的身份错位。',
       intentStrength: 'preference', idempotencyKey: expect.any(String)
     }));
-    expect(api.sendMessage).toHaveBeenCalledWith('book-1', expect.stringMatching(/选择方案1\+2[\s\S]*保留方案一的代价/u));
+    expect(api.synthesizeSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
+      proposalIds: ['proposal-1', 'proposal-2'], authorInputId: 'idea-1', idempotencyKey: expect.any(String)
+    });
     expect(screen.getByText(/不会改写已写正文或正史/u)).toBeInTheDocument();
   });
 
@@ -152,7 +160,7 @@ describe('设定页内协作', () => {
 
 function proposal(number: number, memberName: string, content: string) {
   return {
-    number, messageId: `message-${number}`, agentId: `agent-${number}`, memberName,
+    number, proposalId: `proposal-${number}`, agentId: `agent-${number}`, memberName,
     roleKey: number === 1 ? 'chief_editor' : 'lead_screenwriter',
     modelProvider: `provider-${number}`, modelId: `model-${number}`, content,
     decisionId: 'decision-1', createdAt: '2026-08-08T00:00:00.000Z'

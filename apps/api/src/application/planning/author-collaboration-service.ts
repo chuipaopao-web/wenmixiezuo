@@ -77,7 +77,7 @@ export class AuthorCollaborationService {
       for (const [sortOrder, attachmentId] of draft.attachmentRefs.entries()) {
         this.repository.insertLink(scope, {
           id: this.ids.next(), authorInputId, decisionId: null, linkType: 'attachment',
-          targetType: 'chat_attachment', targetId: attachmentId, targetVersion: null,
+          targetType: 'author_attachment', targetId: attachmentId, targetVersion: null,
           targetHash: null, relation: 'attached', sortOrder, now
         });
       }

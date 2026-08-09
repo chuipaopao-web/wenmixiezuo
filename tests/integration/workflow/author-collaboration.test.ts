@@ -48,22 +48,17 @@ describe('对象旁作者想法协作', () => {
       .get(createHash('sha256').update('event 的原始想法').digest('hex'))).toEqual({ count: 1 });
   });
 
-  it('引用同书附件和真实成员，保留已绑定旧消息的附件且拒绝跨书引用', async () => {
+  it('引用同书附件和真实成员，保护已被作者想法引用的附件并拒绝跨书引用', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const first = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '甲书', text: '附件属于甲书' });
     const second = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '乙书', text: '不能看到甲书附件' });
     app = await createServer(context.config, context.database, { trustedTest: true });
-    const upload = await uploadText(app, first.bookId, 'old-note.txt', '旧消息里的作者原话');
+    const upload = await uploadText(app, first.bookId, 'old-note.txt', '附件里的作者原话');
     const attachmentId = upload.json().data.attachmentId as string;
     const freshUpload = await uploadText(app, first.bookId, 'fresh-note.txt', '只在作者想法中使用');
     const freshAttachmentId = freshUpload.json().data.attachmentId as string;
-    const sent = await app.inject({
-      method: 'POST', url: `/api/v1/books/${first.bookId}/messages`,
-      payload: { content: '这是一条已有消息', attachmentIds: [attachmentId] }
-    });
-    expect(sent.statusCode).toBe(200);
     const agent = context.database.prepare(`SELECT agent_id FROM agent_instances
       WHERE owner_id = ? AND book_id = ? AND enabled = 1 ORDER BY created_at LIMIT 1`)
       .get(context.config.ownerId, first.bookId) as { agent_id: string };
@@ -77,12 +72,10 @@ describe('对象旁作者想法协作', () => {
     });
     expect(created.statusCode, created.body).toBe(200);
     expect(created.json().data).toMatchObject({ attachmentRefs: [attachmentId, freshAttachmentId], mentionedAgentIds: [agent.agent_id] });
-    const linkedDiscard = await app.inject({ method: 'POST', url: `/api/v1/books/${first.bookId}/chat-attachments/${freshAttachmentId}/discard`, payload: {} });
+    const linkedDiscard = await app.inject({ method: 'POST', url: `/api/v1/books/${first.bookId}/author-attachments/${freshAttachmentId}/discard`, payload: {} });
     expect(linkedDiscard.statusCode).toBe(409);
-    expect(context.database.prepare('SELECT message_id FROM chat_attachments WHERE attachment_id = ?').get(attachmentId))
-      .toEqual({ message_id: expect.any(String) });
-    expect(context.database.prepare('SELECT COUNT(*) AS count FROM messages WHERE owner_id = ? AND book_id = ?')
-      .get(context.config.ownerId, first.bookId)).toEqual({ count: expect.any(Number) });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM author_planning_input_links WHERE target_id IN (?, ?)')
+      .get(attachmentId, freshAttachmentId)).toEqual({ count: 2 });
 
     const crossBook = await app.inject({
       method: 'POST', url: `/api/v1/books/${second.bookId}/author-planning-inputs`,
@@ -185,7 +178,7 @@ async function uploadText(app: FastifyInstance, bookId: string, filename: string
   ].join('\r\n'));
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   return app.inject({
-    method: 'POST', url: `/api/v1/books/${bookId}/chat-attachments`,
+    method: 'POST', url: `/api/v1/books/${bookId}/author-attachments`,
     headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
     payload: Buffer.concat([head, Buffer.from(text), tail])
   });

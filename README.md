@@ -1,41 +1,36 @@
 # 文秘写作
 
-这是一个与“AI智囊团”完全独立的、本地优先的小说创作平台。目标是让老板只需要通过自然语言表达想法，由多个真实Agent完成讨论、规划、写作、审校、知识沉淀、正史结算和长期一致性维护。
+文秘写作是一套本地优先的长篇小说 AI 协作平台。作者通过明确的创作对象推进工作，AI 成员直接给出独立方案、融合候选、正文和审查报告，不使用聊天推动创作。
 
-历史首版于2026-07-16完成；当前长篇终局release `wm-longform-r1-20260719-003435-e4d7b8b7` 已按八阶段完成工程实现与E2验收。运行数据固定保存在 `D:\wenmixiezuo\data`，与 `D:\AI智囊团` 完全独立。
+## 当前工作流
 
-## 文档阅读顺序
+```text
+开书信息 → 设定大纲 → 当前卷纲 → 事件链 → 当前事件大纲
+→ 当前事件章纲 → 单章正文 → 章节结算 → 事件结算 → 卷结算 → 下一卷
+```
 
-1. `AGENTS.md`：任何开发Agent必须遵守的规则。
-2. `docs/PROJECT_CHARTER.md`：产品边界和最高约束。
-3. `docs/PRODUCT.md`：用户体验、功能范围和业务流程。
-4. `docs/ARCHITECTURE.md`：系统架构与模块边界。
-5. `docs/DATA_MODEL.md`：数据实体、隔离键和状态机。
-6. `docs/AGENT_SYSTEM.md`：11名创作成员、小文秘书、Agent运行循环与权限。
-7. `docs/MEMORY.md`：长篇小说的分层记忆和上下文组装。
-8. `docs/API.md`：首版接口和事件契约。
-9. `docs/DEVELOPMENT_ROADMAP.md`：八阶段实施顺序。
-10. `docs/ACCEPTANCE.md`：阶段门禁和最终验收。
-11. `docs/ROLE_PROMPTS.md`：11个岗位实际模型、定位、输入输出、记忆、边界和完整提示词规则。
-12. `docs/PRE_DEVELOPMENT_DESIGN_FREEZE.md`：本次长篇终局能力的开工设计冻结与追溯基线。
-13. `docs/RUNTIME_WORKFLOWS.md`、`docs/SECURITY_AND_OPERATIONS.md`、`docs/EVALUATION_PROTOCOL.md`：状态机、安全运维与E0—E4评测合同。
+已有正文可以导入并反向拆解，再进入同一套卷—事件流程；导入原文不会被覆盖。
 
-需要核对讨论原文时，再读取：
+## 使用入口
 
-- `docs/SOURCE_REQUIREMENTS.md`：老板原始需求。
-- `docs/FINAL_SOLUTION.md`：讨论生成的最终方案摘要原文。
-- `docs/CONSENSUS_LEDGER.md`：24条完整共识原文。
-- `docs/DECISIONS.md`：讨论结束后的老板最新决定。
-- `docs/COVERAGE_MATRIX.md`：24条共识到开发文档的映射。
+- 双击 `文秘写作-启动.cmd` 启动。
+- 双击 `文秘写作-停止.cmd` 停止本项目进程。
+- 双击桌面的“文秘写作项目文档”查看当前规则和功能说明。
+- 项目总入口：[PROJECT_HANDBOOK.md](PROJECT_HANDBOOK.md)。
+- 使用说明：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
 
-## 直接使用
+## 界面
 
-- 双击 `文秘写作-启动.cmd` 启动并打开工作台。
-- 双击 `文秘写作-停止.cmd` 只停止本项目登记的进程。
-- 老板使用说明见 `docs/USER_GUIDE.md`。
+- 左栏只显示书籍。
+- 创作台主步骤：开书、设定、卷纲、事件、章纲、正文。
+- 辅助工具：图谱、资料库、取名。
+- 不提供独立对话页或独立版权页。
+- AI 方案、作者选择、融合和修订都保存在对应业务对象中。
 
-## 发布状态
+## 技术边界
 
-当前长篇release的最终证据见 `docs/releases/wm-longform-r1-20260719-003435-e4d7b8b7/ACCEPTANCE_MATRIX.md`。默认Web端口为 `43110`，API端口为 `43111`，均只监听 `127.0.0.1`。系统支持Codex登录态以及火山方舟Coding Plan/Agent Plan，禁止回退到按量计费；缺少套餐凭证时只启用明确标注的确定性测试模型。私有远程仓库为 `chuipaopao-web/wenmixiezuo`；第二物理小说数据备份位置仍未配置。
+React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本地 LanceDB 投影。服务只监听 `127.0.0.1`。SQLite 正式对象和不可变原文是权威来源；全文索引、向量、摘要、图谱和 Wiki 都是可重建投影。
 
-本次已取得E2工程容量证据：500万NFC规范化字符、1500章、5本并存、索引重建和隔离恢复均通过。没有用确定性假模型冒充E3独立金标或E4真实模型长期文学质量；真实纵向质量只按以后实际创作跨度追加证据。
+## 当前验证
+
+仓库运行时可达性审计为零孤儿源码；类型检查、141个测试文件中的523项测试、Contracts/API/Worker/Web生产构建均已通过。真实模型长期文学质量仍按 E3/E4 证据积累，不以工程测试冒充。

@@ -50,7 +50,7 @@ export class ContextPackService {
   public build(scope: BookScope, input: ContextPackInput): ContextPackRecord {
     assertBookScope(scope);
     const characterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
-    const policyVersion = input.policyVersion ?? 'legacy-context-v1';
+    const policyVersion = input.policyVersion?.trim() || 'context-pack-v2';
     const hard = input.hardSources.map((source) => ({
       ...source,
       tokenCount: estimateTokens(source.content),

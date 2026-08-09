@@ -4,12 +4,12 @@ export function taskLabel(type: string): string {
   if (type === 'chapter_creation') return '章节创作';
   if (type === 'chapter_write') return '正文写作';
   if (type === 'discussion') return '团队讨论';
-  if (type === 'conversation_reply') return '主编回复';
+  if (type === 'conversation_reply') return '已停用历史任务';
   return type;
 }
 
 export function taskGoal(task: TaskData, chapter: string): string {
-  if (task.taskType === 'conversation_reply') return '由当前主编查看这本书的相关资料后回复；不会自动修改长期资料或正式内容。';
+  if (task.taskType === 'conversation_reply') return '这是旧版本遗留的审计记录，不能重新执行，也不会影响当前对象工作流。';
   if (task.taskType === 'discussion') {
     const scopeText = typeof task.brief.scopeText === 'string' ? task.brief.scopeText : '当前创作问题';
     return `围绕“${scopeText}”收集相关岗位真实意见，由主编汇总后等待老板明确确认。`;

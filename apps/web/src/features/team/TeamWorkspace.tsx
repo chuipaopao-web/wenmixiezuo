@@ -6,7 +6,6 @@ import {
   saveAgentPromptPreference,
   type AgentData,
   type BookData,
-  type MessageData,
   type ProtectedRolePromptData,
   type TaskData,
   type TeamConfigData,
@@ -322,8 +321,7 @@ function modelProviderLabel(provider: string): string {
   return '已配置模型服务';
 }
 
-export function AgentDetailsDialog({ agent, task, messages, onClose }: { agent: AgentData; task: TaskData | null; messages: MessageData[]; onClose: () => void }): React.JSX.Element {
-  const contribution = [...messages].reverse().find((message) => message.sender_agent_id === agent.agentId || message.role_key === agent.roleKey) ?? null;
+export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData; task: TaskData | null; onClose: () => void }): React.JSX.Element {
   const groups = [
     ['负责', agent.responsibilities ?? []], ['不负责', agent.boundaries ?? []], ['检索重点', agent.retrievalFocus ?? []], ['交付物', agent.outputKinds ?? []]
   ] as const;
@@ -332,7 +330,7 @@ export function AgentDetailsDialog({ agent, task, messages, onClose }: { agent: 
       <header><div className="agent-dialog-identity"><AgentAvatar roleKey={agent.roleKey} roleName={memberIdentity(agent)} /><span><h2 id="agent-detail-title">{memberIdentity(agent)}</h2><p>{agent.publicSummary ?? roleSummary(agent.roleKey)}</p></span></div><button className="icon-button" type="button" aria-label="关闭岗位详情" onClick={onClose}><XIcon /></button></header>
       <div className="agent-detail-model"><span>实际模型来源</span><strong>{agent.provider}/{agent.modelId}</strong><small>同模型岗位会如实显示共同来源，不计作独立意见。</small></div>
       <div className="agent-detail-groups">{groups.map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}</div>
-      <section className="agent-evidence"><h3>当前任务与有效贡献</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p>{contribution === null ? <small>尚无可展示的有效对话贡献，不伪造在线或工作状态。</small> : <blockquote>{contribution.content}<footer>{formatTime(contribution.created_at)}，来源消息 {shortId(contribution.message_id)}</footer></blockquote>}</section>
+      <section className="agent-evidence"><h3>当前任务</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p><small>成员状态只依据真实任务、Worker和模型调用，不根据界面展示文字推断。</small></section>
       <footer><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
     </section>
   </div>;

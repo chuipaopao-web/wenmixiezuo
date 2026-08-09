@@ -92,7 +92,7 @@ export interface SettingCollaborationData {
     updatedAt: string;
     proposals: Array<{
       number: number;
-      messageId: string;
+      proposalId: string;
       agentId: string | null;
       memberName: string;
       roleKey: string | null;
@@ -633,13 +633,10 @@ export interface WorkspaceData {
       createdAt: string;
     }>;
   };
-  messageCount: number;
-  creativeSession?: CreativeSessionData | null;
   localAssistant?: {
     displayName: string;
     roleName: string;
     status: 'ready' | 'degraded' | 'offline';
-    sessionCount: number;
     summary: string;
   };
 }
@@ -655,39 +652,6 @@ export interface TaskCenterBookData {
 
 export interface TaskCenterData {
   books: TaskCenterBookData[];
-}
-
-export interface CreativeSessionData {
-  sessionId: string;
-  status: 'exploring' | 'awaiting_direction' | 'planning' | 'awaiting_plan' | 'ready' | 'paused';
-  mode: 'open_discussion' | 'creative_forecast' | 'trial_draft' | 'formal_production';
-  activeTopic: string;
-  currentBlackboardRevision: number;
-  canonRevision: number;
-  blackboard: null | {
-    revision: number;
-    currentGoal: string;
-    maturity: 'exploring' | 'comparing' | 'direction_ready' | 'planning' | 'ready';
-    nextStep: string;
-    candidates: unknown[];
-    disagreements: unknown[];
-    risks: unknown[];
-    unknowns: unknown[];
-    lockedDirection: null | { decisionId: string; summary: string };
-  };
-  activeForecast: null | {
-    forecastId: string;
-    status: string;
-    staleReason: string | null;
-    branchCount: number;
-    branches: Array<{
-      branchId: string;
-      ordinal: number;
-      title: string;
-      proposal: Record<string, unknown>;
-      sourceAgentId: string | null;
-    }>;
-  };
 }
 
 export interface LibraryData {
@@ -802,20 +766,8 @@ export interface ArtifactVersionData {
   createdAt: string;
 }
 
-export interface MessageData {
-  message_id: string;
-  sender_type: 'boss' | 'agent' | 'system';
-  sender_agent_id: string | null;
-  role_key: string | null;
-  model_provider: string | null;
-  model_id: string | null;
-  message_type: string;
-  content: string;
-  references_json: string;
-  created_at: string;
-}
 
-export interface ChatAttachmentData {
+export interface AuthorAttachmentData {
   attachmentId: string;
   originalName: string;
   mediaKind: 'image' | 'text' | 'pdf' | 'docx';
@@ -1301,9 +1253,6 @@ export function saveAgentPromptPreference(
   });
 }
 
-export function fetchMessages(bookId: string, signal?: AbortSignal): Promise<MessageData[]> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages?limit=500`, signal === undefined ? {} : { signal });
-}
 
 export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
   return request('/api/v1/runtime/worker', signal === undefined ? {} : { signal });
@@ -1340,23 +1289,18 @@ export function purgeBook(bookId: string, confirmationText: string): Promise<{ b
   });
 }
 
-export function uploadChatAttachment(bookId: string, file: File): Promise<ChatAttachmentData> {
+export function uploadAuthorAttachment(bookId: string, file: File): Promise<AuthorAttachmentData> {
   const body = new FormData();
   body.append('file', file, file.name);
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments`, { method: 'POST', body });
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/author-attachments`, { method: 'POST', body });
 }
 
-export function discardChatAttachment(bookId: string, attachmentId: string): Promise<ChatAttachmentData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chat-attachments/${encodeURIComponent(attachmentId)}/discard`, {
+export function discardAuthorAttachment(bookId: string, attachmentId: string): Promise<AuthorAttachmentData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/author-attachments/${encodeURIComponent(attachmentId)}/discard`, {
     method: 'POST', body: JSON.stringify({})
   });
 }
 
-export function sendMessage(bookId: string, content: string, attachmentIds: string[] = []): Promise<{ messageId: string; action: Record<string, unknown> }> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/messages`, {
-    method: 'POST', body: JSON.stringify({ content, attachmentIds })
-  });
-}
 
 export function startWritingRun(bookId:string,input:{volumeTitle?:string;chapterTitle?:string}={}):Promise<ChapterBatchData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/writing-runs`,{method:'POST',body:JSON.stringify(input)});
@@ -1580,6 +1524,41 @@ export function fetchSettingCollaboration(
     `/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration`,
     signal === undefined ? {} : { signal }
   );
+}
+
+export interface SettingCollaborationCommandData {
+  taskId: string;
+  discussionId: string;
+  status: string;
+  reused: boolean;
+}
+
+export function startSettingCollaboration(bookId: string, itemKey: string, input: {
+  authorInputId?: string | null;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/start`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
+  proposalIds: string[];
+  authorInputId?: string | null;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/synthesize`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function reviseSettingCollaboration(bookId: string, itemKey: string, input: {
+  authorInputId: string;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/revise`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
 }
 
 export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfileViewData> {

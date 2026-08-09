@@ -128,7 +128,7 @@ export class AuthorPlanningInputRepository {
   }
 
   public attachmentExists(scope: BookScope, attachmentId: string): boolean {
-    return this.database.prepare(`SELECT 1 FROM chat_attachments
+    return this.database.prepare(`SELECT 1 FROM author_attachments
       WHERE owner_id = ? AND book_id = ? AND attachment_id = ? AND parse_status <> 'discarded'`)
       .get(scope.ownerId, scope.bookId, attachmentId) !== undefined;
   }

@@ -87,11 +87,9 @@ export class BookOnboardingService {
     const budgetId = this.ids.next();
     const storyBibleArtifactId = this.ids.next();
     const storyBibleVersionId = this.ids.next();
-    const conversationId = this.ids.next();
     const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
     const isContinuation = draft.openingBlueprint?.creationMode === 'continuation';
     const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
-    const onboardingTriggerMessageId = this.ids.next();
     const kickoffTaskId = this.ids.next();
     const kickoffDiscussionId = this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
@@ -205,10 +203,7 @@ export class BookOnboardingService {
         adaptationSnapshotId, JSON.stringify(storyBible), hashJson(storyBible), now
       );
       if (failAt === 'after_artifact') throw new Error('simulated-onboarding-failure');
-      this.database.prepare(`
-        INSERT INTO conversations (conversation_id, owner_id, book_id, title, created_at, updated_at)
-        VALUES (?, ?, ?, '主创作对话', ?, ?)
-      `).run(conversationId, scope.ownerId, draft.proposedBookId, now, now);
+
       const editor = this.database.prepare(`
         SELECT agent_id, model_snapshot_id FROM agent_instances
         WHERE owner_id = ? AND book_id = ? AND role_template_id = 'role-v2-chief-editor'
@@ -229,12 +224,7 @@ export class BookOnboardingService {
             .ensureInitialized(bookScope, draft.openingBlueprint);
       if (this.releaseId !== undefined && !isContinuation) {
         const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label);
-        this.database.prepare(`
-          INSERT INTO messages (
-            message_id, conversation_id, owner_id, book_id, sender_type,
-            message_type, content, references_json, created_at
-          ) VALUES (?, ?, ?, ?, 'system', 'onboarding_trigger', ?, '[]', ?)
-        `).run(onboardingTriggerMessageId, conversationId, scope.ownerId, draft.proposedBookId, kickoffContent, now);
+
         const screenwriters = this.database.prepare(`
           SELECT a.agent_id, a.model_snapshot_id, r.role_key
           FROM agent_instances a
@@ -281,7 +271,6 @@ export class BookOnboardingService {
           brief: {
             discussionId: kickoffDiscussionId,
             scopeText: kickoffContent,
-            conversationId,
             purpose: 'setting_proposal_panel',
             settingItemKey: 'creative-concept',
             settingItemLabel: '策划理念',

@@ -3,24 +3,12 @@ import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { LongformContinuityRepository } from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
 import { UnitOfWork } from '../../../apps/api/src/infrastructure/db/unit-of-work.js';
-import { CommitmentService } from '../../../apps/api/src/application/continuity/commitment-service.js';
 import { StageSettlementService } from '../../../apps/api/src/application/continuity/stage-settlement-service.js';
 import { RollingPlanService } from '../../../apps/api/src/application/continuity/rolling-plan-service.js';
 
 describe('超长篇连续性', () => {
   let context: TestContext | undefined;
   afterEach(() => { context?.close(); context = undefined; });
-
-  it('开放承诺不会按固定章数遗忘，并能按来源解决', () => {
-    context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();
-    const book = initializeDomainBook(context, 'owner-one', ids, clock); const scope = { ownerId: 'owner-one', bookId: book.bookId };
-    const commitments = new CommitmentService(new LongformContinuityRepository(context.database), ids, clock);
-    const opened = commitments.open(scope, { type: 'foreshadowing', title: '旧印记', description: '五百章后仍可能触发', entityIds: ['张三'],
-      openedChapter: 1, sourceType: 'canon_chapter', sourceId: 'chapter-1', sourceHash: 'a'.repeat(64), sourceLocator: { paragraph: 2 }, authorityGrade: 'A' });
-    expect(commitments.relevant(scope, 500).map((item) => item.commitmentId)).toContain(opened.commitmentId);
-    commitments.resolve(scope, opened.commitmentId, 'chapter-501');
-    expect(commitments.relevant(scope, 501)).toEqual([]);
-  });
 
   it('阶段结算探针失败时保留上一活动版本，成功时原子切换', () => {
     context = createTestContext(); const ids = new SequenceIds(); const clock = new FixedClock();

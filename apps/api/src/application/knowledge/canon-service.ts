@@ -586,7 +586,7 @@ export class CanonService {
         knowledgeChanges: input.additions.map((fact) => ({ factId: fact.fact_id, grade: fact.grade })),
         resourceChanges: input.additions.filter((fact) => /resource|item|possesses/iu.test(fact.relation_key)).map((fact) => fact.fact_id),
         ruleChanges: input.additions.filter((fact) => /rule|constraint/iu.test(fact.relation_key)).map((fact) => fact.fact_id),
-        exclusions: ['未被确认正文逐字支持的推断', '聊天原文', '未选初稿']
+        exclusions: ['未被确认正文逐字支持的推断', '旧版会话原文', '未选初稿']
       },
       sources: [{
         sourceType: 'confirmed_manuscript', sourceId: input.manuscriptVersionId, sourceHash: input.manuscriptHash,

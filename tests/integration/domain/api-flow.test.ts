@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer } from '../../../apps/api/src/http/server.js';
-import { ConversationReplyPipelineService } from '../../../apps/api/src/application/chat/conversation-reply-pipeline-service.js';
 import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
@@ -162,19 +161,6 @@ describe('建书REST流程', () => {
       });
       expect(staleProfile.statusCode).toBe(409);
       expect(staleProfile.json().error).toMatchObject({ code: 'BOOK_VERSION_CONFLICT' });
-      const messages = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/messages` });
-      expect(messages.json().data).toEqual([]);
-      const workspace = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/workspace` });
-      expect(workspace.json().data.messageCount).toBe(0);
-      const entryBeforeReply = await app.inject({
-        method: 'POST', url: `/api/v1/books/${created.bookId}/conversation-entry`, payload: {}
-      });
-      expect(entryBeforeReply.statusCode).toBe(200);
-      expect(entryBeforeReply.json().data).toMatchObject({
-        kind: 'guidance_in_progress',
-        taskId: created.kickoffTaskId,
-        settingItemKey: 'creative-concept'
-      });
       const settingCollaboration = await app.inject({
         method: 'GET',
         url: `/api/v1/books/${created.bookId}/setting-outline-workspace/creative-concept/collaboration`
@@ -236,25 +222,28 @@ describe('建书REST流程', () => {
       expect(JSON.parse(sourceManifest.source_manifest_json)).toEqual(expect.arrayContaining([
         expect.objectContaining({ sourceType: 'boss_discussion_scope', hard: true })
       ]));
-      const proactiveMessages = await app.inject({ method: 'GET', url: `/api/v1/books/${created.bookId}/messages` });
-      expect(proactiveMessages.json().data).toEqual(expect.arrayContaining([
-        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'setting_proposal' }),
-        expect.objectContaining({ sender_type: 'agent', role_key: 'lead_screenwriter', message_type: 'setting_proposal' }),
-        expect.objectContaining({ sender_type: 'agent', role_key: 'second_screenwriter', message_type: 'setting_proposal' })
-      ]));
-      expect(proactiveMessages.json().data).toHaveLength(3);
+      const proactiveCollaboration = await app.inject({
+        method: 'GET',
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/creative-concept/collaboration`
+      });
+      expect(proactiveCollaboration.statusCode).toBe(200);
+      expect(proactiveCollaboration.json().data.panel).toMatchObject({
+        taskId: created.kickoffTaskId,
+        taskStatus: 'succeeded',
+        proposals: expect.arrayContaining([
+          expect.objectContaining({ roleKey: 'chief_editor' }),
+          expect.objectContaining({ roleKey: 'lead_screenwriter' }),
+          expect.objectContaining({ roleKey: 'second_screenwriter' })
+        ])
+      });
       expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
         WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`)
         .get(context.config.ownerId, created.bookId)).toMatchObject({
         item_status: '讨论中',
         content_text: null
       });
-      const entryAfterReply = await app.inject({
-        method: 'POST', url: `/api/v1/books/${created.bookId}/conversation-entry`, payload: {}
-      });
-      expect(entryAfterReply.json().data).toMatchObject({
-        kind: 'guidance_available',
-        settingItemKey: 'creative-concept'
+      expect(proactiveCollaboration.json().data.item).toMatchObject({
+        itemKey: 'creative-concept', status: '讨论中'
       });
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
         WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
@@ -300,13 +289,18 @@ describe('建书REST流程', () => {
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: book.bookId }, book.kickoffTaskId, 'worker-legacy-onboarding');
-      const messages = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/messages` });
-      expect(messages.json().data).toEqual(expect.arrayContaining([
-        expect.objectContaining({ sender_type: 'agent', role_key: 'chief_editor', message_type: 'setting_proposal' }),
-        expect.objectContaining({ sender_type: 'agent', role_key: 'lead_screenwriter', message_type: 'setting_proposal' }),
-        expect.objectContaining({ sender_type: 'agent', role_key: 'second_screenwriter', message_type: 'setting_proposal' })
+      const kickoffBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+        .get(book.kickoffTaskId) as { task_brief_json: string }).task_brief_json) as { discussionId: string };
+      const proposals = context.database.prepare(`SELECT r.role_key AS roleKey
+        FROM discussion_opinions o
+        JOIN agent_instances a ON a.owner_id = o.owner_id AND a.book_id = o.book_id AND a.agent_id = o.agent_id
+        JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+        WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'`)
+        .all(context.config.ownerId, book.bookId, kickoffBrief.discussionId);
+      expect(proposals).toEqual(expect.arrayContaining([
+        { roleKey: 'chief_editor' }, { roleKey: 'lead_screenwriter' }, { roleKey: 'second_screenwriter' }
       ]));
-      expect(messages.json().data).toHaveLength(3);
+      expect(proposals).toHaveLength(3);
     } finally {
       await app.close();
     }

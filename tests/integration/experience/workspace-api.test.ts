@@ -112,107 +112,38 @@ describe('工作台API', () => {
     expect(previewResponse.statusCode).toBe(200);
     expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 11 });
 
-    // 上面切换设定基线版本会按产品规则使总纲和章纲失效。
-    // 重新建立经确认的下游规划后，明确写作命令才允许进入正式生产。
-    prepareBookForWriting(context, { ownerId: context.config.ownerId, bookId: book.bookId }, ids, clock, 1);
-    const commandResponse = await app.inject({
+    const retiredMessageEndpoint = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }
     });
-    expect(commandResponse.statusCode).toBe(200);
-    expect(commandResponse.json().data.action).toMatchObject({ kind: 'chapter_batch_scheduled', count: 1 });
-    const scheduledWorkspace = (await app.inject({
+    expect(retiredMessageEndpoint.statusCode).toBe(404);
+    const refreshedWorkspace = (await app.inject({
       method: 'GET', url: `/api/v1/books/${book.bookId}/workspace`
     })).json().data;
-    expect(scheduledWorkspace.tasks[0]).toMatchObject({
-      chapterId: scheduledWorkspace.chapters[0].chapterId,
-      brief: { chapterNumber: 1 },
-      checkpoint: {},
-      cancelRequested: false
-    });
-    expect(scheduledWorkspace.volumes).toEqual([
-      expect.objectContaining({ volumeNumber: 1, chapterCount: 1 })
-    ]);
-    expect(scheduledWorkspace.chapters[0].volumeId).toBe(scheduledWorkspace.volumes[0].volumeId);
+    expect(refreshedWorkspace).not.toHaveProperty('messageCount');
+    expect(refreshedWorkspace).not.toHaveProperty('creativeSession');
     const taskCenterResponse = await app.inject({ method: 'GET', url: '/api/v1/task-center' });
     expect(taskCenterResponse.statusCode).toBe(200);
     expect(taskCenterResponse.json().data.books).toEqual([
-      expect.objectContaining({
-        book: expect.objectContaining({ bookId: book.bookId, title: '工作台接口书' }),
-        chapters: [expect.objectContaining({
-          chapterId: scheduledWorkspace.chapters[0].chapterId,
-          chapterNumber: 1
-        })],
-        tasks: [expect.objectContaining({
-          taskId: scheduledWorkspace.tasks[0].taskId,
-          chapterId: scheduledWorkspace.chapters[0].chapterId
-        })],
-        budget: expect.objectContaining({ mode: expect.any(String) }),
-        confirmations: { count: 0, items: [] }
-      })
+      expect.objectContaining({ book: expect.objectContaining({ bookId: book.bookId, title: '工作台接口书' }) })
     ]);
-    expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('volumes');
     expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('messageCount');
     expect(taskCenterResponse.json().data.books[0]).not.toHaveProperty('creativeSession');
-    const chapterPage = await app.inject({
-      method: 'GET',
-      url: `/api/v1/books/${book.bookId}/volumes/${scheduledWorkspace.volumes[0].volumeId}/chapters?limit=1&query=1&status=planned`
-    });
-    expect(chapterPage.statusCode).toBe(200);
-    expect(chapterPage.json().data).toMatchObject({ total: 1, offset: 0, limit: 1, items: [
-      expect.objectContaining({ chapterId: scheduledWorkspace.chapters[0].chapterId, chapterNumber: 1 })
-    ] });
-    const prepareResponse = await app.inject({
-      method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '准备接管' }
-    });
-    expect(prepareResponse.json().data.action).toMatchObject({ kind: 'takeover_prepared', fromEpoch: 1 });
-    const takeoverId = prepareResponse.json().data.action.takeoverId as string;
-    const takeoverResponse = await app.inject({
-      method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: `确认接管 ${takeoverId}` }
-    });
-    expect(takeoverResponse.json().data.action).toMatchObject({ kind: 'takeover_completed', editorEpoch: 2 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM model_calls WHERE owner_id = ? AND book_id = ?`)
       .get(context.config.ownerId, book.bookId)).toEqual({ count: 0 });
   });
 
-  it('工作区返回当前持续剧情会话和可读黑板，不泄露内部事件原文', async () => {
+  it('工作区不再返回聊天消息和持续会话记忆', async () => {
     context = createTestContext();
-    const ids = new SequenceIds();
-    const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '持续会话接口书',
-      text: '张三准备进入天安城调查旧案'
+    const book = initializeDomainBook(context, context.config.ownerId, new SequenceIds(), new FixedClock(), {
+      title: '对象工作流接口书', text: '验证工作区只聚合当前对象状态'
     });
     app = await createServer(context.config, context.database, { trustedTest: true });
-    const message = await app.inject({
-      method: 'POST',
-      url: `/api/v1/books/${book.bookId}/messages`,
-      payload: { content: '讨论张三应该怎样进入天安城' }
-    });
-    expect(message.statusCode).toBe(200);
-    expect(message.json().data.action).toMatchObject({
-      kind: 'creative_session_started',
-      roundKind: 'initial_exploration'
-    });
-
     const workspaceResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/books/${book.bookId}/workspace`
+      method: 'GET', url: `/api/v1/books/${book.bookId}/workspace`
     });
     expect(workspaceResponse.statusCode).toBe(200);
-    expect(workspaceResponse.json().data.creativeSession).toMatchObject({
-      status: 'exploring',
-      mode: 'creative_forecast',
-      activeTopic: '讨论张三应该怎样进入天安城',
-      currentBlackboardRevision: 1,
-      blackboard: {
-        revision: 1,
-        currentGoal: '讨论张三应该怎样进入天安城',
-        maturity: 'exploring'
-      },
-      activeForecast: null
-    });
-    expect(workspaceResponse.json().data.creativeSession.blackboard.ownerMessages).toBeUndefined();
-    expect(workspaceResponse.json().data.creativeSession.blackboard.evidence).toBeUndefined();
+    expect(workspaceResponse.json().data).not.toHaveProperty('messageCount');
+    expect(workspaceResponse.json().data).not.toHaveProperty('creativeSession');
   });
 
   it('研究元数据可查看但接口不返回缓存原文，候选不会修改正史', async () => {

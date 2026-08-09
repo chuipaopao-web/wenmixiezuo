@@ -5,7 +5,9 @@ import {
   resumeTask,
   retryTask,
   saveSettingOutlineItem,
-  sendMessage,
+  startSettingCollaboration,
+  synthesizeSettingCollaboration,
+  reviseSettingCollaboration,
   type SettingCollaborationData,
   type SettingOutlineWorkspaceData
 } from '../../lib/api/client';
@@ -30,6 +32,9 @@ export function SettingCollaborationPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const ideaKey = useRef<string | null>(null);
   const sourceKey = useRef<string | null>(null);
+  const startKey = useRef<string | null>(null);
+  const synthesisKey = useRef<string | null>(null);
+  const revisionKey = useRef<string | null>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const next = await fetchSettingCollaboration(bookId, item.itemKey, signal);
@@ -67,9 +72,10 @@ export function SettingCollaborationPanel({
     setBusy('start'); setNotice(null);
     try {
       const existingSource = source.trim();
+      let authorInputId: string | null = null;
       if (existingSource.length > 0) {
         sourceKey.current ??= createClientKey();
-        await createAuthorPlanningInput(bookId, {
+        const saved = await createAuthorPlanningInput(bookId, {
           surface: 'setting',
           subjectType: 'setting_module',
           subjectId: item.itemKey,
@@ -80,15 +86,16 @@ export function SettingCollaborationPanel({
           scopeNotes: `作者为“${item.label}”提供的已有设定原文，作为本轮发散参考，不自动确认。`,
           idempotencyKey: sourceKey.current
         });
+        authorInputId = saved.authorInputId;
       }
-      await sendMessage(bookId, [
-        `请让活动主编和两位编剧分别独立提出当前设定项“${item.label}”的方案。`,
-        `只回答这个问题：${item.prompt}`,
-        existingSource.length === 0 ? '作者没有提供已有设定原文。' : `作者已有设定原文（只作参考）：\n${existingSource}`,
-        '三人互相不要看答案、不要投票、不要自动合并，也不要生成卷纲、章纲或正文。'
-      ].join('\n'));
+      startKey.current ??= createClientKey();
+      await startSettingCollaboration(bookId, item.itemKey, {
+        authorInputId,
+        idempotencyKey: startKey.current
+      });
       setSource('');
       sourceKey.current = null;
+      startKey.current = null;
       setNotice('三名成员已开始各自构思；刷新页面不会重复创建任务。');
       await refresh();
     } catch (reason) {
@@ -97,13 +104,15 @@ export function SettingCollaborationPanel({
   };
 
   const synthesize = async (): Promise<void> => {
-    if (busy !== null || data?.panel === null || selected.length === 0) return;
+    const panel = data?.panel;
+    if (busy !== null || panel === null || panel === undefined || selected.length === 0) return;
     setBusy('synthesize'); setNotice(null);
     try {
       const authorIdea = idea.trim();
+      let authorInputId: string | null = null;
       if (authorIdea.length > 0) {
         ideaKey.current ??= createClientKey();
-        await createAuthorPlanningInput(bookId, {
+        const saved = await createAuthorPlanningInput(bookId, {
           surface: 'setting',
           subjectType: 'setting_module',
           subjectId: item.itemKey,
@@ -114,13 +123,19 @@ export function SettingCollaborationPanel({
           scopeNotes: `用于“${item.label}”方案整理`,
           idempotencyKey: ideaKey.current
         });
+        authorInputId = saved.authorInputId;
       }
-      await sendMessage(bookId, [
-        `当前设定项“${item.label}”，我选择方案${[...selected].sort((a, b) => a - b).join('+')}。`,
-        authorIdea.length === 0 ? '没有额外补充。' : `我的补充想法：${authorIdea}`,
-        '请只由活动主编忠实整理成一个待确认版本；保留我选中的核心内容，不重新召集三人，不生成后续剧情。'
-      ].join('\n'));
+      const proposalIds = panel.proposals
+        .filter((proposal) => selected.includes(proposal.number))
+        .map((proposal) => proposal.proposalId);
+      synthesisKey.current ??= createClientKey();
+      await synthesizeSettingCollaboration(bookId, item.itemKey, {
+        proposalIds,
+        authorInputId,
+        idempotencyKey: synthesisKey.current
+      });
       ideaKey.current = null;
+      synthesisKey.current = null;
       setNotice('主编正在按你的选择整理一个待确认版本。');
       await refresh();
     } catch (reason) {
@@ -157,11 +172,25 @@ export function SettingCollaborationPanel({
     if (busy !== null || idea.trim().length === 0) return;
     setBusy('revise'); setNotice(null);
     try {
-      await sendMessage(bookId, [
-        `请修改当前设定项“${item.label}”的待确认版本。`,
-        `我的修改意见：${idea.trim()}`,
-        '只由活动主编在现有候选上定点修改，不重新召集三人，不扩展到卷纲、章纲或正文。'
-      ].join('\n'));
+      ideaKey.current ??= createClientKey();
+      const saved = await createAuthorPlanningInput(bookId, {
+        surface: 'setting',
+        subjectType: 'setting_module',
+        subjectId: item.itemKey,
+        intentStrength: 'preference',
+        originalText: idea.trim(),
+        attachmentRefs: [],
+        mentionedAgentIds: [],
+        scopeNotes: `用于“${item.label}”候选的定点修改`,
+        idempotencyKey: ideaKey.current
+      });
+      revisionKey.current ??= createClientKey();
+      await reviseSettingCollaboration(bookId, item.itemKey, {
+        authorInputId: saved.authorInputId,
+        idempotencyKey: revisionKey.current
+      });
+      ideaKey.current = null;
+      revisionKey.current = null;
       setIdea('');
       setNotice('修改意见已交给主编，现有版本和三份原始方案都会保留。');
       await refresh();
@@ -234,7 +263,7 @@ export function SettingCollaborationPanel({
       {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
       {proposals.length > 0 && <div className="setting-proposal-grid">{proposals.map((proposal) => {
         const checked = selected.includes(proposal.number);
-        return <button type="button" className={checked ? 'selected' : ''} key={proposal.messageId} aria-pressed={checked} onClick={() => setSelected((current) => checked ? current.filter((number) => number !== proposal.number) : [...current, proposal.number])}>
+        return <button type="button" className={checked ? 'selected' : ''} key={proposal.proposalId} aria-pressed={checked} onClick={() => setSelected((current) => checked ? current.filter((number) => number !== proposal.number) : [...current, proposal.number])}>
           <span>方案 {proposal.number}</span><strong>{proposal.memberName}</strong><p>{proposal.content}</p><small>{checked ? '已选入整理' : '点击选择，可多选'}</small>
         </button>;
       })}</div>}

@@ -2,7 +2,7 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const DEFINITION_VERSION = 'longform-r1-v2';
+const DEFINITION_VERSION = 'object-workflow-v3';
 const projectRoot = process.cwd();
 const releaseId = readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim();
 const controlDir = resolve(projectRoot, 'data', 'control');
@@ -17,7 +17,7 @@ database.exec(`
     product_name TEXT NOT NULL,
     started_at TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('active', 'complete', 'blocked')),
-    definition_version TEXT NOT NULL DEFAULT 'legacy-v1'
+    definition_version TEXT NOT NULL DEFAULT 'object-workflow-v3'
   ) STRICT;
   CREATE TABLE IF NOT EXISTS stage_tasks (
     task_id TEXT PRIMARY KEY,
@@ -54,12 +54,12 @@ database.exec(`
 `);
 
 if (!(database.prepare(`PRAGMA table_info(releases)`).all()).some((column) => column.name === 'definition_version')) {
-  database.exec(`ALTER TABLE releases ADD COLUMN definition_version TEXT NOT NULL DEFAULT 'legacy-v1'`);
+  database.exec(`ALTER TABLE releases ADD COLUMN definition_version TEXT NOT NULL DEFAULT 'object-workflow-v3'`);
 }
 
 const common = {
   owner: '当前Codex',
-  forbiddenFiles: 'D:\\AI智囊团；项目外目录；API Key与凭证；不可逆生产数据修改',
+  forbiddenFiles: '项目外目录；API Key与凭证；不可逆作者数据修改',
   constraints: '只在D:\\wenmixiezuo；安全、可逆、零现金；公共API、迁移、核心编排和安全机制串行；API Key只读环境变量',
   stop: '实际付费、新密钥或登录、永久删除、重大架构变更、生产数据恢复或无法自行消除的外部阻塞',
   rollback: '未提交改动按文件撤销；已提交使用向前修复；数据库只使用向前迁移；派生投影可删除重建',
@@ -68,58 +68,58 @@ const common = {
 
 const stageDefinitions = [
   {
-    name: 'release基线', goal: '激活唯一长篇release、冻结设计、任务账本和历史证据边界',
-    exclusions: '不实现业务功能，不改写历史release证据', allowedFiles: 'RELEASE_ID、AGENTS.md、TASKS.md、docs/releases、data/control、Git元数据',
-    dependencies: '老板连续开发授权与冻结设计', acceptance: 'release ID、起点commit、范围、安全边界和机器账本均可查询',
-    tests: 'git status --short; git log -1 --oneline; npm run ledger:status'
+    name: '当前基线与文档', goal: '冻结当前产品边界、对象工作流、任务清单、文档白名单和Git起点',
+    exclusions: '历史文件和Git历史只用于追溯，不进入当前检索或覆盖新决定', allowedFiles: 'AGENTS.md、PROJECT_HANDBOOK.md、TASKS.md、当前docs、文档同步脚本与Git元数据',
+    dependencies: '老板当前决定与项目章程', acceptance: '当前规格、任务、文档中心、起点commit和清理边界均可查询',
+    tests: 'npm run docs:check; git status --short; git log -1 --oneline; npm run ledger:status'
   },
   {
-    name: '安全入口与能力探针', goal: '建立本机会话、HTTP防护、运行/依赖/模型资产能力探针',
-    exclusions: '不下载模型，不改变书籍业务语义', allowedFiles: 'apps/api安全与capabilities、apps/web客户端、tests/foundation与security',
-    dependencies: '阶段0', acceptance: 'Host/Origin/Cookie/SSE/错误脱敏和硬件依赖探针通过',
-    tests: 'npm run verify; npm test -- tests/integration/security tests/integration/runtime'
+    name: '本地安全与运行入口', goal: '验证本地会话、HTTP防护、桌面启动、依赖和套餐模型配置',
+    exclusions: '不远程上传书籍，不把凭证写入数据库、日志、上下文或Git', allowedFiles: 'apps/api安全与运行配置、apps/web客户端、桌面脚本、foundation/security/runtime测试',
+    dependencies: '阶段0', acceptance: '仅监听127.0.0.1，Host/Origin/Cookie/SSE/错误脱敏、启动停止和配置探针通过',
+    tests: 'npm run verify; npm test -- tests/foundation tests/integration/runtime'
   },
   {
-    name: '知识生命周期与Repository', goal: '完成Repository边界、表达资料、四层生命周期、三轴时间和结算门禁',
-    exclusions: '不引入独立运维数据库，不猜测缺失时间', allowedFiles: 'apps/api知识/Repository/迁移0010-0011、对应测试',
-    dependencies: '阶段1', acceptance: '空库/升级迁移、跨书、提升、冲突和结算恢复通过',
-    tests: 'npm run verify; npm test -- tests/integration/knowledge tests/contract tests/fault-injection'
+    name: '权威数据与Repository', goal: '验证SQLite权威对象、不可变版本、跨书隔离、前向迁移和作者原件保留',
+    exclusions: '不修改已合并迁移，不永久删除作者数据，不让Worker直写正式表', allowedFiles: 'apps/api Repository与迁移、contracts、data-safety/knowledge/contract测试',
+    dependencies: '阶段1', acceptance: '空库与已有库升级、跨书隔离、版本冲突、附件保留和恢复边界通过',
+    tests: 'npm run verify; npm test -- tests/foundation/migration.test.ts tests/integration/knowledge tests/contract'
   },
   {
-    name: '切片与向量投影', goal: '完成不可变父子切片、outbox、水位、本地嵌入和LanceDB向量投影运行链',
-    exclusions: '向量不成为正史源，运行期不远程下载模型', allowedFiles: '切片/投影/本地模型/Worker、迁移0012、对应测试与data/cache/models',
-    dependencies: '阶段2与已验证本地语义资产', acceptance: 'FTS/向量构建、原子切换、崩溃恢复、删库重建和跨书隔离通过',
-    tests: 'npm run verify; npm test -- tests/integration/projections tests/integration/retrieval tests/fault-injection'
+    name: '投影与混合检索', goal: '验证结构化直达、全文、向量、关系、时间因果和正式原文回查',
+    exclusions: '投影不成为正史源，不跨书召回，不把摘要或相似结果当事实', allowedFiles: '切片、投影、检索、知识库、Worker、对应测试与本地模型缓存',
+    dependencies: '阶段2', acceptance: '切片原子切换、投影重建、来源回查、无答案降级和跨书阻断通过',
+    tests: 'npm run verify; npm test -- tests/integration/projections tests/integration/retrieval tests/integration/memory'
   },
   {
-    name: '混合RAG与上下文', goal: '接通结构化、FTS、向量、关系四通道、H/E/I融合、证据闭环和岗位上下文预算',
-    exclusions: '不把全量召回直接注入，不把摘要当事实权威', allowedFiles: 'apps/api memory/retrieval/context、迁移0013、检索和上下文测试',
-    dependencies: '阶段3', acceptance: '对抗查询、无答案、消融、来源闭环、Token预算和跨书阻断通过',
-    tests: 'npm run verify; npm test -- tests/integration/retrieval tests/integration/memory tests/quality'
+    name: '上下文与Agent治理', goal: '验证ContextCompiler任务矩阵、十一人团队、模型绑定、租约、预算与真实状态',
+    exclusions: '不保存思维链，不用同模型冒充异模型复核，不注入其他书、旧版会话或过期候选', allowedFiles: 'memory/agents/tasks/models/budgets、Worker、对应测试',
+    dependencies: '阶段3', acceptance: '上下文来源与排除项、三异模型审查、任务心跳、取消重试和接管通过',
+    tests: 'npm run verify; npm test -- tests/integration/memory tests/integration/agents tests/integration/runtime'
   },
   {
-    name: '连续性与Agent治理', goal: '完成五级连续性、十一人团队、小文秘书、提示快照、模型绑定与接管',
-    exclusions: '不保存思维链，不把秘书算创作Agent', allowedFiles: 'continuity/agents/local-assistant、迁移0014-0015、对应测试',
-    dependencies: '阶段4', acceptance: '滚动规划、接管、模型独立性、路由和降级测试通过',
-    tests: 'npm run verify; npm test -- tests/integration/continuity tests/integration/agents tests/integration/local-assistant'
+    name: '开书、设定与卷纲', goal: '串联完整开书信息、设定对象协作、当前卷纲、作者原话与附件',
+    exclusions: '不建立对话式创作入口，不把模板硬编码成公式，不替作者确认重大设定', allowedFiles: 'books/positioning/settings/planning/presentation、对应路由、UI、迁移与测试',
+    dependencies: '阶段4与可用模型配置或确定性测试模式', acceptance: '原话入库、三席独立方案、作者选择融合、卷纲版本与附件上下文通过',
+    tests: 'npm run verify; npm test -- tests/integration/domain tests/integration/workflow tests/integration/experience'
   },
   {
-    name: '正式创作流水线', goal: '串联自由聊天、双编剧、确认规划、逐章写作、三异模型点评、确认与结算',
-    exclusions: '只有书名或一句写一章不得绕过准备；不并写正式章', allowedFiles: 'chat/discussion/creation/review/Worker、迁移0016-0017、对应测试',
-    dependencies: '阶段5与套餐模型配置或确定性测试模式', acceptance: '原话保留、点名直达、双编剧、单活动写手、三点评、取消恢复和结算通过',
-    tests: 'npm run verify; npm test -- tests/integration/chat tests/integration/discussions tests/integration/creation tests/fault-injection'
+    name: '事件链、事件大纲与章纲', goal: '验证卷纲约束事件链、事件链约束事件大纲、事件大纲约束章纲',
+    exclusions: '不跨事件自由扩写，不绕过活动上游版本，不把未来规划写入正史', allowedFiles: 'story-events/event-chapter-outlines/planning、对应路由、UI、迁移与测试',
+    dependencies: '阶段5', acceptance: '事件因果、排序与结构调整、双编剧方案、章数字数评估、过期失效和确认通过',
+    tests: 'npm run verify; npm test -- tests/integration/planning tests/integration/workflow'
   },
   {
-    name: '工作台与可移植', goal: '完成内容优先UI、资料库/图谱/任务中心/设置、桌面入口和安全导入导出',
-    exclusions: '不上传云端，不把可重建投影装入权威导出', allowedFiles: 'apps/web、portability、迁移0018、桌面脚本、e2e与无障碍测试',
-    dependencies: '阶段6', acceptance: '窄侧栏、章节树分页、真实状态、离线草稿、桌面启动和导入回滚通过',
-    tests: 'npm run verify; npm test -- tests/e2e tests/integration/portability tests/accessibility'
+    name: '正文、审查、结算与工作台', goal: '验证单一活动写手、不可变正文、三席独立审查、三级结算和当前工作台',
+    exclusions: '不并写正式正文，不互看审查报告，不用规划预测替代正文事实', allowedFiles: 'creation/review/continuity/projections、apps/web、portability、桌面脚本与相关测试',
+    dependencies: '阶段6', acceptance: '章纲约束正文、事实/文学/体验审查、作者定稿、章节事件卷结算、恢复和窄屏交互通过',
+    tests: 'npm run verify; npm test -- tests/integration/creation tests/integration/continuity tests/integration/experience tests/accessibility'
   },
   {
-    name: '满规模验收与发布', goal: '完成500万字符/1500章回放、迁移、运行、恢复、证据、Git提交和远程备份',
-    exclusions: '不把E2/E3冒充E4，不声称不存在的第二物理备份', allowedFiles: '全项目、docs/releases、data/control、Git',
-    dependencies: '阶段0-7', acceptance: 'ACCEPTANCE覆盖项有新鲜证据，无未说明占位，release账本完整且远程备份成功',
-    tests: 'npm run typecheck; npm test; npm run build; npm run migrate; npm run acceptance; npm run evaluate:scale'
+    name: '全量验收与Git结算', goal: '完成迁移、运行、隔离、恢复、文档、全量测试、四端构建和可恢复Git提交',
+    exclusions: '不把E2工程测试冒充E3/E4文学质量，不声称未执行的真实模型或第二介质证据', allowedFiles: '全项目当前白名单、data/control与Git',
+    dependencies: '阶段0-7', acceptance: 'ACCEPTANCE当前工程项有新鲜证据，无重大BUG、无未说明旧语义，工作树结算清洁',
+    tests: 'npm run development:settle; node scripts/audit-runtime-reachability.mjs; git diff --check; git status --short'
   }
 ];
 

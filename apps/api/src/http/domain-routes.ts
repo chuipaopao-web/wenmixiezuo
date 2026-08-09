@@ -22,9 +22,8 @@ import { resolveInside } from '../infrastructure/files/file-utils.js';
 import { NarrativeProjectionService, type NarrativeProjectionType } from '../application/projections/narrative-projection-service.js';
 import { CopyrightService, type RightsPath } from '../application/copyright/copyright-service.js';
 import { ResearchService } from '../application/research/research-service.js';
-import { ConversationService } from '../application/chat/conversation-service.js';
-import { diagnoseTextEncoding } from '../application/chat/text-encoding-diagnostics.js';
-import { ChatAttachmentService } from '../application/chat/chat-attachment-service.js';
+import { diagnoseTextEncoding } from '../application/presentation/text-encoding-diagnostics.js';
+import { AuthorAttachmentService } from '../application/planning/author-attachment-service.js';
 import { TaskService } from '../application/tasks/task-service.js';
 import { BackupService } from '../infrastructure/recovery/backup-service.js';
 import { cancelActiveModelCall, ModelCallService } from '../application/calls/model-call-service.js';
@@ -50,21 +49,20 @@ import { RetrievalOrchestrationRepository } from '../infrastructure/db/repositor
 import { KnowledgeRepository } from '../infrastructure/db/repositories/knowledge-repository.js';
 import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
-import { LocalSemanticUtilityModel } from '../infrastructure/retrieval/local-semantic-utility-model.js';
 import type { RetrievalMode } from '../contracts/retrieval-plan.js';
-import type { ChatAttachmentRecord } from '../infrastructure/db/repositories/chat-attachment-repository.js';
+import type { AuthorAttachmentRecord } from '../infrastructure/db/repositories/author-attachment-repository.js';
 import { ProtagonistStateService, type ProtagonistStateStatus, type ProtagonistValueType } from '../application/knowledge/protagonist-state-service.js';
 import { AttributeFormulaService, type FormulaVariable } from '../application/knowledge/attribute-formula-service.js';
 import { OwnerManuscriptService } from '../application/creation/owner-manuscript-service.js';
 import { BudgetService } from '../application/budget/budget-service.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
 import { OpeningSynopsisAnalysisService } from '../application/books/opening-synopsis-analysis-service.js';
-import { CreativeSessionRepository } from '../infrastructure/db/repositories/creative-session-repository.js';
 import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
 import { SettingCollaborationService } from '../application/knowledge/setting-collaboration-service.js';
 import { SettingCollaborationRepository } from '../infrastructure/db/repositories/setting-collaboration-repository.js';
+import { SettingCollaborationCommandService } from '../application/knowledge/setting-collaboration-command-service.js';
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
@@ -150,7 +148,7 @@ function agentAvailability(
     : { availability: 'unavailable', availabilityReason: '模型路线缺少可用凭证' };
 }
 
-function chatAttachmentView(record: ChatAttachmentRecord): Record<string, unknown> {
+function authorAttachmentView(record: AuthorAttachmentRecord): Record<string, unknown> {
   return {
     attachmentId: record.attachmentId,
     originalName: record.originalName,
@@ -191,9 +189,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const projections = new NarrativeProjectionService(database, ids, clock);
   const copyright = new CopyrightService(database, ids, clock);
   const research = new ResearchService(database, ids, clock);
-  const conversations = new ConversationService(database, config.dataDir, config.releaseId, ids, clock,
-    localRetrievalRuntime === undefined ? undefined : new LocalSemanticUtilityModel(localRetrievalRuntime.embedding));
-  const chatAttachments = new ChatAttachmentService(database, config.dataDir, ids, clock);
+
+  const authorAttachments = new AuthorAttachmentService(database, config.dataDir, ids, clock);
   const tasks = new TaskService(database, config.releaseId, clock);
   const ownerManuscripts = new OwnerManuscriptService(database, config.dataDir, config.releaseId, ids, clock);
   const continuationImports = new ExistingManuscriptContinuationService(
@@ -204,6 +201,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const settingOutlineWorkspace = new SettingOutlineWorkspaceService(database, clock);
   const settingCollaboration = new SettingCollaborationService(
     new SettingCollaborationRepository(database), settingOutlineWorkspace
+  );
+  const settingCollaborationCommands = new SettingCollaborationCommandService(
+    database, config.releaseId, ids, clock
   );
   const bookProfileView = new BookProfileViewService(database);
   const openingBlueprints = new OpeningBlueprintService(
@@ -810,10 +810,6 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         createdAt: row.created_at
       }))
     };
-    const messageCount = (database.prepare(`SELECT COUNT(*) AS count FROM messages
-      WHERE owner_id = ? AND book_id = ?
-        AND message_type NOT IN ('onboarding_trigger', 'conversation_entry_trigger')`)
-      .get(scope.ownerId, scope.bookId) as { count: number }).count;
     const volumes = database.prepare(`
       SELECT v.volume_id AS volumeId, v.volume_number AS volumeNumber, v.title, v.status,
         COUNT(c.chapter_id) AS chapterCount,
@@ -821,35 +817,6 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM volumes v LEFT JOIN chapters c ON c.owner_id = v.owner_id AND c.book_id = v.book_id AND c.volume_id = v.volume_id
       WHERE v.owner_id = ? AND v.book_id = ? GROUP BY v.volume_id ORDER BY v.volume_number
     `).all(scope.ownerId, scope.bookId);
-    const localAssistantSessions = (database.prepare(`SELECT COUNT(*) AS count FROM local_assistant_sessions
-      WHERE owner_id = ? AND book_id = ? AND status = 'active'`).get(scope.ownerId, scope.bookId) as { count: number }).count;
-    const creativeSessionRepository = new CreativeSessionRepository(database);
-    const activeCreativeSession = creativeSessionRepository.active(scope);
-    const creativeSession = activeCreativeSession === null
-      ? null
-      : (() => {
-          const blackboard = creativeSessionRepository.blackboard(scope, activeCreativeSession.sessionId);
-          const forecasts = creativeSessionRepository.listForecasts(scope, activeCreativeSession.sessionId);
-          const activeForecast = forecasts.find((item) => item.status === 'active') ?? null;
-          return {
-            ...activeCreativeSession,
-            blackboard: blackboard === null ? null : {
-              revision: blackboard.revision,
-              currentGoal: blackboard.payload.currentGoal,
-              maturity: blackboard.payload.maturity,
-              nextStep: blackboard.payload.nextStep,
-              candidates: blackboard.payload.candidates,
-              disagreements: blackboard.payload.disagreements,
-              risks: blackboard.payload.risks,
-              unknowns: blackboard.payload.unknowns,
-              lockedDirection: blackboard.payload.lockedDirection ?? null
-            },
-            activeForecast: activeForecast === null ? null : {
-              ...activeForecast,
-              branches: creativeSessionRepository.listForecastBranches(scope, activeForecast.forecastId)
-            }
-          };
-        })();
     const liveAgents = agents.list(scope).map((agent) => {
       const contract = creativeMemberContracts.find((item) => item.roleKey === agent.roleKey as string);
       return {
@@ -878,11 +845,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       budget,
       editor: editorLease,
       confirmations,
-      messageCount,
-      creativeSession,
       localAssistant: {
-        displayName: '小文秘书', roleName: '本地秘书', status: 'ready', sessionCount: localAssistantSessions,
-        summary: '接收消息、整理附件、查看任务，并把创作问题交给合适的成员。'
+        displayName: '小文秘书', roleName: '本地秘书', status: 'ready',
+        summary: '整理作者资料、附件、任务状态和页面导航，不参与剧情决策。'
       }
     }, request.id);
   });
@@ -1166,6 +1131,24 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration', async (request) => {
       const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaboration.inspect(scope, request.params.itemKey), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/start', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(settingCollaborationCommands.start(scope, request.params.itemKey, request.body), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(settingCollaborationCommands.synthesize(scope, request.params.itemKey, request.body), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId: string; idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/revise', async (request) => {
+      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      return success(settingCollaborationCommands.revise(scope, request.params.itemKey, request.body), request.id);
     }
   );
 
@@ -1634,30 +1617,18 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(config.ownerId, request.params.bookId), request.id);
   });
 
-  app.get<{ Params: { bookId: string }; Querystring: { limit?: number; before?: string } }>('/api/v1/books/:bookId/messages', async (request) => {
-    return success(conversations.listMessages(
-      { ...owner, bookId: request.params.bookId },
-      { ...(request.query.limit === undefined ? {} : { limit: request.query.limit }), ...(request.query.before === undefined ? {} : { before: request.query.before }) }
-    ), request.id);
-  });
 
-  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/conversation-entry', async (request) => {
-    return success(conversations.enterConversation(
-      { ...owner, bookId: request.params.bookId }
-    ), request.id);
-  });
-
-  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/chat-attachments', async (request) => {
+  app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/author-attachments', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
     try {
       const part = await request.file();
       if (part === undefined) throw new DomainError(errorCodes.validation, '请选择一个附件');
-      const record = await chatAttachments.upload(scope, {
+      const record = await authorAttachments.upload(scope, {
         filename: part.filename,
         mimeType: part.mimetype,
         buffer: await part.toBuffer()
       });
-      return success(chatAttachmentView(record), request.id);
+      return success(authorAttachmentView(record), request.id);
     } catch (error) {
       if (error instanceof DomainError) throw error;
       const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
@@ -1670,8 +1641,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     }
   });
 
-  app.get<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/chat-attachments/:attachmentId/content', async (request, reply) => {
-    const { record, buffer } = chatAttachments.readSource(
+  app.get<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/author-attachments/:attachmentId/content', async (request, reply) => {
+    const { record, buffer } = authorAttachments.readSource(
       { ...owner, bookId: request.params.bookId }, request.params.attachmentId
     );
     reply.header('content-type', record.mimeType);
@@ -1680,24 +1651,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return reply.send(buffer);
   });
 
-  app.post<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/chat-attachments/:attachmentId/discard', async (request) => {
-    return success(chatAttachmentView(chatAttachments.discard(
+  app.post<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/author-attachments/:attachmentId/discard', async (request) => {
+    return success(authorAttachmentView(authorAttachments.discard(
       { ...owner, bookId: request.params.bookId }, request.params.attachmentId
     )), request.id);
   });
 
-  app.post<{ Params: { bookId: string }; Body: { content: string; attachmentIds?: string[] } }>('/api/v1/books/:bookId/messages', async (request) => {
-    // R10: 拒绝编码损坏文本进入模型，保留诊断报告以便定位
-    const encodingHealth = diagnoseTextEncoding(request.body.content);
-    if (encodingHealth.damaged) {
-      throw new DomainError(errorCodes.operationIncomplete,
-        '输入文本疑似编码损坏，包含 UTF-8 替换符或长问号串；请检查终端/脚本编码后重新发送',
-        { damaged: encodingHealth.damaged, reason: encodingHealth.reason, replacementCharCount: encodingHealth.replacementCharCount, suspiciousQuestionMarkRun: encodingHealth.suspiciousQuestionMarkRun, totalLength: encodingHealth.totalLength }, false, 400);
-    }
-    return success(await conversations.sendBossMessageWithLocalAssistant(
-      { ...owner, bookId: request.params.bookId }, request.body.content, request.body.attachmentIds ?? []
-    ), request.id);
-  });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {
     return success(tasks.list({ ...owner, bookId: request.params.bookId }), request.id);

@@ -3,11 +3,11 @@ import { PaperclipIcon, XIcon } from '@phosphor-icons/react';
 import type { AuthorInputSurface, AuthorIntentStrength } from '@wenmi/contracts';
 import {
   createAuthorPlanningInput,
-  discardChatAttachment,
+  discardAuthorAttachment,
   fetchAuthorPlanningInputs,
-  uploadChatAttachment,
+  uploadAuthorAttachment,
   type AuthorPlanningInputData,
-  type ChatAttachmentData
+  type AuthorAttachmentData
 } from '../../lib/api/client';
 
 const intentOptions: Array<{ value: AuthorIntentStrength; label: string; help: string }> = [
@@ -48,7 +48,7 @@ export function AuthorIdeaComposer({
   const [scopeNotes, setScopeNotes] = useState('');
   const [intentStrength, setIntentStrength] = useState<AuthorIntentStrength>('preference');
   const [mentionedAgentIds, setMentionedAgentIds] = useState<string[]>([]);
-  const [attachments, setAttachments] = useState<ChatAttachmentData[]>([]);
+  const [attachments, setAttachments] = useState<AuthorAttachmentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -119,9 +119,9 @@ export function AuthorIdeaComposer({
     if (remaining === 0) { setError('每条想法最多附加6个文件。'); return; }
     setUploading(true);
     setError(null);
-    const uploaded: ChatAttachmentData[] = [];
+    const uploaded: AuthorAttachmentData[] = [];
     try {
-      for (const file of [...files].slice(0, remaining)) uploaded.push(await uploadChatAttachment(bookId, file));
+      for (const file of [...files].slice(0, remaining)) uploaded.push(await uploadAuthorAttachment(bookId, file));
       setAttachments((current) => [...current, ...uploaded]);
       retryIdempotencyKey.current = null;
     } catch (reason) {
@@ -133,9 +133,9 @@ export function AuthorIdeaComposer({
     }
   };
 
-  const removeAttachment = async (attachment: ChatAttachmentData): Promise<void> => {
+  const removeAttachment = async (attachment: AuthorAttachmentData): Promise<void> => {
     try {
-      await discardChatAttachment(bookId, attachment.attachmentId);
+      await discardAuthorAttachment(bookId, attachment.attachmentId);
       setAttachments((current) => current.filter((item) => item.attachmentId !== attachment.attachmentId));
       retryIdempotencyKey.current = null;
     } catch (reason) {

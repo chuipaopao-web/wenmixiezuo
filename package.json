@@ -18,12 +18,16 @@
     "build": "npm run build -w @wenmi/contracts && npm run build -w @wenmi/api && npm run build -w @wenmi/worker && npm run build -w @wenmi/web",
     "clean": "node scripts/clean.mjs",
     "dev": "npm run build -w @wenmi/contracts && concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
+    "docs:check": "node scripts/sync-project-docs.mjs --check",
+    "docs:open": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/open-project-docs.ps1",
+    "docs:sync": "node scripts/sync-project-docs.mjs",
+    "development:settle": "node scripts/sync-project-docs.mjs && npm run verify && node scripts/sync-project-docs.mjs --check",
     "evaluate:scale": "tsx scripts/evaluation/final-scale-replay.ts",
     "ledger:init": "node scripts/release-ledger.mjs init",
     "ledger:status": "node scripts/release-ledger.mjs status",
     "migrate": "npm run migrate -w @wenmi/api",
     "models:install": "node scripts/models/install-local-semantic-model.mjs install",
-    "models:probe": "tsx scripts/models/probe-local-semantic-model.ts",
+    "models:probe": "tsx scripts/models/probe-local-embedding-model.ts",
     "models:verify": "node scripts/models/install-local-semantic-model.mjs verify",
     "runtime:model-connectivity": "tsx scripts/evaluation/subscription-model-connectivity.ts",
     "runtime:vector-e2e": "tsx scripts/evaluation/local-vector-e2e.ts",
@@ -33,7 +37,7 @@
     "test": "npm run build -w @wenmi/contracts && vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "npm run build -w @wenmi/contracts && npm run typecheck -w @wenmi/api && npm run typecheck -w @wenmi/worker && npm run typecheck -w @wenmi/web && tsc -p tsconfig.tests.json --noEmit",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "verify": "npm run docs:sync && npm run typecheck && npm run test && npm run build && npm run docs:check"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",

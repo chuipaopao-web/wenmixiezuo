@@ -127,6 +127,9 @@ export class TaskService {
 
   public retryFailed(scope: BookScope, taskId: string): TaskRecord {
     const task = this.require(scope, taskId);
+    if (task.taskType === 'conversation_reply') {
+      throw new DomainError('VALIDATION_ERROR', '旧对话回复功能已停用，该历史任务仅保留审计记录，不能重新执行', {}, false, 409);
+    }
     const canResumeIncompleteQualityReview = task.status === 'blocked'
       && task.errorCode === 'QUALITY_BLOCKED'
       && task.taskType === 'chapter_creation'
@@ -145,27 +148,6 @@ export class TaskService {
       `).run(now, taskId, scope.ownerId, scope.bookId, canResumeIncompleteQualityReview ? 1 : 0);
       if (result.changes !== 1) {
         throw new DomainError(errorCodes.taskAlreadyRunning, '只有失败或中断的任务可以重试', {}, false, 409);
-      }
-      // 非点名的开放回复属于“活动主编”职责。历史失败任务重试时必须重新读取
-      // 当前租约，而不是继续携带故障主编的 agent/model/epoch 快照。
-      if (task.taskType === 'conversation_reply' && task.brief.directNamedMember !== true) {
-        const activeEditor = this.database.prepare(`
-          SELECT b.active_editor_agent_id AS agent_id, b.editor_epoch,
-                 a.model_snapshot_id
-          FROM books b JOIN agent_instances a
-            ON a.owner_id = b.owner_id AND a.book_id = b.book_id
-           AND a.agent_id = b.active_editor_agent_id AND a.enabled = 1
-          WHERE b.owner_id = ? AND b.book_id = ?
-        `).get(scope.ownerId, scope.bookId) as
-          { agent_id: string; editor_epoch: number; model_snapshot_id: string } | undefined;
-        if (activeEditor === undefined) throw new Error('当前书籍缺少可用的活动主编，无法恢复回复任务');
-        this.database.prepare(`
-          UPDATE tasks SET assigned_agent_id = ?, required_editor_epoch = ?,
-            task_brief_json = json_set(task_brief_json, '$.modelSnapshotId', ?),
-            updated_at = ?
-          WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'queued'
-        `).run(activeEditor.agent_id, activeEditor.editor_epoch, activeEditor.model_snapshot_id,
-          now, taskId, scope.ownerId, scope.bookId);
       }
       this.database.exec('COMMIT');
     } catch (error) {

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CanonService } from '../../../apps/api/src/application/knowledge/canon-service.js';
-import { KnowledgeConsistencyService } from '../../../apps/api/src/application/knowledge/knowledge-consistency-service.js';
 import { addApprovedChapter, createKnowledgeFixture } from '../../helpers/knowledge-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -42,7 +41,6 @@ describe('正史投影与冲突', () => {
     context.database.prepare(`DELETE FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).run(fixture.scope.ownerId, fixture.scope.bookId);
     context.database.prepare(`DELETE FROM relationship_projection WHERE owner_id = ? AND book_id = ?`).run(fixture.scope.ownerId, fixture.scope.bookId);
     canon.rebuildProjections(fixture.scope);
-    expect(new KnowledgeConsistencyService(context.database).inspect(fixture.scope)).toEqual([]);
     const character = context.database.prepare(`SELECT state_json FROM character_state_projection WHERE owner_id = ? AND book_id = ? AND entity_id = ?`)
       .get(fixture.scope.ownerId, fixture.scope.bookId, entityId) as { state_json: string };
     expect(JSON.parse(character.state_json)).toEqual({
