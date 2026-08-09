@@ -344,7 +344,9 @@ export class CanonService {
         ORDER BY f.fact_id
       `).all(scope.ownerId, scope.bookId, parentRevisionId) as unknown as FactRow[];
       const replacements = new Set(additions.map(factIdentityKey));
-      const carried = priorActive.filter((fact) => !replacements.has(factIdentityKey(fact)));
+      const carried = priorActive.filter((fact) =>
+        fact.source_chapter_id !== chapterId && !replacements.has(factIdentityKey(fact))
+      );
       for (const fact of priorActive) {
         if (!carried.includes(fact)) {
           this.database.prepare(`UPDATE fact_assertions SET status = 'superseded'
@@ -424,7 +426,8 @@ export class CanonService {
       const chapterUpdate = this.database.prepare(`
         UPDATE chapters SET settlement_status = 'settled', generation_status = 'completed', canon_manuscript_version_id = ?,
           chapter_end_state_id = ?, updated_at = ?, version = version + 1
-        WHERE chapter_id = ? AND owner_id = ? AND book_id = ? AND settlement_status <> 'settled'
+        WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+          AND settlement_status IN ('unsettled', 'awaiting_confirmation', 'settled')
       `).run(manuscriptVersionId, chapterEndStateId, now, chapterId, scope.ownerId, scope.bookId);
       if (chapterUpdate.changes !== 1) throw new Error('章节已经结算或状态发生变化');
       const bookUpdate = this.database.prepare(`

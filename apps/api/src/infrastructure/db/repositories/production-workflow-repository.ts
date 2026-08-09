@@ -370,7 +370,9 @@ export class ProductionWorkflowRepository {
       if (gateResult.changes !== 1) throw new Error('正文确认门禁状态冲突');
       this.database.prepare(`UPDATE confirmations SET status = 'rejected', resolved_at = ? WHERE confirmation_id = ?`)
         .run(now, gate.confirmationId);
-      this.database.prepare(`UPDATE chapters SET settlement_status = 'unsettled', updated_at = ? WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+      this.database.prepare(`UPDATE chapters SET settlement_status = CASE
+          WHEN canon_manuscript_version_id IS NULL THEN 'unsettled' ELSE settlement_status END,
+          updated_at = ? WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
         .run(now, gate.chapterId, scope.ownerId, scope.bookId);
       if (canRewrite) {
         this.database.prepare(`UPDATE revision_orders SET status = 'completed' WHERE owner_id = ? AND book_id = ? AND status = 'active'`)
@@ -432,13 +434,50 @@ export class ProductionWorkflowRepository {
     return { relativePath: row.relative_path, contentHash: row.content_hash, status: row.status };
   }
 
-  public chapter(scope: BookScope, chapterId: string): { chapterNumber: number; title: string } {
-    const row = this.database.prepare(`SELECT chapter_number, title FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
-      .get(chapterId, scope.ownerId, scope.bookId) as { chapter_number: number; title: string } | undefined;
+  public chapter(scope: BookScope, chapterId: string): {
+    chapterNumber: number;
+    title: string;
+    settlementStatus: string;
+    canonManuscriptVersionId: string | null;
+  } {
+    const row = this.database.prepare(`
+      SELECT chapter_number, title, settlement_status, canon_manuscript_version_id
+      FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?
+    `).get(chapterId, scope.ownerId, scope.bookId) as {
+      chapter_number: number;
+      title: string;
+      settlement_status: string;
+      canon_manuscript_version_id: string | null;
+    } | undefined;
     if (row === undefined) throw new Error('章节不存在或越权');
-    return { chapterNumber: row.chapter_number, title: row.title };
+    return {
+      chapterNumber: row.chapter_number,
+      title: row.title,
+      settlementStatus: row.settlement_status,
+      canonManuscriptVersionId: row.canon_manuscript_version_id
+    };
   }
 
+  public settledRevisionOutlineVersionId(
+    scope: BookScope,
+    chapterId: string,
+    manuscriptVersionId: string
+  ): string | null {
+    const row = this.database.prepare(`
+      SELECT w.chapter_outline_version_id AS outline_version_id
+      FROM manuscript_versions m
+      JOIN writing_orders w ON w.owner_id = m.owner_id AND w.book_id = m.book_id
+        AND w.chapter_id = m.chapter_id AND w.task_id = m.source_task_id
+      JOIN artifact_versions v ON v.owner_id = w.owner_id AND v.book_id = w.book_id
+        AND v.artifact_version_id = w.chapter_outline_version_id
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.chapter_id = ?
+        AND m.manuscript_version_id = ?
+      ORDER BY w.created_at DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapterId, manuscriptVersionId) as {
+      outline_version_id: string;
+    } | undefined;
+    return row?.outline_version_id ?? null;
+  }
   public findChapterEventEntity(scope: BookScope, canonicalName: string): string | null {
     const row = this.database.prepare(`SELECT entity_id FROM entities WHERE owner_id = ? AND book_id = ? AND entity_type = 'event' AND canonical_name = ? ORDER BY created_at LIMIT 1`)
       .get(scope.ownerId, scope.bookId, canonicalName) as { entity_id: string } | undefined;

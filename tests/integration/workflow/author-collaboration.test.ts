@@ -25,6 +25,8 @@ describe('对象旁作者想法协作', () => {
       ['setting', 'setting_module', 'power-system'],
       ['volume_plan', 'volume_plan', 'volume-plan-1'],
       ['event', 'story_event', 'event-1'],
+      ['chapter_outline', 'event_chapter_sequence', 'event-1'],
+      ['chapter_outline', 'event_chapter_outline', 'outline-slot-1'],
       ['chapter_outline', 'chapter_outline', 'outline-1'],
       ['manuscript', 'chapter', 'chapter-1']
     ] as const;
@@ -32,7 +34,7 @@ describe('对象旁作者想法协作', () => {
       const payload = {
         surface, subjectType, subjectId, intentStrength: 'inspiration',
         originalText: `${surface} 的原始想法`, attachmentRefs: [], mentionedAgentIds: [],
-        scopeNotes: '只供当前对象参考', idempotencyKey: `idea-${surface}`
+        scopeNotes: '只供当前对象参考', idempotencyKey: `idea-${surface}-${subjectType}`
       };
       const first = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/author-planning-inputs`, payload });
       const retry = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/author-planning-inputs`, payload });
@@ -40,7 +42,7 @@ describe('对象旁作者想法协作', () => {
       expect(retry.json().data.authorInputId).toBe(first.json().data.authorInputId);
       expect(first.json().data).toMatchObject({ surface, subjectType, subjectId, status: 'new', originalText: `${surface} 的原始想法` });
     }
-    expect(context.database.prepare('SELECT COUNT(*) AS count FROM author_planning_inputs').get()).toEqual({ count: 6 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM author_planning_inputs').get()).toEqual({ count: 8 });
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM fact_assertions').get()).toEqual({ count: 0 });
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM author_planning_inputs WHERE original_text_hash = ?')
       .get(createHash('sha256').update('event 的原始想法').digest('hex'))).toEqual({ count: 1 });

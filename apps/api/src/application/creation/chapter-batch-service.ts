@@ -173,17 +173,20 @@ export class ChapterBatchService {
     instruction: string | null = null
   ): { taskId: string; operation: 'review_existing' | 'rewrite_existing'; manuscriptVersionId: string } {
     assertBookScope(scope);
-    const chapter = this.database.prepare(`SELECT chapter_number, settlement_status, current_manuscript_version_id
+    const chapter = this.database.prepare(`SELECT chapter_number, settlement_status, current_manuscript_version_id, canon_manuscript_version_id
       FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
       .get(chapterId, scope.ownerId, scope.bookId) as {
         chapter_number: number; settlement_status: string; current_manuscript_version_id: string | null;
+        canon_manuscript_version_id: string | null;
       } | undefined;
     if (chapter === undefined) throw new DomainError(errorCodes.bookScopeViolation, '章节不存在或越权', {}, false, 404);
-    if (chapter.settlement_status === 'settled') throw new DomainError(errorCodes.operationIncomplete, '正史已结算章节不能通过草稿入口重写或定稿', {}, false, 409);
-    if (chapter.current_manuscript_version_id !== manuscriptVersionId) throw new DomainError(errorCodes.operationIncomplete, '提交的正文已经不是当前版本', {}, true, 409);
+    const expectedVersionId = chapter.settlement_status === 'settled'
+      ? chapter.canon_manuscript_version_id
+      : chapter.current_manuscript_version_id;
+    if (expectedVersionId !== manuscriptVersionId) throw new DomainError(errorCodes.operationIncomplete, '提交的正文已经不是当前版本', {}, true, 409);
     const manuscript = this.database.prepare(`SELECT 1 FROM manuscript_versions
       WHERE manuscript_version_id = ? AND owner_id = ? AND book_id = ? AND chapter_id = ?
-        AND status IN ('draft','candidate','under_review','approved')`)
+        AND status IN ('draft','candidate','under_review','approved','canon')`)
       .get(manuscriptVersionId, scope.ownerId, scope.bookId, chapterId);
     if (manuscript === undefined) throw new DomainError(errorCodes.bookScopeViolation, '当前正文版本不存在、越权或状态不可提交', {}, false, 404);
     const active = this.database.prepare(`SELECT 1 FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ?

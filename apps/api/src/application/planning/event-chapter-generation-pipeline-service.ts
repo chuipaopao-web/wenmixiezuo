@@ -9,7 +9,7 @@ import { EventChapterOutlineRepository } from '../../infrastructure/db/repositor
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
-import type { ContextPackService,ContextSource } from '../memory/context-pack-service.js';
+import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService,type TaskLeaseFence,type TaskRecord } from '../tasks/task-service.js';
 import { EventChapterGenerationService,type EventChapterGenerationBrief } from './event-chapter-generation-service.js';
 import { EventChapterOutlineService } from './event-chapter-outline-service.js';
@@ -104,13 +104,15 @@ export class EventChapterGenerationPipelineService {
     const inputHash=createHash('sha256').update(prompt).digest('hex'),stored=this.repo.succeeded(scope,{taskId:task.taskId,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,inputHash});
     if(stored!==undefined)return stored.output_text;
+    const maxOutputTokens=6500,protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
+    const estimatedInputCeiling=Math.max(Math.ceil(prompt.length/2),Math.ceil(estimateTokens(prompt)*1.35));
     const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
-      adapter.provider==='openai-codex-subscription'?26000:10000,0);
+      Math.max(10000,estimatedInputCeiling+maxOutputTokens+protocolOverhead),0);
     const result=await this.calls.execute(scope,{requestId,taskId:task.taskId,phaseKey:brief.kind+':attempt-'+task.currentAttemptNo,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,provider:brief.member.provider,modelId:brief.member.modelId,
-      input:prompt,parameters:JSON.stringify({maxOutputTokens:6500,planOnly:!brief.member.provider.startsWith('local-deterministic'),
+      input:prompt,parameters:JSON.stringify({maxOutputTokens,planOnly:!brief.member.provider.startsWith('local-deterministic'),
         cashFallbackAllowed:false}),reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
-      requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:brief.member.agentId,prompt,maxOutputTokens:6500});
+      requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:brief.member.agentId,prompt,maxOutputTokens});
     return result.output;
   }
   private assertCurrent(scope:BookScope,brief:EventChapterGenerationBrief){

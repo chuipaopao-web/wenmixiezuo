@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ChapterPipelineService, containsExplicitPlaceholder, containsMarkdownChapterHeading } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
+import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -31,6 +31,12 @@ describe('单章完整创作流水线', () => {
     expect(containsMarkdownChapterHeading('正文开始。\n# 可移送的重量\n继续正文。')).toBe(true);
     expect(containsMarkdownChapterHeading('正文开始。\n## 场景切换\n继续正文。')).toBe(false);
     expect(containsMarkdownChapterHeading('正文里的#号不是标题。')).toBe(false);
+  });
+
+  it('拒绝正文暴露JSON字段、上下文来源或工作流载荷', () => {
+    expect(containsInternalWorkflowPayload('薄雾压城。{"chapterNumber":2,"continuityAnchors":{}}，她继续追查。')).toBe(true);
+    expect(containsInternalWorkflowPayload('正文\n\`\`\`json\n{}\n\`\`\`')).toBe(true);
+    expect(containsInternalWorkflowPayload('她在纸上写下“chapter number”两个英文单词，然后合上本子。')).toBe(false);
   });
 
   it('把老板确认的开书方向和人物作为主笔硬来源，但保持资料包在4800字内', async () => {
@@ -427,6 +433,77 @@ describe('单章完整创作流水线', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`).get(scope.ownerId, scope.bookId, batch.chapterIds[0]!)).toEqual({ count: 3 });
   });
 
+  it('已结算章节通过正式修订任务产生不可变新版本，作者确认后才替换当前正史', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '已结算章节正式修订测试书', text: '雨夜失物招领处的时间谜案'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 1);
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect(approvePendingManuscript(context, scope, ids, clock)).toEqual({ status: 'settled', canonRevision: 1 });
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
+
+    const chapterId = batch.chapterIds[0]!;
+    const before = context.database.prepare(`
+      SELECT canon_manuscript_version_id, settlement_status, generation_status
+      FROM chapters WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+    `).get(scope.ownerId, scope.bookId, chapterId) as {
+      canon_manuscript_version_id: string; settlement_status: string; generation_status: string;
+    };
+    const scheduled = batches.scheduleExistingRevision(
+      scope, chapterId, before.canon_manuscript_version_id, 'rewrite_existing',
+      '删除任何内部工作流字段或JSON载荷，保留剧情事实并自然重写。'
+    );
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const claimed = tasks.claimNext('settled-revision-worker', 120_000)!;
+    expect(claimed.taskId).toBe(scheduled.taskId);
+    const revised = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
+      leaseToken: claimed.leaseToken!, attemptNo: claimed.currentAttemptNo
+    });
+    expect(revised.status).toBe('awaiting_confirmation');
+    expect(revised.manuscriptVersionId).not.toBe(before.canon_manuscript_version_id);
+    expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
+    expect(context.database.prepare(`SELECT canon_manuscript_version_id, settlement_status FROM chapters WHERE chapter_id = ?`)
+      .get(chapterId)).toEqual({ canon_manuscript_version_id: before.canon_manuscript_version_id, settlement_status: 'settled' });
+
+    expect(approvePendingManuscript(context, scope, ids, clock, false)).toEqual({ status: 'rejected' });
+    expect(context.database.prepare(`SELECT canon_manuscript_version_id, settlement_status FROM chapters WHERE chapter_id = ?`)
+      .get(chapterId)).toEqual({ canon_manuscript_version_id: before.canon_manuscript_version_id, settlement_status: 'settled' });
+    tasks.queue(scope, scheduled.taskId);
+    const retryClaim = tasks.claimNext('settled-revision-worker', 120_000)!;
+    const revisedAfterRejection = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
+      leaseToken: retryClaim.leaseToken!, attemptNo: retryClaim.currentAttemptNo
+    });
+    expect(revisedAfterRejection.status).toBe('awaiting_confirmation');
+
+    expect(approvePendingManuscript(context, scope, ids, clock)).toEqual({ status: 'settled', canonRevision: 2 });
+    const after = context.database.prepare(`
+      SELECT canon_manuscript_version_id, settlement_status, generation_status
+      FROM chapters WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+    `).get(scope.ownerId, scope.bookId, chapterId) as {
+      canon_manuscript_version_id: string; settlement_status: string; generation_status: string;
+    };
+    expect(after).toEqual({
+      canon_manuscript_version_id: revisedAfterRejection.manuscriptVersionId,
+      settlement_status: 'settled', generation_status: 'completed'
+    });
+    expect(context.database.prepare(`SELECT parent_version_id, status FROM manuscript_versions WHERE manuscript_version_id = ?`)
+      .get(revisedAfterRejection.manuscriptVersionId)).toEqual({ parent_version_id: revised.manuscriptVersionId, status: 'canon' });
+    expect(context.database.prepare(`SELECT status FROM manuscript_versions WHERE manuscript_version_id = ?`)
+      .get(before.canon_manuscript_version_id)).toEqual({ status: 'canon' });
+    expect(context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(scheduled.taskId))
+      .toEqual({ status: 'succeeded' });
+  });
   it('主笔连续两次技术失败后只接管一次，并由副笔从安全检查点生成完整章节', async () => {
     context = createTestContext();
     const ids = new SequenceIds();

@@ -22,12 +22,12 @@ export class PlanningChainContextService {
     this.repository = new PlanningChainContextRepository(database);
   }
 
-  public validate(scope: BookScope, artifactVersionId: string): void {
-    this.load(scope, artifactVersionId);
+  public validate(scope: BookScope, artifactVersionId: string, mode: 'active' | 'historical' = 'active'): void {
+    this.load(scope, artifactVersionId, mode);
   }
 
-  public factReviewSources(scope: BookScope, artifactVersionId: string): ContextSource[] {
-    const chain = this.load(scope, artifactVersionId);
+  public factReviewSources(scope: BookScope, artifactVersionId: string, mode: 'active' | 'historical' = 'active'): ContextSource[] {
+    const chain = this.load(scope, artifactVersionId, mode);
     if (chain === null) return [];
     const volume = record(JSON.parse(chain.volume_content_json) as unknown);
     const event = record(JSON.parse(chain.event_content_json) as unknown);
@@ -70,7 +70,7 @@ export class PlanningChainContextService {
     ];
   }
 
-  private load(scope: BookScope, artifactVersionId: string): PlanningChainRow | null {
+  private load(scope: BookScope, artifactVersionId: string, mode: 'active' | 'historical'): PlanningChainRow | null {
     assertBookScope(scope);
     const content = record(this.artifactContent(scope, artifactVersionId)) as ManagedOutlineSource;
     const ids = [
@@ -82,14 +82,17 @@ export class PlanningChainContextService {
     ];
     if (ids.every((value) => value === undefined)) return null;
     if (ids.some((value) => typeof value !== 'string' || value.length === 0)) throw stale();
-    const row = this.repository.activeChain(scope, {
+    const chainInput = {
       artifactVersionId,
       volumePlanVersionId: String(content.sourceVolumePlanVersionId),
       eventId: String(content.sourceEventId),
       eventVersionId: String(content.sourceEventVersionId),
       eventChapterSequenceVersionId: String(content.sourceEventChapterSequenceVersionId),
       eventChapterOutlineVersionId: String(content.sourceEventChapterOutlineVersionId)
-    });
+    };
+    const row = mode === 'historical'
+      ? this.repository.historicalChain(scope, chainInput)
+      : this.repository.activeChain(scope, chainInput);
     if (row === undefined) throw stale();
     return row;
   }

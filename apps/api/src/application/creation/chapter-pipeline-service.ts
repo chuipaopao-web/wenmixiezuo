@@ -273,7 +273,7 @@ export class ChapterPipelineService {
       }
       const effectiveWriterAgentId = reviewWriter?.writer_agent_id ?? run.writer_agent_id;
       const effectiveWriterModelSnapshotId = reviewWriter?.writer_model_snapshot_id ?? run.writer_model_snapshot_id;
-      if (chapter.settlement_status === 'settled') return this.advance(run, 'completed');
+      if (chapter.settlement_status === 'settled' && operation === null) return this.advance(run, 'completed');
       const previous = this.database.prepare(`
         SELECT chapter_id, settlement_status FROM chapters
         WHERE owner_id = ? AND book_id = ? AND chapter_number < ? ORDER BY chapter_number DESC LIMIT 1
@@ -287,9 +287,14 @@ export class ChapterPipelineService {
         throw new DomainError(errorCodes.canonRevisionConflict, '流水线输入版本已经失效', { expectedCanonRevision: run.expected_canon_revision, actualCanonRevision: book.canon_revision }, false, 409);
       }
       const artifacts = new ArtifactService(this.database, this.ids, this.clock);
-      const outlineVersionId = new WritingReadinessService(this.database).outlineVersionId(scope, chapter.chapter_number);
+      const revisingSettled = chapter.settlement_status === 'settled' && operation !== null;
+      const outlineVersionId = revisingSettled
+        ? this.settledRevisionOutlineVersionId(scope, run.chapter_id, existingManuscriptVersionId)
+        : new WritingReadinessService(this.database).outlineVersionId(scope, chapter.chapter_number);
       const outline = artifacts.requireVersion(scope, outlineVersionId);
-      new PlanningChainContextService(this.database).validate(scope, outline.artifactVersionId);
+      new PlanningChainContextService(this.database).validate(
+        scope, outline.artifactVersionId, revisingSettled ? 'historical' : 'active'
+      );
       const contractContent = {
         chapterId: run.chapter_id,
         pov: '服从老板已确认的创作方案；未明确时采用第三人称限知',
@@ -558,7 +563,9 @@ export class ChapterPipelineService {
       ? requiredString(taskBrief.manuscriptVersionId, '重写任务缺少正文版本') : null;
     const prompt = JSON.stringify({
       operation: rewriteBase === null ? 'draft' : 'rewrite', chapterNumber: chapter.chapter_number, title: chapter.title,
-      previousState: previous?.state_json ?? '故事刚刚开始',
+      previousState: previous === undefined
+        ? '故事刚刚开始'
+        : '上一章已定稿；必须从资料包中的前章结尾原文和事实锚点自然承接，不得输出JSON、字段名、版本号或资料来源。',
       lengthContract: writerLengthContract(),
       ...(rewriteBase === null ? {} : {
         content: this.loadManuscript(scope, rewriteBase),
@@ -653,8 +660,13 @@ export class ChapterPipelineService {
         reason: '前章全文提取的稳定编号、专名和机构锚点；核对同一对象是否无解释漂移', priority: 99
       }])
     ];
+    const revisionOperation = this.taskBrief(scope, run.task_id).operation;
+    const planningMode = chapter.settlement_status === 'settled'
+      && (revisionOperation === 'review_existing' || revisionOperation === 'rewrite_existing')
+      ? 'historical' as const
+      : 'active' as const;
     const planningFactSources = new PlanningChainContextService(this.database)
-      .factReviewSources(scope, frozenOutline.artifactVersionId);
+      .factReviewSources(scope, frozenOutline.artifactVersionId, planningMode);
     const boundedFrozenReviewSources = frozenReviewSources.map((source) => ({
       ...source,
       content: clipContext(source.content,
@@ -1074,6 +1086,7 @@ export class ChapterPipelineService {
           };
           noPlaceholder?: { passed?: boolean };
           noMarkdownChapterHeading?: { passed?: boolean };
+          noInternalWorkflowPayload?: { passed?: boolean };
           continuityAnchors?: {
             passed?: boolean;
             conflicts?: Array<{ field: string; expected: string[]; actual: string[] }>;
@@ -1091,6 +1104,7 @@ export class ChapterPipelineService {
         }
         if (checks.noPlaceholder?.passed === false) requiredActions.push('删除全部占位标记并补成完整、可阅读的叙事内容');
         if (checks.noMarkdownChapterHeading?.passed === false) requiredActions.push('删除正文中的Markdown章节标题行；章节标题由系统单独显示，正文只能保留小说内容');
+        if (checks.noInternalWorkflowPayload?.passed === false) requiredActions.push('删除正文中泄露的JSON、字段名、版本号、来源编号和工作流载荷；只保留自然可读的小说叙事，并完整保持原有情节与长度');
         if (checks.continuityAnchors?.passed === false) {
           for (const conflict of checks.continuityAnchors.conflicts ?? []) {
             requiredActions.push(
@@ -1233,13 +1247,14 @@ export class ChapterPipelineService {
       },
       noPlaceholder: { passed: !containsExplicitPlaceholder(content) },
       noMarkdownChapterHeading: { passed: !containsMarkdownChapterHeading(content) },
+      noInternalWorkflowPayload: { passed: !containsInternalWorkflowPayload(content) },
       continuityAnchors: checkChapterContinuityAnchors(content, this.previousContinuityAnchors(scope, run.chapter_id)),
       hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
     };
     return {
       checks,
       passed: checks.length.passed && checks.noPlaceholder.passed
-        && checks.noMarkdownChapterHeading.passed && checks.continuityAnchors.passed
+        && checks.noMarkdownChapterHeading.passed && checks.noInternalWorkflowPayload.passed && checks.continuityAnchors.passed
     };
   }
 
@@ -1264,6 +1279,9 @@ export class ChapterPipelineService {
     return new UnitOfWork(this.database).run(() => {
       if (run.current_manuscript_version_id === null || run.review_panel_id === null) throw new Error('正文确认门禁缺少稿件或三点评轮次');
       const chapter = this.requireChapter(scope, run.chapter_id);
+      const taskBrief = this.taskBrief(scope, run.task_id);
+      const revisingSettled = chapter.settlement_status === 'settled'
+        && ['review_existing', 'rewrite_existing'].includes(String(taskBrief.operation ?? ''));
       const confirmationId = this.ids.next();
       new ProductionWorkflowRepository(this.database).createApprovalGate(scope, {
         gateId: this.ids.next(), confirmationId, chapterId: run.chapter_id, taskId: run.task_id,
@@ -1273,11 +1291,13 @@ export class ChapterPipelineService {
         impact: { onAccept: ['选中当前不可变正文', '抽取带来源的事实候选', '章节结算并创建新正史版本'], onReject: ['保留临时稿和点评证据', '不进入正史'], cashCostCny: 0 },
         now: this.clock.now().toISOString()
       });
-      this.database.prepare(`UPDATE chapters SET settlement_status = 'awaiting_confirmation', updated_at = ? WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
-        .run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
+      if (!revisingSettled) {
+        this.database.prepare(`UPDATE chapters SET settlement_status = 'awaiting_confirmation', updated_at = ? WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+          .run(this.clock.now().toISOString(), run.chapter_id, scope.ownerId, scope.bookId);
+      }
       this.database.prepare(`UPDATE chapter_pipeline_runs SET confirmation_id = ?, updated_at = ? WHERE pipeline_run_id = ?`)
         .run(confirmationId, this.clock.now().toISOString(), run.pipeline_run_id);
-      new CreationWorkflowProgressService(this.database).markWaitingForAuthor(scope, run.task_id);
+      if (!revisingSettled) new CreationWorkflowProgressService(this.database).markWaitingForAuthor(scope, run.task_id);
       return this.advance(run, 'settlement');
     });
   }
@@ -1369,6 +1389,25 @@ export class ChapterPipelineService {
     return this.reload(pipelineRunId);
   }
 
+  private settledRevisionOutlineVersionId(
+    scope: BookScope,
+    chapterId: string,
+    manuscriptVersionId: string | null
+  ): string {
+    if (manuscriptVersionId === null) throw new Error('已结算章节修订缺少正史正文版本');
+    const outlineVersionId = new ProductionWorkflowRepository(this.database)
+      .settledRevisionOutlineVersionId(scope, chapterId, manuscriptVersionId);
+    if (outlineVersionId === null) {
+      throw new DomainError(
+        errorCodes.operationIncomplete,
+        '已结算章节缺少可追溯的原冻结章纲，不能创建正式修订。',
+        { chapterId, manuscriptVersionId },
+        false,
+        409
+      );
+    }
+    return outlineVersionId;
+  }
   private taskBrief(scope: BookScope, taskId: string): Record<string, unknown> {
     const row = this.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
       .get(taskId, scope.ownerId, scope.bookId) as { task_brief_json: string } | undefined;
@@ -1378,7 +1417,7 @@ export class ChapterPipelineService {
 
   private requireBoundManuscript(scope: BookScope, chapterId: string, manuscriptVersionId: string): void {
     const row = this.database.prepare(`SELECT 1 FROM manuscript_versions WHERE manuscript_version_id = ?
-      AND owner_id = ? AND book_id = ? AND chapter_id = ? AND status IN ('draft','candidate','under_review','approved')`)
+      AND owner_id = ? AND book_id = ? AND chapter_id = ? AND status IN ('draft','candidate','under_review','approved','canon')`)
       .get(manuscriptVersionId, scope.ownerId, scope.bookId, chapterId);
     if (row === undefined) throw new Error('正文任务绑定版本不存在、越权或状态不可用');
   }
@@ -2041,6 +2080,10 @@ export function containsExplicitPlaceholder(content: string): boolean {
 
 export function containsMarkdownChapterHeading(content: string): boolean {
   return /(?:^|\n)\s*#\s+\S/u.test(content);
+}
+
+export function containsInternalWorkflowPayload(content: string): boolean {
+  return /(?:workflowArtifact|confirmed_decisions|```json|"(?:chapterNumber|continuityAnchors|sourceId|source_id)"\s*:|\bundefined\b)/u.test(content);
 }
 
 function firstString(...values: unknown[]): string | null {

@@ -201,7 +201,7 @@ function buildNovel(bookId: string, chapterNumber: number, title: string, previo
   const weather = weathers[Number.parseInt(digest.slice(0, 2), 16) % weathers.length]!;
   const sound = sounds[Number.parseInt(digest.slice(2, 4), 16) % sounds.length]!;
   const paragraphs: string[] = [];
-  paragraphs.push(`第${chapterNumber}章 ${title}\n\n${weather}贴着旧城的屋脊压下来。${previousState}，林澈没有急着往前，他先听见${sound}从巷口传来，再看见石阶上那一道被雨水切断的泥痕。就在这时，就在这时，他把手从门环上收回，决定先弄清是谁比自己早到一步。`);
+  paragraphs.push(`第${chapterNumber}章 ${title}\n\n${weather}贴着旧城的屋脊压下来。${visiblePreviousState(previousState)}，林澈没有急着往前，他先听见${sound}从巷口传来，再看见石阶上那一道被雨水切断的泥痕。就在这时，就在这时，他把手从门环上收回，决定先弄清是谁比自己早到一步。`);
   const scenes = [
     '他沿着墙根向北，故意让鞋底踩进积水。水纹推开落叶，也照出二楼窗缝里一闪而过的灯。那不是欢迎的信号，更像有人在计算他的脚程。林澈没有抬头，只借卖伞人的铜镜看清窗后轮廓，随后把铜钥匙换到左手。',
     '巷子尽头的茶摊已经收火，桌上却留着半盏温茶。杯沿朝东，杯底压着一根断线，这是顾衡教过他的旧记号：路能走，话不能信。他摸了摸杯壁，温度尚在，说明留信的人没有走远。',
@@ -235,17 +235,74 @@ function buildNovel(bookId: string, chapterNumber: number, title: string, previo
 }
 
 function rewriteNovel(content: string, requiredActions: string[]): string {
-  let rewritten = content.replace('就在这时，就在这时，他把手从门环上收回', '转折来得很轻：他把手从门环上收回');
+  let rewritten = stripEmbeddedWorkflowPayload(content).replace('就在这时，就在这时，他把手从门环上收回', '转折来得很轻：他把手从门环上收回');
   if (requiredActions.some((action) => action.includes('老板拒绝'))) {
-    rewritten = rewritten.replace('他没有立刻追问答案。', '他把先前的判断全部推倒，重新核对每一处能被证实的痕迹。');
+    rewritten = rewritten.replace(
+      '他把伞合上，没有立刻追问答案。',
+      '他把伞合上，也把先前的判断全部推倒，重新核对每一处能被证实的痕迹。'
+    );
   }
-  if (requiredActions.some((action) => action.includes('2500至3500')) && countNovelCharacters(rewritten) < 2_500) {
-    rewritten += '\n\n林澈重新核对了每一道痕迹，直到行动、证据和判断能够彼此印证。';
+  const minimum = requiredActions.some((action) => /2700至3200|2700到3200/u.test(action)) ? 2_700 : 2_500;
+  for (const paragraph of deterministicRevisionExpansion) {
+    if (countNovelCharacters(rewritten) >= minimum) break;
+    rewritten += `\n\n${paragraph}`;
   }
   if (rewritten === content && requiredActions.length > 0) {
     rewritten = rewritten.replace('林澈没有急着往前', '林澈收回先前的判断，没有急着往前');
   }
   return rewritten;
+}
+
+const deterministicRevisionExpansion = [
+  '林澈没有急着把推断当成答案。他把已经见过的痕迹按时间重新排开，先分清哪些是亲眼所见，哪些只是对方希望他相信的解释。雨声不断改变街巷里的距离感，他便用脚步、灯影和门轴留下的细响互相校正，宁可慢一步，也不让一个未经证实的猜测混进下一步行动。',
+  '他又从头复盘每个人当时能够知道的事情。有人看见钥匙，却未必知道钥匙的用途；有人熟悉日期，却可能只是在转述命令。把知情范围分开以后，先前显得整齐的圈套露出一道缝：真正的安排者一直躲在传话人之后，从未亲自为任何一句话负责。',
+  '林澈沿着这道缝继续推演，却没有贸然改变路线。他保留原来的行动目标，只把验证顺序调换过来：先确认能留下实物证据的部分，再接触最可能说谎的人，最后才处理那个看似最紧迫的期限。这样一来，即使判断错了一半，他也仍有退路。',
+  '窗外的风把雨丝推向另一侧，屋檐下短暂露出一段干燥的石面。林澈注意到自己的假脚印已经被水冲淡，而真正跟踪者若想继续确认方向，就必须重新靠近。他没有回头，只借玻璃上的倒影守着巷口，让等待本身变成一次试探。',
+  '时间一点点过去，最先变化的不是街上的动静，而是他对风险的排序。钥匙仍然重要，日期也仍然危险，但更值得警惕的是有人能提前预判他的选择。他把这一点记在心里，提醒自己接下来的每个决定都要留出一个只有自己知道的备选出口。',
+  '等远处再次传来钟声，他终于把零散线索压缩成一条可以验证的因果链。那条链并不完美，仍有两个位置留着空白，可它至少解释了谁在观察、谁在传递，以及为什么对方不愿直接现身。未知没有消失，却从混乱变成了能够追查的问题。',
+  '林澈收好手边的东西，最后检查了一遍现场。他没有增添新的结论，只确认原有的证据仍能支持当前选择。接下来无论门后出现谁，他都不会因为一句解释放弃已经验证过的事实，也不会因为一次意外把尚未证实的怀疑写成定论。'
+];
+function visiblePreviousState(previousState: string): string {
+  const value = previousState.trim();
+  if (value.startsWith('{') || /(?:"chapterNumber"|"continuityAnchors"|"sourceId"|"source_id")/u.test(value)) {
+    return '上一章留下的行动后果仍在发酵';
+  }
+  return value.replace(/\s+/gu, ' ').slice(0, 180) || '故事刚刚开始';
+}
+
+function stripEmbeddedWorkflowPayload(content: string): string {
+  let output = '';
+  let cursor = 0;
+  for (let start = 0; start < content.length; start += 1) {
+    if (content[start] !== '{') continue;
+    const end = balancedObjectEnd(content, start);
+    if (end < 0) continue;
+    const candidate = content.slice(start, end + 1);
+    if (!/(?:"chapterNumber"|"continuityAnchors"|"sourceId"|"source_id"|"workflowArtifact")/u.test(candidate)) continue;
+    output += content.slice(cursor, start) + '上一章留下的行动后果仍在发酵';
+    cursor = end + 1;
+    start = end;
+  }
+  return output + content.slice(cursor);
+}
+
+function balancedObjectEnd(content: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < content.length; index += 1) {
+    const character = content[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}' && --depth === 0) return index;
+  }
+  return -1;
 }
 
 function result(provider: string, modelId: string, prompt: string, output: string): ModelResult {

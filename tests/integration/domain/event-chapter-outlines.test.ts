@@ -115,7 +115,7 @@ describe('事件章纲序列与近期冻结',()=>{
     const chain=events.initialize(scope,plan.volumePlanId,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,idempotencyKey:'ai-chapters-events'});
     const event=chain.events[0]!;
     const eventVersion=events.addVersion(scope,event.eventId,{expectedEventRevision:event.revision,candidateKind:'author_edit',
-      template:noTemplate('event'),content:eventContent(),idempotencyKey:'ai-chapters-event-v1'});
+      template:noTemplate('event'),content:{...eventContent(),estimatedChapterRange:{minimum:10,likely:10,maximum:10}},idempotencyKey:'ai-chapters-event-v1'});
     events.confirm(scope,event.eventId,{versionId:eventVersion.storyEventVersionId,expectedEventRevision:event.revision,
       expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
     const outlineRepo=new EventChapterOutlineRepository(context.database);
@@ -139,20 +139,21 @@ describe('事件章纲序列与近期冻结',()=>{
     if (!('sequenceVersionId' in sequenceResult)) throw new Error('事件章链任务没有返回版本');
     const current=outlines.get(scope,event.eventId)!;
     const candidate=current.versions.find(version=>version.sequenceVersionId===sequenceResult.sequenceVersionId)!;
-    expect(candidate.content.chapters).toHaveLength(3);
+    expect(candidate.content.chapters).toHaveLength(10);
     candidate.content.chapters.slice(1).forEach((chapter,index)=>expect(chapter.openingState).toBe(candidate.content.chapters[index]!.endingState));
     const confirmed=outlines.confirmSequence(scope,event.eventId,{sequenceVersionId:candidate.sequenceVersionId,
       expectedSequenceRevision:current.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
-    const detailTask=generations.startDetails(scope,event.eventId,{count:2,expectedSequenceRevision:confirmed.revision,
+    const detailTask=generations.startDetails(scope,event.eventId,{count:3,expectedSequenceRevision:confirmed.revision,
       expectedWorkflowVersion:volumes.workflow(scope).planningVersion,idempotencyKey:'ai-details-generate'});
     const detailClaim=tasks.claimNext('worker-event-chapters',120_000)!;
     const detailResult=await pipeline.executeClaimed(scope,detailTask.taskId,'worker-event-chapters',
       {leaseToken:detailClaim.leaseToken!,attemptNo:detailClaim.currentAttemptNo});
     expect(detailResult).toMatchObject({status:'succeeded'});
     const after=outlines.get(scope,event.eventId)!;
-    expect(after.outlines.map(item=>item.status)).toEqual(['candidate','candidate','planned']);
-    expect(after.outlines.slice(0,2).every(item=>item.versions.length===1&&item.activeVersionId===null)).toBe(true);
-    expect(after.outlines.slice(0,2).every(item=>item.versions[0]!.content.creativeFreedom.length>0)).toBe(true);
+    expect(after.outlines.slice(0,3).map(item=>item.status)).toEqual(['candidate','candidate','candidate']);
+    expect(after.outlines.slice(3).every(item=>item.status==='planned')).toBe(true);
+    expect(after.outlines.slice(0,3).every(item=>item.versions.length===1&&item.activeVersionId===null)).toBe(true);
+    expect(after.outlines.slice(0,3).every(item=>item.versions[0]!.content.creativeFreedom.length>0)).toBe(true);
     const calls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceTask.taskId,detailTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
     expect(calls).toHaveLength(2);

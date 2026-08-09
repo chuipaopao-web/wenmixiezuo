@@ -154,32 +154,39 @@ function deterministicEventChapterSequence(prompt: string): string | null {
   const required = textValue(event.requiredResult, '事件产生可验证的状态变化');
   const nextImpact = textValue(event.nextEventImpact, '结果自然触发下一事件');
   const conditions = textArray(event.endingConditions, [required]);
-  const middleState = '人物第一次行动后发现表面问题背后还有必须承担的代价';
-  const pressureState = '人物修正判断并作出不能轻易撤回的选择，冲突进入收束阶段';
-  const endings = [middleState, pressureState, required];
-  const responsibilities = [
-    '让事件触发条件真正落地，并让人物不能继续旁观',
-    '升级阻力，让人物通过选择和代价推动因果链',
-    '完成事件必须得到的结果，并形成下一事件的接口'
-  ];
-  const chapters = endings.map((endingState, index) => {
+  const estimatedRange = isRecord(event.estimatedChapterRange) ? event.estimatedChapterRange : {};
+  const likelyCount = typeof estimatedRange.likely === 'number' && Number.isInteger(estimatedRange.likely)
+    && estimatedRange.likely >= 1 && estimatedRange.likely <= 50 ? estimatedRange.likely : 3;
+  const titles = ['后果落地', '第一条线索', '阻力现身', '判断受挫', '代价兑现', '主动修正', '证据合流', '反制逼近', '最后选择', '局面改写'];
+  const chapters = [];
+  let previousState = opening;
+  for (let index = 0; index < likelyCount; index += 1) {
     const chapterNumber = start + index;
-    return {
+    const finalChapter = index === likelyCount - 1;
+    const endingState = finalChapter
+      ? required
+      : '人物完成事件第' + (index + 1) + '步行动，获得有限进展，同时暴露下一步必须处理的阻力与代价';
+    chapters.push({
       chapterNumber,
-      title: index === 0 ? '后果落地' : index === 1 ? '选择的代价' : '局面改写',
-      eventResponsibility: responsibilities[index],
-      openingState: index === 0 ? opening : endings[index - 1],
+      title: titles[index] ?? ('推进与代价·' + (index + 1)),
+      eventResponsibility: index === 0
+        ? '让事件触发条件真正落地，并让人物不能继续旁观'
+        : finalChapter
+          ? '完成事件必须得到的结果，并形成下一事件的接口'
+          : '推进事件第' + (index + 1) + '项因果责任，让进展、阻力和人物代价同步升级',
+      openingState: previousState,
       characterGoals: ['主角要在现有能力和关系边界内推进当前目标'],
       conflicts: ['对手与现实限制同时阻止主角取得无代价的胜利'],
       choicesAndCosts: ['主角必须放弃一条轻松退路，换取可持续的推进机会'],
-      informationChanges: [index === 2 ? '事件核心事实得到验证，但更大的后果开始显现' : '新证据改变人物对当前阻力的判断'],
+      informationChanges: [finalChapter ? '事件核心事实得到验证，但更大的后果开始显现' : '新证据改变人物对当前阻力的判断'],
       storyBeats: ['状态变化落地', '行动遭遇有效阻力', '人物作出带代价的选择', '结果改变下一步条件'],
       endingState,
-      nextChapterInterface: index === 2 ? nextImpact : endings[index],
+      nextChapterInterface: finalChapter ? nextImpact : endingState,
       softSuggestions: ['具体场景、对话和局部反转可由写作阶段依据人物即时反应调整'],
       creativeFreedom: ['场景调度、语言节奏、人物微反应与不破坏因果链的合理惊喜']
-    };
-  });
+    });
+    previousState = endingState;
+  }
   return JSON.stringify({
     eventTitle: title,
     startChapterNumber: start,

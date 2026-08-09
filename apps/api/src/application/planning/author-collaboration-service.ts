@@ -30,7 +30,7 @@ const subjectTypesBySurface: Record<AuthorInputSurface, readonly string[]> = {
   setting: ['setting', 'setting_module'],
   volume_plan: ['volume_plan'],
   event: ['story_event', 'event_sequence'],
-  chapter_outline: ['chapter_outline'],
+  chapter_outline: ['chapter_outline', 'event_chapter_sequence', 'event_chapter_outline'],
   manuscript: ['chapter', 'manuscript']
 };
 const versionReferenceKinds: readonly VersionReference['kind'][] = [

@@ -59,4 +59,33 @@ export class PlanningChainContextRepository {
         input.eventChapterOutlineVersionId, input.eventChapterSequenceVersionId, input.eventId,
         input.eventVersionId, input.volumePlanVersionId) as PlanningChainRow | undefined;
   }
+  public historicalChain(scope: BookScope, input: {
+    artifactVersionId: string;
+    eventChapterOutlineVersionId: string;
+    eventChapterSequenceVersionId: string;
+    eventId: string;
+    eventVersionId: string;
+    volumePlanVersionId: string;
+  }): PlanningChainRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(`SELECT vv.content_json AS volume_content_json,vv.version AS volume_version,
+        ev.content_json AS event_content_json,ev.version AS event_version,
+        sv.content_json AS sequence_content_json,sv.version AS sequence_version,o.planned_content_json
+      FROM event_chapter_outline_versions ov
+      JOIN event_chapter_outlines o ON o.event_chapter_outline_id=ov.event_chapter_outline_id
+        AND o.owner_id=ov.owner_id AND o.book_id=ov.book_id
+      JOIN event_chapter_sequence_versions sv ON sv.event_chapter_sequence_version_id=ov.sequence_version_id
+        AND sv.owner_id=ov.owner_id AND sv.book_id=ov.book_id
+      JOIN story_event_versions ev ON ev.story_event_version_id=ov.event_version_id
+        AND ev.owner_id=ov.owner_id AND ev.book_id=ov.book_id
+      JOIN volume_plan_versions vv ON vv.volume_plan_version_id=ov.volume_plan_version_id
+        AND vv.owner_id=ov.owner_id AND vv.book_id=ov.book_id
+      WHERE ov.owner_id=? AND ov.book_id=? AND ov.artifact_version_id=?
+        AND ov.event_chapter_outline_version_id=? AND ov.sequence_version_id=?
+        AND o.event_id=? AND ov.event_version_id=? AND ov.volume_plan_version_id=?
+        AND ov.status IN ('frozen','superseded')
+      LIMIT 1`).get(scope.ownerId, scope.bookId, input.artifactVersionId,
+        input.eventChapterOutlineVersionId, input.eventChapterSequenceVersionId, input.eventId,
+        input.eventVersionId, input.volumePlanVersionId) as PlanningChainRow | undefined;
+  }
 }

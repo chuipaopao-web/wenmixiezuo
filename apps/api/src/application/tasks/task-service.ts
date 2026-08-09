@@ -397,9 +397,9 @@ export class TaskService {
       fence?.leaseToken ?? null, fence?.leaseToken ?? null, fence?.attemptNo ?? 0);
     if (result.changes !== 1) throw new Error('任务失败状态被租约门禁拒绝');
     this.database.prepare(`
-      UPDATE task_phases SET status = 'failed', error_code = ?, completed_at = ?, heartbeat_at = ?
+      UPDATE task_phases SET status = 'failed', completed_at = ?, heartbeat_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'
-    `).run(errorCode, now, now, taskId, scope.ownerId, scope.bookId);
+    `).run(now, now, taskId, scope.ownerId, scope.bookId);
     this.finishCurrentAttempt(scope, taskId, 'failed', now, errorCode);
     this.events?.append(scope, 'task.phase.changed', { taskId, status: 'failed', errorCode });
     return this.require(scope, taskId);

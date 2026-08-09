@@ -66,6 +66,40 @@ describe('持久任务状态机', () => {
       .toEqual({ error_code: null });
   });
 
+  it('任务失败时同步关闭当前阶段和当前尝试', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    initializeRuntimeBook(context, scope, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(scope, {
+      taskId: 'task-failure',
+      taskType: 'runtime_probe',
+      idempotencyKey: 'idem-failure',
+      initialPhase: 'execute',
+      brief: {}
+    });
+    tasks.queue(scope, 'task-failure');
+    const claimed = tasks.claimNext('worker-one')!;
+
+    expect(tasks.fail(scope, 'task-failure', 'worker-one', 'TEST_FAILURE')).toMatchObject({
+      status: 'failed',
+      errorCode: 'TEST_FAILURE'
+    });
+    expect(context.database.prepare("SELECT status, completed_at FROM task_phases WHERE task_id = ? AND phase_key = ?")
+      .get('task-failure', claimed.currentPhase)).toMatchObject({
+        status: 'failed',
+        completed_at: expect.any(String)
+      });
+    expect(context.database.prepare("SELECT status, error_code, completed_at FROM task_attempts WHERE task_id = ? AND attempt_no = ?")
+      .get('task-failure', claimed.currentAttemptNo)).toMatchObject({
+        status: 'failed',
+        error_code: 'TEST_FAILURE',
+        completed_at: expect.any(String)
+      });
+  });
+
   it('跨书不能读取、依赖或控制任务', () => {
     context = createTestContext();
     const ids = new SequenceIds();
