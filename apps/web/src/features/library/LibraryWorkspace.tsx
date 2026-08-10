@@ -11,6 +11,8 @@ import {
   saveProtagonistProfile,
   type AttributeFormulaData,
   type LibraryData,
+  type LibrarySemanticProfileData,
+  type LibraryWorldMapData,
   type ProtagonistDashboardData,
   type ProtagonistStateData
 } from '../../lib/api/client';
@@ -23,20 +25,17 @@ import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { bookDisplayTitle } from '../../app/display-labels';
 import { EmptyReference, RecordCollection, StructuredContent, authorityLabel, formatValue, isRecord } from '../shared/StructuredContent';
 
-type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
+type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'map' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
 
 export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: string | null }): React.JSX.Element {
   const [tab, setTab] = useState<LibraryTab>('overview');
   const library = isLibraryData(data) ? data : emptyLibraryData();
   const tabs: Array<[LibraryTab, string]> = [
-    ['overview', '总览'], ['settings', '设定来源'], ['protagonist', '主角'], ['characters', '配角'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
+    ['overview', '总览'], ['settings', '设定来源'], ['protagonist', '主角'], ['characters', '配角'], ['organizations', '势力'], ['locations', '地点'], ['map', '地图'], ['items', '道具资源'], ['events', '事件时间线'],
     ['rules', '生效规则'], ['tags', '标签'], ['gaps', '待补内容'], ['evidence', '内容来源']
   ];
   const entitiesByTab: Partial<Record<LibraryTab, string[]>> = {
-    organizations: ['organization'],
-    items: ['item', 'resource', 'skill', 'stat_panel'],
-    rules: ['world_rule'],
-    locations: ['location']
+    rules: ['world_rule']
   };
   return (
     <section className="reference-view library-workspace" aria-labelledby="library-title">
@@ -45,11 +44,12 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
       {tab === 'overview' && <LibraryOverview data={library} />}
       {tab === 'settings' && <ConfirmedSettingsLibrary data={library} />}
       {tab === 'protagonist' && <ProtagonistWorkspace bookId={bookId} initialDashboard={library.protagonists} initialFormulas={library.attributeFormulas} />}
-      {tab === 'characters' && <SupportingCharacterGrid entities={supportingCharacters(library)} facts={library.facts} />}
-      {tab === 'organizations' && <CategoryLibrary entities={entitiesForTab(library, entitiesByTab.organizations!)} facts={library.facts} emptyTitle="还没有正文确认的势力资料" />}
-      {tab === 'items' && <CategoryLibrary entities={entitiesForTab(library, entitiesByTab.items!)} facts={library.facts} emptyTitle="还没有正文确认的道具或资源资料" />}
+      {tab === 'characters' && <SupportingCharacterGrid profiles={library.supportingCharacterProfiles ?? []} />}
+      {tab === 'organizations' && <SemanticProfileLibrary profiles={library.organizationProfiles ?? []} emptyTitle="还没有正文确认的势力资料" emptyDescription="正文或作者确认内容写明势力后，这里会显示人数规模、实力、等级、驻地、地位和成员；没有写明的项目保持未知。" />}
+      {tab === 'items' && <SemanticProfileLibrary profiles={library.itemResourceProfiles ?? []} emptyTitle="还没有正文确认的道具或资源资料" emptyDescription="道具或资源在正文中明确出现后，这里会记录属性、效果、数量、归属和流转；系统不会猜测面板数值。" />}
       {tab === 'rules' && <EffectiveRulesLibrary rules={library.effectiveRules ?? []} entities={entitiesForTab(library, entitiesByTab.rules!)} facts={library.facts} />}
-      {tab === 'locations' && <LocationLibrary entities={entitiesForTab(library, entitiesByTab.locations!)} facts={library.facts} />}
+      {tab === 'locations' && <SemanticProfileLibrary profiles={library.locationProfiles ?? []} emptyTitle="还没有地点资料" emptyDescription="正文出现具体地点后，这里会记录地点类型、所属区域、方位、特点和来源；没有方向证据时保持未知。" />}
+      {tab === 'map' && <WorldMapLibrary map={library.worldMap} />}
       {tab === 'events' && <TimelineLibrary timeline={library.timeline} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
@@ -76,27 +76,41 @@ function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.El
 function entitiesForTab(data: LibraryData, types: string[]): Array<Record<string, unknown>> {
   return data.entities.filter((entity) => types.includes(String(entity.entity_type)));
 }
-function CategoryLibrary({ entities, facts, emptyTitle }: {
-  entities: Array<Record<string, unknown>>;
-  facts: Array<Record<string, unknown>>;
+function SemanticProfileLibrary({ profiles, emptyTitle, emptyDescription }: {
+  profiles: LibrarySemanticProfileData[];
   emptyTitle: string;
+  emptyDescription: string;
 }): React.JSX.Element {
-  if (entities.length === 0) {
-    return <EmptyReference icon={<DatabaseIcon />} title={emptyTitle} description="定稿正文形成明确资料后会带着来源显示在这里；设定原文请到“设定来源”查看，系统不会用猜测补齐。" />;
-  }
-  return <EntityGrid entities={entities} facts={facts} />;
+  if (profiles.length === 0) return <EmptyReference icon={<DatabaseIcon />} title={emptyTitle} description={emptyDescription} />;
+  return <div className="semantic-profile-grid">{profiles.map((profile) => <SemanticProfileCard key={profile.entityId} profile={profile} />)}</div>;
+}
+
+function SemanticProfileCard({ profile, collapsible = false }: { profile: LibrarySemanticProfileData; collapsible?: boolean }): React.JSX.Element {
+  const content = <dl>{profile.fields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{field.values.length === 0 ? <span className="profile-unknown">尚未写明</span> : field.values.map((value, index) => <span className="profile-value" key={`${field.key}-${index}-${JSON.stringify(value.value)}`}><AuthorValue value={value.value} />{field.key !== 'appearances' && <small>{profileValueSource(value)}</small>}</span>)}</dd></div>)}</dl>;
+  return <article className="semantic-profile-card"><header><div><span>{entityTypeLabel(profile.entityType)}</span><h3>{profile.name}</h3></div>{profile.aliases.length > 0 && <small>别名：{profile.aliases.join('、')}</small>}</header>{collapsible && <p className="character-appearance">{profile.firstAppearance === null ? '尚无已确认出场记录' : profileValueSource(profile.firstAppearance)}</p>}{collapsible ? <details><summary>展开查看完整资料</summary>{content}</details> : content}</article>;
+}
+
+function profileValueSource(value: LibrarySemanticProfileData['fields'][number]['values'][number]): string {
+  const chapter = value.sourceChapterNumber === null ? '已确认资料' : `第${value.sourceChapterNumber}章`;
+  return value.sourceChapterTitle === null ? chapter : `${chapter} · 《${value.sourceChapterTitle}》`;
 }
 
 function TimelineLibrary({ timeline }: { timeline: LibraryData['timeline'] }): React.JSX.Element {
   if (timeline.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有正文事件记录" description="章节定稿并结算后，正文实际发生的事件会按章节出现在这里；规划中的事件不会提前算作发生。" />;
-  return <div className="entity-grid timeline-grid">{timeline.map((item, index) => {
+  return <div className="story-timeline" role="list">{timeline.map((item, index) => {
     const chapterStart = Number(item.chapter_start ?? item.source_chapter_number);
     const chapterEnd = Number(item.chapter_end ?? item.source_chapter_number);
-    const range = Number.isInteger(chapterStart) && chapterStart > 0 ? (chapterStart === chapterEnd ? `第 ${chapterStart} 章` : `第 ${chapterStart}—${chapterEnd} 章`) : '来源章节已记录';
-    const storyTime = item.story_time?.trim() || '书内时间未注明';
+    const range = Number.isInteger(chapterStart) && chapterStart > 0 ? (chapterStart === chapterEnd ? `第${chapterStart}章` : `第${chapterStart}—${chapterEnd}章`) : '正文已结算';
+    const storyTime = item.display_time?.trim() || item.story_time?.trim() || range;
     const title = item.event_title?.trim() || authorFormatScalar(item.event);
-    return <article key={item.event_id ?? `${title}-${index}`}><header><span>{storyTime}</span><em>正文已结算</em></header><h3>{title}</h3><p>{item.actual_summary?.trim() || `${range}正文已经完成并结算。`}</p><small>{range} · 所属规划：{item.planned_event_title?.trim() || title}{item.source_chapter_title?.trim() ? ` · 结尾《${item.source_chapter_title.trim()}》` : ''}</small></article>;
+    return <article role="listitem" key={item.event_id ?? `${title}-${index}`}><time>{storyTime}</time><strong>{title}</strong></article>;
   })}</div>;
+}
+
+function WorldMapLibrary({ map }: { map: LibraryWorldMapData | undefined }): React.JSX.Element {
+  if (map === undefined || map.nodes.length === 0) return <EmptyReference icon={<TreeStructureIcon />} title="还没有可绘制的世界路线" description="正文出现出生地、城池、宗门、赛场等大范围地点后，地图会按主角实际到达的章节连接；没有依据时不猜坐标或方向。" />;
+  const labels: Record<LibraryWorldMapData['nodes'][number]['role'], string> = { birthplace: '出生地', story_start: '故事起点', location: '到达地点' };
+  return <section className="world-map-library">{map.authorDescription !== null && <details className="author-map-description"><summary>查看作者填写的地图说明</summary><p>{map.authorDescription}</p></details>}<div className="world-route" role="list" aria-label={`故事路线，共${map.nodes.length}个地点`}>{map.nodes.map((node, index) => <div className="world-route-step" key={node.nodeId}><article role="listitem"><span>{labels[node.role]}</span><h3>{node.name}</h3><p>{node.chapterNumber === null ? '出现章节尚未写明' : `第${node.chapterNumber}章${node.chapterTitle === null ? '' : ` · 《${node.chapterTitle}》`}`}</p>{node.direction !== null && <small>方位：{node.direction}</small>}</article>{index < map.nodes.length - 1 && <div className="world-route-arrow" aria-hidden="true">↓</div>}</div>)}</div></section>;
 }
 
 const PROTAGONIST_CATEGORY_LABELS: Record<string, string> = {
@@ -215,45 +229,9 @@ function protagonistStatePosition(item: ProtagonistStateData): string {
   return item.effectiveChapterNumber === null ? '发生位置尚未注明' : `第${item.effectiveChapterNumber}章`;
 }
 
-function supportingCharacters(data: LibraryData): Array<Record<string, unknown>> {
-  if (data.supportingCharacters !== undefined) return data.supportingCharacters;
-  const ids = new Set(data.protagonists?.profiles.flatMap((profile) => profile.entityId === null ? [] : [profile.entityId]) ?? []);
-  const names = new Set(data.protagonists?.profiles.map((profile) => profile.displayName) ?? []);
-  for (const profile of data.bookProfile?.protagonists ?? []) names.add(profile.name);
-  return entitiesForTab(data, ['character']).filter((entity) => !ids.has(String(entity.entity_id)) && !names.has(String(entity.canonical_name)));
-}
-
-function SupportingCharacterGrid({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
-  if (entities.length === 0) return <EmptyReference icon={<UserCircleIcon />} title="还没有配角资料" description="配角在定稿正文中明确出现后，会在这里建立有来源的资料卡；主角资料请在‘主角’查看。" />;
-  return <div className="entity-grid supporting-character-grid">{entities.slice(0, 300).map((entity) => {
-    const entityId = String(entity.entity_id);
-    const name = String(entity.canonical_name);
-    const entityFacts = uniqueEntityFacts(facts.filter((fact) => String(fact.subject_entity_id) === entityId));
-    const appearances = entityFacts.filter(isAppearanceFact).sort(compareEvidenceFacts);
-    const details = entityFacts.filter((fact) => !isAppearanceFact(fact));
-    const firstAppearance = appearances[0];
-    return <article key={entityId}><h3>{name}</h3><p className="character-appearance">{firstAppearance === undefined ? '尚无已确认出场记录' : appearanceLabel(firstAppearance)}</p><details><summary>展开查看完整资料</summary>{details.length === 0 && appearances.length <= 1 ? <p className="entity-empty-detail">正文目前只明确了这次出场，境界、属性或装备等信息尚未可靠确认。</p> : <div className="entity-detail-list">{details.map((fact) => <div key={String(fact.fact_id)}><dt>{characterFactLabel(fact)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}{appearances.map((fact) => <div key={String(fact.fact_id)}><dt>出场记录</dt><dd>{appearanceLabel(fact)}</dd><small>{factSourceLabel(fact)}</small></div>)}</div>}</details></article>;
-  })}</div>;
-}
-
-function isAppearanceFact(fact: Record<string, unknown>): boolean {
-  return /^(?:event(?:\.|$)|appearance(?:\.|$)|character\.appears)/u.test(String(fact.relation_key ?? ''));
-}
-
-function appearanceLabel(fact: Record<string, unknown>): string {
-  const chapter = Number(fact.source_chapter_number);
-  const position = Number.isInteger(chapter) && chapter > 0 ? `第${chapter}章` : '正文已出现';
-  const title = typeof fact.source_chapter_title === 'string' && fact.source_chapter_title.trim() ? `《${fact.source_chapter_title.trim()}》` : '';
-  return `${position}${title ? ` · ${title}` : ''}`;
-}
-
-function characterFactLabel(fact: Record<string, unknown>): string {
-  const key = String(fact.relation_key ?? '');
-  if (/level|realm|cultivation|境界|等级/iu.test(key)) return '境界与等级';
-  if (/attribute|stat|属性|战力|实力/iu.test(key)) return '实力与属性';
-  if (/item|equipment|weapon|道具|装备|武器/iu.test(key)) return '道具与装备';
-  if (/^relationship/u.test(key) || key === '角色关系') return '人物关系';
-  return authorFactRelationLabel(key);
+function SupportingCharacterGrid({ profiles }: { profiles: LibrarySemanticProfileData[] }): React.JSX.Element {
+  if (profiles.length === 0) return <EmptyReference icon={<UserCircleIcon />} title="还没有配角资料" description="配角在定稿正文中明确出现后，会在这里建立有来源的资料卡；主角资料请在‘主角’查看。" />;
+  return <div className="semantic-profile-grid supporting-character-grid">{profiles.map((profile) => <SemanticProfileCard key={profile.entityId} profile={profile} collapsible />)}</div>;
 }
 
 function EntityGrid({ entities, facts, protagonists }: {
@@ -411,17 +389,6 @@ function EffectiveRulesLibrary({ rules, entities, facts }: { rules: NonNullable<
   if (rules.length === 0 && entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有生效规则" description="作者明确确认、会约束后文的规则，或正文结算形成的规则事实会显示在这里；策划理念和普通世界介绍不会重复出现。" />;
   return <div className="effective-rules-library">{rules.length > 0 && <div className="rule-list">{rules.map((rule) => <details key={rule.ruleKey}><summary>{rule.title}</summary><p>{rule.summary}</p><small>{rule.sourceLabel} · 作者已确认</small></details>)}</div>}{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
 }
-function LocationLibrary({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
-  if (entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有地点资料" description="定稿正文出现具体地点后，会带着来源显示在这里；设定原文请到“设定来源”查看，没有坐标时不会自动编造地图位置。" />;
-  const points = facts.flatMap((fact) => {
-    const value = isRecord(fact.value) ? fact.value : null;
-    const relation = String(fact.relation_key ?? '');
-    if (value === null || !/(coordinate|position|map|坐标|位置)/iu.test(relation) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return [];
-    return [{ name: String(fact.canonical_name ?? '地点'), x: clampPercent(Number(value.x)), y: clampPercent(Number(value.y)), source: String(fact.fact_id ?? '') }];
-  });
-  return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">这些地点已有正文来源，但作者尚未确认地图坐标，因此只显示地点卡片。</p>}<EntityGrid entities={entities} facts={facts} /></div>;
-}
-
 function entityTypeLabel(type: string): string {
   return ({ character: '配角', location: '地点', organization: '势力', item: '道具', resource: '资源', skill: '技能', stat_panel: '数值面板', world_rule: '生效规则', event: '事件', foreshadowing: '伏笔', hook: '钩子' } as Record<string, string>)[type] ?? type;
 }
@@ -434,6 +401,11 @@ function isLibraryData(value: unknown): value is LibraryData {
   return isRecord(value) && typeof value.canonRevision === 'number' && Array.isArray(value.entities) && Array.isArray(value.facts)
     && Array.isArray(value.timeline) && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps)
     && Array.isArray(value.settings) && (value.supportingCharacters === undefined || Array.isArray(value.supportingCharacters))
+    && (value.supportingCharacterProfiles === undefined || Array.isArray(value.supportingCharacterProfiles))
+    && (value.organizationProfiles === undefined || Array.isArray(value.organizationProfiles))
+    && (value.locationProfiles === undefined || Array.isArray(value.locationProfiles))
+    && (value.itemResourceProfiles === undefined || Array.isArray(value.itemResourceProfiles))
+    && (value.worldMap === undefined || isRecord(value.worldMap))
     && (value.effectiveRules === undefined || Array.isArray(value.effectiveRules)) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
 }
 
@@ -462,8 +434,6 @@ function graphTarget(value: unknown): string {
   if (Array.isArray(value)) return value.map(formatValue).join('、') || '未知';
   return formatValue(value);
 }
-
-function clampPercent(value: number): number { return Math.max(3, Math.min(97, value)); }
 
 function normalizeStateKey(value: string): string {
   const normalized = value.trim().replace(/\s+/gu, '_').replace(/[^\p{L}\p{N}_-]/gu, '_').replace(/^([\p{N}-])/u, '_$1');

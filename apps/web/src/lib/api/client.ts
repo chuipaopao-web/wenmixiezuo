@@ -690,10 +690,50 @@ export interface TaskCenterData {
   books: TaskCenterBookData[];
 }
 
+export interface LibraryProfileValueData {
+  value: unknown;
+  sourceChapterNumber: number | null;
+  sourceChapterTitle: string | null;
+  storyTime: string | null;
+}
+
+export interface LibraryProfileFieldData {
+  key: string;
+  label: string;
+  values: LibraryProfileValueData[];
+}
+
+export interface LibrarySemanticProfileData {
+  entityId: string;
+  entityType: string;
+  name: string;
+  aliases: string[];
+  firstAppearance: LibraryProfileValueData | null;
+  fields: LibraryProfileFieldData[];
+}
+
+export interface LibraryWorldMapData {
+  authorDescription: string | null;
+  nodes: Array<{
+    nodeId: string;
+    name: string;
+    role: 'birthplace' | 'story_start' | 'location';
+    chapterNumber: number | null;
+    chapterTitle: string | null;
+    direction: string | null;
+  }>;
+  edges: Array<{ fromNodeId: string; toNodeId: string; label: string; chapterNumber: number | null }>;
+}
+
 export interface LibraryData {
   canonRevision: number;
   entities: Array<Record<string, unknown>>;
   supportingCharacters?: Array<Record<string, unknown>>;
+  supportingCharacterProfiles?: LibrarySemanticProfileData[];
+  organizationProfiles?: LibrarySemanticProfileData[];
+  locationProfiles?: LibrarySemanticProfileData[];
+  itemResourceProfiles?: LibrarySemanticProfileData[];
+  worldMap?: LibraryWorldMapData;
   effectiveRules?: Array<{ ruleKey: string; title: string; summary: string; sourceLabel: string; confirmedAt: string | null }>;
   facts: Array<Record<string, unknown>>;
   timeline: Array<{
@@ -703,6 +743,7 @@ export interface LibraryData {
     event_title?: string;
     planned_event_title?: string;
     story_time: string | null;
+    display_time?: string;
     event: unknown;
     canonical_name?: string;
     source_chapter_number?: number | null;

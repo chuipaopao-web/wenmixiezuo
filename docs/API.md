@@ -70,7 +70,7 @@
 
 按书提供人物状态、实体、事实、关系、时间线、伏笔、来源、缺口、图谱投影、混合检索和命名候选。检索响应标注来源、版本、证据等级和降级状态；不暴露其他书结果。
 
-`GET /api/v1/books/:bookId/library`返回独立的`settings`设定来源、`supportingCharacters`配角集合、正式`entities/facts`和按已结算事件聚合的`timeline`。`supportingCharacters`排除主角档案已绑定实体或同名实体；内部实体类型仍使用稳定键`character`。时间线条目携带事件名、覆盖章节、正文明确给出的故事时间、所属规划事件、实际结算摘要和来源；正文未写明日期时故事时间为`null`，作者界面显示“书内时间未注明”。分类页不得自行按关键词把`settings`复制到势力、地点、道具或规则页，普通界面不得展示内部事实键或记录编号。
+`GET /api/v1/books/:bookId/library`返回独立的`settings`设定来源、`supportingCharacters`配角集合、正式`entities/facts`、按已结算事件聚合的`timeline`，以及`supportingCharacterProfiles`、`organizationProfiles`、`locationProfiles`、`itemResourceProfiles`和`worldMap`类型化公开视图。`supportingCharacters`及配角档案排除主角档案已绑定实体或同名实体；内部实体类型仍使用稳定键`character`。档案字段值携带来源章节，缺失字段返回空数组，不由接口补造。`worldMap`只从地点正式出场、明确出生地和作者初始地图说明构建大范围路线，方向无证据时为`null`。时间线保留后台结算摘要和规划归属供审计，同时提供`display_time`：正文有故事时间时使用故事时间，否则回退章节范围；作者页面只显示`display_time + event_title`。分类页不得自行按关键词把`settings`复制到势力、地点、道具或规则页，普通界面不得展示内部事实键或记录编号。
 
 ## 12. 团队、任务与模型
 

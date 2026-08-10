@@ -10,7 +10,9 @@ describe('桌面项目文档中心', () => {
     const bundle = readFileSync(resolve(process.cwd(), 'docs/PROJECT_REFERENCE_BUNDLE.md'), 'utf8');
     const dom = new JSDOM(html, {
       runScripts: 'dangerously',
-      url: 'file:///D:/wenmixiezuo/docs/PROJECT_DOCUMENT_CENTER.html?v=test'
+      // JSDOM treats file: pages as opaque origins and may throw while Vitest inspects
+      // browser storage. The launcher contract below separately verifies the real file URI.
+      url: 'https://wenmi.local/PROJECT_DOCUMENT_CENTER.html?v=test'
     });
     const { document, MouseEvent, Event } = dom.window;
     const cards = [...document.querySelectorAll<HTMLButtonElement>('.card')];
@@ -21,7 +23,7 @@ describe('桌面项目文档中心', () => {
     const bundleButton = document.querySelector<HTMLButtonElement>("[data-open-document='project-reference-bundle']");
     const copyButton = document.querySelector<HTMLButtonElement>('#copy-reader');
 
-    expect(cards).toHaveLength(34);
+    expect(cards).toHaveLength(35);
     expect(templates).toHaveLength(cards.length + 1);
     expect(html).not.toContain('openai.yaml');
     expect(cards.every((card) => card.textContent?.includes('阅读全文'))).toBe(true);
@@ -34,7 +36,7 @@ describe('桌面项目文档中心', () => {
     expect(bundle).toContain('# 文秘写作当前项目完整合订版');
     expect(bundle).toContain('## 一、产品定位与完整工作流');
     expect(bundle).toContain('## 六、长篇质量审查 Skill');
-    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(34);
+    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(35);
 
     Object.defineProperty(reader!, 'showModal', {
       configurable: true,

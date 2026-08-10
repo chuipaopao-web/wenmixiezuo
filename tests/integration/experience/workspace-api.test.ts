@@ -101,6 +101,11 @@ describe('工作台API', () => {
       entities: expect.any(Array),
       timeline: [],
       supportingCharacters: [],
+      supportingCharacterProfiles: [],
+      organizationProfiles: [],
+      locationProfiles: [],
+      itemResourceProfiles: [],
+      worldMap: { authorDescription: null, nodes: [], edges: [] },
       effectiveRules: [],
       settings: [expect.objectContaining({ itemKey: 'world-era', label: '时代背景', status: '已确认', content: '架空王朝的边境要塞时代。' })],
       bookProfile: null,
@@ -215,6 +220,7 @@ describe('工作台API', () => {
     expect(library.json().data).toMatchObject({
       protagonists: { profiles: [expect.objectContaining({ displayName: '林澈', current: [expect.objectContaining({ value: 3 })], history: expect.any(Array) })] },
       supportingCharacters: [expect.objectContaining({ canonical_name: '苏禾' })],
+      supportingCharacterProfiles: [expect.objectContaining({ name: '苏禾', fields: expect.any(Array) })],
       attributeFormulas: [expect.objectContaining({ formulaKey: '总兵力' })]
     });
     const crossBook = await app.inject({

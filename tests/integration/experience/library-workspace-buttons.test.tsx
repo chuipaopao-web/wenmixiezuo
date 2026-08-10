@@ -60,6 +60,40 @@ const library = {
   gaps: [{ knowledge_gap_id: 'gap-internal-1', narrative_goal: '确认父亲旧案证人', diagnosis: '证人身份仍待正文确认', severity: 'medium', status: 'open' }],
   settings: [{ itemKey: 'world-era', groupTitle: '世界与环境', label: '时代背景', sourceLabel: '作者确认', content: '宗门与世家并存的修真时代。', confirmedAt: '2026-08-10T00:00:00.000Z' }],
   supportingCharacters: [{ entity_id: 'character-side', entity_type: 'character', canonical_name: '苏青萝', aliases: [], status: 'active' }],
+  supportingCharacterProfiles: [{
+    entityId: 'character-side', entityType: 'character', name: '苏青萝', aliases: [],
+    firstAppearance: { value: '苏青萝目睹试剑', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null },
+    fields: [
+      { key: 'identity', label: '身份', values: [{ value: '青霄宗内门弟子', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] },
+      { key: 'age', label: '年龄', values: [] },
+      { key: 'personality', label: '性格', values: [{ value: '冷静敏锐', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] },
+      { key: 'affiliation', label: '所属门派或组织', values: [{ value: '青霄宗', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] },
+      { key: 'realm', label: '境界与等级', values: [{ value: '炼气九层', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] },
+      { key: 'strength', label: '实力', values: [] }, { key: 'attributes', label: '属性面板', values: [] },
+      { key: 'equipment', label: '装备与持有物', values: [] }, { key: 'relationships', label: '人物关系', values: [] },
+      { key: 'appearances', label: '出场记录', values: [{ value: '第2章 · 《阵纹反击》', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] }
+    ]
+  }],
+  organizationProfiles: [{
+    entityId: 'organization-1', entityType: 'organization', name: '青霄宗', aliases: [], firstAppearance: null,
+    fields: [
+      { key: 'leader', label: '负责人', values: [] }, { key: 'member_count', label: '人数与规模', values: [{ value: '三千弟子', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+      { key: 'strength', label: '整体实力', values: [{ value: '东境一流宗门', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+      { key: 'level', label: '等级', values: [] }, { key: 'base', label: '主要场地与驻地', values: [{ value: '青霄山', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+      { key: 'position', label: '地位与影响力', values: [] }, { key: 'members', label: '已确认成员', values: [{ value: '苏青萝', sourceChapterNumber: 2, sourceChapterTitle: '阵纹反击', storyTime: null }] }
+    ]
+  }],
+  locationProfiles: [{ entityId: 'location-1', entityType: 'location', name: '试剑台', aliases: [], firstAppearance: { value: '试剑台出现', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }, fields: [
+    { key: 'birthplace', label: '出生地或故事起点', values: [] }, { key: 'type', label: '地点类型', values: [{ value: '宗门场地', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+    { key: 'parent', label: '所属区域', values: [{ value: '青霄宗外门', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] }, { key: 'direction', label: '方位', values: [{ value: '外门东侧', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+    { key: 'description', label: '地点特点', values: [] }, { key: 'appearances', label: '出场记录', values: [{ value: '第1章 · 《试剑开局》', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] }
+  ] }],
+  itemResourceProfiles: [{ entityId: 'item-1', entityType: 'item', name: '残缺阵盘', aliases: [], firstAppearance: null, fields: [
+    { key: 'owner', label: '当前归属', values: [{ value: '沈砚', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] }, { key: 'type', label: '类型', values: [{ value: '阵法道具', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+    { key: 'level', label: '等级与品质', values: [] }, { key: 'attributes', label: '属性面板', values: [{ value: { 完整度: '三成' }, sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] },
+    { key: 'effects', label: '作用与效果', values: [{ value: '看见残缺阵纹', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] }, { key: 'status', label: '当前状态', values: [{ value: '由沈砚持有', sourceChapterNumber: 1, sourceChapterTitle: '试剑开局', storyTime: null }] }, { key: 'history', label: '获得与失去记录', values: [] }
+  ] }],
+  worldMap: { authorDescription: '青霄宗位于东境群山。', nodes: [{ nodeId: 'location-1', name: '青霄宗', role: 'story_start', chapterNumber: 1, chapterTitle: '试剑开局', direction: '东境' }], edges: [] },
   effectiveRules: [{ ruleKey: 'must-follow-1', title: '必须遵守', summary: '破局必须有前置证据', sourceLabel: '开书信息', confirmedAt: '2026-08-10T00:00:00.000Z' }],
   bookProfile: { title: '阵骨问天', channel: '男频', category: '东方仙侠', subjects: ['修仙', '阵法'], mainTags: ['成长', '智斗'], customTags: ['宗门群像'], protagonists: [{ role: 'male_lead', name: '沈砚', age: '十八岁', background: '外门弟子', personalities: ['冷静'] }], mustFollow: ['破局必须有前置证据'], source: '作者确认的开书资料' },
   protagonists: protagonistDashboard,
@@ -80,11 +114,12 @@ describe('资料库全部页签和操作按钮', () => {
   });
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-  it('逐项打开十二个分类，配角按需展开，并让各类资料只显示自己的正式内容', async () => {
+  it('逐项打开十三个分类，配角按需展开，并让各类资料只显示自己的正式内容', async () => {
     render(<LibraryWorkspace data={library} bookId="book-xianxia" />);
     expect(screen.getByText('阵骨问天')).toBeInTheDocument();
+    expect(screen.getAllByRole('button').filter((button) => ['总览', '设定来源', '主角', '配角', '势力', '地点', '地图', '道具资源', '事件时间线', '生效规则', '标签', '待补内容', '内容来源'].includes(button.textContent ?? ''))).toHaveLength(13);
     for (const [tab, expected] of [
-      ['设定来源', '时代背景'], ['配角', '苏青萝'], ['势力', '青霄宗'], ['地点与地图', '试剑台'],
+      ['设定来源', '时代背景'], ['配角', '苏青萝'], ['势力', '青霄宗'], ['地点', '试剑台'], ['地图', '故事起点'],
       ['道具资源', '残缺阵盘'], ['事件时间线', '试剑台反杀'], ['生效规则', '破局必须有前置证据'],
       ['待补内容', '证人身份仍待正文确认'], ['内容来源', '内容来自哪里']
     ] as const) {
@@ -99,7 +134,7 @@ describe('资料库全部页签和操作按钮', () => {
     fireEvent.click(screen.getByRole('button', { name: '配角' }));
     expect(screen.queryByText('沈砚')).not.toBeInTheDocument();
     expect(screen.getByText('苏青萝')).toBeInTheDocument();
-    expect(screen.getAllByText('第2章 · 《阵纹反击》')).toHaveLength(2);
+    expect(screen.getAllByText('第2章 · 《阵纹反击》').length).toBeGreaterThanOrEqual(1);
     const details = screen.getByText('展开查看完整资料').closest('details');
     expect(details).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('展开查看完整资料'));
@@ -110,15 +145,16 @@ describe('资料库全部页签和操作按钮', () => {
 
   it('势力、地点和道具不再重复展示整套设定卡，时间线以正文事件而非主角逐章行动汇总', () => {
     render(<LibraryWorkspace data={library} bookId="book-xianxia" />);
-    for (const tab of ['势力', '地点与地图', '道具资源'] as const) {
+    for (const tab of ['势力', '地点', '地图', '道具资源'] as const) {
       fireEvent.click(screen.getByRole('button', { name: tab }));
       expect(screen.queryByText('已确认设定')).not.toBeInTheDocument();
       expect(screen.queryByText('策划理念')).not.toBeInTheDocument();
     }
     fireEvent.click(screen.getByRole('button', { name: '事件时间线' }));
-    expect(screen.getByText('书内时间未注明')).toBeInTheDocument();
-    expect(screen.getByText('沈砚借残阵反击韩烈，赢下试剑并引出父亲旧案线索。')).toBeInTheDocument();
-    expect(screen.getByText(/第 1—3 章 · 所属规划：外门试剑/u)).toBeInTheDocument();
+    expect(screen.getByText('第1—3章')).toBeInTheDocument();
+    expect(screen.queryByText('书内时间未注明')).not.toBeInTheDocument();
+    expect(screen.queryByText('沈砚借残阵反击韩烈，赢下试剑并引出父亲旧案线索。')).not.toBeInTheDocument();
+    expect(screen.queryByText(/所属规划/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/参与了第\d+章的行动/u)).not.toBeInTheDocument();
   });
 

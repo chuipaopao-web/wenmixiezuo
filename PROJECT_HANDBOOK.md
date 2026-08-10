@@ -27,6 +27,7 @@
 - [完整当前文档目录](docs/PROJECT_DOCUMENT_INDEX.md)：显示当前文件、摘要、大小和内容指纹。
 - [产品说明](docs/PRODUCT.md)：产品定位、功能和边界。
 - [创作工作流 V2](docs/CREATION_WORKFLOW_V2_DESIGN.md)：页面、交互、对象链和AI介入时机。
+- [功能实现与交互详解](docs/FEATURE_IMPLEMENTATION_GUIDE.md)：逐项说明前端使用、后台对象、AI介入、检索和上下文规则。
 - [AI团队](docs/AGENT_SYSTEM.md)：11名创作成员的职责、模型绑定和真实状态。
 - [上下文与记忆](docs/MEMORY.md)：每类任务能接收和必须排除的信息。
 - [混合检索](docs/HYBRID_RAG_DESIGN.md)：任务级检索、版本直达、证据回查和跨书隔离。

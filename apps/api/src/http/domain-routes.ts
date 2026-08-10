@@ -53,6 +53,12 @@ import type { RetrievalMode } from '../contracts/retrieval-plan.js';
 import type { AuthorAttachmentRecord } from '../infrastructure/db/repositories/author-attachment-repository.js';
 import { ProtagonistStateService, type ProtagonistStateStatus, type ProtagonistValueType } from '../application/knowledge/protagonist-state-service.js';
 import { AttributeFormulaService, type FormulaVariable } from '../application/knowledge/attribute-formula-service.js';
+import {
+  buildLibraryProfiles,
+  buildLibraryWorldMap,
+  type LibraryEntityRow,
+  type LibraryFactRow
+} from '../application/knowledge/library-semantic-view.js';
 import { OwnerManuscriptService } from '../application/creation/owner-manuscript-service.js';
 import { BudgetService } from '../application/budget/budget-service.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../contracts/opening-blueprint.js';
@@ -1103,6 +1109,16 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     ].filter(Boolean));
     const supportingCharacters = entities.filter((entity) => String(entity.entity_type) === 'character'
       && !protagonistEntityIds.has(String(entity.entity_id)) && !protagonistNames.has(String(entity.canonical_name).trim()));
+    const typedFacts = facts as unknown as LibraryFactRow[];
+    const supportingCharacterProfiles = buildLibraryProfiles(supportingCharacters as unknown as LibraryEntityRow[], typedFacts, ['character']);
+    const organizationProfiles = buildLibraryProfiles(entities as unknown as LibraryEntityRow[], typedFacts, ['organization']);
+    const locationProfiles = buildLibraryProfiles(entities as unknown as LibraryEntityRow[], typedFacts, ['location']);
+    const itemResourceProfiles = buildLibraryProfiles(
+      entities as unknown as LibraryEntityRow[],
+      typedFacts,
+      ['item', 'resource', 'skill', 'stat_panel']
+    );
+    const worldMap = buildLibraryWorldMap(locationProfiles, bookProfile?.openingBlueprint.initialMap ?? null);
     const effectiveRules = settings.filter((item) => isEffectiveRuleSetting(item.itemKey)).map((item) => ({
       ruleKey: item.itemKey,
       title: item.label,
@@ -1118,6 +1134,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       entities,
       facts,
       supportingCharacters,
+      supportingCharacterProfiles,
+      organizationProfiles,
+      locationProfiles,
+      itemResourceProfiles,
+      worldMap,
       effectiveRules,
       timeline,
       relations,
@@ -2016,6 +2037,8 @@ function buildLibraryTimelineEntry(row: Record<string, unknown>): Record<string,
   const chapterEnd = Number(row.chapter_end);
   const title = readableText(planned.eventTitle) ?? readableText(planned.title) ?? readableText(planned.name) ?? `第${Number(row.sequence_order)}个事件`;
   const actualSummary = settlementActualSummary(row, title, chapterStart, chapterEnd);
+  const storyTime = normalizeExplicitStoryTime(row.story_time);
+  const chapterRange = chapterStart === chapterEnd ? `第${chapterStart}章` : `第${chapterStart}—${chapterEnd}章`;
   return {
     timeline_id: String(row.event_id),
     event_id: String(row.event_id),
@@ -2023,7 +2046,8 @@ function buildLibraryTimelineEntry(row: Record<string, unknown>): Record<string,
     event_title: title,
     event: title,
     planned_event_title: title,
-    story_time: normalizeExplicitStoryTime(row.story_time),
+    story_time: storyTime,
+    display_time: storyTime ?? chapterRange,
     chapter_start: chapterStart,
     chapter_end: chapterEnd,
     source_chapter_title: readableText(row.final_chapter_title),
