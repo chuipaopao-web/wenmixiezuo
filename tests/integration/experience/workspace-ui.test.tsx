@@ -283,6 +283,10 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar functions"\s*"sidebar main"/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
+    expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*gap:\s*4px/su);
+    expect(css).toMatch(/\.function-book-toggle\s*\{[^}]*display:\s*none\s*!important/su);
+    expect(css).toMatch(/\.function-nav-primary\s*\{[^}]*flex:\s*2\s+1\s+0[^}]*repeat\(8,\s*minmax\(0,\s*1fr\)\)/su);
+    expect(css).toMatch(/\.function-nav-utilities\s*\{[^}]*flex:\s*1\s+1\s+0[^}]*repeat\(4,\s*minmax\(0,\s*1fr\)\)/su);
     expect(css).not.toMatch(/\.ios-commandbar|\.current-view-chip/su);
     expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*144px\s+minmax\(0,\s*1fr\)/su);
