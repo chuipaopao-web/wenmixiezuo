@@ -1,3 +1,4 @@
+import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount } from '@wenmi/contracts';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { BookScope } from '../../domain/scope.js';
@@ -91,6 +92,6 @@ function normalizeTitle(value: unknown): string {
   if (typeof value !== 'string') throw new DomainError(errorCodes.validation, '书名格式无效。');
   const title = value.trim();
   if (title.length === 0) throw new DomainError(errorCodes.validation, '请填写书名。');
-  if (title.length > 120) throw new DomainError(errorCodes.validation, '书名不能超过120个字符。');
+  if (bookTitleCharacterCount(title) > BOOK_TITLE_MAX_CHARACTERS) throw new DomainError(errorCodes.validation, '书名最多15字。');
   return title;
 }

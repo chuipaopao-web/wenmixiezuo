@@ -6269,80 +6269,88 @@ svg {
   min-height: 0;
   max-height: none;
   flex: 1 1 auto;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, 84px);
+  grid-auto-rows: max-content;
+  align-content: start;
+  justify-content: center;
+  gap: 16px 10px;
   overflow-y: auto;
-  padding: 0 2px 4px 0;
+  padding: 2px 4px 12px 0;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--ink-faint) 28%, transparent) transparent;
 }
 
 .unified-book-switcher > nav[aria-label="选择书籍"] > button {
   position: relative;
-  min-height: 88px;
+  width: 84px;
+  min-height: 151px;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 15px;
-  padding: 8px;
+  grid-template-rows: 118px minmax(26px, auto);
+  justify-items: center;
+  align-content: start;
+  gap: 7px;
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
   color: var(--ink-soft);
   background: transparent;
-  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  transition: color .18s ease, transform .18s ease;
 }
 
 .unified-book-switcher > nav[aria-label="选择书籍"] > button:hover {
-  border-color: color-mix(in srgb, var(--line) 82%, transparent);
-  background: color-mix(in srgb, var(--panel-raised) 78%, transparent);
-  transform: translateY(-1px);
+  color: var(--ink);
+  transform: translateY(-2px);
 }
 
-.unified-book-switcher > nav[aria-label="选择书籍"] > button.active {
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
-  color: var(--ink);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 88%, white), color-mix(in srgb, var(--panel-raised) 88%, transparent));
-  box-shadow: 0 9px 24px rgb(10 132 255 / 9%);
-}
+.unified-book-switcher > nav[aria-label="选择书籍"] > button.active { color: var(--accent); }
 
 .unified-book-switcher > nav[aria-label="选择书籍"] > button.active::before {
   position: absolute;
-  left: 2px;
+  top: 23px;
+  left: -7px;
   width: 3px;
-  height: 42px;
+  height: 72px;
   border-radius: 999px;
   background: var(--accent);
+  box-shadow: 0 0 15px color-mix(in srgb, var(--accent) 38%, transparent);
   content: "";
 }
 
 .book-rail-cover {
   position: relative;
-  width: 50px;
-  height: 70px;
+  width: 84px;
+  height: 118px;
   display: grid !important;
   grid-template-rows: auto 1fr auto;
   flex: none;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 42%);
-  border-radius: 7px 10px 10px 7px;
-  padding: 6px 5px 5px 8px;
+  border: 1px solid rgb(255 255 255 / 46%);
+  border-radius: 10px 15px 15px 10px;
+  padding: 10px 9px 9px 13px;
   color: white;
   background: linear-gradient(150deg, #2673c9, #243b78);
-  box-shadow: inset 3px 0 rgb(255 255 255 / 16%), 0 7px 16px rgb(34 52 82 / 18%);
+  box-shadow: inset 4px 0 rgb(255 255 255 / 16%), 0 10px 24px rgb(34 52 82 / 22%);
   text-align: left;
+  transition: box-shadow .18s ease, transform .18s ease;
 }
-.book-rail-cover::after { position: absolute; inset: 4px 4px 4px auto; width: 1px; background: rgb(255 255 255 / 22%); content: ""; }
-.book-rail-cover small { margin: 0 !important; color: rgb(255 255 255 / 68%) !important; font-size: 7px !important; letter-spacing: .12em; }
-.book-rail-cover b { align-self: center; overflow: hidden; font-family: "Songti SC", "STSong", serif; font-size: 11px; line-height: 1.22; letter-spacing: .04em; }
-.book-rail-cover i { color: rgb(255 255 255 / 62%); font-size: 7px; font-style: normal; letter-spacing: .18em; }
+.unified-book-switcher > nav[aria-label="选择书籍"] > button:hover .book-rail-cover { box-shadow: inset 4px 0 rgb(255 255 255 / 18%), 0 14px 28px rgb(34 52 82 / 26%); }
+.unified-book-switcher > nav[aria-label="选择书籍"] > button.active .book-rail-cover { outline: 2px solid color-mix(in srgb, var(--accent) 68%, white); outline-offset: 2px; }
+.book-rail-cover::after { position: absolute; inset: 6px 6px 6px auto; width: 1px; background: rgb(255 255 255 / 22%); content: ""; }
+.book-rail-cover small { margin: 0 !important; color: rgb(255 255 255 / 70%) !important; font-size: 8px !important; letter-spacing: .16em; }
+.book-cover-title { align-self: center; width: 100%; overflow: hidden; padding-right: 4px; font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif; font-weight: 680; line-height: 1.28; letter-spacing: .04em; overflow-wrap: anywhere; text-align: center; text-wrap: balance; }
+.book-cover-title.title-short { font-size: 20px; }
+.book-cover-title.title-medium { font-size: 17px; }
+.book-cover-title.title-long { font-size: 14px; }
+.book-cover-title.title-extra-long { font-size: 12px; line-height: 1.22; }
+.book-rail-cover i { color: rgb(255 255 255 / 64%); font-size: 8px; font-style: normal; letter-spacing: .2em; }
 .book-rail-cover.cover-tone-1 { background: linear-gradient(150deg, #4d58a8, #292e68); }
 .book-rail-cover.cover-tone-2 { background: linear-gradient(150deg, #a75b49, #67312e); }
 .book-rail-cover.cover-tone-3 { background: linear-gradient(150deg, #2d8b80, #17564f); }
 .book-rail-cover.cover-tone-4 { background: linear-gradient(150deg, #9b7137, #5f3f23); }
 .book-rail-cover.cover-tone-5 { background: linear-gradient(150deg, #7e558e, #493356); }
-.book-rail-copy { min-width: 0; display: grid !important; align-content: center; text-align: left; }
-.unified-book-switcher > nav[aria-label="选择书籍"] .book-rail-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.unified-book-switcher > nav[aria-label="选择书籍"] .book-rail-copy small { overflow: hidden; margin-top: 5px; color: var(--ink-faint); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-
+.book-cover-status { width: 84px; min-height: 26px; display: grid !important; place-items: start center; overflow: hidden; color: var(--ink-faint); font-size: 9px; font-weight: 620; line-height: 1.3; text-align: center; }
+.unified-book-switcher > nav[aria-label="选择书籍"] > button.active .book-cover-status { color: var(--accent); }
 .sidebar-book-actions {
   display: grid;
   gap: 8px;
@@ -6599,3 +6607,7 @@ svg {
   .unified-desk .creation-desk { min-height: calc(100vh - 178px); border-radius: 17px; }
   .unified-desk .creation-desk-body { padding: 14px; }
 }
+
+.book-title-field { display: grid; gap: 6px; }
+.book-title-field > input { width: 100%; }
+.book-title-field > small { justify-self: end; color: var(--ink-faint); font-size: 11px; }

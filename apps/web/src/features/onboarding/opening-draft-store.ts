@@ -1,3 +1,4 @@
+import { BOOK_TITLE_MAX_CHARACTERS, limitBookTitle } from '@wenmi/contracts';
 import type { BookCreationMode, OpeningChannel, ProtagonistRole } from '../../lib/api/client';
 
 export const OPENING_DRAFT_STORAGE_KEY = 'wenmi.opening-draft.v2';
@@ -124,7 +125,7 @@ function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
     step: value.step === 2 || value.step === 3 || value.step === 4 ? value.step : 1,
     creationMode: value.creationMode === 'continuation' ? 'continuation' : 'new',
-    title: limitedText(value.title, 120),
+    title: limitBookTitle(limitedText(value.title, BOOK_TITLE_MAX_CHARACTERS * 2)),
     channel: value.channel === 'male' || value.channel === 'female' ? value.channel : null,
     categoryKey: nullableLimitedText(value.categoryKey, 120),
     mainTags: uniqueTexts(value.mainTags, 200, 40),

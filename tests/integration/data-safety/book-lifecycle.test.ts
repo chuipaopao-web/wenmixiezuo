@@ -204,4 +204,13 @@ describe('书籍生命周期与删除墓碑', () => {
       .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
     expect(context.database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
+  it('底层创建同样拒绝超过15字', () => {
+    context = createTestContext();
+    const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
+    const scope = { ownerId: 'owner-one', bookId: 'book-title-limit' };
+    service.ensureOwner(scope);
+    expect(() => service.createDraft(scope, '一二三四五六七八九十一二三四五六')).toThrow('1至15字');
+    expect(service.createDraft(scope, '一二三四五六七八九十一二三四五').title)
+      .toBe('一二三四五六七八九十一二三四五');
+  });
 });

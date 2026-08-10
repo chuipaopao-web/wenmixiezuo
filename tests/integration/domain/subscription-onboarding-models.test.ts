@@ -23,7 +23,7 @@ describe('subscription onboarding model allocation', () => {
     });
     const draft = new PositioningService(context.database, ids, clock).createDraft(
       { ownerId: context.config.ownerId },
-      { title: 'Agent Plan onboarding test', text: 'A grounded contemporary character story.' }
+      { title: 'AgentPlan开书测试', text: 'A grounded contemporary character story.' }
     );
 
     const result = new BookOnboardingService(

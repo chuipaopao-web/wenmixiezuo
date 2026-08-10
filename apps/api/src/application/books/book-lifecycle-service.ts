@@ -1,3 +1,4 @@
+import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount } from '@wenmi/contracts';
 import { rmSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
@@ -33,8 +34,8 @@ export class BookLifecycleService {
   public createDraft(scope: BookScope, title: string): BookRecord {
     assertBookScope(scope);
     const normalizedTitle = title.trim();
-    if (normalizedTitle.length < 1 || normalizedTitle.length > 120) {
-      throw new Error('书名长度必须为1至120个字符');
+    if (normalizedTitle.length < 1 || bookTitleCharacterCount(normalizedTitle) > BOOK_TITLE_MAX_CHARACTERS) {
+      throw new Error('书名长度必须为1至15字');
     }
     if (this.#purge.hasTombstone(scope)) throw new Error('删除墓碑禁止旧书籍ID复活');
     return this.#books.create(scope, normalizedTitle, this.clock.now().toISOString(), 'draft');

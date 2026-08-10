@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bookCoverTone, bookDisplayInfo, bookDisplayTitle } from '../../apps/web/src/app/display-labels';
+import { bookCoverTitle, bookCoverTone, bookDisplayInfo, bookDisplayTitle } from '../../apps/web/src/app/display-labels';
 
 describe('author-facing book labels', () => {
   it('hides only known E2E run keys and keeps the test copies distinguishable', () => {
@@ -19,6 +19,19 @@ describe('author-facing book labels', () => {
     expect(bookDisplayInfo(title)).toEqual({ title, qualifier: null });
   });
 
+  it('keeps the complete title on fixed covers and shrinks the font in four tiers', () => {
+    expect(bookCoverTitle('烬骨问天')).toMatchObject({ text: '烬骨问天', size: 'short', truncated: false });
+    expect(bookCoverTitle('一二三四五六七')).toMatchObject({ size: 'medium', truncated: false });
+    expect(bookCoverTitle('一二三四五六七八九十')).toMatchObject({ size: 'long', truncated: false });
+    expect(bookCoverTitle('一二三四五六七八九十一二三四五')).toMatchObject({
+      text: '一二三四五六七八九十一二三四五', size: 'extra-long', truncated: false
+    });
+    const legacy = bookCoverTitle('一二三四五六七八九十一二三四五六七');
+    expect([...legacy.text]).toHaveLength(15);
+    expect(legacy.text.endsWith('…')).toBe(true);
+    expect(legacy.fullTitle).toBe('一二三四五六七八九十一二三四五六七');
+    expect(legacy.truncated).toBe(true);
+  });
   it('selects a stable portrait-cover tone from the book id', () => {
     expect(bookCoverTone('book-123')).toBe(bookCoverTone('book-123'));
     expect(bookCoverTone('book-123')).toBeGreaterThanOrEqual(0);

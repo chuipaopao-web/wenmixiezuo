@@ -1,3 +1,5 @@
+import { BOOK_TITLE_MAX_CHARACTERS } from '@wenmi/contracts';
+
 export function bookStatusLabel(status: string): string {
   return ({ active: '创作中', archived: '已归档' } as Record<string, string>)[status] ?? status;
 }
@@ -31,6 +33,33 @@ export function bookDisplayTitle(sourceTitle: string): string {
   return bookDisplayInfo(sourceTitle).title;
 }
 
+export type BookCoverTitleSize = 'short' | 'medium' | 'long' | 'extra-long';
+
+export interface BookCoverTitle {
+  text: string;
+  fullTitle: string;
+  length: number;
+  size: BookCoverTitleSize;
+  truncated: boolean;
+}
+
+export function bookCoverTitle(sourceTitle: string): BookCoverTitle {
+  const fullTitle = bookDisplayTitle(sourceTitle);
+  const characters = [...fullTitle];
+  const truncated = characters.length > BOOK_TITLE_MAX_CHARACTERS;
+  const visibleCharacters = truncated
+    ? [...characters.slice(0, BOOK_TITLE_MAX_CHARACTERS - 1), '…']
+    : characters;
+  const length = visibleCharacters.length;
+  const size: BookCoverTitleSize = length <= 4
+    ? 'short'
+    : length <= 7
+      ? 'medium'
+      : length <= 10
+        ? 'long'
+        : 'extra-long';
+  return { text: visibleCharacters.join(''), fullTitle, length, size, truncated };
+}
 export function bookCoverTone(bookId: string): number {
   return [...bookId].reduce((total, character) => total + (character.codePointAt(0) ?? 0), 0) % 6;
 }

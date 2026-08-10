@@ -105,7 +105,7 @@ describe('建书REST流程', () => {
         payload: { title: '书'.repeat(121), text: openingBlueprint.fullBookOutline, openingBlueprint }
       });
       expect(longTitleResponse.statusCode).toBe(400);
-      expect(longTitleResponse.json().error.message).toContain('120');
+      expect(longTitleResponse.json().error.message).toContain('15');
       const draftResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts',
         payload: { title: '天安城军报', text: '这个旧定位文本不应覆盖故事方向', openingBlueprint }

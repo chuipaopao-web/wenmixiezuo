@@ -1,3 +1,4 @@
+import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount } from '@wenmi/contracts';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningDraft, PositioningField, PositioningTag, SourceStatus } from '../../domain/positioning.js';
@@ -48,7 +49,7 @@ export class PositioningService {
     new OwnerRepository(this.database).ensure(scope, '老板', this.clock.now().toISOString());
     const requestedTitle = input.title?.trim() ?? '';
     if (input.openingBlueprint !== undefined && requestedTitle.length === 0) throw new Error('完整开书必须填写书名');
-    if (requestedTitle.length > 120) throw new Error('书名不能超过120个字符');
+    if (bookTitleCharacterCount(requestedTitle) > BOOK_TITLE_MAX_CHARACTERS) throw new Error('书名最多15字');
     const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint);
     const text = openingBlueprint?.storyDirection ?? input.text.trim();
     if (text.length < 2) throw new Error('定位描述至少需要2个字符');
@@ -132,13 +133,16 @@ export class PositioningService {
   ): PositioningDraft {
     const current = this.require(scope, draftId);
     if (current.status !== 'editing') throw new Error('定位草稿已结束编辑');
+    const nextTitle = patch.title === undefined ? current.title : patch.title.trim();
+    if (patch.title !== undefined && nextTitle.length === 0) throw new Error('书名不能为空');
+    if (patch.title !== undefined && bookTitleCharacterCount(nextTitle) > BOOK_TITLE_MAX_CHARACTERS) throw new Error('书名最多15字');
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE positioning_drafts SET title = ?, fields_json = ?, tags_json = ?,
         version = version + 1, updated_at = ?
       WHERE draft_id = ? AND owner_id = ? AND version = ? AND status = 'editing'
     `).run(
-      patch.title?.trim() || current.title,
+      nextTitle,
       JSON.stringify(patch.fields ?? current.fields),
       JSON.stringify(patch.tags ?? current.tags),
       now,

@@ -107,7 +107,7 @@ describe('启动时保留书籍模型方案', () => {
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '十一人Agent Plan迁移测试书'
+      title: '十一人模型迁移测试书'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const runtime = loadModelRuntimeConfig({

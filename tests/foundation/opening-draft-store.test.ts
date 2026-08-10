@@ -64,7 +64,7 @@ describe('四步开书草稿', () => {
       protagonists: [{ role: 'invalid', name: '甲', age: '成年', background: '背景', personalities: ['冷静', '冷静'] }]
     }));
     expect(loadOpeningWizardDraft(storage)).toMatchObject({
-      step: 1, creationMode: 'new', title: '长'.repeat(120),
+      step: 1, creationMode: 'new', title: '长'.repeat(15),
       protagonists: [{ role: 'co_lead', personalities: ['冷静'] }]
     });
   });

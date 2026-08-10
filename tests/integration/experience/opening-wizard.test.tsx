@@ -169,4 +169,12 @@ describe('四步开书', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
     await waitFor(() => expect(localStorage.getItem(OPENING_DRAFT_STORAGE_KEY)).toContain('continuation'));
   });
+  it('书名输入固定为15字并实时显示字数', async () => {
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const input = await screen.findByLabelText('书名');
+    fireEvent.change(input, { target: { value: '一二三四五六七八九十一二三四五六' } });
+    expect(input).toHaveValue('一二三四五六七八九十一二三四五');
+    expect(screen.getByText('最多15字 · 15/15')).toBeInTheDocument();
+  });
 });

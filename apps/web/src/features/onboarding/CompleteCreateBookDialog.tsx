@@ -7,6 +7,7 @@ import {
   TagIcon,
   XIcon
 } from '@phosphor-icons/react';
+import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount, limitBookTitle } from '@wenmi/contracts';
 import {
   createBook,
   fetchOpeningTaxonomy,
@@ -181,6 +182,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
   const directionRequirements = [
     ...(taxonomy === null ? ['分类目录'] : []),
     ...(title.trim().length === 0 ? ['书名'] : []),
+    ...(bookTitleCharacterCount(title) > BOOK_TITLE_MAX_CHARACTERS ? ['书名最多15字'] : []),
     ...(channel === null ? ['创作频道'] : []),
     ...(category === null ? ['作品分类'] : []),
     ...(storyDirection.trim().length < 20 ? ['故事方向至少20字'] : [])
@@ -417,7 +419,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
           {step === 2 && <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
-          <input id="complete-book-title" aria-label="书名" maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：长安簪影" autoFocus />
+          <div className="book-title-field"><input id="complete-book-title" aria-label="书名" value={title} onChange={(event) => setTitle(limitBookTitle(event.target.value))} placeholder="例如：长安簪影" autoFocus /><small aria-live="polite">最多{BOOK_TITLE_MAX_CHARACTERS}字 · {bookTitleCharacterCount(title)}/{BOOK_TITLE_MAX_CHARACTERS}</small></div>
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
             setChannel(item.id); setCategoryKey(null);
             if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) {

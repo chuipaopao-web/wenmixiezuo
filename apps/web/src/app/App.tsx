@@ -48,7 +48,7 @@ import {
 import { cacheSnapshot, loadSnapshot } from '../lib/offline/offline-store';
 import { NamingWorkspace } from '../features/naming/NamingWorkspace';
 import { ArchiveBookDialog, PurgeBookDialog } from '../features/bookshelf/BookLifecycleDialogs';
-import { bookCoverTone, bookDisplayInfo, bookDisplayTitle, bookStatusLabel } from './display-labels';
+import { bookCoverTitle, bookCoverTone, bookDisplayInfo, bookDisplayTitle, bookStatusLabel } from './display-labels';
 import { CompleteCreateBookDialog } from '../features/onboarding/CompleteCreateBookDialog';
 import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
 import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
@@ -435,15 +435,16 @@ export function App(): React.JSX.Element {
           <div className="book-list-heading"><span>我的书籍</span><strong>{activeBooks.length}</strong></div>
           <nav aria-label="选择书籍">{activeBooks.map((book) => {
             const display = bookDisplayInfo(book.title);
+            const coverTitle = bookCoverTitle(book.title);
             const selected = book.bookId === selectedBookId;
             return <button type="button" key={book.bookId}
               className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined}
               aria-label={`打开《${display.title}》${display.qualifier === null ? '' : `，${display.qualifier}`}`}
               onClick={() => selectBook(book.bookId)}>
               <span className={`book-rail-cover cover-tone-${bookCoverTone(book.bookId)}`} aria-hidden="true">
-                <small>文秘</small><b>{display.title.slice(0, 4)}</b><i>小说</i>
+                <small>文秘</small><b className={`book-cover-title title-${coverTitle.size}`} title={coverTitle.truncated ? coverTitle.fullTitle : undefined}>{coverTitle.text}</b><i>小说</i>
               </span>
-              <span className="book-rail-copy"><strong title={display.title}>{display.title}</strong><small>{selected ? '当前书籍' : bookStatusLabel(book.status)}{display.qualifier === null ? '' : ` · ${display.qualifier}`}</small></span>
+              <span className="book-cover-status">{display.qualifier ?? (selected ? '当前书籍' : bookStatusLabel(book.status))}</span>
             </button>;
           })}</nav>
           <div className="sidebar-book-actions">

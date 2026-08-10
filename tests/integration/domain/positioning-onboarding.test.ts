@@ -231,6 +231,22 @@ describe('定位草稿与原子建书', () => {
     }
     expect(positioning.require({ ownerId: 'owner-one' }, completeDraft.draftId).status).toBe('editing');
   });
+  it('统一拒绝超过15字的创建和草稿改名', () => {
+    context = createTestContext();
+    const service = new PositioningService(context.database, new SequenceIds(), new FixedClock());
+    expect(() => service.createDraft(
+      { ownerId: 'owner-one' },
+      { title: '一二三四五六七八九十一二三四五六', text: '修仙成长故事' }
+    )).toThrow('书名最多15字');
+    const draft = service.createDraft(
+      { ownerId: 'owner-one' },
+      { title: '一二三四五六七八九十一二三四五', text: '修仙成长故事' }
+    );
+    expect(() => service.updateDraft(
+      { ownerId: 'owner-one' }, draft.draftId, draft.version,
+      { title: '一二三四五六七八九十一二三四五六' }
+    )).toThrow('书名最多15字');
+  });
 });
 
 function completeOpeningBlueprint(): OpeningBlueprintInput {

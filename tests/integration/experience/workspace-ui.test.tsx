@@ -211,6 +211,8 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).getByText('20章验收测试', { exact: false })).toBeInTheDocument();
     expect(within(bookRail).queryByText(/xianxia|acceptance|final/iu)).not.toBeInTheDocument();
     expect(bookRail.querySelectorAll('.book-rail-cover')).toHaveLength(2);
+    expect(bookRail.querySelectorAll('.book-cover-title')).toHaveLength(2);
+    expect(bookRail.querySelector('.book-rail-copy')).toBeNull();
   });
   it('点击左侧书籍只切换当前书，顶部功能保持在原页面', async () => {
     const baseRouter = createFetchRouter();
@@ -273,7 +275,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
     expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*228px\s+minmax\(0,\s*1fr\)/su);
-    expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*50px[^}]*height:\s*70px/su);
+    expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,\s*84px\)[^}]*overflow-y:\s*auto/su);
+    expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*84px[^}]*height:\s*118px/su);
     expect(css).toContain('#0a84ff');
   });
 

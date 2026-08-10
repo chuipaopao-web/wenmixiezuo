@@ -31,6 +31,12 @@ describe('开书资料不可变修订', () => {
       ids,
       clock
     );
+    // 修改开书资料时同样拒绝超过15字，失败不会消耗当前版本。
+    expect(() => service.revise({ ownerId: 'owner-one', bookId: created.bookId }, {
+      expectedVersion: 1,
+      title: '一二三四五六七八九十一二三四五六',
+      openingBlueprint: original
+    })).toThrow('书名最多15字');
     const revised = {
       ...original,
       protagonists: [{ ...original.protagonists[0]!, name: '沈澜' }],
