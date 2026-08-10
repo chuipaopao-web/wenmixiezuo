@@ -1030,7 +1030,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/library', async (request) => {
     const scope = { ...owner, bookId: request.params.bookId };
     const book = books.require(scope);
-    const entities = (database.prepare(`SELECT entity_id, entity_type, canonical_name, aliases_json, schema_version, status, updated_at
+    const entities: Array<Record<string, unknown>> = (database.prepare(`SELECT entity_id, entity_type, canonical_name, aliases_json, schema_version, status, updated_at
       FROM entities WHERE owner_id = ? AND book_id = ? ORDER BY entity_type, canonical_name LIMIT 500`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { aliases_json: string }>).map(({ aliases_json: aliasesJson, ...row }) => ({ ...row, aliases: parseStoredJson(aliasesJson) }));
     const facts = (database.prepare(`SELECT f.fact_id, f.subject_entity_id, e.canonical_name, f.relation_key, f.value_json,
@@ -1044,26 +1044,31 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { value_json: string; evidence_json: string }>).map(({ value_json: valueJson, evidence_json: evidenceJson, ...row }) => ({
         ...row, value: parseStoredJson(valueJson), evidence: parseStoredJson(evidenceJson)
       }));
-    const timeline = (database.prepare(`SELECT t.timeline_id, t.story_time, t.event_json, t.source_fact_id,
-      e.canonical_name, f.relation_key, f.evidence_json,
-      c.chapter_number AS source_chapter_number, c.title AS source_chapter_title
-      FROM timeline_projection t JOIN entities e
-        ON e.entity_id = t.entity_id AND e.owner_id = t.owner_id AND e.book_id = t.book_id
-      JOIN fact_assertions f
-        ON f.fact_id = t.source_fact_id AND f.owner_id = t.owner_id AND f.book_id = t.book_id
-      LEFT JOIN chapters c
-        ON c.chapter_id = f.source_chapter_id AND c.owner_id = f.owner_id AND c.book_id = f.book_id
-      WHERE t.owner_id = ? AND t.book_id = ? AND t.canon_revision = ?
-        AND f.relation_key LIKE 'event.%'
-      ORDER BY COALESCE(c.chapter_number, 2147483647), t.story_time, e.canonical_name
-      LIMIT 1000`)
-      .all(scope.ownerId, scope.bookId, book.canonRevision) as unknown as Array<Record<string, unknown> & { event_json: string; evidence_json: string }>).map(({ event_json: eventJson, evidence_json: evidenceJson, ...row }) => ({
-        ...row, event: parseStoredJson(eventJson), evidence: parseStoredJson(evidenceJson)
-      }));
-    const timelineCount = Number((database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection t
-      JOIN fact_assertions f ON f.fact_id = t.source_fact_id AND f.owner_id = t.owner_id AND f.book_id = t.book_id
-      WHERE t.owner_id = ? AND t.book_id = ? AND t.canon_revision = ? AND f.relation_key LIKE 'event.%'`)
-      .get(scope.ownerId, scope.bookId, book.canonRevision) as { count: number }).count);
+    const timeline = (database.prepare(`SELECT e.event_id, e.sequence_order, ev.content_json,
+      MIN(o.chapter_number) AS chapter_start, MAX(o.chapter_number) AS chapter_end,
+      s.entity_states_json, s.irreversible_results_json, s.resource_changes_json, s.rule_changes_json,
+      final_chapter.title AS final_chapter_title,
+      (SELECT f.story_time_start FROM fact_assertions f
+        JOIN chapters source_chapter ON source_chapter.chapter_id=f.source_chapter_id
+          AND source_chapter.owner_id=f.owner_id AND source_chapter.book_id=f.book_id
+        WHERE f.owner_id=e.owner_id AND f.book_id=e.book_id
+          AND source_chapter.chapter_number BETWEEN s.chapter_start AND s.chapter_end
+          AND f.status NOT IN ('withdrawn','rejected') AND f.story_time_start IS NOT NULL
+          AND trim(f.story_time_start)<>'' AND lower(f.story_time_start) NOT IN ('unspecified','unknown')
+          AND f.story_time_start NOT GLOB '第*章' ORDER BY source_chapter.chapter_number, f.fact_id LIMIT 1) AS story_time
+      FROM story_events e JOIN story_event_versions ev
+        ON ev.story_event_version_id=e.active_version_id AND ev.owner_id=e.owner_id AND ev.book_id=e.book_id
+      JOIN event_chapter_outlines o ON o.owner_id=e.owner_id AND o.book_id=e.book_id
+        AND o.event_id=e.event_id AND o.status<>'archived'
+      JOIN stage_settlements s ON s.owner_id=e.owner_id AND s.book_id=e.book_id
+        AND s.stage_type='story_arc' AND s.stage_key=e.event_id AND s.status='active'
+      LEFT JOIN chapters final_chapter ON final_chapter.owner_id=e.owner_id AND final_chapter.book_id=e.book_id
+        AND final_chapter.chapter_number=s.chapter_end
+      WHERE e.owner_id=? AND e.book_id=? AND e.status='settled'
+      GROUP BY e.event_id,e.sequence_order,ev.content_json,s.stage_settlement_id,final_chapter.title
+      ORDER BY e.sequence_order,e.event_id LIMIT 500`)
+      .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown>>).map(buildLibraryTimelineEntry);
+    const timelineCount = timeline.length;
 
     const relations = (database.prepare(`SELECT r.relationship_id, r.canon_revision, r.from_entity_id,
       e.canonical_name AS from_name, r.relation_key, r.to_value_json, r.source_fact_id
@@ -1088,6 +1093,23 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM knowledge_gap_findings WHERE owner_id = ? AND book_id = ? ORDER BY
       CASE severity WHEN 'blocking' THEN 0 WHEN 'important' THEN 1 WHEN 'optional' THEN 2 ELSE 3 END, created_at DESC LIMIT 500`)
       .all(scope.ownerId, scope.bookId);
+    const settings = settingOutlineWorkspace.list(scope).filter((item) => item.status === '已确认' && item.content !== null);
+    const bookProfile = bookProfileView.find(scope);
+    const protagonistDashboard = protagonists.dashboard(scope);
+    const protagonistEntityIds = new Set(protagonistDashboard.profiles.flatMap((profile) => profile.entityId === null ? [] : [profile.entityId]));
+    const protagonistNames = new Set([
+      ...protagonistDashboard.profiles.map((profile) => profile.displayName.trim()),
+      ...(bookProfile?.protagonists ?? []).map((profile) => profile.name.trim())
+    ].filter(Boolean));
+    const supportingCharacters = entities.filter((entity) => String(entity.entity_type) === 'character'
+      && !protagonistEntityIds.has(String(entity.entity_id)) && !protagonistNames.has(String(entity.canonical_name).trim()));
+    const effectiveRules = settings.filter((item) => isEffectiveRuleSetting(item.itemKey)).map((item) => ({
+      ruleKey: item.itemKey,
+      title: item.label,
+      summary: item.content,
+      sourceLabel: item.sourceLabel,
+      confirmedAt: item.confirmedAt
+    }));
     const scopedCount = (table: string, extra = '', parameters: Array<string | number> = []): number =>
       (database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE owner_id = ? AND book_id = ? ${extra}`)
         .get(scope.ownerId, scope.bookId, ...parameters) as { count: number }).count;
@@ -1095,14 +1117,16 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       canonRevision: book.canonRevision,
       entities,
       facts,
+      supportingCharacters,
+      effectiveRules,
       timeline,
       relations,
       tags,
       projections,
       gaps,
-      settings: settingOutlineWorkspace.list(scope).filter((item) => item.status === '已确认' && item.content !== null),
-      bookProfile: bookProfileView.find(scope),
-      protagonists: protagonists.dashboard(scope),
+      settings,
+      bookProfile,
+      protagonists: protagonistDashboard,
       attributeFormulas: attributeFormulas.list(scope),
       summary: {
         entityCount: scopedCount('entities'),
@@ -1973,4 +1997,86 @@ function normalizeTeamProfiles(input: Record<string, TeamModelProfile>): Record<
     if (result[role].provider.length === 0 || result[role].modelId.length === 0) throw new Error(`岗位${role}缺少有效模型绑定`);
   }
   return result;
+}
+
+const EFFECTIVE_RULE_SETTING_KEYS = new Set([
+  'must-follow', 'tone-boundary', 'hazards', 'emotional-boundaries', 'game-entry', 'player-npc', 'game-panel',
+  'class-skill', 'loot', 'levels', 'costs', 'abilities', 'equipment', 'quest-instance', 'ranking', 'power-source',
+  'counters', 'cultivation', 'bloodline', 'treasures', 'causality', 'governance', 'technology-spread',
+  'case-rules', 'evidence-chain', 'truth-layers', 'technology-boundary', 'science-cost', 'space-rules'
+]);
+
+function isEffectiveRuleSetting(itemKey: string): boolean {
+  return EFFECTIVE_RULE_SETTING_KEYS.has(itemKey);
+}
+
+function buildLibraryTimelineEntry(row: Record<string, unknown>): Record<string, unknown> {
+  const planned = parseRecord(row.content_json);
+  const chapterStart = Number(row.chapter_start);
+  const chapterEnd = Number(row.chapter_end);
+  const title = readableText(planned.eventTitle) ?? readableText(planned.title) ?? readableText(planned.name) ?? `第${Number(row.sequence_order)}个事件`;
+  const actualSummary = settlementActualSummary(row, title, chapterStart, chapterEnd);
+  return {
+    timeline_id: String(row.event_id),
+    event_id: String(row.event_id),
+    sequence_order: Number(row.sequence_order),
+    event_title: title,
+    event: title,
+    planned_event_title: title,
+    story_time: normalizeExplicitStoryTime(row.story_time),
+    chapter_start: chapterStart,
+    chapter_end: chapterEnd,
+    source_chapter_title: readableText(row.final_chapter_title),
+    actual_summary: actualSummary,
+    status: 'settled',
+    source_label: '正文已结算'
+  };
+}
+
+function settlementActualSummary(row: Record<string, unknown>, eventTitle: string, chapterStart: number, chapterEnd: number): string {
+  const irreversible = parseStoredArray(row.irreversible_results_json);
+  const result = irreversible.map(readableText).find((value): value is string => value !== null);
+  if (result !== undefined) return result.slice(0, 240);
+  const entityStates = parseRecord(row.entity_states_json);
+  const endingExcerpt = readableText(entityStates.endingExcerpt);
+  if (endingExcerpt !== null) {
+    const paragraphs = endingExcerpt.split(/\n+/u).map((item) => item.trim()).filter(Boolean);
+    const finalParagraph = paragraphs.at(-1);
+    if (finalParagraph !== undefined) return finalParagraph.slice(0, 240);
+  }
+  const finalTitle = readableText(row.final_chapter_title);
+  const range = chapterStart === chapterEnd ? `第${chapterStart}章` : `第${chapterStart}—${chapterEnd}章`;
+  return `${range}正文已定稿并完成“${eventTitle}”事件结算${finalTitle === null ? '' : `，结尾落在《${finalTitle}》`}。`;
+}
+
+function normalizeExplicitStoryTime(value: unknown): string | null {
+  const text = readableText(value);
+  if (text === null || /^(?:第\s*\d+\s*章|unspecified|unknown)$/iu.test(text)) return null;
+  return text;
+}
+
+function parseStoredArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function readableText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.replace(/\s+/gu, ' ').trim() : null;
 }

@@ -23,11 +23,16 @@ describe('主角状态账本', () => {
         effectiveChapterNumber: 3, note: '战损后二十人'
       });
       expect(confirmed.previousEntryId).toBe(pending.entryId);
-      expect(service.dashboard(scope).profiles[0]).toMatchObject({ current: [expect.objectContaining({ value: 100, revision: 2 })], pending: [], historyCount: 2 });
-      service.archiveEntry(scope, confirmed.entryId);
-      expect(service.dashboard(scope).profiles[0]).toMatchObject({ current: [], pending: [], historyCount: 3 });
+      expect(service.dashboard(scope).profiles[0]).toMatchObject({ current: [expect.objectContaining({ value: 100, revision: 2 })], pending: [], history: expect.arrayContaining([expect.objectContaining({ value: 120 }), expect.objectContaining({ value: 100 })]), historyCount: 2 });
+      const lost = service.append(scope, {
+        profileId: profile.profileId, category: '兵力', logicalKey: '弓兵', label: '弓兵', valueType: 'resource', value: 0, unit: '人', confirmed: true,
+        stateStatus: 'lost', effectiveChapterNumber: 5, note: '队伍已经失散'
+      });
+      expect(service.dashboard(scope).profiles[0]).toMatchObject({ current: [], pending: [], history: expect.arrayContaining([expect.objectContaining({ entryId: lost.entryId, stateStatus: 'lost', effectiveChapterNumber: 5 })]), historyCount: 3 });
+      service.archiveEntry(scope, lost.entryId);
+      expect(service.dashboard(scope).profiles[0]).toMatchObject({ current: [], pending: [], historyCount: 4 });
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM protagonist_state_entries WHERE owner_id = ? AND book_id = ?')
-        .get(scope.ownerId, scope.bookId)).toEqual({ count: 3 });
+        .get(scope.ownerId, scope.bookId)).toEqual({ count: 4 });
     } finally {
       context.close();
     }

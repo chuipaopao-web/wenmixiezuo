@@ -693,15 +693,25 @@ export interface TaskCenterData {
 export interface LibraryData {
   canonRevision: number;
   entities: Array<Record<string, unknown>>;
+  supportingCharacters?: Array<Record<string, unknown>>;
+  effectiveRules?: Array<{ ruleKey: string; title: string; summary: string; sourceLabel: string; confirmedAt: string | null }>;
   facts: Array<Record<string, unknown>>;
   timeline: Array<{
     timeline_id: string;
-    story_time: string;
+    event_id?: string;
+    sequence_order?: number;
+    event_title?: string;
+    planned_event_title?: string;
+    story_time: string | null;
     event: unknown;
-    canonical_name: string;
-    source_chapter_number: number | null;
+    canonical_name?: string;
+    source_chapter_number?: number | null;
+    chapter_start?: number;
+    chapter_end?: number;
+    actual_summary?: string;
+    source_label?: string;
     source_chapter_title: string | null;
-    evidence: unknown;
+    evidence?: unknown;
   }>;
   relations: Array<Record<string, unknown>>;
   tags: Array<Record<string, unknown>>;
@@ -736,6 +746,7 @@ export interface ProtagonistStateData {
   category: string;
   logicalKey: string;
   label: string;
+  storyTime: string | null;
   valueType: 'number' | 'text' | 'enum' | 'list' | 'resource' | 'derived';
   value: unknown;
   unit: string | null;
@@ -750,6 +761,7 @@ export interface ProtagonistProfileData {
   profileId: string;
   entityId: string | null;
   displayName: string;
+  history?: ProtagonistStateData[];
   isPrimary: boolean;
   status: 'active' | 'archived';
   current: ProtagonistStateData[];

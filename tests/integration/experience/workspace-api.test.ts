@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { CanonService } from '../../../apps/api/src/application/knowledge/canon-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -99,6 +100,8 @@ describe('工作台API', () => {
       canonRevision: 0,
       entities: expect.any(Array),
       timeline: [],
+      supportingCharacters: [],
+      effectiveRules: [],
       settings: [expect.objectContaining({ itemKey: 'world-era', label: '时代背景', status: '已确认', content: '架空王朝的边境要塞时代。' })],
       bookProfile: null,
       summary: expect.objectContaining({ timelineCount: 0 })
@@ -204,9 +207,14 @@ describe('工作台API', () => {
       method: 'POST', url: `/api/v1/books/${first.bookId}/attribute-formulas/${formulaId}/evaluate`, payload: { values: { 步兵: 120, 弓兵: 80 } }
     });
     expect(evaluated.json().data).toMatchObject({ result: 200, formula: { category: '军队战力', unit: '人' } });
+    const canon = new CanonService(context.database, ids, clock);
+    const scope = { ownerId: context.config.ownerId, bookId: first.bookId };
+    canon.createEntity(scope, { entityType: 'character', canonicalName: '林澈' });
+    canon.createEntity(scope, { entityType: 'character', canonicalName: '苏禾' });
     const library = await app.inject({ method: 'GET', url: `/api/v1/books/${first.bookId}/library` });
     expect(library.json().data).toMatchObject({
-      protagonists: { profiles: [expect.objectContaining({ displayName: '林澈', current: [expect.objectContaining({ value: 3 })] })] },
+      protagonists: { profiles: [expect.objectContaining({ displayName: '林澈', current: [expect.objectContaining({ value: 3 })], history: expect.any(Array) })] },
+      supportingCharacters: [expect.objectContaining({ canonical_name: '苏禾' })],
       attributeFormulas: [expect.objectContaining({ formulaKey: '总兵力' })]
     });
     const crossBook = await app.inject({

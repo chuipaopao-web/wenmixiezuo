@@ -1,4 +1,5 @@
 import {afterEach,describe,expect,it} from 'vitest';
+import {createServer} from '../../../apps/api/src/http/server.js';
 import {ArtifactService} from '../../../apps/api/src/application/artifacts/artifact-service.js';
 import {CreationWorkflowProgressService} from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
 import {StageSettlementService} from '../../../apps/api/src/application/continuity/stage-settlement-service.js';
@@ -20,7 +21,7 @@ describe('事件与卷结算',()=>{
   let context:TestContext|undefined;
   afterEach(()=>{context?.close();context=undefined;});
 
-  it('只从连续章节结算派生事件和卷结果，分离计划对照并解锁下一卷',()=>{
+  it('只从连续章节结算派生事件和卷结果，分离计划对照并解锁下一卷',async()=>{
     context=createTestContext('wenmi-creation-settlement-');
     const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
     const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'结算测试书'});
@@ -91,6 +92,17 @@ describe('事件与卷结算',()=>{
     expect(volumes.workflow(scope).stage).toBe('volume_settlement_in_progress');
     expect(eventRepo.activeEventSettlement(scope,event.eventId)?.id).toBe(eventResult.settlementId);
     expect(outlines.get(scope,event.eventId)).toMatchObject({status:'completed',valid:true});
+
+    const app=await createServer(context.config,context.database,{trustedTest:true});
+    try{
+      const response=await app.inject({method:'GET',url:`/api/v1/books/${book.bookId}/library`});
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.timeline).toEqual([expect.objectContaining({
+        event_id:event.eventId,event_title:'公开选择',planned_event_title:'公开选择',chapter_start:1,chapter_end:3,
+        story_time:null,status:'settled',source_label:'正文已结算'
+      })]);
+      expect(response.json().data.timeline[0].actual_summary).not.toMatch(/参与了第\d+章的行动/u);
+    }finally{await app.close();}
 
     const volumeResult=settlements.settleVolume(scope,plan.volumePlanId,volumes.workflow(scope).planningVersion);
     expect(volumeResult).toMatchObject({stageKind:'volume',stageObjectId:plan.volumePlanId,chapterStart:1,chapterEnd:3});

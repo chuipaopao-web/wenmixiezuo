@@ -155,15 +155,16 @@ export class ProtagonistStateService {
     });
   }
 
-  public dashboard(scope: BookScope): { profiles: Array<ProtagonistProfileRecord & { current: ProtagonistStateRecord[]; pending: ProtagonistStateRecord[]; historyCount: number }> } {
+  public dashboard(scope: BookScope): { profiles: Array<ProtagonistProfileRecord & { current: ProtagonistStateRecord[]; pending: ProtagonistStateRecord[]; history: ProtagonistStateRecord[]; historyCount: number }> } {
     const profiles = this.listProfiles(scope);
     return { profiles: profiles.map((profile) => {
       const history = this.listHistory(scope, profile.profileId);
-      const latest = latestByLogicalKey(history).filter((entry) => entry.stateStatus !== 'archived');
+      const latest = latestByLogicalKey(history).filter((entry) => entry.stateStatus === 'active');
       return {
         ...profile,
         current: latest.filter((entry) => entry.authorityLayer !== 'candidate'),
         pending: latest.filter((entry) => entry.authorityLayer === 'candidate'),
+        history,
         historyCount: history.length
       };
     }) };

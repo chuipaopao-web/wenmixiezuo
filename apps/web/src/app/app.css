@@ -3507,6 +3507,26 @@ svg {
 .entity-detail-list .structured-content > div { grid-template-columns: minmax(72px, 0.32fr) minmax(0, 1fr); }
 .entity-grid details { margin-top: 8px; }
 .entity-grid summary { color: var(--accent-hover); font-size: calc(9px * var(--font-scale)); cursor: pointer; }
+.supporting-character-grid { align-items: start; }
+.supporting-character-grid article { min-height: 0; }
+.supporting-character-grid h3 { margin-top: 0; }
+.supporting-character-grid .character-appearance { margin-top: 8px; color: var(--ink-soft); }
+.supporting-character-grid details { border-top: 1px solid var(--line); padding-top: 9px; }
+.supporting-character-grid details[open] summary { margin-bottom: 4px; }
+.effective-rules-library { display: grid; gap: 12px; }
+.rule-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 9px; }
+.rule-list details { border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 11px 13px; background: var(--panel); }
+.rule-list summary { color: var(--ink); font-size: calc(11px * var(--font-scale)); font-weight: 700; cursor: pointer; }
+.rule-list p { margin: 9px 0 0; color: var(--ink-soft); font-size: calc(10px * var(--font-scale)); line-height: 1.65; white-space: pre-wrap; }
+.rule-list small { display: block; margin-top: 8px; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
+.protagonist-state-origin { grid-column: 1 / -1; margin: -4px 0 0 !important; }
+.protagonist-history { border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 12px 14px; background: var(--panel); }
+.protagonist-history > summary { color: var(--ink); font-size: calc(11px * var(--font-scale)); font-weight: 700; cursor: pointer; }
+.protagonist-history > div { display: grid; gap: 0; margin-top: 8px; }
+.protagonist-history article { display: grid; grid-template-columns: minmax(120px, .5fr) minmax(120px, 1fr) auto; gap: 10px; border-top: 1px solid var(--line); padding: 9px 0; }
+.protagonist-history strong,
+.protagonist-history span { font-size: calc(10px * var(--font-scale)); }
+.protagonist-history small { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
 .evidence-center { display: grid; gap: 12px; }
 .evidence-center > header,
 .evidence-groups > article > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -3573,6 +3593,7 @@ svg {
 .protagonist-state-form header p { margin: 3px 0 0; color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); }
 .protagonist-state-form > div,
 .formula-manager form > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.protagonist-state-form > div { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .protagonist-state-form > button,
 .formula-manager form > button { justify-self: end; }
 .protagonist-confirm { grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-self: start; }

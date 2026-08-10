@@ -29,11 +29,10 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
   const [tab, setTab] = useState<LibraryTab>('overview');
   const library = isLibraryData(data) ? data : emptyLibraryData();
   const tabs: Array<[LibraryTab, string]> = [
-    ['overview', '总览'], ['settings', '已确认设定'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
-    ['rules', '规则'], ['tags', '标签'], ['gaps', '待补内容'], ['evidence', '内容来源']
+    ['overview', '总览'], ['settings', '设定来源'], ['protagonist', '主角'], ['characters', '配角'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
+    ['rules', '生效规则'], ['tags', '标签'], ['gaps', '待补内容'], ['evidence', '内容来源']
   ];
   const entitiesByTab: Partial<Record<LibraryTab, string[]>> = {
-    characters: ['character'],
     organizations: ['organization'],
     items: ['item', 'resource', 'skill', 'stat_panel'],
     rules: ['world_rule'],
@@ -46,11 +45,11 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
       {tab === 'overview' && <LibraryOverview data={library} />}
       {tab === 'settings' && <ConfirmedSettingsLibrary data={library} />}
       {tab === 'protagonist' && <ProtagonistWorkspace bookId={bookId} initialDashboard={library.protagonists} initialFormulas={library.attributeFormulas} />}
-      {tab === 'characters' && <EntityGrid entities={entitiesForTab(library, entitiesByTab.characters!)} facts={library.facts} protagonists={library.protagonists} />}
-      {tab === 'organizations' && <CategoryLibrary settings={settingsForCategory(library, 'organizations')} entities={entitiesForTab(library, entitiesByTab.organizations!)} facts={library.facts} emptyTitle="还没有势力资料" />}
-      {tab === 'items' && <CategoryLibrary settings={settingsForCategory(library, 'items')} entities={entitiesForTab(library, entitiesByTab.items!)} facts={library.facts} emptyTitle="还没有道具或资源资料" />}
-      {tab === 'rules' && <CategoryLibrary settings={settingsForCategory(library, 'rules')} entities={entitiesForTab(library, entitiesByTab.rules!)} facts={library.facts} emptyTitle="还没有已确认规则" />}
-      {tab === 'locations' && <LocationLibrary settings={settingsForCategory(library, 'locations')} entities={entitiesForTab(library, entitiesByTab.locations!)} facts={library.facts} />}
+      {tab === 'characters' && <SupportingCharacterGrid entities={supportingCharacters(library)} facts={library.facts} />}
+      {tab === 'organizations' && <CategoryLibrary entities={entitiesForTab(library, entitiesByTab.organizations!)} facts={library.facts} emptyTitle="还没有正文确认的势力资料" />}
+      {tab === 'items' && <CategoryLibrary entities={entitiesForTab(library, entitiesByTab.items!)} facts={library.facts} emptyTitle="还没有正文确认的道具或资源资料" />}
+      {tab === 'rules' && <EffectiveRulesLibrary rules={library.effectiveRules ?? []} entities={entitiesForTab(library, entitiesByTab.rules!)} facts={library.facts} />}
+      {tab === 'locations' && <LocationLibrary entities={entitiesForTab(library, entitiesByTab.locations!)} facts={library.facts} />}
       {tab === 'events' && <TimelineLibrary timeline={library.timeline} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
@@ -77,49 +76,26 @@ function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.El
 function entitiesForTab(data: LibraryData, types: string[]): Array<Record<string, unknown>> {
   return data.entities.filter((entity) => types.includes(String(entity.entity_type)));
 }
-function settingsForCategory(data: LibraryData, tab: 'organizations' | 'locations' | 'items' | 'rules'): LibraryData['settings'] {
-  return data.settings.filter((item) => {
-    const text = `${item.itemKey} ${item.groupTitle} ${item.label} ${item.content}`;
-    if (tab === 'organizations') return item.itemKey === 'factions' || /势力|组织|阵营|宗门|战队|联盟|俱乐部|公会/u.test(text);
-    if (tab === 'locations') return item.itemKey === 'geography' || /地理|地点|地图|区域|世界与环境|九州|北境|赛场|训练室|宗门/u.test(text);
-    if (tab === 'items') return ['equipment', 'treasures', 'loot', 'game-panel', 'power-source', 'production', 'currency', 'yield'].includes(item.itemKey)
-      || /物品|资源|装备|道具|灵石|阵盘|数据|设备|合同|录像|记录/u.test(text);
-    return ['must-follow', 'levels', 'costs', 'abilities', 'counters', 'game-entry', 'player-npc', 'class-skill', 'quest-instance', 'ranking'].includes(item.itemKey)
-      || /规则|体系|边界|限制|必须遵守|等级|晋升|代价/u.test(text);
-  });
-}
-
-function ScopedSettings({ settings }: { settings: LibraryData['settings'] }): React.JSX.Element | null {
-  if (settings.length === 0) return null;
-  return <div className="confirmed-settings-library"><section><header><h3>已确认设定</h3><span>{settings.length} 项</span></header><div>{settings.map((item) => <article key={item.itemKey}><h4>{item.label}</h4><p>{item.content}</p><small>{item.sourceLabel} · 作者已确认</small></article>)}</div></section></div>;
-}
-
-function CategoryLibrary({ settings, entities, facts, emptyTitle }: {
-  settings: LibraryData['settings'];
+function CategoryLibrary({ entities, facts, emptyTitle }: {
   entities: Array<Record<string, unknown>>;
   facts: Array<Record<string, unknown>>;
   emptyTitle: string;
 }): React.JSX.Element {
-  if (settings.length === 0 && entities.length === 0) {
-    return <EmptyReference icon={<DatabaseIcon />} title={emptyTitle} description="已确认设定或定稿正文出现相关内容后，资料会带着来源显示在这里；系统不会用猜测补齐。" />;
+  if (entities.length === 0) {
+    return <EmptyReference icon={<DatabaseIcon />} title={emptyTitle} description="定稿正文形成明确资料后会带着来源显示在这里；设定原文请到“设定来源”查看，系统不会用猜测补齐。" />;
   }
-  return <div className="location-library"><ScopedSettings settings={settings} />{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
+  return <EntityGrid entities={entities} facts={facts} />;
 }
 
 function TimelineLibrary({ timeline }: { timeline: LibraryData['timeline'] }): React.JSX.Element {
   if (timeline.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有正文事件记录" description="章节定稿并结算后，正文实际发生的事件会按章节出现在这里；规划中的事件不会提前算作发生。" />;
-  const seen = new Set<string>();
-  const entries = timeline.filter((item) => {
-    const signature = `${item.source_chapter_number ?? ''}\u0000${authorFormatScalar(item.event)}\u0000${item.canonical_name}`;
-    if (seen.has(signature)) return false;
-    seen.add(signature);
-    return true;
-  });
-  return <div className="entity-grid timeline-grid">{entries.map((item, index) => {
-    const chapterNumber = Number(item.source_chapter_number);
-    const chapter = Number.isInteger(chapterNumber) && chapterNumber > 0 ? `第 ${chapterNumber} 章` : item.story_time;
-    const title = item.source_chapter_title?.trim() ? `《${item.source_chapter_title.trim()}》` : '';
-    return <article key={`${chapter}-${item.canonical_name}-${index}`}><header><span>{chapter}</span><em>正文已发生</em></header><h3>{authorFormatScalar(item.event)}</h3><p>相关人物或事物：{item.canonical_name}</p><small>{title || '来源章节已记录'}</small></article>;
+  return <div className="entity-grid timeline-grid">{timeline.map((item, index) => {
+    const chapterStart = Number(item.chapter_start ?? item.source_chapter_number);
+    const chapterEnd = Number(item.chapter_end ?? item.source_chapter_number);
+    const range = Number.isInteger(chapterStart) && chapterStart > 0 ? (chapterStart === chapterEnd ? `第 ${chapterStart} 章` : `第 ${chapterStart}—${chapterEnd} 章`) : '来源章节已记录';
+    const storyTime = item.story_time?.trim() || '书内时间未注明';
+    const title = item.event_title?.trim() || authorFormatScalar(item.event);
+    return <article key={item.event_id ?? `${title}-${index}`}><header><span>{storyTime}</span><em>正文已结算</em></header><h3>{title}</h3><p>{item.actual_summary?.trim() || `${range}正文已经完成并结算。`}</p><small>{range} · 所属规划：{item.planned_event_title?.trim() || title}{item.source_chapter_title?.trim() ? ` · 结尾《${item.source_chapter_title.trim()}》` : ''}</small></article>;
   })}</div>;
 }
 
@@ -135,6 +111,8 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
   bookId: string | null; initialDashboard?: ProtagonistDashboardData | undefined; initialFormulas?: AttributeFormulaData[] | undefined;
 }): React.JSX.Element {
   const [dashboard, setDashboard] = useState<ProtagonistDashboardData>(initialDashboard ?? { profiles: [] });
+  const [stateStatus, setStateStatus] = useState<ProtagonistStateData['stateStatus']>('active');
+  const [effectiveChapter, setEffectiveChapter] = useState('');
   const [formulas, setFormulas] = useState<AttributeFormulaData[]>(initialFormulas ?? []);
   const [selectedProfileId, setSelectedProfileId] = useState(initialDashboard?.profiles[0]?.profileId ?? '');
   const [profileName, setProfileName] = useState('');
@@ -167,8 +145,8 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
     const logicalKey = normalizeStateKey(`${categoryKey}_${label}`);
     setBusy(true); setNotice(null);
     try {
-      await appendProtagonistState(bookId, selected.profileId, { category: categoryKey, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, confirmed });
-      setLabel(''); setRawValue(''); setUnit(''); setConfirmed(false);
+      await appendProtagonistState(bookId, selected.profileId, { category: categoryKey, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, stateStatus, effectiveChapterNumber: effectiveChapter.trim() ? Number(effectiveChapter) : null, confirmed });
+      setLabel(''); setRawValue(''); setUnit(''); setStateStatus('active'); setEffectiveChapter(''); setConfirmed(false);
       await refresh();
       setNotice(confirmed ? '已经保存到当前主角资料中，以前的记录仍然保留。' : '已经保存，等你确认后才会成为正式人物资料。');
     } catch (reason) { setNotice(reason instanceof Error ? reason.message : '主角状态保存失败'); }
@@ -201,9 +179,10 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
         const pending = selected.pending.filter((item) => item.category === key);
         return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '待确认' : item.authorityLayer === 'canon' ? '正式内容' : '计算结果'}</small></div><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
           if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
-        }}>移除</button>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
+        }}>移除</button><small className="protagonist-state-origin">{protagonistStatePosition(item)}</small>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
       })}</div>}
-      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>补充或纠正一项资料</h4><p>分类由这本书自己的内容决定，不套固定模板；同名资料会另存一条新记录，原来的值和来源仍可查看。</p></header><div><label>分类<input list="protagonist-category-suggestions" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：合同伙伴、城池等级" /><datalist id="protagonist-category-suggestions">{categorySuggestions.map((value) => <option key={value} value={protagonistCategoryLabel(value)} />)}</datalist></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !category.trim() || !label.trim() || !rawValue.trim()}>保存状态</button></form>
+      <ProtagonistHistory records={selected.history ?? []} />
+      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>补充或纠正一项资料</h4><p>分类由这本书自己的内容决定；同名资料会追加变化记录，不覆盖以前的获得、消耗或失去历史。</p></header><div><label>分类<input list="protagonist-category-suggestions" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：境界、属性面板、装备道具" /><datalist id="protagonist-category-suggestions">{categorySuggestions.map((value) => <option key={value} value={protagonistCategoryLabel(value)} />)}</datalist></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：青锋剑、当前境界" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：筑基初期 或 1" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：件、级" /></label><label>这次变化<select aria-label="这次变化" value={stateStatus} onChange={(event) => setStateStatus(event.target.value as ProtagonistStateData['stateStatus'])}><option value="active">获得或更新</option><option value="consumed">已经消耗</option><option value="lost">已经失去</option><option value="dead">已经死亡</option><option value="retired">已经退役</option></select></label><label>发生章节<input aria-label="发生章节" type="number" min="1" value={effectiveChapter} onChange={(event) => setEffectiveChapter(event.target.value)} placeholder="例如：12" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !category.trim() || !label.trim() || !rawValue.trim() || (effectiveChapter.trim().length > 0 && (!Number.isInteger(Number(effectiveChapter)) || Number(effectiveChapter) < 1))}>保存状态</button></form>
     </>}
     {formulas.length > 0 && <FormulaCalculator bookId={bookId} formulas={formulas} />}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
@@ -219,6 +198,62 @@ function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formul
     for (const variable of formula.variables) payload[variable.key] = Number(values[`${formula.formulaId}:${variable.key}`] ?? variable.defaultValue ?? '');
     void evaluateAttributeFormula(bookId, formula.formulaId, payload).then((result) => setResults((current) => ({ ...current, [formula.formulaId]: `${result.result}${formula.unit ?? ''}` }))).catch((reason: unknown) => setResults((current) => ({ ...current, [formula.formulaId]: reason instanceof Error ? reason.message : '计算失败' })));
   }}><strong>{formula.label}</strong><code>{formula.expression}</code><div>{formula.variables.map((variable) => <label key={variable.key}>{variable.label}<input type="number" step="any" value={values[`${formula.formulaId}:${variable.key}`] ?? String(variable.defaultValue ?? '')} onChange={(event) => setValues((current) => ({ ...current, [`${formula.formulaId}:${variable.key}`]: event.target.value }))} /></label>)}</div><button className="secondary-button">计算</button>{results[formula.formulaId] !== undefined && <output>{results[formula.formulaId]}</output>}</form>)}</section>;
+}
+
+function ProtagonistHistory({ records }: { records: ProtagonistStateData[] }): React.JSX.Element | null {
+  if (records.length === 0) return null;
+  const ordered = [...records].sort((left, right) => (right.effectiveChapterNumber ?? 0) - (left.effectiveChapterNumber ?? 0) || right.revision - left.revision);
+  return <details className="protagonist-history"><summary>查看变化记录（{records.length}）</summary><div>{ordered.map((item) => <article key={item.entryId}><strong>{item.label}</strong><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><small>{protagonistHistoryAction(item)} · {protagonistStatePosition(item)}</small></article>)}</div></details>;
+}
+
+function protagonistHistoryAction(item: ProtagonistStateData): string {
+  return ({ active: item.revision === 1 ? '获得或首次记录' : '更新', consumed: '消耗', lost: '失去', dead: '死亡', retired: '退役', archived: '从当前面板归档' } as Record<ProtagonistStateData['stateStatus'], string>)[item.stateStatus];
+}
+
+function protagonistStatePosition(item: ProtagonistStateData): string {
+  if (item.storyTime?.trim()) return item.effectiveChapterNumber === null ? item.storyTime.trim() : `${item.storyTime.trim()} · 第${item.effectiveChapterNumber}章`;
+  return item.effectiveChapterNumber === null ? '发生位置尚未注明' : `第${item.effectiveChapterNumber}章`;
+}
+
+function supportingCharacters(data: LibraryData): Array<Record<string, unknown>> {
+  if (data.supportingCharacters !== undefined) return data.supportingCharacters;
+  const ids = new Set(data.protagonists?.profiles.flatMap((profile) => profile.entityId === null ? [] : [profile.entityId]) ?? []);
+  const names = new Set(data.protagonists?.profiles.map((profile) => profile.displayName) ?? []);
+  for (const profile of data.bookProfile?.protagonists ?? []) names.add(profile.name);
+  return entitiesForTab(data, ['character']).filter((entity) => !ids.has(String(entity.entity_id)) && !names.has(String(entity.canonical_name)));
+}
+
+function SupportingCharacterGrid({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
+  if (entities.length === 0) return <EmptyReference icon={<UserCircleIcon />} title="还没有配角资料" description="配角在定稿正文中明确出现后，会在这里建立有来源的资料卡；主角资料请在‘主角’查看。" />;
+  return <div className="entity-grid supporting-character-grid">{entities.slice(0, 300).map((entity) => {
+    const entityId = String(entity.entity_id);
+    const name = String(entity.canonical_name);
+    const entityFacts = uniqueEntityFacts(facts.filter((fact) => String(fact.subject_entity_id) === entityId));
+    const appearances = entityFacts.filter(isAppearanceFact).sort(compareEvidenceFacts);
+    const details = entityFacts.filter((fact) => !isAppearanceFact(fact));
+    const firstAppearance = appearances[0];
+    return <article key={entityId}><h3>{name}</h3><p className="character-appearance">{firstAppearance === undefined ? '尚无已确认出场记录' : appearanceLabel(firstAppearance)}</p><details><summary>展开查看完整资料</summary>{details.length === 0 && appearances.length <= 1 ? <p className="entity-empty-detail">正文目前只明确了这次出场，境界、属性或装备等信息尚未可靠确认。</p> : <div className="entity-detail-list">{details.map((fact) => <div key={String(fact.fact_id)}><dt>{characterFactLabel(fact)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}{appearances.map((fact) => <div key={String(fact.fact_id)}><dt>出场记录</dt><dd>{appearanceLabel(fact)}</dd><small>{factSourceLabel(fact)}</small></div>)}</div>}</details></article>;
+  })}</div>;
+}
+
+function isAppearanceFact(fact: Record<string, unknown>): boolean {
+  return /^(?:event(?:\.|$)|appearance(?:\.|$)|character\.appears)/u.test(String(fact.relation_key ?? ''));
+}
+
+function appearanceLabel(fact: Record<string, unknown>): string {
+  const chapter = Number(fact.source_chapter_number);
+  const position = Number.isInteger(chapter) && chapter > 0 ? `第${chapter}章` : '正文已出现';
+  const title = typeof fact.source_chapter_title === 'string' && fact.source_chapter_title.trim() ? `《${fact.source_chapter_title.trim()}》` : '';
+  return `${position}${title ? ` · ${title}` : ''}`;
+}
+
+function characterFactLabel(fact: Record<string, unknown>): string {
+  const key = String(fact.relation_key ?? '');
+  if (/level|realm|cultivation|境界|等级/iu.test(key)) return '境界与等级';
+  if (/attribute|stat|属性|战力|实力/iu.test(key)) return '实力与属性';
+  if (/item|equipment|weapon|道具|装备|武器/iu.test(key)) return '道具与装备';
+  if (/^relationship/u.test(key) || key === '角色关系') return '人物关系';
+  return authorFactRelationLabel(key);
 }
 
 function EntityGrid({ entities, facts, protagonists }: {
@@ -372,19 +407,23 @@ export function KnowledgeGraph({ records }: { records: Array<Record<string, unkn
   </div>;
 }
 
-function LocationLibrary({ settings, entities, facts }: { settings: LibraryData['settings']; entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
-  if (settings.length === 0 && entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有地点资料" description="已确认地点设定或定稿正文出现具体地点后，会带着来源显示在这里；没有坐标时不会自动编造地图位置。" />;
+function EffectiveRulesLibrary({ rules, entities, facts }: { rules: NonNullable<LibraryData['effectiveRules']>; entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
+  if (rules.length === 0 && entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有生效规则" description="作者明确确认、会约束后文的规则，或正文结算形成的规则事实会显示在这里；策划理念和普通世界介绍不会重复出现。" />;
+  return <div className="effective-rules-library">{rules.length > 0 && <div className="rule-list">{rules.map((rule) => <details key={rule.ruleKey}><summary>{rule.title}</summary><p>{rule.summary}</p><small>{rule.sourceLabel} · 作者已确认</small></details>)}</div>}{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
+}
+function LocationLibrary({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
+  if (entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有地点资料" description="定稿正文出现具体地点后，会带着来源显示在这里；设定原文请到“设定来源”查看，没有坐标时不会自动编造地图位置。" />;
   const points = facts.flatMap((fact) => {
     const value = isRecord(fact.value) ? fact.value : null;
     const relation = String(fact.relation_key ?? '');
     if (value === null || !/(coordinate|position|map|坐标|位置)/iu.test(relation) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return [];
     return [{ name: String(fact.canonical_name ?? '地点'), x: clampPercent(Number(value.x)), y: clampPercent(Number(value.y)), source: String(fact.fact_id ?? '') }];
   });
-  return <div className="location-library"><ScopedSettings settings={settings} />{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : entities.length > 0 && <p className="record-empty">这些地点已有正文来源，但作者尚未确认地图坐标，因此只显示地点卡片。</p>}{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
+  return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">这些地点已有正文来源，但作者尚未确认地图坐标，因此只显示地点卡片。</p>}<EntityGrid entities={entities} facts={facts} /></div>;
 }
 
 function entityTypeLabel(type: string): string {
-  return ({ character: '角色', location: '地点', organization: '势力', item: '道具', resource: '资源', skill: '技能', stat_panel: '数值面板', world_rule: '规则', event: '事件', foreshadowing: '伏笔', hook: '钩子' } as Record<string, string>)[type] ?? type;
+  return ({ character: '配角', location: '地点', organization: '势力', item: '道具', resource: '资源', skill: '技能', stat_panel: '数值面板', world_rule: '生效规则', event: '事件', foreshadowing: '伏笔', hook: '钩子' } as Record<string, string>)[type] ?? type;
 }
 
 function arrayText(value: unknown, fallback: string): string {
@@ -394,7 +433,8 @@ function arrayText(value: unknown, fallback: string): string {
 function isLibraryData(value: unknown): value is LibraryData {
   return isRecord(value) && typeof value.canonRevision === 'number' && Array.isArray(value.entities) && Array.isArray(value.facts)
     && Array.isArray(value.timeline) && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps)
-    && Array.isArray(value.settings) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
+    && Array.isArray(value.settings) && (value.supportingCharacters === undefined || Array.isArray(value.supportingCharacters))
+    && (value.effectiveRules === undefined || Array.isArray(value.effectiveRules)) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
 }
 
 function emptyLibraryData(): LibraryData {
