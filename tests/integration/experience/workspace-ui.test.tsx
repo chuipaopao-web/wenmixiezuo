@@ -194,6 +194,24 @@ describe('完整创作工作台', () => {
     expect(results.violations).toEqual([]);
   });
 
+  it('用竖版封面显示书籍，并把自动验收运行键翻译为可区分的中文标签', async () => {
+    const baseRouter = createFetchRouter();
+    const flowBook = { ...book, title: '烬骨问天·二十章全流程-xianxia-20-final' };
+    const acceptanceBook = { ...secondBook, title: '烬骨问天·二十章全流程-xianxia-20-acceptance' };
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/v1/books') return Promise.resolve(apiResponse([flowBook, acceptanceBook]));
+      return baseRouter(input, init);
+    }));
+
+    render(<App />);
+    const bookRail = await screen.findByRole('complementary', { name: '书籍栏' });
+    expect(within(bookRail).getByRole('button', { name: '打开《烬骨问天》，20章流程测试' })).toBeInTheDocument();
+    expect(within(bookRail).getByRole('button', { name: '打开《烬骨问天》，20章验收测试' })).toBeInTheDocument();
+    expect(within(bookRail).getByText('20章流程测试', { exact: false })).toBeInTheDocument();
+    expect(within(bookRail).getByText('20章验收测试', { exact: false })).toBeInTheDocument();
+    expect(within(bookRail).queryByText(/xianxia|acceptance|final/iu)).not.toBeInTheDocument();
+    expect(bookRail.querySelectorAll('.book-rail-cover')).toHaveLength(2);
+  });
   it('点击左侧书籍只切换当前书，顶部功能保持在原页面', async () => {
     const baseRouter = createFetchRouter();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -254,6 +272,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar commandbar"\s*"sidebar functions"\s*"sidebar main"/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
     expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
+    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*228px\s+minmax\(0,\s*1fr\)/su);
+    expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*50px[^}]*height:\s*70px/su);
     expect(css).toContain('#0a84ff');
   });
 

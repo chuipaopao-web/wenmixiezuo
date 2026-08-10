@@ -3,7 +3,7 @@ import type { TaskCenterBookData, TaskData } from '../../lib/api/client';
 import { StructuredContent } from '../shared/StructuredContent';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
 import { memberIdentity } from '../shared/agent-presentation';
-import { shortId } from '../../app/display-labels';
+import { bookDisplayTitle, shortId } from '../../app/display-labels';
 import {
   budgetModeLabel,
   confirmationLabel,
@@ -66,9 +66,9 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
               ? 0
               : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
             return (
-              <section className="task-book-group" aria-label={`《${book.title}》的任务`} key={book.bookId}>
+              <section className="task-book-group" aria-label={`《${bookDisplayTitle(book.title)}》的任务`} key={book.bookId}>
                 <header className="task-book-header">
-                  <div><span className="task-book-mark"><BooksIcon /></span><span><h3>{book.title}</h3><p>{activeTasks.length} 项进行中 · {historyTasks.length} 项最近记录</p></span></div>
+                  <div><span className="task-book-mark"><BooksIcon /></span><span><h3>{bookDisplayTitle(book.title)}</h3><p>{activeTasks.length} 项进行中 · {historyTasks.length} 项最近记录</p></span></div>
                   <small>正式内容版本 {workspace.book.canonRevision}</small>
                 </header>
                 <div className="task-workspace-layout">
@@ -159,7 +159,7 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
           <button className="icon-button" type="button" aria-label="关闭任务详情" disabled={busy} onClick={onClose}><XIcon /></button>
         </header>
         <dl className="task-detail-grid">
-          <div><dt>所属书籍</dt><dd>{workspace.book.title}</dd></div>
+          <div><dt>所属书籍</dt><dd>{bookDisplayTitle(workspace.book.title)}</dd></div>
           <div><dt>当前状态</dt><dd><span className={`task-status-dot ${task.status}`} aria-hidden="true" />{task.cancelRequested ? '取消处理中' : statusLabel(task.status)}</dd></div>
           <div><dt>创作阶段</dt><dd>{phaseLabel(task.currentPhase)}</dd></div>
           <div><dt>执行成员</dt><dd>{agent === null ? '等待分派' : memberIdentity(agent)}</dd></div>

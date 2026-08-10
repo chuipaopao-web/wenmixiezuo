@@ -6169,7 +6169,7 @@ svg {
     "sidebar commandbar"
     "sidebar functions"
     "sidebar main";
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: 228px minmax(0, 1fr);
   grid-template-rows: 70px 62px minmax(0, 1fr);
   background:
     radial-gradient(circle at 82% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 30%),
@@ -6193,7 +6193,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-  padding: 0 18px;
+  padding: 0 14px;
 }
 
 .sidebar-brand .brand-lockup {
@@ -6224,12 +6224,12 @@ svg {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 13px 14px;
+  gap: 9px;
+  padding: 13px 10px 12px;
 }
 
 .unified-book-switcher .rail-new-book {
-  min-height: 44px;
+  min-height: 40px;
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
   border-radius: 14px;
@@ -6277,10 +6277,15 @@ svg {
 }
 
 .unified-book-switcher > nav[aria-label="选择书籍"] > button {
-  min-height: 56px;
+  position: relative;
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   border: 1px solid transparent;
   border-radius: 15px;
-  padding: 10px 11px;
+  padding: 8px;
   color: var(--ink-soft);
   background: transparent;
   transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
@@ -6300,16 +6305,43 @@ svg {
 }
 
 .unified-book-switcher > nav[aria-label="选择书籍"] > button.active::before {
+  position: absolute;
+  left: 2px;
   width: 3px;
-  height: 26px;
+  height: 42px;
   border-radius: 999px;
   background: var(--accent);
   content: "";
 }
 
-.unified-book-switcher > nav[aria-label="选择书籍"] > button.active > svg { display: none; }
-.unified-book-switcher > nav[aria-label="选择书籍"] strong { font-size: 13px; }
-.unified-book-switcher > nav[aria-label="选择书籍"] small { margin-top: 3px; color: var(--ink-faint); }
+.book-rail-cover {
+  position: relative;
+  width: 50px;
+  height: 70px;
+  display: grid !important;
+  grid-template-rows: auto 1fr auto;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 7px 10px 10px 7px;
+  padding: 6px 5px 5px 8px;
+  color: white;
+  background: linear-gradient(150deg, #2673c9, #243b78);
+  box-shadow: inset 3px 0 rgb(255 255 255 / 16%), 0 7px 16px rgb(34 52 82 / 18%);
+  text-align: left;
+}
+.book-rail-cover::after { position: absolute; inset: 4px 4px 4px auto; width: 1px; background: rgb(255 255 255 / 22%); content: ""; }
+.book-rail-cover small { margin: 0 !important; color: rgb(255 255 255 / 68%) !important; font-size: 7px !important; letter-spacing: .12em; }
+.book-rail-cover b { align-self: center; overflow: hidden; font-family: "Songti SC", "STSong", serif; font-size: 11px; line-height: 1.22; letter-spacing: .04em; }
+.book-rail-cover i { color: rgb(255 255 255 / 62%); font-size: 7px; font-style: normal; letter-spacing: .18em; }
+.book-rail-cover.cover-tone-1 { background: linear-gradient(150deg, #4d58a8, #292e68); }
+.book-rail-cover.cover-tone-2 { background: linear-gradient(150deg, #a75b49, #67312e); }
+.book-rail-cover.cover-tone-3 { background: linear-gradient(150deg, #2d8b80, #17564f); }
+.book-rail-cover.cover-tone-4 { background: linear-gradient(150deg, #9b7137, #5f3f23); }
+.book-rail-cover.cover-tone-5 { background: linear-gradient(150deg, #7e558e, #493356); }
+.book-rail-copy { min-width: 0; display: grid !important; align-content: center; text-align: left; }
+.unified-book-switcher > nav[aria-label="选择书籍"] .book-rail-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.unified-book-switcher > nav[aria-label="选择书籍"] .book-rail-copy small { overflow: hidden; margin-top: 5px; color: var(--ink-faint); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 
 .sidebar-book-actions {
   display: grid;
@@ -6517,7 +6549,7 @@ svg {
 .ideation-composer { border-color: var(--line); background: color-mix(in srgb, var(--panel) 88%, transparent); }
 
 @media (max-width: 1380px) {
-  .app-shell.unified-desk { grid-template-columns: 248px minmax(0, 1fr); }
+  .app-shell.unified-desk { grid-template-columns: 216px minmax(0, 1fr); }
   .ios-function-bar { gap: 8px; padding-inline: 10px; }
   .function-nav-utilities { flex-basis: 284px; padding-left: 8px; }
   .ios-function-bar button { gap: 4px; padding-inline: 6px; font-size: 11px; }

@@ -14,6 +14,7 @@ import {
   type WorkspaceData
 } from '../../lib/api/client';
 import { toAuthorFacingText } from '../../app/author-presentation';
+import { bookDisplayTitle } from '../../app/display-labels';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
 import { memberIdentity } from '../shared/agent-presentation';
@@ -231,7 +232,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
                 value={draft}
                 maxLength={config.promptPolicy.maxChars}
                 aria-label={`${memberIdentity(member)}的本书岗位补充要求`}
-                placeholder={`例如：为《${workspace?.book.title ?? '本书'}》工作时，重点关注……`}
+                placeholder={`例如：为《${workspace === null ? '本书' : bookDisplayTitle(workspace.book.title)}》工作时，重点关注……`}
                 onChange={(event) => setDraft(event.target.value)}
               />
               <div className="prompt-editor-actions">
@@ -315,8 +316,8 @@ export function TeamTemplateWorkspace({ data, books, onManageBook }: { data: Tea
   const selected = data?.members.find((member) => member.roleKey === selectedRole) ?? data?.members[0] ?? null;
   if (data === null) return <WorkspaceSkeleton />;
   return <section className="team-template-workspace" aria-labelledby="team-template-title">
-    <header><div><span className="eyebrow">全局岗位模板</span><h2 id="team-template-title">创作团队</h2><p>这里说明11个岗位的默认职责和模型。进入具体书籍后，右栏才显示该书成员的真实工作状态。</p></div><strong>{data.members.length} 名成员</strong></header>
-    {books.length > 0 && <div className="team-book-shortcuts"><span>管理某本书的成员补充要求：</span>{books.map((book) => <button type="button" key={book.bookId} onClick={() => onManageBook(book.bookId)}>{book.title}</button>)}</div>}
+    <header><div><span className="eyebrow">全局岗位模板</span><h2 id="team-template-title">创作团队</h2><p>这里说明11个岗位的默认职责和模型。进入具体书籍后，团队页会显示该书成员的真实工作状态。</p></div><strong>{data.members.length} 名成员</strong></header>
+    {books.length > 0 && <div className="team-book-shortcuts"><span>管理某本书的成员补充要求：</span>{books.map((book) => <button type="button" key={book.bookId} onClick={() => onManageBook(book.bookId)}>{bookDisplayTitle(book.title)}</button>)}</div>}
     <div className="team-template-layout">
       <nav aria-label="团队岗位模板">{data.members.map((member) => <button className={selected?.roleKey === member.roleKey ? 'active' : ''} type="button" key={member.roleKey} onClick={() => setSelectedRole(member.roleKey)}><AgentAvatar roleKey={member.roleKey} roleName={`${member.memberName}（${member.shortTitle}）`} /><span><strong>{member.memberName}（{member.shortTitle}）</strong><small>{toAuthorFacingText(member.publicSummary)}</small></span></button>)}</nav>
       {selected !== null && <article className="team-template-detail">

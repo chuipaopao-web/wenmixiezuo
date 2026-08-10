@@ -48,7 +48,7 @@ import {
 import { cacheSnapshot, loadSnapshot } from '../lib/offline/offline-store';
 import { NamingWorkspace } from '../features/naming/NamingWorkspace';
 import { ArchiveBookDialog, PurgeBookDialog } from '../features/bookshelf/BookLifecycleDialogs';
-import { bookStatusLabel } from './display-labels';
+import { bookCoverTone, bookDisplayInfo, bookDisplayTitle, bookStatusLabel } from './display-labels';
 import { CompleteCreateBookDialog } from '../features/onboarding/CompleteCreateBookDialog';
 import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
 import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
@@ -433,16 +433,24 @@ export function App(): React.JSX.Element {
         <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
           <button className="rail-new-book" type="button" onClick={() => { setCreateOpen(true); setLeftOpen(false); }}><PlusIcon /><span>新建书籍</span></button>
           <div className="book-list-heading"><span>我的书籍</span><strong>{activeBooks.length}</strong></div>
-          <nav aria-label="选择书籍">{activeBooks.map((book) => <button type="button" key={book.bookId}
-            className={book.bookId === selectedBookId ? 'active' : ''} aria-current={book.bookId === selectedBookId ? 'page' : undefined}
-            onClick={() => selectBook(book.bookId)}>
-            <BookOpenTextIcon /><span><strong>{book.title}</strong><small>{book.bookId === selectedBookId ? '当前书籍' : bookStatusLabel(book.status)}</small></span>
-          </button>)}</nav>
+          <nav aria-label="选择书籍">{activeBooks.map((book) => {
+            const display = bookDisplayInfo(book.title);
+            const selected = book.bookId === selectedBookId;
+            return <button type="button" key={book.bookId}
+              className={selected ? 'active' : ''} aria-current={selected ? 'page' : undefined}
+              aria-label={`打开《${display.title}》${display.qualifier === null ? '' : `，${display.qualifier}`}`}
+              onClick={() => selectBook(book.bookId)}>
+              <span className={`book-rail-cover cover-tone-${bookCoverTone(book.bookId)}`} aria-hidden="true">
+                <small>文秘</small><b>{display.title.slice(0, 4)}</b><i>小说</i>
+              </span>
+              <span className="book-rail-copy"><strong title={display.title}>{display.title}</strong><small>{selected ? '当前书籍' : bookStatusLabel(book.status)}{display.qualifier === null ? '' : ` · ${display.qualifier}`}</small></span>
+            </button>;
+          })}</nav>
           <div className="sidebar-book-actions">
             {archivedBooks.length > 0 && <details className="rail-archived-books" open={archiveOpen} onToggle={(event) => setArchiveOpen(event.currentTarget.open)}>
               <summary>已归档书籍 · {archivedBooks.length}</summary>
               <div>{archivedBooks.map((book) => <article key={book.bookId}>
-                <span><ArchiveBoxIcon /><strong>{book.title}</strong></span>
+                <span><ArchiveBoxIcon /><strong>{bookDisplayTitle(book.title)}</strong></span>
                 <div><button type="button" disabled={busy} onClick={() => void restoreArchivedBook(book)}>恢复</button>
                   <button type="button" disabled={busy} onClick={() => setPurgeCandidate(book)}>彻底删除</button></div>
               </article>)}</div>
@@ -456,7 +464,7 @@ export function App(): React.JSX.Element {
         <button className="icon-button mobile-only" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
         <div className="topbar-current-object">
           <span>当前书籍</span>
-          <strong>{selectedBook?.title ?? '还没有书籍'}</strong>
+          <strong>{selectedBook === null ? '还没有书籍' : bookDisplayTitle(selectedBook.title)}</strong>
         </div>
         <div className="current-view-chip" aria-label={`当前功能：${utilityView === 'tasks' ? workspaceFunctionLabel('tasks') : utilityView === 'team' ? workspaceFunctionLabel('team') : utilityView === 'ideas' ? workspaceFunctionLabel('ideas') : sectionLabel(creationTab)}`}>
           <span aria-hidden="true" />

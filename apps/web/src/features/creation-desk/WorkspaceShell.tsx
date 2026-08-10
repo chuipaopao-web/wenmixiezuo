@@ -1,6 +1,6 @@
 import { BooksIcon, WifiHighIcon, WifiSlashIcon, XIcon } from '@phosphor-icons/react';
 import type { BookData, HealthData, WorkerData, WorkspaceData } from '../../lib/api/client';
-import { bookStatusLabel } from '../../app/display-labels';
+import { bookDisplayTitle, bookStatusLabel } from '../../app/display-labels';
 
 export function ServiceState({ health, worker, error }: { health: HealthData | null; worker: WorkerData | null; error: string | null }): React.JSX.Element {
   const ready = health?.status === 'ok' && worker?.status === 'ready' && error === null;
@@ -15,9 +15,10 @@ export function TopbarBookSummary({ book, workspace }: { book: BookData | null; 
   const chapterCount = volumeCount > 0
     ? workspace?.volumes?.reduce((total, volume) => total + volume.chapterCount, 0) ?? 0
     : workspace?.chapters.length ?? 0;
+  const displayTitle = bookDisplayTitle(book.title);
   return (
-    <div className="topbar-book-summary" aria-label={`当前书籍：《${book.title}》`}>
-      <div className="topbar-book-title"><BooksIcon /><strong>{book.title}</strong></div>
+    <div className="topbar-book-summary" aria-label={`当前书籍：《${displayTitle}》`}>
+      <div className="topbar-book-title"><BooksIcon /><strong>{displayTitle}</strong></div>
       <div className="topbar-book-meta" aria-label="书籍进度">
         <span>{bookStatusLabel(book.status)}</span>
         <span>{volumeCount} 卷</span>
