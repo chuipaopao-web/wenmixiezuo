@@ -86,16 +86,24 @@ describe('确定性长篇题材场景', () => {
     expect(rewritten.output).not.toContain('secret-source');
   });
 
-  it('事实审查为仙侠和电竞正文沉淀人物、章节行动与人物关系，不再只识别旧样稿', () => {
-    const xianxia = deterministicFactCandidates('第21章 灵矿门前\n\n沈砚与许小川并肩进入灵矿，苏青萝留在阵外接应。');
-    const esports = deterministicFactCandidates('第61章 季后赛\n\n顾野与唐梨重新确认指挥顺序，陆沉舟负责先手。');
+  it('事实审查为仙侠和电竞正文沉淀人物、势力、地点、道具资源、章节行动与关系', () => {
+    const xianxia = deterministicFactCandidates('第21章 灵矿门前\n\n晨雾落下，灵矿总阵的灵灯逐一亮起。沈砚与许小川带着残缺阵盘和灵石进入青霄宗灵矿，苏青萝留在阵外接应。');
+    const esports = deterministicFactCandidates('第61章 季后赛\n\n灯带亮起，季后赛败者组还没喧闹起来。顾野与唐梨代表零帧核对比赛记录和设备合同，陆沉舟负责先手。');
 
     expect(xianxia).toEqual(expect.arrayContaining([
       expect.objectContaining({ subjectName: '沈砚', relationKey: 'event.chapter_021', storyTimeStart: '第21章' }),
+      expect.objectContaining({ subjectName: '灵矿总阵', entityType: 'location' }),
+      expect.objectContaining({ subjectName: '青霄宗', entityType: 'organization' }),
+      expect.objectContaining({ subjectName: '残缺阵盘', entityType: 'item' }),
+      expect.objectContaining({ subjectName: '灵石', entityType: 'resource' }),
       expect.objectContaining({ subjectName: '沈砚', relationKey: 'relationship.许小川.cooperation', value: '许小川' })
     ]));
     expect(esports).toEqual(expect.arrayContaining([
       expect.objectContaining({ subjectName: '顾野', relationKey: 'event.chapter_061', storyTimeStart: '第61章' }),
+      expect.objectContaining({ subjectName: '季后赛败者组', entityType: 'location' }),
+      expect.objectContaining({ subjectName: '零帧', entityType: 'organization' }),
+      expect.objectContaining({ subjectName: '合同', entityType: 'item' }),
+      expect.objectContaining({ subjectName: '比赛记录', entityType: 'resource' }),
       expect.objectContaining({ subjectName: '顾野', relationKey: 'relationship.唐梨.cooperation', value: '唐梨' })
     ]));
     for (const candidate of [...xianxia, ...esports]) {

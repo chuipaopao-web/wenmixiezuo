@@ -17,7 +17,7 @@ const targets = [
   }
 ];
 const databasePath = resolve(process.argv[2] ?? 'data/database/wenmi.sqlite');
-const outputPath = resolve(process.argv[3] ?? 'data/verification/current-workflow-two-books-audit-20260810/final-audit.json');
+const outputPath = resolve(process.argv[3] ?? 'data/verification/current-workflow-two-books-library-audit-20260811/final-audit.json');
 const database = new DatabaseSync(databasePath, { readOnly: true });
 
 try {
@@ -43,7 +43,7 @@ function auditBook(target) {
     .get(OWNER_ID, target.bookId);
   assert.ok(book, `${target.title}不存在`);
   assert.equal(book.title, target.title);
-  assert.equal(book.canon_revision, 101, `${target.title}应包含100章结算和1次资料补建修订`);
+  assert.equal(book.canon_revision, 102, `${target.title}应包含100章结算和2次可追溯资料纠错修订`);
 
   const count = (table, where = '', values = []) => Number(database.prepare(
     `SELECT COUNT(*) AS count FROM ${table} WHERE owner_id=? AND book_id=? ${where}`
@@ -75,6 +75,17 @@ function auditBook(target) {
     openTasks: count('tasks', "AND status NOT IN ('succeeded','cancelled','failed')"),
     failedTasks: count('tasks', "AND status='failed'")
   };
+  const entityTypes = Object.fromEntries(database.prepare(`SELECT entity_type, COUNT(*) AS count FROM entities
+    WHERE owner_id=? AND book_id=? AND status='active' GROUP BY entity_type ORDER BY entity_type`)
+    .all(OWNER_ID, target.bookId).map((row) => [row.entity_type, Number(row.count)]));
+  const eventTimeline = Number(database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection t
+    JOIN fact_assertions f ON f.fact_id=t.source_fact_id AND f.owner_id=t.owner_id AND f.book_id=t.book_id
+    WHERE t.owner_id=? AND t.book_id=? AND t.canon_revision=? AND f.relation_key LIKE 'event.%'`)
+    .get(OWNER_ID, target.bookId, book.canon_revision).count);
+  for (const requiredType of ['organization', 'location', 'item', 'resource']) {
+    assert.ok((entityTypes[requiredType] ?? 0) > 0, `${target.title}资料库缺少${requiredType}分类`);
+  }
+  assert.ok(eventTimeline >= 100, `${target.title}正文事件时间线不足`);
   assert.deepEqual({
     volumes: counts.volumes, volumePlans: counts.volumePlans, events: counts.events,
     eventSequences: counts.eventSequences, chapterOutlines: counts.chapterOutlines,
@@ -126,7 +137,7 @@ function auditBook(target) {
   const entityNames = database.prepare(`SELECT canonical_name FROM entities
     WHERE owner_id=? AND book_id=? AND status='active' ORDER BY canonical_name`).all(OWNER_ID, target.bookId).map((row) => row.canonical_name);
   for (const name of target.required.slice(0, 6)) assert.ok(entityNames.includes(name), `${target.title}资料库缺少人物：${name}`);
-  return { kind: target.kind, bookId: target.bookId, title: target.title, canonRevision: book.canon_revision, counts, entityNames, evidenceChecked: evidenceRows.length };
+  return { kind: target.kind, bookId: target.bookId, title: target.title, canonRevision: book.canon_revision, counts, entityTypes, eventTimeline, entityNames, evidenceChecked: evidenceRows.length };
 }
 
 function crossBookChecks() {

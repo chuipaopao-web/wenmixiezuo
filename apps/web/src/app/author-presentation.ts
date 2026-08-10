@@ -317,6 +317,10 @@ export function authorFactRelationLabel(value: unknown): string {
   if (/^relationship[.:]/u.test(text)) return '人物关系';
   if (/^event(?:[.:]|$)/u.test(text)) return '章节行动';
   const known: Record<string, string> = {
+    'location.appears_in_chapter': '正文场景',
+    'organization.appears_in_chapter': '正文出现',
+    'item.appears_in_chapter': '正文出现',
+    'resource.appears_in_chapter': '正文出现',
     'identity.origin': '身份来历',
     origin: '身份来历',
     identity: '身份',

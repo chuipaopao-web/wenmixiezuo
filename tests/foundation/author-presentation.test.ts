@@ -115,6 +115,8 @@ describe('作者展示层', () => {
 
   it('把正史事实关系键转换为作者可读名称，不暴露内部英文键', () => {
     expect(authorFactRelationLabel('identity.origin')).toBe('身份来历');
+    expect(authorFactRelationLabel('location.appears_in_chapter')).toBe('正文场景');
+    expect(authorFactRelationLabel('resource.appears_in_chapter')).toBe('正文出现');
     expect(authorFactRelationLabel('relationship.temporary_alliance')).toBe('人物关系');
     expect(authorFactRelationLabel('protagonist_state.game.withdrawable_revenue')).toBe('可提现收益');
     expect(authorFactRelationLabel('game.revenue_model')).toBe('收益规则');

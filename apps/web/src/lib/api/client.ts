@@ -694,6 +694,15 @@ export interface LibraryData {
   canonRevision: number;
   entities: Array<Record<string, unknown>>;
   facts: Array<Record<string, unknown>>;
+  timeline: Array<{
+    timeline_id: string;
+    story_time: string;
+    event: unknown;
+    canonical_name: string;
+    source_chapter_number: number | null;
+    source_chapter_title: string | null;
+    evidence: unknown;
+  }>;
   relations: Array<Record<string, unknown>>;
   tags: Array<Record<string, unknown>>;
   projections: Array<Record<string, unknown>>;
@@ -702,7 +711,7 @@ export interface LibraryData {
   bookProfile: BookProfileViewData | null;
   protagonists?: ProtagonistDashboardData;
   attributeFormulas?: AttributeFormulaData[];
-  summary: { entityCount: number; factCount: number; relationCount: number; tagCount: number; projectionCount: number; openGapCount: number };
+  summary: { entityCount: number; factCount: number; relationCount: number; timelineCount: number; tagCount: number; projectionCount: number; openGapCount: number };
 }
 
 export interface LibrarySettingData {

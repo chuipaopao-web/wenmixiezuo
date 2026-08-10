@@ -192,6 +192,51 @@ export function deterministicFactCandidates(content: string): Array<Record<strin
     : /(?:沈砚|许小川|苏青萝|阿九|韩烈|魏长庚)/u.test(content)
       ? ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚']
       : [];
+  const addEvidenceEntity = (subjectName: string, entityType: 'location' | 'organization' | 'item' | 'resource', relationKey: string, value: string): void => {
+    const evidence = sentenceContaining(content, subjectName);
+    if (evidence === null) return;
+    candidates.push({
+      subjectName,
+      entityType,
+      relationKey,
+      value,
+      evidenceQuote: evidence,
+      evidenceLocation: chapterNumber > 0 ? `第${chapterNumber}章正文` : '当前正文',
+      epistemicStatus: 'objective',
+      negated: false,
+      viewpointName: null,
+      knowledgeSubjectName: null,
+      knowledgeTimeStart: null,
+      knowledgeTimeEnd: null,
+      storyTimeStart: storyTime,
+      storyTimeEnd: storyTime
+    });
+  };
+  if (scenarioNames.length > 0) {
+    const location = content.match(/，([^，。\n]{2,32})(?:的灵灯|还没喧闹起来)/u)?.[1]?.trim();
+    if (location !== undefined && location.length > 0) {
+      addEvidenceEntity(location, 'location', 'location.appears_in_chapter', `${location}是本章实际发生的场景`);
+    }
+    const isEsports = scenarioNames[0] === '顾野';
+    const organization = (isEsports ? ['零帧', '联盟'] : ['青霄宗']).find((name) => content.includes(name));
+    if (organization !== undefined) {
+      addEvidenceEntity(organization, 'organization', 'organization.appears_in_chapter', `${organization}在本章正文中实际出现`);
+    }
+    const item = (isEsports
+      ? ['合同', '设备', '账号']
+      : ['残缺阵盘', '残阵盘', '阵旗', '黑账', '联合印']
+    ).find((name) => content.includes(name));
+    if (item !== undefined) {
+      addEvidenceEntity(item, 'item', 'item.appears_in_chapter', `${item}在本章正文中实际出现`);
+    }
+    const resource = (isEsports
+      ? ['比赛记录', '设备日志', '原始记录', '训练数据', '视野记录']
+      : ['灵石', '阵图', '账页']
+    ).find((name) => content.includes(name));
+    if (resource !== undefined) {
+      addEvidenceEntity(resource, 'resource', 'resource.appears_in_chapter', `${resource}在本章正文中实际出现`);
+    }
+  }
   for (const name of scenarioNames) {
     const evidence = sentenceContaining(content, name);
     if (evidence === null) continue;

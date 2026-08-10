@@ -1044,6 +1044,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(scope.ownerId, scope.bookId) as unknown as Array<Record<string, unknown> & { value_json: string; evidence_json: string }>).map(({ value_json: valueJson, evidence_json: evidenceJson, ...row }) => ({
         ...row, value: parseStoredJson(valueJson), evidence: parseStoredJson(evidenceJson)
       }));
+    const timeline = (database.prepare(`SELECT t.timeline_id, t.story_time, t.event_json, t.source_fact_id,
+      e.canonical_name, f.relation_key, f.evidence_json,
+      c.chapter_number AS source_chapter_number, c.title AS source_chapter_title
+      FROM timeline_projection t JOIN entities e
+        ON e.entity_id = t.entity_id AND e.owner_id = t.owner_id AND e.book_id = t.book_id
+      JOIN fact_assertions f
+        ON f.fact_id = t.source_fact_id AND f.owner_id = t.owner_id AND f.book_id = t.book_id
+      LEFT JOIN chapters c
+        ON c.chapter_id = f.source_chapter_id AND c.owner_id = f.owner_id AND c.book_id = f.book_id
+      WHERE t.owner_id = ? AND t.book_id = ? AND t.canon_revision = ?
+        AND f.relation_key LIKE 'event.%'
+      ORDER BY COALESCE(c.chapter_number, 2147483647), t.story_time, e.canonical_name
+      LIMIT 1000`)
+      .all(scope.ownerId, scope.bookId, book.canonRevision) as unknown as Array<Record<string, unknown> & { event_json: string; evidence_json: string }>).map(({ event_json: eventJson, evidence_json: evidenceJson, ...row }) => ({
+        ...row, event: parseStoredJson(eventJson), evidence: parseStoredJson(evidenceJson)
+      }));
+    const timelineCount = Number((database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection t
+      JOIN fact_assertions f ON f.fact_id = t.source_fact_id AND f.owner_id = t.owner_id AND f.book_id = t.book_id
+      WHERE t.owner_id = ? AND t.book_id = ? AND t.canon_revision = ? AND f.relation_key LIKE 'event.%'`)
+      .get(scope.ownerId, scope.bookId, book.canonRevision) as { count: number }).count);
+
     const relations = (database.prepare(`SELECT r.relationship_id, r.canon_revision, r.from_entity_id,
       e.canonical_name AS from_name, r.relation_key, r.to_value_json, r.source_fact_id
       FROM relationship_projection r JOIN entities e
@@ -1074,6 +1095,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       canonRevision: book.canonRevision,
       entities,
       facts,
+      timeline,
       relations,
       tags,
       projections,
@@ -1086,6 +1108,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         entityCount: scopedCount('entities'),
         factCount: scopedCount('fact_assertions', `AND status NOT IN ('withdrawn', 'rejected')`),
         relationCount: scopedCount('relationship_projection', 'AND canon_revision = ?', [book.canonRevision]),
+        timelineCount,
         tagCount: scopedCount('tag_definitions'),
         projectionCount: scopedCount('narrative_projections'),
         openGapCount: scopedCount('knowledge_gap_findings', `AND status = 'open'`)

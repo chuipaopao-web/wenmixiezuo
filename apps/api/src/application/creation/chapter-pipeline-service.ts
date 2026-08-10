@@ -812,6 +812,8 @@ export class ChapterPipelineService {
                   '政治/情色风险等级必须基于明确政策证据，不能由题材、冲突强度或个人不适推断。'
                 ],
           ...(adapter.provider.startsWith('local-deterministic') ? { content } : {}),
+          factExtractionScope: reviewer.role === 'fact'
+            ? '逐项检查正文中实际出现且会影响后续的人物、势力、地点、道具/资源、规则、事件、关系与状态；只保存有正文原句证据的类别，不要求凑齐，不得把规划或猜测写成事实。' : undefined,
           contract: reviewer.role === 'literary'
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'

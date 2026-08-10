@@ -98,9 +98,10 @@ describe('工作台API', () => {
     expect(libraryResponse.json().data).toEqual(expect.objectContaining({
       canonRevision: 0,
       entities: expect.any(Array),
+      timeline: [],
       settings: [expect.objectContaining({ itemKey: 'world-era', label: '时代背景', status: '已确认', content: '架空王朝的边境要塞时代。' })],
       bookProfile: null,
-      summary: expect.any(Object)
+      summary: expect.objectContaining({ timelineCount: 0 })
     }));
     const bindingsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/model-bindings` });
     expect(bindingsResponse.statusCode).toBe(200);

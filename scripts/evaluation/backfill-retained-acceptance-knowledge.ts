@@ -6,7 +6,7 @@ import { CanonService, stableJson } from '../../apps/api/src/application/knowled
 import { SystemClock, UuidGenerator } from '../../apps/api/src/domain/ids.js';
 import { deterministicFactCandidates } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 
-const REASON = 'two-book-acceptance-knowledge-backfill-v1';
+const REASON = 'two-book-library-category-backfill-v2';
 const TARGETS = [
   { bookId: '927f86d4-b118-43f8-a6c1-72d57f080bb0', hero: '沈砚', expectedTitle: '阵骨问天' },
   { bookId: '5d2acbf7-8e98-4f97-b0a0-674571043ff9', hero: '顾野', expectedTitle: '零帧登顶' }
@@ -75,32 +75,27 @@ function backfill(target: typeof TARGETS[number]): Record<string, unknown> {
   if (chapters.length !== 100 || chapters.at(-1)?.chapter_number !== 100) throw new Error(`${book.title}不是完整100章测试书`);
 
   const selected: Array<{ chapter: ChapterSource; candidate: Candidate }> = [];
-  const relationshipKeys = new Set<string>();
-  const secondaryNames = new Set<string>();
+  const categoryKeys = new Set<string>();
   for (const chapter of chapters) {
     const content = readFileSync(resolve(process.cwd(), 'data', chapter.relative_path), 'utf8');
     for (const raw of deterministicFactCandidates(content)) {
       const candidate = raw as unknown as Candidate;
+      if (candidate.entityType === 'character') continue;
       if (!content.includes(candidate.evidenceQuote) || candidate.evidenceQuote.length > 600) {
         throw new Error(`${book.title}第${chapter.chapter_number}章存在不可回查的事实证据`);
       }
-      if (candidate.relationKey.startsWith('relationship.')) {
-        const key = `${candidate.subjectName}\u0000${candidate.relationKey}\u0000${stableJson(candidate.value)}`;
-        if (relationshipKeys.has(key)) continue;
-        relationshipKeys.add(key);
-        selected.push({ chapter, candidate });
-        continue;
-      }
-      if (candidate.subjectName === target.hero) {
-        selected.push({ chapter, candidate });
-      } else if (chapter.chapter_number % 10 === 0 && !secondaryNames.has(candidate.subjectName)) {
-        secondaryNames.add(candidate.subjectName);
-        selected.push({ chapter, candidate });
-      }
+      const key = `${candidate.entityType}\u0000${candidate.subjectName}`;
+      if (categoryKeys.has(key)) continue;
+      categoryKeys.add(key);
+      selected.push({ chapter, candidate });
     }
   }
-  if (selected.filter((item) => item.candidate.subjectName === target.hero && item.candidate.relationKey.startsWith('event.')).length !== 100) {
-    throw new Error(`${book.title}主角时间线未覆盖100章`);
+  const selectedTypes = new Set(selected.map((item) => item.candidate.entityType));
+  for (const requiredType of ['organization', 'location']) {
+    if (!selectedTypes.has(requiredType)) throw new Error(`${book.title}正文没有沉淀出${requiredType}分类资料`);
+  }
+  if (!selectedTypes.has('item') || !selectedTypes.has('resource')) {
+    throw new Error(`${book.title}正文没有同时沉淀道具与资源资料`);
   }
 
   const entityIds = new Map<string, string>();

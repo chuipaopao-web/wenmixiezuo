@@ -872,12 +872,13 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         source_chapter_number: 1, source_chapter_title: '雾城初响',
         evidence: [{ excerpt: '城门名册记载张三来自雾城边防军。' }]
       }],
+      timeline: [{ timeline_id: 'timeline-ui-1', story_time: '第1章', event: '张三守住雾城城门', canonical_name: '张三', source_chapter_number: 1, source_chapter_title: '雾城初响', evidence: [{ excerpt: '张三在钟声中守住雾城城门。' }] }],
       relations: [{ relationship_id: 'relation-ui-1', from_name: '张三', relation_key: 'ally_of', toValue: '守城军' }],
       tags: [], projections: [], gaps: [],
       settings: [{ itemKey: 'world-era', groupTitle: '世界与环境', label: '时代背景', prompt: '时代是什么？', sourceLabel: '通用设定模板', status: '已确认', custom: false, sortOrder: 1, content: '架空王朝的雾城边境。', sourceDiscussionId: null, sourceDecisionId: null, confirmedAt: '2026-07-16T12:00:00.000Z', updatedAt: '2026-07-16T12:00:00.000Z' }],
       bookProfile: { title: '雾钟档案', channel: '男频', category: '历史脑洞', subjects: ['架空历史'], mainTags: ['成长', '守城'], customTags: [], protagonists: [{ role: 'male_lead', name: '张三', age: '二十岁', background: '雾城边军', personalities: ['坚韧'] }], mustFollow: ['钟声规则不得无代价改写'], style: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] }, source: '老板确认的开书资料', version: 1 },
       protagonists: protagonistDashboard, attributeFormulas: [],
-      summary: { entityCount: 1, factCount: 1, relationCount: 1, tagCount: 0, projectionCount: 2, openGapCount: 0 }
+      summary: { entityCount: 1, factCount: 1, relationCount: 1, timelineCount: 1, tagCount: 0, projectionCount: 2, openGapCount: 0 }
     });
     if (path.endsWith('/projections')) return apiResponse([
       { projection_id: 'projection-planned', projection_type: 'emotion', track: 'planned', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ scopeLabel: '第1章', emotionFlow: ['压抑', '决意'], baseline: '虐转爽' }) },

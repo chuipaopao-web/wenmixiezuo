@@ -49,6 +49,7 @@ const library = {
     { fact_id: 'fact-internal-1', subject_entity_id: 'character-hero', canonical_name: '沈砚', relation_key: 'event.chapter_001', value: '沈砚参加外门试剑', grade: 'B', status: 'active', source_chapter_number: 1, source_chapter_title: '试剑开局', evidence: [{ quote: '沈砚踏上试剑台。' }] },
     { fact_id: 'fact-internal-map', subject_entity_id: 'location-1', canonical_name: '试剑台', relation_key: 'map.coordinate', value: { x: 42, y: 58 }, grade: 'A', status: 'active', source_chapter_number: 1, source_chapter_title: '试剑开局', evidence: [{ quote: '试剑台位于外门东侧。' }] }
   ],
+  timeline: [{ timeline_id: 'timeline-internal-1', story_time: '第1章', event: '外门试剑', canonical_name: '沈砚', source_chapter_number: 1, source_chapter_title: '试剑开局', evidence: [{ quote: '沈砚踏上试剑台。' }] }],
   relations: [{ relationship_id: 'relationship-internal-1', from_name: '沈砚', relation_key: 'cooperation', toValue: '许小川' }],
   tags: [{ tag_definition_id: 'tag-internal-1', namespace: 'story', name: '阵法破局', description: '用规则和观察反击', status: 'active', assignment_count: 1 }],
   projections: [],
@@ -57,7 +58,7 @@ const library = {
   bookProfile: { title: '阵骨问天', channel: '男频', category: '东方仙侠', subjects: ['修仙', '阵法'], mainTags: ['成长', '智斗'], customTags: ['宗门群像'], protagonists: [{ role: 'male_lead', name: '沈砚', age: '十八岁', background: '外门弟子', personalities: ['冷静'] }], mustFollow: ['破局必须有前置证据'], source: '作者确认的开书资料' },
   protagonists: protagonistDashboard,
   attributeFormulas: [{ formulaId: 'formula-internal-1', label: '阵盘承压', expression: 'base * 2', unit: '点', variables: [{ key: 'base', label: '基础值', defaultValue: 5 }] }],
-  summary: { entityCount: 6, factCount: 2, relationCount: 1, tagCount: 1, projectionCount: 0, openGapCount: 1 }
+  summary: { entityCount: 6, factCount: 2, relationCount: 1, timelineCount: 1, tagCount: 1, projectionCount: 0, openGapCount: 1 }
 } as unknown as LibraryData;
 
 describe('资料库全部页签和操作按钮', () => {

@@ -32,9 +32,12 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
     ['overview', '总览'], ['settings', '已确认设定'], ['protagonist', '主角'], ['characters', '角色'], ['organizations', '势力'], ['locations', '地点与地图'], ['items', '道具资源'], ['events', '事件时间线'],
     ['rules', '规则'], ['tags', '标签'], ['gaps', '待补内容'], ['evidence', '内容来源']
   ];
-  const entityTypes: Partial<Record<LibraryTab, string[]>> = {
-    characters: ['character'], organizations: ['organization'], locations: ['location'], items: ['item', 'resource', 'skill', 'stat_panel'],
-    events: ['event'], rules: ['world_rule']
+  const entitiesByTab: Partial<Record<LibraryTab, string[]>> = {
+    characters: ['character'],
+    organizations: ['organization'],
+    items: ['item', 'resource', 'skill', 'stat_panel'],
+    rules: ['world_rule'],
+    locations: ['location']
   };
   return (
     <section className="reference-view library-workspace" aria-labelledby="library-title">
@@ -43,12 +46,12 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
       {tab === 'overview' && <LibraryOverview data={library} />}
       {tab === 'settings' && <ConfirmedSettingsLibrary data={library} />}
       {tab === 'protagonist' && <ProtagonistWorkspace bookId={bookId} initialDashboard={library.protagonists} initialFormulas={library.attributeFormulas} />}
-      {entityTypes[tab] !== undefined && tab !== 'locations' && <EntityGrid
-        entities={library.entities.filter((entity) => entityTypes[tab]!.includes(String(entity.entity_type)))}
-        facts={library.facts}
-        protagonists={library.protagonists}
-      />}
-      {tab === 'locations' && <LocationLibrary entities={library.entities.filter((entity) => entity.entity_type === 'location')} facts={library.facts} />}
+      {tab === 'characters' && <EntityGrid entities={entitiesForTab(library, entitiesByTab.characters!)} facts={library.facts} protagonists={library.protagonists} />}
+      {tab === 'organizations' && <CategoryLibrary settings={settingsForCategory(library, 'organizations')} entities={entitiesForTab(library, entitiesByTab.organizations!)} facts={library.facts} emptyTitle="还没有势力资料" />}
+      {tab === 'items' && <CategoryLibrary settings={settingsForCategory(library, 'items')} entities={entitiesForTab(library, entitiesByTab.items!)} facts={library.facts} emptyTitle="还没有道具或资源资料" />}
+      {tab === 'rules' && <CategoryLibrary settings={settingsForCategory(library, 'rules')} entities={entitiesForTab(library, entitiesByTab.rules!)} facts={library.facts} emptyTitle="还没有已确认规则" />}
+      {tab === 'locations' && <LocationLibrary settings={settingsForCategory(library, 'locations')} entities={entitiesForTab(library, entitiesByTab.locations!)} facts={library.facts} />}
+      {tab === 'events' && <TimelineLibrary timeline={library.timeline} />}
       {tab === 'tags' && <TagCenter records={library.tags} bookId={bookId} />}
       {tab === 'gaps' && <RecordCollection records={library.gaps} empty="当前没有已登记的资料缺口。" />}
       {tab === 'evidence' && <EvidenceCenter facts={library.facts} />}
@@ -59,7 +62,7 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
 function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
   const metrics = [
     ['人物与事物', data.summary.entityCount], ['正式事实', data.summary.factCount], ['关系', data.summary.relationCount],
-    ['标签', data.summary.tagCount], ['分析结果', data.summary.projectionCount], ['待补内容', data.summary.openGapCount]
+    ['事件记录', data.summary.timelineCount], ['标签', data.summary.tagCount], ['待补内容', data.summary.openGapCount]
   ];
   return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{bookDisplayTitle(data.bookProfile.title)}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}</div>;
 }
@@ -69,6 +72,55 @@ function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.El
   const groups = new Map<string, typeof data.settings>();
   for (const item of data.settings) groups.set(item.groupTitle, [...(groups.get(item.groupTitle) ?? []), item]);
   return <div className="confirmed-settings-library">{[...groups.entries()].map(([groupTitle, items]) => <section key={groupTitle}><header><h3>{groupTitle}</h3><span>{items.length} 项已确认</span></header><div>{items.map((item) => <article key={item.itemKey}><h4>{item.label}</h4><p>{item.content}</p><small>{item.sourceLabel} · {item.confirmedAt === null ? '确认时间未记录' : new Date(item.confirmedAt).toLocaleString('zh-CN')}</small></article>)}</div></section>)}</div>;
+}
+
+function entitiesForTab(data: LibraryData, types: string[]): Array<Record<string, unknown>> {
+  return data.entities.filter((entity) => types.includes(String(entity.entity_type)));
+}
+function settingsForCategory(data: LibraryData, tab: 'organizations' | 'locations' | 'items' | 'rules'): LibraryData['settings'] {
+  return data.settings.filter((item) => {
+    const text = `${item.itemKey} ${item.groupTitle} ${item.label} ${item.content}`;
+    if (tab === 'organizations') return item.itemKey === 'factions' || /势力|组织|阵营|宗门|战队|联盟|俱乐部|公会/u.test(text);
+    if (tab === 'locations') return item.itemKey === 'geography' || /地理|地点|地图|区域|世界与环境|九州|北境|赛场|训练室|宗门/u.test(text);
+    if (tab === 'items') return ['equipment', 'treasures', 'loot', 'game-panel', 'power-source', 'production', 'currency', 'yield'].includes(item.itemKey)
+      || /物品|资源|装备|道具|灵石|阵盘|数据|设备|合同|录像|记录/u.test(text);
+    return ['must-follow', 'levels', 'costs', 'abilities', 'counters', 'game-entry', 'player-npc', 'class-skill', 'quest-instance', 'ranking'].includes(item.itemKey)
+      || /规则|体系|边界|限制|必须遵守|等级|晋升|代价/u.test(text);
+  });
+}
+
+function ScopedSettings({ settings }: { settings: LibraryData['settings'] }): React.JSX.Element | null {
+  if (settings.length === 0) return null;
+  return <div className="confirmed-settings-library"><section><header><h3>已确认设定</h3><span>{settings.length} 项</span></header><div>{settings.map((item) => <article key={item.itemKey}><h4>{item.label}</h4><p>{item.content}</p><small>{item.sourceLabel} · 作者已确认</small></article>)}</div></section></div>;
+}
+
+function CategoryLibrary({ settings, entities, facts, emptyTitle }: {
+  settings: LibraryData['settings'];
+  entities: Array<Record<string, unknown>>;
+  facts: Array<Record<string, unknown>>;
+  emptyTitle: string;
+}): React.JSX.Element {
+  if (settings.length === 0 && entities.length === 0) {
+    return <EmptyReference icon={<DatabaseIcon />} title={emptyTitle} description="已确认设定或定稿正文出现相关内容后，资料会带着来源显示在这里；系统不会用猜测补齐。" />;
+  }
+  return <div className="location-library"><ScopedSettings settings={settings} />{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
+}
+
+function TimelineLibrary({ timeline }: { timeline: LibraryData['timeline'] }): React.JSX.Element {
+  if (timeline.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有正文事件记录" description="章节定稿并结算后，正文实际发生的事件会按章节出现在这里；规划中的事件不会提前算作发生。" />;
+  const seen = new Set<string>();
+  const entries = timeline.filter((item) => {
+    const signature = `${item.source_chapter_number ?? ''}\u0000${authorFormatScalar(item.event)}\u0000${item.canonical_name}`;
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+  return <div className="entity-grid timeline-grid">{entries.map((item, index) => {
+    const chapterNumber = Number(item.source_chapter_number);
+    const chapter = Number.isInteger(chapterNumber) && chapterNumber > 0 ? `第 ${chapterNumber} 章` : item.story_time;
+    const title = item.source_chapter_title?.trim() ? `《${item.source_chapter_title.trim()}》` : '';
+    return <article key={`${chapter}-${item.canonical_name}-${index}`}><header><span>{chapter}</span><em>正文已发生</em></header><h3>{authorFormatScalar(item.event)}</h3><p>相关人物或事物：{item.canonical_name}</p><small>{title || '来源章节已记录'}</small></article>;
+  })}</div>;
 }
 
 const PROTAGONIST_CATEGORY_LABELS: Record<string, string> = {
@@ -320,14 +372,15 @@ export function KnowledgeGraph({ records }: { records: Array<Record<string, unkn
   </div>;
 }
 
-function LocationLibrary({ entities, facts }: { entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
+function LocationLibrary({ settings, entities, facts }: { settings: LibraryData['settings']; entities: Array<Record<string, unknown>>; facts: Array<Record<string, unknown>> }): React.JSX.Element {
+  if (settings.length === 0 && entities.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有地点资料" description="已确认地点设定或定稿正文出现具体地点后，会带着来源显示在这里；没有坐标时不会自动编造地图位置。" />;
   const points = facts.flatMap((fact) => {
     const value = isRecord(fact.value) ? fact.value : null;
     const relation = String(fact.relation_key ?? '');
     if (value === null || !/(coordinate|position|map|坐标|位置)/iu.test(relation) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) return [];
     return [{ name: String(fact.canonical_name ?? '地点'), x: clampPercent(Number(value.x)), y: clampPercent(Number(value.y)), source: String(fact.fact_id ?? '') }];
   });
-  return <div className="location-library">{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : <p className="record-empty">尚无作者确认的地图坐标。系统不会用力导向布局冒充地理事实。</p>}<EntityGrid entities={entities} facts={facts} /></div>;
+  return <div className="location-library"><ScopedSettings settings={settings} />{points.length > 0 ? <div className="author-map" role="img" aria-label={`使用作者坐标的故事地图，共${points.length}个地点`}>{points.map((point) => <button type="button" key={`${point.name}-${point.source}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`作者坐标 ${point.x}, ${point.y}`}>{point.name}</button>)}</div> : entities.length > 0 && <p className="record-empty">这些地点已有正文来源，但作者尚未确认地图坐标，因此只显示地点卡片。</p>}{entities.length > 0 && <EntityGrid entities={entities} facts={facts} />}</div>;
 }
 
 function entityTypeLabel(type: string): string {
@@ -340,12 +393,12 @@ function arrayText(value: unknown, fallback: string): string {
 
 function isLibraryData(value: unknown): value is LibraryData {
   return isRecord(value) && typeof value.canonRevision === 'number' && Array.isArray(value.entities) && Array.isArray(value.facts)
-    && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps)
+    && Array.isArray(value.timeline) && Array.isArray(value.relations) && Array.isArray(value.tags) && Array.isArray(value.projections) && Array.isArray(value.gaps)
     && Array.isArray(value.settings) && (value.bookProfile === null || isRecord(value.bookProfile)) && isRecord(value.summary);
 }
 
 function emptyLibraryData(): LibraryData {
-  return { canonRevision: 0, entities: [], facts: [], relations: [], tags: [], projections: [], gaps: [], settings: [], bookProfile: null, summary: { entityCount: 0, factCount: 0, relationCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } };
+  return { canonRevision: 0, entities: [], facts: [], timeline: [], relations: [], tags: [], projections: [], gaps: [], settings: [], bookProfile: null, summary: { entityCount: 0, factCount: 0, relationCount: 0, timelineCount: 0, tagCount: 0, projectionCount: 0, openGapCount: 0 } };
 }
 
 function isUnclassifiedCategory(category: string): boolean {
