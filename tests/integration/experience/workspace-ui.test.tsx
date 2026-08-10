@@ -182,7 +182,8 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(functionBar).getByRole('button', { name: '设定' }));
     expect(within(functionBar).getByRole('button', { name: '设定' })).toHaveAttribute('aria-current', 'page');
     expect(document.querySelector('.ios-book-sidebar')).toBeInTheDocument();
-    expect(document.querySelector('.ios-commandbar')).toBeInTheDocument();
+    expect(document.querySelector('.ios-commandbar')).toBeNull();
+    expect(document.querySelector('.current-view-chip')).toBeNull();
     expect(document.querySelector('.ios-function-bar')).toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
@@ -199,7 +200,14 @@ describe('完整创作工作台', () => {
     const flowBook = { ...book, title: '烬骨问天·二十章全流程-xianxia-20-final' };
     const acceptanceBook = { ...secondBook, title: '烬骨问天·二十章全流程-xianxia-20-acceptance' };
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname === '/api/v1/books') return Promise.resolve(apiResponse([flowBook, acceptanceBook]));
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/v1/books') return Promise.resolve(apiResponse([flowBook, acceptanceBook]));
+      if (path.endsWith('/book-profile')) return Promise.resolve(apiResponse({
+        title: flowBook.title, channel: '男频', category: '东方仙侠', subjects: ['修仙'], mainTags: ['成长'], customTags: [], protagonists: [],
+        storyDirection: '少年从杂役院逆势崛起。', mustFollow: [], style: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
+        source: '老板确认的开书资料', version: 1, openingBlueprint: {}
+      }));
+      if (path.endsWith('/planning-state')) return Promise.resolve(apiResponse({ version: 1, stage: 'book_profile_confirmed', stageLabel: '开书资料已确认', missing: [], nextAction: '开始设定' }));
       return baseRouter(input, init);
     }));
 
@@ -210,6 +218,8 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).getByText('20章流程测试', { exact: false })).toBeInTheDocument();
     expect(within(bookRail).getByText('20章验收测试', { exact: false })).toBeInTheDocument();
     expect(within(bookRail).queryByText(/xianxia|acceptance|final/iu)).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '烬骨问天' })).toBeInTheDocument();
+    expect(screen.queryByText(/xianxia-20-final|xianxia-20-acceptance/iu)).not.toBeInTheDocument();
     expect(bookRail.querySelectorAll('.book-rail-cover')).toHaveLength(2);
     expect(bookRail.querySelectorAll('.book-cover-title')).toHaveLength(2);
     expect(bookRail.querySelector('.book-rail-copy')).toBeNull();
@@ -227,7 +237,7 @@ describe('完整创作工作台', () => {
 
     const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
     fireEvent.click(within(bookRail).getByRole('button', { name: /北境军报/ }));
-    await waitFor(() => expect(screen.getByLabelText('当前功能：章纲')).toBeInTheDocument());
+    await waitFor(() => expect(within(bookRail).getByRole('button', { name: /北境军报/ })).toHaveAttribute('aria-current', 'page'));
     expect(within(functionBar).getByRole('button', { name: '章纲' })).toHaveAttribute('aria-current', 'page');
     expect(within(bookRail).getByRole('button', { name: /北境军报/ })).toHaveAttribute('aria-current', 'page');
   });
@@ -271,8 +281,9 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.manuscript-view\s*\{[^}]*padding:\s*0\s+clamp\(10px,\s*1\.4vw,\s*22px\)/su);
     expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
-    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar commandbar"\s*"sidebar functions"\s*"sidebar main"/su);
+    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar functions"\s*"sidebar main"/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
+    expect(css).not.toMatch(/\.ios-commandbar|\.current-view-chip/su);
     expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*144px\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*84px[^}]*overflow-y:\s*scroll/su);

@@ -20,6 +20,7 @@ import {
   authorRelationshipLabel
 } from '../../app/author-presentation';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
+import { bookDisplayTitle } from '../../app/display-labels';
 import { EmptyReference, RecordCollection, StructuredContent, authorityLabel, formatValue, isRecord } from '../shared/StructuredContent';
 
 type LibraryTab = 'overview' | 'settings' | 'protagonist' | 'characters' | 'organizations' | 'locations' | 'items' | 'events' | 'rules' | 'tags' | 'gaps' | 'evidence';
@@ -60,7 +61,7 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
     ['人物与事物', data.summary.entityCount], ['正式事实', data.summary.factCount], ['关系', data.summary.relationCount],
     ['标签', data.summary.tagCount], ['分析结果', data.summary.projectionCount], ['待补内容', data.summary.openGapCount]
   ];
-  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{data.bookProfile.title}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}<div className="library-explainer"><TreeStructureIcon /><div><h3>哪些内容算正式资料</h3><p>开书资料、已经确认的设定、定稿正文和事实算正式资料。人物关系、情绪和地图位置由系统整理；如果出现冲突，以原文和作者确认内容为准。</p></div></div></div>;
+  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{bookDisplayTitle(data.bookProfile.title)}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}<div className="library-explainer"><TreeStructureIcon /><div><h3>哪些内容算正式资料</h3><p>开书资料、已经确认的设定、定稿正文和事实算正式资料。人物关系、情绪和地图位置由系统整理；如果出现冲突，以原文和作者确认内容为准。</p></div></div></div>;
 }
 
 function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.Element {

@@ -26,6 +26,7 @@ import {
   type WorkspaceData
 } from '../../lib/api/client';
 import { toAuthorFacingText } from '../../app/author-presentation';
+import { bookDisplayTitle } from '../../app/display-labels';
 import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
@@ -309,7 +310,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
 
 function BookProfilePanel({ profile, onEdit }: { profile: BookProfileViewData; onEdit: () => void }): React.JSX.Element {
   return <section className="book-profile-panel">
-    <header><div><h3>{profile.title}</h3><p>{profile.channel} · {profile.category} · 第 {profile.version} 版</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
+    <header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.channel} · {profile.category} · 第 {profile.version} 版</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
     <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>

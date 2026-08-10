@@ -461,19 +461,8 @@ export function App(): React.JSX.Element {
         </div>
       </aside>
 
-      <header className="topbar ios-commandbar">
-        <button className="icon-button mobile-only" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
-        <div className="topbar-current-object">
-          <span>当前书籍</span>
-          <strong>{selectedBook === null ? '还没有书籍' : bookDisplayTitle(selectedBook.title)}</strong>
-        </div>
-        <div className="current-view-chip" aria-label={`当前功能：${utilityView === 'tasks' ? workspaceFunctionLabel('tasks') : utilityView === 'team' ? workspaceFunctionLabel('team') : utilityView === 'ideas' ? workspaceFunctionLabel('ideas') : sectionLabel(creationTab)}`}>
-          <span aria-hidden="true" />
-          {utilityView === 'tasks' ? workspaceFunctionLabel('tasks') : utilityView === 'team' ? workspaceFunctionLabel('team') : utilityView === 'ideas' ? workspaceFunctionLabel('ideas') : sectionLabel(creationTab)}
-        </div>
-      </header>
-
       <nav className="ios-function-bar" aria-label="功能栏">
+        <button className="icon-button mobile-only function-book-toggle" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
         <div className="function-nav-primary">
           {([
             ['framework', BookOpenTextIcon],
@@ -568,9 +557,6 @@ function UnifiedEmptyState({ title, description, onCreate }: { title: string; de
   </section>;
 }
 
-function sectionLabel(tab: PlanningTab): string {
-  return workspaceFunctionLabel(tab);
-}
 
 function readSelectedBook(): string | null {
   try {
