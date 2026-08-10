@@ -48,7 +48,6 @@ import { cacheSnapshot, loadSnapshot } from '../lib/offline/offline-store';
 import { NamingWorkspace } from '../features/naming/NamingWorkspace';
 import { ArchiveBookDialog, PurgeBookDialog } from '../features/bookshelf/BookLifecycleDialogs';
 import { bookStatusLabel } from './display-labels';
-import { DrawerHeader } from '../features/creation-desk/WorkspaceShell';
 import { CompleteCreateBookDialog } from '../features/onboarding/CompleteCreateBookDialog';
 import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
 import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
@@ -422,33 +421,23 @@ export function App(): React.JSX.Element {
       data-theme={preferences.theme}
       style={{ '--font-scale': String(FONT_SCALE[preferences.fontSize]) } as CSSProperties}
     >
-      <header className="topbar">
-        <div className="brand-lockup">
-          <button className="icon-button mobile-only" type="button" aria-label="打开书籍" onClick={() => setLeftOpen(true)}><ListIcon /></button>
-          <div className="brand-mark" aria-hidden="true">文</div>
-          <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
+      <aside className={`left-rail ios-book-sidebar ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍栏">
+        <div className="sidebar-brand">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true">文</div>
+            <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
+          </div>
+          <button className="icon-button mobile-only" type="button" aria-label="关闭书籍栏" onClick={() => setLeftOpen(false)}><XIcon /></button>
         </div>
-        <div className="topbar-current-object">
-          <strong>{selectedBook?.title ?? '还没有书籍'}</strong>
-          <span>{utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}</span>
-        </div>
-        <div className="topbar-actions">
-          <button className={utilityView === 'team' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'team' ? null : 'team')}><UsersThreeIcon />团队</button>
-          <button className={utilityView === 'tasks' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'tasks' ? null : 'tasks')}><FileTextIcon />任务</button>
-          <button className={utilityView === 'ideas' ? 'topbar-text-button active' : 'topbar-text-button'} type="button" onClick={() => setUtilityView((current) => current === 'ideas' ? null : 'ideas')}><LightbulbIcon />灵感讨论</button>
-          <button className="topbar-text-button" type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon />设置</button>
-        </div>
-      </header>
-
-      <aside className={`left-rail ${leftOpen ? 'drawer-open' : ''}`} aria-label="书籍与创作导航">
-        <DrawerHeader title="书籍" onClose={() => setLeftOpen(false)} />
-          <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
-            <button className="rail-new-book" type="button" onClick={() => { setCreateOpen(true); setLeftOpen(false); }}><PlusIcon /><span>新建书籍</span></button>
-            <p>我的书籍</p>
-            <nav aria-label="选择书籍">{activeBooks.map((book) => <button type="button" key={book.bookId}
-              className={book.bookId === selectedBookId ? 'active' : ''} onClick={() => selectBook(book.bookId)}>
-              <BookOpenTextIcon /><span><strong>{book.title}</strong><small>{book.bookId === selectedBookId ? '当前书籍' : bookStatusLabel(book.status)}</small></span>
-            </button>)}</nav>
+        <div className="rail-book-switcher unified-book-switcher" aria-label="书籍切换">
+          <button className="rail-new-book" type="button" onClick={() => { setCreateOpen(true); setLeftOpen(false); }}><PlusIcon /><span>新建书籍</span></button>
+          <div className="book-list-heading"><span>我的书籍</span><strong>{activeBooks.length}</strong></div>
+          <nav aria-label="选择书籍">{activeBooks.map((book) => <button type="button" key={book.bookId}
+            className={book.bookId === selectedBookId ? 'active' : ''} aria-current={book.bookId === selectedBookId ? 'page' : undefined}
+            onClick={() => selectBook(book.bookId)}>
+            <BookOpenTextIcon /><span><strong>{book.title}</strong><small>{book.bookId === selectedBookId ? '当前书籍' : bookStatusLabel(book.status)}</small></span>
+          </button>)}</nav>
+          <div className="sidebar-book-actions">
             {archivedBooks.length > 0 && <details className="rail-archived-books" open={archiveOpen} onToggle={(event) => setArchiveOpen(event.currentTarget.open)}>
               <summary>已归档书籍 · {archivedBooks.length}</summary>
               <div>{archivedBooks.map((book) => <article key={book.bookId}>
@@ -457,21 +446,45 @@ export function App(): React.JSX.Element {
                   <button type="button" disabled={busy} onClick={() => setPurgeCandidate(book)}>彻底删除</button></div>
               </article>)}</div>
             </details>}
-            {selectedBook !== null && <nav className="desk-object-navigation" aria-label="当前书创作流程">
-              {([
-                ['framework', '本书资料', BookOpenTextIcon],
-                ['basic', '设定大纲', TreeStructureIcon],
-                ['master', '当前卷纲', MapTrifoldIcon],
-                ['event', '事件设计', CaretRightIcon],
-                ['chapter', '章纲', ListIcon],
-                ['manuscript', '正文', FileTextIcon],
-                ['library', '故事资料库', BooksIcon],
-                ['naming', '取名', TagIcon]
-              ] as const).map(([key, label, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''} key={key} onClick={() => { setCreationTab(key); setUtilityView(null); setLeftOpen(false); }}><Icon /><span>{label}</span></button>)}
-              <button className="archive-current-book" type="button" onClick={() => setArchiveCandidate(selectedBook)}><ArchiveBoxIcon /><span>归档当前书籍</span></button>
-            </nav>}
+            {selectedBook !== null && <button className="archive-current-book" type="button" onClick={() => setArchiveCandidate(selectedBook)}><ArchiveBoxIcon /><span>归档当前书籍</span></button>}
           </div>
+        </div>
       </aside>
+
+      <header className="topbar ios-commandbar">
+        <button className="icon-button mobile-only" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
+        <div className="topbar-current-object">
+          <span>当前书籍</span>
+          <strong>{selectedBook?.title ?? '还没有书籍'}</strong>
+        </div>
+        <div className="current-view-chip" aria-label={`当前功能：${utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}`}>
+          <span aria-hidden="true" />
+          {utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}
+        </div>
+      </header>
+
+      <nav className="ios-function-bar" aria-label="功能栏">
+        <div className="function-nav-primary">
+          {([
+            ['framework', '本书资料', BookOpenTextIcon],
+            ['basic', '设定大纲', TreeStructureIcon],
+            ['master', '当前卷纲', MapTrifoldIcon],
+            ['event', '事件设计', CaretRightIcon],
+            ['chapter', '章纲', ListIcon],
+            ['manuscript', '正文', FileTextIcon],
+            ['library', '故事资料库', BooksIcon],
+            ['naming', '取名', TagIcon]
+          ] as const).map(([key, label, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''}
+            aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={label} disabled={selectedBook === null}
+            key={key} onClick={() => { setCreationTab(key); setUtilityView(null); }}><Icon /><span>{label}</span></button>)}
+        </div>
+        <div className="function-nav-utilities">
+          <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>团队</span></button>
+          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>任务</span></button>
+          <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>灵感讨论</span></button>
+          <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>设置</span></button>
+        </div>
+      </nav>
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}

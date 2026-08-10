@@ -29,7 +29,9 @@ describe('Worker生产进程生命周期', () => {
       },
       stdio: 'ignore'
     });
-    const first = await waitForHeartbeat(context.database, workerId, 5_000);
+    // 全量测试并发编译大量 TypeScript 时，子进程首次加载 tsx 可能超过 5 秒；
+    // 这里等待真实心跳而不是把主机负载误判成 Worker 退出，后续仍验证心跳持续更新。
+    const first = await waitForHeartbeat(context.database, workerId, 15_000);
     expect(child.exitCode).toBeNull();
     expect(first).toBeDefined();
     await delay(5_200);

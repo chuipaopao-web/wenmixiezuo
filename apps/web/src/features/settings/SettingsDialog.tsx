@@ -39,10 +39,10 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
     }])));
   }, [bindings]);
   const themes = [
-    { value: 'sage', label: '浅绿', description: '接近智囊团的舒缓工作底色' },
-    { value: 'paper', label: '米白', description: '适合长时间阅读正文' },
-    { value: 'mist', label: '雾蓝', description: '冷静、低饱和的创作环境' },
-    { value: 'night', label: '夜间', description: '低亮度深色工作台' }
+    { value: 'sage', label: 'iOS 浅色', description: '冷白、蓝灰和玻璃层次的默认工作台' },
+    { value: 'paper', label: '阅读白', description: '温暖克制，适合长时间阅读正文' },
+    { value: 'mist', label: '冰蓝', description: '清透安静，突出规划和资料层级' },
+    { value: 'night', label: '深色', description: '低亮度玻璃材质的夜间工作台' }
   ] as const;
   const fonts = [
     { value: 'small', label: '小' },
@@ -181,4 +181,3 @@ function uniqueProfiles(capabilities: CapabilityData | null, bindings: ModelBind
 function modelProfileValue(profile: TeamModelProfileData): string {
   return `${profile.provider}\n${profile.modelId}\n${profile.plan}`;
 }
-

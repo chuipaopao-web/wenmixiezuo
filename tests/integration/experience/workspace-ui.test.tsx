@@ -97,9 +97,9 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    expect(await screen.findByRole('complementary', { name: '书籍与创作导航' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: '书籍栏' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
-    expect(screen.getByRole('navigation', { name: '当前书创作流程' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: '功能栏' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/books/book-ui-1/conversation-entry'))).toBe(false);
@@ -155,12 +155,12 @@ describe('完整创作工作台', () => {
     expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
   });
 
-  it('使用左侧书籍与流程、中央内容和顶部工具的统一布局并通过自动无障碍检查', async () => {
+  it('使用纯书籍左栏、顶部完整功能栏和中央内容区并通过自动无障碍检查', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
 
     expect((await screen.findAllByText('雾钟档案')).length).toBeGreaterThanOrEqual(1);
-    const bookRail = screen.getByRole('complementary', { name: '书籍与创作导航' });
+    const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
     expect(screen.queryByText('小文秘书（本地秘书）')).not.toBeInTheDocument();
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-theme', 'sage');
     expect(document.querySelector('.app-shell')).toHaveStyle({ '--font-scale': '1.1' });
@@ -171,11 +171,19 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
     expect(within(bookRail).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
 
-    const creationNavigation = screen.getByRole('navigation', { name: '当前书创作流程' });
+    const functionBar = screen.getByRole('navigation', { name: '功能栏' });
     for (const name of ['本书资料', '设定大纲', '当前卷纲', '事件设计', '章纲', '正文', '故事资料库', '取名']) {
-      expect(within(creationNavigation).getByRole('button', { name })).toBeInTheDocument();
+      expect(within(functionBar).getByRole('button', { name })).toBeInTheDocument();
+      expect(within(bookRail).queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    for (const name of ['团队', '任务', '灵感讨论', '设置']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    for (const name of ['团队', '任务', '灵感讨论', '设置']) {
+      expect(within(functionBar).getByRole('button', { name })).toBeInTheDocument();
+    }
+    fireEvent.click(within(functionBar).getByRole('button', { name: '设定大纲' }));
+    expect(within(functionBar).getByRole('button', { name: '设定大纲' })).toHaveAttribute('aria-current', 'page');
+    expect(document.querySelector('.ios-book-sidebar')).toBeInTheDocument();
+    expect(document.querySelector('.ios-commandbar')).toBeInTheDocument();
+    expect(document.querySelector('.ios-function-bar')).toBeInTheDocument();
     expect(document.querySelector('.task-center')).toBeNull();
     expect(document.querySelector('.chapter-tree')).toBeNull();
     expect(document.querySelector('.workspace-tabs')).toBeNull();
@@ -184,6 +192,24 @@ describe('完整创作工作台', () => {
 
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('点击左侧书籍只切换当前书，顶部功能保持在原页面', async () => {
+    const baseRouter = createFetchRouter();
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/v1/books') return Promise.resolve(apiResponse([book, secondBook]));
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+    const functionBar = await screen.findByRole('navigation', { name: '功能栏' });
+    fireEvent.click(within(functionBar).getByRole('button', { name: '章纲' }));
+    expect(within(functionBar).getByRole('button', { name: '章纲' })).toHaveAttribute('aria-current', 'page');
+
+    const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
+    fireEvent.click(within(bookRail).getByRole('button', { name: /北境军报/ }));
+    await waitFor(() => expect(screen.getByLabelText('当前功能：章纲')).toBeInTheDocument());
+    expect(within(functionBar).getByRole('button', { name: '章纲' })).toHaveAttribute('aria-current', 'page');
+    expect(within(bookRail).getByRole('button', { name: /北境军报/ })).toHaveAttribute('aria-current', 'page');
   });
   it('团队页展示公开岗位配置并保存书籍级补充提示词', async () => {
     const fetchMock = vi.fn(createFetchRouter());
@@ -225,6 +251,10 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.manuscript-view\s*\{[^}]*padding:\s*0\s+clamp\(10px,\s*1\.4vw,\s*22px\)/su);
     expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
+    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar commandbar"\s*"sidebar functions"\s*"sidebar main"/su);
+    expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
+    expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
+    expect(css).toContain('#0a84ff');
   });
 
   it('合并后的故事资料库和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
