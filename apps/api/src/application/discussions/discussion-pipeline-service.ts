@@ -42,6 +42,11 @@ import {
   chapterOutlineStageBoundaryFailure,
   stageBoundaryContractLine
 } from '../../domain/chapter-outline-stage-boundary.js';
+const groupedSettingMarkers = ['【设定成组讨论资料包】', '【设定' + '大纲成组讨论资料包】'] as const;
+
+function isGroupedSettingScope(value: string): boolean {
+  return groupedSettingMarkers.some((marker) => value.includes(marker));
+}
 
 interface DiscussionTaskRow {
   status: string;
@@ -449,7 +454,7 @@ export class DiscussionPipelineService {
         const effective = isEditor ? prepareEffectiveOutput(result.output) : undefined;
         // 各级规划的原始回复还携带机器可解析的落库契约。
         // 面向老板的消息仍使用 effective 字段，但落库证据必须保留原始结构化段。
-        const groupedSettingDiscussion = brief.scopeText.includes('【设定大纲成组讨论资料包】');
+        const groupedSettingDiscussion = isGroupedSettingScope(brief.scopeText);
         const output = isEditor && (
           brief.purpose === 'locked_planning'
           || brief.scopeText.includes('【剧情总纲专项讨论资料包】')
@@ -570,7 +575,7 @@ export class DiscussionPipelineService {
       }
 
       const settingSpecialistDiscussion = brief.scopeText.includes('【设定专项讨论资料包】')
-        || brief.scopeText.includes('【设定大纲成组讨论资料包】');
+        || isGroupedSettingScope(brief.scopeText);
       const masterOutlineDiscussion = brief.scopeText.includes('【剧情总纲专项讨论资料包】');
       if (masterOutlineDiscussion) {
         for (const opinion of independent) {
@@ -615,12 +620,12 @@ export class DiscussionPipelineService {
         discussionId: brief.discussionId,
         decisionId,
         scopeText: brief.scopeText,
-        content: brief.scopeText.includes('【设定大纲成组讨论资料包】')
+        content: isGroupedSettingScope(brief.scopeText)
           ? editorOpinion.output
           : effectiveEditorOutput.fullContent
       });
-      if (brief.scopeText.includes('【设定大纲成组讨论资料包】') && settingCandidates.length === 0) {
-        throw new Error('活动主编回复缺少有效的“设定大纲落库”结构，不能把整段讨论摘要伪装成多项设定');
+      if (isGroupedSettingScope(brief.scopeText) && settingCandidates.length === 0) {
+        throw new Error('活动主编回复缺少有效的“设定落库”结构，不能把整段讨论摘要伪装成多项设定');
       }
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
@@ -690,7 +695,7 @@ function planningHierarchySources(
   if (state === undefined) return [];
   const requested = [
     { id: state.active_style_version_id, type: 'style', reason: '可追溯表达策略；规划按当前场景选择必要表达，不固定全书情绪' },
-    { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定大纲，是剧情推演不可违背的上游边界' },
+    { id: state.setting_baseline_version_id, type: 'setting', reason: '已确认设定，是剧情推演不可违背的上游边界' },
     ...(rollingPlan || creativeExploration
       ? [{ id: state.master_outline_version_id, type: 'master_outline', reason: '已确认剧情总纲；只提取与当前故事弧和近期章纲相关的阶段边界' }]
       : [])
@@ -887,14 +892,14 @@ function workflowArtifactValidationFailure(
   if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
     return isValidMasterOutlineOutput(output) ? null : '剧情总纲缺少完整的stage_master_v2结构';
   }
-  if (scopeText.includes('【设定大纲成组讨论资料包】')) {
+  if (isGroupedSettingScope(scopeText)) {
     const requiredKeys = new Set(settingBatchKeys(scopeText));
     const deposits = parseSettingOutlineDeposit(output);
     return requiredKeys.size > 0
       && requiredKeys.size === deposits.length
       && deposits.every((deposit) => requiredKeys.has(deposit.itemKey))
       ? null
-      : '设定大纲没有逐项覆盖本批全部设定编号';
+      : '设定没有逐项覆盖本批全部设定编号';
   }
   if (purpose === 'locked_planning') {
     try {
@@ -969,7 +974,7 @@ export function discussionOutputTokenLimit(
   // 主编只需要输出面向作者的结论和一个结构化规划产物。完整编剧意见已经
   // 单独保存在 discussion_opinions；继续申请 4k 输出会让真实方舟 Plan
   // 在 7k 级输入下更容易被上游网关中断。
-  if (isEditor && scopeText.includes('【设定大纲成组讨论资料包】')) {
+  if (isEditor && isGroupedSettingScope(scopeText)) {
     // 成组设定必须逐项返回可解析的落库合同。固定 3.6k 会在 8—12 项批次中
     // 截断 JSON，造成“模型已成功、任务仍失败”的假性恢复循环。
     // 预算随本批条目数有界增长，不影响其他对象协作任务的精简输出。
@@ -1009,12 +1014,12 @@ export function discussionContextTokenBudget(isEditor: boolean): number {
 }
 
 export function discussionRetrievalQuery(scopeText: string): string {
-  if (!scopeText.includes('【设定大纲成组讨论资料包】')) {
+  if (!isGroupedSettingScope(scopeText)) {
     return estimateTokens(scopeText) <= 1_200 ? scopeText : boundedHeadAndTail(scopeText, 1_200);
   }
   const bookTitle = /(?:^|\n)书籍：([^\n]+)/u.exec(scopeText)?.[1]?.trim() ?? '';
   const targetJson = /(?:^|\n)本批设定项JSON：(\[[^\n]*\])/u.exec(scopeText)?.[1];
-  if (targetJson === undefined) return `设定大纲 ${bookTitle}`.trim();
+  if (targetJson === undefined) return `设定 ${bookTitle}`.trim();
   try {
     const targets = JSON.parse(targetJson) as Array<{ groupTitle?: unknown; label?: unknown; prompt?: unknown }>;
     const terms = targets.flatMap((target) => [
@@ -1022,9 +1027,9 @@ export function discussionRetrievalQuery(scopeText: string): string {
       typeof target.label === 'string' ? target.label : '',
       typeof target.prompt === 'string' ? target.prompt : ''
     ]).filter((value) => value.length > 0);
-    return [`设定大纲`, bookTitle, ...terms].filter((value) => value.length > 0).join(' ');
+    return [`设定`, bookTitle, ...terms].filter((value) => value.length > 0).join(' ');
   } catch {
-    return `设定大纲 ${bookTitle}`.trim();
+    return `设定 ${bookTitle}`.trim();
   }
 }
 
@@ -1155,7 +1160,7 @@ function buildDiscussionPrompt(input: {
     participant, purpose, phase, scopeText, requestedChapterCount, firstChapterNumber, evidenceContext, peerOpinions
   } = input;
   const isMasterOutlineWorkshop = scopeText.includes('【剧情总纲专项讨论资料包】');
-  const isGroupedSettingWorkshop = scopeText.includes('【设定大纲成组讨论资料包】');
+  const isGroupedSettingWorkshop = isGroupedSettingScope(scopeText);
   const groupedSettingKeys = isGroupedSettingWorkshop ? settingBatchKeys(scopeText) : [];
   const isEditor = participant.role_key === 'chief_editor' || participant.role_key === 'deputy_editor';
   const stageContract = purpose === 'locked_planning'
@@ -1227,14 +1232,14 @@ function buildDiscussionPrompt(input: {
       isMasterOutlineWorkshop
         ? '这是剧情总纲专项讨论。只能综合两位编剧已经提交并通过结构校验的完整阶段方案；按连续章节范围规划全书阶段，写清每阶段的主线遭遇、解决方式、结果、起承转合、阶段总结、待回收信息与伏笔、后续方向。不得凭空补造第三套通用总纲，不得写逐章事件。'
         : isGroupedSettingWorkshop
-            ? '这是设定大纲成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
+            ? '这是设定成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
               ? '现在只做方向推演：综合编剧意见后先给一个明确主推荐，写清收益、代价、因果风险和人物影响；只有确有重大取舍时保留一个结构不同的备选。最多提出1个会改变重大方向的必要问题；其余未知项用可逆假设推进。不得估算章节数，不得生成章纲，不得安排主笔开写。'
               : purpose === 'locked_planning'
                 ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
                 : '请明确回应老板，先分析老板的真实意图，再给出一个主推荐、简短理由、必要风险和可执行下一步。不得把判断责任变成连续问题；资料足够时直接形成可确认方案。',
       isGroupedSettingWorkshop
-        ? `在同一个JSON对象的workflowArtifact字段输出设定大纲落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
+        ? `在同一个JSON对象的workflowArtifact字段输出设定落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
         : '',
       isMasterOutlineWorkshop
         ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"plotPatterns":{"primary":{"id":"模式ID可省略","name":"主剧情模式","reason":"为什么适合本阶段"},"supporting":[{"name":"辅助模式","reason":"承担什么作用"}]},"dramaticQuestion":"这段剧情最终必须回答的核心问题","stageGoal":"本阶段必须完成的可验证目标","startState":"阶段开始时人物、关系和局势状态","conflictDesign":{"surface":"表层冲突","underlying":"深层冲突","stakes":"成功与失败牵动什么","failureCost":"失败的具体代价"},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"completionCriteria":["满足什么才算本段写完"],"hardConstraints":["不得偏移的事实、人物和因果边界"],"creativeFreedom":["允许主笔自由发挥的空间"],"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。剧情模式只是软参考，不得照搬公式；反向拆解也必须用同一结构总结真实正文，而不是事后硬套模式。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留。主线、起承转合、结束验收条件和防偏移边界必须具体。'

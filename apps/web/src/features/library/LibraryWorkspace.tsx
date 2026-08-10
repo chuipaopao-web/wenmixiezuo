@@ -64,7 +64,7 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
 }
 
 function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.Element {
-  if (data.settings.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有已确认设定" description="在设定大纲中确认的内容会按板块收在这里；仍在讨论的内容不会当成正式资料。" />;
+  if (data.settings.length === 0) return <EmptyReference icon={<DatabaseIcon />} title="还没有已确认设定" description="在设定中确认的内容会按板块收在这里；仍在讨论的内容不会当成正式资料。" />;
   const groups = new Map<string, typeof data.settings>();
   for (const item of data.settings) groups.set(item.groupTitle, [...(groups.get(item.groupTitle) ?? []), item]);
   return <div className="confirmed-settings-library">{[...groups.entries()].map(([groupTitle, items]) => <section key={groupTitle}><header><h3>{groupTitle}</h3><span>{items.length} 项已确认</span></header><div>{items.map((item) => <article key={item.itemKey}><h4>{item.label}</h4><p>{item.content}</p><small>{item.sourceLabel} · {item.confirmedAt === null ? '确认时间未记录' : new Date(item.confirmedAt).toLocaleString('zh-CN')}</small></article>)}</div></section>)}</div>;

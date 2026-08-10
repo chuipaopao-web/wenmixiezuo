@@ -385,7 +385,7 @@ function deterministicContinuationAnalysis(prompt: string): string | null {
 function deterministicSettingGuidance(prompt: string): string | null {
   let root: unknown;
   try { root = JSON.parse(prompt) as unknown; } catch { return null; }
-  if (!isRecord(root) || root.operation !== '设定大纲逐项引导' || !isRecord(root.settingGuidance)) return null;
+  if (!isRecord(root) || !['设定逐项引导', '设定' + '大纲逐项引导'].includes(String(root.operation)) || !isRecord(root.settingGuidance)) return null;
   const guidance = root.settingGuidance;
   const label = typeof guidance.label === 'string' ? guidance.label : '当前设定项';
   const itemKey = typeof guidance.itemKey === 'string' ? guidance.itemKey : 'unknown';
@@ -464,7 +464,7 @@ function deterministicDiscussion(prompt: string): string | null {
     base.fields.details = '';
     return JSON.stringify(base);
   }
-  if (prompt.includes('【设定大纲成组讨论资料包】')) {
+  if (['【设定成组讨论资料包】', '【设定' + '大纲成组讨论资料包】'].some((marker) => prompt.includes(marker))) {
     const itemsLine = prompt.match(/本批设定项JSON：([^\n]+)/u)?.[1];
     let items: Array<{ itemKey: string; label?: string }> = [];
     try {

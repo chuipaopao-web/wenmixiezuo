@@ -56,7 +56,7 @@ export class SettingBaselineService {
     if (!readiness.ready) {
       throw new DomainError(
         errorCodes.operationIncomplete,
-        '设定大纲尚未准备完成：题材必备项必须确认，其余可选择稍后补充、刻意留白或不适用',
+        '设定尚未准备完成：题材必备项必须确认，其余可选择稍后补充、刻意留白或不适用',
         { ...readiness },
         false,
         409

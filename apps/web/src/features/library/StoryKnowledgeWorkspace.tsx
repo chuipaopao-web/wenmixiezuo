@@ -26,15 +26,15 @@ export function StoryKnowledgeWorkspace({ bookId }: { bookId: string }): React.J
       setLibrary(nextLibrary);
       setGraph(nextGraph);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '故事资料库加载失败');
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '资料库加载失败');
     });
     return () => controller.abort();
   }, [bookId]);
 
   return <section className="story-knowledge-workspace">
     <header>
-      <div><span className="eyebrow">资料与关系统一入口</span><h3>故事资料库</h3><p>在同一处查看人物、地点、物品、关系、时间、伏笔、情绪与信息差；所有内容都能回查正式来源。</p></div>
-      <nav aria-label="故事资料库视图">
+      <div><span className="eyebrow">资料与关系统一入口</span><h3>资料库</h3><p>在同一处查看人物、地点、物品、关系、时间、伏笔、情绪与信息差；所有内容都能回查正式来源。</p></div>
+      <nav aria-label="资料库视图">
         <button type="button" className={tab === 'cards' ? 'active' : ''} onClick={() => setTab('cards')}><BookOpenTextIcon />资料卡片</button>
         <button type="button" className={tab === 'relations' ? 'active' : ''} onClick={() => setTab('relations')}><GraphIcon />关系与轨迹</button>
       </nav>

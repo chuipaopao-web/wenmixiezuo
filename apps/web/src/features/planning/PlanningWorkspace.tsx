@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { FileTextIcon } from '@phosphor-icons/react';
 import {
+  workspaceFunctionLabel,
+  workspacePrimaryFunctionKeys,
+  type WorkspacePrimaryFunctionKey
+} from '@wenmi/contracts';
+import {
   addArtifactVersion,
   compareArtifactVersions,
   confirmSettingBaseline,
@@ -30,7 +35,7 @@ import { VolumePlanningPanel } from './VolumePlanningPanel';
 import { EventPlanningPanel } from './EventPlanningPanel';
 import { EventChapterPlanningPanel } from './EventChapterPlanningPanel';
 
-type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'library' | 'naming';
+type PlanningTab = WorkspacePrimaryFunctionKey;
 
 type ArtifactProjection = 'complete' | 'framework' | 'basic';
 
@@ -255,7 +260,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
     const source = isRecord(artifact.active_content) ? artifact.active_content : {};
     return hasMeaningfulArtifactValue(projectArtifactContent(source, projection));
   });
-  const tabs: Array<[PlanningTab, string]> = [['framework', '本书资料'], ['basic', '设定大纲'], ['master', '当前卷'], ['event', '事件设计'], ['chapter', '章纲'], ['manuscript', '正文'], ['library', '故事资料库'], ['naming', '取名']];
+  const tabs: Array<[PlanningTab, string]> = workspacePrimaryFunctionKeys.map((key) => [key, workspaceFunctionLabel(key)]);
   const ideaContext: Partial<Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }>> = {
     framework: { surface: 'book_profile', subjectType: 'book', title: '补充开书想法' },
     basic: { surface: 'setting', subjectType: 'setting', title: '补充设定想法' },
@@ -469,15 +474,15 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       if (!readiness.ready) {
         const outstanding = [...readiness.missing, ...readiness.unresolved].slice(0, 12);
         const labels = new Map(allTemplateItems.map((item) => [item.key, item.label]));
-        setNotice(`设定大纲还不能确认，请先处理：${outstanding.map((key) => labels.get(key) ?? key).join('、') || '未完成项目'}`);
+        setNotice(`设定还不能确认，请先处理：${outstanding.map((key) => labels.get(key) ?? key).join('、') || '未完成项目'}`);
         return;
       }
       return confirmSettingBaseline(bookId, planningState.version).then(async () => {
-        setNotice('设定大纲已形成新的正式版本。现在可以进入“卷纲设计”，只规划当前一卷。');
+        setNotice('设定已形成新的正式版本。现在可以进入“分卷”，只规划当前一卷。');
         await onPlanningStateChanged();
       });
     }).catch((reason: unknown) => {
-      setNotice(reason instanceof Error ? reason.message : '确认设定大纲失败');
+      setNotice(reason instanceof Error ? reason.message : '确认设定失败');
     }).finally(() => setBusyKey(null));
   };
 
@@ -516,7 +521,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
 
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
-      <div><h3>设定大纲</h3><p>{profile === null ? '正在识别本书需要的设定。' : `${profile.profileLabel} · 只要求当前故事真正需要的内容`}</p></div>
+      <div><h3>设定</h3><p>{profile === null ? '正在识别本书需要的设定。' : `${profile.profileLabel} · 只要求当前故事真正需要的内容`}</p></div>
       <div className="setting-outline-progress"><strong>{confirmedRequired} / {requiredKeys.size}</strong><span>已确认</span><div><i style={{ width: `${requiredKeys.size === 0 ? 0 : Math.round(confirmedRequired / requiredKeys.size * 100)}%` }} /></div></div>
     </header>
     {bookId !== null && currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <SettingCollaborationPanel
@@ -535,7 +540,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       }}
       onSnapshot={applySnapshot}
     />}
-    {profile !== null && requiredKeys.size > 0 && currentGuidanceItem === undefined && <p className="setting-complete-note">本书必谈设定已经逐项确认。建议项仍可继续补充，也可以确认整份设定大纲并进入卷纲设计。</p>}
+    {profile !== null && requiredKeys.size > 0 && currentGuidanceItem === undefined && <p className="setting-complete-note">本书必谈设定已经逐项确认。建议项仍可继续补充，也可以确认整份设定并进入分卷。</p>}
     <section className="setting-outline-section required">
       <header><strong>当前必须确定</strong><span>{Math.max(0, requiredKeys.size - confirmedRequired)} 项未完成</span></header>
       {requiredGroups.length === 0 ? <p className="setting-empty-state">正在根据开书资料生成本书清单……</p> : renderSettingGroups(requiredGroups)}
@@ -574,7 +579,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
     </section>
     <section className="planning-stage-action">
       <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || currentGuidanceItem !== undefined} onClick={confirmSetting}>
-        {busyKey === 'confirm-setting' ? '正在检查…' : '确认整份设定大纲'}
+        {busyKey === 'confirm-setting' ? '正在检查…' : '确认整份设定'}
       </button>
     </section>
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}

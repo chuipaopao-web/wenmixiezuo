@@ -5,6 +5,46 @@ export const authorInputSurfaces = [
 ] as const;
 export type AuthorInputSurface = typeof authorInputSurfaces[number];
 
+/**
+ * 作者界面的正式功能名称。功能键和数据库 surface 保持稳定，显示名称可独立演进。
+ * 这份共享合同由 Web 和 API 共同使用，禁止在各端再维护第二套名称表。
+ */
+export const workspaceFunctionLabels = {
+  framework: '信息',
+  basic: '设定',
+  master: '分卷',
+  event: '规划',
+  chapter: '章纲',
+  manuscript: '正文',
+  library: '资料库',
+  naming: '取名',
+  team: '团队',
+  tasks: '任务',
+  ideas: '灵感',
+  settings: '设置'
+} as const;
+
+export const workspacePrimaryFunctionKeys = [
+  'framework', 'basic', 'master', 'event', 'chapter', 'manuscript', 'library', 'naming'
+] as const;
+export const workspaceUtilityFunctionKeys = ['team', 'tasks', 'ideas', 'settings'] as const;
+export type WorkspacePrimaryFunctionKey = typeof workspacePrimaryFunctionKeys[number];
+export type WorkspaceUtilityFunctionKey = typeof workspaceUtilityFunctionKeys[number];
+export type WorkspaceFunctionKey = WorkspacePrimaryFunctionKey | WorkspaceUtilityFunctionKey;
+
+export const workspaceFunctionAuthorInputSurfaces: Partial<Record<WorkspacePrimaryFunctionKey, AuthorInputSurface>> = {
+  framework: 'book_profile',
+  basic: 'setting',
+  master: 'volume_plan',
+  event: 'event',
+  chapter: 'chapter_outline',
+  manuscript: 'manuscript'
+};
+
+export function workspaceFunctionLabel(key: WorkspaceFunctionKey): string {
+  return workspaceFunctionLabels[key];
+}
+
 export const authorIntentStrengths = ['must', 'preference', 'inspiration', 'question'] as const;
 export type AuthorIntentStrength = typeof authorIntentStrengths[number];
 

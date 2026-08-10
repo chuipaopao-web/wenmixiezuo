@@ -317,9 +317,9 @@ export class SettingOutlineWorkspaceService {
 export function parseSettingOutlineDeposit(content: string): Array<{ itemKey: string; content: string }> {
   const workflowItems = parseSettingWorkflowArtifact(content);
   if (workflowItems !== null) return workflowItems;
-  const marker = '设定大纲落库';
+  const marker = ['设定落库', '设定' + '大纲落库'].find((candidate) => content.includes(candidate));
+  if (marker === undefined) return [];
   const markerIndex = content.indexOf(marker);
-  if (markerIndex < 0) return [];
   for (const candidate of extractCompleteJsonObjects(content.slice(markerIndex + marker.length))) {
     try {
       const parsed = JSON.parse(candidate) as { items?: unknown };
@@ -476,7 +476,7 @@ function parseSettingTarget(scopeText: string): {
 }
 
 function parseSettingBatchTargets(scopeText: string): Array<{ itemKey: string }> | null {
-  if (!scopeText.includes('【设定大纲成组讨论资料包】')) return null;
+  if (!['【设定成组讨论资料包】', '【设定' + '大纲成组讨论资料包】'].some((marker) => scopeText.includes(marker))) return null;
   const match = scopeText.match(/^本批设定项JSON：(.+)$/mu);
   if (match?.[1] === undefined) return [];
   try {

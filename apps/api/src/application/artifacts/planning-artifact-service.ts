@@ -141,7 +141,7 @@ export class PlanningArtifactService {
 
     if (structuredMaster !== null) {
       if (state.setting_baseline_version_id === null) {
-        throw new Error('确认剧情总纲前必须先确认设定大纲');
+        throw new Error('确认剧情总纲前必须先确认设定');
       }
       const version = this.upsert(scope, 'master_outline', '剧情总纲', {
         outlineSchema: structuredMaster.outlineSchema,

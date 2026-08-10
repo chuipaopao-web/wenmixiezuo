@@ -79,3 +79,20 @@
 - 投影删除或损坏不能破坏正式源。
 - 未确认候选不能升级为正史。
 - 任务结果提交必须通过租约、attempt、书籍和主编epoch校验。
+
+## 作者可见名称与稳定关联键
+
+功能显示名与持久化关联分离：
+
+| 作者看到的名称 | 稳定功能键 | 作者输入 surface | 主要正式对象 |
+|---|---|---|---|
+| 信息 | framework | book_profile | 开书信息与书籍档案 |
+| 设定 | basic | setting | 设定活动版本、候选与基线 |
+| 分卷 | master | volume_plan | volume_plans及版本 |
+| 规划 | event | event | story_events、事件链与事件大纲版本 |
+| 章纲 | chapter | chapter_outline | event_chapter_outlines及版本 |
+| 正文 | manuscript | manuscript | manuscript_versions |
+| 资料库 | library | 无直接作者输入面 | 可重建资料、图谱与来源投影 |
+| 取名 | naming | 无固定surface | 命名候选与占用记录 |
+
+团队、任务、灵感和设置是工具域，不改变上述创作对象的数据库身份。显示名称改动不得修改已合并迁移、表名、枚举、对象ID或历史来源文字。已有历史文字通过作者展示层只读转换，新数据继续使用稳定键建立关联。

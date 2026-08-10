@@ -116,7 +116,7 @@ export class SettingCollaborationCommandService {
     const authorText = this.authorInputText(scope, guidance.itemKey, input.authorInputId);
     const itemJson = JSON.stringify([{ itemKey: guidance.itemKey, label: guidance.label, prompt: guidance.prompt }]);
     const scopeText = [
-      '【设定大纲成组讨论资料包】',
+      '【设定成组讨论资料包】',
       '本批设定项JSON：' + itemJson,
       '作品定位摘要：' + guidance.positioningSummary,
       '故事方向参考：' + guidance.storyDirectionReference,

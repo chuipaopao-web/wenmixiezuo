@@ -10,7 +10,11 @@ import {
   getPublicNarrativeTemplateCatalog,
   hashStableContractContent,
   parseAuthorPlanningInputDraft,
-  resolveNarrativeTemplate
+  resolveNarrativeTemplate,
+  workspaceFunctionAuthorInputSurfaces,
+  workspaceFunctionLabel,
+  workspacePrimaryFunctionKeys,
+  workspaceUtilityFunctionKeys
 } from '@wenmi/contracts';
 
 const previousPatternIds = [
@@ -29,6 +33,20 @@ const previousPatternIds = [
 ] as const;
 
 describe('创作工作流共享合同', () => {
+  it('统一功能名称并保持数据库surface键稳定', () => {
+    expect(workspacePrimaryFunctionKeys.map(workspaceFunctionLabel)).toEqual([
+      '信息', '设定', '分卷', '规划', '章纲', '正文', '资料库', '取名'
+    ]);
+    expect(workspaceUtilityFunctionKeys.map(workspaceFunctionLabel)).toEqual(['团队', '任务', '灵感', '设置']);
+    expect(workspaceFunctionAuthorInputSurfaces).toEqual({
+      framework: 'book_profile', basic: 'setting', master: 'volume_plan', event: 'event',
+      chapter: 'chapter_outline', manuscript: 'manuscript'
+    });
+    expect(Object.values(workspaceFunctionAuthorInputSurfaces).every((surface) =>
+      surface === undefined || ['book_profile', 'setting', 'volume_plan', 'event', 'chapter_outline', 'manuscript'].includes(surface)
+    )).toBe(true);
+  });
+
   it('卷与事件使用不同模板集合，公开字段不泄漏内部方法名', () => {
     const volume = getPublicNarrativeTemplateCatalog('volume', ['悬疑', '秘密']);
     const event = getPublicNarrativeTemplateCatalog('event', ['关系']);

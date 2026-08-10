@@ -163,7 +163,7 @@ function subject(packKeys: string[], ...names: string[]): OpeningSubjectOption[]
 }
 
 // “题材”只保存平台分类级或跨分类的大方向。副本、排行榜、装备品质等
-// 书内机制继续留在完整标签库和设定大纲，不得混入开书题材选择。
+// 书内机制继续留在完整标签库和设定，不得混入开书题材选择。
 const subjects: OpeningSubjectOption[] = [
   ...subject(['fantasy'], '玄幻脑洞', '传统玄幻', '东方玄幻', '异世大陆', '王朝争霸', '高武世界', '洪荒神话', '灵气复苏', '御兽'),
   ...subject(['xianxia', 'fantasy'], '东方仙侠', '奇幻仙侠', '古典仙侠', '修真文明', '幻想修仙', '现代修真', '神话修真'),

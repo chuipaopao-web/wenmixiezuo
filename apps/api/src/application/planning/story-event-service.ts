@@ -64,7 +64,7 @@ export class StoryEventService {
       const volume=this.activeVolume(scope,volumeId), workflow=this.workflow(scope);
       if(workflow.planning_version!==expected||workflow.active_volume_plan_id!==volumeId
         ||workflow.active_volume_plan_version_id!==volume.active_version_id)throw conflict('当前卷或创作流程已经变化，请刷新后重试。');
-      if(!['volume_plan_confirmed','event_sequence_in_progress'].includes(workflow.stage))throw conflict('请先确认当前卷纲。');
+      if(!['volume_plan_confirmed','event_sequence_in_progress'].includes(workflow.stage))throw conflict('请先确认分卷。');
       const plan=parseVolumePlanContent(JSON.parse(volume.content_json) as unknown);
       this.repo.insertSequence(scope,{volumePlanId:volumeId,volumePlanVersionId:volume.active_version_id,now});
       let previous:string|null=null;
@@ -274,7 +274,7 @@ export class StoryEventService {
       createdAt:e.created_at,updatedAt:e.updated_at};
   }
   private title(scope:BookScope,e:StoryEventRow){return this.eventView(scope,e).latestVersion?.content.title??'事件'+e.sequence_order;}
-  private assertVolume(scope:BookScope,e:StoryEventRow){if(this.sequence(scope,e.volume_plan_id).volume_plan_version_id!==this.activeVolume(scope,e.volume_plan_id).active_version_id)throw conflict('当前卷纲已经切换。');}
+  private assertVolume(scope:BookScope,e:StoryEventRow){if(this.sequence(scope,e.volume_plan_id).volume_plan_version_id!==this.activeVolume(scope,e.volume_plan_id).active_version_id)throw conflict('分卷已经切换。');}
   private activeVolume(scope:BookScope,idValue:string){const row=this.repo.activeVolumePlan(scope,req(idValue,'卷规划标识'));if(row===undefined)throw conflict('只有当前已确认卷纲才能设计事件。');return row;}
   private sequence(scope:BookScope,idValue:string){const row=this.repo.sequence(scope,req(idValue,'卷规划标识'));if(row===undefined)throw notFound('当前卷还没有事件链。');return row;}
   private event(scope:BookScope,idValue:string){const row=this.repo.event(scope,req(idValue,'事件标识'));if(row===undefined)throw notFound('当前书籍中没有这个事件。');return row;}
@@ -288,7 +288,7 @@ function seedContent(s:EventSequenceItem):StoryEventContent{return{title:s.title
   startingState:s.entryState,trigger:s.trigger,participants:[],characterGoals:[],obstacles:[],choicesAndCosts:[],
   informationMoves:[],localProgression:[s.action],requiredResult:s.result,
   flexibleExecution:['具体场景、对白、局部转折和意象由后续创作自由发挥。'],endingConditions:[s.result],
-  nextEventImpact:s.leadsToNext??'完成本卷收束。',characterArcImpact:'由事件设计补充人物行动后的可见变化。',
+  nextEventImpact:s.leadsToNext??'完成本卷收束。',characterArcImpact:'由规划补充人物行动后的可见变化。',
   volumeClimaxImpact:s.responsibility,estimatedChapterRange:s.estimatedChapterRange,uncertaintyNotes:[]};}
 function noTemplate():PlanningTemplateInstance{return{selectionMode:'none',templateKey:null,templateVersion:null,templateHash:null,scope:'event',beats:[],customDirection:null};}
 function versionView(r:StoryEventVersionRow):StoryEventVersionView{return{storyEventVersionId:r.story_event_version_id,eventId:r.event_id,

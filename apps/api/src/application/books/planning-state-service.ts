@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { workspaceFunctionLabel } from '@wenmi/contracts';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 
@@ -18,8 +19,8 @@ export interface PlanningStateView {
 const labels: Record<PlanningStage, string> = {
   style_in_progress: '补充表达调色板',
   style_ready: '表达策略可用',
-  setting_in_progress: '完善设定大纲',
-  setting_ready: '设定大纲已确认',
+  setting_in_progress: '完善' + workspaceFunctionLabel('basic'),
+  setting_ready: workspaceFunctionLabel('basic') + '已确认',
   master_outline_in_progress: '讨论剧情总纲',
   master_outline_ready: '剧情总纲已确认',
   chapter_outline_ready: '近期章纲已确认',
@@ -54,8 +55,8 @@ export class PlanningStateService {
 }
 
 function nextAction(stage: PlanningStage): string {
-  if (stage === 'style_in_progress') return '可以直接进入设定大纲；表达调色板可稍后补充';
-  if (stage === 'style_ready' || stage === 'setting_in_progress') return '按顺序完善并确认设定大纲';
+  if (stage === 'style_in_progress') return '可以直接进入设定；表达调色板可稍后补充';
+  if (stage === 'style_ready' || stage === 'setting_in_progress') return '按顺序完善并确认设定';
   if (stage === 'setting_ready' || stage === 'master_outline_in_progress') return '与主编讨论并确认剧情总纲';
   if (stage === 'master_outline_ready') return '继续讨论当前故事弧，只细化未来1—3章章纲';
   if (stage === 'chapter_outline_ready') return '确认下一章并启动正式写作';

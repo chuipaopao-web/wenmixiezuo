@@ -154,7 +154,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     selected={selected} selectedId={selectedId} versions={versions} onSelect={setSelectedId}/>;
 
   return <section className="event-planning-panel" aria-labelledby="event-planning-title">
-    <header className="event-planning-header"><div><span className="eyebrow">事件设计台</span>
+    <header className="event-planning-header"><div><span className="eyebrow">规划台</span>
       <h3 id="event-planning-title">先看整条因果链，再深入设计当前事件</h3>
       <p>每个事件都承接上一事件的实际结果，并为下一事件制造条件；章数只是弹性估计。</p></div>
       <div className="event-sequence-meta"><small>当前卷</small><strong>{snapshot.plan.activeVersion?.content.title}</strong><span>事件链第 {sequence.revision} 版</span></div>
@@ -255,7 +255,7 @@ function CompletedEventPlanningView({plan,sequence,selected,selectedId,versions,
   const content=selected?.activeVersion?.content??selected?.latestVersion?.content??null;
   return <section className="event-planning-panel completed-planning-history" aria-label="completed-event-history">
     <header className="event-planning-header"><div><span className="eyebrow">已完成卷 · 只读记录</span>
-      <h3>事件链和事件大纲仍然完整保留</h3><p>本卷已经结算。这里展示当时确认的事件设计与全部历史版本，不会因为进入下一卷而隐藏。</p></div>
+      <h3>事件链和事件大纲仍然完整保留</h3><p>本卷已经结算。这里展示当时确认的规划与全部历史版本，不会因为进入下一卷而隐藏。</p></div>
       <div className="event-sequence-meta"><small>已完成卷</small><strong>{plan.activeVersion?.content.title}</strong><span>事件链第 {sequence.revision} 版</span></div></header>
     <div className="event-chain" aria-label="已完成事件因果链">{sequence.events.map((item,index)=><div className="event-chain-node" key={item.eventId}>
       <button type="button" className={item.eventId===selectedId?'selected':''} onClick={()=>onSelect(item.eventId)}>

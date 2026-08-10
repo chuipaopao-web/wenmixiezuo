@@ -57,5 +57,5 @@ function formatShelfDate(value: string): string {
 }
 
 function EmptyLibrary({ onCreate }: { onCreate: () => void }): React.JSX.Element {
-  return <section className="empty-library"><div className="empty-glyph"><BooksIcon /></div><h2>把第一本书放进工作台</h2><p>先填写书名、主角、故事方向、主要标签和不能改变的要求。确认后会建立创作团队和本书资料，再由主编带你讨论下一步。</p><button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button></section>;
+  return <section className="empty-library"><div className="empty-glyph"><BooksIcon /></div><h2>把第一本书放进工作台</h2><p>先填写书名、主角、故事方向、主要标签和不能改变的要求。确认后会建立创作团队和书籍信息，再由主编带你讨论下一步。</p><button className="primary-button" type="button" onClick={onCreate}><PlusIcon />创建新书</button></section>;
 }

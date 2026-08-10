@@ -1323,7 +1323,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const scope = { ...owner, bookId: request.params.bookId };
     if (ideation.isIdeationDiscussion(scope, request.params.discussionId)) {
       throw new DomainError(errorCodes.validation,
-        '灵感讨论不能整轮确认或直接写入正式内容；请只选择需要的一条建议，转为指定创作对象的作者意见。', {}, false, 409);
+        '灵感不能整轮确认或直接写入正式内容；请只选择需要的一条建议，转为指定创作对象的作者意见。', {}, false, 409);
     }
     const discussion = discussions.confirm(scope, request.params.discussionId, request.body.decisionId);
     const planning = new PlanningArtifactService(database, ids, clock)

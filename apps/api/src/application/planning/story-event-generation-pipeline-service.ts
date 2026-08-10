@@ -59,7 +59,7 @@ export class StoryEventGenerationPipelineService {
       const unknown=this.repo.hasUnresolved(scope,taskId);
       this.tasks.fail(scope,taskId,workerId,unknown?errorCodes.modelCallInterrupted:
         error instanceof DomainError?error.code:'STORY_EVENT_GENERATION_FAILED',fence);
-      this.repo.failTask(scope,taskId,unknown?'模型结果暂时无法确认，已停止自动重试。':'事件设计未完成，可从已保存候选重试。',
+      this.repo.failTask(scope,taskId,unknown?'模型结果暂时无法确认，已停止自动重试。':'规划未完成，可从已保存候选重试。',
         this.clock.now().toISOString());throw error;
     }
   }

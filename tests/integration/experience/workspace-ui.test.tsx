@@ -172,15 +172,15 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
 
     const functionBar = screen.getByRole('navigation', { name: '功能栏' });
-    for (const name of ['本书资料', '设定大纲', '当前卷纲', '事件设计', '章纲', '正文', '故事资料库', '取名']) {
+    for (const name of ['信息', '设定', '分卷', '规划', '章纲', '正文', '资料库', '取名']) {
       expect(within(functionBar).getByRole('button', { name })).toBeInTheDocument();
       expect(within(bookRail).queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    for (const name of ['团队', '任务', '灵感讨论', '设置']) {
+    for (const name of ['团队', '任务', '灵感', '设置']) {
       expect(within(functionBar).getByRole('button', { name })).toBeInTheDocument();
     }
-    fireEvent.click(within(functionBar).getByRole('button', { name: '设定大纲' }));
-    expect(within(functionBar).getByRole('button', { name: '设定大纲' })).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(within(functionBar).getByRole('button', { name: '设定' }));
+    expect(within(functionBar).getByRole('button', { name: '设定' })).toHaveAttribute('aria-current', 'page');
     expect(document.querySelector('.ios-book-sidebar')).toBeInTheDocument();
     expect(document.querySelector('.ios-commandbar')).toBeInTheDocument();
     expect(document.querySelector('.ios-function-bar')).toBeInTheDocument();
@@ -257,7 +257,7 @@ describe('完整创作工作台', () => {
     expect(css).toContain('#0a84ff');
   });
 
-  it('合并后的故事资料库和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
+  it('合并后的资料库和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {
     const baseRouter = createFetchRouter();
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), 'http://localhost').pathname;
@@ -275,7 +275,7 @@ describe('完整创作工作台', () => {
     }));
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '故事资料库' }));
+    fireEvent.click(await screen.findByRole('button', { name: '资料库' }));
     fireEvent.click(await screen.findByRole('button', { name: '关系与轨迹' }));
     fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
     expect(await screen.findByText('第12章')).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('平')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '本书资料' }));
+    fireEvent.click(screen.getByRole('button', { name: '信息' }));
     expect(await screen.findByText('作品定位与全书框架')).toBeInTheDocument();
     expect(screen.queryByText('sourceStatus')).not.toBeInTheDocument();
     expect(screen.queryByText('explicit')).not.toBeInTheDocument();
@@ -363,7 +363,7 @@ describe('完整创作工作台', () => {
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith('/api/v1/books/book-ui-1/messages') && (init as RequestInit | undefined)?.method === 'POST'
     )).toBe(false);
-    await waitFor(() => expect(screen.getByRole('button', { name: '设定大纲' })).toHaveClass('active'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '设定' })).toHaveClass('active'));
   });
 
   it('空正文页以第1章占位并可按章建立目录，不会创建整本输入框', async () => {

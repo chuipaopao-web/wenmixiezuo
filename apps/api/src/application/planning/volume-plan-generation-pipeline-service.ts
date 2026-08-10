@@ -524,7 +524,7 @@ function buildPrompt(input: {
       boundaries: {
         mustAchieve: ['必须完成'],
         mustNotViolate: ['不能违反'],
-        creativeFreedom: ['留给事件设计、章纲和主笔的自由'],
+        creativeFreedom: ['留给规划、章纲和主笔的自由'],
         openQuestions: ['需要作者以后确认或可继续探索']
       }
     }

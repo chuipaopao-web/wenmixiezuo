@@ -15,6 +15,7 @@ import {
   UsersThreeIcon,
   XIcon
 } from '@phosphor-icons/react';
+import { workspaceFunctionLabel, type WorkspacePrimaryFunctionKey } from '@wenmi/contracts';
 
 import {
   archiveBook,
@@ -66,7 +67,7 @@ import {
 import './app.css';
 
 type UtilityView = 'tasks' | 'team' | 'ideas' | null;
-type PlanningTab = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'library' | 'naming';
+type PlanningTab = WorkspacePrimaryFunctionKey;
 
 interface TaskSelection {
   bookId: string;
@@ -457,32 +458,32 @@ export function App(): React.JSX.Element {
           <span>当前书籍</span>
           <strong>{selectedBook?.title ?? '还没有书籍'}</strong>
         </div>
-        <div className="current-view-chip" aria-label={`当前功能：${utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}`}>
+        <div className="current-view-chip" aria-label={`当前功能：${utilityView === 'tasks' ? workspaceFunctionLabel('tasks') : utilityView === 'team' ? workspaceFunctionLabel('team') : utilityView === 'ideas' ? workspaceFunctionLabel('ideas') : sectionLabel(creationTab)}`}>
           <span aria-hidden="true" />
-          {utilityView === 'tasks' ? '任务' : utilityView === 'team' ? '团队' : utilityView === 'ideas' ? '灵感讨论' : sectionLabel(creationTab)}
+          {utilityView === 'tasks' ? workspaceFunctionLabel('tasks') : utilityView === 'team' ? workspaceFunctionLabel('team') : utilityView === 'ideas' ? workspaceFunctionLabel('ideas') : sectionLabel(creationTab)}
         </div>
       </header>
 
       <nav className="ios-function-bar" aria-label="功能栏">
         <div className="function-nav-primary">
           {([
-            ['framework', '本书资料', BookOpenTextIcon],
-            ['basic', '设定大纲', TreeStructureIcon],
-            ['master', '当前卷纲', MapTrifoldIcon],
-            ['event', '事件设计', CaretRightIcon],
-            ['chapter', '章纲', ListIcon],
-            ['manuscript', '正文', FileTextIcon],
-            ['library', '故事资料库', BooksIcon],
-            ['naming', '取名', TagIcon]
-          ] as const).map(([key, label, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''}
-            aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={label} disabled={selectedBook === null}
-            key={key} onClick={() => { setCreationTab(key); setUtilityView(null); }}><Icon /><span>{label}</span></button>)}
+            ['framework', BookOpenTextIcon],
+            ['basic', TreeStructureIcon],
+            ['master', MapTrifoldIcon],
+            ['event', CaretRightIcon],
+            ['chapter', ListIcon],
+            ['manuscript', FileTextIcon],
+            ['library', BooksIcon],
+            ['naming', TagIcon]
+          ] as const).map(([key, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''}
+            aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={workspaceFunctionLabel(key)} disabled={selectedBook === null}
+            key={key} onClick={() => { setCreationTab(key); setUtilityView(null); }}><Icon /><span>{workspaceFunctionLabel(key)}</span></button>)}
         </div>
         <div className="function-nav-utilities">
-          <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>团队</span></button>
-          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>任务</span></button>
-          <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>灵感讨论</span></button>
-          <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>设置</span></button>
+          <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>{workspaceFunctionLabel('team')}</span></button>
+          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span></button>
+          <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
+          <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>{workspaceFunctionLabel('settings')}</span></button>
         </div>
       </nav>
 
@@ -499,7 +500,7 @@ export function App(): React.JSX.Element {
           ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部11名创作成员。" onCreate={() => setCreateOpen(true)} />
           : <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />)
         : utilityView === 'ideas' ? (selectedBook === null
-          ? <UnifiedEmptyState title="先创建一本书" description="灵感讨论只读取当前书籍资料，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
+          ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
           : <IdeationWorkspace bookId={selectedBook.bookId} currentLocation={creationTab} onError={setError} />)
         : selectedBook === null ? <UnifiedEmptyState title="创建第一本书" description="填写开书资料后，会从设定、卷纲、事件、章纲到正文逐步推进。" onCreate={() => setCreateOpen(true)} />
         : (
@@ -559,16 +560,7 @@ function UnifiedEmptyState({ title, description, onCreate }: { title: string; de
 }
 
 function sectionLabel(tab: PlanningTab): string {
-  return ({
-    framework: '本书资料',
-    basic: '设定大纲',
-    master: '当前卷纲',
-    event: '事件设计',
-    chapter: '章纲',
-    manuscript: '正文',
-    library: '故事资料库',
-    naming: '取名'
-  } as const)[tab];
+  return workspaceFunctionLabel(tab);
 }
 
 function readSelectedBook(): string | null {

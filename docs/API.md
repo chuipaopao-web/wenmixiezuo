@@ -27,7 +27,7 @@
 
 确认开书会原子创建书籍、定位版本、团队、模型绑定、预算、设定工作区和首个设定任务。
 
-## 4. 设定大纲对象协作
+## 4. 设定对象协作
 
 - `GET /api/v1/books/:bookId/setting-outline-workspace`：当前设定工作区。
 - `GET /api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration`：当前项AI方案与任务。
@@ -42,7 +42,7 @@
 
 作者想法按 `surface`、`subjectType`、`subjectId` 附着开书、设定、卷、事件、章纲或正文，并保存原话、意图等级、版本和状态。附件使用 `/author-attachments` 上传、读取、绑定和丢弃。
 
-## 6. 当前卷纲
+## 6. 分卷
 
 `/api/v1/books/:bookId/volume-plans` 提供列表、创建和详情。单个卷计划支持：作者输入、候选、AI生成任务、选择/融合、确认、历史切换、影响预览和结算。所有修改校验工作流版本与上游设定版本。
 
@@ -82,3 +82,9 @@
 ## 14. SSE事件
 
 事件至少覆盖任务排队/开始/阶段/完成/失败/取消，模型调用开始/完成/中断，预算变化，投影水位，书籍版本变化和Worker心跳。事件只是状态通知，客户端重新读取正式对象作为最终状态。
+
+## 作者可见功能名合同
+
+接口向作者返回的功能名称统一为：信息、设定、分卷、规划、章纲、正文、资料库、取名、团队、任务、灵感、设置。公开显示名来自 Contracts 共享合同。
+
+API路由、请求字段和数据库surface继续使用稳定英文键，不随显示名改动：book_profile、setting、volume_plan、event、chapter_outline、manuscript。这样已有书籍、幂等键、任务恢复、上下文包和来源引用不需要迁移。接口返回历史自由文本前必须经过作者展示清洗，把旧称转换为当前名称，但不回写历史记录。

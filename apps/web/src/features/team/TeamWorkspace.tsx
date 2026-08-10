@@ -255,7 +255,7 @@ function memberContextSummary(task: TaskData): string {
   const settingItem = typeof task.brief.settingItemKey === 'string' ? task.brief.settingItemKey : '';
   const chapter = taskChapterFromBrief(task);
   if (settingItem.length > 0) return `本书开书资料、当前设定项（${settingItem}）、已确认前置设定和作者本项原话`;
-  if (chapter !== '全书任务') return `当前卷纲、事件链、事件大纲、完整${chapter}章纲和相关正式原文`;
+  if (chapter !== '全书任务') return `分卷、事件链、事件大纲、完整${chapter}章纲和相关正式原文`;
   if (purpose.includes('volume')) return '本书开书资料、活动设定、当前卷目标、作者卷想法与相关正史';
   if (purpose.includes('event')) return '活动卷纲、完整事件链、当前事件、作者想法与相关人物/因果证据';
   return '根据当前任务冻结的本书活动版本与按需检索证据';

@@ -62,6 +62,12 @@ export interface AuthorReplyProjection {
 }
 
 const AUTHOR_FACING_PHRASES: ReadonlyArray<readonly [string, string]> = [
+  ['本书资料', '书籍信息'],
+  ['设定大纲', '设定'],
+  ['当前卷纲', '分卷'],
+  ['事件设计', '规划'],
+  ['故事资料库', '资料库'],
+  ['灵感讨论', '灵感'],
   ['小文秘书已核对进度', '小文秘书已看过当前进度'],
   ['策划理念', '核心看点'],
   ['游戏世界接入方式', '怎样进入游戏世界'],

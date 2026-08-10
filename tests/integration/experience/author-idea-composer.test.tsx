@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe('作者想法输入', () => {
-  it('在事件设计中保留原话、意图、作用范围和点名成员', async () => {
+  it('在规划中保留原话、意图、作用范围和点名成员', async () => {
     render(<AuthorIdeaComposer
       bookId="book-1"
       surface="event"

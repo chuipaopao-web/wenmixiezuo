@@ -379,7 +379,7 @@ export class VolumePlanService {
 
   private requireBaseDependencies(scope: BookScope): void {
     if (this.repository.activeOpening(scope) === undefined) throw conflict('请先完成并保存开书资料。');
-    if (this.repository.settingBaseline(scope) === undefined) throw conflict('请先确认设定大纲。');
+    if (this.repository.settingBaseline(scope) === undefined) throw conflict('请先确认设定。');
   }
 
   private currentDependencies(scope: BookScope, plan: VolumePlanRow): VersionReference[] {

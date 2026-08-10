@@ -405,7 +405,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
           <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div><small>请选择一种</small></div>
           <div className="creation-mode-options">
             <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
-              <strong>从零创作</strong><span>先完善设定大纲，再规划阶段剧情和正文。</span>
+              <strong>从零创作</strong><span>先完善设定，再规划阶段剧情和正文。</span>
             </button>
             <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
               <strong>已有正文续写</strong><span>建书后直接进入正文，导入并逐章拆解已有内容。</span>

@@ -356,11 +356,11 @@ describe('有效输出层', () => {
       details: '故事圣经sourceId:077f3110的premise原文与老板本轮说明不同；confirmed_decisions为空。保留圣经版本或更新圣经premise都会导致正史冲突必须解决，两版当前正史版本无法并存。'
     }));
 
-    expect(result.visibleContent).toContain('设定大纲');
+    expect(result.visibleContent).toContain('设定');
     expect(result.visibleContent).toContain('核心前提');
     expect(result.fullContent).toContain('目前还没有正式确认的讨论结论');
-    expect(result.fullContent).toContain('保留设定大纲版本');
-    expect(result.fullContent).toContain('更新设定大纲中的核心前提');
+    expect(result.fullContent).toContain('保留设定版本');
+    expect(result.fullContent).toContain('更新设定中的核心前提');
     expect(result.fullContent).toContain('规划差异需要先确认');
     expect(result.fullContent).toContain('当前规划表述不能同时成立');
     for (const leaked of ['故事圣经', 'premise', 'sourceId', '077f3110', 'confirmed_decisions']) {

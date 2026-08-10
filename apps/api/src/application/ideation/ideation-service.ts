@@ -14,7 +14,7 @@ import {
   type IdeationRoundRow
 } from '../../infrastructure/db/repositories/ideation-repository.js';
 
-const ideationMarker = '【独立灵感讨论室】';
+const ideationMarker = '【独立灵感' + '讨论室】'; // 已有记录的稳定内部判别符，不作为作者可见名称。
 
 export interface IdeationRoundView {
   roundId: string;
@@ -92,7 +92,7 @@ export class IdeationService {
     const bookTitle = this.repository.bookTitle(scope);
     const scopeText = [
       ideationMarker,
-      '边界：这是独立灵感讨论。只给作者提供灵感、利弊和可选方向，不得创建、修改、确认或覆盖任何正式设定、卷纲、事件、章纲与正文。',
+      '边界：这是独立灵感功能。只给作者提供灵感、利弊和可选方向，不得创建、修改、确认或覆盖任何正式设定、卷纲、事件、章纲与正文。',
       `当前书籍：${bookTitle ?? '未命名书籍'}`,
       history.length > 0 ? `最近讨论摘录：${JSON.stringify(history)}` : '最近讨论摘录：无',
       `作者本轮想法：${message}`,
@@ -154,7 +154,7 @@ export class IdeationService {
       intentStrength: input.intentStrength ?? 'inspiration',
       originalText: content,
       scopeNotes: [
-        `来自独立灵感讨论，由${opinion.member_name}提出；只有这段被作者明确选中的文字进入正式作者意见。`,
+        `来自独立灵感，由${opinion.member_name}提出；只有这段被作者明确选中的文字进入正式作者意见。`,
         input.scopeNotes?.trim() ?? ''
       ].filter(Boolean).join('\n'),
       attachmentRefs: [],

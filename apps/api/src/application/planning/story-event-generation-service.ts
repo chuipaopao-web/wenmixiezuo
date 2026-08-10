@@ -55,7 +55,7 @@ export class StoryEventGenerationService {
     const team=this.teamRepo.generationSeats(scope),editor=team.seats.find(s=>s.editor);
     const lead=team.seats.find(s=>s.roleKey==='lead_screenwriter');
     const second=team.seats.find(s=>s.roleKey==='second_screenwriter');
-    if(editor===undefined||lead===undefined||second===undefined)throw incomplete('事件设计需要当前主编和两位编剧都可用。');
+    if(editor===undefined||lead===undefined||second===undefined)throw incomplete('规划需要当前主编和两位编剧都可用。');
     const fixture=[lead,second].every(s=>s.provider.startsWith('local-deterministic'));
     const distinct=lead.provider!==second.provider||lead.modelId!==second.modelId;
     if(!distinct&&!fixture)throw incomplete('两位编剧绑定同一模型，不能冒充独立方案。');

@@ -8,9 +8,13 @@ import {
   type IdeationMemberData,
   type IdeationRoundData
 } from '../../lib/api/client';
-import type { AuthorInputSurface } from '@wenmi/contracts';
+import {
+  workspaceFunctionLabel,
+  type AuthorInputSurface,
+  type WorkspacePrimaryFunctionKey
+} from '@wenmi/contracts';
 
-type CreationLocation = 'framework' | 'basic' | 'master' | 'event' | 'chapter' | 'manuscript' | 'library' | 'naming';
+type CreationLocation = WorkspacePrimaryFunctionKey;
 
 export function IdeationWorkspace({
   bookId,
@@ -47,7 +51,7 @@ export function IdeationWorkspace({
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) onError(reason instanceof Error ? reason.message : '灵感讨论加载失败');
+      if (!controller.signal.aborted) onError(reason instanceof Error ? reason.message : '灵感加载失败');
     });
     const timer = window.setInterval(() => {
       if (rounds.some((round) => ['pending', 'queued', 'working'].includes(round.status))) {
@@ -118,7 +122,7 @@ export function IdeationWorkspace({
     <div className="ideation-layout">
       <aside className="ideation-member-panel">
         <div className="section-heading"><span><UsersThreeIcon />本轮成员</span><small>{selectedIds.length}/3</small></div>
-        <p className="muted-copy">主编分身固定主持，再选1—2名成员。成员使用本书资料，但没有正式写入权限。</p>
+        <p className="muted-copy">主编分身固定主持，再选1—2名成员。成员使用当前书籍信息，但没有正式写入权限。</p>
         <div className="ideation-member-list">{members.map((member) => {
           const selected = selectedIds.includes(member.agentId);
           return <button type="button" key={member.agentId} className={selected ? 'selected' : ''}
@@ -173,8 +177,5 @@ function promotionTarget(bookId: string, location: CreationLocation): {
 }
 
 function locationLabel(location: CreationLocation): string {
-  return ({
-    framework: '本书资料', basic: '设定大纲', master: '当前卷纲', event: '事件设计',
-    chapter: '章纲', manuscript: '正文', library: '故事资料库', naming: '取名'
-  })[location];
+  return workspaceFunctionLabel(location);
 }
