@@ -69,7 +69,8 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
 }
 
 const retiredAgentPlanModelAliases = new Map<string, string>([
-  ['kimi-k2-6-modelhub', 'kimi-k3'],
+  ['kimi-k3', 'kimi-k2.7-code'],
+  ['kimi-k2-6-modelhub', 'kimi-k2.7-code'],
   ['glm-5-2-260617', 'glm-5.2'],
   ['doubao-seed-2-0-pro-260215', 'doubao-seed-2.1-turbo']
 ]);
@@ -143,14 +144,10 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
     modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL, 'doubao-seed-2.1-turbo'),
     plan: 'agent'
   };
-  const agentKimiK3: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL, 'kimi-k3'),
-    plan: 'agent'
-  };
   const agentKimiK27: RoleModelProfile = {
     provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, 'kimi-k2.7-code'),
+    modelId: currentAgentPlanModelId(
+      firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL), 'kimi-k2.7-code'),
     plan: 'agent'
   };
   const agentMinimax: RoleModelProfile = {
@@ -159,13 +156,13 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
     plan: 'agent'
   };
   return {
-    chief_editor: { ...agentKimiK3 },
+    chief_editor: { ...agentKimiK27 },
     plot_architect: { ...agentDeepSeekPro },
     continuity: { ...agentGlm },
     writer: { ...agentDeepSeekPro },
     reviewer: { ...agentMinimax },
     reader_experience: { ...agentDoubao },
-    style_editor: { ...agentKimiK27 },
+    style_editor: { ...agentGlm },
     researcher: { ...agentDeepSeekFlash },
     copyright: { ...agentKimiK27 }
   };

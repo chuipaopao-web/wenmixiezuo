@@ -310,7 +310,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
 
 function BookProfilePanel({ profile, onEdit }: { profile: BookProfileViewData; onEdit: () => void }): React.JSX.Element {
   return <section className="book-profile-panel">
-    <header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.channel} · {profile.category} · 第 {profile.version} 版</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
+    <header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
     <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>
@@ -479,7 +479,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
         return;
       }
       return confirmSettingBaseline(bookId, planningState.version).then(async () => {
-        setNotice('设定已形成新的正式版本。现在可以进入“分卷”，只规划当前一卷。');
+        setNotice('设定已形成新的正式稿。现在可以进入“分卷”，只规划当前一卷。');
         await onPlanningStateChanged();
       });
     }).catch((reason: unknown) => {
@@ -522,7 +522,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
 
   return <section className="setting-outline-workbench">
     <header className="setting-outline-header">
-      <div><h3>设定</h3><p>{profile === null ? '正在识别本书需要的设定。' : `${profile.profileLabel} · 只要求当前故事真正需要的内容`}</p></div>
+      <h3 className="sr-only">设定</h3>
       <div className="setting-outline-progress"><strong>{confirmedRequired} / {requiredKeys.size}</strong><span>已确认</span><div><i style={{ width: `${requiredKeys.size === 0 ? 0 : Math.round(confirmedRequired / requiredKeys.size * 100)}%` }} /></div></div>
     </header>
     {bookId !== null && currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <SettingCollaborationPanel
@@ -541,10 +541,9 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       }}
       onSnapshot={applySnapshot}
     />}
-    {profile !== null && requiredKeys.size > 0 && currentGuidanceItem === undefined && <p className="setting-complete-note">本书必谈设定已经逐项确认。建议项仍可继续补充，也可以确认整份设定并进入分卷。</p>}
     <section className="setting-outline-section required">
-      <header><strong>当前必须确定</strong><span>{Math.max(0, requiredKeys.size - confirmedRequired)} 项未完成</span></header>
-      {requiredGroups.length === 0 ? <p className="setting-empty-state">正在根据开书资料生成本书清单……</p> : renderSettingGroups(requiredGroups)}
+      <header><strong>核心设定</strong></header>
+      {requiredGroups.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : renderSettingGroups(requiredGroups)}
     </section>
     <details className="setting-optional-library setting-recommended">
       <summary><strong>建议完善</strong><b>{recommendedGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></summary>
@@ -609,7 +608,7 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
   const reloadVersions = (): void => {
     if (bookId === null || artifactId.length === 0) return;
     setBusy(true);
-    void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本加载失败')).finally(() => setBusy(false));
+    void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '历史稿加载失败')).finally(() => setBusy(false));
   };
   const chapterOutlineV2 = artifactType === 'chapter_outline' && content.outlineSchema === 'chapter_outline_v2';
   const reverseChapterOutline = artifactType === 'chapter_outline'
@@ -620,22 +619,22 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
         ? <ReverseChapterOutlineContent value={visibleContent} />
       : <StructuredContent value={visibleContent} />}
     {notice !== null && <p className="artifact-notice" role="status">{notice}</p>}
-    {editing && <div className="artifact-editor"><h4>编辑一份待确认版本</h4><ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
+    {editing && <div className="artifact-editor"><h4>编辑一份待确认稿</h4><ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
       if (bookId === null) return;
       setBusy(true); setNotice(null);
-      void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`版本 ${created.version} 已保存，确认后才会成为正式内容。`); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '保存失败')).finally(() => setBusy(false));
-    }}>保存待确认版本</button></div></div>}
-    {versions !== null && <div className="artifact-versions"><h4>版本历史</h4>{versions.map((version) => <div key={version.artifactVersionId}><span><strong>版本 {version.version}</strong><small>{authorityLabel(version.status)}，定位版本 {version.positioningVersion}</small></span><div>{activeVersionId && version.artifactVersionId !== activeVersionId && <button type="button" disabled={busy} onClick={() => {
+      void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`第${created.version}稿已保存，确认后才会成为正式内容。`); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '保存失败')).finally(() => setBusy(false));
+    }}>保存待确认稿</button></div></div>}
+    {versions !== null && <div className="artifact-versions"><h4>历史稿件</h4>{versions.map((version) => <div key={version.artifactVersionId}><span><strong>第 {version.version} 稿</strong><small>{authorityLabel(version.status)}</small></span><div>{activeVersionId && version.artifactVersionId !== activeVersionId && <button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void compareArtifactVersions(bookId, artifactId, activeVersionId, version.artifactVersionId).then((result) => setNotice(result.same ? '与当前正式版本内容一致。' : `变化字段：${result.changedTopLevelKeys.map(fieldLabel).join('、')}`)).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本比较失败')).finally(() => setBusy(false));
+        setBusy(true); void compareArtifactVersions(bookId, artifactId, activeVersionId, version.artifactVersionId).then((result) => setNotice(result.same ? '与当前正式稿内容一致。' : `变化字段：${result.changedTopLevelKeys.map(fieldLabel).join('、')}`)).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '稿件比较失败')).finally(() => setBusy(false));
       }}>比较</button>}{version.status === 'candidate' && <><button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void selectArtifactVersion(bookId, artifactId, version.artifactVersionId).then((selected) => { setContent(selected.content); setStatus(selected.status); setActiveVersionId(selected.artifactVersionId); setNotice(`版本 ${selected.version} 已确认为正式规划。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本确认失败')).finally(() => setBusy(false));
+        setBusy(true); void selectArtifactVersion(bookId, artifactId, version.artifactVersionId).then((selected) => { setContent(selected.content); setStatus(selected.status); setActiveVersionId(selected.artifactVersionId); setNotice(`第${selected.version}稿已确认为正式规划。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '稿件确认失败')).finally(() => setBusy(false));
       }}>确认</button><button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`版本 ${version.version} 已否决并保留追溯记录。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '版本否决失败')).finally(() => setBusy(false));
+        setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`第${version.version}稿本次未采用，仍会保留。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '操作没有完成')).finally(() => setBusy(false));
       }}>否决</button></>}</div></div>)}</div>}
-    <footer><span>版本 {String(artifact.version ?? 1)}</span><span>原来的内容和修改记录都会保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>编辑内容</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看版本' : '刷新版本'}</button></span></footer></article>;
+    <footer><span>第 {String(artifact.version ?? 1)} 稿</span><span>原来的内容和修改记录都会保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>编辑内容</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看历史' : '刷新历史'}</button></span></footer></article>;
 }
 
 function ReverseChapterOutlineContent({ value }: { value: Record<string, unknown> }): React.JSX.Element {

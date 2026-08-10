@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
 import type { ReviewerRole } from '../../contracts/production-review.js';
+import { buildEsportsNovel, longXianxiaPlan } from './deterministic-longform-scenarios.js';
 
 interface DraftPrompt {
   operation: 'draft';
@@ -64,7 +65,7 @@ export class DeterministicNovelCandidateBAdapter implements ModelAdapter {
     const parsed = parseWriterPrompt(request.prompt);
     const prompt = parsed.taskInput;
     const output = prompt.operation === 'rewrite'
-      ? rewriteNovel(prompt.content, prompt.requiredActions).replaceAll('他', '林澈')
+      ? rewriteNovel(prompt.content, prompt.requiredActions)
       : buildContextAwareNovel(request.bookId, { ...prompt, title: `${prompt.title}·备选` }, parsed.sources);
     return result(this.provider, this.modelId, request.prompt, output);
   }
@@ -182,8 +183,61 @@ function productionReview(
   return { ...common, factCandidates: deterministicFactCandidates(content) };
 }
 
-function deterministicFactCandidates(content: string): Array<Record<string, unknown>> {
+export function deterministicFactCandidates(content: string): Array<Record<string, unknown>> {
   const candidates: Array<Record<string, unknown>> = [];
+  const chapterNumber = Number(content.match(/^第(\d+)章/u)?.[1] ?? 0);
+  const storyTime = chapterNumber > 0 ? `第${chapterNumber}章` : null;
+  const scenarioNames = /(?:顾野|唐梨|陆沉舟|乔麦|邵锋|罗放)/u.test(content)
+    ? ['顾野', '唐梨', '陆沉舟', '乔麦', '邵锋', '罗放']
+    : /(?:沈砚|许小川|苏青萝|阿九|韩烈|魏长庚)/u.test(content)
+      ? ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚']
+      : [];
+  for (const name of scenarioNames) {
+    const evidence = sentenceContaining(content, name);
+    if (evidence === null) continue;
+    candidates.push({
+      subjectName: name,
+      entityType: 'character',
+      relationKey: chapterNumber > 0 ? `event.chapter_${String(chapterNumber).padStart(3, '0')}` : 'event',
+      value: chapterNumber > 0 ? `${name}参与了第${chapterNumber}章的行动` : `${name}参与了当前行动`,
+      evidenceQuote: evidence,
+      evidenceLocation: chapterNumber > 0 ? `第${chapterNumber}章正文` : '当前正文',
+      epistemicStatus: 'objective',
+      negated: false,
+      viewpointName: null,
+      knowledgeSubjectName: null,
+      knowledgeTimeStart: null,
+      knowledgeTimeEnd: null,
+      storyTimeStart: storyTime,
+      storyTimeEnd: storyTime
+    });
+  }
+  const relationshipPairs = scenarioNames[0] === '顾野'
+    ? [['顾野', '唐梨'], ['顾野', '陆沉舟'], ['顾野', '乔麦'], ['顾野', '邵锋'], ['顾野', '罗放']]
+    : scenarioNames[0] === '沈砚'
+      ? [['沈砚', '许小川'], ['沈砚', '苏青萝'], ['沈砚', '阿九'], ['沈砚', '韩烈'], ['沈砚', '魏长庚']]
+      : [];
+  for (const [from, to] of relationshipPairs) {
+    const evidence = sentenceContaining(content, from!, to!);
+    if (evidence === null) continue;
+    const hostile = ['邵锋', '罗放', '韩烈', '魏长庚'].includes(to!);
+    candidates.push({
+      subjectName: from,
+      entityType: 'character',
+      relationKey: `relationship.${to}.${hostile ? 'rivalry' : 'cooperation'}`,
+      value: to,
+      evidenceQuote: evidence,
+      evidenceLocation: chapterNumber > 0 ? `第${chapterNumber}章人物互动` : '当前人物互动',
+      epistemicStatus: 'objective',
+      negated: false,
+      viewpointName: null,
+      knowledgeSubjectName: null,
+      knowledgeTimeStart: null,
+      knowledgeTimeEnd: null,
+      storyTimeStart: storyTime,
+      storyTimeEnd: storyTime
+    });
+  }
   const possession = sentenceContaining(content, '林澈', '铜钥匙');
   if (possession !== null) candidates.push({
     subjectName: '林澈', entityType: 'character', relationKey: 'possesses:item', value: '铜钥匙',
@@ -235,6 +289,9 @@ function parseWriterPrompt(raw: string): WriterPromptEnvelope {
 
 function buildContextAwareNovel(bookId: string, prompt: DraftPrompt, sources: WriterContextSource[]): string {
   const context = sources.map((source) => source.content ?? '').join('\n');
+  if (/(游戏体育|电子竞技|电竞|联赛|战队|帧率|经济曲线|零帧|总决赛)/u.test(context)) {
+    return buildEsportsNovel(bookId, prompt.chapterNumber, prompt.title, context);
+  }
   if (/(东方仙侠|修仙|灵根|阵法|宗门|试剑台|猎场)/u.test(context)) {
     return buildXianxiaNovel(bookId, prompt.chapterNumber, prompt.title, context);
   }
@@ -316,7 +373,8 @@ function xianxiaPlan(chapterNumber: number, names: {
     { location:'猎场主峰', objective:'在封山前夺得首旗并让黑账进入长老视线', opponent:names.wei, ally:names.su, setback:'阵盘只修复一半，强行借阵会伤及经脉', insight:'四名同伴分别掌握一段阵路，必须同时行动', payoff:'群像配合让封山阵反向照亮黑账位置，沈砚夺旗而不独占功劳', hook:'魏长庚抛下韩烈独自逃向旧矿深处' },
     { location:'黑风猎场祭旗台', objective:'完成事件结算、保住同伴并截住最后灭口者', opponent:names.wei, ally:names.ajiu, setback:'追击与救治伤员只能选择一个优先', insight:'真正的胜利是让证据和人都能走出猎场，而非亲手抓住每个敌人', payoff:'队伍夺得首旗、救出同门并公开黑账，魏长庚失去宗门庇护', hook:'父亲旧阵图的一角指出黑账背后还有内门长老' }
   ];
-  return plans[Math.max(0, Math.min(plans.length - 1, chapterNumber - 1))]!;
+  if (chapterNumber <= plans.length) return plans[Math.max(0, chapterNumber - 1)]!;
+  return longXianxiaPlan(chapterNumber, names);
 }
 
 const xianxiaExpansion: Array<(
@@ -399,13 +457,13 @@ function rewriteNovel(content: string, requiredActions: string[]): string {
 }
 
 const deterministicRevisionExpansion = [
-  '林澈没有急着把推断当成答案。他把已经见过的痕迹按时间重新排开，先分清哪些是亲眼所见，哪些只是对方希望他相信的解释。雨声不断改变街巷里的距离感，他便用脚步、灯影和门轴留下的细响互相校正，宁可慢一步，也不让一个未经证实的猜测混进下一步行动。',
-  '他又从头复盘每个人当时能够知道的事情。有人看见钥匙，却未必知道钥匙的用途；有人熟悉日期，却可能只是在转述命令。把知情范围分开以后，先前显得整齐的圈套露出一道缝：真正的安排者一直躲在传话人之后，从未亲自为任何一句话负责。',
-  '林澈沿着这道缝继续推演，却没有贸然改变路线。他保留原来的行动目标，只把验证顺序调换过来：先确认能留下实物证据的部分，再接触最可能说谎的人，最后才处理那个看似最紧迫的期限。这样一来，即使判断错了一半，他也仍有退路。',
-  '窗外的风把雨丝推向另一侧，屋檐下短暂露出一段干燥的石面。林澈注意到自己的假脚印已经被水冲淡，而真正跟踪者若想继续确认方向，就必须重新靠近。他没有回头，只借玻璃上的倒影守着巷口，让等待本身变成一次试探。',
-  '时间一点点过去，最先变化的不是街上的动静，而是他对风险的排序。钥匙仍然重要，日期也仍然危险，但更值得警惕的是有人能提前预判他的选择。他把这一点记在心里，提醒自己接下来的每个决定都要留出一个只有自己知道的备选出口。',
-  '等远处再次传来钟声，他终于把零散线索压缩成一条可以验证的因果链。那条链并不完美，仍有两个位置留着空白，可它至少解释了谁在观察、谁在传递，以及为什么对方不愿直接现身。未知没有消失，却从混乱变成了能够追查的问题。',
-  '林澈收好手边的东西，最后检查了一遍现场。他没有增添新的结论，只确认原有的证据仍能支持当前选择。接下来无论门后出现谁，他都不会因为一句解释放弃已经验证过的事实，也不会因为一次意外把尚未证实的怀疑写成定论。'
+  '他没有急着把推断当成答案，而是把刚才发生的事情按先后重新排开，先分清哪些是亲眼所见，哪些只是别人希望他相信的解释。环境仍在变化，他便用人物行动、现场痕迹和已经确认的规则互相校正，宁可慢一步，也不让未经证实的猜测混进下一次选择。',
+  '他又从头复盘每个人当时能够知道的事情。有人看见结果，却未必知道原因；有人熟悉一部分规则，也可能只是在转述命令。把知情范围分开以后，先前显得整齐的安排露出一道缝：真正的推动者一直躲在传话人与执行者之后，从未亲自为任何一句话负责。',
+  '他沿着这道缝继续推演，却没有贸然改变目标。他只把验证顺序调换过来：先确认能留下可靠证据的部分，再接触最可能隐瞒的人，最后才处理那个看似最紧迫的期限。这样一来，即使判断错了一半，他和同伴也仍有可以承担的退路。',
+  '周围的声响与光线发生细微变化，短暂露出一处先前被忽略的痕迹。真正的观察者若想继续确认他们的行动，就必须重新靠近。他没有立刻回头，只让同伴守住另一侧，把等待本身变成一次能够看见结果的试探。',
+  '时间一点点过去，最先变化的不是外部动静，而是他对风险的排序。眼前收益仍然重要，期限也仍然危险，但更值得警惕的是对手已经开始预判他们的选择。他提醒自己，接下来的每个决定都要保留一个不依赖侥幸的备用出口。',
+  '等现场再次安静下来，他终于把零散线索压缩成一条可以验证的因果链。那条链并不完美，仍有位置留着空白，可它至少解释了谁在观察、谁在传递、谁会因结果受益。未知没有消失，却从混乱变成了能够继续追查的问题。',
+  '他收好刚确认的东西，最后检查了一遍现场。他没有增添新的结论，只确认现有证据仍能支持当前选择。接下来无论出现谁，他都不会因为一句解释放弃已经验证过的事实，也不会因为一次意外把尚未证实的怀疑写成定论。'
 ];
 function visiblePreviousState(previousState: string): string {
   const value = previousState.trim();

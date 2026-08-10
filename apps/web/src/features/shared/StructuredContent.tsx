@@ -25,7 +25,7 @@ export function artifactTypeLabel(type: string): string {
 }
 
 export function authorityLabel(status: string): string {
-  return ({ active: '当前正式内容', selected: '已确认', approved: '已确认', confirmed: '已确认', candidate: '待确认', proposed: '待确认', derived: '分析结果', archived: '已归档', superseded: '历史版本' } as Record<string, string>)[status] ?? status;
+  return ({ active: '当前正式内容', selected: '已确认', approved: '已确认', confirmed: '已确认', candidate: '待确认', proposed: '待确认', derived: '分析结果', archived: '已归档', superseded: '历史稿' } as Record<string, string>)[status] ?? status;
 }
 
 export function fieldLabel(key: string): string {
@@ -45,7 +45,7 @@ export function fieldLabel(key: string): string {
     startingState: '阶段起始状态', endingDirection: '结局方向',
     goal: '目标', arcs: '故事弧', endingState: '阶段结束状态',
     chapterNumber: '章节', objective: '目标', beats: '场景节拍', hook: '章末钩子', status: '状态', track: '轨道',
-    projection_type: '资料类型', chapter_number: '章节', canon_revision: '正式内容版本', content: '分析内容', sourceIds: '来源', rebuilt_at: '更新时间',
+    projection_type: '资料类型', chapter_number: '章节', content: '分析内容', sourceIds: '来源', rebuilt_at: '更新时间',
     canonical_name: '名称', entity_type: '类型', aliases: '别名', relation_key: '关系', value: '事实值', evidence: '证据', grade: '证据等级',
     namespace: '标签域', name: '名称', description: '说明', created_source: '创建者', assignment_count: '使用次数', diagnosis: '缺口说明', severity: '严重度',
     intentional_unknown: '刻意留白', narrative_goal: '叙事目标', from_name: '起点', toValue: '终点或值', section: '区域', data: '内容'
@@ -53,7 +53,7 @@ export function fieldLabel(key: string): string {
 }
 
 export function isTechnicalField(key: string): boolean {
-  return ['owner_id', 'book_id', 'content_hash', 'model_snapshot_id', 'parameters_json', 'scope_json', 'impact_json', 'outlineSchema', 'storyDirectionAuthority'].includes(key);
+  return ['owner_id', 'book_id', 'canon_revision', 'canonRevision', 'content_hash', 'model_snapshot_id', 'parameters_json', 'scope_json', 'impact_json', 'outlineSchema', 'storyDirectionAuthority'].includes(key);
 }
 
 export function formatValue(value: unknown): string {

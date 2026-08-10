@@ -36,6 +36,19 @@ afterEach(() => {
 });
 
 describe('作者想法输入', () => {
+  it('切换必须遵守时不再聚焦隐藏控件或让页面跳走', async () => {
+    render(<AuthorIdeaComposer bookId="book-1" surface="book_profile" subjectType="book" subjectId="book-1" />);
+    await screen.findByRole('textbox', { name: '你的原话' });
+
+    const mustFollow = screen.getByRole('radio', { name: '必须遵守' });
+    expect(mustFollow.tagName).toBe('BUTTON');
+    expect(document.querySelector('.author-intent-options input[type="radio"]')).toBeNull();
+    fireEvent.click(mustFollow);
+
+    expect(mustFollow).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('textbox', { name: '你的原话' })).toBeVisible();
+    expect(screen.getByText('只影响哪里？（可不填）')).toBeVisible();
+  });
   it('在规划中保留原话、意图、作用范围和点名成员', async () => {
     render(<AuthorIdeaComposer
       bookId="book-1"

@@ -55,10 +55,19 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   }));
 
   render(<VolumePlanningPanel bookId="book-volume-ui" />);
-  expect(await screen.findByRole('heading', { name: '先确定这一卷要改变什么，再拆事件' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: '分卷' })).toBeInTheDocument();
+  expect(screen.queryByText('当前卷工作台')).not.toBeInTheDocument();
+  expect(screen.queryByText(/卷规划只约束目标/u)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '开始规划第一卷' }));
   expect(await screen.findByRole('heading', { name: '我的卷规划草案' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /解决一个麻烦，又引出更大的目标/u }));
+  expect(screen.getByText('根据本书推荐')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('查看更多推进方案'));
+  fireEvent.click(screen.getByRole('button', { name: /让关系变化推动主线/u }));
+  fireEvent.click(screen.getByRole('button', { name: /让局势分段升级/u }));
+  fireEvent.click(screen.getByRole('button', { name: /先得后失再重建/u }));
+  expect(screen.getByText('已选 4 种')).toBeInTheDocument();
+
 
   change('卷标题', '雾城守夜卷');
   change('开卷时人物与局面', '张三仍是边军小卒，只掌握一条未经证实的预见线索。');
@@ -76,7 +85,7 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   change('行动造成什么结果', '伏兵暴露，但张三被押去问罪。');
   fireEvent.click(screen.getByRole('button', { name: '保存为新候选版' }));
 
-  expect(await screen.findByLabelText('版本影响预览')).toBeInTheDocument();
+  expect(await screen.findByLabelText('改动影响预览')).toBeInTheDocument();
   expect(screen.getByText('卷标题、本卷目标、事件链')).toBeInTheDocument();
   const versionRequest = requests.find((request) => request.path.endsWith('/versions') && request.method === 'POST');
   expect(versionRequest?.body).toMatchObject({
@@ -86,8 +95,9 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
     content: { title: '雾城守夜卷', eventSequence: [{ title: '钟响前的误报' }] }
   });
 
-  fireEvent.click(screen.getByRole('button', { name: '确认此版本' }));
-  expect(await screen.findByText('已确认第1版')).toBeInTheDocument();
+  expect((versionRequest?.body?.template as { templateRefs?: unknown[] }).templateRefs).toHaveLength(4);
+  fireEvent.click(screen.getByRole('button', { name: '确认这份稿' }));
+  expect(await screen.findByText('已确认第1稿')).toBeInTheDocument();
   await waitFor(() => expect(requests.find((request) => request.path.endsWith('/confirm') && request.method === 'POST')?.body).toMatchObject({
     volumePlanVersionId: 'plan-version-1', expectedPlanRevision: 1,
     expectedActiveVersionId: null, expectedWorkflowVersion: 3
@@ -95,7 +105,7 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   expect(versions).toHaveLength(1);
 });
 
-it('只显示真实卷规划任务和模型来源，并把当前卷作者原话交给本轮任务', async () => {
+it('用自然语言显示真实卷规划进度，隐藏模型内部编号，并把当前卷作者原话交给本轮任务', async () => {
   const plan = volumePlan(null, 1);
   let generation: Record<string, unknown> | null = null;
   const requests: Array<{ path: string; method: string; body: Record<string, unknown> | null; query: string }> = [];
@@ -138,13 +148,12 @@ it('只显示真实卷规划任务和模型来源，并把当前卷作者原话�
   }));
 
   render(<VolumePlanningPanel bookId="book-volume-ui" />);
-  expect(await screen.findByRole('heading', { name: '两位编剧独立设计，主编最后融合' })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: '团队设计' })).toBeInTheDocument();
   expect(await screen.findByText('希望主角靠承担代价解决问题。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '让团队开始设计' }));
 
-  expect(await screen.findByText('三个方案已完成')).toBeInTheDocument();
-  expect(screen.getByText('3/3 个候选版本')).toBeInTheDocument();
-  expect(screen.getByText(/只验证任务、上下文和版本流程/u)).toBeInTheDocument();
+  expect(await screen.findByText(/三个方案已完成.*融合方案已准备好/u)).toBeInTheDocument();
+  expect(screen.queryByText(/候选版本|本地确定性|local-deterministic|fixture-/u)).not.toBeInTheDocument();
   expect(screen.getByText('婉儿')).toBeInTheDocument();
   expect(screen.getByText('红玉')).toBeInTheDocument();
   expect(screen.getByText('昭昭')).toBeInTheDocument();
@@ -194,16 +203,22 @@ function volumeVersion(body: Record<string, unknown>): Record<string, unknown> {
 }
 
 function templateCatalog(): Record<string, unknown> {
+  const base = {
+    templateKey: 'volume-escalating-goals', templateVersion: 1, contentHash: `sha256:${'2'.repeat(64)}`,
+    scope: 'volume', sourceLabel: '递进结构', publicTitle: '解决一个麻烦，又引出更大的目标',
+    publicExplanation: '每次解决都改变人物状态并暴露更大的问题。', fitConditions: ['持续推进'],
+    knownRisks: ['不能只换更强敌人'], authorQuestions: ['这次结果改变了什么？'],
+    beats: [{ beatId: 'cause', publicFunction: '先解决眼前问题', expectedChange: '人物状态发生变化', optional: false, order: 1 }],
+    previewPrompt: '按因果推进', recommended: true
+  };
+  const alternatives = ['让关系变化推动主线', '让局势分段升级', '先得后失再重建'].map((title, index) => ({
+    ...base, templateKey: `volume-extra-${index + 1}`, contentHash: `sha256:${String(index + 4).repeat(64)}`,
+    sourceLabel: '其他叙事方法', publicTitle: title, recommended: false,
+    beats: [{ ...base.beats[0], beatId: `extra-${index + 1}` }]
+  }));
   return {
     contractVersion: 1, registryVersion: 1, registryHash: `sha256:${'1'.repeat(64)}`, scope: 'volume',
-    templates: [{
-      templateKey: 'volume-escalating-goals', templateVersion: 1, contentHash: `sha256:${'2'.repeat(64)}`,
-      scope: 'volume', publicTitle: '解决一个麻烦，又引出更大的目标',
-      publicExplanation: '每次解决都改变人物状态并暴露更大的问题。', fitConditions: ['持续推进'],
-      knownRisks: ['不能只换更强敌人'], authorQuestions: ['这次结果改变了什么？'],
-      beats: [{ beatId: 'cause', publicFunction: '先解决眼前问题', expectedChange: '人物状态发生变化', optional: false, order: 1 }],
-      previewPrompt: '按因果推进', recommended: true
-    }],
+    templates: [base, ...alternatives],
     alternativeChoices: [
       { mode: 'custom', publicTitle: '按我的想法推进', publicExplanation: '不套系统节奏。' },
       { mode: 'none', publicTitle: '暂时不选', publicExplanation: '让因果自然决定。' }

@@ -3,14 +3,14 @@ const TECHNICAL_FIELDS = new Set([
   'model_snapshot_id', 'modelSnapshotId', 'parameters_json', 'parametersJson',
   'scope_json', 'scopeJson', 'impact_json', 'impactJson', 'references_json',
   'referencesJson', 'source_ids_json', 'sourceIds', 'sourceIdsJson', 'rebuilt_at',
-  'rebuiltAt', 'schema_version', 'schemaVersion', 'outlineSchema', 'version', 'format', 'rules'
+  'rebuiltAt', 'canon_revision', 'canonRevision', 'schema_version', 'schemaVersion', 'outlineSchema', 'version', 'format', 'rules'
 ]);
 
 const FIELD_LABELS: Record<string, string> = {
   title: '标题', answer: '结论', keyPoints: '为什么这样安排', alternatives: '还可以这样写', risks: '要留意',
   questions: '想请你定一下', nextStep: '接下来', details: '展开说说', content: '内容', summary: '摘要',
   goal: '目标', objective: '目标', beats: '剧情节点', hook: '章末钩子', status: '状态', track: '轨迹',
-  chapterNumber: '章节', chapter_number: '章节', canonRevision: '正式内容版本', canon_revision: '正式内容版本',
+  chapterNumber: '章节', chapter_number: '章节',
   projectionType: '资料类型', projection_type: '资料类型', section: '区域', data: '内容', source: '来源',
   canonical_name: '名称', canonicalName: '名称', entity_type: '类型', entityType: '类型', aliases: '别名',
   relation_key: '关系', relationKey: '关系', value: '事实', evidence: '依据', grade: '证据等级',
@@ -98,7 +98,7 @@ const AUTHOR_FACING_PHRASES: ReadonlyArray<readonly [string, string]> = [
   ['工作边界', '负责什么'],
   ['知情边界', '知道哪些事'],
   ['硬边界', '不能改变的要求'],
-  ['正史修订', '正式内容版本'],
+  ['正史修订', '已确认内容'],
   ['活动正史', '当前正式内容'],
   ['前文正史', '已经确认的前文'],
   ['进入正史', '成为正式内容'],
@@ -119,10 +119,81 @@ const AUTHOR_FACING_PHRASES: ReadonlyArray<readonly [string, string]> = [
   ['边界', '范围']
 ];
 
-/** 只转换作者界面上的副本；调用方不得把返回值写回规划、正文或资料。 */
-export function toAuthorFacingText(value: string): string {
-  let result = value;
+export type AuthorTextPurpose = 'interface' | 'progress' | 'error' | 'story';
+
+/** 这些字段承载作者或小说内容，只过滤机器协议，不做词语级机械改写。 */
+const AUTHOR_STORY_TEXT_FIELDS = new Set([
+  'title', 'name', 'answer', 'keyPoints', 'alternatives', 'risks', 'questions', 'nextStep', 'details',
+  'content', 'summary', 'description', 'premise', 'constraints', 'confirmedRecommendation',
+  'storyDirection', 'worldBackground', 'openingBackground', 'fullBookOutline', 'initialMap', 'mustFollow',
+  'worldView', 'worldRules', 'powerSystem', 'resourceSystem', 'equipmentTiers', 'economicRules',
+  'characters', 'initialOrganizations', 'mainPlot', 'planningHistory', 'openQuestions', 'theme', 'acts',
+  'endingDirection', 'coreConflict', 'protagonistArc', 'majorStages', 'storyPromises', 'startingState',
+  'turningPoint', 'mainline', 'encounter', 'resolution', 'result', 'structure', 'setup', 'development',
+  'turn', 'conclusion', 'stageSummary', 'pendingThreads', 'followUpDirection', 'turningPoints', 'payoff',
+  'climax', 'goal', 'objective', 'beats', 'hook', 'value', 'evidence', 'diagnosis', 'narrative_goal',
+  'from_name', 'toValue', 'detail', 'chapterTitle', 'emotionalArc', 'planningBasis', 'subplots',
+  'endingExcerpt', 'developments', 'endingSituation', 'manuscript', 'body', 'prose', 'originalText',
+  'original_text', 'chapterText', 'chapter_text', 'excerpt'
+]);
+
+const AUTHOR_TECHNICAL_TEXT_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bContextPack\b/giu, '本轮参考资料'],
+  [/\bcheckpoints?\b|检查点/giu, '当前进度'],
+  [/\bWorkers?\b/giu, '后台处理'],
+  [/\bSSE\b/giu, '实时进度'],
+  [/\bJSON\b/giu, '整理后的内容'],
+  [/\bSQL(?:ite)?\b/giu, '资料查询'],
+  [/\bTokens?\b/giu, '篇幅额度'],
+  [/\b(?:task|model|message|artifact|projection|owner|book)[_-]?id\b/giu, '内部编号'],
+  [/\bprovider\b/giu, '模型来源'],
+  [/\bcanon[_ -]?revision\b/giu, '已确认内容'],
+  [/\b(?:pending|queued|preparing|working|processing|in_progress|running)\b/giu, '正在处理'],
+  [/\b(?:failed|error|interrupted|timeout)\b/giu, '没有完成'],
+  [/\b(?:completed|succeeded|ready)\b/giu, '已经完成']
+];
+
+const AUTHOR_FORBIDDEN_TECHNICAL_TEXT = /\b(?:ContextPack|checkpoints?|Workers?|SSE|SQL(?:ite)?|Tokens?|(?:task|model|message|artifact|projection|owner|book)[_-]?id|provider|canon[_ -]?revision)\b/iu;
+const INTERNAL_IDENTIFIER = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/giu;
+const UUID_OR_HASH = /\b(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[0-9a-f]{32,})\b/giu;
+const LOCAL_TECHNICAL_PATH = /(?:[A-Za-z]:\\|\/)(?:[^\s，。；：]+[\\/]){1,}[^\s，。；：]*/gu;
+
+export function containsAuthorTechnicalLeak(value: string): boolean {
+  UUID_OR_HASH.lastIndex = 0;
+  LOCAL_TECHNICAL_PATH.lastIndex = 0;
+  return AUTHOR_FORBIDDEN_TECHNICAL_TEXT.test(value)
+    || UUID_OR_HASH.test(value)
+    || LOCAL_TECHNICAL_PATH.test(value);
+}
+
+/**
+ * 作者展示门禁：只转换即将显示的副本，不写回规划、正文、作者原话或资料。
+ * story 用于小说梗概与正文，保留原有叙事语义，只清除尾部机器协议；
+ * interface/progress/error 才执行术语翻译和技术信息阻断。
+ */
+export function toAuthorFacingText(value: string, purpose: AuthorTextPurpose = 'interface'): string {
+  const readable = stripTrailingMachineProtocol(value).trim();
+  if (looksLikeMachinePayload(readable)) return purpose === 'error' ? '这一步没有完成，请稍后重试。' : '这项内容正在整理成大白话。';
+  let result = readable;
+  if (purpose === 'story') return result;
+  if (ENUM_LABELS[readable] !== undefined) return readable;
+  if (purpose === 'error' && /failed to fetch|networkerror|network request failed/iu.test(result)) return '暂时无法连接本地服务，请稍后重试。';
+  if (purpose === 'error' && /\bSQL(?:ite)?\b|(?:[A-Za-z]:\\|\/)(?:[^\s，。；：]+[\\/])+/iu.test(result)) return '资料处理没有完成，请稍后重试。';
+  result = result.replace(LOCAL_TECHNICAL_PATH, '本地资料');
   for (const [source, replacement] of AUTHOR_FACING_PHRASES) result = result.replaceAll(source, replacement);
+  for (const [pattern, replacement] of AUTHOR_TECHNICAL_TEXT_RULES) result = result.replace(pattern, replacement);
+  result = result
+    .replace(UUID_OR_HASH, '')
+    .replace(INTERNAL_IDENTIFIER, purpose === 'progress' ? '正在处理' : '待整理内容')
+    .replace(/\bHTTP\s*\d{3}\b/giu, '')
+    .replace(/\s{2,}/gu, ' ')
+    .replace(/\s+([，。；：！？])/gu, '$1')
+    .trim();
+  if (result.length === 0 || containsAuthorTechnicalLeak(result)) {
+    if (purpose === 'progress') return '正在处理';
+    if (purpose === 'error') return '这一步没有完成，请稍后重试。';
+    return '这项内容正在整理成大白话。';
+  }
   return result;
 }
 
@@ -157,21 +228,21 @@ export function collectSettingTemplateHints(artifacts: Record<string, unknown>[]
   return [...result.values()].slice(0, 24);
 }
 
-export function toAuthorDisplayValue(value: unknown, depth = 0): unknown {
+export function toAuthorDisplayValue(value: unknown, depth = 0, purpose: AuthorTextPurpose = 'interface'): unknown {
   if (depth > 8) return '内容层级过深，已省略';
   const parsed = parseJsonString(value);
-  if (parsed !== value) return toAuthorDisplayValue(parsed, depth + 1);
+  if (parsed !== value) return toAuthorDisplayValue(parsed, depth + 1, purpose);
   if (typeof value === 'string') {
     const readable = stripTrailingMachineProtocol(value);
-    if (readable !== value) return toAuthorFacingText(readable);
+    if (readable !== value) return toAuthorFacingText(readable, purpose);
     if (looksLikeMachinePayload(value)) return '这项内容的格式异常，内部原件已保留，但不会在作者界面直接展示。';
-    return toAuthorFacingText(value);
+    return toAuthorFacingText(value, purpose);
   }
-  if (Array.isArray(value)) return value.slice(0, 100).map((item) => toAuthorDisplayValue(item, depth + 1));
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => toAuthorDisplayValue(item, depth + 1, purpose));
   if (!isRecord(value)) return value;
 
   if (value.version === 1 && value.format === 'json_object' && isRecord(value.fields)) {
-    return toAuthorDisplayValue(value.fields, depth + 1);
+    return toAuthorDisplayValue(value.fields, depth + 1, purpose);
   }
 
   const result: Record<string, unknown> = {};
@@ -184,7 +255,8 @@ export function toAuthorDisplayValue(value: unknown, depth = 0): unknown {
     }
     if (isAuthorTechnicalField(rawKey)) continue;
     const key = rawKey.endsWith('_json') ? rawKey.slice(0, -5) : rawKey.endsWith('Json') ? rawKey.slice(0, -4) : rawKey;
-    const item = toAuthorDisplayValue(rawValue, depth + 1);
+    const nextPurpose: AuthorTextPurpose = purpose === 'story' || AUTHOR_STORY_TEXT_FIELDS.has(rawKey) ? 'story' : purpose;
+    const item = toAuthorDisplayValue(rawValue, depth + 1, nextPurpose);
     if (item === undefined || item === null || item === '' || (Array.isArray(item) && item.length === 0)) continue;
     result[key] = item;
   }
@@ -203,8 +275,6 @@ export function projectionForAuthor(record: Record<string, unknown>): Record<str
     if (content.source !== undefined) result.source = content.source;
   } else if (isRecord(content)) Object.assign(result, content);
   else result.content = content;
-  const revision = record.canonRevision ?? record.canon_revision;
-  if (typeof revision === 'number') result.canonRevision = revision;
   return result;
 }
 
@@ -223,7 +293,8 @@ export function authorFormatScalar(value: unknown): string {
   const known = ENUM_LABELS[text];
   if (known !== undefined) return known;
   if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/u.test(text)) return '待整理资料';
-  return toAuthorFacingText(text);
+  if (containsAuthorTechnicalLeak(text) || looksLikeMachinePayload(text)) return toAuthorFacingText(text);
+  return text;
 }
 
 export function authorRelationshipLabel(value: unknown): string {
@@ -244,6 +315,7 @@ export function authorFactRelationLabel(value: unknown): string {
   const text = String(value ?? '').trim();
   if (text.length === 0) return '补充事实';
   if (/^relationship[.:]/u.test(text)) return '人物关系';
+  if (/^event(?:[.:]|$)/u.test(text)) return '章节行动';
   const known: Record<string, string> = {
     'identity.origin': '身份来历',
     origin: '身份来历',

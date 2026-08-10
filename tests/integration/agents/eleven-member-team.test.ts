@@ -48,6 +48,6 @@ describe('十一人创作团队', () => {
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
     expect(backupPanel.fact.roleKey).toBe('setting');
-    expect(backupPanel.fact.modelId).toBe('kimi-k2.7-code');
+    expect(backupPanel.fact.modelId).toBe('glm-5.2');
   });
 });

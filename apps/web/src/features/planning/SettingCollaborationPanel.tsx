@@ -136,7 +136,7 @@ export function SettingCollaborationPanel({
       });
       ideaKey.current = null;
       synthesisKey.current = null;
-      setNotice('主编正在按你的选择整理一个待确认版本。');
+      setNotice('主编正在按你的选择整理一份待确认稿。');
       await refresh();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '提交选择失败');
@@ -161,7 +161,7 @@ export function SettingCollaborationPanel({
       onSnapshot(saved);
       setData((current) => current === null ? current : { ...current, item: saved });
       setNotice(status === '已确认'
-        ? '这一项已确认。它不会改写正文或正史；完成全部必谈项后才生成新的正式设定版本。'
+        ? '这一项已确认。它不会改写正文或已确认内容；完成全部必谈项后才生成新的正式设定稿。'
         : '修改已保存为待确认内容。');
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '设定内容保存失败');
@@ -192,7 +192,7 @@ export function SettingCollaborationPanel({
       ideaKey.current = null;
       revisionKey.current = null;
       setIdea('');
-      setNotice('修改意见已交给主编，现有版本和三份原始方案都会保留。');
+      setNotice('修改意见已交给主编，现有稿件和三份原始方案都会保留。');
       await refresh();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '提交修改意见失败');
@@ -213,7 +213,7 @@ export function SettingCollaborationPanel({
     setBusy('retry'); setNotice(null);
     try {
       await retryTask(bookId, taskId);
-      setNotice('任务会从已经保存的检查点继续，成功的成员不会重复调用。');
+      setNotice('将继续完成尚未结束的部分，已经完成的方案会保留。');
       await refresh();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '任务重试失败');
@@ -230,7 +230,7 @@ export function SettingCollaborationPanel({
     setBusy('resume'); setNotice(null);
     try {
       await resumeTask(bookId, taskId);
-      setNotice('任务已从保留的检查点继续。');
+      setNotice('已经继续处理，现有结果会保留。');
       await refresh();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '任务继续失败');
@@ -259,16 +259,15 @@ export function SettingCollaborationPanel({
         <footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在启动…' : '让三名成员各自给方案'}</button></footer>
       </div>}
       {data.panel !== null && <section className="setting-member-statuses" aria-label="设定协作成员状态">
-        <header><div><strong>本轮参与成员</strong><small>状态、上下文和输出都来自当前真实任务</small></div><span>{panelMembers.filter((member) => member.status === 'completed').length}/{panelMembers.length} 完成</span></header>
+        <header><strong>本轮参与成员</strong><span>{panelMembers.filter((member) => member.status === 'completed').length}/{panelMembers.length} 完成</span></header>
         <div>{panelMembers.map((member) => <article key={member.agentId} className={`member-${member.status}`}>
           <header><div><strong>{member.memberName}</strong><small>{roleLabel(member.roleKey)}</small></div><span>{memberStatusLabel(member.status)}</span></header>
           <dl><dt>本轮读取</dt><dd>{member.contextSummary}</dd><dt>当前输出</dt><dd>{member.outputSummary ?? memberPendingLabel(member.status)}</dd></dl>
-          <footer>{member.modelProvider} · {member.modelId}</footer>
         </article>)}</div>
       </section>}
       {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <p className="setting-collaboration-state">成员正在独立构思；已完成的结果会逐项保留。</p>}
-      {(panelFailed || revisionFailed) && <div className="setting-collaboration-error"><p>这轮任务没有完成，已有方案和检查点仍然保留。</p><button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在恢复…' : '从检查点继续'}</button></div>}
-      {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果和检查点都已保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
+      {(panelFailed || revisionFailed) && <div className="setting-collaboration-error"><p>这轮没有完成，已有方案仍然保留。</p><button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在继续…' : '继续完成'}</button></div>}
+      {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果会保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
       {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
       {proposals.length > 0 && <div className="setting-proposal-grid">{proposals.map((proposal) => {
         const checked = selected.includes(proposal.number);
@@ -278,8 +277,8 @@ export function SettingCollaborationPanel({
       })}</div>}
       {proposals.length > 0 && !candidateReady && <section className="setting-author-choice"><details className="setting-collapsible-input"><summary>我还想补充自己的想法</summary><label>你的补充想法<textarea rows={4} maxLength={4000} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2；这一点只是参考，不要写死。" /></label></details><footer><span>{selected.length === 0 ? '请先选择至少一份方案' : `已选择 ${[...selected].sort((a, b) => a - b).join('、')}`}</span><button className="primary-button" type="button" disabled={busy !== null || selected.length === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的选择整理'}</button></footer></section>}
       {revisionRunning && <p className="setting-collaboration-state">主编正在按你的选择或修改意见整理候选，完成前暂不覆盖当前编辑稿。</p>}
-      {candidateReady && <section className="setting-candidate-editor"><header><div><small>待确认版本</small><strong>主编已整理，可直接修改</strong></div><span>确认后仍不直接进入正史</span></header><textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} /><details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；只会让主编定点调整，不重复启动三人提案。" /></label></details><div className="setting-candidate-actions"><button type="button" disabled={busy !== null || revisionRunning || idea.trim().length === 0} onClick={() => void revise()}>{busy === 'revise' ? '正在提交…' : '让主编按意见修改'}</button><button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button><button className="primary-button" type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('已确认')}>{busy === '已确认' ? '正在确认…' : '确认这一项'}</button></div></section>}
-      <p className="setting-impact-note">这里的选择只影响设定候选，不会改写已写正文或正史。全部必谈项完成后，系统才生成一份新的正式设定版本。</p>
+      {candidateReady && <section className="setting-candidate-editor"><header><div><small>待确认稿</small><strong>主编已整理，可直接修改</strong></div><span>确认后仍不会直接改动已确认内容</span></header><textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} /><details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；只会让主编定点调整，不重复启动三人提案。" /></label></details><div className="setting-candidate-actions"><button type="button" disabled={busy !== null || revisionRunning || idea.trim().length === 0} onClick={() => void revise()}>{busy === 'revise' ? '正在提交…' : '让主编按意见修改'}</button><button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button><button className="primary-button" type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('已确认')}>{busy === '已确认' ? '正在确认…' : '确认这一项'}</button></div></section>}
+      <p className="setting-impact-note">这里的选择只影响设定候选，不会改写已写正文或已确认内容。全部必谈项完成后，系统才生成一份新的正式设定稿。</p>
     </>}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;

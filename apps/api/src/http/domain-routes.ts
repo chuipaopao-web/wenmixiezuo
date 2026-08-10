@@ -94,6 +94,7 @@ import { EventChapterGenerationRepository } from '../infrastructure/db/repositor
 import { EventChapterGenerationService, type EventChapterGenerationKind } from '../application/planning/event-chapter-generation-service.js';
 import { CreationSettlementService } from '../application/planning/creation-settlement-service.js';
 import { CreationSettlementRepository } from '../infrastructure/db/repositories/creation-settlement-repository.js';
+import { buildPlanningTemplateSignals } from '../application/planning/template-recommendation-signals.js';
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
 
@@ -535,9 +536,21 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         throw new DomainError(errorCodes.validation, '请选择“当前卷”或“当前事件”的推进参考。');
       }
       const profile = bookProfileView.find(bookScope);
-      const signals = profile === null
-        ? []
-        : [profile.category, ...profile.subjects, ...profile.mainTags, ...profile.customTags];
+      const plans = volumePlans.list(bookScope);
+      const latestActiveVolume = [...plans].reverse().find((plan) => plan.activeVersion !== null)?.activeVersion?.content ?? null;
+      let latestVolumeSettlement: unknown = null;
+      for (const plan of [...plans].reverse()) {
+        const settlement = creationSettlements.getVolume(bookScope, plan.volumePlanId);
+        if (settlement !== null) {
+          latestVolumeSettlement = settlement.actual;
+          break;
+        }
+      }
+      const signals = buildPlanningTemplateSignals({
+        profile,
+        activeVolume: latestActiveVolume,
+        latestVolumeSettlement
+      });
       return success(getPublicNarrativeTemplateCatalog(templateScope, signals), request.id);
     }
   );

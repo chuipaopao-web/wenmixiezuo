@@ -393,7 +393,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2><p>{editing ? '修改会成为新的开书参考版本；已确认设定、人物正史和正文不会被自动改写。' : creationMode === 'continuation' ? '先建立书籍档案，完成后直接导入已有正文，不要求从空白设定重新开始。' : '先确定作品起点，完成后进入设定讨论，不会直接生成正文。'}</p></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2><p>{editing ? '修改会保存为新的开书资料；已确认设定、人物资料和正文不会被自动改写。' : creationMode === 'continuation' ? '先建立书籍档案，完成后直接导入已有正文，不要求从空白设定重新开始。' : '先确定作品起点，完成后进入设定讨论，不会直接生成正文。'}</p></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
       <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong><small>{item.description}</small></button>)}</nav>
       <div className="complete-create-book-body" ref={bodyRef}>
         {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没有完成的开书资料</strong><span>可以从第{step}步继续；只有创建成功后草稿才会清除。</span></div><button type="button" className="text-button" onClick={resetDraft}>清空并重新开始</button></aside>}
@@ -420,12 +420,16 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
           <div className="book-title-field"><input id="complete-book-title" aria-label="书名" value={title} onChange={(event) => setTitle(limitBookTitle(event.target.value))} placeholder="例如：长安簪影" autoFocus /><small aria-live="polite">最多{BOOK_TITLE_MAX_CHARACTERS}字 · {bookTitleCharacterCount(title)}/{BOOK_TITLE_MAX_CHARACTERS}</small></div>
-          <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options">{OPENING_CHANNELS.map((item) => <label className={channel === item.id ? 'channel-option selected' : 'channel-option'} key={item.id}><input type="radio" name="complete-book-channel" aria-label={item.label} checked={channel === item.id} onChange={() => {
-            setChannel(item.id); setCategoryKey(null);
-            if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) {
-              updateProtagonist(0, { role: item.id === 'male' ? 'male_lead' : 'female_lead' });
-            }
-          }} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div></fieldset>
+          <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options" role="radiogroup">{OPENING_CHANNELS.map((item) => {
+            const selected = channel === item.id;
+            return <button type="button" role="radio" aria-checked={selected} aria-label={item.label}
+              className={selected ? 'channel-option selected' : 'channel-option'} key={item.id} onClick={() => {
+                setChannel(item.id); setCategoryKey(null);
+                if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) {
+                  updateProtagonist(0, { role: item.id === 'male' ? 'male_lead' : 'female_lead' });
+                }
+              }}><span><strong>{item.label}</strong><small>{item.description}</small></span></button>;
+          })}</div></fieldset>
           <div className="taxonomy-heading"><strong>作品分类（单选）</strong><small>一本书只确定一个主分类</small></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
           <div className="category-options">{categories.map((item) => {
@@ -435,7 +439,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
               setActiveTagGroupKey('recommended');
             }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
-          {taxonomy !== null && <p className="taxonomy-notice">目录版本 {taxonomy.version} · {taxonomy.notice}</p>}
+          {taxonomy !== null && <p className="taxonomy-notice">{taxonomy.notice}</p>}
           </section>}
           {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
@@ -469,7 +473,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
         {step === 2 && <details className="opening-more-options opening-advanced-options">
           <summary><span><strong>我已经想好的补充（选填）</strong><small>有就填写，没有可以留到设定讨论</small></span><b>展开填写</b></summary>
           <div className="opening-more-options-body opening-advanced-fields">
-            <p>这些内容都是可修改的参考，不会因为写在这里就变成正史，也不会锁死后续剧情。</p>
+            <p>这些内容都是可修改的参考，不会因为写在这里就变成正式内容，也不会锁死后续剧情。</p>
             <label htmlFor="opening-target-audience">希望吸引的读者<input id="opening-target-audience" value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={500} placeholder="例如：喜欢城市悬疑、女性成长和群像关系的读者" /></label>
             <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="写你已经确定的时代、地点和特殊规则；不确定可留空" /></label>
             <label htmlFor="opening-background">开篇时正在发生什么<textarea id="opening-background" value={openingBackground} onChange={(event) => setOpeningBackground(event.target.value)} maxLength={10000} rows={3} placeholder="例如：主角收到一封来自十年后的失踪通知" /></label>
@@ -514,7 +518,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
           </details>
         </section>}
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title} · {editing ? `将保存为第 ${initialProfile.version + 1} 版` : creationMode === 'continuation' ? '完成后导入已有正文' : '完成后进入设定讨论'}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存为新版本' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button>}</div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title} · {editing ? '修改会另存，不覆盖原资料' : creationMode === 'continuation' ? '完成后导入已有正文' : '完成后进入设定讨论'}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>

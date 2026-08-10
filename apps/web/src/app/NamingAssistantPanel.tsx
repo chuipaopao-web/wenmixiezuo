@@ -148,7 +148,7 @@ export function NamingAssistantPanel({
 
           <div className="naming-candidate-summary">
             <span>正在取：<strong>{activeTarget.label}</strong></span>
-            <small>第 {batch + 1} 批 · 本地生成 · 不消耗Token</small>
+            <small>第 {batch + 1} 批</small>
           </div>
 
           {candidates.length === 0 ? (

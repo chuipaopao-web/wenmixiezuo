@@ -144,12 +144,11 @@ const confirmExpression=()=>void run(async()=>{
   const candidates=sequence.versions.filter(version=>version.status==='candidate');
   const nextIdeaOutline=pending[0]??null;
   const sequenceHealth=['completed','archived'].includes(sequence.status)
-    ?(sequence.valid?'结算版本已锁定':'历史版本异常，需检查')
-    :(sequence.valid?'上层版本有效':'上层已变化，需重建');
+    ?(sequence.valid?'已完成内容已锁定':'历史内容需要检查')
+    :(sequence.valid?'上层内容没有变化':'上层已变化，需重建');
   return <section className="event-chapter-panel" aria-label={readOnly?'completed-event-chapter-history':undefined}>
-    <header className="event-chapter-header"><div><span className="eyebrow">事件 → 完整章链 → 最近1—3章</span>
-      <h3>{sequence.activeVersion?.content.eventTitle??candidates[0]?.content.eventTitle??'当前事件章纲'}</h3>
-      <p>完整章链先保证事件因果与结尾闭环；详细章纲只冻结眼前要写的章节，给人物反应和现场创造保留空间。</p></div>
+    <header className="event-chapter-header"><div>
+      <h3>{sequence.activeVersion?.content.eventTitle??candidates[0]?.content.eventTitle??'当前事件章纲'}</h3></div>
       <div>{readOnly&&historyEvents.length>1&&<label>查看已完成事件<select aria-label="查看已完成事件" value={eventId??''}
         disabled={busy} onChange={event=>selectHistoryEvent(event.target.value)}>{historyEvents.map((item,index)=><option key={item.eventId} value={item.eventId}>
           {item.activeVersion?.content.title??item.latestVersion?.content.title??`事件 ${item.order??index+1}`}</option>)}</select></label>}
@@ -204,7 +203,7 @@ const confirmExpression=()=>void run(async()=>{
         <button className="primary-button" type="button" disabled={busy||writingTaskId!==null} onClick={startWriting}>{writingTaskId===null?'开始撰写下一章':'正文任务已建立'}</button></div>}
     </section>}
 {!readOnly&&workflow.stage==='event_settlement_in_progress'&&<section className="writing-launch-card event-settlement-card">
-      <div><small>当前事件已写完</small><h4>核对实际结果，完成事件结算</h4><p>结算只读取已经定稿的正文和正史；原事件大纲只用于对照偏差，不会反过来覆盖实际剧情。</p></div>
+      <div><small>当前事件已写完</small><h4>核对实际结果，完成事件结算</h4><p>结算只读取已经定稿的正文和已确认内容；原事件大纲只用于对照偏差，不会反过来覆盖实际剧情。</p></div>
       <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentEvent}>完成事件，继续下一事件</button></div>
     </section>}
 {error!==null&&<p className="planning-error" role="alert">{error}</p>}
@@ -212,7 +211,7 @@ const confirmExpression=()=>void run(async()=>{
 }
 
 function SequenceCandidate({version,busy,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;onConfirm:()=>void}){
-  return <article><header><div><small>候选版本 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
+  return <article><header><div><small>候选稿 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
     <strong>{version.content.chapters.length}章</strong></header>
     <ol>{version.content.chapters.map(chapter=><li key={chapter.chapterNumber}><b>第{chapter.chapterNumber}章 {chapter.title}</b>
       <span>{chapter.eventResponsibility}</span><small>{chapter.openingState} → {chapter.endingState}</small></li>)}</ol>
@@ -241,17 +240,17 @@ function DetailedOutlineCard({item}:{item:EventChapterOutlineData}){
 function TaskStrip({task,onCancel,onRetry}:{task:EventChapterGenerationData;onCancel:()=>void;onRetry:()=>void}){
   return <aside className={"chapter-task-strip "+task.status}><div><span>{task.member.displayName}</span>
     <b>{taskStatus(task.status)} · {phaseLabel(task.currentPhase)}</b>
-    <small>{task.member.provider} / {task.member.modelId}</small></div>
+    </div>
     {activeTask(task.status)&&<button className="text-button" type="button" onClick={onCancel}>取消</button>}
-    {['failed','interrupted','blocked'].includes(task.status)&&<button className="secondary-button" type="button" onClick={onRetry}>从检查点重试</button>}</aside>;
+    {['failed','interrupted','blocked'].includes(task.status)&&<button className="secondary-button" type="button" onClick={onRetry}>继续完成</button>}</aside>;
 }
 function currentIdeas(items:Array<{authorInputId:string;status:string}>){return items.filter(item=>!['withdrawn','superseded'].includes(item.status)).map(item=>item.authorInputId);}
 function activeTask(status:string|undefined){return status!==undefined&&['pending','queued','working','paused'].includes(status);}
 function taskStatus(status:string){return({pending:'准备中',queued:'等待执行',working:'正在工作',paused:'已暂停',succeeded:'候选已保存',
-  failed:'本轮失败',interrupted:'任务中断',cancelled:'已取消',blocked:'等待处理'}as Record<string,string>)[status]??status;}
-function phaseLabel(phase:string){return({preparing_context:'正在准备专用资料',sequence_candidate_saved:'完整章链候选已保存',
-  detail_candidates_saved:'近期详细章纲已保存'}as Record<string,string>)[phase]??phase;}
+  failed:'本轮失败',interrupted:'任务中断',cancelled:'已取消',blocked:'等待处理'}as Record<string,string>)[status]??'正在处理';}
+function phaseLabel(phase:string){return({preparing_context:'正在整理本书资料',sequence_candidate_saved:'完整章链候选已保存',
+  detail_candidates_saved:'近期详细章纲已保存'}as Record<string,string>)[phase]??'正在处理';}
 function viewpointLabel(value:ExpressionProfileData['viewpointDistance']){return({close:'贴近人物',medium:'适中',distant:'偏全局',adaptive:'随场景调整'}as Record<string,string>)[value??'']??'未确认';}
-function statusLabel(status:string){return({planned:'待细化',candidate:'待确认',frozen:'已冻结',settled:'已定稿',archived:'已归档'}as Record<string,string>)[status]??status;}
+function statusLabel(status:string){return({planned:'待细化',candidate:'待确认',frozen:'已冻结',settled:'已定稿',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
 function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()??Date.now()+'-'+Math.random());}
 function messageOf(reason:unknown){return reason instanceof Error?reason.message:'章纲操作没有完成，请稍后重试。';}

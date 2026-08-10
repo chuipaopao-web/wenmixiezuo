@@ -1,18 +1,20 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { requireWorkflowScenario } from './current-workflow-scenarios.mjs';
 
 const API = 'http://127.0.0.1:43111';
 const ORIGIN = 'http://127.0.0.1:43110';
 const RELEASE_ID = 'wm-longform-r1-20260719-003435-e4d7b8b7';
 const RUN_KEY = String(process.argv[2] ?? 'nightly-v2').trim().replace(/[^a-zA-Z0-9_-]/g, '-');
-const TEST_ID = `E2E-CURRENT-WORKFLOW-20-${RUN_KEY.toUpperCase()}`;
-const EVENT_COUNT = 2;
+const SCENARIO = requireWorkflowScenario(String(process.argv[3] ?? 'xianxia').trim().toLowerCase());
+const EVENT_COUNT = SCENARIO.events.length;
 const CHAPTERS_PER_EVENT = 10;
 const TOTAL_CHAPTERS = EVENT_COUNT * CHAPTERS_PER_EVENT;
+const TEST_ID = `E2E-CURRENT-WORKFLOW-${TOTAL_CHAPTERS}-${SCENARIO.key.toUpperCase()}-${RUN_KEY.toUpperCase()}`;
 const POLL_MS = 2_000;
 const TASK_TIMEOUT_MS = 30 * 60 * 1_000;
-const TEST_TOKEN_LIMIT = 5_000_000;
-const ROOT = resolve(`data/verification/current-workflow-twenty-chapters-${RUN_KEY}`);
+const TEST_TOKEN_LIMIT = 25_000_000;
+const ROOT = resolve(`data/verification/current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
 const STATE_FILE = join(ROOT, 'state.json');
 const EVENT_FILE = join(ROOT, 'run-events.ndjson');
 const ISSUE_FILE = join(ROOT, 'issues.md');
@@ -24,6 +26,7 @@ const state = existsSync(STATE_FILE)
   ? JSON.parse(readFileSync(STATE_FILE, 'utf8'))
   : {
       testId: TEST_ID,
+      scenario: SCENARIO.key,
       releaseId: RELEASE_ID,
       createdAt: new Date().toISOString(),
       settledChapters: [],
@@ -36,46 +39,6 @@ const terminalFailures = new Set(['failed', 'blocked', 'cancelled', 'interrupted
 const noneTemplate = (scope) => ({
   selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
   scope, beats: [], customDirection: null
-});
-
-const xianxiaEventContent = (eventIndex) => eventIndex === 0 ? ({
-  title: '试剑台反杀',
-  volumeResponsibility: '让沈砚从被任意欺压的杂役变成有外门资格、也有明确敌人的主动调查者。',
-  startingState: '沈砚灵根驳杂、妹妹药钱将断，被韩烈逼签做过手脚的生死状。',
-  trigger: '韩烈当众扣走药钱并逼沈砚登上暗藏杀阵的试剑台。',
-  participants: ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚'],
-  characterGoals: ['沈砚要保住妹妹药钱并赢得外门资格', '许小川要查清杂役灵石被克扣的证据', '苏青萝要确认试剑台规则是否被人篡改'],
-  obstacles: ['韩烈境界更高且会根据沈砚的布置改变剑路', '魏长庚掌握账册、巡查与阵台维护权', '残缺阵盘只能看见破绽，不能提供额外灵力'],
-  choicesAndCosts: ['沈砚必须在直接取胜与先救被毁台阵波及的杂役之间选择', '第一次布阵失败会烧掉仅剩灵石并加重旧伤'],
-  informationMoves: ['生死状背面出现沈父暗记', '废阵与试剑台共同指向魏长庚私印', '韩烈并非幕后主使，但主动利用了被篡改的规则'],
-  localProgression: ['生死状锁命', '药房断供', '废阵反噬', '苏青萝拦路', '第一次布阵失败', '阿九交易阵图', '封阵区取证', '公议坪反咬', '旧台决战', '救人后反杀'],
-  requiredResult: '沈砚以可复盘的阵法借力击败韩烈、救下同门、取得外门资格，并拿到指向黑风猎场的灭口任务。',
-  flexibleExecution: ['对白、动作、局部反转和阵法细节可由章纲与主笔根据即时人物反应调整'],
-  endingConditions: ['韩烈公开败北但保留自己的判断', '沈砚得到外门资格', '试剑台篡改证据进入公开记录', '黑风猎场成为下一事件入口'],
-  nextEventImpact: '外门令牌弹出的猎场任务既是晋级机会，也是魏长庚清除沈砚与证据的陷阱。',
-  characterArcImpact: '沈砚从只想保住药钱，转为愿意与同伴共同承担揭开旧案的后果。',
-  volumeClimaxImpact: '建立阵法智斗、群像配合和宗门黑账三条因果线。',
-  estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 },
-  uncertaintyNotes: []
-}) : ({
-  title: '黑风猎场夺旗',
-  volumeResponsibility: '让第一事件的公开胜利变成真实追杀，并以群像合作完成本卷第一次大兑现。',
-  startingState: '沈砚刚入外门便与许小川、苏青萝、阿九被送进规则遭篡改的黑风猎场。',
-  trigger: '入场传送把四人送入废矿旧区，地图与出口阵同时失效。',
-  participants: ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚', '被困同门'],
-  characterGoals: ['沈砚要带证据和同伴活着出场', '许小川要让黑账无法被单独销毁', '苏青萝要证明宗门规则确被执事利用', '阿九要救回失踪兄长'],
-  obstacles: ['魏长庚能调动执法队和封山阵', '韩烈会为自保反复选择站队', '小队目标不同且阵盘会在中段损坏'],
-  choicesAndCosts: ['救被困弟子会错过直接夺旗并耗尽阵盘', '阿九必须公开自己的私心才能继续合作', '沈砚强借残阵会造成经脉伤势'],
-  informationMoves: ['诱灵粉证明路线被定向做手脚', '救援符编号连接魏长庚库房', '黑账与父亲旧阵图同藏废矿阵眼', '黑账背后仍有内门长老'],
-  localProgression: ['猎场错传', '赤松谷夺旗', '裂石涧接应', '废矿分队', '救人耗尽阵盘', '无阵盘反制', '阵眼取黑账', '出口反追杀', '主峰破封山阵', '祭旗台公开黑账'],
-  requiredResult: '四人救出同门、夺得首旗、公开灵矿黑账，并取得沈父旧阵图一角；魏长庚失去庇护但更大幕后人浮现。',
-  flexibleExecution: ['每名同伴的局部解决办法、对白和合理惊喜可继续自由发挥'],
-  endingConditions: ['四名主要角色都完成不可替代的主动行动', '首旗与黑账同时进入公开见证', '阵盘损坏和沈砚伤势作为胜利代价保留', '父亲旧案自然引向下一卷'],
-  nextEventImpact: '旧阵图指向内门灵矿总阵，下一卷必须从现有伤势、关系与公开证据继续。',
-  characterArcImpact: '沈砚学会把关键任务交给同伴，阿九也从利益合作转向有限信任。',
-  volumeClimaxImpact: '完成本卷群像夺旗和黑账曝光的双重高潮。',
-  estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 },
-  uncertaintyNotes: []
 });
 
 function now() { return new Date().toISOString(); }
@@ -198,58 +161,11 @@ async function waitForTask(bookId, taskId, purpose) {
 }
 
 function blueprint(taxonomyVersion) {
-  return {
-    creationMode: 'new', taxonomyVersion, channel: 'male', categoryKey: 'male-eastern-xianxia',
-    targetAudience: '喜欢快节奏、强冲突、智取反杀和群像成长的修仙爽文读者',
-    protagonists: [{
-      role: 'male_lead', name: '沈砚', age: '十八岁',
-      background: '青霄宗杂役院少年，父亲曾是宗门阵师却背负叛宗污名而死；沈砚灵根驳杂，只能靠替外门修补废阵换取修炼资源。',
-      personalities: ['冷静', '敏锐', '护短', '越挫越勇', '极端冒险']
-    }],
-    storyDirection: '沈砚在杂役试剑台上被外门天才韩烈逼签生死状，意外发现父亲留下的残缺阵盘能看见灵力破绽。他不靠突然暴涨的修为，而是以阵纹、判断和胆量连续反杀，从杂役院打进外门；第一卷分成“试剑台反杀”和“黑风猎场夺旗”两个完整事件，共二十章，逐步揭开父亲叛宗案与宗门灵矿黑账。',
-    worldBackground: '九州修真世界，青霄宗控制北境灵矿与山门城镇；修炼分淬体、引气、筑基等境界，阵法必须依赖阵眼、灵石与环境，越级取胜必有可见代价。',
-    openingBackground: '杂役月考当日，韩烈当众踩碎沈砚替妹妹换药的灵石，逼他登上试剑台。',
-    stageOne: {
-      start: '沈砚被迫登台，以残阵借力击败境界更高的韩烈，保住妹妹药钱并引起外门注意。',
-      development: '他与机灵杂役许小川、冷面剑修苏青萝和神秘商贩阿九结盟，在外门考核与黑风猎场中遭到执事魏长庚的连续围杀。',
-      end: '沈砚夺得猎场首旗、救下同门并拿到父亲旧阵图的一角，确认宗门有人借灵矿掩盖旧案。'
-    },
-    fullBookOutline: '沈砚从杂役、外门、内门一路成长为阵道宗师，每卷解决一个迫在眉睫的生存目标，同时沿父亲旧案、北境灵矿和九州阵脉三层秘密递进；盟友有独立目标，会合作、分歧和成长。',
-    mainTags: ['修仙', '逆袭', '智斗', '热血', '群像'],
-    auxiliaryTags: ['阵法禁制', '灵根', '剑修'], storyTraits: ['快节奏', '越级战斗', '宗门成长'],
-    styleIntent: {
-      languageTones: ['利落', '有画面感', '对白有辨识度'], emotionalTones: ['热血', '紧张', '友情有温度'],
-      pacingAndPayoff: ['每章有推进', '三章内有小兑现', '章末有具体危机'], atmospheres: ['宗门压迫', '猎场凶险', '逆势翻盘'],
-      custom: ['战斗讲清空间、阵眼和代价，不用空喊招式名堆砌']
-    },
-    customTags: ['残阵破局', '草根组队', '宗门黑账', '父辈旧案'],
-    initialMap: '青霄宗杂役院、试剑台、外门七峰、黑风猎场、废弃灵矿与山门坊市。',
-    mustFollow: [
-      '沈砚只能看见和理解阵纹破绽，不能凭空获得无限力量',
-      '越级取胜必须依赖提前观察、环境、同伴配合或明确代价',
-      '韩烈、魏长庚等对手有自身目标和判断，不能排队降智送人头',
-      '许小川、苏青萝、阿九都有独立动机与行动，不能只是主角工具人'
-    ]
-  };
+  return SCENARIO.openingBlueprint(taxonomyVersion);
 }
 
 function answerFor(item, attempt = 1) {
-  const answers = {
-    'creative-concept': '核心创意是“弱者看见规则的缝”：沈砚没有无敌系统，只能借父亲残阵盘看清灵力和阵势的破绽。每次爽点来自观察、布置、同伴配合与承担代价，长期主线是洗清父亲旧案并改变宗门把底层弟子当耗材的规则。',
-    'reader-promise': '读者持续获得三种体验：主角被逼到墙角后用阵法智取反杀；多名伙伴各展所长、会分歧也会互救；每个事件当场兑现一个胜利，同时抛出父亲旧案和灵矿黑账的新证据。',
-    era: '故事发生在九州北境的青霄宗。宗门垄断灵矿和修炼资源，弟子分杂役、外门、内门与真传；修炼境界分淬体九重、引气、筑基等，境界差距真实存在，阵法需要阵眼、灵石、地势和准备时间。',
-    protagonist: '沈砚十八岁，青霄宗杂役，父亲沈铸曾是阵师却被定为叛徒。沈砚冷静敏锐、坚韧护短，擅长修补残阵和在压力下判断空间关系；开篇只有淬体三重、半块残阵盘、许小川的消息渠道和必须给妹妹沈禾换药的现实压力。',
-    motivation: '沈砚眼前必须保住药钱、摆脱杂役身份并活过考核；深层目标是查明父亲旧案。他害怕身边人因自己被牵连，底线是不牺牲无辜同门换取胜利，也不把伙伴当阵眼耗材。',
-    'must-follow': '力量、阵法和资源必须前后一致；越级反杀要能复盘准备、地形、对手判断和代价。对手不能降智，伙伴不能工具化；新能力先有来源和试错，再在高潮兑现。',
-    'relationship-premise': '许小川负责情报与临场应变，苏青萝追查师兄失踪案并擅长正面剑战，阿九掌握坊市黑市与旧阵图线索。三人与沈砚利益相交但目标不同，通过共同承担风险逐步成为真正队伍。',
-    'relationship-obstacle': '许小川怕死又想救被扣住的兄长，苏青萝怀疑沈砚父亲真是叛徒，阿九则隐藏自己与灵矿商会的关系。冲突来自秘密、利益和不同救人方式，不能靠一次坦白全部消失。',
-    'case-rules': '父亲旧案与灵矿黑账按照可核验线索推进：旧阵图、矿石灵力残留、执事调令、猎场阵眼改动和当事人行动互相印证。任何关键结论至少有两类来源，反派不会靠长篇自白交代真相。',
-    'evidence-chain': '第一卷证据从试剑台被改过的阵眼、父亲阵盘识别出的同源纹路、猎场废矿的异常灵流和魏长庚手中调令逐步形成。未经核实的传闻只作为线索，不能直接洗清父亲罪名。',
-    'truth-layers': '第一层揭示韩烈受人指使压住沈砚；第二层揭示黑风猎场阵眼被改成偷运灵矿的通道；第三层只确认父亲旧阵图与矿脉封印有关，幕后主使和父亲生死仍留给后续卷。'
-  };
-  const base = answers[item.itemKey]
-    ?? `关于“${item.label}”，本书采用可复盘、可持续升级的修仙设定：${item.prompt}。边界服从沈砚当前境界、阵法条件、伙伴动机和青霄宗资源规则；只确定运行规则，不提前锁死具体场景。`;
-  return attempt === 1 ? base : `${base}\n补充确认：采用最符合力量规则、人物主动性和长线伏笔的明确方案；未知细节保留为后续创作空间。`;
+  return SCENARIO.answerFor(item, attempt);
 }
 
 async function createBook() {
@@ -257,7 +173,7 @@ async function createBook() {
   activePhase = 'create-book';
   const taxonomy = await request('/api/v1/opening-taxonomy');
   const openingBlueprint = blueprint(taxonomy.version);
-  const title = `烬骨问天·二十章全流程-${RUN_KEY}`;
+  const title = SCENARIO.bookTitle;
   const draft = await request('/api/v1/books/drafts', {
     method: 'POST', body: { title, text: openingBlueprint.storyDirection, openingBlueprint }
   });
@@ -372,36 +288,10 @@ async function createIdea(bookId, input) {
   return created;
 }
 
-function forceTwoTenChapterEvents(content) {
+function forceExactEventPlan(content) {
   const first = content.eventSequence[0];
   assert(first, 'generated volume plan has no event');
-  return {
-    ...content,
-    title: '第一卷·杂役破局',
-    coreGoal: '沈砚在二十章内从杂役院打进外门，保住同伴并取得父亲旧案的第一份可信线索。',
-    eventSequence: [
-      {
-        ...first, eventId: 'volume-event-1', order: 1, title: '试剑台反杀',
-        responsibility: '用十章完成被逼登台、识破阵眼、越级反杀、保住药钱、结识伙伴并拿到外门考核资格。',
-        entryState: '沈砚是淬体三重杂役，药钱被夺，父亲仍背叛宗污名。',
-        trigger: '韩烈受人指使逼沈砚签下生死状。',
-        action: '沈砚联合许小川搜集试剑台阵纹变化，在公开对决中借残阵以弱胜强。',
-        result: '韩烈败北，沈砚获得外门考核资格，却发现阵眼改动与父亲旧阵盘同源。',
-        leadsToNext: '外门执事魏长庚将沈砚塞进死亡率最高的黑风猎场考核，企图灭口。',
-        estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 }
-      },
-      {
-        ...first, eventId: 'volume-event-2', order: 2, title: '黑风猎场夺旗',
-        responsibility: '用十章完成组队入场、阵营追杀、伙伴分歧、废矿破阵、救人夺旗和灵矿黑账线索兑现。',
-        entryState: '沈砚刚获考核资格，底牌已暴露一角，魏长庚准备在猎场灭口。',
-        trigger: '猎场规则临时改变，沈砚小队被标为携带额外积分的猎物。',
-        action: '沈砚、许小川、苏青萝和阿九各用所长，在追杀中反查废矿阵眼并争夺首旗。',
-        result: '小队救下受困弟子、夺得首旗，沈砚晋入外门并拿到父亲旧阵图一角。',
-        leadsToNext: null,
-        estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 }
-      }
-    ]
-  };
+  return { ...content, ...SCENARIO.volumeContent(first) };
 }
 
 async function planVolume(bookId) {
@@ -424,7 +314,7 @@ async function planVolume(bookId) {
   if (!ideaId) {
     const idea = await createIdea(bookId, {
       surface: 'volume_plan', subjectType: 'volume_plan', subjectId: plan.volumePlanId,
-      originalText: '第一卷精确分为两个连续事件、共20章。事件一“试剑台反杀”覆盖第1至10章，完成受辱、查阵、结盟、失手代价和公开反杀；事件二“黑风猎场夺旗”覆盖第11至20章，完成组队、追杀、分歧、废矿破阵、救人夺旗与旧阵图线索兑现。节奏要快，多角色必须主动行动，两个事件各自完整收束并形成因果衔接。',
+      originalText: SCENARIO.volumeIdea,
       idempotencyLabel: 'volume-idea'
     });
     ideaId = idea.authorInputId;
@@ -444,7 +334,7 @@ async function planVolume(bookId) {
     save({ volumeGenerationTaskId: generation.taskId });
     log('volume_generation_started', { taskId: generation.taskId, members: generation.members });
   }
-  await waitForTask(bookId, state.volumeGenerationTaskId, 'volume-two-writers-and-editor');
+  await waitForTask(bookId, state.volumeGenerationTaskId, 'volume-candidates-and-editor');
   let versions = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`);
   const candidates = ['candidate_a', 'candidate_b', 'fusion'].map((kind) => versions.find((item) => item.candidateKind === kind));
   assert(candidates.every(Boolean), 'volume generation did not create A, B and fusion candidates');
@@ -462,10 +352,10 @@ async function planVolume(bookId) {
         expectedPlanRevision: plan.revision, candidateKind: 'author_edit',
         parentVersionId: selected.volumePlanVersionId, sourceTaskId: state.volumeGenerationTaskId,
         authorInputRefs: [ideaId], template: noneTemplate('volume'),
-        content: forceTwoTenChapterEvents(selected.content), idempotencyKey: key('volume-author-final')
+        content: forceExactEventPlan(selected.content), idempotencyKey: key('volume-author-final')
       }
     });
-    log('volume_author_adjustment_saved', { volumePlanVersionId: selected.volumePlanVersionId, reason: 'two-event-twenty-chapter-test-scope' });
+    log('volume_author_adjustment_saved', { volumePlanVersionId: selected.volumePlanVersionId, reason: `${SCENARIO.key}-${EVENT_COUNT}-event-${TOTAL_CHAPTERS}-chapter-test-scope` });
   }
   await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/impact-preview`, {
     method: 'POST', body: { volumePlanVersionId: selected.volumePlanVersionId }
@@ -479,7 +369,7 @@ async function planVolume(bookId) {
       expectedActiveVersionId: plan.activeVersionId, expectedWorkflowVersion: workflow.planningVersion
     }
   });
-  assert(confirmed.activeVersion?.content.eventSequence.length === EVENT_COUNT, 'confirmed volume does not contain exactly two events');
+  assert(confirmed.activeVersion?.content.eventSequence.length === EVENT_COUNT, `confirmed volume does not contain exactly ${EVENT_COUNT} events`);
   save({ volumePlanId: confirmed.volumePlanId, volumePlanVersionId: confirmed.activeVersionId });
   log('volume_plan_confirmed', { volumePlanId: confirmed.volumePlanId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
   return confirmed;
@@ -502,13 +392,9 @@ async function planEvent(bookId, volumePlan, eventIndex) {
   if (event.activeVersionId !== null) return event;
   let ideaId = state.eventIdeaIds?.[eventIndex];
   if (!ideaId) {
-    const directions = [
-      '事件一精确写10章，对应第1—10章。前3章完成受辱、发现阵纹异常和许小川入局；第4—6章让沈砚首次布阵失败、妹妹药钱面临断供并与苏青萝发生立场冲突；第7—10章查清试剑台阵眼、逼韩烈公开出手，以可复盘的阵法借力越级反杀，拿到外门资格并触发猎场灭口。',
-      '事件二精确写10章，对应第11—20章。沈砚、许小川、苏青萝和阿九都必须主动解决问题；第13—16章遭遇规则突变、队伍分歧和一次真实损失；第17—20章在废矿阵眼完成反追杀、救下同门、夺得首旗并拿到父亲旧阵图一角。魏长庚不能降智，胜利必须有资源消耗与伤势代价。'
-    ];
     const idea = await createIdea(bookId, {
       surface: 'event', subjectType: 'story_event', subjectId: event.eventId,
-      originalText: directions[eventIndex],
+      originalText: SCENARIO.eventIdea(eventIndex),
       idempotencyLabel: `event-${eventIndex + 1}-idea`
     });
     ideaId = idea.authorInputId;
@@ -540,14 +426,14 @@ async function planEvent(bookId, volumePlan, eventIndex) {
       previousErrorCode: eventTaskDetail.task.errorCode
     });
   }
-  await waitForTask(bookId, eventTaskId, `event-${eventIndex + 1}-two-writers-and-editor`);
+  await waitForTask(bookId, eventTaskId, `event-${eventIndex + 1}-candidates-and-editor`);
   let versions = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/versions`);
   assert(['candidate_a', 'candidate_b', 'fusion'].every((kind) => versions.some((item) => item.candidateKind === kind)),
     'event generation did not create A, B and fusion candidates');
   let selected = versions.filter((item) => item.candidateKind === 'author_edit').at(-1)
     ?? versions.filter((item) => item.candidateKind === 'fusion').at(-1);
   assert(selected, 'event fusion candidate missing');
-  const finalEventContent = xianxiaEventContent(eventIndex);
+  const finalEventContent = SCENARIO.events[eventIndex];
   if (selected.candidateKind !== 'author_edit' || selected.content.title !== finalEventContent.title) {
     sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`);
     event = sequence.events[eventIndex];
@@ -560,7 +446,7 @@ async function planEvent(bookId, volumePlan, eventIndex) {
         idempotencyKey: key(`event-${eventIndex + 1}-author-final`)
       }
     });
-    log('event_author_adjustment_saved', { eventIndex: eventIndex + 1, storyEventVersionId: selected.storyEventVersionId, reason: 'confirmed-xianxia-event-contract' });
+    log('event_author_adjustment_saved', { eventIndex: eventIndex + 1, storyEventVersionId: selected.storyEventVersionId, reason: `confirmed-${SCENARIO.key}-event-contract` });
   }
   await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/impact-preview`, {
     method: 'POST', body: { versionId: selected.storyEventVersionId }
@@ -647,12 +533,7 @@ async function saveExpressionProfile(bookId) {
   if (existing?.status === 'confirmed') return existing;
   const confirmed = await request(`/api/v1/books/${bookId}/expression-profile`, {
     method: 'POST', body: {
-      narrativePerson: 'third', viewpointDistance: 'close',
-      languageTone: ['利落', '热血', '有画面感', '对白有辨识度'], textDensity: 'adaptive',
-      targetAudience: '喜欢快节奏、智取反杀与多角色修仙成长的读者',
-      contentBoundaries: { powerRulesMustBeTraceable: true, noCostFreeVictory: true, noDisposableCompanions: true },
-      humorSeriousness: 'balanced', voiceEvidence: [],
-      impactScope: { appliesFrom: 'next_formal_work_order' }, confirm: true
+      ...SCENARIO.expressionProfile
     }
   });
   log('expression_profile_confirmed', { expressionProfileId: confirmed.expressionProfileId, version: confirmed.version });
@@ -931,16 +812,15 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
     });
   }
   const wholeManuscript = manuscriptTexts.join('\n');
-  for (const requiredName of ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚']) {
-    assert(wholeManuscript.includes(requiredName), `twenty-chapter manuscript is missing active character ${requiredName}`);
+  for (const requiredName of SCENARIO.requiredNames) {
+    assert(wholeManuscript.includes(requiredName), `${TOTAL_CHAPTERS}-chapter manuscript is missing active character ${requiredName}`);
   }
-  for (const requiredStoryTerm of ['阵纹', '试剑台', '黑风猎场', '阵盘', '外门']) {
-    assert(wholeManuscript.includes(requiredStoryTerm), `twenty-chapter manuscript is missing xianxia story term ${requiredStoryTerm}`);
+  for (const requiredStoryTerm of SCENARIO.requiredTerms) {
+    assert(wholeManuscript.includes(requiredStoryTerm), `${TOTAL_CHAPTERS}-chapter manuscript is missing ${SCENARIO.key} story term ${requiredStoryTerm}`);
   }
-  assert(!wholeManuscript.includes('林澈') && !wholeManuscript.includes('铜钥匙'),
-    'twenty-chapter manuscript leaked the unrelated deterministic mystery fixture');
-  assert(events.map((event) => event.activeVersion?.content.title).join('|') === '试剑台反杀|黑风猎场夺旗',
-    'confirmed events are not the two required xianxia event contracts');
+  assert(SCENARIO.forbiddenTerms.every((term) => !wholeManuscript.includes(term)), `${SCENARIO.key} manuscript leaked unrelated story terms`);
+  assert(events.map((event) => event.activeVersion?.content.title).join('|') === SCENARIO.events.map((event) => event.title).join('|'),
+    `confirmed events are not the ${EVENT_COUNT} required ${SCENARIO.key} event contracts`);
   const ideaEvidence = ideas.map((idea) => ({
     authorInputId: idea.authorInputId, surface: idea.surface, subjectType: idea.subjectType,
     intentStrength: idea.intentStrength, status: idea.status, handlingReason: idea.handlingReason,
@@ -950,8 +830,9 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
     .filter((call) => call.provider && call.modelId)
     .map((call) => [`${call.agentId}:${call.provider}:${call.modelId}`, call])).values()];
   const evidence = {
-    testId: TEST_ID, releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: 'E2-current-workflow-twenty-chapters',
-    limitation: '二十章本地确定性流程证明当前对象链、任务、审查、正文与双事件结算可运行和可追溯；不代表真实套餐模型文学质量，也不等于1000章以上长期质量已经得到证明。',
+    testId: TEST_ID, scenario: SCENARIO.key, scenarioName: SCENARIO.displayName,
+    releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: `E2-current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}`,
+    limitation: `${TOTAL_CHAPTERS}章本地确定性流程只证明当前对象链、任务、审查、正文与事件结算可运行和可追溯；不代表真实套餐模型文学质量，也不等于1000章以上长期质量已经得到证明。`,
     book: { bookId, title: book.title, status: book.status, canonRevision: book.canonRevision },
     profile, workflow, settings: settings.map((item) => ({ itemKey: item.itemKey, label: item.label, status: item.status })),
     team: workspace.agents.map((agent) => ({

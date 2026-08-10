@@ -166,7 +166,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
   return (
     <section className="team-workspace" aria-labelledby="team-workspace-title">
       <header className="team-workspace-header">
-        <div><span className="eyebrow">成员与岗位</span><h2 id="team-workspace-title">团队配置</h2><p>查看每名成员负责什么、当前使用哪个模型，也可以补充本书的岗位要求。</p></div>
+        <h2 id="team-workspace-title" className="sr-only">团队配置</h2>
         <span className="team-count">{config.members.length} 名成员</span>
       </header>
       <div className="team-config-layout">
@@ -188,17 +188,17 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
           <article className="team-member-editor">
             <header>
               <div className="agent-dialog-identity"><AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} /><span><h3>{memberIdentity(member)}</h3><p>{toAuthorFacingText(member.publicSummary ?? '未记录')}</p></span></div>
-              <span className="model-source">{member.provider}/{member.modelId}</span>
+              <span className="model-source">{modelProviderLabel(member.provider)}</span>
             </header>
             <section className="team-live-task-card">
-              <header><div><h3>当前工作状态</h3><p>只显示真实任务、上下文摘要和已保存输出，不展示内部思维过程。</p></div><span className={memberTask === null ? 'idle' : 'working'}>{memberTask === null ? '空闲' : statusLabel(memberTask.status)}</span></header>
+              <header><h3>当前工作状态</h3><span className={memberTask === null ? 'idle' : 'working'}>{memberTask === null ? '空闲' : statusLabel(memberTask.status)}</span></header>
               {memberTask === null
                 ? <p>当前没有分配给这名成员的任务；成员保持在线待命。</p>
                 : <dl>
                   <div><dt>正在做什么</dt><dd>{taskGoal(memberTask, taskChapterFromBrief(memberTask))}</dd></div>
                   <div><dt>当前阶段</dt><dd>{phaseLabel(memberTask.currentPhase)}</dd></div>
-                  <div><dt>本轮上下文</dt><dd>{memberContextSummary(memberTask)}</dd></div>
-                  <div><dt>已保存输出</dt><dd>{taskCheckpointLabel(memberTask.checkpoint)}</dd></div>
+                  <div><dt>本轮参考</dt><dd>{memberContextSummary(memberTask)}</dd></div>
+                  <div><dt>当前结果</dt><dd>{taskCheckpointLabel(memberTask.checkpoint)}</dd></div>
                 </dl>}
             </section>
             <div className="agent-detail-groups">
@@ -226,7 +226,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
             <section className="prompt-editor">
               <div className="prompt-editor-heading">
                 <span><h3>{toAuthorFacingText(config.promptPolicy.editableLabel)}</h3><p>{toAuthorFacingText(config.promptPolicy.priority)}</p></span>
-                <small>版本 {member.promptPreference.version || '默认'}</small>
+                <small>{member.promptPreference.version > 0 ? '已保存本书要求' : '使用默认要求'}</small>
               </div>
               <textarea
                 value={draft}
@@ -257,9 +257,9 @@ function memberContextSummary(task: TaskData): string {
   const chapter = taskChapterFromBrief(task);
   if (settingItem.length > 0) return `本书开书资料、当前设定项（${settingItem}）、已确认前置设定和作者本项原话`;
   if (chapter !== '全书任务') return `分卷、事件链、事件大纲、完整${chapter}章纲和相关正式原文`;
-  if (purpose.includes('volume')) return '本书开书资料、活动设定、当前卷目标、作者卷想法与相关正史';
+  if (purpose.includes('volume')) return '本书开书资料、活动设定、当前卷目标、作者卷想法与相关已确认内容';
   if (purpose.includes('event')) return '活动卷纲、完整事件链、当前事件、作者想法与相关人物/因果证据';
-  return '根据当前任务冻结的本书活动版本与按需检索证据';
+  return '根据当前任务冻结的本书当前已确认内容和需要用到的前文资料';
 }
 
 export function TeamInspector({ workspace, worker, onSelectAgent }: { workspace: WorkspaceData | null; worker: WorkerData | null; onSelectAgent: (agent: AgentData) => void }): React.JSX.Element {
@@ -316,7 +316,7 @@ export function TeamTemplateWorkspace({ data, books, onManageBook }: { data: Tea
   const selected = data?.members.find((member) => member.roleKey === selectedRole) ?? data?.members[0] ?? null;
   if (data === null) return <WorkspaceSkeleton />;
   return <section className="team-template-workspace" aria-labelledby="team-template-title">
-    <header><div><span className="eyebrow">全局岗位模板</span><h2 id="team-template-title">创作团队</h2><p>这里说明11个岗位的默认职责和模型。进入具体书籍后，团队页会显示该书成员的真实工作状态。</p></div><strong>{data.members.length} 名成员</strong></header>
+    <header><h2 id="team-template-title" className="sr-only">创作团队</h2><strong>{data.members.length} 名成员</strong></header>
     {books.length > 0 && <div className="team-book-shortcuts"><span>管理某本书的成员补充要求：</span>{books.map((book) => <button type="button" key={book.bookId} onClick={() => onManageBook(book.bookId)}>{bookDisplayTitle(book.title)}</button>)}</div>}
     <div className="team-template-layout">
       <nav aria-label="团队岗位模板">{data.members.map((member) => <button className={selected?.roleKey === member.roleKey ? 'active' : ''} type="button" key={member.roleKey} onClick={() => setSelectedRole(member.roleKey)}><AgentAvatar roleKey={member.roleKey} roleName={`${member.memberName}（${member.shortTitle}）`} /><span><strong>{member.memberName}（{member.shortTitle}）</strong><small>{toAuthorFacingText(member.publicSummary)}</small></span></button>)}</nav>
@@ -325,7 +325,7 @@ export function TeamTemplateWorkspace({ data, books, onManageBook }: { data: Tea
         <DetailList title="岗位职责" values={selected.responsibilities} />
         <DetailList title="负责什么" values={selected.boundaries} />
         <DetailList title="检索重点" values={selected.retrievalFocus} />
-        <section><h4>默认模型</h4><p>{modelProviderLabel(selected.defaultModel.provider)} · {selected.defaultModel.modelId}</p></section>
+        <section><h4>模型来源</h4><p>{modelProviderLabel(selected.defaultModel.provider)}</p></section>
         <section><h4>岗位表达</h4><p>{toAuthorFacingText(selected.roleStatement)}</p></section>
         <ProtectedPromptViewer key={selected.roleKey} roleKey={selected.roleKey} configured={data.fullPromptAccess?.configured ?? false} />
       </article>}
@@ -352,9 +352,9 @@ export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData;
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="dialog agent-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-detail-title">
       <header><div className="agent-dialog-identity"><AgentAvatar roleKey={agent.roleKey} roleName={memberIdentity(agent)} /><span><h2 id="agent-detail-title">{memberIdentity(agent)}</h2><p>{agent.publicSummary ?? roleSummary(agent.roleKey)}</p></span></div><button className="icon-button" type="button" aria-label="关闭岗位详情" onClick={onClose}><XIcon /></button></header>
-      <div className="agent-detail-model"><span>实际模型来源</span><strong>{agent.provider}/{agent.modelId}</strong><small>同模型岗位会如实显示共同来源，不计作独立意见。</small></div>
+      <div className="agent-detail-model"><span>模型来源</span><strong>{modelProviderLabel(agent.provider)}</strong><small>同一来源不会被当作不同模型的独立意见。</small></div>
       <div className="agent-detail-groups">{groups.map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}</div>
-      <section className="agent-evidence"><h3>当前任务</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p><small>成员状态只依据真实任务、Worker和模型调用，不根据界面展示文字推断。</small></section>
+      <section className="agent-evidence"><h3>当前任务</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p><small>进度会根据成员的实际工作自动更新。</small></section>
       <footer><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
     </section>
   </div>;

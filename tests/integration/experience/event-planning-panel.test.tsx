@@ -48,14 +48,17 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
   }));
 
   render(<EventPlanningPanel bookId="book-event-ui"/>);
-  expect(await screen.findByRole('heading',{name:'先看整条因果链，再深入设计当前事件'})).toBeInTheDocument();
+  expect(await screen.findByRole('heading',{name:'规划'})).toBeInTheDocument();
+  expect(screen.queryByText('规划台')).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:/事件 1.*胜利留下的缺口/u})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:/事件 2.*对手开始反制/u})).toBeInTheDocument();
-  expect(screen.getByText(/章数只是弹性估计/u)).toBeInTheDocument();
+  expect(screen.getByText(/上一事件实际结果.*主角与局面新状态.*下一事件接口/u)).toBeInTheDocument();
+  expect(screen.getByText('人物必须作出的选择与代价')).toBeInTheDocument();
+  expect(screen.getByText('根据当前事件推荐')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button',{name:'开始设计事件'}));
   expect(await screen.findByText('三份方案已保存')).toBeInTheDocument();
-  expect(screen.getByText(/本地验收模型，不冒充异模型意见/u)).toBeInTheDocument();
+  expect(screen.queryByText(/本地验收模型|local-deterministic|fixture-/u)).not.toBeInTheDocument();
   expect(screen.getByText(/编剧A · 婉儿/u)).toBeInTheDocument();
   expect(screen.getByText(/编剧B · 红玉/u)).toBeInTheDocument();
   expect(screen.getByText(/主编 · 昭昭/u)).toBeInTheDocument();

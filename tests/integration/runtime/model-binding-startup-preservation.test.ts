@@ -139,13 +139,13 @@ describe('启动时保留书籍模型方案', () => {
     expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 11 });
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
-      chief_editor: 'volcengine-ark-agent-plan/kimi-k3',
+      chief_editor: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       deputy_editor: 'volcengine-ark-agent-plan/glm-5.2',
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
-      setting: 'volcengine-ark-agent-plan/kimi-k2.7-code',
+      setting: 'volcengine-ark-agent-plan/glm-5.2',
       lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      backup_writer: 'volcengine-ark-agent-plan/kimi-k3',
+      backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       literary_reviewer: 'volcengine-ark-agent-plan/minimax-m3',
       experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',
       researcher: 'volcengine-ark-agent-plan/deepseek-v4-flash',

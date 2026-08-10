@@ -32,7 +32,6 @@ import {
   type TaskData,
   type WorkspaceData
 } from '../../lib/api/client';
-import { shortId } from '../../app/display-labels';
 import { StructuredContent, authorityLabel, isRecord } from '../shared/StructuredContent';
 
 export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenPlanning }: {
@@ -253,7 +252,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       if (analysis.status === 'ready') await handoffToEditor(result);
       else setNotice(`正文已安全保存。文姬正在逐章提炼设定、人物状态、事件和未回收线索（${analysis.analyzedChapterCount}/${analysis.totalChapterCount}），整理完成后再交给主编。`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '导入没有完成；已保存的检查点不会重复写入。');
+      setNotice(reason instanceof Error ? reason.message : '导入没有完成；已经保存的内容不会重复写入。');
       try {
         const latest = await fetchContinuationImport(bookId, preview.importId);
         setPreview(latest);
@@ -329,12 +328,12 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
           <label className="continuation-include"><input type="checkbox" checked={item.included} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { included: event.target.checked })} /><span>纳入</span></label>
           <span className="continuation-ordinal">{item.ordinal}</span>
           <label className="continuation-title"><span className="visually-hidden">第{item.ordinal}项标题</span><input value={item.title} maxLength={120} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { title: event.target.value })} /></label>
-          <small>{item.characterCount.toLocaleString('zh-CN')} 字符 · 校验码 {item.contentHash.slice(0, 8)}</small>
+          <small>{item.characterCount.toLocaleString('zh-CN')} 字符</small>
         </article>)}</div>
-        {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{preview.errorMessage ?? '已完成部分已经保留，可以从检查点继续。'}</p></div>}
+        {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{preview.errorMessage ?? '已完成部分已经保留，可以继续。'}</p></div>}
         {['parsed', 'failed', 'importing'].includes(preview.status) && <div className="continuation-confirm">
           <label><input type="checkbox" checked={confirmed} disabled={busy !== null} onChange={(event) => setConfirmed(event.target.checked)} /><span>我已检查章节拆分，确认把所选正文作为这本书已经发生的正式前文。</span></label>
-          <div>{preview.status === 'parsed' && <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setPreview(null); setConfirmed(false); setNotice(null); }}>返回修改原文</button>}<button className="primary-button" type="button" disabled={busy !== null || !confirmed || includedCount === 0} onClick={() => void confirmImport()}>{busy === 'confirm' ? '正在导入…' : preview.status === 'parsed' ? `确认导入 ${includedCount} 章` : '从检查点继续导入'}</button></div>
+          <div>{preview.status === 'parsed' && <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setPreview(null); setConfirmed(false); setNotice(null); }}>返回修改原文</button>}<button className="primary-button" type="button" disabled={busy !== null || !confirmed || includedCount === 0} onClick={() => void confirmImport()}>{busy === 'confirm' ? '正在导入…' : preview.status === 'parsed' ? `确认导入 ${includedCount} 章` : '继续导入'}</button></div>
         </div>}
         {preview.status === 'ready' && analysis !== null && analysis.status !== 'ready' && <div className="continuation-ready"><ClockCountdownIcon /><div><strong>正文已保存，正在逐章整理</strong><span>{analysis.analyzedChapterCount.toLocaleString('zh-CN')} / {analysis.totalChapterCount.toLocaleString('zh-CN')} 章；整理失败也不会影响已导入正文。</span>{analysis.errorMessage !== null && <small>{analysis.errorMessage}</small>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void refreshAnalysis()}>{busy === 'analyze' ? '正在检查…' : analysis.status === 'failed' || analysis.status === 'not_started' ? '开始逐章整理' : '刷新整理进度'}</button></div>}
         {preview.status === 'ready' && analysis?.status === 'ready' && <div className="continuation-ready"><CheckCircleIcon /><div><strong>前文与反向章纲均已准备好</strong><span>共 {preview.importedChapterCount.toLocaleString('zh-CN')} 章。人物状态、剧情事件、规则、线索和逐章章纲已经整理；这些是可重建参考，原文仍是权威来源。</span>{analysis.summary !== null && analysis.summary.trim().length > 0 && <details className="continuation-analysis-summary"><summary>查看前文章节摘要</summary><p>{analysis.summary}</p></details>}{reverseOutlines.length > 0 && <details className="continuation-reverse-outlines"><summary>查看逐章反向章纲（{reverseOutlines.length}章）</summary><div>{reverseOutlines.map((outline) => <article key={`${outline.chapterNumber ?? 'unknown'}-${outline.title}`}><h4>{outline.chapterNumber === null ? '' : `第${outline.chapterNumber}章 `}{outline.title}</h4><dl><div><dt>本章目标</dt><dd>{outline.chapterGoal || '原文没有足够信息'}</dd></div><div><dt>开场状态</dt><dd>{outline.openingState || '原文没有足够信息'}</dd></div><div><dt>出场人物</dt><dd><StructuredContent value={outline.cast} /></dd></div><div><dt>剧情推进</dt><dd><StructuredContent value={outline.plotBeats} /></dd></div><div><dt>主要冲突</dt><dd>{outline.centralConflict || '原文没有明确冲突'}</dd></div><div><dt>情绪变化</dt><dd><StructuredContent value={outline.emotionalArc} /></dd></div><div><dt>爽点与压力</dt><dd><StructuredContent value={outline.payoffOrPressure} /></dd></div><div><dt>伏笔与钩子</dt><dd><StructuredContent value={outline.threadActions} /></dd></div><div><dt>描写重点</dt><dd><StructuredContent value={outline.descriptionFocus} /></dd></div><div><dt>章末承接</dt><dd><StructuredContent value={outline.ending} /></dd></div></dl></article>)}</div></details>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => handoffToEditor(preview)}>进入设定</button></div>}
@@ -381,17 +380,17 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         const result = await saveOwnerManuscript(bookId, chapter.chapterId, { baseManuscriptVersionId: baseVersionId, content: draft, note: '作者在正文工作台修改' });
         setBaseVersionId(result.manuscriptVersionId);
         setBaselineContent(draft);
-        setNotice(result.unchanged ? '正文没有变化。' : '修改已保存为新的草稿版本，旧版本仍会保留，之后可以查看。');
+        setNotice(result.unchanged ? '正文没有变化。' : '修改已保存为新的草稿，旧稿仍会保留，之后可以查看。');
       } else if (kind === 'rewrite') {
         if (actionVersionId === null) return;
         const result = await rewriteChapter(bookId, chapter.chapterId, actionVersionId, instruction);
         setRewriteOpen(false);
-        setNotice(`优化任务已开始（${shortId(result.taskId)}），完成后会生成一个待确认版本，不会覆盖你的原文。`);
+        setNotice('正在按你的要求优化，完成后会生成一份待确认稿，不会覆盖你的原文。');
       } else {
         if (actionVersionId === null) return;
         const result = await finalizeChapter(bookId, chapter.chapterId, actionVersionId);
         setNotice(result.confirmationId === undefined
-          ? `AI点评和定稿检查已开始（${shortId(result.taskId)}）。点评完成后仍需你确认，才会成为正式正文。`
+          ? 'AI点评和定稿检查已经开始。完成后仍需你确认，才会成为正式正文。'
           : '本章点评已经完成，正在等待你决定是否定稿。');
       }
       onChanged();
@@ -431,7 +430,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
       setBaseVersionId(null);
       setDeleteOpen(false);
       setRewriteOpen(false);
-      setNotice('当前正文已撤下；历史版本仍安全保留，不会被物理删除。');
+      setNotice('当前正文已撤下；历史稿仍安全保留，之后仍可恢复。');
       onChanged();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '正文没有删除成功，请稍后重试。');
@@ -467,15 +466,15 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '减少模板化AI腔，不故意制造错误'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', naturalInstruction)}>自然化（去AI腔）</button>
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '填写本章专属优化要求'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>自定义优化</button>
           <button className="primary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '交给三位不同模型点评；是否定稿仍由作者确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('review')}>{busyAction === 'review' ? '提交中…' : 'AI点评'}</button>
-          <button className="danger-text-button" type="button" title={!hasVersion ? '本章还没有已保存正文' : changed ? '请先保存或撤销当前未保存修改' : '从当前章节撤下正文，历史版本仍保留'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setDeleteOpen(true)}><TrashIcon />删除正文</button>
+          <button className="danger-text-button" type="button" title={!hasVersion ? '本章还没有已保存正文' : changed ? '请先保存或撤销当前未保存修改' : '从当前章节撤下正文，历史稿仍保留'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setDeleteOpen(true)}><TrashIcon />删除正文</button>
         </div>}
-        {rewriteOpen && <div className="rewrite-panel"><label>想怎么改<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><p>AI只会另写一个待确认版本，你的原文和以前的版本都会保留。</p><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '生成修改版'}</button></div></div>}
-        {deleteOpen && <div className="rewrite-panel manuscript-delete-panel" role="alertdialog" aria-label="确认删除当前正文"><strong>删除当前正文？</strong><p>正文会从本章编辑区撤下，但历史版本仍会保留，之后还能查到。已经定稿的正式正文不能删除。</p><div><button className="secondary-button" type="button" disabled={busyAction !== null} onClick={() => setDeleteOpen(false)}>取消</button><button className="danger-button" type="button" disabled={busyAction !== null} onClick={() => void withdrawCurrentDraft()}>{busyAction === 'delete' ? '正在删除…' : '确认删除'}</button></div></div>}
+        {rewriteOpen && <div className="rewrite-panel"><label>想怎么改<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><p>AI只会另写一份待确认稿，你的原文和以前的稿件都会保留。</p><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '生成修改版'}</button></div></div>}
+        {deleteOpen && <div className="rewrite-panel manuscript-delete-panel" role="alertdialog" aria-label="确认删除当前正文"><strong>删除当前正文？</strong><p>正文会从本章编辑区撤下，但历史稿仍会保留，之后还能查到。已经定稿的正式正文不能删除。</p><div><button className="secondary-button" type="button" disabled={busyAction !== null} onClick={() => setDeleteOpen(false)}>取消</button><button className="danger-button" type="button" disabled={busyAction !== null} onClick={() => void withdrawCurrentDraft()}>{busyAction === 'delete' ? '正在删除…' : '确认删除'}</button></div></div>}
         {!settled && <p className="manuscript-unsaved">{!hasVersion
           ? '先输入或导入当前章并保存作者原文，保存后才能点评或生成待确认的优化稿。'
           : changed
             ? '当前章有未保存修改。保存后才能点评或优化。'
-            : '你的原文已经保存。AI修改会另存一个版本，不会覆盖原文；你看过以后再决定是否定稿。'}</p>}
+            : '你的原文已经保存。AI修改会另存一份稿件，不会覆盖原文；你看过以后再决定是否定稿。'}</p>}
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
       </>}
       {detail !== null && <ChapterProductionEvidence detail={detail} />}
@@ -488,7 +487,7 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
   const reports = detail.production.reviewReports.map((row) => ({ row, report: parseRecordJson(row.report_json) })).filter((item) => item.report !== null) as Array<{ row: Record<string, unknown>; report: Record<string, unknown> }>;
   if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>本章写作记录</h3><p>本章还没有正式写作要求和三位模型的点评。</p></section>;
   return <section className="production-evidence"><header><h3>写作要求与AI点评</h3><p>三位模型点评的是同一份正文。AI腔检查会指出具体段落，不是在判断作者是不是AI；内容风险提示也不能代替法律或平台结论。</p></header>
-    {order !== undefined && <article className="writing-order-card"><span>本章写作要求</span><strong>{String(order.objective ?? '本章要完成什么')}</strong><small>版本 {String(order.version ?? 1)}，依据正式内容版本 {String(order.canon_revision ?? 0)}，状态 {authorityLabel(String(order.status ?? 'active'))}</small></article>}
+    {order !== undefined && <article className="writing-order-card"><span>本章写作要求</span><strong>{String(order.objective ?? '本章要完成什么')}</strong><small>写作要求已确认</small></article>}
     <div className="review-evidence-grid">{reports.map(({ row, report }) => {
       const aiStyle = isRecord(report.aiStyle) ? report.aiStyle : null;
       const political = isRecord(report.politicalRisk) ? report.politicalRisk : null;

@@ -46,6 +46,8 @@
 
 `/api/v1/books/:bookId/volume-plans` 提供列表、创建和详情。单个卷计划支持：作者输入、候选、AI生成任务、选择/融合、确认、历史切换、影响预览和结算。所有修改校验工作流版本与上游设定版本。
 
+`GET /api/v1/books/:bookId/planning-templates?scope=volume|event` 返回后端统一模板注册表的公开投影、版本和哈希。推荐排序输入只来自该 `bookId` 的开书资料、当前活动卷和最近真实卷结算；推荐标记只改变展示顺序。客户端保存规划时提交所选模板版本、哈希和混合引用快照；自定义和不使用模板不绑定系统模板。
+
 ## 7. 事件链与事件大纲
 
 `/api/v1/books/:bookId/volume-plans/:volumePlanId/story-events` 管理事件列表、顺序、插入、移动、拆分、合并、候选生成、确认和因果衔接。单个事件通过 `/story-events/:eventId` 获取详情、生成事件大纲和执行事件结算。

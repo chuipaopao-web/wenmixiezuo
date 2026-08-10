@@ -29,7 +29,7 @@ describe('工作台API', () => {
       shortTitle: '主编',
       publicSummary: expect.any(String),
       roleStatement: expect.stringContaining('貂蝉'),
-      defaultModel: expect.objectContaining({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3' })
+      defaultModel: expect.objectContaining({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code' })
     }));
     expect(teamTemplateResponse.json().data.fullPromptAccess).toEqual({ configured: true, passwordProtected: true });
     expect(teamTemplateResponse.body).not.toContain('记忆规则');

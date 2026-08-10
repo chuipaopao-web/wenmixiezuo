@@ -230,18 +230,14 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   }
 
   return <section className="volume-planning-panel" aria-labelledby="volume-planning-title">
-    <header className="volume-planning-header">
-      <div>
-        <span className="eyebrow">当前卷工作台</span>
-        <h3 id="volume-planning-title">先确定这一卷要改变什么，再拆事件</h3>
-        <p>卷规划只约束目标、冲突、人物变化和事件因果；具体场景、对白和局部反转继续留给编剧与主笔发挥。</p>
-      </div>
+    <div className="volume-planning-toolbar">
+      <h3 id="volume-planning-title" className="sr-only">分卷</h3>
       {snapshot.plans.length === 0
         ? <button className="primary-button" type="button" disabled={busy} onClick={createCurrentVolume}>开始规划第一卷</button>
         : <select aria-label="选择卷规划" value={selectedPlanId ?? ''} onChange={(event) => setSelectedPlanId(event.target.value)}>
           {snapshot.plans.map((plan) => <option key={plan.volumePlanId} value={plan.volumePlanId}>第{plan.planNumber}卷 · {plan.activeVersion?.content.title ?? '规划中'}</option>)}
         </select>}
-    </header>
+    </div>
 
     <ol className="volume-workflow-strip" aria-label="当前卷流程">
       <li className={selectedPlan !== null ? 'done' : 'current'}><b>1</b><span>建立当前卷</span></li>
@@ -252,19 +248,19 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
 {snapshot.workflow.stage === 'volume_settlement_in_progress' && selectedPlan !== null && <section className="writing-launch-card volume-settlement-card">
-      <div><small>本卷事件已全部完成</small><h4>核对实际后果，完成本卷</h4><p>卷结算只汇总已结算事件和正式正史；原卷规划单独用于差异对照。完成后才会解锁下一卷规划。</p></div>
+      <div><small>本卷事件已全部完成</small><h4>核对实际后果，完成本卷</h4><p>卷结算只汇总已结算事件和已确认内容；原卷规划单独用于差异对照。完成后才会解锁下一卷规划。</p></div>
       <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentVolume}>完成本卷，规划下一卷</button></div>
     </section>}
 
     {selectedPlan !== null && <>
       <section className="volume-plan-status-card">
         <div><small>第{selectedPlan.planNumber}卷</small><strong>{selectedPlan.activeVersion?.content.title ?? '尚未确认卷规划'}</strong></div>
-        <div><small>当前状态</small><strong>{selectedPlan.activeVersion === null ? '比较方案中' : `已确认第${selectedPlan.activeVersion.version}版`}</strong></div>
+        <div><small>当前状态</small><strong>{selectedPlan.activeVersion === null ? '比较方案中' : `已确认第${selectedPlan.activeVersion.version}稿`}</strong></div>
         <div><small>上游依据</small><strong>{selectedPlan.planNumber === 1 ? '开书资料 + 设定基线' : '上卷结算 + 当前设定'}</strong></div>
         <button type="button" disabled={busy} onClick={() => {
           setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber));
           setEditing((value) => !value);
-        }}>{editing ? '收起编辑' : selectedPlan.activeVersion === null ? '填写我的方案' : '在确认版上修改'}</button>
+        }}>{editing ? '收起编辑' : selectedPlan.activeVersion === null ? '填写我的方案' : '在确认稿上修改'}</button>
       </section>
 
       <TemplateChooser
@@ -277,7 +273,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
           setSelectedTemplates((current) => {
             const next = current.some((item) => item.templateKey === template.templateKey)
               ? current.filter((item) => item.templateKey !== template.templateKey)
-              : [...current, template].slice(-3);
+              : [...current, template];
             setTemplateMode(next.length === 0 ? 'none' : 'template');
             return next;
           });
@@ -305,7 +301,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
       {editing && <VolumePlanEditor value={draft} onChange={setDraft} onSave={saveAuthorDraft} busy={busy} />}
 
       {versions.length > 0 && <section className="volume-version-section">
-        <header><div><h4>方案与历史版本</h4><p>候选稿互不覆盖；确认新版本前会先显示影响范围。</p></div><span>{versions.length} 个版本</span></header>
+        <header><div><h4>方案与历史稿</h4><p>各份稿件互不覆盖；确认新稿前会先显示影响范围。</p></div><span>{versions.length} 份稿件</span></header>
         <div className="volume-version-grid">{versions.map((version) => <VolumeVersionCard
           key={version.volumePlanVersionId}
           version={version}
@@ -315,10 +311,10 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         />)}</div>
       </section>}
 
-      {impact !== null && <aside className="volume-impact-card" aria-label="版本影响预览">
+      {impact !== null && <aside className="volume-impact-card" aria-label="改动影响预览">
         <div><strong>确认前影响预览</strong><p>{impact.note}</p></div>
         <dl><div><dt>改变的部分</dt><dd>{impact.changedFields.map(fieldLabel).join('、') || '无'}</dd></div><div><dt>需要复核的下游</dt><dd>{impact.downstreamDependencyCount} 项</dd></div></dl>
-        <div className="button-row"><button type="button" onClick={() => setImpact(null)}>先不确认</button><button className="primary-button" type="button" disabled={busy} onClick={confirmCandidate}>确认此版本</button></div>
+        <div className="button-row"><button type="button" onClick={() => setImpact(null)}>先不确认</button><button className="primary-button" type="button" disabled={busy} onClick={confirmCandidate}>确认这份稿</button></div>
       </aside>}
     </>}
   </section>;
@@ -333,16 +329,25 @@ function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onS
   onSelect: (template: PublicNarrativeTemplate) => void;
   onCustomDirection: (value: string) => void;
 }): React.JSX.Element {
+  const recommendedTemplates = catalog.templates.filter((template) => template.recommended);
+  const additionalTemplates = catalog.templates.filter((template) => !template.recommended);
+  const renderTemplate = (template: PublicNarrativeTemplate, badge: string): React.JSX.Element => <button
+    type="button"
+    className={mode === 'template' && selected.some((item) => item.templateKey === template.templateKey) ? 'selected' : ''}
+    key={template.templateKey}
+    onClick={() => onSelect(template)}
+  ><span>{badge}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>;
   return <section className="volume-template-section">
-    <header><div><h4>这一卷想怎么推进？</h4><p>主标题用大白话说明效果，角标标出叙事方法来源；最多混合3种，也可以完全不用。</p></div>{mode === 'template' && <span>已选 {selected.length}/3</span>}</header>
-    <div className="volume-template-grid">
-      {catalog.templates.map((template) => <button
-        type="button"
-        className={mode === 'template' && selected.some((item) => item.templateKey === template.templateKey) ? 'selected' : ''}
-        key={template.templateKey}
-        onClick={() => onSelect(template)}
-        disabled={mode === 'template' && selected.length >= 3 && !selected.some((item) => item.templateKey === template.templateKey)}
-      ><span>{template.recommended ? '推荐' : template.sourceLabel}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>)}
+    <header><div><h4>这一卷想怎么推进？</h4><p>可以不选；通常选0—3种就够了，确有需要也可继续混合。所有方案都是软参考，不规定固定章数、爽点或反转频率。</p></div>{mode === 'template' && <span>已选 {selected.length} 种</span>}</header>
+    <div className="template-choice-group recommended">
+      <div className="template-choice-heading"><div><strong>根据本书推荐</strong><small>结合题材、标签、当前卷信息和已完成卷的实际结算排序</small></div><span>{recommendedTemplates.length} 种</span></div>
+      <div className="volume-template-grid">{recommendedTemplates.map((template) => renderTemplate(template, '适合当前书况'))}</div>
+    </div>
+    {additionalTemplates.length > 0 && <details className="template-choice-group template-more-options">
+      <summary><span><strong>查看更多推进方案</strong><small>任何题材都可以自由选择，不受推荐限制</small></span><b>{additionalTemplates.length} 种</b></summary>
+      <div className="volume-template-grid">{additionalTemplates.map((template) => renderTemplate(template, template.sourceLabel))}</div>
+    </details>}
+    <div className="volume-template-grid template-alternative-grid">
       <button type="button" className={mode === 'custom' ? 'selected' : ''} onClick={() => onMode('custom')}><span>自定义</span><strong>按我的想法推进</strong><p>只记录你的方向，不套用固定节奏。</p></button>
       <button type="button" className={mode === 'none' ? 'selected' : ''} onClick={() => onMode('none')}><span>自由设计</span><strong>暂时不选推进参考</strong><p>让人物目标和已有因果自然决定本卷结构。</p></button>
     </div>
@@ -360,47 +365,29 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
 }): React.JSX.Element {
   const active = generation !== null && generationIsActive(generation.status);
   const canRetry = generation?.status === 'failed' || generation?.status === 'interrupted';
-  const candidateCount = generation === null ? 0 : [
-    generation.candidateVersionIds.candidateA,
-    generation.candidateVersionIds.candidateB,
-    generation.candidateVersionIds.fusion
-  ].filter(Boolean).length;
   return <section className={`volume-generation-card ${active ? 'working' : ''}`} aria-label="卷规划团队设计">
     <header>
-      <div>
-        <span>AI协作</span>
-        <h4>两位编剧独立设计，主编最后融合</h4>
-        <p>两位编剧使用同一份事实底稿，但互不查看对方答案；主编只在两份方案完成后比较取舍。模板是参考，不会把人物和剧情锁死。</p>
-      </div>
+      <div><h4>团队设计</h4></div>
       <button className="primary-button" type="button" disabled={busy || active} onClick={onStart}>
         {generation?.status === 'succeeded' ? '再设计一组方案' : '让团队开始设计'}
       </button>
     </header>
 
-    {generation === null
-      ? <div className="volume-generation-empty"><strong>尚未启动</strong><p>先选择推进参考、补充作者想法，再启动团队。你也可以随时手工填写自己的方案。</p></div>
-      : <>
-        <div className="volume-generation-summary">
-          <div><small>本轮状态</small><strong>{generationStatusLabel(generation.status)}</strong></div>
-          <div><small>当前步骤</small><strong>{generationPhaseLabel(generation.currentPhase)}</strong></div>
-          <div><small>已保存</small><strong>{candidateCount}/3 个候选版本</strong></div>
-          <div><small>独立性</small><strong>{generation.modelDiversityVerified ? '两位编剧来自不同模型' : '本地流程测试配置'}</strong></div>
-        </div>
-        {!generation.modelDiversityVerified && <p className="volume-generation-notice">当前两位编剧使用本地确定性测试模型，只验证任务、上下文和版本流程，不冒充异模型独立复核。</p>}
-        <div className="volume-generation-members">
-          {generation.members.map((member) => <article key={`${member.roleKey}:${member.agentId}`}>
-            <div><strong>{generationRoleLabel(member.roleKey)}</strong><span>{member.displayName}</span></div>
-            <p>{generationMemberState(generation, member.roleKey)}</p>
-            <small>{member.provider} · {member.modelId}</small>
-          </article>)}
-        </div>
-        {generation.errorCode !== null && <p className="inline-error">本轮没有完整结束（{generation.errorCode}）。已成功保存的候选不会丢失。</p>}
-        <footer className="button-row">
-          {active && generation.status !== 'paused' && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
-          {generation.status === 'paused' && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
-          {canRetry && <button type="button" disabled={busy} onClick={onRetry}>从已保存进度重试</button>}
-        </footer>
-      </>}
+    {generation !== null && <>
+      <p className="volume-generation-progress" role="status">{generationStatusLabel(generation.status)} · {generationPhaseLabel(generation.currentPhase)}</p>
+      <div className="volume-generation-members">
+        {generation.members.map((member) => <article key={`${member.roleKey}:${member.agentId}`}>
+          <div><strong>{generationRoleLabel(member.roleKey)}</strong><span>{member.displayName}</span></div>
+          <p>{generationMemberState(generation, member.roleKey)}</p>
+        </article>)}
+      </div>
+      {generation.errorCode !== null && <p className="inline-error">本轮没有完整结束，已完成的方案仍然保留。</p>}
+      <footer className="button-row">
+        {active && generation.status !== 'paused' && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
+        {generation.status === 'paused' && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
+        {canRetry && <button type="button" disabled={busy} onClick={onRetry}>继续完成</button>}
+      </footer>
+    </>}
   </section>;
 }
 
@@ -456,7 +443,7 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
   onPreview: () => void;
 }): React.JSX.Element {
   return <article className={`volume-version-card ${active ? 'active' : ''}`}>
-    <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}版 · {active ? '当前确认版' : statusLabel(version.status)}</small></header>
+    <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
     <dl><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
     <button type="button" disabled={busy || active} onClick={onPreview}>{active ? '正在使用' : version.status === 'superseded' ? '查看切回影响' : '预览并确认'}</button>
@@ -518,23 +505,23 @@ function generationStatusLabel(status: string): string {
     pending: '正在准备', queued: '已进入任务队列', working: '团队正在设计', paused: '已暂停',
     succeeded: '三个方案已完成', failed: '本轮未完成', interrupted: '任务被中断',
     cancelled: '本轮已停止', blocked: '等待处理'
-  } as Record<string, string>)[status] ?? status;
+  } as Record<string, string>)[status] ?? '正在处理';
 }
 
 function generationPhaseLabel(phase: string): string {
   return ({
-    preparing_context: '准备事实、设定与作者意见',
-    screenwriter_candidates: '两份独立方案已保存，主编正在融合',
-    fusion_complete: '主编融合方案已保存',
-    failed: '保留检查点，等待重试'
-  } as Record<string, string>)[phase] ?? phase;
+    preparing_context: '正在整理本书资料',
+    screenwriter_candidates: '两位编剧的方案已完成，主编正在比较',
+    fusion_complete: '融合方案已准备好',
+    failed: '已保留当前进度'
+  } as Record<string, string>)[phase] ?? '正在处理';
 }
 
 function generationRoleLabel(roleKey: string): string {
   return ({
     lead_screenwriter: '编剧A', second_screenwriter: '编剧B',
     main_editor: '主编', deputy_editor: '代理主编'
-  } as Record<string, string>)[roleKey] ?? roleKey;
+  } as Record<string, string>)[roleKey] ?? '创作成员';
 }
 
 function generationMemberState(generation: VolumePlanGenerationData, roleKey: string): string {
@@ -543,18 +530,18 @@ function generationMemberState(generation: VolumePlanGenerationData, roleKey: st
     : roleKey === 'second_screenwriter'
       ? generation.candidateVersionIds.candidateB
       : generation.candidateVersionIds.fusion;
-  if (storedId !== null) return '方案已保存为不可覆盖的新版本';
+  if (storedId !== null) return '方案已准备好';
   if (generation.status === 'cancelled') return '本轮已停止';
-  if (generation.status === 'failed' || generation.status === 'interrupted') return '本轮未完成，可从检查点重试';
-  if (generation.status === 'paused') return '已暂停，等待作者继续';
-  if (['pending', 'queued'].includes(generation.status)) return '等待后台领取任务';
+  if (generation.status === 'failed' || generation.status === 'interrupted') return '本轮未完成，可以继续';
+  if (generation.status === 'paused') return '已暂停，等待继续';
+  if (['pending', 'queued'].includes(generation.status)) return '等待开始';
   const screenwritersReady = generation.candidateVersionIds.candidateA !== null
     && generation.candidateVersionIds.candidateB !== null;
   if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey) && screenwritersReady) {
     return '正在比较两份完整方案并融合';
   }
-  if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey)) return '等待两位编剧独立完成';
-  return '正在使用独立上下文设计方案';
+  if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey)) return '等待两位编剧完成';
+  return '正在构思方案';
 }
 
 function messageOf(reason: unknown): string {

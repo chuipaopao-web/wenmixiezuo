@@ -74,7 +74,7 @@ describe('四步开书', () => {
     await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
     expect(await within(dialog).findByText('2 个已选')).toBeInTheDocument();
-    const save = within(dialog).getByRole('button', { name: '保存为新版本' });
+    const save = within(dialog).getByRole('button', { name: '保存修改' });
     fireEvent.click(save);
     fireEvent.click(save);
 
@@ -104,6 +104,7 @@ describe('四步开书', () => {
 
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
+    expect(document.querySelectorAll('.channel-option input')).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
     fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
     fireEvent.click(screen.getByText('我已经想好的补充（选填）'));

@@ -42,13 +42,13 @@ describe('subscription onboarding model allocation', () => {
 
     expect(byRole.size).toBe(11);
     expect(Object.fromEntries(byRole)).toMatchObject({
-      chief_editor: 'kimi-k3',
+      chief_editor: 'kimi-k2.7-code',
       deputy_editor: 'glm-5.2',
       lead_screenwriter: 'deepseek-v4-pro',
       second_screenwriter: 'glm-5.2',
-      setting: 'kimi-k2.7-code',
+      setting: 'glm-5.2',
       lead_writer: 'deepseek-v4-pro',
-      backup_writer: 'kimi-k3',
+      backup_writer: 'kimi-k2.7-code',
       literary_reviewer: 'minimax-m3',
       experience_reviewer: 'doubao-seed-2.1-turbo',
       researcher: 'deepseek-v4-flash',

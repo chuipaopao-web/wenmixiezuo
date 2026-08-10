@@ -18,7 +18,7 @@ describe('模型运行配置', () => {
     });
   });
 
-  it('Agent Plan凭证齐全时绑定十一岗位所需的七种模型', () => {
+  it('Agent Plan凭证齐全时绑定十一岗位所需的六种模型且不含K3', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
@@ -26,7 +26,7 @@ describe('模型运行配置', () => {
 
     expect(config.activeMode).toBe('subscription-plan');
     expect(config.roleProfiles.chief_editor).toMatchObject({
-      provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent'
+      provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code', plan: 'agent'
     });
     expect(config.roleProfiles.writer).toMatchObject({
       provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent'
@@ -35,19 +35,19 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5.2' });
     expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'minimax-m3' });
     expect(config.roleProfiles.reader_experience).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
-    expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'kimi-k2.7-code' });
+    expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'glm-5.2' });
     expect(config.roleProfiles.researcher).toMatchObject({ modelId: 'deepseek-v4-flash' });
     expect(config.codex.timeoutMs).toBe(900_000);
     expect(config.publicProfiles).toEqual(expect.arrayContaining([
-      expect.objectContaining({ modelId: 'kimi-k3', credentialConfigured: true }),
+      expect.objectContaining({ modelId: 'kimi-k2.7-code', credentialConfigured: true }),
       expect.objectContaining({ modelId: 'deepseek-v4-pro', credentialConfigured: true }),
-      expect.objectContaining({ modelId: 'glm-5.2', credentialConfigured: true }),
-      expect.objectContaining({ modelId: 'kimi-k2.7-code', credentialConfigured: true })
+      expect.objectContaining({ modelId: 'glm-5.2', credentialConfigured: true })
     ]));
     expect(JSON.stringify(config.publicProfiles)).not.toContain('test-key');
+    expect(JSON.stringify(config.publicProfiles)).not.toContain('kimi-k3');
   });
 
-  it('桌面进程残留旧模型别名时迁移为当前Agent Plan模型', () => {
+  it('桌面进程残留K3或旧K2.6别名时只迁移到K2.7', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
@@ -56,7 +56,16 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL: 'doubao-seed-2-0-pro-260215'
     });
 
-    expect(config.roleProfiles.chief_editor.modelId).toBe('kimi-k3');
+    expect(config.roleProfiles.chief_editor.modelId).toBe('kimi-k2.7-code');
+    expect(config.roleProfiles.continuity.modelId).toBe('glm-5.2');
+    expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
+
+    const k3 = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
+      WENMI_ARK_AGENT_PLAN_KIMI_MODEL: 'kimi-k3'
+    });
+    expect(k3.roleProfiles.chief_editor.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('glm-5.2');
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
   });

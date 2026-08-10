@@ -19,12 +19,12 @@ export function taskGoal(task: TaskData, chapter: string): string {
 
 export function statusLabel(status: string): string {
   const labels: Record<string, string> = { pending: '待执行', queued: '排队中', working: '工作中', waiting_confirmation: '待老板确认', paused: '已暂停', failed: '失败', succeeded: '已完成', cancelled: '已取消', blocked: '已阻断', interrupted: '已中断' };
-  return labels[status] ?? status;
+  return labels[status] ?? '正在处理';
 }
 
 export function phaseLabel(phase: string): string {
   const labels: Record<string, string> = { reply: '组织回复', collecting: '收集成员意见', preflight: '开始前检查', context: '准备相关资料', draft: '生成完整初稿', hard_check: '检查不能违反的内容', review: '三位不同模型点评', rewrite: '修改指定位置', owner_confirmation: '等待老板确认', facts: '整理确认后的事实', settlement: '保存正式正文', completed: '已完成' };
-  return labels[phase] ?? phase;
+  return labels[phase] ?? '正在处理';
 }
 
 export function isActiveTask(status: string): boolean {
@@ -44,9 +44,9 @@ export function taskChapterFromBrief(task: TaskData): string {
 }
 
 export function taskCheckpointLabel(checkpoint: Record<string, unknown>): string {
-  if (Object.keys(checkpoint).length === 0) return '尚未写入检查点';
+  if (Object.keys(checkpoint).length === 0) return '尚未开始';
   const completedPhase = typeof checkpoint.completedPhase === 'string' ? phaseLabel(checkpoint.completedPhase) : null;
-  return completedPhase === null ? '已保存可恢复检查点' : `已完成：${completedPhase}`;
+  return completedPhase === null ? '已保留当前进度' : `已进行到：${completedPhase}`;
 }
 
 export function formatTime(value: string): string {

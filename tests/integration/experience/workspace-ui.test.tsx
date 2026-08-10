@@ -128,7 +128,7 @@ describe('完整创作工作台', () => {
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
     expect(screen.getByText('11 名成员')).toBeInTheDocument();
     expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/只显示真实任务/)).toBeInTheDocument();
+    expect(screen.queryByText(/local-deterministic|wenmi-fixture/u)).not.toBeInTheDocument();
   });
 
   it('前后端短暂版本不一致时团队页仍能打开', async () => {
@@ -181,6 +181,10 @@ describe('完整创作工作台', () => {
     }
     fireEvent.click(within(functionBar).getByRole('button', { name: '设定' }));
     expect(within(functionBar).getByRole('button', { name: '设定' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { name: '设定' })).toHaveClass('sr-only');
+    expect(screen.queryByText(/只要求当前故事真正需要的内容/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/本书必谈设定已经逐项确认/u)).not.toBeInTheDocument();
+    expect(screen.queryByText('当前必须确定')).not.toBeInTheDocument();
     expect(document.querySelector('.ios-book-sidebar')).toBeInTheDocument();
     expect(document.querySelector('.ios-commandbar')).toBeNull();
     expect(document.querySelector('.current-view-chip')).toBeNull();
@@ -314,6 +318,9 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '资料库' }));
+    expect(screen.queryByText('资料与关系统一入口')).not.toBeInTheDocument();
+    expect(screen.queryByText(/正式内容版本/u)).not.toBeInTheDocument();
+    expect(screen.queryByText('哪些内容算正式资料')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: '关系与轨迹' }));
     fireEvent.click(await screen.findByRole('button', { name: '情绪' }));
     expect(await screen.findByText('第12章')).toBeInTheDocument();
@@ -488,7 +495,8 @@ describe('完整创作工作台', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '任务' }));
     expect(await screen.findByText('重要正式事实')).toBeInTheDocument();
-    expect(screen.getByText(/对应正式内容版本 3/)).toBeInTheDocument();
+    expect(screen.getByText('需要你确认后才会继续')).toBeInTheDocument();
+    expect(screen.queryByText(/对象 confirmation-target|正式内容版本 3/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('查看范围与影响'));
     expect(screen.getByText('可能影响')).toBeInTheDocument();
     expect(screen.getByText('是否影响定稿')).toBeInTheDocument();

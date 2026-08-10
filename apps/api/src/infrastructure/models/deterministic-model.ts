@@ -154,6 +154,7 @@ function deterministicEventChapterSequence(prompt: string): string | null {
   const required = textValue(event.requiredResult, '事件产生可验证的状态变化');
   const nextImpact = textValue(event.nextEventImpact, '结果自然触发下一事件');
   const conditions = textArray(event.endingConditions, [required]);
+  const localProgression = textArray(event.localProgression, []);
   const estimatedRange = isRecord(event.estimatedChapterRange) ? event.estimatedChapterRange : {};
   const likelyCount = typeof estimatedRange.likely === 'number' && Number.isInteger(estimatedRange.likely)
     && estimatedRange.likely >= 1 && estimatedRange.likely <= 50 ? estimatedRange.likely : 3;
@@ -162,6 +163,28 @@ function deterministicEventChapterSequence(prompt: string): string | null {
     : title.includes('黑风猎场')
       ? ['猎场错传', '赤松谷夺旗', '裂石涧接应', '废矿分队', '救人碎阵盘', '无阵盘反制', '阵眼取黑账', '出口反追杀', '主峰破封山阵', '祭旗台见真章']
       : ['后果落地', '第一条线索', '阻力现身', '判断受挫', '代价兑现', '主动修正', '证据合流', '反制逼近', '最后选择', '局面改写'];
+  const phaseTitleMap = [
+    ['压力落到主角身上并迫使表态', '局势逼人'],
+    ['确认规则与第一处异常', '异常初现'],
+    ['让同伴主动加入并提出不同判断', '队友异议'],
+    ['第一次执行受阻并暴露真实代价', '首战受阻'],
+    ['对手根据主角行动调整策略', '对手变招'],
+    ['队伍因目标差异发生分歧', '队内分歧'],
+    ['用可核验证据找到新路径', '证据破局'],
+    ['付出代价完成中段反制', '代价反制'],
+    ['多名角色并行完成决战准备', '决战并行'],
+    ['兑现事件结果并形成下一事件接口', '结果兑现']
+  ] as const;
+  const progressionTitles = localProgression.map((step, index) => {
+    const firstPhrase = step.trim().split(/[，。；：:!?！？]/u)[0]?.replace(/\s+/gu, '') ?? '';
+    const phase = phaseTitleMap.find(([suffix]) => firstPhrase.endsWith(suffix));
+    if (phase !== undefined) {
+      const prefix = firstPhrase.slice(0, -phase[0].length).slice(0, 6);
+      return prefix.length > 0 ? `${prefix}·${phase[1]}` : phase[1];
+    }
+    const readable = firstPhrase.length > 0 ? firstPhrase : titles[index] ?? ('推进与代价·' + (index + 1));
+    return readable.length <= 12 ? readable : readable.slice(0, 12);
+  });
   const chapters = [];
   let previousState = opening;
   for (let index = 0; index < likelyCount; index += 1) {
@@ -172,7 +195,7 @@ function deterministicEventChapterSequence(prompt: string): string | null {
       : '人物完成事件第' + (index + 1) + '步行动，获得有限进展，同时暴露下一步必须处理的阻力与代价';
     chapters.push({
       chapterNumber,
-      title: titles[index] ?? ('推进与代价·' + (index + 1)),
+      title: progressionTitles[index] ?? titles[index] ?? ('推进与代价·' + (index + 1)),
       eventResponsibility: index === 0
         ? '让事件触发条件真正落地，并让人物不能继续旁观'
         : finalChapter

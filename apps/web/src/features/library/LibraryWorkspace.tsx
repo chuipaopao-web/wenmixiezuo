@@ -38,7 +38,7 @@ export function LibraryWorkspace({ data, bookId }: { data: unknown; bookId: stri
   };
   return (
     <section className="reference-view library-workspace" aria-labelledby="library-title">
-      <header><h2 id="library-title">资料库</h2><p>正式内容版本 {library.canonRevision}</p></header>
+      <h2 id="library-title" className="sr-only">资料卡片</h2>
       <nav className="secondary-tabs scrollable" aria-label="资料分类">{tabs.map(([key, label]) => <button type="button" className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}>{label}</button>)}</nav>
       {tab === 'overview' && <LibraryOverview data={library} />}
       {tab === 'settings' && <ConfirmedSettingsLibrary data={library} />}
@@ -61,7 +61,7 @@ function LibraryOverview({ data }: { data: LibraryData }): React.JSX.Element {
     ['人物与事物', data.summary.entityCount], ['正式事实', data.summary.factCount], ['关系', data.summary.relationCount],
     ['标签', data.summary.tagCount], ['分析结果', data.summary.projectionCount], ['待补内容', data.summary.openGapCount]
   ];
-  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{bookDisplayTitle(data.bookProfile.title)}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}<div className="library-explainer"><TreeStructureIcon /><div><h3>哪些内容算正式资料</h3><p>开书资料、已经确认的设定、定稿正文和事实算正式资料。人物关系、情绪和地图位置由系统整理；如果出现冲突，以原文和作者确认内容为准。</p></div></div></div>;
+  return <div className="library-overview"><div className="library-metrics">{metrics.map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>{data.bookProfile !== null && <section className="book-profile-summary"><header><h3>{bookDisplayTitle(data.bookProfile.title)}</h3><span>{data.bookProfile.source}</span></header><dl><div><dt>频道与分类</dt><dd>{data.bookProfile.channel} · {data.bookProfile.category}</dd></div><div><dt>题材</dt><dd>{data.bookProfile.subjects.join('、') || '尚未选择'}</dd></div><div><dt>主要标签</dt><dd>{[...data.bookProfile.mainTags, ...data.bookProfile.customTags].join('、') || '尚未选择'}</dd></div><div><dt>初始角色</dt><dd>{data.bookProfile.protagonists.map((item) => `${item.name}（${PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'}）`).join('、') || '尚未填写'}</dd></div><div><dt>必须遵守</dt><dd>{data.bookProfile.mustFollow.join('；') || '无额外限制'}</dd></div></dl></section>}</div>;
 }
 
 function ConfirmedSettingsLibrary({ data }: { data: LibraryData }): React.JSX.Element {
@@ -118,7 +118,7 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
       await appendProtagonistState(bookId, selected.profileId, { category: categoryKey, logicalKey, label: label.trim(), valueType, value, unit: unit.trim() || null, confirmed });
       setLabel(''); setRawValue(''); setUnit(''); setConfirmed(false);
       await refresh();
-      setNotice(confirmed ? '已经保存到当前主角资料中，以前的版本仍然保留。' : '已经保存，等你确认后才会成为正式人物资料。');
+      setNotice(confirmed ? '已经保存到当前主角资料中，以前的记录仍然保留。' : '已经保存，等你确认后才会成为正式人物资料。');
     } catch (reason) { setNotice(reason instanceof Error ? reason.message : '主角状态保存失败'); }
     finally { setBusy(false); }
   };
@@ -131,12 +131,12 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
       await classifyProtagonistState(bookId, item.entryId, categoryKey);
       setClassificationDrafts((current) => { const next = { ...current }; delete next[item.entryId]; return next; });
       await refresh();
-      setNotice(`已将“${item.label}”归入“${protagonistCategoryLabel(categoryKey)}”；原来的值、来源和历史版本都已保留。`);
+      setNotice(`已将“${item.label}”归入“${protagonistCategoryLabel(categoryKey)}”；原来的值、来源和历史记录都已保留。`);
     } catch (reason) { setNotice(reason instanceof Error ? reason.message : '资料归类失败'); }
     finally { setBusy(false); }
   };
   return <div className="protagonist-workspace">
-    <section className="protagonist-toolbar"><div><h3>主角实时面板</h3><p>只展示当前状态；变化通过新版本记录，战死、消耗或移除不会抹掉历史证据。</p></div>
+    <section className="protagonist-toolbar"><div><h3>主角实时面板</h3><p>只展示当前状态；变化会另存一条记录，战死、消耗或移除不会抹掉历史证据。</p></div>
       {dashboard.profiles.length > 0 && <select aria-label="选择主角" value={selected?.profileId ?? ''} onChange={(event) => setSelectedProfileId(event.target.value)}>{dashboard.profiles.map((profile) => <option key={profile.profileId} value={profile.profileId}>{profile.displayName}{profile.isPrimary ? '（主角）' : ''}</option>)}</select>}
     </section>
     {selected === null ? <form className="protagonist-create" onSubmit={(event) => {
@@ -147,11 +147,11 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
         const title = protagonistCategoryLabel(key);
         const records = selected.current.filter((item) => item.category === key);
         const pending = selected.pending.filter((item) => item.category === key);
-        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '待确认' : item.authorityLayer === 'canon' ? '正式内容' : '计算结果'} · 版本 {item.revision}</small></div><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
+        return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '待确认' : item.authorityLayer === 'canon' ? '正式内容' : '计算结果'}</small></div><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
           if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
         }}>移除</button>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
       })}</div>}
-      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>补充或纠正一项资料</h4><p>分类由这本书自己的内容决定，不套固定模板；同名资料会保存为新版本，原来的值和来源仍可查看。</p></header><div><label>分类<input list="protagonist-category-suggestions" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：合同伙伴、城池等级" /><datalist id="protagonist-category-suggestions">{categorySuggestions.map((value) => <option key={value} value={protagonistCategoryLabel(value)} />)}</datalist></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !category.trim() || !label.trim() || !rawValue.trim()}>保存状态</button></form>
+      <form className="protagonist-state-form" onSubmit={(event) => { event.preventDefault(); void addState(); }}><header><h4>补充或纠正一项资料</h4><p>分类由这本书自己的内容决定，不套固定模板；同名资料会另存一条新记录，原来的值和来源仍可查看。</p></header><div><label>分类<input list="protagonist-category-suggestions" value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：合同伙伴、城池等级" /><datalist id="protagonist-category-suggestions">{categorySuggestions.map((value) => <option key={value} value={protagonistCategoryLabel(value)} />)}</datalist></label><label>名称<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：步兵数量" /></label><label>当前值<input value={rawValue} onChange={(event) => setRawValue(event.target.value)} placeholder="例如：1200 或 城主" /></label><label>单位<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="例如：人、级" /></label></div><label className="protagonist-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />这是作者已经确认的信息</label><button className="primary-button" disabled={busy || !category.trim() || !label.trim() || !rawValue.trim()}>保存状态</button></form>
     </>}
     {formulas.length > 0 && <FormulaCalculator bookId={bookId} formulas={formulas} />}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
@@ -182,7 +182,7 @@ function EntityGrid({ entities, facts, protagonists }: {
     const protagonist = protagonists?.profiles.find((profile) => profile.entityId === entityId || profile.displayName === name);
     const states = protagonist === undefined ? [] : uniqueProtagonistStates([...protagonist.current, ...protagonist.pending], entityFacts);
     const aliases = Array.isArray(entity.aliases) ? entity.aliases : [];
-    return <article key={entityId}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{name}</h3>{aliases.length > 0 && <p>别名：{arrayText(aliases, '')}</p>}{entityFacts.length === 0 && states.length === 0 ? <p className="entity-empty-detail">还没有已经确认的详细资料，系统不会用猜测补齐。</p> : <div className="entity-detail-list">{entityFacts.slice(0, 12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}{states.slice(0, 8).map((state) => <div key={state.entryId}><dt>{state.label}</dt><dd>{authorFormatScalar(state.value)}{state.unit ?? ''}</dd><small>{state.authorityLayer === 'canon' ? '主角正式状态' : state.authorityLayer === 'candidate' ? '主角待确认状态' : '主角计算结果'} · 版本 {state.revision}</small></div>)}</div>}{entityFacts.length > 12 && <details><summary>查看其余 {entityFacts.length - 12} 条事实</summary><div className="entity-detail-list">{entityFacts.slice(12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}</div></details>}</article>;
+    return <article key={entityId}><header><span>{entityTypeLabel(String(entity.entity_type))}</span><em>{authorityLabel(String(entity.status))}</em></header><h3>{name}</h3>{aliases.length > 0 && <p>别名：{arrayText(aliases, '')}</p>}{entityFacts.length === 0 && states.length === 0 ? <p className="entity-empty-detail">还没有已经确认的详细资料，系统不会用猜测补齐。</p> : <div className="entity-detail-list">{entityFacts.slice(0, 12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}{states.slice(0, 8).map((state) => <div key={state.entryId}><dt>{state.label}</dt><dd>{authorFormatScalar(state.value)}{state.unit ?? ''}</dd><small>{state.authorityLayer === 'canon' ? '主角正式状态' : state.authorityLayer === 'candidate' ? '主角待确认状态' : '主角计算结果'}</small></div>)}</div>}{entityFacts.length > 12 && <details><summary>查看其余 {entityFacts.length - 12} 条事实</summary><div className="entity-detail-list">{entityFacts.slice(12).map((fact) => <div key={String(fact.fact_id)}><dt>{authorFactRelationLabel(fact.relation_key)}</dt><dd><AuthorValue value={fact.value} /></dd><small>{factSourceLabel(fact)}</small></div>)}</div></details>}</article>;
   })}</div>;
 }
 
@@ -238,7 +238,7 @@ function EvidenceCenter({ facts }: { facts: Array<Record<string, unknown>> }): R
     .filter((group) => group.facts.length > 0)
     .sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'));
   return <section className="evidence-center" aria-labelledby="evidence-center-title">
-    <header><div><h3 id="evidence-center-title">内容来自哪里</h3><p>这里按人物和事物归类，只显示已经确认的事实，以及它来自哪一章。内部字段、原始 JSON 和重复记录不会显示。</p></div><span>{visibleGroups.reduce((total, group) => total + group.facts.length, 0)} 条有来源的事实</span></header>
+    <header><h3 id="evidence-center-title">内容来自哪里</h3><span>{visibleGroups.reduce((total, group) => total + group.facts.length, 0)} 条有来源的事实</span></header>
     {visibleGroups.length === 0
       ? <EmptyReference icon={<DatabaseIcon />} title="还没有可展示的来源" description="正文定稿或资料经作者确认后，这里会显示相关事实来自哪里。" />
       : <div className="evidence-groups">{visibleGroups.map((group) => <article key={group.key}>

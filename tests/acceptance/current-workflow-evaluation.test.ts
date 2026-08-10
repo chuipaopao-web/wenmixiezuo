@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('当前工作流验收脚本', () => {
-  it('二十章双事件流程使用对象接口并明确区分确定性工程证据', () => {
+  it('可配置章节与题材流程使用对象接口并明确区分确定性工程证据', () => {
     const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/run-current-workflow-twenty-chapters-e2e.mjs'), 'utf8');
     expect(script).not.toContain('/messages');
     expect(script).toContain('/collaboration/start');
@@ -12,7 +12,9 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('/event-sequence/initialize');
     expect(script).toContain('/chapter-sequence/initialize');
     expect(script).toContain('/chapter-outlines/freeze');
-    expect(script).toContain("evidenceLevel: 'E2-current-workflow-twenty-chapters'");
+    expect(script).toContain('const TOTAL_CHAPTERS = EVENT_COUNT * CHAPTERS_PER_EVENT');
+    expect(script).toContain('evidenceLevel: `E2-current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}`');
+    expect(script).toContain('scenarioName: SCENARIO.displayName');
     expect(script).toContain('不代表真实套餐模型文学质量');
   });
 

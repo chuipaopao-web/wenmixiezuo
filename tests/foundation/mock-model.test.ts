@@ -57,7 +57,11 @@ describe('确定性假模型', () => {
     const adapter = new DeterministicModelAdapter();
     const storyEvent = {
       title: '十章事件', startingState: '事件起点', requiredResult: '事件在第十章闭环', nextEventImpact: '下一事件被触发',
-      endingConditions: ['核心问题解决', '人物关系变化'], estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 }
+      endingConditions: ['核心问题解决', '人物关系变化'], estimatedChapterRange: { minimum: 10, likely: 10, maximum: 10 },
+      localProgression: [
+        '试训压力落到主角身上并迫使表态', '试训确认规则与第一处异常', '试训让同伴主动加入并提出不同判断', '试训第一次执行受阻并暴露真实代价', '试训对手根据主角行动调整策略',
+        '试训队伍因目标差异发生分歧', '试训用可核验证据找到新路径', '试训付出代价完成中段反制', '试训多名角色并行完成决战准备', '试训兑现事件结果并形成下一事件接口'
+      ]
     };
     const generated = await adapter.generate({
       ...request,
@@ -66,11 +70,13 @@ describe('确定性假模型', () => {
       ] })
     });
     const sequence = JSON.parse(generated.output) as {
-      chapters: Array<{ chapterNumber: number; openingState: string; endingState: string }>;
+      chapters: Array<{ chapterNumber: number; title: string; openingState: string; endingState: string }>;
       closureCoverage: Array<{ evidenceChapterNumber: number }>
     };
     expect(sequence.chapters).toHaveLength(10);
     expect(sequence.chapters.map((chapter) => chapter.chapterNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(sequence.chapters[0]?.title).toBe('试训·局势逼人');
+    expect(sequence.chapters[9]?.title).toBe('试训·结果兑现');
     sequence.chapters.slice(1).forEach((chapter, index) => {
       expect(chapter.openingState).toBe(sequence.chapters[index]!.endingState);
     });

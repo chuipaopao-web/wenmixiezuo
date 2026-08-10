@@ -124,7 +124,7 @@ describe('设定页内协作', () => {
     expect(api.synthesizeSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
       proposalIds: ['proposal-1', 'proposal-2'], authorInputId: 'idea-1', idempotencyKey: expect.any(String)
     });
-    expect(screen.getByText(/不会改写已写正文或正史/u)).toBeInTheDocument();
+    expect(screen.getByText(/不会改写已写正文或已确认内容/u)).toBeInTheDocument();
   });
 
   it('允许作者直接编辑主编候选并在当前页确认', async () => {
@@ -154,7 +154,7 @@ describe('设定页内协作', () => {
       content: '城市技术高度公开，但医疗分配仍受信用限制，并允许申诉。'
     })));
     expect(onSnapshot).toHaveBeenCalledWith(confirmed);
-    expect(await screen.findByRole('status')).toHaveTextContent('不会改写正文或正史');
+    expect(await screen.findByRole('status')).toHaveTextContent('不会改写正文或已确认内容');
   });
 });
 

@@ -33,4 +33,4 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ## 当前验证
 
-仓库运行时可达性审计为零孤儿源码；类型检查、145个测试文件中的543项测试、Contracts/API/Worker/Web生产构建均已通过。真实模型长期文学质量仍按 E3/E4 证据积累，不以工程测试冒充。
+仓库运行时可达性审计为零孤儿源码；类型检查、145个测试文件中的544项测试、Contracts/API/Worker/Web生产构建均已通过。真实模型长期文学质量仍按 E3/E4 证据积累，不以工程测试冒充。

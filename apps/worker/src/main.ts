@@ -16,7 +16,7 @@ const database = new DatabaseSync(config.databasePath);
 database.exec('PRAGMA foreign_keys = ON');
 database.exec('PRAGMA journal_mode = WAL');
 database.exec('PRAGMA synchronous = FULL');
-database.exec('PRAGMA busy_timeout = 5000');
+database.exec('PRAGMA busy_timeout = 30000');
 
 const heartbeat = new WorkerHeartbeat(database, config, [`workflow-contract-v${CREATION_WORKFLOW_CONTRACT_VERSION}`, 'vector-projection-starting']);
 heartbeat.start();

@@ -113,22 +113,15 @@ export function IdeationWorkspace({
   };
 
   return <section className="ideation-workspace">
-    <header className="ideation-hero">
-      <div><span className="eyebrow"><LightbulbIcon />独立灵感空间</span><h2>和成员分身聊剧情</h2>
-        <p>这里只讨论，不会修改正式内容。需要的建议必须由你明确选中，才会挂到当前创作阶段。</p></div>
-      <div className="ideation-safety-note"><CheckCircleIcon /><span><strong>生产隔离已开启</strong><small>讨论内容不会自动进入设定、卷纲、事件、章纲或正文</small></span></div>
-    </header>
-
     <div className="ideation-layout">
       <aside className="ideation-member-panel">
         <div className="section-heading"><span><UsersThreeIcon />本轮成员</span><small>{selectedIds.length}/3</small></div>
-        <p className="muted-copy">主编分身固定主持，再选1—2名成员。成员使用当前书籍信息，但没有正式写入权限。</p>
         <div className="ideation-member-list">{members.map((member) => {
           const selected = selectedIds.includes(member.agentId);
           return <button type="button" key={member.agentId} className={selected ? 'selected' : ''}
             onClick={() => toggleMember(member)} aria-pressed={selected}>
             <span className="member-monogram">{member.displayName.slice(0, 1)}</span>
-            <span><strong>{member.displayName}{member.host ? ' · 主持' : ''}</strong><small>{member.roleName}</small><em>{member.provider} / {member.modelId}</em></span>
+            <span><strong>{member.displayName}{member.host ? ' · 主持' : ''}</strong><small>{member.roleName}</small></span>
             <i>{selected ? '已选' : '选择'}</i>
           </button>;
         })}</div>
@@ -140,11 +133,11 @@ export function IdeationWorkspace({
           : rounds.map((round) => <article className="ideation-round" key={round.roundId}>
               <div className="author-bubble"><small>你的想法</small><p>{round.authorMessage}</p></div>
               {round.responses.length === 0
-                ? <div className="ai-thinking"><span />{round.status === 'failed' ? `讨论失败：${round.errorCode ?? '未知原因'}` : `${round.phase === 'collecting' ? '成员正在独立思考' : '正在整理建议'}…`}</div>
+                ? <div className="ai-thinking"><span />{round.status === 'failed' ? '这轮讨论没有完成，可以重新发起' : `${round.phase === 'collecting' ? '成员正在独立思考' : '正在整理建议'}…`}</div>
                 : <div className="ideation-responses">{round.responses.map((response) => {
                     const promoted = promotedOpinionIds.includes(response.opinionId);
                     return <section className="idea-response-card" key={response.opinionId}>
-                      <header><span className="member-monogram">{response.memberName.slice(0, 1)}</span><span><strong>{response.memberName}</strong><small>{response.provider} / {response.modelId}</small></span></header>
+                      <header><span className="member-monogram">{response.memberName.slice(0, 1)}</span><strong>{response.memberName}</strong></header>
                       <p>{response.content}</p>
                       <button type="button" disabled={busy || promoted} onClick={() => void promote(round.roundId, response.opinionId)}>
                         {promoted ? <><CheckCircleIcon />已转为作者意见</> : `选中这段，挂到${locationLabel(currentLocation)}`}
@@ -157,7 +150,7 @@ export function IdeationWorkspace({
           <div><textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={6000}
             placeholder="输入你的剧情疑问或灵感……只讨论，不会自动改书。" />
             <button className="primary-button" type="button" disabled={busy || message.trim().length === 0 || selectedIds.length < 2} onClick={() => void send()}>
-              <PaperPlaneTiltIcon />{busy ? '处理中…' : '召集讨论'}
+              <PaperPlaneTiltIcon />{busy ? '讨论中…' : '召集讨论'}
             </button></div>
         </footer>
       </div>

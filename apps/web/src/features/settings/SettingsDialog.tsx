@@ -12,7 +12,6 @@ import {
   type TeamModelProfileData
 } from '../../lib/api/client';
 import { DEFAULT_WORKSPACE_PREFERENCES, type WorkspacePreferences } from '../../app/workspace-preferences';
-import { shortId } from '../../app/display-labels';
 import { formatBytes } from '../shared/task-presentation';
 import { roleSummary } from '../team/TeamWorkspace';
 
@@ -94,7 +93,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
               ))}
               {capabilities === null && <p>连接本地服务后显示创作团队的真实模型来源。</p>}
             </div>
-            {capabilities !== null && <p className="capability-note">Node {capabilities.runtime.nodeVersion} · SQLite {capabilities.sqlite.version} · FTS5 {capabilities.sqlite.fts5 ? '可用' : '缺失'} · 向量检索 {capabilities.degradation.vectorSearchAvailable ? '可用' : '待安装'}</p>}
+            {capabilities !== null && <p className="capability-note">本地运行环境正常 · 本地资料库正常 · 全文查找{capabilities.sqlite.fts5 ? '可用' : '需要修复'} · 语义查找{capabilities.degradation.vectorSearchAvailable ? '可用' : '需要安装'}</p>}
           </div>
         </fieldset>
         <fieldset>
@@ -137,7 +136,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
           {operations === null ? <div className="binding-skeleton" aria-label="正在加载本机诊断"><span /><span /></div> : <div className="operations-summary">
             <div><span>Schema</span><strong>{operations.schemaVersion}</strong></div><div><span>剩余磁盘</span><strong>{formatBytes(operations.disk.freeBytes)}</strong></div><div><span>排队/工作</span><strong>{operations.queue.queued}/{operations.queue.working}</strong></div><div><span>受阻</span><strong>{operations.queue.blocked}</strong></div>
           </div>}
-          <p className="capability-note">只监听 127.0.0.1，不发送遥测。导出包不含API Key、缓存、向量和FTS；复制导入会生成新书ID，不覆盖已有书籍。</p>
+          <p className="capability-note">内容只保存在这台电脑上，不发送使用记录。导出文件不包含模型密钥和临时索引；复制导入会另建一本书，不覆盖已有书籍。</p>
           {portableStatus !== null && <p className="binding-status" role="status">{portableStatus}</p>}
           <div className="portable-actions"><button type="button" className="secondary-button" disabled={bindingBusy || bookId === null} onClick={() => {
             if (bookId === null) return;
@@ -145,7 +144,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
             void exportBookPackage(bookId).then((result) => setPortableStatus(`已导出 ${result.packageName}，保存于 ${result.packagePath}。清单哈希 ${result.manifestHash.slice(0, 12)}。`)).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导出失败')).finally(() => setBindingBusy(false));
           }}>导出当前书</button><label><span>从 data/imports 复制导入</span><input value={importName} onChange={(event) => setImportName(event.target.value)} placeholder="文件名.wenmi-book" /></label><button type="button" className="primary-button" disabled={bindingBusy || !importName.endsWith('.wenmi-book')} onClick={() => {
             setBindingBusy(true); setPortableStatus(null);
-            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》，新书ID ${shortId(result.bookId)}。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导入失败')).finally(() => setBindingBusy(false));
+            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导入失败')).finally(() => setBindingBusy(false));
           }}>安全导入副本</button></div>
         </fieldset>
         <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>

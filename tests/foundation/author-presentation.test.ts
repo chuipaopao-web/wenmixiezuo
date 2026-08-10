@@ -4,6 +4,7 @@ import {
   authorFieldLabel,
   authorFormatScalar,
   authorRelationshipLabel,
+  containsAuthorTechnicalLeak,
   collectSettingTemplateHints,
   projectionForAuthor,
   structuredReplyFromMixedText,
@@ -12,6 +13,27 @@ import {
 } from '../../apps/web/src/app/author-presentation';
 
 describe('作者展示层', () => {
+  it('所有界面状态先经过大白话门禁，技术执行细节不能穿透', () => {
+    const visible = toAuthorFacingText(
+      'Worker 正在读取 ContextPack，checkpoint=prepare_context，taskId=550e8400-e29b-41d4-a716-446655440000。',
+      'progress'
+    );
+    expect(visible).not.toMatch(/Worker|ContextPack|checkpoint|taskId|550e8400/u);
+    expect(containsAuthorTechnicalLeak(visible)).toBe(false);
+    expect(visible).toContain('正在');
+
+    const error = toAuthorFacingText('SQL failure at C:\\private\\secret.sqlite', 'error');
+    expect(error).not.toMatch(/SQL|secret\.sqlite|C:\\/u);
+    expect(containsAuthorTechnicalLeak(error)).toBe(false);
+  });
+
+  it('小说梗概、正文和作者原话只清协议，不做机械词语替换', () => {
+    const prose = '他把密语叫作JSON，越过城墙边界后才发现这是敌人的暗号。';
+    expect(toAuthorFacingText(prose, 'story')).toBe(prose);
+    expect(toAuthorDisplayValue({ manuscript: prose, fullBookOutline: prose })).toEqual({ manuscript: prose, fullBookOutline: prose });
+    expect(authorFormatScalar(prose)).toBe(prose);
+  });
+
   it('只展示语义设定提示，并在清理句末标点后去重', () => {
     const hints = collectSettingTemplateHints([{
       active_content: {
@@ -85,7 +107,7 @@ describe('作者展示层', () => {
       canon_revision: 8, content_json: '{"status":"not_extracted","source":"chapter_outline"}'
     });
 
-    expect(value).toEqual({ chapterNumber: 12, status: 'not_extracted', source: 'chapter_outline', canonRevision: 8 });
+    expect(value).toEqual({ chapterNumber: 12, status: 'not_extracted', source: 'chapter_outline' });
     expect(authorFormatScalar(value.status)).toBe('暂无可展示内容');
     expect(authorFormatScalar(value.source)).toBe('章纲');
     expect(authorFieldLabel('chapterNumber')).toBe('章节');

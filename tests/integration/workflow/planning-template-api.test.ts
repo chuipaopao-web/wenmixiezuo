@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { createServer } from '../../../apps/api/src/http/server.js';
+import { buildPlanningTemplateSignals } from '../../../apps/api/src/application/planning/template-recommendation-signals.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -38,6 +39,29 @@ describe('白话叙事模板接口', () => {
     expect(response.body).not.toMatch(/sourceMethod|legacyIds|Save the Cat/iu);
     expect(response.json().data.templates.map((item: Record<string, unknown>) => item.sourceLabel))
       .toEqual(expect.arrayContaining(['三幕式', '五幕式', '救猫咪结构']));
+  });
+
+  it('把本书活动卷和最近真实卷结算加入推荐排序信号', () => {
+    context = undefined;
+    app = undefined;
+    const signals = buildPlanningTemplateSignals({
+      profile: {
+        category: '玄幻修仙', subjects: ['宗门'], mainTags: ['群像'], customTags: ['智斗']
+      },
+      activeVolume: {
+        title: '宗门风云卷', coreGoal: '多方势力重新站队', coreConflict: '宗门利益冲突',
+        openingState: '主角刚进入内门', failureCost: '盟友失去立足点', endingState: '旧平衡被打破',
+        nextVolumeTrigger: '王都势力介入', characterChanges: ['主角开始承担责任'], openThreads: ['身世谜团'],
+        boundaries: ['不能靠巧合解决']
+      } as never,
+      latestVolumeSettlement: {
+        irreversibleResults: ['主角公开选择阵营'],
+        relationshipChanges: ['盟友因代价重新建立信任'],
+        openThreads: ['王都接应者身份仍未知']
+      }
+    });
+    expect(signals).toEqual(expect.arrayContaining(['玄幻修仙', '宗门风云卷', '主角公开选择阵营', '王都接应者身份仍未知']));
+    expect(signals.some((item) => item.includes('sha256:'))).toBe(false);
   });
 
   it('拒绝非法范围和不存在的书', async () => {

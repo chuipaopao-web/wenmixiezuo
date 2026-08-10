@@ -9,12 +9,13 @@ import {
   type AuthorPlanningInputData,
   type AuthorAttachmentData
 } from '../../lib/api/client';
+import { toAuthorFacingText } from '../../app/author-presentation';
 
 const intentOptions: Array<{ value: AuthorIntentStrength; label: string; help: string }> = [
   { value: 'must', label: '必须遵守', help: '作为当前对象的明确目标；如与已确认事实冲突，先提示你决定。' },
   { value: 'preference', label: '尽量照顾', help: '优先满足，但允许AI说明有理由的调整。' },
   { value: 'inspiration', label: '灵感参考', help: '可以变形、组合或不用，不会自动升级成硬要求。' },
-  { value: 'question', label: '我想先问问', help: '先讨论，不会自动变成决定或正史。' }
+  { value: 'question', label: '我想先问问', help: '先讨论，不会自动变成决定或正式内容。' }
 ];
 
 const statusLabels: Record<AuthorPlanningInputData['status'], string> = {
@@ -164,14 +165,14 @@ export function AuthorIdeaComposer({
         if (retryIdempotencyKey.current !== null) retryIdempotencyKey.current = null;
       }} placeholder="例如：这个事件不要靠硬碰硬取胜，希望主角用前文已经学会的阵法知识。" />
     </label>
-    <fieldset className="author-intent-options">
+    <fieldset className="author-intent-options" aria-describedby="author-intent-help">
       <legend>这条想法有多重要？</legend>
-      {intentOptions.map((item) => <label key={item.value} className={intentStrength === item.value ? 'selected' : ''}>
-        <input type="radio" name={`author-intent-${surface}-${subjectId ?? 'current'}`} checked={intentStrength === item.value}
-          onChange={() => { setIntentStrength(item.value); retryIdempotencyKey.current = null; }} />
-        <strong>{item.label}</strong>
-      </label>)}
-      <p>{selectedIntent.help}</p>
+      {intentOptions.map((item) => <button key={item.value} type="button" role="radio"
+        aria-checked={intentStrength === item.value} className={intentStrength === item.value ? 'selected' : ''}
+        onClick={() => { setIntentStrength(item.value); retryIdempotencyKey.current = null; }}>
+        {item.label}
+      </button>)}
+      <p id="author-intent-help">{selectedIntent.help}</p>
     </fieldset>
     <label className="author-scope-notes"><span>只影响哪里？（可不填）</span><input value={scopeNotes} maxLength={4000}
       onChange={(event) => { setScopeNotes(event.target.value); retryIdempotencyKey.current = null; }} placeholder="例如：只影响本事件结尾，不改变卷末结果" /></label>
@@ -202,7 +203,7 @@ export function AuthorIdeaComposer({
         </button>
       </div>
     </footer>
-    {error !== null && <p className="author-idea-error" role="alert">{error}</p>}
+    {error !== null && <p className="author-idea-error" role="alert">{toAuthorFacingText(error, 'error')}</p>}
   </section>;
 }
 
