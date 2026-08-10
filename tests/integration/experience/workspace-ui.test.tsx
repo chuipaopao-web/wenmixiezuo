@@ -274,8 +274,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar commandbar"\s*"sidebar functions"\s*"sidebar main"/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
     expect(css).toMatch(/\.ios-book-sidebar\s*\{[^}]*backdrop-filter:\s*saturate\(170%\)\s+blur\(28px\)/su);
-    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*228px\s+minmax\(0,\s*1fr\)/su);
-    expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,\s*84px\)[^}]*overflow-y:\s*auto/su);
+    expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*144px\s+minmax\(0,\s*1fr\)/su);
+    expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*84px[^}]*overflow-y:\s*scroll/su);
     expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*84px[^}]*height:\s*118px/su);
     expect(css).toContain('#0a84ff');
   });
