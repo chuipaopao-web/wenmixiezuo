@@ -16,12 +16,13 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const storyEvent = deterministicStoryEvent(request.prompt);
     const eventChapterSequence = deterministicEventChapterSequence(request.prompt);
     const eventChapterDetails = deterministicEventChapterDetails(request.prompt);
+    const eventChapterChallenge = deterministicEventChapterChallenge(request.prompt);
     const continuationAnalysis = deterministicContinuationAnalysis(request.prompt);
     const synthesis = reviewSynthesis(request.prompt);
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -300,6 +301,26 @@ function deterministicEventChapterDetails(prompt: string): string | null {
     };
   });
   return JSON.stringify({ outlines });
+}
+
+function deterministicEventChapterChallenge(prompt: string): string | null {
+  const root = parseOperation(prompt, 'event_chapter_challenge_v1');
+  if (root === null) return null;
+  const targetKind = root.targetKind === 'detail' ? 'detail' : 'sequence';
+  const targetId = textValue(root.targetId, targetKind === 'sequence' ? '当前章链' : '当前单章');
+  const targetVersionId = textValue(root.targetVersionId, '当前候选版本');
+  const suggestions = targetKind === 'sequence' ? [
+    { focus: 'turning_point', alternative: '把中段第一次受阻改成主角主动试错：他故意让对手看到一半计划，借对方的反制验证真正漏洞。', benefit: '转折来自人物判断和行动，主角会更主动，前后因果也更紧。', tradeoff: '主角必须承担盟友误解和部分证据暴露的风险，不能无代价成功。', downstreamImpact: '后续章节需要让盟友质疑主角，并让对手利用暴露的信息升级反制。' },
+    { focus: 'ending_hook', alternative: '事件收束时先兑现局部胜利，再让被救下的证人说出一个与现有判断相反的细节。', benefit: '读者能得到本事件的回报，同时自然产生追看下一事件的疑问。', tradeoff: '新细节只能推翻人物判断，不能推翻已经确认的事实，否则会显得强行反转。', downstreamImpact: '下一事件需要先核验证人的说法，并处理主角因公开行动留下的身份风险。' }
+  ] : [
+    { focus: 'core_conflict', alternative: '让本章冲突不只来自外部阻拦，而是让同伴提出一条更安全却会牺牲无辜者的办法，逼主角当场表态。', benefit: '人物选择会推动剧情，冲突也能同时体现关系与价值观。', tradeoff: '必须给同伴合理动机，不能把他写成只为抬高主角的工具人。', downstreamImpact: '下一章要承接这次分歧，关系不能在结尾自动恢复。' },
+    { focus: 'ending_hook', alternative: '章末不再只写敌人逼近，而是让主角发现自己刚保住的证据缺了一页，而且缺失处留下熟悉人物的痕迹。', benefit: '钩子更具体，能把外部危机和人物关系连在一起。', tradeoff: '熟悉人物的痕迹必须来自既有信息，不能临时新增身份或能力。', downstreamImpact: '下一章需要先确认痕迹真伪，再决定是否公开质疑对方。' }
+  ];
+  return JSON.stringify({
+    targetKind, targetId, targetVersionId,
+    summary: targetKind === 'sequence' ? '这条章链最值得再看的，是中段转折是否足够由人物主动选择推动。' : '这一章最值得再看的，是核心冲突和章末钩子能否同时推动人物关系。',
+    suggestions
+  });
 }
 
 function parseOperation(prompt: string, operation: string): Record<string, unknown> | null {

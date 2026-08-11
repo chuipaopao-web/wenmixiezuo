@@ -21,6 +21,12 @@ import {
 import { StoryEventService } from './story-event-service.js';
 
 type Kind='candidate_a'|'candidate_b'|'fusion';
+export const STORY_EVENT_NARRATIVE_RULES=[
+  '事件名称要简短、有画面或悬念，避免写成任务编号和配置项。',
+  '故事字段用现在时和主动表达，写清谁正在做什么、为什么这样做、会失去什么以及结果怎样改变局面。',
+  '摘要要具体、有情绪和选择困境，但不得补写资料中没有依据的核心事实。',
+  '不要强迫每个字段使用“但是”“没想到”等固定句式，也不要把故事套成同一种预告片公式。'
+] as const;
 export class StoryEventGenerationPipelineService {
   public constructor(
     private readonly repo:StoryEventGenerationRepository,private readonly eventRepo:StoryEventRepository,
@@ -172,9 +178,9 @@ function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerat
     seat:{roleKey:member.roleKey,displayName:member.displayName,mode:fusion?'chief_editor_fusion':'independent_screenwriter'},
     book:{title:s.bookTitle,eventOrder:s.order},instructions:fusion?[
       '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。','事件必须在卷纲约束内改变状态并自然引出下一事件。',
-      '保留具体场景、对白、意象和局部解法的自由。','只输出JSON。'
+      ...STORY_EVENT_NARRATIVE_RULES,'保留具体场景、对白、意象和局部解法的自由。','只输出JSON。'
     ]:['独立提出完整小事件，不能看到另一位编剧答案。','从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
-      '模板只是可调整参考；保留场景、对白和局部反转自由。','只输出JSON。'],
+      ...STORY_EVENT_NARRATIVE_RULES,'模板只是可调整参考；保留场景、对白和局部反转自由。','只输出JSON。'],
     sourcePolicy:{confirmedSettingIsFact:true,previousSettlementIsFact:true,volumePlanIsConstraint:true,
       unsupportedCoreSetting:'put into uncertaintyNotes'},sources,outputContract:{
       title:'事件名',volumeResponsibility:'服务本卷什么目标',startingState:'进入状态',trigger:'因果触发',

@@ -23,7 +23,8 @@ describe('九岗位定位提示词', () => {
 
   it('主编、主笔、审校和研究岗位包含不可省略的硬门禁', () => {
     expect(buildRoleSystemPrompt('chief_editor', 'discussion')).toContain('老板是最终决策者');
-    expect(buildRoleSystemPrompt('writer', 'novel_writer')).toContain('2500至3500');
+    expect(buildRoleSystemPrompt('writer', 'novel_writer')).toContain('优先输出2700至3200');
+    expect(buildRoleSystemPrompt('writer', 'novel_writer')).toContain('不得少于2350或超过3650');
     expect(buildRoleSystemPrompt('reviewer', 'novel_reviewer')).toContain('JSON');
     const synthesis = buildRoleSystemPrompt('chief_editor', 'review_synthesis');
     expect(synthesis).toContain('recommendedVerdict');

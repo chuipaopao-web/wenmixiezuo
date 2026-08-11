@@ -142,6 +142,22 @@ describe('事件章纲序列与近期冻结',()=>{
     const candidate=current.versions.find(version=>version.sequenceVersionId===sequenceResult.sequenceVersionId)!;
     expect(candidate.content.chapters).toHaveLength(10);
     candidate.content.chapters.slice(1).forEach((chapter,index)=>expect(chapter.openingState).toBe(candidate.content.chapters[index]!.endingState));
+    const sequenceVersionCount=current.versions.length;
+    const sequenceChallengeTask=generations.startSequenceChallenge(scope,event.eventId,candidate.sequenceVersionId,{
+      expectedSequenceRevision:current.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      idempotencyKey:'ai-sequence-challenge'});
+    expect(sequenceChallengeTask.member.roleKey).toBe('second_screenwriter');
+    expect(sequenceChallengeTask.member.agentId).not.toBe(sequenceTask.member.agentId);
+    const sequenceChallengeClaim=tasks.claimNext('worker-event-chapters',120_000)!;
+    const sequenceChallengeResult=await pipeline.executeClaimed(scope,sequenceChallengeTask.taskId,'worker-event-chapters',
+      {leaseToken:sequenceChallengeClaim.leaseToken!,attemptNo:sequenceChallengeClaim.currentAttemptNo});
+    expect(sequenceChallengeResult).toMatchObject({status:'succeeded'});
+    if(!('challenge' in sequenceChallengeResult))throw new Error('章链挑战没有返回建议');
+    expect(sequenceChallengeResult.challenge).toMatchObject({targetKind:'sequence',targetId:current.sequenceId,
+      targetVersionId:candidate.sequenceVersionId});
+    expect(sequenceChallengeResult.challenge.suggestions.length).toBeGreaterThanOrEqual(1);
+    expect(sequenceChallengeResult.challenge.suggestions.length).toBeLessThanOrEqual(3);
+    expect(outlines.get(scope,event.eventId)!.versions).toHaveLength(sequenceVersionCount);
     const confirmed=outlines.confirmSequence(scope,event.eventId,{sequenceVersionId:candidate.sequenceVersionId,
       expectedSequenceRevision:current.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
     const detailTask=generations.startDetails(scope,event.eventId,{count:3,expectedSequenceRevision:confirmed.revision,
@@ -155,6 +171,21 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(after.outlines.slice(3).every(item=>item.status==='planned')).toBe(true);
     expect(after.outlines.slice(0,3).every(item=>item.versions.length===1&&item.activeVersionId===null)).toBe(true);
     expect(after.outlines.slice(0,3).every(item=>item.versions[0]!.content.creativeFreedom.length>0)).toBe(true);
+    const firstOutline=after.outlines[0]!,firstVersion=firstOutline.versions[0]!,outlineVersionCount=firstOutline.versions.length;
+    const detailChallengeTask=generations.startDetailChallenge(scope,event.eventId,firstOutline.outlineId,firstVersion.outlineVersionId,{
+      expectedSequenceRevision:after.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      idempotencyKey:'ai-detail-challenge'});
+    expect(detailChallengeTask.member.roleKey).toBe('second_screenwriter');
+    const detailChallengeClaim=tasks.claimNext('worker-event-chapters',120_000)!;
+    const detailChallengeResult=await pipeline.executeClaimed(scope,detailChallengeTask.taskId,'worker-event-chapters',
+      {leaseToken:detailChallengeClaim.leaseToken!,attemptNo:detailChallengeClaim.currentAttemptNo});
+    expect(detailChallengeResult).toMatchObject({status:'succeeded'});
+    if(!('challenge' in detailChallengeResult))throw new Error('单章挑战没有返回建议');
+    expect(detailChallengeResult.challenge).toMatchObject({targetKind:'detail',targetId:firstOutline.outlineId,
+      targetVersionId:firstVersion.outlineVersionId});
+    expect(detailChallengeResult.challenge.suggestions.every(item=>item.alternative.length>0&&item.tradeoff.length>0
+      &&item.downstreamImpact.length>0)).toBe(true);
+    expect(outlines.get(scope,event.eventId)!.outlines[0]!.versions).toHaveLength(outlineVersionCount);
     const calls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceTask.taskId,detailTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
     expect(calls).toHaveLength(2);
@@ -163,6 +194,15 @@ describe('事件章纲序列与近期冻结',()=>{
     const types=(JSON.parse(detailPack.source_manifest_json) as Array<{sourceType:string}>).map(source=>source.sourceType);
     expect(types).toEqual(expect.arrayContaining(['planning:volume_plan','planning:story_event','planning:event_chapter_sequence',
       'planning:recent_chapter_slots','owner:chapter_outline_ideas']));
+    const challengeCalls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
+      .all(scope.ownerId,scope.bookId,sequenceChallengeTask.taskId,detailChallengeTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
+    expect(challengeCalls).toHaveLength(2);
+    const challengePack=context.database.prepare('SELECT source_manifest_json FROM context_packs WHERE owner_id=? AND book_id=? AND context_pack_id=?')
+      .get(scope.ownerId,scope.bookId,challengeCalls.find(call=>call.task_id===detailChallengeTask.taskId)!.context_pack_id) as {source_manifest_json:string};
+    const challengeTypes=(JSON.parse(challengePack.source_manifest_json) as Array<{sourceType:string}>).map(source=>source.sourceType);
+    expect(challengeTypes).toEqual(expect.arrayContaining(['planning:volume_plan','planning:story_event',
+      'planning:event_chapter_sequence','planning:chapter_outline_candidate']));
+    expect(challengeTypes).not.toContain('discussion');
     expect(volumes.workflow(scope).waitingTaskId).toBeNull();
   });
 });

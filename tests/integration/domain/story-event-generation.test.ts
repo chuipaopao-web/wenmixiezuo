@@ -5,7 +5,7 @@ import { ModelCallService } from '../../../apps/api/src/application/calls/model-
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import {
-  parseStoryEventModelOutput, StoryEventGenerationPipelineService
+  parseStoryEventModelOutput, STORY_EVENT_NARRATIVE_RULES, StoryEventGenerationPipelineService
 } from '../../../apps/api/src/application/planning/story-event-generation-pipeline-service.js';
 import { StoryEventGenerationService } from '../../../apps/api/src/application/planning/story-event-generation-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
@@ -101,6 +101,9 @@ describe('事件双编剧团队生成',()=>{
   it('能从带说明的模型回复中提取完整事件JSON',()=>{
     const content=eventContent();
     expect(parseStoryEventModelOutput('候选如下：\n\`\`\`json\n'+JSON.stringify(content)+'\n\`\`\`')).toEqual(content);
+    expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('现在时和主动表达');
+    expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('不要强迫每个字段');
+    expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('不得补写资料中没有依据的核心事实');
   });
 });
 

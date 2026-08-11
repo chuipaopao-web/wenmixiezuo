@@ -508,11 +508,25 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
     });
+  app.post<{ Params:{bookId:string;eventId:string;sequenceVersionId:string};Body:{expectedSequenceRevision:number;
+    expectedWorkflowVersion:number;idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions/:sequenceVersionId/challenge',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterGenerations.startSequenceChallenge(scope,request.params.eventId,
+        request.params.sequenceVersionId,request.body),request.id);
+    });
   app.post<{ Params:{bookId:string;eventId:string};Body:{count:number;expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/generate',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
+    });
+  app.post<{ Params:{bookId:string;eventId:string;outlineId:string;outlineVersionId:string};Body:{expectedSequenceRevision:number;
+    expectedWorkflowVersion:number;idempotencyKey:string} }>(
+    '/api/v1/books/:bookId/story-events/:eventId/event-chapter-outlines/:outlineId/versions/:outlineVersionId/challenge',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(eventChapterGenerations.startDetailChallenge(scope,request.params.eventId,request.params.outlineId,
+        request.params.outlineVersionId,request.body),request.id);
     });
   app.get<{ Params:{bookId:string;outlineId:string} }>(
     '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{

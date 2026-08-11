@@ -313,6 +313,25 @@ export interface EventChapterSequenceContent {
   flexibilityNotes: string[];
 }
 
+export const chapterChallengeFocusValues = [
+  'chapter_structure', 'opening_pressure', 'core_conflict', 'choice_and_cost', 'turning_point', 'ending_hook', 'next_chapter_interface'
+] as const;
+export type ChapterChallengeFocus = typeof chapterChallengeFocusValues[number];
+export interface ChapterChallengeSuggestion {
+  focus: ChapterChallengeFocus;
+  alternative: string;
+  benefit: string;
+  tradeoff: string;
+  downstreamImpact: string;
+}
+export interface EventChapterChallengeContent {
+  targetKind: 'sequence' | 'detail';
+  targetId: string;
+  targetVersionId: string;
+  summary: string;
+  suggestions: ChapterChallengeSuggestion[];
+}
+
 export interface ChapterOutlineVersion {
   ownerId: string;
   bookId: string;
@@ -495,6 +514,33 @@ export function parseEventChapterSequenceContent(input: unknown): EventChapterSe
     eventEndingConditions,
     closureCoverage,
     flexibilityNotes: requireUniqueTextArray(value.flexibilityNotes, '序列弹性说明')
+  };
+}
+
+export function parseEventChapterChallengeContent(input: unknown): EventChapterChallengeContent {
+  const value = requireRecord(input, '章纲挑战意见');
+  if (!Array.isArray(value.suggestions) || value.suggestions.length < 1 || value.suggestions.length > 3) {
+    throw new Error('章纲挑战意见必须包含一至三条关键建议。');
+  }
+  const suggestions = value.suggestions.map((item) => {
+    const suggestion = requireRecord(item, '章纲挑战建议');
+    return {
+      focus: requireOneOf(suggestion.focus, chapterChallengeFocusValues, '挑战重点'),
+      alternative: requireText(suggestion.alternative, '另一种走法'),
+      benefit: requireText(suggestion.benefit, '可能收益'),
+      tradeoff: requireText(suggestion.tradeoff, '需要承担的代价'),
+      downstreamImpact: requireText(suggestion.downstreamImpact, '对后文的影响')
+    };
+  });
+  if (new Set(suggestions.map((item) => item.focus)).size !== suggestions.length) {
+    throw new Error('同一挑战重点只能提出一次。');
+  }
+  return {
+    targetKind: requireOneOf(value.targetKind, ['sequence', 'detail'] as const, '挑战目标类型'),
+    targetId: requireText(value.targetId, '挑战目标'),
+    targetVersionId: requireText(value.targetVersionId, '挑战目标版本'),
+    summary: requireText(value.summary, '挑战意见摘要'),
+    suggestions
   };
 }
 

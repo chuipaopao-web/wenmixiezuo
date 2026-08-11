@@ -10,6 +10,7 @@ import type {
   VolumePlanContent,
   StoryEventContent,
   ChapterOutlineContent,
+  EventChapterChallengeContent,
   EventChapterSequenceContent
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
@@ -448,8 +449,8 @@ export interface EventChapterSequenceData {
   outlines:EventChapterOutlineData[];nextChapterNumber:number;valid:boolean;createdAt:string;updatedAt:string;
 }
 export interface EventChapterGenerationData {
-  taskId:string;kind:'sequence'|'details';status:string;currentPhase:string;errorCode:string|null;
-  checkpoint:Record<string,unknown>;member:{roleKey:string;agentId:string;displayName:string;provider:string;modelId:string};
+  taskId:string;kind:'sequence'|'details'|'sequence_challenge'|'detail_challenge';status:string;currentPhase:string;errorCode:string|null;
+  checkpoint:Record<string,unknown>&{challenge?:EventChapterChallengeContent};member:{roleKey:string;agentId:string;displayName:string;provider:string;modelId:string};
   createdAt:string;updatedAt:string;
 }
 export interface PlanningSettlementData {
@@ -1290,7 +1291,7 @@ export function initializeEventChapterSequence(bookId:string,eventId:string,inpu
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/initialize`,
     {method:'POST',body:JSON.stringify(input)});
 }
-export function fetchEventChapterGeneration(bookId:string,eventId:string,kind:'sequence'|'details',signal?:AbortSignal):
+export function fetchEventChapterGeneration(bookId:string,eventId:string,kind:'sequence'|'details'|'sequence_challenge'|'detail_challenge',signal?:AbortSignal):
   Promise<EventChapterGenerationData|null>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generation?kind=${kind}`,
     signal===undefined?{}:{signal});
@@ -1298,6 +1299,11 @@ export function fetchEventChapterGeneration(bookId:string,eventId:string,kind:'s
 export function startEventChapterSequenceGeneration(bookId:string,eventId:string,input:{expectedSequenceRevision:number;
   expectedWorkflowVersion:number;authorInputRefs?:string[];idempotencyKey:string}):Promise<EventChapterGenerationData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generate`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function startEventChapterSequenceChallenge(bookId:string,eventId:string,sequenceVersionId:string,input:{
+  expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/versions/${encodeURIComponent(sequenceVersionId)}/challenge`,
     {method:'POST',body:JSON.stringify(input)});
 }
 export function confirmEventChapterSequence(bookId:string,eventId:string,input:{sequenceVersionId:string;
@@ -1308,6 +1314,11 @@ export function confirmEventChapterSequence(bookId:string,eventId:string,input:{
 export function startEventChapterDetailGeneration(bookId:string,eventId:string,input:{count:number;expectedSequenceRevision:number;
   expectedWorkflowVersion:number;authorInputRefs?:string[];idempotencyKey:string}):Promise<EventChapterGenerationData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-outlines/generate`,
+    {method:'POST',body:JSON.stringify(input)});
+}
+export function startEventChapterDetailChallenge(bookId:string,eventId:string,outlineId:string,outlineVersionId:string,input:{
+  expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/event-chapter-outlines/${encodeURIComponent(outlineId)}/versions/${encodeURIComponent(outlineVersionId)}/challenge`,
     {method:'POST',body:JSON.stringify(input)});
 }
 export function freezeRecentEventChapterOutlines(bookId:string,eventId:string,input:{items:Array<{outlineId:string;

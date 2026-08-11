@@ -336,7 +336,7 @@ function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onS
     className={mode === 'template' && selected.some((item) => item.templateKey === template.templateKey) ? 'selected' : ''}
     key={template.templateKey}
     onClick={() => onSelect(template)}
-  ><span>{badge}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>;
+  ><span>{badge}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p></button>;
   return <section className="volume-template-section">
     <header><div><h4>这一卷想怎么推进？</h4><p>可以不选；通常选0—3种就够了，确有需要也可继续混合。所有方案都是软参考，不规定固定章数、爽点或反转频率。</p></div>{mode === 'template' && <span>已选 {selected.length} 种</span>}</header>
     <div className="template-choice-group recommended">
@@ -345,7 +345,7 @@ function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onS
     </div>
     {additionalTemplates.length > 0 && <details className="template-choice-group template-more-options">
       <summary><span><strong>查看更多推进方案</strong><small>任何题材都可以自由选择，不受推荐限制</small></span><b>{additionalTemplates.length} 种</b></summary>
-      <div className="volume-template-grid">{additionalTemplates.map((template) => renderTemplate(template, template.sourceLabel))}</div>
+      <div className="volume-template-grid">{additionalTemplates.map((template) => renderTemplate(template, '更多选择'))}</div>
     </details>}
     <div className="volume-template-grid template-alternative-grid">
       <button type="button" className={mode === 'custom' ? 'selected' : ''} onClick={() => onMode('custom')}><span>自定义</span><strong>按我的想法推进</strong><p>只记录你的方向，不套用固定节奏。</p></button>

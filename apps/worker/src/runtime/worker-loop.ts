@@ -38,7 +38,7 @@ export class WorkerLoop {
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
         this.claimer.complete(task, { workerExecuted: true, deterministic: true });
-      } else if (['chapter_creation', 'discussion', 'continuation_analysis', 'volume_plan_generation', 'story_event_generation', 'event_chapter_sequence_generation', 'event_chapter_detail_generation'].includes(task.taskType) && this.chapterTasks !== undefined) {
+      } else if (['chapter_creation', 'discussion', 'continuation_analysis', 'volume_plan_generation', 'story_event_generation', 'event_chapter_sequence_generation', 'event_chapter_detail_generation', 'event_chapter_sequence_challenge', 'event_chapter_detail_challenge'].includes(task.taskType) && this.chapterTasks !== undefined) {
         const controller = new AbortController();
         let leaseError: Error | null = null;
         const renewal = setInterval(() => {

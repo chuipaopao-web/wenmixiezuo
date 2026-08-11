@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventPlanningPanel } from '../../../apps/web/src/features/planning/EventPlanningPanel';
 
@@ -51,9 +51,21 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
   expect(screen.queryByText('规划台')).not.toBeInTheDocument();
   expect(screen.getByRole('button',{name:/事件 1.*胜利留下的缺口/u})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:/事件 2.*对手开始反制/u})).toBeInTheDocument();
+  const chain=within(screen.getByLabelText('事件因果链'));
+  expect(chain.getAllByText('既有结果造成新问题')).toHaveLength(2);
+  expect(chain.getByRole('button',{name:/本卷开场/u})).toBeInTheDocument();
+  expect(chain.getByRole('button',{name:/预计承接/u})).toBeInTheDocument();
+  expect(chain.getByText('预计承接')).toBeInTheDocument();
+  expect(screen.getAllByText('眼前的麻烦').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('不得不作出的选择').length).toBeGreaterThan(0);
+  expect(screen.getByRole('button',{name:'故事视图'})).toHaveAttribute('aria-pressed','true');
+  expect(screen.getByText('这段剧情最想让读者感受到什么？')).toBeInTheDocument();
+  expect(screen.getByText('根据当前故事推荐')).toBeInTheDocument();
+  expect(screen.getByText('扬眉吐气')).toBeInTheDocument();
+  expect(screen.queryByText(/方法来源|救猫咪结构/u)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'细节视图'}));
   expect(screen.getByText(/上一事件实际结果.*主角与局面新状态.*下一事件接口/u)).toBeInTheDocument();
-  expect(screen.getByText('人物必须作出的选择与代价')).toBeInTheDocument();
-  expect(screen.getByText('根据当前事件推荐')).toBeInTheDocument();
+  expect(screen.getAllByText('人物必须作出的选择与代价').length).toBeGreaterThan(0);
 
   fireEvent.click(screen.getByRole('button',{name:'开始设计事件'}));
   expect(await screen.findByText('三份方案已保存')).toBeInTheDocument();
@@ -76,7 +88,10 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
 
 it('已完成卷仍可回看事件链与事件大纲，不会被当成空白当前卷',async()=>{
   const completedPlan={...volumePlan(),status:'completed'};
-  const completedSequence={...sequenceView(),events:sequenceView().events.map(item=>({...item,status:'settled'}))};
+  const completedSequence={...sequenceView(),events:sequenceView().events.map(item=>({...item,status:'settled',
+    latestVersion:{...item.latestVersion,previousSettlementId:item.order===1?null:'settlement-event-1'},
+    versions:item.versions.map(version=>({...version,previousSettlementId:item.order===1?null:'settlement-event-1'}))
+  }))};
   const requests:string[]=[];
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
@@ -93,6 +108,12 @@ it('已完成卷仍可回看事件链与事件大纲，不会被当成空白当�
   expect(await screen.findByLabelText('completed-event-history')).toBeInTheDocument();
   expect(screen.getByText('事件链和事件大纲仍然完整保留')).toBeInTheDocument();
   expect(screen.getByRole('button',{name:/事件 1.*胜利留下的缺口/u})).toBeInTheDocument();
+  const historyChain=within(screen.getByLabelText('已完成事件因果链'));
+  expect(historyChain.getByRole('button',{name:/上一幕（已发生）/u})).toBeInTheDocument();
+  expect(historyChain.getByText('已经发生')).toBeInTheDocument();
+  expect(screen.getAllByText('眼前的麻烦').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('button',{name:'细节视图'}));
+  expect(screen.getByText('服务本卷')).toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'开始设计事件'})).not.toBeInTheDocument();
   expect(requests.some(item=>item.endsWith('/event-sequence'))).toBe(true);
 });
@@ -124,7 +145,7 @@ function eventContent(title:string,next:string){return{title,volumeResponsibilit
   estimatedChapterRange:{minimum:5,likely:8,maximum:12},uncertaintyNotes:[]};}
 function templateCatalog(){return{contractVersion:1,registryVersion:1,registryHash:`sha256:${'2'.repeat(64)}`,scope:'event',
   templates:[{templateKey:'event-pressure-choice',templateVersion:1,contentHash:`sha256:${'3'.repeat(64)}`,scope:'event',
-    publicTitle:'压力越来越大，人物必须作出选择',publicExplanation:'让阻力逼近，最后用有代价的选择改变状态。',
+    publicTitle:'压力越来越大，人物必须作出选择',publicExplanation:'让阻力逼近，最后用有代价的选择改变状态。',sourceLabel:'救猫咪结构',
     fitConditions:['人物面对难题'],knownRisks:['不能只加敌人'],authorQuestions:['人物愿意失去什么？'],
     beats:[{beatId:'choice',publicFunction:'逼出选择',expectedChange:'人物承担后果',optional:false,order:1}],
     previewPrompt:'围绕选择推进',recommended:true}],alternativeChoices:[]};}

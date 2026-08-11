@@ -697,11 +697,11 @@ describe('单章完整创作流水线', () => {
     const batch = batches.scheduleNewChapters(scope, 1);
 
     const result = await batches.run(scope, batch.batchId);
-    expect(result.results[0]).toEqual(expect.objectContaining({ phase: 'review', rewriteCount: 0 }));
+    expect(result.results[0]).toEqual(expect.objectContaining({ phase: 'completed', status: 'awaiting_confirmation', rewriteCount: 0 }));
     const row = context.database.prepare(`SELECT passed, checks_json FROM hard_check_results
       WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { passed: number; checks_json: string };
     expect(row.passed).toBe(1);
-    expect(JSON.parse(row.checks_json).length).toMatchObject({ passed: true, targetMet: false, minimum: 2350, maximum: 3650 });
+    expect(JSON.parse(row.checks_json).length).toMatchObject({ passed: true, targetMet: false, minimum: 2350, maximum: 3650, targetMinimum: 2700, targetMaximum: 3200 });
   });
   it('作者可重试因审校报告缺席而技术阻断的章节，但不能绕过完整三席门禁', async () => {
     context = createTestContext();

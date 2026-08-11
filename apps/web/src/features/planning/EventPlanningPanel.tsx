@@ -10,6 +10,12 @@ import {
   type StoryEventVersionData, type VolumePlanData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import {
+  buildStoryEventPresentation,
+  StoryCausalLink,
+  StoryEventNodeCard,
+  StoryEventPreview,
+} from './StoryEventCard';
 
 interface EventWorkspaceSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -28,6 +34,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const [customDirection,setCustomDirection]=useState('');
   const [draft,setDraft]=useState<StoryEventContent>(()=>emptyEvent('新事件'));
   const [editing,setEditing]=useState(false);
+  const [presentationMode,setPresentationMode]=useState<'story'|'detail'>('story');
   const [impact,setImpact]=useState<StoryEventImpactData|null>(null);
   const [operation,setOperation]=useState<EventOperationData|null>(null);
   const [busy,setBusy]=useState(false);
@@ -155,36 +162,42 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
 
   const recommendedTemplates=snapshot.templates.templates.filter(template=>template.recommended);
   const additionalTemplates=snapshot.templates.templates.filter(template=>!template.recommended);
-  const renderTemplate=(template:PublicNarrativeTemplate,badge:string)=><button type="button"
+  const renderTemplate=(template:PublicNarrativeTemplate)=>{const emotion=emotionGuide(template);return <button type="button"
     className={mode==='template'&&selectedTemplates.some(item=>item.templateKey===template.templateKey)?'selected':''}
+    aria-pressed={mode==='template'&&selectedTemplates.some(item=>item.templateKey===template.templateKey)}
     key={template.templateKey} onClick={()=>{setSelectedTemplates(current=>{const next=current.some(item=>item.templateKey===template.templateKey)
       ?current.filter(item=>item.templateKey!==template.templateKey):[...current,template];setMode(next.length===0?'none':'template');return next;});}}>
-    <span>{badge}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p><small>方法来源：{template.sourceLabel}</small></button>;
+    <span aria-hidden="true">{emotion.emoji}</span><strong>{emotion.label}</strong><p>{emotion.explanation}</p></button>;};
 
   return <section className="event-planning-panel" aria-labelledby="event-planning-title">
     <header className="event-planning-header"><h3 id="event-planning-title" className="sr-only">规划</h3>
       <div className="event-sequence-meta"><small>当前卷</small><strong>{snapshot.plan.activeVersion?.content.title}</strong></div>
     </header>
     {error!==null&&<p className="inline-error" role="alert">{error}</p>}
-    <div className="event-chain" aria-label="事件因果链">{sequence.events.map((item,index)=><div className="event-chain-node" key={item.eventId}>
-      <button type="button" className={item.eventId===selectedId?'selected':''} onClick={()=>setSelectedId(item.eventId)}>
-        <small>事件 {item.order} · {eventStatus(item.status)}</small>
-        <strong>{item.activeVersion?.content.title??item.latestVersion?.content.title??'待设计事件'}</strong>
-        <span>{item.activeVersion?.content.requiredResult??item.latestVersion?.content.requiredResult??'等待补充必须产生的结果'}</span>
-      </button>{index<sequence.events.length-1&&<i aria-hidden="true">→</i>}</div>)}</div>
+    <div className="event-chain story-artery" aria-label="事件因果链">{sequence.events.map((item,index)=>{const content=eventContentOf(item);
+      const next=sequence.events[index+1]??null,nextContent=next===null?null:eventContentOf(next);
+      const presentation=eventPresentation(sequence,item,content);
+      return <div className="event-chain-node" key={item.eventId}>
+        <StoryEventNodeCard title={content.title} order={item.order} status={eventStatus(item.status)}
+          presentation={presentation} selected={item.eventId===selectedId} onSelect={()=>setSelectedId(item.eventId)}/>
+        {next!==null&&<StoryCausalLink from={content} to={nextContent!}
+          actual={eventVersionOf(next)?.previousSettlementId!=null}/>}
+      </div>;})}</div>
 
     {selected!==null&&<div className="event-workspace-grid">
       <main>
         <section className="event-focus-card"><header><div><small>当前选择 · 事件 {selected.order}</small>
           <h4>{selected.activeVersion?.content.title??selected.latestVersion?.content.title}</h4></div>
           <span>{selected.activeVersionId===null?'等待确认':'已确认，可继续章纲'}</span></header>
-          <p className="event-causality-guide">上一事件实际结果 → 主角与局面新状态 → 无法回避的新问题 → 主角选择与代价 → 本事件结果 → 结尾钩子与下一事件接口</p>
-          <dl><div><dt>进入时的主角与局面</dt><dd>{selected.latestVersion?.content.startingState}</dd></div>
-            <div><dt>从当前状态怎样触发</dt><dd>{selected.latestVersion?.content.trigger}</dd></div>
-            <div><dt>人物必须作出的选择与代价</dt><dd>{selected.latestVersion?.content.choicesAndCosts.join('；')||'等待补充'}</dd></div>
-            <div><dt>必须形成的事件结果</dt><dd>{selected.latestVersion?.content.requiredResult}</dd></div>
-            <div><dt>人物与关系的新状态</dt><dd>{selected.latestVersion?.content.characterArcImpact}</dd></div>
-            <div><dt>结尾钩子与下一事件接口</dt><dd>{selected.latestVersion?.content.nextEventImpact}</dd></div></dl>
+          <StoryViewSwitch value={presentationMode} onChange={setPresentationMode}/>
+          {presentationMode==='story'?<StoryEventPreview presentation={eventPresentation(sequence,selected,eventContentOf(selected))}/>:<>
+            <p className="event-causality-guide">上一事件实际结果 → 主角与局面新状态 → 无法回避的新问题 → 主角选择与代价 → 本事件结果 → 结尾钩子与下一事件接口</p>
+            <dl><div><dt>进入时的主角与局面</dt><dd>{selected.latestVersion?.content.startingState}</dd></div>
+              <div><dt>从当前状态怎样触发</dt><dd>{selected.latestVersion?.content.trigger}</dd></div>
+              <div><dt>人物必须作出的选择与代价</dt><dd>{selected.latestVersion?.content.choicesAndCosts.join('；')||'等待补充'}</dd></div>
+              <div><dt>必须形成的事件结果</dt><dd>{selected.latestVersion?.content.requiredResult}</dd></div>
+              <div><dt>人物与关系的新状态</dt><dd>{selected.latestVersion?.content.characterArcImpact}</dd></div>
+              <div><dt>结尾钩子与下一事件接口</dt><dd>{selected.latestVersion?.content.nextEventImpact}</dd></div></dl></>}
           <div className="button-row"><button type="button" disabled={busy||selected.order===1} onClick={()=>move(-1)}>向前移动</button>
             <button type="button" disabled={busy||selected.order===sequence.events.length} onClick={()=>move(1)}>向后移动</button>
             <button type="button" disabled={busy} onClick={insertAfter}>在后面加事件</button>
@@ -192,14 +205,14 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
             <button type="button" disabled={busy||selected.order===sequence.events.length} onClick={mergeNext}>与下一个合并</button></div>
         </section>
 
-        <section className="event-template-section"><header><div><h4>这个事件想怎么推进？</h4><p>可以不选；通常选0—3种方向就够了，确有需要也可继续混合。爽点、压力与反转都只是期望效果，不是必填任务。</p></div>{mode==='template'&&<span>已选 {selectedTemplates.length} 种</span>}</header>
-          <div className="template-choice-group recommended"><div className="template-choice-heading"><div><strong>根据当前事件推荐</strong><small>结合本书题材、活动卷规划和上一卷实际结算排序</small></div><span>{recommendedTemplates.length} 种</span></div>
-            <div className="event-template-grid">{recommendedTemplates.map(template=>renderTemplate(template,'适合当前书况'))}</div></div>
-          {additionalTemplates.length>0&&<details className="template-choice-group template-more-options"><summary><span><strong>查看更多事件推进方案</strong><small>推荐只负责排序，不限制你的选择</small></span><b>{additionalTemplates.length} 种</b></summary>
-            <div className="event-template-grid">{additionalTemplates.map(template=>renderTemplate(template,template.sourceLabel))}</div></details>}
+        <section className="event-template-section"><header><div><h4>这段剧情最想让读者感受到什么？</h4><p>可选。它只告诉编剧希望形成的阅读感受，不是必须完成的配方，也不会限制具体写法。</p></div>{mode==='template'&&<span>已选 {selectedTemplates.length} 种</span>}</header>
+          <div className="template-choice-group recommended"><div className="template-choice-heading"><div><strong>根据当前故事推荐</strong><small>结合题材、当前卷、人物处境和已经发生的结果排序</small></div><span>{recommendedTemplates.length} 种</span></div>
+            <div className="event-template-grid emotion-goal-grid">{recommendedTemplates.map(renderTemplate)}</div></div>
+          {additionalTemplates.length>0&&<details className="template-choice-group template-more-options"><summary><span><strong>查看更多阅读感受</strong><small>推荐只负责排序，不限制你的选择</small></span><b>{additionalTemplates.length} 种</b></summary>
+            <div className="event-template-grid emotion-goal-grid">{additionalTemplates.map(renderTemplate)}</div></details>}
           <div className="event-template-grid template-alternative-grid">
-            <button type="button" className={mode==='custom'?'selected':''} onClick={()=>setMode('custom')}><span>自己决定</span><strong>按我的方向推进</strong><p>只把你的方向交给团队，不套固定顺序。</p></button>
-            <button type="button" className={mode==='none'?'selected':''} onClick={()=>setMode('none')}><span>自由设计</span><strong>让人物和因果自然推动</strong><p>不选择结构参考，由当前局面决定事件形态。</p></button></div>
+            <button type="button" aria-pressed={mode==='custom'} className={mode==='custom'?'selected':''} onClick={()=>setMode('custom')}><span>✨</span><strong>我有自己的感觉</strong><p>用一句话告诉编剧，希望读者经历什么。</p></button>
+            <button type="button" aria-pressed={mode==='none'} className={mode==='none'?'selected':''} onClick={()=>setMode('none')}><span>🌿</span><strong>让故事自然发生</strong><p>不指定阅读感受，由人物和因果决定这一幕。</p></button></div>
           {mode==='custom'&&<textarea rows={3} value={customDirection} onChange={e=>setCustomDirection(e.target.value)}
             placeholder="例如：希望主角用之前掌握的信息诱使对手犯错，但胜利要伤害一段重要关系。" />}
         </section>
@@ -222,14 +235,15 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
 
         <section className="event-version-section"><header><div><h4>方案与历史稿</h4><p>编剧方案、主编融合稿和作者修改稿都会保留，不互相覆盖。</p></div>
           <button type="button" onClick={()=>{setDraft(selected.activeVersion?.content??selected.latestVersion?.content??emptyEvent('新事件'));setEditing(value=>!value);}}>
-            {editing?'收起编辑':'手工修改'}</button></header>
+            {editing?'收起编辑':'修改事件内容'}</button></header>
           {editing&&<EventEditor value={draft} onChange={setDraft} onSave={saveDraft} busy={busy}/>}
           <div className="event-version-grid">{versions.map(version=><article key={version.storyEventVersionId}
             className={version.storyEventVersionId===selected.activeVersionId?'active':''}>
             <header><span>{candidateLabel(version.candidateKind)}</span><strong>第 {version.version} 稿 · {versionStatus(version.status)}</strong></header>
-            <h5>{version.content.title}</h5><p>{version.content.volumeResponsibility}</p>
-            <dl><dt>关键选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'待补充'}</dd>
-              <dt>事件结果</dt><dd>{version.content.requiredResult}</dd><dt>后续接口</dt><dd>{version.content.nextEventImpact}</dd></dl>
+            <h5>{version.content.title}</h5>{presentationMode==='story'
+              ?<StoryEventPreview compact presentation={eventPresentation(sequence,selected,version.content,version.previousSettlementId)}/>
+              :<><p>{version.content.volumeResponsibility}</p><dl><dt>关键选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'待补充'}</dd>
+                <dt>事件结果</dt><dd>{version.content.requiredResult}</dd><dt>后续接口</dt><dd>{version.content.nextEventImpact}</dd></dl></>}
             <button type="button" disabled={busy} onClick={()=>previewVersion(version)}>查看并准备确认</button></article>)}</div>
         </section>
       </main>
@@ -259,29 +273,36 @@ function CompletedEventPlanningView({plan,sequence,selected,selectedId,versions,
   plan:VolumePlanData;sequence:EventSequenceData;selected:StoryEventData|null;selectedId:string|null;
   versions:StoryEventVersionData[];onSelect:(eventId:string)=>void;
 }):React.JSX.Element{
+  const[presentationMode,setPresentationMode]=useState<'story'|'detail'>('story');
   const content=selected?.activeVersion?.content??selected?.latestVersion?.content??null;
   return <section className="event-planning-panel completed-planning-history" aria-label="completed-event-history">
     <header className="event-planning-header"><div><span className="eyebrow">已完成卷 · 只读记录</span>
       <h3>事件链和事件大纲仍然完整保留</h3><p>本卷已经结算。这里展示当时确认的规划与全部历史稿，不会因为进入下一卷而隐藏。</p></div>
       <div className="event-sequence-meta"><small>已完成卷</small><strong>{plan.activeVersion?.content.title}</strong><span>事件链第 {sequence.revision} 稿</span></div></header>
-    <div className="event-chain" aria-label="已完成事件因果链">{sequence.events.map((item,index)=><div className="event-chain-node" key={item.eventId}>
-      <button type="button" className={item.eventId===selectedId?'selected':''} onClick={()=>onSelect(item.eventId)}>
-        <small>事件 {item.order} · {eventStatus(item.status)}</small><strong>{item.activeVersion?.content.title??item.latestVersion?.content.title??'未命名事件'}</strong>
-        <span>{item.activeVersion?.content.requiredResult??item.latestVersion?.content.requiredResult??'未记录事件结果'}</span>
-      </button>{index<sequence.events.length-1&&<i aria-hidden="true">→</i>}</div>)}</div>
+    <div className="event-chain story-artery" aria-label="已完成事件因果链">{sequence.events.map((item,index)=>{const itemContent=eventContentOf(item);
+      const next=sequence.events[index+1]??null,nextContent=next===null?null:eventContentOf(next);
+      return <div className="event-chain-node" key={item.eventId}>
+        <StoryEventNodeCard title={itemContent.title} order={item.order} status={eventStatus(item.status)}
+          presentation={eventPresentation(sequence,item,itemContent)} selected={item.eventId===selectedId} onSelect={()=>onSelect(item.eventId)}/>
+        {next!==null&&<StoryCausalLink from={itemContent} to={nextContent!} actual={eventVersionOf(next)?.previousSettlementId!=null}/>}
+      </div>;})}</div>
     {content!==null&&<div className="event-workspace-grid"><main>
       <section className="event-focus-card"><header><div><small>事件 {selected?.order} · 已确认大纲</small><h4>{content.title}</h4></div><span>历史只读</span></header>
-        <dl><div><dt>服务本卷</dt><dd>{content.volumeResponsibility}</dd></div><div><dt>进入状态</dt><dd>{content.startingState}</dd></div>
+        <StoryViewSwitch value={presentationMode} onChange={setPresentationMode}/>
+        {presentationMode==='story'?<StoryEventPreview presentation={eventPresentation(sequence,selected!,content)}/>:<dl>
+          <div><dt>服务本卷</dt><dd>{content.volumeResponsibility}</dd></div><div><dt>进入状态</dt><dd>{content.startingState}</dd></div>
           <div><dt>触发原因</dt><dd>{content.trigger}</dd></div><div><dt>必须产生的结果</dt><dd>{content.requiredResult}</dd></div>
-          <div><dt>引向后续</dt><dd>{content.nextEventImpact}</dd></div><div><dt>人物变化</dt><dd>{content.characterArcImpact}</dd></div></dl></section>
+          <div><dt>引向后续</dt><dd>{content.nextEventImpact}</dd></div><div><dt>人物变化</dt><dd>{content.characterArcImpact}</dd></div></dl>}</section>
       <section className="event-version-section"><header><div><h4>方案与历史稿</h4><p>编剧方案、融合稿和作者确认稿都会保留，可逐项复制核对。</p></div></header>
         <div className="event-version-grid">{versions.map(version=><article key={version.storyEventVersionId} className={version.storyEventVersionId===selected?.activeVersionId?'active':''}>
           <header><span>{candidateLabel(version.candidateKind)}</span><strong>第 {version.version} 稿 · {versionStatus(version.status)}</strong></header>
-          <h5>{version.content.title}</h5><p>{version.content.volumeResponsibility}</p><dl>
-            <dt>参与人物</dt><dd>{version.content.participants.join('、')||'未记录'}</dd><dt>阻力</dt><dd>{version.content.obstacles.join('；')||'未记录'}</dd>
-            <dt>选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'未记录'}</dd><dt>事件推进</dt><dd>{version.content.localProgression.join(' → ')||'未记录'}</dd>
-            <dt>结束条件</dt><dd>{version.content.endingConditions.join('；')||'未记录'}</dd><dt>自由发挥</dt><dd>{version.content.flexibleExecution.join('；')||'未记录'}</dd>
-          </dl></article>)}</div></section>
+          <h5>{version.content.title}</h5>{presentationMode==='story'
+            ?<StoryEventPreview compact presentation={eventPresentation(sequence,selected!,version.content,version.previousSettlementId)}/>
+            :<><p>{version.content.volumeResponsibility}</p><dl>
+              <dt>参与人物</dt><dd>{version.content.participants.join('、')||'未记录'}</dd><dt>阻力</dt><dd>{version.content.obstacles.join('；')||'未记录'}</dd>
+              <dt>选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'未记录'}</dd><dt>事件推进</dt><dd>{version.content.localProgression.join(' → ')||'未记录'}</dd>
+              <dt>结束条件</dt><dd>{version.content.endingConditions.join('；')||'未记录'}</dd><dt>自由发挥</dt><dd>{version.content.flexibleExecution.join('；')||'未记录'}</dd>
+            </dl></>}</article>)}</div></section>
     </main><aside className="event-side-panel"><section><h4>已完成事件边界</h4><dl><dt>必须得到</dt><dd>{content.requiredResult}</dd>
       <dt>对卷高潮的作用</dt><dd>{content.volumeClimaxImpact}</dd><dt>仍可自由发挥</dt><dd>{content.flexibleExecution.join('；')}</dd></dl></section></aside></div>}
   </section>;
@@ -343,6 +364,31 @@ function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()
 function activeTask(status:string){return['pending','queued','working','paused'].includes(status);}
 function messageOf(reason:unknown){return reason instanceof Error?reason.message:'事件规划操作失败，请稍后重试。';}
 function eventStatus(status:string){return({planning:'规划中',active:'已确认',settled:'已完成',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
+function eventVersionOf(item:StoryEventData){return item.activeVersion??item.latestVersion;}
+function eventContentOf(item:StoryEventData){return eventVersionOf(item)?.content??emptyEvent('待设计事件');}
+function eventPresentation(sequence:EventSequenceData,item:StoryEventData,content:StoryEventContent,
+  previousSettlementId:string|null|undefined=eventVersionOf(item)?.previousSettlementId){
+  const index=sequence.events.findIndex(event=>event.eventId===item.eventId);
+  const previous=index>0?eventContentOf(sequence.events[index-1]!):null;
+  return buildStoryEventPresentation({content,previousContent:previous,
+    carryKind:item.order===1?'opening':previousSettlementId!=null?'actual':'planned'});
+}
+function StoryViewSwitch({value,onChange}:{value:'story'|'detail';onChange:(value:'story'|'detail')=>void}){
+  return <div className="story-view-switch" role="group" aria-label="事件查看方式">
+    <button type="button" aria-pressed={value==='story'} className={value==='story'?'selected':''} onClick={()=>onChange('story')}>故事视图</button>
+    <button type="button" aria-pressed={value==='detail'} className={value==='detail'?'selected':''} onClick={()=>onChange('detail')}>细节视图</button>
+  </div>;
+}
+function emotionGuide(template:PublicNarrativeTemplate){
+  const text=(template.templateKey+' '+template.publicTitle+' '+template.publicExplanation).toLowerCase();
+  if(/线索|谜|真相|clue|mystery/u.test(text))return{emoji:'😱',label:'细思极恐',explanation:'线索改变原有判断，让读者发现事情远没有表面那么简单。'};
+  if(/阵营|博弈|计谋|智|faction|strategy/u.test(text))return{emoji:'🧠',label:'智斗博弈',explanation:'靠判断、信息和布局取胜，让每一步选择都能反过来影响局势。'};
+  if(/关系|感情|失去|hope|relationship/u.test(text))return{emoji:'💔',label:'关系震荡',explanation:'让重要关系经受一次选择，读者既在意结果，也在意人物会失去什么。'};
+  if(/失败|绝境|breakthrough|failure/u.test(text))return{emoji:'🔥',label:'绝境翻盘',explanation:'先把人物压到难以退让的位置，再靠合理行动找到新的突破口。'};
+  if(/压力|逼近|选择|pressure|choice/u.test(text))return{emoji:'😤',label:'扬眉吐气',explanation:'压住情绪后让人物用一次有代价的选择扭转局面。'};
+  if(/反转|假胜|代价|false.win|cost/u.test(text))return{emoji:'🤯',label:'意外反转',explanation:'眼前的赢法带来更大代价，让结果意外，却能从前面的因果中找到依据。'};
+  return{emoji:'✨',label:template.publicTitle,explanation:template.publicExplanation};
+}
 function taskStatus(status:string){return({pending:'准备中',queued:'等待开始',working:'团队设计中',paused:'已暂停',
   succeeded:'三份方案已保存',failed:'本轮未完成',interrupted:'任务中断',cancelled:'本轮已停止',blocked:'等待处理'}as Record<string,string>)[status]??'正在处理';}
 function taskPhase(phase:string){return({preparing_context:'准备卷纲、设定、结算与作者想法',screenwriter_candidates:'两份独立方案已完成，主编正在融合',

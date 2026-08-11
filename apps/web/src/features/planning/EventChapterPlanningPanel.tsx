@@ -1,9 +1,11 @@
+import type { EventChapterChallengeContent } from '@wenmi/contracts';
 import { useCallback,useEffect,useMemo,useState } from 'react';
 import {
   cancelTask,confirmEventChapterSequence,fetchAuthorPlanningInputs,fetchCreationWorkflow,fetchExpressionProfile,
   fetchEventChapterGeneration,fetchEventChapterSequence,fetchEventSequence,fetchVolumePlans,freezeRecentEventChapterOutlines,
   initializeEventChapterSequence,retryTask,saveExpressionProfile,settleStoryEvent,startEventChapterDetailGeneration,startWritingRun,
-  startEventChapterSequenceGeneration,type EventChapterGenerationData,type EventChapterOutlineData,
+  startEventChapterDetailChallenge,startEventChapterSequenceChallenge,startEventChapterSequenceGeneration,
+  type EventChapterGenerationData,type EventChapterOutlineData,
   type EventChapterSequenceData,type EventChapterSequenceVersionData,type ExpressionProfileData,type StoryEventData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
@@ -17,6 +19,8 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   const[writingTaskId,setWritingTaskId]=useState<string|null>(null);
   const[sequenceTask,setSequenceTask]=useState<EventChapterGenerationData|null>(null);
   const[detailTask,setDetailTask]=useState<EventChapterGenerationData|null>(null);
+  const[sequenceChallengeTask,setSequenceChallengeTask]=useState<EventChapterGenerationData|null>(null);
+  const[detailChallengeTask,setDetailChallengeTask]=useState<EventChapterGenerationData|null>(null);
   const[detailCount,setDetailCount]=useState(1);
   const[freezeCount,setFreezeCount]=useState(1);
   const[busy,setBusy]=useState(false);
@@ -45,26 +49,31 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
       }
     }
     setEventId(nextEventId);setHistoryMode(nextHistoryMode);setHistoryEvents(nextHistoryEvents);
-    if(nextEventId===null){setSequence(null);setSequenceTask(null);setDetailTask(null);return;}
+    if(nextEventId===null){setSequence(null);setSequenceTask(null);setDetailTask(null);setSequenceChallengeTask(null);setDetailChallengeTask(null);return;}
     if(nextHistoryMode){
-      setSequence(await fetchEventChapterSequence(bookId,nextEventId,signal));setSequenceTask(null);setDetailTask(null);return;
+      setSequence(await fetchEventChapterSequence(bookId,nextEventId,signal));setSequenceTask(null);setDetailTask(null);
+      setSequenceChallengeTask(null);setDetailChallengeTask(null);return;
     }
-    const[nextSequence,nextSequenceTask,nextDetailTask]=await Promise.all([
+    const[nextSequence,nextSequenceTask,nextDetailTask,nextSequenceChallenge,nextDetailChallenge]=await Promise.all([
       fetchEventChapterSequence(bookId,nextEventId,signal),
       fetchEventChapterGeneration(bookId,nextEventId,'sequence',signal),
-      fetchEventChapterGeneration(bookId,nextEventId,'details',signal)
+      fetchEventChapterGeneration(bookId,nextEventId,'details',signal),
+      fetchEventChapterGeneration(bookId,nextEventId,'sequence_challenge',signal),
+      fetchEventChapterGeneration(bookId,nextEventId,'detail_challenge',signal)
     ]);
     setSequence(nextSequence);setSequenceTask(nextSequenceTask);setDetailTask(nextDetailTask);
+    setSequenceChallengeTask(nextSequenceChallenge);setDetailChallengeTask(nextDetailChallenge);
   },[bookId]);
   useEffect(()=>{const controller=new AbortController();setError(null);
     void load(controller.signal).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
     return()=>controller.abort();},[load]);
-  useEffect(()=>{if(![sequenceTask,detailTask].some(task=>task!==null&&activeTask(task.status)))return;
+  useEffect(()=>{if(![sequenceTask,detailTask,sequenceChallengeTask,detailChallengeTask].some(task=>task!==null&&activeTask(task.status)))return;
     const controller=new AbortController(),timer=window.setInterval(()=>{
       void load(controller.signal).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
     },1250);
     return()=>{controller.abort();window.clearInterval(timer);};
-  },[detailTask?.status,detailTask?.taskId,load,sequenceTask?.status,sequenceTask?.taskId]);
+  },[detailChallengeTask?.status,detailChallengeTask?.taskId,detailTask?.status,detailTask?.taskId,load,
+    sequenceChallengeTask?.status,sequenceChallengeTask?.taskId,sequenceTask?.status,sequenceTask?.taskId]);
 
   const pending=useMemo(()=>sequence?.outlines.filter(item=>!['frozen','settled'].includes(item.status))??[],[sequence]);
   const readOnly=historyMode||sequence?.status==='completed';
@@ -95,6 +104,11 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
     setSequenceTask(await startEventChapterSequenceGeneration(bookId,eventId,{expectedSequenceRevision:sequence.revision,
       expectedWorkflowVersion:workflow.planningVersion,authorInputRefs:refs,idempotencyKey:key('chapter-sequence-ai')}));
   });};
+  const challengeSequence=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
+    setSequenceChallengeTask(await startEventChapterSequenceChallenge(bookId,eventId,version.sequenceVersionId,{
+      expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
+      idempotencyKey:key('chapter-sequence-challenge')}));
+  });};
   const confirm=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
     setSequence(await confirmEventChapterSequence(bookId,eventId,{sequenceVersionId:version.sequenceVersionId,
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion}));
@@ -105,6 +119,12 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
       authorInputRefs:refs,idempotencyKey:key('chapter-details-ai')}));
   });};
+  const challengeDetail=(item:EventChapterOutlineData)=>{if(sequence===null||workflow===null||eventId===null)return;
+    const version=item.activeVersion??item.versions[0]??null;if(version===null)return;void run(async()=>{
+      setDetailChallengeTask(await startEventChapterDetailChallenge(bookId,eventId,item.outlineId,version.outlineVersionId,{
+        expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
+        idempotencyKey:key('chapter-detail-challenge')}));
+    });};
   const freeze=()=>{if(sequence===null||workflow===null||eventId===null)return;const targets=pending.slice(0,freezeCount);
     const items=targets.map(item=>({outlineId:item.outlineId,outlineVersionId:item.versions[0]?.outlineVersionId??'',
       expectedOutlineRevision:item.revision}));
@@ -137,7 +157,7 @@ const confirmExpression=()=>void run(async()=>{
   if(eventId===null)return <section className="event-chapter-panel chapter-empty"><small>章纲设计</small><h3>先确认当前事件</h3>
     <p>章纲必须从已经确认的卷纲和事件大纲向下展开，不能脱离上层约束单独生成。</p></section>;
   if(sequence===null)return <section className="event-chapter-panel chapter-empty"><small>章纲设计</small><h3>建立当前事件的章链</h3>
-    <p>先建立一个稳定的工作容器；随后由编剧设计完整事件章链，主编只细化最近1—3章。</p>
+    <p>先建立一个稳定的工作容器；随后由指定编剧设计完整事件章链，并只细化最近1—3章。</p>
     <button className="primary-button" disabled={busy} type="button" onClick={initialize}>{busy?'正在建立…':'开始规划章纲'}</button>
     {error!==null&&<p className="planning-error" role="alert">{error}</p>}</section>;
 
@@ -162,8 +182,11 @@ const confirmExpression=()=>void run(async()=>{
       <AuthorIdeaComposer bookId={bookId} surface="chapter_outline" subjectType="event_chapter_sequence" subjectId={eventId}
         title="对整个事件章链的想法"/>
       {sequenceTask!==null&&<TaskStrip task={sequenceTask} onCancel={()=>taskControl(sequenceTask,'cancel')} onRetry={()=>taskControl(sequenceTask,'retry')}/>}
+      {sequenceChallengeTask!==null&&<TaskStrip task={sequenceChallengeTask} onCancel={()=>taskControl(sequenceChallengeTask,'cancel')} onRetry={()=>taskControl(sequenceChallengeTask,'retry')}/>}
       {candidates.length>0&&<div className="chapter-sequence-candidates">{candidates.map(version=>
-        <SequenceCandidate key={version.sequenceVersionId} version={version} busy={busy} onConfirm={()=>confirm(version)}/>)}</div>}
+        <SequenceCandidate key={version.sequenceVersionId} version={version} busy={busy}
+          challenge={challengeFor(sequenceChallengeTask,'sequence',sequence.sequenceId,version.sequenceVersionId)}
+          challengeBusy={activeTask(sequenceChallengeTask?.status)} onChallenge={()=>challengeSequence(version)} onConfirm={()=>confirm(version)}/>)}</div>}
     </section>}
 
     {sequence.activeVersion!==null&&<><section className="chapter-chain-section">
@@ -178,11 +201,17 @@ const confirmExpression=()=>void run(async()=>{
         {!readOnly&&<div className="chapter-count-actions"><label>本轮细化<select value={detailCount} onChange={e=>setDetailCount(Number(e.target.value))}>
           {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
           <button className="primary-button" disabled={busy||available===0||activeTask(detailTask?.status)} type="button" onClick={generateDetails}>
-            {activeTask(detailTask?.status)?'主编正在细化…':'生成详细章纲'}</button></div>}</div>
+            {activeTask(detailTask?.status)?'编剧正在细化…':'生成详细章纲'}</button></div>}</div>
       {!readOnly&&nextIdeaOutline!==null&&<AuthorIdeaComposer key={nextIdeaOutline.outlineId} bookId={bookId} surface="chapter_outline"
         subjectType="event_chapter_outline" subjectId={nextIdeaOutline.outlineId} title={`对第${nextIdeaOutline.chapterNumber}章的想法`}/>}
       {!readOnly&&detailTask!==null&&<TaskStrip task={detailTask} onCancel={()=>taskControl(detailTask,'cancel')} onRetry={()=>taskControl(detailTask,'retry')}/>}
-      <div className="detailed-outline-grid" aria-label={readOnly?'历史详细章纲':undefined}>{detailItems.map(item=><DetailedOutlineCard key={item.outlineId} item={item}/>)}</div>
+      {!readOnly&&detailChallengeTask!==null&&<TaskStrip task={detailChallengeTask} onCancel={()=>taskControl(detailChallengeTask,'cancel')} onRetry={()=>taskControl(detailChallengeTask,'retry')}/>}
+      <div className="detailed-outline-grid" aria-label={readOnly?'历史详细章纲':undefined}>{detailItems.map(item=>{
+        const version=item.activeVersion??item.versions[0]??null;
+        return <DetailedOutlineCard key={item.outlineId} item={item} readOnly={readOnly}
+          challenge={version===null?null:challengeFor(detailChallengeTask,'detail',item.outlineId,version.outlineVersionId)}
+          challengeBusy={activeTask(detailChallengeTask?.status)} onChallenge={()=>challengeDetail(item)}/>;
+      })}</div>
       {!readOnly&&available>0&&<div className="freeze-chapters"><label>确认并冻结<select value={freezeCount} onChange={e=>setFreezeCount(Number(e.target.value))}>
         {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
         <button className="primary-button" disabled={busy||pending.slice(0,freezeCount).some(item=>item.versions.length===0)}
@@ -210,14 +239,19 @@ const confirmExpression=()=>void run(async()=>{
   </section>;
 }
 
-function SequenceCandidate({version,busy,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;onConfirm:()=>void}){
+function SequenceCandidate({version,busy,challenge,challengeBusy,onChallenge,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;
+  challenge:EventChapterChallengeContent|null;challengeBusy:boolean;onChallenge:()=>void;onConfirm:()=>void}){
   return <article><header><div><small>候选稿 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
     <strong>{version.content.chapters.length}章</strong></header>
     <ol>{version.content.chapters.map(chapter=><li key={chapter.chapterNumber}><b>第{chapter.chapterNumber}章 {chapter.title}</b>
       <span>{chapter.eventResponsibility}</span><small>{chapter.openingState} → {chapter.endingState}</small></li>)}</ol>
     <div className="closure-list"><b>事件闭环</b>{version.content.closureCoverage.map(item=>
       <span key={item.endingCondition}>第{item.evidenceChapterNumber}章：{item.endingCondition}</span>)}</div>
-    <button className="primary-button" disabled={busy} type="button" onClick={onConfirm}>确认这条完整章链</button></article>;
+    {challenge!==null&&<ChallengeAdvice challenge={challenge}/>}<div className="chapter-candidate-actions">
+      <button className="secondary-button" disabled={busy||challengeBusy} type="button" onClick={onChallenge}>
+        {challengeBusy?'另一位编剧正在看…':'请另一位编剧看看'}</button>
+      <button className="primary-button" disabled={busy} type="button" onClick={onConfirm}>确认这条完整章链</button>
+    </div></article>;
 }
 function CoarseChapterCard({item,last}:{item:EventChapterOutlineData;last:boolean}){
   return <article className={"coarse-chapter "+item.status}><header><span>第{item.chapterNumber}章</span><b>{statusLabel(item.status)}</b></header>
@@ -225,7 +259,8 @@ function CoarseChapterCard({item,last}:{item:EventChapterOutlineData;last:boolea
     <small>{item.planned.openingState}</small><i>↓</i><small>{item.planned.endingState}</small>
     {last&&<em>本章负责事件收束</em>}</article>;
 }
-function DetailedOutlineCard({item}:{item:EventChapterOutlineData}){
+function DetailedOutlineCard({item,readOnly,challenge,challengeBusy,onChallenge}:{item:EventChapterOutlineData;readOnly:boolean;
+  challenge:EventChapterChallengeContent|null;challengeBusy:boolean;onChallenge:()=>void}){
   const version=item.activeVersion??item.versions[0]??null;
   if(version===null)return <article className="detailed-outline empty"><small>第{item.chapterNumber}章</small><h5>{item.planned.title}</h5>
     <p>等待本轮详细设计</p></article>;
@@ -235,8 +270,25 @@ function DetailedOutlineCard({item}:{item:EventChapterOutlineData}){
     <p><b>核心冲突：</b>{content.conflict.surface}</p><ol>{content.plotBeats.map(beat=><li key={beat.order}>{beat.action} → {beat.result}</li>)}</ol>
     <p><b>必须到达：</b>{content.requiredEndingState}</p><details><summary>人物、边界与自由发挥</summary>
       <p>{content.cast.map(person=>person.name+'：'+person.objective).join('；')}</p>
-      <p>不能违反：{content.mustNotViolate.join('；')}</p><p>自由发挥：{content.creativeFreedom.join('；')}</p></details></article>;
+      <p>不能违反：{content.mustNotViolate.join('；')}</p><p>自由发挥：{content.creativeFreedom.join('；')}</p></details>
+    {challenge!==null&&<ChallengeAdvice challenge={challenge}/>} {!readOnly&&<button className="secondary-button chapter-challenge-button"
+      disabled={challengeBusy} type="button" aria-label={`请另一位编剧看看第${item.chapterNumber}章`} onClick={onChallenge}>
+      {challengeBusy?'另一位编剧正在看…':'请另一位编剧看看'}</button>}</article>;
 }
+function ChallengeAdvice({challenge}:{challenge:EventChapterChallengeContent}){
+  return <aside className="chapter-challenge-advice"><small>另一位编剧的参考意见</small><p>{challenge.summary}</p>
+    <div>{challenge.suggestions.map(item=><article key={item.focus}><h6>{focusLabel(item.focus)}</h6>
+      <p><b>另一种走法：</b>{item.alternative}</p><p><b>可能更好之处：</b>{item.benefit}</p>
+      <p><b>需要承担的代价：</b>{item.tradeoff}</p><p><b>会影响后面什么：</b>{item.downstreamImpact}</p></article>)}</div>
+    <em>这些只是参考，不会自动改动当前章纲。</em></aside>;
+}
+function challengeFor(task:EventChapterGenerationData|null,targetKind:'sequence'|'detail',targetId:string,targetVersionId:string){
+  const challenge=task?.checkpoint.challenge;if(challenge===undefined||challenge.targetKind!==targetKind
+    ||challenge.targetId!==targetId||challenge.targetVersionId!==targetVersionId)return null;return challenge;
+}
+function focusLabel(value:EventChapterChallengeContent['suggestions'][number]['focus']){return({chapter_structure:'章节安排',opening_pressure:'开场压力',
+  core_conflict:'核心冲突',choice_and_cost:'人物选择与代价',turning_point:'关键转折',ending_hook:'结尾钩子',
+  next_chapter_interface:'下一章承接'}as const)[value];}
 function TaskStrip({task,onCancel,onRetry}:{task:EventChapterGenerationData;onCancel:()=>void;onRetry:()=>void}){
   return <aside className={"chapter-task-strip "+task.status}><div><span>{task.member.displayName}</span>
     <b>{taskStatus(task.status)} · {phaseLabel(task.currentPhase)}</b>
@@ -249,7 +301,8 @@ function activeTask(status:string|undefined){return status!==undefined&&['pendin
 function taskStatus(status:string){return({pending:'准备中',queued:'等待执行',working:'正在工作',paused:'已暂停',succeeded:'候选已保存',
   failed:'本轮失败',interrupted:'任务中断',cancelled:'已取消',blocked:'等待处理'}as Record<string,string>)[status]??'正在处理';}
 function phaseLabel(phase:string){return({preparing_context:'正在整理本书资料',sequence_candidate_saved:'完整章链候选已保存',
-  detail_candidates_saved:'近期详细章纲已保存'}as Record<string,string>)[phase]??'正在处理';}
+  detail_candidates_saved:'近期详细章纲已保存',sequence_challenge_saved:'章链参考意见已准备好',
+  detail_challenge_saved:'单章参考意见已准备好'}as Record<string,string>)[phase]??'正在处理';}
 function viewpointLabel(value:ExpressionProfileData['viewpointDistance']){return({close:'贴近人物',medium:'适中',distant:'偏全局',adaptive:'随场景调整'}as Record<string,string>)[value??'']??'未确认';}
 function statusLabel(status:string){return({planned:'待细化',candidate:'待确认',frozen:'已冻结',settled:'已定稿',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
 function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()??Date.now()+'-'+Math.random());}

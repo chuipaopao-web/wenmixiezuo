@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseEventChapterSequenceContent,type EventChapterSequenceContent } from '@wenmi/contracts';
+import { parseEventChapterChallengeContent,parseEventChapterSequenceContent,type EventChapterChallengeContent,type EventChapterSequenceContent } from '@wenmi/contracts';
 import { parseChapterOutlineV2,type ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
@@ -25,8 +25,12 @@ export class EventChapterGenerationPipelineService {
     const task=this.tasks.require(scope,taskId);this.assertClaim(task,workerId,fence);
     const brief=parseBrief(task.brief);try{
       this.assertCurrent(scope,brief);
-      const output=brief.kind==='sequence'?await this.generateSequence(scope,task,brief):await this.generateDetails(scope,task,brief);
-      this.tasks.checkpoint(scope,taskId,workerId,brief.kind==='sequence'?'sequence_candidate_saved':'detail_candidates_saved',output,fence);
+      const output=brief.kind==='sequence'?await this.generateSequence(scope,task,brief)
+        :brief.kind==='details'?await this.generateDetails(scope,task,brief)
+          :await this.generateChallenge(scope,task,brief);
+      const phase=brief.kind==='sequence'?'sequence_candidate_saved':brief.kind==='details'?'detail_candidates_saved'
+        :brief.kind==='sequence_challenge'?'sequence_challenge_saved':'detail_challenge_saved';
+      this.tasks.checkpoint(scope,taskId,workerId,phase,output,fence);
       this.tasks.complete(scope,taskId,workerId,fence);this.repo.clear(scope,taskId,this.clock.now().toISOString());
       return{taskId,status:'succeeded',...output};
     }catch(error){
@@ -39,6 +43,7 @@ export class EventChapterGenerationPipelineService {
         this.clock.now().toISOString());throw error;
     }
   }
+
   private async generateSequence(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const sources:ContextSource[]=[
@@ -68,6 +73,7 @@ export class EventChapterGenerationPipelineService {
       idempotencyKey:task.taskId+':sequence'});
     return{sequenceVersionId:saved.sequenceVersionId};
   }
+
   private async generateDetails(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const targets=brief.outlineRefs.map(ref=>view.outlines.find(item=>item.outlineId===ref.outlineId)!);
@@ -94,17 +100,66 @@ export class EventChapterGenerationPipelineService {
     const details=parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId),targets.length);
     const saved=targets.map((target,index)=>this.plans.addOutlineVersion(scope,target.outlineId,{
       expectedOutlineRevision:brief.outlineRefs[index]!.revision,parentVersionId:brief.outlineRefs[index]!.activeVersionId,
-      authorInputRefs:brief.authorIdeas.filter(idea=>idea.subjectId===target.outlineId).map(idea=>idea.id),content:details[index] as unknown as Record<string,unknown>,sourceTaskId:task.taskId,
+      authorInputRefs:brief.authorIdeas.filter(idea=>idea.subjectId===target.outlineId).map(idea=>idea.id),
+      content:details[index] as unknown as Record<string,unknown>,sourceTaskId:task.taskId,
       idempotencyKey:task.taskId+':outline:'+target.outlineId}));
     return{outlineVersionIds:saved.map(item=>item.outlineVersionId)};
   }
+
+  private async generateChallenge(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
+    const target=brief.challengeTarget;if(target===null)throw new Error('章纲挑战任务缺少目标版本。');
+    const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
+    const base:ContextSource[]=[
+      {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
+        content:snapshot.volumeContent,reason:'挑战仍须服从活动卷纲',priority:100},
+      {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
+        content:snapshot.eventContent,reason:'挑战只优化当前事件内部关键节点',priority:100}
+    ];
+    let targetContent:unknown;
+    if(target.targetKind==='sequence'){
+      const version=view.versions.find(item=>item.sequenceVersionId===target.targetVersionId);
+      if(version===undefined)throw conflict('要查看的章链候选已经变化。');
+      targetContent=version.content;
+      base.push({sourceType:'planning:chapter_sequence_candidate',sourceId:target.targetId,version:version.version,
+        content:JSON.stringify(version.content),reason:'另一位编剧只挑战这份精确章链候选',priority:100});
+    }else{
+      const outline=view.outlines.find(item=>item.outlineId===target.targetId),
+        version=outline?.versions.find(item=>item.outlineVersionId===target.targetVersionId);
+      if(outline===undefined||version===undefined)throw conflict('要查看的单章候选已经变化。');
+      targetContent=version.content;
+      base.push({sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
+        content:JSON.stringify(view.activeVersion!.content),reason:'单章挑战必须服从已确认章链',priority:100});
+      base.push({sourceType:'planning:chapter_outline_candidate',sourceId:target.targetId,version:version.version,
+        content:JSON.stringify(version.content),reason:'另一位编剧只挑战这份精确单章候选',priority:100});
+    }
+    const sequenceTarget=target.targetKind==='sequence';
+    const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
+      tokenBudget:sequenceTarget?12000:14000,characterBudget:sequenceTarget?28000:32000,
+      policyVersion:sequenceTarget?'event-chapter-sequence-challenge-v1':'event-chapter-detail-challenge-v1',
+      hardSources:base,optionalSources:[]});
+    const prompt=JSON.stringify({operation:'event_chapter_challenge_v1',language:'zh-CN',
+      seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},targetKind:target.targetKind,targetId:target.targetId,
+      targetVersionId:target.targetVersionId,targetContent,
+      instructions:['你不是重写整套方案，只查看关键转折、冲突、人物选择、代价或结尾钩子是否有更好的走法。',
+        '只给一至三条真正有价值的替代思路；每条说明可能收益、需要承担的代价和对后文的影响。',
+        '不引入没有依据的核心能力、身份或道具，不套固定节拍公式，不声称建议已经被采纳。','使用作者能直接理解的自然语言，只输出JSON。'],
+      sources:pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content})),
+      outputContract:{targetKind:target.targetKind,targetId:target.targetId,targetVersionId:target.targetVersionId,
+        summary:'一句话说明最值得重新考虑的地方',suggestions:[{focus:'turning_point',alternative:'另一种走法',
+          benefit:'可能更好之处',tradeoff:'需要承担的代价',downstreamImpact:'会影响后面什么'}]}});
+    const challenge=parseChallenge(await this.call(scope,task,brief,prompt,pack.contextPackId));
+    if(challenge.targetKind!==target.targetKind||challenge.targetId!==target.targetId
+      ||challenge.targetVersionId!==target.targetVersionId)throw new Error('挑战意见没有绑定当前候选版本。');
+    return{challenge};
+  }
+
   private async call(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief,prompt:string,packId:string){
     if(task.budgetId===null)throw new Error('章纲任务缺少预算。');
     const adapter=this.adapters.resolve(brief.member.provider,brief.member.modelId,'discussion',brief.member.roleKey as never);
     const inputHash=createHash('sha256').update(prompt).digest('hex'),stored=this.repo.succeeded(scope,{taskId:task.taskId,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,inputHash});
     if(stored!==undefined)return stored.output_text;
-    const maxOutputTokens=6500,protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
+    const maxOutputTokens=isChallenge(brief.kind)?1800:6500,protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
     const estimatedInputCeiling=Math.max(Math.ceil(prompt.length/2),Math.ceil(estimateTokens(prompt)*1.35));
     const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
       Math.max(10000,estimatedInputCeiling+maxOutputTokens+protocolOverhead),0);
@@ -115,12 +170,31 @@ export class EventChapterGenerationPipelineService {
       requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:brief.member.agentId,prompt,maxOutputTokens});
     return result.output;
   }
+
   private assertCurrent(scope:BookScope,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId);if(view===null||view.revision!==brief.expectedSequenceRevision
       ||view.activeVersionId!==brief.expectedSequenceVersionId)throw conflict('事件章纲已经变化，请重新启动任务。');
-    const current=brief.kind==='sequence'?fingerprint(view):fingerprint({sequenceId:view.sequenceId,revision:view.revision,
+    let current:string;
+    if(brief.kind==='sequence')current=fingerprint(view);
+    else if(brief.kind==='details')current=fingerprint({sequenceId:view.sequenceId,revision:view.revision,
       activeVersionId:view.activeVersionId,outlines:brief.outlineRefs.map(ref=>{const x=view.outlines.find(item=>item.outlineId===ref.outlineId);
         return x===undefined?null:{outlineId:x.outlineId,revision:x.revision,activeVersionId:x.activeVersionId};})});
+    else{
+      const target=brief.challengeTarget;if(target===null)throw conflict('章纲挑战目标已经失效。');
+      if(target.targetKind==='sequence'){
+        const version=view.versions.find(item=>item.sequenceVersionId===target.targetVersionId);
+        current=fingerprint({sequenceId:view.sequenceId,revision:view.revision,activeVersionId:view.activeVersionId,
+          target:version===undefined?null:{targetKind:'sequence',targetId:view.sequenceId,targetVersionId:version.sequenceVersionId,
+            contentHash:version.contentHash}});
+      }else{
+        const outline=view.outlines.find(item=>item.outlineId===target.targetId),
+          version=outline?.versions.find(item=>item.outlineVersionId===target.targetVersionId);
+        current=fingerprint({sequenceId:view.sequenceId,revision:view.revision,activeVersionId:view.activeVersionId,
+          outline:outline===undefined?null:{outlineId:outline.outlineId,revision:outline.revision,activeVersionId:outline.activeVersionId},
+          target:version===undefined?null:{targetKind:'detail',targetId:outline!.outlineId,targetVersionId:version.outlineVersionId,
+            contentHash:version.contentHash}});
+      }
+    }
     if(current!==brief.sourceFingerprint)throw conflict('事件章纲来源已经变化，请重新启动任务。');
   }
   private assertClaim(task:TaskRecord,workerId:string,fence?:TaskLeaseFence){if(!isTask(task.taskType)||task.status!=='working'
@@ -132,6 +206,8 @@ function parseSequence(output:string):EventChapterSequenceContent{for(const valu
 function parseDetails(output:string,count:number):ChapterOutlineV2[]{for(const value of candidates(output)){if(!record(value)||!Array.isArray(value.outlines))continue;
   try{const parsed=value.outlines.map(item=>parseChapterOutlineV2(record(item)?item:{}));if(parsed.length===count)return parsed;}catch{}}
   throw new Error('模型没有返回完整的近期详细章纲JSON。');}
+function parseChallenge(output:string):EventChapterChallengeContent{for(const value of candidates(output))try{return parseEventChapterChallengeContent(value);}catch{}
+  throw new Error('另一位编剧没有返回有效的关键替代建议。');}
 function candidates(output:string){const values:unknown[]=[];try{values.push(JSON.parse(output) as unknown);}catch{}
   for(const part of jsonObjects(output))try{values.push(JSON.parse(part) as unknown);}catch{}return values;}
 function jsonObjects(value:string){const out:string[]=[];for(let start=0;start<value.length;start++){if(value[start]!=='{')continue;let depth=0,str=false,esc=false;
@@ -146,8 +222,16 @@ function detailContract(chapterNumber:number){return{outlineSchema:'chapter_outl
   descriptionFocus:{primary:[],secondary:[],compress:[]},informationControl:{reveals:[],concealed:[],gaps:[]},threadActions:[],
   ending:{result:'结果',stateChanges:[],hook:'章末钩子',nextChapterInterface:'下一章接口'},mustImplement:['硬要求'],
   mustNotViolate:['不得违反'],allowedCandidates:[],creativeFreedom:['对白、动作、意象和局部调度自由']};}
-function parseBrief(v:Record<string,unknown>){const b=v as unknown as EventChapterGenerationBrief;if(b.schema!=='event-chapter-generation-v1')throw new Error('章纲任务资料无效。');return b;}
-function isTask(v:string){return v==='event_chapter_sequence_generation'||v==='event_chapter_detail_generation';}
+function parseBrief(v:Record<string,unknown>):EventChapterGenerationBrief{
+  const b=v as unknown as EventChapterGenerationBrief;
+  if(b.schema==='event-chapter-generation-v2')return b;
+  if((v as {schema?:string}).schema==='event-chapter-generation-v1')
+    return{...(v as unknown as EventChapterGenerationBrief),schema:'event-chapter-generation-v2',challengeTarget:null};
+  throw new Error('章纲任务资料无效。');
+}
+function isChallenge(v:EventChapterGenerationBrief['kind']){return v==='sequence_challenge'||v==='detail_challenge';}
+function isTask(v:string){return['event_chapter_sequence_generation','event_chapter_detail_generation',
+  'event_chapter_sequence_challenge','event_chapter_detail_challenge'].includes(v);}
 function fingerprint(v:unknown){return createHash('sha256').update(stable(v)).digest('hex');}
 function stable(v:unknown):string{if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return'['+v.map(stable).join(',')+']';
   return'{'+Object.keys(v as Record<string,unknown>).sort().map(k=>JSON.stringify(k)+':'+stable((v as Record<string,unknown>)[k])).join(',')+'}';}

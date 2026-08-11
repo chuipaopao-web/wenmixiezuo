@@ -8,12 +8,13 @@ import { VolumePlanGenerationRepository,type VolumePlanGenerationSeat } from '..
 import { TaskService,type TaskRecord } from '../tasks/task-service.js';
 import { EventChapterOutlineService } from './event-chapter-outline-service.js';
 
-export type EventChapterGenerationKind='sequence'|'details';
+export type EventChapterGenerationKind='sequence'|'details'|'sequence_challenge'|'detail_challenge';
 export interface EventChapterGenerationBrief {
-  schema:'event-chapter-generation-v1';kind:EventChapterGenerationKind;subjectId:string;eventId:string;
+  schema:'event-chapter-generation-v2';kind:EventChapterGenerationKind;subjectId:string;eventId:string;
   expectedWorkflowVersion:number;expectedSequenceRevision:number;expectedSequenceVersionId:string|null;
   outlineRefs:Array<{outlineId:string;revision:number;activeVersionId:string|null}>;
   authorInputRefs:string[];authorIdeas:Array<{id:string;subjectId:string;intentStrength:string;originalText:string;scopeNotes:string|null}>;
+  challengeTarget:null|{targetKind:'sequence'|'detail';targetId:string;targetVersionId:string;contentHash:string};
   member:VolumePlanGenerationSeat;sourceFingerprint:string;requestHash:string;
 }
 export interface EventChapterGenerationView {
@@ -34,13 +35,13 @@ export class EventChapterGenerationService {
     if(sequence.revision!==expectedSequenceRevision)throw conflict('事件章纲序列已经变化。');
     const ideas=this.repo.authorInputs(scope,{subjectType:'event_chapter_sequence',subjectId:eventId,ids:refs});
     if(ideas.length!==refs.length)throw validation('作者想法引用必须来自当前事件章纲序列。');
-    const team=this.teams.generationSeats(scope),member=team.seats.find(s=>s.roleKey==='lead_screenwriter');
-    if(member===undefined)throw incomplete('当前书籍缺少可用编剧。');
-    return this.start(scope,{schema:'event-chapter-generation-v1',kind:'sequence',subjectId:eventId,eventId,expectedWorkflowVersion,expectedSequenceRevision,
-      expectedSequenceVersionId:sequence.activeVersionId,outlineRefs:[],authorInputRefs:refs,authorIdeas:mapIdeas(refs,ideas),member,
-      sourceFingerprint:fingerprint(sequence),requestHash:''},required(input.idempotencyKey,'幂等键'),team.editorEpoch,
-      ['event_confirmed','chapter_outlines_in_progress']);
+    const team=this.planningTeam(scope);
+    return this.start(scope,{schema:'event-chapter-generation-v2',kind:'sequence',subjectId:eventId,eventId,expectedWorkflowVersion,
+      expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs:[],authorInputRefs:refs,
+      authorIdeas:mapIdeas(refs,ideas),challengeTarget:null,member:team.primary,sourceFingerprint:fingerprint(sequence),requestHash:''},
+      required(input.idempotencyKey,'幂等键'),team.editorEpoch,['event_confirmed','chapter_outlines_in_progress']);
   }
+
   public startDetails(scope:BookScope,eventId:string,input:{count:number;expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string}):EventChapterGenerationView{
     const count=positive(input.count,'近期章数');if(count>3)throw validation('每次只详细设计最近一至三章。');
@@ -54,20 +55,72 @@ export class EventChapterGenerationService {
       subjectType:'event_chapter_outline',subjectId:target.outlineId,ids:refs}));
     const ideas=[...new Map(allIdeas.map(item=>[item.author_input_id,item])).values()];
     if(ideas.length!==refs.length)throw validation('作者想法引用必须来自本轮近期章纲。');
-    const team=this.teams.generationSeats(scope),member=team.seats.find(s=>s.editor);
-    if(member===undefined)throw incomplete('当前书籍缺少可用主编。');
-    const outlineRefs=targets.map(item=>({outlineId:item.outlineId,revision:item.revision,activeVersionId:item.activeVersionId}));
-    return this.start(scope,{schema:'event-chapter-generation-v1',kind:'details',subjectId:eventId,eventId,expectedWorkflowVersion,expectedSequenceRevision,
-      expectedSequenceVersionId:sequence.activeVersionId,outlineRefs,authorInputRefs:refs,authorIdeas:mapIdeas(refs,ideas),member,
+    const team=this.planningTeam(scope),outlineRefs=targets.map(item=>({
+      outlineId:item.outlineId,revision:item.revision,activeVersionId:item.activeVersionId
+    }));
+    return this.start(scope,{schema:'event-chapter-generation-v2',kind:'details',subjectId:eventId,eventId,expectedWorkflowVersion,
+      expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs,authorInputRefs:refs,
+      authorIdeas:mapIdeas(refs,ideas),challengeTarget:null,member:team.primary,
       sourceFingerprint:fingerprint({sequenceId:sequence.sequenceId,revision:sequence.revision,activeVersionId:sequence.activeVersionId,
         outlines:outlineRefs}),requestHash:''},required(input.idempotencyKey,'幂等键'),team.editorEpoch,
       ['chapter_outlines_in_progress','next_chapters_ready']);
   }
+
+  public startSequenceChallenge(scope:BookScope,eventId:string,sequenceVersionId:string,input:{
+    expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):EventChapterGenerationView{
+    const sequence=this.plans.get(scope,eventId);if(sequence===null)throw incomplete('请先建立当前事件章纲序列。');
+    const expectedSequenceRevision=positive(input.expectedSequenceRevision,'序列修订号'),
+      expectedWorkflowVersion=positive(input.expectedWorkflowVersion,'工作流版本');
+    if(sequence.revision!==expectedSequenceRevision||!sequence.valid)throw conflict('事件章纲序列已经变化。');
+    const target=sequence.versions.find(item=>item.sequenceVersionId===required(sequenceVersionId,'章链候选版本'));
+    if(target===undefined||target.status!=='candidate')throw conflict('只能请另一位编剧查看当前候选章链。');
+    const team=this.planningTeam(scope),challengeTarget={targetKind:'sequence' as const,targetId:sequence.sequenceId,
+      targetVersionId:target.sequenceVersionId,contentHash:target.contentHash};
+    return this.start(scope,{schema:'event-chapter-generation-v2',kind:'sequence_challenge',subjectId:eventId,eventId,
+      expectedWorkflowVersion,expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs:[],
+      authorInputRefs:[],authorIdeas:[],challengeTarget,member:team.challenger,
+      sourceFingerprint:fingerprint({sequenceId:sequence.sequenceId,revision:sequence.revision,
+        activeVersionId:sequence.activeVersionId,target:challengeTarget}),requestHash:''},
+      required(input.idempotencyKey,'幂等键'),team.editorEpoch,['event_confirmed','chapter_outlines_in_progress']);
+  }
+
+  public startDetailChallenge(scope:BookScope,eventId:string,outlineId:string,outlineVersionId:string,input:{
+    expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):EventChapterGenerationView{
+    const sequence=this.plans.get(scope,eventId);if(sequence===null||sequence.activeVersionId===null)throw incomplete('请先确认完整事件章纲序列。');
+    const expectedSequenceRevision=positive(input.expectedSequenceRevision,'序列修订号'),
+      expectedWorkflowVersion=positive(input.expectedWorkflowVersion,'工作流版本');
+    if(sequence.revision!==expectedSequenceRevision||!sequence.valid)throw conflict('事件章纲序列已经变化。');
+    const outline=sequence.outlines.find(item=>item.outlineId===required(outlineId,'单章章纲'));
+    if(outline===undefined)throw conflict('当前事件里没有这份单章章纲。');
+    const target=outline.versions.find(item=>item.outlineVersionId===required(outlineVersionId,'单章候选版本'));
+    if(target===undefined||target.status!=='candidate')throw conflict('只能请另一位编剧查看当前候选章纲。');
+    const team=this.planningTeam(scope),challengeTarget={targetKind:'detail' as const,targetId:outline.outlineId,
+      targetVersionId:target.outlineVersionId,contentHash:target.contentHash};
+    const outlineRefs=[{outlineId:outline.outlineId,revision:outline.revision,activeVersionId:outline.activeVersionId}];
+    return this.start(scope,{schema:'event-chapter-generation-v2',kind:'detail_challenge',subjectId:eventId,eventId,
+      expectedWorkflowVersion,expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs,
+      authorInputRefs:[],authorIdeas:[],challengeTarget,member:team.challenger,
+      sourceFingerprint:fingerprint({sequenceId:sequence.sequenceId,revision:sequence.revision,
+        activeVersionId:sequence.activeVersionId,outline:outlineRefs[0],target:challengeTarget}),requestHash:''},
+      required(input.idempotencyKey,'幂等键'),team.editorEpoch,['chapter_outlines_in_progress','next_chapters_ready']);
+  }
+
   public latest(scope:BookScope,eventId:string,kind:EventChapterGenerationKind):EventChapterGenerationView|null{
     const row=this.repo.latest(scope,eventId,taskType(kind));return row===undefined?null:this.view(scope,this.tasks.require(scope,row.task_id));
   }
   public reconcileTerminal(scope:BookScope,task:TaskRecord){if(isTask(task.taskType)&&['cancelled','succeeded'].includes(task.status))
     this.repo.clear(scope,task.taskId,this.clock.now().toISOString());}
+
+  private planningTeam(scope:BookScope){
+    const team=this.teams.generationSeats(scope),primary=team.seats.find(s=>s.roleKey==='lead_screenwriter'),
+      challenger=team.seats.find(s=>s.roleKey==='second_screenwriter');
+    if(primary===undefined||challenger===undefined)throw incomplete('当前书籍需要两位可用编剧。');
+    if(primary.agentId===challenger.agentId)throw incomplete('两位编剧不能使用同一个成员身份。');
+    const deterministic=[primary,challenger].every(item=>item.provider.startsWith('local-deterministic'));
+    if(!deterministic&&primary.provider===challenger.provider&&primary.modelId===challenger.modelId)
+      throw incomplete('两位编剧当前绑定了同一个模型，不能冒充第二意见。请先调整模型绑定。');
+    return{primary,challenger,editorEpoch:team.editorEpoch};
+  }
   private start(scope:BookScope,brief:EventChapterGenerationBrief,key:string,editorEpoch:number,stages:string[]){
     const budgetId=this.teams.activeBudgetId(scope);if(budgetId===undefined)throw incomplete('当前书籍没有可用预算。');
     brief.requestHash=fingerprint({...brief,requestHash:undefined});
@@ -97,8 +150,14 @@ export class EventChapterGenerationService {
 function mapIdeas(refs:string[],ideas:Array<{author_input_id:string;subject_id:string;intent_strength:string;original_text:string;scope_notes:string|null}>){
   return refs.map(id=>{const x=ideas.find(item=>item.author_input_id===id)!;return{id,subjectId:x.subject_id,intentStrength:x.intent_strength,
     originalText:x.original_text,scopeNotes:x.scope_notes};});}
-function taskType(kind:EventChapterGenerationKind){return kind==='sequence'?'event_chapter_sequence_generation' as const:'event_chapter_detail_generation' as const;}
-function isTask(v:string){return v==='event_chapter_sequence_generation'||v==='event_chapter_detail_generation';}
+function taskType(kind:EventChapterGenerationKind){switch(kind){
+  case'sequence':return'event_chapter_sequence_generation' as const;
+  case'details':return'event_chapter_detail_generation' as const;
+  case'sequence_challenge':return'event_chapter_sequence_challenge' as const;
+  case'detail_challenge':return'event_chapter_detail_challenge' as const;
+}}
+function isTask(v:string){return['event_chapter_sequence_generation','event_chapter_detail_generation',
+  'event_chapter_sequence_challenge','event_chapter_detail_challenge'].includes(v);}
 function fingerprint(v:unknown){return hashStableContractContent(v).slice('sha256:'.length);}
 function required(v:unknown,f:string){if(typeof v!=='string'||v.trim().length===0)throw validation(f+'不能为空。');return v.trim();}
 function positive(v:unknown,f:string){if(!Number.isInteger(v)||Number(v)<1)throw validation(f+'必须是大于0的整数。');return Number(v);}

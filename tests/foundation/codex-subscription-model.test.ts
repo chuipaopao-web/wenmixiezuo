@@ -19,7 +19,8 @@ describe('Codex订阅模型适配器', () => {
       ]));
       expect(input.args).toContain('model_reasoning_effort="xhigh"');
       expect(input.prompt).toContain('秋香（主笔）');
-      expect(input.prompt).toContain('2500至3500');
+      expect(input.prompt).toContain('优先输出2700至3200');
+      expect(input.prompt).toContain('不得少于2350或超过3650');
       expect(input.prompt).toContain('不得调用工具');
       return { output: '完整章节正文', inputTokens: 120, outputTokens: 2800 };
     });

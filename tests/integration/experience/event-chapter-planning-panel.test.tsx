@@ -10,6 +10,7 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();localStorage.clear();});
 it('显示完整事件章链，只细化并冻结最近章节，同时传递真实版本与作者意见边界',async()=>{
   let sequence:EventChapterSequenceData=sequenceView();
   let detailTask:Record<string,unknown>|null=null;
+  let detailChallengeTask:Record<string,unknown>|null=null;
   const requests:Array<{path:string;method:string;body:Record<string,unknown>|null;query:string}>=[];
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';
@@ -19,8 +20,21 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
     if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-1',version:1,narrativePerson:null,viewpointDistance:null,languageTone:[],textDensity:null,targetAudience:null,contentBoundaries:{},humorSeriousness:null,voiceEvidence:[],impactScope:{},status:'provisional'});
     if(path.endsWith('/author-planning-inputs'))return api([]);
     if(path.endsWith('/chapter-sequence')&&method==='GET')return api(sequence);
-    if(path.endsWith('/chapter-sequence/generation')&&method==='GET')
-      return api(url.searchParams.get('kind')==='details'?detailTask:null);
+    if(path.endsWith('/chapter-sequence/generation')&&method==='GET'){
+      const kind=url.searchParams.get('kind');
+      return api(kind==='details'?detailTask:kind==='detail_challenge'?detailChallengeTask:null);
+    }
+    if(path.endsWith('/challenge')&&method==='POST'){
+      detailChallengeTask={taskId:'detail-challenge-task',kind:'detail_challenge',status:'succeeded',
+        currentPhase:'detail_challenge_saved',errorCode:null,checkpoint:{challenge:{targetKind:'detail',targetId:'outline-1',
+          targetVersionId:'outline-version-1',summary:'这一章最值得再看的，是人物选择能否同时推动关系变化。',suggestions:[{
+            focus:'core_conflict',alternative:'让同伴提出一条更安全却会牺牲无辜者的办法，逼主角当场表态。',
+            benefit:'冲突同时体现人物关系和价值选择。',tradeoff:'必须给同伴合理动机，不能把他写成工具人。',
+            downstreamImpact:'下一章需要承接分歧，关系不能自动恢复。'}]}},member:{roleKey:'second_screenwriter',agentId:'screenwriter-b',
+          displayName:'红玉',provider:'local-deterministic',modelId:'fixture-challenger'},
+        createdAt:'2026-08-09T00:00:30.000Z',updatedAt:'2026-08-09T00:00:40.000Z'};
+      return api(detailChallengeTask);
+    }
     if(path.endsWith('/chapter-outlines/generate')&&method==='POST'){
       detailTask={taskId:'detail-task',kind:'details',status:'succeeded',currentPhase:'detail_candidates_saved',errorCode:null,
         checkpoint:{outlineVersionIds:['outline-version-1']},member:{roleKey:'main_editor',agentId:'editor',
@@ -42,6 +56,14 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
   expect(screen.getByText('本章负责事件收束')).toBeInTheDocument();
   expect(screen.getByText('对第1章的想法')).toBeInTheDocument();
   expect(screen.getByText(/自由发挥：对话、动作、意象与节奏/u)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button',{name:'请另一位编剧看看第1章'}));
+  await waitFor(()=>expect(requests.find(item=>item.path.endsWith('/challenge')&&item.method==='POST')?.body)
+    .toMatchObject({expectedSequenceRevision:2,expectedWorkflowVersion:8}));
+  expect(await screen.findByText('另一位编剧的参考意见')).toBeInTheDocument();
+  expect(screen.getByText(/让同伴提出一条更安全/u)).toBeInTheDocument();
+  expect(screen.getByText(/这些只是参考，不会自动改动当前章纲/u)).toBeInTheDocument();
+  expect(screen.queryByText(/fixture-challenger|local-deterministic|detail_challenge/u)).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button',{name:'生成详细章纲'}));
   await waitFor(()=>expect(requests.find(item=>item.path.endsWith('/chapter-outlines/generate')&&item.method==='POST')?.body)

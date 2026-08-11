@@ -299,7 +299,7 @@ export class ChapterPipelineService {
         pov: '服从老板已确认的创作方案；未明确时采用第三人称限知',
         tense: '服从老板已确认的创作方案；未明确时采用现代中文小说常用叙事时态',
         targetWords: 2_900,
-        hardConstraints: ['2500至3500字', '不得占位', '服从当前正史', '不得脱离已确认章纲补造关键设定', `章纲版本：${outlineVersionId}`]
+        hardConstraints: ['优先2700至3200有效字，且不得少于2350或超过3650', '不得占位', '服从当前正史', '不得脱离已确认章纲补造关键设定', `章纲版本：${outlineVersionId}`]
       };
       const existingContract = this.database.prepare(`
         SELECT artifact_id FROM artifacts WHERE owner_id = ? AND book_id = ? AND artifact_type = 'writing_contract' AND title = ?
@@ -1230,8 +1230,8 @@ export class ChapterPipelineService {
 
   private evaluateHardChecks(scope: BookScope, run: PipelineRow, content: string) {
     const characterCount = countNovelCharacters(content);
-    const targetMinimum = 2_500;
-    const targetMaximum = 3_500;
+    const targetMinimum = 2_700;
+    const targetMaximum = 3_200;
     const hardMinimum = 2_350;
     const hardMaximum = 3_650;
     const checks = {
@@ -1794,7 +1794,8 @@ export function compactChapterModelTaskInput(phaseKey: string, parsedTaskInput: 
           requiredActions: parsedTaskInput.requiredActions,
           outputContract: {
             kind: 'complete_chapter_replacement',
-            characterRange: [2_500, 3_500],
+            targetCharacterRange: [2_700, 3_200],
+            hardCharacterRange: [2_350, 3_650],
             preserveUnchangedParagraphs: true,
             forbidExcerptOrSummary: true,
             instruction: '当前完整正文已在sources中。必须返回修改后的整章正文，不能只返回修改片段；未修改部分也必须完整保留。'

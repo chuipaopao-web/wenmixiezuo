@@ -14,7 +14,7 @@ export class EventChapterGenerationRepository {
       .all(scope.ownerId,scope.bookId,input.subjectType,input.subjectId,...input.ids) as unknown as Array<{
         author_input_id:string;subject_id:string;intent_strength:string;original_text:string;scope_notes:string|null}>;
   }
-  public latest(scope:BookScope,subjectId:string,taskType:'event_chapter_sequence_generation'|'event_chapter_detail_generation'){
+  public latest(scope:BookScope,subjectId:string,taskType:'event_chapter_sequence_generation'|'event_chapter_detail_generation'|'event_chapter_sequence_challenge'|'event_chapter_detail_challenge'){
     assertBookScope(scope);return this.db.prepare(`SELECT task_id,status,current_phase,error_code,idempotency_key,task_brief_json,
       checkpoint_json,created_at,updated_at FROM tasks WHERE owner_id=? AND book_id=? AND task_type=?
       AND json_extract(task_brief_json,'$.subjectId')=? ORDER BY created_at DESC,task_id DESC LIMIT 1`)

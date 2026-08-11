@@ -62,6 +62,8 @@
 
 `/api/v1/books/:bookId/story-events/:eventId/chapter-outlines` 管理章数评估、批量章链候选、单章详细章纲、作者修改、确认和历史版本。生成任务冻结活动卷纲、事件链、事件大纲和作者输入。
 
+`POST /api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions/:sequenceVersionId/challenge` 请求另一位编剧挑战当前章链候选；`POST /api/v1/books/:bookId/story-events/:eventId/event-chapter-outlines/:outlineId/versions/:outlineVersionId/challenge` 挑战当前单章章纲。`GET .../chapter-sequence/generation?kind=sequence_challenge|detail_challenge` 读取当前建议任务。结果只含目标版本、自然语言摘要和最多3条替代建议，不创建正式章纲版本，也不自动采纳。
+
 ## 9. 正文与审查
 
 章节接口提供目录、写作工单、单章生成、状态、稿件版本、作者编辑、定点修订和定稿。正式生产一次只处理一章。三席报告分别读取和展示；作者定稿后才能执行章节结算。

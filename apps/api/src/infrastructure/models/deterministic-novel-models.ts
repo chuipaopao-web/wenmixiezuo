@@ -108,13 +108,6 @@ export function countNovelCharacters(content: string): number {
 
 export function reviewNovel(content: string): StructuredReview {
   const issues: StructuredReviewIssue[] = [];
-  const characterCount = countNovelCharacters(content);
-  if (characterCount < 2_500 || characterCount > 3_500) {
-    issues.push({
-      location: '全文', issueType: 'length_contract', severity: 'blocker',
-      evidence: `正文有效字符${characterCount}`, requiredAction: '将正文调整到2500至3500字'
-    });
-  }
   if (content.includes('就在这时，就在这时')) {
     issues.push({
       location: '首个场景转折处', issueType: 'style_repetition', severity: 'major',
