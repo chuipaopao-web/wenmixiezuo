@@ -1,5 +1,5 @@
 import { DomainError, errorCodes } from '../../domain/errors.js';
-import { constantTimeTokenMatches } from './runtime-session.js';
+import { constantTimeTokenMatches } from './account-auth-service.js';
 
 interface FailureWindow {
   attempts: number;

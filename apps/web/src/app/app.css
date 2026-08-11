@@ -6540,3 +6540,135 @@ svg {
   .story-timeline article { grid-template-columns: 1fr; gap: 4px; }
   .world-route-step article { text-align: left; }
 }
+
+
+/* 统一账号入口与管理后台 */
+.ios-book-sidebar { grid-template-rows: 62px minmax(0, 1fr) auto; }
+
+.sidebar-account {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  padding: 10px;
+  background: color-mix(in srgb, var(--panel-raised) 82%, transparent);
+}
+
+.sidebar-account-avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: white;
+  background: linear-gradient(145deg, #43a6ff, #0677e8 58%, #5f5ce6);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.sidebar-account-copy { min-width: 0; display: grid; gap: 1px; }
+.sidebar-account-copy strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-account-copy span { color: var(--ink-faint); font-size: 9px; }
+.sidebar-account-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.sidebar-account-actions button {
+  min-height: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 9px;
+  color: var(--ink-soft);
+  background: var(--panel-raised);
+  font-size: 10px;
+}
+.sidebar-account-actions button:only-child { grid-column: 1 / -1; }
+.sidebar-account-actions button:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
+
+.auth-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  color: #152033;
+  background:
+    radial-gradient(circle at 18% 18%, rgb(10 132 255 / 18%), transparent 30%),
+    radial-gradient(circle at 82% 12%, rgb(95 92 230 / 16%), transparent 32%),
+    linear-gradient(145deg, #edf5ff, #f8faff 50%, #eef1fb);
+  font-family: "SF Pro Text", "Segoe UI Variable Text", "PingFang SC", sans-serif;
+}
+
+.auth-card {
+  width: min(100%, 430px);
+  border: 1px solid rgb(255 255 255 / 86%);
+  border-radius: 30px;
+  padding: 34px;
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 28px 90px rgb(47 76 126 / 18%), inset 0 1px rgb(255 255 255 / 92%);
+  backdrop-filter: blur(30px) saturate(160%);
+}
+
+.auth-card.auth-loading { display: grid; justify-items: center; gap: 14px; padding: 48px; color: #60708a; }
+.auth-brand { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 17px; color: white; background: linear-gradient(145deg, #43a6ff, #0677e8 58%, #5f5ce6); box-shadow: 0 14px 30px rgb(10 132 255 / 25%); font-size: 24px; font-weight: 720; }
+.auth-eyebrow { margin: 20px 0 4px; color: #087cf0; font-size: 13px; font-weight: 720; letter-spacing: .08em; }
+.auth-card h1 { margin: 0; color: #172235; font-size: 31px; letter-spacing: -.04em; }
+.auth-intro { margin: 8px 0 22px; color: #718096; line-height: 1.6; }
+.auth-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: 13px; padding: 4px; background: #edf1f7; }
+.auth-mode button { min-height: 36px; border: 0; border-radius: 10px; color: #728098; background: transparent; font-weight: 680; }
+.auth-mode button.active { color: #172235; background: white; box-shadow: 0 3px 12px rgb(50 70 105 / 11%); }
+.auth-card form { display: grid; gap: 15px; margin-top: 20px; }
+.auth-card label { display: grid; gap: 7px; color: #526077; font-size: 13px; font-weight: 650; }
+.auth-card input, .admin-filters input, .admin-filters select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #d9e1ec;
+  border-radius: 13px;
+  padding: 0 14px;
+  color: #172235;
+  background: rgb(255 255 255 / 88%);
+  outline: none;
+}
+.auth-card input:focus, .admin-filters input:focus, .admin-filters select:focus { border-color: #0a84ff; box-shadow: 0 0 0 4px rgb(10 132 255 / 10%); }
+.auth-error { margin: 0; border-radius: 12px; padding: 10px 12px; color: #a43838; background: #fff0f0; font-size: 13px; }
+.auth-submit { min-height: 48px; border: 0; border-radius: 14px; color: white; background: linear-gradient(135deg, #0a84ff, #1674de 68%, #5f5ce6); box-shadow: 0 12px 26px rgb(10 132 255 / 22%); font-size: 15px; font-weight: 720; }
+.auth-submit:disabled { opacity: .58; }
+.auth-footnote { margin: 18px 0 0; color: #8a96a8; font-size: 12px; line-height: 1.6; text-align: center; }
+.startup-connection-error { position: fixed; right: 24px; bottom: 24px; left: 24px; z-index: 10; max-width: 520px; margin: auto; border-radius: 14px; padding: 12px 16px; color: #a43838; background: #fff; box-shadow: 0 12px 40px rgb(30 45 75 / 16%); text-align: center; }
+
+.admin-workspace {
+  min-height: 100%;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 24px;
+  padding: clamp(22px, 3vw, 40px);
+  background: color-mix(in srgb, var(--panel-raised) 94%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.admin-workspace > header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.admin-workspace > header span { color: var(--accent); font-size: 12px; font-weight: 740; letter-spacing: .06em; }
+.admin-workspace > header h2 { margin: 4px 0 0; font-size: 28px; letter-spacing: -.035em; }
+.admin-workspace > header p { max-width: 440px; margin: 0; color: var(--ink-soft); font-size: 13px; }
+.admin-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+.admin-overview article { display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 17px; padding: 18px; background: var(--panel); }
+.admin-overview strong { font-size: 25px; }
+.admin-overview span { color: var(--ink-faint); font-size: 12px; }
+.admin-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 150px; gap: 10px; margin-bottom: 14px; }
+.admin-user-list { display: grid; gap: 8px; }
+.admin-user-list > article { display: grid; grid-template-columns: 38px minmax(180px, 1fr) 90px 70px 94px; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 15px; padding: 12px 14px; background: var(--panel); }
+.admin-avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: var(--accent); background: var(--accent-soft); font-weight: 760; }
+.admin-user-main { min-width: 0; display: grid; gap: 3px; }
+.admin-user-main strong, .admin-user-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-user-main span, .account-role { color: var(--ink-faint); font-size: 12px; }
+.account-status { width: max-content; border-radius: 999px; padding: 4px 8px; font-size: 11px; }
+.account-status.active { color: #16784b; background: #e5f6ed; }
+.account-status.suspended { color: #9b3f3f; background: #fbeaea; }
+.admin-user-list button { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink-soft); background: var(--panel-raised); }
+.admin-user-list button:disabled { opacity: .55; }
+.admin-empty { padding: 40px; color: var(--ink-faint); text-align: center; }
+
+@media (max-width: 780px) {
+  .auth-shell { padding: 14px; }
+  .auth-card { border-radius: 24px; padding: 26px 22px; }
+  .admin-workspace > header { align-items: start; flex-direction: column; }
+  .admin-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-filters { grid-template-columns: 1fr; }
+  .admin-user-list > article { grid-template-columns: 38px minmax(0, 1fr) auto; }
+  .admin-user-list .account-role { display: none; }
+  .admin-user-list button { grid-column: 2 / -1; }
+}

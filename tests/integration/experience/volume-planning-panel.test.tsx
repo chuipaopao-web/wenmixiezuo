@@ -22,7 +22,6 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
     const method = init?.method ?? 'GET';
     const body = init?.body === undefined ? null : JSON.parse(String(init.body)) as Record<string, unknown>;
     requests.push({ path, method, body });
-    if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
     if (path.endsWith('/workflow')) return apiResponse(workflow);
     if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
     if (path.endsWith('/author-planning-inputs')) return apiResponse([]);
@@ -123,7 +122,6 @@ it('用自然语言显示真实卷规划进度，隐藏模型内部编号，并�
     const method = init?.method ?? 'GET';
     const body = init?.body === undefined ? null : JSON.parse(String(init.body)) as Record<string, unknown>;
     requests.push({ path, method, body, query: url.search });
-    if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
     if (path.endsWith('/workflow')) return apiResponse(workflowView('volume_plan_in_progress', 3, 'plan-1'));
     if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
     if (path.endsWith('/author-planning-inputs')) return apiResponse(ideas);

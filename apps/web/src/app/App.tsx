@@ -27,6 +27,8 @@ import {
   fetchChapterContent,
   fetchChapterDetail,
   fetchHealth,
+  fetchCurrentAccount,
+  logoutAccount,
   fetchLibrary,
   fetchModelBindings,
   fetchOperationsStatus,
@@ -37,6 +39,7 @@ import {
   restoreBook,
   purgeBook,
   retryTask,
+  type AuthAccountData,
   type BookData,
   type CapabilityData,
   type ChapterData,
@@ -58,6 +61,8 @@ import { TeamWorkspace } from '../features/team/TeamWorkspace';
 import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
 import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
+import { AuthScreen } from '../features/auth/AuthScreen';
+import { AdminWorkspace } from '../features/admin/AdminWorkspace';
 import {
   FONT_SCALE,
   readWorkspacePreferences,
@@ -66,7 +71,7 @@ import {
 } from './workspace-preferences';
 import './app.css';
 
-type UtilityView = 'tasks' | 'team' | 'ideas' | null;
+type UtilityView = 'tasks' | 'team' | 'ideas' | 'admin' | null;
 type PlanningTab = WorkspacePrimaryFunctionKey;
 
 interface TaskSelection {
@@ -75,6 +80,35 @@ interface TaskSelection {
 }
 
 export function App(): React.JSX.Element {
+  const [account, setAccount] = useState<AuthAccountData | null | undefined>(undefined);
+  const [startupError, setStartupError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCurrentAccount(controller.signal)
+      .then((current) => { setAccount(current); setStartupError(null); })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) {
+          setStartupError(reason instanceof Error ? reason.message : '暂时无法连接文秘写作');
+          setAccount(null);
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (account === undefined) {
+    return <main className="auth-shell"><section className="auth-card auth-loading"><div className="auth-brand" aria-hidden="true">文</div><h1 className="sr-only">文秘写作</h1><p>正在打开文秘写作…</p></section></main>;
+  }
+  if (account === null) {
+    return <><AuthScreen onAuthenticated={setAccount} />{startupError !== null && <p className="startup-connection-error" role="alert">{startupError}</p>}</>;
+  }
+  return <WorkspaceApp account={account} onSignOut={async () => {
+    await logoutAccount();
+    setAccount(null);
+  }} />;
+}
+
+function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSignOut: () => Promise<void> }): React.JSX.Element {
   const [capabilities, setCapabilities] = useState<CapabilityData | null>(null);
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
@@ -426,7 +460,7 @@ export function App(): React.JSX.Element {
         <div className="sidebar-brand">
           <div className="brand-lockup">
             <div className="brand-mark" aria-hidden="true">文</div>
-            <div><h1>文秘写作</h1><span>本地小说工作台</span></div>
+            <div><h1>文秘写作</h1><span>长篇小说创作台</span></div>
           </div>
           <button className="icon-button mobile-only" type="button" aria-label="关闭书籍栏" onClick={() => setLeftOpen(false)}><XIcon /></button>
         </div>
@@ -459,11 +493,19 @@ export function App(): React.JSX.Element {
             {selectedBook !== null && <button className="archive-current-book" type="button" onClick={() => setArchiveCandidate(selectedBook)}><ArchiveBoxIcon /><span>归档当前书籍</span></button>}
           </div>
         </div>
+        <div className="sidebar-account">
+          <div className="sidebar-account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</div>
+          <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员' : '作者账号'}</span></div>
+          <div className="sidebar-account-actions">
+            {account.role === 'admin' && <button type="button" onClick={() => setUtilityView('admin')}>管理</button>}
+            <button type="button" onClick={() => void onSignOut()}>退出</button>
+          </div>
+        </div>
       </aside>
 
       <nav className="ios-function-bar" aria-label="功能栏">
         <button className="icon-button mobile-only function-book-toggle" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
-        <div className="function-nav-primary">
+        <div className="function-nav-primary" hidden={loading}>
           {([
             ['framework', BookOpenTextIcon],
             ['basic', TreeStructureIcon],
@@ -477,7 +519,7 @@ export function App(): React.JSX.Element {
             aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={workspaceFunctionLabel(key)} disabled={selectedBook === null}
             key={key} onClick={() => { setCreationTab(key); setUtilityView(null); }}><Icon /><span>{workspaceFunctionLabel(key)}</span></button>)}
         </div>
-        <div className="function-nav-utilities">
+        <div className="function-nav-utilities" hidden={loading}>
           <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>{workspaceFunctionLabel('team')}</span></button>
           <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span></button>
           <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
@@ -487,7 +529,7 @@ export function App(): React.JSX.Element {
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
-        {loading ? <WorkspaceSkeleton /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
+        {loading ? <WorkspaceSkeleton /> : utilityView === 'admin' ? <AdminWorkspace currentUser={account} /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
           entries={homeTaskEntries}
           loading={homeTasksLoading}
           loadError={homeTasksError}

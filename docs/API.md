@@ -3,18 +3,24 @@
 ## 1. 通用规则
 
 - 前缀：`/api/v1`；健康检查为 `/health`。
-- 服务仅监听 `127.0.0.1`。
-- 所有书内接口从路径获取 `bookId`，服务端同时绑定本地 `owner_id`。
+- API仅监听 `127.0.0.1`；公网由同机HTTPS反向代理转发 `/api`，不得直接暴露API、SQLite或Worker端口。
+- 所有书内接口从路径获取 `bookId`，服务端从已验证登录会话绑定 `owner_id`；客户端不能提交或替换所有者。
 - 成功响应包含 `data` 与请求追踪ID；失败响应包含稳定错误码、可读消息、是否可重试和必要详情。
 - 创建/生成命令使用幂等键；版本化修改携带期望版本，冲突返回409。
 - 长任务返回任务ID，通过任务查询和SSE观察，不在HTTP连接中假装同步完成。
 
 ## 2. 运行与能力
 
-- `GET /health`：API与数据库健康。
+- `GET /health`：公开的API、轻量数据库探针与Worker心跳状态；不创建账号会话，也不在高频探针中执行全库扫描。
 - `GET /api/v1/runtime/worker`：Worker心跳和队列状态。
 - `GET /api/v1/runtime/readiness`：数据库、迁移、模型与投影准备度。
-- `POST /api/v1/runtime/session`：建立本机页面会话。
+- `POST /api/v1/auth/register`：邮箱、密码、昵称注册；首个账号原子授予管理员角色并签发会话。
+- `POST /api/v1/auth/login`：邮箱密码登录，成功后签发 HttpOnly Cookie。
+- `POST /api/v1/auth/logout`：撤销当前会话并清除 Cookie。
+- `GET /api/v1/auth/me`：读取当前账号公开资料与角色。
+- `GET /api/v1/admin/overview`：管理员查看用户与书籍总览。
+- `GET /api/v1/admin/users`：管理员按关键字和状态查看账号。
+- `PATCH /api/v1/admin/users/:userId/status`：管理员暂停或恢复账号。
 - `GET /api/v1/capabilities`：当前模型、检索和运行能力。
 
 ## 3. 书架与开书
@@ -92,3 +98,7 @@
 接口向作者返回的功能名称统一为：信息、设定、分卷、规划、章纲、正文、资料库、取名、团队、任务、灵感、设置。公开显示名来自 Contracts 共享合同。
 
 API路由、请求字段和数据库surface继续使用稳定英文键，不随显示名改动：book_profile、setting、volume_plan、event、chapter_outline、manuscript。这样已有书籍、幂等键、任务恢复、上下文包和来源引用不需要迁移。接口返回历史自由文本前必须经过作者展示清洗，把旧称转换为当前名称，但不回写历史记录。
+
+## 13. 认证与错误语义
+
+`/health` 与注册/登录是公开入口；Worker内部执行使用独立Worker令牌；其他 `/api/v1` 接口都要求有效账号会话。写请求继续校验精确 Origin、Host、`Sec-Fetch-Site` 和 JSON 内容类型。登录失败统一返回“邮箱或密码不正确”，不泄露邮箱是否存在；暂停账号返回明确联系管理员提示；无效或空 JSON 返回自然中文格式错误，不向前端暴露堆栈、SQL或内部路径。

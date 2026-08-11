@@ -154,22 +154,10 @@ if (-not (Test-WenmiReady)) {
   throw "Wenmi did not start within 30 seconds. See $stderrPath"
 }
 
-$runtimeSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$browserHeaders = @{ Origin = 'http://127.0.0.1:43110'; 'Sec-Fetch-Site' = 'same-site' }
-try {
-  Invoke-WebRequest -Uri 'http://127.0.0.1:43111/api/v1/runtime/session' -Method Post `
-    -Headers $browserHeaders -ContentType 'application/json' -Body '{}' -WebSession $runtimeSession `
-    -UseBasicParsing -TimeoutSec 3 | Out-Null
-} catch {
-  & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
-  throw 'The local runtime session could not be established. Startup stopped safely.'
-}
-
-$workerDeadline = (Get-Date).AddSeconds(15)
+$workerDeadline = (Get-Date).AddSeconds(45)
 do {
   try {
-    $readiness = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/api/v1/runtime/readiness' `
-      -Headers $browserHeaders -WebSession $runtimeSession -TimeoutSec 2
+    $readiness = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/health' -TimeoutSec 2
   } catch {
     $readiness = $null
   }
@@ -181,7 +169,6 @@ if ($null -eq $readiness -or $readiness.data.worker -ne 'ready') {
   & (Join-Path $PSScriptRoot 'stop-desktop.ps1')
   throw 'The Worker did not become ready. Startup stopped safely.'
 }
-
 if ($env:WENMI_NO_BROWSER -ne '1') { Start-Process 'http://127.0.0.1:43110' }
 Write-Host 'Wenmi Writing is ready at http://127.0.0.1:43110'
 Write-Host 'Double-click the stop entry when you want to stop the app.'

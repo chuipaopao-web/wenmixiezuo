@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "productName": "文秘写作",
-  "description": "文秘写作：本地优先的多Agent协同小说创作平台",
+  "description": "文秘写作：统一账号的多Agent协同小说创作平台",
   "type": "module",
   "packageManager": "npm@11.13.0",
   "engines": {

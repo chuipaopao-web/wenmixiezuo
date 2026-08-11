@@ -15,7 +15,6 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';
     const body=init?.body===undefined?null:JSON.parse(String(init.body)) as Record<string,unknown>;
     requests.push({path,method,body,query:url.search});
-    if(path==='/api/v1/runtime/session')return api({authenticated:true,expiresInSeconds:1800});
     if(path.endsWith('/workflow'))return api(workflow());
     if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-1',version:1,narrativePerson:null,viewpointDistance:null,languageTone:[],textDensity:null,targetAudience:null,contentBoundaries:{},humorSeriousness:null,voiceEvidence:[],impactScope:{},status:'provisional'});
     if(path.endsWith('/author-planning-inputs'))return api([]);
@@ -60,7 +59,6 @@ it('事件结算后仍展示正文实际绑定的完整详细章纲',async()=>{
   const requests:string[]=[];
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
-    if(path==='/api/v1/runtime/session')return api({authenticated:true,expiresInSeconds:1800});
     if(path.endsWith('/workflow'))return api({...workflow(),stage:'ready_for_next_volume',planningVersion:23,activeEventRef:null,frozenChapterOutlineRefs:[]});
     if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-history',version:1,narrativePerson:'third',viewpointDistance:'close',languageTone:[],textDensity:'adaptive',targetAudience:null,contentBoundaries:{},humorSeriousness:'adaptive',voiceEvidence:[],impactScope:{},status:'confirmed'});
     if(path.endsWith('/volume-plans'))return api([{volumePlanId:'volume-1',planNumber:1,status:'completed',activeVersionId:'volume-v1'}]);

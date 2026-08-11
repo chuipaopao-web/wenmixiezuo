@@ -13,9 +13,11 @@ import { ChapterPipelineService } from '../application/creation/chapter-pipeline
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
-import { RuntimeSessionService } from '../infrastructure/security/runtime-session.js';
+import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
+import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerRuntimeRoutes } from './runtime-routes.js';
+import { registerAccountRoutes } from './account-routes.js';
 import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
 import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
 import { CapabilityService } from '../application/capabilities/capability-service.js';
@@ -68,8 +70,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   await app.register(multipart, {
     limits: { files: 1, fileSize: 20 * 1024 * 1024, fields: 0, parts: 1 }
   });
-  const sessions = new RuntimeSessionService();
-  registerRequestPolicy(app, config, sessions, options);
+  const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'));
+  registerRequestPolicy(app, config, accounts, options);
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   const retrievalIds = new UuidGenerator();
@@ -137,14 +139,20 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     config.modelRuntime,
     config.releaseId
   );
-  await registerRuntimeRoutes(app, sessions, capabilities);
+  await registerAccountRoutes(app, accounts);
+  await registerRuntimeRoutes(app, capabilities);
   await registerDomainRoutes(app, database, config);
 
   app.get('/health', async (request) => {
-    const integrity = database.prepare('PRAGMA quick_check').get() as { quick_check: string };
+    const databaseProbe = database.prepare('SELECT 1 AS ok').get() as { ok: number };
+    const heartbeat = database.prepare('SELECT heartbeat_at FROM worker_health ORDER BY heartbeat_at DESC LIMIT 1')
+      .get() as { heartbeat_at: string } | undefined;
+    const workerReady = heartbeat !== undefined && Date.now() - Date.parse(heartbeat.heartbeat_at) <= 15_000;
     return success({
       service: 'wenmi-api',
-      status: integrity.quick_check === 'ok' ? 'ok' : 'degraded',
+      status: databaseProbe.ok === 1 ? 'ok' : 'degraded',
+      worker: workerReady ? 'ready' : 'possibly_offline',
+      canStartModelTasks: workerReady,
       releaseId: config.releaseId,
       time: new Date().toISOString()
     }, request.id);
@@ -235,7 +243,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     });
     let cursor = after;
     const writePending = (): void => {
-      const pending = events.replay({ ownerId: config.ownerId, bookId: request.query.bookId ?? null }, cursor);
+      const pending = events.replay({ ...requireAuthenticatedOwner(request), bookId: request.query.bookId ?? null }, cursor);
       for (const event of pending) {
         reply.raw.write(`id: ${event.eventSeq}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`);
         cursor = event.eventSeq;
@@ -255,6 +263,16 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     if (error instanceof DomainError) {
       void reply.status(error.statusCode).send({
         error: { code: error.code, message: error.message, details: error.details, retryable: error.retryable },
+        meta: { requestId }
+      });
+      return;
+    }
+    const httpStatus = typeof error === 'object' && error !== null && 'statusCode' in error
+      ? (error as { statusCode?: unknown }).statusCode
+      : undefined;
+    if (typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 500) {
+      void reply.status(httpStatus).send({
+        error: { code: 'INVALID_REQUEST_BODY', message: '提交的内容格式不正确，请检查后再试', details: {}, retryable: false },
         meta: { requestId }
       });
       return;

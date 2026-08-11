@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,14 +24,14 @@ child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 try {
   const health = await waitForHealth(`http://127.0.0.1:${apiPort}/health`);
   if (!health.ok) throw new Error(`health failed: ${health.status}`);
-  const session = await fetch(`http://127.0.0.1:${apiPort}/api/v1/runtime/session`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', origin: webOrigin, 'sec-fetch-site': 'same-site' },
-    body: '{}'
-  });
-  if (!session.ok) throw new Error(`session failed: ${session.status}`);
-  const cookie = session.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
-  const taxonomyResponse = await fetch(`http://127.0.0.1:${apiPort}/api/v1/opening-taxonomy`, { headers: { cookie } });
+  const cookie = await loginEvaluationAccount({
+    api: `http://127.0.0.1:${apiPort}`,
+    origin: webOrigin,
+    email: 'runtime-smoke@wenmi.invalid',
+    password: 'Wenmi-Smoke-2026!',
+    nickname: '启动验收',
+    allowRegistration: true
+  });  const taxonomyResponse = await fetch(`http://127.0.0.1:${apiPort}/api/v1/opening-taxonomy`, { headers: { cookie } });
   if (!taxonomyResponse.ok) throw new Error(`taxonomy failed: ${taxonomyResponse.status}`);
   const taxonomy = (await taxonomyResponse.json()).data;
   const boundaryOptionCount = taxonomy.boundaryGroups.reduce((total, group) => total + group.options.length, 0);

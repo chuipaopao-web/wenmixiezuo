@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 import { join, resolve } from 'node:path';
 
 const API = 'http://127.0.0.1:43111';
@@ -74,14 +75,7 @@ function assertStageFinalOutline(masterStage, outline) {
 }
 
 async function issueSession() {
-  const response = await fetch(`${API}/api/v1/runtime/session`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'sec-fetch-site': 'same-site', 'content-type': 'application/json' },
-    body: '{}'
-  });
-  assert(response.ok, `runtime session failed: ${response.status} ${await response.text()}`);
-  cookie = response.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
-  assert(cookie.length > 0, 'runtime session did not return cookie');
+  cookie = await loginEvaluationAccount({ api: API, origin: ORIGIN });
 }
 
 async function request(path, { method = 'GET', body } = {}) {

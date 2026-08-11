@@ -14,6 +14,24 @@ import type {
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
 
+
+export interface AuthAccountData {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'user';
+  status: 'active' | 'suspended';
+  createdAt?: string;
+  lastLoginAt?: string | null;
+}
+
+export interface AdminOverviewData {
+  totalUsers: number;
+  activeUsers: number;
+  suspendedUsers: number;
+  totalBooks: number;
+}
+
 export interface HealthData {
   service: string;
   status: string;
@@ -889,25 +907,6 @@ interface ApiResponse<T> {
 }
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? 'http://127.0.0.1:43111';
-let sessionPromise: Promise<void> | null = null;
-
-async function establishRuntimeSession(): Promise<void> {
-  const response = await fetch(`${API_ORIGIN}/api/v1/runtime/session`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: '{}'
-  });
-  if (!response.ok) throw new Error('无法建立文秘写作本机会话');
-}
-
-function ensureRuntimeSession(): Promise<void> {
-  sessionPromise ??= establishRuntimeSession().catch((error: unknown) => {
-    sessionPromise = null;
-    throw error;
-  });
-  return sessionPromise;
-}
 
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
@@ -921,13 +920,7 @@ async function performRequest(path: string, init: RequestInit): Promise<Response
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
-    if (path.startsWith('/api/v1/')) await ensureRuntimeSession();
-    let response = await performRequest(path, init);
-    if (response.status === 401 && path.startsWith('/api/v1/')) {
-      sessionPromise = null;
-      await ensureRuntimeSession();
-      response = await performRequest(path, init);
-    }
+    const response = await performRequest(path, init);
     const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
     if (!response.ok) {
       const message = 'error' in body ? body.error?.message : undefined;
@@ -937,10 +930,60 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     if (error instanceof TypeError && /fetch|network|load failed/iu.test(error.message)) {
-      throw new Error('无法连接文秘写作服务，请重新启动应用后再试。');
+      throw new Error('无法连接文秘写作服务，请稍后再试。');
     }
     throw error;
   }
+}
+
+export async function fetchCurrentAccount(signal?: AbortSignal): Promise<AuthAccountData | null> {
+  try {
+    const response = await performRequest('/api/v1/auth/me', signal === undefined ? {} : { signal });
+    if (response.status === 401) return null;
+    const body = await response.json() as ApiResponse<AuthAccountData> | { error?: { message?: string } };
+    if (!response.ok) {
+      const message = 'error' in body ? body.error?.message : undefined;
+      throw new Error(authorErrorMessage(message ?? '', response.status));
+    }
+    return (body as ApiResponse<AuthAccountData>).data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    if (error instanceof TypeError && /fetch|network|load failed/iu.test(error.message)) {
+      throw new Error('无法连接文秘写作服务，请稍后再试。');
+    }
+    throw error;
+  }
+}
+
+export function registerAccount(input: { email: string; password: string; displayName: string }): Promise<{ account: AuthAccountData; expiresInSeconds: number }> {
+  return request('/api/v1/auth/register', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function loginAccount(input: { email: string; password: string }): Promise<{ account: AuthAccountData; expiresInSeconds: number }> {
+  return request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function logoutAccount(): Promise<{ loggedOut: boolean }> {
+  return request('/api/v1/auth/logout', { method: 'POST', body: '{}' });
+}
+
+export function fetchAdminOverview(signal?: AbortSignal): Promise<AdminOverviewData> {
+  return request('/api/v1/admin/overview', signal === undefined ? {} : { signal });
+}
+
+export function fetchAdminUsers(input: { query?: string; status?: string } = {}, signal?: AbortSignal): Promise<AuthAccountData[]> {
+  const query = new URLSearchParams();
+  if (input.query) query.set('query', input.query);
+  if (input.status) query.set('status', input.status);
+  const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+  return request(`/api/v1/admin/users${suffix}`, signal === undefined ? {} : { signal });
+}
+
+export function updateAdminUserStatus(userId: string, status: 'active' | 'suspended'): Promise<AuthAccountData> {
+  return request(`/api/v1/admin/users/${encodeURIComponent(userId)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status })
+  });
 }
 
 export interface RuntimeEventData {
@@ -958,12 +1001,10 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
     while(!stopped){
       controller=new AbortController();
       try{
-        await ensureRuntimeSession();
+
         const query=new URLSearchParams({after:String(cursor)});if(input.bookId!==undefined)query.set('bookId',input.bookId);
         let response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,{credentials:'include',signal:controller.signal,
-          headers:{accept:'text/event-stream','last-event-id':String(cursor)}});
-        if(response.status===401){sessionPromise=null;await ensureRuntimeSession();response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,
-          {credentials:'include',signal:controller.signal,headers:{accept:'text/event-stream','last-event-id':String(cursor)}});}
+          headers:{accept:'text/event-stream','last-event-id':String(cursor)}});        if(response.status===401){input.onState?.('closed');break;}
         if(!response.ok||response.body===null)throw new Error('事件流连接失败');
         input.onState?.('open');
         const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';

@@ -2,7 +2,7 @@
 
 ## 1. 总体形态
 
-本地模块化单体加独立 Worker：
+统一账号的模块化单体加独立 Worker：
 
 ```text
 React/Vite Web → Fastify REST/SSE → Application Services → Repositories → SQLite/Files
@@ -10,7 +10,7 @@ React/Vite Web → Fastify REST/SSE → Application Services → Repositories �
                                   Independent Worker → Model adapters / projections
 ```
 
-服务只监听 `127.0.0.1`。不使用微服务、WebSocket或需要独立运维的向量/图数据库。
+Fastify API 与 Worker 协调端口继续只监听 `127.0.0.1`。本机由浏览器直接访问；公网部署由同机 HTTPS 反向代理接收域名流量并转发到回环端口，数据库和 Worker 不直接暴露。不使用微服务、WebSocket或需要独立运维的向量/图数据库。
 
 ## 2. 模块边界
 
@@ -66,3 +66,11 @@ SQLite使用单写者事务、外键、WAL和向前迁移。每项核心写入�
 ## 11. 作者展示门禁
 
 Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：结构化内容递归过滤技术字段，状态与错误映射为自然语言，未知机器值使用安全兜底；业务对象、API响应和数据库原件不在展示层被改写。门禁区分界面、进度、错误和故事文本，故事文本与作者原话只剥离机器协议，禁止全局术语替换改变叙事语义。
+
+## 12. 账号、会话与管理后台
+
+认证属于基础设施边界，但账号状态和管理员权限由应用服务判定。`user_accounts` 一对一关联 `owners`；`auth_sessions` 只保存随机令牌的 SHA-256 摘要；密码使用每账号独立盐值的 scrypt 摘要。浏览器通过 HttpOnly、SameSite=Lax Cookie 维持会话，HTTPS 部署额外启用 Secure。所有业务路由在进入应用服务前从会话解析 `user_id + owner_id + role`，领域路由不再读取固定配置所有者。
+
+首个注册使用 `BEGIN IMMEDIATE` 原子判断并授予管理员角色。管理员路由只提供统计、用户检索、暂停和恢复；暂停用户时撤销其所有活动会话。不能暂停当前管理员自己或最后一个活动管理员。测试注入身份只存在于受控测试配置，不进入生产路由。
+
+公网保持单域部署：`https://wenmixiezuo.com` 同时承载 Web 与 `/api`，反向代理负责 TLS、请求大小、访问日志脱敏与外围限流。API、SQLite、文件、LanceDB 和 Worker 仍位于服务器本机回环/本地文件边界。手机号、微信以后作为登录身份绑定到现有 `user_id`，不能建立第二套书籍所有权。

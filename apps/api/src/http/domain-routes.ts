@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { getPublicNarrativeTemplateCatalog, parsePlanningScope } from '@wenmi/contracts';
 import type { DatabaseSync } from 'node:sqlite';
 import { readFileSync, statfsSync } from 'node:fs';
@@ -103,6 +103,7 @@ import { CreationSettlementRepository } from '../infrastructure/db/repositories/
 import { buildPlanningTemplateSignals } from '../application/planning/template-recommendation-signals.js';
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
+import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -176,7 +177,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const clock = new SystemClock();
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   const promptViewAccess = new PromptViewAccessService(config.promptViewPassword);
-  const owner = { ownerId: config.ownerId };
+  const owner = (request: FastifyRequest) => requireAuthenticatedOwner(request);
   const positioning = new PositioningService(database, ids, clock);
   const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId);
   const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
@@ -278,34 +279,34 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workflow', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlans.workflow(scope), request.id);
   });
 
   app.get<{Params:{bookId:string;eventId:string}}>(
     '/api/v1/books/:bookId/story-events/:eventId/settlement',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(creationSettlements.getEvent(scope,request.params.eventId),request.id);
     });
   app.post<{Params:{bookId:string;eventId:string};Body:{expectedWorkflowVersion:number}}>(
     '/api/v1/books/:bookId/story-events/:eventId/settle',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(creationSettlements.settleEvent(scope,request.params.eventId,request.body.expectedWorkflowVersion),request.id);
     });
   app.get<{Params:{bookId:string;volumePlanId:string}}>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/settlement',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(creationSettlements.getVolume(scope,request.params.volumePlanId),request.id);
     });
   app.post<{Params:{bookId:string;volumePlanId:string};Body:{expectedWorkflowVersion:number}}>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/settle',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(creationSettlements.settleVolume(scope,request.params.volumePlanId,request.body.expectedWorkflowVersion),request.id);
     });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/volume-plans', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlans.list(scope), request.id);
   });
@@ -316,14 +317,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     physicalVolumeId?: string | null;
     idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlans.create(scope, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; volumePlanId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(volumePlans.get(scope, request.params.volumePlanId), request.id);
     }
@@ -331,7 +332,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string; volumePlanId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/versions', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(volumePlans.listVersions(scope, request.params.volumePlanId), request.id);
     }
@@ -347,14 +348,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     content: unknown;
     idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/versions', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlans.addVersion(scope, request.params.volumePlanId, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; volumePlanId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/generation', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(volumePlanGenerations.latest(scope, request.params.volumePlanId), request.id);
     }
@@ -368,7 +369,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     authorInputRefs?: string[];
     idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/generate', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlanGenerations.start(
       scope, request.params.volumePlanId, request.body
@@ -376,7 +377,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { volumePlanVersionId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(volumePlans.impactPreview(
         scope, request.params.volumePlanId, request.body.volumePlanVersionId
@@ -390,14 +391,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     expectedActiveVersionId?: string | null;
     expectedWorkflowVersion: number;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/confirm', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(volumePlans.confirm(scope, request.params.volumePlanId, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; volumePlanId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(storyEvents.getSequence(scope, request.params.volumePlanId), request.id);
     }
@@ -406,7 +407,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
     expectedWorkflowVersion: number; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/initialize', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEvents.initialize(scope, request.params.volumePlanId, request.body), request.id);
   });
@@ -414,7 +415,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
     expectedSequenceRevision: number; proposal: unknown; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/operations/preview', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEvents.previewOperation(scope, request.params.volumePlanId, request.body), request.id);
   });
@@ -422,14 +423,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
     operationId: string; expectedSequenceRevision: number;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-sequence/operations/apply', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEvents.applyOperation(scope, request.params.volumePlanId, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; eventId: string } }>(
     '/api/v1/books/:bookId/story-events/:eventId/generation', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(storyEventGenerations.latest(scope, request.params.eventId), request.id);
     }
@@ -439,13 +440,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     expectedEventRevision: number; expectedActiveVersionId?: string | null;
     expectedWorkflowVersion: number; template: unknown; authorInputRefs?: string[]; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/story-events/:eventId/generate', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEventGenerations.start(scope, request.params.eventId, request.body), request.id);
   });
   app.get<{ Params: { bookId: string; eventId: string } }>(
     '/api/v1/books/:bookId/story-events/:eventId/versions', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(storyEvents.listVersions(scope, request.params.eventId), request.id);
     }
@@ -456,14 +457,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     parentVersionId?: string | null; sourceTaskId?: string | null; authorInputRefs?: string[];
     template: unknown; content: unknown; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/story-events/:eventId/versions', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEvents.addVersion(scope, request.params.eventId, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string; eventId: string }; Body: { versionId: string } }>(
     '/api/v1/books/:bookId/story-events/:eventId/impact-preview', async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(storyEvents.impactPreview(scope, request.params.eventId, request.body.versionId), request.id);
     }
@@ -472,68 +473,68 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; eventId: string }; Body: {
     versionId: string; expectedEventRevision: number; expectedWorkflowVersion: number;
   } }>('/api/v1/books/:bookId/story-events/:eventId/confirm', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(storyEvents.confirm(scope, request.params.eventId, request.body), request.id);
   });
   app.get<{ Params:{bookId:string;eventId:string} }>('/api/v1/books/:bookId/story-events/:eventId/chapter-sequence',async(request)=>{
-    const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+    const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
     return success(eventChapterOutlines.get(scope,request.params.eventId),request.id);
   });
   app.post<{ Params:{bookId:string;eventId:string};Body:{expectedWorkflowVersion:number;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/initialize',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.initialize(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{expectedSequenceRevision:number;parentVersionId?:string|null;
     authorInputRefs?:string[];content:unknown;sourceTaskId?:string|null;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.addSequenceVersion(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{sequenceVersionId:string;expectedSequenceRevision:number;expectedWorkflowVersion:number} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/confirm',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.confirmSequence(scope,request.params.eventId,request.body),request.id);
     });
   app.get<{ Params:{bookId:string;eventId:string};Querystring:{kind?:EventChapterGenerationKind} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generation',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterGenerations.latest(scope,request.params.eventId,request.query.kind??'sequence'),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generate',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{count:number;expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/generate',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
     });
   app.get<{ Params:{bookId:string;outlineId:string} }>(
     '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.listOutlineVersions(scope,request.params.outlineId),request.id);
     });
   app.post<{ Params:{bookId:string;outlineId:string};Body:{expectedOutlineRevision:number;parentVersionId?:string|null;
     authorInputRefs?:string[];content:Record<string,unknown>;sourceTaskId?:string|null;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.addOutlineVersion(scope,request.params.outlineId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{items:Array<{outlineId:string;outlineVersionId:string;expectedOutlineRevision:number}>;
     expectedWorkflowVersion:number} }>('/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/freeze',async(request)=>{
-      const scope={ownerId:owner.ownerId,bookId:request.params.bookId};books.require(scope);
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       return success(eventChapterOutlines.freezeRecent(scope,request.params.eventId,request.body),request.id);
     });
 
   app.get<{ Params: { bookId: string }; Querystring: { scope?: string } }>(
     '/api/v1/books/:bookId/planning-templates',
     async (request) => {
-      const bookScope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const bookScope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(bookScope);
       let templateScope: 'volume' | 'event';
       try {
@@ -562,7 +563,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/book-profile', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     return success(bookProfileView.get(scope), request.id);
   });
   app.put<{ Params: { bookId: string }; Body: {
@@ -570,7 +571,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     title: string;
     openingBlueprint: OpeningBlueprintInput;
   } }>('/api/v1/books/:bookId/book-profile', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     openingBlueprints.revise(scope, request.body);
     return success(bookProfileView.get(scope), request.id);
   });
@@ -578,7 +579,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     Params: { bookId: string };
     Querystring: { surface?: string; subjectType?: string; subjectId?: string };
   }>('/api/v1/books/:bookId/author-planning-inputs', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(authorCollaboration.list(scope, {
       ...(request.query.surface === undefined ? {} : { surface: request.query.surface as CreateAuthorPlanningInput['surface'] }),
@@ -590,7 +591,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string }; Body: CreateAuthorPlanningInput }>(
     '/api/v1/books/:bookId/author-planning-inputs',
     async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(authorCollaboration.create(scope, request.body), request.id);
     }
@@ -599,7 +600,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string; authorInputId: string } }>(
     '/api/v1/books/:bookId/author-planning-inputs/:authorInputId',
     async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
       return success(authorCollaboration.get(scope, request.params.authorInputId), request.id);
     }
@@ -609,38 +610,38 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     Params: { bookId: string; authorInputId: string };
     Body: DecideAuthorPlanningInput;
   }>('/api/v1/books/:bookId/author-planning-inputs/:authorInputId/decisions', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     return success(authorCollaboration.decide(scope, request.params.authorInputId, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/planning-state', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     return success(planningStates.get(scope), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/style-baseline', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     return success(styleBaselines.get(scope), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number; style: StyleBaselineInput } }>(
     '/api/v1/books/:bookId/style-baseline/confirm',
     async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       return success(styleBaselines.confirm(scope, request.body.expectedPlanningVersion, request.body.style), request.id);
     }
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/setting-baseline/readiness', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     return success(settingBaselines.inspect(scope), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number } }>(
     '/api/v1/books/:bookId/setting-baseline/confirm',
     async (request) => {
-      const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       return success(settingBaselines.confirm(scope, request.body.expectedPlanningVersion), request.id);
     }
   );
@@ -649,7 +650,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     Params: { bookId: string };
     Body: { expectedPlanningVersion: number; artifactVersionId: string; artifactType: 'master_outline' | 'chapter_outline' };
   }>('/api/v1/books/:bookId/planning-artifacts/confirm', async (request) => {
-    const scope = { ownerId: owner.ownerId, bookId: request.params.bookId };
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     return success(planningStageArtifacts.confirm(
       scope,
       request.body.expectedPlanningVersion,
@@ -678,7 +679,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     tags?: string[]; style?: string; openingBlueprint?: OpeningBlueprintInput;
   } }>('/api/v1/books/drafts', async (request) => {
     try {
-      return success(positioning.createDraft(owner, request.body), request.id);
+      return success(positioning.createDraft(owner(request), request.body), request.id);
     } catch (error) {
       if (request.body.openingBlueprint !== undefined && error instanceof Error) {
         throw new DomainError(errorCodes.validation, error.message, {}, false, 400);
@@ -694,14 +695,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...(request.body.fields === undefined ? {} : { fields: request.body.fields }),
       ...(request.body.tags === undefined ? {} : { tags: request.body.tags })
     };
-    return success(positioning.updateDraft(owner, request.params.draftId, expectedVersion, patch), request.id);
+    return success(positioning.updateDraft(owner(request), request.params.draftId, expectedVersion, patch), request.id);
   });
 
   app.post<{ Params: { draftId: string }; Body: { expectedVersion: number } }>('/api/v1/book-drafts/:draftId/confirm', async (request) => {
-    return success(onboarding.confirmDraft(owner, request.params.draftId, request.body.expectedVersion), request.id);
+    return success(onboarding.confirmDraft(owner(request), request.params.draftId, request.body.expectedVersion), request.id);
   });
 
-  app.get('/api/v1/books', async (request) => success(books.list(owner), request.id));
+  app.get('/api/v1/books', async (request) => success(books.list(owner(request)), request.id));
 
   app.get('/api/v1/task-center', async (request) => {
     const activeTaskStatuses = new Set([
@@ -716,10 +717,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM chapters
       WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
     `);
-    const taskBooks = books.list(owner)
+    const taskBooks = books.list(owner(request))
       .filter((book) => book.status !== 'archived')
       .map((book) => {
-        const scope = { ...owner, bookId: book.bookId };
+        const scope = { ...owner(request), bookId: book.bookId };
         const allTasks = tasks.list(scope);
         const activeTasks = allTasks.filter((task) => activeTaskStatuses.has(task.status));
         const recentTasks = allTasks.filter((task) => !activeTaskStatuses.has(task.status)).slice(-8);
@@ -781,32 +782,32 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/expression-profile', async (request) => {
-    return success(expressionProfiles.active({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(expressionProfiles.active({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: Parameters<ExpressionProfileService['revise']>[1] }>('/api/v1/books/:bookId/expression-profile', async (request) => {
-    return success(expressionProfiles.revise({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+    return success(expressionProfiles.revise({ ...owner(request), bookId: request.params.bookId }, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId', async (request) => {
-    return success(books.require({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(books.require({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { expectedVersion: number } }>('/api/v1/books/:bookId/archive', async (request) => {
-    return success(lifecycle.archive({ ...owner, bookId: request.params.bookId }, request.body.expectedVersion), request.id);
+    return success(lifecycle.archive({ ...owner(request), bookId: request.params.bookId }, request.body.expectedVersion), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { expectedVersion: number } }>('/api/v1/books/:bookId/restore', async (request) => {
-    return success(lifecycle.restoreFromArchive({ ...owner, bookId: request.params.bookId }, request.body.expectedVersion), request.id);
+    return success(lifecycle.restoreFromArchive({ ...owner(request), bookId: request.params.bookId }, request.body.expectedVersion), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { confirmationText: string } }>('/api/v1/books/:bookId/purge', async (request) => {
-    lifecycle.permanentlyDelete({ ...owner, bookId: request.params.bookId }, request.body.confirmationText);
+    lifecycle.permanentlyDelete({ ...owner(request), bookId: request.params.bookId }, request.body.confirmationText);
     return success({ bookId: request.params.bookId, status: 'purged', tombstoneWritten: true }, request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workspace', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const book = books.require(scope);
     const budget = database.prepare(`
       SELECT mode, token_limit, spent_tokens, reserved_tokens, cash_limit_micros, spent_cash_micros, status
@@ -876,7 +877,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/team-config', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const preferences = new Map(agentPromptPreferences.list(scope).map((item) => [item.agentId, item]));
     const members = agents.list(scope).map((agent) => {
@@ -953,7 +954,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       if (request.body.bookId === undefined || request.body.agentId === undefined) {
         throw new DomainError(errorCodes.validation, '查看本书成员提示词时，书籍和成员必须同时提供。');
       }
-      const scope = { ...owner, bookId: request.body.bookId };
+      const scope = { ...owner(request), bookId: request.body.bookId };
       books.require(scope);
       const agent = agents.list(scope).find((item) => item.agentId === request.body.agentId);
       if (agent === undefined || agent.roleKey !== request.body.roleKey) {
@@ -977,7 +978,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     Params: { bookId: string; agentId: string };
     Body: { expectedVersion: number; content?: string };
   }>('/api/v1/books/:bookId/agents/:agentId/prompt-preference', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(agentPromptPreferences.revise(
       scope,
@@ -988,7 +989,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { offset?: number; limit?: number } }>('/api/v1/books/:bookId/volumes', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const offset = Math.max(0, Number(request.query.offset ?? 0));
     const limit = Math.min(100, Math.max(1, Number(request.query.limit ?? 30)));
@@ -1001,7 +1002,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string; volumeId: string }; Querystring: { offset?: number; limit?: number; query?: string; status?: string } }>('/api/v1/books/:bookId/volumes/:volumeId/chapters', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const offset = Math.max(0, Number(request.query.offset ?? 0));
     const limit = Math.min(200, Math.max(1, Number(request.query.limit ?? 80)));
@@ -1034,7 +1035,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/library', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const book = books.require(scope);
     const entities: Array<Record<string, unknown>> = (database.prepare(`SELECT entity_id, entity_type, canonical_name, aliases_json, schema_version, status, updated_at
       FROM entities WHERE owner_id = ? AND book_id = ? ORDER BY entity_type, canonical_name LIMIT 500`)
@@ -1162,20 +1163,20 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/protagonists', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(protagonists.dashboard(scope), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { profileId?: string; displayName: string; entityId?: string | null; isPrimary?: boolean } }>(
     '/api/v1/books/:bookId/protagonists', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(protagonists.saveProfile(scope, request.body), request.id);
     }
   );
 
   app.post<{ Params: { bookId: string; profileId: string } }>(
     '/api/v1/books/:bookId/protagonists/:profileId/archive', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(protagonists.archiveProfile(scope, request.params.profileId), request.id);
     }
   );
@@ -1185,54 +1186,54 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     unit?: string | null; stateStatus?: ProtagonistStateStatus; confirmed?: boolean;
     effectiveChapterNumber?: number | null; storyTime?: string | null; note?: string | null;
   } }>('/api/v1/books/:bookId/protagonists/:profileId/state', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(protagonists.append(scope, { profileId: request.params.profileId, ...request.body }), request.id);
   });
 
   app.post<{ Params: { bookId: string; entryId: string }; Body: { note?: string | null } }>(
     '/api/v1/books/:bookId/protagonist-state/:entryId/archive', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(protagonists.archiveEntry(scope, request.params.entryId, request.body?.note ?? null), request.id);
     }
   );
 
   app.post<{ Params: { bookId: string; entryId: string }; Body: { category?: string } }>(
     '/api/v1/books/:bookId/protagonist-state/:entryId/classify', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(protagonists.classify(scope, request.params.entryId, request.body?.category ?? ''), request.id);
     }
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(attributeFormulas.list(scope), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/setting-outline-workspace', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(settingOutlineWorkspace.list(scope), request.id);
   });
   app.get<{ Params: { bookId: string; itemKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaboration.inspect(scope, request.params.itemKey), request.id);
     }
   );
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/start', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaborationCommands.start(scope, request.params.itemKey, request.body), request.id);
     }
   );
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaborationCommands.synthesize(scope, request.params.itemKey, request.body), request.id);
     }
   );
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId: string; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/revise', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaborationCommands.revise(scope, request.params.itemKey, request.body), request.id);
     }
   );
@@ -1247,7 +1248,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     sortOrder?: number;
     content?: string | null;
   } }>('/api/v1/books/:bookId/setting-outline-workspace/:itemKey', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(settingOutlineWorkspace.save(scope, {
       itemKey: request.params.itemKey,
       ...request.body
@@ -1263,33 +1264,33 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     custom?: boolean;
     sortOrder?: number;
   }> } }>('/api/v1/books/:bookId/setting-outline-workspace/initialize', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(settingOutlineWorkspace.initialize(scope, request.body.items), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: {
     formulaKey: string; label: string; category?: string; expression: string; variables: FormulaVariable[]; unit?: string | null;
   } }>('/api/v1/books/:bookId/attribute-formulas', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+    const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
     return success(attributeFormulas.create(scope, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string; formulaId: string }; Body: { values: Record<string, number> } }>(
     '/api/v1/books/:bookId/attribute-formulas/:formulaId/evaluate', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(attributeFormulas.evaluate(scope, request.params.formulaId, request.body.values), request.id);
     }
   );
 
   app.post<{ Params: { bookId: string; formulaId: string } }>(
     '/api/v1/books/:bookId/attribute-formulas/:formulaId/archive', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId }; books.require(scope);
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(attributeFormulas.archive(scope, request.params.formulaId), request.id);
     }
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/model-bindings', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const revisions = database.prepare(`SELECT agent_model_binding_revision_id AS revisionId, version, effective_from AS effectiveFrom,
       reason, status, created_at AS createdAt FROM agent_model_binding_revisions
@@ -1298,7 +1299,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile> } }>('/api/v1/books/:bookId/model-bindings/preview', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const profiles = normalizeTeamProfiles(request.body.profiles);
     modelBindings.validate(profiles);
@@ -1315,7 +1316,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile>; reason?: string } }>('/api/v1/books/:bookId/model-bindings/activate', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const profiles = normalizeTeamProfiles(request.body.profiles);
     const version = modelBindings.reviseFuture(scope, profiles, request.body.reason?.trim() || '老板在设置页激活未来任务模型绑定');
@@ -1323,7 +1324,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; revisionId: string } }>('/api/v1/books/:bookId/model-bindings/:revisionId/restore', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const version = modelBindings.restoreFuture(
       scope,
@@ -1334,11 +1335,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/agents', async (request) => {
-    return success(agents.list({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(agents.list({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Params: { bookId: string; agentId: string }; Body: { requiredCapability: string } }>('/api/v1/books/:bookId/agents/:agentId/activate', async (request) => {
-    return success(agents.activate({ ...owner, bookId: request.params.bookId }, request.params.agentId, request.body.requiredCapability), request.id);
+    return success(agents.activate({ ...owner(request), bookId: request.params.bookId }, request.params.agentId, request.body.requiredCapability), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/artifacts', async (request) => {
@@ -1348,7 +1349,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM artifacts a LEFT JOIN artifact_versions v ON v.artifact_version_id = a.active_version_id
       WHERE a.owner_id = ? AND a.book_id = ? AND a.artifact_type <> 'volume_outline'
       ORDER BY a.artifact_type, a.title
-    `).all(config.ownerId, request.params.bookId) as unknown as Array<Record<string, unknown> & { content_json: string | null }>;
+    `).all(owner(request).ownerId, request.params.bookId) as unknown as Array<Record<string, unknown> & { content_json: string | null }>;
     return success(rows.map(({ content_json: contentJson, ...row }) => ({
       ...row,
       active_content: contentJson === null ? null : JSON.parse(contentJson) as unknown
@@ -1356,33 +1357,33 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { type: ArtifactType; title: string; content: Record<string, unknown> } }>('/api/v1/books/:bookId/artifacts/generate', async (request) => {
-    return success(artifacts.create({ ...owner, bookId: request.params.bookId }, request.body.type, request.body.title, request.body.content, 'candidate'), request.id);
+    return success(artifacts.create({ ...owner(request), bookId: request.params.bookId }, request.body.type, request.body.title, request.body.content, 'candidate'), request.id);
   });
 
   app.get<{ Params: { bookId: string; artifactId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/versions', async (request) => {
-    return success(artifacts.versions({ ...owner, bookId: request.params.bookId }, request.params.artifactId), request.id);
+    return success(artifacts.versions({ ...owner(request), bookId: request.params.bookId }, request.params.artifactId), request.id);
   });
 
   app.post<{ Params: { bookId: string; artifactId: string }; Body: { versionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/select', async (request) => {
-    return success(artifacts.select({ ...owner, bookId: request.params.bookId }, request.params.artifactId, request.body.versionId), request.id);
+    return success(artifacts.select({ ...owner(request), bookId: request.params.bookId }, request.params.artifactId, request.body.versionId), request.id);
   });
 
   app.post<{ Params: { bookId: string; artifactId: string }; Body: { content: Record<string, unknown>; parentVersionId?: string | null } }>('/api/v1/books/:bookId/artifacts/:artifactId/versions', async (request) => {
     return success(artifacts.addVersion(
-      { ...owner, bookId: request.params.bookId }, request.params.artifactId, request.body.content, request.body.parentVersionId ?? null
+      { ...owner(request), bookId: request.params.bookId }, request.params.artifactId, request.body.content, request.body.parentVersionId ?? null
     ), request.id);
   });
 
   app.post<{ Params: { bookId: string; artifactId: string; versionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/versions/:versionId/reject', async (request) => {
-    return success(artifacts.reject({ ...owner, bookId: request.params.bookId }, request.params.artifactId, request.params.versionId), request.id);
+    return success(artifacts.reject({ ...owner(request), bookId: request.params.bookId }, request.params.artifactId, request.params.versionId), request.id);
   });
 
   app.get<{ Params: { bookId: string; artifactId: string }; Querystring: { left: string; right: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/compare', async (request) => {
-    return success(artifacts.compare({ ...owner, bookId: request.params.bookId }, request.query.left, request.query.right), request.id);
+    return success(artifacts.compare({ ...owner(request), bookId: request.params.bookId }, request.query.left, request.query.right), request.id);
   });
 
   app.post<{ Params: { bookId: string; artifactId: string }; Body: { historicalVersionId: string } }>('/api/v1/books/:bookId/artifacts/:artifactId/revert', async (request) => {
-    return success(artifacts.revert({ ...owner, bookId: request.params.bookId }, request.params.artifactId, request.body.historicalVersionId), request.id);
+    return success(artifacts.revert({ ...owner(request), bookId: request.params.bookId }, request.params.artifactId, request.body.historicalVersionId), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { type: DiscussionType; scopeText: string; createdByAgentId: string; participants: Array<{ agentId: string; reason: string }> } }>('/api/v1/books/:bookId/discussions', async (request) => {
@@ -1393,15 +1394,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         '讨论范围文本疑似编码损坏，包含 UTF-8 替换符或长问号串；请检查终端/脚本编码后重新发送',
         { damaged: encodingHealth.damaged, reason: encodingHealth.reason, replacementCharCount: encodingHealth.replacementCharCount, suspiciousQuestionMarkRun: encodingHealth.suspiciousQuestionMarkRun, totalLength: encodingHealth.totalLength }, false, 400);
     }
-    return success(discussions.create({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+    return success(discussions.create({ ...owner(request), bookId: request.params.bookId }, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; discussionId: string } }>('/api/v1/books/:bookId/discussions/:discussionId', async (request) => {
-    return success(discussions.require({ ...owner, bookId: request.params.bookId }, request.params.discussionId), request.id);
+    return success(discussions.require({ ...owner(request), bookId: request.params.bookId }, request.params.discussionId), request.id);
   });
 
   app.post<{ Params: { bookId: string; discussionId: string }; Body: { decisionId: string } }>('/api/v1/books/:bookId/discussions/:discussionId/confirm', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     if (ideation.isIdeationDiscussion(scope, request.params.discussionId)) {
       throw new DomainError(errorCodes.validation,
         '灵感不能整轮确认或直接写入正式内容；请只选择需要的一条建议，转为指定创作对象的作者意见。', {}, false, 409);
@@ -1413,13 +1414,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/ideation/members', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(ideation.members(scope), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/ideation/rounds', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(ideation.rounds(scope), request.id);
   });
@@ -1427,7 +1428,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string }; Body: {
     message: string; participantAgentIds: string[]; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/ideation/rounds', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(ideation.startRound(scope, request.body), request.id);
   });
@@ -1441,23 +1442,23 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     scopeNotes?: string | null;
     idempotencyKey: string;
   } }>('/api/v1/books/:bookId/ideation/rounds/:roundId/promote', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(ideation.promote(scope, request.params.roundId, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { volumeNumber: number; title: string } }>('/api/v1/books/:bookId/volumes', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     return success({ volumeId: chapters.createVolume(scope, request.body.volumeNumber, request.body.title) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { volumeId: string; chapterNumber: number; title: string } }>('/api/v1/books/:bookId/chapters', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     return success(chapters.createChapter(scope, request.body.volumeId, request.body.chapterNumber, request.body.title), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/chapters', async (request) => {
-    return success(chapters.list({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(chapters.list({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { count: 1 | 3 | 4 | 5; volumeTitle?: string; firstChapterTitle?: string } }>('/api/v1/books/:bookId/chapter-batches', async (request) => {
@@ -1474,7 +1475,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...(request.body.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
       ...(request.body.firstChapterTitle === undefined ? {} : { firstChapterTitle: request.body.firstChapterTitle })
     };
-    return success(chapterBatches.scheduleNewChapters({ ...owner, bookId: request.params.bookId }, request.body.count, options), request.id);
+    return success(chapterBatches.scheduleNewChapters({ ...owner(request), bookId: request.params.bookId }, request.body.count, options), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { volumeTitle?: string; chapterTitle?: string } }>('/api/v1/books/:bookId/writing-runs', async (request) => {
@@ -1482,15 +1483,15 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...(request.body?.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
       ...(request.body?.chapterTitle === undefined ? {} : { firstChapterTitle: request.body.chapterTitle })
     };
-    return success(chapterBatches.scheduleNewChapters({ ...owner, bookId: request.params.bookId }, 1, options), request.id);
+    return success(chapterBatches.scheduleNewChapters({ ...owner(request), bookId: request.params.bookId }, 1, options), request.id);
   });
 
   app.get<{ Params: { bookId: string; batchId: string } }>('/api/v1/books/:bookId/chapter-batches/:batchId', async (request) => {
-    return success(chapterBatches.require({ ...owner, bookId: request.params.bookId }, request.params.batchId), request.id);
+    return success(chapterBatches.require({ ...owner(request), bookId: request.params.bookId }, request.params.batchId), request.id);
   });
 
   app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const chapter = chapters.requireChapter(scope, request.params.chapterId);
     const manuscripts = database.prepare(`SELECT * FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at, manuscript_version_id`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
@@ -1512,7 +1513,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string; writingOrderId: string } }>('/api/v1/books/:bookId/writing-orders/:writingOrderId', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const order = database.prepare(`SELECT * FROM writing_orders WHERE writing_order_id = ? AND owner_id = ? AND book_id = ?`)
       .get(request.params.writingOrderId, scope.ownerId, scope.bookId);
     if (order === undefined) throw new Error('写作工单不存在或越权');
@@ -1524,24 +1525,24 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string; chapterId: string } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts', async (request) => {
     return success(database.prepare(`SELECT * FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at, manuscript_version_id`)
-      .all(config.ownerId, request.params.bookId, request.params.chapterId), request.id);
+      .all(owner(request).ownerId, request.params.bookId, request.params.chapterId), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { sourceName: string; text: string } }>(
     '/api/v1/books/:bookId/continuation-imports/preview', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId };
+      const scope = { ...owner(request), bookId: request.params.bookId };
       return success(continuationImports.preview(scope, request.body), request.id);
     }
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/continuation-imports/latest', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     return success(continuationImports.latest(scope), request.id);
   });
 
   app.get<{ Params: { bookId: string; importId: string } }>(
     '/api/v1/books/:bookId/continuation-imports/:importId', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId };
+      const scope = { ...owner(request), bookId: request.params.bookId };
       return success(continuationImports.get(scope, request.params.importId), request.id);
     }
   );
@@ -1549,13 +1550,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; importId: string }; Body: {
     chapters: Array<{ importChapterId: string; title: string; included: boolean }>;
   } }>('/api/v1/books/:bookId/continuation-imports/:importId/confirm', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     return success(continuationImports.confirm(scope, request.params.importId, request.body), request.id);
   });
 
   app.post<{ Params: { bookId: string; importId: string } }>(
     '/api/v1/books/:bookId/continuation-imports/:importId/analyze', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId };
+      const scope = { ...owner(request), bookId: request.params.bookId };
       return success(continuationImports.analyze(scope, request.params.importId), request.id);
     }
   );
@@ -1573,7 +1574,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM chapters c JOIN manuscript_versions m ON m.manuscript_version_id = COALESCE(c.canon_manuscript_version_id, c.current_manuscript_version_id)
       JOIN file_registry f ON f.file_id = m.file_id
       WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_id = ? AND f.status = 'active'
-    `).get(config.ownerId, request.params.bookId, request.params.chapterId) as { relative_path: string; manuscript_version_id: string; content_hash: string } | undefined;
+    `).get(owner(request).ownerId, request.params.bookId, request.params.chapterId) as { relative_path: string; manuscript_version_id: string; content_hash: string } | undefined;
     if (row === undefined) throw new Error('章节尚无可读取的正文或越权');
     const content = readFileSync(resolveInside(config.dataDir, row.relative_path), 'utf8');
     const start = Math.max(0, request.query.start ?? 0);
@@ -1584,7 +1585,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; chapterId: string }; Body: {
     baseManuscriptVersionId: string | null; content: string; note?: string | null;
   } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts/owner-drafts', async (request) => {
-    return success(ownerManuscripts.saveDraft({ ...owner, bookId: request.params.bookId }, {
+    return success(ownerManuscripts.saveDraft({ ...owner(request), bookId: request.params.bookId }, {
       chapterId: request.params.chapterId, ...request.body
     }), request.id);
   });
@@ -1592,7 +1593,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; chapterId: string }; Body: {
     expectedManuscriptVersionId: string;
   } }>('/api/v1/books/:bookId/chapters/:chapterId/manuscripts/current/withdraw', async (request) => {
-    return success(ownerManuscripts.withdrawDraft({ ...owner, bookId: request.params.bookId }, {
+    return success(ownerManuscripts.withdrawDraft({ ...owner(request), bookId: request.params.bookId }, {
       chapterId: request.params.chapterId,
       expectedManuscriptVersionId: request.body.expectedManuscriptVersionId
     }), request.id);
@@ -1600,7 +1601,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; instruction?: string | null } }>(
     '/api/v1/books/:bookId/chapters/:chapterId/rewrite', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId };
+      const scope = { ...owner(request), bookId: request.params.bookId };
       const gate = database.prepare(`SELECT confirmation_id, task_id, expected_canon_revision FROM chapter_approval_gates
         WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ? AND status = 'awaiting_owner'
         ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId) as {
@@ -1619,7 +1620,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>(
     '/api/v1/books/:bookId/chapters/:chapterId/finalize', async (request) => {
-      const scope = { ...owner, bookId: request.params.bookId };
+      const scope = { ...owner(request), bookId: request.params.bookId };
       const gate = database.prepare(`SELECT confirmation_id, task_id FROM chapter_approval_gates
         WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ? AND status = 'awaiting_owner'
         ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId) as {
@@ -1632,30 +1633,30 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {
-    return success({ entityId: canon.createEntity({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+    return success({ entityId: canon.createEntity({ ...owner(request), bookId: request.params.bookId }, request.body) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { namespace: string; name: string; description?: string; appliesTo: string[]; color?: string | null } }>('/api/v1/books/:bookId/tags', async (request) => {
-    return success(taxonomy.createTag({ ...owner, bookId: request.params.bookId }, {
+    return success(taxonomy.createTag({ ...owner(request), bookId: request.params.bookId }, {
       ...request.body, createdSource: 'boss', changesStoryFact: false
     }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: FactInput }>('/api/v1/books/:bookId/facts', async (request) => {
-    return success(canon.proposeFact({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+    return success(canon.proposeFact({ ...owner(request), bookId: request.params.bookId }, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { chapterId?: string } }>('/api/v1/books/:bookId/facts', async (request) => {
-    return success(canon.listFacts({ ...owner, bookId: request.params.bookId }, request.query.chapterId), request.id);
+    return success(canon.listFacts({ ...owner(request), bookId: request.params.bookId }, request.query.chapterId), request.id);
   });
 
   app.post<{ Params: { bookId: string; factId: string }; Body: { accept: boolean; resolution?: Record<string, unknown> } }>('/api/v1/books/:bookId/facts/:factId/review', async (request) => {
-    canon.reviewFact({ ...owner, bookId: request.params.bookId }, request.params.factId, request.body.accept, request.body.resolution ?? {});
+    canon.reviewFact({ ...owner(request), bookId: request.params.bookId }, request.params.factId, request.body.accept, request.body.resolution ?? {});
     return success({ factId: request.params.factId, reviewed: true }, request.id);
   });
 
   app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/accept', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
       .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
     if (target?.target_type === 'manuscript') {
@@ -1666,7 +1667,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number; note?: string } }>('/api/v1/books/:bookId/confirmations/:confirmationId/reject', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
       .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
     if (target?.target_type === 'manuscript') {
@@ -1684,41 +1685,41 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { layer?: MemoryLayer; agentId?: string; chapter?: number; canonRevision?: number } }>('/api/v1/books/:bookId/memories', async (request) => {
-    return success(memory.listActive({ ...owner, bookId: request.params.bookId }, request.query), request.id);
+    return success(memory.listActive({ ...owner(request), bookId: request.params.bookId }, request.query), request.id);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { layer?: MemoryLayer; agentId?: string; chapter?: number; canonRevision?: number } }>('/api/v1/books/:bookId/memory', async (request) => {
-    return success(memory.listActive({ ...owner, bookId: request.params.bookId }, request.query), request.id);
+    return success(memory.listActive({ ...owner(request), bookId: request.params.bookId }, request.query), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { query: string; roleKey?: string; mode?: RetrievalMode; taskId?: string; limit?: number;
     sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number; worldTime?: string | null; knowledgeTime?: string | null;
     viewpointEntityId?: string | null } }>('/api/v1/books/:bookId/retrievals', async (request) => {
     const { query, roleKey = 'chief_editor', mode = 'open_discussion', ...options } = request.body;
-    return success(await retrieval.search({ ...owner, bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
+    return success(await retrieval.search({ ...owner(request), bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { query: string; roleKey?: string; mode?: RetrievalMode; taskId?: string; limit?: number;
     sourceTypes?: string[]; adoptedSourceIds?: string[]; canonRevision: number; worldTime?: string | null; knowledgeTime?: string | null;
     viewpointEntityId?: string | null } }>('/api/v1/books/:bookId/retrieval/preview', async (request) => {
     const { query, roleKey = 'chief_editor', mode = 'open_discussion', ...options } = request.body;
-    return success(await retrieval.search({ ...owner, bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
+    return success(await retrieval.search({ ...owner(request), bookId: request.params.bookId }, { query, roleKey, mode, ...options }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: ContextPackInput }>('/api/v1/books/:bookId/context-packs', async (request) => {
-    return success(contextPacks.build({ ...owner, bookId: request.params.bookId }, request.body), request.id);
+    return success(contextPacks.build({ ...owner(request), bookId: request.params.bookId }, request.body), request.id);
   });
 
   app.get<{ Params: { bookId: string; contextPackId: string } }>('/api/v1/books/:bookId/context-packs/:contextPackId', async (request) => {
     const row = database.prepare(`
       SELECT * FROM context_packs WHERE context_pack_id = ? AND owner_id = ? AND book_id = ?
-    `).get(request.params.contextPackId, config.ownerId, request.params.bookId);
+    `).get(request.params.contextPackId, owner(request).ownerId, request.params.bookId);
     if (row === undefined) throw new Error('上下文包不存在或越权');
     return success(row, request.id);
   });
 
   app.get<{ Params: { bookId: string; entityId: string } }>('/api/v1/books/:bookId/entities/:entityId', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const entity = database.prepare(`SELECT * FROM entities WHERE entity_id = ? AND owner_id = ? AND book_id = ?`)
       .get(request.params.entityId, scope.ownerId, scope.bookId);
     if (entity === undefined) throw new Error('实体不存在或越权');
@@ -1728,7 +1729,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/canon', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const book = database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId);
     const revisions = database.prepare(`SELECT * FROM canon_revisions WHERE owner_id = ? AND book_id = ? ORDER BY revision DESC`).all(scope.ownerId, scope.bookId);
     const changes = database.prepare(`SELECT * FROM canon_revisions_log WHERE owner_id = ? AND book_id = ? ORDER BY to_revision DESC`).all(scope.ownerId, scope.bookId);
@@ -1737,12 +1738,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/confirmations', async (request) => {
     return success(database.prepare(`SELECT * FROM confirmations WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC`)
-      .all(config.ownerId, request.params.bookId), request.id);
+      .all(owner(request).ownerId, request.params.bookId), request.id);
   });
 
 
   app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/author-attachments', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     try {
       const part = await request.file();
       if (part === undefined) throw new DomainError(errorCodes.validation, '请选择一个附件');
@@ -1766,7 +1767,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.get<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/author-attachments/:attachmentId/content', async (request, reply) => {
     const { record, buffer } = authorAttachments.readSource(
-      { ...owner, bookId: request.params.bookId }, request.params.attachmentId
+      { ...owner(request), bookId: request.params.bookId }, request.params.attachmentId
     );
     reply.header('content-type', record.mimeType);
     reply.header('content-disposition', 'inline');
@@ -1776,17 +1777,17 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; attachmentId: string } }>('/api/v1/books/:bookId/author-attachments/:attachmentId/discard', async (request) => {
     return success(authorAttachmentView(authorAttachments.discard(
-      { ...owner, bookId: request.params.bookId }, request.params.attachmentId
+      { ...owner(request), bookId: request.params.bookId }, request.params.attachmentId
     )), request.id);
   });
 
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/tasks', async (request) => {
-    return success(tasks.list({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(tasks.list({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.get<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const task = tasks.require(scope, request.params.taskId);
     const phases = database.prepare(`SELECT * FROM task_phases WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY entered_at, phase_key`)
       .all(scope.ownerId, scope.bookId, request.params.taskId);
@@ -1798,20 +1799,20 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/pause', async (request) => {
-    tasks.requestPause({ ...owner, bookId: request.params.bookId }, request.params.taskId);
+    tasks.requestPause({ ...owner(request), bookId: request.params.bookId }, request.params.taskId);
     return success({ taskId: request.params.taskId, pauseRequested: true }, request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/resume', async (request) => {
-    return success(tasks.queue({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+    return success(tasks.queue({ ...owner(request), bookId: request.params.bookId }, request.params.taskId), request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/retry', async (request) => {
-    return success(tasks.retryFailed({ ...owner, bookId: request.params.bookId }, request.params.taskId), request.id);
+    return success(tasks.retryFailed({ ...owner(request), bookId: request.params.bookId }, request.params.taskId), request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     const cancelledTask = tasks.requestCancel(scope, request.params.taskId);
     volumePlanGenerations.reconcileTerminal(scope, cancelledTask);
     const modelCalls = database.prepare(`SELECT request_id FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
@@ -1824,7 +1825,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/projections/rebuild', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     canon.rebuildProjections(scope);
     const narrative = projections.rebuild(scope);
     const relationship = (database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection
@@ -1835,45 +1836,45 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { type?: NarrativeProjectionType } }>('/api/v1/books/:bookId/projections', async (request) => {
-    return success(projections.list({ ...owner, bookId: request.params.bookId }, request.query.type), request.id);
+    return success(projections.list({ ...owner(request), bookId: request.params.bookId }, request.query.type), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { title: string; content: string; rightsPath: RightsPath; authorization?: Record<string, unknown> } }>('/api/v1/books/:bookId/copyright/sources', async (request) => {
-    return success({ copyrightSourceId: copyright.registerSource({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+    return success({ copyrightSourceId: copyright.registerSource({ ...owner(request), bookId: request.params.bookId }, request.body) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { sourceId: string; abstraction: Record<string, unknown>; prohibitedTerms: string[] } }>('/api/v1/books/:bookId/copyright/structure-cards', async (request) => {
-    return success({ structureCardId: copyright.createStructureCard({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.abstraction, request.body.prohibitedTerms) }, request.id);
+    return success({ structureCardId: copyright.createStructureCard({ ...owner(request), bookId: request.params.bookId }, request.body.sourceId, request.body.abstraction, request.body.prohibitedTerms) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { structureCardId: string } }>('/api/v1/books/:bookId/copyright/cleanroom-packages', async (request) => {
-    return success({ cleanroomPackageId: copyright.buildCleanroomPackage({ ...owner, bookId: request.params.bookId }, request.body.structureCardId) }, request.id);
+    return success({ cleanroomPackageId: copyright.buildCleanroomPackage({ ...owner(request), bookId: request.params.bookId }, request.body.structureCardId) }, request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { sourceId: string; targetType: string; targetId: string; targetContent: string } }>('/api/v1/books/:bookId/copyright/checks', async (request) => {
-    return success(copyright.checkTarget({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.targetType, request.body.targetId, request.body.targetContent), request.id);
+    return success(copyright.checkTarget({ ...owner(request), bookId: request.params.bookId }, request.body.sourceId, request.body.targetType, request.body.targetId, request.body.targetContent), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { title: string; content: string; url?: string | null; publisher?: string | null; publishedAt?: string | null; region?: string | null; language: string; credibility: number } }>('/api/v1/books/:bookId/research/sources', async (request) => {
-    return success({ researchSourceId: research.addProvidedSource({ ...owner, bookId: request.params.bookId }, request.body) }, request.id);
+    return success({ researchSourceId: research.addProvidedSource({ ...owner(request), bookId: request.params.bookId }, request.body) }, request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/research/sources', async (request) => {
-    return success(research.listSources({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(research.listSources({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Params: { bookId: string }; Body: { sourceId: string; claim: string; evidence: string } }>('/api/v1/books/:bookId/research/claims', async (request) => {
-    return success({ researchClaimId: research.addCandidateClaim({ ...owner, bookId: request.params.bookId }, request.body.sourceId, request.body.claim, request.body.evidence) }, request.id);
+    return success({ researchClaimId: research.addCandidateClaim({ ...owner(request), bookId: request.params.bookId }, request.body.sourceId, request.body.claim, request.body.evidence) }, request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/research/claims', async (request) => {
-    return success(research.listClaims({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(research.listClaims({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/copyright/summary', async (request) => {
-    books.require({ ...owner, bookId: request.params.bookId });
+    books.require({ ...owner(request), bookId: request.params.bookId });
     const count = (table: string): unknown => database.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE owner_id = ? AND book_id = ?`)
-      .get(config.ownerId, request.params.bookId);
+      .get(owner(request).ownerId, request.params.bookId);
     return success({
       sources: count('copyright_sources'),
       structureCards: count('abstract_structure_cards'),
@@ -1883,20 +1884,20 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         SELECT target_type, target_id, risk_level, decision, created_at
         FROM copyright_checks WHERE owner_id = ? AND book_id = ?
         ORDER BY created_at DESC, copyright_check_id DESC LIMIT 20
-      `).all(config.ownerId, request.params.bookId)
+      `).all(owner(request).ownerId, request.params.bookId)
     }, request.id);
   });
 
   app.get<{ Params: { bookId: string }; Querystring: { query: string } }>('/api/v1/books/:bookId/research/offline-status', async (request) => {
-    books.require({ ...owner, bookId: request.params.bookId });
+    books.require({ ...owner(request), bookId: request.params.bookId });
     return success(research.offlineStatus(request.query.query), request.id);
   });
 
   app.post<{ Params: { bookId: string; factId: string }; Body: Omit<FactInput, 'grade'> }>('/api/v1/books/:bookId/facts/:factId/correct-request', async (request) => {
     const existing = database.prepare(`SELECT 1 FROM fact_assertions WHERE fact_id = ? AND owner_id = ? AND book_id = ?`)
-      .get(request.params.factId, config.ownerId, request.params.bookId);
+      .get(request.params.factId, owner(request).ownerId, request.params.bookId);
     if (existing === undefined) throw new Error('待纠正事实不存在或越权');
-    return success(canon.proposeFact({ ...owner, bookId: request.params.bookId }, { ...request.body, grade: 'D' }), request.id);
+    return success(canon.proposeFact({ ...owner(request), bookId: request.params.bookId }, { ...request.body, grade: 'D' }), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/budgets', async (request) => {
@@ -1904,16 +1905,16 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       SELECT budget_id, mode, token_limit, cash_limit_micros, reserved_tokens,
              reserved_cash_micros, spent_tokens, spent_cash_micros, status, created_at, updated_at
       FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at, budget_id
-    `).all(config.ownerId, request.params.bookId), request.id);
+    `).all(owner(request).ownerId, request.params.bookId), request.id);
   });
 
   app.patch<{
     Params: { bookId: string; budgetId: string };
     Body: { expectedTokenLimit: number; tokenLimit: number };
   }>('/api/v1/books/:bookId/budgets/:budgetId', async (request) => {
-    books.require({ ...owner, bookId: request.params.bookId });
+    books.require({ ...owner(request), bookId: request.params.bookId });
     return success(budgets.reviseTokenLimit(
-      { ...owner, bookId: request.params.bookId }, request.params.budgetId,
+      { ...owner(request), bookId: request.params.bookId }, request.params.budgetId,
       request.body.expectedTokenLimit, request.body.tokenLimit
     ), request.id);
   });
@@ -1925,28 +1926,28 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
              COUNT(*) AS call_count
       FROM usage_ledger WHERE owner_id = ? AND book_id = ?
       GROUP BY provider, model_id ORDER BY provider, model_id
-    `).all(config.ownerId, request.params.bookId), request.id);
+    `).all(owner(request).ownerId, request.params.bookId), request.id);
   });
 
   // P0-5: 暴露无主预留巡检与中断调用手动调和入口。无活动调用且无调和记录的预留必须为0；
   // 中断调用可由人工/供应商确认后推进到 reusable/retry_safe/release，避免永久冻结。
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/budgets/reconciliation', async (request) => {
-    books.require({ ...owner, bookId: request.params.bookId });
+    books.require({ ...owner(request), bookId: request.params.bookId });
     return success(modelCalls.reportUnreconciledReservations(
-      { ownerId: config.ownerId, bookId: request.params.bookId }
+      { ownerId: owner(request).ownerId, bookId: request.params.bookId }
     ), request.id);
   });
 
   app.post<{ Params: { bookId: string; requestId: string } }>('/api/v1/books/:bookId/model-calls/:requestId/reconcile', async (request) => {
-    books.require({ ...owner, bookId: request.params.bookId });
+    books.require({ ...owner(request), bookId: request.params.bookId });
     return success(modelCalls.reconcileInterruptedCall(
-      { ownerId: config.ownerId, bookId: request.params.bookId }, request.params.requestId
+      { ownerId: owner(request).ownerId, bookId: request.params.bookId }, request.params.requestId
     ), request.id);
   });
 
   // P0-4: 主编模型恢复后，在无活动/未知调用安全边界手动回切主编；不满足边界时返回原因不切。
   app.post<{ Params: { bookId: string }; Body: { chiefAgentId: string } }>('/api/v1/books/:bookId/editor/revert', async (request) => {
-    const scope = { ...owner, bookId: request.params.bookId };
+    const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     return success(editors.safeRevertToChief(scope, request.body.chiefAgentId), request.id);
   });
@@ -1954,14 +1955,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post('/api/v1/backups', async (request) => success(backups.create(), request.id));
 
   app.post<{ Params: { bookId: string } }>('/api/v1/books/:bookId/export', async (request) => {
-    return success(portability.exportBook({ ...owner, bookId: request.params.bookId }), request.id);
+    return success(portability.exportBook({ ...owner(request), bookId: request.params.bookId }), request.id);
   });
 
   app.post<{ Body: { packageName: string } }>('/api/v1/imports/copy', async (request) => {
-    return success(portability.importCopy(owner, request.body.packageName), request.id);
+    return success(portability.importCopy(owner(request), request.body.packageName), request.id);
   });
 
-  app.get('/api/v1/portability/operations', async (request) => success(portability.listOperations(owner.ownerId), request.id));
+  app.get('/api/v1/portability/operations', async (request) => success(portability.listOperations(owner(request).ownerId), request.id));
 
   app.get('/api/v1/operations/status', async (request) => {
     const volume = statfsSync(config.dataDir);

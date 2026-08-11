@@ -7,23 +7,26 @@ const ORIGIN = 'http://127.0.0.1:43110';
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
+let accountCounter = 0;
 async function sessionCookie(app: Awaited<ReturnType<typeof createServer>>): Promise<string> {
+  accountCounter += 1;
   const response = await app.inject({
-    method: 'POST', url: '/api/v1/runtime/session', payload: {},
+    method: 'POST', url: '/api/v1/auth/register',
+    payload: { email: `policy-${accountCounter}@example.com`, password: 'policy-pass-123', displayName: '安全测试' },
     headers: { host: HOST, origin: ORIGIN, 'sec-fetch-site': 'same-site', 'content-type': 'application/json' }
   });
   const rawCookie = response.headers['set-cookie'];
   return (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
 }
 
-describe('本机HTTP请求策略', () => {
+describe('统一账号HTTP请求策略', () => {
   it('health最小化且所有响应带安全头', async () => {
     context = createTestContext('wenmi-policy-health-');
     const app = await createServer(context.config, context.database);
     try {
       const response = await app.inject({ method: 'GET', url: '/health', headers: { host: HOST } });
       expect(response.statusCode).toBe(200);
-      expect(response.json().data).toEqual({ service: 'wenmi-api', status: 'ok', releaseId: context.config.releaseId, time: expect.any(String) });
+      expect(response.json().data).toEqual({ service: 'wenmi-api', status: 'ok', worker: 'possibly_offline', canStartModelTasks: false, releaseId: context.config.releaseId, time: expect.any(String) });
       expect(response.headers['content-security-policy']).toContain("frame-ancestors 'none'");
       expect(response.headers['x-content-type-options']).toBe('nosniff');
       expect(response.headers['referrer-policy']).toBe('no-referrer');

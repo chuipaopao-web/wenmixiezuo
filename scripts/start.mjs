@@ -145,34 +145,20 @@ async function waitForApi() {
 }
 
 async function verifyRuntimeSmoke() {
-  const sessionResponse = await fetch('http://127.0.0.1:43111/api/v1/runtime/session', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: 'http://127.0.0.1:43110',
-      'sec-fetch-site': 'same-site'
-    },
-    body: '{}'
-  });
-  if (!sessionResponse.ok) throw new Error(`runtime session smoke failed: ${sessionResponse.status}`);
-  const cookie = sessionResponse.headers.get('set-cookie')?.split(';', 1)[0];
-  if (!cookie) throw new Error('runtime session smoke did not receive a cookie');
-
   const deadline = Date.now() + 15_000;
-  let readiness;
+  let health;
   while (Date.now() < deadline) {
-    const response = await fetch('http://127.0.0.1:43111/api/v1/runtime/readiness', { headers: { cookie } });
+    const response = await fetch('http://127.0.0.1:43111/health');
     if (response.ok) {
-      readiness = (await response.json()).data;
-      if (readiness.worker === 'ready') break;
+      health = (await response.json()).data;
+      if (health.worker === 'ready') break;
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
   }
-  if (readiness?.worker !== 'ready') throw new Error('runtime worker smoke did not become ready');
+  if (health?.worker !== 'ready') throw new Error('runtime worker smoke did not become ready');
 
-  const capabilityResponse = await fetch('http://127.0.0.1:43111/api/v1/capabilities', { headers: { cookie } });
-  if (!capabilityResponse.ok) throw new Error(`runtime capability smoke failed: ${capabilityResponse.status}`);
-  const capabilities = (await capabilityResponse.json()).data;
+  const protectedResponse = await fetch('http://127.0.0.1:43111/api/v1/auth/me');
+  if (protectedResponse.status !== 401) throw new Error(`runtime login gate smoke failed: ${protectedResponse.status}`);
 
   let webReady = false;
   while (Date.now() < deadline) {
@@ -188,15 +174,12 @@ async function verifyRuntimeSmoke() {
   if (!webReady) throw new Error('runtime web smoke did not become ready');
   console.log(JSON.stringify({
     smoke: 'passed',
-    session: 'http-only-cookie',
-    worker: readiness.worker,
-    nodeVersion: capabilities.runtime.nodeVersion,
-    sqliteFts5: capabilities.sqlite.fts5,
-    vectorSearchAvailable: capabilities.degradation.vectorSearchAvailable,
+    account: 'login-required',
+    worker: health.worker,
+    database: health.status,
     web: 'ready'
   }));
 }
-
 process.once('SIGINT', () => stopAll(0));
 process.once('SIGTERM', () => stopAll(0));
 

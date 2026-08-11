@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
@@ -120,18 +121,7 @@ function sleep(ms) {
 let cookie = '';
 
 async function issueSession() {
-  const response = await fetch(`${API}/api/v1/runtime/session`, {
-    method: 'POST',
-    headers: {
-      origin: ORIGIN,
-      'sec-fetch-site': 'same-site',
-      'content-type': 'application/json'
-    },
-    body: '{}'
-  });
-  if (!response.ok) throw new Error(`runtime session failed: ${response.status} ${await response.text()}`);
-  cookie = response.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
-  if (cookie.length === 0) throw new Error('runtime session did not return a cookie');
+  cookie = await loginEvaluationAccount({ api: API, origin: ORIGIN });
 }
 
 async function request(path, options = {}) {

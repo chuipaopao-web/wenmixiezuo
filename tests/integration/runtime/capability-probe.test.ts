@@ -45,7 +45,7 @@ describe('本机能力探针', () => {
     expect(JSON.stringify(snapshot)).not.toContain(context.config.workerToken);
   });
 
-  it('通过受会话保护的能力接口公开脱敏快照', async () => {
+  it('通过受登录保护的能力接口公开脱敏快照', async () => {
     context = createTestContext('wenmi-capabilities-route-');
     const app = await createServer(context.config, context.database);
     try {
@@ -53,7 +53,7 @@ describe('本机能力探针', () => {
       const origin = context.config.webOrigin;
       expect((await app.inject({ method: 'GET', url: '/api/v1/capabilities', headers: { host } })).statusCode).toBe(401);
       const session = await app.inject({
-        method: 'POST', url: '/api/v1/runtime/session', payload: {},
+        method: 'POST', url: '/api/v1/auth/register', payload: { email: 'capability@example.com', password: 'capability-pass-123', displayName: '能力测试' },
         headers: { host, origin, 'sec-fetch-site': 'same-site', 'content-type': 'application/json' }
       });
       const rawCookie = session.headers['set-cookie'];

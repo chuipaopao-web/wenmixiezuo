@@ -1,3 +1,4 @@
+import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 const API = process.env.WENMI_VALIDATION_API ?? 'http://127.0.0.1:43111';
 const ORIGIN = process.env.WENMI_VALIDATION_ORIGIN ?? 'http://127.0.0.1:43110';
 const BOOK_ID = 'da2a9158-28ab-4c4a-ab2a-e3c4aae0fd77';
@@ -7,17 +8,7 @@ let cookie = '';
 
 async function request(path, options = {}) {
   if (cookie.length === 0) {
-    const session = await fetch(`${API}/api/v1/runtime/session`, {
-      method: 'POST',
-      headers: {
-        origin: ORIGIN,
-        'sec-fetch-site': 'same-site',
-        'content-type': 'application/json'
-      },
-      body: '{}'
-    });
-    if (!session.ok) throw new Error(await session.text());
-    cookie = session.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+    cookie = await loginEvaluationAccount({ api: API, origin: ORIGIN });
   }
   const method = options.method ?? 'GET';
   const headers = { cookie };

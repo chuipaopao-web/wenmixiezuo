@@ -1,3 +1,4 @@
+import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 const baseUrl = 'http://127.0.0.1:43111';
 const bookId = '4d348004-ed3e-4aac-8cf6-6473bc82957b';
 
@@ -17,9 +18,7 @@ async function request(path, init = {}) {
   return { body: body.data, response };
 }
 
-const session = await request('/api/v1/runtime/session', { method: 'POST', body: '{}' });
-const cookie = session.response.headers.get('set-cookie')?.split(';')[0];
-if (!cookie) throw new Error('runtime session cookie missing');
+const cookie = await loginEvaluationAccount({ api: baseUrl, origin: 'http://127.0.0.1:43110' });
 const headers = { cookie, 'content-type': 'application/json' };
 
 const artifacts = (await request(`/api/v1/books/${bookId}/artifacts`, { headers })).body;

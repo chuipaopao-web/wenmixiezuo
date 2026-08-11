@@ -56,6 +56,7 @@
 - React、TypeScript、Vite、Node.js稳定LTS、Fastify、SQLite、LanceDB OSS本地投影、REST与SSE。
 - 本地模块化单体加独立Worker；服务只监听 `127.0.0.1`。
 - 业务层通过Repository访问数据；Worker不得直接修改核心业务表或正式正文。
+- 本机和公网统一使用账号登录，不保留免登录产品旁路；业务请求的 owner_id 只能来自已验证会话。
 - 核心对象和查询携带 `owner_id`、`book_id`；跨书污染必须为0。
 - 正文使用不可变完整版本；任何修改创建新版本。
 - SQLite正式对象和不可变原文是权威源；FTS、向量、图谱、Wiki和摘要都是可重建投影。

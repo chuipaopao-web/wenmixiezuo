@@ -87,7 +87,7 @@ describe('完整创作工作台', () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     render(<App />);
-    expect(await screen.findByText('无法连接文秘写作服务，请重新启动应用后再试。')).toBeInTheDocument();
+    expect(await screen.findByText('无法连接文秘写作服务，请稍后再试。')).toBeInTheDocument();
     expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
   });
 
@@ -217,6 +217,7 @@ describe('完整创作工作台', () => {
 
     render(<App />);
     const bookRail = await screen.findByRole('complementary', { name: '书籍栏' });
+    await waitFor(() => expect(bookRail.querySelectorAll('.book-rail-cover')).toHaveLength(2));
     expect(within(bookRail).getByRole('button', { name: '打开《烬骨问天》，20章流程测试' })).toBeInTheDocument();
     expect(within(bookRail).getByRole('button', { name: '打开《烬骨问天》，20章验收测试' })).toBeInTheDocument();
     expect(within(bookRail).getByText('20章流程测试', { exact: false })).toBeInTheDocument();
@@ -235,9 +236,10 @@ describe('完整创作工作台', () => {
       return baseRouter(input, init);
     }));
     render(<App />);
-    const functionBar = await screen.findByRole('navigation', { name: '功能栏' });
-    fireEvent.click(within(functionBar).getByRole('button', { name: '章纲' }));
-    expect(within(functionBar).getByRole('button', { name: '章纲' })).toHaveAttribute('aria-current', 'page');
+    const chapterOutlineButton = await screen.findByRole('button', { name: '章纲' });
+    const functionBar = screen.getByRole('navigation', { name: '功能栏' });
+    fireEvent.click(chapterOutlineButton);
+    expect(chapterOutlineButton).toHaveAttribute('aria-current', 'page');
 
     const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
     fireEvent.click(within(bookRail).getByRole('button', { name: /北境军报/ }));
@@ -522,7 +524,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input));
     const path = url.pathname;
-    if (path === '/api/v1/runtime/session') return apiResponse({ authenticated: true, expiresInSeconds: 1800 });
+    if (path === '/api/v1/auth/me') return apiResponse({ userId: 'user-ui', email: 'boss@example.com', displayName: '老板', role: 'admin', status: 'active' });
     if (path === '/api/v1/capabilities') return apiResponse({
       releaseId: 'release-ui', checkedAt: new Date().toISOString(),
       runtime: { platform: 'win32', architecture: 'x64', nodeVersion: process.version, logicalCpuCount: 16, totalMemoryBytes: 1, freeMemoryBytes: 1, dataVolumeFreeBytes: 1 },

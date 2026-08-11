@@ -14,7 +14,9 @@ describe('Web基础入口', () => {
   it('显示统一创作台入口并按产品决定隐藏连接状态图标', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input)).pathname;
-      const data = path === '/health'
+      const data = path === '/api/v1/auth/me'
+        ? { userId: 'user-web', email: 'boss@example.com', displayName: '老板', role: 'admin', status: 'active' }
+        : path === '/health'
         ? { service: 'wenmi-api', status: 'ok', releaseId: 'wm-v1-20260716-220959-d5dd704d', schemaVersion: 9 }
         : path === '/api/v1/books'
           ? []

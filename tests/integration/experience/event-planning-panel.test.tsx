@@ -14,7 +14,6 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';
     const body=init?.body===undefined?null:JSON.parse(String(init.body)) as Record<string,unknown>;
     requests.push({path,method,body,query:url.search});
-    if(path==='/api/v1/runtime/session')return response({authenticated:true,expiresInSeconds:1800});
     if(path.endsWith('/workflow'))return response(workflow());
     if(path.endsWith('/volume-plans'))return response([volumePlan()]);
     if(path.endsWith('/planning-templates'))return response(templateCatalog());
@@ -81,7 +80,6 @@ it('已完成卷仍可回看事件链与事件大纲，不会被当成空白当�
   const requests:string[]=[];
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
-    if(path==='/api/v1/runtime/session')return response({authenticated:true,expiresInSeconds:1800});
     if(path.endsWith('/workflow'))return response({...workflow(),stage:'ready_for_next_volume',planningVersion:23});
     if(path.endsWith('/volume-plans'))return response([completedPlan]);
     if(path.endsWith('/planning-templates'))return response(templateCatalog());
