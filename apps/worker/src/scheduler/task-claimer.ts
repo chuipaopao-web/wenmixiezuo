@@ -28,9 +28,9 @@ export class TaskClaimer {
     private readonly now: () => Date = () => new Date()
   ) {}
 
-  public claimNext(now = this.now()): ClaimedTask | null {
+  public claimNext(now = this.now(), leaseMs = 15_000): ClaimedTask | null {
     const nowIso = now.toISOString();
-    const leaseExpiresAt = new Date(now.getTime() + 15_000).toISOString();
+    const leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
     const leaseToken = randomUUID();
     this.database.exec('BEGIN IMMEDIATE');
     try {

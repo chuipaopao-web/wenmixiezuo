@@ -1,6 +1,8 @@
 import type { WorkerHeartbeat } from '../health/heartbeat.js';
 import type { TaskClaimer } from '../scheduler/task-claimer.js';
 import type { ChapterTaskExecutor } from '../executors/chapter-task-executor.js';
+const WORKER_EXECUTION_LEASE_MS = 120_000;
+
 
 export class WorkerLoop {
   #timer: NodeJS.Timeout | undefined;
@@ -31,7 +33,7 @@ export class WorkerLoop {
     this.#working = true;
     try {
       this.claimer.recoverExpired();
-      const task = this.claimer.claimNext();
+      const task = this.claimer.claimNext(undefined, WORKER_EXECUTION_LEASE_MS);
       if (task === null) return;
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
@@ -41,7 +43,7 @@ export class WorkerLoop {
         let leaseError: Error | null = null;
         const renewal = setInterval(() => {
           try {
-            this.claimer.renew(task);
+            this.claimer.renew(task, WORKER_EXECUTION_LEASE_MS);
           } catch (error) {
             leaseError = error instanceof Error ? error : new Error(String(error));
             controller.abort(leaseError);

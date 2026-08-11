@@ -82,11 +82,17 @@ export class ProjectionTaskExecutor {
     }
     try {
       const vectorBuild = row.projection_type === 'vector' ? await this.buildVector(row) : null;
+      // FTS rows belong to an inactive snapshot. Building that snapshot does not need to
+      // hold SQLite's global writer lock because readers cannot select it until the
+      // watermark switch below commits. Keeping this potentially large rebuild outside
+      // the final transaction lets author confirmations and chapter settlement proceed.
+      // A canon change during the build is caught by requireReadySnapshot before switching.
+      const ftsProbes = row.projection_type === 'fts' ? await this.executeFts(row) : null;
       this.database.exec('BEGIN IMMEDIATE');
       try {
         this.requireReadySnapshot(row);
         const probes = row.projection_type === 'fts'
-          ? this.executeFts(row)
+          ? ftsProbes!
           : row.projection_type === 'vector' && vectorBuild !== null
             ? this.finalizeVector(row, vectorBuild, now.toISOString())
             : (() => { throw new Error('PROJECTION_EXECUTOR_NOT_AVAILABLE'); })();
@@ -191,15 +197,19 @@ export class ProjectionTaskExecutor {
       || snapshot.book_canon_revision !== row.required_canon_revision) throw new Error('PROJECTION_SOURCE_NOT_READY');
   }
 
-  private executeFts(row: ProjectionRow): Record<string, unknown> {
+  private async executeFts(row: ProjectionRow): Promise<Record<string, unknown>> {
     this.requireReadySnapshot(row);
     const chunks = this.listProjectionChunks(row, 'fts');
     const insert = this.database.prepare(`INSERT INTO content_chunks_fts(content_chunk_id, owner_id, book_id, chunk_snapshot_id, index_text) VALUES (?, ?, ?, ?, ?)`);
     const remove = this.database.prepare(`DELETE FROM content_chunks_fts
       WHERE content_chunk_id = ? AND owner_id = ? AND book_id = ? AND chunk_snapshot_id = ?`);
-    for (const chunk of chunks) {
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index]!;
       remove.run(chunk.content_chunk_id, row.owner_id, row.book_id, chunk.chunk_snapshot_id);
       insert.run(chunk.content_chunk_id, row.owner_id, row.book_id, chunk.chunk_snapshot_id, lexicalizeChinese(chunk.index_text));
+      // Briefly leave the writer lane open between small batches so foreground author
+      // actions are never starved by a large, rebuildable search projection.
+      if ((index + 1) % 32 === 0) await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
     }
     return { rows: chunks.length, sourceReady: true, scopeChecked: true, ftsProbe: chunks.length > 0 };
   }

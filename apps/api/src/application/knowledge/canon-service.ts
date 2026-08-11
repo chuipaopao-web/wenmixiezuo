@@ -761,6 +761,9 @@ export class CanonService {
   }
 
   private findConflictingFact(scope: BookScope, input: FactInput): FactRow | undefined {
+    // A character can have multiple allies, partners, or rivals; relationships are a multi-value set.
+    if (isRelationshipFactKey(input.relationKey)) return undefined;
+
     const conflict = this.database.prepare(`
       SELECT * FROM fact_assertions
       WHERE owner_id = ? AND book_id = ? AND subject_entity_id = ? AND relation_key = ?

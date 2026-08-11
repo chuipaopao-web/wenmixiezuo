@@ -101,6 +101,32 @@ describe('正史投影与冲突', () => {
     expect(context.database.prepare(`SELECT status FROM fact_assertions WHERE fact_id = ?`).get(second.factId)).toEqual({ status: 'active' });
   });
 
+  it('同一人物可以同时拥有多个同类关系，不会误判为事实冲突', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const canon = new CanonService(context.database, ids, clock);
+    const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '陆昭' });
+    canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '叶绯' });
+    canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '石拓' });
+    const first = canon.proposeFact(fixture.scope, {
+      subjectEntityId: entityId, relationKey: 'relationship.cooperation', value: '叶绯',
+      evidence: [{ quote: '陆昭与叶绯并肩行动' }], grade: 'B',
+      sourceChapterId: fixture.chapterId, sourceManuscriptVersionId: fixture.manuscriptVersionId
+    });
+    const second = canon.proposeFact(fixture.scope, {
+      subjectEntityId: entityId, relationKey: 'relationship.cooperation', value: '石拓',
+      evidence: [{ quote: '陆昭又与石拓共同守阵' }], grade: 'B',
+      sourceChapterId: fixture.chapterId, sourceManuscriptVersionId: fixture.manuscriptVersionId
+    });
+    expect(first).toMatchObject({ status: 'approved', conflictId: null });
+    expect(second).toMatchObject({ status: 'approved', conflictId: null });
+    canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, {});
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection
+      WHERE owner_id = ? AND book_id = ? AND relation_key = 'relationship.cooperation'`)
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 2 });
+  });
   it('兼容中文关系键并从说明文字中识别唯一关系对象', () => {
     context = createTestContext();
     const ids = new SequenceIds();

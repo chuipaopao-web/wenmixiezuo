@@ -29,8 +29,10 @@ Remove-Item -LiteralPath $stopRequestPath -Force -ErrorAction SilentlyContinue
 
 function Test-WenmiReady {
   try {
-    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/health' -TimeoutSec 2
-    $web = Invoke-WebRequest -Uri 'http://127.0.0.1:43110' -UseBasicParsing -TimeoutSec 2
+    # The first local request may include antivirus and Vite cold-start work. The
+    # surrounding deadline remains the real startup bound, so avoid a false failure here.
+    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:43111/health' -TimeoutSec 5
+    $web = Invoke-WebRequest -Uri 'http://127.0.0.1:43110' -UseBasicParsing -TimeoutSec 5
     return (
       $health.data.status -eq 'ok' -and
       $health.data.releaseId -eq $expectedReleaseId -and
@@ -143,7 +145,7 @@ if ($null -eq $publishedLauncher -or [int]$publishedLauncher.processId -ne $laun
 $childProcess = Get-Process -Id $launcherProcess.Id -ErrorAction SilentlyContinue
 if ($null -eq $childProcess) { throw 'Wenmi process exited before startup verification completed.' }
 
-$deadline = (Get-Date).AddSeconds(30)
+$deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $deadline -and -not (Test-WenmiReady)) {
   Start-Sleep -Milliseconds 250
 }

@@ -18,7 +18,11 @@ describe('Worker受限Repository', () => {
     tasks.create(scope, { taskId: 'task-worker', taskType: 'runtime_probe', idempotencyKey: 'worker', initialPhase: 'execute', brief: {} });
     tasks.queue(scope, 'task-worker');
     const claimer = new TaskClaimer(context.database, 'worker-test', () => clock.now());
-    const claimed = claimer.claimNext(clock.now())!;
+    const claimed = claimer.claimNext(clock.now(), 120_000)!;
+    expect(Date.parse(tasks.require(scope, 'task-worker').leaseExpiresAt!) - clock.now().getTime()).toBe(120_000);
+    const renewedAt = new Date(clock.now().getTime() + 30_000);
+    expect(() => claimer.renew(claimed, 120_000, renewedAt)).not.toThrow();
+    expect(Date.parse(tasks.require(scope, 'task-worker').leaseExpiresAt!) - renewedAt.getTime()).toBe(120_000);
     claimer.complete(claimed, { deterministic: true });
     expect(tasks.require(scope, 'task-worker').status).toBe('succeeded');
     expect(context.database.prepare("SELECT status FROM task_phases WHERE task_id = 'task-worker'").get()).toEqual({ status: 'succeeded' });

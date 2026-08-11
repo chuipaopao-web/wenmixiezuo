@@ -81,7 +81,14 @@ export class VolumePlanService {
 
   public workflow(scope: BookScope): CreationWorkflowStateView {
     const now = this.clock.now().toISOString();
-    const row = this.unitOfWork.run(() => this.ensureWorkflow(scope, now));
+    const current = this.repository.workflow(scope);
+    const settingNeedsReconciliation = current !== undefined
+      && this.repository.settingBaseline(scope) !== undefined
+      && ['book_profile_draft', 'book_profile_confirmed', 'setting_in_progress'].includes(current.stage);
+    // A normal workflow read must not compete with chapter settlement for SQLite's writer lock.
+    // Only first-time initialization or an actual stage reconciliation opens a write transaction.
+    const row = current !== undefined && !settingNeedsReconciliation
+      ? current : this.unitOfWork.run(() => this.ensureWorkflow(scope, now));
     const activeVersion = row.active_volume_plan_id === null || row.active_volume_plan_version_id === null
       ? undefined
       : this.repository.version(scope, row.active_volume_plan_id, row.active_volume_plan_version_id);

@@ -1,3 +1,5 @@
+import { genreExpansionScenarioInputs } from './current-workflow-genre-expansion-scenarios.mjs';
+
 const TEN_CHAPTER_PHASES = [
   '压力落到主角身上并迫使表态', '确认规则与第一处异常', '让同伴主动加入并提出不同判断',
   '第一次执行受阻并暴露真实代价', '对手根据主角行动调整策略', '队伍因目标差异发生分歧',
@@ -235,10 +237,12 @@ const esports = makeScenario({
   ]
 });
 
-export const workflowScenarios = Object.freeze({ xianxia, esports });
+const gameXianxia = makeScenario(genreExpansionScenarioInputs.game_xianxia);
+const lord = makeScenario(genreExpansionScenarioInputs.lord);
+export const workflowScenarios = Object.freeze({ xianxia, esports, game_xianxia: gameXianxia, lord });
 
 export function requireWorkflowScenario(key) {
   const scenario = workflowScenarios[key];
-  if (scenario === undefined) throw new Error(`未知验收场景：${key}；只允许xianxia或esports`);
+  if (scenario === undefined) throw new Error(`未知验收场景：${key}；只允许xianxia、esports、game_xianxia或lord`);
   return scenario;
 }

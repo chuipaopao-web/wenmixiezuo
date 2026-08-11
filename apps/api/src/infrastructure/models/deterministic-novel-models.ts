@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
 import type { ReviewerRole } from '../../contracts/production-review.js';
 import { buildEsportsNovel, longXianxiaPlan } from './deterministic-longform-scenarios.js';
+import {
+  buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
+} from './deterministic-structured-genre-scenarios.js';
 
 interface DraftPrompt {
   operation: 'draft';
@@ -184,6 +187,8 @@ function productionReview(
 }
 
 export function deterministicFactCandidates(content: string): Array<Record<string, unknown>> {
+  const structuredFacts = structuredGenreFactCandidates(content);
+  if (structuredFacts.length > 0) return structuredFacts;
   const candidates: Array<Record<string, unknown>> = [];
   const chapterNumber = Number(content.match(/^第(\d+)章/u)?.[1] ?? 0);
   const storyTime = chapterNumber > 0 ? `第${chapterNumber}章` : null;
@@ -334,6 +339,12 @@ function parseWriterPrompt(raw: string): WriterPromptEnvelope {
 
 function buildContextAwareNovel(bookId: string, prompt: DraftPrompt, sources: WriterContextSource[]): string {
   const context = sources.map((source) => source.content ?? '').join('\n');
+  if (/(灵契天墟|陆昭|霜尾|御灵剑使|灵宠状态|镜像祭坛)/u.test(context)) {
+    return buildGameXianxiaNovel(bookId, prompt.chapterNumber, prompt.title);
+  }
+  if (/(灰烬领主|顾临川|灰烬领|领地状态|资源结算|黑旗伯)/u.test(context)) {
+    return buildLordNovel(bookId, prompt.chapterNumber, prompt.title);
+  }
   if (/(游戏体育|电子竞技|电竞|联赛|战队|帧率|经济曲线|零帧|总决赛)/u.test(context)) {
     return buildEsportsNovel(bookId, prompt.chapterNumber, prompt.title, context);
   }
