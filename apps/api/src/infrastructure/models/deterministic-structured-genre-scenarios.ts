@@ -198,8 +198,66 @@ export function buildLordNovel(bookId: string, chapterNumber: number, title: str
   return paragraphs.join('\n\n');
 }
 
+const gameLordReplacementPairs: ReadonlyArray<readonly [string, string]> = [
+  ['顾临川','苏砚'],['灰烬领','晨星领'],['秦瑶','宁霜'],['岳重山','铁山'],['商九娘','商晚'],['赫连朔','裴烈'],['黑旗伯','狼爵'],
+  ['武将属性','英雄属性'],['苍原边境领','界域边境领'],['灵晶','界晶'],['领地状态：晨星领','领主面板：晨星领']
+];
+
+const douluoReplacementPairs: ReadonlyArray<readonly [string, string]> = [
+  ['陆昭','顾星河'],['霜尾','银羽'],['叶绯','洛清弦'],['石拓','石岳'],['乌槐','叶璃'],['赫连魇','司空夜'],
+  ['御灵剑使','星轮魂师'],['职业等级','魂力等级'],['人物状态','魂师状态'],['灵宠状态','魂兽伙伴状态'],
+  ['灵宠等级','魂兽成长等级'],['灵宠','魂兽伙伴'],['职业','武魂'],['技能','魂技'],['灵力','魂力'],['经验','修炼记录'],
+  ['镜像祭坛','镜魂祭坛'],['星痕剑阵','星轮锁域'],['御灵基础剑式','星轮第一魂技'],['赤月剑匣','星纹魂骨匣'],['青铜灵剑','星纹短刃'],
+  ['天墟城觉醒广场','诺丁边城武魂觉醒堂'],['灰晶矿洞','寒铁矿洞'],['灵宠竞技场','魂兽斗场'],['浮空学院遗迹','天斗学院旧遗迹'],
+  ['天墟主城榜塔','魂师总榜塔'],['赤月副本','星斗大森林赤月谷'],['兽潮边境城','索托边城'],['世界树根域','星斗古树根域'],
+  ['王都职业公审台','天斗城魂师公审台'],['天门核心','封号试炼天门'],['职业公会','武魂分殿'],['玩家','魂师'],
+  ['平等契约','平等盟约'],['契约关系','盟约关系'],['契约','盟约'],['进化','血脉觉醒'],['灵兽','魂兽'],['幼兽','幼年魂兽'],['星火灵狐','星羽灵狐']
+];
+
+function replaceScenarioText(content: string, pairs: ReadonlyArray<readonly [string, string]>): string {
+  return pairs.reduce((current, [from, to]) => current.split(from).join(to), content);
+}
+
+function reverseScenarioText(content: string, pairs: ReadonlyArray<readonly [string, string]>): string {
+  return [...pairs].sort((left, right) => right[1].length - left[1].length).reduce((current, [from, to]) => current.split(to).join(from), content);
+}
+
+function replaceScenarioValue(value: unknown, pairs: ReadonlyArray<readonly [string, string]>): unknown {
+  if (typeof value === 'string') return replaceScenarioText(value, pairs);
+  if (Array.isArray(value)) return value.map((item) => replaceScenarioValue(item, pairs));
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [replaceScenarioText(key, pairs), replaceScenarioValue(item, pairs)]));
+  }
+  return value;
+}
+
+export function buildGameLordNovel(bookId: string, chapterNumber: number, title: string): string {
+  const transformed = replaceScenarioText(buildLordNovel(bookId, chapterNumber, title), gameLordReplacementPairs);
+  return `${transformed}\n\n第${chapterNumber}章的领主面板核验只记录已经入库的资源、完成的建筑和人物实际承担的结果；尚在路上或仍属推测的内容继续保持未知，并在下一章重新核对。`;
+}
+
+export function buildDouluoFanficNovel(bookId: string, chapterNumber: number, title: string): string {
+  const transformed = replaceScenarioText(buildGameXianxiaNovel(bookId, chapterNumber, title), douluoReplacementPairs);
+  const soulPower = 10 + Math.min(30, Math.floor((chapterNumber - 1) / 3) + 1);
+  const rings = chapterNumber < 40 ? '第一魂环百年' : chapterNumber < 70 ? '第一魂环百年、第二魂环百年' : '第一魂环百年、第二魂环百年、第三魂环千年';
+  return transformed
+    .replace(/^第(\d+)章 ([^\n]+)\n\n/u, (_match, number, chapterTitle) => `第${number}章 ${chapterTitle}\n\n故事位于斗罗大陆边境的原创支线，不复述既有主线。`)
+    .replace(/魂力等级\d+级，体魄/gu, `魂力等级${soulPower}级，魂环配置${rings}，体魄`);
+}
+
+function transformedFacts(content: string, chapterNumber: number, pairs: ReadonlyArray<readonly [string, string]>, source: 'lord' | 'game'): Array<Record<string, unknown>> {
+  const reversed = reverseScenarioText(content, pairs);
+  const facts = source === 'lord' ? lordFacts(reversed, chapterNumber) : gameFacts(reversed, chapterNumber);
+  const transformed = facts.map((fact) => replaceScenarioValue(fact, pairs) as Record<string, unknown>);
+  return source === 'game' && pairs === douluoReplacementPairs
+    ? transformed.map((fact) => replaceScenarioValue(fact, [['人物属性','魂师状态'],['灵宠属性','魂兽伙伴状态']]) as Record<string, unknown>)
+    : transformed;
+}
+
 export function structuredGenreFactCandidates(content: string): Array<Record<string, unknown>> {
   const chapterNumber = Number(content.match(/^第(\d+)章/u)?.[1] ?? 0);
+  if (content.includes('领主面板：晨星领') && content.includes('资源结算')) return transformedFacts(content, chapterNumber, gameLordReplacementPairs, 'lord');
+  if (content.includes('魂师状态：顾星河') && content.includes('魂兽伙伴状态：银羽')) return transformedFacts(content, chapterNumber, douluoReplacementPairs, 'game');
   if (content.includes('御灵剑使') && content.includes('灵宠状态')) return gameFacts(content, chapterNumber);
   if (content.includes('灰烬领') && content.includes('资源结算')) return lordFacts(content, chapterNumber);
   return [];

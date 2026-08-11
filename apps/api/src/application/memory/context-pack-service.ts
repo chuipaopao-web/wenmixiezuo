@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { runWithSqliteBusyRetry } from '../../infrastructure/db/sqlite-busy-retry.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
@@ -165,7 +166,7 @@ export class ContextPackService {
       contentHash: createHash('sha256').update(source.content).digest('hex')
     })))).digest('hex');
     const contextPackId = this.ids.next();
-    this.database.prepare(`
+    runWithSqliteBusyRetry(() => this.database.prepare(`
       INSERT INTO context_packs (
         context_pack_id, owner_id, book_id, task_id, agent_id, chapter_id,
         canon_revision, positioning_version, outline_version_id,
@@ -179,7 +180,7 @@ export class ContextPackService {
       input.outlineVersionId ?? null, input.writingContractVersionId ?? null,
       input.tokenBudget, totalTokens, stableJson(manifest), stableJson(excluded),
       contentHash, policyVersion, sourceFingerprint, this.clock.now().toISOString()
-    );
+    ));
     return {
       contextPackId,
       totalTokens,

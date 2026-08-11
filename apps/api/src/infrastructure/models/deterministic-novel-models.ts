@@ -3,7 +3,7 @@ import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js
 import type { ReviewerRole } from '../../contracts/production-review.js';
 import { buildEsportsNovel, longXianxiaPlan } from './deterministic-longform-scenarios.js';
 import {
-  buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
+  buildDouluoFanficNovel, buildGameLordNovel, buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
 } from './deterministic-structured-genre-scenarios.js';
 
 interface DraftPrompt {
@@ -331,7 +331,13 @@ function parseWriterPrompt(raw: string): WriterPromptEnvelope {
 }
 
 function buildContextAwareNovel(bookId: string, prompt: DraftPrompt, sources: WriterContextSource[]): string {
-  const context = sources.map((source) => source.content ?? '').join('\n');
+  const context = [prompt.title, prompt.previousState ?? '', ...sources.map((source) => source.content ?? '')].join('\n');
+  if (/(界域领主日志|苏砚|晨星领|领主面板|英雄属性|狼爵)/u.test(context)) {
+    return buildGameLordNovel(bookId, prompt.chapterNumber, prompt.title);
+  }
+  if (/(斗罗星轮行|斗罗大陆|武魂觉醒战|顾星河|银羽|星轮魂师|魂力等级|镜魂祭坛)/u.test(context)) {
+    return buildDouluoFanficNovel(bookId, prompt.chapterNumber, prompt.title);
+  }
   if (/(灵契天墟|陆昭|霜尾|御灵剑使|灵宠状态|镜像祭坛)/u.test(context)) {
     return buildGameXianxiaNovel(bookId, prompt.chapterNumber, prompt.title);
   }

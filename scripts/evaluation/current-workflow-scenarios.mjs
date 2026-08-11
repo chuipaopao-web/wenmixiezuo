@@ -237,12 +237,53 @@ const esports = makeScenario({
   ]
 });
 
+function deepReplace(value, pairs) {
+  if (typeof value === 'string') return pairs.reduce((text, [from, to]) => text.split(from).join(to), value);
+  if (Array.isArray(value)) return value.map((item) => deepReplace(item, pairs));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, deepReplace(item, pairs)]));
+  return value;
+}
+
+function transformedScenarioInput(base, overrides, pairs) {
+  return { ...base, ...overrides,
+    openingBlueprint(taxonomyVersion) { return deepReplace(base.openingBlueprint(taxonomyVersion), pairs); },
+    expressionProfile: deepReplace(base.expressionProfile, pairs), answers: deepReplace(base.answers, pairs), eventMetas: deepReplace(base.eventMetas, pairs)
+  };
+}
+
+const gameLordInput = transformedScenarioInput(genreExpansionScenarioInputs.lord, {
+  key: 'game_lord', bookTitle: '界域领主日志', displayName: '游戏领主数据流百章验收', volumeTitle: '第一卷·晨星边境',
+  volumeGoal: '苏砚通过十个因果连续事件，把八十一人的晨星领经营成三级游戏领地，守住资源、人口与自治权。',
+  requiredNames: ['苏砚','宁霜','铁山','商晚','裴烈','狼爵'], requiredTerms: ['领主面板','领地等级','资源产出','英雄属性','建筑面板','升级消耗规划'],
+  forbiddenTerms: ['顾临川','灰烬领','陆昭','霜尾','顾星河','银羽','沈砚','顾野'], settingFallback: '领地人口、库存、资源产出、英雄、建筑与升级必须有正文来源并能连续对账。'
+}, [['灰烬领主','界域领主日志'],['顾临川','苏砚'],['灰烬领','晨星领'],['秦瑶','宁霜'],['岳重山','铁山'],['商九娘','商晚'],['赫连朔','裴烈'],['黑旗伯','狼爵'],['武将','英雄'],['苍原诸领','界域诸领'],['灵晶','界晶']]);
+
+const douluoBaseInput = transformedScenarioInput(genreExpansionScenarioInputs.game_xianxia, {
+  key: 'douluo_fanfic', bookTitle: '斗罗星轮行', displayName: '斗罗原创同人支线百章验收', volumeTitle: '第一卷·星轮初鸣',
+  volumeGoal: '原创魂师顾星河与魂兽伙伴银羽通过十个连续事件，阻止镜魂祭坛篡改武魂和魂环记录，并守住彼此独立成长的权利。',
+  requiredNames: ['顾星河','银羽','洛清弦','石岳','叶璃','司空夜'], requiredTerms: ['斗罗大陆','武魂','魂力等级','魂环','魂技','星斗大森林'],
+  forbiddenTerms: ['陆昭','霜尾','顾临川','灰烬领','沈砚','顾野','唐三','小舞'], settingFallback: '武魂、魂力、魂环、魂技、魂骨和人物知情范围必须前后一致；原创支线不复述原著正文或既有主角剧情。'
+}, [['灵契天墟','斗罗星轮行'],['职业觉醒战','武魂觉醒战'],['陆昭','顾星河'],['霜尾','银羽'],['叶绯','洛清弦'],['石拓','石岳'],['乌槐','叶璃'],['赫连魇','司空夜'],['御灵剑使','星轮魂师'],['职业等级','魂力等级'],['职业','武魂'],['技能','魂技'],['灵宠','魂兽伙伴'],['镜像祭坛','镜魂祭坛'],['星痕剑阵','星轮锁域'],['赤月剑匣','星纹魂骨匣'],['青铜灵剑','星纹短刃'],['天墟城觉醒广场','诺丁边城武魂觉醒堂'],['灰晶矿洞','寒铁矿洞'],['灵宠竞技场','魂兽斗场'],['浮空学院','天斗学院'],['赤月副本','星斗大森林赤月谷'],['兽潮边境','索托边城'],['王都','天斗城'],['天门','封号试炼天门'],['游戏规则侵入的仙侠异界','斗罗大陆背景中的原创边境支线'],['玩家','魂师'],['经验','修炼记录'],['契约','盟约'],['平等灵契','平等盟约'],['人物属性','魂师状态'],['灵宠属性','魂兽伙伴状态'],['进化','血脉觉醒']]);
+
+const douluoInput = {
+  ...douluoBaseInput,
+  openingBlueprint(taxonomyVersion) {
+    const blueprint = douluoBaseInput.openingBlueprint(taxonomyVersion);
+    return {
+      ...blueprint,
+      auxiliaryTags: blueprint.auxiliaryTags.filter((tag) => tag !== '武魂魂技树'),
+      customTags: [...new Set([...blueprint.customTags, '武魂魂技树'])]
+    };
+  }
+};
 const gameXianxia = makeScenario(genreExpansionScenarioInputs.game_xianxia);
 const lord = makeScenario(genreExpansionScenarioInputs.lord);
-export const workflowScenarios = Object.freeze({ xianxia, esports, game_xianxia: gameXianxia, lord });
+const gameLord = makeScenario(gameLordInput);
+const douluoFanfic = makeScenario(douluoInput);
+export const workflowScenarios = Object.freeze({ xianxia, esports, game_xianxia: gameXianxia, lord, game_lord: gameLord, douluo_fanfic: douluoFanfic });
 
 export function requireWorkflowScenario(key) {
   const scenario = workflowScenarios[key];
-  if (scenario === undefined) throw new Error(`未知验收场景：${key}；只允许xianxia、esports、game_xianxia或lord`);
+  if (scenario === undefined) throw new Error(`未知验收场景：${key}；只允许xianxia、esports、game_xianxia、lord、game_lord或douluo_fanfic`);
   return scenario;
 }

@@ -37,6 +37,7 @@ import { KnowledgeRepository } from '../../infrastructure/db/repositories/knowle
 import { ChunkSnapshotRepository } from '../../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import { runWithSqliteBusyRetry } from '../../infrastructure/db/sqlite-busy-retry.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
@@ -543,8 +544,9 @@ export class ChapterPipelineService {
       hardSources,
       optionalSources
     });
-    this.database.prepare(`UPDATE chapter_pipeline_runs SET context_pack_id = ?, phase = 'draft', updated_at = ? WHERE pipeline_run_id = ?`)
-      .run(pack.contextPackId, this.clock.now().toISOString(), run.pipeline_run_id);
+    runWithSqliteBusyRetry(() => this.database
+      .prepare(`UPDATE chapter_pipeline_runs SET context_pack_id = ?, phase = 'draft', updated_at = ? WHERE pipeline_run_id = ?`)
+      .run(pack.contextPackId, this.clock.now().toISOString(), run.pipeline_run_id));
     return this.reload(run.pipeline_run_id);
   }
 

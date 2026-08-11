@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
+  buildDouluoFanficNovel, buildGameLordNovel, buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
 } from '../../apps/api/src/infrastructure/models/deterministic-structured-genre-scenarios.js';
 import { countNovelCharacters } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 // @ts-expect-error Runtime acceptance scenarios are maintained as executable ESM fixtures.
 import { requireWorkflowScenario } from '../../scripts/evaluation/current-workflow-scenarios.mjs';
+import { OPENING_TAXONOMY, validateOpeningBlueprint } from '../../apps/api/src/contracts/opening-blueprint.js';
 
 describe('结构化题材百章确定性夹具', () => {
   it('游戏仙侠百章保留职业、人物与灵宠双面板、战斗消耗和十事件差异', () => {
@@ -81,13 +82,53 @@ describe('结构化题材百章确定性夹具', () => {
     ]));
   });
 
+  it('游戏领主百章使用独立人物、领主面板、英雄面板与连续资源账', () => {
+    const chapters = Array.from({ length: 100 }, (_, index) => buildGameLordNovel('game-lord-book', index + 1, `游戏领主第${index + 1}章`));
+    expect(chapters.every((chapter) => countNovelCharacters(chapter) >= 2_780 && countNovelCharacters(chapter) <= 3_650)).toBe(true);
+    const whole = chapters.join('\n');
+    for (const text of ['苏砚','晨星领','领主面板','资源结算','资源产出','铁山英雄属性','建筑面板','升级消耗规划']) expect(whole).toContain(text);
+    for (const leaked of ['顾临川','灰烬领','陆昭','霜尾','顾星河','银羽']) expect(whole).not.toContain(leaked);
+    const facts = structuredGenreFactCandidates(chapters[99]!);
+    expect(facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectName:'晨星领', entityType:'organization' }),
+      expect.objectContaining({ subjectName:'铁山', entityType:'character' }),
+      expect.objectContaining({ subjectName:'粮食', entityType:'resource' }),
+      expect.objectContaining({ subjectName:'晨星领经营面板', entityType:'stat_panel' })
+    ]));
+  });
+
+  it('斗罗原创同人百章保留世界辨识度、原创人物、魂力成长与版权边界', () => {
+    const chapters = Array.from({ length: 100 }, (_, index) => buildDouluoFanficNovel('douluo-book', index + 1, `斗罗支线第${index + 1}章`));
+    expect(chapters.every((chapter) => countNovelCharacters(chapter) >= 2_780 && countNovelCharacters(chapter) <= 3_650)).toBe(true);
+    const whole = chapters.join('\n');
+    for (const text of ['斗罗大陆','顾星河','银羽','武魂','魂力等级','魂环配置','魂技','星斗大森林','星纹魂骨匣']) expect(whole).toContain(text);
+    for (const leaked of ['陆昭','霜尾','顾临川','灰烬领','唐三','小舞']) expect(whole).not.toContain(leaked);
+    const facts = structuredGenreFactCandidates(chapters[99]!);
+    expect(facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectName:'顾星河', entityType:'character' }),
+      expect.objectContaining({ subjectName:'银羽', entityType:'character' }),
+      expect.objectContaining({ subjectName:'顾星河魂师状态面板', entityType:'stat_panel' }),
+      expect.objectContaining({ subjectName:'银羽魂兽伙伴属性面板', entityType:'stat_panel' })
+    ]));
+  });
+
   it('两个新场景都注册为十事件百章对象链', () => {
-    for (const key of ['game_xianxia','lord']) {
+    for (const key of ['game_xianxia','lord','game_lord','douluo_fanfic']) {
       const scenario = requireWorkflowScenario(key);
       expect(scenario.events).toHaveLength(10);
       expect(scenario.events.every((event: { estimatedChapterRange: { likely: number } }) => event.estimatedChapterRange.likely === 10)).toBe(true);
       expect(scenario.bookTitle.length).toBeLessThanOrEqual(15);
     }
+  });
+
+  it('keeps catalog-only subjects separate from custom story tags', () => {
+    for (const key of ['game_lord', 'douluo_fanfic']) {
+      const blueprint = requireWorkflowScenario(key).openingBlueprint(OPENING_TAXONOMY.version);
+      expect(() => validateOpeningBlueprint(blueprint)).not.toThrow();
+    }
+    const douluo = requireWorkflowScenario('douluo_fanfic').openingBlueprint(OPENING_TAXONOMY.version);
+    expect(douluo.auxiliaryTags).not.toContain('武魂魂技树');
+    expect(douluo.customTags).toContain('武魂魂技树');
   });
 });
 

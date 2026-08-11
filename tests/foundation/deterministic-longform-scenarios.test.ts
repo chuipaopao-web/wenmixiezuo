@@ -23,6 +23,29 @@ function draftPrompt(chapterNumber: number, title: string, sources: Array<{ sour
 }
 
 describe('确定性长篇题材场景', () => {
+  it('仅凭首章标题也能把新领主与斗罗场景路由到专用写手', async () => {
+    const adapter = new DeterministicNovelWriterAdapter();
+    const lord = await adapter.generate({
+      ...baseRequest,
+      bookId: 'game-lord-title-route',
+      prompt: draftPrompt(1, '接管晨星领·压力落地', [])
+    });
+    const douluo = await adapter.generate({
+      ...baseRequest,
+      bookId: 'douluo-title-route',
+      prompt: draftPrompt(1, '武魂觉醒战·压力落地', [])
+    });
+
+    expect(lord.output).toContain('苏砚');
+    expect(lord.output).toContain('晨星领');
+    expect(lord.output).toContain('领主面板');
+    expect(lord.output).not.toContain('林澈');
+    expect(douluo.output).toContain('顾星河');
+    expect(douluo.output).toContain('银羽');
+    expect(douluo.output).toContain('斗罗大陆');
+    expect(douluo.output).not.toContain('林澈');
+  });
+
   it('修仙正文超过二十章后继续推进新事件，不重复猎场终章', async () => {
     const adapter = new DeterministicNovelWriterAdapter();
     const sources = [{
