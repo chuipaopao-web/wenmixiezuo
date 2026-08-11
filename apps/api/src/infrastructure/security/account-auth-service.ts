@@ -54,6 +54,7 @@ export class AccountAuthService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly secureCookies: boolean,
+    private readonly legacyOwnerId: string,
     private readonly ttlSeconds = SESSION_TTL_SECONDS
   ) {}
 
@@ -65,7 +66,7 @@ export class AccountAuthService {
     const passwordHash = await derivePasswordHash(password, salt);
     const now = new Date().toISOString();
     const userId = randomUUID();
-    const ownerId = randomUUID();
+    const generatedOwnerId = randomUUID();
 
     this.database.exec('BEGIN IMMEDIATE');
     try {
@@ -75,17 +76,41 @@ export class AccountAuthService {
       }
       const accountCount = Number((this.database.prepare('SELECT COUNT(*) AS total FROM user_accounts').get() as { total: number }).total);
       const role: AccountRole = accountCount === 0 ? 'admin' : 'user';
-      this.database.prepare(`
-        INSERT INTO owners (owner_id, display_name, version, created_at, updated_at)
-        VALUES (?, ?, 1, ?, ?)
-      `).run(ownerId, displayName, now, now);
+      const legacyOwner = accountCount === 0
+        ? this.database.prepare(`
+            SELECT o.owner_id
+            FROM owners o
+            WHERE o.owner_id = ?
+              AND EXISTS (
+                SELECT 1 FROM books b
+                WHERE b.owner_id = o.owner_id AND b.status <> 'purged'
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM user_accounts a WHERE a.owner_id = o.owner_id
+              )
+            LIMIT 1
+          `).get(this.legacyOwnerId) as { owner_id: string } | undefined
+        : undefined;
+      const ownerId = legacyOwner?.owner_id ?? generatedOwnerId;
+      if (legacyOwner === undefined) {
+        this.database.prepare(`
+          INSERT INTO owners (owner_id, display_name, version, created_at, updated_at)
+          VALUES (?, ?, 1, ?, ?)
+        `).run(ownerId, displayName, now, now);
+      } else {
+        this.database.prepare('UPDATE owners SET display_name = ?, updated_at = ? WHERE owner_id = ?')
+          .run(displayName, now, ownerId);
+      }
       this.database.prepare(`
         INSERT INTO user_accounts (
           user_id, owner_id, email_normalized, display_name, password_salt, password_hash,
           role, status, created_at, updated_at, last_login_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
       `).run(userId, ownerId, email, displayName, salt, passwordHash, role, now, now, now);
-      this.recordAudit('register', userId, email, userId, now, { role });
+      this.recordAudit('register', userId, email, userId, now, {
+        role,
+        adoptedLegacyData: legacyOwner !== undefined
+      });
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');

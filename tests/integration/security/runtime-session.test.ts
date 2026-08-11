@@ -110,6 +110,9 @@ describe('统一用户账号与登录会话', () => {
       const rows = context.database.prepare('SELECT user_id, owner_id, email_normalized FROM user_accounts ORDER BY created_at').all() as unknown as Array<{ user_id: string; owner_id: string; email_normalized: string }>;
       const admin = rows.find((row) => row.email_normalized === 'admin@example.com')!;
       const user = rows.find((row) => row.email_normalized === 'reader@example.com')!;
+      expect(admin.owner_id).toBe(context.config.ownerId);
+      expect(user.owner_id).not.toBe(context.config.ownerId);
+      expect(user.owner_id).not.toBe(admin.owner_id);
       const now = new Date().toISOString();
       context.database.prepare(`
         INSERT INTO books (book_id, owner_id, title, status, version, positioning_version, canon_revision, editor_epoch, created_at, updated_at)
@@ -118,9 +121,11 @@ describe('统一用户账号与登录会话', () => {
 
       const overview = await app.inject({ method: 'GET', url: '/api/v1/admin/overview', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(overview.statusCode).toBe(200);
-      expect(overview.json().data.totalBooks).toBe(1);
+      expect(overview.json().data.totalBooks).toBe(2);
 
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } })).json().data).toHaveLength(1);
+      const adminBooks = (await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } })).json().data;
+      expect(adminBooks).toHaveLength(2);
+      expect(adminBooks.map((book: { bookId: string }) => book.bookId).sort()).toEqual(['admin-book', 'legacy-book']);
       expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).json().data).toHaveLength(0);
 
       const suspend = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.user_id}/status`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { status: 'suspended' } });

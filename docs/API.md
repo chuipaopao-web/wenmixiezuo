@@ -14,7 +14,7 @@
 - `GET /health`：公开的API、轻量数据库探针与Worker心跳状态；不创建账号会话，也不在高频探针中执行全库扫描。
 - `GET /api/v1/runtime/worker`：Worker心跳和队列状态。
 - `GET /api/v1/runtime/readiness`：数据库、迁移、模型与投影准备度。
-- `POST /api/v1/auth/register`：邮箱、密码、昵称注册；首个账号原子授予管理员角色并签发会话。
+- `POST /api/v1/auth/register`：邮箱、密码、昵称注册；首个账号原子授予管理员角色，并在存在未认领本机老板数据时接管该所有者；后续账号创建全新独立所有者并签发会话。
 - `POST /api/v1/auth/login`：邮箱密码登录，成功后签发 HttpOnly Cookie。
 - `POST /api/v1/auth/logout`：撤销当前会话并清除 Cookie。
 - `GET /api/v1/auth/me`：读取当前账号公开资料与角色。

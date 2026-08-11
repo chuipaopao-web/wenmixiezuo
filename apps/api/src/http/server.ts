@@ -70,7 +70,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   await app.register(multipart, {
     limits: { files: 1, fileSize: 20 * 1024 * 1024, fields: 0, parts: 1 }
   });
-  const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'));
+  const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'), config.ownerId);
   registerRequestPolicy(app, config, accounts, options);
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);

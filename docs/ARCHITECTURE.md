@@ -69,7 +69,7 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 
 ## 12. 账号、会话与管理后台
 
-认证属于基础设施边界，但账号状态和管理员权限由应用服务判定。`user_accounts` 一对一关联 `owners`；`auth_sessions` 只保存随机令牌的 SHA-256 摘要；密码使用每账号独立盐值的 scrypt 摘要。浏览器通过 HttpOnly、SameSite=Lax Cookie 维持会话，HTTPS 部署额外启用 Secure。所有业务路由在进入应用服务前从会话解析 `user_id + owner_id + role`，领域路由不再读取固定配置所有者。
+认证属于基础设施边界，但账号状态和管理员权限由应用服务判定。`user_accounts` 一对一关联 `owners`；首次注册在事务内优先复用尚未认领且含本机书籍的历史老板所有者，后续注册创建新所有者。升级库只重新绑定唯一空管理员的所有者关系，不批量改写任何创作表。`auth_sessions` 只保存随机令牌的 SHA-256 摘要；密码使用每账号独立盐值的 scrypt 摘要。浏览器通过 HttpOnly、SameSite=Lax Cookie 维持会话，HTTPS 部署额外启用 Secure。所有业务路由在进入应用服务前从会话解析 `user_id + owner_id + role`，领域路由不再读取固定配置所有者。
 
 首个注册使用 `BEGIN IMMEDIATE` 原子判断并授予管理员角色。管理员路由只提供统计、用户检索、暂停和恢复；暂停用户时撤销其所有活动会话。不能暂停当前管理员自己或最后一个活动管理员。测试注入身份只存在于受控测试配置，不进入生产路由。
 
