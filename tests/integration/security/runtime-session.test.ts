@@ -94,6 +94,15 @@ describe('统一用户账号与登录会话', () => {
     context = createTestContext('wenmi-account-isolation-');
     const app = await createServer(context.config, context.database);
     try {
+      const legacyNow = new Date().toISOString();
+      context.database.prepare(`
+        INSERT INTO owners (owner_id, display_name, version, created_at, updated_at)
+        VALUES (?, '升级前本机用户', 1, ?, ?)
+      `).run(context.config.ownerId, legacyNow, legacyNow);
+      context.database.prepare(`
+        INSERT INTO books (book_id, owner_id, title, status, version, positioning_version, canon_revision, editor_epoch, created_at, updated_at)
+        VALUES ('legacy-book', ?, '升级前测试书', 'active', 1, 0, 0, 0, ?, ?)
+      `).run(context.config.ownerId, legacyNow, legacyNow);
       const first = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-789', displayName: '管理员' } });
       const second = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'reader@example.com', password: 'strong-pass-987', displayName: '读者' } });
       const adminCookie = cookieFrom(first);
@@ -106,6 +115,10 @@ describe('统一用户账号与登录会话', () => {
         INSERT INTO books (book_id, owner_id, title, status, version, positioning_version, canon_revision, editor_epoch, created_at, updated_at)
         VALUES ('admin-book', ?, '管理员的书', 'active', 1, 0, 0, 0, ?, ?)
       `).run(admin.owner_id, now, now);
+
+      const overview = await app.inject({ method: 'GET', url: '/api/v1/admin/overview', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
+      expect(overview.statusCode).toBe(200);
+      expect(overview.json().data.totalBooks).toBe(1);
 
       expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } })).json().data).toHaveLength(1);
       expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).json().data).toHaveLength(0);

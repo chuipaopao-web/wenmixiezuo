@@ -154,7 +154,12 @@ export class AccountAuthService {
         SUM(CASE WHEN status = 'suspended' THEN 1 ELSE 0 END) AS suspended
       FROM user_accounts
     `).get() as { total: number; active: number | null; suspended: number | null };
-    const books = this.database.prepare("SELECT COUNT(*) AS total FROM books WHERE status <> 'purged'").get() as { total: number };
+    const books = this.database.prepare(`
+      SELECT COUNT(*) AS total
+      FROM books b
+      INNER JOIN user_accounts a ON a.owner_id = b.owner_id
+      WHERE b.status <> 'purged'
+    `).get() as { total: number };
     return {
       totalUsers: Number(users.total),
       activeUsers: Number(users.active ?? 0),

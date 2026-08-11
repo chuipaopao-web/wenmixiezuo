@@ -40,7 +40,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       <article><strong>{overview.totalUsers}</strong><span>全部用户</span></article>
       <article><strong>{overview.activeUsers}</strong><span>正常使用</span></article>
       <article><strong>{overview.suspendedUsers}</strong><span>已暂停</span></article>
-      <article><strong>{overview.totalBooks}</strong><span>全部书籍</span></article>
+      <article><strong>{overview.totalBooks}</strong><span>用户书籍</span></article>
     </div>}
     <div className="admin-filters">
       <label><span className="sr-only">搜索用户</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索昵称或邮箱" /></label>
