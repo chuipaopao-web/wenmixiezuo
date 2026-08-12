@@ -1,3 +1,5 @@
+import { assessManuscriptMetaNarration } from '@wenmi/contracts';
+
 const TECHNICAL_FIELDS = new Set([
   'owner_id', 'ownerId', 'book_id', 'bookId', 'content_hash', 'contentHash',
   'model_snapshot_id', 'modelSnapshotId', 'parameters_json', 'parametersJson',
@@ -175,7 +177,9 @@ export function toAuthorFacingText(value: string, purpose: AuthorTextPurpose = '
   const readable = stripTrailingMachineProtocol(value).trim();
   if (looksLikeMachinePayload(readable)) return purpose === 'error' ? '这一步没有完成，请稍后重试。' : '这项内容正在整理成大白话。';
   let result = readable;
-  if (purpose === 'story') return result;
+  if (purpose === 'story') return assessManuscriptMetaNarration(result).passed && !containsAuthorTechnicalLeak(result)
+    ? result
+    : '这份内容混入了内部检查说明，已暂停展示。请重新生成或修改后再查看。';
   if (ENUM_LABELS[readable] !== undefined) return readable;
   if (purpose === 'error' && /failed to fetch|networkerror|network request failed/iu.test(result)) return '暂时无法连接本地服务，请稍后重试。';
   if (purpose === 'error' && /\bSQL(?:ite)?\b|(?:[A-Za-z]:\\|\/)(?:[^\s，。；：]+[\\/])+/iu.test(result)) return '资料处理没有完成，请稍后重试。';

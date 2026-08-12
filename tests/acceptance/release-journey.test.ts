@@ -11,6 +11,7 @@ import { sha256File } from '../../apps/api/src/infrastructure/files/file-utils.j
 import { BackupService } from '../../apps/api/src/infrastructure/recovery/backup-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../helpers/test-context.js';
+import { createDistinctNovelModelFactory } from '../helpers/distinct-novel-model-factory.js';
 
 describe('首版全链路验收旅程', () => {
   let context: TestContext | undefined;
@@ -28,7 +29,7 @@ describe('首版全链路验收旅程', () => {
     prepareBookForWriting(context, mainScope, ids, clock, 5);
     prepareBookForWriting(context, secondScope, ids, clock, 1);
 
-    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, createDistinctNovelModelFactory());
     const mainBatch = batches.scheduleNewChapters(mainScope, 5, { firstChapterTitle: '第一声雾钟' });
     const firstGenerated = await batches.run(mainScope, mainBatch.batchId);
     approvePendingManuscript(context, mainScope, ids, clock);

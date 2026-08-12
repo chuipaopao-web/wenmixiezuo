@@ -36,6 +36,7 @@ describe('单章完整创作流水线', () => {
   it('拒绝正文暴露JSON字段、上下文来源或工作流载荷', () => {
     expect(containsInternalWorkflowPayload('薄雾压城。{"chapterNumber":2,"continuityAnchors":{}}，她继续追查。')).toBe(true);
     expect(containsInternalWorkflowPayload('正文\n\`\`\`json\n{}\n\`\`\`')).toBe(true);
+    expect(containsInternalWorkflowPayload('ContextPack已编译，随后执行质量门禁。')).toBe(true);
     expect(containsInternalWorkflowPayload('她在纸上写下“chapter number”两个英文单词，然后合上本子。')).toBe(false);
   });
 
@@ -79,7 +80,24 @@ describe('单章完整创作流水线', () => {
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '跨章锚点测试书', text: '旧城档案追踪' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     prepareBookForWriting(context, scope, ids, clock, 3);
-    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const baseFactory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const anchorFactory = {
+      resolve(provider: string, modelId: string, purpose: Parameters<ModelAdapterFactory['resolve']>[2], roleKey?: Parameters<ModelAdapterFactory['resolve']>[3]): ModelAdapter {
+        if (purpose === 'novel_writer') {
+          return {
+            provider, modelId,
+            async generate(request) {
+              const envelope = JSON.parse(request.prompt) as { chapterNumber?: number; taskInput?: { chapterNumber?: number } };
+              const chapterNumber = envelope.taskInput?.chapterNumber ?? envelope.chapterNumber ?? 1;
+              const output = buildDistinctAnchorNovel(chapterNumber);
+              return { provider, modelId, output, inputTokens: 400, outputTokens: 1_600, cashCostCny: 0, state: 'succeeded' };
+            }
+          };
+        }
+        return baseFactory.resolve(provider, modelId, purpose, roleKey);
+      }
+    } as ModelAdapterFactory;
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, anchorFactory);
     const batch = batches.scheduleNewChapters(scope, 3);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
     approvePendingManuscript(context, scope, ids, clock);
@@ -729,6 +747,32 @@ describe('单章完整创作流水线', () => {
       .toMatchObject({ status: 'queued', errorCode: null, currentPhase: 'review' });
   });
 });
+
+function buildDistinctAnchorNovel(chapterNumber: number): string {
+  const scenes = [
+    ['冰窖失火后，林澈沿着熏黑砖缝寻找被移走的账册。', '守窖人抱着烫伤的手臂挡住门口，坚持先把困在暗格里的孩子救出来。', '梁上的冰柱忽然断裂，逼两人放弃最近的出口，从积水漫过的运盐道撤离。'],
+    ['渡船离岸时，林澈发现昨夜留下的绳结被人换成水手才懂的反扣。', '摆渡姑娘不肯替他隐瞒行踪，只答应在追兵靠岸前多绕一次芦苇荡。', '河心浮起一只没有灯火的空船，船舱里却传来导师惯用的三短一长敲击声。'],
+    ['钟楼封门后，林澈顺着齿轮转动的间隙爬进夹层，寻找被藏起的报时簿。', '修钟匠承认自己改过一刻钟，却拒绝说出雇主，因为家人仍被关在南城仓房。', '第一声钟响震落墙灰，露出一张指向北塔地下室的旧城排水图。']
+  ][Math.max(0, Math.min(2, chapterNumber - 1))]!;
+  const paragraphs: string[] = [];
+  let round = 0;
+  while (countNovelCharacters(paragraphs.join('\n\n')) < 2_700) {
+    const seed = scenes[round % scenes.length]!;
+    const consequence = chapterNumber === 1
+      ? '烟火让每次呼吸都带着苦味，他必须在屋梁塌落前决定先保证据还是先救人。'
+      : chapterNumber === 2
+        ? '水流不断改变船身方向，他只能依靠岸边灯影判断追兵是否已经分成两路。'
+        : '齿轮每转一圈都缩短夹层里的安全时间，他只能让同伴在楼下制造一次短暂误会。';
+    paragraphs.push(`${seed}${consequence}第${round + 1}次尝试带来新的动作后果，同伴也依照自己的判断调整位置，场景因此继续向前而不是回到原点。`);
+    round += 1;
+  }
+  paragraphs.push(chapterNumber === 1
+    ? '孩子获救后，烧焦账页上显出渡口编号，林澈带着仍在流血的手赶往河岸。'
+    : chapterNumber === 2
+      ? '空船撞上旧码头时，舱底滚出一枚钟楼铜齿，导师留下的敲击声却从城内再次响起。'
+      : '钟声停下，排水图背面浮出导师亲笔留下的日期，而那一天正是明日。');
+  return paragraphs.join('\n\n');
+}
 
 function buildTakeoverNovel(): string {
   const paragraphs: string[] = [];

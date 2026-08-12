@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { assessManuscriptMetaNarration, assessManuscriptParagraphReuse } from '@wenmi/contracts';
 import { ArtifactService } from '../artifacts/artifact-service.js';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
@@ -1090,6 +1091,8 @@ export class ChapterPipelineService {
           noPlaceholder?: { passed?: boolean };
           noMarkdownChapterHeading?: { passed?: boolean };
           noInternalWorkflowPayload?: { passed?: boolean };
+          noQualityGovernanceNarration?: { passed?: boolean; issues?: Array<{ evidence: string }> };
+          noCrossChapterTemplateReuse?: { passed?: boolean; sharedParagraphs?: number; ratio?: number; referenceChapterNumber?: number | null };
           continuityAnchors?: {
             passed?: boolean;
             conflicts?: Array<{ field: string; expected: string[]; actual: string[] }>;
@@ -1108,6 +1111,8 @@ export class ChapterPipelineService {
         if (checks.noPlaceholder?.passed === false) requiredActions.push('删除全部占位标记并补成完整、可阅读的叙事内容');
         if (checks.noMarkdownChapterHeading?.passed === false) requiredActions.push('删除正文中的Markdown章节标题行；章节标题由系统单独显示，正文只能保留小说内容');
         if (checks.noInternalWorkflowPayload?.passed === false) requiredActions.push('删除正文中泄露的JSON、字段名、版本号、来源编号和工作流载荷；只保留自然可读的小说叙事，并完整保持原有情节与长度');
+        if (checks.noQualityGovernanceNarration?.passed === false) requiredActions.push('把正文里的资料核对、正式结论、结算说明、质量规则和对读者的解释全部改写为正在发生的场景、动作、对白、感官与后果；不能在小说里解释系统如何管理正史或为什么这样写');
+        if (checks.noCrossChapterTemplateReuse?.passed === false) requiredActions.push(`当前正文与最近章节${checks.noCrossChapterTemplateReuse.referenceChapterNumber === undefined || checks.noCrossChapterTemplateReuse.referenceChapterNumber === null ? '' : `（第${checks.noCrossChapterTemplateReuse.referenceChapterNumber}章）`}重复了${checks.noCrossChapterTemplateReuse.sharedParagraphs ?? '多处'}个长段落；保留事实和承接状态，重新设计本章场景调度、动作、对白、感官和转折，禁止仅换标题、地点、数值或段落顺序`);
         if (checks.continuityAnchors?.passed === false) {
           for (const conflict of checks.continuityAnchors.conflicts ?? []) {
             requiredActions.push(
@@ -1236,6 +1241,12 @@ export class ChapterPipelineService {
     const targetMaximum = 3_200;
     const hardMinimum = 2_350;
     const hardMaximum = 3_650;
+    const recentManuscripts = this.recentCanonManuscripts(scope, run.chapter_id);
+    const reuseChecks = recentManuscripts.map((reference) => ({
+      ...assessManuscriptParagraphReuse(content, reference.content),
+      referenceChapterNumber: reference.chapterNumber
+    }));
+    const worstReuse = reuseChecks.sort((left, right) => right.ratio - left.ratio || right.sharedParagraphs - left.sharedParagraphs)[0];
     const checks = {
       fullImmutableVersion: true,
       length: {
@@ -1251,13 +1262,19 @@ export class ChapterPipelineService {
       noPlaceholder: { passed: !containsExplicitPlaceholder(content) },
       noMarkdownChapterHeading: { passed: !containsMarkdownChapterHeading(content) },
       noInternalWorkflowPayload: { passed: !containsInternalWorkflowPayload(content) },
+      noQualityGovernanceNarration: assessManuscriptMetaNarration(content),
+      noCrossChapterTemplateReuse: worstReuse === undefined
+        ? { passed: true, sharedParagraphs: 0, currentParagraphs: 0, referenceParagraphs: 0, ratio: 0, comparedChapterCount: 0, referenceChapterNumber: null }
+        : { ...worstReuse, passed: reuseChecks.every((check) => check.passed), comparedChapterCount: reuseChecks.length },
       continuityAnchors: checkChapterContinuityAnchors(content, this.previousContinuityAnchors(scope, run.chapter_id)),
       hookAssessment: { deterministicGate: false, delegatedTo: 'experience_reviewer', reason: '标点不能证明章末钩子有效' }
     };
     return {
       checks,
       passed: checks.length.passed && checks.noPlaceholder.passed
-        && checks.noMarkdownChapterHeading.passed && checks.noInternalWorkflowPayload.passed && checks.continuityAnchors.passed
+        && checks.noMarkdownChapterHeading.passed && checks.noInternalWorkflowPayload.passed
+        && checks.noQualityGovernanceNarration.passed && checks.noCrossChapterTemplateReuse.passed
+        && checks.continuityAnchors.passed
     };
   }
 
@@ -1695,6 +1712,23 @@ export class ChapterPipelineService {
     return readFileSync(resolveInside(this.dataDir, row.relative_path), 'utf8');
   }
 
+  private recentCanonManuscripts(scope: BookScope, chapterId: string): Array<{ chapterNumber: number; content: string }> {
+    const chapter = this.requireChapter(scope, chapterId);
+    const previous = this.database.prepare(`
+      SELECT c.chapter_number, c.canon_manuscript_version_id
+      FROM chapters c
+      WHERE c.owner_id = ? AND c.book_id = ? AND c.chapter_number < ?
+        AND c.settlement_status = 'settled' AND c.canon_manuscript_version_id IS NOT NULL
+      ORDER BY c.chapter_number DESC LIMIT 5
+    `).all(scope.ownerId, scope.bookId, chapter.chapter_number) as unknown as Array<{
+      chapter_number: number; canon_manuscript_version_id: string;
+    }>;
+    return previous.map((item) => ({
+      chapterNumber: item.chapter_number,
+      content: this.loadManuscript(scope, item.canon_manuscript_version_id)
+    }));
+  }
+
   private previousContinuityAnchors(scope: BookScope, chapterId: string): ChapterContinuityAnchors | null {
     const chapter = this.requireChapter(scope, chapterId);
     const previous = this.database.prepare(`
@@ -2109,7 +2143,7 @@ export function containsMarkdownChapterHeading(content: string): boolean {
 }
 
 export function containsInternalWorkflowPayload(content: string): boolean {
-  return /(?:workflowArtifact|confirmed_decisions|```json|"(?:chapterNumber|continuityAnchors|sourceId|source_id)"\s*:|\bundefined\b)/u.test(content);
+  return /(?:workflowArtifact|confirmed_decisions|ContextPack|context_pack|contextPack|system\s*prompt|模型快照|检索记录|正式来源|质量门禁|硬检查|工作流载荷|```json|"(?:chapterNumber|continuityAnchors|sourceId|source_id|owner_id|book_id|prompt|schema)"\s*:|\bundefined\b)/iu.test(content);
 }
 
 function firstString(...values: unknown[]): string | null {

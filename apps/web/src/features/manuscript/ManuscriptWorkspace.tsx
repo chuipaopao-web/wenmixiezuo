@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toAuthorFacingText } from '../../app/author-presentation';
 import {
   BookOpenTextIcon,
   CheckCircleIcon,
@@ -459,7 +460,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         </div>}
       </header>
       {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
-        {settled ? <div className="novel-text">{reader.content}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" placeholder={`粘贴第${chapter.chapterNumber}章作者原文……`} value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
+        {settled ? <div className="novel-text">{toAuthorFacingText(reader.content, 'story')}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" placeholder={`粘贴第${chapter.chapterNumber}章作者原文……`} value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
         {!settled && <div className="manuscript-actions">
           <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : hasVersion ? '保存修改' : '保存原文'}</button>
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '生成一份待确认的优化稿，不覆盖原文'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', expressionInstruction)}><MagicWandIcon />优化表达</button>

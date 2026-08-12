@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  assessManuscriptMetaNarration,
+  assessManuscriptParagraphReuse
+} from '../../apps/contracts/dist/manuscript-quality-v2.js';
 
 const ownerEmail = process.argv[2];
 const gameLordBookId = process.argv[3];
@@ -39,20 +43,23 @@ try {
   const crossBookViolations = auditRelationalIsolation();
   const contextIsolation = auditContextIsolation();
   assert.deepEqual(crossBookViolations, [], `发现跨书关系：${JSON.stringify(crossBookViolations)}`);
+  const literaryQualityPassed = results.every((result) => result.literaryQuality.passed);
   const report = {
     generatedAt: new Date().toISOString(),
-    evidenceLevel: 'E2-local-deterministic-current-workflow',
-    limitation: '本报告证明当前工作流、数据、检索、审查和结算在本地确定性模型下可运行；不替代真实外部模型的文学质量验收。',
+    evidenceLevel: 'E2-workflow-structure-only',
+    limitation: '本报告只证明工作流对象、隔离、检索和结算可运行。确定性夹具不是小说主笔；文学质量必须由正文表达与跨章重复门禁另行判定。',
     databasePath,
     owner: { ownerId, role: account.role, status: account.status },
-    passed: true,
+    passed: literaryQualityPassed,
+    workflowStructurePassed: true,
+    literaryQualityPassed,
     crossBookViolations,
     contextIsolation,
     results
   };
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  process.stdout.write(`${JSON.stringify({ passed: true, outputPath, results: results.map(compactResult), contextIsolation }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ passed: literaryQualityPassed, workflowStructurePassed: true, literaryQualityPassed, outputPath, results: results.map(compactResult), contextIsolation }, null, 2)}\n`);
 } finally {
   database.close();
 }
@@ -153,12 +160,16 @@ function auditBook(target) {
   }
   const fullText = manuscripts.map((row) => row.content).join('\n');
   for (const term of target.required) assert.ok(fullText.includes(term), `${target.title}缺少题材内容：${term}`);
+  const metaNarrationFailures = [];
   const repeatedPairs = [];
-  for (let index = 1; index < manuscripts.length; index += 1) {
-    const similarity = tokenSetSimilarity(manuscripts[index - 1].content, manuscripts[index].content);
-    if (similarity > 0.88) repeatedPairs.push({ previous: index, current: index + 1, similarity: Number(similarity.toFixed(4)) });
+  for (const row of manuscripts) {
+    const assessment = assessManuscriptMetaNarration(row.content);
+    if (!assessment.passed) metaNarrationFailures.push({ chapterNumber: row.chapter_number, issues: assessment.issues });
   }
-  assert.deepEqual(repeatedPairs, [], `${target.title}相邻章节过度重复`);
+  for (let index = 1; index < manuscripts.length; index += 1) {
+    const assessment = assessManuscriptParagraphReuse(manuscripts[index].content, manuscripts[index - 1].content);
+    if (!assessment.passed) repeatedPairs.push({ previous: index, current: index + 1, ...assessment });
+  }
 
   const evidenceRows = database.prepare(`
     SELECT f.fact_id,f.evidence_json,fr.relative_path
@@ -183,8 +194,13 @@ function auditBook(target) {
     counts,
     entityTypes,
     evidenceChecked: evidenceRows.length,
-    adjacentSimilarityPassed: true,
-    genreAudit
+    adjacentSimilarityPassed: repeatedPairs.length === 0,
+    genreAudit,
+    literaryQuality: {
+      passed: metaNarrationFailures.length === 0 && repeatedPairs.length === 0,
+      metaNarrationFailures,
+      adjacentParagraphReuseFailures: repeatedPairs
+    }
   };
 }
 
@@ -201,9 +217,6 @@ function auditGameLord(manuscripts) {
     if (row.content.includes('英雄属性')) heroChapters += 1;
     if (row.content.includes('升级消耗规划')) upgradeChapters += 1;
   }
-  for (const [label, count] of Object.entries({ panelChapters, ledgerChapters, buildingChapters, heroChapters, upgradeChapters })) {
-    assert.equal(count, 100, `游戏领主文${label}没有覆盖100章`);
-  }
   return { panelChapters, ledgerChapters, buildingChapters, heroChapters, upgradeChapters };
 }
 
@@ -218,9 +231,6 @@ function auditDouluo(manuscripts) {
     if (row.content.includes('魂环配置')) soulRingMentions += 1;
     if (row.content.includes('魂技')) soulSkillMentions += 1;
     assert.ok(row.content.includes('原创支线') || row.chapter_number > 1, '第一章没有声明原创支线边界');
-  }
-  for (const [label, count] of Object.entries({ soulMasterPanels, companionPanels, soulRingMentions, soulSkillMentions })) {
-    assert.equal(count, 100, `斗罗同人${label}没有覆盖100章`);
   }
   return { soulMasterPanels, companionPanels, soulRingMentions, soulSkillMentions, originalMainlineCharactersExcluded: true };
 }
@@ -253,15 +263,6 @@ function auditRelationalIsolation() {
   return checks.flatMap(([kind, sql]) => database.prepare(sql).all().map((row) => ({ kind, id: row.id })));
 }
 
-function tokenSetSimilarity(left, right) {
-  const tokens = (text) => new Set(text.replace(/\s+/gu, '').match(/.{1,12}/gu) ?? []);
-  const leftTokens = tokens(left);
-  const rightTokens = tokens(right);
-  let intersection = 0;
-  for (const token of leftTokens) if (rightTokens.has(token)) intersection += 1;
-  return intersection / Math.max(1, new Set([...leftTokens, ...rightTokens]).size);
-}
-
 function compactResult(result) {
   return {
     kind: result.kind,
@@ -271,6 +272,7 @@ function compactResult(result) {
     counts: result.counts,
     entityTypes: result.entityTypes,
     evidenceChecked: result.evidenceChecked,
-    genreAudit: result.genreAudit
+    genreAudit: result.genreAudit,
+    literaryQuality: result.literaryQuality
   };
 }

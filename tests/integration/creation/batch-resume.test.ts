@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { createDistinctNovelModelFactory } from '../../helpers/distinct-novel-model-factory.js';
 
 describe('连续多章串行与断点续跑', () => {
   let context: TestContext | undefined;
@@ -14,7 +15,7 @@ describe('连续多章串行与断点续跑', () => {
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '五章续跑书', text: '围绕北塔与三个日期展开连续剧情' });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     prepareBookForWriting(context, scope, ids, clock, 5);
-    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, createDistinctNovelModelFactory());
     const batch = batches.scheduleNewChapters(scope, 5);
     const firstRun = await batches.run(scope, batch.batchId);
     expect(firstRun.batch.status).toBe('paused');

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { assessManuscriptMetaNarration } from '@wenmi/contracts';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
 import type { ReviewerRole } from '../../contracts/production-review.js';
 import { buildEsportsNovel, longXianxiaPlan } from './deterministic-longform-scenarios.js';
@@ -44,12 +45,18 @@ export interface StructuredReview {
   scores: { continuity: number; character: number; pacing: number; style: number; hook: number };
 }
 
+export function assertDeterministicNovelFixtureAllowed(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.NODE_ENV === 'test' || env.WENMI_ALLOW_DETERMINISTIC_NOVEL_FIXTURE === '1') return;
+  throw new Error('当前没有可用的创作模型。本地验收夹具只检查流程，不会代替AI生成正式小说；请先在设置中连接创作模型后重试。');
+}
+
 export class DeterministicNovelWriterAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic-writer';
   public readonly modelId = 'wenmi-novel-writer-v1';
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
+    assertDeterministicNovelFixtureAllowed();
     const parsed = parseWriterPrompt(request.prompt);
     const prompt = parsed.taskInput;
     const output = prompt.operation === 'rewrite'
@@ -65,6 +72,7 @@ export class DeterministicNovelCandidateBAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
+    assertDeterministicNovelFixtureAllowed();
     const parsed = parseWriterPrompt(request.prompt);
     const prompt = parsed.taskInput;
     const output = prompt.operation === 'rewrite'
@@ -118,6 +126,14 @@ export function reviewNovel(content: string): StructuredReview {
     issues.push({
       location: '全文', issueType: 'placeholder', severity: 'blocker',
       evidence: '检测到占位或元叙事标记', requiredAction: '用完整叙事替换占位内容'
+    });
+  }
+  const metaNarration = assessManuscriptMetaNarration(content);
+  if (!metaNarration.passed) {
+    issues.push({
+      location: '全文', issueType: 'quality_governance_leak', severity: 'major',
+      evidence: metaNarration.issues.map((issue) => issue.evidence).join('；').slice(0, 240),
+      requiredAction: '把资料核对、结算和质量规则改写成场景、动作、对白与具体后果'
     });
   }
   const blocker = issues.some((issue) => issue.severity === 'blocker');
