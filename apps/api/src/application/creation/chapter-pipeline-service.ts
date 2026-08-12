@@ -1752,10 +1752,12 @@ export class ChapterPipelineService {
     if (row === undefined) throw new Error('模型上下文包不存在、已失效或越权');
     const parsedTaskInput = JSON.parse(taskInput) as unknown;
     const compactTaskInput = compactChapterModelTaskInput(phaseKey, parsedTaskInput);
+    const storedSources = JSON.parse(row.source_manifest_json) as unknown;
     return JSON.stringify({
       phase: phaseKey,
-      contextPackHash: row.content_hash,
-      sources: JSON.parse(row.source_manifest_json) as unknown,
+      sources: phaseKey.startsWith('draft') || phaseKey.startsWith('rewrite')
+        ? compactWriterPromptSources(storedSources)
+        : storedSources,
       taskInput: compactTaskInput
     });
   }
@@ -1796,6 +1798,43 @@ export class ChapterPipelineService {
   }
 }
 
+export function compactWriterPromptSources(value: unknown): Array<{
+  role: string;
+  required: boolean;
+  content: string;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecordValue(item) || typeof item.content !== 'string' || item.content.trim().length === 0) return [];
+    const sourceType = typeof item.sourceType === 'string' ? item.sourceType : '';
+    return [{
+      role: writerSourceRole(sourceType),
+      required: item.hard === true,
+      content: item.content
+    }];
+  });
+}
+
+function writerSourceRole(sourceType: string): string {
+  const roles: Record<string, string> = {
+    system_rule: '本章写作底线',
+    chapter_work_order: '本章章纲与写作要求',
+    opening_profile: '开书信息与人物定位',
+    style_baseline: '本书表达习惯',
+    stage_settlement_context: '分卷与事件已经发生的进展',
+    current_manuscript: '需要修改的完整正文',
+    owner_rewrite_instruction: '作者本次修改要求',
+    previous_chapter_end: '上一章结束后的当前状态',
+    previous_chapter_tail: '上一章结尾原文',
+    previous_chapter_anchors: '前后文必须保持一致的专名与编号',
+    active_commitments: '仍在推进的线索、承诺与因果债'
+  };
+  return roles[sourceType] ?? (sourceType.includes('voice')
+    ? '与本章有关的人物声音'
+    : sourceType.includes('manuscript')
+      ? '与本章有关的已定稿前文'
+      : '与本章有关的正式资料');
+}
 export function compactChapterModelTaskInput(phaseKey: string, parsedTaskInput: unknown): unknown {
   if (phaseKey.startsWith('review-repair-') || phaseKey.startsWith('editor-synthesis-repair-')) return parsedTaskInput;
   if (phaseKey.startsWith('editor-synthesis-')) {

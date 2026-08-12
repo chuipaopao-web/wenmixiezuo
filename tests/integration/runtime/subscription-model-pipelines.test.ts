@@ -277,7 +277,9 @@ describe('订阅与套餐模型真实流水线接线', () => {
     expect(context.database.prepare(`SELECT mode FROM writer_selections WHERE owner_id = ? AND book_id = ? AND status = 'selected'`)
       .get(scope.ownerId, scope.bookId)).toEqual({ mode: 'owner_specified' });
     expect(codexPrompts).toHaveLength(0);
-    expect(calls.some((call) => call.prompt.includes('chapter_work_order'))).toBe(true);
+    expect(calls.some((call) => call.prompt.includes('本章章纲与写作要求'))).toBe(true);
+    expect(calls.filter((call) => call.prompt.includes('本章章纲与写作要求')).every((call) =>
+      !call.prompt.includes('sourceId') && !call.prompt.includes('tokenCount') && !call.prompt.includes('contextPackHash'))).toBe(true);
     expect(calls.some((call) => call.prompt.includes('repair_editor_synthesis_json'))).toBe(true);
   });
 });

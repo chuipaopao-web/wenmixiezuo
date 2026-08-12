@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compactChapterModelTaskInput,
+  compactWriterPromptSources,
   decideRewriteCandidateRecovery,
   hasExhaustedExactManuscriptReviewAttempts,
   nextExactManuscriptReviewAttempt,
@@ -11,6 +12,21 @@ import {
 } from '../../apps/api/src/application/creation/chapter-pipeline-service.js';
 
 describe('章节审校提示合同', () => {
+  it('主笔只接收有创作意义的资料，不接收ID、哈希、优先级和检索理由', () => {
+    const compact = compactWriterPromptSources([{
+      sourceType: 'previous_chapter_tail', sourceId: 'version-1', version: 3,
+      content: '她推开门，雪从门缝里扑进来。', reason: '前章结尾原文', priority: 100,
+      tokenCount: 20, hard: true
+    }, {
+      sourceType: 'retrieval:voice', sourceId: 'chunk-2', content: '他说话一向简短。',
+      reason: '向量召回', priority: 70, hard: false
+    }]);
+    expect(compact).toEqual([
+      { role: '上一章结尾原文', required: true, content: '她推开门，雪从门缝里扑进来。' },
+      { role: '与本章有关的人物声音', required: false, content: '他说话一向简短。' }
+    ]);
+    expect(JSON.stringify(compact)).not.toMatch(/sourceId|version|priority|reason|tokenCount/u);
+  });
   it('订阅模型的紧凑审校输入保留Schema、严重级别与前史边界规则', () => {
     const requiredSchema = { type: 'object', required: ['verdict'] };
     const sourceBoundaryContract = [

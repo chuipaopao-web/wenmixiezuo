@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { assessManuscriptMetaNarration } from '@wenmi/contracts';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
 import type { ReviewerRole } from '../../contracts/production-review.js';
+import { assertDeterministicCreativeFixtureAllowed } from './deterministic-model.js';
 import { buildEsportsNovel, longXianxiaPlan } from './deterministic-longform-scenarios.js';
 import {
   buildDouluoFanficNovel, buildGameLordNovel, buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
@@ -46,8 +47,7 @@ export interface StructuredReview {
 }
 
 export function assertDeterministicNovelFixtureAllowed(env: NodeJS.ProcessEnv = process.env): void {
-  if (env.NODE_ENV === 'test' || env.WENMI_ALLOW_DETERMINISTIC_NOVEL_FIXTURE === '1') return;
-  throw new Error('当前没有可用的创作模型。本地验收夹具只检查流程，不会代替AI生成正式小说；请先在设置中连接创作模型后重试。');
+  assertDeterministicCreativeFixtureAllowed(env);
 }
 
 export class DeterministicNovelWriterAdapter implements ModelAdapter {
@@ -88,6 +88,7 @@ export class DeterministicNovelReviewerAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
+    assertDeterministicCreativeFixtureAllowed();
     const input = JSON.parse(request.prompt) as { content: string; reviewerRole?: ReviewerRole; manuscriptVersionId?: string; modelSnapshotId?: string };
     const review = reviewNovel(input.content);
     const output = JSON.stringify(input.reviewerRole === undefined
@@ -103,6 +104,7 @@ export class DeterministicProductionReviewerAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
+    assertDeterministicCreativeFixtureAllowed();
     const input = JSON.parse(request.prompt) as { content: string; manuscriptVersionId: string; modelSnapshotId: string };
     const review = reviewNovel(input.content);
     const output = JSON.stringify(productionReview(this.reviewerRole, input.manuscriptVersionId, input.modelSnapshotId, input.content, review));

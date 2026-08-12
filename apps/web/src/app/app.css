@@ -1390,6 +1390,19 @@ svg {
   overflow-wrap: break-word;
 }
 
+.manuscript-quality-warning {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  padding: clamp(18px, 2vw, 28px);
+  border: 1px solid color-mix(in srgb, #c47a18 28%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, #c47a18 8%, var(--panel));
+}
+
+.manuscript-quality-warning > p { margin: 0; color: var(--ink-soft); }
+.manuscript-history-raw { margin-top: 4px; border-radius: 14px; }
+
 .continuation-import-shell {
   height: 100%;
   min-height: 0;

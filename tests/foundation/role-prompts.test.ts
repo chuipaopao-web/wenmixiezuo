@@ -100,6 +100,8 @@ describe('九岗位定位提示词', () => {
     expect(prompt).toContain('人物因欲望、认知和代价作出选择');
     expect(prompt).toContain('属于自由创作区');
     expect(prompt).toContain('允许留白');
+    expect(prompt).toContain('不得集中列清单、写状态报告');
+    expect(prompt).toContain('不要复刻最近章节的开场、冲突次序、段落骨架');
     expect(prompt).toContain('只输出正文');
     expect(prompt.length).toBeLessThan(2_500);
   });

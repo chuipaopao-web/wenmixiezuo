@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { toAuthorFacingText } from '../../app/author-presentation';
+import { inspectAuthorStoryText, toAuthorFacingText } from '../../app/author-presentation';
 import {
   BookOpenTextIcon,
   CheckCircleIcon,
@@ -355,6 +355,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   const [baselineContent, setBaselineContent] = useState('');
   const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
   const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [showUnsafeHistory, setShowUnsafeHistory] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState('保留已确认事实和人物声音，重新组织本章正文。');
   const [busyAction, setBusyAction] = useState<'save' | 'rewrite' | 'review' | 'reading' | 'delete' | null>(null);
@@ -366,6 +367,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
     setBaseVersionId(reader?.manuscriptVersionId ?? chapter.currentManuscriptVersionId ?? chapter.canonManuscriptVersionId);
     setNotice(null);
     setRewriteOpen(false);
+    setShowUnsafeHistory(false);
     setDeleteOpen(false);
   }, [chapter.chapterId, chapter.currentManuscriptVersionId, chapter.canonManuscriptVersionId, reader?.content, reader?.manuscriptVersionId]);
   const settled = chapter.settlementStatus === 'settled';
@@ -446,6 +448,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   const displayChapterTitle = normalizedChapterTitle === genericChapterTitle
     ? genericChapterTitle
     : `${genericChapterTitle} · ${chapter.title.trim()}`;
+  const storyPresentation = reader === null ? null : inspectAuthorStoryText(reader.content);
   return (
     <article className="manuscript-view">
       {!settled && <input ref={singleChapterFileRef} className="visually-hidden" type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file !== undefined) void readSingleChapter(file); }} />}
@@ -460,7 +463,14 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         </div>}
       </header>
       {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
-        {settled ? <div className="novel-text">{toAuthorFacingText(reader.content, 'story')}</div> : <textarea className="manuscript-editor-textarea" aria-label="正文编辑器" placeholder={`粘贴第${chapter.chapterNumber}章作者原文……`} value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
+        {settled ? storyPresentation?.safeToPresent === true
+          ? <div className="novel-text">{storyPresentation.content}</div>
+          : <section className="manuscript-quality-warning" role="status">
+              <p>{storyPresentation?.notice}</p>
+              <button className="secondary-button" type="button" onClick={() => setShowUnsafeHistory((value) => !value)}>{showUnsafeHistory ? '收起历史原稿' : '查看历史原稿'}</button>
+              {showUnsafeHistory && <div className="novel-text manuscript-history-raw">{storyPresentation?.content}</div>}
+            </section>
+          : <textarea className="manuscript-editor-textarea" aria-label={"\u6b63\u6587\u7f16\u8f91\u5668"} placeholder={`\u7c98\u8d34\u7b2c${chapter.chapterNumber}\u7ae0\u4f5c\u8005\u539f\u6587\u2026\u2026`} value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} disabled={!editable || busyAction !== null} />}
         {!settled && <div className="manuscript-actions">
           <button className="secondary-button" type="button" disabled={!editable || !changed || draft.trim().length === 0 || busyAction !== null} onClick={() => void perform('save')}>{busyAction === 'save' ? '保存中…' : hasVersion ? '保存修改' : '保存原文'}</button>
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '生成一份待确认的优化稿，不覆盖原文'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', expressionInstruction)}><MagicWandIcon />优化表达</button>

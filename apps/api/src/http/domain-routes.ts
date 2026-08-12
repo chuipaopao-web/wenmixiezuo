@@ -30,6 +30,7 @@ import { cancelActiveModelCall, ModelCallService } from '../application/calls/mo
 import { cancelActiveToolCall } from '../application/calls/tool-call-service.js';
 import { buildRuntimeRoleSystemPrompt, ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import type { ModelPurpose } from '../infrastructure/models/model-runtime-config.js';
+import { deterministicCreativeFixtureAllowed } from '../infrastructure/models/deterministic-model.js';
 import { PlanningArtifactService } from '../application/artifacts/planning-artifact-service.js';
 import { ChapterApprovalService } from '../application/creation/chapter-approval-service.js';
 import { CreationWorkflowProgressService } from '../application/creation/creation-workflow-progress-service.js';
@@ -140,7 +141,10 @@ function agentAvailability(
   if (agent.activationState === 'disabled') {
     return { availability: 'unavailable', availabilityReason: '成员已停用' };
   }
-  if (agent.provider === 'local-deterministic' || agent.provider === 'openai-codex-subscription') {
+  if (agent.provider === 'local-deterministic') {
+    return configCreativeFixtureAvailability(modelRuntime);
+  }
+  if (agent.provider === 'openai-codex-subscription') {
     return { availability: 'available', availabilityReason: null };
   }
   const publicProfile = modelRuntime.publicProfiles.find((profile) =>
@@ -155,6 +159,38 @@ function agentAvailability(
   return credentialConfigured
     ? { availability: 'available', availabilityReason: null }
     : { availability: 'unavailable', availabilityReason: '模型路线缺少可用凭证' };
+}
+
+
+function configCreativeFixtureAvailability(
+  modelRuntime: RuntimeConfig['modelRuntime']
+): { availability: 'available' | 'unavailable'; availabilityReason: string | null } {
+  return modelRuntime.activeMode === 'subscription-plan' || deterministicCreativeFixtureAllowed()
+    ? { availability: 'available', availabilityReason: null }
+    : { availability: 'unavailable', availabilityReason: '创作模型尚未连接' };
+}
+function assertCreativeModelReady(modelRuntime: RuntimeConfig['modelRuntime']): void {
+  if (modelRuntime.activeMode === 'subscription-plan' || deterministicCreativeFixtureAllowed()) return;
+  throw new DomainError(
+    errorCodes.operationIncomplete,
+    '创作模型尚未连接，这一步已经暂停。系统不会用测试模板代替AI方案；请先在设置中连接创作模型。',
+    {},
+    false,
+    409
+  );
+}
+function taskRequiresCreativeModel(taskType: string): boolean {
+  return new Set([
+    'discussion',
+    'volume_plan_generation',
+    'story_event_generation',
+    'event_chapter_sequence_generation',
+    'event_chapter_detail_generation',
+    'event_chapter_sequence_challenge',
+    'event_chapter_detail_challenge',
+    'chapter_creation',
+    'continuation_analysis'
+  ]).has(taskType);
 }
 
 function authorAttachmentView(record: AuthorAttachmentRecord): Record<string, unknown> {
@@ -371,6 +407,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/generate', async (request) => {
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
+    assertCreativeModelReady(config.modelRuntime);
     return success(volumePlanGenerations.start(
       scope, request.params.volumePlanId, request.body
     ), request.id);
@@ -442,6 +479,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   } }>('/api/v1/books/:bookId/story-events/:eventId/generate', async (request) => {
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
+    assertCreativeModelReady(config.modelRuntime);
     return success(storyEventGenerations.start(scope, request.params.eventId, request.body), request.id);
   });
   app.get<{ Params: { bookId: string; eventId: string } }>(
@@ -506,12 +544,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generate',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;sequenceVersionId:string};Body:{expectedSequenceRevision:number;
     expectedWorkflowVersion:number;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions/:sequenceVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(eventChapterGenerations.startSequenceChallenge(scope,request.params.eventId,
         request.params.sequenceVersionId,request.body),request.id);
     });
@@ -519,12 +559,14 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/generate',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;outlineId:string;outlineVersionId:string};Body:{expectedSequenceRevision:number;
     expectedWorkflowVersion:number;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/event-chapter-outlines/:outlineId/versions/:outlineVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(eventChapterGenerations.startDetailChallenge(scope,request.params.eventId,request.params.outlineId,
         request.params.outlineVersionId,request.body),request.id);
     });
@@ -1236,18 +1278,21 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/start', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(settingCollaborationCommands.start(scope, request.params.itemKey, request.body), request.id);
     }
   );
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(settingCollaborationCommands.synthesize(scope, request.params.itemKey, request.body), request.id);
     }
   );
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId: string; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/revise', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
       return success(settingCollaborationCommands.revise(scope, request.params.itemKey, request.body), request.id);
     }
   );
@@ -1401,6 +1446,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { type: DiscussionType; scopeText: string; createdByAgentId: string; participants: Array<{ agentId: string; reason: string }> } }>('/api/v1/books/:bookId/discussions', async (request) => {
+    assertCreativeModelReady(config.modelRuntime);
     // R10: 讨论范围文本同样做编码健康诊断，避免问号串进入双编剧/主编昂贵会话
     const encodingHealth = diagnoseTextEncoding(request.body.scopeText);
     if (encodingHealth.damaged) {
@@ -1444,6 +1490,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   } }>('/api/v1/books/:bookId/ideation/rounds', async (request) => {
     const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
+    assertCreativeModelReady(config.modelRuntime);
     return success(ideation.startRound(scope, request.body), request.id);
   });
 
@@ -1489,6 +1536,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...(request.body.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
       ...(request.body.firstChapterTitle === undefined ? {} : { firstChapterTitle: request.body.firstChapterTitle })
     };
+    assertCreativeModelReady(config.modelRuntime);
     return success(chapterBatches.scheduleNewChapters({ ...owner(request), bookId: request.params.bookId }, request.body.count, options), request.id);
   });
 
@@ -1497,6 +1545,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...(request.body?.volumeTitle === undefined ? {} : { volumeTitle: request.body.volumeTitle }),
       ...(request.body?.chapterTitle === undefined ? {} : { firstChapterTitle: request.body.chapterTitle })
     };
+    assertCreativeModelReady(config.modelRuntime);
     return success(chapterBatches.scheduleNewChapters({ ...owner(request), bookId: request.params.bookId }, 1, options), request.id);
   });
 
@@ -1571,6 +1620,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; importId: string } }>(
     '/api/v1/books/:bookId/continuation-imports/:importId/analyze', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId };
+      assertCreativeModelReady(config.modelRuntime);
       return success(continuationImports.analyze(scope, request.params.importId), request.id);
     }
   );
@@ -1616,6 +1666,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; instruction?: string | null } }>(
     '/api/v1/books/:bookId/chapters/:chapterId/rewrite', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId };
+      assertCreativeModelReady(config.modelRuntime);
       const gate = database.prepare(`SELECT confirmation_id, task_id, expected_canon_revision FROM chapter_approval_gates
         WHERE owner_id = ? AND book_id = ? AND chapter_id = ? AND manuscript_version_id = ? AND status = 'awaiting_owner'
         ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId) as {
@@ -1641,6 +1692,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
           confirmation_id: string; task_id: string;
         } | undefined;
       if (gate !== undefined) return success({ taskId: gate.task_id, confirmationId: gate.confirmation_id, operation: 'awaiting_owner' }, request.id);
+      assertCreativeModelReady(config.modelRuntime);
       return success(chapterBatches.scheduleExistingRevision(scope, request.params.chapterId, request.body.manuscriptVersionId,
         'review_existing'), request.id);
     }
@@ -1818,11 +1870,17 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/resume', async (request) => {
-    return success(tasks.queue({ ...owner(request), bookId: request.params.bookId }, request.params.taskId), request.id);
+    const scope = { ...owner(request), bookId: request.params.bookId };
+    const task = tasks.require(scope, request.params.taskId);
+    if (taskRequiresCreativeModel(task.taskType)) assertCreativeModelReady(config.modelRuntime);
+    return success(tasks.queue(scope, request.params.taskId), request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/retry', async (request) => {
-    return success(tasks.retryFailed({ ...owner(request), bookId: request.params.bookId }, request.params.taskId), request.id);
+    const scope = { ...owner(request), bookId: request.params.bookId };
+    const task = tasks.require(scope, request.params.taskId);
+    if (taskRequiresCreativeModel(task.taskType)) assertCreativeModelReady(config.modelRuntime);
+    return success(tasks.retryFailed(scope, request.params.taskId), request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/cancel', async (request) => {

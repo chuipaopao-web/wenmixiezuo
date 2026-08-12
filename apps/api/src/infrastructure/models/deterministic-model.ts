@@ -1,11 +1,22 @@
 import { createHash } from 'node:crypto';
 import type { ModelAdapter, ModelRequest, ModelResult } from './model-adapter.js';
 
+export function deterministicCreativeFixtureAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NODE_ENV === 'test'
+    || env.WENMI_ALLOW_DETERMINISTIC_CREATIVE_FIXTURE === '1'
+    || env.WENMI_ALLOW_DETERMINISTIC_NOVEL_FIXTURE === '1';
+}
+
+export function assertDeterministicCreativeFixtureAllowed(env: NodeJS.ProcessEnv = process.env): void {
+  if (deterministicCreativeFixtureAllowed(env)) return;
+  throw new Error('尚未连接可用于创作的AI模型。设定、分卷、规划、章纲、正文和点评会暂停，不会用测试模板代替；请先在设置中连接创作模型。');
+}
 export class DeterministicModelAdapter implements ModelAdapter {
   public readonly provider = 'local-deterministic';
   public constructor(public readonly modelId = 'wenmi-fixture-v1') {}
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
+    assertDeterministicCreativeFixtureAllowed();
     if (signal?.aborted === true) {
       throw signal.reason ?? new DOMException('调用已取消', 'AbortError');
     }

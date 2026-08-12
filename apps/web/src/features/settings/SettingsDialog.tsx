@@ -81,24 +81,25 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
           <div className="model-runtime-summary">
             <div className={capabilities?.modelRuntime.activeMode === 'subscription-plan' ? 'runtime-state active' : 'runtime-state'}>
               <span aria-hidden="true" />
-              <strong>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '订阅与套餐模型已启用' : '确定性测试模型'}</strong>
-              <small>{capabilities?.modelRuntime.cashFallbackAllowed === false ? '禁止按量付费回退' : '运行状态待连接'}</small>
+              <strong>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '创作模型已经连接' : '创作模型尚未连接'}</strong>
+              <small>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '不会转为按量付费模型' : 'AI创作入口已暂停，不会生成测试模板'}</small>
             </div>
             <div className="model-profile-list">
-              {(capabilities?.modelRuntime.profiles ?? []).map((profile) => (
+              {capabilities?.modelRuntime.activeMode === 'subscription-plan' && capabilities.modelRuntime.profiles.map((profile) => (
                 <div className="model-profile" key={`${profile.provider}/${profile.modelId}`}>
-                  <span><strong>{profile.modelId}</strong><small>{profile.provider}</small></span>
-                  <span><small>{profile.roles.map(roleLabel).join('、')}</small><em>{profile.credentialConfigured ? planLabel(profile.plan) : '缺少凭证'}</em></span>
+                  <span><strong>{profile.modelId}</strong></span>
+                  <span><small>{profile.roles.map(roleLabel).join('、')}</small><em>{profile.credentialConfigured ? planLabel(profile.plan) : '暂不可用'}</em></span>
                 </div>
               ))}
-              {capabilities === null && <p>连接本地服务后显示创作团队的真实模型来源。</p>}
+              {capabilities?.modelRuntime.activeMode === 'deterministic' && <p>设定、分卷、规划、章纲、正文、点评和灵感暂时不能由AI生成。已有内容仍可查看和编辑。</p>}
+              {capabilities === null && <p>连接本地服务后显示创作团队的真实模型状态。</p>}
             </div>
             {capabilities !== null && <p className="capability-note">本地运行环境正常 · 本地资料库正常 · 全文查找{capabilities.sqlite.fts5 ? '可用' : '需要修复'} · 语义查找{capabilities.degradation.vectorSearchAvailable ? '可用' : '需要安装'}</p>}
           </div>
         </fieldset>
         <fieldset>
           <legend>书籍级模型绑定</legend>
-          {bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
+          {capabilities?.modelRuntime.activeMode !== 'subscription-plan' ? <p className="capability-note">连接创作模型后，可以在这里查看并调整十一名成员未来任务的模型安排。</p> : bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
             <div className="binding-manager">
               <p>修改只对未来新任务生效，运行中的任务继续使用已冻结模型。两名编剧必须异模型，豆包不能进入剧情席；GLM担任副笔时事实席自动切换DeepSeek。</p>
               <div className="binding-role-list">{bindings.active.map((binding) => {

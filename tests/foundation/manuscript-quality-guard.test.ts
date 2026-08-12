@@ -4,7 +4,7 @@ import {
   assessManuscriptParagraphReuse
 } from '@wenmi/contracts';
 import { reviewNovel } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
-import { toAuthorFacingText } from '../../apps/web/src/app/author-presentation.js';
+import { inspectAuthorStoryText, toAuthorFacingText } from '../../apps/web/src/app/author-presentation.js';
 
 const ordinaryProse = `第1章 风雪夜归人
 
@@ -59,4 +59,12 @@ describe('正文故事性硬门禁', () => {
     expect(visible).not.toContain('结算正文实际发生');
     expect(toAuthorFacingText('人物刚走进雨巷，ContextPack开始编译。', 'story')).toContain('暂停展示');
   });
+  it('keeps a failed historical draft available for an explicit author action', () => {
+    const inspected = inspectAuthorStoryText(leakedProse);
+    expect(inspected.safeToPresent).toBe(false);
+    expect(inspected.notice).toContain('\u4ecd\u53ef\u67e5\u770b\u539f\u7a3f');
+    expect(inspected.content).toBe(leakedProse);
+    expect(inspectAuthorStoryText(ordinaryProse)).toEqual({ content: ordinaryProse, safeToPresent: true, notice: null });
+  });
+
 });

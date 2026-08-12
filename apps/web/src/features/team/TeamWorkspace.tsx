@@ -176,8 +176,10 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
             return <button className={item.agentId === selectedId ? 'team-member-card active' : 'team-member-card'} type="button" key={item.agentId} onClick={() => setSelectedId(item.agentId)}>
               <AgentAvatar roleKey={item.roleKey} roleName={memberIdentity(item)} />
               <span><strong>{memberIdentity(item)}</strong><small>{toAuthorFacingText(item.publicSummary ?? item.roleName)}</small></span>
-              <i>{item.availability === 'unavailable' || item.activationState === 'disabled'
-                ? '模型不可用'
+              <i>{item.activationState === 'disabled'
+                ? '成员已停用'
+                : item.availability === 'unavailable'
+                  ? (item.availabilityReason ?? '暂不能创作')
                 : task === null
                   ? (item.activationState === 'standby' ? '在线·待命' : '在线·空闲')
                   : '有活动任务'}</i>
@@ -295,7 +297,8 @@ export function activeTaskForAgent(workspace: WorkspaceData | null, agentId: str
 }
 
 function agentPresence(agent: AgentData, task: TaskData | null, worker: WorkerData | null): { label: string; className: string } {
-  if (agent.availability === 'unavailable' || agent.activationState === 'disabled') return { label: '模型不可用', className: 'offline' };
+  if (agent.activationState === 'disabled') return { label: '成员已停用', className: 'offline' };
+  if (agent.availability === 'unavailable') return { label: agent.availabilityReason ?? '暂不能创作', className: 'offline' };
   if (agent.activationState === 'paused') return { label: '在线·暂停', className: 'standby' };
   if (task === null) return agent.activationState === 'standby'
     ? { label: '在线·待命', className: 'standby' }
@@ -341,7 +344,7 @@ function modelProviderLabel(provider: string): string {
   if (provider === 'openai-codex-subscription') return 'Codex订阅';
   if (provider === 'volcengine-ark-coding-plan') return '火山方舟Coding Plan';
   if (provider === 'volcengine-ark-agent-plan') return '火山方舟Agent Plan';
-  if (provider === 'local-deterministic') return '本地确定性工具';
+  if (provider === 'local-deterministic') return '创作模型尚未连接';
   return '已配置模型服务';
 }
 

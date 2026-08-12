@@ -201,6 +201,28 @@ export function toAuthorFacingText(value: string, purpose: AuthorTextPurpose = '
   return result;
 }
 
+/**
+ * Inspect the author-facing copy without mutating the immutable manuscript.
+ * Failed historical drafts remain available through an explicit author action.
+ */
+export function inspectAuthorStoryText(value: string): {
+  content: string;
+  safeToPresent: boolean;
+  notice: string | null;
+} {
+  const content = stripTrailingMachineProtocol(value).trim();
+  const safeToPresent = !looksLikeMachinePayload(content)
+    && assessManuscriptMetaNarration(content).passed
+    && !containsAuthorTechnicalLeak(content);
+  return {
+    content,
+    safeToPresent,
+    notice: safeToPresent
+      ? null
+      : '这份历史稿没有通过当前小说质量检查。你仍可查看原稿，但它不会被当作可用小说质量样本。'
+  };
+}
+
 export function collectSettingTemplateHints(artifacts: Record<string, unknown>[]): string[] {
   const result = new Map<string, string>();
   const add = (value: unknown): void => {
