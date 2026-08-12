@@ -2,7 +2,7 @@
 //
 // 本模块是纯函数，不读写文件、不连接数据库、不发起网络请求，因此可以在不调用任何
 // 真实模型、不生成小说内容的前提下做确定性离线测试。真实评测脚本
-// (run-real-50-chapter-validation.mjs) 在「发起下一个章节任务」之前调用这里的
+// (run-real-longform-validation.mjs) 在「发起下一个章节任务」之前调用这里的
 // evaluateBreaker / batchStartupGate / shouldAutoRecover，达到任一阈值或遇到
 // QUALITY_BLOCKED 时先写证据再退出，绝不自动模拟老板重写受阻章节。
 //

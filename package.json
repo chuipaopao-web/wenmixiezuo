@@ -30,6 +30,7 @@
     "models:probe": "tsx scripts/models/probe-local-embedding-model.ts",
     "models:verify": "node scripts/models/install-local-semantic-model.mjs verify",
     "runtime:model-connectivity": "tsx scripts/evaluation/subscription-model-connectivity.ts",
+    "validate:longform-real": "node scripts/evaluation/run-real-longform-validation.mjs --mode=real",
     "runtime:vector-e2e": "tsx scripts/evaluation/local-vector-e2e.ts",
     "evaluate:retrieval-gold": "tsx scripts/evaluation/retrieval-gold-evaluation.ts",
     "verify:backup": "tsx scripts/evaluation/production-backup-verify.ts",

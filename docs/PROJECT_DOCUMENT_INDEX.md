@@ -8,17 +8,17 @@
 
 共 25 份。桌面阅读中心可点击卡片直接阅读全文。
 
-- **验收标准** — 只有当前功能、代码、迁移、测试和文档一致，且下列门禁全部有证据时才能宣布完成。测试数量不能代替真实模型长期质量证据。 — `docs/ACCEPTANCE.md` · 22.6 KB · `3976fed5246e`
+- **验收标准** — 只有当前功能、代码、迁移、测试和文档一致，且下列门禁全部有证据时才能宣布完成。测试数量不能代替真实模型长期质量证据。 — `docs/ACCEPTANCE.md` · 26.0 KB · `95f298d05bd5`
 - **AI团队与介入规则** — 每本书保持11名创作成员；岗位、Agent实例和模型绑定相互独立。同一个模型可以承担多个岗位，但界面必须如实显示，不能冒充异模型意见。 — `docs/AGENT_SYSTEM.md` · 5.4 KB · `b91853c2e5a4`
 - **当前API与事件契约** — 确认开书会原子创建书籍、定位版本、团队、模型绑定、预算、设定工作区和首个设定任务。 — `docs/API.md` · 8.6 KB · `82603820d53f`
 - **系统架构** — 统一账号的模块化单体加独立 Worker： — `docs/ARCHITECTURE.md` · 6.7 KB · `c97c9f9ad70d`
 - **长篇小说资料切片最终设计** — 文秘写作采用“不可变原始资料＋结构节点＋父子检索块＋原子事实”的多粒度切片，不采用整章单块、全资料统一固定字数或无条件重叠。切片只负责定位和取回资料，不能替代原文、事实、规划层级或正史版本。 — `docs/CHUNKING_DESIGN.md` · 23.0 KB · `e4ea8ceeeb39`
-- **当前功能覆盖矩阵** — 当前项目规则与使用说明。 — `docs/COVERAGE_MATRIX.md` · 2.1 KB · `4ad9bb1bd941`
+- **当前功能覆盖矩阵** — 当前项目规则与使用说明。 — `docs/COVERAGE_MATRIX.md` · 2.1 KB · `33ff2865090b`
 - **创作工作流 V2 完整设计** — 活动事件链 → 当前事件大纲版本 — `docs/CREATION_WORKFLOW_V2_DESIGN.md` · 13.9 KB · `4bd23728900a`
 - **数据模型规格** — 规划对象描述未来，不直接写入正史。活动版本必须引用活动上游版本；上游改变后旧候选标记过期。 — `docs/DATA_MODEL.md` · 9.4 KB · `8e6626410213`
-- **当前生效决定** — 本文只记录正在驱动当前版本的决定。 — `docs/DECISIONS.md` · 28.2 KB · `780518def495`
-- **当前设计治理与审计规范** — 架构、数据、上下文、检索、Agent、生成、审查、结算或长篇质量的重要变更使用本规范。纯文案、低风险样式和明确机械修复不启动完整审查。 — `docs/DESIGN_GOVERNANCE_AUDIT.md` · 74.8 KB · `b9678b484b91`
-- **当前开发与验收计划** — 本路线只记录当前版本。完成以代码、迁移、测试、构建和本地运行证据为准；真实模型文学质量另按E3/E4积累。 — `docs/DEVELOPMENT_ROADMAP.md` · 5.5 KB · `92799a500af6`
+- **当前生效决定** — 本文只记录正在驱动当前版本的决定。 — `docs/DECISIONS.md` · 29.4 KB · `927401e39504`
+- **当前设计治理与审计规范** — 架构、数据、上下文、检索、Agent、生成、审查、结算或长篇质量的重要变更使用本规范。纯文案、低风险样式和明确机械修复不启动完整审查。 — `docs/DESIGN_GOVERNANCE_AUDIT.md` · 77.7 KB · `dd97ca7d7e87`
+- **当前开发与验收计划** — 本路线只记录当前版本。完成以代码、迁移、测试、构建和本地运行证据为准；真实模型文学质量另按E3/E4积累。 — `docs/DEVELOPMENT_ROADMAP.md` · 5.5 KB · `a4b2d39ad6c7`
 - **长篇创作系统评测协议** — 评测系统是否在长篇持续创作中同时做到：事实可靠、规划不漂移、人物有生命力、输出不机械、作者可控制、任务可恢复。工程正确性和文学质量分开声明。 — `docs/EVALUATION_PROTOCOL.md` · 2.8 KB · `59b29e78b1be`
 - **文秘写作功能实现、交互、AI检索与上下文说明** — 本文件说明当前版本每个作者功能“怎么用、页面如何反馈、后台如何实现、AI成员何时介入、检索什么以及明确排除什么”。它描述当前生效版本，不包含旧聊天工作流、旧页面名称或已经退出的功能。 — `docs/FEATURE_IMPLEMENTATION_GUIDE.md` · 19.2 KB · `ab0cc37bad66`
 - **当前卷—事件工作流的混合RAG设计** — 混合RAG只为当前书、当前任务补充必要证据。它不能替代开书信息、活动设定、活动卷纲、活动事件、完整章纲、定稿正文或作者原话，也不能把摘要、向量结果、Wiki或AI候选升级为正史。 — `docs/HYBRID_RAG_DESIGN.md` · 10.9 KB · `db65e5ea57b6`
@@ -32,7 +32,7 @@
 - **超长篇连续性设计** — 单书按约500万规范化中文字符、约1500章设计。模型上下文必须与全书总量解耦，不能靠把全文或全部摘要常驻上下文维持连续性。 — `docs/ULTRA_LONGFORM_CONTINUITY.md` · 2.9 KB · `b3df1a36af16`
 - **文秘写作使用说明** — 双击桌面的“文秘写作”入口，等待浏览器打开。首次使用请在登录页用邮箱、昵称和至少10位密码注册；系统中的第一个账号会成为管理员。以后使用同一邮箱和密码登录。若桌面入口缺失，可双击项目根目录的“文秘写作-启动.cmd”。若启动窗口提示错误，不要重复点击，记录错误后再处理。停止时使用“文秘写作-停止”入口，只停止本项目登记的进程。 — `docs/USER_GUIDE.md` · 5.7 KB · `66cf4ca1547e`
 - **文秘写作项目总入口** — 这是老板和 Codex 查看当前项目规则的固定入口，只指向当前生效文档和当前Skill。 — `PROJECT_HANDBOOK.md` · 6.5 KB · `faa787bf2950`
-- **文秘写作** — 文秘写作是一套本地优先的长篇小说 AI 协作平台。作者通过明确的创作对象推进工作，AI 成员直接给出独立方案、融合候选、正文和审查报告，不使用聊天推动创作。 — `README.md` · 2.5 KB · `e1befe9951ae`
+- **文秘写作** — 文秘写作是一套本地优先的长篇小说 AI 协作平台。作者通过明确的创作对象推进工作，AI 成员直接给出独立方案、融合候选、正文和审查报告，不使用聊天推动创作。 — `README.md` · 2.5 KB · `6f4ca91e6ea8`
 
 ## Codex 工作规则
 
@@ -40,16 +40,16 @@
 
 - **文秘写作开发协作规则** — 1. 老板最新明确决定； — `AGENTS.md` · 6.1 KB · `2bdda8773087`
 - **文秘写作当前知识地图** — 文秘写作是使用统一账号体系、支持本机测试和后续公网部署的长篇小说AI协作平台。作者始终拥有最终决定权，AI通过明确对象提供独立方案、融合候选、正文和审查报告，不使用聊天推动流程。 — `KNOWLEDGE.md` · 3.2 KB · `a0fb4823e191`
-- **文秘写作当前任务** — 类型、全量测试、构建、迁移、启动、跨书隔离、任务恢复、对象化工作流和文档同步全部通过；存在重大BUG、正文覆盖、跨书污染、不可恢复任务或文档版本错配时不得宣布完成。 — `TASKS.md` · 22.5 KB · `847aeb79791b`
+- **文秘写作当前任务** — 类型、全量测试、构建、迁移、启动、跨书隔离、任务恢复、对象化工作流和文档同步全部通过；存在重大BUG、正文覆盖、跨书污染、不可恢复任务或文档版本错配时不得宣布完成。 — `TASKS.md` · 23.3 KB · `0cff6c0dd7b7`
 
 ## 长篇质量 Skill
 
 共 7 份。桌面阅读中心可点击卡片直接阅读全文。
 
 - **卷—事件工作流的上下文与混合检索** — 上下文由确定性的 ContextCompiler 按任务编译，不由某个拟人岗位垄断数据库，也不依赖聊天记忆。 — `.agents/skills/wenmi-longform-quality/references/context-and-rag.md` · 16.7 KB · `c29d70a88c9c`
-- **创造性、人物生命力与输出非劣效** — 质量审查不能成为小说生成器的逐项打分提示。它用于发现系统机制是否把创作压平，而不是要求每章同时满足所有指标。 — `.agents/skills/wenmi-longform-quality/references/creativity-and-output-quality.md` · 3.6 KB · `3bbe3fb9afeb`
-- **验收与工程证据合同** — E0—E4不是小说质量层级，不进入AI成员提示词，不限制候选方案，也不能把一章评成“E2质量”。任何质量声明必须写明适用范围、样本、基线和不确定性。 — `.agents/skills/wenmi-longform-quality/references/evaluation-contract.md` · 4.8 KB · `8227c7cdda97`
+- **创造性、人物生命力与输出非劣效** — 质量审查不能成为小说生成器的逐项打分提示。它用于发现系统机制是否把创作压平，而不是要求每章同时满足所有指标。 — `.agents/skills/wenmi-longform-quality/references/creativity-and-output-quality.md` · 4.4 KB · `1ff84dfcf5d4`
+- **验收与工程证据合同** — E0—E4不是小说质量层级，不进入AI成员提示词，不限制候选方案，也不能把一章评成“E2质量”。任何质量声明必须写明适用范围、样本、基线和不确定性。 — `.agents/skills/wenmi-longform-quality/references/evaluation-contract.md` · 5.1 KB · `1af994c0288f`
 - **卷—事件长篇故障模型** — 先确认可观察症状，再从真实版本、ContextPack、检索轨迹、调用记录、正文和结算寻找根因。一个症状可以有多个根因，不要用“换更强模型”跳过定位。 — `.agents/skills/wenmi-longform-quality/references/longform-failure-model.md` · 4.5 KB · `d7492e648067`
 - **卷—事件生产闭环与运行质量** — 设定、卷纲、事件链、事件大纲和章纲统一使用对象化闭环： — `.agents/skills/wenmi-longform-quality/references/runtime-quality-loops.md` · 5.0 KB · `f8070072defb`
 - **当前工作流、界面与项目精简** — 创作台只围绕当前书显示六个主步骤： — `.agents/skills/wenmi-longform-quality/references/workflow-and-simplification.md` · 6.1 KB · `66ba1843d70f`
-- **文秘写作长篇质量审查** — name: wenmi-longform-quality — `.agents/skills/wenmi-longform-quality/SKILL.md` · 14.2 KB · `2a7baada1687`
+- **文秘写作长篇质量审查** — name: wenmi-longform-quality — `.agents/skills/wenmi-longform-quality/SKILL.md` · 14.3 KB · `464cbaed38be`

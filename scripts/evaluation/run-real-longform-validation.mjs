@@ -1,6 +1,6 @@
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
   DEFAULT_BREAKER_LIMITS,
@@ -11,10 +11,12 @@ import {
 
 const API = process.env.WENMI_VALIDATION_API ?? 'http://127.0.0.1:43111';
 const ORIGIN = process.env.WENMI_VALIDATION_ORIGIN ?? 'http://127.0.0.1:43110';
-const BOOK_ID = process.env.WENMI_VALIDATION_BOOK_ID ?? 'da2a9158-28ab-4c4a-ab2a-e3c4aae0fd77';
-const TARGET_CHAPTERS = Number(process.env.WENMI_VALIDATION_TARGET_CHAPTERS ?? '50');
+const BOOK_ID = process.env.WENMI_VALIDATION_BOOK_ID?.trim() ?? '';
+const OWNER_ID = process.env.WENMI_VALIDATION_OWNER_ID?.trim() || 'owner-local-boss';
+let BOOK_OWNERSHIP_VERIFIED = false;
+const TARGET_CHAPTERS = Number(process.env.WENMI_VALIDATION_TARGET_CHAPTERS ?? '20');
 const DATABASE_PATH = resolve(process.env.WENMI_VALIDATION_DATABASE ?? 'data/database/wenmi.sqlite');
-const EVIDENCE_DIR = resolve(process.env.WENMI_VALIDATION_EVIDENCE_DIR ?? 'data/verification/real-model-50-chapter');
+const EVIDENCE_DIR = resolve(process.env.WENMI_VALIDATION_EVIDENCE_DIR ?? ['data/verification/real-model-longform', BOOK_ID || 'missing-book', String(TARGET_CHAPTERS)].join('/'));
 const EVENT_LOG = resolve(EVIDENCE_DIR, 'run-events.ndjson');
 const STATE_FILE = resolve(EVIDENCE_DIR, 'state.json');
 const POLL_MS = Number(process.env.WENMI_VALIDATION_POLL_MS ?? '5000');
@@ -26,6 +28,7 @@ const POLL_MS = Number(process.env.WENMI_VALIDATION_POLL_MS ?? '5000');
 const ARGV = new Set(process.argv.slice(2));
 const MODE = ARGV.has('--mode=real') ? 'real' : 'offline';
 const BLOCKED_RECOVERY = ARGV.has('--blocked-recovery=auto') ? 'auto' : 'manual_only';
+const AUTO_CONFIRM_E2 = ARGV.has('--auto-confirm-e2');
 const MAX_OWNER_BLOCKED_RECOVERIES = 3;
 const BREAKER_LIMITS = { ...DEFAULT_BREAKER_LIMITS, ...parseBreakerOverrides() };
 const RUNTIME_COUNTERS = { consecutiveStructFixes: 0, consecutiveRewrites: 0 };
@@ -44,67 +47,15 @@ function parseBreakerOverrides() {
   return overrides;
 }
 
-const blockedRecoveryNotes = new Map([
-  [9, [
-    '这是老板授权的完整重写恢复，不是再次复审原稿。保留本章可用的灰雾点名、贺铸旧债和章末灾潮钩子，按冻结章纲重写整章。',
-    '冻结事实：第8章横移战后能继续作战的是十四名守军；本章不得为了配合旧点评临时新增三名死亡，章末必须是十四名现役守军与十四盏灰灯一一对应。',
-    '冻结事实：第6章已经揭示两年前尸体是按陈渡旧伤伪造的，军牌被故意留下，陈渡本人已被救回并连续参与第6至8章；不得把早期误认死亡重新当作未裁决矛盾。',
-    '冻结状态：贺铸右臂箭伤未愈，持刀、劈砍和发力必须明确使用左手；岑鸢持有制动钥匙不等于她能操作已经卡死的制动杆，不要写成成功转动制动杆。',
-    '修正封板受横移影响的物理因果和撤离到灰灯出现之间的时间过渡；只做有证据的连续性修复，不用解释性对白填满留白。'
-  ].join('\n')],
-  [13, [
-    '这是老板授权的完整重写恢复。以冻结章纲、已结算第12章正文和当前稿中仍成立的情节为硬来源，重写整章；不要只在旧句上打补丁。',
-    '钥匙线：第12章只确认两把钥匙齿形视觉上互补，并未实际插合。开篇必须明确岑鸢拒绝试插；“能嵌合”与“用途未确认”可以同时成立，不要写成已经严丝合缝试过。',
-    '知识状态：岑鸢上一章已经解释过活账召回印，本章只能以回顾、补充或验证口吻说明新发现，林砚不得像第一次听到。',
-    '人物状态：贺铸右臂旧伤未愈，所有画印、持刀和发力动作明确使用左手。陈渡此前没有右臂箭伤；删去这项无来源伤势，不要把贺铸的伤移植给陈渡。',
-    '空间线：陌生足迹必须明确位于石墙外侧、且已进入距墙三百步以内；最深处可不足百步。不要把“不到三百步”误写成安全线外，也不要让足迹穿进石墙本体。',
-    '谈判线：在林砚从水配额转为人身保护条件前，增加他识别陈渡真正恐惧是被追索而非价码不足的观察与推理。',
-    '信号线：陈渡约定的是三堆斜列小火、中间先灭；章末出现单道青灰烟柱时，人物必须明确认出它不符合约定，从而形成“对方改了规则或另有人发信号”的新悬念。',
-    '避免重复精确数字和定义句堆叠；保留沉盐沼、神秘行走者与烟柱钩子。不得引入新的未解释伤势、时间点或正史事实。'
-  ].join('\n')]
-]);
-
 const terminalFailure = new Set(['failed', 'blocked', 'cancelled', 'interrupted']);
 const activeStatus = new Set(['pending', 'queued', 'working', 'paused', 'waiting_confirmation']);
-
-const arcPrompts = new Map([
-  [11, [
-    '规划第11至20章，共且仅共10章，作为“地下账库与迁城试验”故事弧。',
-    '承接第10章发现的地下封存总账：林砚要查清灰塔为何被王都从账面抹除，同时把十七人的据点改造成能够移动的领地。',
-    '必须包含：总账并非普通纸账、岑鸢发现审计印记的第二层用途、贺铸训练第一支守备队、第一次灰塔升级需在救人和保资源之间选择、出现一个立场可信但利益冲突的邻地领主。',
-    '结尾状态：灰塔完成第一次短距迁移，却在新坐标收到一份提前三天写好的阵亡名单。',
-    '每章必须有不同标题、唯一目标、3至5个具体推进节点和可兑现钩子；不要把十章写成同一个目标的重复模板。'
-  ].join('\n')],
-  [21, [
-    '规划第21至30章，共且仅共10章，作为“灾潮会数数”故事弧。',
-    '承接提前写好的阵亡名单。林砚追查灰雾计数规则，发现灾潮像一套失控的领地审计协议，会按照名字、债务与领主印记选择目标。',
-    '必须包含：名单出现一个不该存在的人、幸存者内部对公开真相产生分裂、邻地求援可能是诱饵、主角用一次不完美的计算救下多数人但付出明确代价、揭示零号灰塔只是被拆散的系统节点之一。',
-    '结尾状态：众人守住第一轮大灾潮，并从潮心带回一个会修改属性面板的灰色核心。',
-    '每章必须有不同标题、唯一目标、3至5个具体推进节点和可兑现钩子；冲突要递进且人物选择要留下后果。'
-  ].join('\n')],
-  [31, [
-    '规划第31至40章，共且仅共10章，作为“王都假账”故事弧。',
-    '承接灰色核心。主角团队确认王都长期把边地伤亡写成资源损耗，并以假账维持灾潮和领主体系。团队必须在潜入、结盟与公开证据之间选择。',
-    '必须包含：岑鸢的旧身份带来机会和信任危机、贺铸面对旧军同袍、灰塔需要暂时失去一项能力以伪装、双线行动互相制造信息差、证据公开后不是立刻胜利而是引发王都先发战争。',
-    '结尾状态：假账被公开，边地多座领地响应零号灰塔，但王都宣布林砚为制造灾潮的叛领。',
-    '每章必须有不同标题、唯一目标、3至5个具体推进节点和可兑现钩子；政治冲突必须由已发生事实推动，不能靠突然降智。'
-  ].join('\n')],
-  [41, [
-    '规划第41至50章，共且仅共10章，作为第一卷终局“零号自由意志”。',
-    '承接王都宣战。林砚要证明灾潮不是必须以人命维持的秩序，并让灰塔从执行审计的工具变成由居民共同约束的领地。',
-    '必须包含：早期守塔人承诺得到兑现、第一章救下的看守者作出关键但非工具人的选择、阵亡名单机制被反向利用、主角不能靠单纯数值碾压取胜、岑鸢和贺铸各完成一次与自身核心矛盾有关的决定。',
-    '第50章完成第一卷闭环：王都控制链被切断，零号灰塔保住自由但付出不可逆代价；同时留下更大世界中其他灰塔正在苏醒的新钩子。',
-    '每章必须有不同标题、唯一目标、3至5个具体推进节点和可兑现钩子；终局要兑现前文线索，不要用旁白总结代替戏剧行动。'
-  ].join('\n')]
-]);
-
-mkdirSync(EVIDENCE_DIR, { recursive: true });
 
 function now() {
   return new Date().toISOString();
 }
 
 function record(event, details = {}) {
+  mkdirSync(EVIDENCE_DIR, { recursive: true });
   const entry = { at: now(), event, ...details };
   appendFileSync(EVENT_LOG, `${JSON.stringify(entry)}\n`, 'utf8');
   console.log(JSON.stringify(entry));
@@ -161,7 +112,7 @@ function blockedPipeline(chapterId) {
   const db = database();
   try {
     return db.prepare(`SELECT status, error_code, rewrite_count FROM chapter_pipeline_runs
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_id = ?`).get(BOOK_ID, chapterId) ?? null;
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`).get(OWNER_ID, BOOK_ID, chapterId) ?? null;
   } finally {
     db.close();
   }
@@ -171,8 +122,8 @@ function blockedRecoveryCount(chapterId) {
   const db = database();
   try {
     return Number(db.prepare(`SELECT COUNT(*) AS count FROM chapter_pipeline_runs
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_id = ?
-        AND status = 'failed' AND error_code = 'QUALITY_BLOCKED'`).get(BOOK_ID, chapterId)?.count ?? 0);
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
+        AND status = 'failed' AND error_code = 'QUALITY_BLOCKED'`).get(OWNER_ID, BOOK_ID, chapterId)?.count ?? 0);
   } finally {
     db.close();
   }
@@ -186,8 +137,8 @@ function readUsage(chapterId) {
       COUNT(*) AS calls,
       COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens
       FROM model_calls
-      WHERE owner_id = 'owner-local-boss' AND book_id = ?
-        AND state IN ('succeeded', 'interrupted', 'failed')`).get(BOOK_ID);
+      WHERE owner_id = ? AND book_id = ?
+        AND state IN ('succeeded', 'interrupted', 'failed')`).get(OWNER_ID, BOOK_ID);
     let chapterCalls = 0;
     let chapterTokens = 0;
     if (chapterId) {
@@ -195,10 +146,10 @@ function readUsage(chapterId) {
         COUNT(*) AS calls,
         COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens
         FROM model_calls
-        WHERE owner_id = 'owner-local-boss' AND book_id = ?
+        WHERE owner_id = ? AND book_id = ?
           AND state IN ('succeeded', 'interrupted', 'failed')
-          AND task_id IN (SELECT task_id FROM tasks WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_id = ?)`)
-        .get(BOOK_ID, BOOK_ID, chapterId);
+          AND task_id IN (SELECT task_id FROM tasks WHERE owner_id = ? AND book_id = ? AND chapter_id = ?)`)
+        .get(OWNER_ID, BOOK_ID, OWNER_ID, BOOK_ID, chapterId);
       chapterCalls = Number(chapter?.calls ?? 0);
       chapterTokens = Number(chapter?.tokens ?? 0);
     }
@@ -223,15 +174,15 @@ async function inspectAndReport() {
   let pipeline13 = null;
   try {
     const rows = db.prepare(`SELECT chapter_number, settlement_status FROM chapters
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? ORDER BY chapter_number`).all(BOOK_ID);
+      WHERE owner_id = ? AND book_id = ? ORDER BY chapter_number`).all(OWNER_ID, BOOK_ID);
     for (const r of rows) {
       if (r.settlement_status === 'settled') settledCount += 1;
       else unsettled.push(r.chapter_number);
     }
     pipeline13 = db.prepare(`SELECT status, error_code, rewrite_count FROM chapter_pipeline_runs
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_id IN
-        (SELECT chapter_id FROM chapters WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_number = 13)`)
-      .get(BOOK_ID, BOOK_ID) ?? null;
+      WHERE owner_id = ? AND book_id = ? AND chapter_id IN
+        (SELECT chapter_id FROM chapters WHERE owner_id = ? AND book_id = ? AND chapter_number = 13)`)
+      .get(OWNER_ID, BOOK_ID, OWNER_ID, BOOK_ID) ?? null;
   } finally {
     db.close();
   }
@@ -254,13 +205,13 @@ function reportBasedRecoveryInstruction(chapterId) {
   const db = database();
   try {
     const run = db.prepare(`SELECT review_panel_id FROM chapter_pipeline_runs
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? AND chapter_id = ?
+      WHERE owner_id = ? AND book_id = ? AND chapter_id = ?
         AND status = 'failed' AND error_code = 'QUALITY_BLOCKED'
-      ORDER BY updated_at DESC LIMIT 1`).get(BOOK_ID, chapterId);
+      ORDER BY updated_at DESC LIMIT 1`).get(OWNER_ID, BOOK_ID, chapterId);
     if (typeof run?.review_panel_id !== 'string') return null;
     const reports = db.prepare(`SELECT reviewer_role, report_json FROM review_reports
-      WHERE owner_id = 'owner-local-boss' AND book_id = ? AND review_panel_id = ?
-        AND status = 'submitted' ORDER BY reviewer_role`).all(BOOK_ID, run.review_panel_id);
+      WHERE owner_id = ? AND book_id = ? AND review_panel_id = ?
+        AND status = 'submitted' ORDER BY reviewer_role`).all(OWNER_ID, BOOK_ID, run.review_panel_id);
     const issues = [];
     for (const row of reports) {
       const report = JSON.parse(row.report_json);
@@ -280,31 +231,6 @@ function reportBasedRecoveryInstruction(chapterId) {
       ...issues.slice(0, 12),
       '保持已成立的剧情推进、人物声音和章末钩子；不得用解释性对白堆砌补丁，不得引入新的未确认事实。'
     ].join('\n\n');
-  } finally {
-    db.close();
-  }
-}
-
-function resumablePlanningDiscussion(scopeText) {
-  const db = database();
-  try {
-    return db.prepare(`SELECT d.discussion_id AS discussionId, t.task_id AS taskId
-      FROM discussions d JOIN tasks t
-        ON json_extract(t.task_brief_json, '$.discussionId') = d.discussion_id
-        AND t.owner_id = d.owner_id AND t.book_id = d.book_id
-      WHERE d.owner_id = 'owner-local-boss' AND d.book_id = ? AND d.scope_text = ?
-        AND d.status = 'awaiting_boss' AND t.status = 'succeeded'
-      ORDER BY d.created_at DESC LIMIT 1`).get(BOOK_ID, scopeText) ?? null;
-  } finally {
-    db.close();
-  }
-}
-
-function planningDecision(discussionId) {
-  const db = database();
-  try {
-    return db.prepare(`SELECT decision_id FROM discussion_decisions
-      WHERE discussion_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`).get(discussionId, BOOK_ID)?.decision_id ?? null;
   } finally {
     db.close();
   }
@@ -333,11 +259,44 @@ async function waitForTask(taskId, purpose) {
   }
 }
 
-async function acceptPendingManuscript(taskId) {
+async function pendingManuscriptConfirmation(taskId) {
   const confirmations = await request(`/api/v1/books/${BOOK_ID}/confirmations`);
   const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
     ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
   if (confirmation === undefined) throw new Error(`task ${taskId} is waiting but no pending manuscript confirmation exists`);
+  return confirmation;
+}
+
+async function pauseForManualReading(taskId, chapterNumber = null) {
+  const confirmation = await pendingManuscriptConfirmation(taskId);
+  const list = await chapters();
+  const chapter = list.find((item) => item.currentManuscriptVersionId === confirmation.target_id) ?? null;
+  const content = chapter ? await request(`/api/v1/books/${BOOK_ID}/chapters/${chapter.chapterId}/content`) : null;
+  const reviewFile = resolve(EVIDENCE_DIR, 'pending-manuscript-review.json');
+  writeFileSync(reviewFile, `${JSON.stringify({
+    generatedAt: now(),
+    bookId: BOOK_ID,
+    targetChapters: TARGET_CHAPTERS,
+    taskId,
+    chapterNumber: chapter?.chapterNumber ?? chapterNumber,
+    chapterId: chapter?.chapterId ?? null,
+    title: chapter?.title ?? null,
+    manuscriptVersionId: confirmation.target_id,
+    confirmationId: confirmation.confirmation_id,
+    content
+  }, null, 2)}\n`, 'utf8');
+  record('chapter_waiting_manual_reading', {
+    taskId,
+    chapterNumber: chapter?.chapterNumber ?? chapterNumber,
+    manuscriptVersionId: confirmation.target_id,
+    reviewFile
+  });
+  saveState({ waitingManualReading: true, taskId, chapterNumber: chapter?.chapterNumber ?? chapterNumber, manuscriptVersionId: confirmation.target_id });
+  return { waitingManualReading: true };
+}
+
+async function acceptPendingManuscript(taskId) {
+  const confirmation = await pendingManuscriptConfirmation(taskId);
   const accepted = await request(`/api/v1/books/${BOOK_ID}/confirmations/${confirmation.confirmation_id}/accept`, {
     method: 'POST', body: JSON.stringify({ expectedCanonRevision: confirmation.expected_canon_revision })
   });
@@ -359,10 +318,15 @@ async function settleActiveChapterTasks() {
   for (const task of active) {
     const detail = await waitForTask(task.taskId, 'resume-existing-chapter');
     if (detail.task.status === 'waiting_confirmation') {
+      if (!AUTO_CONFIRM_E2) {
+        await pauseForManualReading(task.taskId);
+        return false;
+      }
       await acceptPendingManuscript(task.taskId);
       await waitForTask(task.taskId, 'settle-existing-chapter');
     }
   }
+  return true;
 }
 
 async function chapters() {
@@ -379,47 +343,10 @@ async function outlineFor(chapterNumber) {
     && Number(item.active_content?.chapterNumber) === chapterNumber) ?? null;
 }
 
-async function planBlock(firstChapterNumber) {
-  const prompt = arcPrompts.get(firstChapterNumber);
-  if (prompt === undefined) throw new Error(`no planned story arc prompt for chapter ${firstChapterNumber}`);
-  const scopeText = `讨论 ${prompt}`;
-  const resumable = resumablePlanningDiscussion(scopeText);
-  let action;
-  if (resumable !== null) {
-    action = { taskId: resumable.taskId, discussionId: resumable.discussionId };
-    record('planning_resumed_after_runner_restart', {
-      firstChapterNumber, lastChapterNumber: firstChapterNumber + 9, ...action
-    });
-  } else {
-    record('planning_started', { firstChapterNumber, lastChapterNumber: firstChapterNumber + 9 });
-    const sent = await request(`/api/v1/books/${BOOK_ID}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content: scopeText, attachmentIds: [] })
-    });
-    action = sent.action ?? {};
-  }
-  if (typeof action.taskId !== 'string' || typeof action.discussionId !== 'string') {
-    throw new Error(`planning message did not schedule a discussion: ${JSON.stringify(action)}`);
-  }
-  await waitForTask(action.taskId, `plan-${firstChapterNumber}-${firstChapterNumber + 9}`);
-  const decisionId = planningDecision(action.discussionId);
-  if (decisionId === null) throw new Error(`discussion ${action.discussionId} completed without a decision`);
-  const confirmed = await request(`/api/v1/books/${BOOK_ID}/discussions/${action.discussionId}/confirm`, {
-    method: 'POST', body: JSON.stringify({ decisionId })
-  });
-  const prepared = confirmed.planning;
-  if (!prepared || !Array.isArray(prepared.chapterOutlineVersionIds) || prepared.chapterOutlineVersionIds.length !== 10) {
-    throw new Error(`planning confirmation did not create exactly ten chapter outlines: ${JSON.stringify(confirmed)}`);
-  }
-  record('planning_confirmed', { firstChapterNumber, discussionId: action.discussionId, decisionId, outlineCount: prepared.chapterOutlineVersionIds.length });
-}
-
 async function ensureOutline(chapterNumber) {
-  if (await outlineFor(chapterNumber)) return;
-  const blockStart = Math.floor((chapterNumber - 1) / 10) * 10 + 1;
-  if (blockStart === 1) throw new Error(`confirmed outline for chapter ${chapterNumber} is missing from the initial block`);
-  await planBlock(blockStart);
-  if (!(await outlineFor(chapterNumber))) throw new Error(`chapter ${chapterNumber} outline still missing after confirmed planning`);
+  const outline = await outlineFor(chapterNumber);
+  if (outline) return;
+  throw new Error(`第${chapterNumber}章缺少已确认章纲。真实长篇验证不会用聊天或脚本替作者补规划；请先在当前书的分卷、规划与章纲流程中确认正式对象。`);
 }
 
 async function generateChapter(chapterNumber) {
@@ -440,7 +367,7 @@ async function generateChapter(chapterNumber) {
   let taskId;
   if (existing) {
     const pipeline = blockedPipeline(existing.chapterId);
-    const recoveryInstruction = blockedRecoveryNotes.get(chapterNumber) ?? reportBasedRecoveryInstruction(existing.chapterId);
+    const recoveryInstruction = reportBasedRecoveryInstruction(existing.chapterId);
     const recoveryCount = blockedRecoveryCount(existing.chapterId);
     const recover = shouldAutoRecover({
       blockedRecovery: BLOCKED_RECOVERY,
@@ -480,7 +407,7 @@ async function generateChapter(chapterNumber) {
       const pipeline = current ? blockedPipeline(current.chapterId) : null;
       const recoveryCount = current ? blockedRecoveryCount(current.chapterId) : 0;
       const recoveryInstruction = current
-        ? (blockedRecoveryNotes.get(chapterNumber) ?? reportBasedRecoveryInstruction(current.chapterId))
+        ? reportBasedRecoveryInstruction(current.chapterId)
         : null;
       const recover = shouldAutoRecover({
         blockedRecovery: BLOCKED_RECOVERY,
@@ -516,6 +443,7 @@ async function generateChapter(chapterNumber) {
     }
   }
   if (detail.task.status !== 'waiting_confirmation') throw new Error(`chapter ${chapterNumber} task reached ${detail.task.status} without owner gate`);
+  if (!AUTO_CONFIRM_E2) return pauseForManualReading(taskId, chapterNumber);
   const confirmation = await acceptPendingManuscript(taskId);
   detail = await waitForTask(taskId, `settle-chapter-${chapterNumber}`);
   if (detail.task.status !== 'succeeded') throw new Error(`chapter ${chapterNumber} did not settle after confirmation`);
@@ -542,10 +470,22 @@ async function generateChapter(chapterNumber) {
   RUNTIME_COUNTERS.consecutiveRewrites = 0;
   RUNTIME_COUNTERS.consecutiveStructFixes = 0;
   saveState({ completedChapters: chapterNumber, lastChapterId: chapter.chapterId, lastTaskId: taskId, lastContentHash: content.contentHash });
+  return { settled: true };
 }
 
 async function main() {
-  record('run_started', { bookId: BOOK_ID, targetChapters: TARGET_CHAPTERS, databasePath: DATABASE_PATH, mode: MODE, blockedRecovery: BLOCKED_RECOVERY });
+  if (!BOOK_ID) throw new Error('必须显式设置 WENMI_VALIDATION_BOOK_ID；验证脚本不再默认绑定任何旧书。');
+  if (![20, 50, 100, 200].includes(TARGET_CHAPTERS)) throw new Error('WENMI_VALIDATION_TARGET_CHAPTERS 只允许20、50、100或200。');
+  const db = database();
+  let ownedBook;
+  try {
+    ownedBook = db.prepare('SELECT 1 AS found FROM books WHERE owner_id = ? AND book_id = ? AND archived_at IS NULL').get(OWNER_ID, BOOK_ID);
+  } finally {
+    db.close();
+  }
+  if (!ownedBook) throw new Error('当前owner下不存在这本未归档书籍；验证已停止，避免跨账号或跨书读取。');
+  BOOK_OWNERSHIP_VERIFIED = true;
+  record('run_started', { ownerId: OWNER_ID, bookId: BOOK_ID, targetChapters: TARGET_CHAPTERS, databasePath: DATABASE_PATH, mode: MODE, blockedRecovery: BLOCKED_RECOVERY, autoConfirmE2: AUTO_CONFIRM_E2 });
   if (MODE !== 'real') {
     // 默认 offline：只读巡检，不连真实 API、不发起真实调用、不生成正文。
     await inspectAndReport();
@@ -553,7 +493,7 @@ async function main() {
     return;
   }
   // real 模式：套餐余额未知时，正式批次默认最多 1-3 章并等待老板确认。
-  const startup = batchStartupGate({ packageBalanceUnknown: true, plannedChapters: TARGET_CHAPTERS });
+  const startup = batchStartupGate({ packageBalanceUnknown: true, plannedChapters: AUTO_CONFIRM_E2 ? TARGET_CHAPTERS : 1 });
   if (!startup.allow) {
     record('batch_blocked_at_startup', startup);
     saveState({ stopped: true, reason: startup.reason });
@@ -565,7 +505,8 @@ async function main() {
   if (readiness.api !== 'ready' || readiness.worker !== 'ready' || readiness.canStartModelTasks !== true) {
     throw new Error(`runtime not ready: ${JSON.stringify({ health, readiness })}`);
   }
-  await settleActiveChapterTasks();
+  const resumed = await settleActiveChapterTasks();
+  if (!resumed) return;
   while (true) {
     const list = await chapters();
     const settled = list.filter((chapter) => chapter.settlementStatus === 'settled').sort((a, b) => a.chapterNumber - b.chapterNumber);
@@ -574,7 +515,8 @@ async function main() {
     if (settled.some((chapter, index) => chapter.chapterNumber !== index + 1)) {
       throw new Error(`settled chapter sequence is not contiguous through ${maxSettled}`);
     }
-    await generateChapter(maxSettled + 1);
+    const result = await generateChapter(maxSettled + 1);
+    if (result?.waitingManualReading) return;
   }
   const finalChapters = await chapters();
   const finalRows = [];
@@ -591,7 +533,7 @@ async function main() {
     });
   }
   if (finalRows.length !== TARGET_CHAPTERS || finalRows.some((row) => row.settlementStatus !== 'settled' || row.characterCount < 2500)) {
-    throw new Error('final fifty-chapter save verification failed');
+    throw new Error(`最终保存核验失败：目标${TARGET_CHAPTERS}章必须连续结算、正文完整且每章不少于2500字。`);
   }
   writeFileSync(resolve(EVIDENCE_DIR, 'chapters.json'), `${JSON.stringify(finalRows, null, 2)}\n`, 'utf8');
   saveState({ completed: true, completedChapters: finalRows.length, totalCharacters: finalRows.reduce((sum, row) => sum + row.characterCount, 0) });
@@ -599,6 +541,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  record('run_failed', { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : null });
+  const details = { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : null };
+  if (BOOK_OWNERSHIP_VERIFIED) record('run_failed', details);
+  else process.stderr.write(`${JSON.stringify({ at: now(), event: 'run_failed', ...details })}\n`);
   process.exitCode = 1;
 });
