@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ProductionReview, ReviewerRole } from '../../../apps/api/src/contracts/production-review.js';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ManuscriptQualitySnapshotService } from '../../../apps/api/src/application/creation/manuscript-quality-snapshot-service.js';
+import { hasHardProblem, ManuscriptQualitySnapshotService } from '../../../apps/api/src/application/creation/manuscript-quality-snapshot-service.js';
 import { shouldRestorePreviousBest } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -162,6 +162,28 @@ describe('稿件纵向质量退化保护', () => {
   });
 });
 
+describe('三审等级映射', () => {
+  it('事实席major进入有界重写但不冒充blocker，明确blocker仍然停止', () => {
+    const versionId = 'version-under-review';
+    const reports = (['fact', 'literary', 'experience'] as const).map((role) =>
+      degradedReport(role, versionId, {})
+    );
+    const fact = reports.find((report) => report.reviewerRole === 'fact')!;
+    fact.verdict = 'rewrite';
+    fact.issues = [{
+      location: '灵石数量段',
+      issueType: '数量矛盾',
+      severity: 'major',
+      evidence: '同一批灵石出现两个互斥数量',
+      requiredAction: '核对并统一数量'
+    }];
+    expect(hasHardProblem(reports)).toBe(false);
+
+    fact.verdict = 'blocked';
+    fact.issues[0] = { ...fact.issues[0]!, severity: 'blocker' };
+    expect(hasHardProblem(reports)).toBe(true);
+  });
+});
 describe('作者定稿版本选择', () => {
   it('不会因为主观评分回落而静默换回旧稿', () => {
     expect(shouldRestorePreviousBest('review_existing', true)).toBe(false);

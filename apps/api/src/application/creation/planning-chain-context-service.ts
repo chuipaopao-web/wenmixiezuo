@@ -32,7 +32,6 @@ export class PlanningChainContextService {
     const volume = record(JSON.parse(chain.volume_content_json) as unknown);
     const event = record(JSON.parse(chain.event_content_json) as unknown);
     const sequence = record(JSON.parse(chain.sequence_content_json) as unknown);
-    const planned = record(JSON.parse(chain.planned_content_json) as unknown);
     const source = record(this.artifactContent(scope, artifactVersionId));
     return [
       {
@@ -61,10 +60,9 @@ export class PlanningChainContextService {
         content: JSON.stringify({
           eventTitle: sequence.eventTitle,
           eventEndingConditions: sequence.eventEndingConditions,
-          closureCoverage: sequence.closureCoverage,
-          currentChapter: planned
+          closureCoverage: sequence.closureCoverage
         }),
-        reason: '事实审校专用：完整事件章链中的本章职责及事件闭环位置。',
+        reason: '事实审校专用：事件章节链只提供事件闭环和全链覆盖，不重复注入当前章完整章纲。',
         priority: 100
       }
     ];

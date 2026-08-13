@@ -72,10 +72,53 @@ describe('模型运行配置', () => {
 
   it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
     const config = loadModelRuntimeConfig({
-      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan'
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_AUTH_TOKEN: 'unrelated-token'
     });
 
+    expect(config.activeMode).toBe('deterministic');
     expect(config.endpoints.coding.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/coding');
+    expect(config.endpoints.coding.apiKey).toBeUndefined();
+    expect(config.endpoints.agent.apiKey).toBeUndefined();
+  });
+
+  it('严格识别旧兼容变量中的Agent Plan且无显式模式时自动启用真实套餐', () => {
+    const config = loadModelRuntimeConfig({
+      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan',
+      ANTHROPIC_AUTH_TOKEN: 'agent-compatible-token'
+    });
+
+    expect(config.requestedMode).toBe('subscription-plan');
+    expect(config.activeMode).toBe('subscription-plan');
+    expect(config.endpoints.agent).toMatchObject({
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan',
+      apiKey: 'agent-compatible-token'
+    });
+    expect(config.endpoints.coding.apiKey).toBeUndefined();
+  });
+
+  it('显式确定性模式不被兼容套餐凭证覆盖', () => {
+    const config = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'deterministic',
+      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan',
+      ANTHROPIC_AUTH_TOKEN: 'agent-compatible-token'
+    });
+
+    expect(config.requestedMode).toBe('deterministic');
+    expect(config.activeMode).toBe('deterministic');
+    expect(config.endpoints.agent.apiKey).toBe('agent-compatible-token');
+    expect(config.roleProfiles.writer.modelId).toBe('wenmi-fixture-v1');
+  });
+
+  it('兼容令牌只有精确Coding Plan路径时才归入Coding套餐', () => {
+    const config = loadModelRuntimeConfig({
+      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/coding',
+      ANTHROPIC_AUTH_TOKEN: 'coding-compatible-token'
+    });
+
+    expect(config.requestedMode).toBe('deterministic');
+    expect(config.endpoints.coding.apiKey).toBe('coding-compatible-token');
+    expect(config.endpoints.agent.apiKey).toBeUndefined();
   });
 
   it('仍然拒绝文秘写作专用Coding Plan变量中的错误套餐路径', () => {

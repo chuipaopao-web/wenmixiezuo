@@ -34,6 +34,7 @@ export interface SettingGuidanceSnapshot {
   requiredCount: number;
   positioningSummary: string;
   storyDirectionReference: string;
+  openingBookCore: string;
   confirmedContext: Array<{ itemKey: string; label: string; content: string }>;
   previousCandidate: string | null;
   feedbackMode: SettingGuidanceFeedbackMode;
@@ -50,6 +51,7 @@ interface SettingGuidanceContext {
   template: SettingOutlineTemplateItem[];
   positioningSummary: string;
   storyDirectionReference: string;
+  openingBookCore: string;
 }
 
 export class SettingGuidanceService {
@@ -103,8 +105,8 @@ export class SettingGuidanceService {
     const confirmed = required
       .map((item) => byKey.get(item.itemKey))
       .filter((item): item is NonNullable<typeof item> => item?.status === '已确认' && item.content !== null)
-      .slice(-3)
-      .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 400) }));
+      .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
+    const relevantConfirmed = selectRelevantConfirmedContext(confirmed, target.itemKey);
     return {
       phase: target.status === '候选待确认' ? 'revise' : 'ask',
       itemKey: target.itemKey,
@@ -117,7 +119,8 @@ export class SettingGuidanceService {
       requiredCount: required.length,
       positioningSummary: context.positioningSummary,
       storyDirectionReference: context.storyDirectionReference,
-      confirmedContext: confirmed,
+      openingBookCore: context.openingBookCore,
+      confirmedContext: relevantConfirmed,
       previousCandidate: target.content === null ? null : clip(target.content, 1_200),
       feedbackMode: 'initial',
       dissatisfactionRound: 0
@@ -168,6 +171,7 @@ export class SettingGuidanceService {
         ?? blueprint.categoryKey;
       return {
         template: resolveContinuationSettingOutlineTemplate(),
+        openingBookCore: compileOpeningBookCore(blueprint),
         positioningSummary: clip([
           '创作方式：已有正文续写',
           `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
@@ -190,6 +194,7 @@ export class SettingGuidanceService {
         ?? blueprint.categoryKey;
       return {
         template: resolveSettingOutlineTemplate(blueprint),
+        openingBookCore: compileOpeningBookCore(blueprint),
         positioningSummary: clip([
           `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
           `主分类：${category}`,
@@ -205,6 +210,7 @@ export class SettingGuidanceService {
     if (baseline === undefined) return null;
     return {
       template: resolveContinuationSettingOutlineTemplate(),
+      openingBookCore: '当前书籍没有结构化开书资料；只允许使用已导入正文与反向分析，不得猜测缺失字段。',
       positioningSummary: clip([
         '创作方式：已有正文续写',
         '开书分类：历史数据未记录，不作推断',
@@ -218,4 +224,67 @@ export class SettingGuidanceService {
 
 function clip(value: string, maximum: number): string {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+}
+
+/**
+ * 设定阶段始终接收完整开书活动版本，但后续设定项只接收与当前问题有直接
+ * 约束关系的已确认设定。这样既不让模型丢掉人物、读者承诺和作者禁区，
+ * 也不把越来越长的整份设定原文反复塞入每一次提案与融合。
+ */
+export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
+  confirmed: T[],
+  targetItemKey: string
+): T[] {
+  const alwaysRelevant = new Set([
+    'creative-concept',
+    'reader-promise',
+    'protagonist',
+    'motivation',
+    'must-follow'
+  ]);
+  const explicitDependencies: Record<string, readonly string[]> = {
+    motivation: ['protagonist'],
+    'must-follow': ['creative-concept', 'reader-promise', 'protagonist', 'motivation'],
+    'power-source': ['era', 'protagonist', 'must-follow'],
+    levels: ['power-source', 'protagonist', 'must-follow'],
+    costs: ['power-source', 'levels', 'motivation', 'must-follow'],
+    abilities: ['power-source', 'levels', 'costs', 'must-follow'],
+    equipment: ['power-source', 'costs', 'abilities', 'must-follow'],
+    counters: ['power-source', 'levels', 'costs', 'abilities', 'must-follow'],
+    cultivation: ['power-source', 'levels', 'costs', 'must-follow'],
+    bloodline: ['power-source', 'levels', 'costs', 'must-follow'],
+    treasures: ['power-source', 'levels', 'costs', 'equipment', 'must-follow'],
+    causality: ['power-source', 'levels', 'costs', 'must-follow'],
+    'game-entry': ['era', 'protagonist', 'must-follow'],
+    'player-npc': ['game-entry', 'must-follow'],
+    'game-panel': ['game-entry', 'player-npc', 'protagonist', 'must-follow'],
+    'class-skill': ['game-entry', 'game-panel', 'protagonist', 'must-follow'],
+    loot: ['game-entry', 'player-npc', 'game-panel', 'class-skill', 'must-follow'],
+    'quest-instance': ['game-entry', 'player-npc', 'class-skill', 'loot', 'must-follow'],
+    ranking: ['game-entry', 'player-npc', 'game-panel', 'must-follow'],
+    territory: ['era', 'protagonist', 'must-follow'],
+    population: ['territory', 'must-follow'],
+    yield: ['territory', 'population', 'must-follow'],
+    army: ['territory', 'population', 'yield', 'must-follow'],
+    production: ['territory', 'population', 'yield', 'must-follow'],
+    currency: ['production', 'yield', 'must-follow'],
+    'history-baseline': ['era', 'must-follow'],
+    divergence: ['history-baseline', 'era', 'must-follow'],
+    'case-rules': ['era', 'protagonist', 'must-follow'],
+    'evidence-chain': ['case-rules', 'must-follow'],
+    'truth-layers': ['case-rules', 'evidence-chain', 'reader-promise', 'must-follow'],
+    'technology-boundary': ['era', 'protagonist', 'must-follow'],
+    'science-cost': ['technology-boundary', 'must-follow']
+  };
+  const direct = new Set(explicitDependencies[targetItemKey] ?? []);
+  // 最近两项覆盖同一题材包内尚未显式列举的局部接口；它们仍是作者已确认
+  // 的正式来源，不是模型摘要或聊天记忆。
+  for (const item of confirmed.slice(-2)) direct.add(item.itemKey);
+  return confirmed.filter((item) => alwaysRelevant.has(item.itemKey) || direct.has(item.itemKey));
+}
+
+function compileOpeningBookCore(blueprint: OpeningBlueprintInput): string {
+  // 设定是开书信息的第一次正式推演，必须收到作者填写的全部开书字段。
+  // 排除其他书和未摘录灵感，但不以“节省上下文”为由裁掉作者已填写的内容。
+  return JSON.stringify(blueprint);
 }

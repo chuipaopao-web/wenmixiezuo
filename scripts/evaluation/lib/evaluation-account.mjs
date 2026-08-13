@@ -27,7 +27,7 @@ export async function loginEvaluationAccount(options = {}) {
 
   let response = await send(api, origin, '/api/v1/auth/login', { email, password });
   if (!response.ok && allowRegistration) {
-    response = await send(api, origin, '/api/v1/auth/register', { email, password, nickname });
+    response = await send(api, origin, '/api/v1/auth/register', { email, password, displayName: nickname });
   }
   if (!response.ok) {
     throw new Error(`验收账号登录失败（${response.status}）：${await response.text()}`);

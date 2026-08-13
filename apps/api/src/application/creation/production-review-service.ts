@@ -73,13 +73,15 @@ export class ProductionReviewService {
 
   public persist(scope: BookScope, input: {
     panelId: string; role: ReviewerRole; manuscriptVersionId: string; modelSnapshotId: string; agentId: string;
-    raw: string; inputTokens: number; allowDroppingInvalidFactCandidates?: boolean; normalizeLocalBlockers?: boolean;
+    raw: string; inputTokens: number; currentManuscript: string;
+    allowDroppingInvalidFactCandidates?: boolean; normalizeLocalBlockers?: boolean;
     normalizeAiStyleEvidence?: boolean;
     normalizeRepairedVerdict?: boolean;
     normalizeMalformedJsonStrings?: boolean;
     normalizeRiskArrays?: boolean;
     normalizeScoreArray?: boolean;
     normalizeIssueLocations?: boolean;
+    normalizeIssueLimit?: boolean;
     normalizeRepairedSeverity?: boolean;
     normalizeIssueFieldAliases?: boolean;
     normalizeFrozenBindings?: boolean;
@@ -97,19 +99,25 @@ export class ProductionReviewService {
       normalizeRiskArrays: input.normalizeRiskArrays === true,
       normalizeScoreArray: input.normalizeScoreArray === true,
       normalizeIssueLocations: input.normalizeIssueLocations === true,
+      normalizeIssueLimit: input.normalizeIssueLimit === true,
       normalizeRepairedSeverity: input.normalizeRepairedSeverity === true,
       normalizeIssueFieldAliases: input.normalizeIssueFieldAliases === true,
       normalizeFrozenBindings: input.normalizeFrozenBindings === true,
       normalizeProvisionalDraftBlockers: input.normalizeProvisionalDraftBlockers === true,
       normalizeFactOmissionMajor: input.normalizeFactOmissionMajor === true
     });
-    const reportJson = JSON.stringify(report);
+    const responsibilityBoundReport = removeDeterministicLengthIssues(report);
+    const groundedReport = groundProductionReviewEvidence(responsibilityBoundReport, input.currentManuscript, {
+      allowDroppingUngroundedFactCandidates: input.allowDroppingInvalidFactCandidates === true,
+      allowGroundedEvidenceExcerptRecovery: input.allowDroppingInvalidFactCandidates === true
+    });
+    const reportJson = JSON.stringify(groundedReport);
     this.repository.insertReviewReport(scope, {
       id: this.ids.next(), panelId: input.panelId, manuscriptVersionId: input.manuscriptVersionId, role: input.role,
-      agentId: input.agentId, modelSnapshotId: input.modelSnapshotId, report, reportHash: createHash('sha256').update(reportJson).digest('hex'),
+      agentId: input.agentId, modelSnapshotId: input.modelSnapshotId, report: groundedReport, reportHash: createHash('sha256').update(reportJson).digest('hex'),
       inputTokens: input.inputTokens, now: this.clock.now().toISOString()
     });
-    return report;
+    return groundedReport;
   }
 
   public persistEditorSynthesis(scope: BookScope, input: {
@@ -167,6 +175,106 @@ export class ProductionReviewService {
   }
 }
 
+export function removeDeterministicLengthIssues(report: ProductionReview): ProductionReview {
+  const issues = report.issues.filter((issue) => {
+    const text = `${issue.issueType}\n${issue.location}\n${issue.requiredAction}`;
+    return !/(?:正文)?字数(?:不足|超出|超限|范围|约束)?|有效字数|字符数(?:不足|超出|超限)?|tokenCount|输入Token|输出Token|2350|3650/iu.test(text);
+  });
+  if (issues.length === report.issues.length) return report;
+  const hasHardIssue = issues.some((issue) => issue.severity === 'major' || issue.severity === 'blocker');
+  return {
+    ...report,
+    summary: hasHardIssue
+      ? '机械字数、格式等已由确定性硬检查独立裁决；本报告只保留仍需处理的内容问题。'
+      : '机械字数、格式等已由确定性硬检查独立裁决；本席未发现需要改写的内容问题。',
+    issues,
+    verdict: report.verdict === 'blocked' ? 'blocked' : hasHardIssue ? report.verdict : 'pass'
+  };
+}
+
+export function groundProductionReviewEvidence(
+  report: ProductionReview,
+  currentManuscript: string,
+  options: {
+    allowDroppingUngroundedFactCandidates?: boolean;
+    allowGroundedEvidenceExcerptRecovery?: boolean;
+  } = {}
+): ProductionReview {
+  const manuscript = normalizedEvidenceText(currentManuscript);
+  if (manuscript.length === 0) throw new Error('当前完整正文为空，不能保存点评报告');
+  const ground = (evidence: string, field: string, allowExcerptRecovery: boolean): string => {
+    const normalized = normalizedEvidenceText(evidence);
+    if ([...normalized].length >= 4 && manuscript.includes(normalized)) return normalized;
+    if (allowExcerptRecovery) {
+      const excerpt = longestSharedEvidenceExcerpt(manuscript, normalized);
+      if (excerpt !== null) return excerpt;
+    }
+    {
+      throw new Error(`${field}必须逐字来自当前完整正文，不能引用章纲、旧稿、作者要求或模型猜测`);
+    }
+  };
+  const allowExcerptRecovery = options.allowGroundedEvidenceExcerptRecovery === true;
+  const issues = report.issues.map((issue, index) => ({
+    ...issue,
+    evidence: ground(issue.evidence, `issues[${index}].evidence`, allowExcerptRecovery)
+  }));
+  const aiStyle = report.aiStyle === undefined ? undefined : {
+    ...report.aiStyle,
+    evidence: report.aiStyle.evidence.map((evidence, index) =>
+      ground(evidence, `aiStyle.evidence[${index}]`, allowExcerptRecovery))
+  };
+  const groundedRisks: Partial<Pick<ProductionReview, 'politicalRisk' | 'sexualContentRisk'>> = {};
+  for (const [riskName, risk] of [
+    ['politicalRisk', report.politicalRisk],
+    ['sexualContentRisk', report.sexualContentRisk]
+  ] as const) {
+    if (risk !== undefined) groundedRisks[riskName] = {
+      ...risk,
+      evidence: risk.evidence.map((evidence, index) =>
+        ground(evidence, `${riskName}.evidence[${index}]`, allowExcerptRecovery))
+    };
+  }
+  const groundedBase: ProductionReview = { ...report, ...groundedRisks, issues, ...(aiStyle === undefined ? {} : { aiStyle }) };
+  if (report.factCandidates === undefined) return groundedBase;
+  const groundedFacts = report.factCandidates.filter((candidate, index) => {
+    try {
+      ground(candidate.evidenceQuote, `factCandidates[${index}].evidenceQuote`, false);
+      return true;
+    } catch (error) {
+      if (options.allowDroppingUngroundedFactCandidates === true) return false;
+      throw error;
+    }
+  });
+  return { ...groundedBase, factCandidates: groundedFacts };
+}
+
+function normalizedEvidenceText(value: string): string {
+  return value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
+}
+
+function longestSharedEvidenceExcerpt(manuscript: string, evidence: string): string | null {
+  const manuscriptCharacters = [...manuscript];
+  const evidenceCharacters = [...evidence];
+  let previous = new Uint16Array(evidenceCharacters.length + 1);
+  let bestLength = 0;
+  let bestEnd = 0;
+  for (let manuscriptIndex = 1; manuscriptIndex <= manuscriptCharacters.length; manuscriptIndex += 1) {
+    const current = new Uint16Array(evidenceCharacters.length + 1);
+    for (let evidenceIndex = 1; evidenceIndex <= evidenceCharacters.length; evidenceIndex += 1) {
+      if (manuscriptCharacters[manuscriptIndex - 1] !== evidenceCharacters[evidenceIndex - 1]) continue;
+      current[evidenceIndex] = previous[evidenceIndex - 1]! + 1;
+      if (current[evidenceIndex]! > bestLength) {
+        bestLength = current[evidenceIndex]!;
+        bestEnd = manuscriptIndex;
+      }
+    }
+    previous = current;
+  }
+  if (bestLength < 8) return null;
+  const excerpt = manuscriptCharacters.slice(bestEnd - bestLength, bestEnd).join('').trim();
+  return [...excerpt].length >= 8 ? excerpt : null;
+}
+
 export function isSelfContradictoryFactFinding(report: ProductionReview): boolean {
   // P0-7 自洽门禁：事实席证据含"可共存/数学一致/不矛盾/仅新增/尚未确认"软化词，却把同一问题标为硬冲突(major/blocker)，
   // 视为结构无效的自相矛盾报告（如三百步反例：先称冲突又说数学一致）。该席硬问题不触发重写。
@@ -205,8 +313,7 @@ export function decideProductionReviewOutcome(input: {
   // corroborate, retain the literary finding as an auditable disagreement and allow one bounded
   // rewrite/recheck. This does not weaken literary blockers about motivation, plot collapse or prose,
   // nor any fact, cross-seat, safety or compliance blocker.
-  const uncorroboratedLiteraryObjectiveBlocker = blockedReports.length === 1
-    && blockedReports[0]!.reviewerRole === 'literary'
+  const uncorroboratedLiteraryObjectiveBlocker = blockedReports.every((report) => report.reviewerRole === 'literary')
     && factReport?.verdict === 'pass'
     && experienceReport?.verdict !== 'blocked'
     && blockerIssues.length > 0

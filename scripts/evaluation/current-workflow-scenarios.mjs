@@ -33,10 +33,15 @@ function eventContent(meta, index) {
 
 function makeScenario(input) {
   const events = input.eventMetas.map(eventContent);
+  const firstVolumeIdea = `第一卷精确规划为10个连续事件、共100章，每个事件10章。事件依次为：${events.map((event, index) => `${index + 1}.${event.title}`).join('；')}。每个事件必须承接上一事件实际结果和人物新状态，至少四名主要角色主动行动；对手会学习和调整，胜利保留伤势、资源、关系或公开风险等代价。`;
   return {
     ...input,
     events,
-    volumeIdea: `第一卷精确规划为10个连续事件、共100章，每个事件10章。事件依次为：${events.map((event, index) => `${index + 1}.${event.title}`).join('；')}。每个事件必须承接上一事件实际结果和人物新状态，至少四名主要角色主动行动；对手会学习和调整，胜利保留伤势、资源、关系或公开风险等代价。`,
+    volumeIdea: firstVolumeIdea,
+    volumeIdeaFor(volumeNumber) {
+      if (volumeNumber === 1) return firstVolumeIdea;
+      return input.nextVolumeIdea ?? `第${volumeNumber}卷规划为10个连续事件、共100章，每个事件约10章。只承接上一卷的真实结算、人物现状、未回收线索和实际损耗，不得重演已经完成的冲突，也不得把上一卷计划当成已发生事实。先让旧结果带来新麻烦，再逐级扩展舞台和对手；至少四名主要角色保持各自动机、选择和代价，结尾完成本卷核心承诺并留下下一卷可以自然承接的新状态。`;
+    },
     answerFor(item, attempt = 1) {
       const answer = input.answers[item.itemKey]
         ?? `${input.settingFallback} 当前项“${item.label}”只确定可持续运行的规则、人物边界和可核验来源，不提前写死具体场景；${item.prompt}`;
@@ -75,6 +80,7 @@ const xianxia = makeScenario({
   displayName: '东方仙侠多标签百章验收',
   volumeTitle: '第一卷·阵骨出山',
   volumeGoal: '沈砚用一百章从杂役院走到九峰公审，在伙伴共同见证下洗去父亲一半污名、守住北境阵脉，并把幕后内门长老逼到台前。',
+  nextVolumeIdea: '第二卷暂名“阵城悬锋”，规划为10个连续事件、共100章。只承接第一卷真实结算：九峰公审之后，沈砚等人带着已经确认的伤势、关系、证据和资源损耗前往北境阵城；旧案翻开的一角必须引出宗外势力与更大的阵脉危机，但不能重复试剑台、黑风猎场或第一次宗门翻案。伙伴继续有独立目标和分歧，对手会针对第一卷公开过的手段反制。本卷结尾兑现阵城危机与父辈旧案的新证据，同时保留合理代价和下一卷入口。',
   requiredNames: ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚'],
   requiredTerms: ['阵纹', '试剑台', '黑风猎场', '灵矿', '九峰公审'],
   forbiddenTerms: ['林澈', '铜钥匙', '顾野', '零帧'],
@@ -89,7 +95,7 @@ const xianxia = makeScenario({
         personalities: ['冷静敏锐', '护短重诺', '逆境果断', '敢赌但会复盘', '不轻信权威']
       }],
       storyDirection: '沈砚被逼上试剑台后发现父亲残阵盘能看见灵力破绽。他不靠突然暴涨的修为，而靠阵纹、判断、伙伴和代价连续破局；第一卷用十个事件、一百章，从试剑台反杀推进到九峰公审，逐层揭开父亲旧案、灵矿黑账和北境阵脉危机。',
-      worldBackground: '九州修真世界，青霄宗控制北境灵矿与山门城镇；修炼分淬体、引气、筑基等境界，阵法依赖阵眼、灵石、地势和准备，越级取胜必须付出可见代价。',
+      worldBackground: '九州修真世界，青霄宗控制北境灵矿与山门城镇。开书时只确认最低成长阶段称为淬体、沈砚处在淬体三重；后续境界名称、次序和晋升条件必须在“等级、境界与晋升”设定中统一确认。阵法依赖阵眼、灵石、地势和准备，越级取胜必须付出可见代价。',
       openingBackground: '杂役月考当日，韩烈当众踩碎沈砚替妹妹换药的灵石，逼他登上被人改过阵眼的试剑台。',
       stageOne: {
         start: '沈砚以残阵借力击败韩烈，保住药钱并拿到外门考核资格。',
@@ -127,7 +133,7 @@ const xianxia = makeScenario({
   answers: {
     'creative-concept': '核心创意是“弱者看见规则的缝”：沈砚没有无敌系统，只能借父亲残阵盘看清灵力和阵势的破绽。每次爽点来自观察、布置、伙伴选择与承担代价，长期主线是洗清父亲旧案并改变宗门把底层弟子当耗材的规则。',
     'reader-promise': '读者会持续得到阵法智取反杀、群像各展所长和十个事件逐级升级三种体验；每个事件当场兑现一个结果，同时让父亲旧案与北境阵脉出现新证据。',
-    era: '故事发生在九州北境青霄宗。弟子分杂役、外门、内门与真传；淬体、引气、筑基等境界差距真实存在，阵法需要阵眼、灵石、地势和准备时间。',
+    era: '故事发生在九州北境青霄宗。弟子分杂役、外门、内门与真传；开书时只确定最低阶段叫淬体、沈砚处在淬体三重，其他境界名称、顺序和晋升条件留给后续力量设定统一确认。阵法需要阵眼、灵石、地势和准备时间。',
     protagonist: '沈砚十八岁，冷静敏锐、坚韧护短，擅长修补残阵和压力判断；开篇只有淬体三重、半块残阵盘、许小川的消息渠道和必须替妹妹换药的现实压力。',
     motivation: '眼前目标是保住药钱、摆脱杂役身份并活过考核，深层目标是查明父亲旧案。底线是不牺牲无辜同门换胜利，也不把伙伴当阵眼耗材。',
     'must-follow': '力量、阵法和资源前后一致；越级反杀能复盘准备、地形、对手判断和代价。对手不能降智，伙伴不能工具化，新能力先有来源和试错再兑现。',
@@ -157,6 +163,7 @@ const esports = makeScenario({
   displayName: '游戏电竞数据流百章验收',
   volumeTitle: '第一卷·零帧逆袭',
   volumeGoal: '顾野用一百章从落选数据分析师成长为星海联赛冠军指挥，以可验证的比赛数据、队友选择和版本理解，揭开战队数据篡改链。',
+  nextVolumeIdea: '第二卷暂名“冠军没有暂停键”，规划为10个连续事件、共100章。只承接第一卷真实赛果、合同、版本、舆论、伤病和队员关系；夺冠不能让所有问题自动消失，新赛季要从阵容磨合、对手研究、版本变化和数据篡改链的余波中产生新冲突，不能重演公开试训逆选或照搬旧战术。比赛胜负必须由阵容、资源交换、视野、操作和临场选择共同决定。本卷结尾兑现新赛季最重要的一场较量与数据真相的新进展，同时留下可继续发展的职业生涯状态。',
   requiredNames: ['顾野', '唐梨', '陆沉舟', '乔麦', '邵锋', '罗放'],
   requiredTerms: ['帧率', '经济曲线', '视野', '联赛', '总决赛'],
   forbiddenTerms: ['林澈', '铜钥匙', '沈砚', '试剑台'],
@@ -280,10 +287,62 @@ const gameXianxia = makeScenario(genreExpansionScenarioInputs.game_xianxia);
 const lord = makeScenario(genreExpansionScenarioInputs.lord);
 const gameLord = makeScenario(gameLordInput);
 const douluoFanfic = makeScenario(douluoInput);
-export const workflowScenarios = Object.freeze({ xianxia, esports, game_xianxia: gameXianxia, lord, game_lord: gameLord, douluo_fanfic: douluoFanfic });
+
+function transformedScenario(base, overrides, pairs) {
+  return {
+    ...base,
+    ...overrides,
+    openingBlueprint(taxonomyVersion) { return deepReplace(base.openingBlueprint(taxonomyVersion), pairs); },
+    expressionProfile: deepReplace(base.expressionProfile, pairs),
+    events: deepReplace(base.events, pairs),
+    volumeIdea: deepReplace(base.volumeIdea, pairs),
+    volumeIdeaFor(volumeNumber) { return deepReplace(base.volumeIdeaFor(volumeNumber), pairs); },
+    answerFor(item, attempt) { return deepReplace(base.answerFor(item, attempt), pairs); },
+    volumeContent(templateEvent) { return deepReplace(base.volumeContent(templateEvent), pairs); },
+    eventIdea(index) { return deepReplace(base.eventIdea(index), pairs); }
+  };
+}
+
+const releaseXianxia = transformedScenario(xianxia, {
+  key: 'release_xianxia', bookTitle: '烬脉天衡', displayName: '真实模型原创仙侠发布级验证',
+  volumeTitle: '第一卷·地火照夜',
+  requiredNames: ['陆沉星', '周照', '楚白蘅', '闻雀', '方无咎', '裴玄度'],
+  requiredTerms: ['烬纹', '照夜台', '雾骨岭', '地火脉', '九峰衡审'],
+  forbiddenTerms: ['沈砚', '许小川', '苏青萝', '阿九', '韩烈', '魏长庚', '顾野', '零帧']
+}, [
+  ['阵骨问天', '烬脉天衡'], ['第一卷·阵骨出山', '第一卷·地火照夜'],
+  ['沈砚', '陆沉星'], ['许小川', '周照'], ['苏青萝', '楚白蘅'], ['阿九', '闻雀'],
+  ['韩烈', '方无咎'], ['魏长庚', '裴玄度'], ['沈铸', '陆观澜'], ['青霄宗', '太衡宗'],
+  ['阵纹', '烬纹'], ['残阵盘', '烬骨尺'], ['试剑台', '照夜台'], ['黑风猎场', '雾骨岭'],
+  ['灵矿', '地火脉'], ['九峰公审', '九峰衡审'], ['试剑台反杀', '照夜台夺命'],
+  ['黑风猎场夺旗', '雾骨岭照骨'], ['灵矿总阵潜行', '地火脉夜行'],
+  ['内门夺席审查', '内门衡席之争'], ['冰河秘境救援', '寒渊秘境救援'],
+  ['宗门问罪翻案', '宗门问罪破契'], ['北境阵城守夜', '北境火城守夜']
+]);
+
+const releaseEsports = transformedScenario(esports, {
+  key: 'release_esports', bookTitle: '逆帧之上', displayName: '真实模型原创游戏竞技发布级验证',
+  volumeTitle: '第一卷·替补登场',
+  requiredNames: ['江序', '夏弦', '贺燃', '钟遥', '季川', '杜行舟'],
+  requiredTerms: ['帧率', '经济曲线', '视野', '败者组', '全球总决赛'],
+  forbiddenTerms: ['顾野', '唐梨', '陆沉舟', '乔麦', '邵锋', '罗放', '沈砚', '陆沉星']
+}, [
+  ['零帧登顶', '逆帧之上'], ['第一卷·从零帧到冠军', '第一卷·替补登场'],
+  ['顾野', '江序'], ['唐梨', '夏弦'], ['陆沉舟', '贺燃'], ['乔麦', '钟遥'],
+  ['邵锋', '季川'], ['罗放', '杜行舟'], ['零帧战队', '逆帧战队'], ['零帧', '逆帧'],
+  ['公开试训逆选', '雨夜替补'], ['新秀杯连胜', '新星赛破阵'], ['数据内鬼追踪', '回放失窃'],
+  ['城市联赛破局', '城市赛翻盘'], ['战队拆分风暴', '合同断链'], ['世界服副本战', '世界服盲战'],
+  ['季后赛生死局', '败者组抢七'], ['版本风暴重构', '大版本重塑'],
+  ['国际邀请赛夺冠', '海外赛封王'], ['全球总决赛', '冠军夜']
+]);
+
+export const workflowScenarios = Object.freeze({
+  xianxia, esports, release_xianxia: releaseXianxia, release_esports: releaseEsports,
+  game_xianxia: gameXianxia, lord, game_lord: gameLord, douluo_fanfic: douluoFanfic
+});
 
 export function requireWorkflowScenario(key) {
   const scenario = workflowScenarios[key];
-  if (scenario === undefined) throw new Error(`未知验收场景：${key}；只允许xianxia、esports、game_xianxia、lord、game_lord或douluo_fanfic`);
+  if (scenario === undefined) throw new Error(`未知验收场景：${key}`);
   return scenario;
 }

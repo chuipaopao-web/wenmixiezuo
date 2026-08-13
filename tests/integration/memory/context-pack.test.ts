@@ -147,4 +147,75 @@ describe('不可变上下文包', () => {
     expect(pack.sources.some((source) => source.sourceId === 'mv-10:cluster-b')).toBe(true);
     expect(pack.sources.some((source) => source.sourceId === 'mv-9:cluster-a')).toBe(false);
   });
+
+  it('按正文内容指纹排除重复硬来源和重复可选来源并保留排除证据', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const duplicateContent = '同一份章纲内容只应进入一次资料包';
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId, agentId: fixture.agentId, chapterId: fixture.chapterId,
+      canonRevision: 0, positioningVersion: 1, tokenBudget: 1000,
+      hardSources: [
+        { sourceType: 'chapter_outline', sourceId: 'outline-1', content: duplicateContent, reason: '完整章纲', priority: 100 },
+        { sourceType: 'planning:current_chapter', sourceId: 'outline-copy', content: duplicateContent, reason: '规划链副本', priority: 100 }
+      ],
+      optionalSources: [
+        { sourceType: 'retrieval:outline', sourceId: 'outline-retrieval', content: duplicateContent, reason: '检索副本', priority: 50 },
+        { sourceType: 'retrieval:fact', sourceId: 'fact-a', content: '独立事实', reason: '相关事实', priority: 40 },
+        { sourceType: 'retrieval:fact', sourceId: 'fact-b', content: '独立事实', reason: '重复事实', priority: 30 }
+      ]
+    });
+    expect(pack.sources.map((source) => source.sourceId)).toEqual(['outline-1', 'fact-a']);
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'outline-copy', reason: 'duplicate_of_hard_source' }));
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'outline-retrieval', reason: 'duplicate_of_included_source' }));
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'fact-b', reason: 'duplicate_of_included_source' }));
+  });
+
+  it('完整前章和完整章纲已经注入时排除其尾段及检索切片', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const fullPreviousChapter = '前章开头。前章中段发生冲突。前章结尾留下钩子。';
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId, agentId: fixture.agentId, chapterId: fixture.chapterId,
+      canonRevision: 0, positioningVersion: 1, tokenBudget: 1000,
+      hardSources: [
+        { sourceType: 'chapter_outline', sourceId: 'outline-v1', content: '本章完整章纲内容', reason: '本章章纲', priority: 100 },
+        { sourceType: 'previous_chapter_end', sourceId: 'previous:1', content: '前章结尾留下钩子。', reason: '前章结尾', priority: 100 },
+        { sourceType: 'previous_chapter_tail', sourceId: 'manuscript-v1', content: '前章中段发生冲突。前章结尾留下钩子。', reason: '前章尾段', priority: 100 },
+        { sourceType: 'previous_chapter_full', sourceId: 'manuscript-v1', content: fullPreviousChapter, reason: '前章全文', priority: 100 }
+      ],
+      optionalSources: [
+        { sourceType: 'retrieval:outline', sourceId: 'outline-v1:cluster-a', content: '本章完整章纲内容的一部分', reason: '章纲检索切片', priority: 60 },
+        { sourceType: 'retrieval:manuscript', sourceId: 'manuscript-v1:cluster-b', content: '前章中段发生冲突。', reason: '前章检索切片', priority: 50 },
+        { sourceType: 'retrieval:fact', sourceId: 'fact-v1:cluster-c', content: '独立正史事实', reason: '相关事实', priority: 40 }
+      ]
+    });
+    expect(pack.sources.map((source) => source.sourceId)).toEqual(['outline-v1', 'manuscript-v1', 'fact-v1:cluster-c']);
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'previous:1', reason: 'duplicate_of_hard_source' }));
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceType: 'previous_chapter_tail', reason: 'duplicate_of_hard_source' }));
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'outline-v1:cluster-a', reason: 'duplicate_of_hard_source' }));
+    expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'manuscript-v1:cluster-b', reason: 'duplicate_of_hard_source' }));
+  });
+
+  it('只有前章尾段时不因版本相同误删前章其他位置的检索证据', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId, agentId: fixture.agentId, chapterId: fixture.chapterId,
+      canonRevision: 0, positioningVersion: 1, tokenBudget: 1000,
+      hardSources: [
+        { sourceType: 'previous_chapter_tail', sourceId: 'manuscript-v1', content: '前章最后的钩子。', reason: '前章尾段', priority: 100 }
+      ],
+      optionalSources: [
+        { sourceType: 'retrieval:manuscript', sourceId: 'manuscript-v1:cluster-a', content: '前章中段的独立证据。', reason: '前章中段', priority: 50 }
+      ]
+    });
+    expect(pack.sources.map((source) => source.sourceId)).toEqual(['manuscript-v1', 'manuscript-v1:cluster-a']);
+  });
 });

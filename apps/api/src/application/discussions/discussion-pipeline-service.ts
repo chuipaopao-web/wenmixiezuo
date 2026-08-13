@@ -293,7 +293,7 @@ export class DiscussionPipelineService {
           // 主编汇总必须同时保留老板原话、两份独立方案和两份交叉质疑。
           // 这些均是不可截断的审计硬来源，真实长方案会稳定超过编剧单席的 8k 上限。
           // 这里只提高讨论汇总包上限；正文主笔的精简资料包预算不受影响。
-          tokenBudget: discussionContextTokenBudget(isEditor),
+          tokenBudget: discussionContextTokenBudget(isEditor, brief.scopeText),
           policyVersion: 'object-collaboration-context-v2',
           hardSources,
           optionalSources: retrieved.optionalSources
@@ -328,6 +328,9 @@ export class DiscussionPipelineService {
         const spanEstimateRequired = brief.purpose === 'locked_planning'
           && phase === 'independent'
           && ['lead_screenwriter', 'second_screenwriter'].includes(participant.role_key);
+        const displayablePanelPayloadRequired = brief.purpose === 'creative_concept_panel'
+          || brief.purpose === 'setting_proposal_panel'
+          || brief.purpose === 'stage_outline_panel';
         let reusableIsValid = reusable !== undefined
           && (!isEditor || hasRequiredWorkflowArtifact(
             prompt,
@@ -336,7 +339,8 @@ export class DiscussionPipelineService {
             firstChapterNumber,
             brief.requestedChapterCount ?? null
           ))
-          && (!specialistMasterOutlineRequired || isValidMasterOutlineOutput(reusable.output_text));
+          && (!specialistMasterOutlineRequired || isValidMasterOutlineOutput(reusable.output_text))
+          && (!displayablePanelPayloadRequired || !prepareEffectiveOutput(reusable.output_text).rejectedMachinePayload);
         if (reusableIsValid && spanEstimateRequired) {
           try {
             parseSpanEstimateOutput(
@@ -412,10 +416,16 @@ export class DiscussionPipelineService {
                   brief.requestedChapterCount ?? null
                 )
               : null;
-            if (artifactFailure !== null) {
+            const displayPayloadFailure = displayablePanelPayloadRequired
+              && prepareEffectiveOutput(result.output).rejectedMachinePayload
+              ? '返回的方案不完整或结构被截断'
+              : null;
+            const outputValidationFailure = artifactFailure ?? displayPayloadFailure;
+            if (outputValidationFailure !== null) {
               invalidStructuredOutput = result.output;
-              structuredValidationFailure = artifactFailure;
+              structuredValidationFailure = outputValidationFailure;
               lastError = new Error(`活动主编回复缺少当前规划阶段要求的完整落库结构：${artifactFailure}`);
+              lastError = new Error(`模型方案没有完整返回：${outputValidationFailure}`);
               result = undefined;
               if (technicalTry === 2) throw lastError;
             }
@@ -970,15 +980,18 @@ export function discussionOutputTokenLimit(
   purpose: DiscussionPurpose = 'open_discussion'
 ): number {
   if (purpose === 'stage_outline_panel') return 2_400;
-  if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') return 1_200;
+  // Subscription providers may count internal reasoning against the output budget. A 1.2k cap
+  // truncated the author-visible JSON in real calls, so panel outputs receive guarded headroom.
+  if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') return 3_000;
   // 主编只需要输出面向作者的结论和一个结构化规划产物。完整编剧意见已经
   // 单独保存在 discussion_opinions；继续申请 4k 输出会让真实方舟 Plan
   // 在 7k 级输入下更容易被上游网关中断。
   if (isEditor && isGroupedSettingScope(scopeText)) {
-    // 成组设定必须逐项返回可解析的落库合同。固定 3.6k 会在 8—12 项批次中
-    // 截断 JSON，造成“模型已成功、任务仍失败”的假性恢复循环。
-    // 预算随本批条目数有界增长，不影响其他对象协作任务的精简输出。
-    return Math.min(8_000, Math.max(3_600, settingBatchKeys(scopeText).length * 700));
+    // 设定融合不仅要闭合落库合同，部分套餐模型还会把内部思考计入同一输出额度。
+    // 真实单项融合已经证明3.6k可被思考完全耗尽而没有任何可见文字；8k时同一
+    // 资料包可稳定形成约2k的作者候选。这里仍是有界上限，不要求模型写满，
+    // 也不改变提案席的3k预算或正文预算。
+    return 8_000;
   }
   // 阶段式剧情总纲包含每阶段主线、起承转合、阶段总结、伏笔和后续方向。真实
   // 四阶段结果已证明 4.5k 会恰好在最后一个阶段中间截断。此前 6k 超时的根因
@@ -1007,9 +1020,13 @@ export function discussionOutputTokenLimit(
   return 2_000;
 }
 
-export function discussionContextTokenBudget(isEditor: boolean): number {
+export function discussionContextTokenBudget(isEditor: boolean, scopeText = ''): number {
   // 主编资料包保留老板原话、规划正史和四份意见的首尾摘要；完整意见通过
   // opinionId 可追溯，不在同一调用里重复注入。编剧仍保留原有 8k 上限。
+  // 设定阶段保留完整开书活动版本、当前项、作者原话和直接依赖设定；融合还
+  // 需要三份作者选中方案的主张骨架。16k是专项有界上限，不允许借此恢复
+  // 全量无关设定或全文堆叠。
+  if (isEditor && isGroupedSettingScope(scopeText)) return 16_000;
   return isEditor ? 7_200 : 8_000;
 }
 

@@ -52,7 +52,13 @@ export class ContextPackService {
     assertBookScope(scope);
     const characterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
     const policyVersion = input.policyVersion?.trim() || 'context-pack-v2';
-    const hard = input.hardSources.map((source) => ({
+    const excluded: ContextPackRecord['excluded'] = [];
+    const seenContent = new Set<string>();
+    const hardSources = deduplicateCoveredHardSources(
+      deduplicateExactSources(input.hardSources, seenContent, excluded, 'duplicate_of_hard_source'),
+      excluded
+    );
+    const hard = hardSources.map((source) => ({
       ...source,
       tokenCount: estimateTokens(source.content),
       characterCount: source.content.length,
@@ -82,10 +88,15 @@ export class ContextPackService {
       );
     }
     const included: Array<ContextSource & { tokenCount: number; hard: boolean }> = [...hard];
-    const excluded: ContextPackRecord['excluded'] = [];
     let totalTokens = hardTokens;
     let totalCharacters = hardCharacters;
-    const optional = [...input.optionalSources]
+    const optionalSources = deduplicateExactSources(
+      input.optionalSources,
+      seenContent,
+      excluded,
+      'duplicate_of_included_source'
+    );
+    const optional = optionalSources
       .map((source) => ({
         ...source,
         tokenCount: estimateTokens(source.content),
@@ -98,6 +109,9 @@ export class ContextPackService {
     // 与同一正文版本ID去重。硬正文来源可能只带 sourceId（manuscriptVersionId）而无 version，
     // 而检索块带 version(contentHash) 且 sourceId 形如 manuscriptVersionId:clusterId，
     // 因此同时收录 version 与 sourceId，并对检索块按 version 或 sourceId 根核对。
+    const completeHardSourceIds = new Set(hard
+      .filter((source) => !['previous_chapter_end', 'previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
+      .map((source) => source.sourceId));
     const hardManuscriptKeys = new Set<string>();
     for (const source of hard) {
       if (!source.sourceType.includes('manuscript') || source.sourceType.includes('retrieval')) continue;
@@ -105,9 +119,21 @@ export class ContextPackService {
       hardManuscriptKeys.add(source.sourceId);
     }
     const dedupedOptional = optional.filter((source) => {
+      const bySourceIdRoot = source.sourceId.split(':')[0] ?? source.sourceId;
+      const coveredByHardContent = hard.some((hardSource) => {
+        const hardContent = hardSource.content.trim();
+        const optionalContent = source.content.trim();
+        return optionalContent.length > 0 && hardContent.includes(optionalContent);
+      });
+      if (
+        coveredByHardContent
+        || (source.sourceType.startsWith('retrieval:') && completeHardSourceIds.has(bySourceIdRoot))
+      ) {
+        excluded.push({ sourceType: source.sourceType, sourceId: source.sourceId, reason: 'duplicate_of_hard_source', tokenCount: source.tokenCount });
+        return false;
+      }
       if (!source.sourceType.includes('manuscript')) return true;
       const byVersion = source.version === undefined ? null : String(source.version);
-      const bySourceIdRoot = source.sourceId.split(':')[0] ?? source.sourceId;
       if ((byVersion !== null && hardManuscriptKeys.has(byVersion)) || hardManuscriptKeys.has(bySourceIdRoot)) {
         excluded.push({ sourceType: source.sourceType, sourceId: source.sourceId, reason: 'duplicate_of_hard_source', tokenCount: source.tokenCount });
         return false;
@@ -194,8 +220,57 @@ export class ContextPackService {
   }
 }
 
+function deduplicateCoveredHardSources(
+  sources: ContextSource[],
+  excluded: ContextPackRecord['excluded']
+): ContextSource[] {
+  const previousChapterSourceTypes = new Set(['previous_chapter_full', 'previous_chapter_end', 'previous_chapter_tail']);
+  const previousChapterSources = sources.filter((source) => previousChapterSourceTypes.has(source.sourceType));
+  return sources.filter((source) => {
+    if (!previousChapterSourceTypes.has(source.sourceType)) return true;
+    const excerpt = source.content.trim();
+    const covered = previousChapterSources.some((candidate) => {
+      if (candidate === source) return false;
+      const candidateContent = candidate.content.trim();
+      return candidateContent.length > excerpt.length && candidateContent.includes(excerpt);
+    });
+    if (excerpt.length === 0 || !covered) return true;
+    excluded.push({
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      reason: 'duplicate_of_hard_source',
+      tokenCount: estimateTokens(source.content)
+    });
+    return false;
+  });
+}
+
 export function estimateTokens(content: string): number {
   let tokens = 0;
   for (const character of content) tokens += /[\u3400-\u9fff]/u.test(character) ? 1 : 0.25;
   return Math.max(1, Math.ceil(tokens));
+}
+
+function deduplicateExactSources(
+  sources: ContextSource[],
+  seenContent: Set<string>,
+  excluded: ContextPackRecord['excluded'],
+  reason: 'duplicate_of_hard_source' | 'duplicate_of_included_source'
+): ContextSource[] {
+  const unique: ContextSource[] = [];
+  for (const source of sources) {
+    const contentKey = createHash('sha256').update(source.content.trim()).digest('hex');
+    if (seenContent.has(contentKey)) {
+      excluded.push({
+        sourceType: source.sourceType,
+        sourceId: source.sourceId,
+        reason,
+        tokenCount: estimateTokens(source.content)
+      });
+      continue;
+    }
+    seenContent.add(contentKey);
+    unique.push(source);
+  }
+  return unique;
 }

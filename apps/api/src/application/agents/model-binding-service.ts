@@ -183,7 +183,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     : value;
   return {
     chief_editor: profile('chief_editor', profiles.chief_editor),
-    deputy_editor: profile('deputy_editor', profiles.continuity),
+    deputy_editor: profile('deputy_editor', profiles.reviewer),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     setting: profile('setting', profiles.style_editor),
@@ -214,7 +214,7 @@ function preserveCurrentProfilesWithDeputyMigration(
 
 function legacyProfileRole(roleKey: string): RoleKey {
   const aliases: Record<string, RoleKey> = {
-    chief_editor: 'chief_editor', deputy_editor: 'continuity', lead_screenwriter: 'plot_architect',
+    chief_editor: 'chief_editor', deputy_editor: 'reviewer', lead_screenwriter: 'plot_architect',
     second_screenwriter: 'continuity', setting: 'style_editor', lead_writer: 'writer', backup_writer: 'chief_editor',
     literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright',
     plot_architect: 'plot_architect', continuity: 'continuity', writer: 'writer', reviewer: 'reviewer',

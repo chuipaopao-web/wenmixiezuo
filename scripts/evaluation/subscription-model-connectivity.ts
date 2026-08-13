@@ -13,22 +13,28 @@ if (config.strictPlanOnly !== true || config.cashFallbackAllowed !== false) {
   throw new Error('真实连通验证拒绝非严格套餐模式或任何现金回退');
 }
 
-const allProbes: Array<{ roleKey: CreativeRoleKey; label: string }> = [
-  { roleKey: 'chief_editor', label: 'Codex GPT-5.6 主编' },
-  { roleKey: 'lead_screenwriter', label: 'DeepSeek 编剧' },
-  { roleKey: 'setting', label: 'GLM 设定' },
-  { roleKey: 'literary_reviewer', label: 'Kimi 审校' },
-  { roleKey: 'experience_reviewer', label: '豆包体验' }
+const allProbes: Array<{ roleKey: CreativeRoleKey }> = [
+  { roleKey: 'chief_editor' },
+  { roleKey: 'lead_screenwriter' },
+  { roleKey: 'second_screenwriter' },
+  { roleKey: 'literary_reviewer' },
+  { roleKey: 'experience_reviewer' },
+  { roleKey: 'researcher' }
 ];
 const requestedRoles = new Set((process.env.WENMI_CONNECTIVITY_ROLES ?? '').split(',').map((value) => value.trim()).filter(Boolean));
 const probes = requestedRoles.size === 0 ? allProbes : allProbes.filter((probe) => requestedRoles.has(probe.roleKey));
 if (probes.length === 0) throw new Error('WENMI_CONNECTIVITY_ROLES没有匹配任何允许的探针岗位');
 
 const factory = new ModelAdapterFactory(config);
+const maxOutputTokens = Number(process.env.WENMI_CONNECTIVITY_MAX_OUTPUT_TOKENS ?? '256');
+if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 64 || maxOutputTokens > 1024) {
+  throw new Error('WENMI_CONNECTIVITY_MAX_OUTPUT_TOKENS必须是64至1024之间的整数');
+}
 const evidence: Array<Record<string, unknown>> = [];
 for (const [index, probe] of probes.entries()) {
   const legacyRole = legacyRoleFor(probe.roleKey);
   const profile = config.roleProfiles[legacyRole];
+  const label = `${probe.roleKey} · ${profile.modelId}`;
   const adapter = factory.resolve(profile.provider, profile.modelId, 'discussion', probe.roleKey);
   const startedAt = new Date();
   const result = await adapter.generate({
@@ -38,13 +44,13 @@ for (const [index, probe] of probes.entries()) {
     bookId: 'runtime-verification',
     agentId: probe.roleKey,
     prompt: '这是文秘写作的零现金套餐连通性检查。只回复：连通。不要解释，不要执行任何工具。',
-    maxOutputTokens: 24
+    maxOutputTokens
   });
-  if (result.state !== 'succeeded' || result.output.trim().length === 0) throw new Error(`${probe.label}没有返回有效文字`);
-  if (result.cashCostCny !== 0) throw new Error(`${probe.label}报告了非零现金成本，验证立即停止`);
+  if (result.state !== 'succeeded' || result.output.trim().length === 0) throw new Error(`${label}没有返回有效文字`);
+  if (result.cashCostCny !== 0) throw new Error(`${label}报告了非零现金成本，验证立即停止`);
   const finishedAt = new Date();
   const record = {
-    label: probe.label,
+    label,
     roleKey: probe.roleKey,
     provider: result.provider,
     modelId: result.modelId,
@@ -75,7 +81,7 @@ function legacyRoleFor(roleKey: CreativeRoleKey): keyof typeof config.roleProfil
     chief_editor: 'chief_editor',
     deputy_editor: 'chief_editor',
     lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'plot_architect',
+    second_screenwriter: 'continuity',
     setting: 'continuity',
     lead_writer: 'writer',
     backup_writer: 'writer',

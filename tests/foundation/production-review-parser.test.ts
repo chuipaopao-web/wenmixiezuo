@@ -57,6 +57,32 @@ describe('三点评结构化契约', () => {
     ]);
   });
 
+  it('修复通道保留数值评分并忽略scores中的非数值附加统计', () => {
+    const raw = JSON.stringify({
+      ...expected,
+      verdict: 'rewrite',
+      summary: '两处因果问题需要定点修改',
+      issues: [{
+        location: '第一幕', issueType: '场景因果', severity: 'major',
+        evidence: '证据数量与指控数量不一致', requiredAction: '补齐反驳与压制过程'
+      }],
+      scores: {
+        narrativeMomentum: 78,
+        sceneLogic: 58,
+        issueSeverityDistribution: { blocker: 0, major: 1, minor: 0 }
+      },
+      aiStyle: {
+        riskScore: 20, flaggedParagraphCount: 1, totalParagraphCount: 20,
+        flaggedParagraphRatio: 0.05, isAuthorshipProbability: false, evidence: ['第3段排比略整齐']
+      }
+    });
+    expect(() => parseProductionReview(raw, expected)).toThrow('issueSeverityDistribution无效');
+    const repaired = parseProductionReview(raw, expected, { normalizeScoreArray: true });
+    expect(repaired.scores).toEqual({ narrativeMomentum: 78, sceneLogic: 58 });
+    expect(repaired.verdict).toBe('rewrite');
+    expect(repaired.issues).toHaveLength(1);
+  });
+
   it('只在一次修复后把明确的minor_issues枚举归一为通过且保留问题', () => {
     const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
     const raw = JSON.stringify({
@@ -220,6 +246,22 @@ describe('三点评结构化契约', () => {
     expect(() => parseProductionReview(raw, experience)).toThrow('location无效');
     expect(parseProductionReview(raw, experience, { normalizeIssueLocations: true }).issues[0]?.location)
       .toBe('{"sourceId":"manuscript-1","startChar":12,"endChar":28,"lineNumber":2}');
+  });
+
+  it('只在修复结果中按严重程度保留最多八条点评问题', () => {
+    const issues = Array.from({ length: 9 }, (_, index) => ({
+      location: `第${index + 1}段`, issueType: 'style', severity: index === 8 ? 'major' : 'observation',
+      evidence: `证据${index + 1}`, requiredAction: `修改${index + 1}`
+    }));
+    const raw = JSON.stringify({
+      ...expected, verdict: 'rewrite', summary: '问题过多，需要只保留最重要的内容。', issues,
+      scores: { literary: 60 },
+      aiStyle: { riskScore: 10, flaggedParagraphCount: 0, totalParagraphCount: 10, flaggedParagraphRatio: 0, isAuthorshipProbability: false, evidence: [] }
+    });
+    expect(() => parseProductionReview(raw, expected)).toThrow('单席点评问题超过8条上限');
+    const repaired = parseProductionReview(raw, expected, { normalizeIssueLimit: true });
+    expect(repaired.issues).toHaveLength(8);
+    expect(repaired.issues[0]).toMatchObject({ severity: 'major', evidence: '证据9' });
   });
 
   it('只在一次修复后把moderate严重度保守归入major', () => {

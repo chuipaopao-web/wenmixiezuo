@@ -27,12 +27,13 @@ describe('十一人创作团队', () => {
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5.2',
+      modelId: 'minimax-m3',
       plan: 'agent'
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('不同模型');
     expect(() => service.validate({ ...base, lead_screenwriter: base.experience_reviewer })).toThrow('豆包');
     expect(() => service.validate({ ...base, lead_writer: base.literary_reviewer })).toThrow('写手');
+    expect(() => service.validate({ ...base, backup_writer: base.lead_writer })).toThrow('主笔与副笔必须使用不同模型');
   });
 
   it('点评席必须三者彼此异模型并与活动写手异模型', () => {

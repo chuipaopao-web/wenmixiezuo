@@ -6,7 +6,7 @@ import { CreationWorkflowProgressService } from '../../../apps/api/src/applicati
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
-import { EventChapterGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chapter-generation-pipeline-service.js';
+import { eventChapterOutputTokenLimit, EventChapterGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chapter-generation-pipeline-service.js';
 import { EventChapterGenerationService } from '../../../apps/api/src/application/planning/event-chapter-generation-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { EventChapterGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/event-chapter-generation-repository.js';
@@ -24,6 +24,11 @@ import { createTestContext,FixedClock,SequenceIds,type TestContext } from '../..
 
 describe('事件章纲序列与近期冻结',()=>{
   let context:TestContext|undefined;afterEach(()=>{context?.close();context=undefined;});
+  it('按任务结构保留完整输出空间',()=>{
+    expect(eventChapterOutputTokenLimit('sequence')).toBe(12000);
+    expect(eventChapterOutputTokenLimit('details')).toBe(9000);
+    expect(eventChapterOutputTokenLimit('sequence_challenge')).toBe(2200);
+  });
   it('先确认完整连续序列，再只冻结最近一至三章并桥接不可变章纲成果',()=>{
     context=createTestContext('wenmi-event-chapters-');const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
     const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'事件章纲测试书'});
@@ -188,7 +193,8 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(outlines.get(scope,event.eventId)!.outlines[0]!.versions).toHaveLength(outlineVersionCount);
     const calls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceTask.taskId,detailTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
-    expect(calls).toHaveLength(2);
+    expect(calls.filter(call=>call.task_id===sequenceTask.taskId).length).toBeGreaterThan(1);
+    expect(calls.filter(call=>call.task_id===detailTask.taskId)).toHaveLength(3);
     const detailPack=context.database.prepare('SELECT source_manifest_json FROM context_packs WHERE owner_id=? AND book_id=? AND context_pack_id=?')
       .get(scope.ownerId,scope.bookId,calls.find(call=>call.task_id===detailTask.taskId)!.context_pack_id) as {source_manifest_json:string};
     const types=(JSON.parse(detailPack.source_manifest_json) as Array<{sourceType:string}>).map(source=>source.sourceType);

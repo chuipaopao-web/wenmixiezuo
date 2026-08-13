@@ -41,7 +41,7 @@ describe('启动时保留书籍模型方案', () => {
       .map(({ roleKey, provider, modelId }) => ({ roleKey, provider, modelId }))).toEqual(before);
   });
 
-  it('把现有副编迁移到Agent Plan GLM并保留其他人工绑定和旧修订', () => {
+  it('把现有副编迁移到独立Agent Plan模型并保留其他人工绑定和旧修订', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -90,7 +90,7 @@ describe('启动时保留书籍模型方案', () => {
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
     expect(team.find((agent) => agent.roleKey === 'deputy_editor')).toMatchObject({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5.2'
+      modelId: 'minimax-m3'
     });
     expect(team.find((agent) => agent.roleKey === 'researcher')).toMatchObject({
       modelId: 'glm-5-2-custom-research'
@@ -140,7 +140,7 @@ describe('启动时保留书籍模型方案', () => {
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
       chief_editor: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      deputy_editor: 'volcengine-ark-agent-plan/glm-5.2',
+      deputy_editor: 'volcengine-ark-agent-plan/minimax-m3',
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
       setting: 'volcengine-ark-agent-plan/glm-5.2',

@@ -174,6 +174,18 @@ export class ProtagonistStateService {
     assertBookScope(scope);
     const facts = this.repository.structuredFacts(scope, chapterId);
     return this.repository.runInTransaction(() => {
+      const now = this.clock.now().toISOString();
+      // Opening profiles are created before canon entities exist. Once a settled
+      // chapter introduces exactly one same-name character, bind that profile
+      // deterministically even when the chapter has no numeric protagonist-state
+      // fact. Ambiguous or cross-book matches remain unlinked.
+      for (const profile of this.repository.listProfiles(scope, false)) {
+        if (profile.entity_id !== null) continue;
+        const entityId = this.repository.uniqueActiveCharacterIdByName(scope, profile.display_name);
+        if (entityId !== undefined) {
+          this.repository.linkProfileEntity(scope, profile.protagonist_profile_id, entityId, now);
+        }
+      }
       let projected = 0;
       for (const fact of facts) {
         if (this.repository.hasSourceFact(scope, fact.fact_id)) continue;
@@ -204,7 +216,7 @@ export class ProtagonistStateService {
           throw error;
         }
         if (profile.entity_id === null) {
-          this.repository.linkProfileEntity(scope, profile.protagonist_profile_id, fact.subject_entity_id, this.clock.now().toISOString());
+          this.repository.linkProfileEntity(scope, profile.protagonist_profile_id, fact.subject_entity_id, now);
         }
         this.insertRevision(scope, {
           profileId: profile.protagonist_profile_id, category: parsed.category, logicalKey: parsed.logicalKey,

@@ -127,13 +127,15 @@ export class EventChapterGenerationService {
     const idempotencyKey='event-chapter-'+brief.kind+':'+brief.subjectId+':'+key;
     const latest=this.repo.latest(scope,brief.subjectId,taskType(brief.kind));
     if(latest?.idempotency_key===idempotencyKey){const task=this.tasks.require(scope,latest.task_id);
-      if(task.brief.requestHash!==brief.requestHash)throw conflict('同一个幂等键不能用于不同请求。');return this.view(scope,task);}
+      if(task.brief.requestHash!==brief.requestHash)throw conflict('同一个幂等键不能用于不同请求。');
+      if(!['failed','cancelled','interrupted','blocked'].includes(task.status))return this.view(scope,task);}
     if(latest!==undefined&&!['failed','cancelled','succeeded','interrupted','blocked'].includes(latest.status))
       throw conflict('当前章纲已有团队任务正在进行。');
-    const taskId=this.ids.next();
+    const taskId=this.ids.next(),taskKey=latest!==undefined&&['failed','cancelled','interrupted','blocked'].includes(latest.status)
+      ?idempotencyKey+':retry:'+latest.task_id:idempotencyKey;
     const task=this.uow.run(()=>{
       let created=this.tasks.create(scope,{taskId,taskType:taskType(brief.kind),assignedAgentId:brief.member.agentId,
-        idempotencyKey,budgetId,requiredEditorEpoch:editorEpoch,initialPhase:'preparing_context',
+        idempotencyKey:taskKey,budgetId,requiredEditorEpoch:editorEpoch,initialPhase:'preparing_context',
         brief:brief as unknown as Record<string,unknown>});
       if(created.taskId!==taskId)return created;
       if(!this.repo.attach(scope,{taskId,expectedPlanningVersion:brief.expectedWorkflowVersion,allowedStages:stages,

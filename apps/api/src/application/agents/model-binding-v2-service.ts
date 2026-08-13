@@ -68,6 +68,11 @@ export function validateTeamModelProfiles(
     for (const role of ['lead_screenwriter', 'second_screenwriter'] as const) {
       if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
     }
+    if (profiles.lead_writer.plan !== 'deterministic'
+      && profiles.backup_writer.plan !== 'deterministic'
+      && signature('lead_writer') === signature('backup_writer')) {
+      throw new Error('主笔与副笔必须使用不同模型，技术故障接管不能回到同一模型');
+    }
     for (const role of ['lead_writer', 'backup_writer'] as const) {
       if (profiles[role].plan !== 'deterministic' && !/(deepseek-v4-pro|kimi-k2\.7-code)/iu.test(profiles[role].modelId)) {
         throw new Error('写手仅允许火山方舟 Agent Plan 的 DeepSeek V4 Pro 或 Kimi K2.7 Code');

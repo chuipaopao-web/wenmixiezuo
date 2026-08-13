@@ -166,11 +166,14 @@ export class VolumePlanGenerationRepository {
         ON m.model_snapshot_id = a.model_snapshot_id
        AND m.owner_id = a.owner_id AND m.book_id = a.book_id
       WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-        AND (a.agent_id = ? OR r.role_key IN ('lead_screenwriter', 'second_screenwriter'))
       ORDER BY CASE
         WHEN r.role_key = 'lead_screenwriter' THEN 1
         WHEN r.role_key = 'second_screenwriter' THEN 2
-        ELSE 3 END
+        WHEN a.agent_id = ? THEN 3
+        WHEN r.role_key = 'backup_writer' THEN 4
+        WHEN r.role_key = 'researcher' THEN 5
+        WHEN r.role_key = 'deputy_editor' THEN 6
+        ELSE 7 END
     `).all(
       book.active_editor_agent_id,
       scope.ownerId,
@@ -394,5 +397,18 @@ export class VolumePlanGenerationRepository {
         AND r.state = 'awaiting_provider'
       LIMIT 1
     `).get(scope.ownerId, scope.bookId, taskId) !== undefined;
+  }
+
+  public hasUnresolvedModelBinding(scope: BookScope, provider: string, modelId: string): boolean {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT 1
+      FROM model_calls m
+      JOIN model_call_reconciliations r ON r.request_id = m.request_id
+      WHERE m.owner_id = ? AND m.book_id = ?
+        AND m.provider = ? AND m.model_id = ?
+        AND r.state = 'awaiting_provider'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, provider, modelId) !== undefined;
   }
 }

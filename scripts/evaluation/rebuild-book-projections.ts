@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
 import { NarrativeProjectionService } from '../../apps/api/src/application/projections/narrative-projection-service.js';
+import { ProtagonistStateService } from '../../apps/api/src/application/knowledge/protagonist-state-service.js';
 import { SystemClock, UuidGenerator } from '../../apps/api/src/domain/ids.js';
 
 const bookId = process.argv[2]?.trim();
@@ -22,6 +23,14 @@ try {
   const clock = new SystemClock();
   new CanonService(database, ids, clock).rebuildProjections(scope);
   const narrative = new NarrativeProjectionService(database, ids, clock).rebuild(scope);
+  const protagonistService = new ProtagonistStateService(database, ids, clock);
+  const settledChapters = database.prepare(`SELECT chapter_id FROM chapters
+    WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'
+    ORDER BY chapter_number`).all(scope.ownerId, scope.bookId) as unknown as Array<{ chapter_id: string }>;
+  const protagonistUpdates = settledChapters.reduce(
+    (count, chapter) => count + protagonistService.projectCanonFacts(scope, chapter.chapter_id),
+    0
+  );
   const relationship = Number((database.prepare(`
     SELECT COUNT(*) AS count
     FROM relationship_projection
@@ -40,6 +49,7 @@ try {
     canonRevision: book.canon_revision,
     narrative,
     relationship,
+    protagonistUpdates,
     emptyNarrative
   }, null, 2));
 } finally {

@@ -46,7 +46,7 @@ describe('完整岗位提示词查看保护', () => {
       variants: Array<{ purpose: string; prompt: string }>;
     };
     expect(data.identity).toContain('貂蝉');
-    expect(data.variants.map((item) => item.purpose)).toEqual(['discussion', 'review_synthesis']);
+    expect(data.variants.map((item) => item.purpose)).toEqual(['discussion', 'structured_planning', 'review_synthesis']);
     expect(data.variants.every((item) => item.prompt.length > 300)).toBe(true);
     expect(data.variants.every((item) => item.prompt.includes('资深长篇网文主编'))).toBe(true);
     expect(data.variants.every((item) => item.prompt.includes('核心专长：'))).toBe(true);

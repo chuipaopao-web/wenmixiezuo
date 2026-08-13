@@ -105,9 +105,20 @@ export class DeterministicProductionReviewerAdapter implements ModelAdapter {
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     assertNotAborted(signal);
     assertDeterministicCreativeFixtureAllowed();
-    const input = JSON.parse(request.prompt) as { content: string; manuscriptVersionId: string; modelSnapshotId: string };
-    const review = reviewNovel(input.content);
-    const output = JSON.stringify(productionReview(this.reviewerRole, input.manuscriptVersionId, input.modelSnapshotId, input.content, review));
+    const input = JSON.parse(request.prompt) as {
+      content?: string; currentManuscriptEvidenceSource?: string;
+      manuscriptVersionId?: string; modelSnapshotId?: string;
+      originalContract?: { reviewerRole?: string; manuscriptVersionId?: string; modelSnapshotId?: string };
+    };
+    const content = input.content ?? input.currentManuscriptEvidenceSource ?? '';
+    const review = reviewNovel(content);
+    const output = JSON.stringify(productionReview(
+      this.reviewerRole,
+      input.manuscriptVersionId ?? input.originalContract?.manuscriptVersionId ?? '',
+      input.modelSnapshotId ?? input.originalContract?.modelSnapshotId ?? '',
+      content,
+      review
+    ));
     return result(this.provider, this.modelId, request.prompt, output);
   }
 }
@@ -186,7 +197,7 @@ function productionReview(
         totalParagraphCount: Math.max(1, paragraphs.length),
         flaggedParagraphRatio: flagged / Math.max(1, paragraphs.length),
         isAuthorshipProbability: false,
-        evidence: repeated ? ['首段重复使用“就在这时”，形成可定位的机械转折。'] : []
+        evidence: repeated ? ['就在这时，就在这时'] : []
       }
     };
   }

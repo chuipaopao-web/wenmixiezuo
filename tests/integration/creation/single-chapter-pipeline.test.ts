@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
-import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { createTestContext, FixedClock, MutableClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
 import { ProductionWorkflowRepository } from '../../../apps/api/src/infrastructure/db/repositories/production-workflow-repository.js';
 import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
@@ -69,8 +69,9 @@ describe('单章完整创作流水线', () => {
     const sources = JSON.parse(pack.source_manifest_json) as Array<{ sourceType: string; content: string }>;
     const profile = sources.find((source) => source.sourceType === 'opening_profile');
     expect(profile?.content).toContain('失物招领中心');
-    expect(WRITER_CONTEXT_POLICY.draft.characterBudget).toBe(4_800);
-    expect(sources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_800);
+    expect(WRITER_CONTEXT_POLICY.draft.characterBudget).toBe(9_000);
+    expect(WRITER_CONTEXT_POLICY.ownerRewrite.characterBudget).toBe(12_000);
+    expect(sources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(9_000);
   });
 
   it('结算时保存前章全文锚点，并在下一章写作与审校资料包中强制携带', async () => {
@@ -165,9 +166,9 @@ describe('单章完整创作流水线', () => {
       sourceType: string;
       content: string;
     }>;
-    expect(draftPack.policy_version).toBe('writer-draft-context-v5-opening-profile-continuity-4800chars');
-    expect(draftPack.total_tokens).toBeLessThanOrEqual(4_800);
-    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(4_800);
+    expect(draftPack.policy_version).toBe('writer-draft-context-v6-full-current-outline-9000chars');
+    expect(draftPack.total_tokens).toBeLessThanOrEqual(9_000);
+    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(9_000);
     expect(draftSources.map((source) => source.sourceType)).not.toContain('creative_plan');
     const rewritePack = context.database.prepare(`SELECT policy_version, source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
       .get(rewriteCall.context_pack_id) as { policy_version: string; source_manifest_json: string };
@@ -177,9 +178,9 @@ describe('单章完整创作流水线', () => {
     expect(rewriteSourceTypes).not.toEqual(expect.arrayContaining([
       'stage_settlement_context', 'previous_chapter_end', 'previous_chapter_tail', 'retrieval:fact', 'retrieval:manuscript'
     ]));
-    expect(rewritePack.policy_version).toBe('writer-targeted-rewrite-context-v2-9000chars');
+    expect(rewritePack.policy_version).toBe('writer-targeted-rewrite-context-v3-12000chars');
     expect(rewriteSources.reduce((total, source) => total + source.content.length, 0))
-      .toBeLessThanOrEqual(9_000);
+      .toBeLessThanOrEqual(12_000);
     const reviewCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'review-%' AND state = 'succeeded'
       ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId, batch.taskIds[0]!) as { context_pack_id: string };
@@ -449,6 +450,38 @@ describe('单章完整创作流水线', () => {
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`).get(scope.ownerId, scope.bookId, batch.chapterIds[0]!)).toEqual({ count: 3 });
+  });
+
+  it('老板阅读超过租约时限后退回正文，仍精确恢复同一写手工单完成定点重写', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '过期租约退回书', text: '旧城阵纹与人物抉择' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    prepareBookForWriting(context, scope, ids, clock, 1);
+    const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
+    const batch = batches.scheduleNewChapters(scope, 1);
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    clock.advance(16 * 60_000);
+    expect(approvePendingManuscript(context, scope, ids, clock, false)).toEqual({ status: 'rejected' });
+    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    const lease = context.database.prepare(`SELECT active_writer_agent_id, writer_epoch, writing_order_id, lease_expires_at
+      FROM writer_leases WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId) as {
+        active_writer_agent_id: string; writer_epoch: number; writing_order_id: string; lease_expires_at: string;
+      };
+    const run = context.database.prepare(`SELECT writer_agent_id, writer_epoch, writing_order_id, rewrite_count
+      FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
+      .get(scope.ownerId, scope.bookId, batch.chapterIds[0]!) as {
+        writer_agent_id: string; writer_epoch: number; writing_order_id: string; rewrite_count: number;
+      };
+    expect(lease).toMatchObject({
+      active_writer_agent_id: run.writer_agent_id,
+      writer_epoch: run.writer_epoch,
+      writing_order_id: run.writing_order_id
+    });
+    expect(Date.parse(lease.lease_expires_at)).toBeGreaterThan(clock.now().getTime());
+    expect(run.rewrite_count).toBeGreaterThanOrEqual(1);
+    expect(run.rewrite_count).toBeLessThanOrEqual(2);
   });
 
   it('已结算章节通过正式修订任务产生不可变新版本，作者确认后才替换当前正史', async () => {

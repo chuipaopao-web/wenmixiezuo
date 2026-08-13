@@ -278,7 +278,12 @@ export class EditorLeaseService {
     }
     // 自动接管只允许初始主编(epoch 1)向候任者单向切换一次。
     // 后续回切必须经过 safeRevertToChief 的调用状态检查，不能因新的故障信号来回弹跳。
-    if (lease.editorEpoch > 1) {
+    const activeRole = this.database.prepare(`
+      SELECT r.role_key FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.agent_id = ? AND a.enabled = 1
+    `).get(scope.ownerId, scope.bookId, lease.activeEditorAgentId) as { role_key: string } | undefined;
+    if (activeRole?.role_key !== 'chief_editor') {
       return {
         takenOver: false,
         activeEditorAgentId: lease.activeEditorAgentId,
@@ -366,10 +371,16 @@ export class EditorLeaseService {
       WHERE owner_id = ? AND book_id = ? AND state = 'working'
     `).get(scope.ownerId, scope.bookId) as { count: number };
     const unknownResultCalls = this.database.prepare(`
-      SELECT COUNT(*) AS count FROM model_calls
-      WHERE owner_id = ? AND book_id = ? AND state IN ('pending', 'working', 'interrupted')
+      SELECT COUNT(*) AS count FROM model_calls m
+      JOIN tasks t ON t.task_id = m.task_id AND t.owner_id = m.owner_id AND t.book_id = m.book_id
+      WHERE m.owner_id = ? AND m.book_id = ?
+        AND (
+          m.state IN ('pending', 'working')
+          OR (m.state = 'interrupted' AND t.status NOT IN ('succeeded', 'failed', 'cancelled'))
+        )
     `).get(scope.ownerId, scope.bookId) as { count: number };
-    // 安全回切边界：只有在途模型调用与结果未知调用都为 0 时才允许切人，避免丢失正在生成的结果
+    // 已成功或明确终止的任务可能保留一条待供应商对账的 interrupted 调用；它不再拥有可提交结果，
+    // 也不会因主编回切丢失内容，因此不能永久锁死岗位。仍在活动任务中的未知结果继续严格阻断。
     const safeToRevert = workingCalls.count === 0 && unknownResultCalls.count === 0;
     return {
       hasWorkingTasks: workingTasks.count > 0,

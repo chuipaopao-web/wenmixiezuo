@@ -199,6 +199,7 @@ export class CodexSubscriptionModelAdapter implements ModelAdapter {
 
 function reasoningEffort(purpose: ModelPurpose): 'medium' | 'high' | 'xhigh' {
   if (purpose === 'discussion' || purpose === 'review_synthesis') return 'medium';
+  if (purpose === 'structured_planning') return 'high';
   if (purpose === 'novel_reviewer') return 'high';
   return 'xhigh';
 }

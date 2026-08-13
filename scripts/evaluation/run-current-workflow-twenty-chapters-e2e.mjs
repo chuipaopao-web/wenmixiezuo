@@ -1,5 +1,9 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
+import {
+  assertReleaseReviewIsAcceptable as assertReleaseReviewGate,
+  latestCompleteReleaseReview
+} from './lib/release-review-gate.mjs';
 import { join, resolve } from 'node:path';
 import { requireWorkflowScenario } from './current-workflow-scenarios.mjs';
 
@@ -11,17 +15,51 @@ const SCENARIO = requireWorkflowScenario(String(process.argv[3] ?? 'xianxia').tr
 const EVENT_COUNT = SCENARIO.events.length;
 const CHAPTERS_PER_EVENT = 10;
 const TOTAL_CHAPTERS = EVENT_COUNT * CHAPTERS_PER_EVENT;
+const RELEASE_TARGET_CHAPTERS = Number(process.env.WENMI_RELEASE_TARGET_CHAPTERS ?? String(TOTAL_CHAPTERS));
+const TARGET_VOLUME_COUNT = Math.ceil(RELEASE_TARGET_CHAPTERS / TOTAL_CHAPTERS);
 const TEST_ID = `E2E-CURRENT-WORKFLOW-${TOTAL_CHAPTERS}-${SCENARIO.key.toUpperCase()}-${RUN_KEY.toUpperCase()}`;
 const POLL_MS = 2_000;
 const TASK_TIMEOUT_MS = 30 * 60 * 1_000;
 const TEST_TOKEN_LIMIT = 25_000_000;
-const ROOT = resolve(`data/verification/current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
+const REAL_RELEASE = process.env.WENMI_RELEASE_VALIDATION === '1';
+const MANUAL_REVIEW = process.env.WENMI_RELEASE_MANUAL_REVIEW === '1';
+const APPROVE_PENDING = process.env.WENMI_RELEASE_APPROVE_PENDING === '1';
+const CONTINUOUS_MANUAL = process.env.WENMI_RELEASE_CONTINUOUS_MANUAL === '1';
+const LEGACY_ROOT = resolve(`data/verification/current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
+const TARGET_ROOT = resolve(`data/verification/current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
+const ROOT = resolveResumeRoot();
 const STATE_FILE = join(ROOT, 'state.json');
 const EVENT_FILE = join(ROOT, 'run-events.ndjson');
 const ISSUE_FILE = join(ROOT, 'issues.md');
 const FINAL_FILE = join(ROOT, 'final-evidence.json');
 
 mkdirSync(ROOT, { recursive: true });
+
+function resolveResumeRoot() {
+  const verificationRoot = resolve('data/verification');
+  const suffix = `-chapters-${SCENARIO.key}-${RUN_KEY}`;
+  const candidates = existsSync(verificationRoot)
+    ? readdirSync(verificationRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('current-workflow-') && entry.name.endsWith(suffix))
+      .map((entry) => resolve(verificationRoot, entry.name))
+      .filter((candidate) => existsSync(join(candidate, 'state.json')))
+    : [];
+  const ranked = candidates.flatMap((candidate) => {
+    try {
+      const candidateState = JSON.parse(readFileSync(join(candidate, 'state.json'), 'utf8'));
+      if (candidateState.scenario !== SCENARIO.key || typeof candidateState.bookId !== 'string') return [];
+      const score = (candidateState.settledChapters?.length ?? 0) * 10_000
+        + (candidateState.taskEvidence?.length ?? 0) * 100
+        + (candidateState.volumePlans ? Object.keys(candidateState.volumePlans).length : 0) * 10
+        + (candidateState.bookId ? 1 : 0);
+      return [{ candidate, score, createdAt: String(candidateState.createdAt ?? '') }];
+    } catch {
+      return [];
+    }
+  }).sort((left, right) => right.score - left.score || left.createdAt.localeCompare(right.createdAt));
+  if (ranked[0] !== undefined) return ranked[0].candidate;
+  return RELEASE_TARGET_CHAPTERS === TOTAL_CHAPTERS || existsSync(LEGACY_ROOT) ? LEGACY_ROOT : TARGET_ROOT;
+}
 
 const state = existsSync(STATE_FILE)
   ? JSON.parse(readFileSync(STATE_FILE, 'utf8'))
@@ -36,6 +74,7 @@ const state = existsSync(STATE_FILE)
 
 let cookie = '';
 let activePhase = 'startup';
+let approvalConsumed = false;
 const terminalFailures = new Set(['failed', 'blocked', 'cancelled', 'interrupted']);
 const noneTemplate = (scope) => ({
   selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
@@ -45,6 +84,23 @@ const noneTemplate = (scope) => ({
 function now() { return new Date().toISOString(); }
 function sleep(ms) { return new Promise((resolveSleep) => setTimeout(resolveSleep, ms)); }
 function key(label) { return `${TEST_ID}:${label}`; }
+function volumeLabel(volumeNumber, label) { return volumeNumber === 1 ? label : `volume-${volumeNumber}-${label}`; }
+function globalEventIndex(volumeNumber, eventIndex) { return (volumeNumber - 1) * EVENT_COUNT + eventIndex; }
+function eventChapterStart(volumeNumber, eventIndex) {
+  return globalEventIndex(volumeNumber, eventIndex) * CHAPTERS_PER_EVENT + 1;
+}
+function volumeChapterRange(volumeNumber) {
+  const chapterStart = (volumeNumber - 1) * TOTAL_CHAPTERS + 1;
+  return { chapterStart, chapterEnd: chapterStart + TOTAL_CHAPTERS - 1 };
+}
+function volumeState(mapName, volumeNumber, legacyName) {
+  return state[mapName]?.[volumeNumber] ?? (volumeNumber === 1 ? state[legacyName] : undefined);
+}
+function saveVolumeState(mapName, volumeNumber, value, legacyName) {
+  const patch = { [mapName]: { ...(state[mapName] ?? {}), [volumeNumber]: value } };
+  if (volumeNumber === 1 && legacyName) patch[legacyName] = value;
+  save(patch);
+}
 function log(event, details = {}) {
   const entry = { at: now(), event, ...details };
   appendFileSync(EVENT_FILE, `${JSON.stringify(entry)}\n`, 'utf8');
@@ -221,12 +277,17 @@ async function completeSettings(bookId) {
     assert(proposals.length === 3, `${item.itemKey} expected three independent proposals, got ${proposals.length}`);
     assert(new Set(proposals.map((proposal) => proposal.agentId)).size === 3,
       `${item.itemKey} proposals do not come from three distinct members`);
+    if (REAL_RELEASE) {
+      const modelSignatures = proposals.map((proposal) => `${proposal.modelProvider}/${proposal.modelId}`);
+      assert(new Set(modelSignatures).size === 3,
+        `${item.itemKey} release proposals do not come from three distinct models: ${modelSignatures.join(', ')}`);
+    }
     log('setting_proposals_ready', {
       itemKey: item.itemKey,
       members: proposals.map((proposal) => ({ agentId: proposal.agentId, modelProvider: proposal.modelProvider, modelId: proposal.modelId }))
     });
 
-    const synthesis = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/synthesize`, {
+    let synthesis = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/synthesize`, {
       method: 'POST', body: {
         proposalIds: proposals.map((proposal) => proposal.proposalId),
         authorInputId: authorInput.authorInputId,
@@ -235,9 +296,16 @@ async function completeSettings(bookId) {
     });
     const synthesisDetail = await request(`/api/v1/books/${bookId}/tasks/${synthesis.taskId}`);
     if (terminalFailures.has(synthesisDetail.task.status)) {
-      await request(`/api/v1/books/${bookId}/tasks/${synthesis.taskId}/retry`, { method: 'POST', body: {} });
-      log('setting_synthesis_retried', {
-        itemKey: item.itemKey, taskId: synthesis.taskId, previousStatus: synthesisDetail.task.status
+      synthesis = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/synthesize`, {
+        method: 'POST', body: {
+          proposalIds: proposals.map((proposal) => proposal.proposalId),
+          authorInputId: authorInput.authorInputId,
+          idempotencyKey: key(`setting-${item.itemKey}-synthesis-compact-recovery`)
+        }
+      });
+      log('setting_synthesis_recreated', {
+        itemKey: item.itemKey, taskId: synthesis.taskId, previousTaskId: synthesisDetail.task.taskId,
+        previousStatus: synthesisDetail.task.status
       });
     }
     await waitForTask(bookId, synthesis.taskId, `setting-${item.itemKey}-editor-synthesis`);
@@ -288,33 +356,56 @@ function forceExactEventPlan(content) {
   return { ...content, ...SCENARIO.volumeContent(first) };
 }
 
-async function planVolume(bookId) {
-  activePhase = 'volume-plan';
+async function planVolume(bookId, volumeNumber) {
+  activePhase = `volume-${volumeNumber}-plan`;
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
   let plans = await request(`/api/v1/books/${bookId}/volume-plans`);
-  let plan = plans.find((item) => item.volumePlanId === state.volumePlanId) ?? plans.at(-1) ?? null;
+  const rememberedPlanId = volumeState('volumePlanIds', volumeNumber, 'volumePlanId');
+  let plan = plans.find((item) => item.volumePlanId === rememberedPlanId)
+    ?? plans.find((item) => item.planNumber === volumeNumber) ?? null;
   if (plan === null) {
     plan = await request(`/api/v1/books/${bookId}/volume-plans`, {
       method: 'POST', body: {
-        expectedWorkflowVersion: workflow.planningVersion, planNumber: 1,
-        idempotencyKey: key('volume-plan-1')
+        expectedWorkflowVersion: workflow.planningVersion, planNumber: volumeNumber,
+        idempotencyKey: key(volumeLabel(volumeNumber, 'volume-plan'))
       }
     });
-    save({ volumePlanId: plan.volumePlanId });
-    log('volume_plan_created', { volumePlanId: plan.volumePlanId, revision: plan.revision });
+    saveVolumeState('volumePlanIds', volumeNumber, plan.volumePlanId, 'volumePlanId');
+    log('volume_plan_created', { volumeNumber, volumePlanId: plan.volumePlanId, revision: plan.revision });
   }
-  if (plan.activeVersionId !== null) return plan;
-  let ideaId = state.volumeIdeaId;
+  if (plan.activeVersionId !== null) {
+    saveVolumeState('volumePlanIds', volumeNumber, plan.volumePlanId, 'volumePlanId');
+    saveVolumeState('volumePlanVersionIds', volumeNumber, plan.activeVersionId, 'volumePlanVersionId');
+    return plan;
+  }
+  let ideaId = volumeState('volumeIdeaIds', volumeNumber, 'volumeIdeaId');
   if (!ideaId) {
     const idea = await createIdea(bookId, {
       surface: 'volume_plan', subjectType: 'volume_plan', subjectId: plan.volumePlanId,
-      originalText: SCENARIO.volumeIdea,
-      idempotencyLabel: 'volume-idea'
+      originalText: SCENARIO.volumeIdeaFor(volumeNumber),
+      idempotencyLabel: volumeLabel(volumeNumber, 'volume-idea')
     });
     ideaId = idea.authorInputId;
-    save({ volumeIdeaId: ideaId });
+    saveVolumeState('volumeIdeaIds', volumeNumber, ideaId, 'volumeIdeaId');
   }
-  if (!state.volumeGenerationTaskId) {
+  let generationTaskId = volumeState('volumeGenerationTaskIds', volumeNumber, 'volumeGenerationTaskId');
+  if (generationTaskId) {
+    const previousGeneration = await request(`/api/v1/books/${bookId}/tasks/${generationTaskId}`);
+    if (terminalFailures.has(previousGeneration.task.status)) {
+      const nextMap = { ...(state.volumeGenerationTaskIds ?? {}) };
+      delete nextMap[volumeNumber];
+      const patch = { volumeGenerationTaskIds: nextMap };
+      if (volumeNumber === 1) patch.volumeGenerationTaskId = null;
+      save(patch);
+      log('volume_generation_retry_ready', {
+        volumeNumber,
+        previousTaskId: generationTaskId,
+        previousStatus: previousGeneration.task.status
+      });
+      generationTaskId = null;
+    }
+  }
+  if (!generationTaskId) {
     workflow = await request(`/api/v1/books/${bookId}/workflow`);
     plans = await request(`/api/v1/books/${bookId}/volume-plans`);
     plan = plans.find((item) => item.volumePlanId === plan.volumePlanId);
@@ -322,13 +413,14 @@ async function planVolume(bookId) {
       method: 'POST', body: {
         expectedPlanRevision: plan.revision, expectedActiveVersionId: plan.activeVersionId,
         expectedWorkflowVersion: workflow.planningVersion, template: noneTemplate('volume'),
-        authorInputRefs: [ideaId], idempotencyKey: key('volume-generate')
+        authorInputRefs: [ideaId], idempotencyKey: key(volumeLabel(volumeNumber, 'volume-generate'))
       }
     });
-    save({ volumeGenerationTaskId: generation.taskId });
-    log('volume_generation_started', { taskId: generation.taskId, members: generation.members });
+    generationTaskId = generation.taskId;
+    saveVolumeState('volumeGenerationTaskIds', volumeNumber, generationTaskId, 'volumeGenerationTaskId');
+    log('volume_generation_started', { volumeNumber, taskId: generation.taskId, members: generation.members });
   }
-  await waitForTask(bookId, state.volumeGenerationTaskId, 'volume-candidates-and-editor');
+  await waitForTask(bookId, generationTaskId, `volume-${volumeNumber}-candidates-and-editor`);
   let versions = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`);
   const candidates = ['candidate_a', 'candidate_b', 'fusion'].map((kind) => versions.find((item) => item.candidateKind === kind));
   assert(candidates.every(Boolean), 'volume generation did not create A, B and fusion candidates');
@@ -337,16 +429,20 @@ async function planVolume(bookId) {
   let selected = versions.filter((item) => item.candidateKind === 'author_edit').at(-1)
     ?? versions.filter((item) => item.candidateKind === 'fusion').at(-1);
   assert(selected, 'volume fusion candidate missing');
-  if (selected.content.eventSequence.length !== EVENT_COUNT
-    || selected.content.eventSequence.some((event) => event.estimatedChapterRange?.likely !== CHAPTERS_PER_EVENT)) {
+  const volumeShapeMatchesReleaseBrief = selected.content.eventSequence.length === EVENT_COUNT
+    && selected.content.eventSequence.every((event) => event.estimatedChapterRange?.likely === CHAPTERS_PER_EVENT);
+  if (REAL_RELEASE) {
+    assert(volumeShapeMatchesReleaseBrief,
+      `real volume candidate did not follow the requested ${EVENT_COUNT}-event/${TOTAL_CHAPTERS}-chapter scope; it must be revised by the creative workflow, not replaced with a fixture`);
+  } else if (volumeNumber === 1 && !volumeShapeMatchesReleaseBrief) {
     plans = await request(`/api/v1/books/${bookId}/volume-plans`);
     plan = plans.find((item) => item.volumePlanId === plan.volumePlanId);
     selected = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`, {
       method: 'POST', body: {
         expectedPlanRevision: plan.revision, candidateKind: 'author_edit',
-        parentVersionId: selected.volumePlanVersionId, sourceTaskId: state.volumeGenerationTaskId,
+        parentVersionId: selected.volumePlanVersionId, sourceTaskId: generationTaskId,
         authorInputRefs: [ideaId], template: noneTemplate('volume'),
-        content: forceExactEventPlan(selected.content), idempotencyKey: key('volume-author-final')
+        content: forceExactEventPlan(selected.content), idempotencyKey: key(volumeLabel(volumeNumber, 'volume-author-final'))
       }
     });
     log('volume_author_adjustment_saved', { volumePlanVersionId: selected.volumePlanVersionId, reason: `${SCENARIO.key}-${EVENT_COUNT}-event-${TOTAL_CHAPTERS}-chapter-test-scope` });
@@ -364,37 +460,51 @@ async function planVolume(bookId) {
     }
   });
   assert(confirmed.activeVersion?.content.eventSequence.length === EVENT_COUNT, `confirmed volume does not contain exactly ${EVENT_COUNT} events`);
-  save({ volumePlanId: confirmed.volumePlanId, volumePlanVersionId: confirmed.activeVersionId });
-  log('volume_plan_confirmed', { volumePlanId: confirmed.volumePlanId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
+  saveVolumeState('volumePlanIds', volumeNumber, confirmed.volumePlanId, 'volumePlanId');
+  saveVolumeState('volumePlanVersionIds', volumeNumber, confirmed.activeVersionId, 'volumePlanVersionId');
+  log('volume_plan_confirmed', { volumeNumber, volumePlanId: confirmed.volumePlanId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
   return confirmed;
 }
 
-async function planEvent(bookId, volumePlan, eventIndex) {
-  activePhase = `story-event-${eventIndex + 1}`;
+function eventPlanningIdea(event, volumeNumber, eventIndex) {
+  if (volumeNumber === 1) return SCENARIO.eventIdea(eventIndex);
+  const seed = event.latestVersion?.content ?? event.activeVersion?.content;
+  assert(seed, `volume ${volumeNumber} event ${eventIndex + 1} has no volume seed`);
+  const chapterStart = eventChapterStart(volumeNumber, eventIndex);
+  const chapterEnd = chapterStart + CHAPTERS_PER_EVENT - 1;
+  return `请在第${volumeNumber}卷已确认事件链约束下，设计事件“${seed.title}”，预计覆盖第${chapterStart}—${chapterEnd}章。它在本卷承担“${seed.volumeResponsibility}”，从“${seed.startingState}”出发，由“${seed.trigger}”触发，必须以人物的具体行动兑现“${seed.requiredResult}”。只承接上一事件真实结算和当前人物状态，不得重复第一卷已完成冲突，不得把未来计划写成既成事实。主要人物保持各自动机、选择和代价，对手根据已经公开的手段调整策略；结尾完成本事件承诺并自然引向下一事件。`;
+}
+
+async function planEvent(bookId, volumePlan, volumeNumber, eventIndex) {
+  const globalIndex = globalEventIndex(volumeNumber, eventIndex);
+  activePhase = `volume-${volumeNumber}-story-event-${eventIndex + 1}`;
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
   let sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`);
   if (sequence === null) {
     sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence/initialize`, {
-      method: 'POST', body: { expectedWorkflowVersion: workflow.planningVersion, idempotencyKey: key('event-sequence') }
+      method: 'POST', body: {
+        expectedWorkflowVersion: workflow.planningVersion,
+        idempotencyKey: key(volumeLabel(volumeNumber, 'event-sequence'))
+      }
     });
-    log('event_sequence_initialized', { revision: sequence.revision, eventCount: sequence.events.length });
+    log('event_sequence_initialized', { volumeNumber, revision: sequence.revision, eventCount: sequence.events.length });
   }
   assert(sequence.events.length === EVENT_COUNT, `expected ${EVENT_COUNT} events from confirmed volume, got ${sequence.events.length}`);
   let event = sequence.events[eventIndex];
   assert(event, `event ${eventIndex + 1} is missing`);
-  save({ eventIds: { ...(state.eventIds ?? {}), [eventIndex]: event.eventId } });
+  save({ eventIds: { ...(state.eventIds ?? {}), [globalIndex]: event.eventId } });
   if (event.activeVersionId !== null) return event;
-  let ideaId = state.eventIdeaIds?.[eventIndex];
+  let ideaId = state.eventIdeaIds?.[globalIndex];
   if (!ideaId) {
     const idea = await createIdea(bookId, {
       surface: 'event', subjectType: 'story_event', subjectId: event.eventId,
-      originalText: SCENARIO.eventIdea(eventIndex),
-      idempotencyLabel: `event-${eventIndex + 1}-idea`
+      originalText: eventPlanningIdea(event, volumeNumber, eventIndex),
+      idempotencyLabel: volumeLabel(volumeNumber, `event-${eventIndex + 1}-idea`)
     });
     ideaId = idea.authorInputId;
-    save({ eventIdeaIds: { ...(state.eventIdeaIds ?? {}), [eventIndex]: ideaId } });
+    save({ eventIdeaIds: { ...(state.eventIdeaIds ?? {}), [globalIndex]: ideaId } });
   }
-  let eventTaskId = state.eventGenerationTaskIds?.[eventIndex];
+  let eventTaskId = state.eventGenerationTaskIds?.[globalIndex];
   if (!eventTaskId) {
     workflow = await request(`/api/v1/books/${bookId}/workflow`);
     sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`);
@@ -403,12 +513,12 @@ async function planEvent(bookId, volumePlan, eventIndex) {
       method: 'POST', body: {
         expectedEventRevision: event.revision, expectedActiveVersionId: event.activeVersionId,
         expectedWorkflowVersion: workflow.planningVersion, template: noneTemplate('event'),
-        authorInputRefs: [ideaId], idempotencyKey: key(`event-${eventIndex + 1}-generate`)
+        authorInputRefs: [ideaId], idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-generate`))
       }
     });
     eventTaskId = generation.taskId;
-    save({ eventGenerationTaskIds: { ...(state.eventGenerationTaskIds ?? {}), [eventIndex]: eventTaskId } });
-    log('event_generation_started', { eventIndex: eventIndex + 1, taskId: eventTaskId, members: generation.members });
+    save({ eventGenerationTaskIds: { ...(state.eventGenerationTaskIds ?? {}), [globalIndex]: eventTaskId } });
+    log('event_generation_started', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, taskId: eventTaskId, members: generation.members });
   }
   const eventTaskDetail = await request(`/api/v1/books/${bookId}/tasks/${eventTaskId}`);
   if (terminalFailures.has(eventTaskDetail.task.status)) {
@@ -420,15 +530,16 @@ async function planEvent(bookId, volumePlan, eventIndex) {
       previousErrorCode: eventTaskDetail.task.errorCode
     });
   }
-  await waitForTask(bookId, eventTaskId, `event-${eventIndex + 1}-candidates-and-editor`);
+  await waitForTask(bookId, eventTaskId, `volume-${volumeNumber}-event-${eventIndex + 1}-candidates-and-editor`);
   let versions = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/versions`);
   assert(['candidate_a', 'candidate_b', 'fusion'].every((kind) => versions.some((item) => item.candidateKind === kind)),
     'event generation did not create A, B and fusion candidates');
   let selected = versions.filter((item) => item.candidateKind === 'author_edit').at(-1)
     ?? versions.filter((item) => item.candidateKind === 'fusion').at(-1);
   assert(selected, 'event fusion candidate missing');
-  const finalEventContent = SCENARIO.events[eventIndex];
-  if (selected.candidateKind !== 'author_edit' || selected.content.title !== finalEventContent.title) {
+  const finalEventContent = volumeNumber === 1 ? SCENARIO.events[eventIndex] : null;
+  if (!REAL_RELEASE && finalEventContent !== null
+    && (selected.candidateKind !== 'author_edit' || selected.content.title !== finalEventContent.title)) {
     sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`);
     event = sequence.events[eventIndex];
     selected = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/versions`, {
@@ -437,7 +548,7 @@ async function planEvent(bookId, volumePlan, eventIndex) {
         parentVersionId: selected.storyEventVersionId, sourceTaskId: eventTaskId,
         authorInputRefs: [ideaId], template: noneTemplate('event'),
         content: finalEventContent,
-        idempotencyKey: key(`event-${eventIndex + 1}-author-final`)
+        idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-author-final`))
       }
     });
     log('event_author_adjustment_saved', { eventIndex: eventIndex + 1, storyEventVersionId: selected.storyEventVersionId, reason: `confirmed-${SCENARIO.key}-event-contract` });
@@ -454,18 +565,22 @@ async function planEvent(bookId, volumePlan, eventIndex) {
       expectedWorkflowVersion: workflow.planningVersion
     }
   });
-  save({ eventVersionIds: { ...(state.eventVersionIds ?? {}), [eventIndex]: confirmed.activeVersionId } });
-  log('story_event_confirmed', { eventIndex: eventIndex + 1, eventId: confirmed.eventId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
+  save({ eventVersionIds: { ...(state.eventVersionIds ?? {}), [globalIndex]: confirmed.activeVersionId } });
+  log('story_event_confirmed', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, eventId: confirmed.eventId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
   return confirmed;
 }
 
-async function planChapterSequence(bookId, event, eventIndex) {
-  activePhase = `event-${eventIndex + 1}-chapter-sequence`;
+async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
+  const globalIndex = globalEventIndex(volumeNumber, eventIndex);
+  activePhase = `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence`;
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
   let sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
   if (sequence === null) {
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/initialize`, {
-      method: 'POST', body: { expectedWorkflowVersion: workflow.planningVersion, idempotencyKey: key(`event-${eventIndex + 1}-chapter-sequence-init`) }
+      method: 'POST', body: {
+        expectedWorkflowVersion: workflow.planningVersion,
+        idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-chapter-sequence-init`))
+      }
     });
     log('chapter_sequence_initialized', { sequenceId: sequence.sequenceId, revision: sequence.revision });
   }
@@ -473,34 +588,48 @@ async function planChapterSequence(bookId, event, eventIndex) {
     assert(sequence.outlines.length === CHAPTERS_PER_EVENT, `active chapter sequence has ${sequence.outlines.length} chapters, expected ${CHAPTERS_PER_EVENT}`);
     return sequence;
   }
-  let ideaId = state.chapterSequenceIdeaIds?.[eventIndex];
+  let ideaId = state.chapterSequenceIdeaIds?.[globalIndex];
   if (!ideaId) {
-    const chapterStart = eventIndex * CHAPTERS_PER_EVENT + 1;
+    const chapterStart = eventChapterStart(volumeNumber, eventIndex);
     const chapterEnd = chapterStart + CHAPTERS_PER_EVENT - 1;
     const idea = await createIdea(bookId, {
       surface: 'chapter_outline', subjectType: 'event_chapter_sequence', subjectId: event.eventId,
       originalText: `请把当前事件拆成精确10章，章号连续为${chapterStart}—${chapterEnd}。每章只有一个清晰责任，相邻章状态必须衔接；至少四名主要角色各有主动行动，对手会根据前一章结果调整策略；最后一章覆盖当前事件全部结束条件并自然引出后续。不要提前写正文。`,
-      idempotencyLabel: `event-${eventIndex + 1}-chapter-sequence-idea`
+      idempotencyLabel: volumeLabel(volumeNumber, `event-${eventIndex + 1}-chapter-sequence-idea`)
     });
     ideaId = idea.authorInputId;
-    save({ chapterSequenceIdeaIds: { ...(state.chapterSequenceIdeaIds ?? {}), [eventIndex]: ideaId } });
+    save({ chapterSequenceIdeaIds: { ...(state.chapterSequenceIdeaIds ?? {}), [globalIndex]: ideaId } });
   }
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     workflow = await request(`/api/v1/books/${bookId}/workflow`);
-    let taskId = state.chapterSequenceTaskIds?.[eventIndex]?.[attempt];
+    let taskId = state.chapterSequenceTaskIds?.[globalIndex]?.[attempt];
+    if (taskId) {
+      const existingDetail = await request(`/api/v1/books/${bookId}/tasks/${taskId}`);
+      const existingTask = existingDetail.task;
+      if (terminalFailures.has(existingTask.status)) {
+        log('chapter_sequence_generation_retry_ready', {
+          volumeNumber, eventIndex: eventIndex + 1, attempt, previousTaskId: taskId, previousStatus: existingTask.status
+        });
+        const next = { ...(state.chapterSequenceTaskIds?.[globalIndex] ?? {}) };
+        delete next[attempt];
+        save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [globalIndex]: next } });
+        taskId = undefined;
+      }
+    }
     if (!taskId) {
       const generation = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/generate`, {
         method: 'POST', body: {
           expectedSequenceRevision: sequence.revision, expectedWorkflowVersion: workflow.planningVersion,
-          authorInputRefs: [ideaId], idempotencyKey: key(`event-${eventIndex + 1}-chapter-sequence-generate-${attempt}`)
+          authorInputRefs: [ideaId],
+          idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-chapter-sequence-generate-${attempt}`))
         }
       });
       taskId = generation.taskId;
-      save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [eventIndex]: { ...(state.chapterSequenceTaskIds?.[eventIndex] ?? {}), [attempt]: taskId } } });
-      log('chapter_sequence_generation_started', { eventIndex: eventIndex + 1, attempt, taskId, member: generation.member });
+      save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [globalIndex]: { ...(state.chapterSequenceTaskIds?.[globalIndex] ?? {}), [attempt]: taskId } } });
+      log('chapter_sequence_generation_started', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, attempt, taskId, member: generation.member });
     }
-    await waitForTask(bookId, taskId, `event-${eventIndex + 1}-chapter-sequence-attempt-${attempt}`);
+    await waitForTask(bookId, taskId, `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence-attempt-${attempt}`);
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     const candidate = sequence.versions.filter((item) => item.status === 'candidate')
       .sort((left, right) => right.version - left.version)[0];
@@ -515,8 +644,8 @@ async function planChapterSequence(bookId, event, eventIndex) {
       }
     });
     assert(confirmed.outlines.length === CHAPTERS_PER_EVENT, 'confirmed chapter sequence does not contain ten outlines');
-    save({ chapterSequenceVersionIds: { ...(state.chapterSequenceVersionIds ?? {}), [eventIndex]: confirmed.activeVersionId } });
-    log('chapter_sequence_confirmed', { eventIndex: eventIndex + 1, sequenceVersionId: confirmed.activeVersionId, chapterCount: confirmed.outlines.length });
+    save({ chapterSequenceVersionIds: { ...(state.chapterSequenceVersionIds ?? {}), [globalIndex]: confirmed.activeVersionId } });
+    log('chapter_sequence_confirmed', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, sequenceVersionId: confirmed.activeVersionId, chapterCount: confirmed.outlines.length });
     return confirmed;
   }
   throw new Error('AI did not produce an exact ten-chapter sequence after five author-directed attempts');
@@ -539,10 +668,52 @@ async function acceptPendingManuscript(bookId, taskId) {
   const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
     ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
   assert(confirmation, `task ${taskId} waiting without pending manuscript confirmation`);
+  const chapter = (await chapterList(bookId)).find((item) => item.currentManuscriptVersionId === confirmation.target_id);
+  assert(chapter, `task ${taskId} pending manuscript is not the chapter current version`);
+  const detail = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`);
+  assertReleaseReviewIsAcceptable(detail, confirmation.target_id, chapter.chapterNumber);
   await request(`/api/v1/books/${bookId}/confirmations/${confirmation.confirmation_id}/accept`, {
     method: 'POST', body: { expectedCanonRevision: confirmation.expected_canon_revision }
   });
   log('manuscript_confirmed', { taskId, confirmationId: confirmation.confirmation_id });
+}
+
+function assertReleaseReviewIsAcceptable(detail, manuscriptVersionId, chapterNumber) {
+  assertReleaseReviewGate(detail, manuscriptVersionId, chapterNumber, REAL_RELEASE);
+}
+
+async function pauseForManualReading(bookId, taskId, chapterNumber) {
+  const confirmations = await request(`/api/v1/books/${bookId}/confirmations`);
+  const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
+    ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
+  assert(confirmation, `task ${taskId} waiting without pending manuscript confirmation`);
+  const chapter = (await chapterList(bookId)).find((item) => item.currentManuscriptVersionId === confirmation.target_id)
+    ?? (await chapterList(bookId)).find((item) => item.chapterNumber === chapterNumber);
+  assert(chapter, `chapter ${chapterNumber} is missing while waiting for manual reading`);
+  const content = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}/content`);
+  const detail = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`);
+  const latestReview = latestCompleteReleaseReview(detail, confirmation.target_id);
+  assert(latestReview && latestReview.reports.length === 3,
+    `chapter ${chapterNumber} latest pending manuscript does not have one complete three-seat review panel`);
+  const reviewFile = join(ROOT, `pending-chapter-${chapterNumber}.json`);
+  writeFileSync(reviewFile, `${JSON.stringify({
+    generatedAt: now(), bookId, chapterNumber, chapterId: chapter.chapterId,
+    title: chapter.title, taskId, confirmationId: confirmation.confirmation_id,
+    manuscriptVersionId: confirmation.target_id, content,
+    reviewPanelId: latestReview.panel.review_panel_id,
+    reviews: latestReview.reports
+  }, null, 2)}\n`, 'utf8');
+  save({ waitingManualReading: { chapterNumber, chapterId: chapter.chapterId, taskId, reviewFile } });
+  log('chapter_waiting_manual_reading', { chapterNumber, chapterId: chapter.chapterId, taskId, reviewFile });
+  if (CONTINUOUS_MANUAL) {
+    const approvalFile = join(ROOT, `approve-chapter-${chapterNumber}.signal`);
+    while (!existsSync(approvalFile)) await sleep(2_000);
+    rmSync(approvalFile, { force: true });
+    save({ waitingManualReading: null });
+    log('chapter_manual_reading_approved', { chapterNumber, chapterId: chapter.chapterId, taskId });
+    return { waitingManualReading: false, approved: true };
+  }
+  return { waitingManualReading: true };
 }
 
 async function chapterList(bookId) { return request(`/api/v1/books/${bookId}/chapters`); }
@@ -565,6 +736,12 @@ function formalCharacterCount(content) {
   return [...String(content ?? '')].filter((character) => /[\p{L}\p{N}]/u.test(character)).length;
 }
 
+const naturalLanguageLeakPattern = /(?:本章写作要求|事件触发条件|事件结束条件|结算实际结果|当前事件(?:大纲|章纲)?|章纲(?:要求|约束)|设定大纲|资料库(?:记录|条目)|正式来源|可核验来源|AI(?:成员|审查|点评)|内部检查说明)/u;
+
+function narrativeLeak(text) {
+  return naturalLanguageLeakPattern.exec(String(text ?? ''));
+}
+
 function assertReadableChapter(number, content) {
   const text = String(content.content ?? '');
   const effectiveCharacterCount = formalCharacterCount(text);
@@ -573,9 +750,63 @@ function assertReadableChapter(number, content) {
   const internalMatch = /(?:workflowArtifact|sourceId|source_id|confirmed_decisions|```json|"chapterNumber"|\bundefined\b)/u.exec(text);
   assert(internalMatch === null,
     `chapter ${number} exposes internal code or workflow fields: ${internalMatch?.[0]} near ${text.slice(Math.max(0, (internalMatch?.index ?? 0) - 80), (internalMatch?.index ?? 0) + 160)}`);
+  const naturalLanguageMatch = narrativeLeak(text);
+  assert(naturalLanguageMatch === null,
+    `chapter ${number} exposes internal review or planning language: ${naturalLanguageMatch?.[0]}`);
   assert(!/(?:待补充|TODO|这里填写|示例正文|(?:^|\n)\s*[【\[]?系统提示[】\]]?\s*[：:])/u.test(text),
     `chapter ${number} contains placeholder text`);
   return effectiveCharacterCount;
+}
+
+function paragraphFingerprints(text) {
+  return String(text).split(/\n\s*\n/u)
+    .map((paragraph) => paragraph.replace(/\s+/gu, ' ').trim())
+    .filter((paragraph) => formalCharacterCount(paragraph) >= 40);
+}
+
+function characterTrigrams(text) {
+  const normalized = String(text).replace(/[^\p{L}\p{N}]/gu, '');
+  const values = new Set();
+  for (let index = 0; index + 3 <= normalized.length; index += 1) values.add(normalized.slice(index, index + 3));
+  return values;
+}
+
+function jaccard(left, right) {
+  if (left.size === 0 && right.size === 0) return 1;
+  let intersection = 0;
+  for (const value of left) if (right.has(value)) intersection += 1;
+  return intersection / (left.size + right.size - intersection);
+}
+
+function assertManuscriptIsNotTemplateCopies(chapters) {
+  const occurrences = new Map();
+  let maximumAdjacentSimilarity = 0;
+  for (let index = 0; index < chapters.length; index += 1) {
+    const chapter = chapters[index];
+    const seenInChapter = new Set();
+    for (const paragraph of paragraphFingerprints(chapter.text)) {
+      assert(!seenInChapter.has(paragraph), `chapter ${chapter.chapterNumber} repeats the same long paragraph`);
+      seenInChapter.add(paragraph);
+      const previous = occurrences.get(paragraph) ?? [];
+      previous.push(chapter.chapterNumber);
+      occurrences.set(paragraph, previous);
+    }
+    if (index > 0) {
+      const previous = chapters[index - 1];
+      const similarity = jaccard(characterTrigrams(previous.text), characterTrigrams(chapter.text));
+      maximumAdjacentSimilarity = Math.max(maximumAdjacentSimilarity, similarity);
+      assert(similarity < 0.72,
+        `chapters ${previous.chapterNumber} and ${chapter.chapterNumber} are suspiciously similar (${similarity.toFixed(3)})`);
+    }
+  }
+  const repeated = [...occurrences.entries()].filter(([, chapterNumbers]) => chapterNumbers.length >= 3);
+  assert(repeated.length === 0,
+    `manuscript repeats ${repeated.length} long paragraphs across three or more chapters; sample chapters: ${repeated[0]?.[1].join(',') ?? ''}`);
+  return {
+    repeatedLongParagraphs: repeated.length,
+    maximumAdjacentSimilarity,
+    dialogueChapterRatio: chapters.filter((chapter) => /“[^”]{2,}”/u.test(chapter.text)).length / chapters.length
+  };
 }
 
 async function generateChapter(bookId, chapterNumber, outline) {
@@ -642,7 +873,13 @@ async function generateChapter(bookId, chapterNumber, outline) {
   save({ chapterTaskIds: { ...(state.chapterTaskIds ?? {}), [chapterNumber]: task.taskId } });
   const review = await waitForTask(bookId, task.taskId, `chapter-${chapterNumber}-production`);
   if (review.task.status === 'waiting_confirmation') {
+    if (REAL_RELEASE && MANUAL_REVIEW && (!APPROVE_PENDING || approvalConsumed)) {
+      const manual = await pauseForManualReading(bookId, task.taskId, chapterNumber);
+      if (manual.waitingManualReading) return manual;
+    }
+    if (REAL_RELEASE && MANUAL_REVIEW) approvalConsumed = true;
     await acceptPendingManuscript(bookId, task.taskId);
+    save({ waitingManualReading: null });
     const settled = await waitForTask(bookId, task.taskId, `chapter-${chapterNumber}-settlement`);
     assert(settled.task.status === 'succeeded', `chapter ${chapterNumber} did not settle`);
   } else {
@@ -655,6 +892,7 @@ async function generateChapter(bookId, chapterNumber, outline) {
   const detail = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`);
   assert((detail.production?.reviewReports?.length ?? 0) >= 3, `chapter ${chapterNumber} has fewer than three review reports`);
   assert((detail.production?.reviewPanels?.length ?? 0) >= 1, `chapter ${chapterNumber} has no review panel`);
+  assertReleaseReviewIsAcceptable(detail, content.manuscriptVersionId, chapterNumber);
   save({ settledChapters: [...new Set([...state.settledChapters, chapterNumber])].sort((a, b) => a - b) });
   log('chapter_settled', {
     chapterNumber, chapterId: chapter.chapterId, title: chapter.title,
@@ -665,9 +903,10 @@ async function generateChapter(bookId, chapterNumber, outline) {
 
 async function prepareAndWriteEventChapters(bookId, event) {
   await saveExpressionProfile(bookId);
-  const existingSettled = (await chapterList(bookId)).filter((chapter) => chapter.settlementStatus === 'settled')
-    .sort((left, right) => left.chapterNumber - right.chapterNumber);
-  for (const chapter of existingSettled) await generateChapter(bookId, chapter.chapterNumber, null);
+  const initialSequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
+  for (const outline of initialSequence.outlines.filter((item) => item.status === 'settled')) {
+    await generateChapter(bookId, outline.chapterNumber, outline);
+  }
   for (let pass = 1; pass <= 30; pass += 1) {
     let sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     const unsettled = sequence.outlines.filter((item) => item.status !== 'settled')
@@ -675,7 +914,10 @@ async function prepareAndWriteEventChapters(bookId, event) {
     if (unsettled.length === 0) return;
     const alreadyFrozen = unsettled.filter((item) => item.status === 'frozen').slice(0, 3);
     if (alreadyFrozen.length > 0) {
-      for (const outline of alreadyFrozen) await generateChapter(bookId, outline.chapterNumber, outline);
+      for (const outline of alreadyFrozen) {
+        const result = await generateChapter(bookId, outline.chapterNumber, outline);
+        if (result?.waitingManualReading) return result;
+      }
       continue;
     }
     const targets = unsettled.slice(0, 3);
@@ -723,17 +965,19 @@ async function prepareAndWriteEventChapters(bookId, event) {
     for (const target of freshTargets) {
       const outline = frozen.outlines.find((item) => item.outlineId === target.outlineId);
       assert(outline?.status === 'frozen', `chapter ${target.chapterNumber} outline was not frozen`);
-      await generateChapter(bookId, target.chapterNumber, outline);
+      const result = await generateChapter(bookId, target.chapterNumber, outline);
+      if (result?.waitingManualReading) return result;
     }
   }
   throw new Error('event chapter workflow exceeded 30 resumable passes');
 }
 
-async function settleEvent(bookId, event, eventIndex) {
-  activePhase = `event-${eventIndex + 1}-settlement`;
+async function settleEvent(bookId, event, volumeNumber, eventIndex) {
+  const globalIndex = globalEventIndex(volumeNumber, eventIndex);
+  activePhase = `volume-${volumeNumber}-event-${eventIndex + 1}-settlement`;
   const existing = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/settlement`);
   if (existing !== null) {
-    const expectedStart = eventIndex * CHAPTERS_PER_EVENT + 1;
+    const expectedStart = eventChapterStart(volumeNumber, eventIndex);
     const expectedEnd = expectedStart + CHAPTERS_PER_EVENT - 1;
     assert(existing.chapterStart === expectedStart && existing.chapterEnd === expectedEnd,
       `existing event settlement range is not ${expectedStart}-${expectedEnd}`);
@@ -744,57 +988,85 @@ async function settleEvent(bookId, event, eventIndex) {
   const eventSettlement = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/settle`, {
     method: 'POST', body: { expectedWorkflowVersion: workflow.planningVersion }
   });
-  const expectedStart = eventIndex * CHAPTERS_PER_EVENT + 1;
+  const expectedStart = eventChapterStart(volumeNumber, eventIndex);
   const expectedEnd = expectedStart + CHAPTERS_PER_EVENT - 1;
   assert(eventSettlement.chapterStart === expectedStart && eventSettlement.chapterEnd === expectedEnd,
     `event settlement range is not ${expectedStart}-${expectedEnd}`);
   workflow = await request(`/api/v1/books/${bookId}/workflow`);
   const expectedNextStage = eventIndex === EVENT_COUNT - 1 ? 'volume_settlement_in_progress' : 'event_sequence_in_progress';
   assert(workflow.stage === expectedNextStage, `expected ${expectedNextStage} after event settlement, got ${workflow.stage}`);
-  save({ eventSettlementIds: { ...(state.eventSettlementIds ?? {}), [eventIndex]: eventSettlement.settlementId } });
-  log('event_settled', { eventIndex: eventIndex + 1, settlementId: eventSettlement.settlementId, canonRevision: eventSettlement.canonRevision, nextStage: workflow.stage });
+  save({ eventSettlementIds: { ...(state.eventSettlementIds ?? {}), [globalIndex]: eventSettlement.settlementId } });
+  log('event_settled', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, settlementId: eventSettlement.settlementId, canonRevision: eventSettlement.canonRevision, nextStage: workflow.stage });
   return eventSettlement;
 }
 
-async function settleVolume(bookId, volumePlan) {
-  activePhase = 'volume-settlement';
+async function settleVolume(bookId, volumePlan, volumeNumber) {
+  activePhase = `volume-${volumeNumber}-settlement`;
+  const existing = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/settlement`);
+  const range = volumeChapterRange(volumeNumber);
+  if (existing !== null) {
+    assert(existing.chapterStart === range.chapterStart && existing.chapterEnd === range.chapterEnd,
+      `existing volume ${volumeNumber} settlement range is not ${range.chapterStart}-${range.chapterEnd}`);
+    return { volumeSettlement: existing, workflow: await request(`/api/v1/books/${bookId}/workflow`) };
+  }
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
   assert(workflow.stage === 'volume_settlement_in_progress', `expected volume settlement stage, got ${workflow.stage}`);
   const volumeSettlement = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/settle`, {
     method: 'POST', body: { expectedWorkflowVersion: workflow.planningVersion }
   });
-  assert(volumeSettlement.chapterStart === 1 && volumeSettlement.chapterEnd === TOTAL_CHAPTERS, `volume settlement range is not 1-${TOTAL_CHAPTERS}`);
+  assert(volumeSettlement.chapterStart === range.chapterStart && volumeSettlement.chapterEnd === range.chapterEnd,
+    `volume ${volumeNumber} settlement range is not ${range.chapterStart}-${range.chapterEnd}`);
   workflow = await request(`/api/v1/books/${bookId}/workflow`);
   assert(workflow.stage === 'ready_for_next_volume', `expected next-volume ready stage, got ${workflow.stage}`);
-  save({ volumeSettlementId: volumeSettlement.settlementId });
-  log('volume_settled', { settlementId: volumeSettlement.settlementId, nextStage: workflow.stage });
+  saveVolumeState('volumeSettlementIds', volumeNumber, volumeSettlement.settlementId, 'volumeSettlementId');
+  log('volume_settled', { volumeNumber, settlementId: volumeSettlement.settlementId, chapterStart: range.chapterStart, chapterEnd: range.chapterEnd, nextStage: workflow.stage });
   return { volumeSettlement, workflow };
 }
 
-async function collectEvidence(bookId, volumePlan, events, settlements) {
+async function collectEvidence(bookId, runVolumePlans, events, settlements) {
   activePhase = 'final-evidence';
-  const [book, profile, workflow, settings, chapters, workspace, volumePlans, eventSequence, ideas, ...chapterSequences] = await Promise.all([
+  const [book, profile, workflow, settings, chapters, workspace, volumePlans, ideas] = await Promise.all([
     request(`/api/v1/books/${bookId}`), request(`/api/v1/books/${bookId}/book-profile`),
     request(`/api/v1/books/${bookId}/workflow`), request(`/api/v1/books/${bookId}/setting-outline-workspace`),
     chapterList(bookId), request(`/api/v1/books/${bookId}/workspace`),
     request(`/api/v1/books/${bookId}/volume-plans`),
-    request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`),
-    request(`/api/v1/books/${bookId}/author-planning-inputs`),
-    ...events.map((event) => request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`))
+    request(`/api/v1/books/${bookId}/author-planning-inputs`)
+  ]);
+  const [eventSequences, chapterSequences] = await Promise.all([
+    Promise.all(runVolumePlans.map((volumePlan) =>
+      request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`))),
+    Promise.all(events.map((event) =>
+      request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`)))
   ]);
   assert(workspace.agents.length === 11, `workspace has ${workspace.agents.length} agents instead of 11`);
   assert(new Set(workspace.agents.map((agent) => agent.roleKey)).size === 11, 'agent role keys are not unique');
   const settled = chapters.filter((chapter) => chapter.settlementStatus === 'settled').sort((a, b) => a.chapterNumber - b.chapterNumber);
-  assert(settled.length === TOTAL_CHAPTERS, `expected exactly ${TOTAL_CHAPTERS} settled chapters, got ${settled.length}`);
-  assert(settled.every((chapter, index) => chapter.chapterNumber === index + 1), `settled chapters are not contiguous 1-${TOTAL_CHAPTERS}`);
+  assert(settled.length === RELEASE_TARGET_CHAPTERS,
+    `expected exactly ${RELEASE_TARGET_CHAPTERS} settled chapters, got ${settled.length}`);
+  assert(settled.every((chapter, index) => chapter.chapterNumber === index + 1),
+    `settled chapters are not contiguous 1-${RELEASE_TARGET_CHAPTERS}`);
+  assert(runVolumePlans.length === TARGET_VOLUME_COUNT,
+    `expected ${TARGET_VOLUME_COUNT} confirmed volume plans, got ${runVolumePlans.length}`);
+  assert(events.length === TARGET_VOLUME_COUNT * EVENT_COUNT,
+    `expected ${TARGET_VOLUME_COUNT * EVENT_COUNT} confirmed events, got ${events.length}`);
+  assert(eventSequences.every((sequence) => sequence?.events.length === EVENT_COUNT),
+    `each volume must contain exactly ${EVENT_COUNT} events`);
+  assert(chapterSequences.every((sequence) => sequence?.outlines.length === CHAPTERS_PER_EVENT),
+    `each event must contain exactly ${CHAPTERS_PER_EVENT} chapter outlines`);
+  assert(settlements.eventSettlements.length === TARGET_VOLUME_COUNT * EVENT_COUNT,
+    `expected ${TARGET_VOLUME_COUNT * EVENT_COUNT} event settlements, got ${settlements.eventSettlements.length}`);
+  assert(settlements.volumeSettlements.length === TARGET_VOLUME_COUNT,
+    `expected ${TARGET_VOLUME_COUNT} volume settlements, got ${settlements.volumeSettlements.length}`);
   const chapterEvidence = [];
   const manuscriptTexts = [];
+  const manuscriptChapters = [];
   for (const chapter of settled) {
     const [content, detail] = await Promise.all([
       request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}/content`),
       request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`)
     ]);
     manuscriptTexts.push(content.content);
+    manuscriptChapters.push({ chapterNumber: chapter.chapterNumber, text: content.content });
     chapterEvidence.push({
       chapterNumber: chapter.chapterNumber, chapterId: chapter.chapterId, title: chapter.title,
       manuscriptVersionId: content.manuscriptVersionId, contentHash: content.contentHash,
@@ -806,15 +1078,18 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
     });
   }
   const wholeManuscript = manuscriptTexts.join('\n');
+  const manuscriptOriginality = assertManuscriptIsNotTemplateCopies(manuscriptChapters);
   for (const requiredName of SCENARIO.requiredNames) {
-    assert(wholeManuscript.includes(requiredName), `${TOTAL_CHAPTERS}-chapter manuscript is missing active character ${requiredName}`);
+    assert(wholeManuscript.includes(requiredName), `${RELEASE_TARGET_CHAPTERS}-chapter manuscript is missing active character ${requiredName}`);
   }
   for (const requiredStoryTerm of SCENARIO.requiredTerms) {
-    assert(wholeManuscript.includes(requiredStoryTerm), `${TOTAL_CHAPTERS}-chapter manuscript is missing ${SCENARIO.key} story term ${requiredStoryTerm}`);
+    assert(wholeManuscript.includes(requiredStoryTerm), `${RELEASE_TARGET_CHAPTERS}-chapter manuscript is missing ${SCENARIO.key} story term ${requiredStoryTerm}`);
   }
   assert(SCENARIO.forbiddenTerms.every((term) => !wholeManuscript.includes(term)), `${SCENARIO.key} manuscript leaked unrelated story terms`);
-  assert(events.map((event) => event.activeVersion?.content.title).join('|') === SCENARIO.events.map((event) => event.title).join('|'),
-    `confirmed events are not the ${EVENT_COUNT} required ${SCENARIO.key} event contracts`);
+  if (!REAL_RELEASE) {
+    assert(events.slice(0, EVENT_COUNT).map((event) => event.activeVersion?.content.title).join('|') === SCENARIO.events.map((event) => event.title).join('|'),
+      `confirmed events are not the ${EVENT_COUNT} required ${SCENARIO.key} event contracts`);
+  }
   const ideaEvidence = ideas.map((idea) => ({
     authorInputId: idea.authorInputId, surface: idea.surface, subjectType: idea.subjectType,
     intentStrength: idea.intentStrength, status: idea.status, handlingReason: idea.handlingReason,
@@ -825,8 +1100,8 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
     .map((call) => [`${call.agentId}:${call.provider}:${call.modelId}`, call])).values()];
   const evidence = {
     testId: TEST_ID, scenario: SCENARIO.key, scenarioName: SCENARIO.displayName,
-    releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: `E2-current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}`,
-    limitation: `${TOTAL_CHAPTERS}章本地确定性流程只证明当前对象链、任务、审查、正文与事件结算可运行和可追溯；不代表真实套餐模型文学质量，也不等于1000章以上长期质量已经得到证明。`,
+    releaseId: RELEASE_ID, completedAt: now(), evidenceLevel: `E2-current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}`,
+    limitation: `${RELEASE_TARGET_CHAPTERS}章流程证据证明当前对象链、任务、审查、正文与结算可运行和可追溯；自动指标只能拦截明显重复、泄漏和结构故障，发布级文学质量仍需要人工通读确认。`,
     book: { bookId, title: book.title, status: book.status, canonRevision: book.canonRevision },
     profile, workflow, settings: settings.map((item) => ({ itemKey: item.itemKey, label: item.label, status: item.status })),
     team: workspace.agents.map((agent) => ({
@@ -834,9 +1109,9 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
       provider: agent.provider, modelId: agent.modelId, activationState: agent.activationState
     })),
     modelParticipants, taskEvidence: state.taskEvidence,
-    volumePlan: volumePlans.find((item) => item.volumePlanId === volumePlan.volumePlanId),
-    eventSequence, chapterSequences, authorIdeas: ideaEvidence,
-    chapters: chapterEvidence, settlements
+    volumePlans: runVolumePlans.map((runPlan) => volumePlans.find((item) => item.volumePlanId === runPlan.volumePlanId)),
+    eventSequences, chapterSequences, authorIdeas: ideaEvidence,
+    chapters: chapterEvidence, manuscriptOriginality, settlements
   };
   writeFileSync(FINAL_FILE, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   save({ completedAt: evidence.completedAt, stoppedAtPhase: null, lastError: null });
@@ -848,6 +1123,10 @@ async function collectEvidence(bookId, volumePlan, events, settlements) {
 }
 
 try {
+  assert(!REAL_RELEASE || [20, 50, 100, 200].includes(RELEASE_TARGET_CHAPTERS),
+    '真实发布级门禁只允许20、50、100或200章；200章必须由两个完整百章卷组成');
+  assert(!REAL_RELEASE || MANUAL_REVIEW,
+    '真实发布级运行必须开启逐章人工阅读，不能自动确认模型正文');
   await issueSession();
   const healthEnvelope = await fetch(`${API}/health`).then((response) => response.json());
   const health = healthEnvelope.data ?? healthEnvelope;
@@ -855,18 +1134,43 @@ try {
   const bookId = await createBook();
   await ensureTestBudget(bookId);
   await completeSettings(bookId);
-  const volumePlan = await planVolume(bookId);
+  const volumePlans = [];
   const events = [];
   const eventSettlements = [];
-  for (let eventIndex = 0; eventIndex < EVENT_COUNT; eventIndex += 1) {
-    const event = await planEvent(bookId, volumePlan, eventIndex);
-    events.push(event);
-    await planChapterSequence(bookId, event, eventIndex);
-    await prepareAndWriteEventChapters(bookId, event);
-    eventSettlements.push(await settleEvent(bookId, event, eventIndex));
+  const volumeSettlements = [];
+  for (let volumeNumber = 1; volumeNumber <= TARGET_VOLUME_COUNT; volumeNumber += 1) {
+    const volumePlan = await planVolume(bookId, volumeNumber);
+    volumePlans.push(volumePlan);
+    for (let eventIndex = 0; eventIndex < EVENT_COUNT; eventIndex += 1) {
+      const chapterStart = eventChapterStart(volumeNumber, eventIndex);
+      if (chapterStart > RELEASE_TARGET_CHAPTERS) break;
+      const event = await planEvent(bookId, volumePlan, volumeNumber, eventIndex);
+      events.push(event);
+      await planChapterSequence(bookId, event, volumeNumber, eventIndex);
+      const writing = await prepareAndWriteEventChapters(bookId, event);
+      if (writing?.waitingManualReading) {
+        log('release_run_paused', {
+          reason: 'manual_reading', volumeNumber, eventIndex: eventIndex + 1,
+          globalEventIndex: globalEventIndex(volumeNumber, eventIndex) + 1,
+          waiting: state.waitingManualReading
+        });
+        break;
+      }
+      eventSettlements.push(await settleEvent(bookId, event, volumeNumber, eventIndex));
+    }
+    if (state.waitingManualReading !== undefined && state.waitingManualReading !== null) break;
+    const range = volumeChapterRange(volumeNumber);
+    if (RELEASE_TARGET_CHAPTERS < range.chapterEnd) {
+      log('release_gate_completed', { chapters: RELEASE_TARGET_CHAPTERS, volumeNumber, plannedVolumeChapters: TOTAL_CHAPTERS });
+      break;
+    }
+    volumeSettlements.push(await settleVolume(bookId, volumePlan, volumeNumber));
   }
-  const volumeSettlement = await settleVolume(bookId, volumePlan);
-  await collectEvidence(bookId, volumePlan, events, { eventSettlements, ...volumeSettlement });
+  if (state.waitingManualReading !== undefined && state.waitingManualReading !== null) process.exit(0);
+  if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);
+  assert(volumeSettlements.length === TARGET_VOLUME_COUNT,
+    `expected ${TARGET_VOLUME_COUNT} completed volume settlements, got ${volumeSettlements.length}`);
+  await collectEvidence(bookId, volumePlans, events, { eventSettlements, volumeSettlements });
 } catch (error) {
   issue(error);
   console.error(error);

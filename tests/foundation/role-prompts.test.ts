@@ -34,6 +34,13 @@ describe('九岗位定位提示词', () => {
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('当前模型调用不直接联网');
   });
 
+  it('正式规划直接执行结构化契约而不是继续开放讨论', () => {
+    const prompt = buildRoleSystemPrompt('plot_architect', 'structured_planning');
+    expect(prompt).toContain('不是开放讨论');
+    expect(prompt).toContain('只输出一个可直接解析的JSON对象');
+    expect(prompt).toContain('如果满意再继续');
+  });
+
   it('当前十一人团队使用各自真实身份而不是继承主岗位姓名', () => {
     const deputyEditor = buildRuntimeRoleSystemPrompt('deputy_editor', 'discussion');
     const secondScreenwriter = buildRuntimeRoleSystemPrompt('second_screenwriter', 'discussion');

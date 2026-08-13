@@ -17,7 +17,7 @@ export const novelRoleKeys = [
 export type NovelRoleKey = RoleKey;
 export type ModelRuntimeMode = 'deterministic' | 'subscription-plan';
 export type ModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent';
-export type ModelPurpose = 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
+export type ModelPurpose = 'discussion' | 'structured_planning' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RoleModelProfile {
   provider: string;
@@ -66,6 +66,23 @@ const DETERMINISTIC_PROFILE: RoleModelProfile = {
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   return values.find((value) => value !== undefined && value.trim().length > 0)?.trim();
+}
+
+function compatibleAnthropicPlanEndpoint(raw: string | undefined): {
+  plan: 'coding' | 'agent';
+  baseUrl: string;
+} | undefined {
+  const configured = firstNonEmpty(raw);
+  if (configured === undefined) return undefined;
+  for (const plan of ['coding', 'agent'] as const) {
+    try {
+      return { plan, baseUrl: assertPlanBaseUrl(plan, configured) };
+    } catch {
+      // Compatibility variables are shared with unrelated applications. They
+      // are ignored unless the address is one of Wenmi's exact plan endpoints.
+    }
+  }
+  return undefined;
 }
 
 const retiredAgentPlanModelAliases = new Map<string, string>([
@@ -194,24 +211,47 @@ export function loadModelRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env,
   options: { codexWorkingDirectory?: string } = {}
 ): ModelRuntimeConfig {
-  const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE) ?? 'deterministic';
+  const compatibleEndpoint = compatibleAnthropicPlanEndpoint(env.ANTHROPIC_BASE_URL);
+  const compatibleToken = firstNonEmpty(env.ANTHROPIC_AUTH_TOKEN);
+  const codingKey = firstNonEmpty(
+    env.WENMI_ARK_CODING_PLAN_API_KEY,
+    compatibleEndpoint?.plan === 'coding' ? compatibleToken : undefined
+  );
+  const agentKey = firstNonEmpty(
+    env.WENMI_ARK_AGENT_PLAN_API_KEY,
+    env.ARK_AGENTPLAN_KEY,
+    compatibleEndpoint?.plan === 'agent' ? compatibleToken : undefined
+  );
+  const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE)
+    ?? (agentKey === undefined ? 'deterministic' : 'subscription-plan');
   if (rawMode !== 'deterministic' && rawMode !== 'subscription-plan') {
     throw new Error('WENMI_MODEL_MODE只允许deterministic或subscription-plan');
   }
   const requestedMode = rawMode;
-  const codingKey = firstNonEmpty(env.WENMI_ARK_CODING_PLAN_API_KEY, env.ANTHROPIC_AUTH_TOKEN);
-  const agentKey = firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_API_KEY, env.ARK_AGENTPLAN_KEY);
   const endpoints: ModelRuntimeConfig['endpoints'] = {
     coding: {
       plan: 'coding',
       provider: 'volcengine-ark-coding-plan',
-      baseUrl: assertPlanBaseUrl('coding', firstNonEmpty(env.WENMI_ARK_CODING_PLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/coding'),
+      baseUrl: assertPlanBaseUrl(
+        'coding',
+        firstNonEmpty(
+          env.WENMI_ARK_CODING_PLAN_BASE_URL,
+          compatibleEndpoint?.plan === 'coding' ? compatibleEndpoint.baseUrl : undefined
+        ) ?? 'https://ark.cn-beijing.volces.com/api/coding'
+      ),
       apiKey: codingKey
     },
     agent: {
       plan: 'agent',
       provider: 'volcengine-ark-agent-plan',
-      baseUrl: assertPlanBaseUrl('agent', firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_BASE_URL, env.ARK_AGENTPLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/plan'),
+      baseUrl: assertPlanBaseUrl(
+        'agent',
+        firstNonEmpty(
+          env.WENMI_ARK_AGENT_PLAN_BASE_URL,
+          env.ARK_AGENTPLAN_BASE_URL,
+          compatibleEndpoint?.plan === 'agent' ? compatibleEndpoint.baseUrl : undefined
+        ) ?? 'https://ark.cn-beijing.volces.com/api/plan'
+      ),
       apiKey: agentKey
     }
   };

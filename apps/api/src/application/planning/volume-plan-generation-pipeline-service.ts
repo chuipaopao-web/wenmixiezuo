@@ -8,6 +8,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { ModelAdapterError } from '../../infrastructure/models/model-adapter.js';
 import {
   VolumePlanGenerationRepository,
   type VolumePlanGenerationSeat,
@@ -69,22 +70,51 @@ export class VolumePlanGenerationPipelineService {
     if (editor === undefined) throw new Error('卷规划任务缺少冻结的主编席快照。');
     try {
       this.throwIfCancelled(scope, taskId);
+      const initialA = this.repository.hasUnresolvedModelBinding(scope, lead.provider, lead.modelId)
+        ? selectTechnicalSubstitute(brief.seats, [lead, second, editor]) ?? lead
+        : lead;
+      const initialB = this.repository.hasUnresolvedModelBinding(scope, second.provider, second.modelId)
+        ? selectTechnicalSubstitute(brief.seats, [lead, second, editor, initialA]) ?? second
+        : second;
       const candidateResults = await Promise.allSettled([
-        this.generateAndStore(scope, claimed, brief, snapshot, lead, 'candidate_a', []),
-        this.generateAndStore(scope, claimed, brief, snapshot, second, 'candidate_b', [])
+        this.generateAndStore(scope, claimed, brief, snapshot, initialA, 'candidate_a', []),
+        this.generateAndStore(scope, claimed, brief, snapshot, initialB, 'candidate_b', [])
       ]);
-      const candidateA = candidateResults[0].status === 'fulfilled' ? candidateResults[0].value : null;
-      const candidateB = candidateResults[1].status === 'fulfilled' ? candidateResults[1].value : null;
+      let candidateA = candidateResults[0].status === 'fulfilled' ? candidateResults[0].value : null;
+      let candidateB = candidateResults[1].status === 'fulfilled' ? candidateResults[1].value : null;
+      let candidateASeat = initialA;
+      let candidateBSeat = initialB;
+      if (candidateA === null && isKnownRetryableTechnicalFailure(candidateResults[0])) {
+        const substitute = selectTechnicalSubstitute(brief.seats, [lead, second, editor, initialA, initialB]);
+        if (substitute !== null) {
+          candidateASeat = substitute;
+          candidateA = await this.generateAndStore(
+            scope, claimed, brief, snapshot, substitute, 'candidate_a', []
+          );
+        }
+      }
+      if (candidateB === null && isKnownRetryableTechnicalFailure(candidateResults[1])) {
+        const substitute = selectTechnicalSubstitute(
+          brief.seats,
+          [lead, second, editor, initialA, initialB, candidateASeat]
+        );
+        if (substitute !== null) {
+          candidateBSeat = substitute;
+          candidateB = await this.generateAndStore(
+            scope, claimed, brief, snapshot, substitute, 'candidate_b', []
+          );
+        }
+      }
       this.tasks.checkpoint(scope, taskId, workerId, 'screenwriter_candidates', {
         candidateAId: candidateA?.versionId ?? null,
         candidateBId: candidateB?.versionId ?? null,
         independent: true,
-        crossReviewUsed: false
+        crossReviewUsed: false,
+        candidateAProducedBy: seatAttribution(candidateASeat, candidateASeat.agentId !== lead.agentId),
+        candidateBProducedBy: seatAttribution(candidateBSeat, candidateBSeat.agentId !== second.agentId)
       }, leaseFence);
-      const rejected = candidateResults.find(
-        (result): result is PromiseRejectedResult => result.status === 'rejected'
-      );
-      if (rejected !== undefined) throw rejected.reason;
+      if (candidateA === null) throw rejectedReason(candidateResults[0]);
+      if (candidateB === null) throw rejectedReason(candidateResults[1]);
       this.throwIfCancelled(scope, taskId);
       const fusion = await this.generateAndStore(
         scope,
@@ -93,21 +123,23 @@ export class VolumePlanGenerationPipelineService {
         snapshot,
         editor,
         'fusion',
-        [candidateA!.content, candidateB!.content]
+        [candidateA.content, candidateB.content]
       );
       this.tasks.checkpoint(scope, taskId, workerId, 'fusion_complete', {
-        candidateAId: candidateA!.versionId,
-        candidateBId: candidateB!.versionId,
+        candidateAId: candidateA.versionId,
+        candidateBId: candidateB.versionId,
         fusionId: fusion.versionId,
-        awaitingAuthorChoice: true
+        awaitingAuthorChoice: true,
+        candidateAProducedBy: seatAttribution(candidateASeat, candidateASeat.agentId !== lead.agentId),
+        candidateBProducedBy: seatAttribution(candidateBSeat, candidateBSeat.agentId !== second.agentId)
       }, leaseFence);
       this.tasks.complete(scope, taskId, workerId, leaseFence);
       this.repository.clearWaitingTask(scope, taskId, this.clock.now().toISOString());
       return {
         taskId,
         status: 'succeeded',
-        candidateAId: candidateA!.versionId,
-        candidateBId: candidateB!.versionId,
+        candidateAId: candidateA.versionId,
+        candidateBId: candidateB.versionId,
         fusionId: fusion.versionId
       };
     } catch (error) {
@@ -238,7 +270,7 @@ export class VolumePlanGenerationPipelineService {
           continue;
         }
       }
-      const maxOutputTokens = 6_000;
+      const maxOutputTokens = volumePlanOutputTokenLimit(candidateKind);
       const protocolOverhead = adapter.provider === 'openai-codex-subscription' ? 24_000 : 0;
       const estimatedInputCeiling = Math.max(
         Math.ceil(prompt.length / 2),
@@ -256,7 +288,7 @@ export class VolumePlanGenerationPipelineService {
         const result = await this.calls.execute(scope, {
           requestId,
           taskId: task.taskId,
-          phaseKey: `${candidateKind}:attempt-${task.currentAttemptNo}:try-${technicalTry}`,
+          phaseKey: `${candidateKind}:${seat.roleKey}:attempt-${task.currentAttemptNo}:try-${technicalTry}`,
           agentId: seat.agentId,
           modelSnapshotId: seat.modelSnapshotId,
           provider: seat.provider,
@@ -284,6 +316,16 @@ export class VolumePlanGenerationPipelineService {
           return parseVolumePlanModelOutput(result.output);
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '卷规划JSON无效';
+          if (isVolumePlanOutputCapped(result.outputTokens, maxOutputTokens)) {
+            lastError = new ModelAdapterError(
+              '卷规划输出已写满当前有界额度但JSON仍未闭合，需要由另一可用模型补位。',
+              'technical_failure',
+              true,
+              200,
+              false
+            );
+            break;
+          }
           lastError = error;
         }
       } catch (error) {
@@ -367,6 +409,19 @@ export function parseVolumePlanModelOutput(output: string): VolumePlanContent {
     }
   }
   throw new Error('输出缺少完整、合法的卷规划JSON。');
+}
+
+export function volumePlanOutputTokenLimit(candidateKind: CandidateKind): number {
+  // 十事件卷纲的结构化JSON已经在真实 DeepSeek/GLM 调用中稳定超过6k套餐输出：
+  // 两个供应商都在卷末边界前被截断。12k仍是有界上限，配合下面的表达压缩
+  // 指令保证空间用于完整因果链，而不是增加事件数量或重复解释。
+  return candidateKind === 'fusion' ? 12_000 : 12_000;
+}
+
+export function isVolumePlanOutputCapped(outputTokens: number, maximumTokens: number): boolean {
+  return Number.isFinite(outputTokens)
+    && Number.isFinite(maximumTokens)
+    && outputTokens >= maximumTokens;
 }
 
 function unwrapCandidates(value: unknown): unknown[] {
@@ -496,6 +551,12 @@ function buildPrompt(input: {
       authorPreferenceAndInspirationAreSoft: true,
       unsupportedCoreSettingAction: 'put the question into boundaries.openQuestions instead of inventing it'
     },
+    expressionBudget: [
+      '以下限制只控制JSON传输长度，不限制故事创造性、事件差异或人物选择。',
+      '每个事件字段用一至两句具体中文说清人物、行动、代价和状态变化，不复述整份设定。',
+      'informationPlan、escalationAndRecovery、characterChanges及各边界数组只保留本卷真正需要的要点，每项不超过两句。',
+      '必须优先完整闭合eventSequence、endingState、nextVolumeTrigger和boundaries，不能写到中途截断。'
+    ],
     sources: input.sources,
     outputContract: {
       title: '卷标题',
@@ -570,6 +631,45 @@ function requiredSeat(seats: VolumePlanGenerationSeat[], roleKey: string): Volum
   const seat = seats.find((candidate) => candidate.roleKey === roleKey);
   if (seat === undefined) throw new Error(`卷规划任务缺少冻结岗位：${roleKey}`);
   return seat;
+}
+
+function isKnownRetryableTechnicalFailure(result: PromiseSettledResult<unknown>): boolean {
+  return result.status === 'rejected'
+    && result.reason instanceof ModelAdapterError
+    && result.reason.failureClass === 'technical_failure'
+    && result.reason.retryable
+    && !result.reason.outcomeUnknown;
+}
+
+function selectTechnicalSubstitute(
+  seats: VolumePlanGenerationSeat[],
+  unavailable: VolumePlanGenerationSeat[]
+): VolumePlanGenerationSeat | null {
+  const unavailableAgents = new Set(unavailable.map((seat) => seat.agentId));
+  const preference = ['backup_writer', 'researcher', 'literary_reviewer', 'deputy_editor', 'setting'];
+  return [...seats]
+    .filter((seat) => !seat.editor && !unavailableAgents.has(seat.agentId))
+    .sort((left, right) => {
+      const leftRank = preference.indexOf(left.roleKey);
+      const rightRank = preference.indexOf(right.roleKey);
+      return (leftRank === -1 ? preference.length : leftRank)
+        - (rightRank === -1 ? preference.length : rightRank);
+    })[0] ?? null;
+}
+
+function seatAttribution(seat: VolumePlanGenerationSeat, technicalSubstitute: boolean) {
+  return {
+    roleKey: seat.roleKey,
+    agentId: seat.agentId,
+    displayName: seat.displayName,
+    provider: seat.provider,
+    modelId: seat.modelId,
+    technicalSubstitute
+  };
+}
+
+function rejectedReason(result: PromiseSettledResult<unknown>): unknown {
+  return result.status === 'rejected' ? result.reason : new Error('卷规划候选没有形成可用结果。');
 }
 
 function extractCompleteJsonObjects(value: string): string[] {

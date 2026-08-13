@@ -20,6 +20,7 @@ interface ArkMessagesResponse {
 
 const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
   discussion: '你是文秘写作中的小说创作成员。只按当前岗位和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
+  structured_planning: '你是文秘写作中的正式规划成员。严格执行输入中的operation、instructions和outputContract，只输出一个可直接解析的JSON对象，不用Markdown，不写解释、确认请求或后续承诺。',
   novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文优先达到2700至3200有效字符，且不得少于2350或超过3650，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落。保持人物、时间线和因果连续。',
   novel_reviewer: '你是文秘写作的独立审校。只输出一个JSON对象，不使用Markdown围栏。字段必须为verdict(pass|rewrite|blocked)、summary、issues数组和scores对象；每个issue包含location、issueType、severity(blocker|major|minor|observation)、evidence、requiredAction；scores包含continuity、character、pacing、style、hook五个0至100整数。',
   review_synthesis: '你是文秘写作的主编汇总器。只综合三席结构化报告，不读取正文进行第四次点评。只输出JSON对象，字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。'
@@ -42,11 +43,11 @@ export class ArkPlanModelAdapter implements ModelAdapter {
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
     if (signal?.aborted === true) throw signal.reason ?? new DOMException('模型调用已取消', 'AbortError');
-    // Reasoning-capable plan models can legitimately need more than two minutes for
-    // bounded chapter reviews.  A two-minute abort leaves the remote result unknown
-    // and forces the whole independent review seat to be discarded, so keep a
-    // five-minute local ceiling while preserving the explicit per-adapter override.
-    const timeoutMs = this.options.timeoutMs ?? 300_000;
+    // Reasoning-capable plan models can legitimately need more than five minutes for
+    // long-form planning and review. Aborting a paid-plan request leaves the remote
+    // result unknown and makes a safe retry impossible, so use the documented
+    // fifteen-minute safety ceiling while preserving explicit test overrides.
+    const timeoutMs = this.options.timeoutMs ?? 900_000;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) throw new Error('方舟模型调用超时必须在1秒至15分钟之间');
     const controller = new AbortController();
     let timedOut = false;
@@ -111,8 +112,13 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
-      `火山方舟套餐已执行但没有可提交文字，供应商结果状态未知（${describeEmptyResponse(body)}）`,
-      'technical_failure', false, response.status, true
+      `火山方舟套餐已执行但没有形成可提交文字（${describeEmptyResponse(body)}）`,
+      // A parsed 2xx response is a known, unusable result rather than an unknown
+      // provider outcome.  In particular, Kimi can spend the complete allowance
+      // on reasoning and stop at max_tokens with an empty text block.  The caller
+      // may retry with the task's guarded larger budget without triggering an
+      // unsafe editor takeover or leaving a false reconciliation hold.
+      'technical_failure', true, response.status, false
     );
     return {
       provider: this.provider,
@@ -156,11 +162,16 @@ function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean 
   // Kimi K2.7 Code rejects the optional Anthropic-compatible `thinking` field
   // on the Agent Plan endpoint. Keep this capability model-specific.
   if (modelId === 'kimi-k2.7-code') return false;
+  // Review and other machine-readable contracts need a closed, visible JSON
+  // result. MiniMax can otherwise spend the whole bounded allowance in a
+  // `thinking` block and return no report at all. That is a technical model
+  // failure, not evidence that the manuscript failed quality review.
+  if (purpose === 'novel_reviewer' || purpose === 'review_synthesis' || purpose === 'structured_planning') return true;
   if (modelId.startsWith('glm-') || modelId.startsWith('kimi-')) return true;
   // DeepSeek's hidden reasoning can consume the complete review allowance before
   // the bounded JSON report is closed.  Disable it only for deterministic review
   // contracts; creative planning keeps the model's normal reasoning behaviour.
-  return modelId.startsWith('deepseek-') && (purpose === 'novel_reviewer' || purpose === 'review_synthesis');
+  return modelId.startsWith('deepseek-') && purpose !== 'novel_writer';
 }
 
 function finiteTokenCount(value: number | undefined): number {

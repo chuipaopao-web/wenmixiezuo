@@ -1,9 +1,9 @@
 export const WRITER_CONTEXT_POLICY = Object.freeze({
   draft: Object.freeze({
-    characterBudget: 4_800,
-    tokenBudget: 4_800,
-    policyVersion: 'writer-draft-context-v5-opening-profile-continuity-4800chars',
-    workOrderMaximum: 1_500,
+    characterBudget: 9_000,
+    tokenBudget: 9_000,
+    policyVersion: 'writer-draft-context-v6-full-current-outline-9000chars',
+    workOrderMaximum: 4_200,
     openingProfileMaximum: 650,
     stageSettlementMaximum: 600,
     previousStateMaximum: 400,
@@ -13,14 +13,14 @@ export const WRITER_CONTEXT_POLICY = Object.freeze({
     optionalRetrievalMaximum: 400
   }),
   ownerRewrite: Object.freeze({
-    characterBudget: 9_000,
-    tokenBudget: 9_000,
-    policyVersion: 'writer-rewrite-context-v2-9000chars'
+    characterBudget: 12_000,
+    tokenBudget: 12_000,
+    policyVersion: 'writer-rewrite-context-v3-12000chars'
   }),
   targetedRewrite: Object.freeze({
-    characterBudget: 9_000,
-    tokenBudget: 9_000,
-    policyVersion: 'writer-targeted-rewrite-context-v2-9000chars'
+    characterBudget: 12_000,
+    tokenBudget: 12_000,
+    policyVersion: 'writer-targeted-rewrite-context-v3-12000chars'
   })
 });
 

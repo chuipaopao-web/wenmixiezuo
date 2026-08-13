@@ -88,6 +88,30 @@ describe('主角状态账本', () => {
     }
   });
 
+  it('已结算正文出现唯一同名角色时，即使没有数值状态也会关联开书主角档案', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { title: '同名主角关联', content: '林澈推门进入北塔。' });
+      const service = new ProtagonistStateService(context.database, ids, clock);
+      service.saveProfile(fixture.scope, { displayName: '林澈', isPrimary: true });
+      const canon = new CanonService(context.database, ids, clock);
+      const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澈' });
+      canon.proposeFact(fixture.scope, {
+        subjectEntityId: entityId, relationKey: 'location', value: '北塔',
+        evidence: [{ quote: '林澈推门进入北塔' }], grade: 'B',
+        sourceChapterId: fixture.chapterId, sourceManuscriptVersionId: fixture.manuscriptVersionId
+      });
+      canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, {});
+
+      expect(service.projectCanonFacts(fixture.scope, fixture.chapterId)).toBe(0);
+      expect(service.dashboard(fixture.scope).profiles[0]).toMatchObject({ entityId, displayName: '林澈' });
+    } finally {
+      context.close();
+    }
+  });
+
   it('无需预建固定模板即可从正史自动建档，无法归类时询问并以追加修订完成分类', () => {
     const context = createTestContext();
     try {

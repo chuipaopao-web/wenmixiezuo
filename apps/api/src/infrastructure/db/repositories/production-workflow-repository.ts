@@ -386,9 +386,14 @@ export class ProductionWorkflowRepository {
         this.database.prepare(`UPDATE chapter_pipeline_runs SET phase = 'rewrite', status = 'paused', confirmation_id = NULL,
           error_code = NULL, updated_at = ? WHERE pipeline_run_id = ?`)
           .run(now, run.pipeline_run_id);
-        this.database.prepare(`UPDATE tasks SET status = 'paused', current_phase = 'rewrite', error_code = NULL, updated_at = ?
+        this.database.prepare(`UPDATE tasks SET status = 'paused', current_phase = 'rewrite', error_code = NULL,
+          task_brief_json = json_set(task_brief_json,
+            '$.operation', 'rewrite_existing',
+            '$.manuscriptVersionId', ?,
+            '$.instruction', ?),
+          updated_at = ?
           WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'waiting_confirmation'`)
-          .run(now, gate.taskId, scope.ownerId, scope.bookId);
+          .run(gate.manuscriptVersionId, note, now, gate.taskId, scope.ownerId, scope.bookId);
       } else {
         this.database.prepare(`UPDATE tasks SET status = 'blocked', current_phase = 'owner_rejected', error_code = 'OWNER_REJECTED_AFTER_TWO_REWRITES', updated_at = ?
           WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'waiting_confirmation'`)

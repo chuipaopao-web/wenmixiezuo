@@ -138,11 +138,12 @@ function dimensionVector(reports: ProductionReview[]): Record<string, number> {
   return vector;
 }
 
-function hasHardProblem(reports: ProductionReview[]): boolean {
+export function hasHardProblem(reports: ProductionReview[]): boolean {
   if (reports.some((report) => report.verdict === 'blocked'
     || report.issues.some((issue) => issue.severity === 'blocker'))) return true;
-  const fact = reports.find((report) => report.reviewerRole === 'fact');
-  if (fact?.issues.some((issue) => issue.severity === 'major')) return true;
+  // A major issue is, by contract, locally repairable and must enter the bounded rewrite path.
+  // Treating every fact major as a blocker silently discards the improved manuscript and skips
+  // the editor synthesis. Only explicit blockers and concrete safety/compliance risks stop the run.
   const experience = reports.find((report) => report.reviewerRole === 'experience');
   return [experience?.politicalRisk?.level, experience?.sexualContentRisk?.level]
     .some((level) => level === 'medium' || level === 'high' || level === 'blocked');

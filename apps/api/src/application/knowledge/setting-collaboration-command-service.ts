@@ -6,6 +6,8 @@ import { DiscussionService } from '../discussions/discussion-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { SettingGuidanceService, type SettingGuidanceSnapshot } from './setting-guidance-service.js';
+import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
+import { EditorLeaseService } from '../editors/editor-lease-service.js';
 
 interface CommandResult {
   taskId: string;
@@ -37,8 +39,20 @@ export class SettingCollaborationCommandService {
     input: { authorInputId?: string | null; idempotencyKey: string }
   ): CommandResult {
     assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    const panelLease = this.ensureDistinctPanelModels(scope);
     const existing = this.repository.latestPanel(scope, itemKey);
-    if (existing !== undefined && !['failed', 'cancelled', 'interrupted'].includes(existing.task_status)) {
+    const existingModels = existing === undefined
+      ? []
+      : existing.task_status === 'succeeded'
+        ? this.repository.proposals(scope, existing.discussion_id)
+          .map((proposal) => `${proposal.model_provider}/${proposal.model_id}`)
+        : this.repository.panelMembers(scope, existing.discussion_id)
+          .map((member) => `${member.model_provider}/${member.model_id}`);
+    const existingHasDistinctModels = existingModels.length === 3
+      && new Set(existingModels).size === 3;
+    if (existing !== undefined && existingHasDistinctModels
+      && !['failed', 'cancelled', 'interrupted'].includes(existing.task_status)) {
       return { taskId: existing.task_id, discussionId: existing.discussion_id, status: existing.task_status, reused: true };
     }
     const guidance = this.requireGuidance(scope, itemKey);
@@ -49,7 +63,8 @@ export class SettingCollaborationCommandService {
       itemKey,
       scopeText: buildProposalScope(guidance, authorText),
       authorInputIds: input.authorInputId == null ? [] : [input.authorInputId],
-      idempotencyKey: 'setting-proposal:' + itemKey + ':' + normalizeKey(input.idempotencyKey),
+      idempotencyKey: 'setting-proposal:' + itemKey + ':' + normalizeKey(input.idempotencyKey)
+        + (existing === undefined ? '' : `:distinct-model-recovery-${panelLease.editorEpoch}-${existing.discussion_id}`),
       includeScreenwriters: true
     });
   }
@@ -60,6 +75,7 @@ export class SettingCollaborationCommandService {
     input: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string }
   ): CommandResult {
     assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
     const guidance = this.requireGuidance(scope, itemKey, true);
     const panel = this.repository.latestPanel(scope, itemKey);
     if (panel === undefined || panel.task_status !== 'succeeded') {
@@ -75,8 +91,23 @@ export class SettingCollaborationCommandService {
       if (proposal === undefined) {
         throw new DomainError(errorCodes.validation, '所选方案不存在或不属于当前设定项');
       }
-      return { proposalId, memberName: proposal.member_name ?? '未知成员', content: proposal.content };
+      return {
+        proposalId,
+        memberName: proposal.member_name ?? '未知成员',
+        content: compactProposalForSynthesis(proposal.content)
+      };
     });
+    const distinctModels = new Set(selected.map((proposal) => {
+      const source = proposals.find((candidate) => candidate.proposal_id === proposal.proposalId)!;
+      return `${source.model_provider}/${source.model_id}`;
+    }));
+    if (selected.length === 3 && distinctModels.size !== 3) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable,
+        '三份方案没有来自三种不同模型，不能当作三种独立意见进入融合。请重新召集成员。', {
+          selectedCount: selected.length,
+          distinctModelCount: distinctModels.size
+        }, false, 409);
+    }
     return this.scheduleSynthesis(scope, guidance, {
       authorInputId: input.authorInputId ?? null,
       idempotencyKey: input.idempotencyKey,
@@ -91,6 +122,7 @@ export class SettingCollaborationCommandService {
     input: { authorInputId: string; idempotencyKey: string }
   ): CommandResult {
     assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
     const guidance = this.requireGuidance(scope, itemKey, true);
     if (guidance.previousCandidate === null) {
       throw new DomainError(errorCodes.operationIncomplete, '当前没有可修改的设定候选', {}, false, 409);
@@ -118,6 +150,7 @@ export class SettingCollaborationCommandService {
     const scopeText = [
       '【设定成组讨论资料包】',
       '本批设定项JSON：' + itemJson,
+      '本书完整开书信息（作者已填写，优先级高于AI推测）：' + guidance.openingBookCore,
       '作品定位摘要：' + guidance.positioningSummary,
       '故事方向参考：' + guidance.storyDirectionReference,
       '已经确认的前置设定：' + JSON.stringify(guidance.confirmedContext),
@@ -150,7 +183,12 @@ export class SettingCollaborationCommandService {
       includeScreenwriters: boolean;
     }
   ): CommandResult {
-    const existing = this.repository.taskByIdempotencyKey(scope, input.idempotencyKey);
+    let resolvedIdempotencyKey = input.idempotencyKey;
+    let existing = this.repository.taskByIdempotencyKey(scope, resolvedIdempotencyKey);
+    while (existing !== undefined && ['failed', 'cancelled', 'interrupted'].includes(existing.status)) {
+      resolvedIdempotencyKey = `setting-retry:${input.itemKey}:${existing.task_id}`;
+      existing = this.repository.taskByIdempotencyKey(scope, resolvedIdempotencyKey);
+    }
     if (existing !== undefined) {
       const brief = JSON.parse(existing.task_brief_json) as { discussionId: string };
       return { taskId: existing.task_id, discussionId: brief.discussionId, status: existing.status, reused: true };
@@ -184,7 +222,7 @@ export class SettingCollaborationCommandService {
       taskId: this.ids.next(),
       taskType: 'discussion',
       assignedAgentId: lease.agentId,
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: resolvedIdempotencyKey,
       budgetId,
       requiredEditorEpoch: lease.editorEpoch,
       initialPhase: 'collecting',
@@ -226,6 +264,52 @@ export class SettingCollaborationCommandService {
     if (row === undefined) throw new Error('当前书籍没有活动主编租约');
     return { agentId: row.agent_id, editorEpoch: row.editor_epoch };
   }
+
+  private preferChiefWhenSafe(scope: BookScope): EditorLease {
+    const lease = this.requireEditorLease(scope);
+    const chiefAgentId = this.repository.chiefEditorAgentId(scope);
+    if (chiefAgentId !== undefined && chiefAgentId !== lease.agentId) {
+      new EditorLeaseService(this.database, this.ids, this.clock).safeRevertToChief(scope, chiefAgentId);
+    }
+    return this.requireEditorLease(scope);
+  }
+
+  private ensureDistinctPanelModels(scope: BookScope): EditorLease {
+    const screenwriters = this.repository.screenwriterAgentIds(scope);
+    if (screenwriters.length !== 2) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, '当前没有两名可用编剧，暂时不能生成三份独立方案。', {}, false, 409);
+    }
+    const modelProfiles = (editorAgentId: string) => {
+      const participants = [editorAgentId, ...screenwriters];
+      return this.repository.agentModelProfiles(scope, participants);
+    };
+    let lease = this.requireEditorLease(scope);
+    const activeProfiles = modelProfiles(lease.agentId);
+    // 纯确定性测试运行时只有一个本地假模型。它用于验证业务编排，不得伪装成生产模型独立性证据；
+    // 真实订阅模型（以及测试中显式构造的非本地模型）则必须严格满足三模型独立。
+    if (activeProfiles.length === 3
+      && activeProfiles.every((profile) => profile.provider.startsWith('local-deterministic')
+        && profile.plan_type === 'deterministic')) {
+      return lease;
+    }
+    const distinctCount = (editorAgentId: string): number => new Set(
+      modelProfiles(editorAgentId).map((profile) => `${profile.provider}/${profile.model_id}`)
+    ).size;
+    if (distinctCount(lease.agentId) === 3) return lease;
+    const chiefAgentId = this.repository.chiefEditorAgentId(scope);
+    if (chiefAgentId !== undefined && chiefAgentId !== lease.agentId) {
+      new EditorLeaseService(this.database, this.ids, this.clock).safeRevertToChief(scope, chiefAgentId);
+      lease = this.requireEditorLease(scope);
+    }
+    if (distinctCount(lease.agentId) !== 3) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable,
+        '当前三席里有成员使用相同模型，暂时不能伪装成三种独立意见。请等待主编恢复后重试。', {
+          activeEditorAgentId: lease.agentId,
+          editorEpoch: lease.editorEpoch
+        }, false, 409);
+    }
+    return lease;
+  }
 }
 
 function buildProposalScope(guidance: SettingGuidanceSnapshot, authorText: string): string {
@@ -234,6 +318,7 @@ function buildProposalScope(guidance: SettingGuidanceSnapshot, authorText: strin
     '当前设定项编号：' + guidance.itemKey,
     '当前设定项：' + guidance.label,
     '当前问题：' + guidance.prompt,
+    '本书完整开书信息（作者已填写，优先级高于AI推测）：' + guidance.openingBookCore,
     '作品定位摘要：' + guidance.positioningSummary,
     '故事方向参考：' + guidance.storyDirectionReference,
     '已经确认的前置设定：' + JSON.stringify(guidance.confirmedContext),
@@ -249,4 +334,16 @@ function normalizeKey(value: string): string {
     throw new DomainError(errorCodes.validation, '幂等键长度必须为8到200个字符');
   }
   return key;
+}
+
+export function compactProposalForSynthesis(raw: string): string {
+  const visible = prepareEffectiveOutput(raw).visibleContent.trim();
+  // 融合读取方案的明确主张、规则与后果；“为什么这样安排”、备选写法、
+  // 风险提醒和下一步仍保存在原方案中按 proposalId 可追溯，但不重复占用
+  // 融合硬资料预算。不能使用简单首尾拼接，否则会把主方案中段的规则切断。
+  const core = visible.split(/\n(?=(?:#{1,4}\s*)?(?:为什么这样安排|还可以这样写|要留意|接下来)[:：]?)/u)[0]?.trim() ?? visible;
+  if (core.length <= 1_200) return core;
+  const sentenceBoundary = core.lastIndexOf('。', 1_200);
+  const end = sentenceBoundary >= 800 ? sentenceBoundary + 1 : 1_200;
+  return `${core.slice(0, end).trim()}\n（其余展开说明已省略，原方案仍保留可追溯。）`;
 }

@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   compactChapterModelTaskInput,
+  chapterReviewSourceBoundaryContract,
   compactWriterPromptSources,
+  boundedRewriteCountAfterAttempt,
   decideRewriteCandidateRecovery,
+  decideUnchangedRewriteRecovery,
+  finalLengthHardRepairAction,
+  isBoundedLengthHardRepairEligible,
+  isFinalLengthOnlyRepairEligible,
   hasExhaustedExactManuscriptReviewAttempts,
   nextExactManuscriptReviewAttempt,
   revisionRoundForRewriteCount,
   rewriteLengthGuardAction,
   resumedRewriteCount,
-  shouldAutomaticallyRewriteReview
+  shouldAutomaticallyRewriteReview,
+  targetedRewriteContractCharacterLimit
 } from '../../apps/api/src/application/creation/chapter-pipeline-service.js';
 
 describe('章节审校提示合同', () => {
@@ -93,7 +100,67 @@ describe('章节审校提示合同', () => {
   it('点评修订破坏已通过的客观门禁时有界重试，不接纳缺陷稿也不无限循环', () => {
     expect(decideRewriteCandidateRecovery(true, false, 0)).toBe('retry_rewrite');
     expect(decideRewriteCandidateRecovery(true, false, 1)).toBe('retain_for_owner');
+    expect(decideRewriteCandidateRecovery(true, false, 1, true)).toBe('retry_hard_repair');
+    expect(decideRewriteCandidateRecovery(true, false, 2, true)).toBe('retain_for_owner');
     expect(decideRewriteCandidateRecovery(true, true, 1)).toBe('accept');
     expect(decideRewriteCandidateRecovery(false, false, 1)).toBe('accept');
+  });
+
+  it('模型重复返回同一稿时不重复登记版本或硬检查，并在有界次数后安全收敛', () => {
+    expect(decideUnchangedRewriteRecovery(true, 0)).toBe('retry_rewrite');
+    expect(decideUnchangedRewriteRecovery(true, 1)).toBe('retain_for_owner');
+    expect(decideUnchangedRewriteRecovery(false, 0)).toBe('restore_hard_valid_ancestor');
+    expect(decideUnchangedRewriteRecovery(false, 2)).toBe('restore_hard_valid_ancestor');
+    expect(boundedRewriteCountAfterAttempt(0)).toBe(1);
+    expect(boundedRewriteCountAfterAttempt(1)).toBe(2);
+    expect(boundedRewriteCountAfterAttempt(2)).toBe(3);
+    expect(boundedRewriteCountAfterAttempt(3)).toBe(3);
+  });
+
+  it('只为其他硬检查全通过的近距离字数越界稿开放一次最终补救', () => {
+    expect(isBoundedLengthHardRepairEligible(3_669, 2_350, 3_650, true)).toBe(true);
+    expect(isBoundedLengthHardRepairEligible(3_851, 2_350, 3_650, true)).toBe(false);
+    expect(isBoundedLengthHardRepairEligible(2_200, 2_350, 3_650, true)).toBe(true);
+    expect(isBoundedLengthHardRepairEligible(3_669, 2_350, 3_650, false)).toBe(false);
+    expect(isBoundedLengthHardRepairEligible(3_200, 2_350, 3_650, true)).toBe(false);
+  });
+
+  it('最终字数补救只允许局部补足或删减，不再次执行创意重写', () => {
+    const expand = finalLengthHardRepairAction(2_280);
+    expect(expand).toContain('唯一一次最终字数补救');
+    expect(expand).toContain('不得删除或缩写');
+    expect(expand).toContain('至少420个');
+    expect(expand).toContain('不得新增事件');
+    const trim = finalLengthHardRepairAction(3_700);
+    expect(trim).toContain('只删除至少');
+    expect(trim).toContain('不得新增或改写事实');
+  });
+
+  it('普通点评修订失败后只为纯字数问题开放一次更宽但有界的最终补救', () => {
+    expect(isFinalLengthOnlyRepairEligible(4_005, 2_350, 3_650, true)).toBe(true);
+    expect(isFinalLengthOnlyRepairEligible(5_307, 2_350, 3_650, true)).toBe(false);
+    expect(isFinalLengthOnlyRepairEligible(4_005, 2_350, 3_650, false)).toBe(false);
+    expect(isFinalLengthOnlyRepairEligible(3_200, 2_350, 3_650, true)).toBe(false);
+  });
+
+  it('作者最新修改要求优先于互斥的章纲软细节，下一章接口允许本章铺垫', () => {
+    const contract = chapterReviewSourceBoundaryContract();
+    expect(contract.join('')).toContain('作者针对当前版本的最新修改要求');
+    expect(contract.join('')).toContain('不得要求正文同时满足两个互斥动作');
+    expect(contract.join('')).toContain('不得要求删除必写人物线');
+    expect(contract.join('')).toContain('不是禁止本章提前收到消息');
+    expect(contract.join('')).toContain('事件结束状态属于多章事件全部完成后的目标');
+    expect(contract.join('')).toContain('本章工单明确禁止');
+    expect(contract.join('')).toContain('必须搜索完整current_manuscript');
+    expect(contract.join('')).toContain('不得使用ContextPack的tokenCount');
+  });
+
+  it('定点修订压缩继承契约但保留完整正文和修改要求', () => {
+    expect(targetedRewriteContractCharacterLimit('chapter_work_order')).toBe(2_600);
+    expect(targetedRewriteContractCharacterLimit('opening_profile')).toBe(450);
+    expect(targetedRewriteContractCharacterLimit('style_baseline')).toBe(350);
+    expect(targetedRewriteContractCharacterLimit('previous_chapter_anchors')).toBe(350);
+    expect(targetedRewriteContractCharacterLimit('system_rule')).toBe(300);
+    expect(targetedRewriteContractCharacterLimit('owner_rewrite_instruction')).toBe(600);
   });
 });

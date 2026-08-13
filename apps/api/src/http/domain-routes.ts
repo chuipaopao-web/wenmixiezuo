@@ -108,6 +108,7 @@ import { requireAuthenticatedOwner } from '../infrastructure/security/auth-conte
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
+  structured_planning: '正式结构化规划',
   novel_writer: '正文写作',
   novel_reviewer: '正文点评',
   review_synthesis: '点评综合'
@@ -118,7 +119,7 @@ function isCreativeRoleKey(value: string | undefined): value is CreativeRoleKey 
 }
 
 function promptPurposesForRole(roleKey: CreativeRoleKey): ModelPurpose[] {
-  const purposes: ModelPurpose[] = ['discussion'];
+  const purposes: ModelPurpose[] = ['discussion', 'structured_planning'];
   if (roleKey === 'chief_editor' || roleKey === 'deputy_editor') purposes.push('review_synthesis');
   if (roleKey === 'lead_writer' || roleKey === 'backup_writer') purposes.push('novel_writer');
   if (roleKey === 'setting' || roleKey === 'literary_reviewer' || roleKey === 'experience_reviewer') {
@@ -1673,10 +1674,22 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
           confirmation_id: string; task_id: string; expected_canon_revision: number;
         } | undefined;
       if (gate !== undefined) {
-        chapterApprovals.resolve(scope, gate.confirmation_id, gate.expected_canon_revision, false,
-          request.body.instruction?.trim() || '老板要求完整重写当前正文');
-        const task = tasks.queue(scope, gate.task_id);
-        return success({ taskId: task.taskId, operation: 'rewrite_existing', manuscriptVersionId: request.body.manuscriptVersionId }, request.id);
+        const instruction = request.body.instruction?.trim() || '老板要求完整重写当前正文';
+        chapterApprovals.resolve(scope, gate.confirmation_id, gate.expected_canon_revision, false, instruction);
+        const previousTask = database.prepare(`SELECT status FROM tasks
+          WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
+          .get(gate.task_id, scope.ownerId, scope.bookId) as { status: string } | undefined;
+        if (previousTask?.status === 'paused') {
+          const task = tasks.queue(scope, gate.task_id);
+          return success({ taskId: task.taskId, operation: 'rewrite_existing', manuscriptVersionId: request.body.manuscriptVersionId }, request.id);
+        }
+        return success(chapterBatches.scheduleExistingRevision(
+          scope,
+          request.params.chapterId,
+          request.body.manuscriptVersionId,
+          'rewrite_existing',
+          instruction
+        ), request.id);
       }
       return success(chapterBatches.scheduleExistingRevision(scope, request.params.chapterId, request.body.manuscriptVersionId,
         'rewrite_existing', request.body.instruction?.trim() || null), request.id);

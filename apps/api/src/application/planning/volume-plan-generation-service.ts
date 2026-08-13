@@ -132,7 +132,7 @@ export class VolumePlanGenerationService {
     const editor = team.seats.find((seat) => seat.editor);
     const lead = team.seats.find((seat) => seat.roleKey === 'lead_screenwriter');
     const second = team.seats.find((seat) => seat.roleKey === 'second_screenwriter');
-    if (editor === undefined || lead === undefined || second === undefined || team.seats.length !== 3) {
+    if (editor === undefined || lead === undefined || second === undefined) {
       throw new DomainError(
         errorCodes.operationIncomplete,
         '当前卷设计需要当前主编和两位编剧都可用。',
@@ -170,15 +170,21 @@ export class VolumePlanGenerationService {
       seats: team.seats
     });
     const taskId = this.ids.next();
-    const taskKey = `volume-plan-generation:${volumePlanId}:${idempotencyKey}`;
+    const requestedTaskKey = `volume-plan-generation:${volumePlanId}:${idempotencyKey}`;
     const latest = this.repository.latestTask(scope, volumePlanId);
-    if (latest?.idempotency_key === taskKey) {
+    if (latest?.idempotency_key === requestedTaskKey) {
       const existing = this.tasks.require(scope, latest.task_id);
       if (existing.brief.requestHash !== requestHash) {
         throw conflict('同一个幂等键不能用于不同的卷规划生成请求。');
       }
-      return this.view(scope, existing);
+      if (!['failed', 'cancelled', 'interrupted', 'blocked'].includes(existing.status)) {
+        return this.view(scope, existing);
+      }
     }
+    const taskKey = latest !== undefined
+      && ['failed', 'cancelled', 'interrupted', 'blocked'].includes(latest.status)
+      ? `${requestedTaskKey}:retry:${latest.task_id}`
+      : requestedTaskKey;
     if (
       latest !== undefined
       && !['failed', 'cancelled', 'succeeded', 'interrupted', 'blocked'].includes(latest.status)
@@ -196,7 +202,7 @@ export class VolumePlanGenerationService {
       template,
       authorInputRefs,
       authorIdeas: orderedIdeas,
-      seats: [lead, second, editor],
+      seats: team.seats,
       modelDiversityVerified,
       requestHash
     };

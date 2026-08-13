@@ -6,6 +6,8 @@ import { ContextPackService } from '../../../apps/api/src/application/memory/con
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import {
   parseVolumePlanModelOutput,
+  isVolumePlanOutputCapped,
+  volumePlanOutputTokenLimit,
   VolumePlanGenerationPipelineService
 } from '../../../apps/api/src/application/planning/volume-plan-generation-pipeline-service.js';
 import { VolumePlanGenerationService } from '../../../apps/api/src/application/planning/volume-plan-generation-service.js';
@@ -16,6 +18,7 @@ import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastruct
 import { VolumePlanGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { VolumePlanRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
@@ -84,6 +87,22 @@ describe('卷规划团队生成', () => {
 
     const claim = tasks.claimNext('worker-volume-generation', 120_000);
     expect(claim?.taskId).toBe(scheduled.taskId);
+    const defaultAdapters = new ModelAdapterFactory(context.config.modelRuntime);
+    const fallbackAwareAdapters = {
+      resolve(...args: Parameters<ModelAdapterFactory['resolve']>) {
+        const [provider, modelId, , roleKey] = args;
+        if (roleKey === 'lead_screenwriter') {
+          return {
+            provider,
+            modelId,
+            async generate() {
+              throw new ModelAdapterError('test provider 500', 'technical_failure', true, 500, false);
+            }
+          };
+        }
+        return defaultAdapters.resolve(...args);
+      }
+    } as ModelAdapterFactory;
     const pipeline = new VolumePlanGenerationPipelineService(
       repository,
       volumePlans,
@@ -93,7 +112,7 @@ describe('卷规划团队生成', () => {
       new ContextPackService(context.database, ids, clock),
       ids,
       clock,
-      new ModelAdapterFactory(context.config.modelRuntime)
+      fallbackAwareAdapters
     );
     const result = await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-volume-generation', {
       leaseToken: claim!.leaseToken!,
@@ -114,6 +133,16 @@ describe('卷规划团队生成', () => {
     expect(generations.latest(scope, plan.volumePlanId)).toMatchObject({
       status: 'succeeded',
       currentPhase: 'fusion_complete',
+      checkpoint: {
+        candidateAProducedBy: {
+          roleKey: 'backup_writer',
+          technicalSubstitute: true
+        },
+        candidateBProducedBy: {
+          roleKey: 'second_screenwriter',
+          technicalSubstitute: false
+        }
+      },
       candidateVersionIds: {
         candidateA: result.candidateAId,
         candidateB: result.candidateBId,
@@ -161,12 +190,28 @@ describe('卷规划团队生成', () => {
     const candidateB = versions.find((version) => version.candidateKind === 'candidate_b')!;
     expect(fusedCandidates?.content).toContain(candidateA.content.title);
     expect(fusedCandidates?.content).toContain(candidateB.content.title);
+
+    // A terminal generation must not be permanently returned for the same author action.
+    // The new task receives a retry lineage key while preserving the frozen request hash.
+    context.database.prepare(`UPDATE tasks SET status = 'failed', error_code = 'TEST_FAILURE' WHERE task_id = ?`)
+      .run(scheduled.taskId);
+    const retry = generations.start(scope, plan.volumePlanId, startInput);
+    expect(retry.taskId).not.toBe(scheduled.taskId);
+    expect(retry.status).toBe('queued');
   });
 
   it('能从带说明的模型回复中提取完整卷规划JSON', () => {
     const content = volumeContent();
     expect(parseVolumePlanModelOutput(`以下是候选：\n\`\`\`json\n${JSON.stringify(content)}\n\`\`\``))
       .toEqual(content);
+  });
+
+  it('为十事件真实卷纲保留完整JSON输出空间', () => {
+    expect(volumePlanOutputTokenLimit('candidate_a')).toBe(12_000);
+    expect(volumePlanOutputTokenLimit('candidate_b')).toBe(12_000);
+    expect(volumePlanOutputTokenLimit('fusion')).toBe(12_000);
+    expect(isVolumePlanOutputCapped(12_001, 12_000)).toBe(true);
+    expect(isVolumePlanOutputCapped(5_493, 12_000)).toBe(false);
   });
 });
 

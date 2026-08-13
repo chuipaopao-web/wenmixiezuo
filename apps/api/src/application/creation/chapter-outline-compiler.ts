@@ -5,7 +5,7 @@ import {
 
 export function compileChapterOutlineForWriter(
   content: Record<string, unknown>,
-  maximumCharacters = 1_350
+  maximumCharacters = 4_000
 ): string {
   const outline = parseChapterOutlineV2(content);
   const hardSections = compileEssentialSections(outline);

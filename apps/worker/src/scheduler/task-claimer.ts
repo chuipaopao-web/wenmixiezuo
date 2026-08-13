@@ -79,6 +79,12 @@ export class TaskClaimer {
         ) VALUES (?, ?, ?, ?, 'working', '{}', '{}', '{}', ?, ?)
         ON CONFLICT(task_id, phase_key) DO UPDATE SET status = 'working', heartbeat_at = excluded.heartbeat_at
       `).run(row.task_id, row.owner_id, row.book_id, row.current_phase, nowIso, nowIso);
+      if (row.required_editor_epoch > 0) {
+        this.database.prepare(`
+          UPDATE editor_leases SET lease_expires_at = ?, updated_at = ?
+          WHERE owner_id = ? AND book_id = ? AND editor_epoch = ?
+        `).run(leaseExpiresAt, nowIso, row.owner_id, row.book_id, row.required_editor_epoch);
+      }
       this.database.exec('COMMIT');
       return {
         taskId: row.task_id, ownerId: row.owner_id, bookId: row.book_id,
@@ -113,6 +119,12 @@ export class TaskClaimer {
       `).run(nowIso, leaseExpiresAt, task.taskId, task.ownerId, task.bookId, task.attemptNo,
         this.workerId, task.leaseToken);
       if (attempt.changes !== 1) throw new Error('TASK_ATTEMPT_LEASE_LOST');
+      if (task.requiredEditorEpoch > 0) {
+        this.database.prepare(`
+          UPDATE editor_leases SET lease_expires_at = ?, updated_at = ?
+          WHERE owner_id = ? AND book_id = ? AND editor_epoch = ?
+        `).run(leaseExpiresAt, nowIso, task.ownerId, task.bookId, task.requiredEditorEpoch);
+      }
       this.database.exec('COMMIT');
     } catch (error) {
       if (this.database.isTransaction) this.database.exec('ROLLBACK');

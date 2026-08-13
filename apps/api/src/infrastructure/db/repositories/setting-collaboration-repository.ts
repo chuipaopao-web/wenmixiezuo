@@ -50,6 +50,13 @@ export interface SettingEditorLeaseRow {
   editor_epoch: number;
 }
 
+export interface SettingAgentModelProfileRow {
+  agent_id: string;
+  provider: string;
+  model_id: string;
+  plan_type: string | null;
+}
+
 export class SettingCollaborationRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -124,5 +131,29 @@ export class SettingCollaborationRepository {
       "SELECT original_text FROM author_planning_inputs WHERE owner_id = ? AND book_id = ? AND author_input_id = ? AND surface = 'setting' AND subject_type = 'setting_module' AND subject_id = ? AND status NOT IN ('withdrawn', 'superseded')"
     ).get(scope.ownerId, scope.bookId, authorInputId, itemKey) as { original_text: string } | undefined;
     return row?.original_text;
+  }
+
+  public agentModelProfiles(scope: BookScope, agentIds: string[]): SettingAgentModelProfileRow[] {
+    assertBookScope(scope);
+    const statement = this.database.prepare(
+      'SELECT a.agent_id, m.provider, m.model_id, m.parameters_json FROM agent_instances a JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id WHERE a.owner_id = ? AND a.book_id = ? AND a.agent_id = ? AND a.enabled = 1'
+    );
+    return agentIds.map((agentId) => {
+      const row = statement.get(scope.ownerId, scope.bookId, agentId) as {
+        agent_id: string; provider: string; model_id: string; parameters_json: string;
+      } | undefined;
+      if (row === undefined) return undefined;
+      const parameters = JSON.parse(row.parameters_json) as { plan?: unknown };
+      return { agent_id: row.agent_id, provider: row.provider, model_id: row.model_id,
+        plan_type: typeof parameters.plan === 'string' ? parameters.plan : null };
+    }).filter((profile): profile is SettingAgentModelProfileRow => profile !== undefined);
+  }
+
+  public chiefEditorAgentId(scope: BookScope): string | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(
+      'SELECT a.agent_id FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key = ? LIMIT 1'
+    ).get(scope.ownerId, scope.bookId, 'chief_editor') as { agent_id: string } | undefined;
+    return row?.agent_id;
   }
 }

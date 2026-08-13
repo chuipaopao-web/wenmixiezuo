@@ -53,7 +53,7 @@ const creativeMemberContractDefinitions: readonly CreativeMemberContract[] = [
 
 const roleModelProfiles: Record<CreativeRoleKey, TeamModelProfile> = {
   chief_editor: kimiK27,
-  deputy_editor: glm,
+  deputy_editor: minimax,
   lead_screenwriter: deepseek,
   second_screenwriter: glm,
   setting: glm,

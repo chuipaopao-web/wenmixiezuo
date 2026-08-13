@@ -56,18 +56,37 @@ export class EventChapterGenerationPipelineService {
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
       tokenBudget:16000,characterBudget:36000,policyVersion:'event-chapter-sequence-v1',hardSources:sources,optionalSources:[]});
-    const prompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',language:'zh-CN',
+    const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
+    const skeletonPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton',language:'zh-CN',
       seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},startChapterNumber:view.nextChapterNumber,
-      instructions:['先设计覆盖整个当前事件的连续章节序列，再由后续任务细化最近一至三章。','章数按事件实际需要决定，不固定六章或十章。',
-        '相邻章的开场状态必须等于上一章结束状态。','每项已确认事件结束条件都要标明在哪一章闭环。','只输出JSON。'],
-      sources:pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content})),
+      instructions:['先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
+        '相邻章必须严格承接：后一章openingState与前一章endingState逐字相同。','每项已确认事件结束条件都要原样复制，并标明在哪一章闭环。',
+        '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
       outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
-        eventResponsibility:'本章对事件的唯一作用',openingState:'开章状态',characterGoals:['人物目标'],conflicts:['阻力'],
-        choicesAndCosts:['选择与代价'],informationChanges:['信息变化'],storyBeats:['粗粒度推进节点'],endingState:'章末状态',
-        nextChapterInterface:'下一章接口',softSuggestions:['软建议'],creativeFreedom:['自由区']}],
+        eventResponsibility:'本章对事件的唯一作用',openingState:'开章状态',endingState:'章末状态',nextChapterInterface:'下一章接口'}],
         eventEndingConditions:['原样复制事件结束条件'],closureCoverage:[{endingCondition:'结束条件',evidenceChapterNumber:1}],
         flexibilityNotes:['可滚动调整的部分']}});
-    const content=parseSequence(await this.call(scope,task,brief,prompt,pack.contextPackId));
+    const skeleton=parseSequenceSkeleton(await this.call(scope,task,brief,skeletonPrompt,pack.contextPackId,'sequence-skeleton',5500));
+    const details:SequenceChapterDetail[]=[];
+    for(let index=0;index<skeleton.chapters.length;index+=3){
+      const targets=skeleton.chapters.slice(index,index+3),chapterNumbers=targets.map(chapter=>chapter.chapterNumber);
+      const detailPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'chapter_details',language:'zh-CN',
+        seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},eventTitle:skeleton.eventTitle,startChapterNumber:skeleton.startChapterNumber,
+        targetChapterNumbers:chapterNumbers,sequenceSkeleton:skeleton,
+        instructions:['只补全targetChapterNumbers指定的两至三章，不重复输出其他章节。','每章的人物目标、冲突、选择与代价必须具体，并由人物处境自然推出。',
+          '每章给出三至五个粗粒度剧情推进点，不写正文，不重复同义句。','软建议与自由创作区必须分开；自由创作区保持非空，让正文写手可以设计对话、动作、意象和局部调度。',
+          '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
+        outputContract:{chapters:targets.map(chapter=>({chapterNumber:chapter.chapterNumber,characterGoals:['人物当章目标'],conflicts:['具体阻力'],
+          choicesAndCosts:['人物选择与相应代价'],informationChanges:['本章新增、纠正或隐藏的信息'],storyBeats:['三至五个粗粒度推进节点'],
+          softSuggestions:['可不用的体验建议'],creativeFreedom:['对白、动作、意象和局部调度的自由空间']}))}});
+      details.push(...parseSequenceDetails(await this.call(scope,task,brief,detailPrompt,pack.contextPackId,
+        'sequence-details-'+(Math.floor(index/3)+1),5000),chapterNumbers));
+    }
+    const detailByChapter=new Map(details.map(detail=>[detail.chapterNumber,detail]));
+    const content=parseEventChapterSequenceContent({...skeleton,chapters:skeleton.chapters.map(chapter=>{
+      const detail=detailByChapter.get(chapter.chapterNumber);if(detail===undefined)throw new Error('章节骨架缺少对应的细节设计。');
+      return{...chapter,...detail};
+    })});
     const saved=this.plans.addSequenceVersion(scope,brief.eventId,{expectedSequenceRevision:brief.expectedSequenceRevision,
       parentVersionId:brief.expectedSequenceVersionId,authorInputRefs:brief.authorInputRefs,content,sourceTaskId:task.taskId,
       idempotencyKey:task.taskId+':sequence'});
@@ -77,13 +96,22 @@ export class EventChapterGenerationPipelineService {
   private async generateDetails(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const targets=brief.outlineRefs.map(ref=>view.outlines.find(item=>item.outlineId===ref.outlineId)!);
+    const activeSequence=view.activeVersion!.content,firstIndex=activeSequence.chapters.findIndex(chapter=>chapter.chapterNumber===targets[0]!.chapterNumber),
+      lastIndex=activeSequence.chapters.findIndex(chapter=>chapter.chapterNumber===targets.at(-1)!.chapterNumber);
+    const sequenceContext={eventTitle:activeSequence.eventTitle,startChapterNumber:activeSequence.startChapterNumber,
+      targetChapterRange:{start:targets[0]!.chapterNumber,end:targets.at(-1)!.chapterNumber},
+      previousChapter:firstIndex>0?activeSequence.chapters[firstIndex-1]:null,
+      targetChapters:activeSequence.chapters.slice(firstIndex,lastIndex+1),
+      followingChapter:lastIndex>=0&&lastIndex<activeSequence.chapters.length-1?activeSequence.chapters[lastIndex+1]:null,
+      eventEndingConditions:activeSequence.eventEndingConditions,closureCoverage:activeSequence.closureCoverage,
+      flexibilityNotes:activeSequence.flexibilityNotes};
     const sources:ContextSource[]=[
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
         content:snapshot.volumeContent,reason:'活动卷纲硬约束',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
         content:snapshot.eventContent,reason:'活动事件硬约束',priority:100},
       {sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
-        content:JSON.stringify(view.activeVersion!.content),reason:'已确认完整事件章纲序列',priority:100},
+        content:JSON.stringify(sequenceContext),reason:'已确认章序列中本轮三章及其前后承接点',priority:100},
       {sourceType:'planning:recent_chapter_slots',sourceId:'recent:'+brief.eventId,content:JSON.stringify(targets.map(x=>x.planned)),
         reason:'本轮仅细化的最近一至三章',priority:100},
       {sourceType:'owner:chapter_outline_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
@@ -91,13 +119,18 @@ export class EventChapterGenerationPipelineService {
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
       tokenBudget:22000,characterBudget:50000,policyVersion:'event-chapter-details-v1',hardSources:sources,optionalSources:[]});
-    const prompt=JSON.stringify({operation:'event_chapter_detail_generation_v1',language:'zh-CN',
-      seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},chapterNumbers:targets.map(x=>x.chapterNumber),
-      instructions:['只细化给定的最近一至三章，不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
-        '每章保留非空自由创作区，正文不是逐字段扩写。','每章三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。','只输出JSON。'],
-      sources:pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content})),
-      outputContract:{outlines:targets.map(target=>detailContract(target.chapterNumber))}});
-    const details=parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId),targets.length);
+    const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
+    const details:ChapterOutlineV2[]=[];
+    for(const target of targets){
+      const prompt=JSON.stringify({operation:'event_chapter_detail_generation_v1',generationPhase:'single_chapter',language:'zh-CN',
+        seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},chapterNumbers:[target.chapterNumber],
+        instructions:['只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
+          '保留非空自由创作区，正文不是逐字段扩写。','设计三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。',
+          '保持自然、具体、简洁，不写正文，不解释系统规则；只输出JSON。'],sources:sourcePayload,
+        outputContract:{outlines:[detailContract(target.chapterNumber)]}});
+      details.push(...parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId,
+        'details-chapter-'+target.chapterNumber,5000),1));
+    }
     const saved=targets.map((target,index)=>this.plans.addOutlineVersion(scope,target.outlineId,{
       expectedOutlineRevision:brief.outlineRefs[index]!.revision,parentVersionId:brief.outlineRefs[index]!.activeVersionId,
       authorInputRefs:brief.authorIdeas.filter(idea=>idea.subjectId===target.outlineId).map(idea=>idea.id),
@@ -153,17 +186,18 @@ export class EventChapterGenerationPipelineService {
     return{challenge};
   }
 
-  private async call(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief,prompt:string,packId:string){
+  private async call(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief,prompt:string,packId:string,
+    phaseKey:string=brief.kind,maxOutputTokensOverride?:number){
     if(task.budgetId===null)throw new Error('章纲任务缺少预算。');
-    const adapter=this.adapters.resolve(brief.member.provider,brief.member.modelId,'discussion',brief.member.roleKey as never);
+    const adapter=this.adapters.resolve(brief.member.provider,brief.member.modelId,'structured_planning',brief.member.roleKey as never);
     const inputHash=createHash('sha256').update(prompt).digest('hex'),stored=this.repo.succeeded(scope,{taskId:task.taskId,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,inputHash});
     if(stored!==undefined)return stored.output_text;
-    const maxOutputTokens=isChallenge(brief.kind)?1800:6500,protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
+    const maxOutputTokens=maxOutputTokensOverride??eventChapterOutputTokenLimit(brief.kind),protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
     const estimatedInputCeiling=Math.max(Math.ceil(prompt.length/2),Math.ceil(estimateTokens(prompt)*1.35));
     const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
       Math.max(10000,estimatedInputCeiling+maxOutputTokens+protocolOverhead),0);
-    const result=await this.calls.execute(scope,{requestId,taskId:task.taskId,phaseKey:brief.kind+':attempt-'+task.currentAttemptNo,
+    const result=await this.calls.execute(scope,{requestId,taskId:task.taskId,phaseKey:phaseKey+':attempt-'+task.currentAttemptNo,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,provider:brief.member.provider,modelId:brief.member.modelId,
       input:prompt,parameters:JSON.stringify({maxOutputTokens,planOnly:!brief.member.provider.startsWith('local-deterministic'),
         cashFallbackAllowed:false}),reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
@@ -203,6 +237,36 @@ export class EventChapterGenerationPipelineService {
 }
 function parseSequence(output:string):EventChapterSequenceContent{for(const value of candidates(output))try{return parseEventChapterSequenceContent(value);}catch{}
   throw new Error('模型没有返回有效事件章纲序列JSON。');}
+interface SequenceSkeletonChapter{chapterNumber:number;title:string;eventResponsibility:string;openingState:string;endingState:string;
+  nextChapterInterface:string;}
+interface SequenceSkeleton{eventTitle:string;startChapterNumber:number;chapters:SequenceSkeletonChapter[];eventEndingConditions:string[];
+  closureCoverage:{endingCondition:string;evidenceChapterNumber:number}[];flexibilityNotes:string[];}
+interface SequenceChapterDetail{chapterNumber:number;characterGoals:string[];conflicts:string[];choicesAndCosts:string[];
+  informationChanges:string[];storyBeats:string[];softSuggestions:string[];creativeFreedom:string[];}
+function parseSequenceSkeleton(output:string):SequenceSkeleton{for(const value of candidates(output)){if(!record(value))continue;try{
+    const startChapterNumber=positive(value.startChapterNumber),rawChapters=Array.isArray(value.chapters)?value.chapters:[];
+    if(rawChapters.length===0||rawChapters.length>50)continue;
+    const chapters=rawChapters.map((item,index)=>{if(!record(item))throw new Error('invalid chapter');const chapterNumber=positive(item.chapterNumber);
+      if(chapterNumber!==startChapterNumber+index)throw new Error('non-contiguous chapter');return{chapterNumber,title:textValue(item.title),
+        eventResponsibility:textValue(item.eventResponsibility),openingState:textValue(item.openingState),endingState:textValue(item.endingState),
+        nextChapterInterface:textValue(item.nextChapterInterface)};});
+    const eventEndingConditions=textList(value.eventEndingConditions,true),closureCoverage=(Array.isArray(value.closureCoverage)?value.closureCoverage:[])
+      .map(item=>{if(!record(item))throw new Error('invalid closure');return{endingCondition:textValue(item.endingCondition),
+        evidenceChapterNumber:positive(item.evidenceChapterNumber)};});
+    if(closureCoverage.length!==eventEndingConditions.length)continue;
+    return{eventTitle:textValue(value.eventTitle),startChapterNumber,chapters,eventEndingConditions,closureCoverage,
+      flexibilityNotes:textList(value.flexibilityNotes,false)};
+  }catch{}}
+  throw new Error('模型没有返回完整、连续的事件章节骨架JSON。');}
+function parseSequenceDetails(output:string,chapterNumbers:number[]):SequenceChapterDetail[]{for(const value of candidates(output)){if(!record(value)||!Array.isArray(value.chapters))continue;
+  try{const parsed=value.chapters.map(item=>{if(!record(item))throw new Error('invalid detail');return{chapterNumber:positive(item.chapterNumber),
+    characterGoals:textList(item.characterGoals,false),conflicts:textList(item.conflicts,false),choicesAndCosts:textList(item.choicesAndCosts,false),
+    informationChanges:textList(item.informationChanges,false),storyBeats:textList(item.storyBeats,true),softSuggestions:textList(item.softSuggestions,false),
+    creativeFreedom:textList(item.creativeFreedom,true)};});
+    const byNumber=new Map(parsed.map(item=>[item.chapterNumber,item])),selected=chapterNumbers.map(number=>byNumber.get(number));
+    if(selected.every((item):item is SequenceChapterDetail=>item!==undefined))return selected;
+  }catch{}}
+  throw new Error('模型没有返回指定章节的完整细节JSON。');}
 function parseDetails(output:string,count:number):ChapterOutlineV2[]{for(const value of candidates(output)){if(!record(value)||!Array.isArray(value.outlines))continue;
   try{const parsed=value.outlines.map(item=>parseChapterOutlineV2(record(item)?item:{}));if(parsed.length===count)return parsed;}catch{}}
   throw new Error('模型没有返回完整的近期详细章纲JSON。');}
@@ -218,8 +282,10 @@ function detailContract(chapterNumber:number){return{outlineSchema:'chapter_outl
   openingState:'开章状态',requiredEndingState:'必须结束状态',cast:[{name:'人物',objective:'当下目标',knowledgeBoundary:'知情边界',
     chapterRole:'本章作用',stateChange:'可选变化'}],conflict:{surface:'表层冲突',underlying:'深层冲突',oppositionGoal:'对手目标',
     failureCost:'失败代价',successCost:'成功代价'},plotBeats:[{order:1,trigger:'触发',action:'行动',resistance:'阻力',turn:'可选转折',result:'节点结果'}],
-  experience:{primaryTone:'主情绪',emotionalCurve:['变化'],payoffPoints:[],pressurePoints:[],readerEffect:'读者感受'},
-  descriptionFocus:{primary:[],secondary:[],compress:[]},informationControl:{reveals:[],concealed:[],gaps:[]},threadActions:[],
+  experience:{primaryTone:'主情绪',emotionalCurve:['情绪变化，最多5项'],payoffPoints:['可选，最多2项'],pressurePoints:['可选，最多2项'],readerEffect:'读者感受'},
+  descriptionFocus:{primary:['最多5项'],secondary:['最多5项'],compress:['最多5项']},
+  informationControl:{reveals:['最多5项'],concealed:['最多5项'],gaps:['最多5项']},
+  threadActions:[{action:'plant|advance|payoff，整章最多2项',summary:'伏笔动作说明'}],
   ending:{result:'结果',stateChanges:[],hook:'章末钩子',nextChapterInterface:'下一章接口'},mustImplement:['硬要求'],
   mustNotViolate:['不得违反'],allowedCandidates:[],creativeFreedom:['对白、动作、意象和局部调度自由']};}
 function parseBrief(v:Record<string,unknown>):EventChapterGenerationBrief{
@@ -230,10 +296,18 @@ function parseBrief(v:Record<string,unknown>):EventChapterGenerationBrief{
   throw new Error('章纲任务资料无效。');
 }
 function isChallenge(v:EventChapterGenerationBrief['kind']){return v==='sequence_challenge'||v==='detail_challenge';}
+export function eventChapterOutputTokenLimit(kind:EventChapterGenerationBrief['kind']){
+  if(isChallenge(kind))return 2200;
+  return kind==='sequence'?12000:9000;
+}
 function isTask(v:string){return['event_chapter_sequence_generation','event_chapter_detail_generation',
   'event_chapter_sequence_challenge','event_chapter_detail_challenge'].includes(v);}
 function fingerprint(v:unknown){return createHash('sha256').update(stable(v)).digest('hex');}
 function stable(v:unknown):string{if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return'['+v.map(stable).join(',')+']';
   return'{'+Object.keys(v as Record<string,unknown>).sort().map(k=>JSON.stringify(k)+':'+stable((v as Record<string,unknown>)[k])).join(',')+'}';}
 function record(v:unknown):v is Record<string,unknown>{return typeof v==='object'&&v!==null&&!Array.isArray(v);}
+function textValue(v:unknown){if(typeof v!=='string'||v.trim().length===0)throw new Error('text required');return v.trim();}
+function positive(v:unknown){if(typeof v!=='number'||!Number.isSafeInteger(v)||v<1)throw new Error('positive integer required');return v;}
+function textList(v:unknown,nonEmpty:boolean){if(!Array.isArray(v))throw new Error('text list required');const values=[...new Set(v.map(textValue))];
+  if(nonEmpty&&values.length===0)throw new Error('non-empty text list required');return values;}
 function conflict(m:string){return new DomainError(errorCodes.bookVersionConflict,m,{},false,409);}

@@ -713,7 +713,11 @@ export class CanonService {
       const state = byEntity.get(fact.subject_entity_id) ?? {};
       state[fact.relation_key] = JSON.parse(fact.value_json) as unknown;
       byEntity.set(fact.subject_entity_id, state);
-      if (fact.story_time_start !== null || fact.relation_key === 'event') {
+      // A story time attached to a character, place or item fact does not make that
+      // fact a timeline event. Only explicit event facts belong in the event
+      // projection; otherwise the timeline becomes a duplicate dump of every
+      // dated fact and pollutes downstream retrieval.
+      if (isEventFactKey(fact.relation_key)) {
         this.database.prepare(`
           INSERT INTO timeline_projection (
             timeline_id, owner_id, book_id, canon_revision, entity_id,
@@ -841,6 +845,14 @@ function isRelationshipFactKey(relationKey: string): boolean {
   return normalized.startsWith('relationship:')
     || normalized.startsWith('relationship.')
     || /^(?:人物|角色)?关系(?:[.:：]|$)/u.test(relationKey.trim());
+}
+
+function isEventFactKey(relationKey: string): boolean {
+  const normalized = relationKey.trim().toLowerCase();
+  return normalized === 'event'
+    || normalized.startsWith('event:')
+    || normalized.startsWith('event.')
+    || /^事件(?:[.:：]|$)/u.test(relationKey.trim());
 }
 
 export function stableJson(value: unknown): string {

@@ -139,6 +139,16 @@ export class ProtagonistStateRepository {
     return row?.canonical_name;
   }
 
+  public uniqueActiveCharacterIdByName(scope: BookScope, displayName: string): string | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(`SELECT MIN(entity_id) AS entity_id, COUNT(*) AS match_count
+      FROM entities
+      WHERE owner_id = ? AND book_id = ? AND entity_type = 'character'
+        AND status = 'active' AND canonical_name = ?`)
+      .get(scope.ownerId, scope.bookId, displayName) as { entity_id: string | null; match_count: number };
+    return row.match_count === 1 && row.entity_id !== null ? row.entity_id : undefined;
+  }
+
   public linkProfileEntity(scope: BookScope, profileId: string, entityId: string, now: string): void {
     assertBookScope(scope);
     this.database.prepare(`UPDATE protagonist_profiles SET entity_id = ?, updated_at = ?

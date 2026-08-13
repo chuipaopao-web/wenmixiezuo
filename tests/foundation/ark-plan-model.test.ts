@@ -84,6 +84,42 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  it('MiniMax文学审查关闭隐藏思考以免只返回思考块', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      expect(body.thinking).toEqual({ type: 'disabled' });
+      return Response.json({
+        content: [{ type: 'text', text: '{verdict:pass}' }],
+        usage: { input_tokens: 8, output_tokens: 12 }
+      });
+    });
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_reviewer'
+    }, fetchImpl);
+
+    await adapter.generate(request);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('DeepSeek规划关闭隐藏思考，但小说正文保留完整创作推演', async () => {
+    const seen: Array<{ type?: string } | undefined> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      seen.push(body.thinking);
+      return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { input_tokens: 5, output_tokens: 2 } });
+    });
+    await new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, fetchImpl).generate(request);
+    await new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
+    }, fetchImpl).generate(request);
+    expect(seen).toEqual([{ type: 'disabled' }, undefined]);
+  });
+
   it('GLM关闭隐藏思考，确保额度用于岗位最终输出', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
@@ -174,6 +210,34 @@ describe('火山方舟严格套餐适配器', () => {
     expect(observedAbort).toBe(true);
   });
 
+  it('真实套餐默认保留十五分钟完成长篇规划，避免五分钟误中断', async () => {
+    vi.useFakeTimers();
+    try {
+      let observedAbort = false;
+      const fetchImpl: typeof fetch = async (_input, init) => await new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          observedAbort = true;
+          reject(init.signal?.reason);
+        }, { once: true });
+        setTimeout(() => resolve(Response.json({
+          content: [{ type: 'text', text: '长篇规划完成' }],
+          usage: { input_tokens: 8, output_tokens: 4 }
+        })), 300_001);
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+      }, fetchImpl);
+
+      const pending = adapter.generate(request);
+      await vi.advanceTimersByTimeAsync(300_001);
+      await expect(pending).resolves.toMatchObject({ output: '长篇规划完成' });
+      expect(observedAbort).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('2xx响应不可解析时冻结为供应商结果未知而不是安全重试', async () => {
     const adapter = new ArkPlanModelAdapter({
       plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5-2-260617',
@@ -185,6 +249,28 @@ describe('火山方舟严格套餐适配器', () => {
     expect(error).toMatchObject<Partial<ModelAdapterError>>({
       failureClass: 'technical_failure', retryable: false, statusCode: 200, outcomeUnknown: true
     });
+  });
+
+  it('已解析的max_tokens空文字是已知失败，可由调用方使用更大额度安全重试', async () => {
+    const adapter = new ArkPlanModelAdapter({
+      plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+    }, async () => Response.json({
+      stop_reason: 'max_tokens',
+      content: [
+        { type: 'thinking', thinking: '内部推理已达到当前额度' },
+        { type: 'text', text: '' }
+      ],
+      usage: { input_tokens: 5_200, output_tokens: 3_600 }
+    }));
+
+    const error = await adapter.generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModelAdapterError);
+    expect(error).toMatchObject<Partial<ModelAdapterError>>({
+      failureClass: 'technical_failure', retryable: true, statusCode: 200, outcomeUnknown: false
+    });
+    expect((error as Error).message).toContain('max_tokens');
+    expect((error as Error).message).not.toContain('结果状态未知');
   });
 
   it('Kimi K2.7 Code does not send the unsupported thinking parameter', async () => {

@@ -16,6 +16,7 @@ describe('正史投影与冲突', () => {
     const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澈' });
     canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '顾衡' });
     const compositeEntityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澈与顾衡' });
+    const eventEntityId = canon.createEntity(fixture.scope, { entityType: 'event', canonicalName: '北塔守卫战' });
     for (const fact of [
       { relationKey: 'location', value: '北塔', storyTimeStart: '第一夜' },
       { relationKey: 'relationship:mentor', value: '顾衡', storyTimeStart: '第一夜' },
@@ -36,6 +37,16 @@ describe('正史投影与冲突', () => {
       sourceChapterId: fixture.chapterId,
       sourceManuscriptVersionId: fixture.manuscriptVersionId
     });
+    canon.proposeFact(fixture.scope, {
+      subjectEntityId: eventEntityId,
+      relationKey: 'event.chapter_001',
+      value: '林澈与顾衡共同守住北塔',
+      storyTimeStart: '第一夜',
+      evidence: [{ quote: '二人并肩守住北塔' }],
+      grade: 'B',
+      sourceChapterId: fixture.chapterId,
+      sourceManuscriptVersionId: fixture.manuscriptVersionId
+    });
     canon.settleChapter(fixture.scope, fixture.chapterId, fixture.manuscriptVersionId, { location: '北塔' });
     context.database.prepare(`DELETE FROM character_state_projection WHERE owner_id = ? AND book_id = ?`).run(fixture.scope.ownerId, fixture.scope.bookId);
     context.database.prepare(`DELETE FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).run(fixture.scope.ownerId, fixture.scope.bookId);
@@ -49,7 +60,7 @@ describe('正史投影与冲突', () => {
       'relationship:mentor': '顾衡',
       'relationship.temporary_alliance': '顾衡'
     });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 4 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM timeline_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 1 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM relationship_projection WHERE owner_id = ? AND book_id = ?`).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 3 });
     const normalizedRelationship = context.database.prepare(`
       SELECT e.canonical_name AS from_name, r.to_value_json
@@ -71,9 +82,9 @@ describe('正史投影与冲突', () => {
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM knowledge_revisions
       WHERE owner_id = ? AND book_id = ? AND lifecycle_layer = 'canon' AND status = 'active'
-    `).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 5 });
+    `).get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 6 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM canon_source_bindings WHERE owner_id = ? AND book_id = ? AND binding_status = 'active'`)
-      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 5 });
+      .get(fixture.scope.ownerId, fixture.scope.bookId)).toEqual({ count: 6 });
   });
 
   it('冲突B级事实转主编复核，选中新值后旧事实被替代', () => {

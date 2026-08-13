@@ -248,4 +248,69 @@ describe('主编租约续期、过期与安全回切', () => {
     // 当前活动主编 epoch=2 可正常心跳续租
     expect(() => editors.heartbeatRenew(scope, agents[1]!.agentId)).not.toThrow();
   });
+
+  it('原主编安全恢复后再次发生技术故障仍可由副编接管', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '主编恢复后二次故障'
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const roleAgents = context.database.prepare(`
+      SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('chief_editor', 'deputy_editor')
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
+    const chief = roleAgents.find((item) => item.role_key === 'chief_editor')!;
+    const deputy = roleAgents.find((item) => item.role_key === 'deputy_editor')!;
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    const first = editors.prepareTakeover(scope, deputy.agent_id);
+    editors.completeTakeover(scope, first.takeoverId);
+    expect(editors.safeRevertToChief(scope, chief.agent_id).reverted).toBe(true);
+    expect(editors.require(scope).editorEpoch).toBe(3);
+
+    const recoveredFailure = editors.tryAutomaticTakeover(scope, chief.agent_id);
+    expect(recoveredFailure).toMatchObject({
+      takenOver: true,
+      activeEditorAgentId: deputy.agent_id,
+      editorEpoch: 4
+    });
+  });
+
+  it('已成功任务遗留的待对账中断调用不会永久锁死主编回切', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new MutableClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-terminal-interrupted-call' };
+    const agents = initializeRuntimeBook(context, scope, ids, clock);
+    const editors = new EditorLeaseService(context.database, ids, clock);
+    editors.create(scope, agents[0]!.agentId, 60_000);
+    const prepared = editors.prepareTakeover(scope, agents[1]!.agentId);
+    editors.completeTakeover(scope, prepared.takeoverId);
+    const budgets = new BudgetService(context.database, ids, clock);
+    const budget = budgets.create(scope, 'standard', 100, 0);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(scope, {
+      taskId: 'task-recovered', taskType: 'runtime_probe', assignedAgentId: agents[1]!.agentId,
+      idempotencyKey: 'recovered', budgetId: budget.budgetId, requiredEditorEpoch: 2,
+      initialPhase: 'execute', brief: {}
+    });
+    context.database.prepare(`UPDATE tasks SET status = 'succeeded' WHERE owner_id = ? AND book_id = ? AND task_id = ?`)
+      .run(scope.ownerId, scope.bookId, 'task-recovered');
+    const reservationId = 'reservation-recovered';
+    context.database.prepare(`INSERT INTO budget_reservations (reservation_id, budget_id, owner_id, book_id, request_id, frozen_tokens, frozen_cash_micros, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'reserved', ?)`)
+      .run(reservationId, budget.budgetId, scope.ownerId, scope.bookId, 'request-recovered', 10, 0, clock.now().toISOString());
+    const modelSnapshotId = (context.database.prepare(`SELECT model_snapshot_id FROM agent_instances WHERE agent_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(agents[0]!.agentId, scope.ownerId, scope.bookId) as { model_snapshot_id: string }).model_snapshot_id;
+    context.database.prepare(`INSERT INTO model_calls (request_id, owner_id, book_id, task_id, phase_key, agent_id, provider, model_id, model_snapshot_id, input_hash, parameters_hash, reservation_id, state, error_class, started_at, completed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'interrupted', 'provider_result_unknown', ?, ?, ?)`)
+      .run('request-recovered', scope.ownerId, scope.bookId, 'task-recovered', 'phase:test', agents[0]!.agentId,
+        agents[0]!.provider, agents[0]!.modelId, modelSnapshotId, 'c'.repeat(64), 'd'.repeat(64), reservationId,
+        clock.now().toISOString(), clock.now().toISOString(), clock.now().toISOString());
+
+    const safety = editors.evaluateExpirySafety(scope);
+    expect(safety.hasUnknownResultCalls).toBe(false);
+    expect(safety.safeToRevert).toBe(true);
+    expect(editors.safeRevertToChief(scope, agents[0]!.agentId).reverted).toBe(true);
+  });
 });

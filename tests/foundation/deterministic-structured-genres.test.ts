@@ -3,7 +3,6 @@ import {
   buildDouluoFanficNovel, buildGameLordNovel, buildGameXianxiaNovel, buildLordNovel, structuredGenreFactCandidates
 } from '../../apps/api/src/infrastructure/models/deterministic-structured-genre-scenarios.js';
 import { countNovelCharacters } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
-// @ts-expect-error Runtime acceptance scenarios are maintained as executable ESM fixtures.
 import { requireWorkflowScenario } from '../../scripts/evaluation/current-workflow-scenarios.mjs';
 import { OPENING_TAXONOMY, validateOpeningBlueprint } from '../../apps/api/src/contracts/opening-blueprint.js';
 

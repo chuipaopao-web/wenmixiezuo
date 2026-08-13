@@ -134,6 +134,7 @@ export function parseProductionReview(
     normalizeRiskArrays?: boolean;
     normalizeScoreArray?: boolean;
     normalizeIssueLocations?: boolean;
+    normalizeIssueLimit?: boolean;
     normalizeRepairedSeverity?: boolean;
     normalizeIssueFieldAliases?: boolean;
     normalizeFrozenBindings?: boolean;
@@ -150,7 +151,9 @@ export function parseProductionReview(
   let verdict = normalizeVerdict(value.verdict, options.normalizeRepairedVerdict === true);
   if (typeof value.summary !== 'string' || value.summary.trim().length === 0) throw new Error('点评结果summary缺失');
   if (!Array.isArray(value.issues)) throw new Error('点评结果issues必须是数组');
-  if (value.issues.length > 8) throw new Error('单席点评问题超过8条上限，只保留影响最大的可执行问题');
+  if (value.issues.length > 8 && options.normalizeIssueLimit !== true) {
+    throw new Error('单席点评问题超过8条上限，只保留影响最大的可执行问题');
+  }
   const parsedIssues = value.issues.map((issue) => parseIssue(
     issue,
     options.normalizeLocalBlockers === true,
@@ -158,7 +161,10 @@ export function parseProductionReview(
     options.normalizeRepairedSeverity === true,
     options.normalizeIssueFieldAliases === true
   ));
-  const provisionalIssues = parsedIssues.map((issue) => expected.reviewerRole === 'fact'
+  const limitedIssues = options.normalizeIssueLimit === true
+    ? prioritizeReviewIssues(parsedIssues).slice(0, 8)
+    : parsedIssues;
+  const provisionalIssues = limitedIssues.map((issue) => expected.reviewerRole === 'fact'
     && options.normalizeProvisionalDraftBlockers === true
     && isProvisionalDraftConflict(issue)
     ? { ...issue, severity: 'major' as const }
@@ -225,6 +231,19 @@ export function parseProductionReview(
   return base;
 }
 
+function prioritizeReviewIssues(issues: ProductionReviewIssue[]): ProductionReviewIssue[] {
+  const priority: Record<ProductionReviewIssue['severity'], number> = {
+    blocker: 0,
+    major: 1,
+    minor: 2,
+    observation: 3
+  };
+  return issues
+    .map((issue, index) => ({ issue, index }))
+    .sort((left, right) => priority[left.issue.severity] - priority[right.issue.severity] || left.index - right.index)
+    .map(({ issue }) => issue);
+}
+
 function isExplicitObjectiveContradiction(issue: ProductionReviewIssue): boolean {
   if (issue.severity !== 'minor' && issue.severity !== 'observation') return false;
   const finding = `${issue.location}\n${issue.issueType}\n${issue.evidence}`;
@@ -264,6 +283,17 @@ function isProvisionalDraftConflict(issue: ProductionReviewIssue): boolean {
  * choosing one would invent precedence.
  */
 function normalizeScores(value: unknown): unknown {
+  if (isRecord(value)) {
+    // The repair path may preserve useful reviewer metadata (for example an
+    // issue-severity distribution) beside the actual 0-100 scores. `scores`
+    // is deliberately a numeric map; keep every valid numeric dimension and
+    // drop non-numeric metadata instead of rejecting an otherwise complete,
+    // auditable review. The immutable raw result stays in model_call_results.
+    return Object.fromEntries(Object.entries(value)
+      .filter((entry): entry is [string, number] => Number.isFinite(entry[1])
+        && Number(entry[1]) >= 0 && Number(entry[1]) <= 100)
+      .map(([key, score]) => [key, Number(score)]));
+  }
   if (!Array.isArray(value)) return value;
   const scores: Record<string, number> = {};
   for (const item of value) {
