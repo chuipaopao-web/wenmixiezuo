@@ -1,13 +1,14 @@
 import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
+import { selectReleaseBook } from './lib/release-book-selector.mjs';
 import { DatabaseSync } from 'node:sqlite';
 
 const API = 'http://127.0.0.1:43111';
 const ORIGIN = 'http://127.0.0.1:43110';
-const title = String(process.argv[2] ?? '').trim();
+const bookSelector = String(process.argv[2] ?? '').trim();
 const view = String(process.argv[3] ?? 'settings').trim();
 const targetId = String(process.argv[4] ?? '').trim();
 
-if (!title) throw new Error('book title is required');
+if (!bookSelector) throw new Error('book title or book id is required');
 
 const cookie = await loginEvaluationAccount({ api: API, origin: ORIGIN });
 
@@ -21,9 +22,10 @@ async function request(path) {
 }
 
 const books = await request('/api/v1/books');
-const book = books.find((candidate) => candidate.title === title);
-if (book === undefined) throw new Error(`book not found: ${title}`);
+const book = selectReleaseBook(books, bookSelector);
+if (book === undefined) throw new Error(`book not found: ${bookSelector}`);
 const bookId = book.bookId ?? book.book_id;
+const title = book.title;
 
 if (view === 'settings') {
   const settings = await request(`/api/v1/books/${bookId}/setting-outline-workspace`);
