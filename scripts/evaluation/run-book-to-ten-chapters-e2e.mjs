@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { loginEvaluationAccount } from './lib/evaluation-account.mjs';
 import { join, resolve } from 'node:path';
+import { selectResumableChapterTask } from './lib/resumable-chapter-task.mjs';
 
 const API = 'http://127.0.0.1:43111';
 const ORIGIN = 'http://127.0.0.1:43110';
@@ -369,20 +370,8 @@ async function acceptPendingManuscript(bookId, taskId) {
 
 async function chapterList(bookId) { return request(`/api/v1/books/${bookId}/chapters`); }
 
-const chapterPhaseRank = new Map([
-  ['pending', 0], ['preflight', 1], ['context', 2], ['draft', 3], ['hard_check', 4],
-  ['review', 5], ['revise', 6], ['waiting_confirmation', 7], ['settlement', 8], ['completed', 9]
-]);
-
 async function resumableChapterTask(bookId, chapterId) {
-  const candidates = (await request(`/api/v1/books/${bookId}/tasks`))
-    .filter((task) => task.chapterId === chapterId && task.taskType === 'chapter_creation')
-    .filter((task) => ['queued', 'working', 'waiting_confirmation', 'failed', 'blocked', 'interrupted'].includes(task.status));
-  return candidates.sort((left, right) => {
-    const phaseDifference = (chapterPhaseRank.get(right.currentPhase) ?? -1) - (chapterPhaseRank.get(left.currentPhase) ?? -1);
-    if (phaseDifference !== 0) return phaseDifference;
-    return right.attemptCount - left.attemptCount;
-  })[0] ?? null;
+  return selectResumableChapterTask(await request(`/api/v1/books/${bookId}/tasks`), chapterId);
 }
 
 function formalCharacterCount(content) {

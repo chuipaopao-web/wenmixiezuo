@@ -242,8 +242,10 @@ function deterministicEventChapterSequence(prompt: string): string | null {
 function deterministicEventChapterDetails(prompt: string): string | null {
   const root = parseOperation(prompt, 'event_chapter_detail_generation_v1');
   if (root === null) return null;
-  const slots = parsedSource(root, 'planning:recent_chapter_slots');
-  const planned = Array.isArray(slots) ? slots.filter(isRecord) : [];
+  const sequence = parsedSource(root, 'planning:event_chapter_sequence');
+  const planned = isRecord(sequence) && Array.isArray(sequence.targetChapters)
+    ? sequence.targetChapters.filter(isRecord)
+    : [];
   const numbers = Array.isArray(root.chapterNumbers)
     ? root.chapterNumbers.filter((value): value is number => typeof value === 'number' && Number.isInteger(value))
     : [];

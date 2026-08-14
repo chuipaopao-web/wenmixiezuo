@@ -4,6 +4,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
 import { OwnerManuscriptRepository } from '../../infrastructure/db/repositories/owner-manuscript-repository.js';
+import { countNovelCharacters } from '../../infrastructure/models/deterministic-novel-models.js';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
 import { TaskService } from '../tasks/task-service.js';
 
@@ -79,7 +80,7 @@ export class OwnerManuscriptService {
         new ChapterCatalogService(this.database, this.ids, this.clock).registerManuscript(scope, {
           manuscriptVersionId, chapterId: input.chapterId, parentVersionId: input.baseManuscriptVersionId,
           authorAgentId: stewardAgentId, modelProvider: 'manual', modelId: 'owner-edit', sourceTaskId: taskId,
-          fileId, contentHash: staged.contentHash, wordCount: countCharacters(input.content), status: 'candidate',
+          fileId, contentHash: staged.contentHash, wordCount: countNovelCharacters(input.content), status: 'candidate',
           creatorKind: 'owner', editNote: input.note?.trim() || null, expectedCurrentVersionId: input.baseManuscriptVersionId
         });
         const now = this.clock.now().toISOString();
@@ -95,7 +96,7 @@ export class OwnerManuscriptService {
     }
     return {
       manuscriptVersionId, parentVersionId: input.baseManuscriptVersionId, contentHash: staged.contentHash,
-      wordCount: countCharacters(input.content), status: 'candidate', unchanged: false
+      wordCount: countNovelCharacters(input.content), status: 'candidate', unchanged: false
     };
   }
 
@@ -140,8 +141,4 @@ export class OwnerManuscriptService {
       retainedInHistory: true
     };
   }
-}
-
-function countCharacters(content: string): number {
-  return [...content].filter((character) => !/\s/u.test(character)).length;
 }

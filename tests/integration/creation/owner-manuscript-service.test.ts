@@ -6,6 +6,7 @@ import { ChapterCatalogService } from '../../../apps/api/src/application/chapter
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { ChapterPipelineService } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { countNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { resolveInside } from '../../../apps/api/src/infrastructure/files/file-utils.js';
 import { createKnowledgeFixture } from '../../helpers/knowledge-fixture.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
@@ -199,6 +200,30 @@ describe('作者正文修订', () => {
         operation: 'rewrite_existing', manuscriptVersionId: finalizeFixture.manuscriptVersionId,
         instruction: '强化冲突并保留人物动机'
       });
+    } finally {
+      context.close();
+    }
+  });
+
+  it('uses the same effective-character count as the chapter hard check', () => {
+    const context = createTestContext();
+    try {
+      const ids = new SequenceIds();
+      const clock = new FixedClock();
+      const fixture = createKnowledgeFixture(context, ids, clock, { content: 'Original draft.' });
+      context.database.prepare(`UPDATE tasks SET status = 'succeeded', current_phase = 'completed' WHERE task_id = ?`).run(fixture.taskId);
+      const content = '陆沉星在井边停下。\n\nHe checked the broken ruler: 12 marks.';
+      const saved = new OwnerManuscriptService(
+        context.database, context.dataDir, context.config.releaseId, ids, clock
+      ).saveDraft(fixture.scope, {
+        chapterId: fixture.chapterId,
+        baseManuscriptVersionId: fixture.manuscriptVersionId,
+        content
+      });
+
+      expect(saved.wordCount).toBe(countNovelCharacters(content));
+      expect(context.database.prepare(`SELECT word_count FROM manuscript_versions WHERE manuscript_version_id = ?`)
+        .get(saved.manuscriptVersionId)).toEqual({ word_count: countNovelCharacters(content) });
     } finally {
       context.close();
     }

@@ -44,6 +44,7 @@ import { StoryEventService } from '../application/planning/story-event-service.j
 import { EventChapterGenerationPipelineService } from '../application/planning/event-chapter-generation-pipeline-service.js';
 import { EventChapterGenerationRepository } from '../infrastructure/db/repositories/event-chapter-generation-repository.js';
 import { EventChapterOutlineRepository } from '../infrastructure/db/repositories/event-chapter-outline-repository.js';
+import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { EventChapterOutlineService } from '../application/planning/event-chapter-outline-service.js';
 import { EventChapterGenerationService } from '../application/planning/event-chapter-generation-service.js';
 import { ArtifactService } from '../application/artifacts/artifact-service.js';
@@ -128,7 +129,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     new UnitOfWork(database), volumePlanIds, volumePlanClock
   );
   const eventChapterGenerationPipeline = new EventChapterGenerationPipelineService(
-    eventChapterGenerationRepository, eventChapterOutlineRepository, eventChapterOutlineService,
+    eventChapterGenerationRepository, eventChapterOutlineRepository, new LongformContinuityRepository(database),
+    eventChapterOutlineService,
     eventChapterGenerationService, eventChapterTaskService, volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
     new ContextPackService(database, volumePlanIds, volumePlanClock),

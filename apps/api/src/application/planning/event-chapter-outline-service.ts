@@ -46,11 +46,18 @@ export class EventChapterOutlineService {
   public initialize(scope:BookScope,eventId:string,input:{expectedWorkflowVersion:number;idempotencyKey:string}):EventChapterSequenceView{
     const expected=positive(input.expectedWorkflowVersion,'工作流版本'),key=required(input.idempotencyKey,'幂等键'),now=this.clock.now().toISOString();
     return this.uow.run(()=>{
-      const existing=this.repo.sequence(scope,eventId);if(existing!==undefined){same(existing.request_hash,digest({eventId,key:existing.create_idempotency_key}));return this.view(scope,existing);}
       const snapshot=this.snapshot(scope,eventId),workflow=this.workflow(scope);
       if(workflow.planning_version!==expected||workflow.stage!=='event_confirmed'||workflow.active_event_id!==eventId
         ||workflow.active_event_version_id!==snapshot.eventVersionId)throw conflict('请先确认当前事件大纲。');
       const hash=digest({eventId,key}),id=this.ids.next();
+      const existing=this.repo.sequence(scope,eventId);if(existing!==undefined){
+        if(existing.event_version_id===snapshot.eventVersionId&&existing.volume_plan_version_id===snapshot.volumePlanVersionId)
+          return this.view(scope,existing);
+        if(!this.repo.rebaseEmptySequence(scope,{sequenceId:existing.event_chapter_sequence_id,expectedRevision:existing.revision,
+          eventVersionId:snapshot.eventVersionId,volumePlanVersionId:snapshot.volumePlanVersionId,key,hash,now}))
+          throw conflict('上层事件已经变化，现有章纲包含保留内容，请先查看影响再重新规划。');
+        return this.view(scope,this.sequence(scope,eventId));
+      }
       this.repo.insertSequence(scope,{id,eventId,eventVersionId:snapshot.eventVersionId,volumePlanVersionId:snapshot.volumePlanVersionId,key,hash,now});
       return this.view(scope,this.sequence(scope,eventId));
     });
@@ -105,17 +112,20 @@ export class EventChapterOutlineService {
     this.outline(scope,outlineId);return this.repo.listOutlineVersions(scope,outlineId).map(outlineVersionView);
   }
   public addOutlineVersion(scope:BookScope,outlineId:string,input:{expectedOutlineRevision:number;parentVersionId?:string|null;
-    authorInputRefs?:string[];content:Record<string,unknown>;sourceTaskId?:string|null;idempotencyKey:string}):EventChapterOutlineVersionView{
+    authorInputRefs?:string[];content:Record<string,unknown>;sourceTaskId?:string|null;contextOpeningState?:string|null;
+    idempotencyKey:string}):EventChapterOutlineVersionView{
     const expected=positive(input.expectedOutlineRevision,'章纲修订号'),parent=optional(input.parentVersionId,'父版本'),
-      refs=ids(input.authorInputRefs??[],'作者想法引用'),task=optional(input.sourceTaskId,'来源任务'),key=required(input.idempotencyKey,'幂等键');
-    const requestHash=digest({outlineId,expected,parent,refs,content:input.content,task}),now=this.clock.now().toISOString();
+      refs=ids(input.authorInputRefs??[],'作者想法引用'),task=optional(input.sourceTaskId,'来源任务'),
+      contextOpeningState=optional(input.contextOpeningState,'正史开场状态'),key=required(input.idempotencyKey,'幂等键');
+    const requestHash=digest({outlineId,expected,parent,refs,content:input.content,task,contextOpeningState}),now=this.clock.now().toISOString();
     return this.uow.run(()=>{
       const replay=this.repo.outlineVersionByKey(scope,key);if(replay!==undefined){same(replay.request_hash,requestHash);return outlineVersionView(replay);}
       const outline=this.outline(scope,outlineId);if(outline.revision!==expected)throw conflict('章纲已经变化。');
       if(['frozen','settled','archived'].includes(outline.status))throw conflict('已冻结、结算或归档章纲不能覆盖修改。');
       const sequence=this.requireActiveSequence(scope,outline.event_chapter_sequence_id),snapshot=this.snapshot(scope,outline.event_id);
       this.assertSequenceCurrent(sequence,snapshot);const sequenceVersion=this.requireSequenceVersion(scope,sequence.event_chapter_sequence_id,sequence.active_version_id!);
-      const bound=this.bindDetailed(outline,this.repo.listOutlines(scope,sequence.event_chapter_sequence_id),snapshot,input.content);
+      const bound=this.bindDetailed(outline,this.repo.listOutlines(scope,sequence.event_chapter_sequence_id),snapshot,input.content,
+        contextOpeningState);
       if(parent!==null&&this.repo.outlineVersion(scope,outlineId,parent)===undefined)throw validation('父版本不属于当前章纲。');
       if(task!==null&&!this.repo.taskExists(scope,task))throw validation('来源任务不属于当前书籍。');
       if(refs.length!==this.repo.authorInputCount(scope,outlineId,refs))throw validation('作者想法引用必须来自当前章纲。');
@@ -165,14 +175,16 @@ export class EventChapterOutlineService {
     });
   }
 
-  private bindDetailed(outline:EventChapterOutlineRow,all:EventChapterOutlineRow[],snapshot:ActiveEventChapterSnapshot,input:Record<string,unknown>):ChapterOutlineV2{
+  private bindDetailed(outline:EventChapterOutlineRow,all:EventChapterOutlineRow[],snapshot:ActiveEventChapterSnapshot,
+    input:Record<string,unknown>,contextOpeningState:string|null):ChapterOutlineV2{
     const planned=JSON.parse(outline.planned_content_json) as ChapterOutlineContent,first=all[0]!,last=all.at(-1)!;
     const isLast=outline.event_chapter_outline_id===last.event_chapter_outline_id;
     const candidate={...input,outlineSchema:'chapter_outline_v2',chapterNumber:outline.chapter_number,
       title:typeof input.title==='string'&&input.title.trim().length>0?input.title:planned.title,
       sourceStage:{stageNumber:snapshot.eventOrder,title:parseEvent(snapshot).title,
         chapterRange:{start:first.chapter_number,end:last.chapter_number}},
-      chapterFunction:planned.eventResponsibility,openingState:planned.openingState,requiredEndingState:planned.endingState,
+      chapterFunction:planned.eventResponsibility,openingState:contextOpeningState??planned.openingState,
+      requiredEndingState:planned.endingState,
       ending:{...(record(input.ending)?input.ending:{}),nextChapterInterface:planned.nextChapterInterface},
       ...(isLast?{stageBoundary:{mustCloseStage:true,resolution:parseEvent(snapshot).requiredResult,
         result:planned.endingState,pendingThreads:parseEvent(snapshot).uncertaintyNotes}}:{stageBoundary:undefined})};

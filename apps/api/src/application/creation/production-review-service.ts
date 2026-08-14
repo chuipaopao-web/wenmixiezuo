@@ -87,6 +87,7 @@ export class ProductionReviewService {
     normalizeFrozenBindings?: boolean;
     normalizeProvisionalDraftBlockers?: boolean;
     normalizeFactOmissionMajor?: boolean;
+    allowDroppingUngroundedIssues?: boolean;
   }): ProductionReview {
     const report = parseProductionReview(input.raw, {
       reviewerRole: input.role, manuscriptVersionId: input.manuscriptVersionId, modelSnapshotId: input.modelSnapshotId
@@ -106,10 +107,12 @@ export class ProductionReviewService {
       normalizeProvisionalDraftBlockers: input.normalizeProvisionalDraftBlockers === true,
       normalizeFactOmissionMajor: input.normalizeFactOmissionMajor === true
     });
-    const responsibilityBoundReport = removeDeterministicLengthIssues(report);
+    const responsibilityBoundReport = enforceReviewerResponsibilityBoundary(removeDeterministicLengthIssues(report));
     const groundedReport = groundProductionReviewEvidence(responsibilityBoundReport, input.currentManuscript, {
       allowDroppingUngroundedFactCandidates: input.allowDroppingInvalidFactCandidates === true,
-      allowGroundedEvidenceExcerptRecovery: input.allowDroppingInvalidFactCandidates === true
+      allowGroundedEvidenceExcerptRecovery: input.allowDroppingInvalidFactCandidates === true,
+      allowDroppingUngroundedAiStyleEvidence: input.normalizeAiStyleEvidence === true,
+      allowDroppingUngroundedIssues: input.allowDroppingUngroundedIssues === true
     });
     const reportJson = JSON.stringify(groundedReport);
     this.repository.insertReviewReport(scope, {
@@ -192,19 +195,64 @@ export function removeDeterministicLengthIssues(report: ProductionReview): Produ
   };
 }
 
+export function enforceReviewerResponsibilityBoundary(report: ProductionReview): ProductionReview {
+  if (report.reviewerRole === 'fact') return report;
+  let downgraded = false;
+  const issues = report.issues.map((issue) => {
+    if ((issue.severity !== 'major' && issue.severity !== 'blocker')
+      || (!isObjectiveContinuityIssue(issue.issueType) && !isLocalSubjectiveRepair(issue))) return issue;
+    downgraded = true;
+    return { ...issue, severity: 'minor' as const };
+  });
+  if (!downgraded) return report;
+  const hasHardContentIssue = issues.some((issue) => issue.severity === 'major' || issue.severity === 'blocker');
+  const hasBlockingComplianceRisk = report.reviewerRole === 'experience'
+    && [report.politicalRisk?.level, report.sexualContentRisk?.level]
+      .some((level) => level === 'medium' || level === 'high' || level === 'blocked');
+  return {
+    ...report,
+    summary: `${report.summary} 客观事实与连续性由事实席独立裁决；本席相关意见仅保留为阅读或表达建议。`,
+    issues,
+    verdict: hasBlockingComplianceRisk
+      ? report.verdict
+      : hasHardContentIssue ? report.verdict : 'pass'
+  };
+}
+
+function isLocalSubjectiveRepair(issue: ProductionReview['issues'][number]): boolean {
+  const action = issue.requiredAction.trim();
+  const repairScope = `${issue.issueType}\n${action}`;
+  const explicitlyLocal = /(?:删除|删去|改为|替换|补充|补入|增加|添加|插入|加上|加一句|加一个|保留).{0,24}(?:此句|一句|一处|两句|两处|半句|短句|细节|动作|微反应|过渡)/u.test(action)
+    || /(?:此句|一句|一处|两句|两处|半句|一个动作|一个细节).{0,24}(?:删除|删去|改为|替换|补充|补入|增加|添加|插入|加上)/u.test(action)
+    || /(?:删除或(?:大幅)?压缩|删除并压缩|删去并压缩|压缩).{0,80}(?:具体拆解|具体列举|这段列举|该段列举|这一句|该句|一段|一行|两三句|三项|三选|三处).{0,120}(?:只保留|改为|后移|推迟|留到)/u.test(action)
+    || /(?:推迟|后移|提前|挪到|调整).{0,18}(?:一两句|两三句|一句|两句|几句|下一句|后一句)/u.test(action)
+    || /(?:先|改让|让).{0,40}(?:一个动作|一个细节|一句反应|一拍反应).{0,40}(?:再|之后|随后|然后)/u.test(action);
+  // Models sometimes put a local sentence under a broad location label such as 全文节奏.
+  // Severity follows the requested repair scope, not that imprecise location label.
+  const trulyStructural = /(?:全文|全章|持续性|核心人物动机无法成立|人物动机无法成立|场景因果断裂|主线因果断裂|章末钩子失效|整体重构|整章重写)/u.test(repairScope);
+  return explicitlyLocal && !trulyStructural;
+}
+
 export function groundProductionReviewEvidence(
   report: ProductionReview,
   currentManuscript: string,
   options: {
     allowDroppingUngroundedFactCandidates?: boolean;
     allowGroundedEvidenceExcerptRecovery?: boolean;
+    allowDroppingUngroundedAiStyleEvidence?: boolean;
+    allowDroppingUngroundedIssues?: boolean;
   } = {}
 ): ProductionReview {
   const manuscript = normalizedEvidenceText(currentManuscript);
   if (manuscript.length === 0) throw new Error('当前完整正文为空，不能保存点评报告');
   const ground = (evidence: string, field: string, allowExcerptRecovery: boolean): string => {
     const normalized = normalizedEvidenceText(evidence);
-    if ([...normalized].length >= 4 && manuscript.includes(normalized)) return normalized;
+    // A short quotation can still be decisive evidence. Time markers such as
+    // “三天。” or “午时。” are only three Chinese characters, so rejecting
+    // every exact excerpt below four characters makes valid continuity
+    // findings impossible to persist. Empty and one/two-character fragments
+    // remain too weak to count as review evidence.
+    if ([...normalized].length >= 3 && manuscript.includes(normalized)) return normalized;
     if (allowExcerptRecovery) {
       const excerpt = longestSharedEvidenceExcerpt(manuscript, normalized);
       if (excerpt !== null) return excerpt;
@@ -214,14 +262,28 @@ export function groundProductionReviewEvidence(
     }
   };
   const allowExcerptRecovery = options.allowGroundedEvidenceExcerptRecovery === true;
-  const issues = report.issues.map((issue, index) => ({
-    ...issue,
-    evidence: ground(issue.evidence, `issues[${index}].evidence`, allowExcerptRecovery)
-  }));
+  let droppedUngroundedIssue = false;
+  const issues = report.issues.flatMap((issue, index) => {
+    try {
+      return [{ ...issue, evidence: ground(issue.evidence, `issues[${index}].evidence`, allowExcerptRecovery) }];
+    } catch (error) {
+      if (options.allowDroppingUngroundedIssues === true && report.reviewerRole !== 'fact') {
+        droppedUngroundedIssue = true;
+        return [];
+      }
+      throw error;
+    }
+  });
   const aiStyle = report.aiStyle === undefined ? undefined : {
     ...report.aiStyle,
-    evidence: report.aiStyle.evidence.map((evidence, index) =>
-      ground(evidence, `aiStyle.evidence[${index}]`, allowExcerptRecovery))
+    evidence: report.aiStyle.evidence.flatMap((evidence, index) => {
+      try {
+        return [ground(evidence, `aiStyle.evidence[${index}]`, allowExcerptRecovery)];
+      } catch (error) {
+        if (options.allowDroppingUngroundedAiStyleEvidence === true) return [];
+        throw error;
+      }
+    })
   };
   const groundedRisks: Partial<Pick<ProductionReview, 'politicalRisk' | 'sexualContentRisk'>> = {};
   for (const [riskName, risk] of [
@@ -234,7 +296,17 @@ export function groundProductionReviewEvidence(
         ground(evidence, `${riskName}.evidence[${index}]`, allowExcerptRecovery))
     };
   }
-  const groundedBase: ProductionReview = { ...report, ...groundedRisks, issues, ...(aiStyle === undefined ? {} : { aiStyle }) };
+  const hasHardIssue = issues.some((issue) => issue.severity === 'major' || issue.severity === 'blocker');
+  const hasBlockingComplianceRisk = report.reviewerRole === 'experience'
+    && [report.politicalRisk?.level, report.sexualContentRisk?.level]
+      .some((level) => level === 'medium' || level === 'high' || level === 'blocked');
+  const groundedBase: ProductionReview = {
+    ...report,
+    ...groundedRisks,
+    issues,
+    ...(aiStyle === undefined ? {} : { aiStyle }),
+    verdict: droppedUngroundedIssue && !hasHardIssue && !hasBlockingComplianceRisk ? 'pass' : report.verdict
+  };
   if (report.factCandidates === undefined) return groundedBase;
   const groundedFacts = report.factCandidates.filter((candidate, index) => {
     try {
@@ -249,7 +321,11 @@ export function groundProductionReviewEvidence(
 }
 
 function normalizedEvidenceText(value: string): string {
-  return value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
+  return value
+    .normalize('NFKC')
+    .replace(/[“”„‟]/gu, String.fromCharCode(34))
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
 function longestSharedEvidenceExcerpt(manuscript: string, evidence: string): string | null {

@@ -183,7 +183,7 @@ export function parseProductionReview(
   }
   const issues = objectiveCheckedIssues.map((issue) => expected.reviewerRole === 'fact'
     && options.normalizeFactOmissionMajor === true
-    && isUnsupportedFactOmissionMajor(issue)
+    && (isUnsupportedFactOmissionMajor(issue) || isSelfAcknowledgedCompatibleFactMajor(issue))
     ? { ...issue, severity: 'minor' as const }
     : issue);
   if (promotedObjectiveContradiction && verdict === 'pass') verdict = 'rewrite';
@@ -263,6 +263,15 @@ function isUnsupportedFactOmissionMajor(issue: ProductionReviewIssue): boolean {
   const provesContradiction = /(?:直接|明确|相互|前后).{0,8}(?:矛盾|冲突|互斥)|(?:矛盾|冲突|互斥).{0,8}(?:直接|明确|相互|前后)/u.test(finding);
   const missesMandatoryBeat = /(?:章纲|写作工单|硬约束|required(?:Beat|Ending|Action)|必须出现|强制信息)/iu.test(finding);
   return isRepetitionOmission && isLocalAddition && !provesContradiction && !missesMandatoryBeat;
+}
+
+function isSelfAcknowledgedCompatibleFactMajor(issue: ProductionReviewIssue): boolean {
+  if (issue.severity !== 'major') return false;
+  const finding = `${issue.issueType}\n${issue.evidence}\n${issue.requiredAction}`;
+  const acknowledgesCompatibility = /(?:两句本身可自洽|本身可自洽|可以自洽|可自洽|不构成硬冲突|属合理|合理的策略调整)/u.test(finding);
+  const asksForLocalClarity = /(?:补一句|最小过渡|桥接|确认措辞|可保留|策略调整|读者可能误读)/u.test(finding);
+  const provesObjectiveConflict = /(?:已确认|正史|定稿).{0,24}(?:明确矛盾|互斥|无法同时成立)|(?:明确矛盾|互斥|无法同时成立).{0,24}(?:已确认|正史|定稿)/u.test(finding);
+  return acknowledgesCompatibility && asksForLocalClarity && !provesObjectiveConflict;
 }
 
 function isProvisionalDraftConflict(issue: ProductionReviewIssue): boolean {

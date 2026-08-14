@@ -4,8 +4,10 @@ import {
   assertReleaseReviewIsAcceptable as assertReleaseReviewGate,
   latestCompleteReleaseReview
 } from './lib/release-review-gate.mjs';
+import { batchStartupGate } from './lib/batch-circuit-breaker.mjs';
 import { join, resolve } from 'node:path';
 import { requireWorkflowScenario } from './current-workflow-scenarios.mjs';
+import { selectResumableChapterTask } from './lib/resumable-chapter-task.mjs';
 
 const API = 'http://127.0.0.1:43111';
 const ORIGIN = 'http://127.0.0.1:43110';
@@ -25,6 +27,13 @@ const REAL_RELEASE = process.env.WENMI_RELEASE_VALIDATION === '1';
 const MANUAL_REVIEW = process.env.WENMI_RELEASE_MANUAL_REVIEW === '1';
 const APPROVE_PENDING = process.env.WENMI_RELEASE_APPROVE_PENDING === '1';
 const CONTINUOUS_MANUAL = process.env.WENMI_RELEASE_CONTINUOUS_MANUAL === '1';
+const OWNER_AUTHORIZED_BOOK_ID = String(process.env.WENMI_RELEASE_OWNER_AUTHORIZED_BOOK_ID ?? '').trim();
+const OWNER_AUTHORIZED_RELEASE = OWNER_AUTHORIZED_BOOK_ID.length > 0;
+const OWNER_AUTHORIZED_BOOK_IDS = new Set([
+  'ebc3b29e-c0d4-45e9-b839-bb0ee2999501',
+  '9486c1fc-a03f-4fe9-b47a-da1a551e1809'
+]);
+const OWNER_AUTHORIZED_BATCH_CAP = 3;
 const LEGACY_ROOT = resolve(`data/verification/current-workflow-${TOTAL_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
 const TARGET_ROOT = resolve(`data/verification/current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}-${RUN_KEY}`);
 const ROOT = resolveResumeRoot();
@@ -75,6 +84,7 @@ const state = existsSync(STATE_FILE)
 let cookie = '';
 let activePhase = 'startup';
 let approvalConsumed = false;
+let ownerAuthorizedBatchEnd = Number.POSITIVE_INFINITY;
 const terminalFailures = new Set(['failed', 'blocked', 'cancelled', 'interrupted']);
 const noneTemplate = (scope) => ({
   selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
@@ -84,6 +94,11 @@ const noneTemplate = (scope) => ({
 function now() { return new Date().toISOString(); }
 function sleep(ms) { return new Promise((resolveSleep) => setTimeout(resolveSleep, ms)); }
 function key(label) { return `${TEST_ID}:${label}`; }
+function currentOutlineCandidate(outline) {
+  return (outline?.versions ?? [])
+    .filter((version) => version.status === 'candidate')
+    .sort((left, right) => right.version - left.version)[0] ?? null;
+}
 function volumeLabel(volumeNumber, label) { return volumeNumber === 1 ? label : `volume-${volumeNumber}-${label}`; }
 function globalEventIndex(volumeNumber, eventIndex) { return (volumeNumber - 1) * EVENT_COUNT + eventIndex; }
 function eventChapterStart(volumeNumber, eventIndex) {
@@ -186,6 +201,7 @@ function recordTask(purpose, detail) {
 async function waitForTask(bookId, taskId, purpose) {
   const startedAt = Date.now();
   let signature = '';
+  let recoverableRetryCount = 0;
   while (Date.now() - startedAt < TASK_TIMEOUT_MS) {
     const detail = await request(`/api/v1/books/${bookId}/tasks/${taskId}`);
     const task = detail.task;
@@ -202,6 +218,19 @@ async function waitForTask(bookId, taskId, purpose) {
       return detail;
     }
     if (terminalFailures.has(task.status)) {
+      const recoverableUnknownResult = task.status === 'interrupted'
+        && task.errorCode === 'MODEL_CALL_RESULT_UNKNOWN'
+        && recoverableRetryCount < 3;
+      if (recoverableUnknownResult) {
+        recoverableRetryCount += 1;
+        await request(`/api/v1/books/${bookId}/tasks/${taskId}/retry`, { method: 'POST', body: {} });
+        log('task_recovered_after_unknown_model_result', {
+          purpose, taskId, retry: recoverableRetryCount, maxRetries: 3
+        });
+        signature = '';
+        await sleep(POLL_MS);
+        continue;
+      }
       recordTask(purpose, detail);
       throw new Error(`${purpose} task ${taskId} ended as ${task.status} (${task.errorCode ?? 'no error code'})`);
     }
@@ -392,17 +421,17 @@ async function planVolume(bookId, volumeNumber) {
   if (generationTaskId) {
     const previousGeneration = await request(`/api/v1/books/${bookId}/tasks/${generationTaskId}`);
     if (terminalFailures.has(previousGeneration.task.status)) {
-      const nextMap = { ...(state.volumeGenerationTaskIds ?? {}) };
-      delete nextMap[volumeNumber];
-      const patch = { volumeGenerationTaskIds: nextMap };
-      if (volumeNumber === 1) patch.volumeGenerationTaskId = null;
-      save(patch);
-      log('volume_generation_retry_ready', {
-        volumeNumber,
-        previousTaskId: generationTaskId,
-        previousStatus: previousGeneration.task.status
+      const retried = await request(`/api/v1/books/${bookId}/tasks/${generationTaskId}/retry`, {
+        method: 'POST', body: {}
       });
-      generationTaskId = null;
+      generationTaskId = retried.taskId;
+      saveVolumeState('volumeGenerationTaskIds', volumeNumber, generationTaskId, 'volumeGenerationTaskId');
+      log('volume_generation_retried', {
+        volumeNumber,
+        taskId: generationTaskId,
+        previousStatus: previousGeneration.task.status,
+        preservedCandidateCheckpoint: true
+      });
     }
   }
   if (!generationTaskId) {
@@ -575,7 +604,7 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
   activePhase = `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence`;
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
   let sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
-  if (sequence === null) {
+  if (sequence === null || !sequence.valid) {
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/initialize`, {
       method: 'POST', body: {
         expectedWorkflowVersion: workflow.planningVersion,
@@ -587,6 +616,22 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
   if (sequence.activeVersionId !== null) {
     assert(sequence.outlines.length === CHAPTERS_PER_EVENT, `active chapter sequence has ${sequence.outlines.length} chapters, expected ${CHAPTERS_PER_EVENT}`);
     return sequence;
+  }
+  const savedCandidate = sequence.versions.filter((item) => item.status === 'candidate')
+    .sort((left, right) => right.version - left.version)
+    .find((item) => item.content.chapters.length === CHAPTERS_PER_EVENT);
+  if (savedCandidate) {
+    workflow = await request(`/api/v1/books/${bookId}/workflow`);
+    const confirmed = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/confirm`, {
+      method: 'POST', body: {
+        sequenceVersionId: savedCandidate.sequenceVersionId, expectedSequenceRevision: sequence.revision,
+        expectedWorkflowVersion: workflow.planningVersion
+      }
+    });
+    save({ chapterSequenceVersionIds: { ...(state.chapterSequenceVersionIds ?? {}), [globalIndex]: confirmed.activeVersionId } });
+    log('saved_chapter_sequence_confirmed', { volumeNumber, eventIndex: eventIndex + 1,
+      sequenceVersionId: confirmed.activeVersionId, chapterCount: confirmed.outlines.length });
+    return confirmed;
   }
   let ideaId = state.chapterSequenceIdeaIds?.[globalIndex];
   if (!ideaId) {
@@ -614,7 +659,7 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
         const next = { ...(state.chapterSequenceTaskIds?.[globalIndex] ?? {}) };
         delete next[attempt];
         save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [globalIndex]: next } });
-        taskId = undefined;
+        continue;
       }
     }
     if (!taskId) {
@@ -622,14 +667,25 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
         method: 'POST', body: {
           expectedSequenceRevision: sequence.revision, expectedWorkflowVersion: workflow.planningVersion,
           authorInputRefs: [ideaId],
-          idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-chapter-sequence-generate-${attempt}`))
+          idempotencyKey: key(volumeLabel(volumeNumber,
+            `event-${eventIndex + 1}-chapter-sequence-generate-${attempt}-revision-${sequence.revision}`))
         }
       });
       taskId = generation.taskId;
       save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [globalIndex]: { ...(state.chapterSequenceTaskIds?.[globalIndex] ?? {}), [attempt]: taskId } } });
       log('chapter_sequence_generation_started', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, attempt, taskId, member: generation.member });
     }
-    await waitForTask(bookId, taskId, `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence-attempt-${attempt}`);
+    try {
+      await waitForTask(bookId, taskId, `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence-attempt-${attempt}`);
+    } catch (error) {
+      const detail = await request(`/api/v1/books/${bookId}/tasks/${taskId}`);
+      if (!terminalFailures.has(detail.task.status) || attempt === 5) throw error;
+      log('chapter_sequence_generation_attempt_failed', {
+        volumeNumber, eventIndex: eventIndex + 1, attempt, taskId,
+        status: detail.task.status, errorCode: detail.task.errorCode
+      });
+      continue;
+    }
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     const candidate = sequence.versions.filter((item) => item.status === 'candidate')
       .sort((left, right) => right.version - left.version)[0];
@@ -663,11 +719,23 @@ async function saveExpressionProfile(bookId) {
   return confirmed;
 }
 
-async function acceptPendingManuscript(bookId, taskId) {
+async function pendingManuscriptForTask(bookId, taskId) {
+  const taskDetail = await request(`/api/v1/books/${bookId}/tasks/${taskId}`);
+  const expectedVersionId = taskDetail.task?.checkpoint?.manuscriptVersionId
+    ?? taskDetail.task?.brief?.manuscriptVersionId
+    ?? null;
+  assert(typeof expectedVersionId === 'string' && expectedVersionId.length > 0,
+    `task ${taskId} does not expose its exact manuscript version`);
   const confirmations = await request(`/api/v1/books/${bookId}/confirmations`);
-  const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
-    ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
-  assert(confirmation, `task ${taskId} waiting without pending manuscript confirmation`);
+  const confirmation = confirmations.find((item) => item.status === 'pending'
+    && item.target_type === 'manuscript'
+    && item.target_id === expectedVersionId);
+  assert(confirmation, `task ${taskId} waiting without an exact-version manuscript confirmation`);
+  return confirmation;
+}
+
+async function acceptPendingManuscript(bookId, taskId) {
+  const confirmation = await pendingManuscriptForTask(bookId, taskId);
   const chapter = (await chapterList(bookId)).find((item) => item.currentManuscriptVersionId === confirmation.target_id);
   assert(chapter, `task ${taskId} pending manuscript is not the chapter current version`);
   const detail = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`);
@@ -683,28 +751,36 @@ function assertReleaseReviewIsAcceptable(detail, manuscriptVersionId, chapterNum
 }
 
 async function pauseForManualReading(bookId, taskId, chapterNumber) {
-  const confirmations = await request(`/api/v1/books/${bookId}/confirmations`);
-  const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
-    ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
-  assert(confirmation, `task ${taskId} waiting without pending manuscript confirmation`);
-  const chapter = (await chapterList(bookId)).find((item) => item.currentManuscriptVersionId === confirmation.target_id)
-    ?? (await chapterList(bookId)).find((item) => item.chapterNumber === chapterNumber);
+  const confirmation = await pendingManuscriptForTask(bookId, taskId);
+  const chapter = (await chapterList(bookId)).find((item) => item.currentManuscriptVersionId === confirmation.target_id);
   assert(chapter, `chapter ${chapterNumber} is missing while waiting for manual reading`);
   const content = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}/content`);
   const detail = await request(`/api/v1/books/${bookId}/chapters/${chapter.chapterId}`);
   const latestReview = latestCompleteReleaseReview(detail, confirmation.target_id);
   assert(latestReview && latestReview.reports.length === 3,
     `chapter ${chapterNumber} latest pending manuscript does not have one complete three-seat review panel`);
+  let releaseReadinessError = null;
+  try {
+    assertReleaseReviewIsAcceptable(detail, confirmation.target_id, chapterNumber);
+  } catch (error) {
+    releaseReadinessError = error instanceof Error ? error.message : String(error);
+  }
   const reviewFile = join(ROOT, `pending-chapter-${chapterNumber}.json`);
   writeFileSync(reviewFile, `${JSON.stringify({
     generatedAt: now(), bookId, chapterNumber, chapterId: chapter.chapterId,
     title: chapter.title, taskId, confirmationId: confirmation.confirmation_id,
     manuscriptVersionId: confirmation.target_id, content,
     reviewPanelId: latestReview.panel.review_panel_id,
+    releaseReady: releaseReadinessError === null,
+    releaseReadinessError,
     reviews: latestReview.reports
   }, null, 2)}\n`, 'utf8');
   save({ waitingManualReading: { chapterNumber, chapterId: chapter.chapterId, taskId, reviewFile } });
-  log('chapter_waiting_manual_reading', { chapterNumber, chapterId: chapter.chapterId, taskId, reviewFile });
+  log(releaseReadinessError === null ? 'chapter_waiting_manual_reading' : 'chapter_needs_pm_revision', {
+    chapterNumber, chapterId: chapter.chapterId, taskId, reviewFile,
+    ...(releaseReadinessError === null ? {} : { reason: releaseReadinessError })
+  });
+  if (releaseReadinessError !== null) return { waitingManualReading: true, requiresRevision: true };
   if (CONTINUOUS_MANUAL) {
     const approvalFile = join(ROOT, `approve-chapter-${chapterNumber}.signal`);
     while (!existsSync(approvalFile)) await sleep(2_000);
@@ -717,19 +793,8 @@ async function pauseForManualReading(bookId, taskId, chapterNumber) {
 }
 
 async function chapterList(bookId) { return request(`/api/v1/books/${bookId}/chapters`); }
-const chapterPhaseRank = new Map([
-  ['pending', 0], ['preflight', 1], ['context', 2], ['draft', 3], ['hard_check', 4],
-  ['review', 5], ['revise', 6], ['waiting_confirmation', 7], ['settlement', 8], ['completed', 9]
-]);
-
 async function resumableChapterTask(bookId, chapterId) {
-  const candidates = (await request(`/api/v1/books/${bookId}/tasks`))
-    .filter((task) => task.chapterId === chapterId && task.taskType === 'chapter_creation')
-    .filter((task) => ['queued', 'working', 'waiting_confirmation', 'failed', 'blocked', 'interrupted'].includes(task.status));
-  return candidates.sort((left, right) => {
-    const phaseDifference = (chapterPhaseRank.get(right.currentPhase) ?? -1) - (chapterPhaseRank.get(left.currentPhase) ?? -1);
-    return phaseDifference !== 0 ? phaseDifference : right.attemptCount - left.attemptCount;
-  })[0] ?? null;
+  return selectResumableChapterTask(await request(`/api/v1/books/${bookId}/tasks`), chapterId);
 }
 
 function formalCharacterCount(content) {
@@ -873,7 +938,15 @@ async function generateChapter(bookId, chapterNumber, outline) {
   save({ chapterTaskIds: { ...(state.chapterTaskIds ?? {}), [chapterNumber]: task.taskId } });
   const review = await waitForTask(bookId, task.taskId, `chapter-${chapterNumber}-production`);
   if (review.task.status === 'waiting_confirmation') {
-    if (REAL_RELEASE && MANUAL_REVIEW && (!APPROVE_PENDING || approvalConsumed)) {
+    if (REAL_RELEASE && MANUAL_REVIEW && OWNER_AUTHORIZED_RELEASE) {
+      const ownerReview = await pauseForManualReading(bookId, task.taskId, chapterNumber);
+      if (ownerReview.requiresRevision) return ownerReview;
+      log('chapter_owner_authorized_release', {
+        chapterNumber,
+        taskId: task.taskId,
+        manuscriptVersionId: review.task?.checkpoint?.manuscriptVersionId ?? null
+      });
+    } else if (REAL_RELEASE && MANUAL_REVIEW && (!APPROVE_PENDING || approvalConsumed)) {
       const manual = await pauseForManualReading(bookId, task.taskId, chapterNumber);
       if (manual.waitingManualReading) return manual;
     }
@@ -905,6 +978,7 @@ async function prepareAndWriteEventChapters(bookId, event) {
   await saveExpressionProfile(bookId);
   const initialSequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
   for (const outline of initialSequence.outlines.filter((item) => item.status === 'settled')) {
+    if (outline.chapterNumber > ownerAuthorizedBatchEnd) return { batchCapReached: true };
     await generateChapter(bookId, outline.chapterNumber, outline);
   }
   for (let pass = 1; pass <= 30; pass += 1) {
@@ -915,6 +989,7 @@ async function prepareAndWriteEventChapters(bookId, event) {
     const alreadyFrozen = unsettled.filter((item) => item.status === 'frozen').slice(0, 3);
     if (alreadyFrozen.length > 0) {
       for (const outline of alreadyFrozen) {
+        if (outline.chapterNumber > ownerAuthorizedBatchEnd) return { batchCapReached: true };
         const result = await generateChapter(bookId, outline.chapterNumber, outline);
         if (result?.waitingManualReading) return result;
       }
@@ -923,19 +998,23 @@ async function prepareAndWriteEventChapters(bookId, event) {
     const targets = unsettled.slice(0, 3);
     const start = targets[0].chapterNumber;
     const end = targets.at(-1).chapterNumber;
-    const lackingDetails = targets.some((item) => item.versions.length === 0);
+    const lackingDetails = targets.some((item) => currentOutlineCandidate(item) === null);
     if (lackingDetails) {
       activePhase = `chapter-details-${start}-${end}`;
       const workflow = await request(`/api/v1/books/${bookId}/workflow`);
+      const detailAttempt = `chapter-details-${start}-${end}-sequence-${sequence.revision}`;
+      const priorAttempts = (state.taskEvidence ?? [])
+        .filter((item) => String(item.purpose ?? '').startsWith(detailAttempt)).length;
+      const requestAttempt = `${detailAttempt}-attempt-${priorAttempts + 1}`;
       const generation = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-outlines/generate`, {
         method: 'POST', body: {
           count: targets.length, expectedSequenceRevision: sequence.revision,
           expectedWorkflowVersion: workflow.planningVersion, authorInputRefs: [],
-          idempotencyKey: key(`chapter-details-${start}-${end}`)
+          idempotencyKey: key(requestAttempt)
         }
       });
       log('chapter_details_generation_started', { start, count: targets.length, taskId: generation.taskId, member: generation.member });
-      const purpose = `chapter-details-${start}-${end}`;
+      const purpose = requestAttempt;
       try {
         await waitForTask(bookId, generation.taskId, purpose);
       } catch (error) {
@@ -949,13 +1028,14 @@ async function prepareAndWriteEventChapters(bookId, event) {
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     const targetIds = new Set(targets.map((item) => item.outlineId));
     const freshTargets = sequence.outlines.filter((item) => targetIds.has(item.outlineId));
-    assert(freshTargets.every((item) => item.versions.length > 0), `detailed outlines ${start}-${end} are incomplete`);
+    assert(freshTargets.every((item) => currentOutlineCandidate(item) !== null),
+      `detailed outlines ${start}-${end} have no current candidate version`);
     const workflow = await request(`/api/v1/books/${bookId}/workflow`);
     sequence = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`);
     const frozen = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-outlines/freeze`, {
       method: 'POST', body: {
         items: freshTargets.map((item) => ({
-          outlineId: item.outlineId, outlineVersionId: item.versions[0].outlineVersionId,
+          outlineId: item.outlineId, outlineVersionId: currentOutlineCandidate(item).outlineVersionId,
           expectedOutlineRevision: item.revision
         })),
         expectedWorkflowVersion: workflow.planningVersion
@@ -965,6 +1045,7 @@ async function prepareAndWriteEventChapters(bookId, event) {
     for (const target of freshTargets) {
       const outline = frozen.outlines.find((item) => item.outlineId === target.outlineId);
       assert(outline?.status === 'frozen', `chapter ${target.chapterNumber} outline was not frozen`);
+      if (target.chapterNumber > ownerAuthorizedBatchEnd) return { batchCapReached: true };
       const result = await generateChapter(bookId, target.chapterNumber, outline);
       if (result?.waitingManualReading) return result;
     }
@@ -1127,17 +1208,47 @@ try {
     '真实发布级门禁只允许20、50、100或200章；200章必须由两个完整百章卷组成');
   assert(!REAL_RELEASE || MANUAL_REVIEW,
     '真实发布级运行必须开启逐章人工阅读，不能自动确认模型正文');
+  assert(!OWNER_AUTHORIZED_RELEASE || REAL_RELEASE,
+    '老板统一授权模式只允许用于真实发布级专用测试书');
+  assert(!OWNER_AUTHORIZED_RELEASE || RELEASE_TARGET_CHAPTERS === 200,
+    '老板统一授权模式只允许本轮两本200章专用测试书');
+  assert(!OWNER_AUTHORIZED_RELEASE || OWNER_AUTHORIZED_BOOK_IDS.has(OWNER_AUTHORIZED_BOOK_ID),
+    '当前书未列入本轮老板统一授权白名单');
   await issueSession();
   const healthEnvelope = await fetch(`${API}/health`).then((response) => response.json());
   const health = healthEnvelope.data ?? healthEnvelope;
   assert(health.status === 'ok' && health.releaseId === RELEASE_ID, `API health mismatch: ${JSON.stringify(health)}`);
   const bookId = await createBook();
+  assert(!OWNER_AUTHORIZED_RELEASE || bookId === OWNER_AUTHORIZED_BOOK_ID,
+    '当前运行书籍与老板统一授权的精确书籍ID不一致');
+  if (OWNER_AUTHORIZED_RELEASE) {
+    const currentChapters = await chapterList(bookId);
+    const settledAtStart = currentChapters
+      .filter((chapter) => chapter.settlementStatus === 'settled')
+      .reduce((maximum, chapter) => Math.max(maximum, Number(chapter.chapterNumber ?? 0)), 0);
+    const remaining = Math.max(0, RELEASE_TARGET_CHAPTERS - settledAtStart);
+    const plannedChapters = Math.min(OWNER_AUTHORIZED_BATCH_CAP, remaining);
+    const startup = batchStartupGate({ packageBalanceUnknown: true, plannedChapters });
+    assert(startup.allow, `本轮真实调用超过套餐余额未知时的单次${startup.evidence.cap}章上限`);
+    ownerAuthorizedBatchEnd = Math.min(RELEASE_TARGET_CHAPTERS, settledAtStart + OWNER_AUTHORIZED_BATCH_CAP);
+    log('owner_authorized_batch_started', {
+      settledAtStart,
+      batchEnd: ownerAuthorizedBatchEnd,
+      targetChapters: RELEASE_TARGET_CHAPTERS,
+      cap: OWNER_AUTHORIZED_BATCH_CAP
+    });
+  }
+  if (OWNER_AUTHORIZED_RELEASE && state.waitingManualReading !== undefined && state.waitingManualReading !== null) {
+    save({ waitingManualReading: null });
+    log('stale_manual_pause_cleared', { reason: 'owner_authorized_exact_book' });
+  }
   await ensureTestBudget(bookId);
   await completeSettings(bookId);
   const volumePlans = [];
   const events = [];
   const eventSettlements = [];
   const volumeSettlements = [];
+  let ownerBatchCapReached = false;
   for (let volumeNumber = 1; volumeNumber <= TARGET_VOLUME_COUNT; volumeNumber += 1) {
     const volumePlan = await planVolume(bookId, volumeNumber);
     volumePlans.push(volumePlan);
@@ -1148,6 +1259,14 @@ try {
       events.push(event);
       await planChapterSequence(bookId, event, volumeNumber, eventIndex);
       const writing = await prepareAndWriteEventChapters(bookId, event);
+      if (writing?.batchCapReached) {
+        ownerBatchCapReached = true;
+        log('owner_authorized_batch_completed', {
+          completedThroughChapter: ownerAuthorizedBatchEnd,
+          targetChapters: RELEASE_TARGET_CHAPTERS
+        });
+        break;
+      }
       if (writing?.waitingManualReading) {
         log('release_run_paused', {
           reason: 'manual_reading', volumeNumber, eventIndex: eventIndex + 1,
@@ -1158,6 +1277,7 @@ try {
       }
       eventSettlements.push(await settleEvent(bookId, event, volumeNumber, eventIndex));
     }
+    if (ownerBatchCapReached) break;
     if (state.waitingManualReading !== undefined && state.waitingManualReading !== null) break;
     const range = volumeChapterRange(volumeNumber);
     if (RELEASE_TARGET_CHAPTERS < range.chapterEnd) {
@@ -1166,6 +1286,7 @@ try {
     }
     volumeSettlements.push(await settleVolume(bookId, volumePlan, volumeNumber));
   }
+  if (ownerBatchCapReached) process.exit(0);
   if (state.waitingManualReading !== undefined && state.waitingManualReading !== null) process.exit(0);
   if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);
   assert(volumeSettlements.length === TARGET_VOLUME_COUNT,

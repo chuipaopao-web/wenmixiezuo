@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EditorReviewSynthesis, ProductionReview, ReviewerRole } from '../../apps/api/src/contracts/production-review.js';
-import { decideProductionReviewOutcome, groundProductionReviewEvidence, isSelfContradictoryFactFinding, removeDeterministicLengthIssues, reportsForEditorSynthesis } from '../../apps/api/src/application/creation/production-review-service.js';
+import { decideProductionReviewOutcome, enforceReviewerResponsibilityBoundary, groundProductionReviewEvidence, isSelfContradictoryFactFinding, removeDeterministicLengthIssues, reportsForEditorSynthesis } from '../../apps/api/src/application/creation/production-review-service.js';
 
 function report(role: ReviewerRole, verdict: ProductionReview['verdict'], severity?: 'blocker' | 'major' | 'minor'): ProductionReview {
   return {
@@ -32,6 +32,67 @@ function synthesis(verdict: EditorReviewSynthesis['recommendedVerdict']): Editor
 }
 
 describe('production review convergence', () => {
+  it('keeps objective continuity authority with the fact seat', () => {
+    const experience = report('experience', 'rewrite', 'major');
+    experience.issues[0] = {
+      location: '残图比对段', issueType: '事实衔接误差', severity: 'major',
+      evidence: '他自己那张的边缘是撕的。', requiredAction: '请事实席核对两半残图。'
+    };
+    const normalized = enforceReviewerResponsibilityBoundary(experience);
+    expect(normalized.verdict).toBe('pass');
+    expect(normalized.issues[0]?.severity).toBe('minor');
+
+    const fact = report('fact', 'rewrite', 'major');
+    fact.issues[0] = experience.issues[0]!;
+    expect(enforceReviewerResponsibilityBoundary(fact)).toEqual(fact);
+  });
+
+  it('downgrades a one-sentence subjective edit that a literary reviewer overstates as major', () => {
+    const literary = report('literary', 'rewrite', 'major');
+    literary.issues[0] = {
+      location: '全文节奏，集中在暗阵节点段', issueType: '视角解释过早', severity: 'major',
+      evidence: '裴玄度不是凭空布阵，他是借用了这些残阵做基础。',
+      requiredAction: '删除此句，把结论留到楚白蘅后文分析拓片时说出。'
+    };
+    const normalized = enforceReviewerResponsibilityBoundary(literary);
+    expect(normalized.verdict).toBe('pass');
+    expect(normalized.issues[0]?.severity).toBe('minor');
+
+    literary.issues[0] = {
+      location: '全文节奏，集中在撤离段', issueType: '代价外化不足', severity: 'major',
+      evidence: '她闷哼了一声，但剑鞘纹丝未动。',
+      requiredAction: '在闷哼后加一个剑鞘压出裂痕的外化细节，并在前面插入一句知觉过渡。'
+    };
+    const insertedDetail = enforceReviewerResponsibilityBoundary(literary);
+    expect(insertedDetail.verdict).toBe('pass');
+    expect(insertedDetail.issues[0]?.severity).toBe('minor');
+
+    literary.issues[0] = {
+      location: '钟遥问完能否赢训练赛后的一句回答', issueType: '人物弧线与章末留白', severity: 'major',
+      evidence: '眼位习惯、团战站位，还有临场选择。少一样，方案就可能错。',
+      requiredAction: '删除或大幅压缩“眼位习惯、团战站位、临场选择”三选的具体拆解，只保留“有赢面，不是稳赢”的态度层回应，把数据需求推迟到后续章节。'
+    };
+    const compressedPassage = enforceReviewerResponsibilityBoundary(literary);
+    expect(compressedPassage.verdict).toBe('pass');
+    expect(compressedPassage.issues[0]?.severity).toBe('minor');
+
+    literary.issues[0] = {
+      location: '钟遥问“包括我的”到江序点头', issueType: '反应对位过整齐', severity: 'major',
+      evidence: '她抹平折痕。江序点了一下头。',
+      requiredAction: '将江序的点头推迟一两句，或让钟遥先做一个属于她自己的判断动作，然后再回应。'
+    };
+    const movedReaction = enforceReviewerResponsibilityBoundary(literary);
+    expect(movedReaction.verdict).toBe('pass');
+    expect(movedReaction.issues[0]?.severity).toBe('minor');
+
+    literary.issues[0] = {
+      location: '全章', issueType: '人物动机全面失效', severity: 'major',
+      evidence: '众人没有任何行动理由。',
+      requiredAction: '整章重写并重建核心人物动机。'
+    };
+    expect(enforceReviewerResponsibilityBoundary(literary).issues[0]?.severity).toBe('major');
+  });
+
   it('删除越权的AI字数重判，并由确定性硬检查独占机械字数裁决', () => {
     const fact = report('fact', 'rewrite', 'major');
     fact.issues[0] = {
@@ -90,6 +151,28 @@ describe('production review convergence', () => {
       .toBe('周照把冻裂的袖口压在膝上。');
   });
 
+  it('结构修复时丢弃非事实席无正文证据的单条意见，但事实席仍严格拒绝', () => {
+    const literary = report('literary', 'rewrite', 'major');
+    literary.issues.push({
+      location: '旧稿段落', issueType: '旧稿观察', severity: 'major',
+      evidence: '这句话只存在于上一版正文。', requiredAction: '删除这一句。'
+    });
+    const manuscript = literary.issues[0]!.evidence;
+    const grounded = groundProductionReviewEvidence(literary, manuscript, {
+      allowGroundedEvidenceExcerptRecovery: true,
+      allowDroppingUngroundedIssues: true
+    });
+    expect(grounded.issues).toHaveLength(1);
+    expect(grounded.verdict).toBe('rewrite');
+
+    const fact = report('fact', 'rewrite', 'major');
+    fact.issues[0]!.evidence = '这句话只存在于上一版正文。';
+    expect(() => groundProductionReviewEvidence(fact, '当前正文没有那一句。', {
+      allowGroundedEvidenceExcerptRecovery: true,
+      allowDroppingUngroundedIssues: true
+    })).toThrow('必须逐字来自当前完整正文');
+  });
+
   it('结构修复只能从混合说明中截取正文真实存在的连续原句', () => {
     const literary = report('literary', 'rewrite', 'major');
     literary.issues[0]!.evidence = '当前写法“周照把冻裂的袖口压在膝上。”说明动作还可压缩。';
@@ -102,6 +185,48 @@ describe('production review convergence', () => {
     expect(() => groundProductionReviewEvidence(literary, '风从窗缝钻进来。', {
       allowGroundedEvidenceExcerptRecovery: true
     })).toThrow('必须逐字来自当前完整正文');
+  });
+
+  it('把模型使用的直引号与正文弯引号视为同一段逐字证据', () => {
+    const fact = report('fact', 'pass', 'minor');
+    const quote = String.fromCharCode(34);
+    fact.issues[0]!.evidence = `${quote}你父亲的尺子，${quote}她说，${quote}还在不在？${quote}`;
+    const grounded = groundProductionReviewEvidence(fact, '“你父亲的尺子，”她说，“还在不在？”');
+    expect(grounded.issues[0]?.evidence).toBe(`${quote}你父亲的尺子,${quote}她说,${quote}还在不在?${quote}`);
+  });
+
+  it('允许三字的精确时间引文进入报告，但拒绝含义不足的单字碎片', () => {
+    const fact = report('fact', 'rewrite', 'major');
+    fact.issues[0]!.evidence = '三天。';
+    expect(groundProductionReviewEvidence(fact, '周照抬起三根手指。\n三天。').issues[0]?.evidence)
+      .toBe('三天。');
+
+    fact.issues[0]!.evidence = '天';
+    expect(() => groundProductionReviewEvidence(fact, '三天。'))
+      .toThrow('必须逐字来自当前完整正文');
+  });
+
+  it('结构修复会丢弃越界的AI风格样本，但不会丢弃有正文证据的文学报告', () => {
+    const literary = report('literary', 'rewrite', 'major');
+    literary.issues[0]!.evidence = '周照把冻裂的袖口压在膝上。';
+    literary.aiStyle = {
+      riskScore: 30,
+      flaggedParagraphCount: 2,
+      totalParagraphCount: 10,
+      flaggedParagraphRatio: 0.2,
+      isAuthorshipProbability: false,
+      evidence: ['周照把冻裂的袖口压在膝上。', '旧稿里并不存在于本章的句子。']
+    };
+    expect(() => groundProductionReviewEvidence(literary, '周照把冻裂的袖口压在膝上。', {
+      allowGroundedEvidenceExcerptRecovery: true
+    })).toThrow('必须逐字来自当前完整正文');
+    const grounded = groundProductionReviewEvidence(literary, '周照把冻裂的袖口压在膝上。', {
+      allowGroundedEvidenceExcerptRecovery: true,
+      allowDroppingUngroundedAiStyleEvidence: true
+    });
+    expect(grounded.verdict).toBe('rewrite');
+    expect(grounded.issues).toHaveLength(1);
+    expect(grounded.aiStyle?.evidence).toEqual(['周照把冻裂的袖口压在膝上。']);
   });
 
   it('rewrites a single literary major finding during the bounded rewrite rounds', () => {

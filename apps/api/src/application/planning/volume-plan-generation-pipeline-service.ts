@@ -66,8 +66,13 @@ export class VolumePlanGenerationPipelineService {
     const snapshot = this.requireCurrentSnapshot(scope, brief);
     const lead = requiredSeat(brief.seats, 'lead_screenwriter');
     const second = requiredSeat(brief.seats, 'second_screenwriter');
-    const editor = brief.seats.find((seat) => seat.editor);
-    if (editor === undefined) throw new Error('卷规划任务缺少冻结的主编席快照。');
+    const requestedEditor = brief.seats.find((seat) => seat.editor);
+    if (requestedEditor === undefined) throw new Error('卷规划任务缺少冻结的主编席快照。');
+    const editor = this.repository.hasUnresolvedModelBinding(
+      scope, requestedEditor.provider, requestedEditor.modelId
+    )
+      ? selectEditorTechnicalSubstitute(brief.seats, [lead, second, requestedEditor]) ?? requestedEditor
+      : requestedEditor;
     try {
       this.throwIfCancelled(scope, taskId);
       const initialA = this.repository.hasUnresolvedModelBinding(scope, lead.provider, lead.modelId)
@@ -130,6 +135,7 @@ export class VolumePlanGenerationPipelineService {
         candidateBId: candidateB.versionId,
         fusionId: fusion.versionId,
         awaitingAuthorChoice: true,
+        fusionProducedBy: seatAttribution(editor, editor.agentId !== requestedEditor.agentId),
         candidateAProducedBy: seatAttribution(candidateASeat, candidateASeat.agentId !== lead.agentId),
         candidateBProducedBy: seatAttribution(candidateBSeat, candidateBSeat.agentId !== second.agentId)
       }, leaseFence);
@@ -153,7 +159,9 @@ export class VolumePlanGenerationPipelineService {
           ...this.storedIds(scope, brief.volumePlanId, taskId)
         };
       }
-      const resultUnknown = this.repository.hasUnresolvedModelCall(scope, taskId);
+      const resultUnknown = this.repository.hasUnresolvedModelCallForAttempt(
+        scope, taskId, claimed.currentAttemptNo
+      );
       const failureCode = resultUnknown
         ? errorCodes.modelCallInterrupted
         : error instanceof DomainError ? error.code : 'VOLUME_PLAN_GENERATION_FAILED';
@@ -330,7 +338,7 @@ export class VolumePlanGenerationPipelineService {
         }
       } catch (error) {
         lastError = error;
-        if (this.repository.hasUnresolvedModelCall(scope, task.taskId)) throw error;
+        if (this.repository.isUnresolvedModelCall(scope, requestId)) throw error;
       }
     }
     throw lastError instanceof Error ? lastError : new Error('模型没有返回有效的卷规划。');
@@ -551,7 +559,8 @@ function buildPrompt(input: {
       authorPreferenceAndInspirationAreSoft: true,
       unsupportedCoreSettingAction: 'put the question into boundaries.openQuestions instead of inventing it'
     },
-    expressionBudget: [
+    expressionBudget: volumePlanExpressionBudget(input.candidateKind),
+    legacyExpressionBudget: [
       '以下限制只控制JSON传输长度，不限制故事创造性、事件差异或人物选择。',
       '每个事件字段用一至两句具体中文说清人物、行动、代价和状态变化，不复述整份设定。',
       'informationPlan、escalationAndRecovery、characterChanges及各边界数组只保留本卷真正需要的要点，每项不超过两句。',
@@ -590,6 +599,20 @@ function buildPrompt(input: {
       }
     }
   });
+}
+
+export function volumePlanExpressionBudget(candidateKind: CandidateKind): string[] {
+  const common = [
+    'Length limits control transport size only; they must not flatten causality, character choice or event differences.',
+    'Do not repeat the same fact in responsibility, entryState, trigger, action, result and leadsToNext.',
+    'Keep every top-level prose field within 120 Chinese characters.',
+    'Keep characterChanges, informationPlan, escalationAndRecovery and every boundaries array at no more than 5 items; each item must stay within 90 Chinese characters.',
+    'For every event, keep responsibility within 70 Chinese characters and each of entryState, trigger, action, result and leadsToNext within 110 Chinese characters.',
+    'Finish the complete JSON object before adding detail. Never spend the output limit on explanation, Markdown or repeated setting summaries.'
+  ];
+  return candidateKind === 'fusion'
+    ? ['The complete fusion JSON must stay within 7,500 Chinese characters.', ...common]
+    : ['The complete candidate JSON must stay within 9,000 Chinese characters.', ...common];
 }
 
 function retrievalQuery(
@@ -647,6 +670,22 @@ function selectTechnicalSubstitute(
 ): VolumePlanGenerationSeat | null {
   const unavailableAgents = new Set(unavailable.map((seat) => seat.agentId));
   const preference = ['backup_writer', 'researcher', 'literary_reviewer', 'deputy_editor', 'setting'];
+  return [...seats]
+    .filter((seat) => !seat.editor && !unavailableAgents.has(seat.agentId))
+    .sort((left, right) => {
+      const leftRank = preference.indexOf(left.roleKey);
+      const rightRank = preference.indexOf(right.roleKey);
+      return (leftRank === -1 ? preference.length : leftRank)
+        - (rightRank === -1 ? preference.length : rightRank);
+    })[0] ?? null;
+}
+
+export function selectEditorTechnicalSubstitute(
+  seats: VolumePlanGenerationSeat[],
+  unavailable: VolumePlanGenerationSeat[]
+): VolumePlanGenerationSeat | null {
+  const unavailableAgents = new Set(unavailable.map((seat) => seat.agentId));
+  const preference = ['researcher', 'setting', 'deputy_editor', 'literary_reviewer', 'backup_writer'];
   return [...seats]
     .filter((seat) => !seat.editor && !unavailableAgents.has(seat.agentId))
     .sort((left, right) => {

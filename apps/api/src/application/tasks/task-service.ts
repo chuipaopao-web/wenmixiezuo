@@ -323,7 +323,7 @@ export class TaskService {
   public requestCancel(scope: BookScope, taskId: string): TaskRecord {
     const task = this.require(scope, taskId);
     const now = this.clock.now().toISOString();
-    if (['pending', 'queued', 'paused', 'blocked'].includes(task.status)) {
+    if (['pending', 'queued', 'paused', 'blocked', 'waiting_confirmation'].includes(task.status)) {
       this.database.prepare(`
         UPDATE tasks SET status = 'cancelled', cancel_requested = 1, lease_owner = NULL,
           lease_expires_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ?

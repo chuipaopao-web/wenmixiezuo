@@ -13,9 +13,16 @@ import {
   nextExactManuscriptReviewAttempt,
   revisionRoundForRewriteCount,
   rewriteLengthGuardAction,
+  recollectionContinuityReviewRule,
+  characterPlanOrderReviewRule,
+  factInferenceBoundaryReviewRules,
+  experienceReviewJurisdictionRule,
+  literaryReviewJurisdictionRule,
+  shouldStopHardCheckRepair,
   resumedRewriteCount,
   shouldAutomaticallyRewriteReview,
-  targetedRewriteContractCharacterLimit
+  targetedRewriteContractCharacterLimit,
+  isTargetedRewriteContractSource
 } from '../../apps/api/src/application/creation/chapter-pipeline-service.js';
 
 describe('章节审校提示合同', () => {
@@ -81,6 +88,46 @@ describe('章节审校提示合同', () => {
     expect(resumedRewriteCount(2, true, 'rewrite_existing')).toBe(0);
     expect(resumedRewriteCount(2, false, 'review_existing')).toBe(0);
   });
+  it('treats explicit recollection as continuity rather than a repeated event', () => {
+    const rule = recollectionContinuityReviewRule();
+    expect(rule).toContain('昨夜');
+    expect(rule).toContain('回忆');
+    expect(rule).toContain('必须同时引用重复发生的两端证据');
+  });
+
+  it('does not turn a character plan into a rigid first-line execution order', () => {
+    const rule = characterPlanOrderReviewRule();
+    expect(rule).toContain('行动意图');
+    expect(rule).toContain('不自动锁死下一章第一句话或动作顺序');
+    expect(rule).toContain('仍完成该意图');
+  });
+
+  it('prevents fact review from inventing timing, knowledge-boundary, or ending-order conflicts', () => {
+    const rules = factInferenceBoundaryReviewRules().join('');
+    expect(rules).toContain('自行估算');
+    expect(rules).toContain('两个互相排斥的明确时间戳');
+    expect(rules).toContain('不得臆造两个数量之间的一一对应关系');
+    expect(rules).toContain('版本更新次数');
+    expect(rules).toContain('同一对象、同一指标、同一范围');
+    expect(rules).toContain('公开来源本身不能判major');
+    expect(rules).toContain('requiredEndingState约束本章结束时');
+    expect(rules).toContain('不默认锁死具体句子');
+  });
+
+  it('keeps canon and continuity verdicts out of the experience reviewer', () => {
+    const rule = experienceReviewJurisdictionRule();
+    expect(rule).toContain('由事实席独立裁决');
+    expect(rule).toContain('不得把这类客观核对判为blocker');
+    expect(rule).toContain('不得要求作者再次确认');
+  });
+
+  it('keeps knowledge-boundary and canon verdicts out of the literary reviewer', () => {
+    const rule = literaryReviewJurisdictionRule();
+    expect(rule).toContain('均由事实席裁决');
+    expect(rule).toContain('不得以“可能泄露事实”');
+    expect(rule).toContain('必须降为minor并给出pass');
+  });
+
   it('does not let automatic rewrites overwrite an owner-selected finalization draft', () => {
     expect(shouldAutomaticallyRewriteReview('review_existing', 0)).toBe(false);
     expect(shouldAutomaticallyRewriteReview('review_existing', 1)).toBe(false);
@@ -113,8 +160,15 @@ describe('章节审校提示合同', () => {
     expect(decideUnchangedRewriteRecovery(false, 2)).toBe('restore_hard_valid_ancestor');
     expect(boundedRewriteCountAfterAttempt(0)).toBe(1);
     expect(boundedRewriteCountAfterAttempt(1)).toBe(2);
-    expect(boundedRewriteCountAfterAttempt(2)).toBe(3);
-    expect(boundedRewriteCountAfterAttempt(3)).toBe(3);
+    expect(boundedRewriteCountAfterAttempt(2)).toBe(2);
+    expect(boundedRewriteCountAfterAttempt(3)).toBe(2);
+  });
+
+  it('keeps the one-time mechanical length repair inside the persisted two-rewrite boundary', () => {
+    expect(shouldStopHardCheckRepair(1, false, false)).toBe(false);
+    expect(shouldStopHardCheckRepair(2, true, false)).toBe(false);
+    expect(shouldStopHardCheckRepair(2, true, true)).toBe(true);
+    expect(shouldStopHardCheckRepair(2, false, false)).toBe(true);
   });
 
   it('只为其他硬检查全通过的近距离字数越界稿开放一次最终补救', () => {
@@ -157,10 +211,18 @@ describe('章节审校提示合同', () => {
 
   it('定点修订压缩继承契约但保留完整正文和修改要求', () => {
     expect(targetedRewriteContractCharacterLimit('chapter_work_order')).toBe(2_600);
+    expect(targetedRewriteContractCharacterLimit('stage_settlement_context')).toBe(1_200);
+    expect(targetedRewriteContractCharacterLimit('previous_chapter_end')).toBe(700);
+    expect(targetedRewriteContractCharacterLimit('previous_chapter_tail')).toBe(700);
+    expect(targetedRewriteContractCharacterLimit('active_commitments')).toBe(700);
     expect(targetedRewriteContractCharacterLimit('opening_profile')).toBe(450);
     expect(targetedRewriteContractCharacterLimit('style_baseline')).toBe(350);
     expect(targetedRewriteContractCharacterLimit('previous_chapter_anchors')).toBe(350);
     expect(targetedRewriteContractCharacterLimit('system_rule')).toBe(300);
     expect(targetedRewriteContractCharacterLimit('owner_rewrite_instruction')).toBe(600);
+    expect(isTargetedRewriteContractSource('previous_chapter_end')).toBe(true);
+    expect(isTargetedRewriteContractSource('previous_chapter_tail')).toBe(true);
+    expect(isTargetedRewriteContractSource('stage_settlement_context')).toBe(true);
+    expect(isTargetedRewriteContractSource('retrieval:manuscript')).toBe(false);
   });
 });

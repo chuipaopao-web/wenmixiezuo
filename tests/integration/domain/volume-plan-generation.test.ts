@@ -7,6 +7,8 @@ import { AuthorCollaborationService } from '../../../apps/api/src/application/pl
 import {
   parseVolumePlanModelOutput,
   isVolumePlanOutputCapped,
+  selectEditorTechnicalSubstitute,
+  volumePlanExpressionBudget,
   volumePlanOutputTokenLimit,
   VolumePlanGenerationPipelineService
 } from '../../../apps/api/src/application/planning/volume-plan-generation-pipeline-service.js';
@@ -212,6 +214,33 @@ describe('卷规划团队生成', () => {
     expect(volumePlanOutputTokenLimit('fusion')).toBe(12_000);
     expect(isVolumePlanOutputCapped(12_001, 12_000)).toBe(true);
     expect(isVolumePlanOutputCapped(5_493, 12_000)).toBe(false);
+    expect(volumePlanExpressionBudget('fusion')).toContain(
+      'The complete fusion JSON must stay within 7,500 Chinese characters.'
+    );
+    expect(volumePlanExpressionBudget('candidate_a')).toContain(
+      'The complete candidate JSON must stay within 9,000 Chinese characters.'
+    );
+  });
+
+  it('主编结果未知时由独立研究席优先接管融合，而不盲目重试原模型', () => {
+    const seat = (roleKey: string, editor = false) => ({
+      roleKey,
+      agentId: `agent-${roleKey}`,
+      displayName: roleKey,
+      modelSnapshotId: `snapshot-${roleKey}`,
+      provider: 'test-provider',
+      modelId: `model-${roleKey}`,
+      editor
+    });
+    const chief = seat('chief_editor', true);
+    const lead = seat('lead_screenwriter');
+    const second = seat('second_screenwriter');
+    const backup = seat('backup_writer');
+    const deputy = seat('deputy_editor');
+    const researcher = seat('researcher');
+    expect(selectEditorTechnicalSubstitute(
+      [chief, lead, second, backup, deputy, researcher], [chief, lead, second]
+    )?.roleKey).toBe('researcher');
   });
 });
 

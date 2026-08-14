@@ -79,9 +79,10 @@ export class StoryEventGenerationPipelineService {
       roleKey:member.roleKey as CreativeRoleKey,mode:'creative_exploration',canonRevision:snapshot.canonRevision,
       taskId:task.taskId,sourceTypes:['fact','manuscript','outline','setting','wiki','voice'],limit:kind==='fusion'?10:7
     });
+    const contextBudget=storyEventContextBudget(kind);
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:member.agentId,canonRevision:snapshot.canonRevision,
-      positioningVersion:snapshot.positioningVersion,tokenBudget:kind==='fusion'?24000:18000,
-      characterBudget:kind==='fusion'?56000:42000,policyVersion:'story-event-context-v1',
+      positioningVersion:snapshot.positioningVersion,tokenBudget:contextBudget.tokenBudget,
+      characterBudget:contextBudget.characterBudget,policyVersion:'story-event-context-v1',
       hardSources:[...hardSources(snapshot,brief,peers),...retrieved.hardSources],optionalSources:retrieved.optionalSources});
     const prompt=promptFor(member,kind,snapshot,brief,pack.sources.map(s=>({
       sourceType:s.sourceType,sourceId:s.sourceId,reason:s.reason,content:s.content
@@ -103,7 +104,7 @@ export class StoryEventGenerationPipelineService {
       const saved=this.repo.succeededResult(scope,{taskId:task.taskId,agentId:member.agentId,
         modelSnapshotId:member.modelSnapshotId,inputHash});
       if(saved!==undefined){try{return parseOutput(saved.output_text);}catch(error){issue=message(error);last=error;continue;}}
-      const maxOutputTokens=4500;
+      const maxOutputTokens=kind==='fusion'?9000:6000;
       // A following event carries the previous event settlement, so its prompt can be
       // materially larger than the first event. Freeze against the actual request
       // instead of a fixed first-event allowance. The two estimators cover both the
@@ -157,6 +158,11 @@ export function parseStoryEventModelOutput(output:string):StoryEventContent{
   for(const value of values){const candidates=record(value)?[value,value.content,value.storyEvent,value.payload]:[value];
     for(const candidate of candidates)try{return parseStoryEventContent(candidate);}catch{}}
   throw new Error('输出缺少合法事件大纲JSON。');
+}
+export function storyEventContextBudget(kind:Kind){
+  return kind==='fusion'
+    ?{tokenBudget:32000,characterBudget:76000}
+    :{tokenBudget:18000,characterBudget:42000};
 }
 function parseOutput(output:string){return parseStoryEventModelOutput(output);}
 function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,peers:StoryEventContent[]):ContextSource[]{

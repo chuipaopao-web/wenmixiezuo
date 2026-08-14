@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
+import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading, productionReviewContextBudget } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, MutableClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -19,6 +19,24 @@ describe('单章完整创作流水线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
+  it('事实审查在安全上限内扩容硬来源，文学和体验审查仍保持小资料包', () => {
+    const source = (sourceId: string, length: number) => ({
+      sourceType: 'test', sourceId, content: '甲'.repeat(length), reason: '测试硬来源', priority: 100
+    });
+    expect(productionReviewContextBudget('fact', [source('a', 15_437)])).toEqual({
+      tokenBudget: 15_437,
+      characterBudget: 15_437
+    });
+    expect(productionReviewContextBudget('fact', [source('a', 19_000)])).toEqual({
+      tokenBudget: 18_000,
+      characterBudget: 18_000
+    });
+    expect(productionReviewContextBudget('literary', [source('a', 15_437)])).toEqual({
+      tokenBudget: 8_500,
+      characterBudget: 8_500
+    });
+  });
+
   it('只拦截明确占位标记，不把游戏面板方括号误判成占位内容', () => {
     expect(containsExplicitPlaceholder('【身份：无籍流民】\n【可提现收益：0元】')).toBe(false);
     expect(containsExplicitPlaceholder('正文\n【TODO】\n正文')).toBe(true);
@@ -34,6 +52,8 @@ describe('单章完整创作流水线', () => {
   });
 
   it('拒绝正文暴露JSON字段、上下文来源或工作流载荷', () => {
+    expect(containsInternalWorkflowPayload('前章她已经把路线全部改成实线。')).toBe(true);
+    expect(containsInternalWorkflowPayload('本章完成了两人的第一次正面冲突。')).toBe(true);
     expect(containsInternalWorkflowPayload('薄雾压城。{"chapterNumber":2,"continuityAnchors":{}}，她继续追查。')).toBe(true);
     expect(containsInternalWorkflowPayload('正文\n\`\`\`json\n{}\n\`\`\`')).toBe(true);
     expect(containsInternalWorkflowPayload('ContextPack已编译，随后执行质量门禁。')).toBe(true);
@@ -125,7 +145,7 @@ describe('单章完整创作流水线', () => {
         phase_key: string; policy_version: string; source_manifest_json: string;
       }>;
     const factReview = reviewCalls.find((call) => call.phase_key.includes('-fact-'));
-    expect(factReview?.policy_version).toBe('production-review-fact-context-v5-planning-chain-15000chars');
+    expect(factReview?.policy_version).toBe('production-review-fact-context-v6-adaptive-15000-18000chars');
     const factSources = JSON.parse(factReview?.source_manifest_json ?? '[]') as Array<{ sourceType: string; content: string }>;
     expect(factSources.map((source) => source.sourceType)).toContain('previous_chapter_full');
     expect(factSources.find((source) => source.sourceType === 'previous_chapter_full')?.content.length).toBeGreaterThan(800);

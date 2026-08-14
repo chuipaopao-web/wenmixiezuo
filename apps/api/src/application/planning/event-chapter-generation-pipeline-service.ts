@@ -6,6 +6,8 @@ import type { Clock,IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import { EventChapterGenerationRepository } from '../../infrastructure/db/repositories/event-chapter-generation-repository.js';
 import { EventChapterOutlineRepository } from '../../infrastructure/db/repositories/event-chapter-outline-repository.js';
+import { LongformContinuityRepository,type SettlementContextRecord } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
+import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
@@ -16,6 +18,7 @@ import { EventChapterOutlineService } from './event-chapter-outline-service.js';
 
 export class EventChapterGenerationPipelineService {
   public constructor(private readonly repo:EventChapterGenerationRepository,private readonly outlineRepo:EventChapterOutlineRepository,
+    private readonly continuity:LongformContinuityRepository,
     private readonly plans:EventChapterOutlineService,_generations:EventChapterGenerationService,
     private readonly tasks:TaskService,private readonly budgets:BudgetService,private readonly calls:ModelCallService,
     private readonly packs:ContextPackService,private readonly ids:IdGenerator,private readonly clock:Clock,
@@ -47,26 +50,40 @@ export class EventChapterGenerationPipelineService {
   private async generateSequence(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const sources:ContextSource[]=[
+      ...settlementSources(this.continuity.writerSettlementContext(scope,view.nextChapterNumber,5)),
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
-        content:snapshot.volumeContent,reason:'活动卷纲是当前事件章节序列的上层约束',priority:100},
+        content:compactVolumeForEvent(snapshot.volumeContent,eventTitle(snapshot.eventContent)),
+        reason:'活动卷纲中与当前事件直接相关的上层约束',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
         content:snapshot.eventContent,reason:'已确认事件大纲；完整章节序列必须实现其结束条件',priority:100},
       {sourceType:'owner:chapter_sequence_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
         reason:'作者对当前事件章序列的原话',priority:100}
     ];
-    const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
+    const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
+      canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
       tokenBudget:16000,characterBudget:36000,policyVersion:'event-chapter-sequence-v1',hardSources:sources,optionalSources:[]});
     const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
     const skeletonPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton',language:'zh-CN',
       seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},startChapterNumber:view.nextChapterNumber,
-      instructions:['先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
+      instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。','先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
         '相邻章必须严格承接：后一章openingState与前一章endingState逐字相同。','每项已确认事件结束条件都要原样复制，并标明在哪一章闭环。',
         '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
       outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
         eventResponsibility:'本章对事件的唯一作用',openingState:'开章状态',endingState:'章末状态',nextChapterInterface:'下一章接口'}],
         eventEndingConditions:['原样复制事件结束条件'],closureCoverage:[{endingCondition:'结束条件',evidenceChapterNumber:1}],
         flexibilityNotes:['可滚动调整的部分']}});
-    const skeleton=parseSequenceSkeleton(await this.call(scope,task,brief,skeletonPrompt,pack.contextPackId,'sequence-skeleton',5500));
+    const skeletonOutput=await this.call(scope,task,brief,skeletonPrompt,pack.contextPackId,'sequence-skeleton',5500);
+    let skeleton:SequenceSkeleton;
+    try{skeleton=parseSequenceSkeleton(skeletonOutput);}catch{
+      const repairPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton_repair',language:'zh-CN',
+        instruction:'上一次返回接近完整，但至少缺少一个必填字段。只修复JSON结构，不改变故事内容；每章都必须有chapterNumber、title、eventResponsibility、openingState、endingState、nextChapterInterface，最后一章也不能省略nextChapterInterface。',
+        invalidOutput:skeletonOutput,outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,
+          chapters:[{chapterNumber:view.nextChapterNumber,title:'章名',eventResponsibility:'本章作用',openingState:'开章状态',endingState:'章末状态',
+            nextChapterInterface:'下一章或下一事件承接'}],eventEndingConditions:['事件结束条件'],
+          closureCoverage:[{endingCondition:'必须与结束条件逐字相同',evidenceChapterNumber:view.nextChapterNumber}],flexibilityNotes:['可自由发挥处']}});
+      skeleton=parseSequenceSkeleton(await this.call(scope,task,brief,repairPrompt,pack.contextPackId,'sequence-skeleton-repair',6500));
+    }
+    skeleton=normalizeGeneratedSequenceSkeleton(skeleton,JSON.parse(snapshot.eventContent) as{title:string;endingConditions:string[]});
     const details:SequenceChapterDetail[]=[];
     for(let index=0;index<skeleton.chapters.length;index+=3){
       const targets=skeleton.chapters.slice(index,index+3),chapterNumbers=targets.map(chapter=>chapter.chapterNumber);
@@ -100,41 +117,53 @@ export class EventChapterGenerationPipelineService {
       lastIndex=activeSequence.chapters.findIndex(chapter=>chapter.chapterNumber===targets.at(-1)!.chapterNumber);
     const sequenceContext={eventTitle:activeSequence.eventTitle,startChapterNumber:activeSequence.startChapterNumber,
       targetChapterRange:{start:targets[0]!.chapterNumber,end:targets.at(-1)!.chapterNumber},
-      previousChapter:firstIndex>0?activeSequence.chapters[firstIndex-1]:null,
+      previousChapter:firstIndex>0?compactSequenceNeighbor(activeSequence.chapters[firstIndex-1]!):null,
       targetChapters:activeSequence.chapters.slice(firstIndex,lastIndex+1),
-      followingChapter:lastIndex>=0&&lastIndex<activeSequence.chapters.length-1?activeSequence.chapters[lastIndex+1]:null,
+      followingChapter:lastIndex>=0&&lastIndex<activeSequence.chapters.length-1
+        ?compactSequenceNeighbor(activeSequence.chapters[lastIndex+1]!):null,
       eventEndingConditions:activeSequence.eventEndingConditions,closureCoverage:activeSequence.closureCoverage,
       flexibilityNotes:activeSequence.flexibilityNotes};
+    const settlements=this.continuity.writerSettlementContext(scope,targets[0]!.chapterNumber,5);
     const sources:ContextSource[]=[
+      ...settlementSources(settlements),
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
-        content:snapshot.volumeContent,reason:'活动卷纲硬约束',priority:100},
+        content:compactVolumeForEvent(snapshot.volumeContent,activeSequence.eventTitle),reason:'活动卷纲中与当前事件相关的硬约束',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
         content:snapshot.eventContent,reason:'活动事件硬约束',priority:100},
       {sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
         content:JSON.stringify(sequenceContext),reason:'已确认章序列中本轮三章及其前后承接点',priority:100},
-      {sourceType:'planning:recent_chapter_slots',sourceId:'recent:'+brief.eventId,content:JSON.stringify(targets.map(x=>x.planned)),
-        reason:'本轮仅细化的最近一至三章',priority:100},
       {sourceType:'owner:chapter_outline_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
         reason:'作者对本轮章纲的原话',priority:100}
     ];
-    const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
+    const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
+      canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
       tokenBudget:22000,characterBudget:50000,policyVersion:'event-chapter-details-v1',hardSources:sources,optionalSources:[]});
     const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
     const details:ChapterOutlineV2[]=[];
-    for(const target of targets){
+    const latestSettledChapter=this.continuity.latestSettledChapter(scope);
+    const firstHasCanonPredecessor=latestSettledChapter===targets[0]!.chapterNumber-1;
+    let previousGeneratedEndingState:string|null=null;
+    for(const [index,target] of targets.entries()){
       const prompt=JSON.stringify({operation:'event_chapter_detail_generation_v1',generationPhase:'single_chapter',language:'zh-CN',
         seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},chapterNumbers:[target.chapterNumber],
-        instructions:['只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
+        previousGeneratedEndingState,
+        instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',
+          ...(previousGeneratedEndingState===null?[]:[`本章openingState必须逐字等于上一份详细章纲的requiredEndingState：${previousGeneratedEndingState}`]),
+          '只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
           '保留非空自由创作区，正文不是逐字段扩写。','设计三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。',
           '保持自然、具体、简洁，不写正文，不解释系统规则；只输出JSON。'],sources:sourcePayload,
         outputContract:{outlines:[detailContract(target.chapterNumber)]}});
-      details.push(...parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId,
-        'details-chapter-'+target.chapterNumber,5000),1));
+      const [generated]=parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId,
+        'details-chapter-'+target.chapterNumber),1);
+      const normalized=normalizeGeneratedDetailContinuity({generated:generated!,plannedOpeningState:target.planned.openingState,
+        previousGeneratedEndingState,hasCanonPredecessor:index===0&&firstHasCanonPredecessor});
+      details.push(normalized);previousGeneratedEndingState=normalized.requiredEndingState;
     }
     const saved=targets.map((target,index)=>this.plans.addOutlineVersion(scope,target.outlineId,{
       expectedOutlineRevision:brief.outlineRefs[index]!.revision,parentVersionId:brief.outlineRefs[index]!.activeVersionId,
       authorInputRefs:brief.authorIdeas.filter(idea=>idea.subjectId===target.outlineId).map(idea=>idea.id),
       content:details[index] as unknown as Record<string,unknown>,sourceTaskId:task.taskId,
+      contextOpeningState:details[index]!.openingState,
       idempotencyKey:task.taskId+':outline:'+target.outlineId}));
     return{outlineVersionIds:saved.map(item=>item.outlineVersionId)};
   }
@@ -235,11 +264,35 @@ export class EventChapterGenerationPipelineService {
     ||task.leaseOwner!==workerId||(fence!==undefined&&(task.leaseToken!==fence.leaseToken||task.currentAttemptNo!==fence.attemptNo)))
     throw new Error('章纲任务未由指定Worker持有。');}
 }
+function compactVolumeForEvent(content:string,eventTitle:string){try{const plan=JSON.parse(content) as Record<string,unknown>;
+  const events=Array.isArray(plan.eventSequence)?plan.eventSequence:[],currentEvent=events.find(item=>record(item)&&item.title===eventTitle);
+  return JSON.stringify({title:plan.title,openingState:plan.openingState,coreGoal:plan.coreGoal,coreConflict:plan.coreConflict,
+    failureCost:plan.failureCost,characterChanges:plan.characterChanges,currentEvent,informationPlan:plan.informationPlan,
+    escalationAndRecovery:plan.escalationAndRecovery,endingState:plan.endingState,openThreads:plan.openThreads,
+    nextVolumeTrigger:plan.nextVolumeTrigger,boundaries:plan.boundaries});
+}catch{return content;}}
+function eventTitle(content:string){try{const value=JSON.parse(content) as Record<string,unknown>;
+  return typeof value.title==='string'?value.title:'';}catch{return'';}}
+function compactSequenceNeighbor(chapter:EventChapterSequenceContent['chapters'][number]){return{
+  chapterNumber:chapter.chapterNumber,title:chapter.title,eventResponsibility:chapter.eventResponsibility,
+  openingState:chapter.openingState,endingState:chapter.endingState,nextChapterInterface:chapter.nextChapterInterface
+};}
+export function normalizeGeneratedDetailContinuity(input:{generated:ChapterOutlineV2;plannedOpeningState:string;
+  previousGeneratedEndingState:string|null;hasCanonPredecessor:boolean}):ChapterOutlineV2{
+  const openingState=input.previousGeneratedEndingState??(input.hasCanonPredecessor
+    ?input.generated.openingState:input.plannedOpeningState);
+  return{...input.generated,openingState};
+}
+function settlementSources(records:SettlementContextRecord[]):ContextSource[]{if(records.length===0)return[];return[{
+  sourceType:'canon:settlement_context',sourceId:records.map(record=>record.settlementId).join(':'),
+  version:records.map(record=>record.version).join(':'),content:compactStageSettlementContext(records,1800),
+  reason:'分层压缩后的最新已结算正史；旧规划与它冲突时以正史为准，需要细节再回查正式来源',priority:120
+}];}
 function parseSequence(output:string):EventChapterSequenceContent{for(const value of candidates(output))try{return parseEventChapterSequenceContent(value);}catch{}
   throw new Error('模型没有返回有效事件章纲序列JSON。');}
-interface SequenceSkeletonChapter{chapterNumber:number;title:string;eventResponsibility:string;openingState:string;endingState:string;
+export interface SequenceSkeletonChapter{chapterNumber:number;title:string;eventResponsibility:string;openingState:string;endingState:string;
   nextChapterInterface:string;}
-interface SequenceSkeleton{eventTitle:string;startChapterNumber:number;chapters:SequenceSkeletonChapter[];eventEndingConditions:string[];
+export interface SequenceSkeleton{eventTitle:string;startChapterNumber:number;chapters:SequenceSkeletonChapter[];eventEndingConditions:string[];
   closureCoverage:{endingCondition:string;evidenceChapterNumber:number}[];flexibilityNotes:string[];}
 interface SequenceChapterDetail{chapterNumber:number;characterGoals:string[];conflicts:string[];choicesAndCosts:string[];
   informationChanges:string[];storyBeats:string[];softSuggestions:string[];creativeFreedom:string[];}
@@ -258,6 +311,15 @@ function parseSequenceSkeleton(output:string):SequenceSkeleton{for(const value o
       flexibilityNotes:textList(value.flexibilityNotes,false)};
   }catch{}}
   throw new Error('模型没有返回完整、连续的事件章节骨架JSON。');}
+export function normalizeGeneratedSequenceSkeleton(skeleton:SequenceSkeleton,event:{title:string;endingConditions:string[]}):SequenceSkeleton{
+  if(event.endingConditions.length!==skeleton.closureCoverage.length)
+    throw new Error('模型返回的事件闭环数量与已确认事件不一致。');
+  const coverageByCondition=new Map(skeleton.closureCoverage.map(item=>[item.endingCondition,item.evidenceChapterNumber]));
+  return{...skeleton,eventTitle:event.title,eventEndingConditions:[...event.endingConditions],
+    chapters:skeleton.chapters.map((chapter,index)=>index===0?chapter:{...chapter,openingState:skeleton.chapters[index-1]!.endingState}),
+    closureCoverage:event.endingConditions.map((endingCondition,index)=>({endingCondition,
+      evidenceChapterNumber:coverageByCondition.get(endingCondition)??skeleton.closureCoverage[index]!.evidenceChapterNumber}))};
+}
 function parseSequenceDetails(output:string,chapterNumbers:number[]):SequenceChapterDetail[]{for(const value of candidates(output)){if(!record(value)||!Array.isArray(value.chapters))continue;
   try{const parsed=value.chapters.map(item=>{if(!record(item))throw new Error('invalid detail');return{chapterNumber:positive(item.chapterNumber),
     characterGoals:textList(item.characterGoals,false),conflicts:textList(item.conflicts,false),choicesAndCosts:textList(item.choicesAndCosts,false),

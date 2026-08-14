@@ -615,7 +615,14 @@ export class ChapterPipelineService {
           hardCheck.checks.length.maximum,
           true
         );
-      if (run.rewrite_count >= 3 || (run.rewrite_count >= 2 && !finalLengthOnlyRepairEligible)) {
+      const finalLengthHardRepairAlreadyAttempted = run.rewrite_count >= 2
+        && this.database.prepare('SELECT 1 FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE ? AND state = ? LIMIT 1')
+          .get(scope.ownerId, scope.bookId, run.task_id, 'rewrite-3:%', 'succeeded') !== undefined;
+      if (shouldStopHardCheckRepair(
+        run.rewrite_count,
+        finalLengthOnlyRepairEligible,
+        finalLengthHardRepairAlreadyAttempted
+      )) {
         const restored = this.restoreNearestHardValidAncestor(scope, run);
         if (restored !== null) return restored;
         throw new QualityBlockedError('有界定点修复后正文硬检查仍未通过，且没有可恢复的完整合格稿，已停止机械补写');
@@ -828,26 +835,27 @@ export class ChapterPipelineService {
       const roleFrozenReviewSources = reviewer.role === 'fact'
         ? boundedFrozenReviewSources.filter((source) => !['previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
         : boundedFrozenReviewSources;
-      const reviewCharacterBudget = reviewer.role === 'fact' ? 15_000 : 8_500;
+      const reviewHardSources: ContextSource[] = [
+        { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
+        ...ownerReviewSources,
+        ...roleFrozenReviewSources,
+        ...factPreviousChapterSource,
+        ...(reviewer.role === 'fact' ? planningFactSources : []),
+        ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
+          ...source,
+          content: clipContext(source.content, 300)
+        }))
+      ];
+      const reviewBudget = productionReviewContextBudget(reviewer.role, reviewHardSources);
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId: run.task_id, agentId: reviewer.agent.agentId, chapterId: run.chapter_id,
         canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
-        tokenBudget: reviewCharacterBudget,
-        characterBudget: reviewCharacterBudget,
+        tokenBudget: reviewBudget.tokenBudget,
+        characterBudget: reviewBudget.characterBudget,
         policyVersion: reviewer.role === 'fact'
-          ? 'production-review-fact-context-v5-planning-chain-15000chars'
+          ? 'production-review-fact-context-v6-adaptive-15000-18000chars'
           : `production-review-${reviewer.role}-context-v2-8500chars`,
-        hardSources: [
-          { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
-          ...ownerReviewSources,
-          ...roleFrozenReviewSources,
-          ...factPreviousChapterSource,
-          ...(reviewer.role === 'fact' ? planningFactSources : []),
-          ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
-            ...source,
-            content: clipContext(source.content, 300)
-          }))
-        ],
+        hardSources: reviewHardSources,
         optionalSources: reviewerSources.optionalSources
       });
       const adapter = this.modelAdapters.resolve(reviewer.agent.provider, reviewer.agent.modelId, 'novel_reviewer', reviewer.agent.roleKey as never);
@@ -870,6 +878,9 @@ export class ChapterPipelineService {
                 '局部说明不足、可由常识合理推断的动作、开放谜团、尚未解释的异常机制和可选设定建议只能是minor或observation；缺少解释本身不是矛盾。',
                 '只有问题存在两个都自洽的阅读方式、属于措辞偏好或局部说明不足时，才可判minor/pass。若同一实体的编号种类、日期时间、颜色材质、数量尺寸、位置、身份/状态或已完成动作与前章定稿明确不同，必须判major/rewrite；即使只需补充、删除或替换一两句，也不得因修复成本低而降级。',
                 '前文已经出现但本章没有再次复述的细节，不能仅凭“未提及”判为major。只有本章明确否认该事实、遗漏使因果动作无法成立，或该细节属于章纲/写作工单硬要求时，才可判major；否则最多minor。',
+                characterPlanOrderReviewRule(),
+                ...factInferenceBoundaryReviewRules(),
+                recollectionContinuityReviewRule(),
                 '事件级结束状态只约束事件最后一章，不自动约束当前单章。若冻结本章工单没有要求、或明确禁止当前章发生，不得依据事件终态判当前正文遗漏或矛盾。',
                 '报告人物、盯梢者、伏笔或动作缺席前，必须检查current_manuscript全文；后文已经出现、或通过身份令牌和行动可以唯一确认时，不得判遗漏。',
                 'retrieval:fact中的H车道objective正史事实优先于人物说法、旧章节中的当时认知和conflicted/claim资料；早期误认死亡、后续发现假尸或本人归队属于时间推进，不是正文自相矛盾。',
@@ -883,6 +894,7 @@ export class ChapterPipelineService {
                   '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡或认知提示，精简副词或增加微反应，则属于局部低成本建议，severity最高只能是minor且verdict应为pass；不得用major强制偏好的解释密度。',
                   '人物知晓危险并不排除饥渴、恐惧、犹豫、冲动或隐瞒等同时存在的动机；除非正文明确证明两种状态在同一时刻不可共存，否则不得判为动机断裂。',
                   '正史、时间线、世界规则、数量、来源、编号、作者硬要求是否被执行和设定边界的客观裁决属于事实席；文学席可记录阅读疑点，但不得把这些事实核对改写成文学major，也不得仅因新线索尚未解释或缺少前置说明就判定lore/canon/continuity blocker。',
+                  literaryReviewJurisdictionRule(),
                   '提出问题前先反查evidence原句与作者硬要求：若正文已经逐字包含requiredAction要求补写的关键信息，或作者硬要求本来就明确授权该表述，该问题自相矛盾，必须删除而不是要求重写。'
                 ]
               : [
@@ -890,6 +902,7 @@ export class ChapterPipelineService {
                   'major只用于会显著造成跳读/弃读、情绪逻辑断裂或核心钩子不可理解的问题；低成本体验优化只能是minor。',
                   '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡、微反应或一句钩子台词，则severity最高只能是minor且verdict应为pass。',
                   '长篇连载章节可以直接承接上一章并从动作中开始，不强制每章复述前情；只要当前场景可理解，缺少回顾最多是observation。正文已用岗位称呼、持有物或行动展示职责时，不得仅因没有背景履历判定人物根基缺失。',
+                  experienceReviewJurisdictionRule(),
                   '政治/情色风险等级必须基于明确政策证据，不能由题材、冲突强度或个人不适推断。'
                 ],
           ...(adapter.provider.startsWith('local-deterministic') ? { content } : {}),
@@ -943,7 +956,7 @@ export class ChapterPipelineService {
             normalizeIssueLimit: true,
             normalizeRepairedSeverity: true, normalizeIssueFieldAliases: true,
             normalizeFrozenBindings: true, normalizeProvisionalDraftBlockers: true,
-            normalizeFactOmissionMajor: true
+            normalizeFactOmissionMajor: true, allowDroppingUngroundedIssues: true
           });
         } catch (repairError) {
           throw repairError instanceof ModelTechnicalFailureError
@@ -1269,12 +1282,10 @@ export class ChapterPipelineService {
             ...(source.version === null ? {} : { version: source.version }),
             hard: source.hard
           }));
-    // A targeted rewrite already carries the complete current manuscript. Re-injecting the
-    // draft pack's stage summary, previous chapter tail and retrieval hits duplicates material
-    // that is now embodied in that manuscript, consumes the bounded rewrite budget and can pull
-    // the writer away from the requested local edits. Keep only the compact contracts that still
-    // govern the replacement text; the immutable work order remains the authority for facts and
-    // boundaries, while the current manuscript preserves the realised scene and continuity.
+    // A targeted rewrite already carries the complete current manuscript, but that manuscript may
+    // be exactly where a reviewer found a cross-chapter contradiction. Keep the compact current
+    // contracts plus the adjacent canon ending and settled state. Retrieval hits remain excluded:
+    // they are wider references, while these sources are deterministic authority for continuity.
     const rewriteContracts = inheritedSources.filter((source) => isTargetedRewriteContractSource(source.sourceType))
       .map((source) => ({
         ...source,
@@ -2007,7 +2018,6 @@ export function chapterReviewSourceBoundaryContract(): string[] {
     'sourceType=owner_rewrite_instruction是作者针对当前版本的最新修改要求；在不违反已确认正史、卷/事件硬边界和人物不可能状态的前提下，它优先于章纲中的软细节、旧措辞和可替代调度。',
     '章纲、写作契约和规划链若彼此冲突，必须把它标为上游规划冲突并保留证据，不能把作者明确选择且因果自洽的正文判为违规；不得要求正文同时满足两个互斥动作。',
     '冻结本章章纲中的mustImplement、mustNotViolate、requiredEndingState和nextChapterInterface是当前章硬边界；文学席和体验席可以建议换写法、压缩或后移软细节，但不得要求删除必写人物线、必写动作、必写信息变化或章末接口。',
-    '冻结本章章纲中的mustImplement、mustNotViolate、requiredEndingState和nextChapterInterface是当前章硬边界；文学席和体验席可以建议换写法、压缩或后移软细节，但不得要求删除必写人物线、必写动作、必写信息变化或章末接口。',
     '事件结束状态属于多章事件全部完成后的目标，不等于当前单章必须达到的状态。判断当前章遗漏时，只以冻结的本章章纲和本章写作工单为准；不得把后续章节才兑现的事件终态提前塞入当前章。',
     '若本章工单明确禁止某能力、道具或代价在本章发动，它优先于事件级后续结果；事实席不得以“事件最终会发生”为由要求当前章违反禁止项。',
     '下一章接口描述下一章应继续承接的局面，不是禁止本章提前收到消息、埋下线索或启动行动；只有本章已经完整解决下一章任务、导致后续无法成立时，才构成结构冲突。',
@@ -2106,6 +2116,10 @@ export function compactChapterModelTaskInput(phaseKey: string, parsedTaskInput: 
 
 export function targetedRewriteContractCharacterLimit(sourceType: string): number {
   if (sourceType === 'chapter_work_order') return 2_600;
+  if (sourceType === 'stage_settlement_context') return 1_200;
+  if (sourceType === 'previous_chapter_end') return 700;
+  if (sourceType === 'previous_chapter_tail') return 700;
+  if (sourceType === 'active_commitments') return 700;
   if (sourceType === 'owner_rewrite_instruction') return 600;
   if (sourceType === 'opening_profile') return 450;
   if (sourceType === 'style_baseline') return 350;
@@ -2117,6 +2131,10 @@ export function isTargetedRewriteContractSource(sourceType: string): boolean {
   return sourceType === 'system_rule'
     || sourceType === 'owner_rewrite_instruction'
     || sourceType === 'chapter_work_order'
+    || sourceType === 'stage_settlement_context'
+    || sourceType === 'previous_chapter_end'
+    || sourceType === 'previous_chapter_tail'
+    || sourceType === 'active_commitments'
     || sourceType === 'opening_profile'
     || sourceType === 'style_baseline'
     || sourceType === 'previous_chapter_anchors';
@@ -2397,6 +2415,44 @@ export function rewriteLengthGuardAction(characterCount: number): string {
   return `修订前正文为${characterCount}个有效字符。本轮所有文学性、体验和事实修改必须同时满足字数硬约束：修订后优先保持在2700至3200个有效汉字、字母或数字，严禁少于2350或超过3650；要求冲突时压缩解释、同义复述和无因果段落，不得破坏已通过的硬门禁。`;
 }
 
+export function productionReviewContextBudget(
+  role: 'fact' | 'literary' | 'experience',
+  hardSources: ContextSource[]
+): { tokenBudget: number; characterBudget: number } {
+  if (role !== 'fact') return { tokenBudget: 8_500, characterBudget: 8_500 };
+  const requiredCharacters = hardSources.reduce((sum, source) => sum + source.content.length, 0);
+  const requiredTokens = hardSources.reduce((sum, source) => sum + estimateTokens(source.content), 0);
+  return {
+    characterBudget: Math.min(18_000, Math.max(15_000, requiredCharacters)),
+    tokenBudget: Math.min(18_000, Math.max(15_000, requiredTokens))
+  };
+}
+
+export function recollectionContinuityReviewRule(): string {
+  return '正文用“昨夜、此前、想起、记得、仍、还”等明确回顾标记简述已发生事件，是连续叙事中的回忆，不等于事件再次发生。只有正文把该行动放进当前时间重新执行、让已消耗资源无来源复原后再次消耗、让已完成状态被重置，或明确给出互相排斥的第二套时间结果，才可判定时间线重复；必须同时引用重复发生的两端证据。';
+}
+
+export function characterPlanOrderReviewRule(): string {
+  return '人物在前章想“先问、准备问、打算做”表达的是行动意图，不自动锁死下一章第一句话或动作顺序。只要本章仍完成该意图，且调整顺序符合现场反应、信息差和人物策略，就不构成连续性冲突；只有冻结章纲或作者硬要求明确规定顺序，或改序导致该意图事实上未发生、因果无法成立，才可判major。';
+}
+
+export function factInferenceBoundaryReviewRules(): string[] {
+  return [
+    '不得把自行估算的对白、观察或操作耗时当成正文时间矛盾。只有正文给出两个互相排斥的明确时间戳、倒计时或先后关系，且数学上或因果上确实不可能同时成立时，才可判major；合理的时间窗口不得凭主观节奏估计打回。',
+    '不得臆造两个数量之间的一一对应关系。不同口径、不同时间范围或不同对象的数量可以同时成立，例如“版本更新次数”不等于“某一版本下现有完整录像场数”。数量冲突必须是同一对象、同一指标、同一范围内出现两个不能同时成立的明确值，并同时引用两端正文证据；仅凭“可能对应不上”不得判major。',
+    '人物知道公开资料、公开回放或公开平台来源，不等于人物提前知道资料被篡改、幕后者身份或隐藏结论。知识边界违规必须引用人物尚未获得却在正文中被其明确说出的隐藏结论；公开来源本身不能判major。',
+    'requiredEndingState约束本章结束时必须形成的结果或状态，不默认锁死具体句子、动作和揭示的先后顺序。除非冻结合同明确标记顺序不可调整，或改序使因果无法成立，否则只能检查章末是否达到该状态，不能因表达顺序变化判major。'
+  ];
+}
+
+export function experienceReviewJurisdictionRule(): string {
+  return '人物姓名、人数、身份、正史、时间线、知识边界和章纲硬约束是否冲突，均由事实席独立裁决。体验席可以记录读者是否困惑，但不得把这类客观核对判为blocker，也不得要求作者再次确认；若阅读体验本身仍可理解，最多记为observation并交事实席处理。';
+}
+
+export function literaryReviewJurisdictionRule(): string {
+  return '人物是否越过知识边界、姓名身份是否漂移、数量时间是否矛盾以及章纲硬约束是否落实，均由事实席裁决。文学席只能判断这些写法是否造成可观察的阅读断裂；不得以“可能泄露事实”“可能越权”或“应再解释设定”为由判major/rewrite。若只需删改一两句且主场景、人物动机、冲突和章末钩子仍成立，必须降为minor并给出pass。';
+}
+
 export function finalLengthHardRepairAction(characterCount: number, minimum = 2_350, maximum = 3_650): string {
   if (characterCount < minimum) {
     const requiredAddition = Math.max(2_700 - characterCount, minimum - characterCount + 180);
@@ -2427,7 +2483,19 @@ export function decideUnchangedRewriteRecovery(
 }
 
 export function boundedRewriteCountAfterAttempt(rewriteCount: number): number {
-  return Math.min(3, Math.max(0, rewriteCount + 1));
+  // The persisted schema deliberately caps creative rewrite_count at two. A third call is
+  // permitted only as a mechanical length repair and is identified by its rewrite-3 model
+  // phase, so it must not attempt to persist an out-of-contract count of three.
+  return Math.min(2, Math.max(0, rewriteCount + 1));
+}
+
+export function shouldStopHardCheckRepair(
+  rewriteCount: number,
+  finalLengthOnlyRepairEligible: boolean,
+  finalLengthHardRepairAlreadyAttempted: boolean
+): boolean {
+  if (rewriteCount < 2) return false;
+  return !finalLengthOnlyRepairEligible || finalLengthHardRepairAlreadyAttempted;
 }
 
 export function isBoundedLengthHardRepairEligible(
@@ -2463,6 +2531,7 @@ export function containsMarkdownChapterHeading(content: string): boolean {
 }
 
 export function containsInternalWorkflowPayload(content: string): boolean {
+  if (/(?:前章|上一章|本章|下一章)/u.test(content)) return true;
   return /(?:workflowArtifact|confirmed_decisions|ContextPack|context_pack|contextPack|system\s*prompt|模型快照|检索记录|正式来源|质量门禁|硬检查|工作流载荷|```json|"(?:chapterNumber|continuityAnchors|sourceId|source_id|owner_id|book_id|prompt|schema)"\s*:|\bundefined\b)/iu.test(content);
 }
 

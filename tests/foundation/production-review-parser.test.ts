@@ -130,6 +130,25 @@ describe('三点评结构化契约', () => {
     expect(repaired.issues[0]?.severity).toBe('minor');
   });
 
+  it('事实席自承两种解释可以自洽且只需局部桥接时不能保留major', () => {
+    const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
+    const raw = JSON.stringify({
+      ...fact, verdict: 'rewrite', summary: '称谓之间缺少过渡',
+      issues: [{
+        location: '父亲线索对话', issueType: '人称指向过渡缺失', severity: 'major',
+        evidence: '两句本身可自洽，同一残阵串联了两个父亲各自的旧事，读者可能误读为口误。',
+        requiredAction: '补一句最小过渡，使两个父亲线索的关联路径可见。'
+      }],
+      scores: { continuity: 88 }, factCandidates: []
+    });
+    const repaired = parseProductionReview(raw, fact, {
+      normalizeFactOmissionMajor: true,
+      normalizeRepairedVerdict: true
+    });
+    expect(repaired.verdict).toBe('pass');
+    expect(repaired.issues[0]?.severity).toBe('minor');
+  });
+
   it('事实席仍把章纲硬要求缺失保留为major', () => {
     const fact = { reviewerRole: 'fact' as const, manuscriptVersionId: 'manuscript-1', modelSnapshotId: 'model-fact' };
     const raw = JSON.stringify({

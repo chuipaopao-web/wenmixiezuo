@@ -6,7 +6,8 @@ import { CreationWorkflowProgressService } from '../../../apps/api/src/applicati
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
-import { eventChapterOutputTokenLimit, EventChapterGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chapter-generation-pipeline-service.js';
+import { parseChapterOutlineV2 } from '../../../apps/api/src/domain/artifact-schemas.js';
+import { eventChapterOutputTokenLimit, EventChapterGenerationPipelineService,normalizeGeneratedDetailContinuity,normalizeGeneratedSequenceSkeleton } from '../../../apps/api/src/application/planning/event-chapter-generation-pipeline-service.js';
 import { EventChapterGenerationService } from '../../../apps/api/src/application/planning/event-chapter-generation-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { EventChapterGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/event-chapter-generation-repository.js';
@@ -17,6 +18,7 @@ import { StoryEventService } from '../../../apps/api/src/application/planning/st
 import { VolumePlanService } from '../../../apps/api/src/application/planning/volume-plan-service.js';
 import { UnitOfWork } from '../../../apps/api/src/infrastructure/db/unit-of-work.js';
 import { EventChapterOutlineRepository } from '../../../apps/api/src/infrastructure/db/repositories/event-chapter-outline-repository.js';
+import { LongformContinuityRepository } from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
 import { StoryEventRepository } from '../../../apps/api/src/infrastructure/db/repositories/story-event-repository.js';
 import { VolumePlanRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
@@ -28,6 +30,27 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(eventChapterOutputTokenLimit('sequence')).toBe(12000);
     expect(eventChapterOutputTokenLimit('details')).toBe(9000);
     expect(eventChapterOutputTokenLimit('sequence_challenge')).toBe(2200);
+  });
+  it('由服务端确定性承接相邻章节状态和已确认事件边界',()=>{
+    const normalized=normalizeGeneratedSequenceSkeleton({eventTitle:'被模型改写的标题',startChapterNumber:21,
+      chapters:[
+        {chapterNumber:21,title:'第一步',eventResponsibility:'发现线索',openingState:'开始',endingState:'受伤撤退',nextChapterInterface:'回营'},
+        {chapterNumber:22,title:'第二步',eventResponsibility:'继续追查',openingState:'意思相近但并非逐字一致',endingState:'拿到证据',nextChapterInterface:'进入下一事件'}
+      ],eventEndingConditions:['模型改写的结束条件'],closureCoverage:[{endingCondition:'模型改写的结束条件',evidenceChapterNumber:22}],
+      flexibilityNotes:['场景和对白可自由发挥']},{title:'已确认事件名',endingConditions:['拿到可供下一事件承接的证据']});
+    expect(normalized.eventTitle).toBe('已确认事件名');
+    expect(normalized.chapters[1]!.openingState).toBe('受伤撤退');
+    expect(normalized.eventEndingConditions).toEqual(['拿到可供下一事件承接的证据']);
+    expect(normalized.closureCoverage).toEqual([{endingCondition:'拿到可供下一事件承接的证据',evidenceChapterNumber:22}]);
+  });
+  it('详细章纲优先承接最新正史，并让同批后续章逐字承接上一章结局',()=>{
+    const first=parseChapterOutlineV2({...detailedContent(1,false),openingState:'第24章已发生的新状态'});
+    const fromCanon=normalizeGeneratedDetailContinuity({generated:first,
+      plannedOpeningState:'旧章链仍写着再次发现批号',previousGeneratedEndingState:null,hasCanonPredecessor:true});
+    expect(fromCanon.openingState).toBe('第24章已发生的新状态');
+    const next=normalizeGeneratedDetailContinuity({generated:parseChapterOutlineV2({...detailedContent(2,false),openingState:'模型自行改写'}),
+      plannedOpeningState:'旧章链开场',previousGeneratedEndingState:fromCanon.requiredEndingState,hasCanonPredecessor:false});
+    expect(next.openingState).toBe(fromCanon.requiredEndingState);
   });
   it('先确认完整连续序列，再只冻结最近一至三章并桥接不可变章纲成果',()=>{
     context=createTestContext('wenmi-event-chapters-');const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
@@ -68,14 +91,28 @@ describe('事件章纲序列与近期冻结',()=>{
       expectedOutlineRevision:outline.revision,content:detailedContent(outline.chapterNumber,index===2),
       idempotencyKey:'detailed-'+outline.chapterNumber
     }));
+    const revisedSequence=service.addSequenceVersion(scope,event.eventId,{expectedSequenceRevision:confirmed.revision,
+      parentVersionId:confirmed.activeVersionId,content:{...sequenceContent(),flexibilityNotes:['候选章纲尚未冻结时允许作者修订序列']},
+      idempotencyKey:'chapter-sequence-author-revision'});
+    const reconfirmed=service.confirmSequence(scope,event.eventId,{sequenceVersionId:revisedSequence.sequenceVersionId,
+      expectedSequenceRevision:confirmed.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
+    expect(reconfirmed.outlines).toHaveLength(3);
+    expect(reconfirmed.outlines.every(item=>item.status==='planned'&&item.versions.every(version=>version.status==='archived'))).toBe(true);
+    const archivedCandidateCount=(context.database.prepare(`SELECT COUNT(*) AS count FROM event_chapter_outline_versions
+      WHERE owner_id=? AND book_id=? AND status='archived'`).get(scope.ownerId,scope.bookId) as{count:number}).count;
+    expect(archivedCandidateCount).toBe(3);
+    const redetailed=reconfirmed.outlines.map((outline,index)=>service.addOutlineVersion(scope,outline.outlineId,{
+      expectedOutlineRevision:outline.revision,content:detailedContent(outline.chapterNumber,index===2),
+      idempotencyKey:'redetailed-'+outline.chapterNumber
+    }));
     expect(()=>service.freezeRecent(scope,event.eventId,{items:[{
-      outlineId:confirmed.outlines[1]!.outlineId,outlineVersionId:detailed[1]!.outlineVersionId,
-      expectedOutlineRevision:confirmed.outlines[1]!.revision+1
+      outlineId:reconfirmed.outlines[1]!.outlineId,outlineVersionId:redetailed[1]!.outlineVersionId,
+      expectedOutlineRevision:reconfirmed.outlines[1]!.revision+1
     }],expectedWorkflowVersion:volumes.workflow(scope).planningVersion})).toThrow('最近未冻结');
 
     const latest=service.get(scope,event.eventId)!;
     const frozen=service.freezeRecent(scope,event.eventId,{items:latest.outlines.slice(0,2).map((outline,index)=>({
-      outlineId:outline.outlineId,outlineVersionId:detailed[index]!.outlineVersionId,expectedOutlineRevision:outline.revision
+      outlineId:outline.outlineId,outlineVersionId:redetailed[index]!.outlineVersionId,expectedOutlineRevision:outline.revision
     })),expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
     expect(frozen.outlines.map(item=>item.status)).toEqual(['frozen','frozen','candidate']);
     expect(frozen.outlines.slice(0,2).every(item=>item.activeVersion?.artifactVersionId!==null)).toBe(true);
@@ -127,14 +164,26 @@ describe('事件章纲序列与近期冻结',()=>{
     const outlineRepo=new EventChapterOutlineRepository(context.database);
     const outlines=new EventChapterOutlineService(outlineRepo,uow,new ArtifactService(context.database,ids,clock),ids,clock);
     const initialized=outlines.initialize(scope,event.eventId,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,idempotencyKey:'ai-chapter-sequence'});
+    const currentEvent=events.getSequence(scope,plan.volumePlanId)!.events[0]!;
+    const revisedEvent=events.addVersion(scope,event.eventId,{expectedEventRevision:currentEvent.revision,candidateKind:'author_edit',
+      parentVersionId:currentEvent.activeVersionId,template:noTemplate('event'),content:{...eventContent(),
+        estimatedChapterRange:{minimum:10,likely:10,maximum:10},
+        flexibleExecution:['事件大纲确认后、章纲尚未生成时允许修正连续性']},idempotencyKey:'ai-chapters-event-v2'});
+    events.confirm(scope,event.eventId,{versionId:revisedEvent.storyEventVersionId,expectedEventRevision:currentEvent.revision,
+      expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
+    const rebased=outlines.initialize(scope,event.eventId,{expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      idempotencyKey:'ai-chapter-sequence-rebased'});
+    expect(rebased).toMatchObject({sequenceId:initialized.sequenceId,eventVersionId:revisedEvent.storyEventVersionId,
+      revision:initialized.revision+1,status:'planning',activeVersionId:null,valid:true});
     const generationRepo=new EventChapterGenerationRepository(context.database);
     const tasks=new TaskService(context.database,context.config.releaseId,clock);
     const budgets=new BudgetService(context.database,ids,clock);
     const generations=new EventChapterGenerationService(generationRepo,outlines,new VolumePlanGenerationRepository(context.database),tasks,uow,ids,clock);
-    const pipeline=new EventChapterGenerationPipelineService(generationRepo,outlineRepo,outlines,generations,tasks,budgets,
+    const pipeline=new EventChapterGenerationPipelineService(generationRepo,outlineRepo,new LongformContinuityRepository(context.database),
+      outlines,generations,tasks,budgets,
       new ModelCallService(context.database,clock,budgets),new ContextPackService(context.database,ids,clock),
       ids,clock,new ModelAdapterFactory(context.config.modelRuntime));
-    const sequenceInput={expectedSequenceRevision:initialized.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+    const sequenceInput={expectedSequenceRevision:rebased.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
       idempotencyKey:'ai-sequence-generate'};
     const sequenceTask=generations.startSequence(scope,event.eventId,sequenceInput);
     expect(generations.startSequence(scope,event.eventId,sequenceInput).taskId).toBe(sequenceTask.taskId);
@@ -199,7 +248,8 @@ describe('事件章纲序列与近期冻结',()=>{
       .get(scope.ownerId,scope.bookId,calls.find(call=>call.task_id===detailTask.taskId)!.context_pack_id) as {source_manifest_json:string};
     const types=(JSON.parse(detailPack.source_manifest_json) as Array<{sourceType:string}>).map(source=>source.sourceType);
     expect(types).toEqual(expect.arrayContaining(['planning:volume_plan','planning:story_event','planning:event_chapter_sequence',
-      'planning:recent_chapter_slots','owner:chapter_outline_ideas']));
+      'owner:chapter_outline_ideas']));
+    expect(types).not.toContain('planning:recent_chapter_slots');
     const challengeCalls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceChallengeTask.taskId,detailChallengeTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
     expect(challengeCalls).toHaveLength(2);

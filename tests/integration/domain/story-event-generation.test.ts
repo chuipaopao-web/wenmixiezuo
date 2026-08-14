@@ -5,7 +5,8 @@ import { ModelCallService } from '../../../apps/api/src/application/calls/model-
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import {
-  parseStoryEventModelOutput, STORY_EVENT_NARRATIVE_RULES, StoryEventGenerationPipelineService
+  parseStoryEventModelOutput, STORY_EVENT_NARRATIVE_RULES, storyEventContextBudget,
+  StoryEventGenerationPipelineService
 } from '../../../apps/api/src/application/planning/story-event-generation-pipeline-service.js';
 import { StoryEventGenerationService } from '../../../apps/api/src/application/planning/story-event-generation-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
@@ -104,6 +105,11 @@ describe('事件双编剧团队生成',()=>{
     expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('现在时和主动表达');
     expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('不要强迫每个字段');
     expect(STORY_EVENT_NARRATIVE_RULES.join(' ')).toContain('不得补写资料中没有依据的核心事实');
+  });
+
+  it('主编融合资料包能同时容纳卷纲、上个事件结算和两份完整候选',()=>{
+    expect(storyEventContextBudget('candidate_a')).toEqual({tokenBudget:18000,characterBudget:42000});
+    expect(storyEventContextBudget('fusion')).toEqual({tokenBudget:32000,characterBudget:76000});
   });
 });
 

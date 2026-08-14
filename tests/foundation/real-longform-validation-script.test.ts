@@ -23,11 +23,17 @@ describe('真实长篇验证脚本', () => {
     expect(source).not.toContain("/messages");
   });
 
-  it('发布级运行逐章停在人工通读，只有显式E2开关才能自动确认', () => {
+  it('发布级运行默认逐章停在人工通读，两本登记测试书可使用项目经理统一授权', () => {
     expect(source).toContain("const AUTO_CONFIRM_E2 = ARGV.has('--auto-confirm-e2')" );
     expect(source).toContain('chapter_waiting_manual_reading');
+    expect(source).toContain('RELEASE_MANAGER_CONFIRM');
+    expect(source).toContain('RELEASE_MANAGER_BOOK_IDS');
+    expect(source).toContain('RELEASE_MANAGER_OWNER_ID');
+    expect(source).toContain('项目经理代确认只允许本轮两本已登记测试书');
+    expect(source).toContain('assertReleaseReviewIsAcceptable');
     expect(source).toContain('pending-manuscript-review.json');
-    expect(source).toContain('if (!AUTO_CONFIRM_E2) return pauseForManualReading');
+    expect(source).toContain('if (!CAN_CONFIRM_MANUSCRIPT) return pauseForManualReading');
+    expect(source).toContain('RELEASE_MANAGER_BATCH_CAP = 3');
   });
 
   it('缺少正式章纲时必须停止，不得只凭章节标题生成正文', () => {

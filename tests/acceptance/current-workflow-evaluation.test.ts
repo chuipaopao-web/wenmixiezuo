@@ -20,6 +20,14 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('TARGET_VOLUME_COUNT');
     expect(script).toContain('assertManuscriptIsNotTemplateCopies');
     expect(script).toContain('发布级文学质量仍需要人工通读确认');
+    expect(script).toContain('WENMI_RELEASE_OWNER_AUTHORIZED_BOOK_ID');
+    expect(script).toContain('ebc3b29e-c0d4-45e9-b839-bb0ee2999501');
+    expect(script).toContain('bookId === OWNER_AUTHORIZED_BOOK_ID');
+    expect(script).toContain('OWNER_AUTHORIZED_BATCH_CAP = 3');
+    expect(script).toContain('batchStartupGate');
+    expect(script).toContain('owner_authorized_batch_completed');
+    expect(script).toContain('item.target_id === expectedVersionId');
+    expect(script).not.toContain('item.task_id === taskId');
   });
 
   it('数据审计逐层检查规划、正文绑定与数据库完整性', () => {

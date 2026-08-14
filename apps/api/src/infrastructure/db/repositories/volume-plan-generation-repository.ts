@@ -399,6 +399,35 @@ export class VolumePlanGenerationRepository {
     `).get(scope.ownerId, scope.bookId, taskId) !== undefined;
   }
 
+  public isUnresolvedModelCall(scope: BookScope, requestId: string): boolean {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT 1
+      FROM model_calls m
+      JOIN model_call_reconciliations r ON r.request_id = m.request_id
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.request_id = ?
+        AND r.state = 'awaiting_provider'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, requestId) !== undefined;
+  }
+
+  public hasUnresolvedModelCallForAttempt(
+    scope: BookScope,
+    taskId: string,
+    attemptNo: number
+  ): boolean {
+    assertBookScope(scope);
+    return this.database.prepare(`
+      SELECT 1
+      FROM model_calls m
+      JOIN model_call_reconciliations r ON r.request_id = m.request_id
+      WHERE m.owner_id = ? AND m.book_id = ? AND m.task_id = ?
+        AND m.phase_key LIKE ? ESCAPE '\\'
+        AND r.state = 'awaiting_provider'
+      LIMIT 1
+    `).get(scope.ownerId, scope.bookId, taskId, `%:attempt-${attemptNo}:%`) !== undefined;
+  }
+
   public hasUnresolvedModelBinding(scope: BookScope, provider: string, modelId: string): boolean {
     assertBookScope(scope);
     return this.database.prepare(`

@@ -8,6 +8,7 @@ import {
   evaluateBreaker,
   shouldAutoRecover
 } from './lib/batch-circuit-breaker.mjs';
+import { assertReleaseReviewIsAcceptable } from './lib/release-review-gate.mjs';
 
 const API = process.env.WENMI_VALIDATION_API ?? 'http://127.0.0.1:43111';
 const ORIGIN = process.env.WENMI_VALIDATION_ORIGIN ?? 'http://127.0.0.1:43110';
@@ -29,6 +30,14 @@ const ARGV = new Set(process.argv.slice(2));
 const MODE = ARGV.has('--mode=real') ? 'real' : 'offline';
 const BLOCKED_RECOVERY = ARGV.has('--blocked-recovery=auto') ? 'auto' : 'manual_only';
 const AUTO_CONFIRM_E2 = ARGV.has('--auto-confirm-e2');
+const RELEASE_MANAGER_CONFIRM = ARGV.has('--release-manager-confirm');
+const CAN_CONFIRM_MANUSCRIPT = AUTO_CONFIRM_E2 || RELEASE_MANAGER_CONFIRM;
+const RELEASE_MANAGER_BOOK_IDS = new Set([
+  'ebc3b29e-c0d4-45e9-b839-bb0ee2999501',
+  '9486c1fc-a03f-4fe9-b47a-da1a551e1809'
+]);
+const RELEASE_MANAGER_OWNER_ID = '46d42266-a583-4055-94aa-217319c634d2';
+const RELEASE_MANAGER_BATCH_CAP = 3;
 const MAX_OWNER_BLOCKED_RECOVERIES = 3;
 const BREAKER_LIMITS = { ...DEFAULT_BREAKER_LIMITS, ...parseBreakerOverrides() };
 const RUNTIME_COUNTERS = { consecutiveStructFixes: 0, consecutiveRewrites: 0 };
@@ -260,9 +269,17 @@ async function waitForTask(taskId, purpose) {
 }
 
 async function pendingManuscriptConfirmation(taskId) {
+  const detail = await taskDetail(taskId);
+  const expectedVersionId = detail.task?.checkpoint?.manuscriptVersionId
+    ?? detail.task?.brief?.manuscriptVersionId
+    ?? null;
+  if (typeof expectedVersionId !== 'string' || expectedVersionId.length === 0) {
+    throw new Error(`task ${taskId} does not expose its exact manuscript version`);
+  }
   const confirmations = await request(`/api/v1/books/${BOOK_ID}/confirmations`);
-  const confirmation = confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript' && item.task_id === taskId)
-    ?? confirmations.find((item) => item.status === 'pending' && item.target_type === 'manuscript');
+  const confirmation = confirmations.find((item) => item.status === 'pending'
+    && item.target_type === 'manuscript'
+    && item.target_id === expectedVersionId);
   if (confirmation === undefined) throw new Error(`task ${taskId} is waiting but no pending manuscript confirmation exists`);
   return confirmation;
 }
@@ -295,8 +312,10 @@ async function pauseForManualReading(taskId, chapterNumber = null) {
   return { waitingManualReading: true };
 }
 
-async function acceptPendingManuscript(taskId) {
+async function acceptPendingManuscript(taskId, chapterNumber = null) {
   const confirmation = await pendingManuscriptConfirmation(taskId);
+  const detail = await taskDetail(taskId);
+  assertReleaseReviewIsAcceptable(detail, confirmation.target_id, chapterNumber ?? 'unknown');
   const accepted = await request(`/api/v1/books/${BOOK_ID}/confirmations/${confirmation.confirmation_id}/accept`, {
     method: 'POST', body: JSON.stringify({ expectedCanonRevision: confirmation.expected_canon_revision })
   });
@@ -318,11 +337,14 @@ async function settleActiveChapterTasks() {
   for (const task of active) {
     const detail = await waitForTask(task.taskId, 'resume-existing-chapter');
     if (detail.task.status === 'waiting_confirmation') {
-      if (!AUTO_CONFIRM_E2) {
+      if (!CAN_CONFIRM_MANUSCRIPT) {
         await pauseForManualReading(task.taskId);
         return false;
       }
-      await acceptPendingManuscript(task.taskId);
+      const list = await chapters();
+      const confirmation = await pendingManuscriptConfirmation(task.taskId);
+      const chapter = list.find((item) => item.currentManuscriptVersionId === confirmation.target_id) ?? null;
+      await acceptPendingManuscript(task.taskId, chapter?.chapterNumber ?? null);
       await waitForTask(task.taskId, 'settle-existing-chapter');
     }
   }
@@ -443,8 +465,8 @@ async function generateChapter(chapterNumber) {
     }
   }
   if (detail.task.status !== 'waiting_confirmation') throw new Error(`chapter ${chapterNumber} task reached ${detail.task.status} without owner gate`);
-  if (!AUTO_CONFIRM_E2) return pauseForManualReading(taskId, chapterNumber);
-  const confirmation = await acceptPendingManuscript(taskId);
+  if (!CAN_CONFIRM_MANUSCRIPT) return pauseForManualReading(taskId, chapterNumber);
+  const confirmation = await acceptPendingManuscript(taskId, chapterNumber);
   detail = await waitForTask(taskId, `settle-chapter-${chapterNumber}`);
   if (detail.task.status !== 'succeeded') throw new Error(`chapter ${chapterNumber} did not settle after confirmation`);
   const list = await chapters();
@@ -476,16 +498,22 @@ async function generateChapter(chapterNumber) {
 async function main() {
   if (!BOOK_ID) throw new Error('必须显式设置 WENMI_VALIDATION_BOOK_ID；验证脚本不再默认绑定任何旧书。');
   if (![20, 50, 100, 200].includes(TARGET_CHAPTERS)) throw new Error('WENMI_VALIDATION_TARGET_CHAPTERS 只允许20、50、100或200。');
+  if (RELEASE_MANAGER_CONFIRM && (OWNER_ID !== RELEASE_MANAGER_OWNER_ID || !RELEASE_MANAGER_BOOK_IDS.has(BOOK_ID))) {
+    throw new Error('项目经理代确认只允许本轮两本已登记测试书，且必须属于当前管理员owner。');
+  }
   const db = database();
   let ownedBook;
+  let startingMaxSettled = 0;
   try {
     ownedBook = db.prepare('SELECT 1 AS found FROM books WHERE owner_id = ? AND book_id = ? AND archived_at IS NULL').get(OWNER_ID, BOOK_ID);
+    startingMaxSettled = Number(db.prepare(`SELECT COALESCE(MAX(chapter_number), 0) AS max_settled
+      FROM chapters WHERE owner_id = ? AND book_id = ? AND settlement_status = 'settled'`).get(OWNER_ID, BOOK_ID)?.max_settled ?? 0);
   } finally {
     db.close();
   }
   if (!ownedBook) throw new Error('当前owner下不存在这本未归档书籍；验证已停止，避免跨账号或跨书读取。');
   BOOK_OWNERSHIP_VERIFIED = true;
-  record('run_started', { ownerId: OWNER_ID, bookId: BOOK_ID, targetChapters: TARGET_CHAPTERS, databasePath: DATABASE_PATH, mode: MODE, blockedRecovery: BLOCKED_RECOVERY, autoConfirmE2: AUTO_CONFIRM_E2 });
+  record('run_started', { ownerId: OWNER_ID, bookId: BOOK_ID, targetChapters: TARGET_CHAPTERS, databasePath: DATABASE_PATH, mode: MODE, blockedRecovery: BLOCKED_RECOVERY, autoConfirmE2: AUTO_CONFIRM_E2, releaseManagerConfirm: RELEASE_MANAGER_CONFIRM });
   if (MODE !== 'real') {
     // 默认 offline：只读巡检，不连真实 API、不发起真实调用、不生成正文。
     await inspectAndReport();
@@ -493,7 +521,11 @@ async function main() {
     return;
   }
   // real 模式：套餐余额未知时，正式批次默认最多 1-3 章并等待老板确认。
-  const startup = batchStartupGate({ packageBalanceUnknown: true, plannedChapters: AUTO_CONFIRM_E2 ? TARGET_CHAPTERS : 1 });
+  const remainingChapters = Math.max(0, TARGET_CHAPTERS - startingMaxSettled);
+  const plannedChapters = RELEASE_MANAGER_CONFIRM
+    ? Math.min(RELEASE_MANAGER_BATCH_CAP, remainingChapters)
+    : AUTO_CONFIRM_E2 ? TARGET_CHAPTERS : Math.min(1, remainingChapters);
+  const startup = batchStartupGate({ packageBalanceUnknown: true, plannedChapters });
   if (!startup.allow) {
     record('batch_blocked_at_startup', startup);
     saveState({ stopped: true, reason: startup.reason });
@@ -507,16 +539,24 @@ async function main() {
   }
   const resumed = await settleActiveChapterTasks();
   if (!resumed) return;
+  const segmentTarget = RELEASE_MANAGER_CONFIRM
+    ? Math.min(TARGET_CHAPTERS, startingMaxSettled + RELEASE_MANAGER_BATCH_CAP)
+    : TARGET_CHAPTERS;
   while (true) {
     const list = await chapters();
     const settled = list.filter((chapter) => chapter.settlementStatus === 'settled').sort((a, b) => a.chapterNumber - b.chapterNumber);
     const maxSettled = settled.at(-1)?.chapterNumber ?? 0;
-    if (maxSettled >= TARGET_CHAPTERS) break;
+    if (maxSettled >= segmentTarget) break;
     if (settled.some((chapter, index) => chapter.chapterNumber !== index + 1)) {
       throw new Error(`settled chapter sequence is not contiguous through ${maxSettled}`);
     }
     const result = await generateChapter(maxSettled + 1);
     if (result?.waitingManualReading) return;
+  }
+  if (segmentTarget < TARGET_CHAPTERS) {
+    saveState({ segmentCompleted: true, completedChapters: segmentTarget, targetChapters: TARGET_CHAPTERS });
+    record('run_segment_completed', { completedChapters: segmentTarget, targetChapters: TARGET_CHAPTERS, batchCap: RELEASE_MANAGER_BATCH_CAP });
+    return;
   }
   const finalChapters = await chapters();
   const finalRows = [];

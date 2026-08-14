@@ -82,6 +82,22 @@ export class EventChapterOutlineRepository {
       VALUES(?,?,?,?,?,?,1,'planning',NULL,NULL,?,?,?,?)`).run(input.id,scope.ownerId,scope.bookId,input.eventId,input.eventVersionId,
       input.volumePlanVersionId,input.key,input.hash,input.now,input.now);
   }
+  public rebaseEmptySequence(scope:BookScope,input:{sequenceId:string;expectedRevision:number;eventVersionId:string;
+    volumePlanVersionId:string;key:string;hash:string;now:string}){
+    assertBookScope(scope);
+    const outlineCount=(this.db.prepare(`SELECT COUNT(*) AS count FROM event_chapter_outlines
+      WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND status<>'archived'`)
+      .get(scope.ownerId,scope.bookId,input.sequenceId) as{count:number}).count;
+    const versionCount=(this.db.prepare(`SELECT COUNT(*) AS count FROM event_chapter_sequence_versions
+      WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=?`)
+      .get(scope.ownerId,scope.bookId,input.sequenceId) as{count:number}).count;
+    if(outlineCount!==0||versionCount!==0)return false;
+    return this.db.prepare(`UPDATE event_chapter_sequences SET event_version_id=?,volume_plan_version_id=?,revision=revision+1,
+      status='planning',active_version_id=NULL,generation_task_id=NULL,create_idempotency_key=?,request_hash=?,updated_at=?
+      WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND revision=? AND active_version_id IS NULL`)
+      .run(input.eventVersionId,input.volumePlanVersionId,input.key,input.hash,input.now,scope.ownerId,scope.bookId,
+        input.sequenceId,input.expectedRevision).changes===1;
+  }
   public listSequenceVersions(scope:BookScope,sequenceId:string){
     return this.db.prepare(`SELECT event_chapter_sequence_version_id,event_chapter_sequence_id,version,parent_version_id,status,event_version_id,
       volume_plan_version_id,dependencies_json,author_input_refs_json,content_json,content_hash,source_task_id,idempotency_key,request_hash,
@@ -119,7 +135,39 @@ export class EventChapterOutlineRepository {
       .run(input.versionId,input.now,scope.ownerId,scope.bookId,input.sequenceId,input.expectedRevision).changes===1;
   }
   public replacePlannedOutlines(scope:BookScope,input:{sequenceId:string;eventId:string;items:Array<{id:string;chapterNumber:number;order:number;content:string}>;now:string}){
-    const existing=this.listOutlines(scope,input.sequenceId);if(existing.some(item=>item.status!=='planned'))throw new Error('已有候选或冻结章纲，不能重新物化序列。');
+    const current=this.listOutlines(scope,input.sequenceId);
+    const settledByOrder=new Map(current.filter(item=>item.status==='settled')
+      .map(item=>[item.sequence_order,item]));
+    for(const [order,protectedOutline] of settledByOrder){
+      const next=input.items.find(item=>item.order===order);
+      if(next===undefined||next.chapterNumber!==protectedOutline.chapter_number||
+        next.content!==protectedOutline.planned_content_json)throw new Error('已结算章纲与修订后的事件章序列不一致。');
+    }
+    const protectedCount=(this.db.prepare(`SELECT COUNT(*) AS count FROM event_chapter_outlines
+      WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND status='settled'`)
+      .get(scope.ownerId,scope.bookId,input.sequenceId) as{count:number}).count;
+    if(protectedCount!==settledByOrder.size)throw new Error('已结算章纲状态无法核对。');
+    this.db.prepare(`UPDATE event_chapter_outline_versions SET status='archived'
+      WHERE owner_id=? AND book_id=? AND event_chapter_outline_id IN (
+        SELECT event_chapter_outline_id FROM event_chapter_outlines
+        WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND status='candidate'
+      ) AND status='candidate'`).run(scope.ownerId,scope.bookId,scope.ownerId,scope.bookId,input.sequenceId);
+    this.db.prepare(`UPDATE event_chapter_outline_versions SET status='superseded'
+      WHERE owner_id=? AND book_id=? AND event_chapter_outline_id IN (
+        SELECT event_chapter_outline_id FROM event_chapter_outlines
+        WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND status='frozen'
+      ) AND status='frozen'`).run(scope.ownerId,scope.bookId,scope.ownerId,scope.bookId,input.sequenceId);
+    const updateExisting=this.db.prepare(`UPDATE event_chapter_outlines SET event_id=?,chapter_number=?,revision=revision+1,status='planned',
+      active_version_id=NULL,planned_content_json=?,updated_at=?
+      WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND sequence_order=? AND status IN ('planned','candidate','frozen')`);
+    const insertMissing=this.db.prepare(`INSERT INTO event_chapter_outlines(event_chapter_outline_id,owner_id,book_id,event_chapter_sequence_id,event_id,
+      chapter_number,sequence_order,revision,status,active_version_id,planned_content_json,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,1,'planned',NULL,?,?,?)`);
+    input.items.forEach(item=>{
+      const updated=updateExisting.run(input.eventId,item.chapterNumber,item.content,input.now,scope.ownerId,scope.bookId,input.sequenceId,item.order);
+      if(updated.changes===0&&!settledByOrder.has(item.order))insertMissing.run(item.id,scope.ownerId,scope.bookId,input.sequenceId,input.eventId,item.chapterNumber,item.order,item.content,input.now,input.now);
+    });
+    return;
     this.db.prepare("UPDATE event_chapter_outlines SET status='archived',revision=revision+1,updated_at=? WHERE owner_id=? AND book_id=? AND event_chapter_sequence_id=? AND status='planned'")
       .run(input.now,scope.ownerId,scope.bookId,input.sequenceId);
     const insert=this.db.prepare(`INSERT INTO event_chapter_outlines(event_chapter_outline_id,owner_id,book_id,event_chapter_sequence_id,event_id,
@@ -179,9 +227,11 @@ export class EventChapterOutlineRepository {
       .run(input.versionId,input.now,scope.ownerId,scope.bookId,input.outlineId,input.expectedRevision).changes===1;
   }
   public advanceForSequence(scope:BookScope,input:{eventId:string;eventVersionId:string;expectedPlanningVersion:number;now:string}){
-    return this.db.prepare(`UPDATE creation_workflow_states SET planning_version=planning_version+1,stage='chapter_outlines_in_progress',
-      frozen_chapter_outline_refs_json='[]',waiting_task_id=NULL,blocking_reason=NULL,updated_at=? WHERE owner_id=? AND book_id=? AND planning_version=?
-      AND active_event_id=? AND active_event_version_id=? AND stage IN ('event_confirmed','chapter_outlines_in_progress')`)
+    return this.db.prepare(`UPDATE creation_workflow_states SET planning_version=planning_version+1,
+      stage='chapter_outlines_in_progress',
+      frozen_chapter_outline_refs_json='[]',
+      waiting_task_id=NULL,blocking_reason=NULL,updated_at=? WHERE owner_id=? AND book_id=? AND planning_version=?
+      AND active_event_id=? AND active_event_version_id=? AND stage IN ('event_confirmed','chapter_outlines_in_progress','next_chapters_ready')`)
       .run(input.now,scope.ownerId,scope.bookId,input.expectedPlanningVersion,input.eventId,input.eventVersionId).changes===1;
   }
   public freezeWorkflow(scope:BookScope,input:{expectedPlanningVersion:number;refs:string;now:string}){
