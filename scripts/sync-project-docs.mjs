@@ -19,7 +19,7 @@ const currentPaths = [
   'docs/DEVELOPMENT_ROADMAP.md', 'docs/ACCEPTANCE.md', 'docs/ULTRA_LONGFORM_CONTINUITY.md',
   'docs/SECURITY_AND_OPERATIONS.md', 'docs/RUNTIME_WORKFLOWS.md', 'docs/USER_GUIDE.md',
   'docs/COVERAGE_MATRIX.md', 'docs/ROLE_PROMPTS.md', 'docs/EVALUATION_PROTOCOL.md',
-  'docs/DESIGN_GOVERNANCE_AUDIT.md'
+  'docs/DESIGN_GOVERNANCE_AUDIT.md', 'docs/DEPLOY.md'
 ];
 const generatedPaths = new Set(['docs/PROJECT_DOCUMENT_INDEX.md', 'docs/PROJECT_DOCUMENT_CENTER.html', 'docs/PROJECT_REFERENCE_BUNDLE.md']);
 
@@ -106,7 +106,7 @@ const bundleGroups = [
   ] },
   { title: '三、系统架构、数据、接口与运行', paths: [
     'docs/ARCHITECTURE.md', 'docs/DATA_MODEL.md', 'docs/API.md',
-    'docs/RUNTIME_WORKFLOWS.md', 'docs/SECURITY_AND_OPERATIONS.md'
+    'docs/RUNTIME_WORKFLOWS.md', 'docs/SECURITY_AND_OPERATIONS.md', 'docs/DEPLOY.md'
   ] },
   { title: '四、当前决定、开发计划与验收', paths: [
     'docs/DECISIONS.md', 'docs/DEVELOPMENT_ROADMAP.md', 'docs/ACCEPTANCE.md',

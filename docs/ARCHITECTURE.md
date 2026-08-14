@@ -73,4 +73,4 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 
 首个注册使用 `BEGIN IMMEDIATE` 原子判断并授予管理员角色。管理员路由只提供统计、用户检索、暂停和恢复；暂停用户时撤销其所有活动会话。不能暂停当前管理员自己或最后一个活动管理员。测试注入身份只存在于受控测试配置，不进入生产路由。
 
-公网保持单域部署：`https://wenmixiezuo.com` 同时承载 Web 与 `/api`，反向代理负责 TLS、请求大小、访问日志脱敏与外围限流。API、SQLite、文件、LanceDB 和 Worker 仍位于服务器本机回环/本地文件边界。手机号、微信以后作为登录身份绑定到现有 `user_id`，不能建立第二套书籍所有权。
+公网保持单域部署：`https://wenmixiezuo.com` 同时承载 Web 与 `/api`，反向代理负责 TLS、请求大小、访问日志脱敏与外围限流。API、SQLite、文件、LanceDB 和 Worker 仍位于服务器本机回环/本地文件边界。完整部署步骤见 [DEPLOY.md](DEPLOY.md)。手机号、微信以后作为登录身份绑定到现有 `user_id`，不能建立第二套书籍所有权。

@@ -1,0 +1,58 @@
+[Unit]
+Description=文秘写作 API 服务
+Documentation=https://wenmixiezuo.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wenmi
+Group=wenmi
+WorkingDirectory=/opt/wenmi
+
+# 环境变量从 /opt/wenmi/deploy/.env.production 加载
+EnvironmentFile=/opt/wenmi/deploy/.env.production
+Environment=NODE_ENV=production
+
+# Node.js 路径（使用系统安装的 Node.js 24）
+ExecStart=/usr/bin/node /opt/wenmi/apps/api/dist/main.js
+
+# 优雅关闭
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=15
+
+# 崩溃后自动重启
+Restart=on-failure
+RestartSec=5
+
+# 防止无限重启
+StartLimitInterval=300
+StartLimitBurst=5
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wenmi-api
+
+# 安全加固
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/wenmi/data
+ReadOnlyPaths=/opt/wenmi/apps
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# 资源限制
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

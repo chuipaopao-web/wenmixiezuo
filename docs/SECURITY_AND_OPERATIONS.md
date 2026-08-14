@@ -12,9 +12,10 @@
 - 本机测试时API与Web开发服务使用回环地址；公网时由同机HTTPS反向代理接收 `wenmixiezuo.com` 并转发到回环端口；
 - Host只接受API监听地址和配置的Web域名，Origin只接受当前Web Origin，写请求校验 `Sec-Fetch-Site` 与JSON内容类型；
 - CORS只允许配置的Web Origin并携带凭证；SSE使用同一账号会话和书籍权限，不在URL携带令牌；
-- 反向代理负责TLS证书、HTTP到HTTPS跳转、请求大小、外围注册/登录限流和访问日志脱敏；
+- 反向代理负责TLS证书、HTTP到HTTPS跳转、请求大小和访问日志；公网部署时注册、登录与全局请求限流由应用层 `@fastify/rate-limit` 在API内执行；
 - 不开放SQLite、Worker、向量库、图数据库或开发服务器端口，不以端口映射代替正式部署；
 - 联网研究继续经过域名、协议、地址、跳转、大小和内容类型限制。
+- 完整公网部署步骤、Caddy 配置、systemd 服务单元、备份脚本和运维命令见 [DEPLOY.md](DEPLOY.md)。
 
 ## 3. 账号、密码与HTTP会话
 

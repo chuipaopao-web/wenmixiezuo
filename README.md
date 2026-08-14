@@ -30,7 +30,17 @@
 
 ## 技术边界
 
-React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本地 LanceDB 投影。服务只监听 `127.0.0.1`。SQLite 正式对象和不可变原文是权威来源；全文索引、向量、摘要、图谱和 Wiki 都是可重建投影。
+React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本地 LanceDB 投影。本机测试时服务只监听 `127.0.0.1`；公网部署时通过 Caddy 反向代理对外提供 HTTPS 服务。
+
+## 公网部署
+
+详见 [docs/DEPLOY.md](docs/DEPLOY.md)。部署文件位于 `deploy/` 目录：
+
+- `deploy/Caddyfile` — Caddy 反向代理配置（TLS + 限流 + 静态文件）
+- `deploy/wenmi-api.service` — API systemd 服务单元
+- `deploy/wenmi-worker.service` — Worker systemd 服务单元
+- `deploy/backup.sh` — SQLite 数据库自动备份脚本
+- `deploy/.env.production.example` — 生产环境变量模板
 
 ## 当前验证
 

@@ -34,6 +34,7 @@
 - [混合检索](docs/HYBRID_RAG_DESIGN.md)：任务级检索、版本直达、证据回查和跨书隔离。
 - [长篇质量规范](docs/LONGFORM_QUALITY.md)：创作保护、事实审查、文学审查、体验审查与结算。
 - [API](docs/API.md)：当前公开接口和任务状态。
+- [公网部署指南](docs/DEPLOY.md)：香港服务器部署步骤、Caddy、systemd、备份和运维。
 - [验收标准](docs/ACCEPTANCE.md)：完成与缺陷判定。
 - [当前任务](TASKS.md)：只记录当前待办和本次验收结果。
 - [生效决定](docs/DECISIONS.md)：只保留仍驱动当前版本的决定。

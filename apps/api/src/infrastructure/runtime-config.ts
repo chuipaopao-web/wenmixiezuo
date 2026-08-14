@@ -6,7 +6,7 @@ import { findProjectRoot, readReleaseId } from './project-root.js';
 import { loadModelRuntimeConfig, type ModelRuntimeConfig } from './models/model-runtime-config.js';
 
 export interface RuntimeConfig {
-  apiHost: '127.0.0.1';
+  apiHost: string;
   apiPort: number;
   dataDir: string;
   databasePath: string;
@@ -17,6 +17,8 @@ export interface RuntimeConfig {
   workerToken: string;
   promptViewPassword: string | null;
   modelRuntime: ModelRuntimeConfig;
+  /** 公网部署时的外部域名，如 https://wenmixiezuo.com。仅用于安全校验和 Cookie 域。 */
+  publicOrigin: string | null;
 }
 
 function parsePort(raw: string | undefined, fallback: number): number {
@@ -30,8 +32,9 @@ function parsePort(raw: string | undefined, fallback: number): number {
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const projectRoot = findProjectRoot(env.WENMI_PROJECT_ROOT ?? process.cwd());
   const apiHost = env.WENMI_API_HOST ?? '127.0.0.1';
-  if (apiHost !== '127.0.0.1') {
-    throw new DomainError(errorCodes.validation, '首版API只允许监听127.0.0.1');
+  const publicOrigin = env.WENMI_PUBLIC_ORIGIN?.trim() || null;
+  if (publicOrigin !== null) {
+    try { new URL(publicOrigin); } catch { throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是完整的 URL（如 https://wenmixiezuo.com）'); }
   }
   const dataDir = resolve(env.WENMI_DATA_DIR ?? resolve(projectRoot, 'data'));
   const databaseDir = resolve(dataDir, 'database');
@@ -50,6 +53,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110',
     workerToken: env.WENMI_WORKER_TOKEN?.trim() || randomBytes(32).toString('base64url'),
     promptViewPassword: env.WENMI_PROMPT_VIEW_PASSWORD?.trim() || null,
+    publicOrigin,
     modelRuntime: loadModelRuntimeConfig(env, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })
   };
 }

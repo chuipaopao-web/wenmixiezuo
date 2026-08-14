@@ -7,7 +7,7 @@ import { requireAdministrator, requireAuthenticatedAccount } from '../infrastruc
 export async function registerAccountRoutes(app: FastifyInstance, accounts: AccountAuthService): Promise<void> {
   app.post<{
     Body: { email: string; password: string; displayName?: string };
-  }>('/api/v1/auth/register', async (request, reply) => {
+  }>('/api/v1/auth/register', { config: { rateLimit: { max: 3, timeWindow: '5 minutes' } } }, async (request, reply) => {
     const issued = await accounts.register(readCredentials(request.body, true));
     reply.header('Set-Cookie', issued.cookie);
     reply.header('Cache-Control', 'no-store');
@@ -16,7 +16,7 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
 
   app.post<{
     Body: { email: string; password: string };
-  }>('/api/v1/auth/login', async (request, reply) => {
+  }>('/api/v1/auth/login', { config: { rateLimit: { max: 10, timeWindow: '5 minutes' } } }, async (request, reply) => {
     const issued = await accounts.login(readCredentials(request.body, false));
     reply.header('Set-Cookie', issued.cookie);
     reply.header('Cache-Control', 'no-store');

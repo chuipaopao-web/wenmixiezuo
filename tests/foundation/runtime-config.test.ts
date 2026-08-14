@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { loadRuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
 
 describe('本机监听门禁', () => {
-  it('拒绝监听非回环地址', () => {
-    expect(() => loadRuntimeConfig({
+  it('允许监听任意地址（公网部署不再限制为127.0.0.1）', () => {
+    const config = loadRuntimeConfig({
       WENMI_PROJECT_ROOT: process.cwd(),
       WENMI_API_HOST: '0.0.0.0'
-    })).toThrow('只允许监听127.0.0.1');
+    });
+    expect(config.apiHost).toBe('0.0.0.0');
   });
 
   it('默认端口和目录符合DEC-002', () => {

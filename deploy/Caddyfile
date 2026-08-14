@@ -1,0 +1,73 @@
+# Caddy 反向代理配置 - 文秘写作公网部署
+#
+# 部署路径：/etc/caddy/Caddyfile
+# 校验：  sudo caddy adapt --config /etc/caddy/Caddyfile
+# 重载：  sudo caddy reload --config /etc/caddy/Caddyfile
+#
+# 说明：本配置只使用 Caddy 内置模块，无需 xcaddy 编译第三方插件。
+# 注册/登录限流由应用层 @fastify/rate-limit 提供（注册 3/5分钟，登录 10/5分钟，
+# 全局 100/分钟），Caddy 不重复配置。
+#
+# 公网域名：wenmixiezuo.com
+# 后端 API：127.0.0.1:43111
+# 前端静态：/opt/wenmi/apps/web/dist
+
+wenmixiezuo.com {
+  # ---- 请求体大小限制 ----
+  request_body {
+    max_size 24MiB
+  }
+
+  # ---- 安全响应头 ----
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    -Server
+    -X-Powered-By
+  }
+
+  # ---- 日志 ----
+  log {
+    output file /var/log/caddy/wenmi-access.log {
+      roll_size 10MiB
+      roll_keep 5
+      roll_keep_for 720h
+    }
+    format json
+    level INFO
+  }
+
+  # ---- API 反向代理 ----
+  handle /api/* {
+    reverse_proxy 127.0.0.1:43111 {
+      header_up X-Forwarded-Proto https
+      # 保持 SSE 长连接不缓冲
+      flush_interval -1
+    }
+  }
+
+  # ---- 健康检查端点 ----
+  handle /health {
+    reverse_proxy 127.0.0.1:43111
+  }
+
+  # ---- 前端静态文件（SPA） ----
+  handle {
+    root * /opt/wenmi/apps/web/dist
+    encode gzip zstd
+    try_files {path} /index.html
+    file_server
+  }
+
+  # ---- TLS 配置 ----
+  tls {
+    protocols tls1.2 tls1.3
+  }
+}
+
+# HTTP -> HTTPS 跳转（Caddy 对显式站点块不会自动生成，需显式声明）
+http://wenmixiezuo.com {
+  redir https://{host}{uri} permanent
+}

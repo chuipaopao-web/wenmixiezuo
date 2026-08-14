@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { DomainError } from '../../domain/errors.js';
 import type { RuntimeConfig } from '../runtime-config.js';
 import { AccountAuthService, constantTimeTokenMatches } from './account-auth-service.js';
@@ -23,22 +24,44 @@ function verifyBrowserWrite(request: FastifyRequest, config: RuntimeConfig): voi
 }
 
 function allowedHosts(config: RuntimeConfig): Set<string> {
-  const hosts = new Set([`${config.apiHost}:${config.apiPort}`]);
+  const hosts = new Set([`${config.apiHost}:${config.apiPort}`, `127.0.0.1:${config.apiPort}`]);
   try {
     hosts.add(new URL(config.webOrigin).host);
   } catch {
     // 启动配置会在其他位置给出明确错误；这里保持最小Host白名单。
   }
+  if (config.publicOrigin !== null) {
+    try {
+      hosts.add(new URL(config.publicOrigin).host);
+    } catch {
+      // publicOrigin 已在 runtime-config 中校验过，此处仅兜底。
+    }
+  }
   return hosts;
 }
 
-export function registerRequestPolicy(
+export async function registerRequestPolicy(
   app: FastifyInstance,
   config: RuntimeConfig,
   accounts: AccountAuthService,
   options: RequestPolicyOptions = {}
-): void {
+): Promise<void> {
   const hosts = allowedHosts(config);
+
+  // 公网部署时启用限流，保护认证和写操作端点
+  if (config.publicOrigin !== null) {
+    await app.register(fastifyRateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+      keyGenerator: (request) => request.ip,
+      errorResponseBuilder: () => ({
+        error: { code: 'RATE_LIMITED', message: '请求太频繁，请稍后再试', details: {}, retryable: true },
+        meta: { requestId: 'rate-limited' }
+      }),
+      // 注册和登录使用更严格的全局限流，见下方路由级覆盖
+    });
+  }
+
   app.addHook('onRequest', async (request) => {
     request.authContext = null;
     const path = request.url.split('?', 1)[0] ?? request.url;

@@ -1,1 +1,4 @@
 .githooks/* text eol=lf
+deploy/*.sh text eol=lf
+deploy/*.service text eol=lf
+deploy/Caddyfile text eol=lf
