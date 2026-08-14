@@ -907,7 +907,10 @@ interface ApiResponse<T> {
   meta: { requestId: string; version: number };
 }
 
-const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? 'http://127.0.0.1:43111';
+// 显式配置优先；本机桌面模式（页面由 127.0.0.1 提供）走 API 端口；
+// 公网部署（页面由 wenmixiezuo.com 提供）走同源反向代理。
+const API_ORIGIN = import.meta.env.VITE_API_ORIGIN
+  ?? (typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1)$/u.test(location.hostname) ? 'http://127.0.0.1:43111' : '');
 
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
