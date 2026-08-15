@@ -105,21 +105,32 @@ function addMonths(iso: string, months: number): string {
   return date.toISOString();
 }
 
+/** 生成是否被会员门禁拦截；返回原因或 null（放行）。开书等前置流程用它避免误伤。 */
+export function membershipGenerationBlockReason(
+  database: DatabaseSync,
+  ownerId: string,
+  nowIso: string
+): null | 'membership-required' | 'quota-exhausted' {
+  const account = findAccountByOwner(database, ownerId);
+  if (account === undefined) return null;
+  if (account.role === 'admin') return null;
+  const membership = activeMembershipByOwner(database, ownerId, nowIso);
+  if (membership === undefined) return 'membership-required';
+  const consumed = tokensConsumedSince(database, ownerId, membership.period_start);
+  return consumed >= membership.token_quota ? 'quota-exhausted' : null;
+}
+
 /**
  * 生成门禁：账号体系内的非管理员用户必须持有生效会员且周期内算力值未耗尽。
  * 未关联账号的所有者（本机遗留工作区、测试合成所有者）不受门禁限制。
  */
 export function assertMembershipAllowsGeneration(database: DatabaseSync, ownerId: string, nowIso: string): void {
-  const account = findAccountByOwner(database, ownerId);
-  if (account === undefined) return;
-  if (account.role === 'admin') return;
-  const membership = activeMembershipByOwner(database, ownerId, nowIso);
-  if (membership === undefined) {
+  const reason = membershipGenerationBlockReason(database, ownerId, nowIso);
+  if (reason === 'membership-required') {
     throw new DomainError(errorCodes.membershipRequired,
       '当前还没有生效的会员，请联系管理员开通后再生成内容', { ...MEMBERSHIP_CONTACT }, false, 403);
   }
-  const consumed = tokensConsumedSince(database, ownerId, membership.period_start);
-  if (consumed >= membership.token_quota) {
+  if (reason === 'quota-exhausted') {
     throw new DomainError(errorCodes.membershipQuotaExhausted,
       '会员算力值已用完，请联系管理员续费后再生成内容', { ...MEMBERSHIP_CONTACT }, false, 403);
   }

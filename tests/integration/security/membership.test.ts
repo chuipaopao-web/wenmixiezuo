@@ -167,6 +167,41 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
     expect(status.membership).toMatchObject({ tokensConsumed: MEMBERSHIP_PLANS.monthly.tokenQuota, tokensRemaining: 0 });
   });
 
+  it('无会员用户可以开书但不会创建首个AI任务，开通会员后恢复', async () => {
+    context = createTestContext('wenmi-membership-onboarding-');
+    const app = await createServer(context.config, context.database);
+    try {
+      const adminRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });
+      const userRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456', displayName: '作者' } });
+      const adminCookie = cookieFrom(adminRegister);
+      const userCookie = cookieFrom(userRegister);
+      const rows = accountRows(context.database);
+      const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
+
+      // 未开通会员：开书本身必须成功（否则用户进不了设定页看会员提示）。
+      const draft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '无会员开书', text: '验证开书不被会员门禁拦截' } })).json().data as { draftId: string; version: number };
+      const confirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: draft.version } });
+      expect(confirm.statusCode).toBe(200);
+      const bookId = (confirm.json().data as { bookId: string }).bookId;
+      const taskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
+      expect(taskCount).toBe(0);
+      const discussionCount = (context.database.prepare('SELECT COUNT(*) AS total FROM discussions WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
+      expect(discussionCount).toBe(0);
+
+      // 开通会员后再次开书：首个策划理念任务照常创建。
+      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'monthly' } });
+      expect(grant.statusCode).toBe(200);
+      const memberDraft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '会员开书', text: '验证会员开书创建首个任务' } })).json().data as { draftId: string; version: number };
+      const memberConfirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${memberDraft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: memberDraft.version } });
+      expect(memberConfirm.statusCode).toBe(200);
+      const memberTaskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
+      expect(memberTaskCount).toBeGreaterThan(0);
+      expect(bookId).toBeTruthy();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('会员到期后生成被拦截，状态里标记已到期', () => {
     context = createTestContext('wenmi-membership-expiry-');
     const database = context.database;

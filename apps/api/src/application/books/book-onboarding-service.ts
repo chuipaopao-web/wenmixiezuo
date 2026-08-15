@@ -7,6 +7,7 @@ import { TeamTemplateService } from '../agents/team-template-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
+import { membershipGenerationBlockReason } from '../../infrastructure/security/membership-service.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
@@ -222,7 +223,9 @@ export class BookOnboardingService {
         ? null
         : new SettingGuidanceService(this.database, this.ids, this.clock)
             .ensureInitialized(bookScope, draft.openingBlueprint);
-      if (this.releaseId !== undefined && !isContinuation) {
+      // 无生效会员的用户放行开书（保证能进入设定页看到会员提示），但不创建首个AI任务，避免被生成门禁拦下整个事务。
+      const generationBlocked = membershipGenerationBlockReason(this.database, scope.ownerId, now) !== null;
+      if (this.releaseId !== undefined && !isContinuation && !generationBlocked) {
         const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label);
 
         const screenwriters = this.database.prepare(`
