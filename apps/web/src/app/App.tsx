@@ -611,7 +611,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
             <h2>内测说明</h2>
             <p>作者创作小说六年，写了几百万字大长篇，稿费几十万。因在市场上没有找到好用的长篇AI软件，正好自己做过几年软件，便动手做了一个。</p>
             <p>目前流程跑通在内测，内测用户可以帮忙反馈一下问题，我仍在持续优化中。</p>
-            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>V595341366</strong> 开通会员后继续使用</p>
+            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>595341366</strong> 开通会员后继续使用</p>
             <p className="membership-gate-hint">管理员开通后会自动解除限制；如已开通，点击下方刷新立即生效。</p>
             <footer className="membership-prompt-actions two">
               <button type="button" className="primary" disabled={membershipChecking} onClick={() => void refreshMembership()}>
