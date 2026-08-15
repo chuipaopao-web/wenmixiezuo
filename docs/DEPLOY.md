@@ -234,20 +234,29 @@ sudo systemctl start wenmi-worker
 
 ### 更新部署
 
+服务器 /opt/wenmi 没有 .git（代码以文件形式部署），从本机打 tar 上传更新：
+
+```powershell
+# 本机（Windows）：务必加 -c core.autocrlf=false，否则 git archive 会把 LF 转成 CRLF，
+# 迁移 SQL 字节变化导致启动时"已合并迁移校验和发生变化"崩溃（2026-08-15 踩过）。
+git -c core.autocrlf=false archive --format=tar -o update.tar HEAD <变更的源码路径>
+scp -i ~\.ssh\wenmi-hk-server update.tar root@47.243.152.159:/tmp/update.tar
+```
+
 ```bash
+# 服务器
 cd /opt/wenmi
-sudo -u wenmi git pull origin main
-sudo -u wenmi npm ci --ignore-scripts
+tar -xf /tmp/update.tar -C /opt/wenmi
+sudo chown -R wenmi:wenmi /opt/wenmi/apps
 sudo -u wenmi npm run build
 sudo -u wenmi npm run migrate
-
-# 重启服务
-sudo systemctl stop wenmi-worker
-sudo systemctl stop wenmi-api
-sudo systemctl start wenmi-api
-sleep 5
-sudo systemctl start wenmi-worker
+sudo systemctl restart wenmi-api wenmi-worker
+sleep 6
+sudo systemctl is-active wenmi-api wenmi-worker
+curl -fsS http://127.0.0.1:43111/health
 ```
+
+注意：已应用过的迁移 SQL 文件字节不可变（校验和写入 `schema_migrations`）；新增迁移只追加新文件。若因行尾等问题误改了迁移文件，可在停服后将文件恢复为 LF 并按文件实际 sha256 重算 `schema_migrations.checksum`（内容未变时安全）。
 
 ### 手动备份
 
