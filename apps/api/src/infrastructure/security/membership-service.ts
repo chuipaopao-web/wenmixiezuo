@@ -4,9 +4,9 @@ import type { Clock } from '../../domain/ids.js';
 
 /** 会员套餐：周期（自然月数）与算力值（token）配额。 */
 export const MEMBERSHIP_PLANS = {
-  monthly: { months: 1, tokenQuota: 1_000_000_000 },
-  quarterly: { months: 3, tokenQuota: 4_000_000_000 },
-  yearly: { months: 12, tokenQuota: 20_000_000_000 }
+  monthly: { months: 1, tokenQuota: 300_000_000 },
+  quarterly: { months: 3, tokenQuota: 1_000_000_000 },
+  yearly: { months: 12, tokenQuota: 10_000_000_000 }
 } as const;
 
 export type MembershipPlan = keyof typeof MEMBERSHIP_PLANS;

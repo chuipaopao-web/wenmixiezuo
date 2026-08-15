@@ -6,9 +6,9 @@ import {
 } from '../../lib/api/client';
 
 const PLAN_OPTIONS: Array<{ value: MembershipPlanKey; label: string }> = [
-  { value: 'monthly', label: '包月 · 10亿算力值' },
-  { value: 'quarterly', label: '包季 · 40亿算力值' },
-  { value: 'yearly', label: '包年 · 200亿算力值' }
+  { value: 'monthly', label: '包月 · 3亿算力值' },
+  { value: 'quarterly', label: '包季 · 10亿算力值' },
+  { value: 'yearly', label: '包年 · 百亿算力值' }
 ];
 
 /** 算力值展示：亿为单位保留一位小数，不足一亿显示万。 */

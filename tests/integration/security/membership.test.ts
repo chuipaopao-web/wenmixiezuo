@@ -146,7 +146,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
     memberships.grant(adminRegister.user_id, user.user_id, 'monthly');
     expect(() => assertMembershipAllowsGeneration(database, user.owner_id, now)).not.toThrow();
 
-    // 周期内消耗 10亿算力值后再次拦截。
+    // 周期内用完套餐算力值后再次拦截。
     seedBookAndUsage(database, user.owner_id, MEMBERSHIP_PLANS.monthly.tokenQuota, now);
     try {
       assertMembershipAllowsGeneration(database, user.owner_id, now);
