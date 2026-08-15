@@ -4,6 +4,11 @@ import type { BookCreationMode, OpeningChannel, ProtagonistRole } from '../../li
 export const OPENING_DRAFT_STORAGE_KEY = 'wenmi.opening-draft.v2';
 const OPENING_DRAFT_SCHEMA_VERSION = 2 as const;
 
+/** 草稿按账号隔离存储，同一浏览器切换账号不会看到彼此的开书信息。 */
+export function openingDraftStorageKey(accountId: string): string {
+  return `${OPENING_DRAFT_STORAGE_KEY}:${accountId}`;
+}
+
 export interface OpeningProtagonistDraft {
   role: ProtagonistRole;
   name: string;
@@ -66,9 +71,9 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
   };
 }
 
-export function loadOpeningWizardDraft(storage: Pick<Storage, 'getItem'> = globalThis.localStorage): OpeningWizardDraft | null {
+export function loadOpeningWizardDraft(accountId: string, storage: Pick<Storage, 'getItem'> = globalThis.localStorage): OpeningWizardDraft | null {
   try {
-    const raw = storage.getItem(OPENING_DRAFT_STORAGE_KEY);
+    const raw = storage.getItem(openingDraftStorageKey(accountId));
     if (raw === null) return null;
     return parseOpeningWizardDraft(JSON.parse(raw) as unknown);
   } catch {
@@ -77,6 +82,7 @@ export function loadOpeningWizardDraft(storage: Pick<Storage, 'getItem'> = globa
 }
 
 export function saveOpeningWizardDraft(
+  accountId: string,
   draft: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'>,
   storage: Pick<Storage, 'setItem'> = globalThis.localStorage,
   now: () => Date = () => new Date()
@@ -86,12 +92,12 @@ export function saveOpeningWizardDraft(
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
     updatedAt: now().toISOString()
   };
-  storage.setItem(OPENING_DRAFT_STORAGE_KEY, JSON.stringify(saved));
+  storage.setItem(openingDraftStorageKey(accountId), JSON.stringify(saved));
   return saved;
 }
 
-export function clearOpeningWizardDraft(storage: Pick<Storage, 'removeItem'> = globalThis.localStorage): void {
-  storage.removeItem(OPENING_DRAFT_STORAGE_KEY);
+export function clearOpeningWizardDraft(accountId: string, storage: Pick<Storage, 'removeItem'> = globalThis.localStorage): void {
+  storage.removeItem(openingDraftStorageKey(accountId));
 }
 
 export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'>): boolean {

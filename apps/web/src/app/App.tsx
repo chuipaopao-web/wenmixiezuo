@@ -603,7 +603,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       </main>
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
-      {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
+      {createOpen && <CompleteCreateBookDialog accountId={account.userId} busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {membershipGateOpen && (
         <div className="dialog-backdrop membership-gate-backdrop">
           <section className="dialog membership-prompt" role="dialog" aria-label="内测说明">

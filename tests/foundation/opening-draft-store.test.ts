@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OPENING_DRAFT_STORAGE_KEY,
   clearOpeningWizardDraft,
   emptyOpeningWizardDraft,
   hasMeaningfulOpeningDraft,
   loadOpeningWizardDraft,
+  openingDraftStorageKey,
   saveOpeningWizardDraft
 } from '../../apps/web/src/features/onboarding/opening-draft-store';
 
@@ -22,7 +22,7 @@ describe('四步开书草稿', () => {
   it('保存并恢复续写路线、多主角、故事方向与作者边界', () => {
     const storage = memoryStorage();
     const empty = emptyOpeningWizardDraft();
-    const saved = saveOpeningWizardDraft({
+    const saved = saveOpeningWizardDraft('user-a', {
       ...empty,
       step: 3,
       creationMode: 'continuation',
@@ -41,7 +41,7 @@ describe('四步开书草稿', () => {
     }, storage, () => new Date('2026-08-08T08:00:00.000Z'));
 
     expect(saved.updatedAt).toBe('2026-08-08T08:00:00.000Z');
-    expect(loadOpeningWizardDraft(storage)).toMatchObject({
+    expect(loadOpeningWizardDraft('user-a', storage)).toMatchObject({
       step: 3, creationMode: 'continuation', title: '旧城来信',
       protagonists: [{ name: '林舟' }, { name: '周野' }],
       worldBackground: '旧城地图会随居民记忆改变。',
@@ -49,21 +49,32 @@ describe('四步开书草稿', () => {
       initialMap: '档案馆、旧港与废弃轮渡站。',
       selectedMustFollow: ['不靠误会强推剧情']
     });
-    clearOpeningWizardDraft(storage);
-    expect(storage.raw.has(OPENING_DRAFT_STORAGE_KEY)).toBe(false);
+    clearOpeningWizardDraft('user-a', storage);
+    expect(storage.raw.has(openingDraftStorageKey('user-a'))).toBe(false);
+  });
+
+  it('草稿按账号隔离，切换账号互不可见', () => {
+    const storage = memoryStorage();
+    const empty = emptyOpeningWizardDraft();
+    saveOpeningWizardDraft('user-a', { ...empty, title: '账号A的书' }, storage);
+    expect(loadOpeningWizardDraft('user-b', storage)).toBeNull();
+    expect(loadOpeningWizardDraft('user-a', storage)).toMatchObject({ title: '账号A的书' });
+    clearOpeningWizardDraft('user-a', storage);
+    expect(loadOpeningWizardDraft('user-a', storage)).toBeNull();
   });
 
   it('忽略旧版或损坏数据，并限制本地内容体量', () => {
     const storage = memoryStorage();
-    storage.setItem(OPENING_DRAFT_STORAGE_KEY, JSON.stringify({ schemaVersion: 1, title: '旧版' }));
-    expect(loadOpeningWizardDraft(storage)).toBeNull();
-    storage.setItem(OPENING_DRAFT_STORAGE_KEY, '{broken');
-    expect(loadOpeningWizardDraft(storage)).toBeNull();
-    storage.setItem(OPENING_DRAFT_STORAGE_KEY, JSON.stringify({
+    const key = openingDraftStorageKey('user-a');
+    storage.setItem(key, JSON.stringify({ schemaVersion: 1, title: '旧版' }));
+    expect(loadOpeningWizardDraft('user-a', storage)).toBeNull();
+    storage.setItem(key, '{broken');
+    expect(loadOpeningWizardDraft('user-a', storage)).toBeNull();
+    storage.setItem(key, JSON.stringify({
       schemaVersion: 2, step: 99, creationMode: 'unknown', title: '长'.repeat(500),
       protagonists: [{ role: 'invalid', name: '甲', age: '成年', background: '背景', personalities: ['冷静', '冷静'] }]
     }));
-    expect(loadOpeningWizardDraft(storage)).toMatchObject({
+    expect(loadOpeningWizardDraft('user-a', storage)).toMatchObject({
       step: 1, creationMode: 'new', title: '长'.repeat(15),
       protagonists: [{ role: 'co_lead', personalities: ['冷静'] }]
     });

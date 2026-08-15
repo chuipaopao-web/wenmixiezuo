@@ -30,7 +30,8 @@ import {
   type OpeningWizardDraft
 } from './opening-draft-store';
 
-export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProfile, onUpdate }: {
+export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCreate, initialProfile, onUpdate }: {
+  accountId?: string;
   busy: boolean;
   onCancel: () => void;
   onCreate?: (input: Parameters<typeof createBook>[0]) => Promise<boolean>;
@@ -38,7 +39,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
   onUpdate?: (input: { expectedVersion: number; title: string; openingBlueprint: OpeningBlueprintData }) => Promise<boolean>;
 }): React.JSX.Element {
   const editing = initialProfile !== undefined;
-  const [restoredDraft] = useState(() => editing ? null : loadOpeningWizardDraft());
+  const [restoredDraft] = useState(() => editing ? null : loadOpeningWizardDraft(accountId));
   const [initialDraft] = useState(() => initialProfile === undefined
     ? restoredDraft ?? emptyOpeningWizardDraft()
     : openingProfileDraft(initialProfile));
@@ -99,12 +100,13 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
       allSubjectsOpen, activeTagGroupKey
     };
     const timer = window.setTimeout(() => {
+      if (editing) return;
       try {
         if (hasMeaningfulOpeningDraft(snapshot)) {
-          const saved = saveOpeningWizardDraft(snapshot);
+          const saved = saveOpeningWizardDraft(accountId, snapshot);
           setDraftSaveMessage(`草稿已自动保存 · ${new Date(saved.updatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
         } else {
-          clearOpeningWizardDraft();
+          clearOpeningWizardDraft(accountId);
           setDraftSaveMessage(null);
         }
       } catch {
@@ -112,7 +114,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+  }, [accountId, step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
     protagonists, storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
     allSubjectsOpen, activeTagGroupKey, editing]);
@@ -316,7 +318,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
     automaticTagValues.current = [];
     automaticTagCategory.current = null;
     dismissedAutomaticTags.current.clear();
-    clearOpeningWizardDraft();
+    clearOpeningWizardDraft(accountId);
   };
   const submit = async (): Promise<void> => {
     if (submitting || busy) return;
@@ -374,7 +376,7 @@ export function CompleteCreateBookDialog({ busy, onCancel, onCreate, initialProf
           openingBlueprint
         });
       }
-      if (saved && !editing) clearOpeningWizardDraft();
+      if (saved && !editing) clearOpeningWizardDraft(accountId);
       else if (!saved) setSubmitError(editing ? '修改没有保存，请检查提示后重试。' : '创建没有完成，已保留全部草稿，可以检查提示后重试。');
     } catch (reason) {
       setSubmitError(reason instanceof Error ? reason.message : editing ? '修改没有保存。' : '创建没有完成，已保留全部草稿。');

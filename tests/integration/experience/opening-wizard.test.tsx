@@ -7,7 +7,9 @@ const api = vi.hoisted(() => ({ createBook: vi.fn(), fetchOpeningTaxonomy: vi.fn
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
 
 import { CompleteCreateBookDialog } from '../../../apps/web/src/features/onboarding/CompleteCreateBookDialog';
-import { OPENING_DRAFT_STORAGE_KEY } from '../../../apps/web/src/features/onboarding/opening-draft-store';
+import { openingDraftStorageKey } from '../../../apps/web/src/features/onboarding/opening-draft-store';
+
+const draftKey = openingDraftStorageKey('');
 
 const taxonomy = {
   version: 'test-opening-v1', sourceLabel: '本地测试', sourceUrl: 'https://example.test/',
@@ -91,7 +93,7 @@ describe('四步开书', () => {
         styleIntent: openingBlueprint.styleIntent
       })
     }));
-    expect(localStorage.getItem(OPENING_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(draftKey)).toBeNull();
   });
   it('从创作方式逐步填写方向、多个主角和边界，只提交一次完整资料', async () => {
     const onCreate = vi.fn().mockResolvedValue(true);
@@ -149,7 +151,7 @@ describe('四步开书', () => {
     const firstRender = render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '未完成的新书' } });
-    await waitFor(() => expect(localStorage.getItem(OPENING_DRAFT_STORAGE_KEY)).toContain('未完成的新书'));
+    await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('未完成的新书'));
     firstRender.unmount();
 
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
@@ -157,7 +159,7 @@ describe('四步开书', () => {
     expect(screen.getByLabelText('书名')).toHaveValue('未完成的新书');
     fireEvent.click(screen.getByRole('button', { name: '清空并重新开始' }));
     expect(screen.getByText('从零创作')).toBeInTheDocument();
-    expect(localStorage.getItem(OPENING_DRAFT_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(draftKey)).toBeNull();
   });
 
   it('续写路线保持独立，失败后不清除草稿并允许重试', async () => {
@@ -168,7 +170,7 @@ describe('四步开书', () => {
     expect(screen.getByRole('button', { name: '创建并导入正文' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '创建并导入正文' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
-    await waitFor(() => expect(localStorage.getItem(OPENING_DRAFT_STORAGE_KEY)).toContain('continuation'));
+    await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('continuation'));
   });
   it('书名输入固定为15字并实时显示字数', async () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
