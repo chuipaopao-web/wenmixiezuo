@@ -6725,6 +6725,8 @@ svg {
 .dialog.membership-prompt .membership-contact { color: var(--ink); }
 .dialog.membership-prompt .membership-contact strong { font-size: 18px; letter-spacing: .5px; color: var(--accent); }
 .membership-prompt-actions { width: 100%; display: grid; grid-template-columns: 1fr; }
+.membership-prompt-actions.two { grid-template-columns: 1fr 1fr; gap: 8px; }
+.membership-gate-hint { color: var(--ink-faint); font-size: 12px; }
 
 @media (max-width: 780px) {
   .admin-workspace .admin-overview[aria-label="用户概况"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }

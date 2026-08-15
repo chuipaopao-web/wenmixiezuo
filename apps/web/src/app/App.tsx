@@ -139,19 +139,40 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
-  const [membershipPromptOpen, setMembershipPromptOpen] = useState(false);
+  const [membershipChecking, setMembershipChecking] = useState(false);
+
+  const refreshMembership = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    setMembershipChecking(true);
+    try {
+      const status = await fetchMyMembership(signal);
+      if (signal?.aborted !== true) setMembershipStatus(status);
+    } catch {
+      // 会员状态暂时取不到时保留旧值；生成门禁由服务端兜底。
+    } finally {
+      if (signal?.aborted !== true) setMembershipChecking(false);
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchMyMembership(controller.signal)
-      .then((status) => { if (!controller.signal.aborted) setMembershipStatus(status); })
-      .catch(() => undefined);
+    void refreshMembership(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [refreshMembership]);
 
   const activeBooks = books.filter((book) => book.status !== 'archived');
   const archivedBooks = books.filter((book) => book.status === 'archived');
   const selectedBook = activeBooks.find((book) => book.bookId === selectedBookId) ?? null;
+  const membershipRecord = membershipStatus?.membership ?? null;
+  const membershipUsable = account.role === 'admin'
+    || (membershipRecord !== null && membershipRecord.status === 'active' && !membershipRecord.expired && membershipRecord.tokensRemaining > 0);
+  // 无生效会员的用户进入书籍工作区（设定页及之后）时锁定功能，直到管理员开通会员。
+  const membershipGateOpen = membershipStatus !== null && !membershipUsable && selectedBook !== null;
+
+  useEffect(() => {
+    if (!membershipGateOpen) return;
+    const poll = window.setInterval(() => { void refreshMembership(); }, 20_000);
+    return () => window.clearInterval(poll);
+  }, [membershipGateOpen, refreshMembership]);
   const selectedTaskContext = selectedTask === null
     ? null
     : (() => {
@@ -350,9 +371,6 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         setCreationTab('manuscript');
           } else {
         setCreationTab('basic');
-        const record = membershipStatus?.membership ?? null;
-        const usable = record !== null && record.status === 'active' && !record.expired && record.tokensRemaining > 0;
-        if (account.role !== 'admin' && !usable) setMembershipPromptOpen(true);
           }
       setCreateOpen(false);
       setError(null);
@@ -586,16 +604,20 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
-      {membershipPromptOpen && (
-        <div className="dialog-backdrop">
+      {membershipGateOpen && (
+        <div className="dialog-backdrop membership-gate-backdrop">
           <section className="dialog membership-prompt" role="dialog" aria-label="内测说明">
             <div className="brand-mark" aria-hidden="true">文</div>
             <h2>内测说明</h2>
             <p>作者创作小说六年，写了几百万字大长篇，稿费几十万。因在市场上没有找到好用的长篇AI软件，正好自己做过几年软件，便动手做了一个。</p>
             <p>目前流程跑通在内测，内测用户可以帮忙反馈一下问题，我仍在持续优化中。</p>
-            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>V595341366</strong> 开通</p>
-            <footer className="membership-prompt-actions">
-              <button type="button" className="primary" onClick={() => setMembershipPromptOpen(false)}>我知道了</button>
+            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>V595341366</strong> 开通会员后继续使用</p>
+            <p className="membership-gate-hint">管理员开通后会自动解除限制；如已开通，点击下方刷新立即生效。</p>
+            <footer className="membership-prompt-actions two">
+              <button type="button" className="primary" disabled={membershipChecking} onClick={() => void refreshMembership()}>
+                {membershipChecking ? '正在刷新…' : '刷新会员状态'}
+              </button>
+              <button type="button" onClick={() => void onSignOut()}>退出登录</button>
             </footer>
           </section>
         </div>
