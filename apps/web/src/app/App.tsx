@@ -588,11 +588,12 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {membershipPromptOpen && (
         <div className="dialog-backdrop">
-          <section className="dialog membership-prompt" role="dialog" aria-label="办理会员">
+          <section className="dialog membership-prompt" role="dialog" aria-label="内测说明">
             <div className="brand-mark" aria-hidden="true">文</div>
-            <h2>办理会员，畅享百亿算力值</h2>
-            <p>联系管理员办理会员，可享受百亿算力值，畅快生成设定与正文。</p>
-            <p className="membership-contact">管理员微信 <strong>595341366</strong></p>
+            <h2>内测说明</h2>
+            <p>作者创作小说六年，写了几百万字大长篇，稿费几十万。因在市场上没有找到好用的长篇AI软件，正好自己做过几年软件，便动手做了一个。</p>
+            <p>目前流程跑通在内测，内测用户可以帮忙反馈一下问题，我仍在持续优化中。</p>
+            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>V595341366</strong> 开通</p>
             <footer className="membership-prompt-actions">
               <button type="button" className="primary" onClick={() => setMembershipPromptOpen(false)}>我知道了</button>
             </footer>
