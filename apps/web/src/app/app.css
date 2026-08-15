@@ -6708,6 +6708,31 @@ svg {
 .admin-user-list button:disabled { opacity: .55; }
 .admin-empty { padding: 40px; color: var(--ink-faint); text-align: center; }
 
+.admin-overview.five-cards, .admin-workspace .admin-overview[aria-label="用户概况"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.admin-membership-list > article.admin-membership-row { grid-template-columns: minmax(180px, 1.2fr) 88px 78px minmax(200px, 1.4fr) auto 94px; }
+.admin-membership-info { min-width: 0; display: grid; gap: 3px; font-size: 12px; }
+.membership-plan { width: max-content; border-radius: 999px; padding: 3px 9px; font-size: 11px; background: var(--accent-soft); color: var(--accent); }
+.membership-plan.none { color: var(--ink-faint); background: transparent; border: 1px dashed var(--line); }
+.membership-plan.inactive { color: #9b3f3f; background: #fbeaea; }
+.membership-quota, .membership-total { color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-membership-actions { display: flex; gap: 6px; align-items: center; }
+.admin-membership-actions select { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-raised); color: var(--ink-soft); font-size: 12px; }
+.admin-membership-actions button { white-space: nowrap; }
+
+.dialog.membership-prompt { text-align: center; display: grid; gap: 10px; justify-items: center; max-width: 380px; }
+.dialog.membership-prompt .brand-mark { margin: 0 auto; }
+.dialog.membership-prompt p { color: var(--ink-soft); font-size: 14px; }
+.dialog.membership-prompt .membership-contact { color: var(--ink); }
+.dialog.membership-prompt .membership-contact strong { font-size: 18px; letter-spacing: .5px; color: var(--accent); }
+.membership-prompt-actions { width: 100%; display: grid; grid-template-columns: 1fr; }
+
+@media (max-width: 780px) {
+  .admin-workspace .admin-overview[aria-label="用户概况"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-membership-list > article.admin-membership-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .admin-membership-row .account-status, .admin-membership-row .account-role { justify-self: start; }
+  .admin-membership-actions { flex-wrap: wrap; }
+}
+
 @media (max-width: 780px) {
   .auth-shell { padding: 14px; }
   .auth-card { border-radius: 24px; padding: 26px 22px; }

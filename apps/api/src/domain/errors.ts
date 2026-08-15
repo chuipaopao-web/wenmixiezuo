@@ -26,6 +26,8 @@ export const errorCodes = {
   copyrightBlocked: 'COPYRIGHT_BLOCKED',
   editorEpochConflict: 'EDITOR_EPOCH_CONFLICT',
   independentReviewRequired: 'INDEPENDENT_REVIEW_REQUIRED',
+  membershipQuotaExhausted: 'MEMBERSHIP_QUOTA_EXHAUSTED',
+  membershipRequired: 'MEMBERSHIP_REQUIRED',
   modelCallInterrupted: 'MODEL_CALL_INTERRUPTED',
   operationIncomplete: 'OPERATION_INCOMPLETE',
   permanentDeleteConfirmationInvalid: 'PERMANENT_DELETE_CONFIRMATION_INVALID',

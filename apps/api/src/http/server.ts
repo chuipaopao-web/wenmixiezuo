@@ -18,6 +18,7 @@ import { requireAuthenticatedOwner } from '../infrastructure/security/auth-conte
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerRuntimeRoutes } from './runtime-routes.js';
 import { registerAccountRoutes } from './account-routes.js';
+import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
 import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
 import { CapabilityService } from '../application/capabilities/capability-service.js';
@@ -141,7 +142,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     config.modelRuntime,
     config.releaseId
   );
-  await registerAccountRoutes(app, accounts);
+  await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerRuntimeRoutes(app, capabilities);
   await registerDomainRoutes(app, database, config);
 

@@ -4,6 +4,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import type { EventStore } from '../events/event-store.js';
+import { assertMembershipAllowsGeneration } from '../../infrastructure/security/membership-service.js';
 
 export type TaskStatus = 'pending' | 'queued' | 'working' | 'waiting_confirmation' | 'paused' | 'blocked' | 'interrupted' | 'failed' | 'cancelled' | 'succeeded';
 
@@ -86,6 +87,7 @@ export class TaskService {
       SELECT * FROM tasks WHERE owner_id = ? AND book_id = ? AND idempotency_key = ?
     `).get(scope.ownerId, scope.bookId, input.idempotencyKey) as TaskRow | undefined;
     if (existing !== undefined) return mapTask(existing);
+    assertMembershipAllowsGeneration(this.database, scope.ownerId, this.clock.now().toISOString());
     const now = this.clock.now().toISOString();
     this.database.prepare(`
       INSERT INTO tasks (

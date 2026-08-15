@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { success } from '../contracts/api.js';
 import { DomainError } from '../domain/errors.js';
+import { isMembershipPlan, MembershipService } from '../infrastructure/security/membership-service.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
-import { requireAdministrator, requireAuthenticatedAccount } from '../infrastructure/security/auth-context.js';
+import { requireAdministrator, requireAuthenticatedAccount, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 
-export async function registerAccountRoutes(app: FastifyInstance, accounts: AccountAuthService): Promise<void> {
+export async function registerAccountRoutes(app: FastifyInstance, accounts: AccountAuthService, memberships: MembershipService): Promise<void> {
   app.post<{
     Body: { email: string; password: string; displayName?: string };
   }>('/api/v1/auth/register', { config: { rateLimit: { max: 3, timeWindow: '5 minutes' } } }, async (request, reply) => {
@@ -63,6 +64,36 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
       throw new DomainError('INVALID_ACCOUNT_STATUS', '请选择启用或暂停账号', {}, false, 400);
     }
     return success(accounts.setUserStatus(administrator, request.params.userId, status), request.id);
+  });
+
+  app.get('/api/v1/membership/me', async (request) => {
+    const owner = requireAuthenticatedOwner(request);
+    return success(memberships.statusForOwner(owner.ownerId), request.id);
+  });
+
+  app.get('/api/v1/admin/memberships', async (request) => {
+    requireAdministrator(request);
+    return success(memberships.listUsersWithMembership(), request.id);
+  });
+
+  app.post<{
+    Params: { userId: string };
+    Body: { plan?: string };
+  }>('/api/v1/admin/memberships/:userId', async (request) => {
+    const administrator = requireAdministrator(request);
+    const plan = request.body?.plan;
+    if (!isMembershipPlan(plan)) {
+      throw new DomainError('INVALID_MEMBERSHIP_PLAN', '请选择包月、包季或包年套餐', {}, false, 400);
+    }
+    return success(memberships.grant(administrator.userId, request.params.userId, plan), request.id);
+  });
+
+  app.post<{
+    Params: { userId: string };
+  }>('/api/v1/admin/memberships/:userId/revoke', async (request) => {
+    const administrator = requireAdministrator(request);
+    memberships.revoke(administrator.userId, request.params.userId);
+    return success({ revoked: true }, request.id);
   });
 }
 

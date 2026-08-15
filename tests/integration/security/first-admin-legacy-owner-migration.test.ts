@@ -55,7 +55,7 @@ describe('首位管理员接管账号体系启用前的本机数据', () => {
       const bookBefore = database.prepare('SELECT * FROM books WHERE book_id = ?').get('legacy-book');
       const upgraded = runMigrations(database, migrations);
 
-      expect(upgraded.applied).toEqual(['0044_first_admin_legacy_owner.sql']);
+      expect(upgraded.applied).toEqual(['0044_first_admin_legacy_owner.sql', '0045_user_memberships.sql']);
       expect(database.prepare('SELECT owner_id FROM user_accounts WHERE user_id = ?').get('admin-user'))
         .toEqual({ owner_id: 'owner-local-boss' });
       expect(database.prepare('SELECT * FROM books WHERE book_id = ?').get('legacy-book')).toEqual(bookBefore);

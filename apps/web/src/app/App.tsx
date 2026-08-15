@@ -28,6 +28,7 @@ import {
   fetchChapterDetail,
   fetchHealth,
   fetchCurrentAccount,
+  fetchMyMembership,
   logoutAccount,
   fetchLibrary,
   fetchModelBindings,
@@ -43,6 +44,7 @@ import {
   type BookData,
   type CapabilityData,
   type ChapterData,
+  type MembershipStatusData,
   type ModelBindingsData,
   type OperationsStatusData,
   type TaskCenterBookData,
@@ -136,6 +138,16 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
+  const [membershipPromptOpen, setMembershipPromptOpen] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchMyMembership(controller.signal)
+      .then((status) => { if (!controller.signal.aborted) setMembershipStatus(status); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   const activeBooks = books.filter((book) => book.status !== 'archived');
   const archivedBooks = books.filter((book) => book.status === 'archived');
@@ -338,6 +350,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         setCreationTab('manuscript');
           } else {
         setCreationTab('basic');
+        const record = membershipStatus?.membership ?? null;
+        const usable = record !== null && record.status === 'active' && !record.expired && record.tokensRemaining > 0;
+        if (account.role !== 'admin' && !usable) setMembershipPromptOpen(true);
           }
       setCreateOpen(false);
       setError(null);
@@ -495,7 +510,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         </div>
         <div className="sidebar-account">
           <div className="sidebar-account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</div>
-          <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员' : '作者账号'}</span></div>
+          <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></div>
           <div className="sidebar-account-actions">
             {account.role === 'admin' && <button type="button" onClick={() => setUtilityView('admin')}>管理</button>}
             <button type="button" onClick={() => void onSignOut()}>退出</button>
@@ -571,6 +586,19 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {createOpen && <CompleteCreateBookDialog busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
+      {membershipPromptOpen && (
+        <div className="dialog-backdrop">
+          <section className="dialog membership-prompt" role="dialog" aria-label="办理会员">
+            <div className="brand-mark" aria-hidden="true">文</div>
+            <h2>办理会员，畅享百亿算力值</h2>
+            <p>联系管理员办理会员，可享受百亿算力值，畅快生成设定与正文。</p>
+            <p className="membership-contact">管理员微信 <strong>595341366</strong></p>
+            <footer className="membership-prompt-actions">
+              <button type="button" className="primary" onClick={() => setMembershipPromptOpen(false)}>我知道了</button>
+            </footer>
+          </section>
+        </div>
+      )}
       {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
       {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
       {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
@@ -587,6 +615,19 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       )}
     </div>
   );
+}
+
+function formatMembershipBadge(status: MembershipStatusData | null): string {
+  const record = status?.membership ?? null;
+  if (record === null) return '作者账号 · 未开通会员';
+  const usable = record.status === 'active' && !record.expired && record.tokensRemaining > 0;
+  if (!usable) return record.expired ? `作者账号 · ${record.planLabel}已到期` : '作者账号 · 会员可用算力值已用完';
+  const remaining = record.tokensRemaining >= 100_000_000
+    ? `${(record.tokensRemaining / 100_000_000).toFixed(1)}亿`
+    : record.tokensRemaining >= 10_000
+      ? `${(record.tokensRemaining / 10_000).toFixed(1)}万`
+      : String(record.tokensRemaining);
+  return `作者账号 · ${record.planLabel} · 剩余${remaining}算力值`;
 }
 
 function UnifiedEmptyState({ title, description, onCreate }: { title: string; description: string; onCreate?: () => void }): React.JSX.Element {

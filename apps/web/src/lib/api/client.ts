@@ -990,6 +990,65 @@ export function updateAdminUserStatus(userId: string, status: 'active' | 'suspen
   });
 }
 
+export type MembershipPlanKey = 'monthly' | 'quarterly' | 'yearly';
+
+export interface MembershipStatusData {
+  isAdmin: boolean;
+  membership: null | {
+    plan: MembershipPlanKey;
+    planLabel: string;
+    status: 'active' | 'revoked';
+    tokenQuota: number;
+    tokensConsumed: number;
+    tokensRemaining: number;
+    periodStart: string;
+    periodEnd: string;
+    expired: boolean;
+  };
+}
+
+export interface AdminMembershipUserData {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: 'admin' | 'user';
+  accountStatus: 'active' | 'suspended';
+  membership: null | {
+    plan: MembershipPlanKey;
+    planLabel: string;
+    status: 'active' | 'revoked';
+    tokenQuota: number;
+    periodTokens: number;
+    totalTokens: number;
+    periodStart: string;
+    periodEnd: string;
+    expired: boolean;
+  };
+  totalTokens: number;
+}
+
+export function fetchMyMembership(signal?: AbortSignal): Promise<MembershipStatusData> {
+  return request('/api/v1/membership/me', signal === undefined ? {} : { signal });
+}
+
+export function fetchAdminMemberships(signal?: AbortSignal): Promise<AdminMembershipUserData[]> {
+  return request('/api/v1/admin/memberships', signal === undefined ? {} : { signal });
+}
+
+export function grantAdminMembership(userId: string, plan: MembershipPlanKey): Promise<MembershipStatusData> {
+  return request(`/api/v1/admin/memberships/${encodeURIComponent(userId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ plan })
+  });
+}
+
+export function revokeAdminMembership(userId: string): Promise<{ revoked: boolean }> {
+  return request(`/api/v1/admin/memberships/${encodeURIComponent(userId)}/revoke`, {
+    method: 'POST',
+    body: '{}'
+  });
+}
+
 export interface RuntimeEventData {
   eventSeq:number;eventId:string;eventType:string;ownerId:string;bookId:string|null;occurredAt:string;data:Record<string,unknown>;
 }
