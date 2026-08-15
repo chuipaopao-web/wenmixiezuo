@@ -17,3 +17,7 @@ Thumbs.db
 .repair-backup-*.patch
 pnpm-workspace.yaml
 pnpm-lock.yaml
+
+check-admin.sh
+swap-admin.sh
+membership-deploy.*
