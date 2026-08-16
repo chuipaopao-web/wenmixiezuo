@@ -222,7 +222,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
     memberships.grant(admin.user_id, user.user_id, 'monthly');
     clock.advance(32 * 24 * 60 * 60 * 1000);
     const later = clock.now().toISOString();
-    expect(() => assertMembershipAllowsGeneration(database, user.owner_id, later)).toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_REQUIRED' }) as unknown as Error);
+    expect(() => assertMembershipAllowsGeneration(database, user.owner_id, later)).toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_EXPIRED' }) as unknown as Error);
     expect(memberships.statusForOwner(user.owner_id).membership).toMatchObject({ expired: true, status: 'active' });
   });
 });

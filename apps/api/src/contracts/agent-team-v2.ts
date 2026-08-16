@@ -4,7 +4,7 @@ export const creativeRoleKeys = [
 ] as const;
 
 export type CreativeRoleKey = typeof creativeRoleKeys[number];
-export type TeamModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent';
+export type TeamModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego';
 
 export interface TeamModelProfile {
   provider: string;

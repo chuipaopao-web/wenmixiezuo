@@ -16,7 +16,7 @@ export const novelRoleKeys = [
 
 export type NovelRoleKey = RoleKey;
 export type ModelRuntimeMode = 'deterministic' | 'subscription-plan';
-export type ModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent';
+export type ModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego';
 export type ModelPurpose = 'discussion' | 'structured_planning' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RoleModelProfile {
@@ -30,6 +30,14 @@ export interface ArkPlanEndpointConfig {
   provider: string;
   baseUrl: string;
   apiKey: string | undefined;
+}
+
+export interface OpencodegoEndpointConfig {
+  plan: Extract<ModelPlan, 'opencodego'>;
+  provider: 'opencodego';
+  baseUrl: string;
+  apiKey: string | undefined;
+  modelId: string;
 }
 
 export interface PublicModelProfile extends RoleModelProfile {
@@ -46,6 +54,7 @@ export interface ModelRuntimeConfig {
   endpoints: {
     coding: ArkPlanEndpointConfig;
     agent: ArkPlanEndpointConfig;
+    opencodego: OpencodegoEndpointConfig;
   };
   codex: {
     provider: 'openai-codex-subscription';
@@ -98,7 +107,32 @@ function currentAgentPlanModelId(value: string | undefined, fallback: string): s
   return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
 }
 
-export function assertPlanBaseUrl(plan: 'coding' | 'agent', raw: string): string {
+export const OPENCODEGO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go';
+
+export function assertOpencodegoBaseUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('只允许 opencodego 端点：地址格式无效');
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    url.protocol !== 'https:' ||
+    url.port !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    !(host === 'opencode.ai' || host.endsWith('.opencode.ai') || host.includes('opencodego'))
+  ) {
+    throw new Error('只允许 opencodego 端点：必须是 https 且主机为 opencode.ai / *.opencode.ai');
+  }
+  const path = url.pathname.replace(/\/$/u, '');
+  if (path.length === 0) throw new Error('只允许 opencodego 端点：缺少路径');
+  return `${url.origin}${path}`;
+}
+
+export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
+  if (plan === 'opencodego') return assertOpencodegoBaseUrl(raw);
   let url: URL;
   try {
     url = new URL(raw);
@@ -185,6 +219,39 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
   };
 }
 
+/**
+ * opencodego 模式：角色模型分配与火山方舟 Agent Plan 保持一致（写手/编剧用
+ * DeepSeek、审校用 MiniMax、体验用豆包、连续性用 GLM、主编用 Kimi 等），
+ * 仅把 provider/baseUrl/apiKey 指向 opencodego，从而通过团队模型多样性校验，
+ * 且模型名在 opencodego 与方舟 catalog 同名时可无缝替换。逐角色模型可用
+ * `WENMI_OPENCODEGO_*_MODEL` 覆盖，未配置时沿用方舟同款回退值。
+ *
+ * 2026-08-16 实测 opencode.ai/zen/go 目录不含豆包模型；按"适配不了的不要
+ * 变化"，体验席默认继续使用火山方舟 Agent Plan 的豆包配置（需保留
+ * WENMI_ARK_AGENT_PLAN_API_KEY）。只有显式设置 WENMI_OPENCODEGO_DOUBAO_MODEL
+ * 时才把体验席切到 opencodego。
+ */
+function opencodegoProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
+  const profile = (envKey: string, fallback: string): RoleModelProfile => ({
+    provider: 'opencodego',
+    modelId: currentAgentPlanModelId(env[`WENMI_OPENCODEGO_${envKey}_MODEL`], fallback),
+    plan: 'opencodego'
+  });
+  return {
+    chief_editor: profile('KIMI_K27', 'kimi-k2.7-code'),
+    plot_architect: profile('DEEPSEEK', 'deepseek-v4-pro'),
+    continuity: profile('GLM', 'glm-5.2'),
+    writer: profile('DEEPSEEK', 'deepseek-v4-pro'),
+    reviewer: profile('MINIMAX', 'minimax-m3'),
+    reader_experience: firstNonEmpty(env.WENMI_OPENCODEGO_DOUBAO_MODEL) !== undefined
+      ? profile('DOUBAO', 'doubao-seed-2.1-turbo')
+      : subscriptionProfiles(env).reader_experience,
+    style_editor: profile('GLM', 'glm-5.2'),
+    researcher: profile('DEEPSEEK_FLASH', 'deepseek-v4-flash'),
+    copyright: profile('KIMI_K27', 'kimi-k2.7-code')
+  };
+}
+
 function toPublicProfiles(
   profiles: Record<NovelRoleKey, RoleModelProfile>,
   endpoints: ModelRuntimeConfig['endpoints']
@@ -222,8 +289,10 @@ export function loadModelRuntimeConfig(
     env.ARK_AGENTPLAN_KEY,
     compatibleEndpoint?.plan === 'agent' ? compatibleToken : undefined
   );
+  const opencodegoKey = firstNonEmpty(env.WENMI_OPENCODEGO_API_KEY);
+  const opencodegoActive = opencodegoKey !== undefined;
   const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE)
-    ?? (agentKey === undefined ? 'deterministic' : 'subscription-plan');
+    ?? (agentKey === undefined && !opencodegoActive ? 'deterministic' : 'subscription-plan');
   if (rawMode !== 'deterministic' && rawMode !== 'subscription-plan') {
     throw new Error('WENMI_MODEL_MODE只允许deterministic或subscription-plan');
   }
@@ -253,12 +322,24 @@ export function loadModelRuntimeConfig(
         ) ?? 'https://ark.cn-beijing.volces.com/api/plan'
       ),
       apiKey: agentKey
+    },
+    opencodego: {
+      plan: 'opencodego',
+      provider: 'opencodego',
+      baseUrl: assertOpencodegoBaseUrl(
+        firstNonEmpty(env.WENMI_OPENCODEGO_BASE_URL) ?? OPENCODEGO_DEFAULT_BASE_URL
+      ),
+      apiKey: opencodegoKey,
+      modelId: currentAgentPlanModelId(env.WENMI_OPENCODEGO_MODEL, 'deepseek-v4-flash')
     }
   };
   const missingCredentials: ModelRuntimeConfig['missingCredentials'] = [];
-  if (agentKey === undefined) missingCredentials.push('agent-plan');
+  // opencodego 激活时不再要求方舟 Agent Plan 凭证；两者皆缺才报 agent-plan 缺失。
+  if (!opencodegoActive && agentKey === undefined) missingCredentials.push('agent-plan');
   const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && missingCredentials.length === 0 ? 'subscription-plan' : 'deterministic';
-  const roleProfiles = activeMode === 'subscription-plan' ? subscriptionProfiles(env) : deterministicProfiles();
+  const roleProfiles = activeMode === 'subscription-plan'
+    ? opencodegoActive ? opencodegoProfiles(env) : subscriptionProfiles(env)
+    : deterministicProfiles();
   const codexTimeout = Number(firstNonEmpty(env.WENMI_CODEX_TIMEOUT_MS) ?? '900000');
   if (!Number.isInteger(codexTimeout) || codexTimeout < 30_000 || codexTimeout > 900_000) {
     throw new Error('WENMI_CODEX_TIMEOUT_MS必须在30000至900000之间');

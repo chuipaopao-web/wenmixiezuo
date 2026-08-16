@@ -182,11 +182,14 @@ export class ModelCallService {
       const interrupted = fencedOut || providerOutcomeUnknown || controller.signal.aborted
         || (error instanceof Error && error.name === 'AbortError');
       const failureClass = error instanceof ModelAdapterError ? error.failureClass : 'technical_failure';
+      // 真实错误（含 provider 返回的状态与脱敏详情）落库，避免被上层错误映射吞成通用
+      // INVALID_REQUEST_BODY 后无法诊断（如"讨论任务重试17次全失败但看不到原因"事故）。
+      const errorDetail = error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000);
       this.database.prepare(`
-        UPDATE model_calls SET state = ?, error_class = ?, completed_at = ? WHERE request_id = ? AND state IN ('pending', 'working')
+        UPDATE model_calls SET state = ?, error_class = ?, error_detail = ?, completed_at = ? WHERE request_id = ? AND state IN ('pending', 'working')
       `).run(interrupted ? 'interrupted' : 'failed', fencedOut ? 'lease_or_epoch_lost'
         : providerOutcomeUnknown ? 'provider_result_unknown' : interrupted ? 'cancelled' : failureClass,
-      this.clock.now().toISOString(), requestId);
+      errorDetail, this.clock.now().toISOString(), requestId);
       if (interrupted) {
         if (adapter.provider.startsWith('local-deterministic')) {
           this.budgets.release(scope, call.reservationId);

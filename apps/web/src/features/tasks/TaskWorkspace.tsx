@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { BooksIcon, CaretRightIcon, XIcon } from '@phosphor-icons/react';
-import type { TaskCenterBookData, TaskData } from '../../lib/api/client';
+import { fetchTaskDetail, type TaskCenterBookData, type TaskData, type TaskDetailData } from '../../lib/api/client';
 import { StructuredContent } from '../shared/StructuredContent';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
 import { memberIdentity } from '../shared/agent-presentation';
@@ -130,19 +131,38 @@ export function ConfirmationsPanel({ bookId, workspace, busy, onDecide }: {
   );
 }
 
-export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask, onRetryTask, onClose }: {
+export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask, onRetryTask, onResumeTask, onClose }: {
   bookId: string;
   task: TaskData;
   workspace: TaskCenterBookData;
   busy: boolean;
   onCancelTask: (bookId: string, taskId: string) => Promise<void>;
   onRetryTask: (bookId: string, taskId: string) => Promise<void>;
+  onResumeTask: (bookId: string, taskId: string) => Promise<void>;
   onClose: () => void;
 }): React.JSX.Element {
   const agent = workspace.agents.find((item) => item.agentId === task.assignedAgentId) ?? null;
   const canCancel = isActiveTask(task.status) && !task.cancelRequested;
   const canRetry = ['failed', 'interrupted'].includes(task.status);
+  const canResume = ['paused', 'pending'].includes(task.status);
   const chapter = taskChapterLabel(task, workspace).replace(/^第(\d+)章$/u, '第 $1 章');
+  // 失败/中断时拉取任务详情，把 provider 真实拒绝原因（model_calls.error_detail）展示给用户，
+  // 避免"重试17次都不知道为什么失败"。
+  const [realError, setRealError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canRetry) return;
+    let active = true;
+    const controller = new AbortController();
+    void fetchTaskDetail(bookId, task.taskId, controller.signal)
+      .then((detail: TaskDetailData) => {
+        if (!active) return;
+        const failed = detail.modelCalls.filter((call) => call.error_detail !== null && call.error_detail.length > 0);
+        const lastFailed = failed[failed.length - 1];
+        if (lastFailed) setRealError(lastFailed.error_detail);
+      })
+      .catch(() => undefined);
+    return () => { active = false; controller.abort(); };
+  }, [bookId, task.taskId, canRetry]);
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
       <section className="dialog task-dialog" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
@@ -157,10 +177,12 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
           <div><dt>执行成员</dt><dd>{agent === null ? '等待分派' : memberIdentity(agent)}</dd></div>
           <div className="task-detail-wide"><dt>任务目标</dt><dd>{taskGoal(task, chapter)}</dd></div>
           <div className="task-detail-wide"><dt>当前进度</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>
-          {canRetry && <div className="task-detail-wide"><dt>继续说明</dt><dd>已完成的内容会继续保留，只处理尚未完成的部分。</dd></div>}
+          {canRetry && <div className="task-detail-wide"><dt>继续说明</dt><dd>系统将重新执行本任务；已保存并生效的正式内容不会被覆盖，也不会重复生成。</dd></div>}
+          {canRetry && realError !== null && <div className="task-detail-wide"><dt>失败原因</dt><dd className="task-error-detail">{realError}</dd></div>}
         </dl>
         <footer>
           <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>关闭</button>
+          {canResume && <button className="primary-button" type="button" disabled={busy} onClick={() => void onResumeTask(bookId, task.taskId)}>{busy ? '正在继续' : '继续执行'}</button>}
           {canRetry && <button className="primary-button" type="button" disabled={busy} onClick={() => void onRetryTask(bookId, task.taskId)}>{busy ? '正在重试' : '继续重试'}</button>}
           {canCancel && <button className="danger-button" type="button" disabled={busy} onClick={() => void onCancelTask(bookId, task.taskId)}>{busy ? '正在取消' : '取消任务'}</button>}
         </footer>

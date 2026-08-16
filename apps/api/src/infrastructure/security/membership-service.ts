@@ -79,14 +79,6 @@ function findAccountById(database: DatabaseSync, userId: string): AccountRow | u
   return database.prepare('SELECT user_id, owner_id, role FROM user_accounts WHERE user_id = ?').get(userId) as AccountRow | undefined;
 }
 
-function activeMembershipByOwner(database: DatabaseSync, ownerId: string, nowIso: string): MembershipRow | undefined {
-  const row = database.prepare(
-    "SELECT * FROM user_memberships WHERE owner_id = ? AND status = 'active'"
-  ).get(ownerId) as MembershipRow | undefined;
-  if (row === undefined) return undefined;
-  return row.period_end > nowIso ? row : undefined;
-}
-
 function tokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
   const row = database.prepare(`
     SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
@@ -110,14 +102,18 @@ export function membershipGenerationBlockReason(
   database: DatabaseSync,
   ownerId: string,
   nowIso: string
-): null | 'membership-required' | 'quota-exhausted' {
+): null | 'membership-required' | 'membership-expired' | 'quota-exhausted' {
   const account = findAccountByOwner(database, ownerId);
   if (account === undefined) return null;
   if (account.role === 'admin') return null;
-  const membership = activeMembershipByOwner(database, ownerId, nowIso);
-  if (membership === undefined) return 'membership-required';
-  const consumed = tokensConsumedSince(database, ownerId, membership.period_start);
-  return consumed >= membership.token_quota ? 'quota-exhausted' : null;
+  const row = database.prepare(
+    "SELECT * FROM user_memberships WHERE owner_id = ? AND status = 'active'"
+  ).get(ownerId) as MembershipRow | undefined;
+  if (row === undefined) return 'membership-required';
+  // 已有生效会员记录但周期已过：不是"从未开通"，应提示续费而非开通。
+  if (row.period_end <= nowIso) return 'membership-expired';
+  const consumed = tokensConsumedSince(database, ownerId, row.period_start);
+  return consumed >= row.token_quota ? 'quota-exhausted' : null;
 }
 
 /**
@@ -133,6 +129,10 @@ export function assertMembershipAllowsGeneration(database: DatabaseSync, ownerId
   if (reason === 'quota-exhausted') {
     throw new DomainError(errorCodes.membershipQuotaExhausted,
       '召集AI团队需使用算力，会员算力值已用完，请联系管理员微信595341366续费。', { ...MEMBERSHIP_CONTACT }, false, 403);
+  }
+  if (reason === 'membership-expired') {
+    throw new DomainError(errorCodes.membershipExpired,
+      '召集AI团队需使用算力，会员已到期，请联系管理员微信595341366续费。', { ...MEMBERSHIP_CONTACT }, false, 403);
   }
 }
 
@@ -179,17 +179,18 @@ export class MembershipService {
     }
     const definition = MEMBERSHIP_PLANS[plan];
     const nowIso = this.clock.now().toISOString();
-    // 续费顺延：已有生效会员的剩余天数保留，新周期从今天开始重新计量算力（配额按新套餐刷新），
-    // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
-    const existingActive = this.database.prepare(
-      "SELECT period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
-    ).get(target.user_id) as { period_end: string } | undefined;
-    const baseEnd = existingActive !== undefined && existingActive.period_end > nowIso
-      ? existingActive.period_end
-      : nowIso;
-    const periodEnd = addMonths(baseEnd, definition.months);
     this.database.exec('BEGIN IMMEDIATE');
     try {
+      // 续费顺延：已有生效会员的剩余天数保留，新周期从今天开始重新计量算力（配额按新套餐刷新），
+      // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
+      // 在事务内读取 existingActive，避免并发连续 grant 都基于旧 period_end 计算、丢失后一次顺延。
+      const existingActive = this.database.prepare(
+        "SELECT period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
+      ).get(target.user_id) as { period_end: string } | undefined;
+      const baseEnd = existingActive !== undefined && existingActive.period_end > nowIso
+        ? existingActive.period_end
+        : nowIso;
+      const periodEnd = addMonths(baseEnd, definition.months);
       this.database.prepare(`
         INSERT INTO user_memberships (
           user_id, owner_id, plan, token_quota, period_start, period_end, status, granted_by_user_id, created_at, updated_at
@@ -230,8 +231,8 @@ export class MembershipService {
     const clauses: string[] = [];
     const values: Array<string | number> = [];
     if (input.query?.trim()) {
-      clauses.push('(a.email_normalized LIKE ? OR a.display_name LIKE ?)');
-      const like = `%${input.query.trim().toLowerCase()}%`;
+      clauses.push("(a.email_normalized LIKE ? ESCAPE '\\' OR a.display_name LIKE ? ESCAPE '\\')");
+      const like = `%${input.query.trim().toLowerCase().replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
       values.push(like, like);
     }
     if (input.status === 'active' || input.status === 'suspended') {

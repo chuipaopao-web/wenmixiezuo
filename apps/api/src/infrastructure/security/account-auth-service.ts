@@ -203,8 +203,8 @@ export class AccountAuthService {
     const clauses: string[] = [];
     const values: Array<string | number> = [];
     if (input.query?.trim()) {
-      clauses.push('(email_normalized LIKE ? OR display_name LIKE ?)');
-      const like = `%${input.query.trim().toLowerCase()}%`;
+      clauses.push("(email_normalized LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\')");
+      const like = `%${input.query.trim().toLowerCase().replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
       values.push(like, like);
     }
     if (input.status === 'active' || input.status === 'suspended') {

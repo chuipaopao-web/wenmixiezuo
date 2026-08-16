@@ -48,9 +48,11 @@ export class ModelAdapterFactory {
       ? this.config.endpoints.coding
       : provider === this.config.endpoints.agent.provider
         ? this.config.endpoints.agent
-        : undefined;
+        : provider === 'opencodego'
+          ? this.config.endpoints.opencodego
+          : undefined;
     if (endpoint === undefined) throw new Error(`未注册的模型来源：${provider}/${modelId}`);
-    if (this.config.activeMode !== 'subscription-plan') throw new Error('火山方舟套餐模式未激活，禁止发起真实模型调用');
+    if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起真实模型调用');
     if (endpoint.apiKey === undefined) throw new Error(`${endpoint.plan} plan凭证未配置`);
     const allowed = new Set(Object.values(this.config.roleProfiles)
       .filter((profile) => profile.provider === provider)

@@ -39,6 +39,7 @@ import {
   resolveConfirmation,
   restoreBook,
   purgeBook,
+  resumeTask,
   retryTask,
   type AuthAccountData,
   type BookData,
@@ -177,7 +178,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const guardAi = useCallback((): boolean => {
     if (membershipUsable) return true;
     const record = membershipStatus?.membership ?? null;
-    setMembershipBlock(record !== null && record.status === 'active' ? 'quota' : 'required');
+    if (record !== null && record.status === 'active' && record.expired) setMembershipBlock('expired');
+    else if (record !== null && record.status === 'active') setMembershipBlock('quota');
+    else setMembershipBlock('required');
     return false;
   }, [membershipStatus, membershipUsable]);
 
@@ -193,10 +196,12 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   }, [membershipUsable]);
 
   useEffect(() => {
-    if (membershipBlock === null) return;
+    // 会员不可用期间持续轮询（无论内测说明弹窗是否被关闭），保证管理员开通后
+    // 无需刷新页面即可自动解锁；一旦变为可用即停止。
+    if (membershipUsable || account.role === 'admin') return;
     const poll = window.setInterval(() => { void refreshMembership(); }, 20_000);
     return () => window.clearInterval(poll);
-  }, [membershipBlock, refreshMembership]);
+  }, [membershipUsable, account.role, refreshMembership]);
   const membershipGateValue = useMemo(
     () => ({ canUseAi: membershipUsable, guardAi }),
     [membershipUsable, guardAi]
@@ -482,6 +487,21 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     }
   };
 
+  const resumeSelectedTask = async (bookId: string, taskId: string): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await resumeTask(bookId, taskId);
+      await refreshHomeTasks();
+      setSelectedTask(null);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '任务继续失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const archiveSelectedBook = async (): Promise<void> => {
     if (archiveCandidate === null || busy) return;
     setBusy(true);
@@ -706,6 +726,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           busy={busy}
           onCancelTask={cancelSelectedTask}
           onRetryTask={retrySelectedTask}
+          onResumeTask={resumeSelectedTask}
           onClose={() => setSelectedTask(null)}
         />
       )}

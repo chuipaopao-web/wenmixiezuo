@@ -48,9 +48,11 @@ export class ModelBindingService {
       ORDER BY a.owner_id, a.book_id
     `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
     const creativeProfiles = toCreativeProfiles(this.roleProfiles);
-    const agentPlanPolicyActive = creativeRoleKeys.every((role) =>
-      creativeProfiles[role].provider === 'volcengine-ark-agent-plan'
-      && creativeProfiles[role].plan === 'agent'
+    // “订阅策略激活”既涵盖火山方舟 Agent Plan，也涵盖 opencodego：只要全岗位
+    // 统一走某一条订阅来源，就把存量 V2 书籍一并迁移到该来源，避免保留旧绑定。
+    const subscriptionPolicyActive = creativeRoleKeys.every((role) =>
+      (creativeProfiles[role].provider === 'volcengine-ark-agent-plan' && creativeProfiles[role].plan === 'agent')
+      || (creativeProfiles[role].provider === 'opencodego' && creativeProfiles[role].plan === 'opencodego')
     );
     let updatedV2Agents = 0;
     let supersededV2WriterSelections = 0;
@@ -71,7 +73,7 @@ export class ModelBindingService {
           || currentDeputy.modelId !== creativeProfiles.deputy_editor.modelId);
       const migrateAllMembersToAgentPlan = options.migrateAllMembersToAgentPlan === true
         && hasActiveRevision
-        && agentPlanPolicyActive;
+        && subscriptionPolicyActive;
       if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToAgentPlan && !migrateAllMembersToAgentPlan) continue;
       const targetProfiles = migrateAllMembersToAgentPlan
         ? creativeProfiles
@@ -93,7 +95,7 @@ export class ModelBindingService {
             scope,
             targetProfiles,
             migrateAllMembersToAgentPlan
-              ? 'DEC-099：十一名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务'
+              ? subscriptionMigrationReason(creativeProfiles)
               : migrateDeputyEditorToAgentPlan
               ? 'DEC-076：副编调整为火山方舟 Agent Plan GLM 5.2；只影响未来任务'
               : '运行时模型策略更新；只影响未来任务'
@@ -175,6 +177,13 @@ export class ModelBindingService {
       supersededWriterSelections: supersededWriterSelections + supersededV2WriterSelections
     };
   }
+}
+
+function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModelProfile>): string {
+  if (profiles.chief_editor.provider === 'opencodego') {
+    return 'DEC-100：十一名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
+  }
+  return 'DEC-099：十一名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务';
 }
 
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {

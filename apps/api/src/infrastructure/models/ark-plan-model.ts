@@ -1,8 +1,8 @@
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
-  plan: 'coding' | 'agent';
+  plan: ModelPlan;
   provider: string;
   modelId: string;
   baseUrl: string;
@@ -38,7 +38,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     this.provider = options.provider;
     this.modelId = options.modelId;
     this.#endpoint = `${assertPlanBaseUrl(options.plan, options.baseUrl)}/v1/messages`;
-    if (options.apiKey.trim().length === 0) throw new Error(`${options.plan} plan凭证未配置`);
+    if (options.apiKey.trim().length === 0) throw new Error(`${planDisplayName(options.plan)}凭证未配置`);
   }
 
   public async generate(request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> {
@@ -48,21 +48,28 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     // result unknown and makes a safe retry impossible, so use the documented
     // fifteen-minute safety ceiling while preserving explicit test overrides.
     const timeoutMs = this.options.timeoutMs ?? 900_000;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) throw new Error('方舟模型调用超时必须在1秒至15分钟之间');
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) throw new Error('模型调用超时必须在1秒至15分钟之间');
     const controller = new AbortController();
     let timedOut = false;
     const forwardAbort = (): void => controller.abort(signal?.reason ?? new DOMException('模型调用已取消', 'AbortError'));
     signal?.addEventListener('abort', forwardAbort, { once: true });
     const timer = setTimeout(() => {
       timedOut = true;
-      controller.abort(new DOMException('方舟套餐模型调用超时', 'TimeoutError'));
+      controller.abort(new DOMException(`${planDisplayName(this.options.plan)}模型调用超时`, 'TimeoutError'));
     }, timeoutMs);
     let response: Response;
+    // opencodego（opencode.ai/zen/go）的 Messages 网关只认 Anthropic 标准
+    // x-api-key 认证头（Bearer 会 401 Missing API key），且其 Kimi 上游把
+    // 字符串 content 误判为空消息（400 messages must not be empty），必须
+    // 使用文本块数组；火山方舟套餐端点维持原有 Bearer + 字符串 content 不变。
+    const opencodegoWire = this.options.plan === 'opencodego';
     try {
       response = await this.fetchImpl(this.#endpoint, {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${this.options.apiKey}`,
+          ...(opencodegoWire
+            ? { 'x-api-key': this.options.apiKey }
+            : { authorization: `Bearer ${this.options.apiKey}` }),
           'anthropic-version': '2023-06-01',
           'content-type': 'application/json; charset=utf-8'
         },
@@ -74,18 +81,21 @@ export class ArkPlanModelAdapter implements ModelAdapter {
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
             request.supplementalInstructions
           ),
-          messages: [{ role: 'user', content: request.prompt }]
+          messages: [{
+            role: 'user',
+            content: opencodegoWire ? [{ type: 'text', text: request.prompt }] : request.prompt
+          }]
         }),
         signal: controller.signal
       });
     } catch (error) {
       if (timedOut) throw new ModelAdapterError(
-        `方舟套餐模型调用在${timeoutMs}毫秒内未完成，供应商结果状态未知`,
+        `${planDisplayName(this.options.plan)}模型调用在${timeoutMs}毫秒内未完成，供应商结果状态未知`,
         'technical_failure', false, undefined, true
       );
       if (isAborted(signal)) throw signal?.reason ?? new DOMException('模型调用已取消', 'AbortError');
       throw new ModelAdapterError(
-        `方舟套餐请求中断，供应商结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
+        `${planDisplayName(this.options.plan)}请求中断，供应商结果状态未知${error instanceof Error && error.name.length > 0 ? `：${error.name}` : ''}`,
         'technical_failure', false, undefined, true
       );
     } finally {
@@ -94,7 +104,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     }
     if (!response.ok) {
       const detail = sanitize(await response.text().catch(() => ''), this.options.apiKey).slice(0, 240);
-      const message = `火山方舟${this.options.plan === 'coding' ? 'Coding Plan' : 'Agent Plan'}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`;
+      const message = `${planDisplayName(this.options.plan)}返回${response.status}${detail.length === 0 ? '' : `：${detail}`}`;
       const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
       const failureClass = retryable
         ? 'technical_failure'
@@ -107,12 +117,12 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     try {
       body = await response.json() as ArkMessagesResponse;
     } catch {
-      throw new ModelAdapterError('方舟套餐已返回成功状态但响应无法解析，供应商结果状态未知',
+      throw new ModelAdapterError(`${planDisplayName(this.options.plan)}已返回成功状态但响应无法解析，供应商结果状态未知`,
         'technical_failure', false, response.status, true);
     }
     const output = body.content?.filter((item) => item.type === 'text' && typeof item.text === 'string').map((item) => item.text!.trim()).filter(Boolean).join('\n').trim();
     if (output === undefined || output.length === 0) throw new ModelAdapterError(
-      `火山方舟套餐已执行但没有形成可提交文字（${describeEmptyResponse(body)}）`,
+      `${planDisplayName(this.options.plan)}已执行但没有形成可提交文字（${describeEmptyResponse(body)}）`,
       // A parsed 2xx response is a known, unusable result rather than an unknown
       // provider outcome.  In particular, Kimi can spend the complete allowance
       // on reasoning and stop at max_tokens with an empty text block.  The caller
@@ -146,6 +156,11 @@ function describeEmptyResponse(body: ArkMessagesResponse): string {
     `思考字符=${thinkingCharacters}`,
     `输出Token=${finiteTokenCount(body.usage?.output_tokens)}`
   ].join('，');
+}
+
+function planDisplayName(plan: ModelPlan): string {
+  if (plan === 'opencodego') return 'opencodego';
+  return plan === 'coding' ? '火山方舟Coding Plan' : '火山方舟Agent Plan';
 }
 
 function appendSupplement(systemPrompt: string, supplement: string | undefined): string {

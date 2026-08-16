@@ -138,11 +138,11 @@
 
 | # | 问题 | 状态 | 改动 |
 |---|---|---|---|
-| 1 | 全局单任务串行 | ✅ 已修复 | 两个 `claimNext`（worker `task-claimer.ts` / API `task-service.ts`）改为**按书互斥**（`NOT EXISTS` 该书已有未过期 working 任务），不同书并行；worker 循环改为有界并发（默认 2，上限 4，`WENMI_WORKER_MAX_CONCURRENCY`），`recoverExpired` 先于并发上限判断执行，停摆任务不再占死并发槽位 |
+| 1 | 全局单任务串行 | ✅ 已修复 | 两个 `claimNext`（worker `task-claimer.ts` / API `task-service.ts`）改为**按书互斥**（`NOT EXISTS` 该书已有未过期 working 任务），不同书并行；worker 循环改为有界并发（默认 8，上限 32，`WENMI_WORKER_MAX_CONCURRENCY`，线上设 8），`recoverExpired` 先于并发上限判断执行，停摆任务不再占死并发槽位 |
 | 2 | 非会员"已有正文续写"导入末段 403 | ⏸ 维持原样 | 按用户决定不改（功能测试中）；前端 `confirmImport` 保持现状 |
 | 3 | 线上 9 本迁移书 re-index | ⏸ 不做 | 按用户决定跳过；本机 9 本管理书迁移线上方案已另行成稿（`plans/lazy-sleeping-kurzweil.md`） |
 | 4 | SSE + 轮询叠加压力 | 🟡 部分缓解 | 统一为单一全局 SSE 订阅（游标 `wenmi-event-cursor`，服务端按 seq，客户端按 `bookId` 过滤），消除切书重放与多连接；30s 轮询与 80ms 防抖全量刷新保留 |
-| 5 | 会员续费重置周期 | ⏸ 不做 | 线下管理员开通方案既定，不做在线折算/支付 |
+| 5 | 会员续费重置周期 | ✅ 已顺延 | 线下管理员开通方案既定、不做在线支付；`grant` 已实现**续费顺延**（保留剩余天数，`period_end` 从剩余到期日往后加套餐月数），重新计量算力 |
 | 6 | 管理后台用户列表无分页 | ✅ 已修复 | `listUsers` / `listUsersWithMembership` 返回 `{items,total}`，管理页 50 条/页 + 上一页/下一页；`overview` 新增 `totalTokens` 全局算力消耗（不再按当前页求和） |
 | 7 | USER_GUIDE 与会员行为不一致 | ✅ 已修复 | `USER_GUIDE.md:79` 已改为新版"可关闭内测说明 + AI 触发会员弹窗 + 20s 自动刷新 + 服务端门禁兜底"；docs:sync 已执行 |
 | 8 | 算力值概念不直观 | ⏸ 排队 | 属付费体验打磨，未列入本轮 |

@@ -344,6 +344,7 @@ function modelProviderLabel(provider: string): string {
   if (provider === 'openai-codex-subscription') return 'Codex订阅';
   if (provider === 'volcengine-ark-coding-plan') return '火山方舟Coding Plan';
   if (provider === 'volcengine-ark-agent-plan') return '火山方舟Agent Plan';
+  if (provider === 'opencodego') return 'opencodego';
   if (provider === 'local-deterministic') return '创作模型尚未连接';
   return '已配置模型服务';
 }

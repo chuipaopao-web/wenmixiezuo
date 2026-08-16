@@ -120,6 +120,8 @@ sudo -u wenmi nano deploy/.env.production
 | `WENMI_ARK_AGENT_PLAN_*_MODEL` | 各模型的端点 ID |
 | `WENMI_WORKER_TOKEN` | 建议设置固定值（至少 32 字符） |
 
+> **创作模型来源二选一**：配置 `WENMI_ARK_AGENT_PLAN_API_KEY`（火山方舟 Agent Plan）或 `WENMI_OPENCODEGO_API_KEY`（opencodego，配置后优先，角色模型默认沿用 Agent Plan 同款分配）。opencodego 的地址/逐角色模型覆盖见 `deploy/.env.production.example`。注意 opencodego 的 go 目录当前没有豆包模型：未显式设置 `WENMI_OPENCODEGO_DOUBAO_MODEL` 时体验席自动保留方舟 Agent Plan 绑定，因此切换 opencodego 后仍需保留 `WENMI_ARK_AGENT_PLAN_API_KEY`。
+
 ### 第五步：运行数据库迁移
 
 ```bash

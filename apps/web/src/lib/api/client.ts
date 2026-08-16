@@ -66,7 +66,7 @@ export interface CapabilityData {
     profiles: Array<{
       provider: string;
       modelId: string;
-      plan: 'deterministic' | 'codex' | 'coding' | 'agent';
+      plan: 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego';
       roles: string[];
       credentialConfigured: boolean;
     }>;
@@ -853,7 +853,7 @@ export interface GraphWorkspaceData {
 export interface TeamModelProfileData {
   provider: string;
   modelId: string;
-  plan: 'deterministic' | 'codex' | 'coding' | 'agent';
+  plan: 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego';
 }
 
 export interface ModelBindingsData {
@@ -1557,6 +1557,26 @@ export function resumeTask(bookId: string, taskId: string): Promise<TaskData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}/resume`, {
     method: 'POST', body: JSON.stringify({})
   });
+}
+
+export interface TaskDetailData {
+  task: TaskData;
+  phases: Array<{ phase_key: string; status: string; entered_at: string; heartbeat_at: string | null }>;
+  modelCalls: Array<{
+    request_id: string;
+    provider: string;
+    model_id: string;
+    state: string;
+    error_class: string | null;
+    error_detail: string | null;
+    completed_at: string | null;
+    created_at: string;
+  }>;
+  toolCalls: unknown[];
+}
+
+export function fetchTaskDetail(bookId: string, taskId: string, signal?: AbortSignal): Promise<TaskDetailData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}`, signal === undefined ? {} : { signal });
 }
 
 export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<unknown> {

@@ -117,6 +117,9 @@ export class TaskService {
 
   public queue(scope: BookScope, taskId: string): TaskRecord {
     this.require(scope, taskId);
+    // 恢复/继续会重新产生模型调用，同样受会员门禁约束（管理员与未关联账号自动放行），
+    // 避免算力耗尽或到期的会员通过"恢复暂停任务"绕过 create 门禁继续消耗算力。
+    assertMembershipAllowsGeneration(this.database, scope.ownerId, this.clock.now().toISOString());
     const now = this.clock.now().toISOString();
     const result = this.database.prepare(`
       UPDATE tasks SET status = 'queued', updated_at = ?
@@ -129,8 +132,22 @@ export class TaskService {
 
   public retryFailed(scope: BookScope, taskId: string): TaskRecord {
     const task = this.require(scope, taskId);
+    // 重试失败任务同样触发新的模型调用，必须过会员门禁，堵住"算力耗尽后无限重试"绕过。
+    assertMembershipAllowsGeneration(this.database, scope.ownerId, this.clock.now().toISOString());
     if (task.taskType === 'conversation_reply') {
       throw new DomainError('VALIDATION_ERROR', '旧对话回复功能已停用，该历史任务仅保留审计记录，不能重新执行', {}, false, 409);
+    }
+    // 重试护栏：若最近一次失败是 provider 明确拒绝请求（4xx 不可重试，如"提示词超长"400），
+    // 重试必然再次失败。直接带真实原因说明并拦下，避免用户无效连点（曾发生讨论任务连点17次全失败）。
+    const rejected = this.database.prepare(`
+      SELECT error_detail FROM model_calls
+      WHERE task_id = ? AND owner_id = ? AND book_id = ? AND state = 'failed' AND error_class = 'request_failure'
+      ORDER BY COALESCE(completed_at, created_at) DESC LIMIT 1
+    `).get(task.taskId, scope.ownerId, scope.bookId) as { error_detail: string | null } | undefined;
+    if (rejected !== undefined) {
+      const detail = rejected.error_detail === null ? '' : `：${rejected.error_detail}`;
+      throw new DomainError(errorCodes.modelRequestRejected,
+        `模型接口拒绝了请求${detail}。这类错误无法通过重试解决，请缩小创作范围后重新发起；若持续如此请联系管理员。`, {}, false, 409);
     }
     const canResumeIncompleteQualityReview = task.status === 'blocked'
       && task.errorCode === 'QUALITY_BLOCKED'

@@ -136,4 +136,81 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3'
     })).toThrow('只允许火山方舟套餐端点');
   });
+
+  describe('opencodego 模式', () => {
+    it('配置opencodego密钥后全岗位切换来源，模型分配与Agent Plan一致', () => {
+      const config = loadModelRuntimeConfig({
+        WENMI_MODEL_MODE: 'subscription-plan',
+        WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key'
+      });
+
+      expect(config.activeMode).toBe('subscription-plan');
+      expect(config.missingCredentials).toEqual([]);
+      expect(config.endpoints.opencodego).toMatchObject({
+        plan: 'opencodego', provider: 'opencodego',
+        baseUrl: 'https://opencode.ai/zen/go', apiKey: 'opencodego-test-key', modelId: 'deepseek-v4-flash'
+      });
+      expect(config.endpoints.agent.apiKey).toBeUndefined();
+      expect(config.roleProfiles.writer).toMatchObject({
+        provider: 'opencodego', modelId: 'deepseek-v4-pro', plan: 'opencodego'
+      });
+      expect(config.roleProfiles.plot_architect).toMatchObject({ modelId: 'deepseek-v4-pro', provider: 'opencodego' });
+      expect(config.roleProfiles.chief_editor).toMatchObject({ modelId: 'kimi-k2.7-code', provider: 'opencodego' });
+      expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5.2', provider: 'opencodego' });
+      expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'minimax-m3', provider: 'opencodego' });
+      // go 目录没有豆包：未显式覆盖时体验席保留火山方舟 Agent Plan 配置
+      expect(config.roleProfiles.reader_experience).toMatchObject({
+        modelId: 'doubao-seed-2.1-turbo', provider: 'volcengine-ark-agent-plan', plan: 'agent'
+      });
+      expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'glm-5.2', provider: 'opencodego' });
+      expect(config.roleProfiles.researcher).toMatchObject({ modelId: 'deepseek-v4-flash', provider: 'opencodego' });
+      expect(config.roleProfiles.copyright).toMatchObject({ modelId: 'kimi-k2.7-code', provider: 'opencodego' });
+      expect(JSON.stringify(config.publicProfiles)).not.toContain('opencodego-test-key');
+    });
+
+    it('opencodego密钥存在且未显式模式时自动进入订阅模式', () => {
+      const config = loadModelRuntimeConfig({ WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key' });
+      expect(config.requestedMode).toBe('subscription-plan');
+      expect(config.activeMode).toBe('subscription-plan');
+    });
+
+    it('允许自定义opencodego地址与逐角色模型覆盖', () => {
+      const config = loadModelRuntimeConfig({
+        WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key',
+        WENMI_OPENCODEGO_BASE_URL: 'https://opencode.ai/zen/go/',
+        WENMI_OPENCODEGO_GLM_MODEL: 'glm-5.3',
+        WENMI_OPENCODEGO_DEEPSEEK_MODEL: 'deepseek-v4-pro-2608'
+      });
+      expect(config.endpoints.opencodego.baseUrl).toBe('https://opencode.ai/zen/go');
+      expect(config.roleProfiles.continuity.modelId).toBe('glm-5.3');
+      expect(config.roleProfiles.writer.modelId).toBe('deepseek-v4-pro-2608');
+    });
+
+    it('显式设置opencodego豆包模型时体验席才切换到opencodego', () => {
+      const config = loadModelRuntimeConfig({
+        WENMI_MODEL_MODE: 'subscription-plan',
+        WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key',
+        WENMI_OPENCODEGO_DOUBAO_MODEL: 'doubao-seed-2.2-pro'
+      });
+      expect(config.roleProfiles.reader_experience).toMatchObject({
+        modelId: 'doubao-seed-2.2-pro', provider: 'opencodego', plan: 'opencodego'
+      });
+    });
+
+    it('显式确定性模式不被opencodego凭证覆盖', () => {
+      const config = loadModelRuntimeConfig({
+        WENMI_MODEL_MODE: 'deterministic',
+        WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key'
+      });
+      expect(config.activeMode).toBe('deterministic');
+      expect(config.roleProfiles.writer.modelId).toBe('wenmi-fixture-v1');
+    });
+
+    it('拒绝非opencodego主机的地址', () => {
+      expect(() => loadModelRuntimeConfig({
+        WENMI_OPENCODEGO_API_KEY: 'opencodego-test-key',
+        WENMI_OPENCODEGO_BASE_URL: 'https://example.com/zen/go'
+      })).toThrow('只允许 opencodego 端点');
+    });
+  });
 });

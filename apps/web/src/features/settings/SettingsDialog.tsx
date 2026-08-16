@@ -154,10 +154,11 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
   );
 }
 
-function planLabel(plan: 'deterministic' | 'codex' | 'coding' | 'agent'): string {
+function planLabel(plan: 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego'): string {
   if (plan === 'codex') return 'Codex 登录态';
   if (plan === 'coding') return 'Coding Plan';
   if (plan === 'agent') return 'Agent Plan';
+  if (plan === 'opencodego') return 'opencodego';
   return '本地测试';
 }
 

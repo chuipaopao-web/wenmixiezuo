@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
 /** AI 介入被会员门禁拦截的原因。 */
-export type MembershipBlockReason = 'required' | 'quota';
+export type MembershipBlockReason = 'required' | 'quota' | 'expired';
 
 /** 弹窗文案：与服务端会员门禁的提示保持一致。 */
 export const MEMBERSHIP_BLOCK_COPY: Record<MembershipBlockReason, { title: string; body: string }> = {
@@ -12,6 +12,10 @@ export const MEMBERSHIP_BLOCK_COPY: Record<MembershipBlockReason, { title: strin
   quota: {
     title: '算力值已用完',
     body: '召集AI团队需使用算力，会员算力值已用完，请联系管理员微信595341366续费。'
+  },
+  expired: {
+    title: '会员已到期',
+    body: '召集AI团队需使用算力，会员已到期，请联系管理员微信595341366续费。'
   }
 };
 
@@ -52,5 +56,6 @@ export function raiseMembershipBlocked(reason: MembershipBlockReason): void {
 export function membershipBlockReasonFromCode(code: string | undefined): MembershipBlockReason | null {
   if (code === 'MEMBERSHIP_REQUIRED') return 'required';
   if (code === 'MEMBERSHIP_QUOTA_EXHAUSTED') return 'quota';
+  if (code === 'MEMBERSHIP_EXPIRED') return 'expired';
   return null;
 }

@@ -21,7 +21,8 @@ describe('火山方舟严格套餐适配器', () => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string } };
       expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 });
       expect(body.thinking).toEqual({ type: 'disabled' });
-      expect(body.messages).toHaveLength(1);
+      // 方舟套餐端点维持原有字符串 content，不随 opencodego 的块数组格式变化
+      expect(body.messages).toEqual([{ role: 'user', content: '只回复结果' }]);
       return Response.json({
         model: 'kimi-k2.6',
         content: [{ type: 'text', text: '套餐结果' }],
@@ -271,6 +272,52 @@ describe('火山方舟严格套餐适配器', () => {
     });
     expect((error as Error).message).toContain('max_tokens');
     expect((error as Error).message).not.toContain('结果状态未知');
+  });
+
+  describe('opencodego 适配', () => {
+    it('opencodego地址补全Messages路径，使用x-api-key认证与文本块消息，并按plan文案报错且脱敏', async () => {
+      const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+        expect(String(input)).toBe('https://opencode.ai/zen/go/v1/messages');
+        // 2026-08-16 实测：go 网关 Messages 接口只认 x-api-key，Bearer 会 401；
+        // 其 Kimi 上游把字符串 content 误判为空消息，必须发送文本块数组。
+        expect(new Headers(init?.headers).get('x-api-key')).toBe('opencodego-key');
+        expect(new Headers(init?.headers).get('authorization')).toBeNull();
+        const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: unknown }> };
+        expect(body.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: request.prompt }] }]);
+        return Response.json({ content: [{ type: 'text', text: 'opencodego结果' }], usage: { input_tokens: 4, output_tokens: 2 } });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'opencodego', provider: 'opencodego', modelId: 'deepseek-v4-flash',
+        baseUrl: 'https://opencode.ai/zen/go', apiKey: 'opencodego-key', purpose: 'discussion'
+      }, fetchImpl);
+      await expect(adapter.generate(request)).resolves.toMatchObject({
+        provider: 'opencodego', modelId: 'deepseek-v4-flash', output: 'opencodego结果', state: 'succeeded'
+      });
+
+      const failing = new ArkPlanModelAdapter({
+        plan: 'opencodego', provider: 'opencodego', modelId: 'deepseek-v4-flash',
+        baseUrl: 'https://opencode.ai/zen/go', apiKey: 'secret-opencodego', purpose: 'discussion'
+      }, async () => new Response('{"error":{"message":"bad request"}}', { status: 400 }));
+      const error = await failing.generate(request).catch((reason: unknown) => reason);
+      expect(error).toBeInstanceOf(ModelAdapterError);
+      expect(error).toMatchObject<Partial<ModelAdapterError>>({ failureClass: 'request_failure', retryable: false, statusCode: 400 });
+      expect((error as Error).message).toContain('opencodego');
+      expect((error as Error).message).not.toContain('secret-opencodego');
+    });
+
+    it('opencodego的DeepSeek事实点评仍关闭隐藏思考', async () => {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+        expect(body.thinking).toEqual({ type: 'disabled' });
+        return Response.json({ content: [{ type: 'text', text: '{"verdict":"pass"}' }], usage: { input_tokens: 5, output_tokens: 8 } });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'opencodego', provider: 'opencodego', modelId: 'deepseek-v4-flash',
+        baseUrl: 'https://opencode.ai/zen/go', apiKey: 'opencodego-key', purpose: 'novel_reviewer'
+      }, fetchImpl);
+      await adapter.generate(request);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    });
   });
 
   it('Kimi K2.7 Code does not send the unsupported thinking parameter', async () => {

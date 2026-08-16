@@ -274,15 +274,19 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
       ? (error as { statusCode?: unknown }).statusCode
       : undefined;
     if (typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 500) {
+      // 保留真实异常消息与堆栈：这类错误往往是 provider 4xx（如 400 上下文超长）
+      // 被管道 rethrow 而来，若不记录则连运维都看不到原因。
+      request.log.error({ err: error }, 'unhandled request error');
       void reply.status(httpStatus).send({
         error: { code: 'INVALID_REQUEST_BODY', message: '提交的内容格式不正确，请检查后再试', details: {}, retryable: false },
         meta: { requestId }
       });
       return;
     }
-    // Keep the public response deliberately generic, but retain the local
-    // exception message and stack so a failed workflow can be diagnosed and
-    // resumed instead of leaving only an unhelpful INTERNAL_ERROR marker.
+    // Keep the public response deliberately generic, but always retain the local
+    // exception message and stack (including provider 4xx such as a 400 "prompt
+    // too long") so a failed workflow can be diagnosed instead of being flattened
+    // into an opaque INVALID_REQUEST_BODY / INTERNAL_ERROR with no trace.
     request.log.error({ err: error }, 'unhandled request error');
     void reply.status(500).send({
       error: { code: 'INTERNAL_ERROR', message: '这次没有顺利完成，请稍后再试。问题已经留下本地追踪信息，方便继续排查。', details: {}, retryable: false },

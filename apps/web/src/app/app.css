@@ -2472,6 +2472,13 @@ svg {
   font-size: calc(10px * var(--font-scale));
 }
 
+.task-detail-grid .task-error-detail {
+  overflow-wrap: anywhere;
+  color: var(--danger, #b3261e);
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.6;
+}
+
 .danger-button {
   border: 1px solid color-mix(in srgb, var(--danger) 54%, var(--line));
   border-radius: var(--control-radius);
