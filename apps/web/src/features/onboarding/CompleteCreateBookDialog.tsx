@@ -205,6 +205,15 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const matchingTags = (options: string[]): string[] => normalizedTagQuery.length === 0
     ? options
     : options.filter((item) => item.toLocaleLowerCase('zh-CN').includes(normalizedTagQuery));
+  // 同一个词在作品分类名、融合题材、主要标签、故事特点或自定义标签中已占用时，其他选区一律置灰，避免重复选择。
+  const blockedSubjectTags = new Set([
+    ...(category === null ? [] : [category.name]),
+    ...mainTags, ...storyTraits, ...customTags
+  ].filter((tag) => !auxiliaryTags.includes(tag)));
+  const blockedMainTags = new Set([
+    ...(category === null ? [] : [category.name]),
+    ...auxiliaryTags, ...storyTraits, ...customTags
+  ].filter((tag) => !mainTags.includes(tag)));
   const tagRecommendationSignature = `${taxonomy?.version ?? ''}|${categoryKey ?? ''}|${[...auxiliaryTags].sort().join('|')}`;
   useEffect(() => {
     if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
@@ -288,6 +297,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
     if (value.length === 0 || customTags.includes(value) || customTags.length >= 13) return;
+    // 与正式标签或分类名同名的词不重复添加。
+    if (mainTags.includes(value) || auxiliaryTags.includes(value) || storyTraits.includes(value) || value === category?.name) return;
     setCustomTags([...customTags, value]); setCustomTag('');
   };
   const toggleMustFollow = (item: string): void => {
@@ -549,7 +560,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         {step === 4 && <section className="opening-form-section tag-direction-section">
           <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div></div>
           <section className="subject-library">
-            <StringTagPicker title="融合题材（多选）" hint={`建议2至5个，最多8个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
+            <StringTagPicker title="融合题材（多选）" hint={`建议2至5个，最多8个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} blocked={blockedSubjectTags} />
             <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
           </section>
           <details className="full-tag-library opening-more-options"><summary><span><strong>查看和调整主要标签</strong></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
@@ -559,7 +570,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
               <button className={activeTagGroupKey === 'recommended' ? 'selected' : ''} type="button" onClick={() => setActiveTagGroupKey('recommended')}>智能推荐</button>
               {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
             </nav>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已选 ${mainTags.length} 个，可增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} />
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已选 ${mainTags.length} 个，可增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} blocked={blockedMainTags} />
           </div></details>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
@@ -629,12 +640,14 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
   };
 }
 
-function StringTagPicker({ title, hint, kind, options, selected, onToggle }: {
+function StringTagPicker({ title, hint, kind, options, selected, onToggle, blocked }: {
   title: string; hint: string; kind: string; options: string[]; selected: string[]; onToggle: (name: string) => void;
+  blocked?: ReadonlySet<string>;
 }): React.JSX.Element {
   return <section className="tag-picker"><header><strong>{title}</strong><small>{hint}</small></header><div className="tag-options">{options.map((name) => {
     const active = selected.includes(name);
-    return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}${kind}：${name}`} key={name} onClick={() => onToggle(name)}>{active && <CheckCircleIcon />}{name}</button>;
+    const isBlocked = !active && (blocked?.has(name) ?? false);
+    return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={isBlocked ? `${kind}：${name}（已在其他分组使用）` : `${active ? '取消' : '选择'}${kind}：${name}`} title={isBlocked ? '已在其他分组使用' : undefined} disabled={isBlocked} key={name} onClick={() => onToggle(name)}>{active && <CheckCircleIcon />}{name}</button>;
   })}</div></section>;
 }
 

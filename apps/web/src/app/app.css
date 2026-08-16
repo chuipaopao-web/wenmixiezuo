@@ -4785,6 +4785,14 @@ svg {
   color: var(--ink);
 }
 
+.tag-choice:disabled,
+.tag-choice:disabled:hover {
+  opacity: 0.42;
+  cursor: not-allowed;
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
 .tag-choice.selected {
   border-color: var(--accent);
   color: var(--accent-hover);
