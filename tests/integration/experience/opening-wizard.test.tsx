@@ -3,7 +3,13 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ createBook: vi.fn(), fetchOpeningTaxonomy: vi.fn() }));
+const api = vi.hoisted(() => ({
+  createBook: vi.fn(),
+  fetchOpeningTaxonomy: vi.fn(),
+  fetchOpeningDraft: vi.fn(),
+  saveOpeningDraftToServer: vi.fn(),
+  clearOpeningDraftOnServer: vi.fn()
+}));
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
 
 import { CompleteCreateBookDialog } from '../../../apps/web/src/features/onboarding/CompleteCreateBookDialog';
@@ -26,6 +32,9 @@ beforeEach(() => {
   localStorage.clear();
   api.fetchOpeningTaxonomy.mockResolvedValue(taxonomy);
   api.createBook.mockResolvedValue({ bookId: 'unused' });
+  api.fetchOpeningDraft.mockResolvedValue({ draft: null });
+  api.saveOpeningDraftToServer.mockResolvedValue({ saved: true });
+  api.clearOpeningDraftOnServer.mockResolvedValue({ cleared: true });
 });
 
 afterEach(() => {
@@ -175,5 +184,40 @@ describe('四步开书', () => {
     fireEvent.change(input, { target: { value: '一二三四五六七八九十一二三四五六' } });
     expect(input).toHaveValue('一二三四五六七八九十一二三四五');
     expect(screen.getByText('最多15字 · 15/15')).toBeInTheDocument();
+  });
+
+  it('服务器草稿比本地新鲜时从服务器恢复', async () => {
+    const serverDraft = {
+      schemaVersion: 2, step: 2, creationMode: 'new',
+      title: '服务器存的书', channel: 'female', categoryKey: 'female-suspense',
+      mainTags: ['悬疑'], auxiliaryTags: [], storyTraits: [],
+      protagonists: [{ role: 'female_lead', name: '林舟', age: '成年', background: '档案员', personalities: ['冷静'] }],
+      storyDirection: '', targetAudience: '', worldBackground: '', openingBackground: '',
+      stageOne: { start: '', development: '', end: '' }, fullBookOutline: '', initialMap: '',
+      customTags: [], selectedMustFollow: [], mustFollowText: '',
+      allSubjectsOpen: false, activeTagGroupKey: 'recommended',
+      updatedAt: '2099-01-01T00:00:00.000Z'
+    };
+    api.fetchOpeningDraft.mockResolvedValue({ draft: serverDraft, updatedAt: serverDraft.updatedAt });
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    expect(await screen.findByText('已恢复上次没填完的资料')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('书名')).toHaveValue('服务器存的书'));
+    expect(localStorage.getItem(draftKey)).toContain('服务器存的书');
+  });
+
+  it('本地草稿比服务器新鲜时保留本地内容', async () => {
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '本地新书' } });
+    await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('本地新书'));
+    cleanup();
+
+    api.fetchOpeningDraft.mockResolvedValue({
+      draft: { schemaVersion: 2, step: 2, creationMode: 'new', title: '服务器旧书', updatedAt: '2000-01-01T00:00:00.000Z' },
+      updatedAt: '2000-01-01T00:00:00.000Z'
+    });
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByLabelText('书名')).toHaveValue('本地新书'));
+    expect(screen.queryByDisplayValue('服务器旧书')).not.toBeInTheDocument();
   });
 });

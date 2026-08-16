@@ -1132,6 +1132,23 @@ export function fetchOpeningTaxonomy(signal?: AbortSignal): Promise<OpeningTaxon
   return request('/api/v1/opening-taxonomy', signal === undefined ? {} : { signal });
 }
 
+export interface OpeningDraftEnvelope {
+  draft: Record<string, unknown> | null;
+  updatedAt?: string;
+}
+
+export function fetchOpeningDraft(signal?: AbortSignal): Promise<OpeningDraftEnvelope> {
+  return request('/api/v1/opening-draft', signal === undefined ? {} : { signal });
+}
+
+export function saveOpeningDraftToServer(draft: Record<string, unknown>): Promise<{ saved: boolean }> {
+  return request('/api/v1/opening-draft', { method: 'PUT', body: JSON.stringify({ draft }) });
+}
+
+export function clearOpeningDraftOnServer(): Promise<{ cleared: boolean }> {
+  return request('/api/v1/opening-draft', { method: 'DELETE' });
+}
+
 export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, signal?: AbortSignal): Promise<NarrativeTemplateCatalogView> {
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/planning-templates?scope=${encodeURIComponent(scope)}`,

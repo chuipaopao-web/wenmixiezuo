@@ -73,6 +73,7 @@ import { SettingCollaborationCommandService } from '../application/knowledge/set
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
+import { OpeningDraftRepository } from '../infrastructure/db/repositories/opening-draft-repository.js';
 import { PlanningStateService } from '../application/books/planning-state-service.js';
 import { StyleBaselineService } from '../application/books/style-baseline-service.js';
 import type { StyleBaselineInput } from '../contracts/style-baseline.js';
@@ -255,6 +256,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const openingBlueprints = new OpeningBlueprintService(
     new OpeningBlueprintRepository(database), books, new UnitOfWork(database), ids, clock
   );
+  const openingDrafts = new OpeningDraftRepository(database);
   const planningStates = new PlanningStateService(database);
   const styleBaselines = new StyleBaselineService(database, ids, clock);
   const settingBaselines = new SettingBaselineService(database, ids, clock);
@@ -314,6 +316,32 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
+
+  app.get('/api/v1/opening-draft', async (request) => {
+    const row = openingDrafts.get(owner(request).ownerId);
+    if (row === undefined) return success({ draft: null }, request.id);
+    try {
+      return success({ draft: JSON.parse(row.payload) as unknown, updatedAt: row.updated_at }, request.id);
+    } catch {
+      return success({ draft: null }, request.id);
+    }
+  });
+
+  app.put<{ Body: { draft?: unknown } }>('/api/v1/opening-draft', async (request) => {
+    const draft = request.body?.draft;
+    if (typeof draft !== 'object' || draft === null || Array.isArray(draft)) {
+      throw new DomainError(errorCodes.validation, '草稿内容格式不正确。');
+    }
+    const payload = JSON.stringify(draft);
+    if (payload.length > 200_000) throw new DomainError(errorCodes.validation, '草稿内容过大。');
+    openingDrafts.upsert(owner(request).ownerId, payload, clock.now().toISOString());
+    return success({ saved: true }, request.id);
+  });
+
+  app.delete('/api/v1/opening-draft', async (request) => {
+    openingDrafts.clear(owner(request).ownerId);
+    return success({ cleared: true }, request.id);
+  });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workflow', async (request) => {
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };

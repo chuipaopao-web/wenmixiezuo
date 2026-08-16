@@ -121,7 +121,7 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
       || item.background.trim().length > 0 || item.personalities.length > 0);
 }
 
-function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
+export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
   if (!isRecord(value) || value.schemaVersion !== OPENING_DRAFT_SCHEMA_VERSION) return null;
   const empty = emptyOpeningWizardDraft();
   const protagonists = Array.isArray(value.protagonists)

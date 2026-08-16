@@ -8,8 +8,11 @@ import {
 } from '@phosphor-icons/react';
 import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount, limitBookTitle } from '@wenmi/contracts';
 import {
+  clearOpeningDraftOnServer,
   createBook,
+  fetchOpeningDraft,
   fetchOpeningTaxonomy,
+  saveOpeningDraftToServer,
   type BookProfileViewData,
   type OpeningBlueprintData,
   type OpeningChannel,
@@ -24,6 +27,7 @@ import {
   emptyOpeningWizardDraft,
   hasMeaningfulOpeningDraft,
   loadOpeningWizardDraft,
+  parseOpeningWizardDraft,
   saveOpeningWizardDraft,
   type OpeningProtagonistDraft,
   type OpeningWizardDraft
@@ -90,6 +94,49 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     return () => controller.abort();
   }, []);
 
+  const applyDraft = (draft: OpeningWizardDraft): void => {
+    setStep(draft.step);
+    setCreationMode(draft.creationMode);
+    setTitle(draft.title);
+    setChannel(draft.channel);
+    setCategoryKey(draft.categoryKey);
+    setMainTags(draft.mainTags);
+    setAuxiliaryTags(draft.auxiliaryTags);
+    setStoryTraits(draft.storyTraits);
+    setProtagonists(draft.protagonists);
+    setStoryDirection(draft.storyDirection);
+    setTargetAudience(draft.targetAudience);
+    setWorldBackground(draft.worldBackground);
+    setOpeningBackground(draft.openingBackground);
+    setStageOne(draft.stageOne);
+    setFullBookOutline(draft.fullBookOutline);
+    setInitialMap(draft.initialMap);
+    setCustomTags(draft.customTags);
+    setSelectedMustFollow(draft.selectedMustFollow);
+    setMustFollowText(draft.mustFollowText);
+    setAllSubjectsOpen(draft.allSubjectsOpen);
+    setActiveTagGroupKey(draft.activeTagGroupKey);
+  };
+
+  // 服务器草稿是权威来源：浏览器清理或换设备后，从这里恢复。
+  // 本地 localStorage 只作即时缓存；服务器草稿更新鲜（或本地没有）时覆盖本地。
+  useEffect(() => {
+    if (editing) return;
+    const controller = new AbortController();
+    void fetchOpeningDraft(controller.signal).then((envelope) => {
+      if (controller.signal.aborted || envelope.draft === null) return;
+      const serverDraft = parseOpeningWizardDraft(envelope.draft);
+      if (serverDraft === null) return;
+      const localUpdatedAt = restoredDraft?.updatedAt ?? '';
+      if (serverDraft.updatedAt <= localUpdatedAt) return;
+      applyDraft(serverDraft);
+      try { saveOpeningWizardDraft(accountId, serverDraft); } catch { /* 本地缓存失败不影响服务器草稿 */ }
+      setRestoredNotice(true);
+    }).catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (editing) return;
     const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
@@ -104,9 +151,11 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         if (hasMeaningfulOpeningDraft(snapshot)) {
           const saved = saveOpeningWizardDraft(accountId, snapshot);
           setDraftSaveMessage(`草稿已自动保存 · ${new Date(saved.updatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+          void saveOpeningDraftToServer(saved as unknown as Record<string, unknown>).catch(() => undefined);
         } else {
           clearOpeningWizardDraft(accountId);
           setDraftSaveMessage(null);
+          void clearOpeningDraftOnServer().catch(() => undefined);
         }
       } catch {
         setDraftSaveMessage('当前浏览器无法自动保存草稿，请不要关闭页面。');
@@ -318,6 +367,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     automaticTagCategory.current = null;
     dismissedAutomaticTags.current.clear();
     clearOpeningWizardDraft(accountId);
+    void clearOpeningDraftOnServer().catch(() => undefined);
   };
   const submit = async (): Promise<void> => {
     if (submitting || busy) return;
@@ -375,13 +425,35 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           openingBlueprint
         });
       }
-      if (saved && !editing) clearOpeningWizardDraft(accountId);
+      if (saved && !editing) {
+        clearOpeningWizardDraft(accountId);
+        void clearOpeningDraftOnServer().catch(() => undefined);
+      }
       else if (!saved) setSubmitError(editing ? '修改没有保存，请检查提示后重试。' : '创建没有完成，已保留全部草稿，可以检查提示后重试。');
     } catch (reason) {
       setSubmitError(reason instanceof Error ? reason.message : editing ? '修改没有保存。' : '创建没有完成，已保留全部草稿。');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // 关闭前立即保存一次，避免 250ms 防抖窗口内最后的输入丢失。
+  const handleCancel = (): void => {
+    if (!editing) {
+      const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
+        step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+        protagonists, storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+        fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
+        allSubjectsOpen, activeTagGroupKey
+      };
+      try {
+        if (hasMeaningfulOpeningDraft(snapshot)) {
+          const saved = saveOpeningWizardDraft(accountId, snapshot);
+          void saveOpeningDraftToServer(saved as unknown as Record<string, unknown>).catch(() => undefined);
+        }
+      } catch { /* 本地缓存失败时仍尝试服务器保存 */ }
+    }
+    onCancel();
   };
 
   const wizardSteps = [
@@ -392,9 +464,9 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   ];
   const currentStep = wizardSteps[step - 1]!;
 
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) handleCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={handleCancel}><XIcon /></button></div>
       <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong></button>)}</nav>
       <div className="complete-create-book-body" ref={bodyRef}>
         {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没填完的资料</strong></div><button type="button" className="text-button" onClick={resetDraft}>清空重填</button></aside>}
@@ -498,7 +570,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           </details>
         </section>}
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>
