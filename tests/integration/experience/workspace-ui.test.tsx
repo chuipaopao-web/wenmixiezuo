@@ -116,7 +116,7 @@ describe('完整创作工作台', () => {
     }));
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '创建第一本书' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '创建您的第一本书' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
@@ -298,7 +298,7 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*144px\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*84px[^}]*overflow-y:\s*scroll/su);
     expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*84px[^}]*height:\s*118px/su);
-    expect(css).toContain('#0a84ff');
+    expect(css).toContain('#2c4a42');
   });
 
   it('合并后的资料库和规划只显示作者可读中文，不暴露JSON、内部ID与协议枚举', async () => {

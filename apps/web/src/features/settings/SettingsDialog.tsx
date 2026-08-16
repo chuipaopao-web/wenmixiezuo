@@ -38,10 +38,10 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
     }])));
   }, [bindings]);
   const themes = [
-    { value: 'sage', label: 'iOS 浅色', description: '冷白、蓝灰和玻璃层次的默认工作台' },
-    { value: 'paper', label: '阅读白', description: '温暖克制，适合长时间阅读正文' },
-    { value: 'mist', label: '冰蓝', description: '清透安静，突出规划和资料层级' },
-    { value: 'night', label: '深色', description: '低亮度玻璃材质的夜间工作台' }
+    { value: 'sage', label: '青黛', description: '月白底、黛绿主色的默认新中式工作台' },
+    { value: 'paper', label: '宣纸', description: '暖纸底色，适合长时间阅读正文' },
+    { value: 'mist', label: '天青', description: '雨后青天色，清透安静' },
+    { value: 'night', label: '夜黛', description: '低亮度墨绿的夜间工作台' }
   ] as const;
   const fonts = [
     { value: 'small', label: '小' },

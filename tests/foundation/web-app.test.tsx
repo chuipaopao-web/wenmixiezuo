@@ -25,7 +25,7 @@ describe('Web基础入口', () => {
     }));
     render(<App />);
     expect(screen.getByRole('heading', { name: '文秘写作' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: '创建第一本书' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '创建您的第一本书' })).toBeInTheDocument();
     expect(screen.queryByText(/本地服务已就绪/)).not.toBeInTheDocument();
   });
 });
