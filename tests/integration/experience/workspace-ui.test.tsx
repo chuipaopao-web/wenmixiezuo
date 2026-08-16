@@ -370,14 +370,13 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('故事方向'), { target: { value: storyDirection } });
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
 
-    expect(within(dialog).getByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
-    expect(within(dialog).getByText(/标签只确定主要方向/)).toBeInTheDocument();
+    expect(within(dialog).getByText('必须遵守')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('目标读者推荐')).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByText('查看和调整主要标签'));
-    await waitFor(() => expect(within(dialog).getByText(/已自动推荐8个；当前共选 8 个/)).toBeInTheDocument());
+    await waitFor(() => expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
-    expect(within(dialog).getByText(/当前共选 7 个/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已选 7 个/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
@@ -385,7 +384,7 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/当前共选 8 个/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
     fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始主角' }));
@@ -406,7 +405,7 @@ describe('完整创作工作台', () => {
     fireEvent.change(dialog.querySelector('#opening-protagonist-background')!, { target: { value: '普通玩家' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '创建并进入设定' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '创建书籍' }));
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith('/api/v1/books/book-ui-1/messages') && (init as RequestInit | undefined)?.method === 'POST'
     )).toBe(false);

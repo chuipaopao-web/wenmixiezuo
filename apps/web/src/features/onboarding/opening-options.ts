@@ -1,8 +1,8 @@
 import type { OpeningChannel, ProtagonistRole } from '../../lib/api/client';
 
 export const OPENING_CHANNELS: Array<{ id: OpeningChannel; label: string; description: string }> = [
-  { id: 'male', label: '男频', description: '按男频分类与标签组织作品' },
-  { id: 'female', label: '女频', description: '按女频分类与标签组织作品' }
+  { id: 'male', label: '男频', description: '' },
+  { id: 'female', label: '女频', description: '' }
 ];
 
 export const PROTAGONIST_ROLES: Array<{ id: ProtagonistRole; label: string }> = [

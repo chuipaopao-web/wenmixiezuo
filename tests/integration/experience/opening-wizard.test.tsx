@@ -127,10 +127,9 @@ describe('四步开书', () => {
     fireEvent.click(within(second).getByRole('button', { name: '选择角色性格：敏锐' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
-    expect(await screen.findByText('主要选择 + 其他自由发挥')).toBeInTheDocument();
     expect(screen.getByText(/个已选/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
-    const create = screen.getByRole('button', { name: '创建并进入设定' });
+    const create = screen.getByRole('button', { name: '创建书籍' });
     fireEvent.click(create);
     fireEvent.click(create);
 
@@ -155,9 +154,9 @@ describe('四步开书', () => {
     firstRender.unmount();
 
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
-    expect(await screen.findByText('已恢复上次没有完成的开书资料')).toBeInTheDocument();
+    expect(await screen.findByText('已恢复上次没填完的资料')).toBeInTheDocument();
     expect(screen.getByLabelText('书名')).toHaveValue('未完成的新书');
-    fireEvent.click(screen.getByRole('button', { name: '清空并重新开始' }));
+    fireEvent.click(screen.getByRole('button', { name: '清空重填' }));
     expect(screen.getByText('从零创作')).toBeInTheDocument();
     expect(localStorage.getItem(draftKey)).toBeNull();
   });
@@ -167,8 +166,8 @@ describe('四步开书', () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
     fireEvent.click(screen.getByRole('button', { name: /^已有正文续写/u }));
     fireEvent.click(screen.getByRole('button', { name: '第4步：题材与边界' }));
-    expect(screen.getByRole('button', { name: '创建并导入正文' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '创建并导入正文' }));
+    expect(screen.getByRole('button', { name: '创建书籍' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
     await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('continuation'));
   });

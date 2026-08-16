@@ -4,7 +4,6 @@ import {
   MagicWandIcon,
   PlusIcon,
   ShieldCheckIcon,
-  TagIcon,
   XIcon
 } from '@phosphor-icons/react';
 import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount, limitBookTitle } from '@wenmi/contracts';
@@ -386,36 +385,36 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   };
 
   const wizardSteps = [
-    { number: 1 as const, title: '选择起点', description: creationMode === 'new' ? '从零开始' : '接着旧稿写' },
-    { number: 2 as const, title: '作品方向', description: '书名、分类与故事方向' },
-    { number: 3 as const, title: '初始主角', description: '支持一至八位主角' },
-    { number: 4 as const, title: '题材与边界', description: '软方向与明确底线' }
+    { number: 1 as const, title: '选择起点' },
+    { number: 2 as const, title: '作品方向' },
+    { number: 3 as const, title: '初始主角' },
+    { number: 4 as const, title: '题材与边界' }
   ];
   const currentStep = wizardSteps[step - 1]!;
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
-      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2><p>{editing ? '修改会保存为新的开书资料；已确认设定、人物资料和正文不会被自动改写。' : creationMode === 'continuation' ? '先建立书籍档案，完成后直接导入已有正文，不要求从空白设定重新开始。' : '先确定作品起点，完成后进入设定讨论，不会直接生成正文。'}</p></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
-      <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong><small>{item.description}</small></button>)}</nav>
+      <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={onCancel}><XIcon /></button></div>
+      <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong></button>)}</nav>
       <div className="complete-create-book-body" ref={bodyRef}>
-        {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没有完成的开书资料</strong><span>可以从第{step}步继续；只有创建成功后草稿才会清除。</span></div><button type="button" className="text-button" onClick={resetDraft}>清空并重新开始</button></aside>}
+        {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没填完的资料</strong></div><button type="button" className="text-button" onClick={resetDraft}>清空重填</button></aside>}
         {draftSaveMessage !== null && !restoredNotice && <p className="opening-draft-save-state" role="status">{draftSaveMessage}</p>}
         {submitError !== null && <div className="create-book-validation-summary" role="alert"><strong>创建没有完成</strong><span>{submitError}</span></div>}
         {submitAttempted && missingByStep[step].length > 0 && <div className="create-book-validation-summary" role="alert" aria-live="assertive" tabIndex={-1} ref={validationSummaryRef}>
-          <strong>还不能创建，请先补充以下开书资料</strong>
+          <strong>请先补充以下内容</strong>
           <span>{missingByStep[step].join('、')}</span>
         </div>}
         {step === 1 && <section className="opening-form-section creation-mode-section">
-          <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div><small>请选择一种</small></div>
+          <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div></div>
           <div className="creation-mode-options">
             <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
-              <strong>从零创作</strong><span>先完善设定，再规划阶段剧情和正文。</span>
+              <strong>从零创作</strong>
             </button>
             <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
-              <strong>已有正文续写</strong><span>建书后直接进入正文，导入并逐章拆解已有内容。</span>
+              <strong>已有正文续写</strong>
             </button>
           </div>
-          {editing && <p className="opening-edit-scope-note">创作起点已经固定，不能在这里切换；其他开书资料可以继续修改。</p>}
+          {editing && <p className="opening-edit-scope-note">创作方式不可修改。</p>}
         </section>}
         <div className="opening-primary-stack">
           {step === 2 && <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
@@ -430,9 +429,9 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
                 if (protagonists.length === 1 && protagonists[0]?.name.trim().length === 0) {
                   updateProtagonist(0, { role: item.id === 'male' ? 'male_lead' : 'female_lead' });
                 }
-              }}><span><strong>{item.label}</strong><small>{item.description}</small></span></button>;
+              }}><span><strong>{item.label}</strong></span></button>;
           })}</div></fieldset>
-          <div className="taxonomy-heading"><strong>作品分类（单选）</strong><small>一本书只确定一个主分类</small></div>
+          <div className="taxonomy-heading"><strong>作品分类（单选）</strong></div>
           {taxonomyError !== null && <p className="inline-error" role="alert">{taxonomyError}</p>}
           <div className="category-options">{categories.map((item) => {
             const selected = categoryKey === item.key;
@@ -441,7 +440,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
               setActiveTagGroupKey('recommended');
             }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
-          {taxonomy !== null && <p className="taxonomy-notice">{taxonomy.notice}</p>}
           </section>}
           {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
@@ -467,15 +465,13 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
 
         {step === 2 && <section className="opening-form-section story-direction-section">
           <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>必填 · 20至800字</small></div>
-          <p className="story-direction-intro">不用先写完整大纲。简要写清主角开篇处境、启动事件、想达成什么、主要阻力和大致走向，主编会据此引导完善设定与剧情。</p>
           <label htmlFor="opening-story-direction">故事方向<textarea id="opening-story-direction" aria-label="故事方向" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="例如：林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因。她要找回姐姐，同时阻止下一次改写吞掉整座旧城。" rows={5} maxLength={800} /></label>
-          <div className="story-direction-meta"><span>这只是可以继续修改的故事方向，不是剧情总纲，也不代表故事已经发生。</span><strong>{storyDirection.length}/800</strong></div>
+          <div className="story-direction-meta"><strong>{storyDirection.length}/800</strong></div>
         </section>}
 
         {step === 2 && <details className="opening-more-options opening-advanced-options">
-          <summary><span><strong>我已经想好的补充（选填）</strong><small>有就填写，没有可以留到设定讨论</small></span><b>展开填写</b></summary>
+          <summary><span><strong>我已经想好的补充（选填）</strong></span><b>展开填写</b></summary>
           <div className="opening-more-options-body opening-advanced-fields">
-            <p>这些内容都是可修改的参考，不会因为写在这里就变成正式内容，也不会锁死后续剧情。</p>
             <label htmlFor="opening-target-audience">希望吸引的读者<input id="opening-target-audience" value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={500} placeholder="例如：喜欢城市悬疑、女性成长和群像关系的读者" /></label>
             <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="写你已经确定的时代、地点和特殊规则；不确定可留空" /></label>
             <label htmlFor="opening-background">开篇时正在发生什么<textarea id="opening-background" value={openingBackground} onChange={(event) => setOpeningBackground(event.target.value)} maxLength={10000} rows={3} placeholder="例如：主角收到一封来自十年后的失踪通知" /></label>
@@ -490,29 +486,27 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         </details>}
 
         {step === 4 && <section className="opening-form-section tag-direction-section">
-          <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div><small>一个主分类 + 多个题材</small></div>
-          <div className="creative-freedom-note"><TagIcon /><div><strong>主要选择 + 其他自由发挥</strong><p>标签只确定主要方向；分类和题材也不是每章必须执行的清单，未选择的元素可以随剧情自然加入。</p></div></div>
+          <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div></div>
           <section className="subject-library">
-            <StringTagPicker title="融合题材（多选）" hint={`来自起点二级分类与番茄作品题材；建议2至5个，最多8个；当前已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
+            <StringTagPicker title="融合题材（多选）" hint={`建议2至5个，最多8个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} />
             <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
           </section>
-          <details className="full-tag-library opening-more-options"><summary><span><strong>查看和调整主要标签</strong><small>系统已按分类推荐，可按需修改</small></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
-            <header className="tag-library-heading"><div><strong>完整标签库</strong><small>根据主分类和题材优先推荐，也可切换分组或搜索全部词条</small></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
+          <details className="full-tag-library opening-more-options"><summary><span><strong>查看和调整主要标签</strong></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
+            <header className="tag-library-heading"><div><strong>完整标签库</strong></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
             <label htmlFor="opening-tag-search">搜索全部标签<input id="opening-tag-search" aria-label="搜索全部标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
             <nav aria-label="标签库分组">
               <button className={activeTagGroupKey === 'recommended' ? 'selected' : ''} type="button" onClick={() => setActiveTagGroupKey('recommended')}>智能推荐</button>
               {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
             </nav>
-            <p className="tag-context-note">当前依据：{category?.name ?? '未选分类'}{auxiliaryTags.length > 0 ? ` · ${auxiliaryTags.join(' · ')}` : ' · 尚未选择题材'}</p>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已自动推荐8个；当前共选 ${mainTags.length} 个，不限数量，可继续增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} />
+            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`已选 ${mainTags.length} 个，可增删`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} />
           </div></details>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}
           <details className="boundary-panel" open>
             <summary><span><ShieldCheckIcon /><strong>必须遵守</strong></span><small>{mustFollow.length}/15 条</small></summary>
-            <p>这里只填写你明确不能接受、以后也不能改变的内容。没有额外要求可直接选择“无额外限制”。</p>
-            <section><header><strong>快速选择</strong><small>与下方自定义内容合计最多15条</small></header><div className="tag-options"><button className={selectedMustFollow.includes('无额外限制') ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selectedMustFollow.includes('无额外限制')} aria-label={`${selectedMustFollow.includes('无额外限制') ? '取消' : '选择'}必须遵守：无额外限制`} onClick={() => toggleMustFollow('无额外限制')}>无额外限制</button></div></section>
-            {(taxonomy?.boundaryGroups ?? []).map((group) => <section key={group.name}><header><strong>{group.name}</strong><small>{group.description}</small></header><div className="tag-options">{group.options.map((item) => {
+            <p>只写绝对不能接受的内容；没有额外要求就选"无额外限制"。</p>
+            <section><header><strong>快速选择</strong></header><div className="tag-options"><button className={selectedMustFollow.includes('无额外限制') ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selectedMustFollow.includes('无额外限制')} aria-label={`${selectedMustFollow.includes('无额外限制') ? '取消' : '选择'}必须遵守：无额外限制`} onClick={() => toggleMustFollow('无额外限制')}>无额外限制</button></div></section>
+            {(taxonomy?.boundaryGroups ?? []).map((group) => <section key={group.name}><header><strong>{group.name}</strong></header><div className="tag-options">{group.options.map((item) => {
               const selected = selectedMustFollow.includes(item);
               return <button className={selected ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selected} aria-label={`${selected ? '取消' : '选择'}必须遵守：${item}`} key={item} onClick={() => toggleMustFollow(item)}>{selected && <CheckCircleIcon />}{item}</button>;
             })}</div></section>)}
@@ -520,7 +514,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           </details>
         </section>}
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title} · {editing ? '修改会另存，不覆盖原资料' : creationMode === 'continuation' ? '完成后导入已有正文' : '完成后进入设定讨论'}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : creationMode === 'continuation' ? '创建并导入正文' : '创建并进入设定'}</button>}</div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/4步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={onCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 4 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3 | 4)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>
@@ -532,7 +526,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
             exclude={protagonists.filter((_, index) => index !== namingProtagonistIndex).map((item) => item.name).filter(Boolean)}
             onSelect={(name) => updateProtagonist(namingProtagonistIndex, { name })}
           />
-          <footer><span>选中的名字只会填入姓名框，您仍可修改。</span><button className="primary-button" type="button" onClick={() => setNamingProtagonistIndex(null)}>完成</button></footer>
+          <footer><button className="primary-button" type="button" onClick={() => setNamingProtagonistIndex(null)}>完成</button></footer>
         </section>
       </div>}
     </section>
@@ -590,7 +584,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
   const customSelected = selected.filter((item) => !known.has(item));
   return <section className="personality-picker">
     <header>
-      <div><strong>角色性格</strong><small>从不同维度选1—8个；优先选择会影响行动和冲突的特点</small></div>
+      <div><strong>角色性格</strong><small>选 1—8 个</small></div>
       <span>{selected.length}/8</span>
     </header>
     <div className="personality-group-grid">{groups.map((group) => <details key={group.key} open={group.key === 'surface' || group.key === 'decision'}>
@@ -601,7 +595,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
       })}</div>
     </details>)}</div>
     <div className="personality-custom-row">
-      <label htmlFor="opening-custom-personality">没有合适的？写下角色独有的性格</label>
+      <label htmlFor="opening-custom-personality">自定义性格</label>
       <div><input id="opening-custom-personality" value={custom} maxLength={40} onChange={(event) => setCustom(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustom(); } }} placeholder="例如：越害怕越爱说反话" /><button type="button" disabled={selected.length >= 8 || custom.trim().length === 0} onClick={addCustom}><PlusIcon />添加</button></div>
     </div>
     {customSelected.length > 0 && <div className="selected-tag-strip">{customSelected.map((item) => <button type="button" key={item} onClick={() => onToggle(item)}>{item}<XIcon /></button>)}</div>}
