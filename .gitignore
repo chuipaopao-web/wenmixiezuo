@@ -22,3 +22,10 @@ check-admin.sh
 swap-admin.sh
 membership-deploy.*
 reset-password.*
+
+# 本地走查截图与调试脚本（不进仓库）
+shots/
+shots-after/
+shots-skin/
+shots-create/
+scripts/debug/
