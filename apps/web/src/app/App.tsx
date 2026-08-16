@@ -148,7 +148,13 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
   const [membershipChecking, setMembershipChecking] = useState(false);
   const [membershipBlock, setMembershipBlock] = useState<MembershipBlockReason | null>(null);
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const [noticeDismissed, setNoticeDismissedState] = useState(() => {
+    try { return window.localStorage.getItem('wenmi-notice-dismissed') === '1'; } catch { return false; }
+  });
+  const setNoticeDismissed = (dismissed: boolean) => {
+    setNoticeDismissedState(dismissed);
+    try { if (dismissed) window.localStorage.setItem('wenmi-notice-dismissed', '1'); } catch { /* 忽略隐私模式写入失败 */ }
+  };
 
   const refreshMembership = useCallback(async (signal?: AbortSignal): Promise<void> => {
     setMembershipChecking(true);
@@ -682,19 +688,19 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       {createOpen && <CompleteCreateBookDialog accountId={account.userId} busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {account.role !== 'admin' && membershipStatus !== null && !membershipUsable && !noticeDismissed && (
         <div className="dialog-backdrop membership-gate-backdrop">
-          <section className="dialog membership-prompt" role="dialog" aria-label="内测说明">
-            <button className="membership-close" type="button" aria-label="关闭内测说明" onClick={() => setNoticeDismissed(true)}><XIcon /></button>
+          <section className="dialog membership-prompt" role="dialog" aria-label="欢迎说明">
+            <button className="membership-close" type="button" aria-label="关闭欢迎说明" onClick={() => setNoticeDismissed(true)}><XIcon /></button>
             <div className="brand-mark" aria-hidden="true">文</div>
-            <h2>内测说明</h2>
-            <p>作者创作小说六年，写了几百万字大长篇，稿费几十万。因在市场上没有找到好用的长篇AI软件，正好自己做过几年软件，便动手做了一个。</p>
-            <p>目前流程跑通在内测，内测用户可以帮忙反馈一下问题，我仍在持续优化中。</p>
-            <p className="membership-contact">使用需要算力，请联系管理员微信 <strong>595341366</strong> 开通会员后继续使用</p>
+            <h2>欢迎来到文秘写作（内测版）</h2>
+            <p>这是一个 AI 团队陪您写长篇小说的工具：您出想法、做取舍，11 位 AI 成员分工完成设定、大纲、正文，每一步都由您拍板。</p>
+            <p>当前为内测阶段，使用中遇到问题欢迎反馈，我们会持续优化。</p>
+            <p className="membership-contact">使用需要算力：添加管理员微信 <strong>595341366</strong> 开通会员即可开始创作。</p>
             <p className="membership-gate-hint">管理员开通后会自动解除限制；如已开通，点击下方刷新立即生效。</p>
             <footer className="membership-prompt-actions two">
               <button type="button" className="primary" disabled={membershipChecking} onClick={() => void refreshMembership()}>
                 {membershipChecking ? '正在刷新…' : '刷新会员状态'}
               </button>
-              <button type="button" onClick={() => setNoticeDismissed(true)}>知道了，继续使用</button>
+              <button type="button" onClick={() => setNoticeDismissed(true)}>先看看</button>
             </footer>
           </section>
         </div>
