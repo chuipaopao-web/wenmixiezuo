@@ -282,7 +282,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (current === undefined) return;
     const next = current.personalities.includes(personality)
       ? current.personalities.filter((item) => item !== personality)
-      : current.personalities.length >= 8 ? current.personalities : [...current.personalities, personality];
+      : current.personalities.length >= 12 ? current.personalities : [...current.personalities, personality];
     updateProtagonist(index, { personalities: next });
   };
   const addCustomTag = (): void => {
@@ -646,7 +646,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
   const [custom, setCustom] = useState('');
   const addCustom = (): void => {
     const value = custom.trim();
-    if (value.length === 0 || value.length > 40 || selected.includes(value) || selected.length >= 8) return;
+    if (value.length === 0 || value.length > 40 || selected.includes(value) || selected.length >= 12) return;
     onToggle(value);
     setCustom('');
   };
@@ -654,8 +654,8 @@ function PersonalityPicker({ groups, selected, onToggle }: {
   const customSelected = selected.filter((item) => !known.has(item));
   return <section className="personality-picker">
     <header>
-      <div><strong>角色性格</strong><small>选 1—8 个</small></div>
-      <span>{selected.length}/8</span>
+      <div><strong>角色性格</strong><small>选 1—12 个，挑最能影响这个角色做决定的</small></div>
+      <span>{selected.length}/12</span>
     </header>
     <div className="personality-group-grid">{groups.map((group) => <details key={group.key} open={group.key === 'surface' || group.key === 'decision'}>
       <summary><span><strong>{group.name}</strong><small>{group.description}</small></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>

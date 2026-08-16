@@ -312,7 +312,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     const familyBackground = optionalText(item.familyBackground, `第${index + 1}位主角家庭背景`, 2_000);
     const careerBackground = optionalText(item.careerBackground, `第${index + 1}位主角职业背景`, 2_000);
     const goldenFinger = optionalText(item.goldenFinger, `第${index + 1}位主角金手指`, 2_000);
-    const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 8, 40);
+    const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 12, 40);
     return { role: item.role, name, age, background, familyBackground, careerBackground, goldenFinger, personalities };
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');

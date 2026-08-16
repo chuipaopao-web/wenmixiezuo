@@ -183,7 +183,7 @@ function parseProtagonist(value: unknown): OpeningProtagonistDraft | null {
     familyBackground,
     careerBackground: limitedText(value.careerBackground, 2_000),
     goldenFinger: limitedText(value.goldenFinger, 2_000),
-    personalities: uniqueTexts(value.personalities, 6, 40)
+    personalities: uniqueTexts(value.personalities, 12, 40)
   };
 }
 
