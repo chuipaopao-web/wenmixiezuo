@@ -45,6 +45,7 @@ const canonIndexLoop = new CanonIndexLoop(new CanonIndexTaskExecutor(
 ));
 canonIndexLoop.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId,
+  maxConcurrency: config.maxConcurrency ?? 8,
   vectorProjection: vectorRuntime === undefined ? 'degraded' : 'ready' }));
 
 const shutdown = (): void => {

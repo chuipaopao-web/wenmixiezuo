@@ -3,8 +3,8 @@ import type { TaskClaimer, ClaimedTask } from '../scheduler/task-claimer.js';
 import type { ChapterTaskExecutor } from '../executors/chapter-task-executor.js';
 
 const WORKER_EXECUTION_LEASE_MS = 120_000;
-const DEFAULT_MAX_CONCURRENCY = 2;
-const MAX_CONCURRENCY_CAP = 4;
+const DEFAULT_MAX_CONCURRENCY = 8;
+const MAX_CONCURRENCY_CAP = 32;
 
 /** 可并发执行的任务类型：不同书的这些任务彼此独立，允许并行。 */
 const EXECUTABLE_TASK_TYPES = new Set([

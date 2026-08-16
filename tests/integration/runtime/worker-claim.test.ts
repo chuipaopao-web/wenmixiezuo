@@ -28,4 +28,32 @@ describe('Worker受限Repository', () => {
     expect(context.database.prepare("SELECT status FROM task_phases WHERE task_id = 'task-worker'").get()).toEqual({ status: 'succeeded' });
     expect(context.database.prepare("SELECT COUNT(*) AS count FROM persistent_events WHERE event_type = 'task.completed'").get()).toEqual({ count: 1 });
   });
+
+  it('不同书任务可同时领取，同书任务排队等待', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scopeA = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    const scopeB = { ownerId: 'owner-two', bookId: 'book-beta' };
+    initializeRuntimeBook(context, scopeA, ids, clock, '并行书甲');
+    initializeRuntimeBook(context, scopeB, ids, clock, '并行书乙');
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    for (const [scope, taskId, key] of [
+      [scopeA, 'task-a1', 'key-a1'], [scopeA, 'task-a2', 'key-a2'], [scopeB, 'task-b1', 'key-b1']
+    ] as const) {
+      tasks.create(scope, { taskId, taskType: 'runtime_probe', idempotencyKey: key, initialPhase: 'execute', brief: {} });
+      tasks.queue(scope, taskId);
+    }
+    const claimer = new TaskClaimer(context.database, 'worker-test', () => clock.now());
+    const first = claimer.claimNext(clock.now(), 120_000)!;
+    const second = claimer.claimNext(clock.now(), 120_000)!;
+    const third = claimer.claimNext(clock.now(), 120_000);
+    // 领取顺序按 task_id：先领甲书 task-a1；同书 task-a2 被按书互斥挡住，第二次必领乙书 task-b1；之后无可领任务
+    expect(first.taskId).toBe('task-a1');
+    expect(second.taskId).toBe('task-b1');
+    expect(third).toBeNull();
+    expect(tasks.require(scopeA, 'task-a1').status).toBe('working');
+    expect(tasks.require(scopeA, 'task-a2').status).toBe('queued');
+    expect(tasks.require(scopeB, 'task-b1').status).toBe('working');
+  });
 });
