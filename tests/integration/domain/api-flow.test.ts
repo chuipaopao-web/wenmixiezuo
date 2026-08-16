@@ -81,7 +81,7 @@ describe('建书REST流程', () => {
         worldBackground: '诸城邦以军功与盟约维持秩序。', openingBackground: '天安城拒绝缴纳边境军费。',
         stageOne: { start: '张三发现伪造军令。', development: '他阻止第一次宣战。', end: '他查出军令来自城内权臣。' },
         fullBookOutline: '张三调查城邦战争规则，最终重建联盟。', mainTags: ['玄幻', '谋略'], auxiliaryTags: [],
-        storyTraits: ['群像'], customTags: ['城邦战争'], initialMap: '天安城北门与边军大营。', mustFollow: ['不写后宫']
+        storyTraits: ['智斗'], customTags: ['城邦战争'], initialMap: '天安城北门与边军大营。', mustFollow: ['不写后宫']
       };
       const invalidResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts',

@@ -31,7 +31,7 @@ function validBlueprint(): OpeningBlueprintInput {
     fullBookOutline: '主线是阻止王朝覆灭，结局由陆沉建立新的边境秩序。',
     mainTags: ['穿越', '谋略', '热血'],
     auxiliaryTags: ['架空历史'],
-    storyTraits: ['群像', '成长'],
+    storyTraits: ['智斗', '爽感'],
     customTags: ['边城经营'],
     initialMap: '北境·雁回驿及周边三十里。',
     mustFollow: ['不写后宫']

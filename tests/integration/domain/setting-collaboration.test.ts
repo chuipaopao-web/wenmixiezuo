@@ -256,7 +256,7 @@ describe('设定页内协作读模型', () => {
         openingBackground: '旧港钟楼坠下一块带血的航图。',
         stageOne: { start: '捡到航图', development: '结伴入城', end: '阻止第一次坠落' },
         fullBookOutline: '每卷解决一座浮空城危机并推进失窃航图主线。',
-        mainTags: ['仙侠', '悬疑'], auxiliaryTags: [], storyTraits: ['群像'], customTags: ['浮空城', '机关'],
+        mainTags: ['仙侠', '悬疑'], auxiliaryTags: [], storyTraits: ['智斗'], customTags: ['浮空城', '机关'],
         initialMap, mustFollow: ['普通人不能成为无代价耗材']
       }
     });
