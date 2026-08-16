@@ -144,10 +144,10 @@
 | 4 | SSE + 轮询叠加压力 | 🟡 部分缓解 | 统一为单一全局 SSE 订阅（游标 `wenmi-event-cursor`，服务端按 seq，客户端按 `bookId` 过滤），消除切书重放与多连接；30s 轮询与 80ms 防抖全量刷新保留 |
 | 5 | 会员续费重置周期 | ⏸ 不做 | 线下管理员开通方案既定，不做在线折算/支付 |
 | 6 | 管理后台用户列表无分页 | ✅ 已修复 | `listUsers` / `listUsersWithMembership` 返回 `{items,total}`，管理页 50 条/页 + 上一页/下一页；`overview` 新增 `totalTokens` 全局算力消耗（不再按当前页求和） |
-| 7 | USER_GUIDE 与会员行为不一致 | ✅ 文档已改 / 🕓 docs:sync 待跑 | `USER_GUIDE.md:79` 已改为新版"可关闭内测说明 + AI 触发会员弹窗 + 20s 自动刷新 + 服务端门禁兜底"；`npm run docs:sync` 因网关故障待执行 |
+| 7 | USER_GUIDE 与会员行为不一致 | ✅ 已修复 | `USER_GUIDE.md:79` 已改为新版"可关闭内测说明 + AI 触发会员弹窗 + 20s 自动刷新 + 服务端门禁兜底"；docs:sync 已执行 |
 | 8 | 算力值概念不直观 | ⏸ 排队 | 属付费体验打磨，未列入本轮 |
 | 9 | SSE 游标按 scope 存储重放历史 | ✅ 已修复 | 单一全局游标 + 客户端过滤；`writeEventCursor` 单调递增 |
 | 10 | publicOrigin 缺配限流静默关闭 | ✅ 已修复 | `runtime-config.ts` 校验 publicOrigin 必须 http/https；`main.ts` 启动告警 `public_origin_missing` / `web_origin_mismatch` |
 | 11 | 非会员无自助开通入口 | ⏸ 维持方案 | 维持"联系管理员开通"，不做线上支付 |
 
-**待办（网关恢复后）**：`npm run docs:sync` → `npm run typecheck` → `npm run test` → `npm run build` → git commit + push → 部署线上。
+**发布记录**：typecheck / test（161 文件 662 用例）/ build 全部通过；已提交 `f6696ff` 并推送远程；已部署香港生产（部署前备份 wenmi-20260816-predeploy.sqlite，迁移 v45 无新增，服务健康，41 用户/35 本书数据完好）。
