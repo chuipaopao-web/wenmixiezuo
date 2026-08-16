@@ -469,16 +469,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           <div className="story-direction-meta"><strong>{storyDirection.length}/800</strong></div>
         </section>}
 
-        {step === 2 && <details className="opening-more-options opening-advanced-options">
-          <summary><span><strong>我已经想好的补充（选填）</strong></span><b>展开填写</b></summary>
-          <div className="opening-more-options-body opening-advanced-fields">
-            <label htmlFor="opening-target-audience">希望吸引的读者<input id="opening-target-audience" value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={500} placeholder="例如：喜欢城市悬疑、女性成长和群像关系的读者" /></label>
-            <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="时代、地点、特殊规则；例如：大秦帝国开局，随时间推到明朝，主要地点有咸阳、北境军营" /></label>
-            <label htmlFor="opening-background">开篇时正在发生什么<textarea id="opening-background" value={openingBackground} onChange={(event) => setOpeningBackground(event.target.value)} maxLength={10000} rows={3} placeholder="例如：主角收到一封来自十年后的失踪通知" /></label>
-            <label htmlFor="opening-full-outline">已有的全书想法<textarea id="opening-full-outline" value={fullBookOutline} onChange={(event) => setFullBookOutline(event.target.value)} maxLength={20000} rows={4} placeholder="只写你已经想清楚的长期方向" /></label>
-          </div>
-        </details>}
-
         {step === 4 && <section className="opening-form-section tag-direction-section">
           <div className="section-heading"><div><span>04</span><h3>题材与标签</h3></div></div>
           <section className="subject-library">

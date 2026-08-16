@@ -109,8 +109,6 @@ describe('四步开书', () => {
     expect(document.querySelectorAll('.channel-option input')).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
     fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
-    fireEvent.click(screen.getByText('我已经想好的补充（选填）'));
-    fireEvent.change(screen.getByLabelText('世界与时代'), { target: { value: '旧城地图会随居民记忆改变。' } });
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
     const first = screen.getByRole('article');
@@ -137,7 +135,7 @@ describe('四步开书', () => {
       title: '旧城来信',
       openingBlueprint: expect.objectContaining({
         creationMode: 'new', storyDirection: expect.stringContaining('城市记忆'),
-        worldBackground: '旧城地图会随居民记忆改变。',
+        worldBackground: '',
         initialMap: '',
         protagonists: [expect.objectContaining({ name: '林舟' }), expect.objectContaining({ name: '周野' })],
         mustFollow: ['无额外限制']
