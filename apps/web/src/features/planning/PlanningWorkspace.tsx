@@ -278,7 +278,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       </header>
       <div className="creation-desk-body">
       {tab === 'manuscript' ? manuscript : tab === 'library' ? library : tab === 'naming' ? naming : <>
-      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'event' && bookId !== null ? <EventPlanningPanel bookId={bookId} /> : tab === 'chapter' && bookId !== null ? <EventChapterPlanningPanel bookId={bookId} onOpenManuscript={()=>onTabChange('manuscript')} {...(onBookProfileChanged===undefined?{}:{onChanged:onBookProfileChanged})} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
+      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'event' && bookId !== null ? <EventPlanningPanel bookId={bookId} /> : tab === 'chapter' && bookId !== null ? <EventChapterPlanningPanel bookId={bookId} onOpenManuscript={()=>onTabChange('manuscript')} {...(onBookProfileChanged===undefined?{}:{onChanged:onBookProfileChanged})} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} workspace={workspace} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`暂无${tabs.find(([key]) => key === tab)?.[1] ?? '内容'}`} description="" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -308,9 +308,22 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   );
 }
 
-function BookProfilePanel({ profile, onEdit }: { profile: BookProfileViewData; onEdit: () => void }): React.JSX.Element {
+function BookProfilePanel({ profile, workspace, onEdit }: { profile: BookProfileViewData; workspace: WorkspaceData | null; onEdit: () => void }): React.JSX.Element {
+  const settledCount = workspace === null ? 0 : workspace.chapters.filter((chapter) => chapter.canonManuscriptVersionId !== null).length;
+  const totalChapters = workspace?.chapters.length ?? 0;
+  const pendingConfirmations = workspace?.confirmations.count ?? 0;
+  const progressRatio = totalChapters === 0 ? 0 : settledCount / totalChapters;
   return <section className="book-profile-panel">
     <header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
+    {workspace !== null && <section className="book-progress-banner" aria-label="当前进度">
+      <div className="book-progress-row">
+        <strong>{totalChapters === 0 ? '还没有章节' : `已写定稿 ${settledCount} / ${totalChapters} 章`}</strong>
+        {pendingConfirmations > 0
+          ? <span className="book-progress-attention">有 {pendingConfirmations} 项重要内容等您确认，去「任务」页处理</span>
+          : <span>{totalChapters === 0 ? '确认设定与分卷后，团队会开始规划事件。' : '没有等您确认的事项，团队可以继续推进。'}</span>}
+      </div>
+      {totalChapters > 0 && <div className="book-progress-meter" role="presentation"><i style={{ width: `${Math.max(2, Math.round(progressRatio * 100))}%` }} /></div>}
+    </section>}
     <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
     <h4>初始主角</h4>

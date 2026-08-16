@@ -31,6 +31,21 @@ export function isActiveTask(status: string): boolean {
   return ['pending', 'queued', 'working', 'waiting_confirmation', 'paused', 'blocked', 'interrupted'].includes(status);
 }
 
+export function isStuckTask(status: string): boolean {
+  return ['blocked', 'interrupted'].includes(status);
+}
+
+/** 卡住任务的大白话原因：列表行直接告诉作者"为什么停、怎么继续"，不再只写"已阻断"。 */
+export function taskStuckReason(task: TaskData): string {
+  const code = task.errorCode ?? '';
+  if (code.includes('MEMBERSHIP')) return '会员算力不可用：续费或联系管理员后，点任务继续执行。';
+  if (code.includes('BUDGET')) return '这本书的费用保护上限已到：调整预算后点任务继续。';
+  if (code.includes('MODEL') || code.includes('PROVIDER') || code.includes('UPSTREAM')) return '模型服务暂时不可用：点任务可重试，多次失败请看详情里的真实原因。';
+  if (code.includes('CONFIRM')) return '有重大事项等您确认：处理完"待确认"卡片后自动继续。';
+  if (task.cancelRequested) return '正在按您的要求停止，稍等片刻。';
+  return '中途停下了：点这条任务能看到原因，并可从断点继续，已写内容不会丢。';
+}
+
 export function taskChapterLabel(task: TaskData, workspace: TaskCenterBookData): string {
   const chapter = workspace.chapters.find((item) => item.chapterId === task.chapterId);
   const briefNumber = task.brief !== undefined && typeof task.brief.chapterNumber === 'number' ? task.brief.chapterNumber : null;

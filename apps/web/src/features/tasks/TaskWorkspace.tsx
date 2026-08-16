@@ -8,22 +8,25 @@ import { bookDisplayTitle } from '../../app/display-labels';
 import {
   confirmationLabel,
   isActiveTask,
+  isStuckTask,
   phaseLabel,
   statusLabel,
   taskChapterLabel,
   taskCheckpointLabel,
   taskGoal,
-  taskLabel
+  taskLabel,
+  taskStuckReason
 } from '../shared/task-presentation';
 
 function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: TaskCenterBookData; onSelect: (task: TaskData) => void }): React.JSX.Element {
   const chapter = taskChapterLabel(task, workspace);
+  const stuck = isStuckTask(task.status);
   return (
-    <button className="task-button" type="button" aria-label={`${chapter} ${taskLabel(task.taskType)} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
+    <button className={`task-button${stuck ? ' is-stuck' : ''}`} type="button" aria-label={`${chapter} ${taskLabel(task.taskType)} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
       <span className={`task-status-dot ${task.status}`} aria-hidden="true" />
       <span>
         <strong>{chapter} · {taskLabel(task.taskType)}</strong>
-        <small>{phaseLabel(task.currentPhase)} · {statusLabel(task.status)}</small>
+        <small>{stuck ? taskStuckReason(task) : `${phaseLabel(task.currentPhase)} · ${statusLabel(task.status)}`}</small>
       </span>
       <CaretRightIcon />
     </button>
@@ -59,16 +62,25 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
         <div className="task-book-groups">
           {entries.map((workspace) => {
             const { book } = workspace;
-            const activeTasks = workspace.tasks.filter((task) => isActiveTask(task.status));
+            const activeTasks = workspace.tasks.filter((task) => isActiveTask(task.status) && !isStuckTask(task.status));
+            const stuckTasks = workspace.tasks.filter((task) => isStuckTask(task.status));
             const historyTasks = workspace.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse();
+            const stuckGroups = new Map<string, TaskData[]>();
+            for (const task of stuckTasks) {
+              const groupKey = `${taskChapterLabel(task, workspace)} · ${taskLabel(task.taskType)}`;
+              const group = stuckGroups.get(groupKey) ?? [];
+              group.push(task);
+              stuckGroups.set(groupKey, group);
+            }
             const budgetRatio = workspace.budget === null || workspace.budget.token_limit === 0
               ? 0
               : Math.round(((workspace.budget.spent_tokens + workspace.budget.reserved_tokens) / workspace.budget.token_limit) * 100);
             return (
               <section className="task-book-group" aria-label={`《${bookDisplayTitle(book.title)}》的任务`} key={book.bookId}>
                 <header className="task-book-header">
-                  <div><span className="task-book-mark"><BooksIcon /></span><span><h3>{bookDisplayTitle(book.title)}</h3><p>{activeTasks.length} 项进行中 · {historyTasks.length} 项最近记录</p></span></div>
+                  <div><span className="task-book-mark"><BooksIcon /></span><span><h3>{bookDisplayTitle(book.title)}</h3><p>{activeTasks.length} 项进行中{stuckTasks.length > 0 ? ` · ${stuckTasks.length} 项卡住待处理` : ''} · {historyTasks.length} 项最近记录</p></span></div>
                 </header>
+                <ConfirmationsPanel bookId={book.bookId} workspace={workspace} busy={busy} onDecide={onDecide} />
                 <div className="task-workspace-layout">
                   <div className="task-workspace-primary">
                     <section className="task-workspace-section">
@@ -79,6 +91,20 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
                         )}</div>
                       )}
                     </section>
+                    {stuckTasks.length > 0 && (
+                      <section className="task-workspace-section task-stuck-section">
+                        <div className="task-workspace-heading"><h4>卡住的任务</h4><span>{stuckTasks.length}</span></div>
+                        <p className="task-workspace-empty">这些任务中途停下了，不会自己继续；点任意一条能看到原因并从断点继续，已写内容不会丢。</p>
+                        {[...stuckGroups.entries()].map(([groupKey, tasks]) => (
+                          <details className="task-stuck-group" key={groupKey} open={stuckGroups.size === 1}>
+                            <summary>{groupKey}<span>{tasks.length} 项</span></summary>
+                            <div className="task-list">{tasks.map((task) =>
+                              <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                            )}</div>
+                          </details>
+                        ))}
+                      </section>
+                    )}
                     <section className="task-workspace-section">
                       <div className="task-workspace-heading"><h4>最近任务</h4><span>{historyTasks.length}</span></div>
                       {historyTasks.length === 0 ? <p className="task-workspace-empty">还没有已结束的任务记录。</p> : (
@@ -93,7 +119,6 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
                       <div className="task-workspace-heading"><h4>预算</h4><span>{budgetRatio}%</span></div>
                       <p>费用保护上限 {((workspace.budget?.cash_limit_micros ?? 0) / 1_000_000).toFixed(2)} 元</p>
                     </section>
-                    <ConfirmationsPanel bookId={book.bookId} workspace={workspace} busy={busy} onDecide={onDecide} />
                   </div>
                 </div>
               </section>
