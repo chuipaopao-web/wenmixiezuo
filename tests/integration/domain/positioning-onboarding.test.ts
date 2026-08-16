@@ -63,7 +63,9 @@ describe('定位草稿与原子建书', () => {
         { label: '人物背景', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '人物背景', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '性格', authority_layer: 'candidate', source_kind: 'owner' },
-        { label: '性格', authority_layer: 'candidate', source_kind: 'owner' }
+        { label: '性格', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' },
+        { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' }
       ]);
     expect(result.kickoffTaskId).toBeTruthy();
     expect(context.database.prepare(`SELECT task_type, status, assigned_agent_id FROM tasks WHERE task_id = ?`).get(result.kickoffTaskId))

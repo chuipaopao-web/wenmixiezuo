@@ -16,7 +16,7 @@ import type { CreativeRoleKey, TeamModelProfile } from '../../contracts/agent-te
 import { creativeRoleKeys } from '../../contracts/agent-team-v2.js';
 import { PromptCompiler } from '../agents/prompt-compiler.js';
 import { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
-import { OPENING_TAXONOMY, type OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
+import { OPENING_TAXONOMY, type OpeningBlueprintInput, type ProtagonistRole } from '../../contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
 import { TaskService } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
@@ -36,6 +36,19 @@ export interface OnboardingResult {
   kickoffTaskId: string | null;
   agentCount: number;
 }
+
+/** 作者在开书向导里选的角色身份，给 AI 成员和状态档案展示用的大白话标签。 */
+const PROTAGONIST_ROLE_LABELS: Record<ProtagonistRole, string> = {
+  male_lead: '男主',
+  female_lead: '女主',
+  co_lead: '共同主角',
+  ensemble: '群像主角',
+  non_human: '非人主角',
+  male_support: '男配',
+  female_support: '女配',
+  male_villain: '男反',
+  female_villain: '女反'
+};
 
 export class BookOnboardingService {
   public constructor(
@@ -350,10 +363,14 @@ export class BookOnboardingService {
         profileId, entityId: null, displayName: protagonist.name, isPrimary: index === 0, now
       });
       const entries = [
+        { key: 'opening.role', label: '角色身份', category: '基本资料', value: PROTAGONIST_ROLE_LABELS[protagonist.role] ?? protagonist.role, type: 'text' },
         { key: 'opening.age', label: '年龄', category: '基本资料', value: protagonist.age, type: 'text' },
-        { key: 'opening.background', label: '人物背景', category: '基本资料', value: protagonist.background, type: 'text' },
+        { key: 'opening.familyBackground', label: '家庭背景', category: '基本资料', value: protagonist.familyBackground ?? '', type: 'text' },
+        { key: 'opening.careerBackground', label: '职业背景', category: '基本资料', value: protagonist.careerBackground ?? '', type: 'text' },
+        { key: 'opening.goldenFinger', label: '金手指', category: '基本资料', value: protagonist.goldenFinger ?? '', type: 'text' },
+        { key: 'opening.background', label: '人物背景', category: '基本资料', value: protagonist.background ?? '', type: 'text' },
         { key: 'opening.personalities', label: '性格', category: '基本资料', value: protagonist.personalities, type: 'list' }
-      ];
+      ].filter((entry) => Array.isArray(entry.value) ? entry.value.length > 0 : entry.value.trim().length > 0);
       for (const entry of entries) {
         repository.insertState(scope, {
           entryId: this.ids.next(), profileId, category: entry.category, logicalKey: entry.key,
@@ -454,7 +471,9 @@ function storyBibleSkeleton(
     theme: { confirmed: [], candidates: [] },
     worldRules: [],
     characters: openingBlueprint?.protagonists?.map((item) => ({
-      name: item.name, role: item.role, age: item.age, background: item.background,
+      name: item.name, role: item.role, age: item.age, background: item.background ?? '',
+      familyBackground: item.familyBackground ?? '', careerBackground: item.careerBackground ?? '',
+      goldenFinger: item.goldenFinger ?? '',
       personalities: item.personalities, sourceStatus: 'owner_reference'
     })) ?? [],
     openingReference: openingBlueprint === null ? null : {
@@ -485,7 +504,10 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
   const protagonistSummary = blueprint.protagonists.length === 0
     ? '暂未填写'
     : blueprint.protagonists.map((item) => [
-      `${item.name || '未命名角色'}（${item.role}，${item.age || '年龄未定'}）`,
+      `${item.name || '未命名角色'}（${PROTAGONIST_ROLE_LABELS[item.role] ?? item.role}，${item.age || '年龄未定'}）`,
+      item.familyBackground?.trim() ? `家庭背景：${item.familyBackground.trim()}` : '',
+      item.careerBackground?.trim() ? `职业背景：${item.careerBackground.trim()}` : '',
+      item.goldenFinger?.trim() ? `金手指：${item.goldenFinger.trim()}` : '',
       item.background?.trim(),
       item.personalities.length > 0 ? `性格：${item.personalities.join('、')}` : ''
     ].filter(Boolean).join('；')).join('；');

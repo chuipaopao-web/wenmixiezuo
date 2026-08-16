@@ -238,10 +238,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     ...(storyDirection.trim().length < 20 ? ['故事方向至少20字'] : [])
   ];
   const protagonistRequirements = protagonists.flatMap((item, index) => [
-    ...(item.name.trim().length === 0 ? [`主角${index + 1}姓名`] : []),
-    ...(item.age.trim().length === 0 ? [`主角${index + 1}年龄或生命阶段`] : []),
-    ...(item.background.trim().length === 0 ? [`主角${index + 1}人物背景`] : []),
-    ...(item.personalities.length === 0 ? [`主角${index + 1}至少1个性格`] : [])
+    ...(item.name.trim().length === 0 ? [`角色${index + 1}姓名`] : []),
+    ...(item.age.trim().length === 0 ? [`角色${index + 1}年龄`] : []),
+    ...(item.familyBackground.trim().length === 0 ? [`角色${index + 1}家庭背景`] : []),
+    ...(item.personalities.length === 0 ? [`角色${index + 1}至少1个性格`] : [])
   ]);
   const preferenceRequirements = [
     ...(mainTags.length < 2 ? ['至少2个主要标签'] : []),
@@ -308,7 +308,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       const protagonistTarget = protagonists.flatMap((item, index) => [
         ...(item.name.trim().length === 0 ? [index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`] : []),
         ...(item.age.trim().length === 0 ? [index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`] : []),
-        ...(item.background.trim().length === 0 ? [index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`] : [])
+        ...(item.familyBackground.trim().length === 0 ? [index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`] : [])
       ]).map((id) => document.getElementById(id)).find((element) => element !== null);
       const target = targetStep === 2
         ? taxonomy === null ? validationSummaryRef.current
@@ -392,7 +392,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         ...item,
         name: item.name.trim(),
         age: item.age.trim(),
-        background: item.background.trim()
+        background: item.background.trim(),
+        familyBackground: item.familyBackground.trim(),
+        careerBackground: item.careerBackground.trim(),
+        goldenFinger: item.goldenFinger.trim()
       })),
       storyDirection: storyDirection.trim(),
       worldBackground: worldBackground.trim(),
@@ -459,7 +462,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const wizardSteps = [
     { number: 1 as const, title: '选择起点' },
     { number: 2 as const, title: '作品方向' },
-    { number: 3 as const, title: '初始主角' },
+    { number: 3 as const, title: '初始角色' },
     { number: 4 as const, title: '题材与边界' }
   ];
   const currentStep = wizardSteps[step - 1]!;
@@ -514,18 +517,20 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           })}</div>
           </section>}
           {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
-            <div className="section-heading"><div><span>02</span><h3>初始主角</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
+            <div className="section-heading"><div><span>02</span><h3>初始角色</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 8} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/8）</button></div>
             {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
               <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
               <div className="form-row two">
-                <label htmlFor={`protagonist-role-${index}`}>主角身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                <label htmlFor={`protagonist-role-${index}`}>角色身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
                 <div className="protagonist-name-field">
                   <div><label htmlFor={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`}>姓名</label><button type="button" aria-label={`为角色${index + 1}取名`} onClick={() => setNamingProtagonistIndex(index)}><MagicWandIcon aria-hidden="true" />取名助手</button></div>
                   <input id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} placeholder="例如：林舟" maxLength={80} />
                 </div>
               </div>
-              <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄或生命阶段<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：十八岁、成年、初入职场" maxLength={80} /></label>
-              <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>人物背景<textarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(event) => updateProtagonist(index, { background: event.target.value })} placeholder="写清开篇身份、处境、已有资源与主要困境" rows={3} maxLength={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} type="number" min={0} max={99999} inputMode="numeric" value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：18" /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`}>家庭背景<textarea id={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`} value={protagonist.familyBackground} onChange={(event) => updateProtagonist(index, { familyBackground: event.target.value })} placeholder="例如：出身边城小吏之家，父母早亡，与妹妹相依为命" rows={2} maxLength={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`}>职业背景<textarea id={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`} value={protagonist.careerBackground} onChange={(event) => updateProtagonist(index, { careerBackground: event.target.value })} placeholder="例如：县衙书吏，管户籍档案；修仙文可写宗门身份" rows={2} maxLength={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`}>金手指<textarea id={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`} value={protagonist.goldenFinger} onChange={(event) => updateProtagonist(index, { goldenFinger: event.target.value })} placeholder="主角独有的依仗或优势，没有可留空" rows={2} maxLength={2000} /></label>
               <PersonalityPicker
                 groups={taxonomy?.personalityGroups ?? [{ key: 'all', name: '性格特点', description: '选择最能影响角色行动的特点。', options: taxonomy?.personalityOptions ?? [] }]}
                 selected={protagonist.personalities}
@@ -601,7 +606,16 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
     mainTags: [...blueprint.mainTags],
     auxiliaryTags: [...blueprint.auxiliaryTags],
     storyTraits: [...blueprint.storyTraits],
-    protagonists: blueprint.protagonists.map((item) => ({ ...item, personalities: [...item.personalities] })),
+    protagonists: blueprint.protagonists.map((item) => ({
+      role: item.role,
+      name: item.name,
+      age: item.age,
+      background: '',
+      familyBackground: item.familyBackground ?? item.background ?? '',
+      careerBackground: item.careerBackground ?? '',
+      goldenFinger: item.goldenFinger ?? '',
+      personalities: [...item.personalities]
+    })),
     storyDirection: blueprint.storyDirection,
     targetAudience: blueprint.targetAudience,
     worldBackground: blueprint.worldBackground,
@@ -644,7 +658,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
       <span>{selected.length}/8</span>
     </header>
     <div className="personality-group-grid">{groups.map((group) => <details key={group.key} open={group.key === 'surface' || group.key === 'decision'}>
-      <summary><span><strong>{group.name}</strong></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>
+      <summary><span><strong>{group.name}</strong><small>{group.description}</small></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>
       <div className="tag-options">{group.options.map((name) => {
         const active = selected.includes(name);
         return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}角色性格：${name}`} key={name} onClick={() => onToggle(name)} disabled={!active && selected.length >= 8}>{active && <CheckCircleIcon />}{name}</button>;

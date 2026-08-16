@@ -326,8 +326,16 @@ function BookProfilePanel({ profile, workspace, onEdit }: { profile: BookProfile
     </section>}
     <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
-    <h4>初始主角</h4>
-    <div className="profile-card-grid">{profile.protagonists.map((item) => <article key={item.name}><strong>{item.name}</strong><span>{PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'} · {item.age}</span><p>{item.background}</p><small>{item.personalities.join('、')}</small></article>)}</div>
+    <h4>初始角色</h4>
+    <div className="profile-card-grid">{profile.protagonists.map((item) => {
+      const backgroundLines = [
+        item.familyBackground ? `家庭背景：${item.familyBackground}` : '',
+        item.careerBackground ? `职业背景：${item.careerBackground}` : '',
+        item.goldenFinger ? `金手指：${item.goldenFinger}` : '',
+        ...(!item.familyBackground && !item.careerBackground && !item.goldenFinger && item.background ? [item.background] : [])
+      ].filter(Boolean);
+      return <article key={item.name}><strong>{item.name}</strong><span>{PROTAGONIST_ROLES.find((role) => role.id === item.role)?.label ?? '主角'} · {item.age}</span>{backgroundLines.map((line) => <p key={line}>{line}</p>)}<small>{item.personalities.join('、')}</small></article>;
+    })}</div>
     <h4>必须遵守</h4><ul>{profile.mustFollow.map((item) => <li key={item}>{item}</li>)}</ul>
   </section>;
 }

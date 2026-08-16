@@ -39,7 +39,8 @@ export interface NamingCandidate {
   status: 'candidate';
 }
 
-type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
+type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human'
+  | 'male_support' | 'female_support' | 'male_villain' | 'female_villain';
 
 function defineTargets(groupId: NamingGroupId, entries: Array<[string, string, string]>): NamingTarget[] {
   return entries.map(([id, label, description]) => ({ id, groupId, label, description }));
@@ -341,8 +342,8 @@ const WESTERN_NAMES = {
 };
 
 export function recommendCharacterTarget(role: ProtagonistRole): string {
-  if (role === 'male_lead') return 'character-male';
-  if (role === 'female_lead') return 'character-female';
+  if (role === 'male_lead' || role === 'male_support' || role === 'male_villain') return 'character-male';
+  if (role === 'female_lead' || role === 'female_support' || role === 'female_villain') return 'character-female';
   if (role === 'non_human') return 'character-neutral';
   return 'character-neutral';
 }

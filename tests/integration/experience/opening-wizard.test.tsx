@@ -122,14 +122,14 @@ describe('四步开书', () => {
 
     const first = screen.getByRole('article');
     fireEvent.change(within(first).getByLabelText('姓名'), { target: { value: '林舟' } });
-    fireEvent.change(within(first).getByLabelText('年龄或生命阶段'), { target: { value: '十八岁' } });
-    fireEvent.change(within(first).getByLabelText('人物背景'), { target: { value: '旧城档案员' } });
+    fireEvent.change(within(first).getByLabelText('年龄'), { target: { value: '18' } });
+    fireEvent.change(within(first).getByLabelText('家庭背景'), { target: { value: '旧城档案员家庭' } });
     fireEvent.click(within(first).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.click(screen.getByRole('button', { name: /增加角色/u }));
     const second = screen.getAllByRole('article')[1]!;
     fireEvent.change(within(second).getByLabelText('姓名'), { target: { value: '周野' } });
-    fireEvent.change(within(second).getByLabelText('年龄或生命阶段'), { target: { value: '成年' } });
-    fireEvent.change(within(second).getByLabelText('人物背景'), { target: { value: '失踪调查员' } });
+    fireEvent.change(within(second).getByLabelText('年龄'), { target: { value: '24' } });
+    fireEvent.change(within(second).getByLabelText('家庭背景'), { target: { value: '失踪调查员家庭' } });
     fireEvent.click(within(second).getByRole('button', { name: '选择角色性格：敏锐' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 

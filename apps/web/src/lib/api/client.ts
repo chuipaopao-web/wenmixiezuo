@@ -175,7 +175,8 @@ export interface SettingCollaborationData {
 
 export type OpeningChannel = 'male' | 'female';
 export type BookCreationMode = 'new' | 'continuation';
-export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
+export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human'
+  | 'male_support' | 'female_support' | 'male_villain' | 'female_villain';
 
 export interface OpeningTaxonomyData {
   version: string;
@@ -209,7 +210,16 @@ export interface OpeningBlueprintData {
   categoryKey: string;
   auxiliaryCategoryKeys?: string[];
   targetAudience: string;
-  protagonists: Array<{ role: ProtagonistRole; name: string; age: string; background: string; personalities: string[] }>;
+  protagonists: Array<{
+    role: ProtagonistRole;
+    name: string;
+    age: string;
+    background?: string;
+    familyBackground?: string;
+    careerBackground?: string;
+    goldenFinger?: string;
+    personalities: string[];
+  }>;
   storyDirection: string;
   worldBackground: string;
   openingBackground: string;

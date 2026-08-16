@@ -431,6 +431,9 @@ export class ChapterPipelineService {
             name: protagonist.name,
             age: protagonist.age,
             background: protagonist.background,
+            familyBackground: protagonist.familyBackground,
+            careerBackground: protagonist.careerBackground,
+            goldenFinger: protagonist.goldenFinger,
             personalities: protagonist.personalities
           })),
           storyDirection: openingProfile.storyDirection,

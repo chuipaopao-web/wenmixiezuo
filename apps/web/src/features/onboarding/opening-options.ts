@@ -10,5 +10,9 @@ export const PROTAGONIST_ROLES: Array<{ id: ProtagonistRole; label: string }> = 
   { id: 'female_lead', label: '女主' },
   { id: 'co_lead', label: '共同主角' },
   { id: 'ensemble', label: '群像主角' },
-  { id: 'non_human', label: '非人主角' }
+  { id: 'non_human', label: '非人主角' },
+  { id: 'male_support', label: '男配' },
+  { id: 'female_support', label: '女配' },
+  { id: 'male_villain', label: '男反' },
+  { id: 'female_villain', label: '女反' }
 ];

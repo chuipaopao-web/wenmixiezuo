@@ -387,7 +387,7 @@ describe('完整创作工作台', () => {
     expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始主角' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始角色' }));
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '为角色1取名' }));
     const namingDialog = await screen.findByRole('dialog', { name: '角色1取名助手' });
@@ -401,8 +401,8 @@ describe('完整创作工作台', () => {
     expect(within(dialog).queryByLabelText('世界观背景')).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText('第一阶段起始剧情')).not.toBeInTheDocument();
     fireEvent.change(dialog.querySelector('#opening-protagonist-name')!, { target: { value: '林舟' } });
-    fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '十八岁' } });
-    fireEvent.change(dialog.querySelector('#opening-protagonist-background')!, { target: { value: '普通玩家' } });
+    fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '18' } });
+    fireEvent.change(dialog.querySelector('#opening-protagonist-family-background')!, { target: { value: '普通玩家家庭' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '创建书籍' }));

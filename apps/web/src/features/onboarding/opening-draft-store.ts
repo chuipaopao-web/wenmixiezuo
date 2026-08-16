@@ -14,6 +14,9 @@ export interface OpeningProtagonistDraft {
   name: string;
   age: string;
   background: string;
+  familyBackground: string;
+  careerBackground: string;
+  goldenFinger: string;
   personalities: string[];
 }
 
@@ -54,7 +57,7 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
     mainTags: [],
     auxiliaryTags: [],
     storyTraits: [],
-    protagonists: [{ role: 'co_lead', name: '', age: '', background: '', personalities: [] }],
+    protagonists: [{ role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }],
     storyDirection: '',
     targetAudience: '',
     worldBackground: '',
@@ -118,7 +121,9 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
     || draft.selectedMustFollow.length > 0
     || draft.mustFollowText.trim().length > 0
     || draft.protagonists.some((item) => item.name.trim().length > 0 || item.age.trim().length > 0
-      || item.background.trim().length > 0 || item.personalities.length > 0);
+      || item.background.trim().length > 0 || item.familyBackground.trim().length > 0
+      || item.careerBackground.trim().length > 0 || item.goldenFinger.trim().length > 0
+      || item.personalities.length > 0);
 }
 
 export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
@@ -160,15 +165,24 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
 
 function parseProtagonist(value: unknown): OpeningProtagonistDraft | null {
   if (!isRecord(value)) return null;
-  const validRoles: ProtagonistRole[] = ['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human'];
+  const validRoles: ProtagonistRole[] = [
+    'male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human',
+    'male_support', 'female_support', 'male_villain', 'female_villain'
+  ];
   const role = typeof value.role === 'string' && validRoles.includes(value.role as ProtagonistRole)
     ? value.role as ProtagonistRole
     : 'co_lead';
+  const legacyBackground = limitedText(value.background, 2_000);
+  // 旧草稿只有整段人物背景：恢复时归入家庭背景框，避免作者重填。
+  const familyBackground = limitedText(value.familyBackground, 2_000) || legacyBackground;
   return {
     role,
     name: limitedText(value.name, 80),
     age: limitedText(value.age, 80),
-    background: limitedText(value.background, 2_000),
+    background: familyBackground.length > 0 ? '' : legacyBackground,
+    familyBackground,
+    careerBackground: limitedText(value.careerBackground, 2_000),
+    goldenFinger: limitedText(value.goldenFinger, 2_000),
     personalities: uniqueTexts(value.personalities, 6, 40)
   };
 }

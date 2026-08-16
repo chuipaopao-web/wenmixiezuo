@@ -30,8 +30,8 @@ describe('四步开书草稿', () => {
       channel: 'female',
       categoryKey: 'female-suspense',
       protagonists: [
-        { role: 'female_lead', name: '林舟', age: '十八岁', background: '旧城档案员', personalities: ['冷静'] },
-        { role: 'co_lead', name: '周野', age: '成年', background: '失踪调查员', personalities: ['敏锐'] }
+        { role: 'female_lead', name: '林舟', age: '18', background: '', familyBackground: '旧城档案员家庭', careerBackground: '旧城档案员', goldenFinger: '', personalities: ['冷静'] },
+        { role: 'co_lead', name: '周野', age: '24', background: '', familyBackground: '失踪调查员家庭', careerBackground: '失踪调查员', goldenFinger: '', personalities: ['敏锐'] }
       ],
       storyDirection: '两人从一封旧信追查被改写的城市记忆，并阻止下一次大规模改写。',
       worldBackground: '旧城地图会随居民记忆改变。',

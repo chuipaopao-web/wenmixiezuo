@@ -2,7 +2,8 @@ import { OPENING_TAG_GROUPS, uniqueTagValues, type OpeningTagGroup } from './ope
 
 export type OpeningChannel = 'male' | 'female';
 export type BookCreationMode = 'new' | 'continuation';
-export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human';
+export type ProtagonistRole = 'male_lead' | 'female_lead' | 'co_lead' | 'ensemble' | 'non_human'
+  | 'male_support' | 'female_support' | 'male_villain' | 'female_villain';
 
 export interface OpeningTaxonomyCategory {
   key: string;
@@ -52,7 +53,11 @@ export interface OpeningProtagonistInput {
   role: ProtagonistRole;
   name: string;
   age: string;
-  background: string;
+  /** 旧字段：早期书籍的整段人物背景，新书写入三个拆分字段后此字段可为空。 */
+  background?: string;
+  familyBackground?: string;
+  careerBackground?: string;
+  goldenFinger?: string;
   personalities: string[];
 }
 
@@ -277,7 +282,7 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
   subjects
 };
 
-const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human']);
+const protagonistRoles = new Set<ProtagonistRole>(['male_lead', 'female_lead', 'co_lead', 'ensemble', 'non_human', 'male_support', 'female_support', 'male_villain', 'female_villain']);
 
 export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningBlueprintInput {
   const creationMode = input.creationMode ?? 'new';
@@ -303,11 +308,14 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     if (!protagonistRoles.has(item.role)) throw new Error(`第${index + 1}位主角的身份类型无效`);
     const name = requiredText(item.name, `第${index + 1}位主角姓名`, 80);
     const age = requiredText(item.age, `第${index + 1}位主角年龄`, 80);
-    const background = requiredText(item.background, `第${index + 1}位主角人物背景`, 2_000);
+    const background = optionalText(item.background, `第${index + 1}位主角人物背景`, 2_000);
+    const familyBackground = optionalText(item.familyBackground, `第${index + 1}位主角家庭背景`, 2_000);
+    const careerBackground = optionalText(item.careerBackground, `第${index + 1}位主角职业背景`, 2_000);
+    const goldenFinger = optionalText(item.goldenFinger, `第${index + 1}位主角金手指`, 2_000);
     const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 8, 40);
-    return { role: item.role, name, age, background, personalities };
+    return { role: item.role, name, age, background, familyBackground, careerBackground, goldenFinger, personalities };
   });
-  if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄或生命阶段、人物背景和性格');
+  if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
   const storyDirection = requiredText(input.storyDirection, '故事方向', 800);
   if (storyDirection.length < 20) throw new Error('故事方向至少需要20个字符，请写清开篇处境、启动事件、主角目标和主要阻力');
