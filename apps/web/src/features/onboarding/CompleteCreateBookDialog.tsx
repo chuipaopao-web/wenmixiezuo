@@ -473,15 +473,9 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           <summary><span><strong>我已经想好的补充（选填）</strong></span><b>展开填写</b></summary>
           <div className="opening-more-options-body opening-advanced-fields">
             <label htmlFor="opening-target-audience">希望吸引的读者<input id="opening-target-audience" value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={500} placeholder="例如：喜欢城市悬疑、女性成长和群像关系的读者" /></label>
-            <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="写你已经确定的时代、地点和特殊规则；不确定可留空" /></label>
+            <label htmlFor="opening-world-background">世界与时代<textarea id="opening-world-background" value={worldBackground} onChange={(event) => setWorldBackground(event.target.value)} maxLength={10000} rows={3} placeholder="时代、地点、特殊规则；例如：大秦帝国开局，随时间推到明朝，主要地点有咸阳、北境军营" /></label>
             <label htmlFor="opening-background">开篇时正在发生什么<textarea id="opening-background" value={openingBackground} onChange={(event) => setOpeningBackground(event.target.value)} maxLength={10000} rows={3} placeholder="例如：主角收到一封来自十年后的失踪通知" /></label>
-            <div className="stage-one-grid">
-              <label>前段怎样开始<textarea value={stageOne.start} onChange={(event) => setStageOne({ ...stageOne, start: event.target.value })} maxLength={10000} rows={3} /></label>
-              <label>中间怎样升级<textarea value={stageOne.development} onChange={(event) => setStageOne({ ...stageOne, development: event.target.value })} maxLength={10000} rows={3} /></label>
-              <label>阶段想落到哪里<textarea value={stageOne.end} onChange={(event) => setStageOne({ ...stageOne, end: event.target.value })} maxLength={10000} rows={3} /></label>
-            </div>
-            <label htmlFor="opening-full-outline">已有的全书想法<textarea id="opening-full-outline" value={fullBookOutline} onChange={(event) => setFullBookOutline(event.target.value)} maxLength={20000} rows={4} placeholder="只写你已经想清楚的长期方向；不是必填，也不会要求从头照做" /></label>
-            <label htmlFor="opening-map">已有地点与地图<textarea id="opening-map" value={initialMap} onChange={(event) => setInitialMap(event.target.value)} maxLength={5000} rows={3} placeholder="例如：旧港区、档案馆、废弃轮渡站，以及它们的关系" /></label>
+            <label htmlFor="opening-full-outline">已有的全书想法<textarea id="opening-full-outline" value={fullBookOutline} onChange={(event) => setFullBookOutline(event.target.value)} maxLength={20000} rows={4} placeholder="只写你已经想清楚的长期方向" /></label>
           </div>
         </details>}
 

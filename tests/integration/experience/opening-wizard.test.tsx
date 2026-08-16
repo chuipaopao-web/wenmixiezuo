@@ -111,7 +111,6 @@ describe('四步开书', () => {
     fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
     fireEvent.click(screen.getByText('我已经想好的补充（选填）'));
     fireEvent.change(screen.getByLabelText('世界与时代'), { target: { value: '旧城地图会随居民记忆改变。' } });
-    fireEvent.change(screen.getByLabelText('已有地点与地图'), { target: { value: '档案馆、旧港与废弃轮渡站。' } });
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
     const first = screen.getByRole('article');
@@ -139,7 +138,7 @@ describe('四步开书', () => {
       openingBlueprint: expect.objectContaining({
         creationMode: 'new', storyDirection: expect.stringContaining('城市记忆'),
         worldBackground: '旧城地图会随居民记忆改变。',
-        initialMap: '档案馆、旧港与废弃轮渡站。',
+        initialMap: '',
         protagonists: [expect.objectContaining({ name: '林舟' }), expect.objectContaining({ name: '周野' })],
         mustFollow: ['无额外限制']
       })
