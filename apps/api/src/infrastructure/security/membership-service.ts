@@ -128,11 +128,11 @@ export function assertMembershipAllowsGeneration(database: DatabaseSync, ownerId
   const reason = membershipGenerationBlockReason(database, ownerId, nowIso);
   if (reason === 'membership-required') {
     throw new DomainError(errorCodes.membershipRequired,
-      '当前还没有生效的会员，请联系管理员开通后再生成内容', { ...MEMBERSHIP_CONTACT }, false, 403);
+      '召集AI团队需使用算力，请联系管理员微信595341366开通会员。', { ...MEMBERSHIP_CONTACT }, false, 403);
   }
   if (reason === 'quota-exhausted') {
     throw new DomainError(errorCodes.membershipQuotaExhausted,
-      '会员算力值已用完，请联系管理员续费后再生成内容', { ...MEMBERSHIP_CONTACT }, false, 403);
+      '召集AI团队需使用算力，会员算力值已用完，请联系管理员微信595341366续费。', { ...MEMBERSHIP_CONTACT }, false, 403);
   }
 }
 
@@ -179,7 +179,15 @@ export class MembershipService {
     }
     const definition = MEMBERSHIP_PLANS[plan];
     const nowIso = this.clock.now().toISOString();
-    const periodEnd = addMonths(nowIso, definition.months);
+    // 续费顺延：已有生效会员的剩余天数保留，新周期从今天开始重新计量算力（配额按新套餐刷新），
+    // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
+    const existingActive = this.database.prepare(
+      "SELECT period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
+    ).get(target.user_id) as { period_end: string } | undefined;
+    const baseEnd = existingActive !== undefined && existingActive.period_end > nowIso
+      ? existingActive.period_end
+      : nowIso;
+    const periodEnd = addMonths(baseEnd, definition.months);
     this.database.exec('BEGIN IMMEDIATE');
     try {
       this.database.prepare(`
@@ -218,7 +226,22 @@ export class MembershipService {
     }
   }
 
-  public listUsersWithMembership(): AdminMembershipUser[] {
+  public listUsersWithMembership(input: { query?: string; status?: string; offset?: number; limit?: number } = {}): { items: AdminMembershipUser[]; total: number } {
+    const clauses: string[] = [];
+    const values: Array<string | number> = [];
+    if (input.query?.trim()) {
+      clauses.push('(a.email_normalized LIKE ? OR a.display_name LIKE ?)');
+      const like = `%${input.query.trim().toLowerCase()}%`;
+      values.push(like, like);
+    }
+    if (input.status === 'active' || input.status === 'suspended') {
+      clauses.push('a.status = ?');
+      values.push(input.status);
+    }
+    const where = clauses.length === 0 ? '' : `WHERE ${clauses.join(' AND ')}`;
+    const total = Number((this.database.prepare(`SELECT COUNT(*) AS total FROM user_accounts a ${where}`).get(...values) as { total: number }).total);
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    const offset = Math.max(input.offset ?? 0, 0);
     const rows = this.database.prepare(`
       SELECT a.user_id, a.owner_id, a.display_name, a.email_normalized, a.role, a.status AS account_status,
         m.plan, m.token_quota, m.period_start, m.period_end, m.status AS membership_status,
@@ -228,9 +251,9 @@ export class MembershipService {
           WHERE l.owner_id = a.owner_id) AS total_tokens
       FROM user_accounts a
       LEFT JOIN user_memberships m ON m.user_id = a.user_id
-      ORDER BY a.created_at DESC
-      LIMIT 200
-    `).all() as Array<{
+      ${where}
+      ORDER BY a.created_at DESC, a.user_id LIMIT ? OFFSET ?
+    `).all(...values, limit, offset) as Array<{
       user_id: string; owner_id: string; display_name: string; email_normalized: string;
       role: 'admin' | 'user'; account_status: 'active' | 'suspended';
       plan: MembershipPlan | null; token_quota: number | null; period_start: string | null;
@@ -238,24 +261,27 @@ export class MembershipService {
       period_tokens: number | null; total_tokens: number;
     }>;
     const nowIso = this.clock.now().toISOString();
-    return rows.map((row) => ({
-      userId: row.user_id,
-      displayName: row.display_name,
-      email: row.email_normalized,
-      role: row.role,
-      accountStatus: row.account_status,
-      membership: row.plan === null || row.membership_status === null ? null : {
-        plan: row.plan,
-        planLabel: MEMBERSHIP_PLAN_LABELS[row.plan],
-        status: row.membership_status,
-        tokenQuota: Number(row.token_quota ?? 0),
-        periodTokens: Number(row.period_tokens ?? 0),
-        totalTokens: Number(row.total_tokens),
-        periodStart: row.period_start ?? '',
-        periodEnd: row.period_end ?? '',
-        expired: (row.period_end ?? '') <= nowIso
-      },
-      totalTokens: Number(row.total_tokens)
-    }));
+    return {
+      items: rows.map((row) => ({
+        userId: row.user_id,
+        displayName: row.display_name,
+        email: row.email_normalized,
+        role: row.role,
+        accountStatus: row.account_status,
+        membership: row.plan === null || row.membership_status === null ? null : {
+          plan: row.plan,
+          planLabel: MEMBERSHIP_PLAN_LABELS[row.plan],
+          status: row.membership_status,
+          tokenQuota: Number(row.token_quota ?? 0),
+          periodTokens: Number(row.period_tokens ?? 0),
+          totalTokens: Number(row.total_tokens),
+          periodStart: row.period_start ?? '',
+          periodEnd: row.period_end ?? '',
+          expired: (row.period_end ?? '') <= nowIso
+        },
+        totalTokens: Number(row.total_tokens)
+      })),
+      total
+    };
   }
 }

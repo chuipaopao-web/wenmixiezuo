@@ -14,6 +14,7 @@ import type {
   EventChapterSequenceContent
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
+import { membershipBlockReasonFromCode, raiseMembershipBlocked } from '../../features/shared/membership-gate';
 
 
 export interface AuthAccountData {
@@ -31,6 +32,7 @@ export interface AdminOverviewData {
   activeUsers: number;
   suspendedUsers: number;
   totalBooks: number;
+  totalTokens: number;
 }
 
 export interface HealthData {
@@ -925,10 +927,12 @@ async function performRequest(path: string, init: RequestInit): Promise<Response
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     const response = await performRequest(path, init);
-    const body = await response.json() as ApiResponse<T> | { error?: { message?: string } };
+    const body = await response.json() as ApiResponse<T> | { error?: { message?: string; code?: string } };
     if (!response.ok) {
-      const message = 'error' in body ? body.error?.message : undefined;
-      throw new Error(authorErrorMessage(message ?? '', response.status));
+      const errorBody = 'error' in body && body.error !== undefined ? body.error : undefined;
+      const reason = membershipBlockReasonFromCode(errorBody?.code);
+      if (reason !== null) raiseMembershipBlocked(reason);
+      throw new Error(authorErrorMessage(errorBody?.message ?? '', response.status));
     }
     return (body as ApiResponse<T>).data;
   } catch (error) {
@@ -975,10 +979,14 @@ export function fetchAdminOverview(signal?: AbortSignal): Promise<AdminOverviewD
   return request('/api/v1/admin/overview', signal === undefined ? {} : { signal });
 }
 
-export function fetchAdminUsers(input: { query?: string; status?: string } = {}, signal?: AbortSignal): Promise<AuthAccountData[]> {
+export interface AdminUserPageData { items: AuthAccountData[]; total: number }
+
+export function fetchAdminUsers(input: { query?: string; status?: string; offset?: number; limit?: number } = {}, signal?: AbortSignal): Promise<AdminUserPageData> {
   const query = new URLSearchParams();
   if (input.query) query.set('query', input.query);
   if (input.status) query.set('status', input.status);
+  if (input.offset !== undefined) query.set('offset', String(input.offset));
+  if (input.limit !== undefined) query.set('limit', String(input.limit));
   const suffix = query.size === 0 ? '' : `?${query.toString()}`;
   return request(`/api/v1/admin/users${suffix}`, signal === undefined ? {} : { signal });
 }
@@ -1031,8 +1039,16 @@ export function fetchMyMembership(signal?: AbortSignal): Promise<MembershipStatu
   return request('/api/v1/membership/me', signal === undefined ? {} : { signal });
 }
 
-export function fetchAdminMemberships(signal?: AbortSignal): Promise<AdminMembershipUserData[]> {
-  return request('/api/v1/admin/memberships', signal === undefined ? {} : { signal });
+export interface AdminMembershipPageData { items: AdminMembershipUserData[]; total: number }
+
+export function fetchAdminMemberships(input: { query?: string; status?: string; offset?: number; limit?: number } = {}, signal?: AbortSignal): Promise<AdminMembershipPageData> {
+  const query = new URLSearchParams();
+  if (input.query) query.set('query', input.query);
+  if (input.status) query.set('status', input.status);
+  if (input.offset !== undefined) query.set('offset', String(input.offset));
+  if (input.limit !== undefined) query.set('limit', String(input.limit));
+  const suffix = query.size === 0 ? '' : `?${query.toString()}`;
+  return request(`/api/v1/admin/memberships${suffix}`, signal === undefined ? {} : { signal });
 }
 
 export function grantAdminMembership(userId: string, plan: MembershipPlanKey): Promise<MembershipStatusData> {
@@ -1056,7 +1072,8 @@ export type RuntimeEventConnectionState='connecting'|'open'|'reconnecting'|'clos
 export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:RuntimeEventData)=>void;
   onState?:(state:RuntimeEventConnectionState)=>void}):()=>void{
   let stopped=false;let controller:AbortController|null=null;let reconnectTimer:ReturnType<typeof setTimeout>|null=null;
-  const cursorKey=`wenmi-event-cursor:${input.bookId??'all'}`;
+  // 全量订阅统一游标：无论调用方限定哪个 bookId 都连同一路事件流，避免按书游标分叉导致丢事件或重放。
+  const cursorKey='wenmi-event-cursor';
   let cursor=readEventCursor(cursorKey);
   const pause=()=>new Promise<void>(resolve=>{reconnectTimer=setTimeout(resolve,1_000);});
   const run=async()=>{
@@ -1064,8 +1081,7 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
     while(!stopped){
       controller=new AbortController();
       try{
-
-        const query=new URLSearchParams({after:String(cursor)});if(input.bookId!==undefined)query.set('bookId',input.bookId);
+        const query=new URLSearchParams({after:String(cursor)});
         let response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,{credentials:'include',signal:controller.signal,
           headers:{accept:'text/event-stream','last-event-id':String(cursor)}});        if(response.status===401){input.onState?.('closed');break;}
         if(!response.ok||response.body===null)throw new Error('事件流连接失败');
@@ -1073,7 +1089,8 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
         const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
         while(!stopped){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true}).replace(/\r\n/gu,'\n');
           let boundary=buffer.indexOf('\n\n');while(boundary>=0){const block=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);
-            const event=parseSseBlock(block);if(event!==null&&event.eventSeq>cursor){cursor=event.eventSeq;writeEventCursor(cursorKey,cursor);input.onEvent(event);}
+            const event=parseSseBlock(block);if(event!==null&&event.eventSeq>cursor){cursor=event.eventSeq;writeEventCursor(cursorKey,cursor);
+              if(input.bookId===undefined||input.bookId===event.bookId)input.onEvent(event);}
             boundary=buffer.indexOf('\n\n');}}
       }catch(error){if(stopped||error instanceof DOMException&&error.name==='AbortError')break;}
       if(!stopped){input.onState?.('reconnecting');await pause();}
@@ -1090,7 +1107,7 @@ function parseSseBlock(block:string):RuntimeEventData|null{
     ?parsed as RuntimeEventData:null;}catch{return null;}
 }
 function readEventCursor(key:string):number{try{const value=Number(globalThis.localStorage?.getItem(key)??'0');return Number.isInteger(value)&&value>=0?value:0;}catch{return 0;}}
-function writeEventCursor(key:string,value:number):void{try{globalThis.localStorage?.setItem(key,String(value));}catch{}}
+function writeEventCursor(key:string,value:number):void{try{const current=Number(globalThis.localStorage?.getItem(key)??'0');if(value>current)globalThis.localStorage?.setItem(key,String(value));}catch{}}
 export function fetchHealth(signal?: AbortSignal): Promise<HealthData> {
   return request('/health', signal === undefined ? {} : { signal });
 }

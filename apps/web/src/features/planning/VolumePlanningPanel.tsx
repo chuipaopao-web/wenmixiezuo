@@ -27,6 +27,7 @@ import {
   type VolumePlanVersionData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import { useMembershipGate } from '../shared/membership-gate';
 
 interface VolumePlanningSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -47,6 +48,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<VolumePlanImpactData | null>(null);
+  const { guardAi } = useMembershipGate();
 
   const load = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const [workflow, plans, templates] = await Promise.all([
@@ -159,6 +161,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
 
   const startTeamGeneration = (): void => {
     if (selectedPlan === null || snapshot === null) return;
+    if (!guardAi()) return;
     void run(async () => {
       const authorIdeas = await fetchAuthorPlanningInputs(bookId, {
         surface: 'volume_plan', subjectType: 'volume_plan', subjectId: selectedPlan.volumePlanId

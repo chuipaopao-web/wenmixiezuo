@@ -11,6 +11,8 @@ const PLAN_OPTIONS: Array<{ value: MembershipPlanKey; label: string }> = [
   { value: 'yearly', label: '包年 · 百亿算力值' }
 ];
 
+const ADMIN_PAGE_SIZE = 50;
+
 /** 算力值展示：亿为单位保留一位小数，不足一亿显示万。 */
 function formatComputePoints(tokens: number): string {
   if (tokens >= 100_000_000) return `${(tokens / 100_000_000).toFixed(1)}亿`;
@@ -28,16 +30,21 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
   const [memberships, setMemberships] = useState<AdminMembershipUserData[]>([]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [planChoice, setPlanChoice] = useState<Record<string, MembershipPlanKey>>({});
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const [nextOverview, nextUsers, nextMemberships] = await Promise.all([
-      fetchAdminOverview(signal), fetchAdminUsers({ query, status }, signal), fetchAdminMemberships(signal)
+      fetchAdminOverview(signal),
+      fetchAdminUsers({ query, status, offset, limit: ADMIN_PAGE_SIZE }, signal),
+      fetchAdminMemberships({ query, status, offset, limit: ADMIN_PAGE_SIZE }, signal)
     ]);
-    setOverview(nextOverview); setUsers(nextUsers); setMemberships(nextMemberships); setError(null);
-  }, [query, status]);
+    setOverview(nextOverview); setUsers(nextUsers.items); setMemberships(nextMemberships.items);
+    setTotal(nextUsers.total); setError(null);
+  }, [query, status, offset]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -46,6 +53,9 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
     });
     return () => controller.abort();
   }, [load]);
+
+  const changeQuery = (value: string): void => { setQuery(value); setOffset(0); };
+  const changeStatusFilter = (value: string): void => { setStatus(value); setOffset(0); };
 
   const membershipOf = (userId: string): AdminMembershipUserData | undefined =>
     memberships.find((entry) => entry.userId === userId);
@@ -96,11 +106,11 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       <article><strong>{overview.activeUsers}</strong><span>正常使用</span></article>
       <article><strong>{overview.suspendedUsers}</strong><span>已暂停</span></article>
       <article><strong>{overview.totalBooks}</strong><span>用户书籍</span></article>
-      <article><strong>{formatComputePoints(memberships.reduce((sum, entry) => sum + entry.totalTokens, 0))}</strong><span>总算力值消耗</span></article>
+      <article><strong>{formatComputePoints(overview.totalTokens)}</strong><span>总算力值消耗</span></article>
     </div>}
     <div className="admin-filters">
-      <label><span className="sr-only">搜索用户</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索昵称或邮箱" /></label>
-      <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="按账号状态筛选"><option value="">全部状态</option><option value="active">正常使用</option><option value="suspended">已暂停</option></select>
+      <label><span className="sr-only">搜索用户</span><input value={query} onChange={(event) => changeQuery(event.target.value)} placeholder="搜索昵称或邮箱" /></label>
+      <select value={status} onChange={(event) => changeStatusFilter(event.target.value)} aria-label="按账号状态筛选"><option value="">全部状态</option><option value="active">正常使用</option><option value="suspended">已暂停</option></select>
     </div>
     {error !== null && <p className="auth-error" role="alert">{error}</p>}
     <div className="admin-user-list admin-membership-list">
@@ -151,6 +161,11 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
         </article>;
       })}
       {users.length === 0 && <p className="admin-empty">没有找到符合条件的用户。</p>}
+      {total > ADMIN_PAGE_SIZE && <div className="admin-pager">
+        <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - ADMIN_PAGE_SIZE))}>上一页</button>
+        <span>{offset + 1}-{Math.min(total, offset + users.length)} / {total}</span>
+        <button type="button" disabled={offset + users.length >= total} onClick={() => setOffset(offset + ADMIN_PAGE_SIZE)}>下一页</button>
+      </div>}
     </div>
   </section>;
 }

@@ -48,10 +48,10 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
   });
 
   app.get<{
-    Querystring: { query?: string; status?: string };
+    Querystring: { query?: string; status?: string; offset?: string; limit?: string };
   }>('/api/v1/admin/users', async (request) => {
     requireAdministrator(request);
-    return success(accounts.listUsers(request.query), request.id);
+    return success(accounts.listUsers(parseAdminListQuery(request.query)), request.id);
   });
 
   app.patch<{
@@ -71,9 +71,11 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
     return success(memberships.statusForOwner(owner.ownerId), request.id);
   });
 
-  app.get('/api/v1/admin/memberships', async (request) => {
+  app.get<{
+    Querystring: { query?: string; status?: string; offset?: string; limit?: string };
+  }>('/api/v1/admin/memberships', async (request) => {
     requireAdministrator(request);
-    return success(memberships.listUsersWithMembership(), request.id);
+    return success(memberships.listUsersWithMembership(parseAdminListQuery(request.query)), request.id);
   });
 
   app.post<{
@@ -95,6 +97,19 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
     memberships.revoke(administrator.userId, request.params.userId);
     return success({ revoked: true }, request.id);
   });
+}
+
+function parseAdminListQuery(input: { query?: string; status?: string; offset?: string; limit?: string }): {
+  query?: string; status?: string; offset?: number; limit?: number;
+} {
+  const result: { query?: string; status?: string; offset?: number; limit?: number } = {};
+  if (input.query !== undefined) result.query = input.query;
+  if (input.status !== undefined) result.status = input.status;
+  const rawOffset = input.offset === undefined ? undefined : Number(input.offset);
+  if (rawOffset !== undefined && Number.isInteger(rawOffset)) result.offset = Math.max(rawOffset, 0);
+  const rawLimit = input.limit === undefined ? undefined : Number(input.limit);
+  if (rawLimit !== undefined && Number.isInteger(rawLimit)) result.limit = Math.min(Math.max(rawLimit, 1), 100);
+  return result;
 }
 
 function readCredentials(input: unknown, includeDisplayName: boolean): { email: string; password: string; displayName?: string } {

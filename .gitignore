@@ -21,3 +21,4 @@ pnpm-lock.yaml
 check-admin.sh
 swap-admin.sh
 membership-deploy.*
+reset-password.*

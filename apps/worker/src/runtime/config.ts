@@ -20,6 +20,13 @@ export interface WorkerConfig {
   workerId: string;
   apiBaseUrl: string;
   workerToken: string;
+  /** 同时执行的 AI 任务数上限（默认2，1-4），配合"同一本书只跑一个任务"实现跨书并行。 */
+  maxConcurrency?: number;
+}
+
+function parseConcurrency(raw: string | undefined): number {
+  const value = raw === undefined ? 2 : Number(raw);
+  return Number.isInteger(value) ? Math.max(1, Math.min(value, 4)) : 2;
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -32,6 +39,7 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     releaseId: readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim(),
     workerId: env.WENMI_WORKER_ID ?? 'local-worker-1',
     apiBaseUrl: env.WENMI_API_BASE_URL ?? 'http://127.0.0.1:43111',
-    workerToken: env.WENMI_WORKER_TOKEN ?? ''
+    workerToken: env.WENMI_WORKER_TOKEN ?? '',
+    maxConcurrency: parseConcurrency(env.WENMI_WORKER_MAX_CONCURRENCY)
   };
 }

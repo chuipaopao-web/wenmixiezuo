@@ -172,7 +172,7 @@ export class AccountAuthService {
     return this.clearCookie();
   }
 
-  public overview(): { totalUsers: number; activeUsers: number; suspendedUsers: number; totalBooks: number } {
+  public overview(): { totalUsers: number; activeUsers: number; suspendedUsers: number; totalBooks: number; totalTokens: number } {
     const users = this.database.prepare(`
       SELECT COUNT(*) AS total,
         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
@@ -185,17 +185,23 @@ export class AccountAuthService {
       INNER JOIN user_accounts a ON a.owner_id = b.owner_id
       WHERE b.status <> 'purged'
     `).get() as { total: number };
+    const usage = this.database.prepare(`
+      SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) AS total
+      FROM usage_ledger l
+      INNER JOIN user_accounts a ON a.owner_id = l.owner_id
+    `).get() as { total: number };
     return {
       totalUsers: Number(users.total),
       activeUsers: Number(users.active ?? 0),
       suspendedUsers: Number(users.suspended ?? 0),
-      totalBooks: Number(books.total)
+      totalBooks: Number(books.total),
+      totalTokens: Number(usage.total)
     };
   }
 
-  public listUsers(input: { query?: string; status?: string }): PublicAccount[] {
+  public listUsers(input: { query?: string; status?: string; offset?: number; limit?: number }): { items: PublicAccount[]; total: number } {
     const clauses: string[] = [];
-    const values: string[] = [];
+    const values: Array<string | number> = [];
     if (input.query?.trim()) {
       clauses.push('(email_normalized LIKE ? OR display_name LIKE ?)');
       const like = `%${input.query.trim().toLowerCase()}%`;
@@ -206,8 +212,13 @@ export class AccountAuthService {
       values.push(input.status);
     }
     const where = clauses.length === 0 ? '' : `WHERE ${clauses.join(' AND ')}`;
-    const rows = this.database.prepare(`SELECT * FROM user_accounts ${where} ORDER BY created_at DESC LIMIT 200`).all(...values) as unknown as AccountRow[];
-    return rows.map(publicAccount);
+    const total = Number((this.database.prepare(`SELECT COUNT(*) AS total FROM user_accounts ${where}`).get(...values) as { total: number }).total);
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    const offset = Math.max(input.offset ?? 0, 0);
+    const rows = this.database.prepare(
+      `SELECT * FROM user_accounts ${where} ORDER BY created_at DESC, user_id LIMIT ? OFFSET ?`
+    ).all(...values, limit, offset) as unknown as AccountRow[];
+    return { items: rows.map(publicAccount), total };
   }
 
   public setUserStatus(actor: AuthContext, userId: string, status: 'active' | 'suspended'): PublicAccount {

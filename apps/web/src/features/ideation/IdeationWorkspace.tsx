@@ -13,6 +13,7 @@ import {
   type AuthorInputSurface,
   type WorkspacePrimaryFunctionKey
 } from '@wenmi/contracts';
+import { useMembershipGate } from '../shared/membership-gate';
 
 type CreationLocation = WorkspacePrimaryFunctionKey;
 
@@ -31,6 +32,7 @@ export function IdeationWorkspace({
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [promotedOpinionIds, setPromotedOpinionIds] = useState<string[]>([]);
+  const { guardAi } = useMembershipGate();
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [nextMembers, nextRounds] = await Promise.all([
@@ -77,6 +79,7 @@ export function IdeationWorkspace({
 
   const send = async (): Promise<void> => {
     if (message.trim().length === 0 || selectedIds.length < 2) return;
+    if (!guardAi()) return;
     setBusy(true);
     try {
       await startIdeationRound(bookId, {

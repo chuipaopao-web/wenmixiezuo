@@ -16,6 +16,7 @@ import {
   StoryEventNodeCard,
   StoryEventPreview,
 } from './StoryEventCard';
+import { useMembershipGate } from '../shared/membership-gate';
 
 interface EventWorkspaceSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -39,6 +40,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const [operation,setOperation]=useState<EventOperationData|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
+  const {guardAi}=useMembershipGate();
 
   const load=useCallback(async(signal?:AbortSignal)=>{
     const[workflow,plans,templates]=await Promise.all([
@@ -89,7 +91,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     surface:'event',subjectType:'story_event',subjectId:eventId
   })).filter(item=>!['withdrawn','superseded'].includes(item.status)).map(item=>item.authorInputId);
 
-  const generate=()=>{if(selected===null||snapshot===null)return;void run(async()=>{
+  const generate=()=>{if(selected===null||snapshot===null)return;if(!guardAi())return;void run(async()=>{
     setGeneration(await startStoryEventGeneration(bookId,selected.eventId,{
       expectedEventRevision:selected.revision,expectedActiveVersionId:selected.activeVersionId,
       expectedWorkflowVersion:snapshot.workflow.planningVersion,template:templateInstance(mode,selectedTemplates,customDirection),

@@ -198,13 +198,8 @@ export class TaskService {
     const leaseToken = randomUUID();
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      const active = this.database.prepare(`
-        SELECT 1 FROM tasks WHERE status = 'working' AND lease_expires_at > ? LIMIT 1
-      `).get(now);
-      if (active !== undefined) {
-        this.database.exec('COMMIT');
-        return null;
-      }
+      // 同一本书同时只允许一个任务执行（正文/设定/章节共享 canon 与编辑器纪元），
+      // 不同书之间并行领取，避免全局串行导致所有用户互相排队。
       const row = this.database.prepare(`
         SELECT t.* FROM tasks t JOIN books b ON b.owner_id = t.owner_id AND b.book_id = t.book_id
         WHERE t.status = 'queued' AND t.cancel_requested = 0
@@ -214,8 +209,14 @@ export class TaskService {
             JOIN tasks dependency ON dependency.task_id = d.depends_on_task_id
             WHERE d.task_id = t.task_id AND dependency.status <> 'succeeded'
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks active
+            WHERE active.book_id = t.book_id
+              AND active.status = 'working'
+              AND active.lease_expires_at > ?
+          )
         ORDER BY t.created_at, t.task_id LIMIT 1
-      `).get() as TaskRow | undefined;
+      `).get(now) as TaskRow | undefined;
       if (row === undefined) {
         this.database.exec('COMMIT');
         return null;

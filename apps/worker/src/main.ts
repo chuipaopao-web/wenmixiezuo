@@ -34,7 +34,8 @@ heartbeat.setExtraCapabilities(vectorRuntime === undefined
 const loop = new WorkerLoop(
   new TaskClaimer(database, config.workerId),
   heartbeat,
-  new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken)
+  new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken),
+  config.maxConcurrency
 );
 loop.start();
 const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId, vectorRuntime));

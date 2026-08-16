@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   ArchiveBoxIcon,
   BookOpenTextIcon,
@@ -65,6 +65,12 @@ import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace'
 import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
 import { AuthScreen } from '../features/auth/AuthScreen';
 import { AdminWorkspace } from '../features/admin/AdminWorkspace';
+import {
+  MEMBERSHIP_BLOCK_COPY,
+  MembershipGateProvider,
+  setMembershipBlockedListener,
+  type MembershipBlockReason
+} from '../features/shared/membership-gate';
 import {
   FONT_SCALE,
   readWorkspacePreferences,
@@ -140,6 +146,8 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [error, setError] = useState<string | null>(null);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
   const [membershipChecking, setMembershipChecking] = useState(false);
+  const [membershipBlock, setMembershipBlock] = useState<MembershipBlockReason | null>(null);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   const refreshMembership = useCallback(async (signal?: AbortSignal): Promise<void> => {
     setMembershipChecking(true);
@@ -165,14 +173,34 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const membershipRecord = membershipStatus?.membership ?? null;
   const membershipUsable = account.role === 'admin'
     || (membershipRecord !== null && membershipRecord.status === 'active' && !membershipRecord.expired && membershipRecord.tokensRemaining > 0);
-  // 无生效会员的用户进入书籍工作区（设定页及之后）时锁定功能，直到管理员开通会员。
-  const membershipGateOpen = membershipStatus !== null && !membershipUsable && selectedBook !== null;
+  // AI 介入前置检查：管理员或持有生效会员可放行；未开通会员则弹窗提示并阻断调用。
+  const guardAi = useCallback((): boolean => {
+    if (membershipUsable) return true;
+    const record = membershipStatus?.membership ?? null;
+    setMembershipBlock(record !== null && record.status === 'active' ? 'quota' : 'required');
+    return false;
+  }, [membershipStatus, membershipUsable]);
 
   useEffect(() => {
-    if (!membershipGateOpen) return;
+    setMembershipBlockedListener((reason) => {
+      if (account.role !== 'admin') setMembershipBlock(reason);
+    });
+    return () => setMembershipBlockedListener(null);
+  }, [account.role]);
+
+  useEffect(() => {
+    if (membershipUsable) setMembershipBlock(null);
+  }, [membershipUsable]);
+
+  useEffect(() => {
+    if (membershipBlock === null) return;
     const poll = window.setInterval(() => { void refreshMembership(); }, 20_000);
     return () => window.clearInterval(poll);
-  }, [membershipGateOpen, refreshMembership]);
+  }, [membershipBlock, refreshMembership]);
+  const membershipGateValue = useMemo(
+    () => ({ canUseAi: membershipUsable, guardAi }),
+    [membershipUsable, guardAi]
+  );
   const selectedTaskContext = selectedTask === null
     ? null
     : (() => {
@@ -212,6 +240,45 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     setHomeTasksLoading(false);
   }, []);
 
+  // 事件流刷新依赖当前选中书/视图但订阅本身只需建立一次：用 ref 镜像最新值，避免按书重连分叉游标。
+  const selectedBookIdRef = useRef(selectedBookId);
+  selectedBookIdRef.current = selectedBookId;
+  const utilityViewRef = useRef(utilityView);
+  utilityViewRef.current = utilityView;
+  const refreshWorkspaceRef = useRef(refreshWorkspace);
+  refreshWorkspaceRef.current = refreshWorkspace;
+  const refreshHomeTasksRef = useRef(refreshHomeTasks);
+  refreshHomeTasksRef.current = refreshHomeTasks;
+
+  useEffect(() => {
+    let workspaceTimer: number | null = null;
+    let tasksTimer: number | null = null;
+    const unsubscribe = subscribeRuntimeEvents({
+      onEvent: (event) => {
+        const bookId = selectedBookIdRef.current;
+        if (bookId !== null && event.bookId === bookId) {
+          if (workspaceTimer !== null) return;
+          workspaceTimer = window.setTimeout(() => {
+            workspaceTimer = null;
+            void refreshWorkspaceRef.current(bookId).catch(() => undefined);
+          }, 80);
+        }
+        if (utilityViewRef.current === 'tasks') {
+          if (tasksTimer !== null) return;
+          tasksTimer = window.setTimeout(() => {
+            tasksTimer = null;
+            void refreshHomeTasksRef.current().catch(() => undefined);
+          }, 80);
+        }
+      }
+    });
+    return () => {
+      unsubscribe();
+      if (workspaceTimer !== null) window.clearTimeout(workspaceTimer);
+      if (tasksTimer !== null) window.clearTimeout(tasksTimer);
+    };
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -238,15 +305,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     void refreshWorkspace(selectedBookId, controller.signal).catch((reason: unknown) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '工作区加载失败');
     });
-    let refreshTimer: number | null = null;
-    const unsubscribe = subscribeRuntimeEvents({ bookId: selectedBookId, onEvent: () => {
-      if (refreshTimer !== null) return;
-      refreshTimer = window.setTimeout(() => { refreshTimer = null; void refreshWorkspace(selectedBookId).catch(() => undefined); }, 80);
-    }});
     const poll = window.setInterval(() => { void refreshWorkspace(selectedBookId).catch(() => undefined); }, 30_000);
     return () => {
-      controller.abort(); unsubscribe();
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      controller.abort();
       window.clearInterval(poll);
     };
   }, [refreshWorkspace, selectedBookId]);
@@ -261,15 +322,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         setHomeTasksLoading(false);
       }
     });
-    let refreshTimer: number | null = null;
-    const unsubscribe = subscribeRuntimeEvents({ onEvent: () => {
-      if (refreshTimer !== null) return;
-      refreshTimer = window.setTimeout(() => { refreshTimer = null; void refreshHomeTasks().catch(() => undefined); }, 80);
-    }});
     const poll = window.setInterval(() => { void refreshHomeTasks().catch(() => undefined); }, 30_000);
     return () => {
-      controller.abort(); unsubscribe();
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      controller.abort();
       window.clearInterval(poll);
     };
   }, [refreshHomeTasks, utilityView]);
@@ -484,6 +539,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   };
 
   return (
+    <MembershipGateProvider value={membershipGateValue}>
     <div
       className="app-shell unified-desk"
       data-theme={preferences.theme}
@@ -604,9 +660,10 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {createOpen && <CompleteCreateBookDialog accountId={account.userId} busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
-      {membershipGateOpen && (
+      {account.role !== 'admin' && membershipStatus !== null && !membershipUsable && !noticeDismissed && (
         <div className="dialog-backdrop membership-gate-backdrop">
           <section className="dialog membership-prompt" role="dialog" aria-label="内测说明">
+            <button className="membership-close" type="button" aria-label="关闭内测说明" onClick={() => setNoticeDismissed(true)}><XIcon /></button>
             <div className="brand-mark" aria-hidden="true">文</div>
             <h2>内测说明</h2>
             <p>作者创作小说六年，写了几百万字大长篇，稿费几十万。因在市场上没有找到好用的长篇AI软件，正好自己做过几年软件，便动手做了一个。</p>
@@ -617,7 +674,23 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
               <button type="button" className="primary" disabled={membershipChecking} onClick={() => void refreshMembership()}>
                 {membershipChecking ? '正在刷新…' : '刷新会员状态'}
               </button>
-              <button type="button" onClick={() => void onSignOut()}>退出登录</button>
+              <button type="button" onClick={() => setNoticeDismissed(true)}>知道了，继续使用</button>
+            </footer>
+          </section>
+        </div>
+      )}
+      {membershipBlock !== null && (
+        <div className="dialog-backdrop membership-gate-backdrop">
+          <section className="dialog membership-prompt" role="dialog" aria-label="会员提示">
+            <div className="brand-mark" aria-hidden="true">文</div>
+            <h2>{MEMBERSHIP_BLOCK_COPY[membershipBlock].title}</h2>
+            <p className="membership-contact">{MEMBERSHIP_BLOCK_COPY[membershipBlock].body}</p>
+            <p className="membership-gate-hint">管理员开通后会自动解除限制；如已开通，点击下方刷新立即生效。</p>
+            <footer className="membership-prompt-actions two">
+              <button type="button" className="primary" disabled={membershipChecking} onClick={() => void refreshMembership()}>
+                {membershipChecking ? '正在刷新…' : '刷新会员状态'}
+              </button>
+              <button type="button" onClick={() => setMembershipBlock(null)}>知道了</button>
             </footer>
           </section>
         </div>
@@ -637,6 +710,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         />
       )}
     </div>
+    </MembershipGateProvider>
   );
 }
 

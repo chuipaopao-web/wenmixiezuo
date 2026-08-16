@@ -6707,6 +6707,10 @@ svg {
 .admin-user-list button { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink-soft); background: var(--panel-raised); }
 .admin-user-list button:disabled { opacity: .55; }
 .admin-empty { padding: 40px; color: var(--ink-faint); text-align: center; }
+.admin-pager { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 10px 0 0; }
+.admin-pager button { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; padding: 0 14px; color: var(--ink-soft); background: var(--panel-raised); cursor: pointer; }
+.admin-pager button:disabled { cursor: not-allowed; opacity: .45; }
+.admin-pager span { color: var(--ink-faint); font-size: 12px; text-align: center; }
 
 .admin-overview.five-cards, .admin-workspace .admin-overview[aria-label="用户概况"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .admin-membership-list > article.admin-membership-row { grid-template-columns: minmax(180px, 1.2fr) 88px 78px minmax(200px, 1.4fr) auto 94px; }
@@ -6719,7 +6723,13 @@ svg {
 .admin-membership-actions select { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-raised); color: var(--ink-soft); font-size: 12px; }
 .admin-membership-actions button { white-space: nowrap; }
 
-.dialog.membership-prompt { text-align: center; display: grid; gap: 10px; justify-items: center; max-width: 380px; }
+.dialog.membership-prompt { text-align: center; display: grid; gap: 10px; justify-items: center; max-width: 380px; position: relative; }
+.dialog.membership-prompt .membership-close {
+  position: absolute; top: 8px; right: 8px; display: grid; place-items: center;
+  width: 32px; height: 32px; border: none; border-radius: 999px;
+  background: transparent; color: var(--ink-faint); cursor: pointer;
+}
+.dialog.membership-prompt .membership-close:hover { color: var(--ink); background: var(--panel); }
 .dialog.membership-prompt .brand-mark { margin: 0 auto; }
 .dialog.membership-prompt p { color: var(--ink-soft); font-size: 14px; }
 .dialog.membership-prompt .membership-contact { color: var(--ink); }

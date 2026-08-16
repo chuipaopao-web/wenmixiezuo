@@ -34,7 +34,13 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   const apiHost = env.WENMI_API_HOST ?? '127.0.0.1';
   const publicOrigin = env.WENMI_PUBLIC_ORIGIN?.trim() || null;
   if (publicOrigin !== null) {
-    try { new URL(publicOrigin); } catch { throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是完整的 URL（如 https://wenmixiezuo.com）'); }
+    let parsed: URL;
+    try { parsed = new URL(publicOrigin); } catch {
+      throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是完整的 URL（如 https://wenmixiezuo.com）');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是 http/https 协议的 URL');
+    }
   }
   const dataDir = resolve(env.WENMI_DATA_DIR ?? resolve(projectRoot, 'data'));
   const databaseDir = resolve(dataDir, 'database');

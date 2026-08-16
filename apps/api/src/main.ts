@@ -33,6 +33,20 @@ if (legacyUpgrade.deferredBooks > 0) {
     reason: 'nonterminal_tasks'
   }));
 }
+if (config.publicOrigin === null) {
+  console.warn(JSON.stringify({
+    event: 'public_origin_missing',
+    reason: 'rate_limit_disabled_insecure_cookies',
+    hint: '公网部署必须设置 WENMI_PUBLIC_ORIGIN（如 https://wenmixiezuo.com），否则登录/注册限流与 Secure Cookie 会静默关闭'
+  }));
+} else if (config.webOrigin !== config.publicOrigin) {
+  console.warn(JSON.stringify({
+    event: 'web_origin_mismatch',
+    webOrigin: config.webOrigin,
+    publicOrigin: config.publicOrigin,
+    hint: 'WENMI_WEB_ORIGIN 与 WENMI_PUBLIC_ORIGIN 不一致会拒绝浏览器写入请求，请确认是否故意配置'
+  }));
+}
 new ModelBindingService(database, ids, clock, config.modelRuntime.roleProfiles)
   .bindAllBooks({ preserveActiveRevision: true, migrateAllMembersToAgentPlan: true });
 const app = await createServer(config, database);

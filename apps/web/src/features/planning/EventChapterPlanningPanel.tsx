@@ -9,6 +9,7 @@ import {
   type EventChapterSequenceData,type EventChapterSequenceVersionData,type ExpressionProfileData,type StoryEventData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import { useMembershipGate } from '../shared/membership-gate';
 
 export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{bookId:string;onOpenManuscript?:()=>void;onChanged?:()=>Promise<void>|void}):React.JSX.Element{
   const[workflow,setWorkflow]=useState<Awaited<ReturnType<typeof fetchCreationWorkflow>>|null>(null);
@@ -28,6 +29,7 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   const[eventId,setEventId]=useState<string|null>(null);
   const[historyMode,setHistoryMode]=useState(false);
   const[historyEvents,setHistoryEvents]=useState<StoryEventData[]>([]);
+  const{guardAi}=useMembershipGate();
 
   const load=useCallback(async(signal?:AbortSignal)=>{
     const[nextWorkflow,nextExpression]=await Promise.all([fetchCreationWorkflow(bookId,signal),fetchExpressionProfile(bookId,signal)]);
@@ -99,12 +101,12 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
     })));
     return[...new Set(groups.flatMap(currentIdeas))];
   };
-  const generateSequence=()=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
+  const generateSequence=()=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;void run(async()=>{
     const refs=await ideaRefs('sequence');
     setSequenceTask(await startEventChapterSequenceGeneration(bookId,eventId,{expectedSequenceRevision:sequence.revision,
       expectedWorkflowVersion:workflow.planningVersion,authorInputRefs:refs,idempotencyKey:key('chapter-sequence-ai')}));
   });};
-  const challengeSequence=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
+  const challengeSequence=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;void run(async()=>{
     setSequenceChallengeTask(await startEventChapterSequenceChallenge(bookId,eventId,version.sequenceVersionId,{
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
       idempotencyKey:key('chapter-sequence-challenge')}));
@@ -113,13 +115,13 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
     setSequence(await confirmEventChapterSequence(bookId,eventId,{sequenceVersionId:version.sequenceVersionId,
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion}));
   });};
-  const generateDetails=()=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
+  const generateDetails=()=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;void run(async()=>{
     const refs=await ideaRefs('details',detailCount);
     setDetailTask(await startEventChapterDetailGeneration(bookId,eventId,{count:detailCount,
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
       authorInputRefs:refs,idempotencyKey:key('chapter-details-ai')}));
   });};
-  const challengeDetail=(item:EventChapterOutlineData)=>{if(sequence===null||workflow===null||eventId===null)return;
+  const challengeDetail=(item:EventChapterOutlineData)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;
     const version=item.activeVersion??item.versions[0]??null;if(version===null)return;void run(async()=>{
       setDetailChallengeTask(await startEventChapterDetailChallenge(bookId,eventId,item.outlineId,version.outlineVersionId,{
         expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
@@ -136,12 +138,12 @@ const confirmExpression=()=>void run(async()=>{
     setExpression(await saveExpressionProfile(bookId,{narrativePerson,viewpointDistance,textDensity:'adaptive',
       humorSeriousness:'adaptive',impactScope:{appliesFrom:'next_formal_work_order'},confirm:true}));
   });
-  const startWriting=()=>void run(async()=>{
+  const startWriting=()=>{if(!guardAi())return;void run(async()=>{
     const next=sequence?.outlines.find(item=>item.status==='frozen')??null;
     if(next===null)throw new Error('没有可用于正文的冻结章纲。');
     const batch=await startWritingRun(bookId,{chapterTitle:next.activeVersion?.content.title??next.planned.title});
     setWritingTaskId(batch.taskIds[0]??null);await onChanged?.();onOpenManuscript?.();
-  });
+  });};
   const settleCurrentEvent=()=>{if(eventId===null||workflow===null)return;void run(async()=>{
     await settleStoryEvent(bookId,eventId,workflow.planningVersion);await onChanged?.();
   });};

@@ -11,6 +11,7 @@ import {
   type SettingCollaborationData,
   type SettingOutlineWorkspaceData
 } from '../../lib/api/client';
+import { useMembershipGate } from '../shared/membership-gate';
 
 const activeTaskStatuses = new Set(['pending', 'queued', 'working']);
 
@@ -35,6 +36,7 @@ export function SettingCollaborationPanel({
   const startKey = useRef<string | null>(null);
   const synthesisKey = useRef<string | null>(null);
   const revisionKey = useRef<string | null>(null);
+  const { guardAi } = useMembershipGate();
 
   const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const next = await fetchSettingCollaboration(bookId, item.itemKey, signal);
@@ -69,6 +71,7 @@ export function SettingCollaborationPanel({
 
   const start = async (): Promise<void> => {
     if (busy !== null) return;
+    if (!guardAi()) return;
     setBusy('start'); setNotice(null);
     try {
       const existingSource = source.trim();
@@ -106,6 +109,7 @@ export function SettingCollaborationPanel({
   const synthesize = async (): Promise<void> => {
     const panel = data?.panel;
     if (busy !== null || panel === null || panel === undefined || selected.length === 0) return;
+    if (!guardAi()) return;
     setBusy('synthesize'); setNotice(null);
     try {
       const authorIdea = idea.trim();
@@ -170,6 +174,7 @@ export function SettingCollaborationPanel({
 
   const revise = async (): Promise<void> => {
     if (busy !== null || idea.trim().length === 0) return;
+    if (!guardAi()) return;
     setBusy('revise'); setNotice(null);
     try {
       ideaKey.current ??= createClientKey();

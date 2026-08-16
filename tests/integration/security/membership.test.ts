@@ -97,7 +97,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
       const list = await app.inject({ method: 'GET', url: '/api/v1/admin/memberships', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(list.statusCode).toBe(200);
-      const entries = list.json().data as Array<{ userId: string; membership: { plan: string } | null }>;
+      const entries = (list.json().data as { items: Array<{ userId: string; membership: { plan: string } | null }> }).items;
       expect(entries).toHaveLength(2);
       expect(entries.find((entry) => entry.userId === user.user_id)?.membership).toMatchObject({ plan: 'yearly' });
 
@@ -158,7 +158,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
     // 管理列表能读到周期消耗与累计消耗。
     const list = memberships.listUsersWithMembership();
-    const entry = list.find((row) => row.userId === user.user_id);
+    const entry = list.items.find((row) => row.userId === user.user_id);
     expect(entry?.membership).toMatchObject({ plan: 'monthly', periodTokens: MEMBERSHIP_PLANS.monthly.tokenQuota });
     expect(entry?.totalTokens).toBe(MEMBERSHIP_PLANS.monthly.tokenQuota);
 
