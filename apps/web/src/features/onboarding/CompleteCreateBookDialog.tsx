@@ -644,7 +644,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
       <span>{selected.length}/8</span>
     </header>
     <div className="personality-group-grid">{groups.map((group) => <details key={group.key} open={group.key === 'surface' || group.key === 'decision'}>
-      <summary><span><strong>{group.name}</strong><small>{group.description}</small></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>
+      <summary><span><strong>{group.name}</strong></span><b>{group.options.filter((item) => selected.includes(item)).length || '展开'}</b></summary>
       <div className="tag-options">{group.options.map((name) => {
         const active = selected.includes(name);
         return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}角色性格：${name}`} key={name} onClick={() => onToggle(name)} disabled={!active && selected.length >= 8}>{active && <CheckCircleIcon />}{name}</button>;
