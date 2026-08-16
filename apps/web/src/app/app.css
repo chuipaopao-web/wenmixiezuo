@@ -6055,6 +6055,7 @@ svg {
 .unified-empty-state .brand-mark { width: 58px; height: 58px; margin-bottom: 18px; border-radius: 17px; font-size: 29px; }
 .unified-empty-state h2 { margin: 7px 0 8px; font-family: "Songti SC", "STSong", serif; font-size: 28px; }
 .unified-empty-state p { max-width: 520px; margin: 0 0 20px; color: var(--ink-soft); line-height: 1.7; }
+.unified-empty-hint { max-width: 520px; margin: -10px 0 18px; color: var(--ink-faint); font-size: .85em; line-height: 1.6; }
 
 .personality-picker { display: grid; gap: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
 .personality-picker > header { display: flex; justify-content: space-between; gap: 14px; }

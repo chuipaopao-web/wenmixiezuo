@@ -657,7 +657,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         : utilityView === 'ideas' ? (selectedBook === null
           ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
           : <IdeationWorkspace bookId={selectedBook.bookId} currentLocation={creationTab} onError={setError} />)
-        : selectedBook === null ? <UnifiedEmptyState title="创建第一本书" description="填写开书资料后，会从设定、卷纲、事件、章纲到正文逐步推进。" onCreate={() => setCreateOpen(true)} />
+        : selectedBook === null ? <UnifiedEmptyState title="创建您的第一本书" description="花几分钟填一份开书资料，AI 团队就会为您设计设定和故事大纲；您确认后，团队逐章写出正文——每一步都等您拍板，不满意就重来。" hint="未开通会员也可以先建书、填资料；开通后 AI 团队立刻开始干活。" onCreate={() => setCreateOpen(true)} />
         : (
           <>
             <PlanningWorkspace
@@ -754,12 +754,12 @@ function formatMembershipBadge(status: MembershipStatusData | null): string {
   return `作者账号 · ${record.planLabel} · 剩余${remaining}算力值`;
 }
 
-function UnifiedEmptyState({ title, description, onCreate }: { title: string; description: string; onCreate?: () => void }): React.JSX.Element {
+function UnifiedEmptyState({ title, description, hint, onCreate }: { title: string; description: string; hint?: string; onCreate?: () => void }): React.JSX.Element {
   return <section className="unified-empty-state">
     <div className="brand-mark" aria-hidden="true">文</div>
-    <span className="eyebrow">统一创作台</span>
     <h2>{title}</h2>
     <p>{description}</p>
+    {hint !== undefined && <small className="unified-empty-hint">{hint}</small>}
     {onCreate !== undefined && <button className="primary-button" type="button" onClick={onCreate}><PlusIcon />新建书籍</button>}
   </section>;
 }
