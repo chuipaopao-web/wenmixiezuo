@@ -29,7 +29,7 @@ function validBlueprint(): OpeningBlueprintInput {
       end: '他守住边城并发现军报来自三年后的自己。'
     },
     fullBookOutline: '主线是阻止王朝覆灭，结局由陆沉建立新的边境秩序。',
-    mainTags: ['穿越', '谋略', '热血'],
+    mainTags: ['逆袭', '谋略', '热血'],
     auxiliaryTags: ['架空历史'],
     storyTraits: ['智斗', '爽感'],
     customTags: ['边城经营'],
@@ -135,7 +135,7 @@ describe('完整开书分类与资料合同', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), fullBookOutline: '长'.repeat(18_000) })).toThrow('资料总量');
   });
 
-  it('新合同只保留一个分类，题材可跨包组合且最多8个', () => {
+  it('新合同只保留一个分类，题材可跨包组合且最多5个', () => {
     const blueprint = validateOpeningBlueprint({
       ...validBlueprint(),
       auxiliaryTags: ['历史古代', '游戏异界']
@@ -145,7 +145,7 @@ describe('完整开书分类与资料合同', () => {
     expect(blueprint.auxiliaryCategoryKeys).toBeUndefined();
     expect(() => validateOpeningBlueprint({
       ...validBlueprint(),
-      auxiliaryTags: OPENING_TAXONOMY.subjects.slice(0, 9).map((item) => item.name)
-    })).toThrow('0至8个');
+      auxiliaryTags: OPENING_TAXONOMY.subjects.slice(0, 6).map((item) => item.name)
+    })).toThrow('0至5个');
   });
 });

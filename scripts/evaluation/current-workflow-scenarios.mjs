@@ -103,7 +103,7 @@ const xianxia = makeScenario({
         end: '四人守住北境阵脉，在九峰公审公开证据，证明沈铸当年并非单纯叛宗，却发现真正主谋仍握有宗门核心阵权。'
       },
       fullBookOutline: '沈砚从杂役、外门、内门一路成长为阵道宗师；每卷解决一个迫在眉睫的生存或秩序问题，同时沿父亲旧案、北境灵矿、九州阵脉三层秘密递进。盟友有独立目标，会合作、质疑、犯错和成长。',
-      mainTags: ['东方仙侠', '修仙', '逆袭', '智斗', '热血'],
+      mainTags: ['仙侠', '修仙', '逆袭', '智斗', '热血'],
       auxiliaryTags: ['阵法禁制', '剑修', '灵根', '宗门学院', '证据链'],
       storyTraits: ['快节奏', '越级战斗', '宗门成长', '爽感', '智斗'],
       styleIntent: {
@@ -113,7 +113,7 @@ const xianxia = makeScenario({
         atmospheres: ['宗门压迫', '秘境凶险', '公开翻盘'],
         custom: ['战斗讲清空间、阵眼、选择和代价，不用空喊招式名堆砌']
       },
-      customTags: ['残阵破局', '草根组队', '宗门黑账', '父辈旧案', '北境阵脉', '多事件连续升级'],
+      customTags: ['残阵破局', '草根组队', '宗门黑账', '父辈旧案', '北境阵脉'],
       initialMap: '青霄宗杂役院、试剑台、外门七峰、黑风猎场、废弃灵矿、山门坊市、北境阵城与九峰公审台。',
       mustFollow: [
         '沈砚只能看见和理解阵纹破绽，不能凭空获得无限力量',
@@ -187,7 +187,7 @@ const esports = makeScenario({
       },
       fullBookOutline: '顾野从青训弃子、数据分析师、替补指挥成长为冠军战术核心；每卷围绕一个赛季和一条行业规则展开，比赛胜负、队友职业选择与数据篡改真相同步推进。',
       mainTags: ['游戏', '电竞', '竞技', '逆袭', '热血'],
-      auxiliaryTags: ['电子竞技', '公会战队', '联赛规则', '赛季', '排行榜', '行业内幕'],
+      auxiliaryTags: ['电子竞技', '公会战队', '联赛规则', '赛季', '排行榜'],
       storyTraits: ['快节奏', '爽感', '智斗', '职业选手', '赛事成长'],
       styleIntent: {
         languageTones: ['清晰利落', '比赛画面强', '角色口吻鲜明'],
@@ -196,7 +196,7 @@ const esports = makeScenario({
         atmospheres: ['训练室压迫', '赛场喧嚣', '复盘冷静'],
         custom: ['数据只解释决策，不把人物写成表格；比赛讲清视野、资源、时间点与临场取舍']
       },
-      customTags: ['毫秒复盘', '经济曲线', '零帧战队', '版本风暴', '冠军复仇', '数据证据链'],
+      customTags: ['毫秒复盘', '经济曲线', '零帧战队', '版本风暴', '数据证据链'],
       initialMap: '零帧训练基地、公开试训馆、城市联赛主场、职业联盟数据中心、世界服训练赛、季后赛场馆与全球总决赛舞台。',
       mustFollow: [
         '顾野只能分析已有或现场采集的数据，不能凭空预知对手未公开的新战术',
@@ -279,7 +279,7 @@ const douluoInput = {
     return {
       ...blueprint,
       auxiliaryTags: blueprint.auxiliaryTags.filter((tag) => tag !== '武魂魂技树'),
-      customTags: [...new Set([...blueprint.customTags, '武魂魂技树'])]
+      customTags: [...new Set(['武魂魂技树', ...blueprint.customTags])].slice(0, 5)
     };
   }
 };

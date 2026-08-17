@@ -32,7 +32,7 @@ describe('建书REST流程', () => {
           title: '北境军报',
           channel: 'male',
           categoryKey: 'male-history-brain',
-          mainTags: ['历史', '穿越', '谋略']
+          mainTags: ['历史', '谋略']
         }
       });
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM positioning_drafts').get()).toMatchObject({ count: 0 });

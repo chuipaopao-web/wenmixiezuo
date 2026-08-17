@@ -74,8 +74,15 @@ export class OpeningSynopsisAnalysisService {
     const channel = explicitChannel ?? category?.channel ?? null;
     const protagonist = parseProtagonist(sections, synopsis, channel);
     const fullBookOutline = sections.get('fullBookOutline') ?? synopsis;
-    const mainTags = matchTerms(sections.get('mainTags') ?? synopsis, OPENING_TAXONOMY.mainTags, 5);
-    const auxiliaryTags = matchTerms(sections.get('auxiliaryTags') ?? synopsis, OPENING_TAXONOMY.auxiliaryTags, 8);
+    const mainTagSource = sections.get('mainTags') ?? synopsis;
+    const mainTags = matchTerms(mainTagSource, OPENING_TAXONOMY.mainTags, 5);
+    // 平台题材词（如"穿越""无限流"）只归属融合题材；写在主要标签行时改挂题材候选，不丢作者意图。
+    const reroutedSubjects = matchTerms(mainTagSource, OPENING_TAXONOMY.subjects.map((item) => item.name), 5)
+      .filter((tag) => !mainTags.includes(tag));
+    const auxiliaryTags = [...new Set([
+      ...matchTerms(sections.get('auxiliaryTags') ?? synopsis, OPENING_TAXONOMY.auxiliaryTags, 5),
+      ...reroutedSubjects
+    ])].slice(0, 5);
     const storyTraits = matchTerms(sections.get('storyTraits') ?? synopsis, OPENING_TAXONOMY.storyTraits, 8);
     const mustFollow = matchMustFollow(sections.get('mustFollow') ?? synopsis);
     const suggestions = {

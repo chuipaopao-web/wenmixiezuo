@@ -170,21 +170,26 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const categories = taxonomy?.categories.filter((item) => item.channel === channel) ?? [];
   const category = taxonomy?.categories.find((item) => item.key === categoryKey) ?? null;
   const subjects = taxonomy?.subjects ?? (taxonomy?.auxiliaryTags ?? []).map((name) => ({ name, packKeys: ['common'] }));
-  const activePackKeys = [...new Set([
-    'common',
-    ...(category?.tagPackKeys ?? []),
-    ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys)
-  ])];
   const availableTagGroups = taxonomy?.tagGroups ?? [{
     key: 'common', name: '当前分类', description: '当前分类可用标签',
     packKeys: ['common'],
     mainTags: taxonomy?.mainTags ?? [], auxiliaryTags: taxonomy?.auxiliaryTags ?? [], storyTraits: taxonomy?.storyTraits ?? []
   }];
+  // 已选融合题材与已选主要标签都会激活对应的标签组，智能推荐随选择动态扩展。
+  const selectedTagPackKeys = availableTagGroups
+    .filter((group) => [...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits].some((tag) => mainTags.includes(tag)))
+    .flatMap((group) => group.packKeys);
+  const activePackKeys = [...new Set([
+    'common',
+    ...(category?.tagPackKeys ?? []),
+    ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys),
+    ...selectedTagPackKeys
+  ])];
   const relevantTagGroups = availableTagGroups.filter((group) => group.packKeys?.some((pack) => activePackKeys.includes(pack)) ?? activePackKeys.includes(group.key));
   const activeTagGroup = activeTagGroupKey === 'recommended'
     ? null
     : availableTagGroups.find((group) => group.key === activeTagGroupKey) ?? null;
-  const recommendedSubjects = subjects.filter((item) => (item.packKeys ?? ['common']).some((pack) => category?.tagPackKeys?.includes(pack)));
+  const recommendedSubjects = subjects.filter((item) => (item.packKeys ?? ['common']).some((pack) => pack === 'common' || category?.tagPackKeys?.includes(pack)));
   const subjectOptions = allSubjectsOpen ? subjects : [...new Map([...recommendedSubjects, ...subjects.filter((item) => auxiliaryTags.includes(item.name))].map((item) => [item.name, item])).values()];
   const groupTagValues = (group: typeof availableTagGroups[number]): string[] => [
     ...group.mainTags,
@@ -297,7 +302,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   };
   const addCustomTag = (): void => {
     const value = customTag.trim().replace(/^#+/u, '');
-    if (value.length === 0 || customTags.includes(value) || customTags.length >= 13) return;
+    if (value.length === 0 || customTags.includes(value) || customTags.length >= 5) return;
     // 与正式标签或分类名同名的词不重复添加。
     if (mainTags.includes(value) || auxiliaryTags.includes(value) || storyTraits.includes(value) || value === category?.name) return;
     setCustomTags([...customTags, value]); setCustomTag('');
@@ -559,7 +564,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         {step === 2 && <section className="opening-form-section tag-direction-section">
           <div className="section-heading"><div><span>03</span><h3>题材与标签</h3></div></div>
           <section className="subject-library">
-            <StringTagPicker title="融合题材（多选）" hint={`建议2至5个，最多8个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 8)} blocked={blockedSubjectTags} />
+            <StringTagPicker title="融合题材（多选）" hint={`建议2至3个，最多5个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 5)} blocked={blockedSubjectTags} />
             <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
           </section>
           <details className="full-tag-library opening-more-options"><summary><span><strong>查看和调整主要标签</strong></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">

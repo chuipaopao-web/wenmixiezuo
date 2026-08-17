@@ -149,7 +149,7 @@ const femaleCategories: OpeningTaxonomyCategory[] = [
   ['female-ancient-brain', '古言脑洞', '古代语境与穿越、重生等新设定', ['古言', '脑洞', '成长']],
   ['female-ancient-romance', '古代言情', '古代人物关系、成长与情感', ['古言', '情感', '成长']],
   ['female-ancient-world', '古风世情', '古代社会、家族命运与人情世态', ['古言', '现实', '群像']],
-  ['female-era', '年代', '特定年代中的生活、家庭与成长', ['年代', '生活', '成长']],
+  ['female-era', '年代', '特定年代中的生活、家庭与成长', ['生活', '成长', '群像']],
   ['female-youth', '青春甜宠', '校园、青春成长与轻甜关系', ['青春', '校园', '甜宠']],
   ['female-fantasy-romance', '玄幻言情', '幻想世界、成长线与人物关系', ['玄幻', '言情', '成长']],
   ['female-xianxia-romance', '仙侠奇缘', '仙侠世界中的因果、成长与情感', ['仙侠', '情感', '成长']],
@@ -172,7 +172,7 @@ function subject(packKeys: string[], ...names: string[]): OpeningSubjectOption[]
 const subjects: OpeningSubjectOption[] = [
   ...subject(['fantasy'], '玄幻脑洞', '传统玄幻', '东方玄幻', '异世大陆', '王朝争霸', '高武世界', '洪荒神话', '灵气复苏', '御兽'),
   ...subject(['xianxia', 'fantasy'], '东方仙侠', '奇幻仙侠', '古典仙侠', '修真文明', '幻想修仙', '现代修真', '神话修真'),
-  ...subject(['history'], '历史古代', '历史脑洞', '架空历史', '秦汉三国', '两晋隋唐', '五代十国', '两宋元明', '清史民国', '外国历史', '朝堂江湖'),
+  ...subject(['history'], '历史古代', '历史脑洞', '架空历史', '秦汉三国', '两晋隋唐', '五代十国', '两宋元明', '清史民国', '外国历史', '朝堂江湖', '历史传记'),
   ...subject(['history'], '军事战争', '军旅生涯', '战争幻想', '抗战烽火', '谍战特工', '抗战谍战'),
   ...subject(['game'], '游戏异界', '虚拟网游', '电子竞技', '游戏竞技', '体育赛事', '篮球运动', '足球运动'),
   ...subject(['urban'], '都市脑洞', '都市生活', '都市日常', '异术超能', '都市高武', '都市修真', '都市种田', '青春校园', '商战职场', '娱乐明星', '现实生活'),
@@ -182,11 +182,11 @@ const subjects: OpeningSubjectOption[] = [
   ...subject(['scifi', 'apocalypse'], '科幻末世', '未来世界', '星际文明', '古武机甲', '超级科技', '进化变异', '时空穿梭', '赛博朋克', '废土求生'),
   ...subject(['western_fantasy'], '西方奇幻', '史诗奇幻', '剑与魔法', '黑暗幻想', '现代魔法', '历史神话'),
   ...subject(['martial'], '传统武侠', '武侠幻想', '国术无双'),
-  ...subject(['romance'], '古代言情', '现代言情', '古言脑洞', '现言脑洞', '玄幻言情', '仙侠奇缘', '豪门总裁', '宫斗宅斗', '青春甜宠', '悬疑恋爱', '年代婚恋'),
+  ...subject(['romance'], '古代言情', '现代言情', '古言脑洞', '现言脑洞', '玄幻言情', '仙侠奇缘', '豪门总裁', '宫斗宅斗', '青春甜宠', '悬疑恋爱', '年代婚恋', '恋爱日常', '民国情缘'),
   ...subject(['system', 'infinite'], '系统流', '无限流', '诸天万界', '快穿', '穿书'),
   ...subject(['reality', 'era'], '现实题材', '社会乡土', '生活时尚', '文学艺术', '成功励志', '年代'),
   ...subject(['common'], '穿越', '重生'),
-  ...subject(['derivative'], '动漫衍生', '影视衍生', '男频衍生', '女频衍生', '轻小说')
+  ...subject(['derivative'], '动漫衍生', '影视衍生', '男频衍生', '女频衍生', '轻小说', '原生幻想', '综漫')
 ];
 const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
   ...group.mainTags,
@@ -240,10 +240,10 @@ const personalityGroups: OpeningPersonalityGroup[] = [
 ];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-08-10-v7',
+  version: 'wenmi-single-category-subject-library-2026-08-17-v8',
   sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
-  updatedAt: '2026-08-01',
+  updatedAt: '2026-08-17',
   notice: '分类依据公开页面整理并在本地版本化，不代表平台永久不变；主要选择只定方向，其他元素可随剧情自由创作。',
   categories: [...maleCategories, ...femaleCategories],
   mainTags: allSelectableTags,
@@ -333,7 +333,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     [...input.auxiliaryTags, ...legacySubjects],
     '题材',
     0,
-    auxiliaryCategoryKeys.length > 0 ? 11 : 8,
+    auxiliaryCategoryKeys.length > 0 ? 11 : 5,
     40
   );
   for (const tag of auxiliaryTags) {
@@ -372,7 +372,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     auxiliaryTags,
     storyTraits,
     styleIntent,
-    customTags: uniqueTexts(input.customTags, '自定义标签', 0, 13, 40),
+    customTags: uniqueTexts(input.customTags, '自定义标签', 0, 5, 40),
     initialMap: optionalText(input.initialMap, '初始地图', 5_000),
     mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 15, 500)
   };
