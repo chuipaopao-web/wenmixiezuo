@@ -41,30 +41,42 @@ describe('九岗位定位提示词', () => {
     expect(prompt).toContain('如果满意再继续');
   });
 
-  it('当前十一人团队使用各自真实身份而不是继承主岗位姓名', () => {
+  it('当前十四人团队使用各自真实身份而不是继承主岗位姓名', () => {
     const deputyEditor = buildRuntimeRoleSystemPrompt('deputy_editor', 'discussion');
     const secondScreenwriter = buildRuntimeRoleSystemPrompt('second_screenwriter', 'discussion');
+    const thirdScreenwriter = buildRuntimeRoleSystemPrompt('third_screenwriter', 'discussion');
     const backupWriter = buildRuntimeRoleSystemPrompt('backup_writer', 'novel_writer');
+    const factReviewer = buildRuntimeRoleSystemPrompt('fact_reviewer', 'discussion');
+    const experienceChallenger = buildRuntimeRoleSystemPrompt('experience_challenger', 'discussion');
 
     expect(deputyEditor).toContain('西施（副编）');
     expect(deputyEditor).not.toContain('貂蝉（主编）');
     expect(secondScreenwriter).toContain('红玉（编剧）');
     expect(secondScreenwriter).not.toContain('婉儿（编剧）');
+    expect(thirdScreenwriter).toContain('幼薇（编剧）');
+    expect(thirdScreenwriter).not.toContain('婉儿（编剧）');
     expect(backupWriter).toContain('湘君（副笔）');
     expect(backupWriter).not.toContain('秋香（主笔）');
+    expect(factReviewer).toContain('班昭（事实）');
+    expect(factReviewer).not.toContain('文姬（设定）');
+    expect(experienceChallenger).toContain('妙玉（体验）');
+    expect(experienceChallenger).not.toContain('昭君（体验）');
   });
 
-  it('十一名成员都使用具体专业身份、核心专长和差异化方法', () => {
+  it('十四名成员都使用具体专业身份、核心专长和差异化方法', () => {
     const prompts = [
       ['chief_editor', '长篇网文主编', '只推进当前最需要确认的一步'],
-      ['deputy_editor', '流程接管编辑', '未接管时只报告遗漏和风险'],
+      ['deputy_editor', '资料档案官', '只准备可追溯资料'],
       ['lead_screenwriter', '长篇类型小说编剧', '不超过五十章的完整事件弧'],
       ['second_screenwriter', '结构挑战者', '不为猎奇强行反转'],
+      ['third_screenwriter', '类型小说创意策划', '第三条路'],
       ['setting', '连续性编辑', '明确事实、合理推断和未知'],
       ['lead_writer', '长篇类型小说作者', '人物通过选择、行动和后果推动场景'],
       ['backup_writer', '接替写手', '先核对活动写手、版本和接管原因'],
+      ['fact_reviewer', '正史核对编辑', '同一对象、同一指标'],
       ['literary_reviewer', '小说文学编辑', '避免把全文修成同一种安全腔'],
       ['experience_reviewer', '读者体验编辑', '区分有意留白与信息缺失'],
+      ['experience_challenger', '老白读者代表', '为了挑刺而挑刺'],
       ['researcher', '事实核查员', '区分事实、争议、推断与创作许可'],
       ['copyright', '原创性风险编辑', '不用换名改写规避']
     ] as const;

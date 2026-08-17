@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>设定页 · 效果图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+  body { background: linear-gradient(160deg, #eef2f8 0%, #e6ecf5 100%); color: #1d2534; }
+  .app { display: flex; min-height: 100vh; }
+
+  /* 左侧书籍栏 */
+  .bookrail { width: 108px; background: rgba(255,255,255,.55); backdrop-filter: blur(14px); border-right: 1px solid rgba(120,140,170,.18); padding: 18px 12px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .brand { font-size: 13px; font-weight: 700; color: #2f5fd0; margin-bottom: 4px; }
+  .cover { width: 64px; height: 90px; border-radius: 8px; background: linear-gradient(150deg, #35507e, #22395f); color: #fff; font-size: 10px; line-height: 1.5; padding: 8px 6px; box-shadow: 0 4px 10px rgba(40,60,100,.25); border: 2px solid #2f5fd0; }
+  .cover-add { width: 64px; height: 90px; border-radius: 8px; border: 1.5px dashed rgba(80,110,160,.45); color: #7d8ea8; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+
+  .main { flex: 1; display: flex; flex-direction: column; }
+
+  /* 顶部功能栏 */
+  .topbar { display: flex; gap: 6px; padding: 12px 28px; background: rgba(255,255,255,.65); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(120,140,170,.16); }
+  .topbar span { flex: 1; text-align: center; font-size: 13px; color: #5a6a84; padding: 7px 0; border-radius: 10px; }
+  .topbar span.active { background: #2f5fd0; color: #fff; font-weight: 600; box-shadow: 0 3px 8px rgba(47,95,208,.3); }
+
+  .page { padding: 22px 30px 30px; }
+
+  /* 页头 */
+  .pagehead { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+  .pagehead h1 { font-size: 19px; font-weight: 700; }
+  .pagehead h1 small { font-size: 13px; color: #6b7a93; font-weight: 400; margin-left: 8px; }
+  .progress-pill { font-size: 12px; color: #2f5fd0; background: rgba(47,95,208,.09); border: 1px solid rgba(47,95,208,.25); padding: 6px 14px; border-radius: 999px; }
+  .progress-pill b { font-size: 14px; }
+
+  .section-title { display: flex; align-items: center; gap: 10px; margin: 20px 2px 12px; }
+  .section-title h2 { font-size: 15px; font-weight: 700; }
+  .section-title em { font-style: normal; font-size: 11px; color: #8a97ab; }
+  .tagline { font-size: 11px; color: #2f5fd0; background: rgba(47,95,208,.08); padding: 2px 10px; border-radius: 999px; }
+
+  /* 核心设定卡 */
+  .core-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .card { background: rgba(255,255,255,.82); backdrop-filter: blur(10px); border: 1px solid rgba(120,140,170,.16); border-radius: 16px; padding: 16px 18px; box-shadow: 0 4px 14px rgba(50,70,110,.07); display: flex; flex-direction: column; gap: 8px; }
+  .card .row { display: flex; align-items: center; justify-content: space-between; }
+  .card h3 { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .badge-req { font-size: 10px; color: #c0392b; background: rgba(220,80,60,.1); border: 1px solid rgba(220,80,60,.25); padding: 1px 7px; border-radius: 999px; font-weight: 400; }
+  .badge-sug { font-size: 10px; color: #2f5fd0; background: rgba(47,95,208,.08); border: 1px solid rgba(47,95,208,.22); padding: 1px 7px; border-radius: 999px; font-weight: 400; }
+  .status { font-size: 11px; padding: 3px 10px; border-radius: 999px; }
+  .st-done { color: #1e7e46; background: rgba(46,160,90,.12); }
+  .st-talk { color: #b47908; background: rgba(230,170,40,.15); }
+  .st-wait { color: #7d8ea8; background: rgba(125,142,168,.12); }
+  .st-confirm { color: #2f5fd0; background: rgba(47,95,208,.1); }
+  .card p { font-size: 12px; color: #55637a; line-height: 1.7; flex: 1; }
+  .card .empty { color: #9aa7bb; }
+  .btn { border: 0; border-radius: 10px; font-size: 12px; padding: 7px 0; cursor: pointer; width: 100%; }
+  .btn-primary { background: linear-gradient(135deg, #2f5fd0, #4a7de8); color: #fff; font-weight: 600; box-shadow: 0 3px 8px rgba(47,95,208,.28); }
+  .btn-ghost { background: rgba(47,95,208,.07); color: #2f5fd0; }
+  .btn-line { background: transparent; border: 1px solid rgba(120,140,170,.35); color: #5a6a84; }
+
+  /* 题材包 */
+  .pack-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .pack-items { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+  .pack-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 8px 12px; border-radius: 10px; background: rgba(240,244,250,.9); border: 1px solid rgba(120,140,170,.12); }
+  .pack-item .nm { color: #33405a; }
+  .pack-item .nm small { color: #8a97ab; margin-left: 6px; }
+
+  /* 全部类目 */
+  .allbar { display: flex; gap: 10px; align-items: center; }
+  .search { flex: 1; max-width: 300px; border: 1px solid rgba(120,140,170,.3); background: rgba(255,255,255,.8); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #8a97ab; }
+  .allgroups { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .gchip { font-size: 12px; color: #55637a; background: rgba(255,255,255,.75); border: 1px solid rgba(120,140,170,.2); padding: 6px 14px; border-radius: 999px; }
+  .gchip.add { color: #2f5fd0; border-style: dashed; border-color: rgba(47,95,208,.45); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="bookrail">
+    <div class="brand">文秘写作</div>
+    <div class="cover">我要举报<br>这里有人<br>谋反</div>
+    <div class="cover-add">＋</div>
+  </aside>
+
+  <div class="main">
+    <nav class="topbar">
+      <span>信息</span><span class="active">设定</span><span>分卷</span><span>规划</span><span>章纲</span><span>正文</span><span>资料库</span><span>取名</span><span>团队</span><span>任务</span><span>灵感</span><span>设置</span>
+    </nav>
+
+    <div class="page">
+      <div class="pagehead">
+        <h1>《我要举报，这里有人谋反》的设定 <small>设定是 AI 创作时的参考，确认后随时可以回来改</small></h1>
+        <div class="progress-pill">必要项 <b>3 / 6</b> 已确认 · 全部确认后解锁分卷</div>
+      </div>
+
+      <!-- 第一层：核心设定 -->
+      <div class="section-title"><h2>核心设定</h2><span class="tagline">每本书都需要</span><em>先定这 6 项，书的方向就立住了</em></div>
+      <div class="core-grid">
+        <div class="card">
+          <div class="row"><h3>故事内核 <span class="badge-req">必要</span></h3><span class="status st-done">已确认</span></div>
+          <p>小吏意外掌握谋反证据，层层上告却层层被压，读者追的是"这一次能不能告赢"。</p>
+          <button class="btn btn-ghost">查看 / 修改</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3>世界舞台 <span class="badge-req">必要</span></h3><span class="status st-done">已确认</span></div>
+          <p>架空王朝"大黎"末年，京城与地方双线，官僚体系完整但运转迟缓。</p>
+          <button class="btn btn-ghost">查看 / 修改</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3>主角处境 <span class="badge-req">必要</span></h3><span class="status st-talk">讨论中</span></div>
+          <p>两位编剧已给出方案，等您选择或组合。</p>
+          <button class="btn btn-primary">去看看方案</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3>对立面 <span class="badge-req">必要</span></h3><span class="status st-wait">待讨论</span></div>
+          <p class="empty">谁在阻拦主角？反派或压力体系还没定。</p>
+          <button class="btn btn-primary">请团队出主意</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3>规矩与代价 <span class="badge-req">必要</span></h3><span class="status st-confirm">待您确认</span></div>
+          <p>主编已整理好：告发走通要付出什么、权力怎样运转，等您过目。</p>
+          <button class="btn btn-primary">确认这份</button>
+        </div>
+        <div class="card">
+          <div class="row"><h3>边界与留白 <span class="badge-req">必要</span></h3><span class="status st-wait">待讨论</span></div>
+          <p class="empty">必须遵守的红线，以及故意不解释的内容。</p>
+          <button class="btn btn-primary">请团队出主意</button>
+        </div>
+      </div>
+
+      <!-- 第二层：题材包 -->
+      <div class="section-title"><h2>根据题材推荐</h2><span class="tagline">历史 · 权谋</span><em>建议项，不定也能往下走</em></div>
+      <div class="pack-grid">
+        <div class="card">
+          <div class="row"><h3>历史古代包</h3><span class="status st-talk">1 / 4 讨论中</span></div>
+          <div class="pack-items">
+            <div class="pack-item"><span class="nm">历史基线 <small>以哪段历史为准</small></span><span class="status st-done">已确认</span></div>
+            <div class="pack-item"><span class="nm">政权、法律与治理 <small>告状要走哪套程序</small></span><span class="status st-talk">讨论中</span></div>
+            <div class="pack-item"><span class="nm">阶层、身份与流动 <small>九品小吏能见多大的官</small></span><span class="status st-wait">待讨论</span></div>
+            <div class="pack-item"><span class="nm">政治、官制与军制 <small>兵权在谁手里</small></span><span class="status st-wait">待讨论</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row"><h3>悬疑调查包</h3><span class="status st-wait">未开始</span></div>
+          <div class="pack-items">
+            <div class="pack-item"><span class="nm">证据链与验证规则 <small>什么证据才算数</small></span><span class="status st-wait">待讨论</span></div>
+            <div class="pack-item"><span class="nm">真相层级与公平线索 <small>读者什么时候知道多少</small></span><span class="status st-wait">待讨论</span></div>
+            <div class="pack-item"><span class="nm">调查与信息差 <small>谁能接触哪些信息</small></span><span class="status st-wait">待讨论</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 第三层：全部类目 + 自定义 -->
+      <div class="section-title"><h2>全部类目</h2><em>推荐之外想定什么，自己挑</em></div>
+      <div class="card">
+        <div class="allbar">
+          <div class="search">搜索类目，比如：货币、排行榜、血脉……</div>
+          <button class="btn btn-line" style="width:130px">＋ 自定义设定项</button>
+        </div>
+        <div class="allgroups">
+          <span class="gchip">言情关系（4）</span><span class="gchip">玄幻修真（6）</span><span class="gchip">游戏规则（7）</span><span class="gchip">科幻未来（4）</span><span class="gchip">领主经营（4）</span><span class="gchip">都市生活（2）</span><span class="gchip">势力与组织（1）</span><span class="gchip">物品与资源（3）</span><span class="gchip add">＋ 展开后点任意项加入本书</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

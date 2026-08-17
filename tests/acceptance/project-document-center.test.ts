@@ -23,7 +23,7 @@ describe('桌面项目文档中心', () => {
     const bundleButton = document.querySelector<HTMLButtonElement>("[data-open-document='project-reference-bundle']");
     const copyButton = document.querySelector<HTMLButtonElement>('#copy-reader');
 
-    expect(cards).toHaveLength(36);
+    expect(cards).toHaveLength(37);
     expect(templates).toHaveLength(cards.length + 1);
     expect(html).not.toContain('openai.yaml');
     expect(cards.every((card) => card.textContent?.includes('阅读全文'))).toBe(true);
@@ -36,7 +36,7 @@ describe('桌面项目文档中心', () => {
     expect(bundle).toContain('# 文秘写作当前项目完整合订版');
     expect(bundle).toContain('## 一、产品定位与完整工作流');
     expect(bundle).toContain('## 六、长篇质量审查 Skill');
-    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(36);
+    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(37);
 
     Object.defineProperty(reader!, 'showModal', {
       configurable: true,

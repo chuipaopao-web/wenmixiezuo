@@ -51,8 +51,11 @@ export class PositioningService {
     if (input.openingBlueprint !== undefined && requestedTitle.length === 0) throw new Error('完整开书必须填写书名');
     if (bookTitleCharacterCount(requestedTitle) > BOOK_TITLE_MAX_CHARACTERS) throw new Error('书名最多15字');
     const openingBlueprint = input.openingBlueprint === undefined ? null : validateOpeningBlueprint(input.openingBlueprint);
-    const text = openingBlueprint?.storyDirection ?? input.text.trim();
-    if (text.length < 2) throw new Error('定位描述至少需要2个字符');
+    // 故事方向已是可选补充：完整开书允许留空并回退到定位描述文本；仅旧式定位文本入口仍要求至少2个字符。
+    const text = openingBlueprint === null
+      ? input.text.trim()
+      : (openingBlueprint.storyDirection || input.text.trim());
+    if (openingBlueprint === null && text.length < 2) throw new Error('定位描述至少需要2个字符');
     if (input.expectedScaleChars !== undefined && (
       !Number.isInteger(input.expectedScaleChars)
       || input.expectedScaleChars < 1_000

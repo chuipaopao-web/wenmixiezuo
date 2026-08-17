@@ -92,8 +92,7 @@ describe('建书REST流程', () => {
         method: 'POST', url: '/api/v1/books/drafts',
         payload: { title: '缺少故事方向', text: '', openingBlueprint: { ...openingBlueprint, storyDirection: '' } }
       });
-      expect(missingDirectionResponse.statusCode).toBe(400);
-      expect(missingDirectionResponse.json().error.message).toContain('故事方向');
+      expect(missingDirectionResponse.statusCode).toBe(200);
       expect(invalidResponse.json().error.message).toContain('不属于当前频道');
       const missingTitleResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts', payload: { text: openingBlueprint.fullBookOutline, openingBlueprint }
@@ -270,7 +269,7 @@ describe('建书REST流程', () => {
       expect(confirmResponse.statusCode).toBe(200);
       const book = confirmResponse.json().data as { bookId: string; kickoffTaskId: string };
       const agents = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/agents` });
-      expect((agents.json().data as unknown[])).toHaveLength(11);
+      expect((agents.json().data as unknown[])).toHaveLength(14);
       const books = await app.inject({ method: 'GET', url: '/api/v1/books' });
       expect(books.json().data).toHaveLength(1);
       const clock = new FixedClock();

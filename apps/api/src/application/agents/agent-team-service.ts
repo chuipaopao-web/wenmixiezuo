@@ -153,19 +153,22 @@ export class AgentTeamService {
         WHEN 'lead_screenwriter' THEN 3
         WHEN 'second_screenwriter' THEN 4
         WHEN 'plot_architect' THEN 4
-        WHEN 'setting' THEN 5
-        WHEN 'continuity' THEN 5
-        WHEN 'lead_writer' THEN 6
-        WHEN 'writer' THEN 6
-        WHEN 'backup_writer' THEN 7
-        WHEN 'literary_reviewer' THEN 8
-        WHEN 'reviewer' THEN 8
-        WHEN 'experience_reviewer' THEN 9
-        WHEN 'reader_experience' THEN 9
-        WHEN 'style_editor' THEN 10
-        WHEN 'researcher' THEN 10
-        WHEN 'copyright' THEN 11
-        ELSE 12 END
+        WHEN 'third_screenwriter' THEN 5
+        WHEN 'setting' THEN 6
+        WHEN 'continuity' THEN 6
+        WHEN 'lead_writer' THEN 7
+        WHEN 'writer' THEN 7
+        WHEN 'backup_writer' THEN 8
+        WHEN 'fact_reviewer' THEN 9
+        WHEN 'literary_reviewer' THEN 10
+        WHEN 'reviewer' THEN 10
+        WHEN 'experience_reviewer' THEN 11
+        WHEN 'reader_experience' THEN 11
+        WHEN 'experience_challenger' THEN 12
+        WHEN 'style_editor' THEN 13
+        WHEN 'researcher' THEN 13
+        WHEN 'copyright' THEN 14
+        ELSE 15 END
     `).all(scope.ownerId, scope.bookId) as unknown as AgentRow[];
     return rows.map((row) => ({
       agentId: row.agent_id,

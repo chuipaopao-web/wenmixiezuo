@@ -92,7 +92,7 @@ const stageDefinitions = [
     tests: 'npm run verify; npm test -- tests/integration/projections tests/integration/retrieval tests/integration/memory'
   },
   {
-    name: '上下文与Agent治理', goal: '验证ContextCompiler任务矩阵、十一人团队、模型绑定、租约、预算与真实状态',
+    name: '上下文与Agent治理', goal: '验证ContextCompiler任务矩阵、十四人团队、模型绑定、租约、预算与真实状态',
     exclusions: '不保存思维链，不用同模型冒充异模型复核，不注入其他书、旧版会话或过期候选', allowedFiles: 'memory/agents/tasks/models/budgets、Worker、对应测试',
     dependencies: '阶段3', acceptance: '上下文来源与排除项、三异模型审查、任务心跳、取消重试和接管通过',
     tests: 'npm run verify; npm test -- tests/integration/memory tests/integration/agents tests/integration/runtime'

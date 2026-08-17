@@ -14,10 +14,10 @@ describe('岗位提示、连续日志和写手租约', () => {
   let context: TestContext | undefined;
   afterEach(() => { context?.close(); context = undefined; });
 
-  it('十一岗位编译不同的最小提示快照且不注入整篇文档', () => {
+  it('十四岗位编译不同的最小提示快照且不注入整篇文档', () => {
     context = createTestContext(); const ids = new SequenceIds(); const compiler = new PromptCompiler(new PromptTemplateRepository(context.database), ids, new FixedClock());
     const compiled = creativeRoleKeys.map((roleKey) => compiler.compile(roleKey, { objective: '处理本岗位任务', mode: 'formal_production', contextManifest: ['工单', '相关正史'], outputSchema: { type: 'object' } }));
-    expect(new Set(compiled.map((item) => item.hash)).size).toBe(11);
+    expect(new Set(compiled.map((item) => item.hash)).size).toBe(14);
     expect(compiled.every((item) => item.system.includes('不展示或保存内部思维链'))).toBe(true);
     expect(compiled.every((item) => item.system.includes('专业身份：'))).toBe(true);
     expect(compiled.every((item) => item.system.includes('核心专长：'))).toBe(true);

@@ -439,11 +439,14 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     deputy_editor: profiles.reviewer,
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
+    third_screenwriter: profiles.chief_editor,
     setting: profiles.style_editor,
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
+    fact_reviewer: profiles.style_editor,
     literary_reviewer: profiles.reviewer,
     experience_reviewer: profiles.reader_experience,
+    experience_challenger: profiles.researcher,
     researcher: profiles.researcher,
     copyright: profiles.copyright
   };

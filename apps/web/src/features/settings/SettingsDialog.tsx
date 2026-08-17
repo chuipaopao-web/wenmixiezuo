@@ -99,7 +99,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
         </fieldset>
         <fieldset>
           <legend>书籍级模型绑定</legend>
-          {capabilities?.modelRuntime.activeMode !== 'subscription-plan' ? <p className="capability-note">连接创作模型后，可以在这里查看并调整十一名成员未来任务的模型安排。</p> : bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
+          {capabilities?.modelRuntime.activeMode !== 'subscription-plan' ? <p className="capability-note">连接创作模型后，可以在这里查看并调整十四名成员未来任务的模型安排。</p> : bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
             <div className="binding-manager">
               <p>修改只对未来新任务生效，运行中的任务继续使用已冻结模型。两名编剧必须异模型，豆包不能进入剧情席；GLM担任副笔时事实席自动切换DeepSeek。</p>
               <div className="binding-role-list">{bindings.active.map((binding) => {
@@ -164,9 +164,9 @@ function planLabel(plan: 'deterministic' | 'codex' | 'coding' | 'agent' | 'openc
 
 function roleLabel(role: string): string {
   return ({
-    chief_editor: '主编', deputy_editor: '副主编', lead_screenwriter: '编剧', second_screenwriter: '编剧',
-    plot_architect: '编剧', setting: '设定师', continuity: '设定师', lead_writer: '主笔', backup_writer: '副主笔', writer: '主笔',
-    fact_reviewer: '事实审校', literary_reviewer: '文学审校', experience_reviewer: '体验审校', reviewer: '审校',
+    chief_editor: '主编', deputy_editor: '副编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧',
+    plot_architect: '编剧', setting: '设定', continuity: '设定师', lead_writer: '主笔', backup_writer: '副笔', writer: '主笔',
+    fact_reviewer: '事实审校', literary_reviewer: '文学审校', experience_reviewer: '体验审校', experience_challenger: '体验审校', reviewer: '审校',
     reader_experience: '体验官', style_editor: '文编', researcher: '研究员', copyright: '版权顾问'
   } as Record<string, string>)[role] ?? role;
 }

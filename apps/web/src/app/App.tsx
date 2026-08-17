@@ -652,7 +652,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
           onDecide={decideConfirmation}
         /> : utilityView === 'team' ? (selectedBook === null
-          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部11名创作成员。" onCreate={() => setCreateOpen(true)} />
+          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部14名创作成员。" onCreate={() => setCreateOpen(true)} />
           : <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />)
         : utilityView === 'ideas' ? (selectedBook === null
           ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />

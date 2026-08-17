@@ -64,8 +64,9 @@ export function validateTeamModelProfiles(
       throw new Error('确定性模式不能激活需要真实套餐凭证的模型绑定');
     }
     const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
-    if (signature('lead_screenwriter') === signature('second_screenwriter')) throw new Error('两名编剧必须使用不同模型');
-    for (const role of ['lead_screenwriter', 'second_screenwriter'] as const) {
+    const screenwriterSignatures = (['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'] as const).map(signature);
+    if (new Set(screenwriterSignatures).size !== screenwriterSignatures.length) throw new Error('三名编剧必须使用互不相同的模型');
+    for (const role of ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'] as const) {
       if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
     }
     if (profiles.lead_writer.plan !== 'deterministic'
@@ -77,10 +78,9 @@ export function validateTeamModelProfiles(
       if (profiles[role].plan !== 'deterministic' && !/(deepseek-v4-pro|kimi-k2\.7-code)/iu.test(profiles[role].modelId)) {
         throw new Error('写手仅允许火山方舟 Agent Plan 的 DeepSeek V4 Pro 或 Kimi K2.7 Code');
       }
-      const factRole: CreativeRoleKey = /glm/iu.test(profiles[role].modelId) ? 'lead_screenwriter' : 'setting';
-      const reviewSignatures = [signature(role), signature(factRole), signature('literary_reviewer'), signature('experience_reviewer')];
+      const reviewSignatures = [signature(role), signature('fact_reviewer'), signature('literary_reviewer'), signature('experience_reviewer'), signature('experience_challenger')];
       if (new Set(reviewSignatures).size !== reviewSignatures.length) {
-        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验三席必须使用四个不同模型来源`);
+        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验四席必须使用五个不同模型来源`);
       }
     }
 }
@@ -93,7 +93,9 @@ export class ReviewModelCompatibilityService {
       if (found === undefined) throw new Error(`缺少点评岗位：${role}`);
       return found;
     };
-    const fact = /glm/iu.test(activeWriter.modelId) ? byRole('lead_screenwriter') : byRole('setting');
+    const fact = team.some((agent) => agent.roleKey === 'fact_reviewer')
+      ? byRole('fact_reviewer')
+      : (/glm/iu.test(activeWriter.modelId) ? byRole('lead_screenwriter') : byRole('setting'));
     const literary = byRole('literary_reviewer');
     const experience = byRole('experience_reviewer');
     const all = [activeWriter, fact, literary, experience].map(signature);

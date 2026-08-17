@@ -14,7 +14,7 @@ describe('独立灵感讨论接口', () => {
     context?.close();
   });
 
-  it('显示11名本书成员，只让作者选中的单条建议进入正式作者意见', async () => {
+  it('显示14名本书成员，只让作者选中的单条建议进入正式作者意见', async () => {
     context = createTestContext('wenmi-ideation-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -31,7 +31,7 @@ describe('独立灵感讨论接口', () => {
     });
     expect(membersResponse.statusCode).toBe(200);
     const members = membersResponse.json().data as Array<{ agentId: string; host: boolean }>;
-    expect(members).toHaveLength(11);
+    expect(members).toHaveLength(14);
     expect(members.filter((member) => member.host)).toHaveLength(1);
     const guest = members.find((member) => !member.host)!;
 

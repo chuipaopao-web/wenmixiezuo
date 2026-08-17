@@ -94,16 +94,18 @@ export function buildRuntimeRoleSystemPrompt(
 }
 
 function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literary' | 'experience' {
-  if (roleKey === 'setting' || roleKey === 'continuity' || roleKey === 'lead_screenwriter' || roleKey === 'plot_architect') return 'fact';
-  if (roleKey === 'experience_reviewer' || roleKey === 'reader_experience') return 'experience';
+  if (roleKey === 'fact_reviewer' || roleKey === 'setting' || roleKey === 'continuity' || roleKey === 'lead_screenwriter' || roleKey === 'plot_architect') return 'fact';
+  if (roleKey === 'experience_reviewer' || roleKey === 'experience_challenger' || roleKey === 'reader_experience') return 'experience';
   return 'literary';
 }
 
 function legacyPromptRole(roleKey: RoleKey | CreativeRoleKey): RoleKey {
   const map: Partial<Record<CreativeRoleKey, RoleKey>> = {
     chief_editor: 'chief_editor', deputy_editor: 'chief_editor', lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'plot_architect', setting: 'continuity', lead_writer: 'writer', backup_writer: 'writer',
-    literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright'
+    second_screenwriter: 'plot_architect', third_screenwriter: 'chief_editor', setting: 'continuity',
+    lead_writer: 'writer', backup_writer: 'writer', fact_reviewer: 'style_editor',
+    literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', experience_challenger: 'researcher',
+    researcher: 'researcher', copyright: 'copyright'
   };
   return map[roleKey as CreativeRoleKey] ?? roleKey as RoleKey;
 }

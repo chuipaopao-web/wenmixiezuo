@@ -23,7 +23,7 @@ export class TeamTemplateService {
     return this.unitOfWork.run(() => {
       const contractsJson = JSON.stringify(creativeMemberContracts);
       const revisionId = this.ids.next();
-      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '创建十一人创作团队', now });
+      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '创建十四人创作团队', now });
       creativeMemberContracts.forEach((contract, index) => {
         this.repository.seedRole({ roleTemplateId: contract.roleTemplateId, roleKey: contract.roleKey, shortTitle: contract.shortTitle,
           category: contract.category, responsibilities: contract.responsibilities, capabilities: ['text'], activation: contract.defaultActivation, now });
@@ -41,5 +41,55 @@ export class TeamTemplateService {
         hash: createHash('sha256').update(contractsJson).digest('hex'), now });
       return this.repository.listTeam(scope);
     });
+  }
+
+  /** 为编制扩充前的旧书补齐缺失成员（例如 11 人书补齐编剧C、事实审查、体验·挑剔读者）。 */
+  public addMissingMembers(scope: BookScope, options: { deterministic?: boolean; profiles?: Partial<Record<CreativeRoleKey, TeamModelProfile>> | undefined } = {}): { added: CreativeRoleKey[]; team: TeamAgentRow[] } {
+    const existing = this.repository.listTeam(scope);
+    const existingKeys = new Set(existing.map((member) => member.roleKey));
+    const missing = creativeMemberContracts.filter((contract) => !existingKeys.has(contract.roleKey));
+    if (missing.length === 0) return { added: [], team: existing };
+    const deterministic = options.deterministic === true
+      || existing.every((member) => member.plan === 'deterministic');
+    const now = this.clock.now().toISOString();
+    const signatureOf = (provider: string, modelId: string): string => `${provider}/${modelId}`;
+    const addedProfiles = new Map<CreativeRoleKey, TeamModelProfile>();
+    for (const contract of missing) {
+      const profile = deterministic
+        ? { ...deterministicTeamProfile, modelId: `wenmi-fixture-v2-${contract.roleKey}` }
+        : options.profiles?.[contract.roleKey] ?? contract.defaultModel;
+      addedProfiles.set(contract.roleKey, profile);
+    }
+    if (!deterministic) {
+      const signatures = new Set(existing.map((member) => signatureOf(member.provider, member.modelId)));
+      for (const contract of missing) {
+        const profile = addedProfiles.get(contract.roleKey)!;
+        if (/doubao/iu.test(profile.modelId) && contract.roleKey.endsWith('screenwriter')) {
+          throw new Error('豆包不能进入剧情讨论席');
+        }
+        if (signatures.has(signatureOf(profile.provider, profile.modelId))) {
+          throw new Error(`补齐成员${contract.memberName}与现有成员模型重复，无法保证异模型独立性`);
+        }
+        signatures.add(signatureOf(profile.provider, profile.modelId));
+      }
+    }
+    const team = this.unitOfWork.run(() => {
+      const revisionId = this.ids.next();
+      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '补齐十四人创作团队', now });
+      for (const contract of missing) {
+        this.repository.seedRole({ roleTemplateId: contract.roleTemplateId, roleKey: contract.roleKey, shortTitle: contract.shortTitle,
+          category: contract.category, responsibilities: contract.responsibilities, capabilities: ['text'], activation: contract.defaultActivation, now });
+        const profile = addedProfiles.get(contract.roleKey)!;
+        const snapshotId = this.ids.next();
+        const agentId = this.ids.next();
+        this.repository.insertModelSnapshot(scope, { id: snapshotId, ...profile, capabilities: ['text'], now });
+        this.repository.insertAgent(scope, { id: agentId, roleTemplateId: contract.roleTemplateId, name: contract.memberName,
+          modelSnapshotId: snapshotId, activationState: contract.defaultActivation === 'resident' ? 'idle' : 'standby', now });
+        this.repository.insertBinding(scope, { id: this.ids.next(), revisionId, roleKey: contract.roleKey, agentId, snapshotId,
+          provider: profile.provider, modelId: profile.modelId, plan: profile.plan, purposes: contract.outputKinds, now });
+      }
+      return this.repository.listTeam(scope);
+    });
+    return { added: missing.map((contract) => contract.roleKey), team };
   }
 }

@@ -57,7 +57,7 @@ describe('向前迁移器', () => {
         '0044_first_admin_legacy_owner.sql',
         '0045_user_memberships.sql',
         '0046_model_call_error_detail.sql',
-        '0047_opening_drafts.sql'
+        '0047_opening_drafts.sql', '0048_book_branding_designs.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');

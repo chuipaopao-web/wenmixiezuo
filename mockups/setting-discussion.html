@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>类目讨论 · 效果图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+  body { background: linear-gradient(160deg, #eef2f8 0%, #e6ecf5 100%); color: #1d2534; }
+  .app { display: flex; min-height: 100vh; }
+  .bookrail { width: 108px; background: rgba(255,255,255,.55); border-right: 1px solid rgba(120,140,170,.18); padding: 18px 12px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .brand { font-size: 13px; font-weight: 700; color: #2f5fd0; margin-bottom: 4px; }
+  .cover { width: 64px; height: 90px; border-radius: 8px; background: linear-gradient(150deg, #35507e, #22395f); color: #fff; font-size: 10px; line-height: 1.5; padding: 8px 6px; border: 2px solid #2f5fd0; }
+  .cover-add { width: 64px; height: 90px; border-radius: 8px; border: 1.5px dashed rgba(80,110,160,.45); color: #7d8ea8; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .topbar { display: flex; gap: 6px; padding: 12px 28px; background: rgba(255,255,255,.65); border-bottom: 1px solid rgba(120,140,170,.16); }
+  .topbar span { flex: 1; text-align: center; font-size: 13px; color: #5a6a84; padding: 7px 0; border-radius: 10px; }
+  .topbar span.active { background: #2f5fd0; color: #fff; font-weight: 600; }
+
+  .page { padding: 20px 30px 30px; }
+
+  .crumb { font-size: 12px; color: #7d8ea8; margin-bottom: 10px; }
+  .crumb b { color: #2f5fd0; font-weight: 600; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
+  .head h1 { font-size: 19px; }
+  .head h1 small { display: block; font-size: 12px; color: #6b7a93; font-weight: 400; margin-top: 4px; }
+
+  .members { display: flex; gap: 10px; margin-bottom: 16px; }
+  .member { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.8); border: 1px solid rgba(120,140,170,.16); border-radius: 999px; padding: 6px 14px 6px 8px; font-size: 12px; }
+  .avatar { width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot-done { background: #2ea05a; } .dot-work { background: #e6aa28; }
+  .member small { color: #8a97ab; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: stretch; }
+  .card { background: rgba(255,255,255,.85); border: 1px solid rgba(120,140,170,.16); border-radius: 16px; padding: 15px 16px; box-shadow: 0 4px 14px rgba(50,70,110,.07); display: flex; flex-direction: column; gap: 9px; }
+  .card.picked { border: 1.5px solid #2f5fd0; box-shadow: 0 6px 18px rgba(47,95,208,.18); }
+  .who { display: flex; align-items: center; justify-content: space-between; }
+  .who b { font-size: 13px; display: flex; align-items: center; gap: 7px; }
+  .who small { color: #8a97ab; font-size: 11px; }
+  .style-tag { font-size: 10px; padding: 2px 9px; border-radius: 999px; }
+  .tag-a { color: #c0392b; background: rgba(220,80,60,.1); }
+  .tag-b { color: #1e7e46; background: rgba(46,160,90,.12); }
+  .tag-c { color: #6c4fd0; background: rgba(108,79,208,.1); }
+  .card p { font-size: 12px; color: #45536b; line-height: 1.8; }
+  .card p b { color: #1d2534; }
+  .frag { border-left: 3px solid rgba(47,95,208,.35); background: rgba(47,95,208,.05); border-radius: 0 8px 8px 0; padding: 7px 10px; font-size: 12px; color: #45536b; line-height: 1.7; display: flex; gap: 8px; }
+  .frag input { margin-top: 3px; accent-color: #2f5fd0; }
+  .btn { border: 0; border-radius: 10px; font-size: 12px; padding: 7px 0; cursor: pointer; width: 100%; }
+  .btn-primary { background: linear-gradient(135deg, #2f5fd0, #4a7de8); color: #fff; font-weight: 600; }
+  .btn-line { background: transparent; border: 1px solid rgba(120,140,170,.35); color: #5a6a84; }
+  .picked-label { text-align: center; font-size: 11px; color: #2f5fd0; font-weight: 600; }
+
+  /* 主编融合稿 */
+  .merge { margin-top: 16px; border-radius: 16px; border: 1.5px solid rgba(47,95,208,.4); background: linear-gradient(180deg, rgba(47,95,208,.06), rgba(255,255,255,.9)); padding: 16px 18px; box-shadow: 0 6px 18px rgba(47,95,208,.12); }
+  .merge .who b { font-size: 14px; }
+  .merge-note { font-size: 11px; color: #7d8ea8; margin-top: 2px; }
+  .merge-body { margin-top: 10px; background: rgba(255,255,255,.9); border: 1px solid rgba(120,140,170,.18); border-radius: 12px; padding: 13px 15px; font-size: 12.5px; line-height: 1.9; color: #33405a; }
+  .merge-body mark { background: rgba(46,160,90,.15); color: inherit; padding: 0 2px; border-radius: 3px; }
+  .merge-actions { display: flex; gap: 10px; margin-top: 12px; }
+  .merge-actions .btn { width: auto; padding: 8px 22px; }
+  .mine { margin-top: 12px; font-size: 12px; color: #5a6a84; }
+  .mine a { color: #2f5fd0; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="bookrail">
+    <div class="brand">文秘写作</div>
+    <div class="cover">我要举报<br>这里有人<br>谋反</div>
+    <div class="cover-add">＋</div>
+  </aside>
+
+  <div class="main">
+    <nav class="topbar">
+      <span>信息</span><span class="active">设定</span><span>分卷</span><span>规划</span><span>章纲</span><span>正文</span><span>资料库</span><span>取名</span><span>团队</span><span>任务</span><span>灵感</span><span>设置</span>
+    </nav>
+
+    <div class="page">
+      <div class="crumb">设定 / 核心设定 / <b>对立面</b></div>
+      <div class="head">
+        <h1>对立面：谁在阻拦主角？
+          <small>想好"阻拦从哪里来"，后面每一卷的麻烦才有了根。三份方案独立给出，互相没看过。</small>
+        </h1>
+      </div>
+
+      <div class="members">
+        <div class="member"><span class="avatar" style="background:#c0392b">A</span>编剧A <small>强冲突</small><span class="dot dot-done"></span></div>
+        <div class="member"><span class="avatar" style="background:#1e7e46">B</span>编剧B <small>重因果</small><span class="dot dot-done"></span></div>
+        <div class="member"><span class="avatar" style="background:#6c4fd0">设</span>设定 <small>规则严谨</small><span class="dot dot-done"></span></div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="who"><b><span class="avatar" style="background:#c0392b">A</span>编剧A 的方案</b><span class="style-tag tag-a">强冲突</span></div>
+          <p><b>单一巨擘型：</b>左相谢栾就是谋反主谋，主角每一级上告都撞进他的网里。</p>
+          <p>好处是压力集中、打脸直接；代价是反派太显眼，中期容易写疲。</p>
+          <div class="frag"><input type="checkbox">「举报信递到哪一级，哪一级的长官就恰好是谢栾的门生」——上告流程本身就是反派。</div>
+          <button class="btn btn-primary">用这个</button>
+          <button class="btn btn-line">让 TA 重写</button>
+        </div>
+        <div class="card picked">
+          <div class="who"><b><span class="avatar" style="background:#1e7e46">B</span>编剧B 的方案</b><span class="style-tag tag-b">重因果</span></div>
+          <p><b>体系阻力型：</b>没有单一反派，是"官官相护的规矩"本身在拦人，每个官员都有不查的合理理由。</p>
+          <p>好处是真实、后劲足；代价是爽点要靠主角撬动体系来造，节奏更慢。</p>
+          <div class="frag"><input type="checkbox" checked>「每个官员不是坏，是查下去对自己只有坏处」——阻力来自利益而非阴谋。</div>
+          <button class="btn btn-primary">用这个</button>
+          <button class="btn btn-line">让 TA 重写</button>
+          <div class="picked-label">✓ 您勾选了这份里的 1 段</div>
+        </div>
+        <div class="card">
+          <div class="who"><b><span class="avatar" style="background:#6c4fd0">设</span>设定 的方案</b><span class="style-tag tag-c">规则严谨</span></div>
+          <p><b>明暗双线型：</b>明线是谋反集团，暗线是皇庄亏空案——举报牵动两拨人，反派之间也互相提防。</p>
+          <p>好处是反转空间大；代价是设定复杂，读者需要耐心。</p>
+          <div class="frag"><input type="checkbox" checked>「反派也怕主角把案子捅大，因为案子会牵出他们自己」。</div>
+          <button class="btn btn-primary">用这个</button>
+          <button class="btn btn-line">让 TA 重写</button>
+        </div>
+      </div>
+
+      <!-- 主编融合 -->
+      <div class="merge">
+        <div class="who"><b>主编融合稿</b><span class="style-tag" style="color:#2f5fd0;background:rgba(47,95,208,.1)">按您的勾选整理</span></div>
+        <div class="merge-note">您勾了编剧B 的 1 段 + 设定的 1 段，主编把它们揉成了一份通顺的设定；绿色部分是主编补的衔接。</div>
+        <div class="merge-body">阻拦主角的不是某一个反派，而是官官相护的规矩：案子查下去，对经手的每个官员只有坏处。<mark>更麻烦的是，主角不知道的是——谋反集团内部也怕他把案子捅大，因为案子牵出的亏空会烧到他们自己。于是明处有人压案，暗处有人想灭口，两拨人互相提防，主角反而能在缝隙里往前走。</mark></div>
+        <div class="merge-actions">
+          <button class="btn btn-primary">确认这份</button>
+          <button class="btn btn-line">我再改改</button>
+          <button class="btn btn-line">退回重融</button>
+        </div>
+        <div class="mine">不想用团队的？<a href="#">自己写一份</a> · <a href="#">先留白，以后再定</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

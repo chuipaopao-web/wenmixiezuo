@@ -84,7 +84,7 @@ describe('启动时保留书籍模型方案', () => {
 
     expect(result).toMatchObject({
       booksVisited: 1,
-      updatedAgents: 11,
+      updatedAgents: 14,
       supersededWriterSelections: 0
     });
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
@@ -102,12 +102,12 @@ describe('启动时保留书籍模型方案', () => {
       });
   });
 
-  it('把十一名成员的未来任务统一迁移到Agent Plan并保留旧修订快照', () => {
+  it('把十四名成员的未来任务统一迁移到Agent Plan并保留旧修订快照', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '十一人模型迁移测试书'
+      title: '十四人模型迁移测试书'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const runtime = loadModelRuntimeConfig({
@@ -136,18 +136,21 @@ describe('启动时保留书籍模型方案', () => {
       migrateAllMembersToAgentPlan: true
     });
 
-    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 11 });
+    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 14 });
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
       chief_editor: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       deputy_editor: 'volcengine-ark-agent-plan/minimax-m3',
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
+      third_screenwriter: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       setting: 'volcengine-ark-agent-plan/glm-5.2',
       lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
+      fact_reviewer: 'volcengine-ark-agent-plan/glm-5.2',
       backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       literary_reviewer: 'volcengine-ark-agent-plan/minimax-m3',
       experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',
+      experience_challenger: 'volcengine-ark-agent-plan/deepseek-v4-flash',
       researcher: 'volcengine-ark-agent-plan/deepseek-v4-flash',
       copyright: 'volcengine-ark-agent-plan/kimi-k2.7-code'
     });

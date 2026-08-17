@@ -18,7 +18,7 @@ function memoryStorage() {
   };
 }
 
-describe('四步开书草稿', () => {
+describe('三步开书草稿', () => {
   it('保存并恢复续写路线、多主角、故事方向与作者边界', () => {
     const storage = memoryStorage();
     const empty = emptyOpeningWizardDraft();

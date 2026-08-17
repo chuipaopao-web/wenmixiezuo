@@ -408,7 +408,7 @@ describe('单章完整创作流水线', () => {
     `).all(scope.ownerId, scope.bookId, batch.taskIds[0]!) as unknown as Array<{ mode: string; role_key: string }>;
     expect(retrievalPlans.some((plan) => plan.mode === 'drafting' && plan.role_key === 'lead_writer')).toBe(true);
     expect(new Set(retrievalPlans.filter((plan) => plan.mode === 'review').map((plan) => plan.role_key)))
-      .toEqual(new Set(['setting', 'literary_reviewer', 'experience_reviewer']));
+      .toEqual(new Set(['fact_reviewer', 'literary_reviewer', 'experience_reviewer']));
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
 
     const sourcePanel = context.database.prepare(`SELECT * FROM review_panels

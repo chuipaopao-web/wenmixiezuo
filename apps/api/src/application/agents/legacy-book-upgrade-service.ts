@@ -13,6 +13,7 @@ export interface LegacyBookUpgradeResult {
   profilesCreated: number;
   legacyAgentsRetired: number;
   deferredBooks: number;
+  membersAdded: number;
 }
 
 export class LegacyBookUpgradeService {
@@ -37,17 +38,19 @@ export class LegacyBookUpgradeService {
     let profilesCreated = 0;
     let legacyAgentsRetired = 0;
     let deferredBooks = 0;
+    let membersAdded = 0;
     const deterministic = Object.values(this.roleProfiles).every((profile) => profile.plan === 'deterministic');
     const profiles = toCreativeProfiles(this.roleProfiles);
     for (const scope of books) {
       this.unitOfWork.run(() => {
         const existingCount = this.repository.currentTeamCount(scope);
-        if (existingCount !== 0 && existingCount !== creativeRoleKeys.length) {
-          throw new Error(`书籍${scope.bookId}的十一人团队不完整：${existingCount}/${creativeRoleKeys.length}`);
+        if (existingCount !== 0 && existingCount > creativeRoleKeys.length) {
+          throw new Error(`书籍${scope.bookId}的创作团队人数超出当前编制：${existingCount}/${creativeRoleKeys.length}`);
         }
         profilesCreated += this.ensureProfiles(scope);
         const legacyEnabled = this.repository.legacyEnabledCount(scope);
-        if ((existingCount === 0 || legacyEnabled > 0) && this.repository.hasNonterminalTasks(scope)) {
+        const needsTopUp = existingCount > 0 && existingCount < creativeRoleKeys.length;
+        if ((existingCount === 0 || legacyEnabled > 0 || needsTopUp) && this.repository.hasNonterminalTasks(scope)) {
           deferredBooks += 1;
           return;
         }
@@ -56,7 +59,7 @@ export class LegacyBookUpgradeService {
           const editor = team.find((member) => member.roleKey === 'chief_editor');
           const writer = team.find((member) => member.roleKey === 'lead_writer');
           if (editor === undefined || writer === undefined || team.length !== creativeRoleKeys.length) {
-            throw new Error(`书籍${scope.bookId}的十一人团队创建不完整`);
+            throw new Error(`书籍${scope.bookId}的十四人团队创建不完整`);
           }
           const now = this.clock.now();
           legacyAgentsRetired += this.repository.finalizeTeamUpgrade(scope, {
@@ -66,18 +69,27 @@ export class LegacyBookUpgradeService {
             leaseExpiresAt: new Date(now.getTime() + 60_000).toISOString()
           });
           teamsCreated += 1;
-        } else if (legacyEnabled > 0) {
-          const now = this.clock.now();
-          legacyAgentsRetired += this.repository.finalizeTeamUpgrade(scope, {
-            chiefEditorAgentId: this.repository.currentRoleAgentId(scope, 'chief_editor'),
-            leadWriterAgentId: this.repository.currentRoleAgentId(scope, 'lead_writer'),
-            now: now.toISOString(),
-            leaseExpiresAt: new Date(now.getTime() + 60_000).toISOString()
-          });
+        } else {
+          if (needsTopUp) {
+            const toppedUp = this.teamTemplates.addMissingMembers(scope, { deterministic, profiles });
+            membersAdded += toppedUp.added.length;
+            if (toppedUp.team.length !== creativeRoleKeys.length) {
+              throw new Error(`书籍${scope.bookId}补齐后团队仍不完整：${toppedUp.team.length}/${creativeRoleKeys.length}`);
+            }
+          }
+          if (legacyEnabled > 0) {
+            const now = this.clock.now();
+            legacyAgentsRetired += this.repository.finalizeTeamUpgrade(scope, {
+              chiefEditorAgentId: this.repository.currentRoleAgentId(scope, 'chief_editor'),
+              leadWriterAgentId: this.repository.currentRoleAgentId(scope, 'lead_writer'),
+              now: now.toISOString(),
+              leaseExpiresAt: new Date(now.getTime() + 60_000).toISOString()
+            });
+          }
         }
       });
     }
-    return { booksVisited: books.length, teamsCreated, profilesCreated, legacyAgentsRetired, deferredBooks };
+    return { booksVisited: books.length, teamsCreated, profilesCreated, legacyAgentsRetired, deferredBooks, membersAdded };
   }
 
   private ensureProfiles(scope: { ownerId: string; bookId: string }): number {
@@ -125,11 +137,14 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     deputy_editor: profiles.reviewer,
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
+    third_screenwriter: profiles.chief_editor,
     setting: profiles.style_editor,
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
+    fact_reviewer: profiles.style_editor,
     literary_reviewer: profiles.reviewer,
     experience_reviewer: profiles.reader_experience,
+    experience_challenger: profiles.researcher,
     researcher: profiles.researcher,
     copyright: profiles.copyright
   };

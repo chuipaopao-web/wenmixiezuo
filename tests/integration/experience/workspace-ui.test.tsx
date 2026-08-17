@@ -30,11 +30,14 @@ const agentRoles = [
   ['deputy_editor', '副编', '西施'],
   ['lead_screenwriter', '编剧', '婉儿'],
   ['second_screenwriter', '编剧', '红玉'],
+  ['third_screenwriter', '编剧', '幼薇'],
   ['setting', '设定', '文姬'],
   ['lead_writer', '主笔', '秋香'],
   ['backup_writer', '副笔', '湘君'],
+  ['fact_reviewer', '事实', '班昭'],
   ['literary_reviewer', '审校', '妲己'],
   ['experience_reviewer', '体验', '昭君'],
+  ['experience_challenger', '体验', '妙玉'],
   ['researcher', '研究员', '道韫'],
   ['copyright', '版权', '弄玉']
 ] as const;
@@ -44,7 +47,7 @@ const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, disp
   roleKey,
   roleName,
   displayName,
-  category: index < 5 ? 'core' : 'specialist',
+  category: ['researcher', 'copyright'].includes(roleKey) ? 'specialist' : 'core',
   provider: 'local-deterministic', modelId: `wenmi-fixture-v2-${roleKey}`, activationState: index < 6 ? 'idle' : 'standby',
   publicSummary: `${roleName}公开职责`, responsibilities: ['完成岗位任务'], boundaries: ['不越权修改正史'], retrievalFocus: ['当前任务证据'], outputKinds: ['结构化结果']
 }));
@@ -120,13 +123,13 @@ describe('完整创作工作台', () => {
     expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('顶部团队入口显示当前书11名真实成员状态', async () => {
+  it('顶部团队入口显示当前书14名真实成员状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('11 名成员')).toBeInTheDocument();
+    expect(screen.getByText('14 名成员')).toBeInTheDocument();
     expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/local-deterministic|wenmi-fixture/u)).not.toBeInTheDocument();
   });
@@ -151,7 +154,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('11 名成员')).toBeInTheDocument();
+    expect(screen.getByText('14 名成员')).toBeInTheDocument();
     expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
   });
 
@@ -254,7 +257,7 @@ describe('完整创作工作台', () => {
     await screen.findAllByText('雾钟档案');
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
     const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
-    expect(within(team).getByText('11 名成员')).toBeInTheDocument();
+    expect(within(team).getByText('14 名成员')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
     expect(within(team).getByText('岗位职责')).toBeInTheDocument();
     expect(within(team).getByText('负责什么')).toBeInTheDocument();
@@ -873,7 +876,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       { projection_id: 'projection-actual', projection_type: 'emotion', track: 'actual', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ scopeLabel: '第1章', emotionFlow: ['惊讶', '平静'], baseline: '平' }) }
     ]);
     if (path.endsWith('/memory')) return apiResponse([]);
-    if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十一人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
+    if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十四人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
     if (path.endsWith('/model-bindings/preview') || path.endsWith('/model-bindings/activate')) return apiResponse({ valid: true, futureTasksOnly: true });
     if (path.includes('/model-bindings/') && path.endsWith('/restore')) return apiResponse({ version: 2, futureTasksOnly: true });
     if (path.includes('/confirmations/') && path.endsWith('/accept')) return apiResponse({ status: 'accepted' });

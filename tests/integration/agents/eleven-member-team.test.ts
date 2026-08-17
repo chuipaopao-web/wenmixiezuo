@@ -4,22 +4,22 @@ import { createTestContext, FixedClock, SequenceIds, type TestContext } from '..
 import { creativeMemberContracts } from '../../../apps/api/src/contracts/agent-team-v2.js';
 import { ReviewModelCompatibilityService, ModelBindingV2Service } from '../../../apps/api/src/application/agents/model-binding-v2-service.js';
 
-describe('十一人创作团队', () => {
+describe('十四人创作团队', () => {
   let context: TestContext | undefined;
   afterEach(() => { context?.close(); context = undefined; });
 
-  it('新书创建十一名女性成员，小文秘书不冒充第十二名Agent', () => {
+  it('新书创建十四名女性成员，小文秘书不冒充创作成员Agent', () => {
     context = createTestContext();
     const book = initializeDomainBook(context, 'owner-one', new SequenceIds(), new FixedClock());
     const members = context.database.prepare(`SELECT a.display_name, r.role_key, r.display_name AS title
       FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE a.owner_id = ? AND a.book_id = ? ORDER BY a.created_at, a.agent_id`).all('owner-one', book.bookId);
-    expect(members).toHaveLength(11);
+    expect(members).toHaveLength(14);
     expect(members).toEqual(expect.arrayContaining(creativeMemberContracts.map((member) => expect.objectContaining({
       display_name: member.memberName, role_key: member.roleKey, title: member.shortTitle
     }))));
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_instances WHERE display_name = '小文秘书'`).get()).toEqual({ count: 0 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_bindings WHERE owner_id = ? AND book_id = ?`).get('owner-one', book.bookId)).toEqual({ count: 11 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_bindings WHERE owner_id = ? AND book_id = ?`).get('owner-one', book.bookId)).toEqual({ count: 14 });
   });
 
   it('模型绑定拒绝同模型双编剧、豆包编剧和不允许的写手', () => {
@@ -30,8 +30,10 @@ describe('十一人创作团队', () => {
       modelId: 'minimax-m3',
       plan: 'agent'
     });
-    expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('不同模型');
+    expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
+    expect(() => service.validate({ ...base, third_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
     expect(() => service.validate({ ...base, lead_screenwriter: base.experience_reviewer })).toThrow('豆包');
+    expect(() => service.validate({ ...base, third_screenwriter: base.experience_reviewer })).toThrow('豆包');
     expect(() => service.validate({ ...base, lead_writer: base.literary_reviewer })).toThrow('写手');
     expect(() => service.validate({ ...base, backup_writer: base.lead_writer })).toThrow('主笔与副笔必须使用不同模型');
   });
@@ -48,7 +50,7 @@ describe('十一人创作团队', () => {
     expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).size).toBe(4);
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
-    expect(backupPanel.fact.roleKey).toBe('setting');
+    expect(backupPanel.fact.roleKey).toBe('fact_reviewer');
     expect(backupPanel.fact.modelId).toBe('glm-5.2');
   });
 });

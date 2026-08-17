@@ -163,7 +163,7 @@ describe('定位草稿与原子建书', () => {
       .toBe(blueprint.fullBookOutline);
   });
 
-  it('确认指定草稿版本后原子创建书、11岗位、预算、故事圣经和主编租约', () => {
+  it('确认指定草稿版本后原子创建书、14岗位、预算、故事圣经和主编租约', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -173,9 +173,9 @@ describe('定位草稿与原子建书', () => {
     expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version))
       .toThrow('版本已经变化');
     const result = new BookOnboardingService(context.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, updated.version);
-    expect(result.agentCount).toBe(11);
+    expect(result.agentCount).toBe(14);
     expect(new BookRepository(context.database).require({ ownerId: 'owner-one', bookId: result.bookId })).toMatchObject({ title: '甲书修订名', status: 'active', positioningVersion: 1, editorEpoch: 1 });
-    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 11 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 14 });
     expect(context.database.prepare('SELECT cash_limit_micros FROM budgets WHERE budget_id = ?').get(result.budgetId)).toEqual({ cash_limit_micros: 0 });
     expect(context.database.prepare('SELECT status FROM artifacts WHERE artifact_id = ?').get(result.storyBibleArtifactId)).toEqual({ status: 'draft' });
     expect(context.database.prepare('SELECT editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ editor_epoch: 1 });

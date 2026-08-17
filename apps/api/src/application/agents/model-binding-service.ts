@@ -181,9 +181,9 @@ export class ModelBindingService {
 
 function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModelProfile>): string {
   if (profiles.chief_editor.provider === 'opencodego') {
-    return 'DEC-100：十一名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
+    return 'DEC-100：十四名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
   }
-  return 'DEC-099：十一名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务';
+  return 'DEC-099：十四名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务';
 }
 
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
@@ -195,11 +195,14 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     deputy_editor: profile('deputy_editor', profiles.reviewer),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
+    third_screenwriter: profile('third_screenwriter', profiles.chief_editor),
     setting: profile('setting', profiles.style_editor),
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.chief_editor),
+    fact_reviewer: profile('fact_reviewer', profiles.style_editor),
     literary_reviewer: profile('literary_reviewer', profiles.reviewer),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
+    experience_challenger: profile('experience_challenger', profiles.researcher),
     researcher: profile('researcher', profiles.researcher),
     copyright: profile('copyright', profiles.copyright)
   };
@@ -215,7 +218,7 @@ function preserveCurrentProfilesWithDeputyMigration(
     plan: agent.plan ?? 'deterministic'
   }])) as Partial<Record<CreativeRoleKey, TeamModelProfile>>;
   if (creativeRoleKeys.some((role) => profiles[role] === undefined)) {
-    throw new Error('副编模型迁移前发现十一人团队配置不完整');
+    throw new Error('副编模型迁移前发现十四人团队配置不完整');
   }
   profiles.deputy_editor = deputyEditor;
   return profiles as Record<CreativeRoleKey, TeamModelProfile>;
@@ -224,8 +227,9 @@ function preserveCurrentProfilesWithDeputyMigration(
 function legacyProfileRole(roleKey: string): RoleKey {
   const aliases: Record<string, RoleKey> = {
     chief_editor: 'chief_editor', deputy_editor: 'reviewer', lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'continuity', setting: 'style_editor', lead_writer: 'writer', backup_writer: 'chief_editor',
-    literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', researcher: 'researcher', copyright: 'copyright',
+    second_screenwriter: 'continuity', third_screenwriter: 'chief_editor', setting: 'style_editor', lead_writer: 'writer', backup_writer: 'chief_editor',
+    fact_reviewer: 'style_editor', literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', experience_challenger: 'researcher',
+    researcher: 'researcher', copyright: 'copyright',
     plot_architect: 'plot_architect', continuity: 'continuity', writer: 'writer', reviewer: 'reviewer',
     reader_experience: 'reader_experience', style_editor: 'style_editor'
   };

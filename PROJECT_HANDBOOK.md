@@ -28,8 +28,8 @@
 - [产品说明](docs/PRODUCT.md)：产品定位、功能和边界。
 - [创作工作流 V2](docs/CREATION_WORKFLOW_V2_DESIGN.md)：页面、交互、对象链和AI介入时机。
 - [功能实现与交互详解](docs/FEATURE_IMPLEMENTATION_GUIDE.md)：逐项说明前端使用、后台对象、AI介入、检索和上下文规则。
-- [AI成员完整工作手册](docs/ROLE_PROMPTS.md)：集中查看11名成员的介入时机、资料包预算、工作方法、输出合同、独立设计、融合、压缩、审查与质量调整入口。
-- [AI团队](docs/AGENT_SYSTEM.md)：11名创作成员的职责、模型绑定和真实状态。
+- [AI成员完整工作手册](docs/ROLE_PROMPTS.md)：集中查看14名成员的介入时机、资料包预算、工作方法、输出合同、独立设计、融合、压缩、审查与质量调整入口。
+- [AI团队](docs/AGENT_SYSTEM.md)：14名创作成员的职责、模型绑定和真实状态。
 - [上下文与记忆](docs/MEMORY.md)：每类任务能接收和必须排除的信息。
 - [混合检索](docs/HYBRID_RAG_DESIGN.md)：任务级检索、版本直达、证据回查和跨书隔离。
 - [长篇质量规范](docs/LONGFORM_QUALITY.md)：创作保护、事实审查、文学审查、体验审查与结算。
