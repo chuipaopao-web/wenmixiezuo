@@ -29,9 +29,9 @@ function validBlueprint(): OpeningBlueprintInput {
       end: '他守住边城并发现军报来自三年后的自己。'
     },
     fullBookOutline: '主线是阻止王朝覆灭，结局由陆沉建立新的边境秩序。',
-    mainTags: ['逆袭', '谋略', '热血'],
+    mainTags: ['逆袭', '权谋', '热血'],
     auxiliaryTags: ['架空历史'],
-    storyTraits: ['智斗', '爽感'],
+    storyTraits: ['智斗', '高燃'],
     customTags: ['边城经营'],
     initialMap: '北境·雁回驿及周边三十里。',
     mustFollow: ['不写后宫']

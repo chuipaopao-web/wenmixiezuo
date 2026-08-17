@@ -128,7 +128,7 @@ const templates: NarrativeTemplateDefinition[] = [
     knownRisks: ['只加大敌人强度会疲劳', '小事件若不改变状态会像重复任务'],
     authorQuestions: ['第一个麻烦解决后会造成什么新后果？', '每次升级改变了人物的哪项选择？', '最终目标为什么只能在卷末解决？'],
     beats: [beat('first_problem', '用可理解的小目标启动', '人物进入行动并暴露能力边界', 1), beat('consequence', '让解决结果制造新状态', '下一事件由前一事件自然触发', 2), beat('wider_stakes', '把个人问题推向更大关系或局势', '人物不能只顾眼前得失', 3), beat('irreversible', '安排一次不可逆选择', '高潮前的退路被关闭', 4), beat('climax', '用累积后果完成核心对决', '卷级问题得到阶段结算并产生余波', 5)],
-    previewPrompt: '把当前卷的核心目标拆成有因果关系的升级链，不固定事件数量。', suitableSignals: ['快节奏', '游戏', '竞技', '冒险', '系统', '玄幻'], legacyIds: ['system-task-chain', 'dungeon-first-clear', 'season-championship', 'guild-war']
+    previewPrompt: '把当前卷的核心目标拆成有因果关系的升级链，不固定事件数量。', suitableSignals: ['快节奏', '游戏', '竞技', '冒险', '系统流', '玄幻'], legacyIds: ['system-task-chain', 'dungeon-first-clear', 'season-championship', 'guild-war']
   }),
   defineTemplate({
     templateKey: 'volume-truth-layer-by-layer', sourceMethod: 'mystery-revelation-arc', scope: 'volume',

@@ -572,9 +572,20 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
             <label htmlFor="opening-tag-search">搜索全部标签<input id="opening-tag-search" aria-label="搜索全部标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
             <nav aria-label="标签库分组">
               <button className={activeTagGroupKey === 'recommended' ? 'selected' : ''} type="button" onClick={() => setActiveTagGroupKey('recommended')}>智能推荐</button>
-              {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}</button>)}
+              {availableTagGroups.map((group) => <button className={activeTagGroupKey === group.key ? 'selected' : ''} type="button" key={group.key} onClick={() => setActiveTagGroupKey(group.key)}>{group.name}<small>{[...new Set(groupTagValues(group))].length}</small></button>)}
             </nav>
-            <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`建议2至8个 · 已选 ${mainTags.length} 个`} kind="主要标签" options={matchingTags(normalizedTagQuery.length > 0 ? (taxonomy?.mainTags ?? []) : displayedTagOptions)} selected={mainTags} onToggle={toggleMainTag} blocked={blockedMainTags} />
+            {normalizedTagQuery.length > 0 ? (
+              <div className="tag-search-results">
+                {availableTagGroups.map((group) => {
+                  const options = matchingTags([...new Set(groupTagValues(group))]);
+                  if (options.length === 0) return null;
+                  return <StringTagPicker key={group.key} title={group.name} hint={`${options.length} 个匹配 · 已选 ${mainTags.length} 个`} kind="主要标签" options={options} selected={mainTags} onToggle={toggleMainTag} blocked={blockedMainTags} />;
+                })}
+                {availableTagGroups.every((group) => matchingTags([...new Set(groupTagValues(group))]).length === 0) && <p className="tag-search-empty">没有匹配的标签，可在下方添加自定义标签。</p>}
+              </div>
+            ) : (
+              <StringTagPicker title={activeTagGroup?.name ?? '智能推荐标签'} hint={`建议2至8个 · 已选 ${mainTags.length} 个`} kind="主要标签" options={displayedTagOptions} selected={mainTags} onToggle={toggleMainTag} blocked={blockedMainTags} />
+            )}
           </div></details>
           <div className="custom-tag-row"><label htmlFor="complete-custom-tag">自定义标签</label><div><input id="complete-custom-tag" aria-label="自定义标签" maxLength={40} value={customTag} onChange={(event) => setCustomTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag(); } }} /><button type="button" aria-label="添加自定义标签" onClick={addCustomTag}><PlusIcon />添加</button></div></div>
           {customTags.length > 0 && <div className="selected-tag-strip">{customTags.map((item) => <button type="button" aria-label={`移除自定义标签：${item}`} key={item} onClick={() => setCustomTags(customTags.filter((tag) => tag !== item))}>{item}<XIcon /></button>)}</div>}

@@ -19,7 +19,7 @@ describe('建书REST流程', () => {
         '分类：历史脑洞',
         '男主：陆沉，十八岁，边城驿卒之子。',
         '全书简介：陆沉利用未来军报阻止王朝覆灭。',
-        '主要标签：历史、穿越、谋略'
+        '主要标签：历史、穿越、权谋'
       ].join('\n');
       const response = await app.inject({
         method: 'POST', url: '/api/v1/opening-synopsis/analyze', payload: { synopsis }
@@ -32,7 +32,7 @@ describe('建书REST流程', () => {
           title: '北境军报',
           channel: 'male',
           categoryKey: 'male-history-brain',
-          mainTags: ['历史', '谋略']
+          mainTags: ['历史', '权谋']
         }
       });
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM positioning_drafts').get()).toMatchObject({ count: 0 });
@@ -80,7 +80,7 @@ describe('建书REST流程', () => {
         storyDirection: '张三从一封伪造军令入手，阻止天安城被卷入战争，并追查幕后操控城邦秩序的权臣。',
         worldBackground: '诸城邦以军功与盟约维持秩序。', openingBackground: '天安城拒绝缴纳边境军费。',
         stageOne: { start: '张三发现伪造军令。', development: '他阻止第一次宣战。', end: '他查出军令来自城内权臣。' },
-        fullBookOutline: '张三调查城邦战争规则，最终重建联盟。', mainTags: ['玄幻', '谋略'], auxiliaryTags: [],
+        fullBookOutline: '张三调查城邦战争规则，最终重建联盟。', mainTags: ['玄幻', '权谋'], auxiliaryTags: [],
         storyTraits: ['智斗'], customTags: ['城邦战争'], initialMap: '天安城北门与边军大营。', mustFollow: ['不写后宫']
       };
       const invalidResponse = await app.inject({

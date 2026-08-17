@@ -4874,6 +4874,22 @@ svg {
   background: var(--accent-soft);
 }
 
+.full-tag-library > nav button small {
+  margin-left: 4px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.tag-search-results {
+  display: grid;
+  gap: 12px;
+}
+
+.tag-search-empty {
+  margin: 4px 0;
+  color: var(--ink-faint);
+}
+
 .tag-context-note {
   margin: 0 0 8px;
 }
