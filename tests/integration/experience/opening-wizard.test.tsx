@@ -21,7 +21,7 @@ const taxonomy = {
   version: 'test-opening-v1', sourceLabel: '本地测试', sourceUrl: 'https://example.test/',
   updatedAt: '2026-08-08', notice: '测试目录',
   categories: [{ key: 'female-suspense', name: '悬疑恋爱', channel: 'female' as const, description: '秘密与关系共同推进', recommendedMainTags: ['悬疑', '成长'], tagPackKeys: ['common'] }],
-  mainTags: ['悬疑', '成长', '群像'], auxiliaryTags: ['现代言情'], storyTraits: [],
+  mainTags: ['悬疑', '成长', '群像'], auxiliaryTags: ['现代言情'], storyTraits: [], styleTones: ['爽', '虐'],
   personalityOptions: ['冷静', '敏锐'],
   boundaryGroups: [{ name: '结构与结局', description: '作者明确底线', options: ['不写悲剧结局'] }],
   subjects: [{ name: '现代言情', packKeys: ['common'] }],
@@ -69,6 +69,7 @@ describe('四步开书', () => {
         title: '旧城来信', channel: '女频', category: '悬疑恋爱', subjects: ['现代言情'],
         mainTags: ['悬疑', '成长'], customTags: ['城市记忆'], protagonists: openingBlueprint.protagonists,
         storyDirection: openingBlueprint.storyDirection, mustFollow: openingBlueprint.mustFollow,
+        openingStart: '', storyEnding: '', stylePrimary: '', styleSecondary: '',
         style: openingBlueprint.styleIntent, source: '老板确认的开书资料', version: 3, openingBlueprint
       }}
       onUpdate={onUpdate}
@@ -76,16 +77,19 @@ describe('四步开书', () => {
 
     const dialog = screen.getByRole('dialog', { name: '修改开书资料' });
     expect(within(dialog).getByLabelText('书名')).toHaveValue('旧城来信');
-    fireEvent.click(within(dialog).getByRole('button', { name: '第1步：选择起点' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第1步：创作方式' }));
     expect(within(dialog).getByRole('button', { name: /^从零创作/u })).toBeDisabled();
-    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：作品方向' }));
-    fireEvent.change(within(dialog).getByLabelText('故事方向'), {
+    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：写什么题材' }));
+    await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：故事怎么讲' }));
+    fireEvent.change(within(dialog).getByLabelText('开局'), { target: { value: '林舟收到姐姐寄出的迟到十年的信' } });
+    fireEvent.change(within(dialog).getByLabelText('结局'), { target: { value: '找回城市真实历史' } });
+    fireEvent.change(within(dialog).getByLabelText('故事方向补充'), {
       target: { value: '林舟决定利用会变化的城市地图反向追踪记忆源头，并赶在旧城拆除前救出姐姐。' }
     });
-    await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
-    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：作品方向' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主基调：爽' }));
     expect(await within(dialog).findByText('2 个已选')).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始角色' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：边界与角色' }));
     const save = within(dialog).getByRole('button', { name: '保存修改' });
     fireEvent.click(save);
     fireEvent.click(save);
@@ -118,10 +122,16 @@ describe('四步开书', () => {
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
     expect(document.querySelectorAll('.channel-option input')).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
-    fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
-    expect(screen.getByText(/个已选/u)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+
+    fireEvent.change(screen.getByLabelText('开局'), { target: { value: '林舟收到一封来自未来的旧信' } });
+    fireEvent.change(screen.getByLabelText('结局'), { target: { value: '找回城市真实历史' } });
+    fireEvent.change(screen.getByLabelText('故事方向补充'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
+    fireEvent.click(screen.getByRole('button', { name: '选择主基调：爽' }));
+    expect(screen.getByText(/个已选/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
 
     const first = screen.getByRole('article');
     fireEvent.change(within(first).getByLabelText('姓名'), { target: { value: '林舟' } });
@@ -170,7 +180,7 @@ describe('四步开书', () => {
     const onCreate = vi.fn().mockResolvedValue(false);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
     fireEvent.click(screen.getByRole('button', { name: /^已有正文续写/u }));
-    fireEvent.click(screen.getByRole('button', { name: '第3步：初始角色' }));
+    fireEvent.click(screen.getByRole('button', { name: '第4步：边界与角色' }));
     expect(screen.getByRole('button', { name: '创建书籍' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
@@ -187,7 +197,7 @@ describe('四步开书', () => {
 
   it('服务器草稿比本地新鲜时从服务器恢复', async () => {
     const serverDraft = {
-      schemaVersion: 2, step: 2, creationMode: 'new',
+      schemaVersion: 3, step: 2, creationMode: 'new',
       title: '服务器存的书', channel: 'female', categoryKey: 'female-suspense',
       mainTags: ['悬疑'], auxiliaryTags: [], storyTraits: [],
       protagonists: [{ role: 'female_lead', name: '林舟', age: '成年', background: '档案员', personalities: ['冷静'] }],

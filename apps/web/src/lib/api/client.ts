@@ -188,6 +188,7 @@ export interface OpeningTaxonomyData {
   mainTags: string[];
   auxiliaryTags: string[];
   storyTraits: string[];
+  styleTones: string[];
   personalityOptions: string[];
   personalityGroups: Array<{ key: string; name: string; description: string; options: string[] }>;
   boundaryGroups: Array<{ name: string; description: string; options: string[] }>;
@@ -221,6 +222,10 @@ export interface OpeningBlueprintData {
     personalities: string[];
   }>;
   storyDirection: string;
+  openingStart?: string;
+  storyEnding?: string;
+  stylePrimary?: string;
+  styleSecondary?: string;
   worldBackground: string;
   openingBackground: string;
   stageOne: { start: string; development: string; end: string };
@@ -249,6 +254,10 @@ export interface BookProfileViewData {
   customTags: string[];
   protagonists: OpeningBlueprintData['protagonists'];
   storyDirection: string;
+  openingStart: string;
+  storyEnding: string;
+  stylePrimary: string;
+  styleSecondary: string;
   mustFollow: string[];
   style: OpeningBlueprintData['styleIntent'];
   source: string;

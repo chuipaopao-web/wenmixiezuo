@@ -29,9 +29,9 @@ function validBlueprint(): OpeningBlueprintInput {
       end: '他守住边城并发现军报来自三年后的自己。'
     },
     fullBookOutline: '主线是阻止王朝覆灭，结局由陆沉建立新的边境秩序。',
-    mainTags: ['逆袭', '权谋', '热血'],
+    mainTags: ['逆袭', '权谋', '冒险'],
     auxiliaryTags: ['架空历史'],
-    storyTraits: ['智斗', '高燃'],
+    storyTraits: ['智斗', '打脸'],
     customTags: ['边城经营'],
     initialMap: '北境·雁回驿及周边三十里。',
     mustFollow: ['不写后宫']
@@ -133,6 +133,31 @@ describe('完整开书分类与资料合同', () => {
       initialMap: ''
     })).toThrow();
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), fullBookOutline: '长'.repeat(18_000) })).toThrow('资料总量');
+  });
+
+  it('开局结局可以替代长故事方向，主副基调取自基调目录且不能重复', () => {
+    const blueprint = validBlueprint();
+    blueprint.storyDirection = '';
+    expect(() => validateOpeningBlueprint({ ...blueprint, storyDirection: '短句。' })).toThrow('至少需要20');
+    const accepted = validateOpeningBlueprint({
+      ...blueprint,
+      openingStart: '主角穿越异界成为平民',
+      storyEnding: '登基称帝',
+      stylePrimary: '爽',
+      styleSecondary: '烧脑'
+    });
+    expect(accepted).toMatchObject({
+      openingStart: '主角穿越异界成为平民',
+      storyEnding: '登基称帝',
+      stylePrimary: '爽',
+      styleSecondary: '烧脑'
+    });
+    expect(OPENING_TAXONOMY.styleTones).toEqual(['爽', '乐', '癫', '暖', '甜', '虐', '烧脑', '诡异', '厚重', '黑']);
+    expect(() => validateOpeningBlueprint({ ...blueprint, openingStart: '短' })).toThrow('开局至少需要4个字符');
+    expect(() => validateOpeningBlueprint({ ...blueprint, openingStart: '主角穿越异界成为平民' })).toThrow('结局至少需要2个字符');
+    const withArc = { ...blueprint, openingStart: '主角穿越异界成为平民', storyEnding: '登基称帝' };
+    expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '不存在' })).toThrow('主基调不在当前目录');
+    expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '爽', styleSecondary: '爽' })).toThrow('副基调不能与主基调相同');
   });
 
   it('新合同只保留一个分类，题材可跨包组合且最多5个', () => {

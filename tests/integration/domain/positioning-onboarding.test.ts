@@ -32,7 +32,7 @@ describe('定位草稿与原子建书', () => {
       openingBackground: '林雾收到一封盖着未来日期的拆迁通知。',
       stageOne: { start: '她回到旧宅核查通知。', development: '她发现每次改图都会改变一段现实。', end: '她保住旧街，却让失踪多年的姐姐重新出现。' },
       fullBookOutline: '林雾寻找城市记忆被改写的原因，最终决定保留真实代价而非完美幻象。',
-      mainTags: ['现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['智斗', '感情细腻', '高燃'], customTags: ['城市记忆'],
+      mainTags: ['现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['智斗', '打脸', '反套路'], customTags: ['城市记忆'],
       initialMap: '临海市旧港区：雾桥街、规划院与废弃轮渡站。', mustFollow: ['不靠误会强推剧情']
     };
     const draft = new PositioningService(context.database, ids, clock).createDraft(

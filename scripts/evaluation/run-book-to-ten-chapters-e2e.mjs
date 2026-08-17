@@ -156,7 +156,7 @@ function blueprint(taxonomyVersion) {
     fullBookOutline: '',
     mainTags: ['悬疑', '推理', '女性成长', '群像', '现实'],
     auxiliaryTags: ['职场成长', '探案'],
-    storyTraits: ['成长', '慢热', '正剧'],
+    storyTraits: ['本格推理', '社会派'],
     customTags: ['失物叙事', '档案谜案', '公平线索', '现实质感'],
     initialMap: '雾江市旧城区、失物招领中心、旧城改造办公室与临江公交总站。',
     mustFollow: [

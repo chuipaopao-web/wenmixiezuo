@@ -367,27 +367,29 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
-    fireEvent.change(within(dialog).getByLabelText('故事方向'), { target: { value: storyDirection } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：作品方向' }));
-
-    expect(within(dialog).getByText('必须遵守')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('目标读者推荐')).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByText('查看和调整主要标签'));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：故事怎么讲' }));
+
+    fireEvent.change(within(dialog).getByLabelText('开局'), { target: { value: '林舟收到一封来自未来的失踪通知' } });
+    fireEvent.change(within(dialog).getByLabelText('结局'), { target: { value: '找回姐姐并阻止旧城被吞没' } });
+    fireEvent.change(within(dialog).getByLabelText('故事方向补充'), { target: { value: storyDirection } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择主基调：爽' }));
     await waitFor(() => expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument());
-    fireEvent.click(within(dialog).getByRole('button', { name: '取消主要标签：群像' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消元素标签：群像' }));
     expect(within(dialog).getByText(/已选 7 个/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主要标签：群像' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '选择元素标签：群像' }));
     fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
+    expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument();
+    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：边界与角色' }));
+    expect(within(dialog).getAllByText('必须遵守').length).toBeGreaterThan(0);
     expect(within(dialog).getByText('感情与关系')).toBeInTheDocument();
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '选择必须遵守：不写后宫' }));
     fireEvent.change(within(dialog).getByLabelText('自定义必须遵守'), { target: { value: '不靠误会强推剧情' } });
-    expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument();
-    expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
-
-    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始角色' }));
     expect(dialog.querySelector('#opening-protagonist-name')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '为角色1取名' }));
     const namingDialog = await screen.findByRole('dialog', { name: '角色1取名助手' });
@@ -563,7 +565,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         { key: 'male-fantasy-brain', name: '玄幻脑洞', channel: 'male', description: '男频玄幻脑洞', recommendedMainTags: ['玄幻', '脑洞'] },
         { key: 'female-modern-brain', name: '现言脑洞', channel: 'female', description: '女频现言脑洞', recommendedMainTags: ['现言', '脑洞'] }
       ],
-      mainTags: ['玄幻', '现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻'], personalityOptions: ['冷静', '敏锐'],
+      mainTags: ['玄幻', '现言', '脑洞', '悬疑', '成长'], auxiliaryTags: ['职场成长'], storyTraits: ['群像', '感情细腻'], styleTones: ['爽', '虐'], personalityOptions: ['冷静', '敏锐'],
       boundaryGroups: [
         { name: '感情与关系', description: '关系走向', options: ['不写后宫', '不写多角恋'] },
         { name: '主角体验', description: '主角底线', options: ['不虐主', '不降智'] },

@@ -437,6 +437,8 @@ export class ChapterPipelineService {
             personalities: protagonist.personalities
           })),
           storyDirection: openingProfile.storyDirection,
+          stylePrimary: openingProfile.stylePrimary,
+          styleSecondary: openingProfile.styleSecondary,
           mustFollow: openingProfile.mustFollow
         }), draftPolicy.openingProfileMaximum),
         reason: '老板确认的开书定位、人物、故事方向和必须遵守项；正文不得擅自改写专名或核心方向',

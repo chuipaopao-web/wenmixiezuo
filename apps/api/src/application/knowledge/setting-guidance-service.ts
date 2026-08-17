@@ -201,6 +201,7 @@ export class SettingGuidanceService {
           `题材：${(blueprint.auxiliaryTags ?? []).join('、') || '未填写'}`,
           `主要标签：${(blueprint.mainTags ?? []).join('、') || '未填写'}`,
           `作品特点：${(blueprint.storyTraits ?? []).join('、') || '未填写'}`,
+          `全书基调：${[blueprint.stylePrimary, blueprint.styleSecondary].filter((tone) => typeof tone === 'string' && tone.trim().length > 0).join('＋') || '未选择'}`,
           `主角：${(blueprint.protagonists ?? []).map((item) => `${item.name}（${item.age}）`).join('、') || '未填写'}`,
           `必须遵守：${(blueprint.mustFollow ?? []).join('；') || '无额外要求'}`
         ].join('\n'), 900),

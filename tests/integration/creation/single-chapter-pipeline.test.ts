@@ -70,7 +70,7 @@ describe('单章完整创作流水线', () => {
       protagonists: [{ role: 'female_lead', name: '林澄', age: '二十七岁', background: '失物招领中心档案员', personalities: ['敏锐'] }],
       storyDirection: '林澄在失物招领中心追查一张日期来自明天的归还单。',
       worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' }, fullBookOutline: '',
-      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['高燃'], customTags: [],
+      mainTags: ['现言', '悬疑'], auxiliaryTags: ['青春校园'], storyTraits: ['打脸'], customTags: [],
       initialMap: '', mustFollow: ['机构名称固定为失物招领中心']
     };
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {

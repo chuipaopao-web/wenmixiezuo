@@ -376,7 +376,7 @@ describe('设定大纲工作状态', () => {
           fullBookOutline: '',
           mainTags: ['游戏', '竞技', '成长'],
           auxiliaryTags: ['游戏异界'],
-          storyTraits: ['高燃'],
+          storyTraits: ['打脸'],
           customTags: [],
           initialMap: '',
           mustFollow: ['不写多角恋']

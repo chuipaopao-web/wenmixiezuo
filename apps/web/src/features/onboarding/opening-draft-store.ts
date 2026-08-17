@@ -2,7 +2,7 @@ import { BOOK_TITLE_MAX_CHARACTERS, limitBookTitle } from '@wenmi/contracts';
 import type { BookCreationMode, OpeningChannel, ProtagonistRole } from '../../lib/api/client';
 
 export const OPENING_DRAFT_STORAGE_KEY = 'wenmi.opening-draft.v2';
-const OPENING_DRAFT_SCHEMA_VERSION = 2 as const;
+const OPENING_DRAFT_SCHEMA_VERSION = 3 as const;
 
 /** 草稿按账号隔离存储，同一浏览器切换账号不会看到彼此的开书信息。 */
 export function openingDraftStorageKey(accountId: string): string {
@@ -22,7 +22,7 @@ export interface OpeningProtagonistDraft {
 
 export interface OpeningWizardDraft {
   schemaVersion: typeof OPENING_DRAFT_SCHEMA_VERSION;
-  step: 1 | 2 | 3;
+  step: 1 | 2 | 3 | 4;
   creationMode: BookCreationMode;
   title: string;
   channel: OpeningChannel | null;
@@ -31,6 +31,10 @@ export interface OpeningWizardDraft {
   auxiliaryTags: string[];
   storyTraits: string[];
   protagonists: OpeningProtagonistDraft[];
+  openingStart: string;
+  storyEnding: string;
+  stylePrimary: string;
+  styleSecondary: string;
   storyDirection: string;
   targetAudience: string;
   worldBackground: string;
@@ -58,6 +62,10 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
     auxiliaryTags: [],
     storyTraits: [],
     protagonists: [{ role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }],
+    openingStart: '',
+    storyEnding: '',
+    stylePrimary: '',
+    styleSecondary: '',
     storyDirection: '',
     targetAudience: '',
     worldBackground: '',
@@ -108,6 +116,8 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
     || draft.title.trim().length > 0
     || draft.channel !== null
     || draft.categoryKey !== null
+    || draft.openingStart.trim().length > 0
+    || draft.storyEnding.trim().length > 0
     || draft.storyDirection.trim().length > 0
     || draft.targetAudience.trim().length > 0
     || draft.worldBackground.trim().length > 0
@@ -127,15 +137,18 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
 }
 
 export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
-  if (!isRecord(value) || value.schemaVersion !== OPENING_DRAFT_SCHEMA_VERSION) return null;
+  // v2 是旧三步向导的草稿：第2步（作品方向）落到新第3步，第3步（初始角色）并入新第4步；更早的第4步回落到第2步。
+  if (!isRecord(value) || (value.schemaVersion !== 2 && value.schemaVersion !== OPENING_DRAFT_SCHEMA_VERSION)) return null;
   const empty = emptyOpeningWizardDraft();
   const protagonists = Array.isArray(value.protagonists)
     ? value.protagonists.slice(0, 8).map(parseProtagonist).filter((item): item is OpeningProtagonistDraft => item !== null)
     : [];
+  const rawStep = value.step;
   return {
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
-    // 旧四步草稿的第4步（题材与边界）已并入第2步（作品方向），恢复时回落到第2步。
-    step: value.step === 2 || value.step === 4 ? 2 : value.step === 3 ? 3 : 1,
+    step: value.schemaVersion === 2
+      ? rawStep === 2 ? 3 : rawStep === 3 ? 4 : rawStep === 4 ? 2 : 1
+      : rawStep === 2 || rawStep === 3 || rawStep === 4 ? rawStep as 2 | 3 | 4 : 1,
     creationMode: value.creationMode === 'continuation' ? 'continuation' : 'new',
     title: limitBookTitle(limitedText(value.title, BOOK_TITLE_MAX_CHARACTERS * 2)),
     channel: value.channel === 'male' || value.channel === 'female' ? value.channel : null,
@@ -145,6 +158,10 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
     storyTraits: uniqueTexts(value.storyTraits, 11, 40),
     protagonists: protagonists.length > 0 ? protagonists : empty.protagonists,
     storyDirection: limitedText(value.storyDirection, 800),
+    openingStart: limitedText(value.openingStart, 200),
+    storyEnding: limitedText(value.storyEnding, 200),
+    stylePrimary: limitedText(value.stylePrimary, 20),
+    styleSecondary: limitedText(value.styleSecondary, 20),
     targetAudience: limitedText(value.targetAudience, 500),
     worldBackground: limitedText(value.worldBackground, 10_000),
     openingBackground: limitedText(value.openingBackground, 10_000),

@@ -43,6 +43,7 @@ export interface OpeningTaxonomy {
   auxiliaryTags: string[];
   storyTraits: string[];
   personalityOptions: string[];
+  styleTones: string[];
   personalityGroups: OpeningPersonalityGroup[];
   boundaryGroups: OpeningBoundaryGroup[];
   tagGroups: OpeningTagGroup[];
@@ -78,6 +79,12 @@ export interface OpeningBlueprintInput {
   targetAudience: string;
   protagonists: OpeningProtagonistInput[];
   storyDirection: string;
+  /** 开局与结局：新版开书用两个短句替代长篇故事方向；storyDirection 变为可选补充。 */
+  openingStart?: string;
+  storyEnding?: string;
+  /** 全书主基调与副基调（可选，取自 styleTones），其余基调随分卷增加。 */
+  stylePrimary?: string;
+  styleSecondary?: string;
   worldBackground: string;
   openingBackground: string;
   stageOne: { start: string; development: string; end: string };
@@ -117,8 +124,8 @@ function categoryPackKeys(key: string): string[] {
 
 const maleCategories: OpeningTaxonomyCategory[] = [
   ['male-fantasy-brain', '玄幻脑洞', '高概念金手指、成长体系与东方幻想', ['玄幻', '脑洞', '升级']],
-  ['male-traditional-fantasy', '传统玄幻', '世界规则、修炼体系与史诗冒险', ['玄幻', '热血', '成长']],
-  ['male-urban-brain', '都市脑洞', '现代都市中的高概念设定', ['都市', '脑洞', '爽文']],
+  ['male-traditional-fantasy', '传统玄幻', '世界规则、修炼体系与史诗冒险', ['玄幻', '升级', '成长']],
+  ['male-urban-brain', '都市脑洞', '现代都市中的高概念设定', ['都市', '脑洞', '逆袭']],
   ['male-urban-daily', '都市日常', '现实生活、职业与人物关系', ['都市', '日常', '成长']],
   ['male-urban-farming', '都市种田', '都市或乡村语境中的经营、建设与生活成长', ['都市', '种田', '经营']],
   ['male-urban-martial', '都市高武', '现代社会与武道成长融合', ['都市', '高武', '升级']],
@@ -126,7 +133,7 @@ const maleCategories: OpeningTaxonomyCategory[] = [
   ['male-war-god-son-in-law', '战神赘婿', '身份反差、逆袭与强冲突都市故事', ['都市', '赘婿', '逆袭']],
   ['male-history-ancient', '历史古代', '真实或拟真历史语境中的人物与事件', ['历史', '古代', '权谋']],
   ['male-history-brain', '历史脑洞', '历史背景中的架空推演与新设定', ['历史', '脑洞', '权谋']],
-  ['male-war-spy', '抗战谍战', '战争背景中的情报、潜伏与家国抉择', ['历史', '谍战', '热血']],
+  ['male-war-spy', '抗战谍战', '战争背景中的情报、潜伏与家国抉择', ['历史', '谍战', '家国情怀']],
   ['male-eastern-xianxia', '东方仙侠', '修仙、宗门、因果与东方神话', ['仙侠', '修仙', '成长']],
   ['male-fantasy-xianxia', '奇幻仙侠', '奇幻设定与仙侠成长体系融合', ['奇幻', '仙侠', '冒险']],
   ['male-game-sports', '游戏体育', '网游、电竞、游戏异界与竞技体育', ['游戏', '竞技', '成长']],
@@ -188,6 +195,9 @@ const subjects: OpeningSubjectOption[] = [
   ...subject(['common'], '穿越', '重生'),
   ...subject(['derivative'], '动漫衍生', '影视衍生', '男频衍生', '女频衍生', '轻小说', '原生幻想', '综漫')
 ];
+// 全书基调词：高度综合的阅读感觉，开书只选主基调+副基调，其余基调随分卷增加。
+const STYLE_TONES = ['爽', '乐', '癫', '暖', '甜', '虐', '烧脑', '诡异', '厚重', '黑'];
+
 const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
   ...group.mainTags,
   ...group.auxiliaryTags,
@@ -240,7 +250,7 @@ const personalityGroups: OpeningPersonalityGroup[] = [
 ];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-08-17-v8',
+  version: 'wenmi-single-category-subject-library-2026-08-17-v9',
   sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-08-17',
@@ -254,6 +264,7 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
     ...uniqueTagValues(OPENING_TAG_GROUPS, 'auxiliary')
   ])],
   storyTraits: uniqueTagValues(OPENING_TAG_GROUPS, 'trait'),
+  styleTones: STYLE_TONES,
   personalityOptions: [...new Set(personalityGroups.flatMap((group) => group.options))],
   personalityGroups,
   boundaryGroups: [
@@ -317,8 +328,20 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
-  const storyDirection = requiredText(input.storyDirection, '故事方向', 800);
-  if (storyDirection.length < 20) throw new Error('故事方向至少需要20个字符，请写清开篇处境、启动事件、主角目标和主要阻力');
+  const storyDirection = optionalText(input.storyDirection, '故事方向补充', 800);
+  const openingStart = optionalText(input.openingStart, '开局', 200);
+  const storyEnding = optionalText(input.storyEnding, '结局', 200);
+  if (openingStart.length > 0 || storyEnding.length > 0) {
+    if (openingStart.length < 4) throw new Error('开局至少需要4个字符，一句话说清主角的起点处境');
+    if (storyEnding.length < 2) throw new Error('结局至少需要2个字符，一句话说清故事的终点');
+  } else if (storyDirection.length < 20) {
+    throw new Error('请用一句话填写开局和结局；故事方向至少需要20个字符');
+  }
+  const stylePrimary = optionalText(input.stylePrimary, '主基调', 20);
+  const styleSecondary = optionalText(input.styleSecondary, '副基调', 20);
+  if (stylePrimary.length > 0 && !STYLE_TONES.includes(stylePrimary)) throw new Error(`主基调不在当前目录：${stylePrimary}`);
+  if (styleSecondary.length > 0 && !STYLE_TONES.includes(styleSecondary)) throw new Error(`副基调不在当前目录：${styleSecondary}`);
+  if (stylePrimary.length > 0 && stylePrimary === styleSecondary) throw new Error('副基调不能与主基调相同');
   if (Array.isArray(input.mainTags)) {
     const distinctMainTags = new Set(input.mainTags
       .map((item) => typeof item === 'string' ? item.trim() : '')
@@ -360,6 +383,10 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     targetAudience: optionalText(input.targetAudience, '目标读者', 500),
     protagonists,
     storyDirection,
+    ...(openingStart.length > 0 ? { openingStart } : {}),
+    ...(storyEnding.length > 0 ? { storyEnding } : {}),
+    ...(stylePrimary.length > 0 ? { stylePrimary } : {}),
+    ...(styleSecondary.length > 0 ? { styleSecondary } : {}),
     worldBackground: optionalText(input.worldBackground, '世界观背景', 10_000),
     openingBackground: optionalText(input.openingBackground, '故事起始背景', 10_000),
     stageOne: {

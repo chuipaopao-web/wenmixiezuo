@@ -12,6 +12,10 @@ export interface BookProfileView {
   customTags: string[];
   protagonists: OpeningBlueprintInput['protagonists'];
   storyDirection: string;
+  openingStart: string;
+  storyEnding: string;
+  stylePrimary: string;
+  styleSecondary: string;
   mustFollow: string[];
   style: {
     languageTones: string[];
@@ -42,10 +46,16 @@ export class BookProfileViewService {
     const row = this.repository.openingProfile(scope);
     if (row === undefined) return null;
     const storedBlueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
+    const openingStart = storedBlueprint.openingStart?.trim() ?? '';
+    const storyEnding = storedBlueprint.storyEnding?.trim() ?? '';
+    const legacyDirection = storedBlueprint.storyDirection?.trim() || storedBlueprint.fullBookOutline?.trim() || '';
+    const composedDirection = openingStart.length > 0
+      ? [`开局：${openingStart}`, `结局：${storyEnding}`, legacyDirection].filter((part) => part.length > 0 && !part.endsWith('：')).join('。')
+      : legacyDirection;
     const blueprint: OpeningBlueprintInput = {
       ...storedBlueprint,
       creationMode: storedBlueprint.creationMode ?? 'new',
-      storyDirection: storedBlueprint.storyDirection?.trim() || storedBlueprint.fullBookOutline?.trim() || ''
+      storyDirection: composedDirection
     };
     const style = blueprint.styleIntent ?? {
       languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []
@@ -59,6 +69,10 @@ export class BookProfileViewService {
       customTags: blueprint.customTags,
       protagonists: blueprint.protagonists,
       storyDirection: blueprint.storyDirection,
+      openingStart,
+      storyEnding,
+      stylePrimary: storedBlueprint.stylePrimary?.trim() ?? '',
+      styleSecondary: storedBlueprint.styleSecondary?.trim() ?? '',
       mustFollow: blueprint.mustFollow,
       style,
       source: '老板确认的开书资料',
