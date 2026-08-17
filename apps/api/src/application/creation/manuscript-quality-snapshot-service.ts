@@ -4,6 +4,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { ManuscriptQualitySnapshotRepository } from '../../infrastructure/db/repositories/manuscript-quality-snapshot-repository.js';
+import { ProductionWorkflowRepository } from '../../infrastructure/db/repositories/production-workflow-repository.js';
 
 const POLICY_VERSION = 'manuscript-quality-vector-v1';
 const REGRESSION_DELTA = 8;
@@ -47,7 +48,8 @@ export class ManuscriptQualitySnapshotService {
     reports: ProductionReview[];
   }): ManuscriptQualityDecision {
     assertBookScope(scope);
-    assertCompletePanel(input.reports, input.manuscriptVersionId);
+    assertCompletePanel(input.reports, input.manuscriptVersionId,
+      new ProductionWorkflowRepository(this.database).panelReviewerRoles(scope, input.reviewPanelId).length);
     return new UnitOfWork(this.database).run(() => {
       const existing = this.repository.findByPanel(
         scope, input.manuscriptVersionId, input.reviewPanelId
@@ -117,11 +119,11 @@ export class ManuscriptQualitySnapshotService {
   }
 }
 
-function assertCompletePanel(reports: ProductionReview[], manuscriptVersionId: string): void {
-  if (reports.length !== 3
-    || new Set(reports.map((report) => report.reviewerRole)).size !== 3
+function assertCompletePanel(reports: ProductionReview[], manuscriptVersionId: string, expectedSeats: number): void {
+  if (reports.length !== expectedSeats
+    || new Set(reports.map((report) => report.reviewerRole)).size !== expectedSeats
     || reports.some((report) => report.manuscriptVersionId !== manuscriptVersionId)) {
-    throw new Error('质量快照必须绑定同一稿件的事实、文学、体验三份独立报告');
+    throw new Error('质量快照必须绑定同一稿件的完整点评席独立报告');
   }
 }
 

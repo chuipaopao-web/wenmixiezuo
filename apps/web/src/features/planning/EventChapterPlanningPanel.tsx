@@ -2,7 +2,7 @@ import type { EventChapterChallengeContent } from '@wenmi/contracts';
 import { useCallback,useEffect,useMemo,useState } from 'react';
 import {
   cancelTask,confirmEventChapterSequence,fetchAuthorPlanningInputs,fetchCreationWorkflow,fetchExpressionProfile,
-  fetchEventChapterGeneration,fetchEventChapterSequence,fetchEventSequence,fetchVolumePlans,freezeRecentEventChapterOutlines,
+  fetchEventChapterGeneration,fetchEventChapterSequence,fetchEventSequence,fetchTeamConfig,fetchVolumePlans,freezeRecentEventChapterOutlines,
   initializeEventChapterSequence,retryTask,saveExpressionProfile,settleStoryEvent,startEventChapterDetailGeneration,startWritingRun,
   startEventChapterDetailChallenge,startEventChapterSequenceChallenge,startEventChapterSequenceGeneration,
   type EventChapterGenerationData,type EventChapterOutlineData,
@@ -22,6 +22,7 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   const[detailTask,setDetailTask]=useState<EventChapterGenerationData|null>(null);
   const[sequenceChallengeTask,setSequenceChallengeTask]=useState<EventChapterGenerationData|null>(null);
   const[detailChallengeTask,setDetailChallengeTask]=useState<EventChapterGenerationData|null>(null);
+  const[challengers,setChallengers]=useState<Array<{roleKey:string;name:string}>>([]);
   const[detailCount,setDetailCount]=useState(1);
   const[freezeCount,setFreezeCount]=useState(1);
   const[busy,setBusy]=useState(false);
@@ -32,8 +33,10 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
   const{guardAi}=useMembershipGate();
 
   const load=useCallback(async(signal?:AbortSignal)=>{
-    const[nextWorkflow,nextExpression]=await Promise.all([fetchCreationWorkflow(bookId,signal),fetchExpressionProfile(bookId,signal)]);
+    const[nextWorkflow,nextExpression,nextTeam]=await Promise.all([fetchCreationWorkflow(bookId,signal),fetchExpressionProfile(bookId,signal),fetchTeamConfig(bookId,signal)]);
     setWorkflow(nextWorkflow);setExpression(nextExpression);
+    setChallengers(nextTeam.members.filter(member=>member.roleKey==='second_screenwriter'||member.roleKey==='third_screenwriter')
+      .map(member=>({roleKey:member.roleKey,name:member.displayName})));
     if(nextExpression?.narrativePerson)setNarrativePerson(nextExpression.narrativePerson);
     if(nextExpression?.viewpointDistance)setViewpointDistance(nextExpression.viewpointDistance);
     let nextEventId=nextWorkflow.activeEventRef?.id??null;
@@ -106,10 +109,10 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
     setSequenceTask(await startEventChapterSequenceGeneration(bookId,eventId,{expectedSequenceRevision:sequence.revision,
       expectedWorkflowVersion:workflow.planningVersion,authorInputRefs:refs,idempotencyKey:key('chapter-sequence-ai')}));
   });};
-  const challengeSequence=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;void run(async()=>{
+  const challengeSequence=(version:EventChapterSequenceVersionData,challengerRoleKey:string)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;void run(async()=>{
     setSequenceChallengeTask(await startEventChapterSequenceChallenge(bookId,eventId,version.sequenceVersionId,{
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
-      idempotencyKey:key('chapter-sequence-challenge')}));
+      challengerRoleKey,idempotencyKey:key('chapter-sequence-challenge')}));
   });};
   const confirm=(version:EventChapterSequenceVersionData)=>{if(sequence===null||workflow===null||eventId===null)return;void run(async()=>{
     setSequence(await confirmEventChapterSequence(bookId,eventId,{sequenceVersionId:version.sequenceVersionId,
@@ -121,11 +124,11 @@ export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{b
       expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
       authorInputRefs:refs,idempotencyKey:key('chapter-details-ai')}));
   });};
-  const challengeDetail=(item:EventChapterOutlineData)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;
+  const challengeDetail=(item:EventChapterOutlineData,challengerRoleKey:string)=>{if(sequence===null||workflow===null||eventId===null)return;if(!guardAi())return;
     const version=item.activeVersion??item.versions[0]??null;if(version===null)return;void run(async()=>{
       setDetailChallengeTask(await startEventChapterDetailChallenge(bookId,eventId,item.outlineId,version.outlineVersionId,{
         expectedSequenceRevision:sequence.revision,expectedWorkflowVersion:workflow.planningVersion,
-        idempotencyKey:key('chapter-detail-challenge')}));
+        challengerRoleKey,idempotencyKey:key('chapter-detail-challenge')}));
     });};
   const freeze=()=>{if(sequence===null||workflow===null||eventId===null)return;const targets=pending.slice(0,freezeCount);
     const items=targets.map(item=>({outlineId:item.outlineId,outlineVersionId:item.versions[0]?.outlineVersionId??'',
@@ -186,9 +189,9 @@ const confirmExpression=()=>void run(async()=>{
       {sequenceTask!==null&&<TaskStrip task={sequenceTask} onCancel={()=>taskControl(sequenceTask,'cancel')} onRetry={()=>taskControl(sequenceTask,'retry')}/>}
       {sequenceChallengeTask!==null&&<TaskStrip task={sequenceChallengeTask} onCancel={()=>taskControl(sequenceChallengeTask,'cancel')} onRetry={()=>taskControl(sequenceChallengeTask,'retry')}/>}
       {candidates.length>0&&<div className="chapter-sequence-candidates">{candidates.map(version=>
-        <SequenceCandidate key={version.sequenceVersionId} version={version} busy={busy}
+        <SequenceCandidate key={version.sequenceVersionId} version={version} busy={busy} challengers={challengers}
           challenge={challengeFor(sequenceChallengeTask,'sequence',sequence.sequenceId,version.sequenceVersionId)}
-          challengeBusy={activeTask(sequenceChallengeTask?.status)} onChallenge={()=>challengeSequence(version)} onConfirm={()=>confirm(version)}/>)}</div>}
+          challengeBusy={activeTask(sequenceChallengeTask?.status)} onChallenge={(roleKey)=>challengeSequence(version,roleKey)} onConfirm={()=>confirm(version)}/>)}</div>}
     </section>}
 
     {sequence.activeVersion!==null&&<><section className="chapter-chain-section">
@@ -210,9 +213,9 @@ const confirmExpression=()=>void run(async()=>{
       {!readOnly&&detailChallengeTask!==null&&<TaskStrip task={detailChallengeTask} onCancel={()=>taskControl(detailChallengeTask,'cancel')} onRetry={()=>taskControl(detailChallengeTask,'retry')}/>}
       <div className="detailed-outline-grid" aria-label={readOnly?'历史详细章纲':undefined}>{detailItems.map(item=>{
         const version=item.activeVersion??item.versions[0]??null;
-        return <DetailedOutlineCard key={item.outlineId} item={item} readOnly={readOnly}
+        return <DetailedOutlineCard key={item.outlineId} item={item} readOnly={readOnly} challengers={challengers}
           challenge={version===null?null:challengeFor(detailChallengeTask,'detail',item.outlineId,version.outlineVersionId)}
-          challengeBusy={activeTask(detailChallengeTask?.status)} onChallenge={()=>challengeDetail(item)}/>;
+          challengeBusy={activeTask(detailChallengeTask?.status)} onChallenge={(roleKey)=>challengeDetail(item,roleKey)}/>;
       })}</div>
       {!readOnly&&available>0&&<div className="freeze-chapters"><label>确认并冻结<select value={freezeCount} onChange={e=>setFreezeCount(Number(e.target.value))}>
         {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
@@ -241,17 +244,18 @@ const confirmExpression=()=>void run(async()=>{
   </section>;
 }
 
-function SequenceCandidate({version,busy,challenge,challengeBusy,onChallenge,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;
-  challenge:EventChapterChallengeContent|null;challengeBusy:boolean;onChallenge:()=>void;onConfirm:()=>void}){
+function SequenceCandidate({version,busy,challengers,challenge,challengeBusy,onChallenge,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;
+  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string}|null;challengeBusy:boolean;
+  onChallenge:(challengerRoleKey:string)=>void;onConfirm:()=>void}){
   return <article><header><div><small>候选稿 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
     <strong>{version.content.chapters.length}章</strong></header>
     <ol>{version.content.chapters.map(chapter=><li key={chapter.chapterNumber}><b>第{chapter.chapterNumber}章 {chapter.title}</b>
       <span>{chapter.eventResponsibility}</span><small>{chapter.openingState} → {chapter.endingState}</small></li>)}</ol>
     <div className="closure-list"><b>事件闭环</b>{version.content.closureCoverage.map(item=>
       <span key={item.endingCondition}>第{item.evidenceChapterNumber}章：{item.endingCondition}</span>)}</div>
-    {challenge!==null&&<ChallengeAdvice challenge={challenge}/>}<div className="chapter-candidate-actions">
-      <button className="secondary-button" disabled={busy||challengeBusy} type="button" onClick={onChallenge}>
-        {challengeBusy?'另一位编剧正在看…':'请另一位编剧看看'}</button>
+    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by}/>}<div className="chapter-candidate-actions">
+      {challengers.map(person=><button key={person.roleKey} className="secondary-button" disabled={busy||challengeBusy} type="button"
+        onClick={()=>onChallenge(person.roleKey)}>{challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}
       <button className="primary-button" disabled={busy} type="button" onClick={onConfirm}>确认这条完整章链</button>
     </div></article>;
 }
@@ -261,8 +265,9 @@ function CoarseChapterCard({item,last}:{item:EventChapterOutlineData;last:boolea
     <small>{item.planned.openingState}</small><i>↓</i><small>{item.planned.endingState}</small>
     {last&&<em>本章负责事件收束</em>}</article>;
 }
-function DetailedOutlineCard({item,readOnly,challenge,challengeBusy,onChallenge}:{item:EventChapterOutlineData;readOnly:boolean;
-  challenge:EventChapterChallengeContent|null;challengeBusy:boolean;onChallenge:()=>void}){
+function DetailedOutlineCard({item,readOnly,challengers,challenge,challengeBusy,onChallenge}:{item:EventChapterOutlineData;readOnly:boolean;
+  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string}|null;challengeBusy:boolean;
+  onChallenge:(challengerRoleKey:string)=>void}){
   const version=item.activeVersion??item.versions[0]??null;
   if(version===null)return <article className="detailed-outline empty"><small>第{item.chapterNumber}章</small><h5>{item.planned.title}</h5>
     <p>等待本轮详细设计</p></article>;
@@ -273,12 +278,13 @@ function DetailedOutlineCard({item,readOnly,challenge,challengeBusy,onChallenge}
     <p><b>必须到达：</b>{content.requiredEndingState}</p><details><summary>人物、边界与自由发挥</summary>
       <p>{content.cast.map(person=>person.name+'：'+person.objective).join('；')}</p>
       <p>不能违反：{content.mustNotViolate.join('；')}</p><p>自由发挥：{content.creativeFreedom.join('；')}</p></details>
-    {challenge!==null&&<ChallengeAdvice challenge={challenge}/>} {!readOnly&&<button className="secondary-button chapter-challenge-button"
-      disabled={challengeBusy} type="button" aria-label={`请另一位编剧看看第${item.chapterNumber}章`} onClick={onChallenge}>
-      {challengeBusy?'另一位编剧正在看…':'请另一位编剧看看'}</button>}</article>;
+    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by}/>} {!readOnly&&<div className="chapter-challenge-row">
+      {challengers.map(person=><button key={person.roleKey} className="secondary-button chapter-challenge-button"
+        disabled={challengeBusy} type="button" aria-label={`请${person.name}看看第${item.chapterNumber}章`} onClick={()=>onChallenge(person.roleKey)}>
+        {challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}</div>}</article>;
 }
-function ChallengeAdvice({challenge}:{challenge:EventChapterChallengeContent}){
-  return <aside className="chapter-challenge-advice"><small>另一位编剧的参考意见</small><p>{challenge.summary}</p>
+function ChallengeAdvice({challenge,by}:{challenge:EventChapterChallengeContent;by:string}){
+  return <aside className="chapter-challenge-advice"><small>{by}的参考意见</small><p>{challenge.summary}</p>
     <div>{challenge.suggestions.map(item=><article key={item.focus}><h6>{focusLabel(item.focus)}</h6>
       <p><b>另一种走法：</b>{item.alternative}</p><p><b>可能更好之处：</b>{item.benefit}</p>
       <p><b>需要承担的代价：</b>{item.tradeoff}</p><p><b>会影响后面什么：</b>{item.downstreamImpact}</p></article>)}</div>
@@ -286,7 +292,8 @@ function ChallengeAdvice({challenge}:{challenge:EventChapterChallengeContent}){
 }
 function challengeFor(task:EventChapterGenerationData|null,targetKind:'sequence'|'detail',targetId:string,targetVersionId:string){
   const challenge=task?.checkpoint.challenge;if(challenge===undefined||challenge.targetKind!==targetKind
-    ||challenge.targetId!==targetId||challenge.targetVersionId!==targetVersionId)return null;return challenge;
+    ||challenge.targetId!==targetId||challenge.targetVersionId!==targetVersionId)return null;
+  return {advice:challenge,by:task?.member.displayName??'挑战编剧'};
 }
 function focusLabel(value:EventChapterChallengeContent['suggestions'][number]['focus']){return({chapter_structure:'章节安排',opening_pressure:'开场压力',
   core_conflict:'核心冲突',choice_and_cost:'人物选择与代价',turning_point:'关键转折',ending_hook:'结尾钩子',

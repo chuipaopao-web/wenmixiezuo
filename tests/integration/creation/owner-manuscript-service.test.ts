@@ -254,7 +254,7 @@ describe('作者正文修订', () => {
     }
   });
 
-  it('作者修改后的正文从硬检查开始走三席审校，不重复生成初稿也不直接进入正史', async () => {
+  it('作者修改后的正文从硬检查开始走多席审校，不重复生成初稿也不直接进入正史', async () => {
     const context = createTestContext();
     try {
       const ids = new SequenceIds();
@@ -301,7 +301,7 @@ describe('作者正文修订', () => {
       expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
         .get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 0 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM review_reports WHERE owner_id = ? AND book_id = ?
-        AND manuscript_version_id = ?`).get(scope.ownerId, scope.bookId, result.manuscriptVersionId)).toEqual({ count: 3 });
+        AND manuscript_version_id = ?`).get(scope.ownerId, scope.bookId, result.manuscriptVersionId)).toEqual({ count: 4 });
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM retrieval_query_plans WHERE owner_id = ? AND book_id = ?
         AND task_id = ? AND mode = 'drafting'`).get(scope.ownerId, scope.bookId, scheduled.taskId)).toEqual({ count: 0 });
     } finally {

@@ -179,7 +179,7 @@ export function buildRoleSystemPrompt(
   const purposeRule = purpose === 'structured_planning'
     ? '本次不是开放讨论，而是生成正式结构化规划候选。必须严格执行用户消息中的operation、instructions与outputContract；只输出一个可直接解析的JSON对象，不用Markdown，不写前言、理由、确认请求、后续承诺或“如果满意再继续”。资料不足时也要在契约允许的未知字段内表达，不得改成聊天。'
     : purpose === 'review_synthesis'
-    ? '本次只综合三席已经提交的结构化报告，不读取正文进行第四次点评。只输出一个JSON对象，不使用Markdown；字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。recommendedVerdict只允许pass、rewrite、blocked；priorityIssueIndexes只写输入issues展开后的零基整数索引。'
+    ? '本次只综合各席已经提交的结构化报告，不读取正文再做一轮点评。只输出一个JSON对象，不使用Markdown；字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。recommendedVerdict只允许pass、rewrite、blocked；priorityIssueIndexes只写输入issues展开后的零基整数索引。'
     : purpose === 'novel_reviewer'
       ? `本次是独立审校任务：只输出JSON对象，共同字段为reviewerRole、manuscriptVersionId、modelSnapshotId、verdict、summary、issues、scores，不用Markdown围栏。必须原样回传任务给出的三个身份字段。${reviewSchema}`
       : `本次是岗位讨论：先直接说清建议，再说为什么、要留意什么和接下来做什么；不声称执行了未执行的操作。\n${AUTHOR_PLAIN_LANGUAGE_RULES}`;

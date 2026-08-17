@@ -17,6 +17,7 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
     const body=init?.body===undefined?null:JSON.parse(String(init.body)) as Record<string,unknown>;
     requests.push({path,method,body,query:url.search});
     if(path.endsWith('/workflow'))return api(workflow());
+    if(path.endsWith('/team-config'))return api(teamConfig());
     if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-1',version:1,narrativePerson:null,viewpointDistance:null,languageTone:[],textDensity:null,targetAudience:null,contentBoundaries:{},humorSeriousness:null,voiceEvidence:[],impactScope:{},status:'provisional'});
     if(path.endsWith('/author-planning-inputs'))return api([]);
     if(path.endsWith('/chapter-sequence')&&method==='GET')return api(sequence);
@@ -30,8 +31,8 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
           targetVersionId:'outline-version-1',summary:'这一章最值得再看的，是人物选择能否同时推动关系变化。',suggestions:[{
             focus:'core_conflict',alternative:'让同伴提出一条更安全却会牺牲无辜者的办法，逼主角当场表态。',
             benefit:'冲突同时体现人物关系和价值选择。',tradeoff:'必须给同伴合理动机，不能把他写成工具人。',
-            downstreamImpact:'下一章需要承接分歧，关系不能自动恢复。'}]}},member:{roleKey:'second_screenwriter',agentId:'screenwriter-b',
-          displayName:'红玉',provider:'local-deterministic',modelId:'fixture-challenger'},
+            downstreamImpact:'下一章需要承接分歧，关系不能自动恢复。'}]}},member:{roleKey:'third_screenwriter',agentId:'screenwriter-c',
+          displayName:'幼薇',provider:'local-deterministic',modelId:'fixture-challenger'},
         createdAt:'2026-08-09T00:00:30.000Z',updatedAt:'2026-08-09T00:00:40.000Z'};
       return api(detailChallengeTask);
     }
@@ -57,10 +58,10 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
   expect(screen.getByText('对第1章的想法')).toBeInTheDocument();
   expect(screen.getByText(/自由发挥：对话、动作、意象与节奏/u)).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button',{name:'请另一位编剧看看第1章'}));
+  fireEvent.click(screen.getByRole('button',{name:'请幼薇看看第1章'}));
   await waitFor(()=>expect(requests.find(item=>item.path.endsWith('/challenge')&&item.method==='POST')?.body)
-    .toMatchObject({expectedSequenceRevision:2,expectedWorkflowVersion:8}));
-  expect(await screen.findByText('另一位编剧的参考意见')).toBeInTheDocument();
+    .toMatchObject({expectedSequenceRevision:2,expectedWorkflowVersion:8,challengerRoleKey:'third_screenwriter'}));
+  expect(await screen.findByText('幼薇的参考意见')).toBeInTheDocument();
   expect(screen.getByText(/让同伴提出一条更安全/u)).toBeInTheDocument();
   expect(screen.getByText(/这些只是参考，不会自动改动当前章纲/u)).toBeInTheDocument();
   expect(screen.queryByText(/fixture-challenger|local-deterministic|detail_challenge/u)).not.toBeInTheDocument();
@@ -82,6 +83,7 @@ it('事件结算后仍展示正文实际绑定的完整详细章纲',async()=>{
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const url=new URL(String(input),'http://127.0.0.1'),path=url.pathname,method=init?.method??'GET';requests.push(`${method} ${path}`);
     if(path.endsWith('/workflow'))return api({...workflow(),stage:'ready_for_next_volume',planningVersion:23,activeEventRef:null,frozenChapterOutlineRefs:[]});
+    if(path.endsWith('/team-config'))return api(teamConfig());
     if(path.endsWith('/expression-profile'))return api({expressionProfileId:'expression-history',version:1,narrativePerson:'third',viewpointDistance:'close',languageTone:[],textDensity:'adaptive',targetAudience:null,contentBoundaries:{},humorSeriousness:'adaptive',voiceEvidence:[],impactScope:{},status:'confirmed'});
     if(path.endsWith('/volume-plans'))return api([{volumePlanId:'volume-1',planNumber:1,status:'completed',activeVersionId:'volume-v1'}]);
     if(path.endsWith('/event-sequence'))return api({volumePlanId:'volume-1',revision:1,events:[
@@ -151,5 +153,9 @@ function historySequenceView():EventChapterSequenceData{
   });
   return{...base,status:'completed',outlines,nextChapterNumber:4};
 }
+function teamConfig(){return{members:[
+    {agentId:'screenwriter-b',roleKey:'second_screenwriter',roleName:'编剧',displayName:'红玉',category:'core',provider:'local-deterministic',modelId:'fixture-b',activationState:'idle'},
+    {agentId:'screenwriter-c',roleKey:'third_screenwriter',roleName:'编剧',displayName:'幼薇',category:'core',provider:'local-deterministic',modelId:'fixture-c',activationState:'idle'}
+  ],promptPolicy:{editableLabel:'本书补充要求',maxChars:500,priority:'作者要求优先'}};}
 function api(data:unknown){return new Response(JSON.stringify({data,meta:{requestId:'chapter-ui',version:1}}),{
   status:200,headers:{'content-type':'application/json'}});}

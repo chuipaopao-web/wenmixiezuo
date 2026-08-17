@@ -240,6 +240,22 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(detailChallengeResult.challenge.suggestions.every(item=>item.alternative.length>0&&item.tradeoff.length>0
       &&item.downstreamImpact.length>0)).toBe(true);
     expect(outlines.get(scope,event.eventId)!.outlines[0]!.versions).toHaveLength(outlineVersionCount);
+    const thirdChallengeTask=generations.startDetailChallenge(scope,event.eventId,firstOutline.outlineId,firstVersion.outlineVersionId,{
+      expectedSequenceRevision:after.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      challengerRoleKey:'third_screenwriter',idempotencyKey:'ai-detail-challenge-third'});
+    expect(thirdChallengeTask.member.roleKey).toBe('third_screenwriter');
+    expect(thirdChallengeTask.member.agentId).not.toBe(detailTask.member.agentId);
+    const thirdChallengeClaim=tasks.claimNext('worker-event-chapters',120_000)!;
+    expect(thirdChallengeClaim.taskId).toBe(thirdChallengeTask.taskId);
+    const thirdChallengeResult=await pipeline.executeClaimed(scope,thirdChallengeTask.taskId,'worker-event-chapters',
+      {leaseToken:thirdChallengeClaim.leaseToken!,attemptNo:thirdChallengeClaim.currentAttemptNo});
+    expect(thirdChallengeResult).toMatchObject({status:'succeeded'});
+    expect(()=>generations.startDetailChallenge(scope,event.eventId,firstOutline.outlineId,firstVersion.outlineVersionId,{
+      expectedSequenceRevision:after.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      challengerRoleKey:'lead_screenwriter',idempotencyKey:'ai-detail-challenge-self'})).toThrow(/另一位编剧/u);
+    expect(()=>generations.startDetailChallenge(scope,event.eventId,firstOutline.outlineId,firstVersion.outlineVersionId,{
+      expectedSequenceRevision:after.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
+      challengerRoleKey:'chief_editor',idempotencyKey:'ai-detail-challenge-wrong'})).toThrow(/另一位编剧/u);
     const calls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceTask.taskId,detailTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
     expect(calls.filter(call=>call.task_id===sequenceTask.taskId).length).toBeGreaterThan(1);

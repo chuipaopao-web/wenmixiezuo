@@ -25,6 +25,7 @@ export interface ReviewPanelRecord {
   fact: TeamAgentRow;
   literary: TeamAgentRow;
   experience: TeamAgentRow;
+  challenger: TeamAgentRow | null;
   status: string;
 }
 
@@ -146,17 +147,21 @@ export class ProductionWorkflowRepository {
     id: string; chapterId: string; manuscriptVersionId: string; manuscriptHash: string; reviewRound: number;
     writerModelSnapshotId: string; writerEpoch: number; bindingRevisionId: string | null; writingOrderId: string;
     canonRevision: number; tokenBudget: number; fact: TeamAgentRow; literary: TeamAgentRow; experience: TeamAgentRow;
+    challenger: TeamAgentRow | null;
     selectionReason: unknown; now: string;
   }): void {
     this.database.prepare(`INSERT INTO review_panels (
       review_panel_id, owner_id, book_id, manuscript_version_id, writer_model_snapshot_id,
       fact_agent_id, fact_model_snapshot_id, literary_agent_id, literary_model_snapshot_id,
-      experience_agent_id, experience_model_snapshot_id, selection_reason_json, status, created_at,
+      experience_agent_id, experience_model_snapshot_id, challenger_agent_id, challenger_model_snapshot_id,
+      selection_reason_json, status, created_at,
       chapter_id, review_round, manuscript_hash, writer_epoch, binding_revision_id, writing_order_id, canon_revision, token_budget
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'working', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'working', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(input.id, scope.ownerId, scope.bookId, input.manuscriptVersionId, input.writerModelSnapshotId,
         input.fact.agentId, input.fact.modelSnapshotId, input.literary.agentId, input.literary.modelSnapshotId,
-        input.experience.agentId, input.experience.modelSnapshotId, JSON.stringify(input.selectionReason), input.now,
+        input.experience.agentId, input.experience.modelSnapshotId,
+        input.challenger?.agentId ?? null, input.challenger?.modelSnapshotId ?? null,
+        JSON.stringify(input.selectionReason), input.now,
         input.chapterId, input.reviewRound, input.manuscriptHash, input.writerEpoch, input.bindingRevisionId, input.writingOrderId,
         input.canonRevision, input.tokenBudget);
   }
@@ -168,7 +173,8 @@ export class ProductionWorkflowRepository {
     const row = this.database.prepare(`
       SELECT p.review_panel_id, p.manuscript_version_id, p.review_round, p.writer_model_snapshot_id,
         p.fact_agent_id, p.fact_model_snapshot_id, p.literary_agent_id, p.literary_model_snapshot_id,
-        p.experience_agent_id, p.experience_model_snapshot_id, p.status, COUNT(r.review_report_id) AS report_count
+        p.experience_agent_id, p.experience_model_snapshot_id, p.challenger_agent_id, p.challenger_model_snapshot_id,
+        p.status, COUNT(r.review_report_id) AS report_count
       FROM review_panels p
       LEFT JOIN review_reports r ON r.review_panel_id = p.review_panel_id
         AND r.owner_id = p.owner_id AND r.book_id = p.book_id AND r.status = 'submitted'
@@ -181,7 +187,7 @@ export class ProductionWorkflowRepository {
       ORDER BY p.review_round DESC, p.created_at DESC
       LIMIT 1
     `).get(scope.ownerId, scope.bookId, input.manuscriptVersionId, input.manuscriptHash,
-      input.writerModelSnapshotId, input.canonRevision, input.bindingRevisionId) as Record<string, string | number> | undefined;
+      input.writerModelSnapshotId, input.canonRevision, input.bindingRevisionId) as Record<string, string | number | null> | undefined;
     if (row === undefined) return null;
     const team = this.currentTeam(scope, input.bindingRevisionId);
     const frozenAgent = (agentId: string, snapshotId: string): TeamAgentRow | null => {
@@ -191,7 +197,11 @@ export class ProductionWorkflowRepository {
     const fact = frozenAgent(row.fact_agent_id as string, row.fact_model_snapshot_id as string);
     const literary = frozenAgent(row.literary_agent_id as string, row.literary_model_snapshot_id as string);
     const experience = frozenAgent(row.experience_agent_id as string, row.experience_model_snapshot_id as string);
+    const challenger = row.challenger_agent_id === null || row.challenger_agent_id === undefined
+      ? null
+      : frozenAgent(row.challenger_agent_id as string, row.challenger_model_snapshot_id as string);
     if (fact === null || literary === null || experience === null) return null;
+    if (row.challenger_agent_id !== null && row.challenger_agent_id !== undefined && challenger === null) return null;
     const reopened = this.database.prepare(`
       UPDATE review_panels SET status = 'working'
       WHERE review_panel_id = ? AND owner_id = ? AND book_id = ? AND status IN ('blocked', 'working')
@@ -208,8 +218,19 @@ export class ProductionWorkflowRepository {
       fact,
       literary,
       experience,
+      challenger,
       status: 'working'
     };
+  }
+
+  public panelReviewerRoles(scope: BookScope, panelId: string): ReviewerRole[] {
+    const row = this.database.prepare(`SELECT challenger_agent_id FROM review_panels
+      WHERE review_panel_id = ? AND owner_id = ? AND book_id = ?`)
+      .get(panelId, scope.ownerId, scope.bookId) as { challenger_agent_id: string | null } | undefined;
+    if (row === undefined) throw new Error('点评轮次不存在或越权');
+    return row.challenger_agent_id === null
+      ? ['fact', 'literary', 'experience']
+      : ['fact', 'literary', 'experience', 'challenger'];
   }
 
   public reviewReportJson(scope: BookScope, panelId: string, role: ReviewerRole): string | null {
@@ -245,9 +266,10 @@ export class ProductionWorkflowRepository {
   }
 
   public finishReviewPanel(scope: BookScope, panelId: string, blocked: boolean): void {
+    const expected = this.panelReviewerRoles(scope, panelId).length;
     const count = (this.database.prepare(`SELECT COUNT(*) AS count FROM review_reports WHERE owner_id = ? AND book_id = ? AND review_panel_id = ? AND status = 'submitted'`)
       .get(scope.ownerId, scope.bookId, panelId) as { count: number }).count;
-    if (count !== 3) throw new Error('三份有效点评报告未齐，不能完成点评轮次');
+    if (count !== expected) throw new Error('有效点评报告未齐，不能完成点评轮次');
     this.database.prepare(`UPDATE review_panels SET status = ? WHERE review_panel_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'`)
       .run(blocked ? 'blocked' : 'complete', panelId, scope.ownerId, scope.bookId);
   }
@@ -414,7 +436,7 @@ export class ProductionWorkflowRepository {
       WHERE owner_id = ? AND book_id = ? AND manuscript_version_id = ? AND review_panel_id = ?
         AND status = 'submitted' ORDER BY reviewer_role`)
       .all(scope.ownerId, scope.bookId, input.manuscriptVersionId, input.reviewPanelId) as unknown as Array<{ reviewer_role: string; report_json: string }>;
-    if (reports.length !== 3) throw new Error('正式结算缺少三份点评报告');
+    if (reports.length !== this.panelReviewerRoles(scope, input.reviewPanelId).length) throw new Error('正式结算缺少完整点评报告');
     const scores = Object.fromEntries(reports.map((report) => [report.reviewer_role, JSON.parse(report.report_json)]));
     this.database.prepare(`INSERT INTO chapter_quality_metrics (
       quality_metric_id, owner_id, book_id, chapter_id, manuscript_version_id, scores_json,

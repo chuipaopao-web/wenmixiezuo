@@ -67,25 +67,26 @@ export class EventChapterGenerationService {
   }
 
   public startSequenceChallenge(scope:BookScope,eventId:string,sequenceVersionId:string,input:{
-    expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):EventChapterGenerationView{
+    expectedSequenceRevision:number;expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string}):EventChapterGenerationView{
     const sequence=this.plans.get(scope,eventId);if(sequence===null)throw incomplete('请先建立当前事件章纲序列。');
     const expectedSequenceRevision=positive(input.expectedSequenceRevision,'序列修订号'),
       expectedWorkflowVersion=positive(input.expectedWorkflowVersion,'工作流版本');
     if(sequence.revision!==expectedSequenceRevision||!sequence.valid)throw conflict('事件章纲序列已经变化。');
     const target=sequence.versions.find(item=>item.sequenceVersionId===required(sequenceVersionId,'章链候选版本'));
     if(target===undefined||target.status!=='candidate')throw conflict('只能请另一位编剧查看当前候选章链。');
-    const team=this.planningTeam(scope),challengeTarget={targetKind:'sequence' as const,targetId:sequence.sequenceId,
+    const team=this.planningTeam(scope),challenger=this.selectChallenger(team,input.challengerRoleKey),
+      challengeTarget={targetKind:'sequence' as const,targetId:sequence.sequenceId,
       targetVersionId:target.sequenceVersionId,contentHash:target.contentHash};
     return this.start(scope,{schema:'event-chapter-generation-v2',kind:'sequence_challenge',subjectId:eventId,eventId,
       expectedWorkflowVersion,expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs:[],
-      authorInputRefs:[],authorIdeas:[],challengeTarget,member:team.challenger,
+      authorInputRefs:[],authorIdeas:[],challengeTarget,member:challenger,
       sourceFingerprint:fingerprint({sequenceId:sequence.sequenceId,revision:sequence.revision,
         activeVersionId:sequence.activeVersionId,target:challengeTarget}),requestHash:''},
       required(input.idempotencyKey,'幂等键'),team.editorEpoch,['event_confirmed','chapter_outlines_in_progress']);
   }
 
   public startDetailChallenge(scope:BookScope,eventId:string,outlineId:string,outlineVersionId:string,input:{
-    expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):EventChapterGenerationView{
+    expectedSequenceRevision:number;expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string}):EventChapterGenerationView{
     const sequence=this.plans.get(scope,eventId);if(sequence===null||sequence.activeVersionId===null)throw incomplete('请先确认完整事件章纲序列。');
     const expectedSequenceRevision=positive(input.expectedSequenceRevision,'序列修订号'),
       expectedWorkflowVersion=positive(input.expectedWorkflowVersion,'工作流版本');
@@ -94,12 +95,13 @@ export class EventChapterGenerationService {
     if(outline===undefined)throw conflict('当前事件里没有这份单章章纲。');
     const target=outline.versions.find(item=>item.outlineVersionId===required(outlineVersionId,'单章候选版本'));
     if(target===undefined||target.status!=='candidate')throw conflict('只能请另一位编剧查看当前候选章纲。');
-    const team=this.planningTeam(scope),challengeTarget={targetKind:'detail' as const,targetId:outline.outlineId,
+    const team=this.planningTeam(scope),challenger=this.selectChallenger(team,input.challengerRoleKey),
+      challengeTarget={targetKind:'detail' as const,targetId:outline.outlineId,
       targetVersionId:target.outlineVersionId,contentHash:target.contentHash};
     const outlineRefs=[{outlineId:outline.outlineId,revision:outline.revision,activeVersionId:outline.activeVersionId}];
     return this.start(scope,{schema:'event-chapter-generation-v2',kind:'detail_challenge',subjectId:eventId,eventId,
       expectedWorkflowVersion,expectedSequenceRevision,expectedSequenceVersionId:sequence.activeVersionId,outlineRefs,
-      authorInputRefs:[],authorIdeas:[],challengeTarget,member:team.challenger,
+      authorInputRefs:[],authorIdeas:[],challengeTarget,member:challenger,
       sourceFingerprint:fingerprint({sequenceId:sequence.sequenceId,revision:sequence.revision,
         activeVersionId:sequence.activeVersionId,outline:outlineRefs[0],target:challengeTarget}),requestHash:''},
       required(input.idempotencyKey,'幂等键'),team.editorEpoch,['chapter_outlines_in_progress','next_chapters_ready']);
@@ -113,13 +115,20 @@ export class EventChapterGenerationService {
 
   private planningTeam(scope:BookScope){
     const team=this.teams.generationSeats(scope),primary=team.seats.find(s=>s.roleKey==='lead_screenwriter'),
-      challenger=team.seats.find(s=>s.roleKey==='second_screenwriter');
-    if(primary===undefined||challenger===undefined)throw incomplete('当前书籍需要两位可用编剧。');
-    if(primary.agentId===challenger.agentId)throw incomplete('两位编剧不能使用同一个成员身份。');
-    const deterministic=[primary,challenger].every(item=>item.provider.startsWith('local-deterministic'));
-    if(!deterministic&&primary.provider===challenger.provider&&primary.modelId===challenger.modelId)
+      challengers=team.seats.filter(s=>s.roleKey==='second_screenwriter'||s.roleKey==='third_screenwriter');
+    if(primary===undefined||challengers.length===0)throw incomplete('当前书籍需要主编剧和至少一名挑战编剧。');
+    return{primary,challengers,editorEpoch:team.editorEpoch};
+  }
+  private selectChallenger(team:{primary:VolumePlanGenerationSeat;challengers:VolumePlanGenerationSeat[]},roleKey?:string){
+    const wanted=roleKey===undefined?'second_screenwriter':required(roleKey,'挑战编剧');
+    if(wanted==='lead_screenwriter')throw validation('主方案编剧不能挑战自己的方案，请选另一位编剧。');
+    const challenger=team.challengers.find(s=>s.roleKey===wanted);
+    if(challenger===undefined)throw validation('挑战编剧必须是当前团队的另一位编剧。');
+    if(team.primary.agentId===challenger.agentId)throw incomplete('两位编剧不能使用同一个成员身份。');
+    const deterministic=[team.primary,challenger].every(item=>item.provider.startsWith('local-deterministic'));
+    if(!deterministic&&team.primary.provider===challenger.provider&&team.primary.modelId===challenger.modelId)
       throw incomplete('两位编剧当前绑定了同一个模型，不能冒充第二意见。请先调整模型绑定。');
-    return{primary,challenger,editorEpoch:team.editorEpoch};
+    return challenger;
   }
   private start(scope:BookScope,brief:EventChapterGenerationBrief,key:string,editorEpoch:number,stages:string[]){
     const budgetId=this.teams.activeBudgetId(scope);if(budgetId===undefined)throw incomplete('当前书籍没有可用预算。');

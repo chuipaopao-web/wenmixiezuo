@@ -30,8 +30,9 @@ export class ProductionReviewService {
       reviewRound: input.reviewRound, writerModelSnapshotId: input.writerModelSnapshotId, writerEpoch: input.writerEpoch,
       bindingRevisionId: input.bindingRevisionId ?? null, writingOrderId: input.writingOrderId, canonRevision: input.canonRevision,
       tokenBudget: 30_000, fact: selected.fact, literary: selected.literary, experience: selected.experience,
+      challenger: selected.challenger,
       selectionReason: {
-        policy: 'three-distinct-models-v1',
+        policy: selected.challenger === null ? 'three-distinct-models-v1' : 'four-distinct-models-v2',
         factSubstitution: /glm/iu.test(input.writerModelId) ? 'writer_is_glm_use_deepseek' : 'default_glm',
         writer: `${input.writerProvider}/${input.writerModelId}`
       }, now: this.clock.now().toISOString()
@@ -39,7 +40,8 @@ export class ProductionReviewService {
     return { panelId, reviewers: [
       { role: 'fact', agent: selected.fact },
       { role: 'literary', agent: selected.literary },
-      { role: 'experience', agent: selected.experience }
+      { role: 'experience', agent: selected.experience },
+      ...(selected.challenger === null ? [] : [{ role: 'challenger' as const, agent: selected.challenger }])
     ] };
   }
 
@@ -55,7 +57,8 @@ export class ProductionReviewService {
       reviewers: [
         { role: 'fact', agent: panel.fact },
         { role: 'literary', agent: panel.literary },
-        { role: 'experience', agent: panel.experience }
+        { role: 'experience', agent: panel.experience },
+        ...(panel.challenger === null ? [] : [{ role: 'challenger' as const, agent: panel.challenger }])
       ]
     };
   }
@@ -148,8 +151,11 @@ export class ProductionReviewService {
   }): {
     verdict: 'pass' | 'rewrite' | 'blocked'; requiredActions: string[];
   } {
-    if (input.reports.length !== 3 || new Set(input.reports.map((report) => report.reviewerRole)).size !== 3) {
-      throw new Error('必须收到事实、文学和体验三份独立点评');
+    const expectedRoles = this.repository.panelReviewerRoles(scope, input.panelId);
+    if (input.reports.length !== expectedRoles.length
+      || new Set(input.reports.map((report) => report.reviewerRole)).size !== expectedRoles.length
+      || expectedRoles.some((role) => !input.reports.some((report) => report.reviewerRole === role))) {
+      throw new Error('必须收齐本轮全部点评席的独立点评');
     }
     const issues = input.reports.flatMap((report) => report.issues.map((issue) => ({ ...issue, reviewerRole: report.reviewerRole })));
     const decision = decideProductionReviewOutcome({
@@ -163,7 +169,7 @@ export class ProductionReviewService {
       .map((issue) => `${issue.location}：${issue.requiredAction}（证据：${issue.evidence}；来源：${issue.reviewerRole}）`));
     const softActions = unique(prioritized.filter((issue) => issue.severity === 'minor' || issue.severity === 'observation')
       .map((issue) => `${issue.location}：${issue.requiredAction}（仅作软建议）`));
-    if (rewrite && hardActions.length === 0) hardActions.push('按三席共同结论完成一次定点重写，不改动无问题段落。');
+    if (rewrite && hardActions.length === 0) hardActions.push('按各点评席共同结论完成一次定点重写，不改动无问题段落。');
     if (blocked && hardActions.length === 0) hardActions.push('政治或情色风险达到高等级；停止自动重写，由主编定位证据并等待老板决定。');
     if ((blocked || rewrite) && input.revisionRound <= 2) this.repository.createRevisionOrder(scope, {
       id: this.ids.next(), panelId: input.panelId, manuscriptVersionId: input.manuscriptVersionId,

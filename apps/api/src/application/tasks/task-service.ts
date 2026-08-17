@@ -193,8 +193,10 @@ export class TaskService {
       GROUP BY panel.review_panel_id
       ORDER BY run.updated_at DESC
       LIMIT 1
-    `).get(scope.ownerId, scope.bookId, taskId) as { report_count: number } | undefined;
-    return row !== undefined && row.report_count < 3;
+    `).get(scope.ownerId, scope.bookId, taskId) as { report_count: number; challenger_agent_id: string | null } | undefined;
+    if (row === undefined) return false;
+    const expectedSeats = row.challenger_agent_id === null ? 3 : 4;
+    return row.report_count < expectedSeats;
   }
 
   public completeSynchronous(scope: BookScope, taskId: string, phase = 'completed'): TaskRecord {

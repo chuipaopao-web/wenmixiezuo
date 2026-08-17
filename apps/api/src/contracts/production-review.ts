@@ -1,4 +1,4 @@
-export const reviewerRoles = ['fact', 'literary', 'experience'] as const;
+export const reviewerRoles = ['fact', 'literary', 'experience', 'challenger'] as const;
 export type ReviewerRole = typeof reviewerRoles[number];
 export type ReviewVerdict = 'pass' | 'rewrite' | 'blocked';
 

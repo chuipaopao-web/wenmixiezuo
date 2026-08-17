@@ -183,7 +183,7 @@ export class EventChapterGenerationPipelineService {
       if(version===undefined)throw conflict('要查看的章链候选已经变化。');
       targetContent=version.content;
       base.push({sourceType:'planning:chapter_sequence_candidate',sourceId:target.targetId,version:version.version,
-        content:JSON.stringify(version.content),reason:'另一位编剧只挑战这份精确章链候选',priority:100});
+        content:JSON.stringify(version.content),reason:'挑战编剧只查看这份精确章链候选',priority:100});
     }else{
       const outline=view.outlines.find(item=>item.outlineId===target.targetId),
         version=outline?.versions.find(item=>item.outlineVersionId===target.targetVersionId);
@@ -192,7 +192,7 @@ export class EventChapterGenerationPipelineService {
       base.push({sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
         content:JSON.stringify(view.activeVersion!.content),reason:'单章挑战必须服从已确认章链',priority:100});
       base.push({sourceType:'planning:chapter_outline_candidate',sourceId:target.targetId,version:version.version,
-        content:JSON.stringify(version.content),reason:'另一位编剧只挑战这份精确单章候选',priority:100});
+        content:JSON.stringify(version.content),reason:'挑战编剧只查看这份精确单章候选',priority:100});
     }
     const sequenceTarget=target.targetKind==='sequence';
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,canonRevision:0,positioningVersion:0,
@@ -333,7 +333,7 @@ function parseDetails(output:string,count:number):ChapterOutlineV2[]{for(const v
   try{const parsed=value.outlines.map(item=>parseChapterOutlineV2(record(item)?item:{}));if(parsed.length===count)return parsed;}catch{}}
   throw new Error('模型没有返回完整的近期详细章纲JSON。');}
 function parseChallenge(output:string):EventChapterChallengeContent{for(const value of candidates(output))try{return parseEventChapterChallengeContent(value);}catch{}
-  throw new Error('另一位编剧没有返回有效的关键替代建议。');}
+  throw new Error('挑战编剧没有返回有效的关键替代建议。');}
 function candidates(output:string){const values:unknown[]=[];try{values.push(JSON.parse(output) as unknown);}catch{}
   for(const part of jsonObjects(output))try{values.push(JSON.parse(part) as unknown);}catch{}return values;}
 function jsonObjects(value:string){const out:string[]=[];for(let start=0;start<value.length;start++){if(value[start]!=='{')continue;let depth=0,str=false,esc=false;

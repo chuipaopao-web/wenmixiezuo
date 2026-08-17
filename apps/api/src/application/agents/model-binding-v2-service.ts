@@ -86,7 +86,7 @@ export function validateTeamModelProfiles(
 }
 
 export class ReviewModelCompatibilityService {
-  public select(activeWriter: TeamAgentRow, team: TeamAgentRow[]): { fact: TeamAgentRow; literary: TeamAgentRow; experience: TeamAgentRow } {
+  public select(activeWriter: TeamAgentRow, team: TeamAgentRow[]): { fact: TeamAgentRow; literary: TeamAgentRow; experience: TeamAgentRow; challenger: TeamAgentRow | null } {
     const signature = (agent: TeamAgentRow): string => `${agent.provider}/${agent.modelId}`;
     const byRole = (role: string): TeamAgentRow => {
       const found = team.find((agent) => agent.roleKey === role);
@@ -98,8 +98,10 @@ export class ReviewModelCompatibilityService {
       : (/glm/iu.test(activeWriter.modelId) ? byRole('lead_screenwriter') : byRole('setting'));
     const literary = byRole('literary_reviewer');
     const experience = byRole('experience_reviewer');
-    const all = [activeWriter, fact, literary, experience].map(signature);
-    if (new Set(all).size !== all.length) throw new Error('三名点评者必须彼此异模型并与活动写手异模型');
-    return { fact, literary, experience };
+    // 11人旧书没有挑剔读者岗位：第四席留空，面板按三席运行。
+    const challenger = team.find((agent) => agent.roleKey === 'experience_challenger') ?? null;
+    const all = [activeWriter, fact, literary, experience, ...(challenger === null ? [] : [challenger])].map(signature);
+    if (new Set(all).size !== all.length) throw new Error('点评席必须彼此异模型并与活动写手异模型');
+    return { fact, literary, experience, challenger };
   }
 }

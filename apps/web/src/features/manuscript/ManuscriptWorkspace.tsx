@@ -599,7 +599,7 @@ function parseRecordJson(value: unknown): Record<string, unknown> | null {
 }
 
 function reviewerRoleLabel(value: string): string {
-  return ({ fact: '事实与连续性席', literary: '文学与AI腔席', experience: '体验与内容风险席' } as Record<string, string>)[value] ?? value;
+  return ({ fact: '事实与连续性席', literary: '文学与AI腔席', experience: '体验与内容风险席', challenger: '挑剔读者席' } as Record<string, string>)[value] ?? value;
 }
 
 function reviewVerdictLabel(value: string): string {

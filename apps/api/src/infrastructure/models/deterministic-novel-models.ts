@@ -205,6 +205,15 @@ function productionReview(
     const none = (policyVersion: string) => ({ level: 'none', locations: [], evidence: [], recommendedAction: '无需修改，继续保持基于正文证据复核。', policyVersion });
     return { ...common, politicalRisk: none('wenmi-content-policy-2026-07'), sexualContentRisk: none('wenmi-content-policy-2026-07') };
   }
+  if (reviewerRole === 'challenger') {
+    return {
+      ...common,
+      summary: review.issues.length === 0
+        ? '以挑剔读者视角通读，未发现毒点、逻辑吐槽点或弃读风险。'
+        : review.summary,
+      scores: { immersion: 88, hook: review.scores.hook, freshness: 86, abandonRisk: review.issues.length === 0 ? 8 : 62 }
+    };
+  }
   return { ...common, factCandidates: deterministicFactCandidates(content) };
 }
 

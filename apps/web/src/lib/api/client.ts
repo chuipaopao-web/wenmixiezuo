@@ -1418,7 +1418,7 @@ export function startEventChapterSequenceGeneration(bookId:string,eventId:string
     {method:'POST',body:JSON.stringify(input)});
 }
 export function startEventChapterSequenceChallenge(bookId:string,eventId:string,sequenceVersionId:string,input:{
-  expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  expectedSequenceRevision:number;expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string}):Promise<EventChapterGenerationData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/versions/${encodeURIComponent(sequenceVersionId)}/challenge`,
     {method:'POST',body:JSON.stringify(input)});
 }
@@ -1433,7 +1433,7 @@ export function startEventChapterDetailGeneration(bookId:string,eventId:string,i
     {method:'POST',body:JSON.stringify(input)});
 }
 export function startEventChapterDetailChallenge(bookId:string,eventId:string,outlineId:string,outlineVersionId:string,input:{
-  expectedSequenceRevision:number;expectedWorkflowVersion:number;idempotencyKey:string}):Promise<EventChapterGenerationData>{
+  expectedSequenceRevision:number;expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string}):Promise<EventChapterGenerationData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/event-chapter-outlines/${encodeURIComponent(outlineId)}/versions/${encodeURIComponent(outlineVersionId)}/challenge`,
     {method:'POST',body:JSON.stringify(input)});
 }

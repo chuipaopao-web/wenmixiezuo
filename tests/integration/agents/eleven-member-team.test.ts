@@ -38,7 +38,7 @@ describe('十四人创作团队', () => {
     expect(() => service.validate({ ...base, backup_writer: base.lead_writer })).toThrow('主笔与副笔必须使用不同模型');
   });
 
-  it('点评席必须三者彼此异模型并与活动写手异模型', () => {
+  it('点评四席必须彼此异模型并与活动写手异模型，无挑剔读者岗位的旧书保持三席', () => {
     const rows = creativeMemberContracts.map((member, index) => ({
       agentId: `agent-${index}`, roleKey: member.roleKey, roleTemplateId: member.roleTemplateId, memberName: member.memberName,
       shortTitle: member.shortTitle, provider: member.defaultModel.provider, modelId: member.defaultModel.modelId,
@@ -46,11 +46,16 @@ describe('十四人创作团队', () => {
     }));
     const writer = rows.find((row) => row.roleKey === 'lead_writer')!;
     const panel = new ReviewModelCompatibilityService().select(writer, rows);
-    expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).toHaveLength(4);
-    expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).size).toBe(4);
+    expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, panel.challenger?.modelId, writer.modelId]).toHaveLength(5);
+    expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, panel.challenger?.modelId, writer.modelId]).size).toBe(5);
+    expect(panel.challenger?.roleKey).toBe('experience_challenger');
+    expect(panel.challenger?.modelId).toBe('deepseek-v4-flash');
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
     expect(backupPanel.fact.roleKey).toBe('fact_reviewer');
     expect(backupPanel.fact.modelId).toBe('glm-5.2');
+    const legacyRows = rows.filter((row) => row.roleKey !== 'experience_challenger');
+    const legacyPanel = new ReviewModelCompatibilityService().select(writer, legacyRows);
+    expect(legacyPanel.challenger).toBeNull();
   });
 });

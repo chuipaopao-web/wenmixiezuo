@@ -29,7 +29,7 @@ describe('九岗位定位提示词', () => {
     const synthesis = buildRoleSystemPrompt('chief_editor', 'review_synthesis');
     expect(synthesis).toContain('recommendedVerdict');
     expect(synthesis).toContain('priorityIssueIndexes');
-    expect(synthesis).toContain('只综合三席');
+    expect(synthesis).toContain('只综合各席');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('来源');
     expect(buildRoleSystemPrompt('researcher', 'discussion')).toContain('当前模型调用不直接联网');
   });

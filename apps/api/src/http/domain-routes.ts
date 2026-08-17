@@ -584,7 +584,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;sequenceVersionId:string};Body:{expectedSequenceRevision:number;
-    expectedWorkflowVersion:number;idempotencyKey:string} }>(
+    expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions/:sequenceVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
@@ -599,7 +599,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;outlineId:string;outlineVersionId:string};Body:{expectedSequenceRevision:number;
-    expectedWorkflowVersion:number;idempotencyKey:string} }>(
+    expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/event-chapter-outlines/:outlineId/versions/:outlineVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
@@ -1813,7 +1813,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string; chapterEndState: Record<string, unknown> } }>('/api/v1/books/:bookId/chapters/:chapterId/settle', async (request) => {
-    throw new DomainError(errorCodes.operationIncomplete, '正文不能绕过三席点评和老板确认直接结算', {
+    throw new DomainError(errorCodes.operationIncomplete, '正文不能绕过点评席点评和老板确认直接结算', {
       replacement: `/api/v1/books/${request.params.bookId}/chapters/${request.params.chapterId}/finalize`,
       manuscriptVersionId: request.body.manuscriptVersionId
     }, false, 409);

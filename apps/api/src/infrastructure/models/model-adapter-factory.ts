@@ -93,9 +93,10 @@ export function buildRuntimeRoleSystemPrompt(
   );
 }
 
-function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literary' | 'experience' {
+function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literary' | 'experience' | 'challenger' {
+  if (roleKey === 'experience_challenger') return 'challenger';
   if (roleKey === 'fact_reviewer' || roleKey === 'setting' || roleKey === 'continuity' || roleKey === 'lead_screenwriter' || roleKey === 'plot_architect') return 'fact';
-  if (roleKey === 'experience_reviewer' || roleKey === 'experience_challenger' || roleKey === 'reader_experience') return 'experience';
+  if (roleKey === 'experience_reviewer' || roleKey === 'reader_experience') return 'experience';
   return 'literary';
 }
 

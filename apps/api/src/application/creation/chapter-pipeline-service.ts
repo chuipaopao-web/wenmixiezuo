@@ -854,7 +854,7 @@ export class ChapterPipelineService {
         ? boundedFrozenReviewSources.filter((source) => !['previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
         : boundedFrozenReviewSources;
       const reviewHardSources: ContextSource[] = [
-        { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '三点评席共同读取的同一不可变完整正文', priority: 100 },
+        { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '全体点评席共同读取的同一不可变完整正文', priority: 100 },
         ...ownerReviewSources,
         ...roleFrozenReviewSources,
         ...factPreviousChapterSource,
@@ -915,7 +915,16 @@ export class ChapterPipelineService {
                   literaryReviewJurisdictionRule(),
                   '提出问题前先反查evidence原句与作者硬要求：若正文已经逐字包含requiredAction要求补写的关键信息，或作者硬要求本来就明确授权该表述，该问题自相矛盾，必须删除而不是要求重写。'
                 ]
-              : [
+              : reviewer.role === 'challenger'
+                ? [
+                    'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
+                    '你是最挑剔的老白读者：专找毒点、逻辑吐槽点和弃读风险，每条给出具体位置和读者原话式吐槽。',
+                    'major只用于确实会让目标读者弃读或大面积吐槽的真毒点；口味差异、个人偏好和风格选择最多记observation，不为挑刺而挑刺。',
+                    '若requiredAction只需补充、删除或替换一两句，则severity最高只能是minor且verdict应为pass。',
+                    '人物姓名、人数、身份、正史、时间线、知识边界是否冲突由事实席独立裁决；你只能记录读者是否会因此出戏。',
+                    '政治和情色合规风险由体验席独立评估；你不重复评级，只记录读者反应。'
+                  ]
+                : [
                   'pass只能包含minor或observation；存在major必须为rewrite；存在不能自动修复的blocker必须为blocked。',
                   'major只用于会显著造成跳读/弃读、情绪逻辑断裂或核心钩子不可理解的问题；低成本体验优化只能是minor。',
                   '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡、微反应或一句钩子台词，则severity最高只能是minor且verdict应为pass。',
@@ -930,6 +939,8 @@ export class ChapterPipelineService {
             ? '返回带段落计数、可解释证据且isAuthorshipProbability=false的aiStyle对象'
             : reviewer.role === 'experience'
               ? '分别返回politicalRisk和sexualContentRisk，包含位置、证据、动作和policyVersion'
+            : reviewer.role === 'challenger'
+              ? '以挑剔老白读者立场找毒点、弃读风险和逻辑吐槽，每条给出具体位置和读者原话式表达，最多返回8条'
               : '核对连续性、人物状态、因果与硬约束，最多返回8个最重要问题；另返回最多16条factCandidates，只保留会影响后续章节的持久事实。每条含subjectName、entityType、relationKey、value、正文原句evidenceQuote、evidenceLocation、epistemicStatus、negated、viewpointName、knowledgeSubjectName、knowledgeTimeStart、knowledgeTimeEnd、storyTimeStart、storyTimeEnd；未知字段使用null，不得把主体猜成观点/知情主体，不确定、梦境、谎言或角色认知不得冒充objective。人物关系必须使用 relationship.<关系类型> 作为 relationKey（例如 relationship.acquaintance），value只填写另一方的准确姓名，不得使用“角色关系”等自由键，也不得把整段关系说明塞进value。对正文明确写出的持久资料，可按实际语义使用可选键：人物age、personality、affiliation、realm、strength、attributes、equipment；势力leader、member_count、strength、level、base、position、members；地点birthplace、type、parent、direction、description；道具或资源owner、type、level、amount、attributes、effects、status、acquire、lost；本章实际事件使用event.chapter_章节号，subjectName写自然事件名，value写实际结果，严禁“参与第X章行动”一类机械占位。人物隶属关系不能替代势力自身资料：正文若明确写出势力类型、驻地、成员或行动，必须另建organization主体事实。以上只是帮助正确归类的命名参考，不要求每个对象或章节凑齐；正文没写明就不输出。主角当前状态只在正文明确给出且对后续创作有持续价值时记录，使用 protagonist_state.<本书分类>.<状态键>（绝对值）或 protagonist_delta.<本书分类>.<状态键>（增减值）；分类必须随本书内容生成，无法可靠归类时写 unclassified 以请求作者确认，不得硬套固定模板，也不得记录转瞬即逝的动作、情绪或从模糊文学描写猜测数值'
         });
       let output: string;
@@ -983,7 +994,7 @@ export class ChapterPipelineService {
         }
       }
     });
-    // 三席必须真正结束后再让任务进入终态。Promise.all 会在首个失败时提前返回，
+    // 全体点评席必须真正结束后任务才能进入终态。Promise.all 会在首个失败时提前返回，
     // 使其余真实模型调用在租约释放后变成“结果未知”；allSettled 保留完整审计证据。
     const settledReviews = await Promise.allSettled(reviewPromises);
     const failedReviews = settledReviews.filter((item): item is PromiseRejectedResult => item.status === 'rejected');
@@ -1003,7 +1014,7 @@ export class ChapterPipelineService {
       ? undefined
       : workflowRepository.currentTeam(scope, run.binding_revision_id)
           .find((agent) => agent.agentId === activeEditor.active_editor_agent_id);
-    if (editor === undefined) throw new QualityBlockedError('当前模型绑定缺少活动主编，不能综合三席报告');
+    if (editor === undefined) throw new QualityBlockedError('当前模型绑定缺少活动主编，不能综合点评席报告');
     const editorSharesReviewerModel = panel.reviewers.some((reviewer) =>
       reviewer.agent.provider === editor.provider && reviewer.agent.modelId === editor.modelId);
     const editorPack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
@@ -1017,7 +1028,7 @@ export class ChapterPipelineService {
         sourceType: 'review_reports',
         sourceId: `panel:${panel.panelId}`,
         content: JSON.stringify(synthesisReports),
-        reason: '主编只综合三份结构化点评，不读取正文进行第四次点评',
+        reason: '主编只综合各席结构化点评，不读取正文再做一轮点评',
         priority: 100
       }],
       optionalSources: []
@@ -1043,19 +1054,19 @@ export class ChapterPipelineService {
             sharesProviderAndModelWithReviewer: editorSharesReviewerModel,
             rule: editorSharesReviewerModel
               ? '主编综合与一名点评席共享模型来源；必须披露重合，且不能把该席与主编视为两份独立佐证。'
-              : '主编综合与三名点评席不存在模型来源重合。'
+              : '主编综合与各点评席不存在模型来源重合。'
           },
           rules: [
-            '只综合三席已提交的结构化报告，不推测正文中未被报告指出的问题',
+            '只综合各席已提交的结构化报告，不推测正文中未被报告指出的问题',
             '不能降级任何blocker、重大问题或高等级合规风险',
             '按修改收益与牵连范围排列问题索引，并保留真实分歧',
-            '三席不是简单多数投票，但单个主观席也不是共识；缺少独立佐证的文学或体验异议必须作为异议保留，不能追逐每轮变化的风格目标。',
+            '各席不是简单多数投票，但单个主观席也不是共识；缺少独立佐证的文学或体验异议必须作为异议保留，不能追逐每轮变化的风格目标。',
             '客观正史、时间线和事实连续性由事实席负责核验。若只有文学席把这类问题标为blocker，而事实席以明确证据判定通过、体验席也未阻断，主编必须保留分歧并要求一次定点复核，不得把文学席与同源主编当成两份独立佐证，也不得直接要求老板重复裁决已结算正史。',
             '两轮有界改写后，如果事实席和另一独立席通过，且没有blocker、安全、合规、客观连续性或跨席硬问题，应把剩余主观异议交给老板确认，不得下达第三轮改写。'
           ],
           output: {
             panelId: '原值', manuscriptVersionId: '原值', recommendedVerdict: 'pass|rewrite|blocked',
-            priorityIssueIndexes: ['三席issues按报告顺序展开后的零基索引'],
+            priorityIssueIndexes: ['各席issues按报告顺序展开后的零基索引'],
             preservedDisagreements: ['需要保留的分歧'], rationale: '综合理由'
           }
         }),
@@ -1096,7 +1107,7 @@ export class ChapterPipelineService {
             panelId: panel.panelId,
             manuscriptVersionId,
             issueCount: reports.flatMap((report) => report.issues).length,
-            instruction: '只修正JSON结构、字段、枚举、问题索引和版本绑定；不能降级三席风险，只输出一个JSON对象。'
+            instruction: '只修正JSON结构、字段、枚举、问题索引和版本绑定；不能降级任何席位风险，只输出一个JSON对象。'
           }),
           editorPack.contextPackId
         );
@@ -1141,7 +1152,7 @@ export class ChapterPipelineService {
         pipelineRunId: run.pipeline_run_id
       });
       if (quality.hardBlocked) {
-        throw new QualityBlockedError('三异模型点评发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
+        throw new QualityBlockedError('异模型点评席发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
       }
       const bestPanel = this.database.prepare(`
         SELECT review_panel_id FROM manuscript_quality_snapshots
@@ -1151,7 +1162,7 @@ export class ChapterPipelineService {
         review_panel_id: string;
       } | undefined;
       if (bestPanel === undefined) {
-        throw new QualityBlockedError('已恢复上一最佳稿，但缺少可追溯的三席点评快照');
+        throw new QualityBlockedError('已恢复上一最佳稿，但缺少可追溯的点评快照');
       }
       this.database.prepare(`
         UPDATE chapter_pipeline_runs
@@ -1167,7 +1178,7 @@ export class ChapterPipelineService {
     }
     if (merged.verdict === 'blocked') {
       if (quality.hardBlocked) {
-        throw new QualityBlockedError('三异模型点评发现事实、连续性或合规硬阻断问题，已保留稿件和证据');
+        throw new QualityBlockedError('异模型点评席发现事实、连续性或合规硬阻断问题，已保留稿件和证据');
       }
       // Literary and experience disagreements must remain visible to the owner,
       // but they must not create a dead end after the bounded automatic rewrite.
@@ -1512,7 +1523,7 @@ export class ChapterPipelineService {
 
   private extractFacts(scope: BookScope, run: PipelineRow): PipelineRow {
     return new UnitOfWork(this.database).run(() => {
-      if (run.current_manuscript_version_id === null || run.review_panel_id === null) throw new Error('正文确认门禁缺少稿件或三点评轮次');
+      if (run.current_manuscript_version_id === null || run.review_panel_id === null) throw new Error('正文确认门禁缺少稿件或点评轮次');
       const chapter = this.requireChapter(scope, run.chapter_id);
       const taskBrief = this.taskBrief(scope, run.task_id);
       const revisingSettled = chapter.settlement_status === 'settled'
@@ -2058,7 +2069,7 @@ export function chapterReviewSourceBoundaryContract(): string[] {
     '下一章接口描述下一章应继续承接的局面，不是禁止本章提前收到消息、埋下线索或启动行动；只有本章已经完整解决下一章任务、导致后续无法成立时，才构成结构冲突。',
     '事实席还会收到sourceType=previous_chapter_full的前一章完整定稿；它只用于逐项核对相邻章节中同一人物、物件、场所、制度和时间细节，不得把前章动作归入本章。',
     '事实席必须执行两遍检查：第一遍按同一实体逐项比较编号及编号种类、日期时间、颜色材质、数量尺寸、位置、身份/状态和已经完成的动作；第二遍再检查因果链、人物知情与规则。发现明确不同值时必须引用当前稿和前章定稿两端。',
-    '正文有效字数、占位符、标题格式、内部说明和跨章模板复用已经由确定性硬检查在三审前完成；三席不得使用ContextPack的tokenCount、模型输入Token、原始字符串长度或自行估算字数重新裁决这些机械指标。',
+    '正文有效字数、占位符、标题格式、内部说明和跨章模板复用已经由确定性硬检查在审校前完成；点评席不得使用ContextPack的tokenCount、模型输入Token、原始字符串长度或自行估算字数重新裁决这些机械指标。',
     '评价本章动机、节奏、视角和语言时，只能把current_manuscript中的动作归入本章；检索前史仅用于核对时间顺序与已确认事实，不得把前史事件冒充本章事件。',
     '声称人物动机矛盾时，必须分别引用current_manuscript中的当前动机证据和已定稿前史中的冲突证据，并说明两者为何不能按时间先后、意外后果、信息差或开放谜团同时成立。',
     '提出“人物、伏笔或盯梢者未出现”之前必须搜索完整current_manuscript；若后文已经明确出现或用身份、令牌、动作建立了同一对象，该问题必须删除，不能要求重复交代。',
@@ -2236,7 +2247,7 @@ export function modelReservationTokenCeiling(input: {
 }
 
 function productionReviewOutputContract(
-  role: 'fact' | 'literary' | 'experience',
+  role: 'fact' | 'literary' | 'experience' | 'challenger',
   identity: { reviewerRole: string; manuscriptVersionId: string; modelSnapshotId: string }
 ): Record<string, unknown> {
   const common: Record<string, unknown> = {
@@ -2275,7 +2286,7 @@ function productionReviewOutputContract(
       flaggedParagraphRatio: 'flaggedParagraphCount/totalParagraphCount', isAuthorshipProbability: false,
       evidence: ['每项只填当前完整正文中逐字复制的一段连续原句，段落位置另写在issue.location']
     };
-  } else {
+  } else if (role === 'experience') {
     const risk = {
       level: { enum: ['none', 'low', 'medium', 'high', 'blocked'] },
       locations: ['非none时必须有正文位置'], evidence: ['非none时每项只填当前完整正文中逐字复制的一段连续原句'],
@@ -2451,7 +2462,7 @@ export function rewriteLengthGuardAction(characterCount: number): string {
 }
 
 export function productionReviewContextBudget(
-  role: 'fact' | 'literary' | 'experience',
+  role: 'fact' | 'literary' | 'experience' | 'challenger',
   hardSources: ContextSource[]
 ): { tokenBudget: number; characterBudget: number } {
   if (role !== 'fact') return { tokenBudget: 8_500, characterBudget: 8_500 };
