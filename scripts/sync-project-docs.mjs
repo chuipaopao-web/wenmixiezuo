@@ -11,7 +11,7 @@ const bundleOutput = join(rootDir, 'docs', 'PROJECT_REFERENCE_BUNDLE.md');
 const checkOnly = process.argv.includes('--check');
 
 const currentPaths = [
-  'PROJECT_HANDBOOK.md', 'AGENTS.md', 'README.md', 'KNOWLEDGE.md', 'TASKS.md',
+  'HANDOFF.md', 'PROJECT_HANDBOOK.md', 'AGENTS.md', 'README.md', 'KNOWLEDGE.md', 'TASKS.md',
   'docs/PROJECT_CHARTER.md', 'docs/DECISIONS.md', 'docs/PRODUCT.md',
   'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/ARCHITECTURE.md', 'docs/DATA_MODEL.md',
   'docs/AGENT_SYSTEM.md', 'docs/MEMORY.md', 'docs/LONGFORM_QUALITY.md',
@@ -113,7 +113,7 @@ const bundleGroups = [
     'docs/COVERAGE_MATRIX.md', 'docs/DESIGN_GOVERNANCE_AUDIT.md'
   ] },
   { title: '五、Codex开发协作与当前状态', paths: [
-    'PROJECT_HANDBOOK.md', 'AGENTS.md', 'KNOWLEDGE.md', 'TASKS.md'
+    'HANDOFF.md', 'PROJECT_HANDBOOK.md', 'AGENTS.md', 'KNOWLEDGE.md', 'TASKS.md'
   ] },
   { title: '六、长篇质量审查 Skill', paths: documents
     .filter((document) => document.path.startsWith('.agents/skills/wenmi-longform-quality/'))

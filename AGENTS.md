@@ -17,25 +17,17 @@
 - 老板已确认清理旧文档、旧代码和旧聊天链；删除前仍必须完成替代、零引用检查和测试。
 - 已合并数据库迁移不得修改或删除；作者数据不得随旧功能代码一起永久删除。
 
-## 开工前必读
+## 开工前阅读（分级制）
 
-1. `PROJECT_HANDBOOK.md`
-2. `docs/PROJECT_CHARTER.md`
-3. `docs/DECISIONS.md`
-4. `docs/PRODUCT.md`
-5. `docs/CREATION_WORKFLOW_V2_DESIGN.md`
-6. `docs/ARCHITECTURE.md`
-7. `docs/DATA_MODEL.md`
-8. `docs/AGENT_SYSTEM.md`
-9. `docs/MEMORY.md`
-10. `docs/LONGFORM_QUALITY.md`
-11. `docs/API.md`
-12. `docs/DEVELOPMENT_ROADMAP.md`
-13. `docs/ACCEPTANCE.md`
-14. `KNOWLEDGE.md`
-15. `TASKS.md`
+项目处于初始版本，工作流与前端持续大改，文档随功能同步增删，只描述当前生效的内容。按任务规模分级阅读，不再每次全量读 15 份文档：
 
-涉及检索或切片时完整读取 `docs/HYBRID_RAG_DESIGN.md` 与 `docs/CHUNKING_DESIGN.md`。涉及重要架构、上下文、Agent、生成、审校或质量变更时，还要读取 `docs/DESIGN_GOVERNANCE_AUDIT.md` 和 `.agents/skills/wenmi-longform-quality/SKILL.md`。
+- **所有任务**：先读 `HANDOFF.md`（当前状态速查）和本文件。
+- **逐页 UI 调整、小修小补**：只读与当前页面直接相关的代码文件；需要确认某个决定是否已定时查 `docs/DECISIONS.md`。
+- **工作流 / 架构 / Agent / 上下文 / 生成审校 / 质量类大改**：读 `docs/PROJECT_CHARTER.md`、`docs/DECISIONS.md`、`docs/PRODUCT.md`、`docs/CREATION_WORKFLOW_V2_DESIGN.md`、`docs/ARCHITECTURE.md`、`docs/AGENT_SYSTEM.md`、`docs/LONGFORM_QUALITY.md`，以及 `docs/DESIGN_GOVERNANCE_AUDIT.md` 和 `.agents/skills/wenmi-longform-quality/SKILL.md`；涉及数据或接口再加 `docs/DATA_MODEL.md`、`docs/API.md`。
+- **涉及检索或切片**：完整读取 `docs/HYBRID_RAG_DESIGN.md` 与 `docs/CHUNKING_DESIGN.md`。
+- 其余文档（ROADMAP、ACCEPTANCE、KNOWLEDGE、TASKS 等）按需查阅，不做强制。
+
+文档可以修改：功能改了就必须同步改对应文档；确认废弃的设计直接删除，并在提交信息里说明。
 
 ## 当前工作流
 

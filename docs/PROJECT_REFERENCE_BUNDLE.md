@@ -2,13 +2,13 @@
 
 本文件由当前文档白名单自动合并，只包含现版本生效的产品、流程、架构、数据、AI成员、上下文、检索、质量、开发与验收规则。适合整页复制给 DeepSeek 评审；原始短文档仍保留用于精确维护。
 
-共 **36** 份源文档，按以下六个目录合并：
+共 **37** 份源文档，按以下六个目录合并：
 
 - 一、产品定位与完整工作流（6份）
 - 二、AI成员、上下文、检索与创作质量（8份）
 - 三、系统架构、数据、接口与运行（6份）
 - 四、当前决定、开发计划与验收（5份）
-- 五、Codex开发协作与当前状态（4份）
+- 五、Codex开发协作与当前状态（5份）
 - 六、长篇质量审查 Skill（7份）
 
 > 权威说明：老板最新明确决定优先；本合订版由源文档自动生成，不单独手工维护。
@@ -4394,6 +4394,67 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ## 五、Codex开发协作与当前状态
 
+### 文秘写作交接笔记（HANDOFF）
+
+> 当前源文件：`HANDOFF.md` · 指纹：`397d842920c9`
+
+#### 文秘写作交接笔记（HANDOFF）
+
+> 新对话第一句话："读 HANDOFF.md，我们继续"。本文件是当前开发状态的唯一速查入口，随每次改动更新。
+> 详细规则仍在 AGENTS.md；本文档只放"快速回到状态"需要的东西。
+
+##### 项目现状（2026-08-18 凌晨）
+
+- 项目是**初始版本**：工作流程和前端 UI 都将大改。工作方式 = 老板逐页走查截图 → 讨论 → 修改 → 部署。
+- 原则：**改到哪一页，顺手删掉死代码、同步改文档；文档只描述当前生效的功能**。老板说改什么就改什么，不多做；有必要的附带改动先问。
+- 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi）。
+- 分支 `codex/desktop-entry`，远程 GitHub `chuipaopao-web/wenmixiezuo`，每次提交后推送。
+
+##### 最近完成的改动（最新在最上）
+
+1. 开书不带任何标签：删了后台标签自动推荐；后端放开"主要标签至少2个"和"故事方向至少20字"限制。标签库后续移到卷设计（每卷选每卷的），**未做**。
+2. 开书向导 4 步 → 3 步：创作方式 → 写什么题材 → 边界与角色。"故事怎么讲"整页删除（开局/结局/故事方向/完整标签库都没了）。初始角色限 2 名，身份只剩 男主/女主/共同主角/群像主角/非人主角。
+3. 基调在卷设计：每卷选主基调 1 个 + 副基调可选 1 个（词表：爽、乐、癫、暖、甜、虐、烧脑、诡异、厚重、黑），后一卷默认沿用上卷。10 段基调写作说明只注入 AI 上下文（软指引），作者不可见。旧书的 stylePrimary/styleSecondary 字段保留兼容。
+4. 开书合同字段 openingStart/storyEnding/stylePrimary/styleSecondary/storyDirection 全部变为可选（旧书兼容），向导不再采集。
+
+##### 关键文件地图
+
+- 开书向导：`apps/web/src/features/onboarding/CompleteCreateBookDialog.tsx`（+ `opening-draft-store.ts` 草稿、`opening-options.ts` 频道/角色身份）
+- 卷设计：`apps/web/src/features/planning/VolumePlanningPanel.tsx`（含本卷基调选择）
+- 开书合同校验：`apps/api/src/contracts/opening-blueprint.ts`（**CRLF/LF 混合文件**，Edit 工具常失败，用 node 脚本按字节 replace）
+- 卷合同：`apps/contracts/src/workflow.ts`（改完必须 `npm.cmd run build -w @wenmi/contracts`）
+- 章管线上下文注入：`apps/api/src/application/creation/chapter-pipeline-service.ts`（混合换行，同上用脚本）
+- 文档同步白名单：`scripts/sync-project-docs.mjs`（增删文档要同步改 currentPaths 和 bundleGroups 两处）
+- 开书相关测试：`tests/integration/experience/opening-wizard.test.tsx`、`workspace-ui.test.tsx`、`tests/foundation/opening-taxonomy.test.ts`
+
+##### 部署流程（Git Bash）
+
+```bash
+npm.cmd run verify          # 大改才全量跑；小改只跑相关测试 + 前后端 tsc
+node scripts/sync-project-docs.mjs --check
+git -c core.autocrlf=false add -A && git -c core.autocrlf=false commit -m "..."
+git push origin codex/desktop-entry
+git -c core.autocrlf=false archive --format=tar -o /tmp/wenmi-update.tar HEAD apps
+scp -i ~/.ssh/wenmi-hk-server /tmp/wenmi-update.tar root@47.243.152.159:/tmp/wenmi-update.tar
+ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "cd /opt/wenmi && tar -xf /tmp/wenmi-update.tar -C /opt/wenmi && rm /tmp/wenmi-update.tar && chown -R wenmi:wenmi /opt/wenmi/apps && sudo -u wenmi npm run build && systemctl restart wenmi-api wenmi-worker && systemctl is-active wenmi-api wenmi-worker"
+curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
+```
+
+##### 协作规矩（老板定的）
+
+- 逐页走查：老板截图指出问题 → 确认方案 → 改 → 部署 → 老板强刷（Ctrl+Shift+R）验证。
+- 没说的不要改；不确定先问。
+- 省 Token：攒批改、截图截局部、对话做一批事就换新对话。
+- 全量 `npm run verify` 只在大改后跑；小改跑相关测试即可。
+
+##### 走查进度
+
+- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）。
+- 进行中/下一步：老板继续逐页走查（设定、卷设计、章纲、正文写作等页面），随走随改。
+- 待做（已讨论未定稿）：标签库进卷设计；开局/结局进设定阶段由 AI 参与讨论推荐。
+
+---
+
 ### 文秘写作项目总入口
 
 > 当前源文件：`PROJECT_HANDBOOK.md` · 指纹：`1f2c8f731f07`
@@ -4495,7 +4556,7 @@ Git记录只用于追溯，不能覆盖当前规则，也不能进入产品运�
 
 ### 文秘写作开发协作规则
 
-> 当前源文件：`AGENTS.md` · 指纹：`2bdda8773087`
+> 当前源文件：`AGENTS.md` · 指纹：`cbf235cfa04e`
 
 #### 文秘写作开发协作规则
 
@@ -4516,25 +4577,17 @@ Git记录只用于追溯，不能覆盖当前规则，也不能进入产品运�
 - 老板已确认清理旧文档、旧代码和旧聊天链；删除前仍必须完成替代、零引用检查和测试。
 - 已合并数据库迁移不得修改或删除；作者数据不得随旧功能代码一起永久删除。
 
-##### 开工前必读
+##### 开工前阅读（分级制）
 
-1. `PROJECT_HANDBOOK.md`
-2. `docs/PROJECT_CHARTER.md`
-3. `docs/DECISIONS.md`
-4. `docs/PRODUCT.md`
-5. `docs/CREATION_WORKFLOW_V2_DESIGN.md`
-6. `docs/ARCHITECTURE.md`
-7. `docs/DATA_MODEL.md`
-8. `docs/AGENT_SYSTEM.md`
-9. `docs/MEMORY.md`
-10. `docs/LONGFORM_QUALITY.md`
-11. `docs/API.md`
-12. `docs/DEVELOPMENT_ROADMAP.md`
-13. `docs/ACCEPTANCE.md`
-14. `KNOWLEDGE.md`
-15. `TASKS.md`
+项目处于初始版本，工作流与前端持续大改，文档随功能同步增删，只描述当前生效的内容。按任务规模分级阅读，不再每次全量读 15 份文档：
 
-涉及检索或切片时完整读取 `docs/HYBRID_RAG_DESIGN.md` 与 `docs/CHUNKING_DESIGN.md`。涉及重要架构、上下文、Agent、生成、审校或质量变更时，还要读取 `docs/DESIGN_GOVERNANCE_AUDIT.md` 和 `.agents/skills/wenmi-longform-quality/SKILL.md`。
+- **所有任务**：先读 `HANDOFF.md`（当前状态速查）和本文件。
+- **逐页 UI 调整、小修小补**：只读与当前页面直接相关的代码文件；需要确认某个决定是否已定时查 `docs/DECISIONS.md`。
+- **工作流 / 架构 / Agent / 上下文 / 生成审校 / 质量类大改**：读 `docs/PROJECT_CHARTER.md`、`docs/DECISIONS.md`、`docs/PRODUCT.md`、`docs/CREATION_WORKFLOW_V2_DESIGN.md`、`docs/ARCHITECTURE.md`、`docs/AGENT_SYSTEM.md`、`docs/LONGFORM_QUALITY.md`，以及 `docs/DESIGN_GOVERNANCE_AUDIT.md` 和 `.agents/skills/wenmi-longform-quality/SKILL.md`；涉及数据或接口再加 `docs/DATA_MODEL.md`、`docs/API.md`。
+- **涉及检索或切片**：完整读取 `docs/HYBRID_RAG_DESIGN.md` 与 `docs/CHUNKING_DESIGN.md`。
+- 其余文档（ROADMAP、ACCEPTANCE、KNOWLEDGE、TASKS 等）按需查阅，不做强制。
+
+文档可以修改：功能改了就必须同步改对应文档；确认废弃的设计直接删除，并在提交信息里说明。
 
 ##### 当前工作流
 
