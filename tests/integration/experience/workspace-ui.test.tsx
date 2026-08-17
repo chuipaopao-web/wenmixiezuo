@@ -363,25 +363,14 @@ describe('完整创作工作台', () => {
     expect(within(dialog).queryByText('主要选择 + 其他自由发挥')).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
 
-    const storyDirection = '林舟收到一封来自未来的失踪通知，被迫调查城市记忆被改写的原因；她要找回失踪的姐姐，同时阻止下一次改写吞掉整座旧城。';
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
     expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('目标读者推荐')).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：故事怎么讲' }));
-
-    fireEvent.change(within(dialog).getByLabelText('故事方向补充'), { target: { value: storyDirection } });
-    await waitFor(() => expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument());
-    fireEvent.click(within(dialog).getByRole('button', { name: '取消元素标签：群像' }));
-    expect(within(dialog).getByText(/已选 7 个/)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择元素标签：群像' }));
-    fireEvent.change(within(dialog).getByLabelText('自定义标签'), { target: { value: '轻悬疑' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '添加自定义标签' }));
-    expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument();
     expect((await axe.run(dialog, { rules: { 'color-contrast': { enabled: false } } })).violations).toEqual([]);
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：边界与角色' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：边界与角色' }));
     expect(within(dialog).getAllByText('必须遵守').length).toBeGreaterThan(0);
     expect(within(dialog).getByText('感情与关系')).toBeInTheDocument();
     expect(within(dialog).getByText('主角体验')).toBeInTheDocument();

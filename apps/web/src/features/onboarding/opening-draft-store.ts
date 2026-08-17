@@ -22,7 +22,7 @@ export interface OpeningProtagonistDraft {
 
 export interface OpeningWizardDraft {
   schemaVersion: typeof OPENING_DRAFT_SCHEMA_VERSION;
-  step: 1 | 2 | 3 | 4;
+  step: 1 | 2 | 3;
   creationMode: BookCreationMode;
   title: string;
   channel: OpeningChannel | null;
@@ -127,7 +127,7 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
 }
 
 export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
-  // v2 是旧三步向导的草稿：第2步（作品方向）落到新第3步，第3步（初始角色）并入新第4步；更早的第4步回落到第2步。
+  // v2 是更早的三步向导草稿；v3 是四步向导草稿（第3步“故事怎么讲”已删除，回落到第2步，旧第4步落到新第3步）。
   if (!isRecord(value) || (value.schemaVersion !== 2 && value.schemaVersion !== OPENING_DRAFT_SCHEMA_VERSION)) return null;
   const empty = emptyOpeningWizardDraft();
   const protagonists = Array.isArray(value.protagonists)
@@ -137,8 +137,8 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
   return {
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
     step: value.schemaVersion === 2
-      ? rawStep === 2 ? 3 : rawStep === 3 ? 4 : rawStep === 4 ? 2 : 1
-      : rawStep === 2 || rawStep === 3 || rawStep === 4 ? rawStep as 2 | 3 | 4 : 1,
+      ? rawStep === 2 ? 2 : rawStep === 3 ? 3 : rawStep === 4 ? 2 : 1
+      : rawStep === 2 ? 2 : rawStep === 3 ? 2 : rawStep === 4 ? 3 : 1,
     creationMode: value.creationMode === 'continuation' ? 'continuation' : 'new',
     title: limitBookTitle(limitedText(value.title, BOOK_TITLE_MAX_CHARACTERS * 2)),
     channel: value.channel === 'male' || value.channel === 'female' ? value.channel : null,

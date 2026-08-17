@@ -81,12 +81,7 @@ describe('四步开书', () => {
     expect(within(dialog).getByRole('button', { name: /^从零创作/u })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole('button', { name: '第2步：写什么题材' }));
     await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
-    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：故事怎么讲' }));
-    fireEvent.change(within(dialog).getByLabelText('故事方向补充'), {
-      target: { value: '林舟决定利用会变化的城市地图反向追踪记忆源头，并赶在旧城拆除前救出姐姐。' }
-    });
-    expect(await within(dialog).findByText('2 个已选')).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：边界与角色' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：边界与角色' }));
     const save = within(dialog).getByRole('button', { name: '保存修改' });
     fireEvent.click(save);
     fireEvent.click(save);
@@ -121,10 +116,6 @@ describe('四步开书', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
-    fireEvent.change(screen.getByLabelText('故事方向补充'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
-    expect(screen.getByText(/个已选/u)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-
     fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
 
     const first = screen.getByRole('article');
@@ -146,7 +137,7 @@ describe('四步开书', () => {
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       title: '旧城来信',
       openingBlueprint: expect.objectContaining({
-        creationMode: 'new', storyDirection: expect.stringContaining('城市记忆'),
+        creationMode: 'new', storyDirection: '',
         worldBackground: '',
         initialMap: '',
         protagonists: [expect.objectContaining({ name: '林舟' }), expect.objectContaining({ name: '周野' })],
@@ -174,7 +165,7 @@ describe('四步开书', () => {
     const onCreate = vi.fn().mockResolvedValue(false);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
     fireEvent.click(screen.getByRole('button', { name: /^已有正文续写/u }));
-    fireEvent.click(screen.getByRole('button', { name: '第4步：边界与角色' }));
+    fireEvent.click(screen.getByRole('button', { name: '第3步：边界与角色' }));
     expect(screen.getByRole('button', { name: '创建书籍' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
