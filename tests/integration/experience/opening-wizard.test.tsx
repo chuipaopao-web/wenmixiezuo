@@ -82,8 +82,6 @@ describe('四步开书', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '第2步：写什么题材' }));
     await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
     fireEvent.click(within(dialog).getByRole('button', { name: '第3步：故事怎么讲' }));
-    fireEvent.change(within(dialog).getByLabelText('开局'), { target: { value: '林舟收到姐姐寄出的迟到十年的信' } });
-    fireEvent.change(within(dialog).getByLabelText('结局'), { target: { value: '找回城市真实历史' } });
     fireEvent.change(within(dialog).getByLabelText('故事方向补充'), {
       target: { value: '林舟决定利用会变化的城市地图反向追踪记忆源头，并赶在旧城拆除前救出姐姐。' }
     });
@@ -123,8 +121,6 @@ describe('四步开书', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
-    fireEvent.change(screen.getByLabelText('开局'), { target: { value: '林舟收到一封来自未来的旧信' } });
-    fireEvent.change(screen.getByLabelText('结局'), { target: { value: '找回城市真实历史' } });
     fireEvent.change(screen.getByLabelText('故事方向补充'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
     expect(screen.getByText(/个已选/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));

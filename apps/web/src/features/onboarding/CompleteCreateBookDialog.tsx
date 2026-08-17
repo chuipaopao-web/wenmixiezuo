@@ -59,8 +59,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>(initialDraft.protagonists);
   const [namingProtagonistIndex, setNamingProtagonistIndex] = useState<number | null>(null);
   const [storyDirection, setStoryDirection] = useState(initialDraft.storyDirection);
-  const [openingStart, setOpeningStart] = useState(initialDraft.openingStart);
-  const [storyEnding, setStoryEnding] = useState(initialDraft.storyEnding);
   const [targetAudience, setTargetAudience] = useState(initialDraft.targetAudience);
   const [worldBackground, setWorldBackground] = useState(initialDraft.worldBackground);
   const [openingBackground, setOpeningBackground] = useState(initialDraft.openingBackground);
@@ -107,8 +105,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryTraits(draft.storyTraits);
     setProtagonists(draft.protagonists);
     setStoryDirection(draft.storyDirection);
-    setOpeningStart(draft.openingStart);
-    setStoryEnding(draft.storyEnding);
     setTargetAudience(draft.targetAudience);
     setWorldBackground(draft.worldBackground);
     setOpeningBackground(draft.openingBackground);
@@ -145,7 +141,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (editing) return;
     const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
       step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-      protagonists, openingStart, storyEnding,
+      protagonists,
       storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
       fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
       allSubjectsOpen, activeTagGroupKey
@@ -168,7 +164,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     }, 250);
     return () => window.clearTimeout(timer);
   }, [accountId, step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-    protagonists, openingStart, storyEnding,
+    protagonists,
     storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
     allSubjectsOpen, activeTagGroupKey, editing]);
@@ -257,8 +253,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     ...(category === null ? ['作品分类'] : [])
   ];
   const storyRequirements = [
-    ...(openingStart.trim().length < 4 ? ['开局至少4个字'] : []),
-    ...(storyEnding.trim().length < 2 ? ['结局至少2个字'] : []),
     ...(mainTags.length < 2 ? ['至少2个元素标签'] : [])
   ];
   const protagonistRequirements = protagonists.flatMap((item, index) => [
@@ -342,9 +336,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
             : channel === null ? document.querySelector<HTMLInputElement>('input[name="complete-book-channel"]')
               : document.getElementById('opening-category-section')
         : targetStep === 3
-          ? openingStart.trim().length < 4 ? document.getElementById('opening-start')
-            : storyEnding.trim().length < 2 ? document.getElementById('story-ending')
-              : document.getElementById('opening-tag-section')
+          ? document.getElementById('opening-tag-section')
           : mustFollow.length === 0 || mustFollow.length > 15 ? document.getElementById('must-follow')
             : protagonistTarget ?? document.getElementById('opening-protagonist-section');
       target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
@@ -375,8 +367,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryTraits(empty.storyTraits);
     setProtagonists(empty.protagonists);
     setStoryDirection(empty.storyDirection);
-    setOpeningStart(empty.openingStart);
-    setStoryEnding(empty.storyEnding);
     setTargetAudience(empty.targetAudience);
     setWorldBackground(empty.worldBackground);
     setOpeningBackground(empty.openingBackground);
@@ -408,9 +398,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       focusMissingStep(firstMissingStep);
       return;
     }
-    const directionText = openingStart.trim().length > 0
-      ? [`开局：${openingStart.trim()}`, `结局：${storyEnding.trim()}`, storyDirection.trim()].filter((part) => part.length > 0 && !part.endsWith('：')).join('。')
-      : storyDirection.trim();
     const openingBlueprint: OpeningBlueprintData = {
       creationMode,
       taxonomyVersion: taxonomy.version,
@@ -430,8 +417,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         goldenFinger: item.goldenFinger.trim()
       })),
       storyDirection: storyDirection.trim(),
-      ...(openingStart.trim().length > 0 ? { openingStart: openingStart.trim() } : {}),
-      ...(storyEnding.trim().length > 0 ? { storyEnding: storyEnding.trim() } : {}),
       worldBackground: worldBackground.trim(),
       openingBackground: openingBackground.trim(),
       stageOne: { start: stageOne.start.trim(), development: stageOne.development.trim(), end: stageOne.end.trim() },
@@ -455,7 +440,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       } else {
         if (onCreate === undefined) throw new Error('缺少创建新书处理程序。');
         saved = await onCreate({
-          title: title.trim(), text: directionText, category: category.name,
+          title: title.trim(), text: storyDirection.trim(), category: category.name,
           classification: channel === 'male' ? '男频' : '女频',
           targetAudience: targetAudience.trim(),
           tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
@@ -479,7 +464,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (!editing) {
       const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
         step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-        protagonists, openingStart, storyEnding,
+        protagonists,
         storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
         fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
         allSubjectsOpen, activeTagGroupKey
@@ -583,10 +568,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         </div>
 
         {step === 3 && <section className="opening-form-section story-direction-section">
-          <div className="section-heading"><div><span>01</span><h3>开局与结局</h3></div><small>必填</small></div>
-          <label htmlFor="opening-start">开局<input id="opening-start" aria-label="开局" value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：主角穿越异界，成为一个平民" maxLength={200} /></label>
-          <label htmlFor="story-ending">结局<input id="story-ending" aria-label="结局" value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：登基称帝" maxLength={200} /></label>
-          <label htmlFor="opening-story-direction">还想说点什么（选填）<textarea id="opening-story-direction" aria-label="故事方向补充" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="对这本书的其他想法，可留空" rows={3} maxLength={800} /></label>
+          <div className="section-heading"><div><span>01</span><h3>故事方向</h3></div><small>选填</small></div>
+          <label htmlFor="opening-story-direction">对这本书的想法（可留空）<textarea id="opening-story-direction" aria-label="故事方向补充" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="想到什么写什么，没有就留空；开局、结局这类具体内容会在设定阶段和团队一起定。" rows={3} maxLength={800} /></label>
         </section>}
 
         {step === 3 && <section className="opening-form-section tag-direction-section" id="opening-tag-section" tabIndex={-1}>
@@ -672,8 +655,6 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
       personalities: [...item.personalities]
     })),
     storyDirection: blueprint.storyDirection,
-    openingStart: blueprint.openingStart ?? '',
-    storyEnding: blueprint.storyEnding ?? '',
     targetAudience: blueprint.targetAudience,
     worldBackground: blueprint.worldBackground,
     openingBackground: blueprint.openingBackground,
