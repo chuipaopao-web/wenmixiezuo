@@ -29,6 +29,7 @@ import {
   type VolumePlanVersionData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
 
 interface VolumePlanningSnapshot {
@@ -284,6 +285,12 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         }}>{editing ? '收起编辑' : selectedPlan.activeVersion === null ? '填写我的方案' : '在确认稿上修改'}</button>
       </section>
 
+      {selectedPlan.status === 'completed' && <SettlementFollowUpCard
+        bookId={bookId}
+        stageKind="volume"
+        stageObjectId={selectedPlan.volumePlanId}
+      />}
+
       <TemplateChooser
         catalog={snapshot.templates}
         mode={templateMode}
@@ -491,6 +498,11 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
     <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
     <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
+    {version.content.fusionNotes != null && <div className="fusion-notes">
+      <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
+      <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>
+      <p><strong>新鲜感来自哪里</strong>{version.content.fusionNotes.freshness}</p>
+    </div>}
     <button type="button" disabled={busy || active} onClick={onPreview}>{active ? '正在使用' : version.status === 'superseded' ? '查看切回影响' : '预览并确认'}</button>
   </article>;
 }

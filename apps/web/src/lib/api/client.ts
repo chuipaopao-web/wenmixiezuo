@@ -479,6 +479,17 @@ export interface PlanningSettlementData {
   settlementId:string;stageKind:'event'|'volume';stageObjectId:string;planVersionId:string;version:number;
   chapterStart:number;chapterEnd:number;canonRevision:number;planned:unknown;actual:unknown;deviation:unknown;createdAt:string;
 }
+export interface SettlementPacingReportData {
+  overallAssessment:string;payoffPlacement:string;climaxSpacing:string;pressureDuration:string;
+  recoveryBeats:string;risks:string[];suggestions:string[];
+}
+export interface SettlementFollowUpData {
+  taskId:string;status:string;currentPhase:string;errorCode:string|null;
+  stageKind:'event'|'volume';stageObjectId:string;settlementId:string;
+  pacingReport:SettlementPacingReportData|null;summary:string|null;
+  pacingBy:{agentId:string;displayName:string}|null;summaryBy:{agentId:string;displayName:string}|null;
+  createdAt:string;updatedAt:string;
+}
 export interface ExpressionProfileData {
   expressionProfileId:string;version:number;narrativePerson:'first'|'third'|'mixed'|null;
   viewpointDistance:'close'|'medium'|'distant'|'adaptive'|null;languageTone:unknown;
@@ -1204,6 +1215,18 @@ export function fetchVolumeSettlement(bookId:string,volumePlanId:string,signal?:
 export function settleVolumePlan(bookId:string,volumePlanId:string,expectedWorkflowVersion:number):Promise<PlanningSettlementData>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/settle`,
     {method:'POST',body:JSON.stringify({expectedWorkflowVersion})});
+}
+export function fetchSettlementFollowUp(bookId:string,stageKind:'event'|'volume',stageObjectId:string,signal?:AbortSignal):Promise<SettlementFollowUpData|null>{
+  const base=stageKind==='event'
+    ?`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(stageObjectId)}/settlement/follow-up`
+    :`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(stageObjectId)}/settlement/follow-up`;
+  return request(base,signal===undefined?{}:{signal});
+}
+export function startSettlementFollowUp(bookId:string,stageKind:'event'|'volume',stageObjectId:string):Promise<SettlementFollowUpData>{
+  const base=stageKind==='event'
+    ?`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(stageObjectId)}/settlement/follow-up`
+    :`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(stageObjectId)}/settlement/follow-up`;
+  return request(base,{method:'POST',body:JSON.stringify({})});
 }
 
 export function fetchVolumePlans(bookId: string, signal?: AbortSignal): Promise<VolumePlanData[]> {

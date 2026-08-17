@@ -5783,6 +5783,32 @@ svg {
 .volume-version-card dl > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; }
 .volume-version-card dt { color: var(--ink-soft); }
 .volume-version-card dd { margin: 0; line-height: 1.55; }
+.fusion-notes { display: grid; gap: 8px; border: 1px dashed var(--accent); border-radius: 11px; padding: 10px 12px; background: color-mix(in srgb, var(--accent-soft) 38%, transparent); }
+.fusion-notes p { display: grid; gap: 3px; margin: 0; line-height: 1.6; }
+.fusion-notes p strong { color: var(--accent-strong); font-size: .86em; letter-spacing: .02em; }
+.settlement-follow-up-card { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--panel-raised); }
+.settlement-follow-up-card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.settlement-follow-up-card > header small { color: var(--ink-soft); letter-spacing: .06em; }
+.settlement-follow-up-card > header h4 { margin: 0; font-size: 1.02em; }
+.settlement-follow-up-card > header .follow-up-status { margin-left: auto; color: var(--ink-soft); font-size: .84em; }
+.settlement-follow-up-card > header .follow-up-status.working { color: var(--accent-strong); }
+.settlement-follow-up-card > p { margin: 0; color: var(--ink-soft); line-height: 1.6; }
+.follow-up-summary { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; }
+.follow-up-summary strong { color: var(--accent-strong); font-size: .9em; }
+.follow-up-summary p { margin: 0; line-height: 1.7; }
+.follow-up-pacing { display: grid; gap: 8px; }
+.follow-up-pacing > strong { color: var(--accent-strong); font-size: .9em; }
+.follow-up-pacing dl { display: grid; gap: 7px; margin: 0; }
+.follow-up-pacing dl > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; }
+.follow-up-pacing dt { color: var(--ink-soft); }
+.follow-up-pacing dd { margin: 0; line-height: 1.6; }
+.follow-up-risks, .follow-up-suggestions { display: grid; gap: 5px; margin: 0; padding-left: 18px; line-height: 1.6; }
+.follow-up-risks li::marker { color: #c2483d; }
+.follow-up-suggestions li::marker { color: var(--accent-strong); }
+@media (max-width: 640px) {
+  .settlement-follow-up-card { padding: 12px; }
+  .follow-up-pacing dl > div { grid-template-columns: 1fr; gap: 2px; }
+}
 .volume-impact-card { position: sticky; z-index: 4; bottom: 12px; display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(240px, 1fr) auto; align-items: center; gap: 16px; border: 1px solid var(--accent); border-radius: 15px; padding: 15px 17px; box-shadow: 0 14px 36px rgb(0 0 0 / .15); background: var(--panel-raised); }
 .volume-impact-card p { margin: 4px 0 0; color: var(--ink-soft); }
 .volume-impact-card dl { display: grid; gap: 5px; margin: 0; }

@@ -33,8 +33,9 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
     const bookBranding = deterministicBookBranding(request.prompt);
+    const settlementFollowUp = deterministicSettlementFollowUp(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? settlementFollowUp ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -45,6 +46,32 @@ export class DeterministicModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function deterministicSettlementFollowUp(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'settlement_follow_up_v1') return null;
+  const seat = isRecord(root.seat) ? root.seat : {};
+  const subject = isRecord(root.subject) ? root.subject : {};
+  const title = typeof subject.title === 'string' && subject.title.trim().length > 0 ? subject.title.trim() : '当前阶段';
+  const range = isRecord(subject.chapterRange) ? subject.chapterRange : {};
+  const start = typeof range.start === 'number' ? range.start : 1;
+  const end = typeof range.end === 'number' ? range.end : start;
+  if (seat.mode === 'deputy_editor_summary') {
+    return JSON.stringify({
+      summary: `《${title}》这段时间（第${start}到${end}章）里，主角把上一阶段的后果变成了新的行动资格，关键关系因为公开担责变得更牢，旧秩序的维护者开始正面反制；本阶段核心问题已经解决，但对手的新动作和盟友提出的条件还悬着，会直接影响下一阶段。（确定性假模型摘要，供本地与测试环境走通流程。）`
+    });
+  }
+  return JSON.stringify({
+    overallAssessment: `《${title}》整体节奏成立：进展、反制和反击依次落地，没有长时间原地踏步。`,
+    payoffPlacement: `第${start}到${end}章内每个事件末尾都有一次可验证兑现，卷末反击兑现了整段积累；开局兑现可以再提前半章。`,
+    climaxSpacing: `相邻高潮之间隔着一段反制与证据积累，间隔在当前篇幅内可接受，中段注意不要连续两章没有明显进展。`,
+    pressureDuration: '反制造成的压抑集中在低点前后，没有超过三章的连续压抑，符合当前题材容忍度。',
+    recoveryBeats: '每次高压之后都有一次靠行动兑现承诺换来的喘息，恢复节拍够用，但都比较短，可以适当给人物一段安静的收拢时间。',
+    risks: ['中段反制章节若拖长，追读动力会下降', '兑现节奏若全压在各段末尾，开头抓力会变弱'],
+    suggestions: ['把下一阶段的第一次兑现提前到开局两章内', '高潮前安排一次短恢复，让最终反击的落差更明显']
+  });
 }
 
 function deterministicBookBranding(prompt: string): string | null {
@@ -139,7 +166,14 @@ function deterministicVolumePlan(prompt: string): string | null {
       mustNotViolate: ['不能用无来源的新能力或巧合解决高潮', '不能让人物忘记前面已经付出的代价'],
       creativeFreedom: ['事件内的具体场景、对白、局部反转和配角行动', '事件章数可随实际叙事密度调整'],
       openQuestions: ['下一卷介入势力的具体身份由事件结算后再确认']
-    }
+    },
+    ...(fusion ? {
+      fusionNotes: {
+        payoffDesign: '爽点设计说明：每个事件末尾各兑现一次可验证进展，卷末用反击兑现整卷积累，兑现前先让对手反制制造落差。',
+        logicChain: '逻辑链说明：上一阶段胜利暴露后果，后果引来反制，反制逼出证据与立场选择，证据积累支撑卷末反击，因果环环相接。',
+        freshness: '新鲜感说明：差异来自“胜利本身制造新问题”的结构和盟友有条件的共同决策，不靠新奇能力或巧合推进。'
+      }
+    } : {})
   });
 }
 function deterministicStoryEvent(prompt: string): string | null {
@@ -172,7 +206,14 @@ function deterministicStoryEvent(prompt: string): string | null {
     characterArcImpact: '主角从证明自己转向承担选择后果，关键同伴从被动协助转向有条件的共同决策',
     volumeClimaxImpact: '为卷高潮积累可使用的证据、关系和代价，避免最终胜利依靠临时能力或巧合',
     estimatedChapterRange: { minimum: 5, likely: 8, maximum: 12 },
-    uncertaintyNotes: fusion ? ['融合方案仍需作者确认具体对手身份与场景表达'] : ['若需要新增核心能力、道具或人物身份，必须先由作者确认']
+    uncertaintyNotes: fusion ? ['融合方案仍需作者确认具体对手身份与场景表达'] : ['若需要新增核心能力、道具或人物身份，必须先由作者确认'],
+    ...(fusion ? {
+      fusionNotes: {
+        payoffDesign: '爽点设计说明：在事件后段兑现一次带代价的局部胜利，结尾用对手反制留下新的期待缺口。',
+        logicChain: '逻辑链说明：上一事件后果触发选择，选择带来代价，代价换来证据与关系，证据与关系直接支撑下一事件。',
+        freshness: '新鲜感说明：差异来自盟友附带条件的合作与主角公开担责，而不是常规的正面对抗升级。'
+      }
+    } : {})
   });
 }
 

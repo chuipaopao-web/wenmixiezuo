@@ -9,6 +9,7 @@ import {
   type EventChapterSequenceData,type EventChapterSequenceVersionData,type ExpressionProfileData,type StoryEventData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
+import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
 
 export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{bookId:string;onOpenManuscript?:()=>void;onChanged?:()=>Promise<void>|void}):React.JSX.Element{
@@ -240,6 +241,7 @@ const confirmExpression=()=>void run(async()=>{
       <div><small>当前事件已写完</small><h4>核对实际结果，完成事件结算</h4><p>结算只读取已经定稿的正文和已确认内容；原事件大纲只用于对照偏差，不会反过来覆盖实际剧情。</p></div>
       <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentEvent}>完成事件，继续下一事件</button></div>
     </section>}
+{readOnly&&eventId!==null&&<SettlementFollowUpCard bookId={bookId} stageKind="event" stageObjectId={eventId}/>}
 {error!==null&&<p className="planning-error" role="alert">{error}</p>}
   </section>;
 }

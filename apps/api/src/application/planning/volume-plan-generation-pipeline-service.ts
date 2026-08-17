@@ -6,6 +6,7 @@ import {
 import { STYLE_TONES, validateVolumeStyleTones } from '../../contracts/opening-blueprint.js';
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
+import { buildGenreBrief } from '../../domain/genre-brief.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
@@ -272,7 +273,7 @@ export class VolumePlanGenerationPipelineService {
       });
       if (reusable !== undefined) {
         try {
-          return parseVolumePlanModelOutput(reusable.output_text);
+          return parseForCandidateKind(reusable.output_text, candidateKind);
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '卷规划JSON无效';
           lastError = error;
@@ -322,7 +323,7 @@ export class VolumePlanGenerationPipelineService {
           maxOutputTokens
         });
         try {
-          return parseVolumePlanModelOutput(result.output);
+          return parseForCandidateKind(result.output, candidateKind);
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '卷规划JSON无效';
           if (isVolumePlanOutputCapped(result.outputTokens, maxOutputTokens)) {
@@ -424,6 +425,15 @@ export function parseVolumePlanModelOutput(output: string): VolumePlanContent {
   throw new Error('输出缺少完整、合法的卷规划JSON。');
 }
 
+/** 融合稿除结构合法外，还必须带齐爽点、逻辑链、新鲜感三块说明。 */
+function parseForCandidateKind(output: string, candidateKind: CandidateKind): VolumePlanContent {
+  const content = parseVolumePlanModelOutput(output);
+  if (candidateKind === 'fusion' && (content.fusionNotes === null || content.fusionNotes === undefined)) {
+    throw new Error('融合候选缺少 fusionNotes：必须说明爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里。');
+  }
+  return content;
+}
+
 export function volumePlanOutputTokenLimit(candidateKind: CandidateKind): number {
   // 十事件卷纲的结构化JSON已经在真实 DeepSeek/GLM 调用中稳定超过6k套餐输出：
   // 两个供应商都在卷末边界前被截断。12k仍是有界上限，配合下面的表达压缩
@@ -458,7 +468,16 @@ function buildHardSources(
   brief: VolumePlanGenerationBrief,
   peerCandidates: VolumePlanContent[]
 ): ContextSource[] {
+  const genreBrief = buildGenreBrief(snapshot.opening.content);
   const sources: ContextSource[] = [
+    ...(genreBrief === null ? [] : [{
+      sourceType: 'planning:genre_brief',
+      sourceId: `genre:${snapshot.opening.id}`,
+      version: snapshot.opening.version,
+      content: genreBrief,
+      reason: '本书题材简报；方案必须贴合该题材定位与基调',
+      priority: 100
+    }]),
     {
       sourceType: 'planning:opening_blueprint',
       sourceId: snapshot.opening.id,
@@ -549,6 +568,7 @@ function buildPrompt(input: {
       '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
       '事件之间必须由上一事件结果和人物新状态自然触发，不用巧合强行串联。',
       '融合候选保留你选定路线的本卷基调，不要平均拼接两种味道。',
+      '融合候选必须填写 fusionNotes：向作者说清这份稿子的爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里；每块一两句具体说明，不写空话。',
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ] : [
       '你与另一位编剧互相看不到答案。独立提出一条真正值得写、因果成立且结构有辨识度的卷路线。',
@@ -605,7 +625,14 @@ function buildPrompt(input: {
         openQuestions: ['需要作者以后确认或可继续探索']
       },
       stylePrimary: `本卷主基调：从词表【${STYLE_TONES.join('、')}】中选1个，贴合本卷剧情走向`,
-      styleSecondary: '本卷可选副基调：同一词表，不与主基调重复；不需要则为null'
+      styleSecondary: '本卷可选副基调：同一词表，不与主基调重复；不需要则为null',
+      ...(fusion ? {
+        fusionNotes: {
+          payoffDesign: '爽点设计说明：本融合稿的爽点埋在哪里、按什么节奏兑现、各自服务什么情绪',
+          logicChain: '逻辑链说明：关键因果如何闭环，为什么选择这条路线而不是另一条',
+          freshness: '新鲜感说明：本稿的差异化与惊喜来自哪里，如何避免套路拼贴'
+        }
+      } : {})
     }
   });
 }

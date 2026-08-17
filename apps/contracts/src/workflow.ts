@@ -210,6 +210,17 @@ export interface EventSequenceItem {
   estimatedChapterRange: { minimum: number | null; likely: number | null; maximum: number | null };
 }
 
+/**
+ * 主编融合候选必须自带的三合一说明：
+ * 爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里。
+ * 只对融合稿生效；独立编剧候选不填写。
+ */
+export interface FusionNotes {
+  payoffDesign: string;
+  logicChain: string;
+  freshness: string;
+}
+
 export interface VolumePlanContent {
   title: string;
   openingState: string;
@@ -228,6 +239,8 @@ export interface VolumePlanContent {
   stylePrimary?: string | null;
   /** 本卷可选副基调，不与主基调重复。 */
   styleSecondary?: string | null;
+  /** 主编融合稿的三合一说明；独立候选为 null。 */
+  fusionNotes?: FusionNotes | null;
 }
 
 export interface VolumePlanVersion {
@@ -266,6 +279,8 @@ export interface StoryEventContent {
   volumeClimaxImpact: string;
   estimatedChapterRange: { minimum: number | null; likely: number | null; maximum: number | null };
   uncertaintyNotes: string[];
+  /** 主编融合稿的三合一说明；独立候选为 null。 */
+  fusionNotes?: FusionNotes | null;
 }
 
 export interface StoryEventVersion {
@@ -399,6 +414,33 @@ export interface CreationWorkflowStateView {
   updatedAt: string;
 }
 
+/**
+ * 主编在事件或卷结算后出具的节奏体检报告。
+ * 只评价已经发生的正文节奏，不回头改写规划，不替代作者决定。
+ */
+export interface SettlementPacingReport {
+  overallAssessment: string;
+  payoffPlacement: string;
+  climaxSpacing: string;
+  pressureDuration: string;
+  recoveryBeats: string;
+  risks: string[];
+  suggestions: string[];
+}
+
+export function parseSettlementPacingReport(input: unknown): SettlementPacingReport {
+  const value = requireRecord(input, '节奏体检报告');
+  return {
+    overallAssessment: requireText(value.overallAssessment, '节奏总评'),
+    payoffPlacement: requireText(value.payoffPlacement, '爽点与付费点位置'),
+    climaxSpacing: requireText(value.climaxSpacing, '高潮间隔'),
+    pressureDuration: requireText(value.pressureDuration, '压抑时长'),
+    recoveryBeats: requireText(value.recoveryBeats, '恢复节拍'),
+    risks: requireUniqueTextArray(value.risks, '节奏风险'),
+    suggestions: requireUniqueTextArray(value.suggestions, '下一步建议')
+  };
+}
+
 export function parseVolumePlanContent(input: unknown): VolumePlanContent {
   const value = requireRecord(input, '卷规划');
   const eventSequence = requireRecordArray(value.eventSequence, '事件链').map((item) => ({
@@ -435,7 +477,8 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     nextVolumeTrigger: requireText(value.nextVolumeTrigger, '下一卷接口'),
     boundaries: parseCreativeBoundarySet(value.boundaries),
     stylePrimary: optionalText(value.stylePrimary, '本卷主基调'),
-    styleSecondary: optionalText(value.styleSecondary, '本卷副基调')
+    styleSecondary: optionalText(value.styleSecondary, '本卷副基调'),
+    ...omitNullFusionNotes(value.fusionNotes)
   };
 }
 
@@ -459,7 +502,8 @@ export function parseStoryEventContent(input: unknown): StoryEventContent {
     characterArcImpact: requireText(value.characterArcImpact, '人物变化作用'),
     volumeClimaxImpact: requireText(value.volumeClimaxImpact, '卷高潮作用'),
     estimatedChapterRange: parseEstimatedChapterRange(value.estimatedChapterRange),
-    uncertaintyNotes: requireUniqueTextArray(value.uncertaintyNotes, '未知与待确认')
+    uncertaintyNotes: requireUniqueTextArray(value.uncertaintyNotes, '未知与待确认'),
+    ...omitNullFusionNotes(value.fusionNotes)
   };
 }
 export function parseChapterOutlineContent(input: unknown): ChapterOutlineContent {
@@ -654,6 +698,23 @@ export function isPlanningVersionStatus(value: unknown): value is PlanningVersio
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${field}必须是对象。`);
   return value as Record<string, unknown>;
+}
+
+/** 融合说明缺省时返回 null；一旦提供就必须三块齐全。 */
+export function parseFusionNotes(value: unknown): FusionNotes | null {
+  if (value === null || value === undefined) return null;
+  const record = requireRecord(value, '融合说明');
+  return {
+    payoffDesign: requireText(record.payoffDesign, '爽点设计说明'),
+    logicChain: requireText(record.logicChain, '逻辑链说明'),
+    freshness: requireText(record.freshness, '新鲜感说明')
+  };
+}
+
+/** 缺省融合说明时省略该键，保持与旧版本内容的往返一致。 */
+function omitNullFusionNotes(value: unknown): { fusionNotes?: FusionNotes } {
+  const notes = parseFusionNotes(value);
+  return notes === null ? {} : { fusionNotes: notes };
 }
 
 function requireText(value: unknown, field: string): string {

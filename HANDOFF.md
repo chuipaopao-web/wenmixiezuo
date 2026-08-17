@@ -12,7 +12,8 @@
 
 ## 最近完成的改动（最新在最上）
 
-1. 批2·审查第四席 + 章纲挑战开放：妙玉作为正文审查固定第四席（challenger），与事实/文学/体验并行、互不读取、与写手异模型；面板席数泛化（14人新书=4席，11人旧书面板保持3席），迁移 `0049_review_challenger_seat.sql` 重建 review_reports 放宽角色枚举、review_panels 加可空挑剔读者冻结列；merge/完成/质量快照/重试门禁全部按面板实际席数校验。章纲挑战开放给作者指定红玉或幼薇（`challengerRoleKey`，默认红玉），禁止主方案编剧挑战自己；前端章链/单章各给两个「请红玉/幼薇看看」按钮并显示挑战者署名。团队页14人自动渲染，头像/简介补齐新岗位。
+1. 批3·三合一融合合同 + 结算后续 + 题材简报层：① 主编融合卷纲/事件必须带 fusionNotes 三块（爽点怎么兑现/逻辑链怎么闭环/新鲜感来自哪里），缺块校验失败重试；卷纲与事件方案卡醒目展示。② 事件/卷结算完成自动发起 `settlement_follow_up` 任务（迁移 `0050_settlement_follow_ups.sql`）：主编貂蝉出节奏体检报告（总评/爽点与付费点/高潮间隔/压抑时长/恢复节拍/风险/建议），副编西施写大白话摘要；分步入库、可重试；结算本身仍是确定性聚合不依赖它。前端已完成事件（只读历史）与已完成卷页面展示「节奏体检与大白话摘要」卡，缺失可手动补做。③ 题材简报层：岗位不换身份，卷纲/事件/章纲(章链/细化/挑战)/正文/结算后续的提示词硬来源自动注入 `planning:genre_brief`（频道/分类/融合题材/标签/基调/节奏策略/目标读者，只取自已确认开书信息，解析失败省略）。决定见 DEC-CURRENT-048。
+2. 批2·审查第四席 + 章纲挑战开放：妙玉作为正文审查固定第四席（challenger），与事实/文学/体验并行、互不读取、与写手异模型；面板席数泛化（14人新书=4席，11人旧书面板保持3席），迁移 `0049_review_challenger_seat.sql` 重建 review_reports 放宽角色枚举、review_panels 加可空挑剔读者冻结列；merge/完成/质量快照/重试门禁全部按面板实际席数校验。章纲挑战开放给作者指定红玉或幼薇（`challengerRoleKey`，默认红玉），禁止主方案编剧挑战自己；前端章链/单章各给两个「请红玉/幼薇看看」按钮并显示挑战者署名。团队页14人自动渲染，头像/简介补齐新岗位。
 2. 批1·创作团队扩编 11→14：新增编剧C幼薇（脑洞/反套路，kimi-k2.7-code）、事实审查班昭（glm-5.2，固定承担正文审查事实席，不再由设定动态顶替）、体验·挑剔读者妙玉（deepseek-v4-flash）；昭君改为目标读者定位。编剧三角=婉儿爽点/红玉因果/幼薇脑洞，三席两两异模型且豆包禁入剧情席；写手+审查席合计五个不同模型来源。主编加节奏体检职责，副编西施=资料员+摘要员+主编备份。旧书升级：零未终态任务的11人旧书自动补齐3名新成员（`TeamTemplateService.addMissingMembers`），有未终态任务仍延后，超编仍报错；团队列表 ORDER BY 按14人契约序。后续批3-6 见 `docs/DECISIONS.md` DEC-CURRENT-046。
 2. 批1连带修复两个上一批遗留BUG（测试全红兜底发现）：① 三步向导创建新书必败——向导不再采集故事方向，但 `positioning-service.createDraft` 在 openingBlueprint 存在时只认 storyDirection 当定位描述，空串直接 400；现改为 storyDirection 为空时回退 text，完整开书允许两者皆空。② 向导草稿在第3步保存后恢复被旧映射改回第2步——草稿 schemaVersion 升到 4，v4 步骤原样恢复，v3（四步时代）保持旧映射。另顺手补齐历史遗留断言：迁移列表加 0048、文档中心卡片数 36→37。
 2. 信息页三处小改：「主编设计」按钮改为醒目彩色胶囊按钮（`branding-design-button`）；删掉进度横幅里「确认设定与分卷后，团队会开始规划事件。」提示；修复「修改开书资料」弹窗无法滑动——根因是 `.unified-desk .creation-desk` 的 `backdrop-filter` 把 fixed 弹窗裁剪在容器内，改用 `createPortal` 挂到 body（主编设计弹窗同样处理）。
@@ -30,6 +31,8 @@
 - 卷设计：`apps/web/src/features/planning/VolumePlanningPanel.tsx`（含本卷基调选择）
 - 开书合同校验：`apps/api/src/contracts/opening-blueprint.ts`（**CRLF/LF 混合文件**，Edit 工具常失败，用 node 脚本按字节 replace）
 - 卷合同：`apps/contracts/src/workflow.ts`（改完必须 `npm.cmd run build -w @wenmi/contracts`）
+- 结算后续（节奏体检+摘要）：`apps/api/src/application/planning/settlement-follow-up-service.ts` + `settlement-follow-up-pipeline-service.ts` + `infrastructure/db/repositories/settlement-follow-up-repository.ts` + 迁移 `0050_settlement_follow_ups.sql`；前端 `apps/web/src/features/planning/SettlementFollowUpCard.tsx`；测试 `tests/integration/domain/settlement-follow-up.test.ts`
+- 题材简报：`apps/api/src/domain/genre-brief.ts`（`buildGenreBrief`，各管线硬来源注入）
 - 章管线上下文注入：`apps/api/src/application/creation/chapter-pipeline-service.ts`（混合换行，同上用脚本）
 - 文档同步白名单：`scripts/sync-project-docs.mjs`（增删文档要同步改 currentPaths 和 bundleGroups 两处）
 - 开书相关测试：`tests/integration/experience/opening-wizard.test.tsx`、`workspace-ui.test.tsx`、`tests/foundation/opening-taxonomy.test.ts`
@@ -56,6 +59,6 @@ curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
 
 ## 走查进度
 
-- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）、开书信息页（收口 + 主编设计）、创作团队扩编 14 人（批1）。
-- 进行中/下一步：批2-6（审查第四席与三编剧管线 → 三合一融合/节奏体检/副编摘要 → 设定页重构三批）；老板继续逐页走查，随走随改。
+- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）、开书信息页（收口 + 主编设计）、创作团队扩编 14 人（批1）、审查第四席+章纲挑战开放（批2）、三合一融合合同+结算后续+题材简报层（批3）。
+- 进行中/下一步：批4-6（设定页重构：核心六项＋题材包＋自由补充 → 类目级讨论管线＋结构化输出 → 设定页新前端手机端优先）；老板继续逐页走查，随走随改。
 - 待做（已讨论未定稿）：标签库进卷设计；开局/结局进设定阶段由 AI 参与讨论推荐；设定页效果图在 `mockups/`（setting-main.png / setting-discussion.png，老板已认可方向）。

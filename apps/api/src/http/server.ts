@@ -13,6 +13,8 @@ import { ChapterPipelineService } from '../application/creation/chapter-pipeline
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
+import { SettlementFollowUpPipelineService } from '../application/planning/settlement-follow-up-pipeline-service.js';
+import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
 import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
@@ -130,6 +132,16 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     modelAdapters,
     new RetrievalContextSourceService(productionRetrieval)
   );
+  const settlementFollowUpPipeline = new SettlementFollowUpPipelineService(
+    new SettlementFollowUpRepository(database),
+    new TaskService(database, config.releaseId, volumePlanClock),
+    volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds,
+    volumePlanClock,
+    modelAdapters
+  );
   const eventChapterOutlineRepository = new EventChapterOutlineRepository(database);
   const eventChapterTaskService = new TaskService(database, config.releaseId, volumePlanClock);
   const eventChapterOutlineService = new EventChapterOutlineService(
@@ -229,6 +241,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
               ? await bookBrandingDesignPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'story_event_generation'
               ? await storyEventGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+              : task.task_type === 'settlement_follow_up'
+                ? await settlementFollowUpPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : ['event_chapter_sequence_generation', 'event_chapter_detail_generation', 'event_chapter_sequence_challenge', 'event_chapter_detail_challenge'].includes(task.task_type)
                 ? await eventChapterGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();

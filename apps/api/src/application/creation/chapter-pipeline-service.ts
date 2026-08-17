@@ -48,6 +48,7 @@ import { compileChapterOutlineForWriter } from './chapter-outline-compiler.js';
 import { PlanningChainContextService } from './planning-chain-context-service.js';
 import { CreationWorkflowProgressService } from './creation-workflow-progress-service.js';
 import { BookProfileViewService } from '../books/book-profile-view-service.js';
+import { buildGenreBrief } from '../../domain/genre-brief.js';
 import {
   buildChapterContinuityAnchors,
   checkChapterContinuityAnchors,
@@ -402,6 +403,7 @@ export class ChapterPipelineService {
     const draftPolicy = WRITER_CONTEXT_POLICY.draft;
     const style = new StyleCapsuleService(this.database).active(scope);
     const openingProfile = new BookProfileViewService(this.database).find(scope);
+    const genreBrief = openingProfile === null ? null : buildGenreBrief(JSON.stringify(openingProfile.openingBlueprint));
     const volumeTone = this.currentVolumeTone(scope, chapter);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
@@ -444,6 +446,13 @@ export class ChapterPipelineService {
         reason: '老板确认的开书定位、人物、故事方向和必须遵守项；正文不得擅自改写专名或核心方向',
         priority: 100,
         version: openingProfile.version
+      }]),
+      ...(genreBrief === null ? [] : [{
+        sourceType: 'genre_brief',
+        sourceId: `genre-brief:${scope.bookId}`,
+        content: genreBrief,
+        reason: '本书题材简报；正文必须贴合该题材定位与基调',
+        priority: 100
       }]),
       ...(volumeTone.length === 0 ? [] : [{
         sourceType: 'volume_style_tone',

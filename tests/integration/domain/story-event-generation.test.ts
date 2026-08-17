@@ -70,6 +70,12 @@ describe('事件双编剧团队生成',()=>{
     expect(result).toMatchObject({status:'succeeded'});
     const versions=events.listVersions(scope,event.eventId).filter(item=>item.sourceTaskId===scheduled.taskId);
     expect(versions.map(item=>item.candidateKind).sort()).toEqual(['candidate_a','candidate_b','fusion'].sort());
+    const fusionVersion=versions.find(item=>item.candidateKind==='fusion')!;
+    expect(fusionVersion.content.fusionNotes).toMatchObject({
+      payoffDesign:expect.any(String),logicChain:expect.any(String),freshness:expect.any(String)
+    });
+    expect(versions.filter(item=>item.candidateKind!=='fusion')
+      .every(item=>item.content.fusionNotes===undefined||item.content.fusionNotes===null)).toBe(true);
     expect(new Set(versions.map(item=>item.contentHash)).size).toBe(3);
     expect(events.getSequence(scope,plan.volumePlanId)?.events[0]?.activeVersionId).toBeNull();
     expect(generations.latest(scope,event.eventId)).toMatchObject({

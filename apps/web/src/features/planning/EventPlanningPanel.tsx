@@ -246,6 +246,11 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
               ?<StoryEventPreview compact presentation={eventPresentation(sequence,selected,version.content,version.previousSettlementId)}/>
               :<><p>{version.content.volumeResponsibility}</p><dl><dt>关键选择与代价</dt><dd>{version.content.choicesAndCosts.join('；')||'待补充'}</dd>
                 <dt>事件结果</dt><dd>{version.content.requiredResult}</dd><dt>后续接口</dt><dd>{version.content.nextEventImpact}</dd></dl></>}
+            {version.content.fusionNotes!=null&&<div className="fusion-notes">
+              <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
+              <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>
+              <p><strong>新鲜感来自哪里</strong>{version.content.fusionNotes.freshness}</p>
+            </div>}
             <button type="button" disabled={busy} onClick={()=>previewVersion(version)}>查看并准备确认</button></article>)}</div>
         </section>
       </main>

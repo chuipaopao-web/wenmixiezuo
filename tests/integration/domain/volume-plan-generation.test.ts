@@ -129,6 +129,14 @@ describe('卷规划团队生成', () => {
     expect(versions.map((version) => version.candidateKind).sort()).toEqual([
       'candidate_a', 'candidate_b', 'fusion'
     ].sort());
+    const fusionVersion = versions.find((version) => version.candidateKind === 'fusion')!;
+    expect(fusionVersion.content.fusionNotes).toMatchObject({
+      payoffDesign: expect.any(String),
+      logicChain: expect.any(String),
+      freshness: expect.any(String)
+    });
+    expect(versions.filter((version) => version.candidateKind !== 'fusion')
+      .every((version) => version.content.fusionNotes === null || version.content.fusionNotes === undefined)).toBe(true);
     expect(new Set(versions.map((version) => version.contentHash)).size).toBe(3);
     expect(versions.every((version) => version.sourceTaskId === scheduled.taskId)).toBe(true);
     expect(volumePlans.get(scope, plan.volumePlanId).activeVersionId).toBeNull();

@@ -104,6 +104,8 @@ import { EventChapterGenerationRepository } from '../infrastructure/db/repositor
 import { EventChapterGenerationService, type EventChapterGenerationKind } from '../application/planning/event-chapter-generation-service.js';
 import { CreationSettlementService } from '../application/planning/creation-settlement-service.js';
 import { CreationSettlementRepository } from '../infrastructure/db/repositories/creation-settlement-repository.js';
+import { SettlementFollowUpService } from '../application/planning/settlement-follow-up-service.js';
+import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import { buildPlanningTemplateSignals } from '../application/planning/template-recommendation-signals.js';
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
@@ -194,7 +196,8 @@ function taskRequiresCreativeModel(taskType: string): boolean {
     'event_chapter_detail_challenge',
     'chapter_creation',
     'continuation_analysis',
-    'book_branding_design'
+    'book_branding_design',
+    'settlement_follow_up'
   ]).has(taskType);
 }
 
@@ -317,10 +320,32 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     new UnitOfWork(database), ids, clock
   );
   const continuityRepository = new LongformContinuityRepository(database);
+  const creationSettlementRepository = new CreationSettlementRepository(database);
   const creationSettlements = new CreationSettlementService(
-    new CreationSettlementRepository(database), continuityRepository,
+    creationSettlementRepository, continuityRepository,
     new StageSettlementService(continuityRepository, new UnitOfWork(database), ids, clock), ids, clock
   );
+  const settlementFollowUps = new SettlementFollowUpService(
+    new SettlementFollowUpRepository(database), creationSettlementRepository,
+    new OpeningBlueprintRepository(database), volumePlanGenerationRepository, tasks,
+    new UnitOfWork(database), ids, clock
+  );
+  // 结算成功后尽力发起后续任务（主编节奏体检+副编摘要）；发起失败不影响已完成的结算。
+  const startFollowUp = (
+    scope: { ownerId: string; bookId: string },
+    stageKind: 'event' | 'volume',
+    stageObjectId: string
+  ): unknown => {
+    try {
+      assertCreativeModelReady(config.modelRuntime);
+      return settlementFollowUps.start(scope, stageKind, stageObjectId);
+    } catch (error) {
+      return {
+        deferred: true,
+        reason: error instanceof Error ? error.message : '结算后续暂未发起，可稍后补做。'
+      };
+    }
+  };
 
   app.get('/api/v1/opening-taxonomy', async (request) => success(OPENING_TAXONOMY, request.id));
 
@@ -364,7 +389,19 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{Params:{bookId:string;eventId:string};Body:{expectedWorkflowVersion:number}}>(
     '/api/v1/books/:bookId/story-events/:eventId/settle',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
-      return success(creationSettlements.settleEvent(scope,request.params.eventId,request.body.expectedWorkflowVersion),request.id);
+      const settlement=creationSettlements.settleEvent(scope,request.params.eventId,request.body.expectedWorkflowVersion);
+      return success({...settlement,followUp:startFollowUp(scope,'event',request.params.eventId)},request.id);
+    });
+  app.get<{Params:{bookId:string;eventId:string}}>(
+    '/api/v1/books/:bookId/story-events/:eventId/settlement/follow-up',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(settlementFollowUps.view(scope,'event',request.params.eventId),request.id);
+    });
+  app.post<{Params:{bookId:string;eventId:string}}>(
+    '/api/v1/books/:bookId/story-events/:eventId/settlement/follow-up',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(settlementFollowUps.start(scope,'event',request.params.eventId),request.id);
     });
   app.get<{Params:{bookId:string;volumePlanId:string}}>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/settlement',async(request)=>{
@@ -374,7 +411,19 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{Params:{bookId:string;volumePlanId:string};Body:{expectedWorkflowVersion:number}}>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/settle',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
-      return success(creationSettlements.settleVolume(scope,request.params.volumePlanId,request.body.expectedWorkflowVersion),request.id);
+      const settlement=creationSettlements.settleVolume(scope,request.params.volumePlanId,request.body.expectedWorkflowVersion);
+      return success({...settlement,followUp:startFollowUp(scope,'volume',request.params.volumePlanId)},request.id);
+    });
+  app.get<{Params:{bookId:string;volumePlanId:string}}>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/settlement/follow-up',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(settlementFollowUps.view(scope,'volume',request.params.volumePlanId),request.id);
+    });
+  app.post<{Params:{bookId:string;volumePlanId:string}}>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/settlement/follow-up',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(settlementFollowUps.start(scope,'volume',request.params.volumePlanId),request.id);
     });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/volume-plans', async (request) => {

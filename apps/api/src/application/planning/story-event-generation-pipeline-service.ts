@@ -3,6 +3,7 @@ import { parseStoryEventContent,type StoryEventContent } from '@wenmi/contracts'
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
+import { buildGenreBrief } from '../../domain/genre-brief.js';
 import type { BookScope } from '../../domain/scope.js';
 import { StoryEventRepository } from '../../infrastructure/db/repositories/story-event-repository.js';
 import {
@@ -103,7 +104,7 @@ export class StoryEventGenerationPipelineService {
       const inputHash=createHash('sha256').update(input).digest('hex');
       const saved=this.repo.succeededResult(scope,{taskId:task.taskId,agentId:member.agentId,
         modelSnapshotId:member.modelSnapshotId,inputHash});
-      if(saved!==undefined){try{return parseOutput(saved.output_text);}catch(error){issue=message(error);last=error;continue;}}
+      if(saved!==undefined){try{return parseForKind(saved.output_text,kind);}catch(error){issue=message(error);last=error;continue;}}
       const maxOutputTokens=kind==='fusion'?9000:6000;
       // A following event carries the previous event settlement, so its prompt can be
       // materially larger than the first event. Freeze against the actual request
@@ -126,7 +127,7 @@ export class StoryEventGenerationPipelineService {
           reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
           requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:member.agentId,prompt:input,maxOutputTokens
         });
-        try{return parseOutput(result.output);}catch(error){issue=message(error);last=error;}
+        try{return parseForKind(result.output,kind);}catch(error){issue=message(error);last=error;}
       }catch(error){last=error;if(this.repo.hasUnresolved(scope,task.taskId))throw error;}
     }
     throw last instanceof Error?last:new Error('模型没有返回有效事件大纲。');
@@ -164,9 +165,15 @@ export function storyEventContextBudget(kind:Kind){
     ?{tokenBudget:32000,characterBudget:76000}
     :{tokenBudget:18000,characterBudget:42000};
 }
-function parseOutput(output:string){return parseStoryEventModelOutput(output);}
+function parseForKind(output:string,kind:Kind){const content=parseStoryEventModelOutput(output);
+  if(kind==='fusion'&&(content.fusionNotes===null||content.fusionNotes===undefined))
+    throw new Error('融合候选缺少 fusionNotes：必须说明爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里。');
+  return content;}
 function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,peers:StoryEventContent[]):ContextSource[]{
+  const genreBrief=buildGenreBrief(s.opening.content);
   const result:ContextSource[]=[
+    ...(genreBrief===null?[]:[{sourceType:'planning:genre_brief',sourceId:'genre:'+s.opening.id,version:s.opening.version,
+      content:genreBrief,reason:'本书题材简报；方案必须贴合该题材定位与基调',priority:100}]),
     {sourceType:'planning:volume_plan',sourceId:s.volumePlanId,version:s.volumeVersion,content:bounded(s.volumeContent,18000),reason:'当前确认卷纲；事件必须服务卷目标',priority:100},
     {sourceType:'planning:event_seed',sourceId:s.seed.id,version:s.seed.version,content:bounded(s.seed.content,9000),reason:'卷纲分配给本事件的任务和接口',priority:100},
     {sourceType:'planning:setting_baseline',sourceId:s.setting.id,version:s.setting.version,content:bounded(s.setting.content,16000),reason:'已确认设定事实边界',priority:100},
@@ -184,6 +191,7 @@ function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerat
     seat:{roleKey:member.roleKey,displayName:member.displayName,mode:fusion?'chief_editor_fusion':'independent_screenwriter'},
     book:{title:s.bookTitle,eventOrder:s.order},instructions:fusion?[
       '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。','事件必须在卷纲约束内改变状态并自然引出下一事件。',
+      '融合候选必须填写 fusionNotes：向作者说清这份稿子的爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里；每块一两句具体说明，不写空话。',
       ...STORY_EVENT_NARRATIVE_RULES,'保留具体场景、对白、意象和局部解法的自由。','只输出JSON。'
     ]:['独立提出完整小事件，不能看到另一位编剧答案。','从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
       ...STORY_EVENT_NARRATIVE_RULES,'模板只是可调整参考；保留场景、对白和局部反转自由。','只输出JSON。'],
@@ -194,7 +202,8 @@ function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerat
       informationMoves:['信息变化'],localProgression:['内部推进节点'],requiredResult:'必须得到的结果',
       flexibleExecution:['留给章纲和主笔的自由'],endingConditions:['结束条件'],nextEventImpact:'下一事件接口',
       characterArcImpact:'人物弧作用',volumeClimaxImpact:'卷高潮作用',
-      estimatedChapterRange:{minimum:null,likely:null,maximum:null},uncertaintyNotes:['未知或需确认']}});}
+      estimatedChapterRange:{minimum:null,likely:null,maximum:null},uncertaintyNotes:['未知或需确认'],
+      ...(fusion?{fusionNotes:{payoffDesign:'爽点设计说明：爽点埋在哪里、按什么节奏兑现',logicChain:'逻辑链说明：关键因果如何闭环、为何选这条路',freshness:'新鲜感说明：差异化与惊喜来自哪里'}}:{})}});}
 function jsonObjects(value:string){const out:string[]=[];for(let start=0;start<value.length;start++){if(value[start]!=='{')continue;
   let depth=0,str=false,escape=false;for(let i=start;i<value.length;i++){const ch=value[i]!;
     if(str){if(escape)escape=false;else if(ch==='\\')escape=true;else if(ch==='"')str=false;continue;}

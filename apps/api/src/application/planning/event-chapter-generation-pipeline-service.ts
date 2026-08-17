@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseEventChapterChallengeContent,parseEventChapterSequenceContent,type EventChapterChallengeContent,type EventChapterSequenceContent } from '@wenmi/contracts';
 import { parseChapterOutlineV2,type ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
+import { buildGenreBrief } from '../../domain/genre-brief.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import { EventChapterGenerationRepository } from '../../infrastructure/db/repositories/event-chapter-generation-repository.js';
@@ -51,6 +52,7 @@ export class EventChapterGenerationPipelineService {
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const sources:ContextSource[]=[
       ...settlementSources(this.continuity.writerSettlementContext(scope,view.nextChapterNumber,5)),
+      ...genreBriefSources(snapshot),
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
         content:compactVolumeForEvent(snapshot.volumeContent,eventTitle(snapshot.eventContent)),
         reason:'活动卷纲中与当前事件直接相关的上层约束',priority:100},
@@ -126,6 +128,7 @@ export class EventChapterGenerationPipelineService {
     const settlements=this.continuity.writerSettlementContext(scope,targets[0]!.chapterNumber,5);
     const sources:ContextSource[]=[
       ...settlementSources(settlements),
+      ...genreBriefSources(snapshot),
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
         content:compactVolumeForEvent(snapshot.volumeContent,activeSequence.eventTitle),reason:'活动卷纲中与当前事件相关的硬约束',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
@@ -172,6 +175,7 @@ export class EventChapterGenerationPipelineService {
     const target=brief.challengeTarget;if(target===null)throw new Error('章纲挑战任务缺少目标版本。');
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const base:ContextSource[]=[
+      ...genreBriefSources(snapshot),
       {sourceType:'planning:volume_plan',sourceId:snapshot.volumePlanId,version:snapshot.volumeVersion,
         content:snapshot.volumeContent,reason:'挑战仍须服从活动卷纲',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
@@ -288,6 +292,12 @@ function settlementSources(records:SettlementContextRecord[]):ContextSource[]{if
   version:records.map(record=>record.version).join(':'),content:compactStageSettlementContext(records,1800),
   reason:'分层压缩后的最新已结算正史；旧规划与它冲突时以正史为准，需要细节再回查正式来源',priority:120
 }];}
+function genreBriefSources(snapshot:{openingContent:string|null}):ContextSource[]{
+  const brief=buildGenreBrief(snapshot.openingContent);
+  if(brief===null)return[];
+  return[{sourceType:'planning:genre_brief',sourceId:'genre-brief:current-book',content:brief,
+    reason:'本书题材简报；章纲设计与挑战必须贴合该题材定位与基调',priority:100}];
+}
 function parseSequence(output:string):EventChapterSequenceContent{for(const value of candidates(output))try{return parseEventChapterSequenceContent(value);}catch{}
   throw new Error('模型没有返回有效事件章纲序列JSON。');}
 export interface SequenceSkeletonChapter{chapterNumber:number;title:string;eventResponsibility:string;openingState:string;endingState:string;
