@@ -196,7 +196,41 @@ const subjects: OpeningSubjectOption[] = [
   ...subject(['derivative'], '动漫衍生', '影视衍生', '男频衍生', '女频衍生', '轻小说', '原生幻想', '综漫')
 ];
 // 全书基调词：高度综合的阅读感觉，开书只选主基调+副基调，其余基调随分卷增加。
-const STYLE_TONES = ['爽', '乐', '癫', '暖', '甜', '虐', '烧脑', '诡异', '厚重', '黑'];
+export const STYLE_TONES = ['爽', '乐', '癫', '暖', '甜', '虐', '烧脑', '诡异', '厚重', '黑'];
+
+/**
+ * 基调词给AI的写作倾向说明：只注入模型上下文，不展示给作者。
+ * 措辞保持软指引（优先、倾向、避免），不变成每章硬打卡公式。
+ */
+export const STYLE_TONE_GUIDANCE: Record<string, string> = {
+  爽: '优先让每章有正反馈落点：主角得势、对手吃瘪或目标实质推进；主角受的委屈倾向尽快加倍讨回，避免长期憋屈',
+  乐: '叙述和对白保持幽默感，人物互动有梗；紧张冲突也倾向留一个松快的出口，避免通篇紧绷',
+  癫: '允许人物行为和剧情走向出人意料、画风放飞；离谱要有属于人物自己的逻辑，不是无厘头乱来',
+  暖: '人物之间保留善意与温度，冲突再尖锐也留人情味；适合用细节里的照顾、理解和和解打动人',
+  甜: '感情线优先发糖，互动多有爱细节；误会和波折倾向快速化解，不让读者久等',
+  虐: '在关键处舍得下刀，让珍贵的事物受威胁或失去；刀要有因果、有意义，留一丝希望，不为虐而虐',
+  烧脑: '多用信息差、伏笔和反转推进，线索公平埋设；读者能和人物一起推理，真相揭晓要有恍然大悟感',
+  诡异: '保持未知与不安，规则感和异常感优先；谜底延迟揭晓，日常细节里渗出不协调',
+  厚重: '选择有真实代价，命运和时代有分量；正剧质感，避免轻飘的玩笑化解严肃时刻',
+  黑: '世界可以残酷，道德允许灰度；人物可被环境染黑，善未必有善报，但黑暗要服务于主题而非展览'
+};
+
+/** 卷基调词表校验：主副基调都必须取自 STYLE_TONES 且互不相同。 */
+export function validateVolumeStyleTones(stylePrimary: string | null | undefined, styleSecondary: string | null | undefined): void {
+  const primary = typeof stylePrimary === 'string' ? stylePrimary.trim() : '';
+  const secondary = typeof styleSecondary === 'string' ? styleSecondary.trim() : '';
+  if (primary.length > 0 && !STYLE_TONES.includes(primary)) throw new Error(`主基调不在当前目录：${primary}`);
+  if (secondary.length > 0 && !STYLE_TONES.includes(secondary)) throw new Error(`副基调不在当前目录：${secondary}`);
+  if (primary.length > 0 && primary === secondary) throw new Error('副基调不能与主基调相同');
+}
+
+/** 把本卷基调拼成给AI的写作倾向说明；未选择基调时返回空串。 */
+export function composeStyleToneText(stylePrimary: string | null | undefined, styleSecondary: string | null | undefined): string {
+  const parts = [stylePrimary, styleSecondary]
+    .filter((tone): tone is string => typeof tone === 'string' && STYLE_TONES.includes(tone))
+    .map((tone) => `${tone}（${STYLE_TONE_GUIDANCE[tone] ?? ''}）`);
+  return parts.length === 0 ? '' : `本卷基调：${parts.join('＋')}。基调是写作倾向，按场景目的把握，不机械打卡。`;
+}
 
 const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [
   ...group.mainTags,

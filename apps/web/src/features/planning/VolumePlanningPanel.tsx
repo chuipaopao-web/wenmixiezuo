@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircleIcon } from '@phosphor-icons/react';
 import type {
   NarrativeTemplateCatalogView,
   PlanningTemplateInstance,
@@ -12,6 +13,7 @@ import {
   createVolumePlan,
   fetchAuthorPlanningInputs,
   fetchCreationWorkflow,
+  fetchOpeningTaxonomy,
   fetchPlanningTemplates,
   fetchVolumePlanGeneration,
   fetchVolumePlans,
@@ -48,7 +50,16 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<VolumePlanImpactData | null>(null);
+  const [styleTones, setStyleTones] = useState<string[]>([]);
   const { guardAi } = useMembershipGate();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchOpeningTaxonomy(controller.signal).then((value) => {
+      if (!controller.signal.aborted) setStyleTones(value.styleTones ?? []);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   const load = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const [workflow, plans, templates] = await Promise.all([
@@ -91,7 +102,10 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
       setVersions(nextVersions);
       setGeneration(nextGeneration);
     }).catch((reason) => { if (!controller.signal.aborted) setError(messageOf(reason)); });
-    setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber));
+    const inheritedTone = snapshot?.plans
+      .filter((plan) => plan.planNumber < selectedPlan.planNumber)
+      .at(-1)?.activeVersion?.content ?? null;
+    setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber, inheritedTone));
     setEditing(selectedPlan.activeVersion === null);
     setImpact(null);
     return () => controller.abort();
@@ -131,7 +145,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
       });
       await load();
       setSelectedPlanId(created.volumePlanId);
-      setDraft(emptyVolumePlan(planNumber));
+      setDraft(emptyVolumePlan(planNumber, snapshot.plans.at(-1)?.activeVersion?.content ?? null));
       setEditing(true);
     });
   };
@@ -260,8 +274,12 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         <div><small>第{selectedPlan.planNumber}卷</small><strong>{selectedPlan.activeVersion?.content.title ?? '尚未确认卷规划'}</strong></div>
         <div><small>当前状态</small><strong>{selectedPlan.activeVersion === null ? '比较方案中' : `已确认第${selectedPlan.activeVersion.version}稿`}</strong></div>
         <div><small>上游依据</small><strong>{selectedPlan.planNumber === 1 ? '开书资料 + 设定基线' : '上卷结算 + 当前设定'}</strong></div>
+        <div><small>本卷基调</small><strong>{[selectedPlan.activeVersion?.content.stylePrimary, selectedPlan.activeVersion?.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</strong></div>
         <button type="button" disabled={busy} onClick={() => {
-          setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber));
+          const inheritedTone = snapshot.plans
+            .filter((plan) => plan.planNumber < selectedPlan.planNumber)
+            .at(-1)?.activeVersion?.content ?? null;
+          setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber, inheritedTone));
           setEditing((value) => !value);
         }}>{editing ? '收起编辑' : selectedPlan.activeVersion === null ? '填写我的方案' : '在确认稿上修改'}</button>
       </section>
@@ -301,7 +319,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         onResume={resumeGeneration}
       />
 
-      {editing && <VolumePlanEditor value={draft} onChange={setDraft} onSave={saveAuthorDraft} busy={busy} />}
+      {editing && <VolumePlanEditor value={draft} onChange={setDraft} onSave={saveAuthorDraft} busy={busy} styleTones={styleTones} />}
 
       {versions.length > 0 && <section className="volume-version-section">
         <header><div><h4>方案与历史稿</h4><p>各份稿件互不覆盖；确认新稿前会先显示影响范围。</p></div><span>{versions.length} 份稿件</span></header>
@@ -394,11 +412,12 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
   </section>;
 }
 
-function VolumePlanEditor({ value, onChange, onSave, busy }: {
+function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
   value: VolumePlanContent;
   onChange: (value: VolumePlanContent) => void;
   onSave: () => void;
   busy: boolean;
+  styleTones: string[];
 }): React.JSX.Element {
   const firstEvent = value.eventSequence[0]!;
   const setText = (field: keyof VolumePlanContent, next: string): void => onChange({ ...value, [field]: next });
@@ -409,8 +428,31 @@ function VolumePlanEditor({ value, onChange, onSave, busy }: {
     ...value,
     eventSequence: [{ ...firstEvent, [field]: next }, ...value.eventSequence.slice(1)]
   });
+  const pickPrimaryTone = (tone: string): void => {
+    const next = value.stylePrimary === tone ? null : tone;
+    onChange({
+      ...value,
+      stylePrimary: next,
+      styleSecondary: next !== null && value.styleSecondary === next ? null : value.styleSecondary ?? null
+    });
+  };
+  const pickSecondaryTone = (tone: string): void => {
+    onChange({ ...value, styleSecondary: value.styleSecondary === tone ? null : tone });
+  };
   return <section className="volume-plan-editor">
     <header><div><h4>我的卷规划草案</h4><p>先写清“为什么发生”和“发生后改变什么”。章节数只是预估，不会锁死。</p></div><button className="primary-button" type="button" disabled={busy} onClick={onSave}>保存为新候选版</button></header>
+    {styleTones.length > 0 && <section className="volume-tone-picker" aria-label="本卷基调">
+      <header><div><strong>本卷基调</strong><small>这一卷整体的阅读感觉；写正文时团队会按此把握味道，不是硬性打卡。</small></div></header>
+      <section className="tag-picker"><header><strong>主基调</strong><small>选 1 个</small></header><div className="tag-options">{styleTones.map((tone) => {
+        const active = value.stylePrimary === tone;
+        return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}主基调：${tone}`} key={tone} onClick={() => pickPrimaryTone(tone)}>{active && <CheckCircleIcon />}{tone}</button>;
+      })}</div></section>
+      <section className="tag-picker"><header><strong>副基调</strong><small>可选，不与主基调重复</small></header><div className="tag-options">{styleTones.map((tone) => {
+        const active = value.styleSecondary === tone;
+        const blockedTone = !active && value.stylePrimary === tone;
+        return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={blockedTone ? `副基调：${tone}（已选为主基调）` : `${active ? '取消' : '选择'}副基调：${tone}`} title={blockedTone ? '已选为主基调' : undefined} disabled={blockedTone} key={tone} onClick={() => pickSecondaryTone(tone)}>{active && <CheckCircleIcon />}{tone}</button>;
+      })}</div></section>
+    </section>}
     <div className="volume-editor-grid">
       <label><span>卷标题</span><input value={value.title} onChange={(event) => setText('title', event.target.value)} /></label>
       <label><span>开卷时人物与局面</span><textarea rows={3} value={value.openingState} onChange={(event) => setText('openingState', event.target.value)} /></label>
@@ -448,15 +490,20 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
   return <article className={`volume-version-card ${active ? 'active' : ''}`}>
     <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
-    <dl><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
+    <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
     <button type="button" disabled={busy || active} onClick={onPreview}>{active ? '正在使用' : version.status === 'superseded' ? '查看切回影响' : '预览并确认'}</button>
   </article>;
 }
 
-function emptyVolumePlan(planNumber: number): VolumePlanContent {
+function emptyVolumePlan(
+  planNumber: number,
+  tone?: { stylePrimary?: string | null; styleSecondary?: string | null } | null
+): VolumePlanContent {
   return {
     title: `第${planNumber}卷`, openingState: '', coreGoal: '', coreConflict: '', failureCost: '',
     characterChanges: [],
+    stylePrimary: tone?.stylePrimary ?? null,
+    styleSecondary: tone?.styleSecondary ?? null,
     eventSequence: [{
       eventId: `event-${planNumber}-1`, order: 1, title: '', responsibility: '', entryState: '',
       trigger: '', action: '', result: '', leadsToNext: null,

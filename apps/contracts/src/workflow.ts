@@ -224,6 +224,10 @@ export interface VolumePlanContent {
   openThreads: string[];
   nextVolumeTrigger: string;
   boundaries: CreativeBoundarySet;
+  /** 本卷主基调（取自全书基调词表，如"爽"）；null 表示未选择。 */
+  stylePrimary?: string | null;
+  /** 本卷可选副基调，不与主基调重复。 */
+  styleSecondary?: string | null;
 }
 
 export interface VolumePlanVersion {
@@ -429,7 +433,9 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     endingState: requireText(value.endingState, '卷末状态'),
     openThreads: requireUniqueTextArray(value.openThreads, '卷末开放线索'),
     nextVolumeTrigger: requireText(value.nextVolumeTrigger, '下一卷接口'),
-    boundaries: parseCreativeBoundarySet(value.boundaries)
+    boundaries: parseCreativeBoundarySet(value.boundaries),
+    stylePrimary: optionalText(value.stylePrimary, '本卷主基调'),
+    styleSecondary: optionalText(value.styleSecondary, '本卷副基调')
   };
 }
 

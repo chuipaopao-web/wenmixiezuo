@@ -87,7 +87,6 @@ describe('四步开书', () => {
     fireEvent.change(within(dialog).getByLabelText('故事方向补充'), {
       target: { value: '林舟决定利用会变化的城市地图反向追踪记忆源头，并赶在旧城拆除前救出姐姐。' }
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主基调：爽' }));
     expect(await within(dialog).findByText('2 个已选')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '第4步：边界与角色' }));
     const save = within(dialog).getByRole('button', { name: '保存修改' });
@@ -127,7 +126,6 @@ describe('四步开书', () => {
     fireEvent.change(screen.getByLabelText('开局'), { target: { value: '林舟收到一封来自未来的旧信' } });
     fireEvent.change(screen.getByLabelText('结局'), { target: { value: '找回城市真实历史' } });
     fireEvent.change(screen.getByLabelText('故事方向补充'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
-    fireEvent.click(screen.getByRole('button', { name: '选择主基调：爽' }));
     expect(screen.getByText(/个已选/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 

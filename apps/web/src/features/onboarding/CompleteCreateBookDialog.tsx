@@ -61,8 +61,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [storyDirection, setStoryDirection] = useState(initialDraft.storyDirection);
   const [openingStart, setOpeningStart] = useState(initialDraft.openingStart);
   const [storyEnding, setStoryEnding] = useState(initialDraft.storyEnding);
-  const [stylePrimary, setStylePrimary] = useState(initialDraft.stylePrimary);
-  const [styleSecondary, setStyleSecondary] = useState(initialDraft.styleSecondary);
   const [targetAudience, setTargetAudience] = useState(initialDraft.targetAudience);
   const [worldBackground, setWorldBackground] = useState(initialDraft.worldBackground);
   const [openingBackground, setOpeningBackground] = useState(initialDraft.openingBackground);
@@ -111,8 +109,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryDirection(draft.storyDirection);
     setOpeningStart(draft.openingStart);
     setStoryEnding(draft.storyEnding);
-    setStylePrimary(draft.stylePrimary);
-    setStyleSecondary(draft.styleSecondary);
     setTargetAudience(draft.targetAudience);
     setWorldBackground(draft.worldBackground);
     setOpeningBackground(draft.openingBackground);
@@ -149,7 +145,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (editing) return;
     const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
       step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-      protagonists, openingStart, storyEnding, stylePrimary, styleSecondary,
+      protagonists, openingStart, storyEnding,
       storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
       fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
       allSubjectsOpen, activeTagGroupKey
@@ -172,7 +168,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     }, 250);
     return () => window.clearTimeout(timer);
   }, [accountId, step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-    protagonists, openingStart, storyEnding, stylePrimary, styleSecondary,
+    protagonists, openingStart, storyEnding,
     storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
     allSubjectsOpen, activeTagGroupKey, editing]);
@@ -263,7 +259,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const storyRequirements = [
     ...(openingStart.trim().length < 4 ? ['开局至少4个字'] : []),
     ...(storyEnding.trim().length < 2 ? ['结局至少2个字'] : []),
-    ...(stylePrimary.length === 0 ? ['主基调'] : []),
     ...(mainTags.length < 2 ? ['至少2个元素标签'] : [])
   ];
   const protagonistRequirements = protagonists.flatMap((item, index) => [
@@ -349,8 +344,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         : targetStep === 3
           ? openingStart.trim().length < 4 ? document.getElementById('opening-start')
             : storyEnding.trim().length < 2 ? document.getElementById('story-ending')
-              : stylePrimary.length === 0 ? document.getElementById('opening-style-tones')
-                : document.getElementById('opening-tag-section')
+              : document.getElementById('opening-tag-section')
           : mustFollow.length === 0 || mustFollow.length > 15 ? document.getElementById('must-follow')
             : protagonistTarget ?? document.getElementById('opening-protagonist-section');
       target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
@@ -383,8 +377,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryDirection(empty.storyDirection);
     setOpeningStart(empty.openingStart);
     setStoryEnding(empty.storyEnding);
-    setStylePrimary(empty.stylePrimary);
-    setStyleSecondary(empty.styleSecondary);
     setTargetAudience(empty.targetAudience);
     setWorldBackground(empty.worldBackground);
     setOpeningBackground(empty.openingBackground);
@@ -440,8 +432,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       storyDirection: storyDirection.trim(),
       ...(openingStart.trim().length > 0 ? { openingStart: openingStart.trim() } : {}),
       ...(storyEnding.trim().length > 0 ? { storyEnding: storyEnding.trim() } : {}),
-      ...(stylePrimary.length > 0 ? { stylePrimary } : {}),
-      ...(styleSecondary.length > 0 ? { styleSecondary } : {}),
       worldBackground: worldBackground.trim(),
       openingBackground: openingBackground.trim(),
       stageOne: { start: stageOne.start.trim(), development: stageOne.development.trim(), end: stageOne.end.trim() },
@@ -489,7 +479,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (!editing) {
       const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
         step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
-        protagonists, openingStart, storyEnding, stylePrimary, styleSecondary,
+        protagonists, openingStart, storyEnding,
         storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
         fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
         allSubjectsOpen, activeTagGroupKey
@@ -599,25 +589,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           <label htmlFor="opening-story-direction">还想说点什么（选填）<textarea id="opening-story-direction" aria-label="故事方向补充" value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="对这本书的其他想法，可留空" rows={3} maxLength={800} /></label>
         </section>}
 
-        {step === 3 && <section className="opening-form-section style-tone-section" id="opening-style-tones" tabIndex={-1}>
-          <div className="section-heading"><div><span>02</span><h3>文风基调</h3></div><small>主基调选 1 个</small></div>
-          <p className="opening-edit-scope-note">基调已经定下的感觉，元素标签里不用重复选。</p>
-          <section className="tag-picker"><header><strong>主基调</strong><small>选 1 个</small></header><div className="tag-options">{(taxonomy?.styleTones ?? []).map((tone) => {
-            const active = stylePrimary === tone;
-            return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}主基调：${tone}`} key={tone} onClick={() => {
-              setStylePrimary(active ? '' : tone);
-              if (!active && styleSecondary === tone) setStyleSecondary('');
-            }}>{active && <CheckCircleIcon />}{tone}</button>;
-          })}</div></section>
-          <section className="tag-picker"><header><strong>副基调</strong><small>可选</small></header><div className="tag-options">{(taxonomy?.styleTones ?? []).map((tone) => {
-            const active = styleSecondary === tone;
-            const blockedTone = !active && stylePrimary === tone;
-            return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={blockedTone ? `副基调：${tone}（已选为主基调）` : `${active ? '取消' : '选择'}副基调：${tone}`} title={blockedTone ? '已选为主基调' : undefined} disabled={blockedTone} key={tone} onClick={() => setStyleSecondary(active ? '' : tone)}>{active && <CheckCircleIcon />}{tone}</button>;
-          })}</div></section>
-        </section>}
-
         {step === 3 && <section className="opening-form-section tag-direction-section" id="opening-tag-section" tabIndex={-1}>
-          <div className="section-heading"><div><span>03</span><h3>元素标签</h3></div><small>至少 2 个</small></div>
+          <div className="section-heading"><div><span>02</span><h3>元素标签</h3></div><small>至少 2 个</small></div>
           <p className="opening-edit-scope-note">意思相近的标签只留一个就好，比如选了"爽文"就不必再选"高燃"。</p>
           <details className="full-tag-library opening-more-options" open><summary><span><strong>元素标签库</strong></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
             <header className="tag-library-heading"><div><strong>完整标签库</strong></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
@@ -701,8 +674,6 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
     storyDirection: blueprint.storyDirection,
     openingStart: blueprint.openingStart ?? '',
     storyEnding: blueprint.storyEnding ?? '',
-    stylePrimary: blueprint.stylePrimary ?? '',
-    styleSecondary: blueprint.styleSecondary ?? '',
     targetAudience: blueprint.targetAudience,
     worldBackground: blueprint.worldBackground,
     openingBackground: blueprint.openingBackground,

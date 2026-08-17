@@ -7,6 +7,7 @@ import {
   type VersionReference,
   type VolumePlanContent
 } from '@wenmi/contracts';
+import { validateVolumeStyleTones } from '../../contracts/opening-blueprint.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { BookScope } from '../../domain/scope.js';
@@ -219,6 +220,7 @@ export class VolumePlanService {
     try {
       template = parsePlanningTemplateInstance(input.template, 'volume');
       content = parseVolumePlanContent(input.content);
+      validateVolumeStyleTones(content.stylePrimary, content.styleSecondary);
     } catch (error) {
       throw validation(error instanceof Error ? error.message : '卷规划格式无效。');
     }

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { assessManuscriptMetaNarration, assessManuscriptParagraphReuse } from '@wenmi/contracts';
 import { ArtifactService } from '../artifacts/artifact-service.js';
+import { composeStyleToneText } from '../../contracts/opening-blueprint.js';
 import { BudgetService } from '../budget/budget-service.js';
 import { ModelCallService } from '../calls/model-call-service.js';
 import { ChapterCatalogService } from '../chapters/chapter-catalog-service.js';
@@ -95,7 +96,7 @@ interface PipelineRow {
   binding_revision_id: string | null;
 }
 
-interface ChapterRow { chapter_number: number; title: string; settlement_status: string }
+interface ChapterRow { chapter_number: number; title: string; settlement_status: string; volume_id: string }
 
 export class ChapterPipelineService {
   public constructor(
@@ -401,6 +402,7 @@ export class ChapterPipelineService {
     const draftPolicy = WRITER_CONTEXT_POLICY.draft;
     const style = new StyleCapsuleService(this.database).active(scope);
     const openingProfile = new BookProfileViewService(this.database).find(scope);
+    const volumeTone = this.currentVolumeTone(scope, chapter);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
       {
@@ -437,13 +439,18 @@ export class ChapterPipelineService {
             personalities: protagonist.personalities
           })),
           storyDirection: openingProfile.storyDirection,
-          stylePrimary: openingProfile.stylePrimary,
-          styleSecondary: openingProfile.styleSecondary,
           mustFollow: openingProfile.mustFollow
         }), draftPolicy.openingProfileMaximum),
         reason: '老板确认的开书定位、人物、故事方向和必须遵守项；正文不得擅自改写专名或核心方向',
         priority: 100,
         version: openingProfile.version
+      }]),
+      ...(volumeTone.length === 0 ? [] : [{
+        sourceType: 'volume_style_tone',
+        sourceId: `volume-tone:${scope.bookId}:${chapter.chapter_number}`,
+        content: volumeTone,
+        reason: '当前卷确认的本卷基调与写作倾向；主笔按场景目的把握，不机械打卡',
+        priority: 100
       }]),
       {
         sourceType: 'style_baseline',
@@ -717,6 +724,7 @@ export class ChapterPipelineService {
     `).get(scope.ownerId, scope.bookId, chapter.chapter_number) as {
       state_json: string; canon_manuscript_version_id: string;
     } | undefined;
+    const volumeTone = this.currentVolumeTone(scope, chapter);
     const frozenReviewSources: ContextSource[] = [
       {
         sourceType: 'chapter_outline', sourceId: run.outline_version_id,
@@ -728,6 +736,11 @@ export class ChapterPipelineService {
         content: JSON.stringify(frozenContract.content), reason: '本章审校必须核对的冻结写作契约',
         priority: 100, version: frozenContract.version
       },
+      ...(volumeTone.length === 0 ? [] : [{
+        sourceType: 'volume_style_tone', sourceId: `volume-tone:${scope.bookId}:${chapter.chapter_number}`,
+        content: volumeTone, reason: '当前卷确认的本卷基调与写作倾向；审校按此核对阅读感，不机械打卡',
+        priority: 99
+      }]),
       ...(previousChapter === undefined ? [] : [{
         sourceType: 'previous_chapter_end', sourceId: `previous:${chapter.chapter_number - 1}`,
         content: previousChapter.state_json, reason: '前一章已结算的硬状态', priority: 99
@@ -1916,10 +1929,27 @@ export class ChapterPipelineService {
   }
 
   private requireChapter(scope: BookScope, chapterId: string): ChapterRow {
-    const row = this.database.prepare(`SELECT chapter_number, title, settlement_status FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
+    const row = this.database.prepare(`SELECT chapter_number, title, settlement_status, volume_id FROM chapters WHERE chapter_id = ? AND owner_id = ? AND book_id = ?`)
       .get(chapterId, scope.ownerId, scope.bookId) as ChapterRow | undefined;
     if (row === undefined) throw new Error('章节不存在或越权');
     return row;
+  }
+
+  private currentVolumeTone(scope: BookScope, chapter: ChapterRow): string {
+    const row = this.database.prepare(`
+      SELECT v.content_json
+      FROM volume_plans p JOIN volume_plan_versions v ON v.volume_plan_version_id = p.active_version_id
+      WHERE p.owner_id = ? AND p.book_id = ? AND p.physical_volume_id = ?
+      ORDER BY p.plan_number DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, chapter.volume_id) as { content_json: string } | undefined;
+    if (row === undefined) return '';
+    try {
+      const content = JSON.parse(row.content_json) as { stylePrimary?: unknown; styleSecondary?: unknown };
+      return composeStyleToneText(
+        typeof content.stylePrimary === 'string' ? content.stylePrimary : null,
+        typeof content.styleSecondary === 'string' ? content.styleSecondary : null
+      );
+    } catch { return ''; }
   }
 
   private loadManuscript(scope: BookScope, manuscriptVersionId: string): string {

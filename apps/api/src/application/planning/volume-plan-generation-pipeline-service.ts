@@ -3,6 +3,7 @@ import {
   parseVolumePlanContent,
   type VolumePlanContent
 } from '@wenmi/contracts';
+import { STYLE_TONES, validateVolumeStyleTones } from '../../contracts/opening-blueprint.js';
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
@@ -413,7 +414,11 @@ export function parseVolumePlanModelOutput(output: string): VolumePlanContent {
   }
   for (const candidate of candidates) {
     for (const value of unwrapCandidates(candidate)) {
-      try { return parseVolumePlanContent(value); } catch { /* try the next shape */ }
+      try {
+        const content = parseVolumePlanContent(value);
+        validateVolumeStyleTones(content.stylePrimary, content.styleSecondary);
+        return content;
+      } catch { /* try the next shape */ }
     }
   }
   throw new Error('输出缺少完整、合法的卷规划JSON。');
@@ -543,6 +548,7 @@ function buildPrompt(input: {
       '不要平均拼接。明确选择更有因果力量的路径，保留真正有价值的分歧和不确定项。',
       '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
       '事件之间必须由上一事件结果和人物新状态自然触发，不用巧合强行串联。',
+      '融合候选保留你选定路线的本卷基调，不要平均拼接两种味道。',
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ] : [
       '你与另一位编剧互相看不到答案。独立提出一条真正值得写、因果成立且结构有辨识度的卷路线。',
@@ -551,6 +557,7 @@ function buildPrompt(input: {
         : '主动挑战最直觉的前提，寻找被忽略的关系、代价或结构路径，但反转必须能由前文因果支持。',
       '推进模板只是大白话脚手架，可以移动、合并或舍弃可选节点；不要在输出中使用猫咪、三幕、五幕等术语。',
       '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
+      '本卷基调默认延续上一卷（若资料中提供），除非本卷剧情走向明显变化；基调是写作倾向声明，不是内容清单。',
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ],
     sourcePolicy: {
@@ -596,7 +603,9 @@ function buildPrompt(input: {
         mustNotViolate: ['不能违反'],
         creativeFreedom: ['留给规划、章纲和主笔的自由'],
         openQuestions: ['需要作者以后确认或可继续探索']
-      }
+      },
+      stylePrimary: `本卷主基调：从词表【${STYLE_TONES.join('、')}】中选1个，贴合本卷剧情走向`,
+      styleSecondary: '本卷可选副基调：同一词表，不与主基调重复；不需要则为null'
     }
   });
 }

@@ -300,6 +300,8 @@ function noTemplate() {
 function volumeContent() {
   return {
     title: '承担代价',
+    stylePrimary: null,
+    styleSecondary: null,
     openingState: '主角刚失去旧有退路，只掌握有限线索',
     coreGoal: '让主角取得继续追查真相的资格',
     coreConflict: '主角的生存目标与旧规则维护者正面冲突',

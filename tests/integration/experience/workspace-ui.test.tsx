@@ -374,7 +374,6 @@ describe('完整创作工作台', () => {
     fireEvent.change(within(dialog).getByLabelText('开局'), { target: { value: '林舟收到一封来自未来的失踪通知' } });
     fireEvent.change(within(dialog).getByLabelText('结局'), { target: { value: '找回姐姐并阻止旧城被吞没' } });
     fireEvent.change(within(dialog).getByLabelText('故事方向补充'), { target: { value: storyDirection } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '选择主基调：爽' }));
     await waitFor(() => expect(within(dialog).getByText(/已选 8 个/)).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole('button', { name: '取消元素标签：群像' }));
     expect(within(dialog).getByText(/已选 7 个/)).toBeInTheDocument();
