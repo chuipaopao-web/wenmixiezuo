@@ -33,6 +33,8 @@
 - 书籍草稿：创建、更新、确认。
 - `GET /api/v1/books`：书架。
 - 书籍详情、开书资料、定位、表达基线、归档、恢复和彻底删除。
+- `POST /api/v1/books/:bookId/branding-designs`：主编依据第一卷已确认方案、设定基线和开书信息设计书名或书籍简介候选（`kind` 为 `title` 或 `synopsis`）；第一卷未确认返回409并提示先设计第一卷。
+- `GET /api/v1/books/:bookId/branding-designs/latest?kind=`：当前类型最新一轮主编设计及其候选。
 - `GET /api/v1/opening-taxonomy`：频道、分类、题材和标签目录。
 - `GET /api/v1/books/:bookId/workflow`：当前卷—事件工作流状态。
 

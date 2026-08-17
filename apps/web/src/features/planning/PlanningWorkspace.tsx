@@ -31,6 +31,7 @@ import { PROTAGONIST_ROLES } from '../onboarding/opening-options';
 import { EmptyReference, StructuredContent, artifactTypeLabel, authorityLabel, fieldLabel, formatValue, isRecord, isTechnicalField } from '../shared/StructuredContent';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
+import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
 import { VolumePlanningPanel } from './VolumePlanningPanel';
 import { EventPlanningPanel } from './EventPlanningPanel';
@@ -214,6 +215,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   const [bookProfile, setBookProfile] = useState<BookProfileViewData | null>(null);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [brandingKind, setBrandingKind] = useState<'title' | 'synopsis' | null>(null);
   const [planningState, setPlanningState] = useState<PlanningStateData | null>(null);
   const bookId = workspace?.book.bookId ?? null;
   const refreshPlanningState = useCallback(async (): Promise<void> => {
@@ -263,7 +265,6 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   });
   const tabs: Array<[PlanningTab, string]> = workspacePrimaryFunctionKeys.map((key) => [key, workspaceFunctionLabel(key)]);
   const ideaContext: Partial<Record<PlanningTab, { surface: 'book_profile' | 'setting' | 'volume_plan' | 'chapter_outline' | 'manuscript'; subjectType: string; title: string }>> = {
-    framework: { surface: 'book_profile', subjectType: 'book', title: '补充开书想法' },
     basic: { surface: 'setting', subjectType: 'setting', title: '补充设定想法' },
     master: { surface: 'volume_plan', subjectType: 'volume_plan', title: '补充当前卷想法' },
     event: { surface: 'volume_plan', subjectType: 'story_event', title: '补充当前事件想法' },
@@ -278,7 +279,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       </header>
       <div className="creation-desk-body">
       {tab === 'manuscript' ? manuscript : tab === 'library' ? library : tab === 'naming' ? naming : <>
-      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'event' && bookId !== null ? <EventPlanningPanel bookId={bookId} /> : tab === 'chapter' && bookId !== null ? <EventChapterPlanningPanel bookId={bookId} onOpenManuscript={()=>onTabChange('manuscript')} {...(onBookProfileChanged===undefined?{}:{onChanged:onBookProfileChanged})} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} workspace={workspace} onEdit={() => setProfileEditing(true)} /> : renderableArtifacts.length === 0 ? (
+      {tab === 'master' && bookId !== null ? <VolumePlanningPanel bookId={bookId} /> : tab === 'event' && bookId !== null ? <EventPlanningPanel bookId={bookId} /> : tab === 'chapter' && bookId !== null ? <EventChapterPlanningPanel bookId={bookId} onOpenManuscript={()=>onTabChange('manuscript')} {...(onBookProfileChanged===undefined?{}:{onChanged:onBookProfileChanged})} /> : tab === 'framework' && bookProfile !== null ? <BookProfilePanel profile={bookProfile} workspace={workspace} onEdit={() => setProfileEditing(true)} onBrandingDesign={(kind) => setBrandingKind(kind)} /> : renderableArtifacts.length === 0 ? (
         tab === 'basic' ? null : <EmptyReference icon={<FileTextIcon />} title={`暂无${tabs.find(([key]) => key === tab)?.[1] ?? '内容'}`} description="" />
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
@@ -304,17 +305,28 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         onCancel={() => setProfileEditing(false)}
         onUpdate={saveBookProfile}
       />}
+      {brandingKind !== null && bookId !== null && bookProfile !== null && <BrandingDesignDialog
+        bookId={bookId}
+        kind={brandingKind}
+        profile={bookProfile}
+        onClose={() => setBrandingKind(null)}
+        onApplied={async (updated) => {
+          setBookProfile(updated);
+          setBrandingKind(null);
+          await onBookProfileChanged?.();
+        }}
+      />}
     </section>
   );
 }
 
-function BookProfilePanel({ profile, workspace, onEdit }: { profile: BookProfileViewData; workspace: WorkspaceData | null; onEdit: () => void }): React.JSX.Element {
+function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { profile: BookProfileViewData; workspace: WorkspaceData | null; onEdit: () => void; onBrandingDesign: (kind: 'title' | 'synopsis') => void }): React.JSX.Element {
   const settledCount = workspace === null ? 0 : workspace.chapters.filter((chapter) => chapter.canonManuscriptVersionId !== null).length;
   const totalChapters = workspace?.chapters.length ?? 0;
   const pendingConfirmations = workspace?.confirmations.count ?? 0;
   const progressRatio = totalChapters === 0 ? 0 : settledCount / totalChapters;
   return <section className="book-profile-panel">
-    <header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
+    <header><div><div className="book-title-row"><h3>{bookDisplayTitle(profile.title)}</h3><button className="text-button branding-design-trigger" type="button" onClick={() => onBrandingDesign('title')}>主编设计</button></div><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
     {workspace !== null && <section className="book-progress-banner" aria-label="当前进度">
       <div className="book-progress-row">
         <strong>{totalChapters === 0 ? '还没有章节' : `已写定稿 ${settledCount} / ${totalChapters} 章`}</strong>
@@ -324,8 +336,8 @@ function BookProfilePanel({ profile, workspace, onEdit }: { profile: BookProfile
       </div>
       {totalChapters > 0 && <div className="book-progress-meter" role="presentation"><i style={{ width: `${Math.max(2, Math.round(progressRatio * 100))}%` }} /></div>}
     </section>}
-    <section className="book-story-direction"><h4>故事方向</h4><p>{profile.storyDirection || '暂无'}</p></section>
-    <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div><div><dt>主要标签</dt><dd>{profile.mainTags.join('、')}</dd></div><div><dt>自定义标签</dt><dd>{profile.customTags.join('、') || '无'}</dd></div></dl>
+    <section className="book-synopsis"><div className="book-synopsis-heading"><h4>书籍简介</h4><button className="text-button branding-design-trigger" type="button" onClick={() => onBrandingDesign('synopsis')}>主编设计</button></div><p>{profile.synopsis || '暂无简介。确认第一卷方案后，可以让主编依据第一卷的故事和设定设计多套简介供您选择。'}</p></section>
+    <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div></dl>
     <h4>初始角色</h4>
     <div className="profile-card-grid">{profile.protagonists.map((item) => {
       const backgroundLines = [

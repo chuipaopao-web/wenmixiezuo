@@ -71,6 +71,8 @@ import { SettingCollaborationService } from '../application/knowledge/setting-co
 import { SettingCollaborationRepository } from '../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { SettingCollaborationCommandService } from '../application/knowledge/setting-collaboration-command-service.js';
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
+import { BookBrandingDesignService } from '../application/books/book-branding-design-service.js';
+import { BookBrandingDesignRepository } from '../infrastructure/db/repositories/book-branding-design-repository.js';
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
 import { OpeningDraftRepository } from '../infrastructure/db/repositories/opening-draft-repository.js';
@@ -191,7 +193,8 @@ function taskRequiresCreativeModel(taskType: string): boolean {
     'event_chapter_sequence_challenge',
     'event_chapter_detail_challenge',
     'chapter_creation',
-    'continuation_analysis'
+    'continuation_analysis',
+    'book_branding_design'
   ]).has(taskType);
 }
 
@@ -289,6 +292,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const volumePlanGenerationRepository = new VolumePlanGenerationRepository(database);
   const volumePlanGenerations = new VolumePlanGenerationService(
     volumePlanGenerationRepository, volumePlans, tasks, new UnitOfWork(database), ids, clock
+  );
+  const brandingDesigns = new BookBrandingDesignService(
+    new BookBrandingDesignRepository(database), volumePlanGenerationRepository, tasks,
+    new UnitOfWork(database), ids, clock
   );
 
   const storyEventRepository = new StoryEventRepository(database);
@@ -660,6 +667,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     openingBlueprints.revise(scope, request.body);
     return success(bookProfileView.get(scope), request.id);
   });
+  app.post<{ Params: { bookId: string }; Body: { kind?: 'title' | 'synopsis'; idempotencyKey?: string } }>(
+    '/api/v1/books/:bookId/branding-designs', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(brandingDesigns.start(scope, {
+        kind: request.body?.kind === 'synopsis' ? 'synopsis' : 'title',
+        idempotencyKey: typeof request.body?.idempotencyKey === 'string' ? request.body.idempotencyKey : ''
+      }), request.id);
+    }
+  );
+  app.get<{ Params: { bookId: string }; Querystring: { kind?: string } }>(
+    '/api/v1/books/:bookId/branding-designs/latest', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(brandingDesigns.latest(
+        scope,
+        request.query.kind === 'synopsis' ? 'synopsis' : 'title'
+      ), request.id);
+    }
+  );
   app.get<{
     Params: { bookId: string };
     Querystring: { surface?: string; subjectType?: string; subjectId?: string };

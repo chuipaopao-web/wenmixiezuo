@@ -4512,10 +4512,27 @@ svg {
 .book-story-direction { margin: 14px 0; border-left: 3px solid var(--accent); padding: 10px 12px; background: var(--accent-soft); }
 .book-profile-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .book-profile-panel > header h3, .book-profile-panel > header p { margin: 0; }
+.book-title-row { display: flex; align-items: baseline; gap: 10px; }
 .book-profile-panel > header p { margin-top: 4px; color: var(--ink-faint); }
 .book-story-direction h4, .book-story-direction p { margin: 0; }
 .book-story-direction p { margin-top: 7px; line-height: 1.75; white-space: pre-wrap; }
 .book-story-direction small { display: block; margin-top: 7px; }
+.book-synopsis { margin: 14px 0; border-left: 3px solid var(--accent); padding: 10px 12px; background: var(--accent-soft); }
+.book-synopsis-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.book-synopsis-heading h4 { margin: 0; }
+.book-synopsis p { margin: 7px 0 0; line-height: 1.75; white-space: pre-wrap; }
+.branding-design-trigger { margin-left: 10px; font-size: calc(9px * var(--font-scale)); font-weight: 400; }
+.book-synopsis-heading .branding-design-trigger { margin-left: 0; }
+.branding-design-dialog { max-width: 640px; }
+.branding-design-notice { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-muted); }
+.branding-design-notice p { margin: 0 0 10px; line-height: 1.75; }
+.branding-design-intro { margin: 12px 0; color: var(--ink-soft); line-height: 1.7; }
+.branding-design-options { display: grid; gap: 10px; margin: 12px 0; }
+.branding-design-options article { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--panel); }
+.branding-design-options article strong { font-size: calc(12px * var(--font-scale)); }
+.branding-design-options article p { margin: 0; line-height: 1.75; white-space: pre-wrap; }
+.branding-design-options article small { color: var(--ink-faint); line-height: 1.6; }
+.branding-design-options article .secondary-button { justify-self: end; }
 
 .tag-direction-section .tag-options {
   max-height: 150px;

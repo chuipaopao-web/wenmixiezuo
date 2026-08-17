@@ -68,6 +68,7 @@ describe('四步开书', () => {
       initialProfile={{
         title: '旧城来信', channel: '女频', category: '悬疑恋爱', subjects: ['现代言情'],
         mainTags: ['悬疑', '成长'], customTags: ['城市记忆'], protagonists: openingBlueprint.protagonists,
+        synopsis: openingBlueprint.fullBookOutline,
         storyDirection: openingBlueprint.storyDirection, mustFollow: openingBlueprint.mustFollow,
         openingStart: '', storyEnding: '', stylePrimary: '', styleSecondary: '',
         style: openingBlueprint.styleIntent, source: '老板确认的开书资料', version: 3, openingBlueprint

@@ -11,6 +11,7 @@ export interface BookProfileView {
   mainTags: string[];
   customTags: string[];
   protagonists: OpeningBlueprintInput['protagonists'];
+  synopsis: string;
   storyDirection: string;
   openingStart: string;
   storyEnding: string;
@@ -68,6 +69,7 @@ export class BookProfileViewService {
       mainTags: blueprint.mainTags,
       customTags: blueprint.customTags,
       protagonists: blueprint.protagonists,
+      synopsis: storedBlueprint.fullBookOutline?.trim() ?? '',
       storyDirection: blueprint.storyDirection,
       openingStart,
       storyEnding,

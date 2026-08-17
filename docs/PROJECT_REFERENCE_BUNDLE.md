@@ -130,7 +130,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ### 产品规格
 
-> 当前源文件：`docs/PRODUCT.md` · 指纹：`5805c477e18b`
+> 当前源文件：`docs/PRODUCT.md` · 指纹：`ade09c09d8e0`
 
 #### 产品规格
 
@@ -178,7 +178,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ##### 3. 开书
 
-作者填写并可修改：书名、频道与分类、融合题材、主要标签、初始角色、故事方向、必须遵守、金手指或特殊机制、开篇信息及其他自定义想法。主角性格按外在气质、思考决策、核心驱动力、人际模式、压力反应、道德边界与矛盾成长面分类，并允许自定义。开书任务只接收本书完整开书资料，排除其他书、未摘录灵感和模型猜测。
+作者填写并可修改：书名、频道与分类、融合题材、初始角色、必须遵守、金手指或特殊机制、开篇信息及其他自定义想法。书籍简介不在开书时采集：第一卷方案确认后，作者可在书名和书籍简介旁点“主编设计”，由主编依据第一卷故事、已确认设定和开书信息一次设计多套候选，作者选一套直接采用；第一卷未确认时提示先完成第一卷设计。主角性格按外在气质、思考决策、核心驱动力、人际模式、压力反应、道德边界与矛盾成长面分类，并允许自定义。开书任务只接收本书完整开书资料，排除其他书、未摘录灵感和模型猜测。
 
 创建成功后生成书籍、定位版本、11名成员实例、模型绑定、预算、设定工作区和首个设定提案任务；任何一步失败都不得留下半本书。
 
@@ -252,7 +252,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ### 创作工作流 V2 完整设计
 
-> 当前源文件：`docs/CREATION_WORKFLOW_V2_DESIGN.md` · 指纹：`4bd23728900a`
+> 当前源文件：`docs/CREATION_WORKFLOW_V2_DESIGN.md` · 指纹：`bff7b65a183f`
 
 #### 创作工作流 V2 完整设计
 
@@ -296,7 +296,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ###### 作者输入
 
-书名、频道/分类、题材、标签、初始角色、故事方向、必须遵守、特殊机制、开篇信息和自由补充。每项保留原文与版本。
+书名、频道/分类、题材、初始角色、必须遵守、特殊机制、开篇信息和自由补充。每项保留原文与版本。书籍简介不在开书时采集；第一卷方案确认后，书名与书籍简介由主编依据第一卷故事、设定基线和开书信息设计多套候选，作者选一套直接采用。
 
 ###### 系统动作
 
@@ -438,7 +438,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ### 文秘写作功能实现、交互、AI检索与上下文说明
 
-> 当前源文件：`docs/FEATURE_IMPLEMENTATION_GUIDE.md` · 指纹：`ab0cc37bad66`
+> 当前源文件：`docs/FEATURE_IMPLEMENTATION_GUIDE.md` · 指纹：`a56399044f09`
 
 #### 文秘写作功能实现、交互、AI检索与上下文说明
 
@@ -463,7 +463,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ###### 2.1 信息
 
-**作者交互：** 查看和修改书名、频道、分类、题材、标签、总字数、故事方向、初始角色、开篇场景、初始地图、必须遵守和其他开书资料。书名最多15字。修改时显示会影响哪些后续对象，保存后回到干净的资料阅读态。
+**作者交互：** 查看和修改书名、频道、分类、题材、初始角色、必须遵守和其他开书资料，并查看当前书籍简介；页面不再展示故事方向、标签和作者意见入口。书名最多15字。书名和书籍简介旁的“主编设计”在第一卷方案确认后，由主编依据第一卷已确认方案、设定基线和开书信息一次产出多套候选，作者选一套直接采用；第一卷未确认时提示先完成第一卷设计。修改时显示会影响哪些后续对象，保存后回到干净的资料阅读态。
 
 **后台实现：** 开书字段保存在逐书定位与开书蓝图的活动版本中。修改创建新版本并更新活动指针，不重写旧版本、正文或来源记录。
 
@@ -636,7 +636,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ### 文秘写作使用说明
 
-> 当前源文件：`docs/USER_GUIDE.md` · 指纹：`1e635356ca8b`
+> 当前源文件：`docs/USER_GUIDE.md` · 指纹：`0d51f24ea7f1`
 
 #### 文秘写作使用说明
 
@@ -647,8 +647,8 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 ##### 新建一本书
 
 1. 在创作台左侧书籍栏点击“新建书籍”。
-2. 填写书名、频道/分类、题材与标签、初始角色、故事方向、必须遵守和自己的补充想法。
-3. 确认创建后进入设定。
+2. 填写书名、频道/分类、题材、初始角色、必须遵守和自己的补充想法。
+3. 确认创建后进入设定。确认第一卷方案后，可在“信息”页点书名或书籍简介旁的“主编设计”，让主编依据第一卷故事、设定和开书信息设计多套书名或简介候选，选一套直接采用。
 4. 在每个设定项查看主编与两位编剧的独立方案；选择、组合、直接改写或要求重做。
 5. 所有当前必需设定确认后进入当前卷。
 
@@ -2311,7 +2311,7 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 
 ### 数据模型规格
 
-> 当前源文件：`docs/DATA_MODEL.md` · 指纹：`2a7dfdc9c4e3`
+> 当前源文件：`docs/DATA_MODEL.md` · 指纹：`69561252af17`
 
 #### 数据模型规格
 
@@ -2332,6 +2332,7 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 - `owners`：每个注册账号对应的创作数据所有者；首位管理员复用历史本机老板所有者，后续账号各自新建所有者。
 - `books`：书籍、状态、版本、正史修订和活动主编epoch。
 - `book_onboarding_profiles`、`positioning_versions`、`book_expression_profiles`：开书原始资料、定位与表达基线版本。
+- `book_branding_designs`：主编设计书名或书籍简介的任务记录、候选方案和来源指纹；采用结果写回开书蓝图的不可变新版本，不原地覆盖。
 - `role_templates`、`agent_instances`：岗位模板和逐书Agent实例。
 - `model_config_snapshots`、`agent_model_bindings`：不可变模型快照与活动绑定。
 - `editor_leases`、`writer_leases`：主编和写手租约。
@@ -2441,7 +2442,7 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 
 ### 当前API与事件契约
 
-> 当前源文件：`docs/API.md` · 指纹：`d2c41729324f`
+> 当前源文件：`docs/API.md` · 指纹：`1d44af5f3337`
 
 #### 当前API与事件契约
 
@@ -2478,6 +2479,8 @@ Web 的 `AuthorPresentationGate` 是作者可见动态内容的统一边界：�
 - 书籍草稿：创建、更新、确认。
 - `GET /api/v1/books`：书架。
 - 书籍详情、开书资料、定位、表达基线、归档、恢复和彻底删除。
+- `POST /api/v1/books/:bookId/branding-designs`：主编依据第一卷已确认方案、设定基线和开书信息设计书名或书籍简介候选（`kind` 为 `title` 或 `synopsis`）；第一卷未确认返回409并提示先设计第一卷。
+- `GET /api/v1/books/:bookId/branding-designs/latest?kind=`：当前类型最新一轮主编设计及其候选。
 - `GET /api/v1/opening-taxonomy`：频道、分类、题材和标签目录。
 - `GET /api/v1/books/:bookId/workflow`：当前卷—事件工作流状态。
 
@@ -3151,7 +3154,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`d4ca0d5a9834`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`89c73dec3849`
 
 #### 当前生效决定
 
@@ -3438,6 +3441,10 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 【当前、仅限本轮】老板撤销“必须由本人逐章通读确认”的要求，授权项目经理代为通读、确认并结算`DEC-CURRENT-042`登记的两本专用测试书。真实长篇调度器使用独立的`release-manager-confirm`运行标志，不再冒用E2自动确认语义；书籍ID和owner必须同时命中固定白名单，其他书仍逐章等待作者确认。
 
 项目经理放行前必须调用统一发布审查门禁，确认待确认对象与任务检查点指向同一不可变正文版本，并且最新完整事实、文学、体验三席报告全部绑定该版本、没有`major`或`blocker`问题、没有`rewrite`或`blocked`结论。套餐余额未知时每次真实运行最多推进3章；达到20、50、100和200章仍须分别完成纵向质量复核。该授权不改变普通作者确认入口，不扩大到私人书稿、其他账号、付费接口、新密钥、永久删除或生产恢复。
+
+##### DEC-CURRENT-045 开书信息页收口与主编设计（2026-08-18）
+
+【当前】开书信息页不再展示故事方向、主要标签、自定义标签和作者意见入口；页面保留书名、频道/分类、融合题材、书籍简介、初始角色和必须遵守。书籍简介不再由开书向导采集，改用主编设计：第一卷方案确认后，作者在书名和书籍简介旁点“主编设计”，由主编依据第一卷已确认方案、设定基线和开书信息一次产出多套候选，作者选一套直接采用并写回开书资料新版本；第一卷未确认时提示先完成第一卷设计。主编设计是主编单席一次调用的轻量任务，照常保存任务、上下文包、预算和调用记录，不占用双编剧流程。
 
 ---
 
@@ -4396,7 +4403,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`397d842920c9`
+> 当前源文件：`HANDOFF.md` · 指纹：`2f8cc9fe277f`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4412,14 +4419,17 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 开书不带任何标签：删了后台标签自动推荐；后端放开"主要标签至少2个"和"故事方向至少20字"限制。标签库后续移到卷设计（每卷选每卷的），**未做**。
-2. 开书向导 4 步 → 3 步：创作方式 → 写什么题材 → 边界与角色。"故事怎么讲"整页删除（开局/结局/故事方向/完整标签库都没了）。初始角色限 2 名，身份只剩 男主/女主/共同主角/群像主角/非人主角。
-3. 基调在卷设计：每卷选主基调 1 个 + 副基调可选 1 个（词表：爽、乐、癫、暖、甜、虐、烧脑、诡异、厚重、黑），后一卷默认沿用上卷。10 段基调写作说明只注入 AI 上下文（软指引），作者不可见。旧书的 stylePrimary/styleSecondary 字段保留兼容。
-4. 开书合同字段 openingStart/storyEnding/stylePrimary/styleSecondary/storyDirection 全部变为可选（旧书兼容），向导不再采集。
+1. 开书信息页收口 + 主编设计：信息页删掉故事方向、主要/自定义标签和作者意见入口；新增书籍简介展示；书名和简介旁加「主编设计」——第一卷方案确认后由主编（貂蝉）依据第一卷故事+设定基线+开书信息一次出 5 套候选，作者点「用这个」直接写回开书资料新版本；第一卷未确认时提示先设计第一卷。新任务类型 `book_branding_design`（迁移 0048，主编单席一次调用）。
+2. 开书不带任何标签：删了后台标签自动推荐；后端放开"主要标签至少2个"和"故事方向至少20字"限制。标签库后续移到卷设计（每卷选每卷的），**未做**。
+3. 开书向导 4 步 → 3 步：创作方式 → 写什么题材 → 边界与角色。"故事怎么讲"整页删除（开局/结局/故事方向/完整标签库都没了）。初始角色限 2 名，身份只剩 男主/女主/共同主角/群像主角/非人主角。
+4. 基调在卷设计：每卷选主基调 1 个 + 副基调可选 1 个（词表：爽、乐、癫、暖、甜、虐、烧脑、诡异、厚重、黑），后一卷默认沿用上卷。10 段基调写作说明只注入 AI 上下文（软指引），作者不可见。旧书的 stylePrimary/styleSecondary 字段保留兼容。
+5. 开书合同字段 openingStart/storyEnding/stylePrimary/styleSecondary/storyDirection 全部变为可选（旧书兼容），向导不再采集。
 
 ##### 关键文件地图
 
 - 开书向导：`apps/web/src/features/onboarding/CompleteCreateBookDialog.tsx`（+ `opening-draft-store.ts` 草稿、`opening-options.ts` 频道/角色身份）
+- 信息页（开书资料）：`apps/web/src/features/planning/PlanningWorkspace.tsx` 的 `BookProfilePanel`
+- 主编设计（书名/简介）：`apps/api/src/application/books/book-branding-design-service.ts` + `book-branding-pipeline-service.ts` + `infrastructure/db/repositories/book-branding-design-repository.ts` + 迁移 `0048_book_branding_designs.sql`；前端 `apps/web/src/features/planning/BrandingDesignDialog.tsx`；测试 `tests/integration/domain/book-branding-design.test.ts`
 - 卷设计：`apps/web/src/features/planning/VolumePlanningPanel.tsx`（含本卷基调选择）
 - 开书合同校验：`apps/api/src/contracts/opening-blueprint.ts`（**CRLF/LF 混合文件**，Edit 工具常失败，用 node 脚本按字节 replace）
 - 卷合同：`apps/contracts/src/workflow.ts`（改完必须 `npm.cmd run build -w @wenmi/contracts`）
@@ -4449,7 +4459,7 @@ curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
 
 ##### 走查进度
 
-- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）。
+- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）、开书信息页（收口 + 主编设计）。
 - 进行中/下一步：老板继续逐页走查（设定、卷设计、章纲、正文写作等页面），随走随改。
 - 待做（已讨论未定稿）：标签库进卷设计；开局/结局进设定阶段由 AI 参与讨论推荐。
 

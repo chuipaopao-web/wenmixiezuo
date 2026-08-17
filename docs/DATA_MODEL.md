@@ -17,6 +17,7 @@
 - `owners`：每个注册账号对应的创作数据所有者；首位管理员复用历史本机老板所有者，后续账号各自新建所有者。
 - `books`：书籍、状态、版本、正史修订和活动主编epoch。
 - `book_onboarding_profiles`、`positioning_versions`、`book_expression_profiles`：开书原始资料、定位与表达基线版本。
+- `book_branding_designs`：主编设计书名或书籍简介的任务记录、候选方案和来源指纹；采用结果写回开书蓝图的不可变新版本，不原地覆盖。
 - `role_templates`、`agent_instances`：岗位模板和逐书Agent实例。
 - `model_config_snapshots`、`agent_model_bindings`：不可变模型快照与活动绑定。
 - `editor_leases`、`writer_leases`：主编和写手租约。

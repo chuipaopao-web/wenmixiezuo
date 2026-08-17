@@ -253,6 +253,7 @@ export interface BookProfileViewData {
   mainTags: string[];
   customTags: string[];
   protagonists: OpeningBlueprintData['protagonists'];
+  synopsis: string;
   storyDirection: string;
   openingStart: string;
   storyEnding: string;
@@ -1859,6 +1860,41 @@ export function updateBookProfile(bookId: string, input: {
     method: 'PUT',
     body: JSON.stringify(input)
   });
+}
+
+export type BookBrandingDesignKind = 'title' | 'synopsis';
+
+export interface BookBrandingDesignData {
+  designId: string;
+  kind: BookBrandingDesignKind;
+  status: 'working' | 'succeeded' | 'failed' | 'cancelled';
+  taskId: string;
+  taskStatus: string;
+  currentPhase: string;
+  errorCode: string | null;
+  options: Array<{ text: string; note: string }>;
+  member: { roleKey: string; agentId: string; displayName: string; provider: string; modelId: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function startBrandingDesign(bookId: string, kind: BookBrandingDesignKind): Promise<BookBrandingDesignData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/branding-designs`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, idempotencyKey: crypto.randomUUID() })
+  });
+}
+
+export function fetchLatestBrandingDesign(
+  bookId: string,
+  kind: BookBrandingDesignKind,
+  signal?: AbortSignal
+): Promise<BookBrandingDesignData | null> {
+  const query = `?kind=${encodeURIComponent(kind)}`;
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/branding-designs/latest${query}`,
+    signal === undefined ? {} : { signal }
+  );
 }
 
 export function fetchPlanningState(bookId: string, signal?: AbortSignal): Promise<PlanningStateData> {

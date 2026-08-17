@@ -32,8 +32,9 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const synthesis = reviewSynthesis(request.prompt);
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
+    const bookBranding = deterministicBookBranding(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -44,6 +45,28 @@ export class DeterministicModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function deterministicBookBranding(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'book_branding_design_v1') return null;
+  const kind = root.kind === 'synopsis' ? 'synopsis' : 'title';
+  const current = isRecord(root.current) ? root.current : {};
+  const base = typeof current.text === 'string' ? current.text.trim() : '';
+  const options = kind === 'title'
+    ? [
+      { text: '长夜举火', note: '抓住第一卷主角孤身反抗黑暗的基调。' },
+      { text: '我要举报', note: '直接沿用开书冲突的核心动作，口语、有钩子。' },
+      { text: '山河有证', note: '强调证据与公道，适合正剧向的第一卷。' },
+      { text: '开局即掀桌', note: '突出第一卷开局反转的爽感。' },
+      { text: '人间联名书', note: '从个人抗争走向众人响应的群像方向。' }
+    ]
+    : [1, 2, 3, 4, 5].map((index) => ({
+      text: `【方案${index}】${base === '' ? '主角' : '主角'}被卷入第一卷的核心冲突，从孤身一人到握住关键证据，在一次次反制中付出真实代价，最终撬动了看似不可撼动的旧秩序。（确定性假模型简介，供本地与测试环境走通流程。）`,
+      note: '确定性假模型生成的占位简介，结构完整但不含真实创作判断。'
+    }));
+  return JSON.stringify({ options });
 }
 
 function deterministicVolumePlan(prompt: string): string | null {

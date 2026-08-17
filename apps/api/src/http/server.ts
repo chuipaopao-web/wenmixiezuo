@@ -49,6 +49,8 @@ import { LongformContinuityRepository } from '../infrastructure/db/repositories/
 import { EventChapterOutlineService } from '../application/planning/event-chapter-outline-service.js';
 import { EventChapterGenerationService } from '../application/planning/event-chapter-generation-service.js';
 import { ArtifactService } from '../application/artifacts/artifact-service.js';
+import { BookBrandingDesignPipelineService } from '../application/books/book-branding-pipeline-service.js';
+import { BookBrandingDesignRepository } from '../infrastructure/db/repositories/book-branding-design-repository.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -102,6 +104,17 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     volumePlanClock,
     modelAdapters,
     new RetrievalContextSourceService(productionRetrieval)
+  );
+  const bookBrandingDesignPipeline = new BookBrandingDesignPipelineService(
+    new BookBrandingDesignRepository(database),
+    new VolumePlanGenerationRepository(database),
+    new TaskService(database, config.releaseId, volumePlanClock),
+    volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds,
+    volumePlanClock,
+    modelAdapters
   );
   const storyEventRepository = new StoryEventRepository(database);
   const storyEventGenerationPipeline = new StoryEventGenerationPipelineService(
@@ -212,6 +225,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
           ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
           : task.task_type === 'volume_plan_generation'
             ? await volumePlanGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+            : task.task_type === 'book_branding_design'
+              ? await bookBrandingDesignPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'story_event_generation'
               ? await storyEventGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : ['event_chapter_sequence_generation', 'event_chapter_detail_generation', 'event_chapter_sequence_challenge', 'event_chapter_detail_challenge'].includes(task.task_type)
