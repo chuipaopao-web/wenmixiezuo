@@ -4521,8 +4521,9 @@ svg {
 .book-synopsis-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .book-synopsis-heading h4 { margin: 0; }
 .book-synopsis p { margin: 7px 0 0; line-height: 1.75; white-space: pre-wrap; }
-.branding-design-trigger { margin-left: 10px; font-size: calc(9px * var(--font-scale)); font-weight: 400; }
-.book-synopsis-heading .branding-design-trigger { margin-left: 0; }
+.branding-design-button { margin-left: 10px; border: 0; border-radius: 999px; padding: 4px 14px; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-strong)); font: inherit; font-size: calc(9px * var(--font-scale)); font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.branding-design-button:hover { filter: brightness(1.06); }
+.book-synopsis-heading .branding-design-button { margin-left: 0; }
 .branding-design-dialog { max-width: 640px; }
 .branding-design-notice { margin: 14px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-muted); }
 .branding-design-notice p { margin: 0 0 10px; line-height: 1.75; }

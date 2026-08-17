@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { FileTextIcon } from '@phosphor-icons/react';
 import {
   workspaceFunctionLabel,
@@ -299,13 +300,13 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         }))}
       />}
       </div>
-      {profileEditing && bookProfile !== null && <CompleteCreateBookDialog
+      {profileEditing && bookProfile !== null && createPortal(<CompleteCreateBookDialog
         busy={profileSaving}
         initialProfile={bookProfile}
         onCancel={() => setProfileEditing(false)}
         onUpdate={saveBookProfile}
-      />}
-      {brandingKind !== null && bookId !== null && bookProfile !== null && <BrandingDesignDialog
+      />, document.body)}
+      {brandingKind !== null && bookId !== null && bookProfile !== null && createPortal(<BrandingDesignDialog
         bookId={bookId}
         kind={brandingKind}
         profile={bookProfile}
@@ -315,7 +316,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
           setBrandingKind(null);
           await onBookProfileChanged?.();
         }}
-      />}
+      />, document.body)}
     </section>
   );
 }
@@ -326,17 +327,17 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
   const pendingConfirmations = workspace?.confirmations.count ?? 0;
   const progressRatio = totalChapters === 0 ? 0 : settledCount / totalChapters;
   return <section className="book-profile-panel">
-    <header><div><div className="book-title-row"><h3>{bookDisplayTitle(profile.title)}</h3><button className="text-button branding-design-trigger" type="button" onClick={() => onBrandingDesign('title')}>主编设计</button></div><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
+    <header><div><div className="book-title-row"><h3>{bookDisplayTitle(profile.title)}</h3><button className="branding-design-button" type="button" onClick={() => onBrandingDesign('title')}>主编设计</button></div><p>{profile.channel} · {profile.category}</p></div><button className="secondary-button" type="button" onClick={onEdit}>修改开书资料</button></header>
     {workspace !== null && <section className="book-progress-banner" aria-label="当前进度">
       <div className="book-progress-row">
         <strong>{totalChapters === 0 ? '还没有章节' : `已写定稿 ${settledCount} / ${totalChapters} 章`}</strong>
         {pendingConfirmations > 0
           ? <span className="book-progress-attention">有 {pendingConfirmations} 项重要内容等您确认，去「任务」页处理</span>
-          : <span>{totalChapters === 0 ? '确认设定与分卷后，团队会开始规划事件。' : '没有等您确认的事项，团队可以继续推进。'}</span>}
+          : totalChapters > 0 ? <span>没有等您确认的事项，团队可以继续推进。</span> : null}
       </div>
       {totalChapters > 0 && <div className="book-progress-meter" role="presentation"><i style={{ width: `${Math.max(2, Math.round(progressRatio * 100))}%` }} /></div>}
     </section>}
-    <section className="book-synopsis"><div className="book-synopsis-heading"><h4>书籍简介</h4><button className="text-button branding-design-trigger" type="button" onClick={() => onBrandingDesign('synopsis')}>主编设计</button></div><p>{profile.synopsis || '暂无简介。确认第一卷方案后，可以让主编依据第一卷的故事和设定设计多套简介供您选择。'}</p></section>
+    <section className="book-synopsis"><div className="book-synopsis-heading"><h4>书籍简介</h4><button className="branding-design-button" type="button" onClick={() => onBrandingDesign('synopsis')}>主编设计</button></div><p>{profile.synopsis || '暂无简介。确认第一卷方案后，可以让主编依据第一卷的故事和设定设计多套简介供您选择。'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div></dl>
     <h4>初始角色</h4>
     <div className="profile-card-grid">{profile.protagonists.map((item) => {
