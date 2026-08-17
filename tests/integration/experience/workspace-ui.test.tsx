@@ -368,7 +368,7 @@ describe('完整创作工作台', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));
     fireEvent.click(await within(dialog).findByRole('button', { name: '选择作品分类：现言脑洞' }));
     fireEvent.change(within(dialog).getByLabelText('故事方向'), { target: { value: storyDirection } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：作品方向' }));
 
     expect(within(dialog).getByText('必须遵守')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText('目标读者')).not.toBeInTheDocument();
@@ -404,7 +404,6 @@ describe('完整创作工作台', () => {
     fireEvent.change(dialog.querySelector('#opening-protagonist-age')!, { target: { value: '18' } });
     fireEvent.change(dialog.querySelector('#opening-protagonist-family-background')!, { target: { value: '普通玩家家庭' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '选择角色性格：冷静' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '创建书籍' }));
     expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).endsWith('/api/v1/books/book-ui-1/messages') && (init as RequestInit | undefined)?.method === 'POST'

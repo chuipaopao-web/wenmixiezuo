@@ -83,8 +83,9 @@ describe('四步开书', () => {
       target: { value: '林舟决定利用会变化的城市地图反向追踪记忆源头，并赶在旧城拆除前救出姐姐。' }
     });
     await within(dialog).findByRole('button', { name: '当前作品分类：悬疑恋爱' });
-    fireEvent.click(within(dialog).getByRole('button', { name: '第4步：题材与边界' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '第2步：作品方向' }));
     expect(await within(dialog).findByText('2 个已选')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '第3步：初始角色' }));
     const save = within(dialog).getByRole('button', { name: '保存修改' });
     fireEvent.click(save);
     fireEvent.click(save);
@@ -118,6 +119,8 @@ describe('四步开书', () => {
     expect(document.querySelectorAll('.channel-option input')).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
     fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '林舟从一封旧信追查被改写的城市记忆，并试图阻止下一次大规模改写。' } });
+    expect(screen.getByText(/个已选/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
 
     const first = screen.getByRole('article');
@@ -131,10 +134,6 @@ describe('四步开书', () => {
     fireEvent.change(within(second).getByLabelText('年龄'), { target: { value: '24' } });
     fireEvent.change(within(second).getByLabelText('家庭背景'), { target: { value: '失踪调查员家庭' } });
     fireEvent.click(within(second).getByRole('button', { name: '选择角色性格：敏锐' }));
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-
-    expect(screen.getByText(/个已选/u)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
     const create = screen.getByRole('button', { name: '创建书籍' });
     fireEvent.click(create);
     fireEvent.click(create);
@@ -171,7 +170,7 @@ describe('四步开书', () => {
     const onCreate = vi.fn().mockResolvedValue(false);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
     fireEvent.click(screen.getByRole('button', { name: /^已有正文续写/u }));
-    fireEvent.click(screen.getByRole('button', { name: '第4步：题材与边界' }));
+    fireEvent.click(screen.getByRole('button', { name: '第3步：初始角色' }));
     expect(screen.getByRole('button', { name: '创建书籍' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');

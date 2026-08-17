@@ -22,7 +22,7 @@ export interface OpeningProtagonistDraft {
 
 export interface OpeningWizardDraft {
   schemaVersion: typeof OPENING_DRAFT_SCHEMA_VERSION;
-  step: 1 | 2 | 3 | 4;
+  step: 1 | 2 | 3;
   creationMode: BookCreationMode;
   title: string;
   channel: OpeningChannel | null;
@@ -134,7 +134,8 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
     : [];
   return {
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
-    step: value.step === 2 || value.step === 3 || value.step === 4 ? value.step : 1,
+    // 旧四步草稿的第4步（题材与边界）已并入第2步（作品方向），恢复时回落到第2步。
+    step: value.step === 2 || value.step === 4 ? 2 : value.step === 3 ? 3 : 1,
     creationMode: value.creationMode === 'continuation' ? 'continuation' : 'new',
     title: limitBookTitle(limitedText(value.title, BOOK_TITLE_MAX_CHARACTERS * 2)),
     channel: value.channel === 'male' || value.channel === 'female' ? value.channel : null,
