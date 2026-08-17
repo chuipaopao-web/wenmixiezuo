@@ -250,7 +250,7 @@ const personalityGroups: OpeningPersonalityGroup[] = [
 ];
 
 export const OPENING_TAXONOMY: OpeningTaxonomy = {
-  version: 'wenmi-single-category-subject-library-2026-08-17-v9',
+  version: 'wenmi-single-category-subject-library-2026-08-17-v10',
   sourceLabel: '起点与番茄公开分类整理＋文秘写作动态词条库',
   sourceUrl: 'https://fanqienovel.com/',
   updatedAt: '2026-08-17',

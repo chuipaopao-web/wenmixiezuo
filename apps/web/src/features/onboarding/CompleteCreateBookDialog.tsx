@@ -601,6 +601,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
 
         {step === 3 && <section className="opening-form-section style-tone-section" id="opening-style-tones" tabIndex={-1}>
           <div className="section-heading"><div><span>02</span><h3>文风基调</h3></div><small>主基调选 1 个</small></div>
+          <p className="opening-edit-scope-note">基调已经定下的感觉，元素标签里不用重复选。</p>
           <section className="tag-picker"><header><strong>主基调</strong><small>选 1 个</small></header><div className="tag-options">{(taxonomy?.styleTones ?? []).map((tone) => {
             const active = stylePrimary === tone;
             return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={`${active ? '取消' : '选择'}主基调：${tone}`} key={tone} onClick={() => {
@@ -617,6 +618,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
 
         {step === 3 && <section className="opening-form-section tag-direction-section" id="opening-tag-section" tabIndex={-1}>
           <div className="section-heading"><div><span>03</span><h3>元素标签</h3></div><small>至少 2 个</small></div>
+          <p className="opening-edit-scope-note">意思相近的标签只留一个就好，比如选了"爽文"就不必再选"高燃"。</p>
           <details className="full-tag-library opening-more-options" open><summary><span><strong>元素标签库</strong></span><b>{mainTags.length} 个已选</b></summary><div className="opening-more-options-body">
             <header className="tag-library-heading"><div><strong>完整标签库</strong></div><span>{taxonomy?.mainTags.length ?? 0} 个标签</span></header>
             <label htmlFor="opening-tag-search">搜索全部标签<input id="opening-tag-search" aria-label="搜索全部标签" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="高武、群像、探案……" /></label>
