@@ -42,7 +42,6 @@ export interface OpeningWizardDraft {
   selectedMustFollow: string[];
   mustFollowText: string;
   allSubjectsOpen: boolean;
-  activeTagGroupKey: string;
   updatedAt: string;
 }
 
@@ -69,7 +68,6 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
     selectedMustFollow: [],
     mustFollowText: '',
     allSubjectsOpen: false,
-    activeTagGroupKey: 'recommended',
     updatedAt: ''
   };
 }
@@ -162,7 +160,6 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
     selectedMustFollow: uniqueTexts(value.selectedMustFollow, 15, 500),
     mustFollowText: limitedText(value.mustFollowText, 6_000),
     allSubjectsOpen: value.allSubjectsOpen === true,
-    activeTagGroupKey: limitedText(value.activeTagGroupKey, 120) || 'recommended',
     updatedAt: limitedText(value.updatedAt, 80)
   };
 }

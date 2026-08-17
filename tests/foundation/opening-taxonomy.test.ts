@@ -103,14 +103,15 @@ describe('完整开书分类与资料合同', () => {
     expect(validateOpeningBlueprint(blueprint).styleIntent).toEqual(blueprint.styleIntent);
   });
 
-  it('主要标签至少两个，但不再限制八个上限', () => {
+  it('主要标签不限数量，可以不选', () => {
     const mainTags = OPENING_TAXONOMY.mainTags.slice(0, 24);
     expect(validateOpeningBlueprint({ ...validBlueprint(), mainTags }).mainTags).toEqual(mainTags);
+    expect(validateOpeningBlueprint({ ...validBlueprint(), mainTags: [] }).mainTags).toEqual([]);
   });
 
-  it('拒绝跨频道分类、缺失资料和主要标签数量越界', () => {
+  it('拒绝跨频道分类、缺失资料和标签目录外的词', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), categoryKey: 'female-modern-brain' })).toThrow('不属于当前频道');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['穿越'] })).toThrow('至少选择2个');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), mainTags: ['不存在的标签'] })).toThrow('不在当前目录');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['female-modern-brain'] })).toThrow('不属于当前频道');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryCategoryKeys: ['male-fantasy-brain'] })).toThrow('不能同时作为辅助分类');
     expect(() => validateOpeningBlueprint({
@@ -119,8 +120,7 @@ describe('完整开书分类与资料合同', () => {
     })).toThrow('0至3个');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '' })).toThrow('故事方向');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '主角开始冒险。' })).toThrow('至少需要20');
+    expect(validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '' }).storyDirection).toBe('');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '长'.repeat(801) })).toThrow('不能超过800');
     expect(validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' }).targetAudience).toBe('');
     expect(() => validateOpeningBlueprint({
@@ -138,7 +138,6 @@ describe('完整开书分类与资料合同', () => {
   it('开局结局可以替代长故事方向，主副基调取自基调目录且不能重复', () => {
     const blueprint = validBlueprint();
     blueprint.storyDirection = '';
-    expect(() => validateOpeningBlueprint({ ...blueprint, storyDirection: '短句。' })).toThrow('至少需要20');
     const accepted = validateOpeningBlueprint({
       ...blueprint,
       openingStart: '主角穿越异界成为平民',

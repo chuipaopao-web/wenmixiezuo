@@ -67,7 +67,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [initialMap, setInitialMap] = useState(initialDraft.initialMap);
   const [customTags, setCustomTags] = useState<string[]>(initialDraft.customTags);
   const [allSubjectsOpen, setAllSubjectsOpen] = useState(initialDraft.allSubjectsOpen);
-  const [activeTagGroupKey, setActiveTagGroupKey] = useState(initialDraft.activeTagGroupKey);
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>(initialDraft.selectedMustFollow);
   const [mustFollowText, setMustFollowText] = useState(initialDraft.mustFollowText);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -77,10 +76,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [draftSaveMessage, setDraftSaveMessage] = useState<string | null>(null);
   const validationSummaryRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const automaticTagSignature = useRef('');
-  const automaticTagValues = useRef<string[]>([]);
-  const automaticTagCategory = useRef<string | null>(null);
-  const dismissedAutomaticTags = useRef<Set<string>>(new Set());
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,7 +109,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setSelectedMustFollow(draft.selectedMustFollow);
     setMustFollowText(draft.mustFollowText);
     setAllSubjectsOpen(draft.allSubjectsOpen);
-    setActiveTagGroupKey(draft.activeTagGroupKey);
   };
 
   // 服务器草稿是权威来源：浏览器清理或换设备后，从这里恢复。
@@ -142,7 +137,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       protagonists,
       storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
       fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
-      allSubjectsOpen, activeTagGroupKey
+      allSubjectsOpen
     };
     const timer = window.setTimeout(() => {
       if (editing) return;
@@ -165,70 +160,18 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     protagonists,
     storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
-    allSubjectsOpen, activeTagGroupKey, editing]);
+    allSubjectsOpen, editing]);
 
   const categories = taxonomy?.categories.filter((item) => item.channel === channel) ?? [];
   const category = taxonomy?.categories.find((item) => item.key === categoryKey) ?? null;
   const subjects = taxonomy?.subjects ?? (taxonomy?.auxiliaryTags ?? []).map((name) => ({ name, packKeys: ['common'] }));
-  const availableTagGroups = taxonomy?.tagGroups ?? [{
-    key: 'common', name: '当前分类', description: '当前分类可用标签',
-    packKeys: ['common'],
-    mainTags: taxonomy?.mainTags ?? [], auxiliaryTags: taxonomy?.auxiliaryTags ?? [], storyTraits: taxonomy?.storyTraits ?? []
-  }];
-  // 已选融合题材与已选主要标签都会激活对应的标签组，智能推荐随选择动态扩展。
-  const selectedTagPackKeys = availableTagGroups
-    .filter((group) => [...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits].some((tag) => mainTags.includes(tag)))
-    .flatMap((group) => group.packKeys);
-  const activePackKeys = [...new Set([
-    'common',
-    ...(category?.tagPackKeys ?? []),
-    ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys),
-    ...selectedTagPackKeys
-  ])];
-  const relevantTagGroups = availableTagGroups.filter((group) => group.packKeys?.some((pack) => activePackKeys.includes(pack)) ?? activePackKeys.includes(group.key));
   const recommendedSubjects = subjects.filter((item) => (item.packKeys ?? ['common']).some((pack) => pack === 'common' || category?.tagPackKeys?.includes(pack)));
   const subjectOptions = allSubjectsOpen ? subjects : [...new Map([...recommendedSubjects, ...subjects.filter((item) => auxiliaryTags.includes(item.name))].map((item) => [item.name, item])).values()];
-  const groupTagValues = (group: typeof availableTagGroups[number]): string[] => [
-    ...group.mainTags,
-    ...group.auxiliaryTags,
-    ...group.storyTraits
-  ];
-  const recommendedTagOptions = [...new Set([
-    ...(category?.recommendedMainTags ?? []),
-    ...relevantTagGroups.flatMap(groupTagValues)
-  ])].filter((tag) => {
-    if (tag === category?.name || auxiliaryTags.includes(tag)) return false;
-    if (channel === 'male' && tag === '女性成长') return false;
-    if (channel === 'female' && tag === '男性成长') return false;
-    return true;
-  });
-  // 同一个词在作品分类名、融合题材、主要标签、故事特点或自定义标签中已占用时，其他选区一律置灰，避免重复选择。
+  // 同一个词在作品分类名或融合题材中已占用时，其他选区一律置灰，避免重复选择。
   const blockedSubjectTags = new Set([
     ...(category === null ? [] : [category.name]),
     ...mainTags, ...storyTraits, ...customTags
   ].filter((tag) => !auxiliaryTags.includes(tag)));
-  const tagRecommendationSignature = `${taxonomy?.version ?? ''}|${categoryKey ?? ''}|${[...auxiliaryTags].sort().join('|')}`;
-  useEffect(() => {
-    if (taxonomy === null || category === null || automaticTagSignature.current === tagRecommendationSignature) return;
-    if (editing && automaticTagSignature.current === '') {
-      automaticTagSignature.current = tagRecommendationSignature;
-      automaticTagCategory.current = category.key;
-      return;
-    }
-    if (automaticTagCategory.current !== category.key) {
-      dismissedAutomaticTags.current.clear();
-      automaticTagCategory.current = category.key;
-    }
-    automaticTagSignature.current = tagRecommendationSignature;
-    const nextAutomaticTags = recommendedTagOptions
-      .filter((tag) => !dismissedAutomaticTags.current.has(tag))
-      .slice(0, 8);
-    setMainTags((current) => {
-      const manualTags = current.filter((tag) => !automaticTagValues.current.includes(tag));
-      return [...new Set([...manualTags, ...nextAutomaticTags])];
-    });
-    automaticTagValues.current = nextAutomaticTags;
-  }, [taxonomy, category, tagRecommendationSignature, editing]);
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
   const basicRequirements = [
@@ -341,15 +284,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setSelectedMustFollow(empty.selectedMustFollow);
     setMustFollowText(empty.mustFollowText);
     setAllSubjectsOpen(empty.allSubjectsOpen);
-    setActiveTagGroupKey(empty.activeTagGroupKey);
     setSubmitAttempted(false);
     setSubmitError(null);
     setRestoredNotice(false);
     setDraftSaveMessage(null);
-    automaticTagSignature.current = '';
-    automaticTagValues.current = [];
-    automaticTagCategory.current = null;
-    dismissedAutomaticTags.current.clear();
     clearOpeningWizardDraft(accountId);
     void clearOpeningDraftOnServer().catch(() => undefined);
   };
@@ -431,7 +369,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         protagonists,
         storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
         fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
-        allSubjectsOpen, activeTagGroupKey
+        allSubjectsOpen
       };
       try {
         if (hasMeaningfulOpeningDraft(snapshot)) {
@@ -495,7 +433,6 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
             const selected = categoryKey === item.key;
             return <button className={selected ? 'category-choice selected primary' : 'category-choice'} type="button" aria-pressed={selected} aria-label={selected ? `当前作品分类：${item.name}` : `选择作品分类：${item.name}`} key={item.key} onClick={() => {
               setCategoryKey(item.key);
-              setActiveTagGroupKey('recommended');
             }}><strong>{item.name}</strong><small>{selected ? '当前分类' : item.description}</small></button>;
           })}</div>
           </section>}

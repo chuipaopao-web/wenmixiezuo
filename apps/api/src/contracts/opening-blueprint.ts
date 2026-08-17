@@ -368,21 +368,13 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   if (openingStart.length > 0 || storyEnding.length > 0) {
     if (openingStart.length < 4) throw new Error('开局至少需要4个字符，一句话说清主角的起点处境');
     if (storyEnding.length < 2) throw new Error('结局至少需要2个字符，一句话说清故事的终点');
-  } else if (storyDirection.length < 20) {
-    throw new Error('请用一句话填写开局和结局；故事方向至少需要20个字符');
   }
   const stylePrimary = optionalText(input.stylePrimary, '主基调', 20);
   const styleSecondary = optionalText(input.styleSecondary, '副基调', 20);
   if (stylePrimary.length > 0 && !STYLE_TONES.includes(stylePrimary)) throw new Error(`主基调不在当前目录：${stylePrimary}`);
   if (styleSecondary.length > 0 && !STYLE_TONES.includes(styleSecondary)) throw new Error(`副基调不在当前目录：${styleSecondary}`);
   if (stylePrimary.length > 0 && stylePrimary === styleSecondary) throw new Error('副基调不能与主基调相同');
-  if (Array.isArray(input.mainTags)) {
-    const distinctMainTags = new Set(input.mainTags
-      .map((item) => typeof item === 'string' ? item.trim() : '')
-      .filter(Boolean));
-    if (distinctMainTags.size < 2) throw new Error('主要标签至少选择2个');
-  }
-  const mainTags = uniqueTexts(input.mainTags, '主要标签', 2, OPENING_TAXONOMY.mainTags.length, 40);
+  const mainTags = uniqueTexts(input.mainTags, '主要标签', 0, OPENING_TAXONOMY.mainTags.length, 40);
   for (const tag of mainTags) {
     if (!OPENING_TAXONOMY.mainTags.includes(tag)) throw new Error(`主要标签不在当前目录：${tag}`);
   }
