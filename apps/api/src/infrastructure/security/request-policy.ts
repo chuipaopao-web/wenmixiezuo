@@ -54,10 +54,9 @@ export async function registerRequestPolicy(
       max: 100,
       timeWindow: '1 minute',
       keyGenerator: (request) => request.ip,
-      errorResponseBuilder: () => ({
-        error: { code: 'RATE_LIMITED', message: '请求太频繁，请稍后再试', details: {}, retryable: true },
-        meta: { requestId: 'rate-limited' }
-      }),
+      // 插件会原样 throw 这里返回的值，交给全局错误处理：返回 DomainError 才能得到
+      // 正确的 429 + RATE_LIMITED + retryable，而不是被兜底成 500 INTERNAL_ERROR。
+      errorResponseBuilder: () => new DomainError('RATE_LIMITED', '请求太频繁，请稍后再试', {}, true, 429),
       // 注册和登录使用更严格的全局限流，见下方路由级覆盖
     });
   }

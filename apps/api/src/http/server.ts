@@ -70,7 +70,11 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     logController: new LogController({ disableRequestLogging: true }),
     // A five-million-character Chinese manuscript is roughly 15 MiB before JSON overhead.
     // The continuation service still enforces the stricter character limit and localhost session gate.
-    bodyLimit: 24 * 1024 * 1024
+    bodyLimit: 24 * 1024 * 1024,
+    // API 只监听 127.0.0.1，唯一能到达它的代理是本机 Caddy（自动带 X-Forwarded-For）。
+    // 信任代理头让限流按真实访客 IP 分桶；否则全网访客共享 127.0.0.1 一个桶，
+    // 正常翻页就会集体触发 RATE_LIMITED。
+    trustProxy: true
   });
   await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
   await app.register(multipart, {

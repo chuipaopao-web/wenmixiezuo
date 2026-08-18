@@ -4478,7 +4478,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`7f4666fbaee2`
+> 当前源文件：`HANDOFF.md` · 指纹：`4d1fcf053225`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4494,7 +4494,8 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 紧急热修·生产 API 启动崩溃：`TeamTemplateService.addMissingMembers` 的异模型校验原来要求补齐成员与**所有**现有成员模型不重复，而 14 人设计本身就允许跨岗位共享模型（主编貂蝉与编剧C幼薇同为 K2.7、编剧B红玉与事实审查班昭同为 GLM 5.2），导致 11 人旧书升级时抛"幼薇与现有成员模型重复"、wenmi-api/wenmi-worker 启动即崩（前端静态页 200 但登录接口空响应报 Unexpected end of JSON input）。已改为只校验编剧三角（lead/second/third screenwriter 两两异模型+禁豆包），新增生产场景回归测试（跨岗共享放行、编剧撞车仍拒绝）。测试 689 项全绿。
+1. 热修·公网限流双 BUG：① Fastify 未开 `trustProxy`，Caddy 反代后所有访客在限流里都是 127.0.0.1，全网共享 100 次/分钟一个桶，正常翻页（设定页批量加载）就集体 RATE_LIMITED——已开启 `trustProxy`（服务只监听 127.0.0.1，唯一能到达的是本机 Caddy，安全）。② `@fastify/rate-limit` 会原样 throw `errorResponseBuilder` 的返回值，原实现返回普通对象无 statusCode，被全局错误处理兜底成 500 INTERNAL_ERROR（前端因此显示"请重新打开这本书"而不是"请求太频繁"）——已改为返回 `DomainError('RATE_LIMITED', …, retryable: true, 429)`。新增回归测试「公网限流按代理转发来的真实访客IP分桶，互不牵连」。安全测试 5 文件 18 项全绿。
+2. 紧急热修·生产 API 启动崩溃：`TeamTemplateService.addMissingMembers` 的异模型校验原来要求补齐成员与**所有**现有成员模型不重复，而 14 人设计本身就允许跨岗位共享模型（主编貂蝉与编剧C幼薇同为 K2.7、编剧B红玉与事实审查班昭同为 GLM 5.2），导致 11 人旧书升级时抛"幼薇与现有成员模型重复"、wenmi-api/wenmi-worker 启动即崩（前端静态页 200 但登录接口空响应报 Unexpected end of JSON input）。已改为只校验编剧三角（lead/second/third screenwriter 两两异模型+禁豆包），新增生产场景回归测试（跨岗共享放行、编剧撞车仍拒绝）。测试 689 项全绿。
 2. 批6·设定页新前端（手机端优先）+ 上下文编译：① 设定主页三层——核心设定卡组（必要徽章+状态胶囊+动作按钮）、题材包卡组（点条目直接进该项工作台）、全部类目（资料库搜索+加入本书+本书自定义），页头显示必要项进度。② 任意类目可直接讨论：`SettingGuidanceService.snapshotFor` 放开"只能是当前引导项"限制，点任意项即激活为讨论中并给三席提案。③ 讨论工作台按 mockups/setting-discussion.html 重做：三席方案卡带立场标签与可勾选碎片 checkbox，"按我的勾选融合"→主编融合稿段级展示（stitch 衔接段标绿），操作=确认这份/我再改改/退回重融/自己写一份/先留白；旧无碎片提案自动回退整份选用。④ 已确认设定项硬来源注入章管线写手资料包与审校冻结资料（`setting_confirmed_items`，仅已确认有内容项，逐条截断600字）。⑤ 手机端顶部功能栏两排六列（图标上文字下），书籍开关悬浮左侧；核心卡桌面3列/手机1列，方案卡桌面3列/手机堆叠。决定见 DEC-CURRENT-051。测试 164 文件 688 项全绿。
 2. 批5·设定类目讨论管线 + 结构化输出：① 提案三席改为编剧A婉儿（爽点强冲突）、编剧B红玉（因果闭环）、设定文姬（规则严谨），三席两两异模型；主编不提案只融合，提案讨论由编剧A主持创建（任务仍挂主编租约）。② 提案合同结构化：answer+benefits+costs+fragments（3-6条可勾选碎片），解析失败以整份方案作单条 implicit 碎片兜底（`parseSettingProposalStructure`）。③ 新迁移 `0052_setting_discussion_fragments.sql`：`setting_proposal_fragments`（按提案落碎片）+ `setting_fusion_drafts`（融合稿含所选碎片与 fusionSegments 段级标记，fragment=勾选碎片/stitch=主编衔接，缺失校验失败）。④ 协作读模型 inspect 返回每份提案的 fragments 与最新 fusionDraft；synthesize 路由/客户端支持 fragmentIds 并校验归属当前讨论与设定项。⑤ 文姬默认模型 GLM 5.2 → MiniMax M3（避免与红玉在提案席撞模型）。决定见 DEC-CURRENT-050。测试 164 文件 687 项全绿。
 2. 批4·设定页重构数据层（核心六问+版本链+旧数据预填）：① 核心六问成为任何题材的唯一必备项——故事内核 story-kernel、世界舞台 world-stage、主角处境 protagonist-situation、对立面 opposition、规矩与代价 rules-costs、边界与留白 boundaries-blanks（`setting-outline-profile.ts` CORE_SETTING_KEYS，`setting-outline-catalog.ts` 新增六条目）；题材包项全部转为建议，设定基线门槛只看核心六问。② 设定项版本链：迁移 `0051_setting_item_versions.sql`，每次确认（manual/guidance/discussion 三条路径）追加不可变版本，新增 `GET .../setting-outline-workspace/:itemKey/versions` 查询接口与前端 `fetchSettingOutlineVersions`。③ 旧数据预填：初始化核心项时按 `CORE_PREFILL_SOURCES` 固定映射把旧设定内容汇成「预填稿」写入空内容核心项，状态保持待讨论，绝不覆盖作者已有内容。④ 建书首个三席提案任务不再硬编码策划理念，自动绑定当前第一个核心项。⑤ 前端 `PlanningWorkspace.tsx` 加入核心六卡组做最小兼容（新版设定主页/讨论页在批6重做）。决定见 DEC-CURRENT-049。测试 164 文件 686 项全绿。

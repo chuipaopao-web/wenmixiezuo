@@ -94,4 +94,32 @@ describe('统一账号HTTP请求策略', () => {
       await app.close();
     }
   });
+
+  it('公网限流按代理转发来的真实访客IP分桶，互不牵连', async () => {
+    context = createTestContext('wenmi-policy-ratelimit-');
+    // 公网部署才启用限流；Caddy 反代默认带 X-Forwarded-For，服务只监听 127.0.0.1。
+    context.config.publicOrigin = 'https://wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    const register = (ip: string, email: string) => app.inject({
+      method: 'POST', url: '/api/v1/auth/register',
+      payload: { email, password: 'policy-pass-123', displayName: '访客' },
+      headers: {
+        host: HOST, origin: ORIGIN, 'sec-fetch-site': 'same-site',
+        'content-type': 'application/json', 'x-forwarded-for': ip
+      }
+    });
+    try {
+      // 注册入口路由级限流为每 IP 5 分钟 3 次。
+      for (let index = 0; index < 3; index += 1) {
+        expect((await register('203.0.113.10', `limit-a-${index}@example.com`)).statusCode).toBe(200);
+      }
+      const limited = await register('203.0.113.10', 'limit-a-3@example.com');
+      expect(limited.statusCode).toBe(429);
+      expect(limited.json().error.code).toBe('RATE_LIMITED');
+      // 另一个真实访客 IP 是独立的桶，不受前者耗尽影响。
+      expect((await register('203.0.113.11', 'limit-b-0@example.com')).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
 });
