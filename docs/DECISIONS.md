@@ -388,3 +388,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 设定项可以全部点击"团队设计"：每项各自建任务排队，同一本书同一时刻只执行一个任务（task-service 按书互斥，保护共享正史与编辑器纪元），不同书之间并行；作者连点多个项不会冲突，只会依次完成。此行为为既有设计，本次仅确认不改。
 5. 确认门禁不变：融合稿与作者修改始终先落"候选待确认"，作者可直接改稿，点击"确认这一项"后才进入已确认设定并参与后续资料包注入。
 6. 生产实测发现并修复：真实模型的输出结构有两种漂移——一、整份 JSON 包在 ```json markdown 围栏里；二、字段直接放在根级（answer/fragments 在根上，不带 fields 包装）。而 parseModelJsonFields 只做裸 JSON.parse 且只认 fields 包装，导致三席提案的 4—8 条结构化碎片全部解析失败、退化成"整份答案截 500 字"的兜底碎片。修复为对这两种漂移做宽容（围栏取内文、根级字段直接采纳），仍走严格 JSON.parse，JSON 笔误照旧判无效，DEC-CURRENT-052 第 6 款的坏输出门禁不受影响。新增回归测试 tests/foundation/model-json-fields.test.ts（裸 JSON、围栏 JSON、根级字段、坏 JSON 四态）。
+
+
+## DEC-CURRENT-058 作者想法分层比例政策（2026-08-19）
+
+【当前】老板定调作者想法在各环节的处理比例：必须遵守=100% 硬边界（任何环节）；设定层参考融合最多五成（AI 专业主导，DEC-CURRENT-057 已落地）；卷纲与事件大纲参考融合最多七成（故事走向尊重作者口味）；章纲与正文执行层不按比例、按指令直接执行。
+1. 新增唯一政策来源 `apps/api/src/domain/author-idea-policy.ts`：AUTHOR_IDEA_POLICY_PLANNING（规划层，最多七成）与 AUTHOR_IDEA_POLICY_EXECUTION（执行层，按指令）。设定链路继续使用 authorIdeaLine 逐条渲染，口径与本文件一致。
+2. 卷纲管线（volume-plan-generation-pipeline-service）：独立方案与融合两路指令均注入规划层政策，作者原话资料源的说明同步标注强度口径。
+3. 事件大纲管线（story-event-generation-pipeline-service）：同上，独立与融合两路注入。
+4. 章纲管线（event-chapter-generation-pipeline-service）：章序列骨架、章序列细节、单章细化三处指令均注入执行层政策——作者想法按指令直接落实，只有与已确认设定、剧情总纲或已结算正文冲突时才做最小必要取舍，并在给作者的说明里交代取舍原因。正文写作不单独注入：正文经由章纲合同与作者重写指令接收作者意图，两者本身就是指令性质。
+5. 规划层政策附"未采纳要交代"：参考类想法基本没被采纳时，须在给作者的说明里用一句话交代原因。

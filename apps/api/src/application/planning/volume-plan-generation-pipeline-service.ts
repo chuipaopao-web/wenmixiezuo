@@ -7,6 +7,7 @@ import { STYLE_TONES, validateVolumeStyleTones } from '../../contracts/opening-b
 import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { buildGenreBrief } from '../../domain/genre-brief.js';
+import { AUTHOR_IDEA_POLICY_PLANNING } from '../../domain/author-idea-policy.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
@@ -506,7 +507,7 @@ function buildHardSources(
       sourceType: 'owner:volume_ideas',
       sourceId: `author-ideas:${brief.volumePlanId}`,
       content: JSON.stringify(brief.authorIdeas),
-      reason: '作者原话；must必须执行，preference与inspiration用于创意取向',
+      reason: '作者原话；按强度处理：must必须100%执行，preference与inspiration参考融合（观点最多七成）',
       priority: 100
     }
   ];
@@ -565,6 +566,7 @@ function buildPrompt(input: {
     },
     instructions: fusion ? [
       '只基于两份独立候选、作者原话和冻结资料包，形成一个可执行的融合候选。',
+      AUTHOR_IDEA_POLICY_PLANNING,
       '不要平均拼接。明确选择更有因果力量的路径，保留真正有价值的分歧和不确定项。',
       '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
       '事件之间必须由上一事件结果和人物新状态自然触发，不用巧合强行串联。',
@@ -573,6 +575,7 @@ function buildPrompt(input: {
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ] : [
       '你与另一位编剧互相看不到答案。独立提出一条真正值得写、因果成立且结构有辨识度的卷路线。',
+      AUTHOR_IDEA_POLICY_PLANNING,
       input.seat.roleKey === 'lead_screenwriter'
         ? '优先从人物欲望、阻力、选择、代价和后果推演，不套固定爽点清单。'
         : '主动挑战最直觉的前提，寻找被忽略的关系、代价或结构路径，但反转必须能由前文因果支持。',

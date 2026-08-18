@@ -4,6 +4,7 @@ import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
 import { buildGenreBrief } from '../../domain/genre-brief.js';
+import { AUTHOR_IDEA_POLICY_PLANNING } from '../../domain/author-idea-policy.js';
 import type { BookScope } from '../../domain/scope.js';
 import { StoryEventRepository } from '../../infrastructure/db/repositories/story-event-repository.js';
 import {
@@ -178,7 +179,7 @@ function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,
     {sourceType:'planning:volume_plan',sourceId:s.volumePlanId,version:s.volumeVersion,content:bounded(s.volumeContent,18000),reason:'当前确认卷纲；事件必须服务卷目标',priority:100},
     {sourceType:'planning:event_seed',sourceId:s.seed.id,version:s.seed.version,content:bounded(s.seed.content,9000),reason:'卷纲分配给本事件的任务和接口',priority:100},
     {sourceType:'planning:setting_baseline',sourceId:s.setting.id,version:s.setting.version,content:bounded(s.setting.content,16000),reason:'已确认设定事实边界',priority:100},
-    {sourceType:'owner:event_ideas',sourceId:'ideas:'+s.eventId,content:JSON.stringify(b.authorIdeas),reason:'作者原话；必须与偏好按强度处理',priority:100},
+    {sourceType:'owner:event_ideas',sourceId:'ideas:'+s.eventId,content:JSON.stringify(b.authorIdeas),reason:'作者原话；按强度处理：must必须100%执行，preference与inspiration参考融合（观点最多七成）',priority:100},
     {sourceType:'planning:event_template',sourceId:'template:'+s.eventId,content:JSON.stringify(b.template),reason:'可调整推进参考，不是公式',priority:100}
   ];
   if(s.previousSettlement!==null)result.push({sourceType:'planning:previous_event_settlement',sourceId:s.previousSettlement.id,
@@ -191,10 +192,10 @@ function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerat
   const fusion=kind==='fusion';return JSON.stringify({operation:'story_event_generation_v1',language:'zh-CN',
     seat:{roleKey:member.roleKey,displayName:member.displayName,mode:fusion?'chief_editor_fusion':'independent_screenwriter'},
     book:{title:s.bookTitle,eventOrder:s.order},instructions:fusion?[
-      '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。','事件必须在卷纲约束内改变状态并自然引出下一事件。',
+      '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。',AUTHOR_IDEA_POLICY_PLANNING,'事件必须在卷纲约束内改变状态并自然引出下一事件。',
       '融合候选必须填写 fusionNotes：向作者说清这份稿子的爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里；每块一两句具体说明，不写空话。',
       ...STORY_EVENT_NARRATIVE_RULES,'保留具体场景、对白、意象和局部解法的自由。','只输出JSON。'
-    ]:['独立提出完整小事件，不能看到另一位编剧答案。','从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
+    ]:['独立提出完整小事件，不能看到另一位编剧答案。',AUTHOR_IDEA_POLICY_PLANNING,'从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
       ...STORY_EVENT_NARRATIVE_RULES,'模板只是可调整参考；保留场景、对白和局部反转自由。','只输出JSON。'],
     sourcePolicy:{confirmedSettingIsFact:true,previousSettlementIsFact:true,volumePlanIsConstraint:true,
       unsupportedCoreSetting:'put into uncertaintyNotes'},sources,outputContract:{

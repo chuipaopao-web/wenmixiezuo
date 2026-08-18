@@ -3,6 +3,7 @@ import { parseEventChapterChallengeContent,parseEventChapterSequenceContent,type
 import { parseChapterOutlineV2,type ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
 import { DomainError,errorCodes } from '../../domain/errors.js';
 import { buildGenreBrief } from '../../domain/genre-brief.js';
+import { AUTHOR_IDEA_POLICY_EXECUTION } from '../../domain/author-idea-policy.js';
 import type { Clock,IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import { EventChapterGenerationRepository } from '../../infrastructure/db/repositories/event-chapter-generation-repository.js';
@@ -60,7 +61,7 @@ export class EventChapterGenerationPipelineService {
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
         content:snapshot.eventContent,reason:'已确认事件大纲；完整章节序列必须实现其结束条件',priority:100},
       {sourceType:'owner:chapter_sequence_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
-        reason:'作者对当前事件章序列的原话',priority:100}
+        reason:'作者对当前事件章序列的原话；按指令执行（must必须100%遵守）',priority:100}
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
       canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
@@ -68,7 +69,7 @@ export class EventChapterGenerationPipelineService {
     const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
     const skeletonPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton',language:'zh-CN',
       seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},startChapterNumber:view.nextChapterNumber,
-      instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。','先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
+      instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。',AUTHOR_IDEA_POLICY_EXECUTION,'先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
         '相邻章必须严格承接：后一章openingState与前一章endingState逐字相同。','每项已确认事件结束条件都要原样复制，并标明在哪一章闭环。',
         '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
       outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
@@ -93,7 +94,7 @@ export class EventChapterGenerationPipelineService {
       const detailPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'chapter_details',language:'zh-CN',
         seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},eventTitle:skeleton.eventTitle,startChapterNumber:skeleton.startChapterNumber,
         targetChapterNumbers:chapterNumbers,sequenceSkeleton:skeleton,
-        instructions:['只补全targetChapterNumbers指定的两至三章，不重复输出其他章节。','每章的人物目标、冲突、选择与代价必须具体，并由人物处境自然推出。',
+        instructions:['只补全targetChapterNumbers指定的两至三章，不重复输出其他章节。',AUTHOR_IDEA_POLICY_EXECUTION,'每章的人物目标、冲突、选择与代价必须具体，并由人物处境自然推出。',
           '每章给出三至五个粗粒度剧情推进点，不写正文，不重复同义句。','软建议与自由创作区必须分开；自由创作区保持非空，让正文写手可以设计对话、动作、意象和局部调度。',
           '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
         outputContract:{chapters:targets.map(chapter=>({chapterNumber:chapter.chapterNumber,characterGoals:['人物当章目标'],conflicts:['具体阻力'],
@@ -137,7 +138,7 @@ export class EventChapterGenerationPipelineService {
       {sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
         content:JSON.stringify(sequenceContext),reason:'已确认章序列中本轮三章及其前后承接点',priority:100},
       {sourceType:'owner:chapter_outline_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
-        reason:'作者对本轮章纲的原话',priority:100}
+        reason:'作者对本轮章纲的原话；按指令执行（must必须100%遵守）',priority:100}
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
       canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
@@ -151,7 +152,7 @@ export class EventChapterGenerationPipelineService {
       const prompt=JSON.stringify({operation:'event_chapter_detail_generation_v1',generationPhase:'single_chapter',language:'zh-CN',
         seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},chapterNumbers:[target.chapterNumber],
         previousGeneratedEndingState,
-        instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',
+        instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',AUTHOR_IDEA_POLICY_EXECUTION,
           ...(previousGeneratedEndingState===null?[]:[`本章openingState必须逐字等于上一份详细章纲的requiredEndingState：${previousGeneratedEndingState}`]),
           '只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
           '保留非空自由创作区，正文不是逐字段扩写。','设计三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。',
