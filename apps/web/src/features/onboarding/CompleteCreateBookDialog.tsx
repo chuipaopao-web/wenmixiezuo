@@ -50,6 +50,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3>(initialDraft.step);
   const [title, setTitle] = useState(initialDraft.title);
+  // 中文输入法拼写期间不按字母计数截断，等字真正落进输入框再限制长度
+  const titleComposing = useRef(false);
   const [creationMode, setCreationMode] = useState<'new' | 'continuation'>(initialDraft.creationMode);
   const [channel, setChannel] = useState<OpeningChannel | null>(initialDraft.channel);
   const [categoryKey, setCategoryKey] = useState<string | null>(initialDraft.categoryKey);
@@ -429,7 +431,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           {step === 2 && <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
           <div className="section-heading"><div><span>01</span><h3>书籍与分类</h3></div><small>全部必填</small></div>
           <label htmlFor="complete-book-title">书名</label>
-          <div className="book-title-field"><input id="complete-book-title" aria-label="书名" value={title} onChange={(event) => setTitle(limitBookTitle(event.target.value))} placeholder="例如：长安簪影" autoFocus /><small aria-live="polite">最多{BOOK_TITLE_MAX_CHARACTERS}字 · {bookTitleCharacterCount(title)}/{BOOK_TITLE_MAX_CHARACTERS}</small></div>
+          <div className="book-title-field"><input id="complete-book-title" aria-label="书名" value={title} onCompositionStart={() => { titleComposing.current = true; }} onCompositionEnd={(event) => { titleComposing.current = false; setTitle(limitBookTitle(event.currentTarget.value)); }} onChange={(event) => setTitle(titleComposing.current ? event.target.value : limitBookTitle(event.target.value))} placeholder="例如：长安簪影" autoFocus /><small aria-live="polite">最多{BOOK_TITLE_MAX_CHARACTERS}字 · {bookTitleCharacterCount(title)}/{BOOK_TITLE_MAX_CHARACTERS}</small></div>
           <fieldset className="channel-fieldset"><legend>创作频道</legend><div className="channel-options" role="radiogroup">{OPENING_CHANNELS.map((item) => {
             const selected = channel === item.id;
             return <button type="button" role="radio" aria-checked={selected} aria-label={item.label}
@@ -496,9 +498,9 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         {step === 3 && <section className="opening-form-section story-direction-section">
           <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>可留空</small></div>
           <p className="story-direction-note">想好了就写一句，没想好可以留空，之后和团队讨论时再定。填了的话，团队设计设定和剧情时就有了方向。开局和结局要一起填。</p>
-          <label htmlFor="opening-start">开局（一句话说清主角的起点处境）<textarea id="opening-start" aria-label="开局" maxLength={200} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：外卖员深夜送单，误入千年古墓" /></label>
-          <label htmlFor="story-ending">结局（一句话说清故事的终点）<textarea id="story-ending" aria-label="结局" maxLength={200} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角揭开身世之谜，天下重归太平" /></label>
-          <label htmlFor="story-direction-custom">自定义补充<textarea id="story-direction-custom" aria-label="自定义补充" maxLength={800} rows={3} value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
+          <label htmlFor="opening-start">开局（一句话说清主角的起点处境，最多100字）<textarea id="opening-start" aria-label="开局" maxLength={100} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：外卖员深夜送单误入千年古墓，棺中女子睁眼喊他夫君，而城里的通缉令上已经画了他的脸" /></label>
+          <label htmlFor="story-ending">结局（一句话说清故事的终点，最多100字）<textarea id="story-ending" aria-label="结局" maxLength={100} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角揭开身世之谜，亲手终结乱世，天下重归太平后与心爱之人归隐江南" /></label>
+          <label htmlFor="story-direction-custom">自定义补充（选填，最多300字）<textarea id="story-direction-custom" aria-label="自定义补充" maxLength={300} rows={3} value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
         </section>}
       </div>
       <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/3步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 3 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>

@@ -49,14 +49,11 @@ export class BookProfileViewService {
     const storedBlueprint = JSON.parse(row.blueprint_json) as OpeningBlueprintInput;
     const openingStart = storedBlueprint.openingStart?.trim() ?? '';
     const storyEnding = storedBlueprint.storyEnding?.trim() ?? '';
-    const legacyDirection = storedBlueprint.storyDirection?.trim() || storedBlueprint.fullBookOutline?.trim() || '';
-    const composedDirection = openingStart.length > 0
-      ? [`开局：${openingStart}`, `结局：${storyEnding}`, legacyDirection].filter((part) => part.length > 0 && !part.endsWith('：')).join('。')
-      : legacyDirection;
+    // 编辑弹窗直接回显这份 blueprint；storyDirection 必须保持存储原值，
+    // 不得把开局/结局拼接进去，否则保存时会把它们写进"自定义补充"造成串字段。
     const blueprint: OpeningBlueprintInput = {
       ...storedBlueprint,
-      creationMode: storedBlueprint.creationMode ?? 'new',
-      storyDirection: composedDirection
+      creationMode: storedBlueprint.creationMode ?? 'new'
     };
     const style = blueprint.styleIntent ?? {
       languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: []

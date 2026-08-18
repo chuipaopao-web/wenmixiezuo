@@ -332,13 +332,13 @@ export function SettingCollaborationPanel({
       </div>}
       {data.panel === null && !candidateReady && !selfWriting && <div className="setting-collaboration-start">
         <p className="setting-collaboration-state">婉儿、红玉、文姬待命，随时可以开始。</p>
-        <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
+        <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={800} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段内容怎么用">
             <label className={sourceStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'preference'} onChange={() => setSourceStrength('preference')} /> <b>仅供参考</b><small>团队以专业设计为主，你的想法占两到五成</small></label>
             <label className={sourceStrength === 'must' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'must'} onChange={() => setSourceStrength('must')} /> <b>必须遵守</b><small>团队的方案不得与它冲突</small></label>
           </div>
         </details>
-        <footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在召集…' : '团队设计'}</button></footer>
+        <footer><span>{source.length}/800</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在召集…' : '团队设计'}</button></footer>
         <div className="setting-mine-line">不想用团队的？<button type="button" onClick={() => setSelfWriting(true)}>自己写一份</button> · <button type="button" disabled={busy !== null} onClick={() => void leaveBlank()}>先留白，以后再定</button></div>
       </div>}
       {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <p className="setting-collaboration-state">团队正在设计；已完成的内容会自动保留。</p>}
@@ -370,7 +370,7 @@ export function SettingCollaborationPanel({
         })}
       </div>}
       {proposals.length > 0 && !candidateReady && <section className="setting-author-choice">
-        <details className="setting-collapsible-input"><summary>我还想补充自己的想法</summary><label>你的补充想法<textarea rows={4} maxLength={4000} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2。" /></label>
+        <details className="setting-collapsible-input"><summary>我还想补充自己的想法</summary><label>你的补充想法<textarea rows={4} maxLength={800} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段话怎么用">
             <label className={ideaStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'preference'} onChange={() => setIdeaStrength('preference')} /> <b>仅供参考</b><small>主编以专业判断为主，你的想法占两到五成</small></label>
             <label className={ideaStrength === 'must' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'must'} onChange={() => setIdeaStrength('must')} /> <b>必须遵守</b><small>融合稿不得与它冲突</small></label>
@@ -400,7 +400,7 @@ export function SettingCollaborationPanel({
       {(candidateReady || selfWriting) && !revisionRunning && <section className="setting-candidate-editor">
         <header><div><small>{candidateReady ? '待确认稿' : '自己写'}</small><strong>{candidateReady ? '主编已整理，可直接修改' : '写完保存或确认'}</strong></div><span>确认后仍不会直接改动已确认内容</span></header>
         <textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} />
-        {candidateReady && <details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；主编只按意见调整这份内容。" /></label></details>}
+        {candidateReady && <details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={800} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；主编只按意见调整这份内容。" /></label></details>}
         <div className="setting-candidate-actions">
           {candidateReady && <button type="button" disabled={busy !== null || revisionRunning || idea.trim().length === 0} onClick={() => void revise()}>{busy === 'revise' ? '正在提交…' : '让主编按意见修改'}</button>}
           <button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button>

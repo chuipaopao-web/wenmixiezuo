@@ -347,6 +347,11 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
     </section>}
     <section className="book-synopsis"><div className="book-synopsis-heading"><h4>书籍简介</h4><button className="branding-design-button" type="button" onClick={() => onBrandingDesign('synopsis')}>主编设计</button></div><p>{profile.synopsis || '暂无简介。确认第一卷方案后，可以让主编依据第一卷的故事和设定设计多套简介供您选择。'}</p></section>
     <dl><div><dt>融合题材</dt><dd>{profile.subjects.join('、') || '无'}</dd></div></dl>
+    {((profile.openingStart ?? '').trim().length > 0 || (profile.storyEnding ?? '').trim().length > 0 || (profile.storyDirection ?? '').trim().length > 0) && <dl>
+      {(profile.openingStart ?? '').trim().length > 0 && <div><dt>开局</dt><dd>{profile.openingStart}</dd></div>}
+      {(profile.storyEnding ?? '').trim().length > 0 && <div><dt>结局</dt><dd>{profile.storyEnding}</dd></div>}
+      {(profile.storyDirection ?? '').trim().length > 0 && <div><dt>自定义补充</dt><dd>{profile.storyDirection}</dd></div>}
+    </dl>}
     <h4>初始角色</h4>
     <div className="profile-card-grid">{profile.protagonists.map((item) => {
       const backgroundLines = [
