@@ -42,7 +42,7 @@ describe('现有书籍模型快照绑定', () => {
       const agent = team.find((member) => member.roleKey as string === roleKey);
       return `${agent?.provider}/${agent?.modelId}`;
     })).size).toBe(4);
-    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.2' });
+    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3' });
     expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3' });
     expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
 

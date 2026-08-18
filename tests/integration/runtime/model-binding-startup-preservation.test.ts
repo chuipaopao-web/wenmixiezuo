@@ -144,7 +144,7 @@ describe('启动时保留书籍模型方案', () => {
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
       third_screenwriter: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      setting: 'volcengine-ark-agent-plan/glm-5.2',
+      setting: 'volcengine-ark-agent-plan/minimax-m3',
       lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       fact_reviewer: 'volcengine-ark-agent-plan/glm-5.2',
       backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',

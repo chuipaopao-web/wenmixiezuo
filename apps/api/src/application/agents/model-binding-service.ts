@@ -196,7 +196,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     third_screenwriter: profile('third_screenwriter', profiles.chief_editor),
-    setting: profile('setting', profiles.style_editor),
+    setting: profile('setting', profiles.reviewer),
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.chief_editor),
     fact_reviewer: profile('fact_reviewer', profiles.style_editor),

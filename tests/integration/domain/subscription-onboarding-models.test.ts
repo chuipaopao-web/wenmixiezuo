@@ -47,7 +47,7 @@ describe('subscription onboarding model allocation', () => {
       lead_screenwriter: 'deepseek-v4-pro',
       second_screenwriter: 'glm-5.2',
       third_screenwriter: 'kimi-k2.7-code',
-      setting: 'glm-5.2',
+      setting: 'minimax-m3',
       lead_writer: 'deepseek-v4-pro',
       fact_reviewer: 'glm-5.2',
       backup_writer: 'kimi-k2.7-code',
