@@ -49,11 +49,12 @@ describe('设定大纲工作状态', () => {
       'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
     ]);
     expect(profile.recommended).toEqual(expect.arrayContaining([
-      'theme-intent', 'differentiator', 'geography',
+      'geography', 'strength-flaw', 'supporting', 'relations',
       'relationship-premise', 'relationship-obstacle',
       'relationship-growth', 'emotional-boundaries', 'life-circle'
     ]));
     expect(profile.recommended).not.toEqual(expect.arrayContaining([
+      'theme-intent', 'differentiator', 'tone-boundary', 'open', 'intentional-unknown',
       'power-source', 'levels', 'production', 'army', 'game-panel', 'ranking'
     ]));
   });

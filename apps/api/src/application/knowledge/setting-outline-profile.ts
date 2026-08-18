@@ -21,15 +21,10 @@ export const CORE_SETTING_KEYS = [
 const CORE_REQUIRED: readonly string[] = [...CORE_SETTING_KEYS];
 
 const CORE_RECOMMENDED = [
-  'theme-intent',
-  'differentiator',
-  'tone-boundary',
   'geography',
   'strength-flaw',
   'supporting',
-  'relations',
-  'open',
-  'intentional-unknown'
+  'relations'
 ] as const;
 
 interface ProfileRule {
@@ -102,7 +97,7 @@ const PROFILE_RULES: readonly ProfileRule[] = [
     packKeys: ['suspense'],
     pattern: /悬疑|推理|探案|刑侦|灵异|规则怪谈|民俗怪谈|suspense|supernatural/u,
     required: ['case-rules', 'evidence-chain', 'truth-layers'],
-    recommended: ['investigation', 'information', 'intentional-unknown']
+    recommended: ['investigation', 'information']
   },
   {
     key: 'scifi',

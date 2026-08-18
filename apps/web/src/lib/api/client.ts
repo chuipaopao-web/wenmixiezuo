@@ -1913,6 +1913,15 @@ export function startSettingCollaboration(bookId: string, itemKey: string, input
   });
 }
 
+export function restartSettingCollaboration(bookId: string, itemKey: string, input: {
+  authorInputId?: string | null;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/restart`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
 export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
   proposalIds: string[];
   fragmentIds?: string[];

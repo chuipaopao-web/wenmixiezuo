@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   retryTask: vi.fn(),
   saveSettingOutlineItem: vi.fn(),
   startSettingCollaboration: vi.fn(),
+  restartSettingCollaboration: vi.fn(),
   synthesizeSettingCollaboration: vi.fn(),
   reviseSettingCollaboration: vi.fn()
 }));
@@ -38,6 +39,7 @@ beforeEach(() => {
   api.resumeTask.mockResolvedValue({});
   api.retryTask.mockResolvedValue({});
   api.startSettingCollaboration.mockResolvedValue({ taskId: 'task-1', discussionId: 'discussion-1', status: 'queued' });
+  api.restartSettingCollaboration.mockResolvedValue({ taskId: 'task-9', discussionId: 'discussion-9', status: 'queued' });
   api.synthesizeSettingCollaboration.mockResolvedValue({ taskId: 'task-2', discussionId: 'discussion-2', status: 'queued' });
   api.reviseSettingCollaboration.mockResolvedValue({ taskId: 'task-3', discussionId: 'discussion-3', status: 'queued' });
   api.fetchSettingCollaboration.mockResolvedValue({
@@ -65,6 +67,16 @@ afterEach(() => {
 });
 
 describe('设定页内协作', () => {
+  it('三份方案都不满意时可以重新设计：发起新一轮而不是复用旧讨论', async () => {
+    render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重新设计' }));
+
+    await waitFor(() => expect(api.restartSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
+      authorInputId: null, idempotencyKey: expect.any(String)
+    }));
+    expect(api.startSettingCollaboration).not.toHaveBeenCalled();
+  });
   it('把已有设定原文保留为作者参考并随本轮最小资料交给三名成员', async () => {
     api.fetchSettingCollaboration.mockResolvedValue({
       item: workspaceItem, panel: null, revisionTask: null, historyCount: 0, fusionDraft: null,

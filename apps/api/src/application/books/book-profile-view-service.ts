@@ -67,7 +67,11 @@ export class BookProfileViewService {
       customTags: blueprint.customTags,
       protagonists: blueprint.protagonists,
       synopsis: storedBlueprint.fullBookOutline?.trim() ?? '',
-      storyDirection: blueprint.storyDirection,
+      // 信息页展示字段：旧书没有独立故事方向时只读回退到历史全书简介；
+      // blueprint.storyDirection 保持存储原值供编辑弹窗回显，不用回退值覆盖。
+      storyDirection: (blueprint.storyDirection ?? '').trim().length > 0
+        ? blueprint.storyDirection
+        : (storedBlueprint.fullBookOutline?.trim() ?? ''),
       openingStart,
       storyEnding,
       stylePrimary: storedBlueprint.stylePrimary?.trim() ?? '',

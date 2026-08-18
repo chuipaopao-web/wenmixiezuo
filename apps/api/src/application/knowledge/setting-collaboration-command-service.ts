@@ -69,6 +69,36 @@ export class SettingCollaborationCommandService {
     });
   }
 
+  /**
+   * 重新设计：作者对本轮三份方案都不满意时，放弃复用旧讨论，
+   * 召集三席围绕当前问题全新提案一轮。旧讨论与旧方案保留可追溯，
+   * 前端始终展示最新一轮。上一轮任务仍在进行时拒绝，避免同项两轮并行。
+   */
+  public restart(
+    scope: BookScope,
+    itemKey: string,
+    input: { authorInputId?: string | null; idempotencyKey: string }
+  ): CommandResult {
+    assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    this.ensureDistinctPanelModels(scope);
+    const existing = this.repository.latestPanel(scope, itemKey);
+    if (existing !== undefined && ['pending', 'queued', 'working'].includes(existing.task_status)) {
+      throw new DomainError(errorCodes.operationIncomplete, '这一轮设计还在进行中，等它结束后才能重新设计', {}, false, 409);
+    }
+    const guidance = this.requireGuidance(scope, itemKey);
+    const authorText = this.authorInputText(scope, itemKey, input.authorInputId ?? null);
+    return this.schedule(scope, {
+      type: 'collaborative',
+      purpose: 'setting_proposal_panel',
+      itemKey,
+      scopeText: buildProposalScope(guidance, authorIdeaLine(authorText)),
+      authorInputIds: input.authorInputId == null ? [] : [input.authorInputId],
+      idempotencyKey: 'setting-proposal-redesign:' + itemKey + ':' + normalizeKey(input.idempotencyKey),
+      includeScreenwriters: true
+    });
+  }
+
   public synthesize(
     scope: BookScope,
     itemKey: string,

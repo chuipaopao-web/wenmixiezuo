@@ -127,6 +127,66 @@ describe('设定页内协作读模型', () => {
     expect(rebuilt.discussionId).not.toBe(command.discussionId);
   });
 
+  it('作者不满意可重新设计：不复用已完成讨论，新一轮成为最新面板，进行中拒绝重复发起', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '重新设计书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '陆沉星', age: '十八岁', background: '宗门杂役', personalities: ['冷静'] }],
+        storyDirection: '陆沉星被迫登上照夜台生死战，从残阵破绽里活下来，并循着地火脉黑账查清父亲旧案。', worldBackground: '架空仙侠宗门。',
+        openingBackground: '照夜台生死战。', stageOne: { start: '被迫登台', development: '借阵破局', end: '找到旧案线索' },
+        fullBookOutline: '陆沉星逐层查明宗门阵脉黑账。', mainTags: ['仙侠', '修仙'], auxiliaryTags: [], storyTraits: ['智斗'],
+        customTags: [], initialMap: '太衡宗', mustFollow: ['越级胜利必须有依据']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    new SettingGuidanceService(context.database, ids, clock).ensureInitialized(scope);
+    const commands = new SettingCollaborationCommandService(
+      context.database, context.config.releaseId, ids, clock
+    );
+    const first = commands.start(scope, 'story-kernel', { idempotencyKey: 'redesign-first-round' });
+    expect(first).toMatchObject({ reused: false, status: 'queued' });
+    // 补齐三份异模型提案并把任务标记完成，模拟一轮已出方案的讨论
+    const participants = context.database.prepare(
+      'SELECT agent_id, model_snapshot_id FROM discussion_participants WHERE owner_id = ? AND book_id = ? AND discussion_id = ? ORDER BY agent_id'
+    ).all(scope.ownerId, scope.bookId, first.discussionId) as unknown as Array<{ agent_id: string; model_snapshot_id: string }>;
+    const discussions = new DiscussionService(context.database, ids, clock);
+    participants.forEach((participant, index) => discussions.addOpinion(scope, first.discussionId, {
+      agentId: participant.agent_id,
+      modelSnapshotId: participant.model_snapshot_id,
+      phase: 'independent',
+      content: { recommendation: '第一轮方案 ' + String(index + 1) },
+      tokens: 12
+    }));
+    context.database.prepare('UPDATE tasks SET status = ?, current_phase = ? WHERE task_id = ?')
+      .run('succeeded', 'complete', first.taskId);
+
+    // 普通开始会复用旧讨论；重新设计必须全新一轮
+    const reused = commands.start(scope, 'story-kernel', { idempotencyKey: 'redesign-plain-start' });
+    expect(reused).toMatchObject({ reused: true, discussionId: first.discussionId });
+    const restarted = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-two' });
+    expect(restarted).toMatchObject({ reused: false, status: 'queued' });
+    expect(restarted.discussionId).not.toBe(first.discussionId);
+
+    // 新一轮进行中不得再发起重新设计
+    expect(() => commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-three' }))
+      .toThrowError('这一轮设计还在进行中');
+
+    // 第二轮完成后，同幂等键重复点击不重复建任务，新键可以再开第三轮
+    context.database.prepare('UPDATE tasks SET status = ?, current_phase = ? WHERE task_id = ?')
+      .run('succeeded', 'complete', restarted.taskId);
+    const deduped = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-two' });
+    expect(deduped).toMatchObject({ reused: true, taskId: restarted.taskId });
+    const third = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-four' });
+    expect(third).toMatchObject({ reused: false, status: 'queued' });
+    expect(third.discussionId).not.toBe(restarted.discussionId);
+  });
+
   it('按当前设定项返回三份真实成员提案、任务状态和模型来源，且不跨书', () => {
     context = createTestContext();
     const ids = new SequenceIds();

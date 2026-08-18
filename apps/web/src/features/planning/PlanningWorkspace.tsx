@@ -91,15 +91,7 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
     { key: 'rules-costs', label: '规矩与代价', prompt: '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？', source: '通用', required: true },
     { key: 'boundaries-blanks', label: '边界与留白', prompt: '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？', source: '通用', required: true }
   ] },
-  { key: 'creative', title: '作品策划', description: '先明确为什么写、写给谁以及提供什么独特体验。', items: [
-    { key: 'creative-concept', label: '核心看点', prompt: '这本书最吸引人的地方是什么，为什么读者愿意一直看下去？', source: '通用', required: true },
-    { key: 'theme-intent', label: '小说立意', prompt: '作品希望探讨什么问题？不要求写成口号或道德结论。', source: '通用' },
-    { key: 'reader-promise', label: '读者承诺与核心体验', prompt: '读者持续追读时，稳定获得什么感受和满足？', source: '通用', required: true },
-    { key: 'differentiator', label: '和同类作品有什么不同', prompt: '和同类作品相比，这本书在哪些设定、视角或阅读感受上不一样？', source: '通用', required: true },
-    { key: 'tone-boundary', label: '作品气质与禁写内容', prompt: '整体想写成什么感觉？哪些内容明确不能写？', source: '通用' }
-  ] },
   { key: 'world', title: '世界与环境', description: '这个世界是什么样，故事发生在哪里，过去发生过什么。', items: [
-    { key: 'era', label: '时代与世界类型', prompt: '故事处于什么时代和世界类型，现实、架空或多世界如何并存？', source: '通用', required: true },
     { key: 'world-layer', label: '世界层级与空间结构', prompt: '世界由哪些层级、位面、区域或服务器构成？', source: '通用' },
     { key: 'geography', label: '地理地图与初始地点', prompt: '重要地点怎么分布，交通能到哪里，主角最初在哪里活动？', source: '通用', required: true },
     { key: 'civilization', label: '文明、科技与生产水平', prompt: '文明和科技发展到什么程度，哪些能力普及或稀缺？', source: '通用' },
@@ -122,8 +114,6 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
     { key: 'death', label: '死亡、复活与继承', prompt: '死亡是否可逆，复活、继承和损失分别遵循什么规则？', source: '通用' }
   ] },
   { key: 'characters', title: '人物与命名', description: '只建立人物运行基础，不提前规定具体剧情结果。', items: [
-    { key: 'protagonist', label: '主角身份、起点与处境', prompt: '主角开始时拥有什么、缺少什么、处于怎样的社会位置？', source: '通用', required: true },
-    { key: 'motivation', label: '核心欲望、动机与底线', prompt: '主角真正想要什么，害怕失去什么，哪些事绝不会做？', source: '通用', required: true },
     { key: 'strength-flaw', label: '优势、缺点与成长限制', prompt: '主角擅长什么、欠缺什么？哪些困难不能不付代价就轻易突破？', source: '通用' },
     { key: 'supporting', label: '配角类型与人物作用', prompt: '故事需要哪些配角？他们各自想要什么，怎样避免只为主角服务？', source: '通用' },
     { key: 'naming', label: '姓名库、称谓与命名规则', prompt: '不同地区、身份和种族如何命名，已占用名字有哪些？', source: '通用' },
@@ -147,11 +137,6 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
     { key: 'tactics', label: '主流战术与团队分工', prompt: '常见战术、阵型、职业分工和反制分别是什么？', source: '通用' },
     { key: 'war', label: '战争、补给与损失', prompt: '大规模冲突如何动员、补给、结算伤亡并承担后果？', source: '通用' },
     { key: 'investigation', label: '调查、证据与信息差', prompt: '事实如何查明，证据如何验证，谁有权接触哪些信息？', source: '通用' }
-  ] },
-  { key: 'boundaries', title: '必须遵守、留白与未知', description: '哪些要求不能改，哪些以后再定，哪些故意不说透。', items: [
-    { key: 'must-follow', label: '必须遵守', prompt: '作者明确要求永远遵守的事实、尺度和禁区是什么？', source: '通用', required: true },
-    { key: 'open', label: '开放问题', prompt: '目前还没有答案、需要在后续创作中探索的问题是什么？', source: '通用' },
-    { key: 'intentional-unknown', label: '刻意留白', prompt: '哪些内容应保持未知，避免过早解释削弱悬念和创造性？', source: '通用' }
   ] }
 ];
 
@@ -373,6 +358,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
 }): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [customItems, setCustomItems] = useState<SettingOutlineItem[]>([]);
+  const [legacyItems, setLegacyItems] = useState<Array<{ key: string; label: string; status: SettingOutlineStatus; content: string | null }>>([]);
   const [customDraft, setCustomDraft] = useState('');
   const [customGroupDraft, setCustomGroupDraft] = useState('本书扩展');
   const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
@@ -450,6 +436,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
   useEffect(() => {
     if (bookId === null) {
       setCustomItems([]);
+      setLegacyItems([]);
       setStatuses({});
       setContents({});
       setProfile(null);
@@ -495,6 +482,12 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
         source: item.sourceLabel,
         groupTitle: item.groupTitle
       })));
+      // 旧版清单里已下架的条目（如"主角身份、起点与处境"）：新书不再提供，
+      // 但旧书已填内容必须在页面底部保留只读入口，不能因为目录瘦身而把作者内容藏起来。
+      const knownTemplateKeys = new Set(allTemplateItems.map((candidate) => candidate.key));
+      setLegacyItems(completeItems
+        .filter((item) => !item.custom && !knownTemplateKeys.has(item.itemKey) && (item.status !== '待讨论' || item.content !== null))
+        .map((item) => ({ key: item.itemKey, label: item.label, status: item.status, content: item.content })));
     }).catch((reason: unknown) => {
       if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '设定清单读取失败');
     });
@@ -585,7 +578,9 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
           const content = contents[item.key];
           return <article className={`setting-core-card${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
             <div className="setting-core-card-row"><h5>{item.label}<span className="setting-badge-req">必要</span></h5><span className={`setting-status-pill st-${settingStatusClass(status)}`}>{status === '候选待确认' ? '待您确认' : status}</span></div>
-            <p className={content === undefined ? 'empty' : ''}>{content ?? item.prompt}</p>
+            {status === '已确认' && content !== undefined
+              ? <p className="setting-core-folded">已定稿：{content.slice(0, 40)}{content.length > 40 ? '…' : ''}</p>
+              : <p className={content === undefined ? 'empty' : ''}>{content ?? item.prompt}</p>}
             <button type="button" className={status === '已确认' ? 'setting-card-button ghost' : 'setting-card-button primary'} onClick={() => openItem(item.key)}>{settingCardAction(status)}</button>
           </article>;
         })}
@@ -606,6 +601,15 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
           })}</div>
         </article>;
       })}</div>
+    </section>}
+    {legacyItems.length > 0 && <section className="setting-desk-section" aria-label="早期条目">
+      <details className="setting-legacy-items">
+        <summary><strong>早期条目</strong><em>旧版清单里的内容，已填写的都还在，点开可查看</em></summary>
+        <div className="setting-legacy-list">{legacyItems.map((item) => <article key={item.key}>
+          <div className="setting-core-card-row"><h5>{item.label}</h5><span className={`setting-status-pill st-${settingStatusClass(item.status)}`}>{item.status}</span></div>
+          {item.content !== null && <p>{item.content}</p>}
+        </article>)}</div>
+      </details>
     </section>}
     <section className="setting-desk-section" aria-label="全部类目">
       <div className="setting-desk-section-title"><h4>全部类目</h4><em>推荐之外想定什么，自己挑</em></div>
