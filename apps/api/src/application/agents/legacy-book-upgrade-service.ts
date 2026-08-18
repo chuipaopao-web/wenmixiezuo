@@ -86,6 +86,12 @@ export class LegacyBookUpgradeService {
               leaseExpiresAt: new Date(now.getTime() + 60_000).toISOString()
             });
           }
+          // 存量书的设定成员曾沿用 GLM 与编剧B撞模型，导致提案三席无法开工；
+          // 逐书把设定岗位的未来绑定修为独立模型。确定性测试运行时全队共用
+          // 本地假模型且有专门豁免，不做修复。
+          if (!deterministic && profiles.setting !== undefined) {
+            this.teamTemplates.repairSettingSeatModel(scope, profiles.setting);
+          }
         }
       });
     }
@@ -138,7 +144,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
     third_screenwriter: profiles.chief_editor,
-    setting: profiles.style_editor,
+    setting: profiles.reviewer,
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
     fact_reviewer: profiles.style_editor,

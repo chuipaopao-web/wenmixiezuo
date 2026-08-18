@@ -437,7 +437,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
     third_screenwriter: profiles.chief_editor,
-    setting: profiles.style_editor,
+    setting: profiles.reviewer,
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
     fact_reviewer: profiles.style_editor,

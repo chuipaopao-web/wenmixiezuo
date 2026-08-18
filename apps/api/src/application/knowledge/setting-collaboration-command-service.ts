@@ -299,7 +299,7 @@ export class SettingCollaborationCommandService {
   private ensureDistinctPanelModels(scope: BookScope): EditorLease {
     const proposalSeats = this.repository.proposalPanelAgentIds(scope);
     if (proposalSeats.length !== 3) {
-      throw new DomainError(errorCodes.agentCapabilityUnavailable, '当前提案三席（编剧A、编剧B、设定）不齐，暂时不能生成三份独立方案。', {}, false, 409);
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, '团队成员暂时没到齐，请稍后再试。', {}, false, 409);
     }
     const seatIds = proposalSeats.map((seat) => seat.agentId);
     const modelProfiles = () => this.repository.agentModelProfiles(scope, seatIds);
@@ -323,7 +323,7 @@ export class SettingCollaborationCommandService {
     }
     if (distinctCount() !== 3) {
       throw new DomainError(errorCodes.agentCapabilityUnavailable,
-        '当前三席里有成员使用相同模型，暂时不能伪装成三种独立意见。请等待主编恢复后重试。', {
+        '团队正在休整，暂时没法开始设计，请稍后再试。', {
           activeEditorAgentId: lease.agentId,
           editorEpoch: lease.editorEpoch
         }, false, 409);

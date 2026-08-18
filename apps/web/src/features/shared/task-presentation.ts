@@ -23,7 +23,7 @@ export function statusLabel(status: string): string {
 }
 
 export function phaseLabel(phase: string): string {
-  const labels: Record<string, string> = { reply: '组织回复', collecting: '收集成员意见', preflight: '开始前检查', context: '准备相关资料', draft: '生成完整初稿', hard_check: '检查不能违反的内容', review: '异模型多席点评', rewrite: '修改指定位置', owner_confirmation: '等待老板确认', facts: '整理确认后的事实', settlement: '保存正式正文', completed: '已完成' };
+  const labels: Record<string, string> = { reply: '组织回复', collecting: '收集成员意见', preflight: '开始前检查', context: '准备相关资料', draft: '生成完整初稿', hard_check: '检查不能违反的内容', review: '团队分头点评', rewrite: '修改指定位置', owner_confirmation: '等待老板确认', facts: '整理确认后的事实', settlement: '保存正式正文', completed: '已完成' };
   return labels[phase] ?? '正在处理';
 }
 

@@ -101,7 +101,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
           <legend>书籍级模型绑定</legend>
           {capabilities?.modelRuntime.activeMode !== 'subscription-plan' ? <p className="capability-note">连接创作模型后，可以在这里查看并调整十四名成员未来任务的模型安排。</p> : bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
             <div className="binding-manager">
-              <p>修改只对未来新任务生效，运行中的任务继续使用已冻结模型。两名编剧必须异模型，豆包不能进入剧情席；GLM担任副笔时事实席自动切换DeepSeek。</p>
+              <p>修改只影响之后的新任务，进行中的任务不受影响。两名编剧需要使用不同的模型；豆包不用于剧情创作；GLM 做副笔时，事实检查会改用 DeepSeek。</p>
               <div className="binding-role-list">{bindings.active.map((binding) => {
                 const options = uniqueProfiles(capabilities, bindings);
                 const selected = bindingProfiles[binding.roleKey] ?? { provider: binding.provider, modelId: binding.modelId, plan: binding.plan };
@@ -114,7 +114,7 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
               <div className="binding-actions"><button type="button" className="secondary-button" disabled={bindingBusy} onClick={() => {
                 if (bookId === null) return;
                 setBindingBusy(true); setBindingStatus(null);
-                void previewModelBindings(bookId, bindingProfiles).then(() => setBindingStatus('预检通过：模型独立性、剧情席和零现金回退规则均满足。')).catch((reason: unknown) => setBindingStatus(reason instanceof Error ? reason.message : '预检失败')).finally(() => setBindingBusy(false));
+                void previewModelBindings(bookId, bindingProfiles).then(() => setBindingStatus('预检通过：模型安排符合团队规则。')).catch((reason: unknown) => setBindingStatus(reason instanceof Error ? reason.message : '预检失败')).finally(() => setBindingBusy(false));
               }}>预览校验</button><button type="button" className="primary-button" disabled={bindingBusy} onClick={() => {
                 if (bookId === null) return;
                 setBindingBusy(true); setBindingStatus(null);

@@ -103,4 +103,33 @@ export class TeamTemplateService {
     });
     return { added: missing.map((contract) => contract.roleKey), team };
   }
+
+  /**
+   * 修复存量书籍：设定成员与编剧B绑定了同一模型时，提案三席无法保证各自独立出方案。
+   * 把设定岗位的未来绑定改为指定配置（默认 minimax）；只影响之后的新任务，
+   * 运行中的任务继续使用已冻结模型快照。返回是否做了修复。
+   */
+  public repairSettingSeatModel(scope: BookScope, profile: TeamModelProfile): boolean {
+    const team = this.repository.listTeam(scope);
+    const setting = team.find((member) => member.roleKey === 'setting');
+    const second = team.find((member) => member.roleKey === 'second_screenwriter');
+    if (setting === undefined || second === undefined) return false;
+    if (`${setting.provider}/${setting.modelId}` !== `${second.provider}/${second.modelId}`) return false;
+    const now = this.clock.now().toISOString();
+    this.unitOfWork.run(() => {
+      const revisionId = this.ids.next();
+      this.repository.insertBindingRevision(scope, {
+        id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now,
+        reason: '设定成员改用独立模型，恢复团队各自出方案', now
+      });
+      const snapshotId = this.ids.next();
+      this.repository.insertModelSnapshot(scope, { id: snapshotId, ...profile, capabilities: ['text'], now });
+      this.repository.insertBinding(scope, {
+        id: this.ids.next(), revisionId, roleKey: 'setting', agentId: setting.agentId, snapshotId,
+        provider: profile.provider, modelId: profile.modelId, plan: profile.plan, purposes: [], now
+      });
+      this.repository.updateAgentModelSnapshot(scope, setting.agentId, snapshotId, now);
+    });
+    return true;
+  }
 }

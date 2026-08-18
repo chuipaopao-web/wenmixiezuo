@@ -75,7 +75,7 @@ describe('设定页内协作', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: '已有设定原文' }), {
       target: { value: '雾钟只能展示未来一天，而且每次使用都会遗忘一段私人记忆。' }
     });
-    fireEvent.click(screen.getByRole('button', { name: '请团队出主意' }));
+    fireEvent.click(screen.getByRole('button', { name: '团队设计' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
       surface: 'setting', subjectType: 'setting_module', subjectId: 'creative-concept',

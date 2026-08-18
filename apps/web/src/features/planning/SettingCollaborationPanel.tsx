@@ -106,7 +106,7 @@ export function SettingCollaborationPanel({
       setSource('');
       sourceKey.current = null;
       startKey.current = null;
-      setNotice('三名成员已开始各自构思；刷新页面不会重复创建任务。');
+      setNotice('团队已开始设计，稍等片刻就能看到方案。');
       await refresh();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '启动协作失败');
@@ -324,17 +324,17 @@ export function SettingCollaborationPanel({
       {data.panel !== null && <div className="setting-member-chips" aria-label="本轮参与成员">
         {panelMembers.map((member) => <span key={member.agentId} className="setting-member-chip">
           <i className={`setting-avatar seat-${member.roleKey}`}>{seatMark(member.roleKey)}</i>
-          {member.memberName} <small>{seatTag(member.roleKey)}</small>
+          {member.memberName}
           <em className={`setting-dot dot-${member.status === 'completed' ? 'done' : member.status === 'failed' ? 'failed' : 'work'}`} title={memberStatusLabel(member.status)} />
         </span>)}
       </div>}
       {data.panel === null && !candidateReady && !selfWriting && <div className="setting-collaboration-start">
-        <p>编剧A（强冲突）、编剧B（重因果）与设定（规则严谨）会读取同一份资料，各自独立给出方案，互相看不到。</p>
+        <p className="setting-collaboration-state">婉儿、红玉、文姬待命，随时可以开始。</p>
         <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；会保留原话并只作为本轮参考。" /></label></details>
-        <footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在启动…' : '请团队出主意'}</button></footer>
+        <footer><span>{source.length}/10000</span><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void start()}>{busy === 'start' ? '正在召集…' : '团队设计'}</button></footer>
         <div className="setting-mine-line">不想用团队的？<button type="button" onClick={() => setSelfWriting(true)}>自己写一份</button> · <button type="button" disabled={busy !== null} onClick={() => void leaveBlank()}>先留白，以后再定</button></div>
       </div>}
-      {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <p className="setting-collaboration-state">成员正在独立构思；已完成的结果会逐项保留。</p>}
+      {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <p className="setting-collaboration-state">团队正在设计；已完成的内容会自动保留。</p>}
       {(panelFailed || revisionFailed) && <div className="setting-collaboration-error"><p>这轮没有完成，已有方案仍然保留。</p><button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在继续…' : '继续完成'}</button></div>}
       {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果会保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
       {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
@@ -347,7 +347,6 @@ export function SettingCollaborationPanel({
           return <article className={`setting-proposal-card${picked ? ' picked' : ''}`} key={proposal.proposalId}>
             <div className="setting-proposal-who">
               <b><i className={`setting-avatar seat-${proposal.roleKey ?? ''}`}>{seatMark(proposal.roleKey)}</i>{proposal.memberName} 的方案</b>
-              <span className={`setting-style-tag tag-${proposal.roleKey ?? ''}`}>{seatTag(proposal.roleKey)}</span>
             </div>
             <p>{proposal.content}</p>
             {proposal.fragments.map((fragment) => <label className="setting-frag" key={fragment.fragmentId}>
@@ -389,7 +388,7 @@ export function SettingCollaborationPanel({
       {(candidateReady || selfWriting) && !revisionRunning && <section className="setting-candidate-editor">
         <header><div><small>{candidateReady ? '待确认稿' : '自己写'}</small><strong>{candidateReady ? '主编已整理，可直接修改' : '写完保存或确认'}</strong></div><span>确认后仍不会直接改动已确认内容</span></header>
         <textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} />
-        {candidateReady && <details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；只会让主编定点调整，不重复启动三人提案。" /></label></details>}
+        {candidateReady && <details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={4000} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；主编只按意见调整这份内容。" /></label></details>}
         <div className="setting-candidate-actions">
           {candidateReady && <button type="button" disabled={busy !== null || revisionRunning || idea.trim().length === 0} onClick={() => void revise()}>{busy === 'revise' ? '正在提交…' : '让主编按意见修改'}</button>}
           <button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button>
@@ -411,10 +410,6 @@ function seatMark(roleKey: string | null): string {
   return ({ lead_screenwriter: 'A', second_screenwriter: 'B', setting: '设', chief_editor: '主', deputy_editor: '副' } as Record<string, string>)[roleKey ?? ''] ?? '·';
 }
 
-function seatTag(roleKey: string | null): string {
-  return ({ lead_screenwriter: '强冲突', second_screenwriter: '重因果', setting: '规则严谨', chief_editor: '主编', deputy_editor: '副编' } as Record<string, string>)[roleKey ?? ''] ?? '成员';
-}
-
 function memberStatusLabel(status: NonNullable<SettingCollaborationData['panel']>['members'][number]['status']): string {
-  return ({ preparing: '准备上下文', working: '构思中', completed: '方案已完成', failed: '需要处理', paused: '已暂停' } as const)[status];
+  return ({ preparing: '准备资料', working: '构思中', completed: '方案已完成', failed: '需要处理', paused: '已暂停' } as const)[status];
 }

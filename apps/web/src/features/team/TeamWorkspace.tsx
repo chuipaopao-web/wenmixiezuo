@@ -356,7 +356,7 @@ export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData;
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="dialog agent-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-detail-title">
       <header><div className="agent-dialog-identity"><AgentAvatar roleKey={agent.roleKey} roleName={memberIdentity(agent)} /><span><h2 id="agent-detail-title">{memberIdentity(agent)}</h2><p>{agent.publicSummary ?? roleSummary(agent.roleKey)}</p></span></div><button className="icon-button" type="button" aria-label="关闭岗位详情" onClick={onClose}><XIcon /></button></header>
-      <div className="agent-detail-model"><span>模型来源</span><strong>{modelProviderLabel(agent.provider)}</strong><small>同一来源不会被当作不同模型的独立意见。</small></div>
+      <div className="agent-detail-model"><span>模型来源</span><strong>{modelProviderLabel(agent.provider)}</strong></div>
       <div className="agent-detail-groups">{groups.map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}</div>
       <section className="agent-evidence"><h3>当前任务</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p><small>进度会根据成员的实际工作自动更新。</small></section>
       <footer><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
@@ -367,8 +367,8 @@ export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData;
 export function roleSummary(roleKey: string): string {
   return ({
     chief_editor: '主持讨论、安排任务并汇总结果', deputy_editor: '编译资料、维护摘要，必要时接替主编',
-    lead_screenwriter: '独立设计剧情、因果和章节跨度', second_screenwriter: '用异模型提出重因果的剧情方案',
-    third_screenwriter: '用异模型提出脑洞与反套路方案',
+    lead_screenwriter: '独立设计剧情、因果和章节跨度', second_screenwriter: '提出重因果的剧情方案',
+    third_screenwriter: '提出脑洞与反套路方案',
     setting: '整理世界规则、时间线和人物状态', lead_writer: '按照确认要求写出完整章节', backup_writer: '接替主笔或按要求写待确认稿',
     fact_reviewer: '核对设定、正史与因果事实',
     literary_reviewer: '点评文学表达、语言和AI腔风险', experience_reviewer: '评估追读体验与政治情色风险',

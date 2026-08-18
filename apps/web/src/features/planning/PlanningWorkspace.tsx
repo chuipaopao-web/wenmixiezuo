@@ -652,7 +652,7 @@ function settingCardAction(status: SettingOutlineStatus): string {
     case '候选待确认': return '确认这份';
     case '刻意留白': return '重新讨论';
     case '不适用': return '恢复讨论';
-    default: return '请团队出主意';
+    default: return '团队设计';
   }
 }
 
