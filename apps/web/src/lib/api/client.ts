@@ -973,14 +973,34 @@ interface ApiResponse<T> {
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN
   ?? (typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1)$/u.test(location.hostname) ? 'http://127.0.0.1:43111' : '');
 
+// 429 说明请求在限流闸门口就被拒、业务根本没有执行，延迟重试是安全的。
+// 限流窗口按分钟滑动，重试节奏逐步拉长；仍失败才把"请求太频繁"抛给页面。
+const RATE_LIMIT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+
+function waitBeforeRateLimitRetry(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted === true) { reject(new DOMException('The operation was aborted.', 'AbortError')); return; }
+    const onAbort = (): void => { clearTimeout(timer); reject(new DOMException('The operation was aborted.', 'AbortError')); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   if (!(init.body instanceof FormData) && !headers.has('content-type')) headers.set('content-type', 'application/json');
-  return fetch(`${API_ORIGIN}${path}`, {
+  const send = (): Promise<Response> => fetch(`${API_ORIGIN}${path}`, {
     ...init,
     credentials: 'include',
     headers
   });
+  let response = await send();
+  for (const delay of RATE_LIMIT_RETRY_DELAYS_MS) {
+    if (response.status !== 429) return response;
+    await waitBeforeRateLimitRetry(delay, init.signal);
+    response = await send();
+  }
+  return response;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -1134,17 +1154,20 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
   // 全量订阅统一游标：无论调用方限定哪个 bookId 都连同一路事件流，避免按书游标分叉导致丢事件或重放。
   const cursorKey='wenmi-event-cursor';
   let cursor=readEventCursor(cursorKey);
-  const pause=()=>new Promise<void>(resolve=>{reconnectTimer=setTimeout(resolve,1_000);});
+  const pause=(ms:number)=>new Promise<void>(resolve=>{reconnectTimer=setTimeout(resolve,ms);});
   const run=async()=>{
     input.onState?.('connecting');
+    let reconnectDelayMs=1_000;
     while(!stopped){
       controller=new AbortController();
       try{
         const query=new URLSearchParams({after:String(cursor)});
         let response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,{credentials:'include',signal:controller.signal,
           headers:{accept:'text/event-stream','last-event-id':String(cursor)}});        if(response.status===401){input.onState?.('closed');break;}
+        // 被限流时降到15秒一连，避免每秒重连把自己持续锁在限流桶外。
+        if(response.status===429){reconnectDelayMs=15_000;throw new Error('事件流被限流，稍后重连');}
         if(!response.ok||response.body===null)throw new Error('事件流连接失败');
-        input.onState?.('open');
+        input.onState?.('open');reconnectDelayMs=1_000;
         const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
         while(!stopped){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true}).replace(/\r\n/gu,'\n');
           let boundary=buffer.indexOf('\n\n');while(boundary>=0){const block=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);
@@ -1152,7 +1175,7 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
               if(input.bookId===undefined||input.bookId===event.bookId)input.onEvent(event);}
             boundary=buffer.indexOf('\n\n');}}
       }catch(error){if(stopped||error instanceof DOMException&&error.name==='AbortError')break;}
-      if(!stopped){input.onState?.('reconnecting');await pause();}
+      if(!stopped){input.onState?.('reconnecting');await pause(reconnectDelayMs);}
     }
     input.onState?.('closed');
   };
