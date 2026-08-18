@@ -3187,7 +3187,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`79db054e5dbf`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`ddc7cc91f623`
 
 #### 当前生效决定
 
@@ -3520,6 +3520,14 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 类目讨论页按效果图重做：三席方案卡带立场标签（编剧A强冲突/编剧B重因果/设定规则严谨），每份方案列出可逐条勾选的碎片；作者勾选后主编按勾选融合，融合稿段级展示（勾选碎片原文＋主编衔接段标绿），操作含确认这份/我再改改/退回重融/自己写一份/先留白。无碎片的旧提案自动回退为整份选用。
 4. 已确认设定项作为硬来源进入正文写作与审校上下文：章管线写手资料包与审校冻结资料均注入 setting_confirmed_items（仅已确认且有内容的项，逐条截断），正文与事实席核对不得与之冲突；规划管线继续使用已确认设定基线。
 5. 手机端顶部功能栏改为两排六列（图标在上、文字在下），书籍栏开关悬浮于左侧；设定页核心卡桌面三列、手机单列，方案卡桌面三列、手机纵向堆叠。
+
+##### DEC-CURRENT-052 回到火山方舟套餐与 GLM 5.3 思考余量（2026-08-18）
+
+【当前】opencodego 已下线，模型运行时统一回到火山方舟两个套餐（Agent Plan 与 Coding Plan），凭证只从服务器环境变量读取，不写入数据库、日志、文档、备份或 Git。
+1. 岗位模型：主编/编剧C/副编备份/版权席用 kimi-k2.7-code，写手/编剧A用 deepseek-v4-pro，编剧B（红玉）与事实审查（班昭）用 glm-5.3，设定（文姬）/审校/副编用 minimax-m3，体验席用 doubao-seed-2.1-turbo，妙玉/研究员用 deepseek-v4-flash。glm-5.2 由 glm-5.3 替换（生产经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。
+2. GLM 5.3 适配：方舟套餐端点上 glm-5.3 拒绝 thinking 参数（400），且其思考不可关闭、思考 Token 同时计入 max_tokens 与 output_tokens。适配器对 glm-5.3 一律不发送 thinking 字段，并在可见输出限额之上集中追加思考余量（thinkingTokenAllowance＝16_000）；讨论、章节、卷纲、事件、章纲、结算后续、续写分析、主编设计全部八处预算冻结同步加同一份余量，否则结算端会以"实际用量超过冻结上限"拒绝。
+3. 讨论遗孤任务自愈：崩溃窗口可能在讨论决定落库后、任务收尾前中断，留下讨论已进入 awaiting_boss 而任务仍 working/queued 的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"。executeClaimed 现在识别"决定已存在"的情形：幂等补齐设定候选（upsert）后按既有决定把任务标记完成，不重复模型调用；无决定的异常状态仍然报错。
+4. 在途任务解冻：迁移时冻结了 opencodego 快照的席位统一改为回退当前绑定（模型 ID 相同，不破坏异模型证据）。3000 万 Token 双套餐自动切换经老板决定暂缓，不做。
 
 ---
 
@@ -4478,7 +4486,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`320ab7242cc5`
+> 当前源文件：`HANDOFF.md` · 指纹：`72ddd647df04`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4494,7 +4502,8 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 设定页走修·三席撞模型修复 + 去机制文案：① 根因——`book-onboarding-service` 与 `legacy-book-upgrade-service` 的 `toCreativeProfiles` 都把 setting（文姬）映射到 style_editor（GLM 5.2），与编剧B红玉撞车，提案三席校验拦截导致设定页无法召集；已改为 reviewer（MiniMax M3），与 14 人合同一致。② 存量修复——`TeamTemplateService.repairSettingSeatModel` + 启动升级逐书检测：设定与编剧B同模型的书自动把设定岗位未来绑定改为独立模型（不影响运行中任务的冻结快照），幂等，确定性测试运行时跳过。③ 文案去机制化——删掉"编剧A（强冲突）编剧B（重因果）设定（规则严谨）…各自独立给出方案互相看不到"说明段（改显示"婉儿、红玉、文姬待命"），删除成员方案卡的立场标签，"请团队出主意"改"团队设计"，"异模型多席点评"改"团队分头点评"，团队页岗位职责与成员详情的"异模型/同一来源"说明、设置弹窗的"剧情席/冻结模型/零现金回退"措辞全部改大白话；后端 409 报错改为"团队正在休整，暂时没法开始设计，请稍后再试。"。新增回归测试（存量撞模型书启动自动修复+幂等）。
+1. 回到火山方舟双套餐 + GLM 5.3 思考余量 + 讨论遗孤自愈：① opencodego 下线，`.env.production` 注释全部 WENMI_OPENCODEGO_*，改用 WENMI_ARK_AGENT_PLAN_API_KEY / WENMI_ARK_CODING_PLAN_API_KEY（Key 只在服务器环境变量，绝不进 Git/文档）；14 岗位 ×41 书全部迁回 volcengine-ark-agent-plan，红玉/班昭=glm-5.3（经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。② glm-5.3 在方舟端点拒绝 thinking 字段（400）且思考不可关闭、思考 Token 计入 max_tokens——适配器对 glm-5.3 不发 thinking，并集中新增 `thinkingTokenAllowance`（glm-5.3→16_000，其余 0）：`max_tokens`=可见输出限额+余量，讨论/章节/卷纲/事件/章纲/结算后续/续写分析/主编设计八处预算冻结同步加余量（不加会被结算端"实际用量超过冻结上限"拒绝）。③ 讨论遗孤自愈——崩溃窗口留下"讨论已 awaiting_boss、任务仍 working/queued"的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"刷屏；executeClaimed 现在发现决定已存在时幂等补齐设定候选（upsert）并按既有决定收尾任务，不再重复模型调用。④ 在途任务冻结 opencodego 快照的 102 席已解冻（COALESCE 回退当前绑定）。回归测试：glm-5.3 max_tokens 追加余量（ark-plan-model.test.ts）、遗孤任务幂等收尾（discussion.test.ts）。决定见 DEC-CURRENT-052。
+2. 设定页走修·三席撞模型修复 + 去机制文案：① 根因——`book-onboarding-service` 与 `legacy-book-upgrade-service` 的 `toCreativeProfiles` 都把 setting（文姬）映射到 style_editor（GLM 5.2），与编剧B红玉撞车，提案三席校验拦截导致设定页无法召集；已改为 reviewer（MiniMax M3），与 14 人合同一致。② 存量修复——`TeamTemplateService.repairSettingSeatModel` + 启动升级逐书检测：设定与编剧B同模型的书自动把设定岗位未来绑定改为独立模型（不影响运行中任务的冻结快照），幂等，确定性测试运行时跳过。③ 文案去机制化——删掉"编剧A（强冲突）编剧B（重因果）设定（规则严谨）…各自独立给出方案互相看不到"说明段（改显示"婉儿、红玉、文姬待命"），删除成员方案卡的立场标签，"请团队出主意"改"团队设计"，"异模型多席点评"改"团队分头点评"，团队页岗位职责与成员详情的"异模型/同一来源"说明、设置弹窗的"剧情席/冻结模型/零现金回退"措辞全部改大白话；后端 409 报错改为"团队正在休整，暂时没法开始设计，请稍后再试。"。新增回归测试（存量撞模型书启动自动修复+幂等）。
 2. 前端 429 优化：`performRequest` 遇 429 自动延迟重试（2s/5s/10s，共 4 次尝试，尊重 AbortSignal 中止；429 的请求在限流闸门口就被拒、业务未执行，重试安全），仍失败才把"请求太频繁，请稍后再试"抛给页面；SSE 事件流被限流时重连间隔从 1 秒降到 15 秒（每秒重连会把自己持续锁在限流桶外），恢复后回到 1 秒。新增 `tests/foundation/api-client-rate-limit.test.ts` 3 项（自动重试恢复、节奏拉长后抛错、中止立即 AbortError）。
 2. 热修·公网限流双 BUG：① Fastify 未开 `trustProxy`，Caddy 反代后所有访客在限流里都是 127.0.0.1，全网共享 100 次/分钟一个桶，正常翻页（设定页批量加载）就集体 RATE_LIMITED——已开启 `trustProxy`（服务只监听 127.0.0.1，唯一能到达的是本机 Caddy，安全）。② `@fastify/rate-limit` 会原样 throw `errorResponseBuilder` 的返回值，原实现返回普通对象无 statusCode，被全局错误处理兜底成 500 INTERNAL_ERROR（前端因此显示"请重新打开这本书"而不是"请求太频繁"）——已改为返回 `DomainError('RATE_LIMITED', …, retryable: true, 429)`。新增回归测试「公网限流按代理转发来的真实访客IP分桶，互不牵连」。安全测试 5 文件 18 项全绿。
 2. 紧急热修·生产 API 启动崩溃：`TeamTemplateService.addMissingMembers` 的异模型校验原来要求补齐成员与**所有**现有成员模型不重复，而 14 人设计本身就允许跨岗位共享模型（主编貂蝉与编剧C幼薇同为 K2.7、编剧B红玉与事实审查班昭同为 GLM 5.2），导致 11 人旧书升级时抛"幼薇与现有成员模型重复"、wenmi-api/wenmi-worker 启动即崩（前端静态页 200 但登录接口空响应报 Unexpected end of JSON input）。已改为只校验编剧三角（lead/second/third screenwriter 两两异模型+禁豆包），新增生产场景回归测试（跨岗共享放行、编剧撞车仍拒绝）。测试 689 项全绿。

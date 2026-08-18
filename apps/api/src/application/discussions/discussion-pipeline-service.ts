@@ -9,7 +9,7 @@ import type { CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { DomainError } from '../../domain/errors.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
-import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
+import { loadModelRuntimeConfig, thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import { DiscussionService } from './discussion-service.js';
 import { PlotSpanEstimateService } from '../continuity/plot-span-estimate-service.js';
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
@@ -115,7 +115,32 @@ export class DiscussionPipelineService {
     };
     const discussions = new DiscussionService(this.database, this.ids, this.clock);
     const discussion = discussions.require(scope, brief.discussionId);
-    if (!['collecting', 'cross_review', 'synthesizing'].includes(discussion.status)) throw new Error('讨论任务状态与讨论阶段不一致');
+    if (!['collecting', 'cross_review', 'synthesizing'].includes(discussion.status)) {
+      // 崩溃窗口可能在决定落库后、任务收尾前中断，留下 discussion 已进入
+      // awaiting_boss 而任务仍是 working/queued 的遗孤。此时重复执行只会再造
+      // 一条决定并双倍计费；改为幂等补齐设定候选后按既有决定收尾。
+      const existingDecision = this.database.prepare(`
+        SELECT decision_id, recommendation_json FROM discussion_decisions
+        WHERE discussion_id = ? AND owner_id = ? AND book_id = ?
+        ORDER BY created_at DESC LIMIT 1
+      `).get(brief.discussionId, scope.ownerId, scope.bookId) as { decision_id: string; recommendation_json: string } | undefined;
+      if (existingDecision === undefined) throw new Error('讨论任务状态与讨论阶段不一致');
+      const recommendation = JSON.parse(existingDecision.recommendation_json) as { summary?: unknown };
+      if (typeof recommendation.summary === 'string' && recommendation.summary.length > 0) {
+        new SettingOutlineWorkspaceService(this.database, this.clock).recordDiscussionCandidates(scope, {
+          discussionId: brief.discussionId,
+          decisionId: existingDecision.decision_id,
+          scopeText: brief.scopeText,
+          content: recommendation.summary
+        });
+      }
+      const opinionCount = (this.database.prepare(`
+        SELECT COUNT(*) AS count FROM discussion_opinions
+        WHERE discussion_id = ? AND owner_id = ? AND book_id = ?
+      `).get(brief.discussionId, scope.ownerId, scope.bookId) as { count: number }).count;
+      new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
+      return { discussionId: brief.discussionId, decisionId: existingDecision.decision_id, opinionCount };
+    }
     const book = this.database.prepare(`SELECT canon_revision, positioning_version FROM books WHERE owner_id = ? AND book_id = ?`)
       .get(scope.ownerId, scope.bookId) as { canon_revision: number; positioning_version: number };
     const participants = this.database.prepare(`
@@ -390,7 +415,7 @@ export class DiscussionPipelineService {
           const requestId = this.ids.next();
           const reservationId = budgets.reserve(
             scope, budget.budget_id, requestId,
-            adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000, 0
+            adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000 + thinkingTokenAllowance(participant.model_id), 0
           );
           try {
             result = await calls.execute(scope, {

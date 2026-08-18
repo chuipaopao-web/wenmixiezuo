@@ -5,7 +5,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { resolveInside, sha256File } from '../../infrastructure/files/file-utils.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
-import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
+import { loadModelRuntimeConfig, thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import {
   ContinuationImportRepository,
   type ContinuationAnalysisAgentRow,
@@ -301,7 +301,7 @@ export class ContinuationAnalysisPipelineService {
     const budgets = new BudgetService(this.database, this.ids, this.clock);
     const invoke = async (prompt: string, phaseSuffix: string): Promise<string> => {
       const requestId = this.ids.next();
-      const reservationId = budgets.reserve(input.scope, budgetId, requestId, analysisReservationTokens, 0);
+      const reservationId = budgets.reserve(input.scope, budgetId, requestId, analysisReservationTokens + thinkingTokenAllowance(input.agent.model_id), 0);
       const result = await new ModelCallService(this.database, this.clock, budgets).execute(input.scope, {
         requestId,
         taskId: input.taskId,

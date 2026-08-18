@@ -11,6 +11,7 @@ import {
 } from '../../infrastructure/db/repositories/story-event-generation-repository.js';
 import type { VolumePlanGenerationSeat } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
@@ -115,7 +116,7 @@ export class StoryEventGenerationPipelineService {
       const estimatedInputCeiling=Math.max(
         Math.ceil(input.length/2),Math.ceil(estimateTokens(input)*1.35)
       );
-      const reservedTokens=Math.max(9000,estimatedInputCeiling+maxOutputTokens+protocolOverhead);
+      const reservedTokens=Math.max(9000,estimatedInputCeiling+maxOutputTokens+protocolOverhead+thinkingTokenAllowance(member.modelId));
       const requestId=this.ids.next(),reservationId=this.budgets.reserve(
         scope,task.budgetId,requestId,reservedTokens,0
       );

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
+import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 
@@ -63,6 +67,49 @@ describe('有限多Agent讨论', () => {
       agentId: firstAgents[0]!.agent_id, modelSnapshotId: firstAgents[0]!.model_snapshot_id,
       phase: 'independent', content: {}, tokens: 50_000
     })).toThrow('预算已耗尽');
+  });
+
+  it('讨论已形成决定但任务未收尾时，按既有决定幂等收尾而不是反复报错', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, 'owner-one', ids, clock, { title: '崩溃窗口书' });
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
+    const agents = context.database.prepare('SELECT agent_id, model_snapshot_id FROM agent_instances WHERE owner_id = ? AND book_id = ? ORDER BY agent_id')
+      .all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; model_snapshot_id: string }>;
+    const service = new DiscussionService(context.database, ids, clock);
+    const discussion = service.create(scope, {
+      type: 'quick', scopeText: '故事内核方向', createdByAgentId: agents[0]!.agent_id,
+      participants: [{ agentId: agents[0]!.agent_id, reason: '主持' }]
+    });
+    service.addOpinion(scope, discussion.discussionId, {
+      agentId: agents[0]!.agent_id, modelSnapshotId: agents[0]!.model_snapshot_id,
+      phase: 'independent', content: { recommendation: '以边城护印为主线' }, tokens: 100
+    });
+    service.setStage(scope, discussion.discussionId, 'collecting', 'synthesizing');
+    const decisionId = service.synthesize(scope, discussion.discussionId, {
+      recommendation: { summary: '讨论结论：以边城护印为主线，胜利必须付出代价。' },
+      alternatives: [], disagreements: [], impacts: []
+    });
+    // 模拟崩溃窗口：决定已落库、讨论进入 awaiting_boss，但任务仍停留在可认领状态。
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const task = tasks.create(scope, {
+      taskId: ids.next(), taskType: 'discussion', initialPhase: 'collecting',
+      idempotencyKey: 'crash-window-discussion',
+      brief: { discussionId: discussion.discussionId, scopeText: '故事内核方向' }
+    });
+    tasks.queue(scope, task.taskId);
+    expect(tasks.claimNext('worker-discussion')?.taskId).toBe(task.taskId);
+
+    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const result = await pipeline.executeClaimed(scope, task.taskId, 'worker-discussion');
+
+    expect(result).toEqual({ discussionId: discussion.discussionId, decisionId, opinionCount: 1 });
+    expect(tasks.require(scope, task.taskId).status).toBe('succeeded');
+    // 收尾是幂等的：决定与意见数量不变，不产生第二条决定。
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM discussion_decisions WHERE discussion_id = ?')
+      .get(discussion.discussionId)).toEqual({ count: 1 });
   });
 });
 

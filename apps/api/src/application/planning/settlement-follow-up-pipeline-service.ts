@@ -6,6 +6,7 @@ import type { BookScope } from '../../domain/scope.js';
 import type { SettlementFollowUpRepository } from '../../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import type { VolumePlanGenerationSeat } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens, type ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
@@ -150,7 +151,7 @@ export class SettlementFollowUpPipelineService {
       );
       const reservationId = this.budgets.reserve(
         scope, task.budgetId, requestId,
-        Math.max(6_000, estimatedInputCeiling + maxOutputTokens), 0
+        Math.max(6_000, estimatedInputCeiling + maxOutputTokens + thinkingTokenAllowance(seat.modelId)), 0
       );
       try {
         const result = await this.calls.execute(scope, {

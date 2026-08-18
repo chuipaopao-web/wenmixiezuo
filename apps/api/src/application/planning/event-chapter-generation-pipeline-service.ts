@@ -10,6 +10,7 @@ import { EventChapterOutlineRepository } from '../../infrastructure/db/repositor
 import { LongformContinuityRepository,type SettlementContextRecord } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
@@ -229,7 +230,7 @@ export class EventChapterGenerationPipelineService {
     const maxOutputTokens=maxOutputTokensOverride??eventChapterOutputTokenLimit(brief.kind),protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
     const estimatedInputCeiling=Math.max(Math.ceil(prompt.length/2),Math.ceil(estimateTokens(prompt)*1.35));
     const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
-      Math.max(10000,estimatedInputCeiling+maxOutputTokens+protocolOverhead),0);
+      Math.max(10000,estimatedInputCeiling+maxOutputTokens+protocolOverhead+thinkingTokenAllowance(brief.member.modelId)),0);
     const result=await this.calls.execute(scope,{requestId,taskId:task.taskId,phaseKey:phaseKey+':attempt-'+task.currentAttemptNo,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,provider:brief.member.provider,modelId:brief.member.modelId,
       input:prompt,parameters:JSON.stringify({maxOutputTokens,planOnly:!brief.member.provider.startsWith('local-deterministic'),

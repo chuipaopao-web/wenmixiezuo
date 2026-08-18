@@ -357,4 +357,29 @@ describe('火山方舟严格套餐适配器', () => {
       expect(fetchImpl).toHaveBeenCalledOnce();
     }
   });
+
+  it('GLM 5.3 的 max_tokens 在可见输出限额上追加思考余量，其他模型不变', async () => {
+    const seen: Array<{ model: string; maxTokens: number }> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
+      seen.push({ model: body.model, maxTokens: body.max_tokens });
+      return Response.json({
+        content: [{ type: 'text', text: '可见输出' }],
+        usage: { input_tokens: 5, output_tokens: 8 }
+      });
+    });
+    for (const modelId of ['glm-5.3', 'glm-5.2', 'kimi-k2.7-code', 'deepseek-v4-flash']) {
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId,
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'discussion'
+      }, fetchImpl);
+      await adapter.generate(request);
+    }
+    expect(seen).toEqual([
+      { model: 'glm-5.3', maxTokens: 100 + 16_000 },
+      { model: 'glm-5.2', maxTokens: 100 },
+      { model: 'kimi-k2.7-code', maxTokens: 100 },
+      { model: 'deepseek-v4-flash', maxTokens: 100 }
+    ]);
+  });
 });

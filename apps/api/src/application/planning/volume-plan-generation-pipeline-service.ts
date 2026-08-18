@@ -11,6 +11,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { ModelAdapterError } from '../../infrastructure/models/model-adapter.js';
+import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import {
   VolumePlanGenerationRepository,
   type VolumePlanGenerationSeat,
@@ -291,7 +292,7 @@ export class VolumePlanGenerationPipelineService {
         scope,
         task.budgetId,
         requestId,
-        Math.max(12_000, estimatedInputCeiling + maxOutputTokens + protocolOverhead),
+        Math.max(12_000, estimatedInputCeiling + maxOutputTokens + protocolOverhead + thinkingTokenAllowance(seat.modelId)),
         0
       );
       try {

@@ -19,7 +19,7 @@ import {
 } from '../../infrastructure/models/deterministic-novel-models.js';
 import type { ModelAdapter } from '../../infrastructure/models/model-adapter.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
-import { loadModelRuntimeConfig } from '../../infrastructure/models/model-runtime-config.js';
+import { loadModelRuntimeConfig, thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import { PromotionService } from '../../infrastructure/recovery/promotion-service.js';
 import { WriterSelectionService } from './writer-selection-service.js';
 import { CopyrightService } from '../copyright/copyright-service.js';
@@ -1758,7 +1758,7 @@ export class ChapterPipelineService {
         estimatedPromptTokens: estimateTokens(modelPrompt),
         packBudget,
         maxOutputTokens
-      });
+      }) + thinkingTokenAllowance(adapter.modelId);
       const reservationId = budgets.reserve(scope, budget.budget_id, requestId, reservedTokens, 0);
       const effectivePhaseKey = `${phaseKey}:attempt-${lease.current_attempt_no}:try-${technicalTry}`;
       try {

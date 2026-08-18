@@ -154,6 +154,17 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
   return `${url.origin}${expectedPath}`;
 }
 
+/**
+ * GLM 5.3 在方舟套餐端点上思考不可关闭，思考 Token 同时计入 max_tokens 与
+ * usage.output_tokens。只按可见输出限额申请 max_tokens 时，思考会把额度烧光，
+ * 停止在 max_tokens 且不产生可见文字（2026-08-18 生产实测：思考 8000~11000
+ * 字符烧掉全部 3000 输出 Token）。适配器的 max_tokens 与各管线的预算冻结必须
+ * 同时加上这里返回的同一份余量，否则结算端会以"实际用量超过冻结上限"拒绝。
+ */
+export function thinkingTokenAllowance(modelId: string): number {
+  return modelId.startsWith('glm-5.3') ? 16_000 : 0;
+}
+
 function deterministicProfiles(): Record<NovelRoleKey, RoleModelProfile> {
   return Object.fromEntries(novelRoleKeys.map((role) => [role, { ...DETERMINISTIC_PROFILE }])) as Record<NovelRoleKey, RoleModelProfile>;
 }

@@ -5,6 +5,7 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
+import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import {
   BookBrandingDesignRepository,
   type BookBrandingDesignKind
@@ -187,7 +188,7 @@ export class BookBrandingDesignPipelineService {
         scope,
         task.budgetId,
         requestId,
-        Math.max(8_000, estimatedInputCeiling + BRANDING_OUTPUT_TOKEN_LIMIT),
+        Math.max(8_000, estimatedInputCeiling + BRANDING_OUTPUT_TOKEN_LIMIT + thinkingTokenAllowance(brief.seat.modelId)),
         0
       );
       try {

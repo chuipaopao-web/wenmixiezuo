@@ -1,5 +1,5 @@
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
   plan: ModelPlan;
@@ -75,7 +75,9 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         },
         body: JSON.stringify({
           model: this.modelId,
-          max_tokens: request.maxOutputTokens,
+          // 思考不可关闭的模型（GLM 5.3）会把思考 Token 计入 max_tokens；
+          // 在可见输出限额之上追加思考余量，避免思考烧光额度后没有可见文字。
+          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId),
           ...(requiresVisibleOutput(this.modelId, this.options.purpose) ? { thinking: { type: 'disabled' } } : {}),
           system: appendSupplement(
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
