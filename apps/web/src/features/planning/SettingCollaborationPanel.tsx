@@ -295,7 +295,7 @@ function createClientKey(): string {
 }
 
 function roleLabel(roleKey: string): string {
-  return ({ chief_editor: '主编', lead_screenwriter: '快节奏编剧', second_screenwriter: '递进型编剧', deputy_editor: '副编' } as Record<string, string>)[roleKey] ?? roleKey;
+  return ({ chief_editor: '主编', lead_screenwriter: '编剧A', second_screenwriter: '编剧B', setting: '设定', deputy_editor: '副编' } as Record<string, string>)[roleKey] ?? roleKey;
 }
 
 function memberStatusLabel(status: NonNullable<SettingCollaborationData['panel']>['members'][number]['status']): string {

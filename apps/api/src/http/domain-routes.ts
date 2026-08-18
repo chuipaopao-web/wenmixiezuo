@@ -1394,7 +1394,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       return success(settingCollaborationCommands.start(scope, request.params.itemKey, request.body), request.id);
     }
   );
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; fragmentIds?: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       assertCreativeModelReady(config.modelRuntime);

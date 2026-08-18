@@ -157,6 +157,12 @@ export interface SettingCollaborationData {
       content: string;
       decisionId: string | null;
       createdAt: string;
+      fragments: Array<{
+        fragmentId: string;
+        fragmentNo: number;
+        text: string;
+        implicit: boolean;
+      }>;
     }>;
     members: Array<{
       agentId: string;
@@ -176,6 +182,18 @@ export interface SettingCollaborationData {
     updatedAt: string;
   };
   historyCount: number;
+  fusionDraft: null | {
+    taskId: string;
+    selectedFragmentIds: string[];
+    segments: Array<{
+      text: string;
+      source: 'fragment' | 'stitch';
+      fragmentId: string | null;
+      memberName: string | null;
+    }>;
+    content: string;
+    createdAt: string;
+  };
   impact: {
     changesCanon: false;
     changesManuscript: false;
@@ -1874,6 +1892,7 @@ export function startSettingCollaboration(bookId: string, itemKey: string, input
 
 export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
   proposalIds: string[];
+  fragmentIds?: string[];
   authorInputId?: string | null;
   idempotencyKey: string;
 }): Promise<SettingCollaborationCommandData> {

@@ -230,9 +230,9 @@ describe('建书REST流程', () => {
         taskId: created.kickoffTaskId,
         taskStatus: 'succeeded',
         proposals: expect.arrayContaining([
-          expect.objectContaining({ roleKey: 'chief_editor' }),
           expect.objectContaining({ roleKey: 'lead_screenwriter' }),
-          expect.objectContaining({ roleKey: 'second_screenwriter' })
+          expect.objectContaining({ roleKey: 'second_screenwriter' }),
+          expect.objectContaining({ roleKey: 'setting' })
         ])
       });
       expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
@@ -297,7 +297,7 @@ describe('建书REST流程', () => {
         WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'`)
         .all(context.config.ownerId, book.bookId, kickoffBrief.discussionId);
       expect(proposals).toEqual(expect.arrayContaining([
-        { roleKey: 'chief_editor' }, { roleKey: 'lead_screenwriter' }, { roleKey: 'second_screenwriter' }
+        { roleKey: 'lead_screenwriter' }, { roleKey: 'second_screenwriter' }, { roleKey: 'setting' }
       ]));
       expect(proposals).toHaveLength(3);
     } finally {

@@ -30,6 +30,8 @@ import {
   parseSettingOutlineDeposit,
   SettingOutlineWorkspaceService
 } from '../knowledge/setting-outline-workspace-service.js';
+import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
+import { parseFusionSegments, parseSettingProposalStructure } from '@wenmi/contracts';
 import {
   nextChapterPlanningNumber,
   parseMasterOutlineDepositOutput,
@@ -107,6 +109,8 @@ export class DiscussionPipelineService {
       discussionId: string;
       scopeText: string;
       purpose?: DiscussionPurpose;
+      settingItemKey?: string;
+      selectedFragmentIds?: string[];
       requestedChapterCount?: 1 | 3 | 4 | 5 | null;
     };
     const discussions = new DiscussionService(this.database, this.ids, this.clock);
@@ -525,7 +529,7 @@ export class DiscussionPipelineService {
       };
 
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
-      if (editor === undefined) throw new Error('讨论缺少当前活动主编');
+      if (editor === undefined && brief.purpose !== 'setting_proposal_panel') throw new Error('讨论缺少当前活动主编');
       const specialists = participants.filter((participant) => participant.agent_id !== task.assigned_agent_id);
       const independent: CollectedOpinion[] = [];
       for (const specialist of specialists) {
@@ -534,7 +538,7 @@ export class DiscussionPipelineService {
 
       if (brief.purpose === 'stage_outline_synthesis') {
         if (specialists.length !== 0) throw new Error('阶段剧情整理只能由活动主编执行');
-        const editorOpinion = await collectOpinion(editor, 'independent', []);
+        const editorOpinion = await collectOpinion(editor!, 'independent', []);
         if (!isValidMasterOutlineOutput(editorOpinion.output)) {
           throw new Error('活动主编没有提交有效的当前阶段剧情总纲，不能把普通回复伪装成可保存规划');
         }
@@ -551,8 +555,14 @@ export class DiscussionPipelineService {
       }
 
       if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel' || brief.purpose === 'stage_outline_panel') {
-        const editorOpinion = await collectOpinion(editor, 'independent', []);
-        const proposals = [editorOpinion, ...independent];
+        // 设定提案三席是编剧A、编剧B与设定成员；活动主编不提交提案，只在作者勾选后融合。
+        const editorOpinion = brief.purpose === 'setting_proposal_panel'
+          ? null
+          : await collectOpinion(editor!, 'independent', []);
+        const proposals = editorOpinion === null ? [...independent] : [editorOpinion, ...independent];
+        if (brief.purpose === 'setting_proposal_panel' && proposals.length !== 3) {
+          throw new Error('设定提案必须由编剧A、编剧B与设定三席各提交一份独立方案，不能伪装成已完成');
+        }
         const preparedProposals = proposals.map((opinion) => ({
           opinion,
           output: prepareEffectiveOutput(opinion.output)
@@ -580,6 +590,9 @@ export class DiscussionPipelineService {
           disagreements: [{ status: '保留三个独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
           impacts: [{ scope: brief.purpose === 'stage_outline_panel' ? 'stage_outline_candidate_only' : 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
         });
+        if (brief.purpose === 'setting_proposal_panel') {
+          this.persistSettingProposalFragments(scope, brief, preparedProposals);
+        }
         new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
         return { discussionId: brief.discussionId, decisionId, opinionCount: proposals.length };
       }
@@ -608,8 +621,8 @@ export class DiscussionPipelineService {
         }
       }
 
-      const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor.agent_id);
-      const editorOpinion = await collectOpinion(editor, 'independent', specialistEvidence);
+      const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor!.agent_id);
+      const editorOpinion = await collectOpinion(editor!, 'independent', specialistEvidence);
       if (masterOutlineDiscussion
         && !isValidMasterOutlineOutput(editorOpinion.output)) {
         throw new Error('活动主编回复缺少有效的剧情总纲落库结构，不能把普通讨论总结伪装成剧情总纲');
@@ -636,6 +649,23 @@ export class DiscussionPipelineService {
       });
       if (isGroupedSettingScope(brief.scopeText) && settingCandidates.length === 0) {
         throw new Error('活动主编回复缺少有效的“设定落库”结构，不能把整段讨论摘要伪装成多项设定');
+      }
+      if (brief.purpose === 'setting_synthesis'
+        && Array.isArray(brief.selectedFragmentIds) && brief.selectedFragmentIds.length > 0
+        && typeof brief.settingItemKey === 'string' && settingCandidates.length > 0) {
+        const fusionFields = parseModelJsonFields(editorOpinion.output);
+        const segments = fusionFields === null ? null : parseFusionSegments(fusionFields.fusionSegments);
+        if (segments === null) {
+          throw new Error('活动主编回复缺少有效的fusionSegments段级来源标记，不能把未标注的文本伪装成碎片融合稿');
+        }
+        new SettingCollaborationRepository(this.database).saveFusionDraft(scope, {
+          itemKey: brief.settingItemKey,
+          taskId,
+          selectedFragmentIds: brief.selectedFragmentIds,
+          segmentsJson: JSON.stringify(segments),
+          contentText: settingCandidates[0]!.content!,
+          now: this.clock.now().toISOString()
+        });
       }
       for (const participant of participants.filter((item) => item.category === 'specialist')) {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
@@ -681,6 +711,75 @@ export class DiscussionPipelineService {
     }
   }
 
+  /**
+   * 把三席提案的结构化碎片入库；解析失败的提案以整份方案作为单条兜底碎片
+   * 并标记 implicit，绝不把解析失败伪装成结构化成功。
+   */
+  private persistSettingProposalFragments(
+    scope: BookScope,
+    brief: { discussionId: string; settingItemKey?: string },
+    preparedProposals: Array<{ opinion: CollectedOpinion; output: { visibleContent: string } }>
+  ): void {
+    if (typeof brief.settingItemKey !== 'string' || brief.settingItemKey.length === 0) return;
+    const repository = new SettingCollaborationRepository(this.database);
+    const now = this.clock.now().toISOString();
+    const rows: Array<{
+      fragmentId: string; itemKey: string; discussionId: string; proposalId: string;
+      memberName: string; roleKey: string | null; fragmentNo: number; text: string;
+      implicit: boolean; now: string;
+    }> = [];
+    for (const { opinion, output } of preparedProposals) {
+      const fields = parseModelJsonFields(opinion.output);
+      const structure = fields === null ? null : parseSettingProposalStructure(fields);
+      if (structure !== null) {
+        for (const fragment of structure.fragments) {
+          rows.push({
+            fragmentId: this.ids.next(),
+            itemKey: brief.settingItemKey,
+            discussionId: brief.discussionId,
+            proposalId: opinion.opinionId,
+            memberName: opinion.role,
+            roleKey: opinion.roleKey,
+            fragmentNo: fragment.fragmentNo,
+            text: fragment.text,
+            implicit: false,
+            now
+          });
+        }
+        continue;
+      }
+      const fallback = output.visibleContent.trim().slice(0, 500);
+      if (fallback.length === 0) continue;
+      rows.push({
+        fragmentId: this.ids.next(),
+        itemKey: brief.settingItemKey,
+        discussionId: brief.discussionId,
+        proposalId: opinion.opinionId,
+        memberName: opinion.role,
+        roleKey: opinion.roleKey,
+        fragmentNo: 1,
+        text: fallback,
+        implicit: true,
+        now
+      });
+    }
+    if (rows.length > 0) repository.saveProposalFragments(scope, rows);
+  }
+
+}
+
+/** 从模型JSON输出中取出fields对象；解析失败返回null，不做任何猜测。 */
+function parseModelJsonFields(raw: string): Record<string, unknown> | null {
+  try {
+    const root = JSON.parse(raw) as unknown;
+    if (typeof root !== 'object' || root === null || Array.isArray(root)) return null;
+    const fields = (root as Record<string, unknown>).fields;
+    return typeof fields === 'object' && fields !== null && !Array.isArray(fields)
+      ? fields as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function planningHierarchySources(
@@ -1227,11 +1326,14 @@ function buildDiscussionPrompt(input: {
         ? '策划理念必须用小白作者也能读懂的自然中文，明确回答：一、这本书为什么值得写；二、主要想探讨什么；三、准备给读者什么独特体验。三者要形成同一个创作机制，不能只是标签、广告语或剧情梗概。'
         : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的设定，不提前规定具体剧情结果，也不扩写剧情总纲、章纲或正文。`,
       participant.role_key === 'lead_screenwriter'
-        ? '侧重人物欲望、关系变化和长期可持续的戏剧机制。'
+        ? '侧重爽点、强冲突和持续追读张力：这项设定怎么让读者看得爽、冲突更硬、更想追下去。'
         : participant.role_key === 'second_screenwriter'
-          ? '侧重打破最直觉的同类套路，提出仍符合人物因果的独特体验。'
-          : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
+          ? '侧重因果链与逻辑闭环：这项设定的前因后果、代价和边界是否前后一致、能不能被剧情稳定执行。'
+          : participant.role_key === 'setting'
+            ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
+            : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
       '只写一个候选，正文建议80至220字；不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
+      '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成3至6条可以独立勾选的具体设定主张，每条是一句能独立成立的话，作者会逐条勾选后交给主编融合）。',
       AUTHOR_PLAIN_LANGUAGE_RULES,
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
     ].join('\n');
@@ -1249,14 +1351,19 @@ function buildDiscussionPrompt(input: {
       isMasterOutlineWorkshop
         ? '这是剧情总纲专项讨论。只能综合两位编剧已经提交并通过结构校验的完整阶段方案；按连续章节范围规划全书阶段，写清每阶段的主线遭遇、解决方式、结果、起承转合、阶段总结、待回收信息与伏笔、后续方向。不得凭空补造第三套通用总纲，不得写逐章事件。'
         : isGroupedSettingWorkshop
-            ? '这是设定成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
+            ? scopeText.includes('"fragmentId"')
+              ? '这是设定碎片融合。作者已经逐条勾选碎片；每条勾选碎片的原意必须保留，只能做最小必要衔接，不得混入未勾选内容。'
+              : '这是设定成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
               ? '现在只做方向推演：综合编剧意见后先给一个明确主推荐，写清收益、代价、因果风险和人物影响；只有确有重大取舍时保留一个结构不同的备选。最多提出1个会改变重大方向的必要问题；其余未知项用可逆假设推进。不得估算章节数，不得生成章纲，不得安排主笔开写。'
               : purpose === 'locked_planning'
                 ? '方向已经由老板锁定。请综合两位编剧的独立跨度估算，形成故事弧目标、起止状态、关键转折，并只细化未来1至3章；远期不得展开成整批僵硬章纲。'
                 : '请明确回应老板，先分析老板的真实意图，再给出一个主推荐、简短理由、必要风险和可执行下一步。不得把判断责任变成连续问题；资料足够时直接形成可确认方案。',
       isGroupedSettingWorkshop
-        ? `在同一个JSON对象的workflowArtifact字段输出设定落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
+        ? (scopeText.includes('"fragmentId"')
+          ? '在同一个JSON对象的fields中输出fusionSegments数组：[{"text":"融合稿的一段原文","source":"fragment或stitch","fragmentId":"来源碎片ID，衔接段留空","memberName":"来源成员名，衔接段留空"}]。fusionSegments按顺序拼接必须等于落库content全文；作者勾选碎片对应的段source=fragment并带fragmentId；你补写的衔接段source=stitch。'
+          : '')
+          + `在同一个JSON对象的workflowArtifact字段输出设定落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
         : '',
       isMasterOutlineWorkshop
         ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"plotPatterns":{"primary":{"id":"模式ID可省略","name":"主剧情模式","reason":"为什么适合本阶段"},"supporting":[{"name":"辅助模式","reason":"承担什么作用"}]},"dramaticQuestion":"这段剧情最终必须回答的核心问题","stageGoal":"本阶段必须完成的可验证目标","startState":"阶段开始时人物、关系和局势状态","conflictDesign":{"surface":"表层冲突","underlying":"深层冲突","stakes":"成功与失败牵动什么","failureCost":"失败的具体代价"},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"completionCriteria":["满足什么才算本段写完"],"hardConstraints":["不得偏移的事实、人物和因果边界"],"creativeFreedom":["允许主笔自由发挥的空间"],"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。剧情模式只是软参考，不得照搬公式；反向拆解也必须用同一结构总结真实正文，而不是事后硬套模式。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留。主线、起承转合、结束验收条件和防偏移边界必须具体。'

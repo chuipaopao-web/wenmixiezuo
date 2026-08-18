@@ -72,7 +72,7 @@ export class SettingCollaborationCommandService {
   public synthesize(
     scope: BookScope,
     itemKey: string,
-    input: { proposalIds: string[]; authorInputId?: string | null; idempotencyKey: string }
+    input: { proposalIds: string[]; fragmentIds?: string[]; authorInputId?: string | null; idempotencyKey: string }
   ): CommandResult {
     assertBookScope(scope);
     this.preferChiefWhenSafe(scope);
@@ -108,11 +108,24 @@ export class SettingCollaborationCommandService {
           distinctModelCount: distinctModels.size
         }, false, 409);
     }
+    const fragmentIds = [...new Set(input.fragmentIds ?? [])];
+    const selectedFragments = fragmentIds.length === 0 ? [] : this.repository.fragmentsByIds(scope, fragmentIds).map((row) => {
+      if (row.discussion_id !== panel.discussion_id || row.item_key !== itemKey) {
+        throw new DomainError(errorCodes.validation, '勾选的碎片不存在、已过期或不属于当前设定项');
+      }
+      return { fragmentId: row.fragment_id, memberName: row.member_name, text: row.fragment_text };
+    });
+    if (fragmentIds.length > 0 && selectedFragments.length !== fragmentIds.length) {
+      throw new DomainError(errorCodes.validation, '勾选的碎片不存在、已过期或不属于当前设定项');
+    }
     return this.scheduleSynthesis(scope, guidance, {
       authorInputId: input.authorInputId ?? null,
       idempotencyKey: input.idempotencyKey,
       selected,
-      instruction: '只依据作者明确选中的方案和补充；有冲突时说明取舍，不引入未选方案。'
+      selectedFragments,
+      instruction: selectedFragments.length > 0
+        ? '只依据作者勾选的碎片和补充原话融合；每条碎片的原意必须保留；碎片之间缺衔接时由你补写最短衔接，并逐段标注来源。'
+        : '只依据作者明确选中的方案和补充；有冲突时说明取舍，不引入未选方案。'
     });
   }
 
@@ -142,6 +155,7 @@ export class SettingCollaborationCommandService {
       authorInputId: string | null;
       idempotencyKey: string;
       selected: Array<{ proposalId: string; memberName: string; content: string }>;
+      selectedFragments?: Array<{ fragmentId: string; memberName: string; text: string }>;
       instruction: string;
     }
   ): CommandResult {
@@ -156,6 +170,7 @@ export class SettingCollaborationCommandService {
       '已经确认的前置设定：' + JSON.stringify(guidance.confirmedContext),
       '现有候选：' + (guidance.previousCandidate ?? '暂无'),
       '作者选中的独立方案：' + JSON.stringify(input.selected),
+      '作者勾选的碎片：' + JSON.stringify(input.selectedFragments ?? []),
       '作者本轮原话：' + (authorText || '没有额外补充'),
       input.instruction,
       '只生成当前设定项的一份待确认版本；不得生成卷纲、事件、章纲或正文。'
@@ -167,7 +182,8 @@ export class SettingCollaborationCommandService {
       scopeText,
       authorInputIds: input.authorInputId === null ? [] : [input.authorInputId],
       idempotencyKey: 'setting-synthesis:' + guidance.itemKey + ':' + normalizeKey(input.idempotencyKey),
-      includeScreenwriters: false
+      includeScreenwriters: false,
+      selectedFragmentIds: (input.selectedFragments ?? []).map((fragment) => fragment.fragmentId)
     });
   }
 
@@ -181,6 +197,7 @@ export class SettingCollaborationCommandService {
       authorInputIds: string[];
       idempotencyKey: string;
       includeScreenwriters: boolean;
+      selectedFragmentIds?: string[];
     }
   ): CommandResult {
     let resolvedIdempotencyKey = input.idempotencyKey;
@@ -195,17 +212,19 @@ export class SettingCollaborationCommandService {
     }
 
     const lease = this.requireEditorLease(scope);
-    const participants = [{
-      agentId: lease.agentId,
-      reason: input.includeScreenwriters ? '活动主编主持独立提案' : '活动主编按作者选择整理待确认版本'
-    }];
-    if (input.includeScreenwriters) {
-      const screenwriters = this.repository.screenwriterAgentIds(scope);
-      if (screenwriters.length !== 2) throw new Error('设定独立提案需要两名可用编剧');
-      participants.push(...screenwriters.map((agentId) => ({
-        agentId,
-        reason: '编剧独立构思，不查看其他成员答案'
-      })));
+    // 提案三席是编剧A（强冲突）、编剧B（重因果）与设定（规则严谨）；
+    // 活动主编不提交提案，只在作者勾选后负责融合。
+    const participants = input.includeScreenwriters
+      ? this.repository.proposalPanelAgentIds(scope).map((seat) => ({
+        agentId: seat.agentId,
+        reason: '提案席独立构思，不查看其他成员答案'
+      }))
+      : [{
+        agentId: lease.agentId,
+        reason: '活动主编按作者选择整理待确认版本'
+      }];
+    if (input.includeScreenwriters && participants.length !== 3) {
+      throw new Error('设定独立提案需要编剧A、编剧B与设定三席都可用');
     }
 
     const budgetId = this.repository.activeBudgetId(scope);
@@ -213,7 +232,7 @@ export class SettingCollaborationCommandService {
     const discussion = new DiscussionService(this.database, this.ids, this.clock).create(scope, {
       type: input.type,
       scopeText: input.scopeText,
-      createdByAgentId: lease.agentId,
+      createdByAgentId: input.includeScreenwriters && participants.length > 0 ? participants[0]!.agentId : lease.agentId,
       participants
     });
 
@@ -232,6 +251,7 @@ export class SettingCollaborationCommandService {
         purpose: input.purpose,
         settingItemKey: input.itemKey,
         authorInputIds: input.authorInputIds,
+        selectedFragmentIds: input.selectedFragmentIds ?? [],
         requestedChapterCount: null
       }
     });
@@ -275,16 +295,14 @@ export class SettingCollaborationCommandService {
   }
 
   private ensureDistinctPanelModels(scope: BookScope): EditorLease {
-    const screenwriters = this.repository.screenwriterAgentIds(scope);
-    if (screenwriters.length !== 2) {
-      throw new DomainError(errorCodes.agentCapabilityUnavailable, '当前没有两名可用编剧，暂时不能生成三份独立方案。', {}, false, 409);
+    const proposalSeats = this.repository.proposalPanelAgentIds(scope);
+    if (proposalSeats.length !== 3) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable, '当前提案三席（编剧A、编剧B、设定）不齐，暂时不能生成三份独立方案。', {}, false, 409);
     }
-    const modelProfiles = (editorAgentId: string) => {
-      const participants = [editorAgentId, ...screenwriters];
-      return this.repository.agentModelProfiles(scope, participants);
-    };
+    const seatIds = proposalSeats.map((seat) => seat.agentId);
+    const modelProfiles = () => this.repository.agentModelProfiles(scope, seatIds);
     let lease = this.requireEditorLease(scope);
-    const activeProfiles = modelProfiles(lease.agentId);
+    const activeProfiles = modelProfiles();
     // 纯确定性测试运行时只有一个本地假模型。它用于验证业务编排，不得伪装成生产模型独立性证据；
     // 真实订阅模型（以及测试中显式构造的非本地模型）则必须严格满足三模型独立。
     if (activeProfiles.length === 3
@@ -292,16 +310,16 @@ export class SettingCollaborationCommandService {
         && profile.plan_type === 'deterministic')) {
       return lease;
     }
-    const distinctCount = (editorAgentId: string): number => new Set(
-      modelProfiles(editorAgentId).map((profile) => `${profile.provider}/${profile.model_id}`)
+    const distinctCount = (): number => new Set(
+      modelProfiles().map((profile) => `${profile.provider}/${profile.model_id}`)
     ).size;
-    if (distinctCount(lease.agentId) === 3) return lease;
+    if (distinctCount() === 3) return lease;
     const chiefAgentId = this.repository.chiefEditorAgentId(scope);
     if (chiefAgentId !== undefined && chiefAgentId !== lease.agentId) {
       new EditorLeaseService(this.database, this.ids, this.clock).safeRevertToChief(scope, chiefAgentId);
       lease = this.requireEditorLease(scope);
     }
-    if (distinctCount(lease.agentId) !== 3) {
+    if (distinctCount() !== 3) {
       throw new DomainError(errorCodes.agentCapabilityUnavailable,
         '当前三席里有成员使用相同模型，暂时不能伪装成三种独立意见。请等待主编恢复后重试。', {
           activeEditorAgentId: lease.agentId,
@@ -323,7 +341,7 @@ function buildProposalScope(guidance: SettingGuidanceSnapshot, authorText: strin
     '故事方向参考：' + guidance.storyDirectionReference,
     '已经确认的前置设定：' + JSON.stringify(guidance.confirmedContext),
     '作者本轮原话：' + (authorText || '没有额外补充'),
-    '任务：活动主编和两名编剧分别独立思考，互不查看、讨论或综合其他成员答案。每人只提交一份自己真正推荐、可供作者选择的明确设定方案。',
+    '任务：编剧A、编剧B与设定成员分别独立思考，互不查看、讨论或综合其他成员答案。每人只提交一份自己真正推荐、可供作者选择的明确设定方案，并拆成作者可逐条勾选的碎片。',
     '故事方向只是参考；只讨论当前设定项，不得生成卷纲、事件、章纲或正文。内容不会自动合并，也不会自动确认。'
   ].join('\n');
 }

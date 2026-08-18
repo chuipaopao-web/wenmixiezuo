@@ -27,6 +27,12 @@ export interface SettingCollaborationView {
       content: string;
       decisionId: string | null;
       createdAt: string;
+      fragments: Array<{
+        fragmentId: string;
+        fragmentNo: number;
+        text: string;
+        implicit: boolean;
+      }>;
     }>;
     members: Array<{
       agentId: string;
@@ -46,6 +52,18 @@ export interface SettingCollaborationView {
     updatedAt: string;
   };
   historyCount: number;
+  fusionDraft: null | {
+    taskId: string;
+    selectedFragmentIds: string[];
+    segments: Array<{
+      text: string;
+      source: 'fragment' | 'stitch';
+      fragmentId: string | null;
+      memberName: string | null;
+    }>;
+    content: string;
+    createdAt: string;
+  };
   impact: {
     changesCanon: false;
     changesManuscript: false;
@@ -67,6 +85,8 @@ export class SettingCollaborationService {
     const panel = this.repository.latestPanel(scope, itemKey);
     const revisionTask = this.repository.latestRevisionTask(scope, itemKey);
     const proposalRows = panel === undefined ? [] : this.repository.proposals(scope, panel.discussion_id);
+    const fragmentRows = panel === undefined ? [] : this.repository.fragmentsByDiscussion(scope, panel.discussion_id);
+    const fusionRow = this.repository.latestFusionDraft(scope, itemKey);
     const proposals = proposalRows.map((proposal, index) => ({
       number: index + 1,
       proposalId: proposal.proposal_id,
@@ -77,7 +97,15 @@ export class SettingCollaborationService {
       modelId: proposal.model_id,
       content: proposalContent(proposal.content),
       decisionId: proposal.decision_id,
-      createdAt: proposal.created_at
+      createdAt: proposal.created_at,
+      fragments: fragmentRows
+        .filter((fragment) => fragment.proposal_id === proposal.proposal_id)
+        .map((fragment) => ({
+          fragmentId: fragment.fragment_id,
+          fragmentNo: fragment.fragment_no,
+          text: fragment.fragment_text,
+          implicit: fragment.implicit === 1
+        }))
     }));
     return {
       item,
@@ -111,6 +139,18 @@ export class SettingCollaborationService {
         updatedAt: revisionTask.updated_at
       },
       historyCount: this.repository.panelCount(scope, itemKey),
+      fusionDraft: fusionRow === undefined ? null : {
+        taskId: fusionRow.task_id,
+        selectedFragmentIds: JSON.parse(fusionRow.selected_fragment_ids_json) as string[],
+        segments: JSON.parse(fusionRow.segments_json) as Array<{
+          text: string;
+          source: 'fragment' | 'stitch';
+          fragmentId: string | null;
+          memberName: string | null;
+        }>,
+        content: fusionRow.content_text,
+        createdAt: fusionRow.created_at
+      },
       impact: {
         changesCanon: false,
         changesManuscript: false,

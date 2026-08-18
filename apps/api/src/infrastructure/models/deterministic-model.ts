@@ -564,14 +564,16 @@ function deterministicDiscussion(prompt: string): string | null {
   if (settingProposalMatch !== null) {
     const base = deterministicDiscussionReply();
     const itemLabel = settingProposalMatch[1] ?? '当前设定项';
-    if (prompt.includes('人物欲望、关系变化')) {
+    if (prompt.includes('人物欲望、关系变化') || prompt.includes('侧重爽点、强冲突')) {
       base.fields.answer = itemLabel === '策划理念'
         ? '让人物在互相拯救与互相利用之间不断重新选择，借关系变化讨论爱能否承受真相，并给读者兼具心疼、悬念和主动成长的体验。'
-        : `${itemLabel}从人物真正想要什么开始写，再说明他会怎么做、不能做什么，以及这样做要付出什么代价。`;
-    } else if (prompt.includes('打破最直觉的同类套路')) {
+        : `${itemLabel}从冲突最硬的角度来定：先让人物立刻被阻力咬住，再让每次推进都付出看得见的代价，让读者一路有爽点和追读张力。`;
+    } else if (prompt.includes('打破最直觉的同类套路') || prompt.includes('侧重因果链')) {
       base.fields.answer = itemLabel === '策划理念'
         ? '把看似被拯救的一方写成更早看清真相的人，借认知错位讨论善意是否也会成为控制，并让读者在反转后重新理解两个人的每次靠近。'
-        : `${itemLabel}不走同类题材最常见的路，让人物因为知道的信息不同而作出不同选择，而且每个选择都会带来现实后果。`;
+        : `${itemLabel}先把因果链说清：为什么会这样、能做到什么、不能做到什么、代价是什么，保证后文每一步都有前因支撑。`;
+    } else if (prompt.includes('侧重规则严谨')) {
+      base.fields.answer = `${itemLabel}按可核验的规则来写：定义清楚、边界清楚、和已确认设定不冲突，后文任何时候回查都能对得上。`;
     } else {
       base.fields.answer = itemLabel === '策划理念'
         ? '用一段必须付出真实代价的双向救赎，讨论人在被欺骗后是否仍能自主选择信任，让读者既获得现实共鸣，也持续期待关系真相被逐层揭开。'
@@ -583,6 +585,19 @@ function deterministicDiscussion(prompt: string): string | null {
     base.fields.questions = [];
     base.fields.nextStep = '等待作者选择、组合或提交自己的版本';
     base.fields.details = '';
+    const sentences = String(base.fields.answer).split('。')
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length >= 4);
+    while (sentences.length < 3) sentences.push(`${itemLabel}的其余细节随剧情需要再补，不提前写死`);
+    const proposalFields = base.fields as typeof base.fields & {
+      benefits?: string[];
+      costs?: string[];
+      fragments?: Array<{ fragmentNo: number; text: string }>;
+    };
+    proposalFields.benefits = [`让“${itemLabel}”直接支撑本书的核心看点`, '作者确认后全组按同一口径执行'];
+    proposalFields.costs = ['确认后后续设定与剧情必须与它保持一致', '写得太满会压缩后续创作空间，所以只定必要部分'];
+    proposalFields.fragments = sentences.slice(0, 3)
+      .map((sentence, index) => ({ fragmentNo: index + 1, text: `${sentence}。` }));
     return JSON.stringify(base);
   }
   if (['【设定成组讨论资料包】', '【设定' + '大纲成组讨论资料包】'].some((marker) => prompt.includes(marker))) {
@@ -603,6 +618,7 @@ function deterministicDiscussion(prompt: string): string | null {
     base.fields.answer = '已按作者选中的独立方案和补充，整理为一份可确认的当前设定。';
     const fields = base.fields as typeof base.fields & {
       workflowArtifact?: { type: 'setting_outline'; payload: { items: Array<{ itemKey: string; content: string }> } };
+      fusionSegments?: Array<{ text: string; source: string; fragmentId?: string; memberName?: string }>;
     };
     fields.workflowArtifact = {
       type: 'setting_outline',
@@ -615,6 +631,28 @@ function deterministicDiscussion(prompt: string): string | null {
         }))
       }
     };
+    const fragmentsLine = prompt.match(/作者勾选的碎片：([^\n]+)/u)?.[1];
+    let selectedFragments: Array<{ fragmentId?: unknown; memberName?: unknown; text?: unknown }> = [];
+    try {
+      const parsed = JSON.parse(fragmentsLine ?? '[]') as unknown;
+      if (Array.isArray(parsed)) selectedFragments = parsed as typeof selectedFragments;
+    } catch {
+      selectedFragments = [];
+    }
+    const usableFragments = selectedFragments.filter((fragment) => (
+      typeof fragment.fragmentId === 'string' && typeof fragment.text === 'string'
+    ));
+    if (usableFragments.length > 0) {
+      fields.fusionSegments = [
+        ...usableFragments.map((fragment) => ({
+          text: fragment.text as string,
+          source: 'fragment',
+          fragmentId: fragment.fragmentId as string,
+          ...(typeof fragment.memberName === 'string' ? { memberName: fragment.memberName } : {})
+        })),
+        { text: '以上按作者勾选的碎片融合为一项设定，衔接处由主编补写。', source: 'stitch' }
+      ];
+    }
     return JSON.stringify(base);
   }
   if (!prompt.includes('小说创作问题') && !prompt.includes('当前书籍的活动主编')) return null;

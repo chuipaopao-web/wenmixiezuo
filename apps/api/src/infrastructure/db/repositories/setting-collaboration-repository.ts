@@ -57,6 +57,28 @@ export interface SettingAgentModelProfileRow {
   plan_type: string | null;
 }
 
+export interface SettingProposalFragmentRow {
+  fragment_id: string;
+  item_key: string;
+  discussion_id: string;
+  proposal_id: string;
+  member_name: string;
+  role_key: string | null;
+  fragment_no: number;
+  fragment_text: string;
+  implicit: number;
+  created_at: string;
+}
+
+export interface SettingFusionDraftRow {
+  item_key: string;
+  task_id: string;
+  selected_fragment_ids_json: string;
+  segments_json: string;
+  content_text: string;
+  created_at: string;
+}
+
 export class SettingCollaborationRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -147,6 +169,71 @@ export class SettingCollaborationRepository {
       return { agent_id: row.agent_id, provider: row.provider, model_id: row.model_id,
         plan_type: typeof parameters.plan === 'string' ? parameters.plan : null };
     }).filter((profile): profile is SettingAgentModelProfileRow => profile !== undefined);
+  }
+
+  public roleAgentId(scope: BookScope, roleKey: string): string | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(
+      'SELECT a.agent_id FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key = ? LIMIT 1'
+    ).get(scope.ownerId, scope.bookId, roleKey) as { agent_id: string } | undefined;
+    return row?.agent_id;
+  }
+
+  public proposalPanelAgentIds(scope: BookScope): Array<{ agentId: string; roleKey: string }> {
+    assertBookScope(scope);
+    const rows = this.database.prepare(
+      "SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, a.agent_id"
+    ).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
+    return rows.map((row) => ({ agentId: row.agent_id, roleKey: row.role_key }));
+  }
+
+  public saveProposalFragments(scope: BookScope, rows: Array<{
+    fragmentId: string; itemKey: string; discussionId: string; proposalId: string;
+    memberName: string; roleKey: string | null; fragmentNo: number; text: string;
+    implicit: boolean; now: string;
+  }>): void {
+    assertBookScope(scope);
+    const statement = this.database.prepare(
+      'INSERT OR IGNORE INTO setting_proposal_fragments (fragment_id, owner_id, book_id, item_key, discussion_id, proposal_id, member_name, role_key, fragment_no, fragment_text, implicit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of rows) {
+      statement.run(row.fragmentId, scope.ownerId, scope.bookId, row.itemKey, row.discussionId,
+        row.proposalId, row.memberName, row.roleKey, row.fragmentNo, row.text, row.implicit ? 1 : 0, row.now);
+    }
+  }
+
+  public fragmentsByDiscussion(scope: BookScope, discussionId: string): SettingProposalFragmentRow[] {
+    assertBookScope(scope);
+    return this.database.prepare(
+      'SELECT fragment_id, item_key, discussion_id, proposal_id, member_name, role_key, fragment_no, fragment_text, implicit, created_at FROM setting_proposal_fragments WHERE owner_id = ? AND book_id = ? AND discussion_id = ? ORDER BY proposal_id, fragment_no'
+    ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingProposalFragmentRow[];
+  }
+
+  public fragmentsByIds(scope: BookScope, fragmentIds: string[]): SettingProposalFragmentRow[] {
+    assertBookScope(scope);
+    if (fragmentIds.length === 0) return [];
+    const marks = fragmentIds.map(() => '?').join(',');
+    return this.database.prepare(
+      'SELECT fragment_id, item_key, discussion_id, proposal_id, member_name, role_key, fragment_no, fragment_text, implicit, created_at FROM setting_proposal_fragments WHERE owner_id = ? AND book_id = ? AND fragment_id IN (' + marks + ') ORDER BY proposal_id, fragment_no'
+    ).all(scope.ownerId, scope.bookId, ...fragmentIds) as unknown as SettingProposalFragmentRow[];
+  }
+
+  public saveFusionDraft(scope: BookScope, input: {
+    itemKey: string; taskId: string; selectedFragmentIds: string[];
+    segmentsJson: string; contentText: string; now: string;
+  }): void {
+    assertBookScope(scope);
+    this.database.prepare(
+      'INSERT INTO setting_fusion_drafts (owner_id, book_id, item_key, task_id, selected_fragment_ids_json, segments_json, content_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(scope.ownerId, scope.bookId, input.itemKey, input.taskId,
+      JSON.stringify(input.selectedFragmentIds), input.segmentsJson, input.contentText, input.now);
+  }
+
+  public latestFusionDraft(scope: BookScope, itemKey: string): SettingFusionDraftRow | undefined {
+    assertBookScope(scope);
+    return this.database.prepare(
+      'SELECT item_key, task_id, selected_fragment_ids_json, segments_json, content_text, created_at FROM setting_fusion_drafts WHERE owner_id = ? AND book_id = ? AND item_key = ? ORDER BY created_at DESC, task_id DESC LIMIT 1'
+    ).get(scope.ownerId, scope.bookId, itemKey) as SettingFusionDraftRow | undefined;
   }
 
   public chiefEditorAgentId(scope: BookScope): string | undefined {

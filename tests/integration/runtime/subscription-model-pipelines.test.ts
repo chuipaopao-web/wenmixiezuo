@@ -211,12 +211,17 @@ describe('订阅与套餐模型真实流水线接线', () => {
       FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-        AND r.role_key IN ('chief_editor', 'lead_screenwriter', 'second_screenwriter')`)
+        AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting')`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
-    const editor = members.find((member) => member.role_key === 'chief_editor')!;
+    const editor = context.database.prepare(`SELECT a.agent_id
+      FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key = 'chief_editor'`)
+      .get(scope.ownerId, scope.bookId) as { agent_id: string };
+    const discussionHost = members.find((member) => member.role_key === 'lead_screenwriter')!;
     const discussion = new DiscussionService(context.database, ids, clock).create(scope, {
       type: 'collaborative', scopeText: '【设定项目三席独立提案】\\n当前设定项编号：creative-concept',
-      createdByAgentId: editor.agent_id,
+      createdByAgentId: discussionHost.agent_id,
       participants: members.map((member) => ({ agentId: member.agent_id, reason: '独立提出设定方案' }))
     });
     const budget = context.database.prepare('SELECT budget_id FROM budgets WHERE owner_id = ? AND book_id = ? LIMIT 1')
@@ -241,7 +246,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
       WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'
       ORDER BY r.role_key`).all(scope.ownerId, scope.bookId, scheduled.discussionId);
     expect(proposalRoles).toEqual(expect.arrayContaining([
-      { role_key: 'chief_editor' }, { role_key: 'lead_screenwriter' }, { role_key: 'second_screenwriter' }
+      { role_key: 'lead_screenwriter' }, { role_key: 'second_screenwriter' }, { role_key: 'setting' }
     ]));
     prepareBookForWriting(context, scope, ids, clock, 1);
 

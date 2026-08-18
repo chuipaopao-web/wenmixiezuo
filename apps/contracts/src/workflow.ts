@@ -717,6 +717,78 @@ function omitNullFusionNotes(value: unknown): { fusionNotes?: FusionNotes } {
   return notes === null ? {} : { fusionNotes: notes };
 }
 
+/**
+ * 设定类目讨论的结构化输出合同（批5）。
+ * 提案席输出：方案正文 answer 之外，必须带 benefits（好处）、costs（代价）和
+ * fragments（作者可逐条勾选的碎片，每条是一句能独立成立的具体设定主张）。
+ */
+export interface SettingProposalStructure {
+  benefits: string[];
+  costs: string[];
+  fragments: Array<{ fragmentNo: number; text: string }>;
+}
+
+export function parseSettingProposalStructure(fields: Record<string, unknown>): SettingProposalStructure | null {
+  const fragments = parseFragmentList(fields.fragments);
+  if (fragments === null) return null;
+  return {
+    benefits: typeof fields.benefits === 'undefined' ? [] : requireUniqueTextArray(fields.benefits, '方案好处'),
+    costs: typeof fields.costs === 'undefined' ? [] : requireUniqueTextArray(fields.costs, '方案代价'),
+    fragments
+  };
+}
+
+function parseFragmentList(value: unknown): SettingProposalStructure['fragments'] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const fragments: SettingProposalStructure['fragments'] = [];
+  for (const item of value) {
+    if (typeof item === 'string') {
+      const text = item.trim();
+      if (text.length < 4) return null;
+      fragments.push({ fragmentNo: fragments.length + 1, text });
+      continue;
+    }
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    const text = typeof record.text === 'string' ? record.text.trim() : '';
+    if (text.length < 4) return null;
+    fragments.push({ fragmentNo: fragments.length + 1, text });
+  }
+  return fragments;
+}
+
+/**
+ * 主编融合稿的段级来源标记：fragment 段来自作者勾选的碎片，
+ * stitch 段是主编补写的衔接（前端标绿）。source 缺失时按 stitch 处理，
+ * 避免模型漏标导致作者误以为某段来自已勾选碎片。
+ */
+export interface FusionSegment {
+  text: string;
+  source: 'fragment' | 'stitch';
+  fragmentId: string | null;
+  memberName: string | null;
+}
+
+export function parseFusionSegments(value: unknown): FusionSegment[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const segments: FusionSegment[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    const text = typeof record.text === 'string' ? record.text.trim() : '';
+    if (text.length === 0) return null;
+    const fragmentId = typeof record.fragmentId === 'string' && record.fragmentId.trim().length > 0
+      ? record.fragmentId.trim()
+      : null;
+    const memberName = typeof record.memberName === 'string' && record.memberName.trim().length > 0
+      ? record.memberName.trim()
+      : null;
+    const source = record.source === 'fragment' && fragmentId !== null ? 'fragment' : 'stitch';
+    segments.push({ text, source, fragmentId: source === 'fragment' ? fragmentId : null, memberName });
+  }
+  return segments;
+}
+
 function requireText(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`${field}不能为空。`);
   return value.trim();

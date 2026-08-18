@@ -34,6 +34,8 @@
 
 - `setting_outline_workspace`：当前设定项、状态、候选和确认结果。
 - `setting_outline_item_versions`：设定项不可变版本链；每次确认追加一条版本并记录来源（manual/guidance/discussion），当前生效内容仍以 `setting_outline_workspace` 为准。
+- `setting_proposal_fragments`：设定类目讨论三席提案拆出的可勾选碎片；按提案落库，解析失败时以整份方案作单条 implicit 碎片兜底。
+- `setting_fusion_drafts`：主编按作者勾选碎片产生的融合稿；保存所选碎片、段级来源标记（fragment/stitch）与融合正文，按设定项取最新一份。
 - `discussions`、`discussion_participants`、`discussion_opinions`、`discussion_decisions`：对象化AI提案、独立意见与主编整理记录。
 - 独立提案保存真实Agent、模型快照和输出；作者选择、组合、修订和确认另行记录。
 

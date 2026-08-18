@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { DiscussionPipelineService } from '../../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
 import { SettingCollaborationService } from '../../../apps/api/src/application/knowledge/setting-collaboration-service.js';
 import { SettingCollaborationCommandService } from '../../../apps/api/src/application/knowledge/setting-collaboration-command-service.js';
@@ -10,6 +11,8 @@ import {
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { SettingCollaborationRepository } from '../../../apps/api/src/infrastructure/db/repositories/setting-collaboration-repository.js';
+import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
@@ -293,5 +296,79 @@ describe('设定页内协作读模型', () => {
     expect(brief.scopeText).toContain(storyDirection);
     expect(brief.scopeText).toContain(initialMap);
     expect(brief.scopeText).toContain('末尾锚点');
+  });
+
+  it('提案三席产出可勾选碎片，主编按勾选碎片融合并保留段级来源', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '碎片融合书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '沈砚', age: '二十岁', background: '边城镖师', personalities: ['沉稳'] }],
+        storyDirection: '沈砚护送一枚关乎边城存亡的旧印，沿途识破各方围截。', worldBackground: '架空王朝边塞。',
+        openingBackground: '边城镖局深夜接下一单不能拒的镖。', stageOne: { start: '接镖', development: '连破埋伏', end: '发现印中密信' },
+        fullBookOutline: '沈砚一路护送旧印入京，揭开朝堂旧案。', mainTags: ['仙侠', '权谋'], auxiliaryTags: [], storyTraits: ['智斗'],
+        customTags: [], initialMap: '边城', mustFollow: ['胜利必须付出代价']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.ensureInitialized(scope);
+    const itemKey = guidance.current(scope)!.itemKey;
+    const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
+    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+
+    const scheduled = commands.start(scope, itemKey, { idempotencyKey: 'fragment-panel' });
+    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(scheduled.taskId);
+    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-fragments');
+
+    const fragmentRows = context.database.prepare(`SELECT fragment_id, proposal_id, role_key, fragment_no, implicit
+      FROM setting_proposal_fragments
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+      ORDER BY proposal_id, fragment_no`)
+      .all(scope.ownerId, scope.bookId, itemKey) as unknown as Array<{
+        fragment_id: string; proposal_id: string; role_key: string; fragment_no: number; implicit: number;
+      }>;
+    const proposalIds = [...new Set(fragmentRows.map((row) => row.proposal_id))];
+    expect(proposalIds).toHaveLength(3);
+    expect(fragmentRows.length).toBeGreaterThanOrEqual(3);
+
+    const picked = [
+      fragmentRows[0]!,
+      fragmentRows.find((row) => row.proposal_id !== fragmentRows[0]!.proposal_id)!
+    ].map((row) => row.fragment_id);
+    const synthesis = commands.synthesize(scope, itemKey, {
+      proposalIds, fragmentIds: picked, idempotencyKey: 'fragment-synthesis'
+    });
+    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(synthesis.taskId);
+    await pipeline.executeClaimed(scope, synthesis.taskId, 'worker-fragments');
+
+    const draft = context.database.prepare(`SELECT selected_fragment_ids_json, segments_json, content_text
+      FROM setting_fusion_drafts WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
+      .get(scope.ownerId, scope.bookId, itemKey) as {
+        selected_fragment_ids_json: string; segments_json: string; content_text: string;
+      };
+    expect(JSON.parse(draft.selected_fragment_ids_json)).toEqual(picked);
+    const segments = JSON.parse(draft.segments_json) as Array<{ source: string; fragmentId: string | null }>;
+    expect(segments.filter((segment) => segment.source === 'fragment')
+      .map((segment) => segment.fragmentId).sort()).toEqual([...picked].sort());
+    expect(segments.some((segment) => segment.source === 'stitch')).toBe(true);
+
+    const view = new SettingCollaborationService(
+      new SettingCollaborationRepository(context.database),
+      new SettingOutlineWorkspaceService(context.database, clock)
+    ).inspect(scope, itemKey);
+    expect(view.fusionDraft?.segments).toHaveLength(segments.length);
+    expect(view.panel?.proposals.every((proposal) => proposal.fragments.length >= 1)).toBe(true);
+
+    expect(() => commands.synthesize(scope, itemKey, {
+      proposalIds, fragmentIds: ['missing-fragment'], idempotencyKey: 'fragment-synthesis-bad'
+    })).toThrowError(/勾选的碎片/u);
   });
 });

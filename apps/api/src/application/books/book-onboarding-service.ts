@@ -241,19 +241,19 @@ export class BookOnboardingService {
       if (this.releaseId !== undefined && !isContinuation && !generationBlocked) {
         const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label);
 
-        const screenwriters = this.database.prepare(`
+        const proposalSeats = this.database.prepare(`
           SELECT a.agent_id, a.model_snapshot_id, r.role_key
           FROM agent_instances a
           JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
           WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-            AND r.role_key IN ('lead_screenwriter', 'second_screenwriter')
-          ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 ELSE 1 END
+            AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting')
+          ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END
         `).all(scope.ownerId, draft.proposedBookId) as unknown as Array<{
           agent_id: string;
           model_snapshot_id: string;
           role_key: string;
         }>;
-        if (screenwriters.length !== 2) throw new Error('首个核心设定独立提案必须有两名真实编剧');
+        if (proposalSeats.length !== 3) throw new Error('首个核心设定独立提案需要编剧A、编剧B与设定三席都可用');
         this.database.prepare(`
           INSERT INTO discussions (
             discussion_id, owner_id, book_id, discussion_type, scope_text, status,
@@ -265,14 +265,11 @@ export class BookOnboardingService {
             discussion_id, owner_id, book_id, agent_id, invited_reason, model_snapshot_id
           ) VALUES (?, ?, ?, ?, ?, ?)
         `);
-        insertParticipant.run(
-          kickoffDiscussionId, scope.ownerId, draft.proposedBookId, editor.agent_id,
-          '活动主编独立提出编辑视角的首个核心设定', editor.model_snapshot_id
-        );
-        for (const screenwriter of screenwriters) {
+        // 提案三席为编剧A、编剧B与设定；活动主编只主持与融合，不作为讨论参与者提交方案。
+        for (const seat of proposalSeats) {
           insertParticipant.run(
-            kickoffDiscussionId, scope.ownerId, draft.proposedBookId, screenwriter.agent_id,
-            '编剧独立提出首个核心设定方案，不读取其他成员答案', screenwriter.model_snapshot_id
+            kickoffDiscussionId, scope.ownerId, draft.proposedBookId, seat.agent_id,
+            '提案席独立提出首个核心设定方案，不读取其他成员答案', seat.model_snapshot_id
           );
         }
         const taskService = new TaskService(this.database, this.requireReleaseId(), this.clock);
@@ -532,7 +529,7 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
     `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '故事内核'}”。`,
     '请读取本任务唯一的开书快照来源。故事方向只是可讨论、可修订的软规划参考，不是已发生正史；分类、题材和标签只是创意线索，不得机械拼接。',
     openingReference,
-    `活动主编与两名编剧分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。`,
+    `编剧A、编剧B与设定成员分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。`,
     '三人互相看不到答案，不交叉质疑、不投票、不综合，也不替作者确认。每人只给一个自然、具体、容易理解的候选。',
     '不要展开具体剧情，不生成剧情总纲、章纲或正文，不启动主笔。三份候选全部展示给作者后，等待作者选择其中一份、组合指定内容，或直接提交自己的版本。'
   ].join('\n');
