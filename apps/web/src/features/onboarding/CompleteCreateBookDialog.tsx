@@ -59,6 +59,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [protagonists, setProtagonists] = useState<OpeningProtagonistDraft[]>(initialDraft.protagonists);
   const [namingProtagonistIndex, setNamingProtagonistIndex] = useState<number | null>(null);
   const [storyDirection, setStoryDirection] = useState(initialDraft.storyDirection);
+  const [openingStart, setOpeningStart] = useState(initialDraft.openingStart);
+  const [storyEnding, setStoryEnding] = useState(initialDraft.storyEnding);
   const [targetAudience, setTargetAudience] = useState(initialDraft.targetAudience);
   const [worldBackground, setWorldBackground] = useState(initialDraft.worldBackground);
   const [openingBackground, setOpeningBackground] = useState(initialDraft.openingBackground);
@@ -99,6 +101,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryTraits(draft.storyTraits);
     setProtagonists(draft.protagonists);
     setStoryDirection(draft.storyDirection);
+    setOpeningStart(draft.openingStart);
+    setStoryEnding(draft.storyEnding);
     setTargetAudience(draft.targetAudience);
     setWorldBackground(draft.worldBackground);
     setOpeningBackground(draft.openingBackground);
@@ -135,7 +139,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
       step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
       protagonists,
-      storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+      storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
       fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
       allSubjectsOpen
     };
@@ -158,7 +162,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     return () => window.clearTimeout(timer);
   }, [accountId, step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
     protagonists,
-    storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+    storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
     allSubjectsOpen, editing]);
 
@@ -191,10 +195,15 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     ...(mustFollow.length === 0 ? ['必须遵守'] : []),
     ...(mustFollow.length > 15 ? ['必须遵守最多15条'] : [])
   ];
+  const directionRequirements = [
+    ...((openingStart.trim().length > 0) !== (storyEnding.trim().length > 0) ? ['开局和结局需要一起填写'] : []),
+    ...(openingStart.trim().length > 0 && openingStart.trim().length < 4 ? ['开局至少写4个字'] : []),
+    ...(storyEnding.trim().length > 0 && storyEnding.trim().length < 2 ? ['结局至少写2个字'] : [])
+  ];
   const missingByStep: Record<1 | 2 | 3, string[]> = {
-    1: [], 2: basicRequirements, 3: [...boundaryRequirements, ...protagonistRequirements]
+    1: [], 2: basicRequirements, 3: [...boundaryRequirements, ...protagonistRequirements, ...directionRequirements]
   };
-  const missingRequirements = [...basicRequirements, ...protagonistRequirements, ...boundaryRequirements];
+  const missingRequirements = [...basicRequirements, ...protagonistRequirements, ...boundaryRequirements, ...directionRequirements];
   const valid = missingRequirements.length === 0;
   const namingProtagonist = namingProtagonistIndex === null ? null : protagonists[namingProtagonistIndex] ?? null;
   const namingContext: NamingContext = {
@@ -274,6 +283,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     setStoryTraits(empty.storyTraits);
     setProtagonists(empty.protagonists);
     setStoryDirection(empty.storyDirection);
+    setOpeningStart(empty.openingStart);
+    setStoryEnding(empty.storyEnding);
     setTargetAudience(empty.targetAudience);
     setWorldBackground(empty.worldBackground);
     setOpeningBackground(empty.openingBackground);
@@ -319,6 +330,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         goldenFinger: item.goldenFinger.trim()
       })),
       storyDirection: storyDirection.trim(),
+      openingStart: openingStart.trim(),
+      storyEnding: storyEnding.trim(),
       worldBackground: worldBackground.trim(),
       openingBackground: openingBackground.trim(),
       stageOne: { start: stageOne.start.trim(), development: stageOne.development.trim(), end: stageOne.end.trim() },
@@ -367,7 +380,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
         step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
         protagonists,
-        storyDirection, targetAudience, worldBackground, openingBackground, stageOne,
+        storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
         fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
         allSubjectsOpen
       };
@@ -480,6 +493,13 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
             <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 15 && <small className="inline-error" role="alert">必须遵守最多15条，请减少{mustFollow.length - 15}条。</small>}</section>
           </details>
         </section>}
+        {step === 3 && <section className="opening-form-section story-direction-section">
+          <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>可留空</small></div>
+          <p className="story-direction-note">想好了就写一句，没想好可以留空，之后和团队讨论时再定。填了的话，团队设计设定和剧情时就有了方向。开局和结局要一起填。</p>
+          <label htmlFor="opening-start">开局（一句话说清主角的起点处境）<textarea id="opening-start" aria-label="开局" maxLength={200} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：外卖员深夜送单，误入千年古墓" /></label>
+          <label htmlFor="story-ending">结局（一句话说清故事的终点）<textarea id="story-ending" aria-label="结局" maxLength={200} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角揭开身世之谜，天下重归太平" /></label>
+          <label htmlFor="story-direction-custom">自定义补充<textarea id="story-direction-custom" aria-label="自定义补充" maxLength={800} rows={3} value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
+        </section>}
       </div>
       <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/3步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 3 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
@@ -523,6 +543,8 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
       personalities: [...item.personalities]
     })),
     storyDirection: blueprint.storyDirection,
+    openingStart: blueprint.openingStart ?? '',
+    storyEnding: blueprint.storyEnding ?? '',
     targetAudience: blueprint.targetAudience,
     worldBackground: blueprint.worldBackground,
     openingBackground: blueprint.openingBackground,

@@ -32,6 +32,8 @@ export interface OpeningWizardDraft {
   storyTraits: string[];
   protagonists: OpeningProtagonistDraft[];
   storyDirection: string;
+  openingStart: string;
+  storyEnding: string;
   targetAudience: string;
   worldBackground: string;
   openingBackground: string;
@@ -58,6 +60,8 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
     storyTraits: [],
     protagonists: [{ role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }],
     storyDirection: '',
+    openingStart: '',
+    storyEnding: '',
     targetAudience: '',
     worldBackground: '',
     openingBackground: '',
@@ -107,6 +111,8 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
     || draft.channel !== null
     || draft.categoryKey !== null
     || draft.storyDirection.trim().length > 0
+    || draft.openingStart.trim().length > 0
+    || draft.storyEnding.trim().length > 0
     || draft.targetAudience.trim().length > 0
     || draft.worldBackground.trim().length > 0
     || draft.openingBackground.trim().length > 0
@@ -148,6 +154,8 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
     storyTraits: uniqueTexts(value.storyTraits, 11, 40),
     protagonists: protagonists.length > 0 ? protagonists : empty.protagonists,
     storyDirection: limitedText(value.storyDirection, 800),
+    openingStart: limitedText(value.openingStart, 200),
+    storyEnding: limitedText(value.storyEnding, 200),
     targetAudience: limitedText(value.targetAudience, 500),
     worldBackground: limitedText(value.worldBackground, 10_000),
     openingBackground: limitedText(value.openingBackground, 10_000),
