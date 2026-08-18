@@ -371,4 +371,46 @@ describe('设定页内协作读模型', () => {
       proposalIds, fragmentIds: ['missing-fragment'], idempotencyKey: 'fragment-synthesis-bad'
     })).toThrowError(/勾选的碎片/u);
   });
+
+  it('非当前引导项的类目也可以直接请团队出主意', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '任意类目讨论书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '沈砚', age: '二十岁', background: '边城镖师', personalities: ['沉稳'] }],
+        storyDirection: '沈砚护送一枚关乎边城存亡的旧印。', worldBackground: '架空王朝边塞。',
+        openingBackground: '边城镖局深夜接镖。', stageOne: { start: '接镖', development: '破局', end: '发现密信' },
+        fullBookOutline: '护送旧印入京。', mainTags: ['仙侠'], auxiliaryTags: [], storyTraits: [],
+        customTags: [], initialMap: '边城', mustFollow: ['胜利必须付出代价']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.ensureInitialized(scope);
+    const currentKey = guidance.current(scope)!.itemKey;
+    const otherKey = currentKey === 'opposition' ? 'rules-costs' : 'opposition';
+
+    const scheduled = new SettingCollaborationCommandService(
+      context.database, context.config.releaseId, ids, clock
+    ).start(scope, otherKey, { idempotencyKey: 'free-item-panel' });
+
+    expect(scheduled).toMatchObject({ reused: false, status: 'queued' });
+    const brief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+      .get(scheduled.taskId) as { task_brief_json: string }).task_brief_json) as { settingItemKey: string; scopeText: string };
+    expect(brief.settingItemKey).toBe(otherKey);
+    expect(brief.scopeText).toContain(otherKey);
+    const participants = context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
+      .get(scope.ownerId, scope.bookId, scheduled.discussionId) as { count: number };
+    expect(participants.count).toBe(3);
+    const itemRow = context.database.prepare(`SELECT item_status FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
+      .get(scope.ownerId, scope.bookId, otherKey) as { item_status: string };
+    expect(itemRow.item_status).toBe('讨论中');
+  });
 });

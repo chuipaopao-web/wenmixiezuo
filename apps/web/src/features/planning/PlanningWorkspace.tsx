@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FileTextIcon } from '@phosphor-icons/react';
 import {
@@ -375,6 +375,8 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
   const [profile, setProfile] = useState<SettingReadinessView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [activeItemKey, setActiveItemKey] = useState<string | null>(null);
+  const workbenchRef = useRef<HTMLDivElement | null>(null);
   const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
   const customGroups = [...new Set(customItems.map((item) => item.groupTitle ?? '本书扩展'))].map((groupTitle, index) => ({
     key: `custom-${index}-${groupTitle}`,
@@ -535,89 +537,101 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
     setNotice(`“${item.label}”已加入本书的建议完善清单，不会阻塞进入卷纲设计。`);
   };
 
-  const renderSettingGroups = (sectionGroups: SettingOutlineGroup[]): React.JSX.Element => <div className="setting-outline-list">
-    {sectionGroups.map((group) => <section key={group.key} className="setting-outline-group">
-      <header><h4>{group.title}</h4><span>{group.items.length} 项</span></header>
-      <div>{group.items.map((item) => {
-        const status = statuses[item.key] ?? '待讨论';
-        const isCurrent = currentGuidanceItem?.key === item.key;
-        return <article className={`setting-outline-row status-${settingStatusClass(status)}`} key={item.key}>
-          <div className="setting-outline-copy">
-            <div><h5>{item.label}</h5><span>{status === '候选待确认' ? '方案待确认' : status}</span></div>
-            {contents[item.key] !== undefined && <p>{contents[item.key]}</p>}
-          </div>
-          <select aria-label={`${item.label}状态`} value={status} disabled={isCurrent && status === '候选待确认'} onChange={(event) => {
-            const nextStatus = event.target.value as SettingOutlineStatus;
-            setStatuses((current) => ({ ...current, [item.key]: nextStatus }));
-            persistItem(group, item, nextStatus, item.source === '作者自定义');
-          }}>
-            {(['待讨论', '稍后补充', '刻意留白', '不适用'] as SettingOutlineStatus[]).map((value) => <option key={value} value={value}>{value}</option>)}
-            {status === '讨论中' && <option value="讨论中">讨论中</option>}
-            {status === '候选待确认' && <option value="候选待确认">方案待确认</option>}
-            {status === '已确认' && <option value="已确认">已确认</option>}
-          </select>
-          <span className={`setting-row-position ${isCurrent ? 'current' : ''}`}>{isCurrent ? '正在上方处理' : status === '已确认' ? '已完成' : requiredKeys.has(item.key) ? '等待前一项' : '按需完善'}</span>
+  const openItem = (key: string): void => {
+    setActiveItemKey(key);
+    window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
+  const activeItem = (activeItemKey === null ? undefined : allItems.find((item) => item.key === activeItemKey))
+    ?? currentGuidanceItem;
+  const activeGroup = activeItem === undefined ? undefined
+    : groups.find((group) => group.items.some((item) => item.key === activeItem.key));
+  const coreItems = requiredGroups.flatMap((group) => group.items);
+  const packGroups = [...recommendedGroups, ...customGroups];
+
+  return <section className="setting-outline-workbench setting-desk">
+    <h3 className="sr-only">设定</h3>
+    <header className="setting-desk-pagehead">
+      <h3>这本书的设定 <small>设定是 AI 创作时的参考，确认后随时可以回来改</small></h3>
+      <div className="setting-desk-progress">必要项 <strong>{confirmedRequired} / {requiredKeys.size}</strong> 已确认{requiredKeys.size > 0 && confirmedRequired < requiredKeys.size ? ' · 全部确认后解锁分卷' : ''}</div>
+    </header>
+    {bookId !== null && activeItem !== undefined && activeGroup !== undefined && <div className="setting-desk-workbench" ref={workbenchRef}>
+      <SettingCollaborationPanel
+        key={activeItem.key}
+        bookId={bookId}
+        item={{
+          itemKey: activeItem.key,
+          groupTitle: activeGroup.title,
+          label: activeItem.label,
+          prompt: activeItem.prompt,
+          sourceLabel: activeItem.source,
+          status: statuses[activeItem.key] ?? '待讨论',
+          custom: activeItem.source === '作者自定义',
+          sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === activeItem.key)),
+          content: contents[activeItem.key] ?? null
+        }}
+        onSnapshot={applySnapshot}
+      />
+    </div>}
+    <section className="setting-desk-section" aria-label="核心设定">
+      <div className="setting-desk-section-title"><h4>核心设定</h4><span className="setting-desk-tagline">每本书都需要</span><em>先定这几项，书的方向就立住了</em></div>
+      {coreItems.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : <div className="setting-core-grid">
+        {coreItems.map((item) => {
+          const status = statuses[item.key] ?? '待讨论';
+          const content = contents[item.key];
+          return <article className={`setting-core-card${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
+            <div className="setting-core-card-row"><h5>{item.label}<span className="setting-badge-req">必要</span></h5><span className={`setting-status-pill st-${settingStatusClass(status)}`}>{status === '候选待确认' ? '待您确认' : status}</span></div>
+            <p className={content === undefined ? 'empty' : ''}>{content ?? item.prompt}</p>
+            <button type="button" className={status === '已确认' ? 'setting-card-button ghost' : 'setting-card-button primary'} onClick={() => openItem(item.key)}>{settingCardAction(status)}</button>
+          </article>;
+        })}
+      </div>}
+    </section>
+    {packGroups.length > 0 && <section className="setting-desk-section" aria-label="根据题材推荐">
+      <div className="setting-desk-section-title"><h4>根据题材推荐</h4><span className="setting-desk-tagline">{profile?.profileLabel ?? '通用'}</span><em>建议项，不定也能往下走</em></div>
+      <div className="setting-pack-grid">{packGroups.map((group) => {
+        const talking = group.items.filter((item) => statuses[item.key] === '讨论中').length;
+        return <article className="setting-pack-card" key={group.key}>
+          <div className="setting-core-card-row"><h5>{group.title}</h5><span className={`setting-status-pill ${talking > 0 ? 'st-active' : 'st-pending'}`}>{talking > 0 ? `${talking} 项讨论中` : '按需完善'}</span></div>
+          <div className="setting-pack-items">{group.items.map((item) => {
+            const status = statuses[item.key] ?? '待讨论';
+            return <button type="button" className={`setting-pack-item${activeItem?.key === item.key ? ' active' : ''}`} key={item.key} onClick={() => openItem(item.key)}>
+              <span className="nm">{item.label}<small>{item.prompt.length > 26 ? `${item.prompt.slice(0, 26)}…` : item.prompt}</small></span>
+              <span className={`setting-status-pill st-${settingStatusClass(status)}`}>{status === '候选待确认' ? '待确认' : status}</span>
+            </button>;
+          })}</div>
         </article>;
       })}</div>
-    </section>)}
-  </div>;
-
-  return <section className="setting-outline-workbench">
-    <header className="setting-outline-header">
-      <h3 className="sr-only">设定</h3>
-      <div className="setting-outline-progress"><strong>{confirmedRequired} / {requiredKeys.size}</strong><span>已确认</span><div><i style={{ width: `${requiredKeys.size === 0 ? 0 : Math.round(confirmedRequired / requiredKeys.size * 100)}%` }} /></div></div>
-    </header>
-    {bookId !== null && currentGuidanceItem !== undefined && currentGuidanceGroup !== undefined && <SettingCollaborationPanel
-      key={currentGuidanceItem.key}
-      bookId={bookId}
-      item={{
-        itemKey: currentGuidanceItem.key,
-        groupTitle: currentGuidanceGroup.title,
-        label: currentGuidanceItem.label,
-        prompt: currentGuidanceItem.prompt,
-        sourceLabel: currentGuidanceItem.source,
-        status: statuses[currentGuidanceItem.key] ?? '待讨论',
-        custom: currentGuidanceItem.source === '作者自定义',
-        sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === currentGuidanceItem.key)),
-        content: contents[currentGuidanceItem.key] ?? null
-      }}
-      onSnapshot={applySnapshot}
-    />}
-    <section className="setting-outline-section required">
-      <header><strong>核心设定</strong></header>
-      {requiredGroups.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : renderSettingGroups(requiredGroups)}
-    </section>
-    <details className="setting-optional-library setting-recommended">
-      <summary><strong>建议完善</strong><b>{recommendedGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></summary>
-      {recommendedGroups.length === 0 ? <p className="setting-empty-state">暂无建议项。</p> : renderSettingGroups(recommendedGroups)}
-    </details>
-    <details className="setting-optional-library">
-      <summary><strong>完整设定资料库</strong><b>{optionalGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></summary>
-      <label className="setting-search">搜索完整资料库<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：力量、死亡、装备、历史分歧点" /></label>
-      <div className="setting-library-groups">{optionalGroups.map((group) => <section key={group.key}>
-        <header><div><h4>{group.title}</h4><p>{group.description}</p></div><span>{group.items.length} 项</span></header>
-        <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><button type="button" disabled={bookId === null || busyKey !== null} onClick={() => addOptionalItem(group, item)}>加入本书</button></article>)}</div>
-      </section>)}</div>
-      {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
-    </details>
-    <section className="custom-setting-builder">
-      <header><h4>本书自定义</h4><p>只添加这本书确实需要的设定问题。</p></header>
-      <form onSubmit={(event) => {
-        event.preventDefault();
-        const value = customDraft.trim();
-        if (value.length === 0 || customItems.some((item) => item.label === value)) return;
-        const groupTitle = customGroupDraft.trim() || '本书扩展';
-        const item = { key: `custom-${Date.now()}`, label: value, prompt: `请说明“${value}”是什么、能做什么、不能做什么、要付出什么代价，还有哪些内容暂时没定。`, source: '作者自定义', groupTitle };
-        const group = { key: `custom-${groupTitle}`, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
-        setCustomItems((current) => [...current, item]);
-        setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
-        persistItem(group, item, '待讨论', true);
-        setCustomDraft('');
-      }}>
-        <input aria-label="自定义板块名称" maxLength={24} value={customGroupDraft} onChange={(event) => setCustomGroupDraft(event.target.value)} placeholder="板块名称，例如：神名禁忌" />
-        <input aria-label="自定义设定项" maxLength={40} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="新增设定项，例如：梦境税" />
-        <button className="primary-button" type="submit">添加到清单</button>
-      </form>
+    </section>}
+    <section className="setting-desk-section" aria-label="全部类目">
+      <div className="setting-desk-section-title"><h4>全部类目</h4><em>推荐之外想定什么，自己挑</em></div>
+      <details className="setting-optional-library">
+        <summary><strong>完整设定资料库</strong><b>{optionalGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></summary>
+        <label className="setting-search">搜索完整资料库<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：货币、排行榜、血脉……" /></label>
+        <div className="setting-library-groups">{optionalGroups.map((group) => <section key={group.key}>
+          <header><div><h4>{group.title}</h4><p>{group.description}</p></div><span>{group.items.length} 项</span></header>
+          <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><button type="button" disabled={bookId === null || busyKey !== null} onClick={() => addOptionalItem(group, item)}>加入本书</button></article>)}</div>
+        </section>)}</div>
+        {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
+      </details>
+      <section className="custom-setting-builder">
+        <header><h4>本书自定义</h4><p>只添加这本书确实需要的设定问题。</p></header>
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          const value = customDraft.trim();
+          if (value.length === 0 || customItems.some((item) => item.label === value)) return;
+          const groupTitle = customGroupDraft.trim() || '本书扩展';
+          const item = { key: `custom-${Date.now()}`, label: value, prompt: `请说明“${value}”是什么、能做什么、不能做什么、要付出什么代价，还有哪些内容暂时没定。`, source: '作者自定义', groupTitle };
+          const group = { key: `custom-${groupTitle}`, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
+          setCustomItems((current) => [...current, item]);
+          setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
+          persistItem(group, item, '待讨论', true);
+          setCustomDraft('');
+        }}>
+          <input aria-label="自定义板块名称" maxLength={24} value={customGroupDraft} onChange={(event) => setCustomGroupDraft(event.target.value)} placeholder="板块名称，例如：神名禁忌" />
+          <input aria-label="自定义设定项" maxLength={40} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="新增设定项，例如：梦境税" />
+          <button className="primary-button" type="submit">添加到清单</button>
+        </form>
+      </section>
     </section>
     <section className="planning-stage-action">
       <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || currentGuidanceItem !== undefined} onClick={confirmSetting}>
@@ -629,6 +643,17 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
 }
 function settingStatusClass(status: SettingOutlineStatus): string {
   return status === '已确认' ? 'confirmed' : status === '讨论中' ? 'active' : status === '候选待确认' ? 'candidate' : 'pending';
+}
+
+function settingCardAction(status: SettingOutlineStatus): string {
+  switch (status) {
+    case '已确认': return '查看 / 修改';
+    case '讨论中': return '去看看方案';
+    case '候选待确认': return '确认这份';
+    case '刻意留白': return '重新讨论';
+    case '不适用': return '恢复讨论';
+    default: return '请团队出主意';
+  }
 }
 
 function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<string, unknown>; bookId: string | null; projection: ArtifactProjection }): React.JSX.Element {

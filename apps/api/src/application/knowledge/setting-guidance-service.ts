@@ -127,6 +127,46 @@ export class SettingGuidanceService {
     };
   }
 
+  /**
+   * 为任意已在本书设定清单里的类目构建讨论资料快照。
+   * 核心六问之外的题材包/资料库/自定义项也可以直接请团队出主意，
+   * 不再要求它必须是逐项引导的当前项；未激活的项会被激活为讨论中。
+   */
+  public snapshotFor(scope: BookScope, itemKey: string): SettingGuidanceSnapshot | null {
+    assertBookScope(scope);
+    const context = this.guidanceContext(scope);
+    if (context === null) return null;
+    const rows = this.workspace.list(scope);
+    let target = rows.find((item) => item.itemKey === itemKey);
+    if (target === undefined) return null;
+    if (!['候选待确认', '讨论中'].includes(target.status)) {
+      target = this.workspace.activateGuidanceItem(scope, target.itemKey);
+    }
+    const required = context.template.filter((item) => item.required);
+    const confirmed = rows
+      .filter((item) => item.status === '已确认' && item.content !== null && item.itemKey !== itemKey)
+      .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
+    const relevantConfirmed = selectRelevantConfirmedContext(confirmed, itemKey);
+    return {
+      phase: target.status === '候选待确认' ? 'revise' : 'ask',
+      itemKey: target.itemKey,
+      groupTitle: target.groupTitle,
+      label: target.label,
+      prompt: target.prompt,
+      sourceLabel: target.sourceLabel,
+      status: target.status,
+      requiredIndex: required.findIndex((item) => item.itemKey === itemKey) + 1,
+      requiredCount: required.length,
+      positioningSummary: context.positioningSummary,
+      storyDirectionReference: context.storyDirectionReference,
+      openingBookCore: context.openingBookCore,
+      confirmedContext: relevantConfirmed,
+      previousCandidate: target.content === null ? null : clip(target.content, 1_200),
+      feedbackMode: 'initial',
+      dissatisfactionRound: 0
+    };
+  }
+
   public recordCandidate(scope: BookScope, itemKey: string, rawOutput: string): void {
     const deposits = parseSettingOutlineDeposit(rawOutput);
     const deposit = deposits.find((item) => item.itemKey === itemKey);

@@ -3187,7 +3187,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`96d6b335fc14`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`79db054e5dbf`
 
 #### 当前生效决定
 
@@ -3511,6 +3511,15 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. 结构化提案合同：三席输出必须为 answer＋benefits＋costs＋fragments 结构，fragments 是 3—6 条作者可逐条勾选的方案碎片；解析失败的提案以整份答案作为一条 implicit 碎片兜底，绝不丢弃成员产出。
 3. 碎片与融合稿入库：新增 setting_proposal_fragments 表按提案落碎片；作者勾选碎片后发起融合，主编融合稿必须输出 fusionSegments 段级标记（fragment＝勾选碎片原意保留，stitch＝主编补写的最短衔接），缺失视为结构校验失败；融合稿与所选碎片、段级来源存入 setting_fusion_drafts 表，随协作读模型返回给前端，衔接段在界面上标绿。
 4. 文姬默认模型由 GLM 5.2 改为 MiniMax M3：提案三席要求两两异模型，红玉已固定 GLM 5.2，文姬继续用 GLM 会撞车；MiniMax M3 原为副编模型，副编不参与提案席，不影响异模型约束。
+
+##### DEC-CURRENT-051 设定页新交互与已确认设定进上下文（2026-08-18）
+
+【当前】落实 DEC-CURRENT-046 的第六批（设定页重构之前端与上下文），手机端优先：
+1. 设定主页三层结构：第一层核心设定卡组（必要徽章＋状态胶囊＋内容摘要＋动作按钮：请团队出主意/去看看方案/确认这份/查看修改）；第二层"根据题材推荐"题材包卡组（按包列条目与状态，点条目即进入该项工作台）；第三层全部类目（完整资料库搜索＋加入本书）与本书自定义。页头显示必要项确认进度，全部确认后解锁分卷。
+2. 任意类目可直接讨论：设定项不再要求必须是逐项引导的当前项；点击任意核心卡、题材包条目或自定义项即把它设为工作台当前项并激活为讨论中（SettingGuidanceService.snapshotFor），引导项仍是默认当前项。项不存在或开书资料未就绪时返回 409 可重试错误。
+3. 类目讨论页按效果图重做：三席方案卡带立场标签（编剧A强冲突/编剧B重因果/设定规则严谨），每份方案列出可逐条勾选的碎片；作者勾选后主编按勾选融合，融合稿段级展示（勾选碎片原文＋主编衔接段标绿），操作含确认这份/我再改改/退回重融/自己写一份/先留白。无碎片的旧提案自动回退为整份选用。
+4. 已确认设定项作为硬来源进入正文写作与审校上下文：章管线写手资料包与审校冻结资料均注入 setting_confirmed_items（仅已确认且有内容的项，逐条截断），正文与事实席核对不得与之冲突；规划管线继续使用已确认设定基线。
+5. 手机端顶部功能栏改为两排六列（图标在上、文字在下），书籍栏开关悬浮于左侧；设定页核心卡桌面三列、手机单列，方案卡桌面三列、手机纵向堆叠。
 
 ---
 
@@ -4469,7 +4478,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`1abd352e875e`
+> 当前源文件：`HANDOFF.md` · 指纹：`b9f251f0b0f1`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4485,7 +4494,8 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 批5·设定类目讨论管线 + 结构化输出：① 提案三席改为编剧A婉儿（爽点强冲突）、编剧B红玉（因果闭环）、设定文姬（规则严谨），三席两两异模型；主编不提案只融合，提案讨论由编剧A主持创建（任务仍挂主编租约）。② 提案合同结构化：answer+benefits+costs+fragments（3-6条可勾选碎片），解析失败以整份方案作单条 implicit 碎片兜底（`parseSettingProposalStructure`）。③ 新迁移 `0052_setting_discussion_fragments.sql`：`setting_proposal_fragments`（按提案落碎片）+ `setting_fusion_drafts`（融合稿含所选碎片与 fusionSegments 段级标记，fragment=勾选碎片/stitch=主编衔接，缺失校验失败）。④ 协作读模型 inspect 返回每份提案的 fragments 与最新 fusionDraft；synthesize 路由/客户端支持 fragmentIds 并校验归属当前讨论与设定项。⑤ 文姬默认模型 GLM 5.2 → MiniMax M3（避免与红玉在提案席撞模型）。决定见 DEC-CURRENT-050。测试 164 文件 687 项全绿。
+1. 批6·设定页新前端（手机端优先）+ 上下文编译：① 设定主页三层——核心设定卡组（必要徽章+状态胶囊+动作按钮）、题材包卡组（点条目直接进该项工作台）、全部类目（资料库搜索+加入本书+本书自定义），页头显示必要项进度。② 任意类目可直接讨论：`SettingGuidanceService.snapshotFor` 放开"只能是当前引导项"限制，点任意项即激活为讨论中并给三席提案。③ 讨论工作台按 mockups/setting-discussion.html 重做：三席方案卡带立场标签与可勾选碎片 checkbox，"按我的勾选融合"→主编融合稿段级展示（stitch 衔接段标绿），操作=确认这份/我再改改/退回重融/自己写一份/先留白；旧无碎片提案自动回退整份选用。④ 已确认设定项硬来源注入章管线写手资料包与审校冻结资料（`setting_confirmed_items`，仅已确认有内容项，逐条截断600字）。⑤ 手机端顶部功能栏两排六列（图标上文字下），书籍开关悬浮左侧；核心卡桌面3列/手机1列，方案卡桌面3列/手机堆叠。决定见 DEC-CURRENT-051。测试 164 文件 688 项全绿。
+2. 批5·设定类目讨论管线 + 结构化输出：① 提案三席改为编剧A婉儿（爽点强冲突）、编剧B红玉（因果闭环）、设定文姬（规则严谨），三席两两异模型；主编不提案只融合，提案讨论由编剧A主持创建（任务仍挂主编租约）。② 提案合同结构化：answer+benefits+costs+fragments（3-6条可勾选碎片），解析失败以整份方案作单条 implicit 碎片兜底（`parseSettingProposalStructure`）。③ 新迁移 `0052_setting_discussion_fragments.sql`：`setting_proposal_fragments`（按提案落碎片）+ `setting_fusion_drafts`（融合稿含所选碎片与 fusionSegments 段级标记，fragment=勾选碎片/stitch=主编衔接，缺失校验失败）。④ 协作读模型 inspect 返回每份提案的 fragments 与最新 fusionDraft；synthesize 路由/客户端支持 fragmentIds 并校验归属当前讨论与设定项。⑤ 文姬默认模型 GLM 5.2 → MiniMax M3（避免与红玉在提案席撞模型）。决定见 DEC-CURRENT-050。测试 164 文件 687 项全绿。
 2. 批4·设定页重构数据层（核心六问+版本链+旧数据预填）：① 核心六问成为任何题材的唯一必备项——故事内核 story-kernel、世界舞台 world-stage、主角处境 protagonist-situation、对立面 opposition、规矩与代价 rules-costs、边界与留白 boundaries-blanks（`setting-outline-profile.ts` CORE_SETTING_KEYS，`setting-outline-catalog.ts` 新增六条目）；题材包项全部转为建议，设定基线门槛只看核心六问。② 设定项版本链：迁移 `0051_setting_item_versions.sql`，每次确认（manual/guidance/discussion 三条路径）追加不可变版本，新增 `GET .../setting-outline-workspace/:itemKey/versions` 查询接口与前端 `fetchSettingOutlineVersions`。③ 旧数据预填：初始化核心项时按 `CORE_PREFILL_SOURCES` 固定映射把旧设定内容汇成「预填稿」写入空内容核心项，状态保持待讨论，绝不覆盖作者已有内容。④ 建书首个三席提案任务不再硬编码策划理念，自动绑定当前第一个核心项。⑤ 前端 `PlanningWorkspace.tsx` 加入核心六卡组做最小兼容（新版设定主页/讨论页在批6重做）。决定见 DEC-CURRENT-049。测试 164 文件 686 项全绿。
 2. 批3·三合一融合合同 + 结算后续 + 题材简报层：① 主编融合卷纲/事件必须带 fusionNotes 三块（爽点怎么兑现/逻辑链怎么闭环/新鲜感来自哪里），缺块校验失败重试；卷纲与事件方案卡醒目展示。② 事件/卷结算完成自动发起 `settlement_follow_up` 任务（迁移 `0050_settlement_follow_ups.sql`）：主编貂蝉出节奏体检报告（总评/爽点与付费点/高潮间隔/压抑时长/恢复节拍/风险/建议），副编西施写大白话摘要；分步入库、可重试；结算本身仍是确定性聚合不依赖它。前端已完成事件（只读历史）与已完成卷页面展示「节奏体检与大白话摘要」卡，缺失可手动补做。③ 题材简报层：岗位不换身份，卷纲/事件/章纲(章链/细化/挑战)/正文/结算后续的提示词硬来源自动注入 `planning:genre_brief`（频道/分类/融合题材/标签/基调/节奏策略/目标读者，只取自已确认开书信息，解析失败省略）。决定见 DEC-CURRENT-048。
 2. 批2·审查第四席 + 章纲挑战开放：妙玉作为正文审查固定第四席（challenger），与事实/文学/体验并行、互不读取、与写手异模型；面板席数泛化（14人新书=4席，11人旧书面板保持3席），迁移 `0049_review_challenger_seat.sql` 重建 review_reports 放宽角色枚举、review_panels 加可空挑剔读者冻结列；merge/完成/质量快照/重试门禁全部按面板实际席数校验。章纲挑战开放给作者指定红玉或幼薇（`challengerRoleKey`，默认红玉），禁止主方案编剧挑战自己；前端章链/单章各给两个「请红玉/幼薇看看」按钮并显示挑战者署名。团队页14人自动渲染，头像/简介补齐新岗位。

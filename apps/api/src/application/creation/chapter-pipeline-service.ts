@@ -404,6 +404,7 @@ export class ChapterPipelineService {
     const style = new StyleCapsuleService(this.database).active(scope);
     const openingProfile = new BookProfileViewService(this.database).find(scope);
     const genreBrief = openingProfile === null ? null : buildGenreBrief(JSON.stringify(openingProfile.openingBlueprint));
+    const confirmedSettingItems = this.confirmedSettingItems(scope);
     const volumeTone = this.currentVolumeTone(scope, chapter);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
     const hardSources: ContextSource[] = [
@@ -452,6 +453,13 @@ export class ChapterPipelineService {
         sourceId: `genre-brief:${scope.bookId}`,
         content: genreBrief,
         reason: '本书题材简报；正文必须贴合该题材定位与基调',
+        priority: 100
+      }]),
+      ...(confirmedSettingItems.length === 0 ? [] : [{
+        sourceType: 'setting_confirmed_items',
+        sourceId: `setting-confirmed:${scope.bookId}`,
+        content: clipContext(JSON.stringify(confirmedSettingItems), draftPolicy.openingProfileMaximum),
+        reason: '作者逐项确认的设定内容（核心六问及题材包）；正文中的人物、规则、代价与边界不得与之冲突',
         priority: 100
       }]),
       ...(volumeTone.length === 0 ? [] : [{
@@ -734,6 +742,7 @@ export class ChapterPipelineService {
       state_json: string; canon_manuscript_version_id: string;
     } | undefined;
     const volumeTone = this.currentVolumeTone(scope, chapter);
+    const confirmedReviewSettings = this.confirmedSettingItems(scope);
     const frozenReviewSources: ContextSource[] = [
       {
         sourceType: 'chapter_outline', sourceId: run.outline_version_id,
@@ -745,6 +754,11 @@ export class ChapterPipelineService {
         content: JSON.stringify(frozenContract.content), reason: '本章审校必须核对的冻结写作契约',
         priority: 100, version: frozenContract.version
       },
+      ...(confirmedReviewSettings.length === 0 ? [] : [{
+        sourceType: 'setting_confirmed_items', sourceId: `setting-confirmed:${scope.bookId}`,
+        content: clipContext(JSON.stringify(confirmedReviewSettings), 4_000),
+        reason: '作者逐项确认的设定内容；事实席据此核对人物、规则、数量与边界', priority: 99
+      }]),
       ...(volumeTone.length === 0 ? [] : [{
         sourceType: 'volume_style_tone', sourceId: `volume-tone:${scope.bookId}:${chapter.chapter_number}`,
         content: volumeTone, reason: '当前卷确认的本卷基调与写作倾向；审校按此核对阅读感，不机械打卡',
@@ -1970,6 +1984,23 @@ export class ChapterPipelineService {
         typeof content.styleSecondary === 'string' ? content.styleSecondary : null
       );
     } catch { return ''; }
+  }
+
+  /**
+   * 作者逐项确认的设定是正文与审校的硬来源：写作不得与之冲突，
+   * 事实席据此核对。只取已确认且有内容的项，逐条截断，绝不使用候选稿。
+   */
+  private confirmedSettingItems(scope: BookScope): Array<{ itemKey: string; label: string; content: string }> {
+    const rows = this.database.prepare(`
+      SELECT item_key, label, content_text FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND item_status = '已确认' AND content_text IS NOT NULL
+      ORDER BY sort_order, item_key LIMIT 24
+    `).all(scope.ownerId, scope.bookId) as unknown as Array<{ item_key: string; label: string; content_text: string }>;
+    return rows.map((row) => ({
+      itemKey: row.item_key,
+      label: row.label,
+      content: clipContext(row.content_text.trim(), 600)
+    })).filter((row) => row.content.length > 0);
   }
 
   private loadManuscript(scope: BookScope, manuscriptVersionId: string): string {

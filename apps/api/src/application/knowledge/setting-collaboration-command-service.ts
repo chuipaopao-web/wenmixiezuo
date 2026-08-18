@@ -260,9 +260,11 @@ export class SettingCollaborationCommandService {
   }
 
   private requireGuidance(scope: BookScope, itemKey: string, allowCandidate = false): SettingGuidanceSnapshot {
-    const guidance = new SettingGuidanceService(this.database, this.ids, this.clock).ensureInitialized(scope);
-    if (guidance === null || guidance.itemKey !== itemKey) {
-      throw new DomainError(errorCodes.operationIncomplete, '当前设定项已变化，请刷新后重试', {}, true, 409);
+    const guidanceService = new SettingGuidanceService(this.database, this.ids, this.clock);
+    const guided = guidanceService.ensureInitialized(scope);
+    const guidance = guided !== null && guided.itemKey === itemKey ? guided : guidanceService.snapshotFor(scope, itemKey);
+    if (guidance === null) {
+      throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在或尚未就绪，请刷新后重试', {}, true, 409);
     }
     if (!allowCandidate && guidance.phase === 'revise') {
       throw new DomainError(errorCodes.operationIncomplete, '当前设定项已有待确认版本', {}, false, 409);

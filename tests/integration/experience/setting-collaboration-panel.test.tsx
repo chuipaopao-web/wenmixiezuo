@@ -54,6 +54,7 @@ beforeEach(() => {
     },
     revisionTask: null,
     historyCount: 1,
+    fusionDraft: null,
     impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
   });
 });
@@ -66,7 +67,7 @@ afterEach(() => {
 describe('设定页内协作', () => {
   it('把已有设定原文保留为作者参考并随本轮最小资料交给三名成员', async () => {
     api.fetchSettingCollaboration.mockResolvedValue({
-      item: workspaceItem, panel: null, revisionTask: null, historyCount: 0,
+      item: workspaceItem, panel: null, revisionTask: null, historyCount: 0, fusionDraft: null,
       impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
     });
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
@@ -74,7 +75,7 @@ describe('设定页内协作', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: '已有设定原文' }), {
       target: { value: '雾钟只能展示未来一天，而且每次使用都会遗忘一段私人记忆。' }
     });
-    fireEvent.click(screen.getByRole('button', { name: '让三名成员各自给方案' }));
+    fireEvent.click(screen.getByRole('button', { name: '请团队出主意' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
       surface: 'setting', subjectType: 'setting_module', subjectId: 'creative-concept',
@@ -94,6 +95,7 @@ describe('设定页内协作', () => {
         createdAt: '2026-08-08T00:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z', proposals: []
       },
       revisionTask: null, historyCount: 1,
+      fusionDraft: null,
       impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
     });
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
@@ -106,14 +108,12 @@ describe('设定页内协作', () => {
     const onSnapshot = vi.fn();
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={onSnapshot} />);
 
-    const first = await screen.findByRole('button', { name: /方案 1.*主编甲/u });
-    const second = screen.getByRole('button', { name: /方案 2.*编剧甲/u });
-    fireEvent.click(first);
-    fireEvent.click(second);
+    fireEvent.click((await screen.findAllByRole('button', { name: '整份选用' }))[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: '整份选用' })[0]!);
     fireEvent.change(screen.getByRole('textbox', { name: '你的补充想法' }), {
       target: { value: '保留方案一的代价，同时采用方案二的身份错位。' }
     });
-    fireEvent.click(screen.getByRole('button', { name: '按我的选择整理' }));
+    fireEvent.click(screen.getByRole('button', { name: '按我的勾选融合' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledTimes(1));
     expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
@@ -137,6 +137,7 @@ describe('设定页内协作', () => {
     api.fetchSettingCollaboration.mockResolvedValue({
       item: candidate, panel: null,
       revisionTask: { taskId: 'task-2', status: 'succeeded', errorCode: null, updatedAt: '2026-08-08T00:02:00.000Z' },
+      fusionDraft: null,
       historyCount: 1,
       impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
     });
@@ -161,8 +162,8 @@ describe('设定页内协作', () => {
 function proposal(number: number, memberName: string, content: string) {
   return {
     number, proposalId: `proposal-${number}`, agentId: `agent-${number}`, memberName,
-    roleKey: number === 1 ? 'chief_editor' : 'lead_screenwriter',
+    roleKey: number === 1 ? 'lead_screenwriter' : number === 2 ? 'second_screenwriter' : 'setting',
     modelProvider: `provider-${number}`, modelId: `model-${number}`, content,
-    decisionId: 'decision-1', createdAt: '2026-08-08T00:00:00.000Z'
+    decisionId: 'decision-1', createdAt: '2026-08-08T00:00:00.000Z', fragments: []
   };
 }
