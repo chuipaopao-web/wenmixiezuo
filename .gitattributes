@@ -2,3 +2,5 @@
 deploy/*.sh text eol=lf
 deploy/*.service text eol=lf
 deploy/Caddyfile text eol=lf
+# 迁移文件带数据库校验和，检出与 git archive 都必须保持 LF，否则生产启动报"校验和发生变化"
+*.sql text eol=lf
