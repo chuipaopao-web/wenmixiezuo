@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`f3f7e0c47d8c`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`cef84bcc3d83`
 
 #### 当前生效决定
 
@@ -3593,7 +3593,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 融合定稿精炼约束：落库 content 只写定稿结论本身，核心项通常80至150字、任何一项最多300字；论证、举例、备选和解释不进落库内容（可留在面向作者的说明）。碎片融合稿同样要求整体读作一段精炼定稿，衔接段只为通顺服务。理由：已确认设定项作为硬来源注入正文写作与审校资料包（DEC-CURRENT-051 第4款），每条冗长会累积稀释注意力。
 4. 设定项可以全部点击"团队设计"：每项各自建任务排队，同一本书同一时刻只执行一个任务（task-service 按书互斥，保护共享正史与编辑器纪元），不同书之间并行；作者连点多个项不会冲突，只会依次完成。此行为为既有设计，本次仅确认不改。
 5. 确认门禁不变：融合稿与作者修改始终先落"候选待确认"，作者可直接改稿，点击"确认这一项"后才进入已确认设定并参与后续资料包注入。
-6. 生产实测发现并修复：真实模型（glm-5.3、deepseek-v4-pro、minimax-m3 三家都是）会把输出 JSON 包在 ```json markdown 围栏里，而 parseModelJsonFields 只做裸 JSON.parse，导致三席提案的 4—8 条结构化碎片全部解析失败、退化成"整份答案截 500 字"的兜底碎片。修复为只对围栏做宽容（取围栏内文本再严格 JSON.parse），JSON 笔误仍判无效，DEC-CURRENT-052 第 6 款的坏输出门禁不受影响。新增回归测试 tests/foundation/model-json-fields.test.ts（裸 JSON、围栏 JSON、坏 JSON 三态）。
+6. 生产实测发现并修复：真实模型的输出结构有两种漂移——一、整份 JSON 包在 ```json markdown 围栏里；二、字段直接放在根级（answer/fragments 在根上，不带 fields 包装）。而 parseModelJsonFields 只做裸 JSON.parse 且只认 fields 包装，导致三席提案的 4—8 条结构化碎片全部解析失败、退化成"整份答案截 500 字"的兜底碎片。修复为对这两种漂移做宽容（围栏取内文、根级字段直接采纳），仍走严格 JSON.parse，JSON 笔误照旧判无效，DEC-CURRENT-052 第 6 款的坏输出门禁不受影响。新增回归测试 tests/foundation/model-json-fields.test.ts（裸 JSON、围栏 JSON、根级字段、坏 JSON 四态）。
 
 ---
 

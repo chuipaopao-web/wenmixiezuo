@@ -25,4 +25,12 @@ describe('parseModelJsonFields 围栏兼容与坏输出门禁', () => {
   it('非 JSON 内容返回 null', () => {
     expect(parseModelJsonFields('这不是JSON')).toBeNull();
   });
+
+  it('字段直接放在根级（无 fields 包装）也能解析，真实模型的第二种结构漂移', () => {
+    const rootLevel = JSON.stringify({ answer: '方案', benefits: ['好处'], costs: [], fragments: ['甲一', '乙二', '丙三', '丁四'] });
+    const fields = parseModelJsonFields(rootLevel);
+    expect(fields).not.toBeNull();
+    expect((fields?.fragments as string[]).length).toBe(4);
+    expect(fields?.answer).toBe('方案');
+  });
 });

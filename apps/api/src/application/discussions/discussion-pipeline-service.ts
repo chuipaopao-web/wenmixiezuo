@@ -801,21 +801,27 @@ export class DiscussionPipelineService {
 
 /** 从模型JSON输出中取出fields对象；解析失败返回null，不做任何猜测。 */
 export function parseModelJsonFields(raw: string): Record<string, unknown> | null {
-  // 真实模型常把 JSON 包在 markdown 围栏里；先取围栏内文本再严格 JSON.parse。
-  // 只对围栏做宽容，JSON 笔误（如属性名少引号）仍然解析失败，保住 DEC-CURRENT-052
-  // 第 6 款的坏输出判无效门禁。
+  // 真实模型的结构漂移有两种（2026-08-19 生产实测三家模型全部命中）：
+  // 一、整份 JSON 包在 markdown 围栏里；二、字段直接放在根级（answer/fragments
+  // 在根上），不带 fields 包装。对这两种做宽容；JSON 笔误（如属性名少引号）
+  // 仍然解析失败，保住 DEC-CURRENT-052 第 6 款的坏输出判无效门禁。
   const fenced = raw.match(/```(?:json)?\s*\n([\s\S]*?)\n?\s*```/);
   const candidates = fenced === null ? [raw] : [fenced[1] ?? '', raw];
   for (const candidate of candidates) {
+    let root: unknown;
     try {
-      const root = JSON.parse(candidate) as unknown;
-      if (typeof root !== 'object' || root === null || Array.isArray(root)) continue;
-      const fields = (root as Record<string, unknown>).fields;
-      if (typeof fields === 'object' && fields !== null && !Array.isArray(fields)) {
-        return fields as Record<string, unknown>;
-      }
+      root = JSON.parse(candidate);
     } catch {
-      // 尝试下一个候选
+      continue;
+    }
+    if (typeof root !== 'object' || root === null || Array.isArray(root)) continue;
+    const record = root as Record<string, unknown>;
+    const fields = record.fields;
+    if (typeof fields === 'object' && fields !== null && !Array.isArray(fields)) {
+      return fields as Record<string, unknown>;
+    }
+    if (typeof record.answer === 'string' || Array.isArray(record.fragments)) {
+      return record;
     }
   }
   return null;
