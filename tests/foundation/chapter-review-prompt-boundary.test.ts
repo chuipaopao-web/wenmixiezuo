@@ -107,7 +107,7 @@ describe('章节审校提示合同', () => {
     expect(rules).toContain('自行估算');
     expect(rules).toContain('两个互相排斥的明确时间戳');
     expect(rules).toContain('不得臆造两个数量之间的一一对应关系');
-    expect(rules).toContain('版本更新次数');
+    expect(rules).toContain('累计获得过三次奖励');
     expect(rules).toContain('同一对象、同一指标、同一范围');
     expect(rules).toContain('公开来源本身不能判major');
     expect(rules).toContain('requiredEndingState约束本章结束时');
