@@ -29,7 +29,7 @@ describe('事件章纲序列与近期冻结',()=>{
   it('按任务结构保留完整输出空间',()=>{
     expect(eventChapterOutputTokenLimit('sequence')).toBe(12000);
     expect(eventChapterOutputTokenLimit('details')).toBe(9000);
-    expect(eventChapterOutputTokenLimit('sequence_challenge')).toBe(3_000);
+    expect(eventChapterOutputTokenLimit('sequence_challenge')).toBe(6_000);
   });
   it('由服务端确定性承接相邻章节状态和已确认事件边界',()=>{
     const normalized=normalizeGeneratedSequenceSkeleton({eventTitle:'被模型改写的标题',startChapterNumber:21,

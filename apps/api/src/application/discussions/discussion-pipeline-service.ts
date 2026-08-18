@@ -1117,7 +1117,7 @@ export function discussionOutputTokenLimit(
   scopeText: string,
   purpose: DiscussionPurpose = 'open_discussion'
 ): number {
-  if (purpose === 'stage_outline_panel') return 3_000;
+  if (purpose === 'stage_outline_panel') return 6_000;
   // Subscription providers may count internal reasoning against the output budget. A 1.2k cap
   // truncated the author-visible JSON in real calls, so panel outputs receive guarded headroom.
   if (purpose === 'creative_concept_panel' || purpose === 'setting_proposal_panel') return 3_000;
@@ -1153,9 +1153,9 @@ export function discussionOutputTokenLimit(
     return 6_000;
   }
   if (isEditor) return 3_600;
-  if (phase === 'cross_review') return 3_000;
+  if (phase === 'cross_review') return 6_000;
   if (roleKey === 'lead_screenwriter' || roleKey === 'second_screenwriter') return 4_000;
-  return 3_000;
+  return 6_000;
 }
 
 export function discussionContextTokenBudget(isEditor: boolean, scopeText = ''): number {

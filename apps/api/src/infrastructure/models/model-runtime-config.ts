@@ -156,7 +156,7 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
 
 /**
  * 方舟套餐模型统一启用"有预算的思考"：请求携带
- * thinking={type:'enabled',budget_tokens:8000}，模型在预算内思考后必须产出
+ * thinking={type:'enabled',budget_tokens:16000}，模型在预算内思考后必须产出
  * 可见文字。关闭思考（disabled）被 glm-5.3 与 kimi-k2.7-code 直接拒绝（400），
  * 而不设预算时 minimax/deepseek 等会把全部输出额度烧进思考块（2026-08-18
  * 生产实测六个模型均接受 enabled+budget 且预算生效）。
@@ -165,13 +165,15 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
  * 预算和 max_tokens 都是上限而非目标，模型写够即停（end_turn），宽松上限不会
  * 拉长输出或分散注意力——注意力保护在输入侧的资料包预算；上限过紧才会截断、
  * 校验失败、重试、双倍计费并中断任务。思考是"必然要花"的额度（基本用满），
- * 8000 覆盖讨论/规划/审校的深度推演；可见输出另按各管线合同尺寸封顶。
+ * 8000 一度覆盖讨论/规划/审校推演，老板复核后翻倍到 16000：预算是上限，
+ * 用多少算多少，翻倍不强制多思考，只保证复杂任务不被思考额度截断。
+ * 可见输出另按各管线合同尺寸封顶。
  *
  * 思考 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
  * max_tokens 与各管线预算冻结都必须在可见输出限额之上追加同一份预算，
  * 否则结算端会以"实际用量超过冻结上限"拒绝。
  */
-export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 8_000;
+export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
 
 export function thinkingTokenAllowance(modelId: string): number {
   // 本地确定性夹具不经过真实模型，没有思考开销。

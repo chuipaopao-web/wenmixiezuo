@@ -144,7 +144,7 @@ export class SettlementFollowUpPipelineService {
         ? basePrompt
         : `${basePrompt}\n\n上一份输出未通过结构校验：${validationFailure}\n请重新输出完整JSON，不要解释。`;
       const requestId = this.ids.next();
-      const maxOutputTokens = step === 'pacing_check' ? 4_000 : 3_000;
+      const maxOutputTokens = step === 'pacing_check' ? 4_000 : 6_000;
       const estimatedInputCeiling = Math.max(
         Math.ceil(prompt.length / 2),
         Math.ceil(estimateTokens(prompt) * 1.35)
