@@ -61,16 +61,27 @@ export class TeamTemplateService {
       addedProfiles.set(contract.roleKey, profile);
     }
     if (!deterministic) {
-      const signatures = new Set(existing.map((member) => signatureOf(member.provider, member.modelId)));
+      // 异模型独立性只约束剧情三角（三名编剧两两异模型且禁豆包）；
+      // 主编、设定、审查等其他岗位允许共享模型（如主编与编剧C同为 K2.7、
+      // 编剧B与事实审查同为 GLM），全队唯一性不是设计要求。
+      const screenwriterKeys = new Set(['lead_screenwriter', 'second_screenwriter', 'third_screenwriter']);
+      const screenwriterSignatures = new Set(
+        existing
+          .filter((member) => screenwriterKeys.has(member.roleKey))
+          .map((member) => signatureOf(member.provider, member.modelId))
+      );
       for (const contract of missing) {
         const profile = addedProfiles.get(contract.roleKey)!;
         if (/doubao/iu.test(profile.modelId) && contract.roleKey.endsWith('screenwriter')) {
           throw new Error('豆包不能进入剧情讨论席');
         }
-        if (signatures.has(signatureOf(profile.provider, profile.modelId))) {
-          throw new Error(`补齐成员${contract.memberName}与现有成员模型重复，无法保证异模型独立性`);
+        if (screenwriterKeys.has(contract.roleKey)) {
+          const signature = signatureOf(profile.provider, profile.modelId);
+          if (screenwriterSignatures.has(signature)) {
+            throw new Error(`补齐编剧${contract.memberName}与其他编剧模型重复，无法保证编剧三角异模型独立性`);
+          }
+          screenwriterSignatures.add(signature);
         }
-        signatures.add(signatureOf(profile.provider, profile.modelId));
       }
     }
     const team = this.unitOfWork.run(() => {
