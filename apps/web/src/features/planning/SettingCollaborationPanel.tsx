@@ -334,7 +334,7 @@ export function SettingCollaborationPanel({
         <p className="setting-collaboration-state">婉儿、红玉、文姬待命，随时可以开始。</p>
         <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={10_000} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段内容怎么用">
-            <label className={sourceStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'preference'} onChange={() => setSourceStrength('preference')} /> <b>仅供参考</b><small>团队采纳一部分，主要靠专业判断补全</small></label>
+            <label className={sourceStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'preference'} onChange={() => setSourceStrength('preference')} /> <b>仅供参考</b><small>团队以专业设计为主，你的想法占两到五成</small></label>
             <label className={sourceStrength === 'must' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'must'} onChange={() => setSourceStrength('must')} /> <b>必须遵守</b><small>团队的方案不得与它冲突</small></label>
           </div>
         </details>
@@ -372,7 +372,7 @@ export function SettingCollaborationPanel({
       {proposals.length > 0 && !candidateReady && <section className="setting-author-choice">
         <details className="setting-collapsible-input"><summary>我还想补充自己的想法</summary><label>你的补充想法<textarea rows={4} maxLength={4000} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段话怎么用">
-            <label className={ideaStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'preference'} onChange={() => setIdeaStrength('preference')} /> <b>仅供参考</b><small>主编采纳一部分，不靠它定死</small></label>
+            <label className={ideaStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'preference'} onChange={() => setIdeaStrength('preference')} /> <b>仅供参考</b><small>主编以专业判断为主，你的想法占两到五成</small></label>
             <label className={ideaStrength === 'must' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'must'} onChange={() => setIdeaStrength('must')} /> <b>必须遵守</b><small>融合稿不得与它冲突</small></label>
           </div>
         </details>

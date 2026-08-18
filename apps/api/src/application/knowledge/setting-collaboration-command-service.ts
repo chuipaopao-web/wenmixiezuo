@@ -358,7 +358,7 @@ function authorIdeaLine(idea: { text: string; intent: string } | null): string {
     case 'inspiration':
       return `作者本轮灵感（只是启发，可采用也可不采用）：${idea.text}`;
     default:
-      return `作者本轮想法（仅供参考：作者不是专业出身，方案里直接来自这段话的内容最多占一半，其余由你按专业判断补全和修正；开书信息里的"必须遵守"条目仍是硬边界）：${idea.text}`;
+      return `作者本轮想法（仅供参考融合：你是专业设计者，方案必须由你主导；方案中符合作者想法的观点保持两到五成，最多不超过一半，不得把作者想法照抄当成结论；开书信息里的"必须遵守"条目仍是硬边界）：${idea.text}`;
   }
 }
 
