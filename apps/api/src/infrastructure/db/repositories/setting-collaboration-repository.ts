@@ -147,12 +147,12 @@ export class SettingCollaborationRepository {
     return rows.map((row) => row.agent_id);
   }
 
-  public authorInputText(scope: BookScope, itemKey: string, authorInputId: string): string | undefined {
+  public authorInputText(scope: BookScope, itemKey: string, authorInputId: string): { text: string; intent: string } | undefined {
     assertBookScope(scope);
     const row = this.database.prepare(
-      "SELECT original_text FROM author_planning_inputs WHERE owner_id = ? AND book_id = ? AND author_input_id = ? AND surface = 'setting' AND subject_type = 'setting_module' AND subject_id = ? AND status NOT IN ('withdrawn', 'superseded')"
-    ).get(scope.ownerId, scope.bookId, authorInputId, itemKey) as { original_text: string } | undefined;
-    return row?.original_text;
+      "SELECT original_text, intent_strength FROM author_planning_inputs WHERE owner_id = ? AND book_id = ? AND author_input_id = ? AND surface = 'setting' AND subject_type = 'setting_module' AND subject_id = ? AND status NOT IN ('withdrawn', 'superseded')"
+    ).get(scope.ownerId, scope.bookId, authorInputId, itemKey) as { original_text: string; intent_strength: string } | undefined;
+    return row === undefined ? undefined : { text: row.original_text, intent: row.intent_strength };
   }
 
   public agentModelProfiles(scope: BookScope, agentIds: string[]): SettingAgentModelProfileRow[] {

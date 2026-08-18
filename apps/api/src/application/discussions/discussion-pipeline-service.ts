@@ -1372,7 +1372,7 @@ function buildDiscussionPrompt(input: {
             ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
             : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
       '只写一个候选，正文建议200至400字，具体到能直接落地；最后用一句话告诉作者：这项设定以后写故事时要抓住什么。不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
-      '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成3至6条可以独立勾选的具体设定主张，每条是一句能独立成立的话，作者会逐条勾选后交给主编融合）。',
+      '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成4至8条可以独立勾选的具体设定主张；每条是一句能独立成立、互不重复的话，合起来要覆盖你的完整方案，不拆空话套话；作者会逐条勾选或全选后交给主编融合）。',
       AUTHOR_PLAIN_LANGUAGE_RULES,
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
     ].join('\n');
@@ -1391,7 +1391,7 @@ function buildDiscussionPrompt(input: {
         ? '这是剧情总纲专项讨论。只能综合两位编剧已经提交并通过结构校验的完整阶段方案；按连续章节范围规划全书阶段，写清每阶段的主线遭遇、解决方式、结果、起承转合、阶段总结、待回收信息与伏笔、后续方向。不得凭空补造第三套通用总纲，不得写逐章事件。'
         : isGroupedSettingWorkshop
             ? scopeText.includes('"fragmentId"')
-              ? '这是设定碎片融合。作者已经逐条勾选碎片；每条勾选碎片的原意必须保留，只能做最小必要衔接，不得混入未勾选内容。'
+              ? '这是设定碎片融合。作者已经逐条勾选碎片；每条勾选碎片的原意必须保留，只能做最小必要衔接，不得混入未勾选内容。融合稿整体要读作一段精炼定稿，衔接段只为通顺服务，不新增设定主张。'
               : '这是设定成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
               ? '现在只做方向推演：综合编剧意见后先给一个明确主推荐，写清收益、代价、因果风险和人物影响；只有确有重大取舍时保留一个结构不同的备选。最多提出1个会改变重大方向的必要问题；其余未知项用可逆假设推进。不得估算章节数，不得生成章纲，不得安排主笔开写。'
@@ -1402,7 +1402,7 @@ function buildDiscussionPrompt(input: {
         ? (scopeText.includes('"fragmentId"')
           ? '在同一个JSON对象的fields中输出fusionSegments数组：[{"text":"融合稿的一段原文","source":"fragment或stitch","fragmentId":"来源碎片ID，衔接段留空","memberName":"来源成员名，衔接段留空"}]。fusionSegments按顺序拼接必须等于落库content全文；作者勾选碎片对应的段source=fragment并带fragmentId；你补写的衔接段source=stitch。'
           : '')
-          + `在同一个JSON对象的workflowArtifact字段输出设定落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。`
+          + `在同一个JSON对象的workflowArtifact字段输出设定落库结构：{"type":"setting_outline","payload":{"items":[{"itemKey":"资料包中的原始编号","content":"该项可直接保存的明确设定，不写讨论过程、备选方案或待确认问题"}]}}。items必须且只能覆盖这些编号，每个编号恰好一次：${groupedSettingKeys.join('、')}。content中禁止出现成员姓名、主编、编剧、方案A/B/C、共识、分歧、待老板或需老板确认；存在分歧时由你作出当前最合理且可逆的编辑判断，未知项另留在面向老板的正文说明中，不得塞进落库内容。content只写定稿结论本身：一段话讲清，核心项通常80至150字，任何一项最多300字；论证、举例、备选和解释一律不进落库内容，可以写进面向老板的说明。这份内容以后会作为硬指标进入后续创作的资料包，冗长会稀释后续成员的注意力。`
         : '',
       isMasterOutlineWorkshop
         ? '在同一个JSON对象的workflowArtifact字段输出剧情总纲落库结构：{"type":"master_outline","payload":{"outlineSchema":"stage_master_v2","premise":"全书核心前提","coreConflict":"贯穿全书的核心冲突","protagonistArc":"主角从起点到终局的变化","majorStages":[{"stageNumber":1,"title":"第一阶段名称","chapterRange":{"start":1,"end":10},"plotPatterns":{"primary":{"id":"模式ID可省略","name":"主剧情模式","reason":"为什么适合本阶段"},"supporting":[{"name":"辅助模式","reason":"承担什么作用"}]},"dramaticQuestion":"这段剧情最终必须回答的核心问题","stageGoal":"本阶段必须完成的可验证目标","startState":"阶段开始时人物、关系和局势状态","conflictDesign":{"surface":"表层冲突","underlying":"深层冲突","stakes":"成功与失败牵动什么","failureCost":"失败的具体代价"},"mainline":{"encounter":"主角遇到什么事情","resolution":"最终怎么解决","result":"得到什么结果"},"structure":{"setup":"起：阶段开局与触发","development":"承：矛盾如何发展","turn":"转：方向发生什么变化","conclusion":"合：阶段如何收束"},"completionCriteria":["满足什么才算本段写完"],"hardConstraints":["不得偏移的事实、人物和因果边界"],"creativeFreedom":["允许主笔自由发挥的空间"],"stageSummary":"阶段结束时人物、局势与成果的简明总结","pendingThreads":["待回收信息或伏笔"],"followUpDirection":"下一阶段从哪里继续"}],"endingDirection":"结局方向与需要兑现的因果","storyPromises":["读者承诺"],"openQuestions":["仍需老板确认的问题"]}}。首次只规划一个完整剧情阶段；单阶段最多50章。剧情模式只是软参考，不得照搬公式；反向拆解也必须用同一结构总结真实正文，而不是事后硬套模式。后续阶段必须等当前阶段正文完成并结算后再追加；已有阶段必须原样保留。主线、起承转合、结束验收条件和防偏移边界必须具体。'

@@ -61,7 +61,7 @@ export class SettingCollaborationCommandService {
       type: 'collaborative',
       purpose: 'setting_proposal_panel',
       itemKey,
-      scopeText: buildProposalScope(guidance, authorText),
+      scopeText: buildProposalScope(guidance, authorIdeaLine(authorText)),
       authorInputIds: input.authorInputId == null ? [] : [input.authorInputId],
       idempotencyKey: 'setting-proposal:' + itemKey + ':' + normalizeKey(input.idempotencyKey)
         + (existing === undefined ? '' : `:distinct-model-recovery-${panelLease.editorEpoch}-${existing.discussion_id}`),
@@ -171,7 +171,7 @@ export class SettingCollaborationCommandService {
       '现有候选：' + (guidance.previousCandidate ?? '暂无'),
       '作者选中的独立方案：' + JSON.stringify(input.selected),
       '作者勾选的碎片：' + JSON.stringify(input.selectedFragments ?? []),
-      '作者本轮原话：' + (authorText || '没有额外补充'),
+      authorIdeaLine(authorText),
       input.instruction,
       '只生成当前设定项的一份待确认版本；不得生成卷纲、事件、章纲或正文。'
     ].join('\n');
@@ -272,13 +272,13 @@ export class SettingCollaborationCommandService {
     return guidance;
   }
 
-  private authorInputText(scope: BookScope, itemKey: string, authorInputId: string | null): string {
-    if (authorInputId === null) return '';
-    const originalText = this.repository.authorInputText(scope, itemKey, authorInputId);
-    if (originalText === undefined) {
+  private authorInputText(scope: BookScope, itemKey: string, authorInputId: string | null): { text: string; intent: string } | null {
+    if (authorInputId === null) return null;
+    const idea = this.repository.authorInputText(scope, itemKey, authorInputId);
+    if (idea === undefined) {
       throw new DomainError(errorCodes.validation, '作者想法不存在、已撤回或不属于当前设定项');
     }
-    return originalText.trim();
+    return { text: idea.text.trim(), intent: idea.intent };
   }
 
   private requireEditorLease(scope: BookScope): EditorLease {
@@ -332,7 +332,7 @@ export class SettingCollaborationCommandService {
   }
 }
 
-function buildProposalScope(guidance: SettingGuidanceSnapshot, authorText: string): string {
+function buildProposalScope(guidance: SettingGuidanceSnapshot, authorLine: string): string {
   return [
     '【设定项目三席独立提案】',
     '当前设定项编号：' + guidance.itemKey,
@@ -342,10 +342,24 @@ function buildProposalScope(guidance: SettingGuidanceSnapshot, authorText: strin
     '作品定位摘要：' + guidance.positioningSummary,
     '故事方向参考：' + guidance.storyDirectionReference,
     '已经确认的前置设定：' + JSON.stringify(guidance.confirmedContext),
-    '作者本轮原话：' + (authorText || '没有额外补充'),
+    authorLine,
     '任务：编剧A、编剧B与设定成员分别独立思考，互不查看、讨论或综合其他成员答案。每人只提交一份自己真正推荐、可供作者选择的明确设定方案，并拆成作者可逐条勾选的碎片。',
     '故事方向只是参考；只讨论当前设定项，不得生成卷纲、事件、章纲或正文。内容不会自动合并，也不会自动确认。'
   ].join('\n');
+}
+
+function authorIdeaLine(idea: { text: string; intent: string } | null): string {
+  if (idea === null || idea.text.length === 0) return '作者本轮原话：没有额外补充';
+  switch (idea.intent) {
+    case 'must':
+      return `作者本轮要求（必须遵守，方案不得与之冲突）：${idea.text}`;
+    case 'question':
+      return `作者本轮疑问（方案里顺带回答它）：${idea.text}`;
+    case 'inspiration':
+      return `作者本轮灵感（只是启发，可采用也可不采用）：${idea.text}`;
+    default:
+      return `作者本轮想法（仅供参考：作者不是专业出身，方案里直接来自这段话的内容最多占一半，其余由你按专业判断补全和修正；开书信息里的"必须遵守"条目仍是硬边界）：${idea.text}`;
+  }
 }
 
 function normalizeKey(value: string): string {
