@@ -40,19 +40,21 @@ describe('设定大纲工作状态', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('都市言情只激活关系和现实生活设定，不要求游戏或力量机制', () => {
+  it('都市言情只激活关系和现实生活设定，核心六问始终必备', () => {
     const profile = resolveSettingOutlineProfile(blueprint({}));
 
     expect(profile.profileKey).toContain('romance');
     expect(profile.profileKey).toContain('urban');
-    expect(profile.required).toEqual(expect.arrayContaining([
-      'creative-concept', 'era', 'protagonist', 'relationship-premise', 'relationship-obstacle'
-    ]));
-    expect(profile.required).not.toEqual(expect.arrayContaining([
-      'power-source', 'levels', 'production', 'army', 'game-panel', 'ranking'
-    ]));
+    expect(profile.required).toEqual([
+      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+    ]);
     expect(profile.recommended).toEqual(expect.arrayContaining([
+      'theme-intent', 'differentiator', 'geography',
+      'relationship-premise', 'relationship-obstacle',
       'relationship-growth', 'emotional-boundaries', 'life-circle'
+    ]));
+    expect(profile.recommended).not.toEqual(expect.arrayContaining([
+      'power-source', 'levels', 'production', 'army', 'game-panel', 'ranking'
     ]));
   });
 
@@ -95,7 +97,10 @@ describe('设定大纲工作状态', () => {
 
     expect(profile.profileKey).toContain('game');
     expect(profile.profileKey).toContain('history');
-    expect(profile.required).toEqual(expect.arrayContaining([
+    expect(profile.required).toEqual([
+      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+    ]);
+    expect(profile.recommended).toEqual(expect.arrayContaining([
       'game-entry', 'game-panel', 'history-baseline', 'divergence'
     ]));
     expect(profile.required).not.toContain('politics-military');
@@ -107,7 +112,7 @@ describe('设定大纲工作状态', () => {
     ['领主经营', 'male-urban-farming', ['领主', '基建'], '主角经营边境领地，在资源约束下建设城镇。', ['territory', 'population', 'yield'], ['game-panel', 'case-rules']],
     ['悬疑调查', 'male-suspense-brain', ['悬疑', '推理'], '刑警调查一宗密室案件并逐层验证证据。', ['case-rules', 'evidence-chain', 'truth-layers'], ['levels', 'territory']],
     ['科幻未来', 'male-scifi-apocalypse', ['科幻', '末世'], '幸存者依靠受限能源科技穿越灾变后的城市。', ['technology-boundary', 'science-cost'], ['relationship-premise', 'army']]
-  ] as const)('%s分类只启用自己的关键设定', (_label, categoryKey, mainTags, storyDirection, required, excluded) => {
+  ] as const)('%s分类只启用自己的关键设定', (_label, categoryKey, mainTags, storyDirection, expected, excluded) => {
     const profile = resolveSettingOutlineProfile(blueprint({
       channel: 'male',
       categoryKey,
@@ -117,8 +122,11 @@ describe('设定大纲工作状态', () => {
       storyDirection
     }));
 
-    expect(profile.required).toEqual(expect.arrayContaining([...required]));
-    expect(profile.required).not.toEqual(expect.arrayContaining([...excluded]));
+    expect(profile.required).toEqual([
+      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+    ]);
+    expect(profile.recommended).toEqual(expect.arrayContaining([...expected]));
+    expect(profile.recommended).not.toEqual(expect.arrayContaining([...excluded]));
   });
 
   it('拒绝把成员争论和待老板裁定文本伪装成可确认设定', () => {
@@ -462,5 +470,131 @@ describe('设定大纲工作状态', () => {
         })
       ])
     });
+  });
+
+  it('核心六问初始化时从旧设定预填内容，重复初始化与作者改写均不被覆盖', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '旧书预填', text: '都市言情' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new SettingOutlineWorkspaceService(context.database, clock);
+    service.save(scope, {
+      itemKey: 'creative-concept',
+      groupTitle: '作品策划',
+      label: '策划理念',
+      prompt: '核心机制？',
+      sourceLabel: '通用',
+      status: '已确认',
+      sortOrder: 10,
+      content: '医疗纠纷中重建信任的职业剧。'
+    });
+    service.save(scope, {
+      itemKey: 'must-follow',
+      groupTitle: '约束、留白与未知',
+      label: '必须遵守',
+      prompt: '禁区？',
+      sourceLabel: '通用',
+      status: '候选待确认',
+      sortOrder: 60,
+      content: '不写多角恋。'
+    });
+
+    const coreTemplate = [
+      { itemKey: 'story-kernel', groupTitle: '核心设定', label: '故事内核', prompt: '看点？', sourceLabel: '通用', sortOrder: 0 },
+      { itemKey: 'opposition', groupTitle: '核心设定', label: '对立面', prompt: '对立？', sourceLabel: '通用', sortOrder: 3 },
+      { itemKey: 'boundaries-blanks', groupTitle: '核心设定', label: '边界与留白', prompt: '边界？', sourceLabel: '通用', sortOrder: 5 }
+    ];
+    service.initialize(scope, coreTemplate);
+
+    const kernel = service.list(scope).find((item) => item.itemKey === 'story-kernel')!;
+    expect(kernel.status).toBe('待讨论');
+    expect(kernel.content).toContain('预填稿');
+    expect(kernel.content).toContain('原“策划理念”');
+    expect(kernel.content).toContain('医疗纠纷中重建信任的职业剧。');
+    expect(service.list(scope).find((item) => item.itemKey === 'opposition')!.content).toBeNull();
+    expect(service.list(scope).find((item) => item.itemKey === 'boundaries-blanks')!.content).toContain('不写多角恋。');
+
+    service.save(scope, {
+      itemKey: 'story-kernel',
+      groupTitle: kernel.groupTitle,
+      label: kernel.label,
+      prompt: kernel.prompt,
+      sourceLabel: kernel.sourceLabel,
+      status: '待讨论',
+      sortOrder: 0,
+      content: '作者自己改写的故事内核。'
+    });
+    service.initialize(scope, coreTemplate);
+    expect(service.list(scope).find((item) => item.itemKey === 'story-kernel')!.content).toBe('作者自己改写的故事内核。');
+  });
+
+  it('每次确认都生成不可变版本，版本链按项回查且不受后续修改影响', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '版本链', text: '玄幻' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new SettingOutlineWorkspaceService(context.database, clock);
+    const base = {
+      groupTitle: '核心设定',
+      label: '故事内核',
+      prompt: '看点？',
+      sourceLabel: '通用',
+      sortOrder: 0
+    };
+
+    service.save(scope, { ...base, itemKey: 'story-kernel', status: '已确认', content: '第一版内核。' });
+    service.save(scope, { ...base, itemKey: 'story-kernel', status: '已确认', content: '第二版内核。' });
+    expect(service.listVersions(scope, 'story-kernel').map((version) => [
+      version.versionNo, version.content, version.sourceKind
+    ])).toEqual([
+      [2, '第二版内核。', 'manual'],
+      [1, '第一版内核。', 'manual']
+    ]);
+
+    service.save(scope, {
+      itemKey: 'era',
+      groupTitle: '世界与环境',
+      label: '时代与世界类型',
+      prompt: '时代？',
+      sourceLabel: '通用',
+      status: '讨论中',
+      sortOrder: 10
+    });
+    service.recordDiscussionCandidate(scope, {
+      discussionId: 'd-1',
+      decisionId: 'dec-1',
+      scopeText: ['【设定专项讨论资料包】', '当前板块：世界与环境', '当前设定项：时代与世界类型', '设定项编号：era'].join('\n'),
+      content: '近未来沿海城市，现实治理规则可核验。'
+    });
+    service.confirmDiscussionCandidate(scope, 'd-1', 'dec-1');
+    expect(service.listVersions(scope, 'era')).toMatchObject([{
+      versionNo: 1,
+      sourceKind: 'discussion',
+      sourceDiscussionId: 'd-1',
+      sourceDecisionId: 'dec-1',
+      content: '近未来沿海城市，现实治理规则可核验。'
+    }]);
+
+    service.save(scope, {
+      itemKey: 'world-stage',
+      groupTitle: '核心设定',
+      label: '世界舞台',
+      prompt: '舞台？',
+      sourceLabel: '通用',
+      status: '讨论中',
+      sortOrder: 1
+    });
+    service.recordGuidanceCandidate(scope, 'world-stage', '都市与近海科技带并存的世界。');
+    service.confirmGuidanceCandidate(scope, 'world-stage');
+    expect(service.listVersions(scope, 'world-stage')).toMatchObject([{
+      versionNo: 1,
+      sourceKind: 'guidance',
+      content: '都市与近海科技带并存的世界。'
+    }]);
+
+    expect(service.listVersions(scope, 'story-kernel')).toHaveLength(2);
+    expect(service.listVersions(scope, 'opposition')).toEqual([]);
   });
 });

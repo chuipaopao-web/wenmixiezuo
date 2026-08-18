@@ -26,6 +26,29 @@ export interface SettingOutlineWorkspaceItem {
   updatedAt: string;
 }
 
+export interface SettingOutlineItemVersion {
+  itemKey: string;
+  versionNo: number;
+  content: string;
+  sourceKind: 'manual' | 'guidance' | 'discussion';
+  sourceDiscussionId: string | null;
+  sourceDecisionId: string | null;
+  createdAt: string;
+}
+
+/**
+ * 核心六问的预填来源：旧书已填写的设定在第一次初始化新核心项时汇成预填稿，
+ * 状态仍为“待讨论”，作者与团队讨论确认后才生效；映射不到来源的核心项保持空白待讨论。
+ */
+export const CORE_PREFILL_SOURCES: Record<string, readonly string[]> = {
+  'story-kernel': ['creative-concept', 'reader-promise', 'theme-intent', 'differentiator'],
+  'world-stage': ['era', 'world-layer', 'geography', 'civilization', 'history', 'hazards'],
+  'protagonist-situation': ['protagonist', 'motivation', 'strength-flaw'],
+  opposition: ['factions'],
+  'rules-costs': ['power-source', 'levels', 'costs', 'counters', 'governance'],
+  'boundaries-blanks': ['must-follow', 'tone-boundary', 'open', 'intentional-unknown']
+};
+
 export class SettingOutlineWorkspaceService {
   private readonly repository: SettingOutlineWorkspaceRepository;
 
@@ -87,6 +110,9 @@ export class SettingOutlineWorkspaceService {
       ...(input.status === '已确认' ? { confirmedAt: now } : {}),
       now
     });
+    if (input.status === '已确认' && contentText !== null) {
+      this.repository.appendVersion(scope, { itemKey, contentText, sourceKind: 'manual', now });
+    }
     return this.list(scope).find((item) => item.itemKey === itemKey)!;
   }
 
@@ -121,6 +147,7 @@ export class SettingOutlineWorkspaceService {
         now
       });
     }
+    this.prefillCoreItems(scope, items.map((item) => item.itemKey), now);
     return this.list(scope);
   }
 
@@ -279,6 +306,14 @@ export class SettingOutlineWorkspaceService {
       confirmedAt: now,
       now
     });
+    this.repository.appendVersion(scope, {
+      itemKey: current.itemKey,
+      contentText: current.content,
+      sourceKind: 'guidance',
+      sourceDiscussionId: current.sourceDiscussionId,
+      sourceDecisionId: current.sourceDecisionId,
+      now
+    });
     return this.list(scope).find((item) => item.itemKey === itemKey)!;
   }
 
@@ -309,8 +344,49 @@ export class SettingOutlineWorkspaceService {
         now
       });
     }
+    for (const existing of existingRows) {
+      this.repository.appendVersion(scope, {
+        itemKey: existing.item_key,
+        contentText: existing.content_text!,
+        sourceKind: 'discussion',
+        sourceDiscussionId: discussionId,
+        sourceDecisionId: decisionId,
+        now
+      });
+    }
     const keys = new Set(existingRows.map((row) => row.item_key));
     return this.list(scope).filter((item) => keys.has(item.itemKey));
+  }
+
+  public listVersions(scope: BookScope, itemKey: string): SettingOutlineItemVersion[] {
+    assertBookScope(scope);
+    return this.repository.listVersions(scope, itemKey).map((row) => ({
+      itemKey: row.item_key,
+      versionNo: row.version_no,
+      content: row.content_text,
+      sourceKind: row.source_kind,
+      sourceDiscussionId: row.source_discussion_id,
+      sourceDecisionId: row.source_decision_id,
+      createdAt: row.created_at
+    }));
+  }
+
+  private prefillCoreItems(scope: BookScope, insertedKeys: string[], now: string): void {
+    const wanted = insertedKeys.filter((key) => key in CORE_PREFILL_SOURCES);
+    if (wanted.length === 0) return;
+    const legacyRows = this.repository.list(scope);
+    for (const key of wanted) {
+      const sources = CORE_PREFILL_SOURCES[key]!
+        .flatMap((sourceKey) => legacyRows.filter((row) => row.item_key === sourceKey && row.content_text !== null))
+        .filter((row, index, all) => all.findIndex((candidate) => candidate.item_key === row.item_key) === index);
+      if (sources.length === 0) continue;
+      const sections = sources.map((row) => '—— 原“' + row.label + '”——\n' + row.content_text!.trim());
+      this.repository.prefillContentIfEmpty(scope, key, [
+        "【预填稿】以下内容来自本书已填写的旧设定，仅供讨论参考，确认或改写后才正式生效。",
+        '',
+        ...sections
+      ].join('\n'), now);
+    }
   }
 }
 

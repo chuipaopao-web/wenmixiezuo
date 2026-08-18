@@ -162,11 +162,11 @@ describe('建书REST流程', () => {
       expect(staleProfile.json().error).toMatchObject({ code: 'BOOK_VERSION_CONFLICT' });
       const settingCollaboration = await app.inject({
         method: 'GET',
-        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/creative-concept/collaboration`
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration`
       });
       expect(settingCollaboration.statusCode).toBe(200);
       expect(settingCollaboration.json().data).toMatchObject({
-        item: { itemKey: 'creative-concept' },
+        item: { itemKey: 'story-kernel' },
         panel: { taskId: created.kickoffTaskId },
         impact: { changesCanon: false, changesManuscript: false }
       });
@@ -197,7 +197,7 @@ describe('建书REST流程', () => {
               workflowArtifact: {
                 type: 'setting_outline',
                 payload: { items: [{
-                  itemKey: 'creative-concept',
+                  itemKey: 'story-kernel',
                   content: '通过张三在城邦冲突中的有代价选择，探讨个人尊严与共同体责任，让读者获得热血推进中的道德张力。'
                 }] }
               }
@@ -208,7 +208,7 @@ describe('建书REST流程', () => {
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, created.kickoffTaskId, 'worker-onboarding');
-      expect(capturedPrompt).toContain('策划理念');
+      expect(capturedPrompt).toContain('故事内核');
       expect(capturedPrompt).toContain('互相看不到答案');
       expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的方案');
       expect(capturedPrompt).toContain('不要展开具体剧情');
@@ -223,7 +223,7 @@ describe('建书REST流程', () => {
       ]));
       const proactiveCollaboration = await app.inject({
         method: 'GET',
-        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/creative-concept/collaboration`
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration`
       });
       expect(proactiveCollaboration.statusCode).toBe(200);
       expect(proactiveCollaboration.json().data.panel).toMatchObject({
@@ -236,13 +236,13 @@ describe('建书REST流程', () => {
         ])
       });
       expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
-        WHERE owner_id = ? AND book_id = ? AND item_key = 'creative-concept'`)
+        WHERE owner_id = ? AND book_id = ? AND item_key = 'story-kernel'`)
         .get(context.config.ownerId, created.bookId)).toMatchObject({
         item_status: '讨论中',
         content_text: null
       });
       expect(proactiveCollaboration.json().data.item).toMatchObject({
-        itemKey: 'creative-concept', status: '讨论中'
+        itemKey: 'story-kernel', status: '讨论中'
       });
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
         WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'

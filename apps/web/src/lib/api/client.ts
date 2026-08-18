@@ -126,6 +126,16 @@ export interface SettingOutlineWorkspaceData {
   updatedAt: string;
 }
 
+export interface SettingOutlineItemVersionData {
+  itemKey: string;
+  versionNo: number;
+  content: string;
+  sourceKind: 'manual' | 'guidance' | 'discussion';
+  sourceDiscussionId: string | null;
+  sourceDecisionId: string | null;
+  createdAt: string;
+}
+
 export interface SettingCollaborationData {
   item: SettingOutlineWorkspaceData;
   panel: null | {
@@ -1822,6 +1832,17 @@ export function fetchAttributeFormulas(bookId: string, signal?: AbortSignal): Pr
 
 export function fetchSettingOutlineWorkspace(bookId: string, signal?: AbortSignal): Promise<SettingOutlineWorkspaceData[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace`, signal === undefined ? {} : { signal });
+}
+
+export function fetchSettingOutlineVersions(
+  bookId: string,
+  itemKey: string,
+  signal?: AbortSignal
+): Promise<SettingOutlineItemVersionData[]> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/versions`,
+    signal === undefined ? {} : { signal }
+  );
 }
 
 export function fetchSettingCollaboration(

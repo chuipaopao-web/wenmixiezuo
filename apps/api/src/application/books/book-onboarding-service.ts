@@ -253,7 +253,7 @@ export class BookOnboardingService {
           model_snapshot_id: string;
           role_key: string;
         }>;
-        if (screenwriters.length !== 2) throw new Error('策划理念独立提案必须有两名真实编剧');
+        if (screenwriters.length !== 2) throw new Error('首个核心设定独立提案必须有两名真实编剧');
         this.database.prepare(`
           INSERT INTO discussions (
             discussion_id, owner_id, book_id, discussion_type, scope_text, status,
@@ -267,12 +267,12 @@ export class BookOnboardingService {
         `);
         insertParticipant.run(
           kickoffDiscussionId, scope.ownerId, draft.proposedBookId, editor.agent_id,
-          '活动主编独立提出编辑视角的策划理念', editor.model_snapshot_id
+          '活动主编独立提出编辑视角的首个核心设定', editor.model_snapshot_id
         );
         for (const screenwriter of screenwriters) {
           insertParticipant.run(
             kickoffDiscussionId, scope.ownerId, draft.proposedBookId, screenwriter.agent_id,
-            '编剧独立提出策划理念，不读取其他成员答案', screenwriter.model_snapshot_id
+            '编剧独立提出首个核心设定方案，不读取其他成员答案', screenwriter.model_snapshot_id
           );
         }
         const taskService = new TaskService(this.database, this.requireReleaseId(), this.clock);
@@ -288,8 +288,8 @@ export class BookOnboardingService {
             discussionId: kickoffDiscussionId,
             scopeText: kickoffContent,
             purpose: 'setting_proposal_panel',
-            settingItemKey: 'creative-concept',
-            settingItemLabel: '策划理念',
+            settingItemKey: settingGuidance?.itemKey ?? 'story-kernel',
+            settingItemLabel: settingGuidance?.label ?? '故事内核',
             requestedChapterCount: null,
             proactiveOnboarding: true,
             openingBlueprintId
@@ -528,11 +528,11 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
     `必须遵守：${(blueprint.mustFollow ?? []).length > 0 ? (blueprint.mustFollow ?? []).join('；') : '无额外限制'}`
   ].join('\n');
   return [
-    '【策划理念三席独立提案】',
-    `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '策划理念'}”。`,
+    '【核心设定三席独立提案】',
+    `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '故事内核'}”。`,
     '请读取本任务唯一的开书快照来源。故事方向只是可讨论、可修订的软规划参考，不是已发生正史；分类、题材和标签只是创意线索，不得机械拼接。',
     openingReference,
-    '活动主编与两名编剧分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么策划理念？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。',
+    `活动主编与两名编剧分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。`,
     '三人互相看不到答案，不交叉质疑、不投票、不综合，也不替作者确认。每人只给一个自然、具体、容易理解的候选。',
     '不要展开具体剧情，不生成剧情总纲、章纲或正文，不启动主笔。三份候选全部展示给作者后，等待作者选择其中一份、组合指定内容，或直接提交自己的版本。'
   ].join('\n');

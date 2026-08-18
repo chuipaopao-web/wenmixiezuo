@@ -286,7 +286,7 @@ describe('已有正文续写导入', () => {
 
     const handoff = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'creative-concept', { idempotencyKey: 'continuation-setting-start' });
+    ).start(scope, 'story-kernel', { idempotencyKey: 'continuation-setting-start' });
     expect(handoff).toMatchObject({ status: 'queued', reused: false });
     const handoffBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
       .get(handoff.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
@@ -296,7 +296,7 @@ describe('已有正文续写导入', () => {
 
     const guidance = new SettingGuidanceService(context.database, ids, clock).current(scope);
     expect(guidance).toMatchObject({
-      itemKey: 'creative-concept',
+      itemKey: 'story-kernel',
       positioningSummary: expect.stringContaining('已有正文续写'),
       storyDirectionReference: expect.any(String)
     });
@@ -338,7 +338,7 @@ describe('已有正文续写导入', () => {
     expect(readiness).toMatchObject({
       profileKey: 'continuation-reverse',
       ready: false,
-      required: expect.arrayContaining(['creative-concept', 'era', 'protagonist'])
+      required: expect.arrayContaining(['story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'])
     });
 
     const guidanceWorkflow = new SettingGuidanceService(context.database, ids, clock);
@@ -410,7 +410,7 @@ describe('已有正文续写导入', () => {
 
       const prematureStart = await app.inject({
         method: 'POST',
-        url: `/api/v1/books/${book.bookId}/setting-outline-workspace/creative-concept/collaboration/start`,
+        url: `/api/v1/books/${book.bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
         payload: { idempotencyKey: 'continuation-premature-setting-start' }
       });
       expect(prematureStart.statusCode).toBe(409);

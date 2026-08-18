@@ -74,7 +74,7 @@ describe('定位草稿与原子建书', () => {
       SELECT item_key, label, item_status FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? ORDER BY sort_order, item_key
     `).all('owner-one', result.bookId) as Array<{ item_key: string; label: string; item_status: string }>;
-    expect(settingItems[0]).toEqual({ item_key: 'creative-concept', label: '策划理念', item_status: '讨论中' });
+    expect(settingItems[0]).toEqual({ item_key: 'story-kernel', label: '故事内核', item_status: '讨论中' });
     expect(settingItems.filter((item) => item.item_status === '讨论中')).toHaveLength(1);
     const kickoffTask = context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
       .get(result.kickoffTaskId) as { task_brief_json: string };

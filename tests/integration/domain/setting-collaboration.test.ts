@@ -49,7 +49,7 @@ describe('设定页内协作读模型', () => {
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const initialized = new SettingGuidanceService(context.database, ids, clock).ensureInitialized(scope);
-    expect(initialized?.itemKey).toBe('creative-concept');
+    expect(initialized?.itemKey).toBe('story-kernel');
     const roles = context.database.prepare(`
       SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
@@ -83,7 +83,7 @@ describe('设定页内协作读模型', () => {
 
     const command = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'creative-concept', { idempotencyKey: 'distinct-model-panel' });
+    ).start(scope, 'story-kernel', { idempotencyKey: 'distinct-model-panel' });
 
     expect(command).toMatchObject({ reused: false, status: 'queued' });
     const activeRole = context.database.prepare(`
@@ -118,7 +118,7 @@ describe('设定页内协作读模型', () => {
       .run('succeeded', 'complete', command.taskId);
     const rebuilt = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'creative-concept', { idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
+    ).start(scope, 'story-kernel', { idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
     expect(rebuilt).toMatchObject({ reused: false, status: 'queued' });
     expect(rebuilt.taskId).not.toBe(command.taskId);
     expect(rebuilt.discussionId).not.toBe(command.discussionId);
@@ -265,9 +265,9 @@ describe('设定页内协作读模型', () => {
     guidance.ensureInitialized(scope);
     const workspace = new SettingOutlineWorkspaceService(context.database, clock);
     const items = workspace.list(scope);
-    const required = items.filter((item) => ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow'].includes(item.itemKey));
+    const required = items.filter((item) => ['story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'].includes(item.itemKey));
     expect(required).toHaveLength(6);
-    for (const [index, item] of required.entries()) {
+    for (const [index, item] of required.slice(0, -1).entries()) {
       workspace.save(scope, {
         itemKey: item.itemKey, groupTitle: item.groupTitle, label: item.label, prompt: item.prompt,
         sourceLabel: item.sourceLabel, sortOrder: item.sortOrder, status: '已确认',
@@ -277,8 +277,11 @@ describe('设定页内协作读模型', () => {
 
     const snapshot = guidance.current(scope);
     expect(snapshot).not.toBeNull();
+    expect(snapshot!.itemKey).toBe('boundaries-blanks');
     expect(JSON.parse(snapshot!.openingBookCore)).toMatchObject({ storyDirection, initialMap });
-    expect(snapshot!.confirmedContext).toHaveLength(6);
+    expect(snapshot!.confirmedContext.map((item) => item.itemKey)).toEqual([
+      'story-kernel', 'protagonist-situation', 'opposition', 'rules-costs'
+    ]);
     expect(snapshot!.confirmedContext[0]?.content).toContain('末尾锚点');
 
     const scheduled = new SettingCollaborationCommandService(

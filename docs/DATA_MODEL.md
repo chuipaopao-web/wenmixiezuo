@@ -33,6 +33,7 @@
 ## 4. 设定协作
 
 - `setting_outline_workspace`：当前设定项、状态、候选和确认结果。
+- `setting_outline_item_versions`：设定项不可变版本链；每次确认追加一条版本并记录来源（manual/guidance/discussion），当前生效内容仍以 `setting_outline_workspace` 为准。
 - `discussions`、`discussion_participants`、`discussion_opinions`、`discussion_decisions`：对象化AI提案、独立意见与主编整理记录。
 - 独立提案保存真实Agent、模型快照和输出；作者选择、组合、修订和确认另行记录。
 

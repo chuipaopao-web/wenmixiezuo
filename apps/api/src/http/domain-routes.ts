@@ -1376,6 +1376,12 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(settingOutlineWorkspace.list(scope), request.id);
   });
   app.get<{ Params: { bookId: string; itemKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/versions', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      return success(settingOutlineWorkspace.listVersions(scope, request.params.itemKey), request.id);
+    }
+  );
+  app.get<{ Params: { bookId: string; itemKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       return success(settingCollaboration.inspect(scope, request.params.itemKey), request.id);

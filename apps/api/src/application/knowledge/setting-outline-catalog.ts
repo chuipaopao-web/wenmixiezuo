@@ -18,6 +18,12 @@ export interface SettingOutlineTemplateItem {
 type Metadata = Omit<SettingOutlineTemplateItem, 'itemKey' | 'required' | 'sortOrder'>;
 
 const CATALOG: Record<string, Metadata> = {
+  'story-kernel': item('核心设定', '故事内核', '这本书最勾人的核心看点是什么？读者一直追下去，稳定获得什么爽感或满足？和同类书相比，它不可替代的地方在哪？'),
+  'world-stage': item('核心设定', '世界舞台', '故事发生在什么时代、什么样的世界？主角开场在哪里活动？这个世界的整体面貌和氛围是什么？'),
+  'protagonist-situation': item('核心设定', '主角处境', '主角是谁？开场拥有什么、缺少什么、被什么逼着往前走？他真正想要什么，又绝不会做什么？'),
+  opposition: item('核心设定', '对立面', '挡在主角面前的到底是谁或什么？对方想要什么、为什么绕不开？冲突靠什么一轮轮升级？'),
+  'rules-costs': item('核心设定', '规矩与代价', '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？'),
+  'boundaries-blanks': item('核心设定', '边界与留白', '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？'),
   'creative-concept': item('作品策划', '策划理念', '这本书最核心的创作机制是什么，为什么值得持续写下去？'),
   'reader-promise': item('作品策划', '读者承诺与核心体验', '读者持续追读时，稳定获得什么感受和满足？'),
   'theme-intent': item('作品策划', '小说立意', '作品希望探讨什么问题？不要求写成口号或道德结论。'),

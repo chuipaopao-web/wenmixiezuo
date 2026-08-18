@@ -19,6 +19,16 @@ export interface SettingOutlineWorkspaceRow {
   updated_at: string;
 }
 
+export interface SettingOutlineItemVersionRow {
+  item_key: string;
+  version_no: number;
+  content_text: string;
+  source_kind: 'manual' | 'guidance' | 'discussion';
+  source_discussion_id: string | null;
+  source_decision_id: string | null;
+  created_at: string;
+}
+
 export class SettingOutlineWorkspaceRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -136,5 +146,49 @@ export class SettingOutlineWorkspaceRepository {
       WHERE owner_id = ? AND book_id = ? AND group_title = ? AND label = ?
       LIMIT 1
     `).get(scope.ownerId, scope.bookId, groupTitle, label) as SettingOutlineWorkspaceRow | undefined;
+  }
+
+  public prefillContentIfEmpty(scope: BookScope, itemKey: string, contentText: string, now: string): void {
+    this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET content_text = ?, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND item_key = ? AND content_text IS NULL
+    `).run(contentText, now, scope.ownerId, scope.bookId, itemKey);
+  }
+
+  public appendVersion(scope: BookScope, input: {
+    itemKey: string;
+    contentText: string;
+    sourceKind: 'manual' | 'guidance' | 'discussion';
+    sourceDiscussionId?: string | null;
+    sourceDecisionId?: string | null;
+    now: string;
+  }): number {
+    const row = this.database.prepare(`
+      SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no
+      FROM setting_outline_item_versions
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+    `).get(scope.ownerId, scope.bookId, input.itemKey) as unknown as { next_no: number };
+    this.database.prepare(`
+      INSERT INTO setting_outline_item_versions (
+        owner_id, book_id, item_key, version_no, content_text, source_kind,
+        source_discussion_id, source_decision_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      scope.ownerId, scope.bookId, input.itemKey, row.next_no, input.contentText,
+      input.sourceKind, input.sourceDiscussionId ?? null, input.sourceDecisionId ?? null,
+      input.now
+    );
+    return row.next_no;
+  }
+
+  public listVersions(scope: BookScope, itemKey: string): SettingOutlineItemVersionRow[] {
+    return this.database.prepare(`
+      SELECT item_key, version_no, content_text, source_kind,
+        source_discussion_id, source_decision_id, created_at
+      FROM setting_outline_item_versions
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+      ORDER BY version_no DESC
+    `).all(scope.ownerId, scope.bookId, itemKey) as unknown as SettingOutlineItemVersionRow[];
   }
 }

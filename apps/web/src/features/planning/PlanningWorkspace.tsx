@@ -83,6 +83,14 @@ interface SettingOutlineGroup {
 }
 
 const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
+  { key: 'core-six', title: '核心设定', description: '任何题材都必须先想清楚的六件事；六项全部确认后才生成正式设定稿。', items: [
+    { key: 'story-kernel', label: '故事内核', prompt: '这本书最勾人的核心看点是什么？读者一直追下去，稳定获得什么爽感或满足？和同类书相比，它不可替代的地方在哪？', source: '通用', required: true },
+    { key: 'world-stage', label: '世界舞台', prompt: '故事发生在什么时代、什么样的世界？主角开场在哪里活动？这个世界的整体面貌和氛围是什么？', source: '通用', required: true },
+    { key: 'protagonist-situation', label: '主角处境', prompt: '主角是谁？开场拥有什么、缺少什么、被什么逼着往前走？他真正想要什么，又绝不会做什么？', source: '通用', required: true },
+    { key: 'opposition', label: '对立面', prompt: '挡在主角面前的到底是谁或什么？对方想要什么、为什么绕不开？冲突靠什么一轮轮升级？', source: '通用', required: true },
+    { key: 'rules-costs', label: '规矩与代价', prompt: '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？', source: '通用', required: true },
+    { key: 'boundaries-blanks', label: '边界与留白', prompt: '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？', source: '通用', required: true }
+  ] },
   { key: 'creative', title: '作品策划', description: '先明确为什么写、写给谁以及提供什么独特体验。', items: [
     { key: 'creative-concept', label: '核心看点', prompt: '这本书最吸引人的地方是什么，为什么读者愿意一直看下去？', source: '通用', required: true },
     { key: 'theme-intent', label: '小说立意', prompt: '作品希望探讨什么问题？不要求写成口号或道德结论。', source: '通用' },

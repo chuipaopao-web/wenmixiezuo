@@ -238,7 +238,12 @@ export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
   confirmed: T[],
   targetItemKey: string
 ): T[] {
+  // 核心六问中的“故事内核、主角处境、边界与留白”对一切后续设定都有约束；
+  // 同时保留旧版核心项，兼容重构前已确认的历史数据。
   const alwaysRelevant = new Set([
+    'story-kernel',
+    'protagonist-situation',
+    'boundaries-blanks',
     'creative-concept',
     'reader-promise',
     'protagonist',
@@ -246,6 +251,11 @@ export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
     'must-follow'
   ]);
   const explicitDependencies: Record<string, readonly string[]> = {
+    'world-stage': ['story-kernel'],
+    'protagonist-situation': ['story-kernel', 'world-stage'],
+    opposition: ['story-kernel', 'protagonist-situation'],
+    'rules-costs': ['story-kernel', 'world-stage', 'opposition'],
+    'boundaries-blanks': ['story-kernel', 'protagonist-situation', 'opposition', 'rules-costs'],
     motivation: ['protagonist'],
     'must-follow': ['creative-concept', 'reader-promise', 'protagonist', 'motivation'],
     'power-source': ['era', 'protagonist', 'must-follow'],

@@ -7,14 +7,18 @@ export interface SettingOutlineProfile {
   recommended: string[];
 }
 
-const CORE_REQUIRED = [
-  'creative-concept',
-  'reader-promise',
-  'era',
-  'protagonist',
-  'motivation',
-  'must-follow'
+// 核心六问：任何题材都必须先确认的六张卡。题材包项一律作为建议出现，
+// 不再单独阻塞进入分卷；作者可以在建议、完整类目与自定义之间自由取舍。
+export const CORE_SETTING_KEYS = [
+  'story-kernel',
+  'world-stage',
+  'protagonist-situation',
+  'opposition',
+  'rules-costs',
+  'boundaries-blanks'
 ] as const;
+
+const CORE_REQUIRED: readonly string[] = [...CORE_SETTING_KEYS];
 
 const CORE_RECOMMENDED = [
   'theme-intent',
@@ -143,24 +147,18 @@ export function resolveSettingOutlineProfile(blueprint: OpeningBlueprintInput): 
   const matched = PROFILE_RULES.filter((rule) => (
     rule.packKeys.some((packKey) => packKeys.has(packKey)) || rule.pattern.test(hints)
   ));
-  const required = unique([
-    ...CORE_REQUIRED,
-    ...matched.flatMap((rule) => rule.required ?? [])
-  ]);
+  const required = unique([...CORE_REQUIRED]);
   const recommended = unique([
-    ...CORE_RECOMMENDED,
-    ...matched.flatMap((rule) => rule.recommended ?? [])
+    ...matched.flatMap((rule) => rule.required ?? []),
+    ...matched.flatMap((rule) => rule.recommended ?? []),
+    ...CORE_RECOMMENDED
   ]).filter((key) => !required.includes(key));
 
-  if (/脑洞|架空|穿越|重生/u.test(hints) && matched.some((rule) => rule.key === 'history')) {
-    required.push('divergence');
-    const index = recommended.indexOf('divergence');
-    if (index >= 0) recommended.splice(index, 1);
+  if (/脑洞|架空|穿越|重生/u.test(hints) && matched.some((rule) => rule.key === 'history') && !recommended.includes('divergence')) {
+    recommended.push('divergence');
   }
-  if (/战争|军事|争霸|军团/u.test(hints) && matched.some((rule) => rule.key === 'lord')) {
-    required.push('army');
-    const index = recommended.indexOf('army');
-    if (index >= 0) recommended.splice(index, 1);
+  if (/战争|军事|争霸|军团/u.test(hints) && matched.some((rule) => rule.key === 'lord') && !recommended.includes('army')) {
+    recommended.push('army');
   }
 
   return {
