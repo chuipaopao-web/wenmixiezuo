@@ -155,14 +155,20 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
 }
 
 /**
- * GLM 5.3 在方舟套餐端点上思考不可关闭，思考 Token 同时计入 max_tokens 与
- * usage.output_tokens。只按可见输出限额申请 max_tokens 时，思考会把额度烧光，
- * 停止在 max_tokens 且不产生可见文字（2026-08-18 生产实测：思考 8000~11000
- * 字符烧掉全部 3000 输出 Token）。适配器的 max_tokens 与各管线的预算冻结必须
- * 同时加上这里返回的同一份余量，否则结算端会以"实际用量超过冻结上限"拒绝。
+ * 方舟套餐模型统一启用"有预算的思考"：请求携带
+ * thinking={type:'enabled',budget_tokens:4000}，模型在预算内思考后必须产出
+ * 可见文字。关闭思考（disabled）被 glm-5.3 与 kimi-k2.7-code 直接拒绝（400），
+ * 而不设预算时 minimax/deepseek 等会把全部输出额度烧进思考块（2026-08-18
+ * 生产实测六个模型均接受 enabled+budget 且预算生效）。
+ * 思考 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
+ * max_tokens 与各管线预算冻结都必须在可见输出限额之上追加同一份预算，
+ * 否则结算端会以"实际用量超过冻结上限"拒绝。
  */
+export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 4_000;
+
 export function thinkingTokenAllowance(modelId: string): number {
-  return modelId.startsWith('glm-5.3') ? 16_000 : 0;
+  // 本地确定性夹具不经过真实模型，没有思考开销。
+  return modelId === 'wenmi-fixture-v1' ? 0 : SUBSCRIPTION_THINKING_BUDGET_TOKENS;
 }
 
 function deterministicProfiles(): Record<NovelRoleKey, RoleModelProfile> {

@@ -334,7 +334,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 【当前】opencodego 已下线，模型运行时统一回到火山方舟两个套餐（Agent Plan 与 Coding Plan），凭证只从服务器环境变量读取，不写入数据库、日志、文档、备份或 Git。
 1. 岗位模型：主编/编剧C/副编备份/版权席用 kimi-k2.7-code，写手/编剧A用 deepseek-v4-pro，编剧B（红玉）与事实审查（班昭）用 glm-5.3，设定（文姬）/审校/副编用 minimax-m3，体验席用 doubao-seed-2.1-turbo，妙玉/研究员用 deepseek-v4-flash。glm-5.2 由 glm-5.3 替换（生产经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。
-2. GLM 5.3 适配：方舟套餐端点上 glm-5.3 拒绝 thinking 参数（400），且其思考不可关闭、思考 Token 同时计入 max_tokens 与 output_tokens。适配器对 glm-5.3 一律不发送 thinking 字段，并在可见输出限额之上集中追加思考余量（thinkingTokenAllowance＝16_000）；讨论、章节、卷纲、事件、章纲、结算后续、续写分析、主编设计全部八处预算冻结同步加同一份余量，否则结算端会以"实际用量超过冻结上限"拒绝。
+2. 统一带预算思考：方舟套餐端点上六个在役模型（glm-5.3、kimi-k2.7-code、deepseek-v4-pro/flash、minimax-m3、doubao-seed-2.1-turbo）都接受 thinking={type:enabled,budget_tokens} 且预算真实生效（2026-08-18 逐一实测）；关闭思考（disabled）反而被 glm-5.3 与 kimi-k2.7-code 拒绝（400），不设预算时 minimax 等会把全部输出额度烧进思考块。适配器对两个套餐端点统一发送 budget_tokens=4000 的启用思考，max_tokens=可见输出限额+4000；讨论、章节、卷纲、事件、章纲、结算后续、续写分析、主编设计全部八处预算冻结同步追加同一份预算（thinkingTokenAllowance），否则结算端会以"实际用量超过冻结上限"拒绝。opencodego（已下线）维持旧的关闭思考行为不变。
 3. 讨论遗孤任务自愈：崩溃窗口可能在讨论决定落库后、任务收尾前中断，留下讨论已进入 awaiting_boss 而任务仍 working/queued 的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"。executeClaimed 现在识别"决定已存在"的情形：幂等补齐设定候选（upsert）后按既有决定把任务标记完成，不重复模型调用；无决定的异常状态仍然报错。
 4. 在途任务解冻：迁移时冻结了 opencodego 快照的席位统一改为回退当前绑定（模型 ID 相同，不破坏异模型证据）。3000 万 Token 双套餐自动切换经老板决定暂缓，不做。
-5. MiniMax M3 在任何用途下关闭思考：方舟端点上 minimax-m3 接受 thinking=disabled（实测 200 直出文字）；不关闭时它会把全部输出额度烧进思考块、不产出任何可见文字（生产实测 8000 输出 Token 全部是思考，并连带触发"实际用量超过冻结上限"）。requiresVisibleOutput 对 minimax- 前缀一律返回 true。
+5. 本条第 2 款取代此前"glm-5.3 不发送 thinking 字段＋16000 余量"与"minimax 关闭思考"的临时方案：老板明确成员必须保留思考能力，预算制是唯一同时满足"能思考、不烧光输出、端点不报错"的做法。

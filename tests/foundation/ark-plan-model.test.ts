@@ -18,9 +18,9 @@ describe('火山方舟严格套餐适配器', () => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/plan/v1/messages');
       expect(init?.method).toBe('POST');
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer agent-test-key');
-      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string } };
-      expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 });
-      expect(body.thinking).toEqual({ type: 'disabled' });
+      const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string; budget_tokens?: number } };
+      expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 + 4_000 });
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       // 方舟套餐端点维持原有字符串 content，不随 opencodego 的块数组格式变化
       expect(body.messages).toEqual([{ role: 'user', content: '只回复结果' }]);
       return Response.json({
@@ -53,8 +53,8 @@ describe('火山方舟严格套餐适配器', () => {
   it('Coding Plan只能进入/api/coding且不会使用普通Endpoint', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/coding/v1/messages');
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-      expect(body.thinking).toBeUndefined();
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       return Response.json({ content: [{ type: 'text', text: '正文' }], usage: { input_tokens: 5, output_tokens: 2 } });
     });
     const adapter = new ArkPlanModelAdapter({
@@ -70,10 +70,10 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('DeepSeek事实点评关闭隐藏思考以保留完整JSON输出额度', async () => {
+  it('DeepSeek事实点评带着预算思考并保留完整JSON输出额度', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-      expect(body.thinking).toEqual({ type: 'disabled' });
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       return Response.json({ content: [{ type: 'text', text: '{"verdict":"pass"}' }], usage: { input_tokens: 5, output_tokens: 8 } });
     });
     const adapter = new ArkPlanModelAdapter({
@@ -85,10 +85,10 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('MiniMax文学审查关闭隐藏思考以免只返回思考块', async () => {
+  it('MiniMax文学审查带着预算思考而不是只返回思考块', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-      expect(body.thinking).toEqual({ type: 'disabled' });
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       return Response.json({
         content: [{ type: 'text', text: '{verdict:pass}' }],
         usage: { input_tokens: 8, output_tokens: 12 }
@@ -103,10 +103,10 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('DeepSeek规划关闭隐藏思考，但小说正文保留完整创作推演', async () => {
-    const seen: Array<{ type?: string } | undefined> = [];
+  it('DeepSeek规划与小说正文都带着预算思考', async () => {
+    const seen: Array<{ type?: string; budget_tokens?: number } | undefined> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
       seen.push(body.thinking);
       return Response.json({ content: [{ type: 'text', text: '{}' }], usage: { input_tokens: 5, output_tokens: 2 } });
     });
@@ -118,13 +118,16 @@ describe('火山方舟严格套餐适配器', () => {
       plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro',
       baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose: 'novel_writer'
     }, fetchImpl).generate(request);
-    expect(seen).toEqual([{ type: 'disabled' }, undefined]);
+    expect(seen).toEqual([
+      { type: 'enabled', budget_tokens: 4_000 },
+      { type: 'enabled', budget_tokens: 4_000 }
+    ]);
   });
 
-  it('GLM关闭隐藏思考，确保额度用于岗位最终输出', async () => {
+  it('GLM带着预算思考，思考收束后额度留给岗位最终输出', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-      expect(body.thinking).toEqual({ type: 'disabled' });
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       return Response.json({ content: [{ type: 'text', text: '设定结论' }], usage: { input_tokens: 5, output_tokens: 2 } });
     });
     const adapter = new ArkPlanModelAdapter({
@@ -320,10 +323,10 @@ describe('火山方舟严格套餐适配器', () => {
     });
   });
 
-  it('Kimi K2.7 Code does not send the unsupported thinking parameter', async () => {
+  it('Kimi K2.7 Code 带着预算思考（disabled 会被端点拒绝）', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-      expect(body.thinking).toBeUndefined();
+      const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
       return Response.json({
         content: [{ type: 'text', text: '{"chapterGoal":"reverse analysis"}' }],
         usage: { input_tokens: 5, output_tokens: 8 }
@@ -338,11 +341,11 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('GLM 5.3 在任何用途下都不发送 thinking 参数（方舟实测 400）', async () => {
+  it('GLM 5.3 带着预算思考（disabled 会被端点 400 拒绝）', async () => {
     for (const purpose of ['discussion', 'novel_reviewer'] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-        expect(body.thinking).toBeUndefined();
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
         return Response.json({
           content: [{ type: 'text', text: '{"chapterGoal":"visible output"}' }],
           usage: { input_tokens: 5, output_tokens: 8 }
@@ -358,11 +361,11 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('MiniMax M3 在任何用途下都关闭思考（不关闭会把全部额度烧进思考块）', async () => {
+  it('MiniMax M3 带着预算思考（不设预算会把全部额度烧进思考块）', async () => {
     for (const purpose of ['discussion', 'structured_planning', 'novel_reviewer'] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
-        expect(body.thinking).toEqual({ type: 'disabled' });
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
+        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 4_000 });
         return Response.json({
           content: [{ type: 'text', text: '可见输出' }],
           usage: { input_tokens: 5, output_tokens: 8 }
@@ -378,7 +381,7 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('GLM 5.3 的 max_tokens 在可见输出限额上追加思考余量，其他模型不变', async () => {
+  it('所有套餐模型的 max_tokens 都在可见输出限额上追加同一份思考预算', async () => {
     const seen: Array<{ model: string; maxTokens: number }> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
@@ -396,10 +399,10 @@ describe('火山方舟严格套餐适配器', () => {
       await adapter.generate(request);
     }
     expect(seen).toEqual([
-      { model: 'glm-5.3', maxTokens: 100 + 16_000 },
-      { model: 'glm-5.2', maxTokens: 100 },
-      { model: 'kimi-k2.7-code', maxTokens: 100 },
-      { model: 'deepseek-v4-flash', maxTokens: 100 }
+      { model: 'glm-5.3', maxTokens: 100 + 4_000 },
+      { model: 'glm-5.2', maxTokens: 100 + 4_000 },
+      { model: 'kimi-k2.7-code', maxTokens: 100 + 4_000 },
+      { model: 'deepseek-v4-flash', maxTokens: 100 + 4_000 }
     ]);
   });
 });

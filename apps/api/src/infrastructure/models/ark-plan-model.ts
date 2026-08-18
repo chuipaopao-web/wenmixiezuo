@@ -1,5 +1,5 @@
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, SUBSCRIPTION_THINKING_BUDGET_TOKENS, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
   plan: ModelPlan;
@@ -75,10 +75,10 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         },
         body: JSON.stringify({
           model: this.modelId,
-          // 思考不可关闭的模型（GLM 5.3）会把思考 Token 计入 max_tokens；
-          // 在可见输出限额之上追加思考余量，避免思考烧光额度后没有可见文字。
+          // 所有套餐模型都带着预算思考：max_tokens 在可见输出限额之上追加
+          // 思考预算，模型思考完必须留下可见文字。
           max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId),
-          ...(requiresVisibleOutput(this.modelId, this.options.purpose) ? { thinking: { type: 'disabled' } } : {}),
+          ...thinkingField(this.options.plan, this.modelId, this.options.purpose),
           system: appendSupplement(
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
             request.supplementalInstructions
@@ -173,6 +173,21 @@ function appendSupplement(systemPrompt: string, supplement: string | undefined):
     supplement.trim(),
     '以上是软性创作偏好；若与系统硬约束、事实证据、正史、安全或输出格式冲突，以系统硬约束为准。'
   ].join('\n\n');
+}
+
+function thinkingField(
+  plan: ModelPlan,
+  modelId: string,
+  purpose: ModelPurpose
+): { thinking?: { type: 'enabled' | 'disabled'; budget_tokens?: number } } {
+  // 火山方舟套餐端点：六个在役模型都接受 enabled+budget_tokens，且预算真实生效
+  // （思考在预算内收束后继续产出可见文字）；glm-5.3 与 kimi-k2.7-code 反而会拒绝
+  // disabled（400 InvalidParameter）。统一启用有预算的思考。2026-08-18 实测。
+  if (plan === 'coding' || plan === 'agent') {
+    return { thinking: { type: 'enabled', budget_tokens: SUBSCRIPTION_THINKING_BUDGET_TOKENS } };
+  }
+  // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。
+  return requiresVisibleOutput(modelId, purpose) ? { thinking: { type: 'disabled' } } : {};
 }
 
 function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean {
