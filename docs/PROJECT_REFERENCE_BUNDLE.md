@@ -3187,7 +3187,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`ddc7cc91f623`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`9911999502f2`
 
 #### 当前生效决定
 
@@ -3528,6 +3528,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. GLM 5.3 适配：方舟套餐端点上 glm-5.3 拒绝 thinking 参数（400），且其思考不可关闭、思考 Token 同时计入 max_tokens 与 output_tokens。适配器对 glm-5.3 一律不发送 thinking 字段，并在可见输出限额之上集中追加思考余量（thinkingTokenAllowance＝16_000）；讨论、章节、卷纲、事件、章纲、结算后续、续写分析、主编设计全部八处预算冻结同步加同一份余量，否则结算端会以"实际用量超过冻结上限"拒绝。
 3. 讨论遗孤任务自愈：崩溃窗口可能在讨论决定落库后、任务收尾前中断，留下讨论已进入 awaiting_boss 而任务仍 working/queued 的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"。executeClaimed 现在识别"决定已存在"的情形：幂等补齐设定候选（upsert）后按既有决定把任务标记完成，不重复模型调用；无决定的异常状态仍然报错。
 4. 在途任务解冻：迁移时冻结了 opencodego 快照的席位统一改为回退当前绑定（模型 ID 相同，不破坏异模型证据）。3000 万 Token 双套餐自动切换经老板决定暂缓，不做。
+5. MiniMax M3 在任何用途下关闭思考：方舟端点上 minimax-m3 接受 thinking=disabled（实测 200 直出文字）；不关闭时它会把全部输出额度烧进思考块、不产出任何可见文字（生产实测 8000 输出 Token 全部是思考，并连带触发"实际用量超过冻结上限"）。requiresVisibleOutput 对 minimax- 前缀一律返回 true。
 
 ---
 

@@ -358,6 +358,26 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
+  it('MiniMax M3 在任何用途下都关闭思考（不关闭会把全部额度烧进思考块）', async () => {
+    for (const purpose of ['discussion', 'structured_planning', 'novel_reviewer'] as const) {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+        expect(body.thinking).toEqual({ type: 'disabled' });
+        return Response.json({
+          content: [{ type: 'text', text: '可见输出' }],
+          usage: { input_tokens: 5, output_tokens: 8 }
+        });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose
+      }, fetchImpl);
+
+      await adapter.generate(request);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+
   it('GLM 5.3 的 max_tokens 在可见输出限额上追加思考余量，其他模型不变', async () => {
     const seen: Array<{ model: string; maxTokens: number }> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {

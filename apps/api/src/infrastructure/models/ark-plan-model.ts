@@ -182,6 +182,10 @@ function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean 
   // GLM 5.3 同样拒绝 thinking 字段（400 InvalidParameter），但它会直接返回可见内容，
   // 任何用途都不能附加 thinking 参数。2026-08-18 两个方舟套餐端点实测。
   if (modelId.startsWith('glm-5.3')) return false;
+  // MiniMax M3 接受关闭思考（2026-08-18 实测 200 且直出文字）；不关闭时它会把
+  // 整个有限额度烧进 thinking 块、不产出任何可见文字（生产实测 8000 输出 Token
+  // 全部是 2 万字符思考），因此任何用途都关闭它的思考。
+  if (modelId.startsWith('minimax-')) return true;
   // Review and other machine-readable contracts need a closed, visible JSON
   // result. MiniMax can otherwise spend the whole bounded allowance in a
   // `thinking` block and return no report at all. That is a technical model
