@@ -2263,7 +2263,7 @@ export function shouldAutomaticallyRewriteReview(
 function outputTokenLimit(phaseKey: string): number {
   if (phaseKey.startsWith('draft') || phaseKey.startsWith('rewrite')) return 8_000;
   if (phaseKey.startsWith('review-')) return 6_000;
-  if (phaseKey.startsWith('editor-synthesis')) return 2_000;
+  if (phaseKey.startsWith('editor-synthesis')) return 3_000;
   return 4_000;
 }
 

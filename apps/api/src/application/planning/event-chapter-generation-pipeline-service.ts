@@ -370,7 +370,7 @@ function parseBrief(v:Record<string,unknown>):EventChapterGenerationBrief{
 }
 function isChallenge(v:EventChapterGenerationBrief['kind']){return v==='sequence_challenge'||v==='detail_challenge';}
 export function eventChapterOutputTokenLimit(kind:EventChapterGenerationBrief['kind']){
-  if(isChallenge(kind))return 2200;
+  if(isChallenge(kind))return 3000;
   return kind==='sequence'?12000:9000;
 }
 function isTask(v:string){return['event_chapter_sequence_generation','event_chapter_detail_generation',
