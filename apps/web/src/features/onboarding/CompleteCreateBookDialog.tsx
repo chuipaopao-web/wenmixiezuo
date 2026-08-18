@@ -498,8 +498,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
         {step === 3 && <section className="opening-form-section story-direction-section">
           <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>可留空</small></div>
           <p className="story-direction-note">想好了就写一句，没想好可以留空，之后和团队讨论时再定。填了的话，团队设计设定和剧情时就有了方向。开局和结局要一起填。</p>
-          <label htmlFor="opening-start">开局（一句话说清主角的起点处境，最多100字）<textarea id="opening-start" aria-label="开局" maxLength={100} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：外卖员深夜送单误入千年古墓，棺中女子睁眼喊他夫君，而城里的通缉令上已经画了他的脸" /></label>
-          <label htmlFor="story-ending">结局（一句话说清故事的终点，最多100字）<textarea id="story-ending" aria-label="结局" maxLength={100} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角揭开身世之谜，亲手终结乱世，天下重归太平后与心爱之人归隐江南" /></label>
+          <label htmlFor="opening-start">开局（说清主角的处境、卷入的冲突、眼前的危机，最多100字）<textarea id="opening-start" aria-label="开局" maxLength={100} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：小职员重生回到被裁员当天，发现上司正拿着他的方案邀功，而三天后项目暴雷，他将替人背锅、被行业除名" /></label>
+          <label htmlFor="story-ending">结局（说清故事怎么收场、主角达成了什么、最终的身份地位，最多100字）<textarea id="story-ending" aria-label="结局" maxLength={100} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角查清十年悬案为父翻案、扳倒幕后财团，从人人唾弃的罪人之子成为行业传奇，与并肩作战的爱人终成眷属" /></label>
           <label htmlFor="story-direction-custom">自定义补充（选填，最多300字）<textarea id="story-direction-custom" aria-label="自定义补充" maxLength={300} rows={3} value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
         </section>}
       </div>
