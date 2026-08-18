@@ -243,11 +243,13 @@ export class SettingGuidanceService {
           `题材：${(blueprint.auxiliaryTags ?? []).join('、') || '未填写'}`,
           `主要标签：${(blueprint.mainTags ?? []).join('、') || '未填写'}`,
           `作品特点：${(blueprint.storyTraits ?? []).join('、') || '未填写'}`,
+          `开局：${(blueprint.openingStart ?? '').trim() || '未填写'}`,
+          `结局：${(blueprint.storyEnding ?? '').trim() || '未填写'}`,
           ...(styleTones.length > 0 ? [`全书基调：${styleTones.join('＋')}`] : []),
           `主角：${(blueprint.protagonists ?? []).map((item) => `${item.name}（${item.age}）`).join('、') || '未填写'}`,
           `必须遵守：${(blueprint.mustFollow ?? []).join('；') || '无额外要求'}`
         ].join('\n'), 900),
-        storyDirectionReference: clip((blueprint.storyDirection ?? '').trim(), 500)
+        storyDirectionReference: clip((blueprint.storyDirection ?? '').trim() || '未填写', 500)
       };
     }
     if (baseline === undefined) return null;

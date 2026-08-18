@@ -239,7 +239,7 @@ export class BookOnboardingService {
       // 无生效会员的用户放行开书（保证能进入设定页看到会员提示），但不创建首个AI任务，避免被生成门禁拦下整个事务。
       const generationBlocked = membershipGenerationBlockReason(this.database, scope.ownerId, now) !== null;
       if (this.releaseId !== undefined && !isContinuation && !generationBlocked) {
-        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label);
+        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label, settingGuidance?.prompt);
 
         const proposalSeats = this.database.prepare(`
           SELECT a.agent_id, a.model_snapshot_id, r.role_key
@@ -495,7 +495,7 @@ function storyBibleSkeleton(
   };
 }
 
-function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null, firstSettingLabel?: string): string {
+function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null, firstSettingLabel?: string, firstSettingPrompt?: string): string {
   if (blueprint === null) {
     return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
   }
@@ -517,10 +517,12 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
     ...(blueprint.customTags ?? [])
   ].filter(Boolean);
   const openingReference = [
-    `频道：${blueprint.channel}`,
+    `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
     `分类：${categoryName}`,
     `主角：${protagonistSummary}`,
     `故事方向（可修改的软参考）：${blueprint.storyDirection || '暂未填写'}`,
+    `开局：${blueprint.openingStart?.trim() || '暂未填写'}`,
+    `结局：${blueprint.storyEnding?.trim() || '暂未填写'}`,
     `创意线索：${creativeTags.length > 0 ? creativeTags.join('、') : '暂未填写'}`,
     `必须遵守：${(blueprint.mustFollow ?? []).length > 0 ? (blueprint.mustFollow ?? []).join('；') : '无额外限制'}`
   ].join('\n');
@@ -529,7 +531,7 @@ function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput
     `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '故事内核'}”。`,
     '请读取本任务唯一的开书快照来源。故事方向只是可讨论、可修订的软规划参考，不是已发生正史；分类、题材和标签只是创意线索，不得机械拼接。',
     openingReference,
-    `编剧A、编剧B与设定成员分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？说明它为什么值得写、主要探讨什么、准备给读者什么独特体验。`,
+    `编剧A、编剧B与设定成员分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？当前问题：${firstSettingPrompt?.trim() || '给出最适合本书的明确设定方案'}。方案必须说清：核心主张是什么；它靠什么让读者一直追下去；它和同类书拉开差距的点在哪里。`,
     '三人互相看不到答案，不交叉质疑、不投票、不综合，也不替作者确认。每人只给一个自然、具体、容易理解的候选。',
     '不要展开具体剧情，不生成剧情总纲、章纲或正文，不启动主笔。三份候选全部展示给作者后，等待作者选择其中一份、组合指定内容，或直接提交自己的版本。'
   ].join('\n');

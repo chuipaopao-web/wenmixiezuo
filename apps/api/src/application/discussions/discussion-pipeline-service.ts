@@ -1363,7 +1363,7 @@ function buildDiscussionPrompt(input: {
       '你看不到另外两名成员的答案，也不得猜测、评价、汇总或迎合她们。只提交一个你自己真正推荐、可供作者选择的方案。',
       creativeConcept
         ? '策划理念必须用小白作者也能读懂的自然中文，明确回答：一、这本书为什么值得写；二、主要想探讨什么；三、准备给读者什么独特体验。三者要形成同一个创作机制，不能只是标签、广告语或剧情梗概。'
-        : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的设定，不提前规定具体剧情结果，也不扩写剧情总纲、章纲或正文。`,
+        : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的设定，不提前规定具体剧情结果，也不扩写剧情总纲、章纲或正文。方案必须说清三件事：核心主张是什么；它靠什么让读者一直追下去（爽感、悬念、情感还是成长，靠什么持续兑现）；它和同类书拉开差距的点在哪里。`,
       participant.role_key === 'lead_screenwriter'
         ? '侧重爽点、强冲突和持续追读张力：这项设定怎么让读者看得爽、冲突更硬、更想追下去。'
         : participant.role_key === 'second_screenwriter'
@@ -1371,7 +1371,7 @@ function buildDiscussionPrompt(input: {
           : participant.role_key === 'setting'
             ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
             : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
-      '只写一个候选，正文建议80至220字；不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
+      '只写一个候选，正文建议200至400字，具体到能直接落地；最后用一句话告诉作者：这项设定以后写故事时要抓住什么。不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
       '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成3至6条可以独立勾选的具体设定主张，每条是一句能独立成立的话，作者会逐条勾选后交给主编融合）。',
       AUTHOR_PLAIN_LANGUAGE_RULES,
       `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
@@ -1423,6 +1423,9 @@ function buildDiscussionPrompt(input: {
         : '',
       (isMasterOutlineWorkshop || isGroupedSettingWorkshop || purpose === 'locked_planning')
         ? '这是必须落库的规划任务：先确保workflowArtifact完整、字段齐全且JSON闭合，再写面向老板的说明。answer不超过300字；keyPoints、risks、questions各最多3项；alternatives最多1项；details设为null。不要复述两位编剧的长篇论证，完整意见已经单独保存。'
+        : '',
+      isGroupedSettingWorkshop
+        ? '面向作者的说明里，用大白话说清这份设定让这本书好看在哪、作者接下来写作时要抓住什么；不堆术语。'
         : '',
       '不得声称未参与的成员已经发言，不得在资料不足时直接安排主笔写正文。',
       '讨论必须有界收敛：每轮最多一个真正阻塞的问题；老板表示“不知道、你推荐、你决定”时必须给出当前最佳推荐；已经明确或排除的方向不得无新证据反复重开。',
