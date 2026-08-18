@@ -372,6 +372,81 @@ describe('设定页内协作读模型', () => {
     })).toThrowError(/勾选的碎片/u);
   });
 
+  it('旧版本留下的坏融合稿回复不得在重试时复用，必须让主编重新生成', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '坏融合稿重试书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '沈砚', age: '二十岁', background: '边城镖师', personalities: ['沉稳'] }],
+        storyDirection: '沈砚护送一枚关乎边城存亡的旧印。', worldBackground: '架空王朝边塞。',
+        openingBackground: '边城镖局深夜接镖。', stageOne: { start: '接镖', development: '破局', end: '发现密信' },
+        fullBookOutline: '护送旧印入京。', mainTags: ['仙侠'], auxiliaryTags: [], storyTraits: [],
+        customTags: [], initialMap: '边城', mustFollow: ['胜利必须付出代价']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.ensureInitialized(scope);
+    const itemKey = guidance.current(scope)!.itemKey;
+    const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
+    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+
+    const scheduled = commands.start(scope, itemKey, { idempotencyKey: 'poison-panel' });
+    expect(tasks.claimNext('worker-poison')?.taskId).toBe(scheduled.taskId);
+    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-poison');
+
+    const fragmentRows = context.database.prepare(`SELECT fragment_id, proposal_id FROM setting_proposal_fragments
+      WHERE owner_id = ? AND book_id = ? AND item_key = ? ORDER BY proposal_id, fragment_no`)
+      .all(scope.ownerId, scope.bookId, itemKey) as unknown as Array<{ fragment_id: string; proposal_id: string }>;
+    const proposalIds = [...new Set(fragmentRows.map((row) => row.proposal_id))];
+    const picked = [fragmentRows[0]!, fragmentRows.find((row) => row.proposal_id !== fragmentRows[0]!.proposal_id)!]
+      .map((row) => row.fragment_id);
+    const synthesis = commands.synthesize(scope, itemKey, {
+      proposalIds, fragmentIds: picked, idempotencyKey: 'poison-synthesis'
+    });
+
+    // 模拟旧版本崩溃窗口留下的"已通过落库校验、但整体 JSON 残缺、没有有效
+    // fusionSegments"的主编意见：它能通过设定落库的宽容提取，却不能作为融合稿。
+    const editor = context.database.prepare(`SELECT a.agent_id, a.model_snapshot_id
+      FROM agent_instances a JOIN role_templates r
+        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key = 'chief_editor'`)
+      .get(scope.ownerId, scope.bookId) as { agent_id: string; model_snapshot_id: string };
+    const poisonedOutput = [
+      `设定落库 ${JSON.stringify({ items: [{ itemKey, content: '现代地球开局，万界母校录取通知把主角拉进超凡体系，学籍是长期约束。' }] })}`,
+      '{"version":1,"format":"json_object","fields":{"answer":"这份回复少了收尾引号'
+    ].join('\n');
+    new DiscussionService(context.database, ids, clock).addOpinion(scope, synthesis.discussionId, {
+      agentId: editor.agent_id, modelSnapshotId: editor.model_snapshot_id, phase: 'independent',
+      content: { role: 'chief_editor', recommendation: poisonedOutput, basis: '旧版本崩溃窗口遗留' },
+      tokens: 100
+    });
+
+    expect(tasks.claimNext('worker-poison')?.taskId).toBe(synthesis.taskId);
+    const result = await pipeline.executeClaimed(scope, synthesis.taskId, 'worker-poison');
+    expect(result.discussionId).toBe(synthesis.discussionId);
+    expect(tasks.require(scope, synthesis.taskId).status).toBe('succeeded');
+
+    // 主编必须真实重新生成：融合稿来自确定性夹具的衔接段，而不是坏输出。
+    const draft = context.database.prepare(`SELECT segments_json FROM setting_fusion_drafts
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
+      .get(scope.ownerId, scope.bookId, itemKey) as { segments_json: string };
+    const segments = JSON.parse(draft.segments_json) as Array<{ source: string; text: string }>;
+    expect(segments.some((segment) => segment.source === 'stitch'
+      && segment.text.includes('以上按作者勾选的碎片融合为一项设定'))).toBe(true);
+    const editorOpinions = context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_opinions
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND agent_id = ? AND phase = 'independent'`)
+      .get(scope.ownerId, scope.bookId, synthesis.discussionId, editor.agent_id) as { count: number };
+    expect(editorOpinions.count).toBe(2);
+  });
+
   it('非当前引导项的类目也可以直接请团队出主意', () => {
     context = createTestContext();
     const ids = new SequenceIds();

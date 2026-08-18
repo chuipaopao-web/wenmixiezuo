@@ -3187,7 +3187,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`0be077aec42c`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`b504aa7228f7`
 
 #### 当前生效决定
 
@@ -3529,6 +3529,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 讨论遗孤任务自愈：崩溃窗口可能在讨论决定落库后、任务收尾前中断，留下讨论已进入 awaiting_boss 而任务仍 working/queued 的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"。executeClaimed 现在识别"决定已存在"的情形：幂等补齐设定候选（upsert）后按既有决定把任务标记完成，不重复模型调用；无决定的异常状态仍然报错。
 4. 在途任务解冻：迁移时冻结了 opencodego 快照的席位统一改为回退当前绑定（模型 ID 相同，不破坏异模型证据）。3000 万 Token 双套餐自动切换经老板决定暂缓，不做。
 5. 本条第 2 款取代此前"glm-5.3 不发送 thinking 字段＋16000 余量"与"minimax 关闭思考"的临时方案：老板明确成员必须保留思考能力，预算制是唯一同时满足"能思考、不烧光输出、端点不报错"的做法。
+6. 坏融合稿不得毒化重试：模型偶发 JSON 笔误（生产实测属性名少前引号）时，设定落库的宽容提取器能通过落库校验，但整份输出不是合法 JSON、融合段标记无效。这类输出在三个关口统一判无效：新鲜输出按结构化校验失败走纠错提示词重试、已存意见不得作为主编检查点复用、同输入哈希的历史成功调用不得复用；重试因此会真实重新生成，而不是反复用同一份坏输出撞同一个校验。
 
 ---
 
@@ -4487,7 +4488,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`6264d843c8bd`
+> 当前源文件：`HANDOFF.md` · 指纹：`583b5063ac57`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4503,7 +4504,7 @@ E0为作者截图与决定；E1为控件和门禁代码；E2为交互、技术�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 回到火山方舟双套餐 + GLM 5.3 思考余量 + 讨论遗孤自愈：① opencodego 下线，`.env.production` 注释全部 WENMI_OPENCODEGO_*，改用 WENMI_ARK_AGENT_PLAN_API_KEY / WENMI_ARK_CODING_PLAN_API_KEY（Key 只在服务器环境变量，绝不进 Git/文档）；14 岗位 ×41 书全部迁回 volcengine-ark-agent-plan，红玉/班昭=glm-5.3（经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。② 统一带预算思考——实测六个在役模型都接受 thinking={enabled,budget_tokens:4000} 且预算生效；disabled 反被 glm-5.3/kimi-k2.7-code 拒绝（400），不设预算时 minimax 会把 8000 输出 Token 全烧进思考块。适配器统一发送启用思考+4000 预算，max_tokens=可见输出限额+4000，八处预算冻结经 thinkingTokenAllowance 同步追加（否则结算端"实际用量超过冻结上限"拒绝）。③ 讨论遗孤自愈——崩溃窗口留下"讨论已 awaiting_boss、任务仍 working/queued"的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"刷屏；executeClaimed 现在发现决定已存在时幂等补齐设定候选（upsert）并按既有决定收尾任务，不再重复模型调用。④ 在途任务冻结 opencodego 快照的 102 席已解冻（COALESCE 回退当前绑定）。⑤ 老板明确成员必须保留思考能力，预算制取代"glm 不加余量/minimax 关思考"的临时方案。回归测试：glm-5.3 max_tokens 追加余量、minimax 全用途关闭思考（ark-plan-model.test.ts）、遗孤任务幂等收尾（discussion.test.ts）。决定见 DEC-CURRENT-052。
+1. 回到火山方舟双套餐 + GLM 5.3 思考余量 + 讨论遗孤自愈：① opencodego 下线，`.env.production` 注释全部 WENMI_OPENCODEGO_*，改用 WENMI_ARK_AGENT_PLAN_API_KEY / WENMI_ARK_CODING_PLAN_API_KEY（Key 只在服务器环境变量，绝不进 Git/文档）；14 岗位 ×41 书全部迁回 volcengine-ark-agent-plan，红玉/班昭=glm-5.3（经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。② 统一带预算思考——实测六个在役模型都接受 thinking={enabled,budget_tokens:4000} 且预算生效；disabled 反被 glm-5.3/kimi-k2.7-code 拒绝（400），不设预算时 minimax 会把 8000 输出 Token 全烧进思考块。适配器统一发送启用思考+4000 预算，max_tokens=可见输出限额+4000，八处预算冻结经 thinkingTokenAllowance 同步追加（否则结算端"实际用量超过冻结上限"拒绝）。③ 讨论遗孤自愈——崩溃窗口留下"讨论已 awaiting_boss、任务仍 working/queued"的遗孤，认领时反复抛"讨论任务状态与讨论阶段不一致"刷屏；executeClaimed 现在发现决定已存在时幂等补齐设定候选（upsert）并按既有决定收尾任务，不再重复模型调用。④ 在途任务冻结 opencodego 快照的 102 席已解冻（COALESCE 回退当前绑定）。⑤ 老板明确成员必须保留思考能力，预算制取代"glm 不加余量/minimax 关思考"的临时方案。⑥ 坏融合稿毒化重试修复——kimi 偶发 JSON 笔误（属性名少前引号）导致融合段校验失败，且旧代码会在重试时复用同一份坏输出死循环；现在新鲜输出走纠错重试、已存坏意见与同哈希历史调用都判无效强制重新生成。回归测试在 setting-collaboration.test.ts（遗留坏意见不得复用）。回归测试：glm-5.3 max_tokens 追加余量、minimax 全用途关闭思考（ark-plan-model.test.ts）、遗孤任务幂等收尾（discussion.test.ts）。决定见 DEC-CURRENT-052。
 2. 设定页走修·三席撞模型修复 + 去机制文案：① 根因——`book-onboarding-service` 与 `legacy-book-upgrade-service` 的 `toCreativeProfiles` 都把 setting（文姬）映射到 style_editor（GLM 5.2），与编剧B红玉撞车，提案三席校验拦截导致设定页无法召集；已改为 reviewer（MiniMax M3），与 14 人合同一致。② 存量修复——`TeamTemplateService.repairSettingSeatModel` + 启动升级逐书检测：设定与编剧B同模型的书自动把设定岗位未来绑定改为独立模型（不影响运行中任务的冻结快照），幂等，确定性测试运行时跳过。③ 文案去机制化——删掉"编剧A（强冲突）编剧B（重因果）设定（规则严谨）…各自独立给出方案互相看不到"说明段（改显示"婉儿、红玉、文姬待命"），删除成员方案卡的立场标签，"请团队出主意"改"团队设计"，"异模型多席点评"改"团队分头点评"，团队页岗位职责与成员详情的"异模型/同一来源"说明、设置弹窗的"剧情席/冻结模型/零现金回退"措辞全部改大白话；后端 409 报错改为"团队正在休整，暂时没法开始设计，请稍后再试。"。新增回归测试（存量撞模型书启动自动修复+幂等）。
 2. 前端 429 优化：`performRequest` 遇 429 自动延迟重试（2s/5s/10s，共 4 次尝试，尊重 AbortSignal 中止；429 的请求在限流闸门口就被拒、业务未执行，重试安全），仍失败才把"请求太频繁，请稍后再试"抛给页面；SSE 事件流被限流时重连间隔从 1 秒降到 15 秒（每秒重连会把自己持续锁在限流桶外），恢复后回到 1 秒。新增 `tests/foundation/api-client-rate-limit.test.ts` 3 项（自动重试恢复、节奏拉长后抛错、中止立即 AbortError）。
 2. 热修·公网限流双 BUG：① Fastify 未开 `trustProxy`，Caddy 反代后所有访客在限流里都是 127.0.0.1，全网共享 100 次/分钟一个桶，正常翻页（设定页批量加载）就集体 RATE_LIMITED——已开启 `trustProxy`（服务只监听 127.0.0.1，唯一能到达的是本机 Caddy，安全）。② `@fastify/rate-limit` 会原样 throw `errorResponseBuilder` 的返回值，原实现返回普通对象无 statusCode，被全局错误处理兜底成 500 INTERNAL_ERROR（前端因此显示"请重新打开这本书"而不是"请求太频繁"）——已改为返回 `DomainError('RATE_LIMITED', …, retryable: true, 429)`。新增回归测试「公网限流按代理转发来的真实访客IP分桶，互不牵连」。安全测试 5 文件 18 项全绿。

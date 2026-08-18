@@ -224,7 +224,7 @@ export class DiscussionPipelineService {
               brief.scopeText,
               brief.purpose ?? 'open_discussion',
               opinion.output
-            ))
+            ) && (brief.purpose !== 'setting_synthesis' || phase !== 'independent' || hasUsableFusionSegmentOutput(opinion.output)))
           : specialistMasterOutlineRequired
             ? matchingOpinions.findLast((opinion) => isValidMasterOutlineOutput(opinion.output))
             : matchingOpinions.findLast(() => true);
@@ -360,6 +360,7 @@ export class DiscussionPipelineService {
         const displayablePanelPayloadRequired = brief.purpose === 'creative_concept_panel'
           || brief.purpose === 'setting_proposal_panel'
           || brief.purpose === 'stage_outline_panel';
+        const synthesisFusionRequired = brief.purpose === 'setting_synthesis' && isEditor && phase === 'independent';
         let reusableIsValid = reusable !== undefined
           && (!isEditor || hasRequiredWorkflowArtifact(
             prompt,
@@ -369,7 +370,8 @@ export class DiscussionPipelineService {
             brief.requestedChapterCount ?? null
           ))
           && (!specialistMasterOutlineRequired || isValidMasterOutlineOutput(reusable.output_text))
-          && (!displayablePanelPayloadRequired || !prepareEffectiveOutput(reusable.output_text).rejectedMachinePayload);
+          && (!displayablePanelPayloadRequired || !prepareEffectiveOutput(reusable.output_text).rejectedMachinePayload)
+          && (!synthesisFusionRequired || hasUsableFusionSegmentOutput(reusable.output_text));
         if (reusableIsValid && spanEstimateRequired) {
           try {
             parseSpanEstimateOutput(
@@ -449,7 +451,11 @@ export class DiscussionPipelineService {
               && prepareEffectiveOutput(result.output).rejectedMachinePayload
               ? '返回的方案不完整或结构被截断'
               : null;
-            const outputValidationFailure = artifactFailure ?? displayPayloadFailure;
+            const fusionSegmentsFailure = synthesisFusionRequired
+              && !hasUsableFusionSegmentOutput(result.output)
+              ? '缺少有效的fusionSegments段级来源标记'
+              : null;
+            const outputValidationFailure = artifactFailure ?? displayPayloadFailure ?? fusionSegmentsFailure;
             if (outputValidationFailure !== null) {
               invalidStructuredOutput = result.output;
               structuredValidationFailure = outputValidationFailure;
@@ -805,6 +811,14 @@ function parseModelJsonFields(raw: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+// 融合稿要求整份输出是可解析 JSON 且带有效 fusionSegments。设定落库的宽容提取器
+// 能容忍模型输出里的个别 JSON 笔误（2026-08-18 生产出现属性名少前引号），但融合
+// 段标记不能容忍；这类输出必须被判为无效并在重试时重新生成，不能复用。
+function hasUsableFusionSegmentOutput(output: string): boolean {
+  const fields = parseModelJsonFields(output);
+  return fields !== null && parseFusionSegments(fields.fusionSegments) !== null;
 }
 
 function planningHierarchySources(
