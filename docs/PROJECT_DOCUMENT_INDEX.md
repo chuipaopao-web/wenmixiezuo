@@ -32,7 +32,7 @@
 - **当前账号安全、隐私与运行运维合同** — 保护书籍隔离、作者原件、正式正文、正史、活动规划、模型凭证、本机文件、预算、任务提交、检索投影和备份。浏览器输入、导入文件、附件、模型输出、检索文本和工具响应全部视为不可信输入。 — `docs/SECURITY_AND_OPERATIONS.md` · 12.4 KB · `d91db74bae83`
 - **超长篇连续性设计** — 单书按约500万规范化中文字符、约1500章设计。模型上下文必须与全书总量解耦，不能靠把全文或全部摘要常驻上下文维持连续性。 — `docs/ULTRA_LONGFORM_CONTINUITY.md` · 2.9 KB · `b3df1a36af16`
 - **文秘写作使用说明** — 双击桌面的“文秘写作”入口，等待浏览器打开。首次使用请在登录页用邮箱、昵称和至少10位密码注册；系统中的第一个账号会成为管理员。以后使用同一邮箱和密码登录。若桌面入口缺失，可双击项目根目录的“文秘写作-启动.cmd”。若启动窗口提示错误，不要重复点击，记录错误后再处理。停止时使用“文秘写作-停止”入口，只停止本项目登记的进程。 — `docs/USER_GUIDE.md` · 7.3 KB · `9db2c603c497`
-- **文秘写作交接笔记（HANDOFF）** — 1. 回到火山方舟双套餐 + GLM 5.3 思考余量 + 讨论遗孤自愈：① opencodego 下线，.env.production 注释全部 WENMIOPENCODEGO，改用 WENMIARKAGENTPLANAPIKEY / WENMIARKCODINGPLANAPIKEY（Key 只在服务器环境变量，绝不进 Git/文档）；14 岗位 ×41  — `HANDOFF.md` · 17.9 KB · `72ddd647df04`
+- **文秘写作交接笔记（HANDOFF）** — 1. 回到火山方舟双套餐 + GLM 5.3 思考余量 + 讨论遗孤自愈：① opencodego 下线，.env.production 注释全部 WENMIOPENCODEGO，改用 WENMIARKAGENTPLANAPIKEY / WENMIARKCODINGPLANAPIKEY（Key 只在服务器环境变量，绝不进 Git/文档）；14 岗位 ×41  — `HANDOFF.md` · 18.2 KB · `57a094795cf6`
 - **文秘写作项目总入口** — 这是老板和 Codex 查看当前项目规则的固定入口，只指向当前生效文档和当前Skill。 — `PROJECT_HANDBOOK.md` · 6.6 KB · `5b7cdd30fd5f`
 - **文秘写作** — 文秘写作是一套本地优先的长篇小说 AI 协作平台。作者通过明确的创作对象推进工作，AI 成员直接给出独立方案、融合候选、正文和审查报告，不使用聊天推动创作。 — `README.md` · 2.9 KB · `8ddf7772e40d`
 
