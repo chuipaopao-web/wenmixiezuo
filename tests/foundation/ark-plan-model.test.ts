@@ -337,4 +337,24 @@ describe('火山方舟严格套餐适配器', () => {
     await adapter.generate(request);
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
+
+  it('GLM 5.3 在任何用途下都不发送 thinking 参数（方舟实测 400）', async () => {
+    for (const purpose of ['discussion', 'novel_reviewer'] as const) {
+      const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string } };
+        expect(body.thinking).toBeUndefined();
+        return Response.json({
+          content: [{ type: 'text', text: '{"chapterGoal":"visible output"}' }],
+          usage: { input_tokens: 5, output_tokens: 8 }
+        });
+      });
+      const adapter = new ArkPlanModelAdapter({
+        plan: 'agent', provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3',
+        baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose
+      }, fetchImpl);
+
+      await adapter.generate(request);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
 });

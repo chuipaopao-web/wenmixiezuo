@@ -177,6 +177,9 @@ function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean 
   // Kimi K2.7 Code rejects the optional Anthropic-compatible `thinking` field
   // on the Agent Plan endpoint. Keep this capability model-specific.
   if (modelId === 'kimi-k2.7-code') return false;
+  // GLM 5.3 同样拒绝 thinking 字段（400 InvalidParameter），但它会直接返回可见内容，
+  // 任何用途都不能附加 thinking 参数。2026-08-18 两个方舟套餐端点实测。
+  if (modelId.startsWith('glm-5.3')) return false;
   // Review and other machine-readable contracts need a closed, visible JSON
   // result. MiniMax can otherwise spend the whole bounded allowance in a
   // `thinking` block and return no report at all. That is a technical model
