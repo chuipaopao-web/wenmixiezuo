@@ -188,19 +188,25 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     ...(category?.tagPackKeys ?? []),
     ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys ?? ['common'])
   ]);
-  const matchedTagGroups = (taxonomy?.tagGroups ?? [])
+  const allTagGroups = taxonomy?.tagGroups ?? [];
+  const matchedTagGroups = allTagGroups
     .filter((group) => group.key === 'common' || group.packKeys.some((pack) => activeTagPackKeys.has(pack)));
+  // 智能推荐：已选标签的同组搭配优先（选了"出马仙"就带"东北五仙、保家仙"），其次是分类推荐词和题材命中组。
+  const companionTagGroups = allTagGroups.filter((group) =>
+    [...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits].some((tag) => mainTags.includes(tag)));
   const recommendedBookTags = [...new Set([
+    ...companionTagGroups.flatMap((group) => [...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits]),
     ...(category?.recommendedMainTags ?? []),
-    ...matchedTagGroups.flatMap((group) => [...group.mainTags, ...group.storyTraits])
+    ...matchedTagGroups.flatMap((group) => [...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits])
   ])].filter((tag) => !mainTags.includes(tag) && !dismissedBookTags.includes(tag)
-    && !auxiliaryTags.includes(tag) && tag !== category?.name).slice(0, 10);
+    && !auxiliaryTags.includes(tag) && tag !== category?.name).slice(0, 16);
   const normalizedTagQuery = tagQuery.trim();
-  const tagLibraryGroups = (taxonomy?.tagGroups ?? []).map((group) => ({
+  // 标签库面板三泳道全量展示（主标签/辅助标签/故事特质），搜索覆盖全部词条。
+  const tagLibraryGroups = allTagGroups.map((group) => ({
     key: group.key,
     name: group.name,
     description: group.description,
-    options: [...new Set([...group.mainTags, ...group.storyTraits])]
+    options: [...new Set([...group.mainTags, ...group.auxiliaryTags, ...group.storyTraits])]
       .filter((tag) => normalizedTagQuery.length === 0 || tag.includes(normalizedTagQuery))
   })).filter((group) => group.options.length > 0);
   const addBookTag = (tag: string): void => {

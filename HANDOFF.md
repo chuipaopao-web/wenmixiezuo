@@ -14,7 +14,7 @@
 
 ## 最近完成的改动（最新在最上）
 
-1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构与推荐逻辑不变，前端自动吃新数据；taxonomy 升 2026-08-19-v11。两处测试硬编码版本串改常量引用。全量 715 绿。
+1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构不变，taxonomy 升 2026-08-19-v11。同日补前端：标签库面板此前只渲染主标签+特质两泳道（辅助 609 词没进 UI，老板实测看不到新词），已改三泳道全量展示+搜索全覆盖；推荐升级智能搭配（已选标签同组搭配优先，上限 16）；两处测试版本串改常量、新增向导覆盖测试。全量 716 绿。
 1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。
 1. 首页空状态文案：改为"专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品"（会员提示保留），已上线。
 1. 审校改革（DEC-CURRENT-067）：老板拍板①异模型硬规矩放宽为四席互异（写手+事实/文学/体验三审，四个不同模型来源即可，不再六席互异）；②每章固定审校 4 席→3 席省 token（班昭/妲己/昭君，妙玉退出固定席改待命，约省 25% 审校 token）。妲己（文学审校）从 Coding Plan doubao-seed-code 改回 Agent Plan DeepSeek V4 Flash（066 第 2 款被取代；literaryReviewerCodingProfile 与 Seed Code 白名单全删，运行时不再有 Coding Plan 调用）；停用 MiniMax（066 其余部分）继续生效。妙玉按需找茬新功能：迁移 0055 chapter_challenger_reviews + 仓库/服务/管线/POST·GET 路由（任务类型 chapter_challenger_review），正文页"请挑剔读者找茬"按钮，结果只供参考不卡定稿、可重复发起、无正文 409；前端找茬卡片 3 秒轮询。三审报告仍是定稿硬门禁。应用层 SQL 全部下沉仓库层（过数据库边界契约）。测试同步 12 处+新增 2 用例，全量 715 绿。

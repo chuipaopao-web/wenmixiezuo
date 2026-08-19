@@ -25,7 +25,10 @@ const taxonomy = {
   personalityOptions: ['冷静', '敏锐'],
   boundaryGroups: [{ name: '结构与结局', description: '作者明确底线', options: ['不写悲剧结局'] }],
   subjects: [{ name: '现代言情', packKeys: ['common'] }],
-  tagGroups: [{ key: 'common', name: '通用', description: '通用标签', packKeys: ['common'], mainTags: ['悬疑', '成长', '群像'], auxiliaryTags: ['现代言情'], storyTraits: [] }]
+  tagGroups: [
+    { key: 'common', name: '通用', description: '通用标签', packKeys: ['common'], mainTags: ['悬疑', '成长', '群像'], auxiliaryTags: ['现代言情'], storyTraits: [] },
+    { key: 'suspense', name: '悬疑', description: '悬疑标签', packKeys: ['suspense'], mainTags: ['刑侦'], auxiliaryTags: ['不在场证明'], storyTraits: ['叙诡'] }
+  ]
 };
 
 beforeEach(() => {
@@ -145,6 +148,26 @@ describe('四步开书', () => {
         mustFollow: ['无额外限制']
       })
     }));
+  });
+
+  it('第2步标签库展示全部泳道词条，已选标签带出同组搭配推荐', async () => {
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn().mockResolvedValue(true)} />);
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
+    fireEvent.click(screen.getByRole('radio', { name: '女频' }));
+    fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
+
+    // 悬疑分组未被当前题材命中，其主标签不进推荐区
+    expect(screen.queryByRole('button', { name: '加入标签：刑侦' })).not.toBeInTheDocument();
+    // 标签库无需搜索即可看到主标签、辅助标签、故事特质三条泳道的词条
+    fireEvent.click(screen.getByRole('button', { name: '从标签库添加' }));
+    expect(screen.getAllByRole('button', { name: '加入标签：现代言情' }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '加入标签：不在场证明' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '加入标签：叙诡' })).toBeInTheDocument();
+    // 手动加入“刑侦”后，同组搭配（不在场证明、叙诡）进入推荐区（推荐区与标签库各出现一次）
+    fireEvent.click(screen.getByRole('button', { name: '加入标签：刑侦' }));
+    expect(screen.getAllByRole('button', { name: '加入标签：不在场证明' }).length).toBeGreaterThan(1);
+    expect(screen.getAllByRole('button', { name: '加入标签：叙诡' }).length).toBeGreaterThan(1);
   });
 
   it('第2步按题材推荐本书标签：可加入、删除、不再推荐，也能从标签库搜索添加', async () => {
