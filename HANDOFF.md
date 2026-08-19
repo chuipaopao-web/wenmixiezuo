@@ -3,12 +3,15 @@
 > 新对话第一句话："读 HANDOFF.md，我们继续"。本文件是当前开发状态的唯一速查入口，随每次改动更新。
 > 详细规则仍在 AGENTS.md；本文档只放"快速回到状态"需要的东西。
 
-## 项目现状（2026-08-18 凌晨）
+## 项目现状（2026-08-20 交接给 Codex）
 
-- 项目是**初始版本**：工作流程和前端 UI 都将大改。工作方式 = 老板逐页走查截图 → 讨论 → 修改 → 部署。
+- 项目是**初始版本**：工作流程和前端 UI 都在快速迭代。工作方式 = 老板逐页走查截图 → 讨论 → 修改 → 部署。
 - 原则：**改到哪一页，顺手删掉死代码、同步改文档；文档只描述当前生效的功能**。老板说改什么就改什么，不多做；有必要的附带改动先问。
-- 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi）。
+- 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi；数据库 `/opt/wenmi/data/database/wenmi.sqlite`；清书前整库备份在 `/opt/wenmi/data/backups/pre-purge-20260819/`）。
 - 分支 `codex/desktop-entry`，远程 GitHub `chuipaopao-web/wenmixiezuo`，每次提交后推送。
+- 当前基线：**全量测试 729 绿（171 文件）**，双端 typecheck 通过，最新迁移 `0057_membership_tiers.sql`。
+- 创作团队 14 人，模型全部走火山方舟双套餐（Agent Plan + Coding Plan），Key 只在服务器环境变量（`WENMI_ARK_AGENT_PLAN_API_KEY` / `WENMI_ARK_CODING_PLAN_API_KEY`），**绝不进 Git/文档/日志**；当前名单：貂蝉 DeepSeek V4 Pro、西施 GLM 5.3、婉儿 DeepSeek V4 Pro、红玉 GLM 5.3、幼薇 Kimi K2.7、文姬 DeepSeek V4 Flash（其余岗位见 `apps/api/src/contracts/agent-team-v2.ts` 与后台模型管理）。MiniMax 已停用。
+- 会员四等级已上线：青铜 20万算力值（注册自动送）/ 白银 98元 2000万 / 黄金 198元 5000万 / 钻石 980元 2亿；算力值=真实 token×2（`COMPUTE_VALUE_MULTIPLIER`），前端不出现 token 字眼；书籍预算上限跟随会员等级。
 - Windows 部署打包必须 `git -c core.autocrlf=false -c core.eol=lf archive`：本机 `core.autocrlf=true` 会让 git archive 把全部文本转成 CRLF，迁移文件校验和与数据库记录不符导致生产启动崩溃（2026-08-19 已踩过；`.gitattributes` 已给 `*.sql` 加 `eol=lf` 兜底，但其他文件仍建议用该命令保持 LF）。
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
@@ -62,8 +65,25 @@
 4. 基调在卷设计：每卷选主基调 1 个 + 副基调可选 1 个（词表：爽、乐、癫、暖、甜、虐、烧脑、诡异、厚重、黑），后一卷默认沿用上卷。10 段基调写作说明只注入 AI 上下文（软指引），作者不可见。旧书的 stylePrimary/styleSecondary 字段保留兼容。
 5. 开书合同字段 openingStart/storyEnding/stylePrimary/styleSecondary/storyDirection 全部变为可选（旧书兼容），向导不再采集。
 
+## 待办与已知注意事项（2026-08-20 交接时点）
+
+- **待老板拍板**：付费档有效期先设了 12 个月、青铜长期有效（不设到期），老板未确认，可调（改 `MEMBERSHIP_PLANS` 的 months 即可）。
+- **已知正常抖动**：GLM 5.3 与 DeepSeek 偶发 `provider_result_unknown`（网络中断），DEC-071 巡检 10 分钟后自动释放冻结预算、DEC-075 管线自动补缺席席位、面板 20 秒自动续跑兜底，属自愈范围；只有反复失败才需要查。
+- **会员/算力改动的高危点**：`user_memberships.token_quota` 存的是算力值（双倍口径），`usage_ledger`/预算/冻结全部是真实 token，两边换算只能经 `COMPUTE_VALUE_MULTIPLIER` 与 `realTokenAllowance`，不要直接比较。
+- **模型换绑必须三处同步**：`contracts/agent-team-v2.ts`、`infrastructure/models/model-runtime-config.ts`、`application/agents/model-binding-service.ts` 与 `application/books/book-onboarding-service.ts` 两份 `toCreativeProfiles`（漏改会让建书校验"三编剧互异模型"失败，DEC-073 踩过）。
+- **用户侧永远大白话**：不显示模型名、任务 ID、异模型、机制逻辑；报错文案不能有专业词汇；管理员后台可以看真实证据。
+- **一切更新不得影响在使用的用户**：构建先于重启、重启前查在途任务（见部署流程）、迁移只向前新增；有在途任务就等它跑完。
+- **可能的方向（老板提过未排期）**：手机端持续走查（老板自己在手机上测试）；消费到 3000 万 token 后双套餐自动切换（老板 16:06 提过，后来说"自动换套餐先不做了"，未做）；标签库进卷设计（老议题，未做）。
+
 ## 关键文件地图
 
+- 会员体系：`apps/api/src/infrastructure/security/membership-service.ts`（四等级、算力值口径、门禁、grant 同步预算、注册送青铜 grantDefaultBronze、bookTokenLimitForOwner）+ 迁移 `0057_membership_tiers.sql`；注册流程 `account-auth-service.ts`；路由 `http/account-routes.ts`；测试 `tests/integration/security/membership.test.ts`
+- 预算：`apps/api/src/application/budget/budget-service.ts`（冻结/结算/释放，BUDGET_EXHAUSTED 唯一来源）；建书写预算 `application/books/book-onboarding-service.ts`
+- 个人中心：`apps/web/src/features/account/PersonalCenterDialog.tsx`（算力值格式化 formatComputeValue 也在这）；入口在 `app/App.tsx`（侧栏头像+功能栏"我的"）
+- 管理后台：`apps/web/src/features/admin/AdminWorkspace.tsx`（会员开通/算力消耗×2展示/模型管理）
+- 设定协作面板：`apps/web/src/features/planning/SettingCollaborationPanel.tsx`（三席方案/碎片勾选/融合稿/确认后按 confirmedAt 收起/失败 20 秒自动续跑）+ 后端 `application/knowledge/setting-collaboration-service.ts` + `infrastructure/db/repositories/setting-collaboration-repository.ts`
+- 设定页主面板：`apps/web/src/features/planning/PlanningWorkspace.tsx`（设计队列/勾选本地持久化/质检门禁/清空设定/confirmedAts 映射）
+- 讨论管线：`apps/api/src/application/discussion/discussion-pipeline-service.ts`（collectGoalOriented 自动补缺席席位）；模型调用幂等 `application/models/model-call-service.ts`（只拦活着的调用）
 - 开书向导：`apps/web/src/features/onboarding/CompleteCreateBookDialog.tsx`（+ `opening-draft-store.ts` 草稿、`opening-options.ts` 频道/角色身份）
 - 信息页（开书资料）：`apps/web/src/features/planning/PlanningWorkspace.tsx` 的 `BookProfilePanel`
 - 主编设计（书名/简介）：`apps/api/src/application/books/book-branding-design-service.ts` + `book-branding-pipeline-service.ts` + `infrastructure/db/repositories/book-branding-design-repository.ts` + 迁移 `0048_book_branding_designs.sql`；前端 `apps/web/src/features/planning/BrandingDesignDialog.tsx`；测试 `tests/integration/domain/book-branding-design.test.ts`
@@ -72,20 +92,25 @@
 - 卷合同：`apps/contracts/src/workflow.ts`（改完必须 `npm.cmd run build -w @wenmi/contracts`）
 - 结算后续（节奏体检+摘要）：`apps/api/src/application/planning/settlement-follow-up-service.ts` + `settlement-follow-up-pipeline-service.ts` + `infrastructure/db/repositories/settlement-follow-up-repository.ts` + 迁移 `0050_settlement_follow_ups.sql`；前端 `apps/web/src/features/planning/SettlementFollowUpCard.tsx`；测试 `tests/integration/domain/settlement-follow-up.test.ts`
 - 题材简报：`apps/api/src/domain/genre-brief.ts`（`buildGenreBrief`，各管线硬来源注入）
+- 作者想法分层比例政策：`apps/api/src/domain/author-idea-policy.ts`（必须100%/设定五成/卷事件七成/章纲正文按指令，DEC-058）
 - 章管线上下文注入：`apps/api/src/application/creation/chapter-pipeline-service.ts`（混合换行，同上用脚本）
+- 输入法安全限长组件：`apps/web/src/features/shared/ImeSafeField.tsx`（ImeInput/ImeTextarea，拼音不占字数，所有作者向限长输入框统一用它）
 - 文档同步白名单：`scripts/sync-project-docs.mjs`（增删文档要同步改 currentPaths 和 bundleGroups 两处）
 - 开书相关测试：`tests/integration/experience/opening-wizard.test.tsx`、`workspace-ui.test.tsx`、`tests/foundation/opening-taxonomy.test.ts`
 
 ## 部署流程（Git Bash）
 
 ```bash
-npm.cmd run verify          # 大改才全量跑；小改只跑相关测试 + 前后端 tsc
-node scripts/sync-project-docs.mjs --check
-git -c core.autocrlf=false add -A && git -c core.autocrlf=false commit -m "..."
+npm.cmd run verify          # 大改才全量跑（约 3 分钟，基线 729 绿）；小改只跑相关测试 + 前后端 tsc
+node scripts/sync-project-docs.mjs && node scripts/sync-project-docs.mjs --check   # 每次结算必过
+git add -A && git commit -m "..."
 git push origin codex/desktop-entry
-git -c core.autocrlf=false archive --format=tar -o /tmp/wenmi-update.tar HEAD apps
-scp -i ~/.ssh/wenmi-hk-server /tmp/wenmi-update.tar root@47.243.152.159:/tmp/wenmi-update.tar
-ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "cd /opt/wenmi && tar -xf /tmp/wenmi-update.tar -C /opt/wenmi && rm /tmp/wenmi-update.tar && chown -R wenmi:wenmi /opt/wenmi/apps && sudo -u wenmi npm run build && systemctl restart wenmi-api wenmi-worker && systemctl is-active wenmi-api wenmi-worker"
+# 部署门禁（AGENTS.md）：先查在途任务，为 0 才继续；有任务就等
+ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "sqlite3 /opt/wenmi/data/database/wenmi.sqlite \"SELECT COUNT(*) FROM tasks WHERE status IN ('working','queued','pending');\""
+git -c core.autocrlf=false -c core.eol=lf archive HEAD apps | gzip > /tmp/wenmi-apps.tar.gz
+scp -i ~/.ssh/wenmi-hk-server /tmp/wenmi-apps.tar.gz root@47.243.152.159:/tmp/
+# 构建先于重启；新迁移在 API 启动时自动执行
+ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "cd /opt/wenmi && tar -xzf /tmp/wenmi-apps.tar.gz && npm run build && systemctl reset-failed wenmi-api wenmi-worker && systemctl restart wenmi-api wenmi-worker && sleep 4 && systemctl is-active wenmi-api wenmi-worker"
 curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
 ```
 
@@ -98,6 +123,6 @@ curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
 
 ## 走查进度
 
-- 已完成：内测说明页（版本A）、书籍列表页、青黛新中式全局风格、开书向导（当前 3 步）、开书信息页（收口 + 主编设计）、创作团队扩编 14 人（批1）、审查第四席+章纲挑战开放（批2）、三合一融合合同+结算后续+题材简报层（批3）、设定页核心六问+版本链+旧数据预填（批4）。
-- 进行中/下一步：批4-6（设定页重构：核心六项＋题材包＋自由补充 → 类目级讨论管线＋结构化输出 → 设定页新前端手机端优先）；老板继续逐页走查，随走随改。
-- 待做（已讨论未定稿）：标签库进卷设计；设定页效果图在 `mockups/`（setting-main.png / setting-discussion.png，老板已认可方向）。
+- 已完成：内测说明页、书籍列表页、青黛新中式全局风格、开书向导（3 步+标签选择）、开书信息页（收口+主编设计）、创作团队 14 人、审查三席+妙玉按需找茬、设定页大改造（核心六问/设计队列/质检门禁/重新设计/清空设定/确认后收起/全程进度条）、任务红点与大白话标题、失败自愈（自动补缺席+自动续跑）、标签库全网级（1114 词）、管理后台（用户会员/算力消耗/模型管理）、会员四等级+算力值双倍口径、个人中心、老书清零。
+- 进行中/下一步：老板继续逐页走查（含手机端），随走随改。
+- 待做（已讨论未定稿）：标签库进卷设计；付费档有效期与青铜到期策略待老板确认；双套餐自动切换（老板明确暂缓）。
