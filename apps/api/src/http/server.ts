@@ -53,6 +53,8 @@ import { EventChapterGenerationService } from '../application/planning/event-cha
 import { ArtifactService } from '../application/artifacts/artifact-service.js';
 import { BookBrandingDesignPipelineService } from '../application/books/book-branding-pipeline-service.js';
 import { BookBrandingDesignRepository } from '../infrastructure/db/repositories/book-branding-design-repository.js';
+import { ChapterChallengerReviewPipelineService } from '../application/creation/chapter-challenger-review-pipeline-service.js';
+import { ChapterChallengerReviewRepository } from '../infrastructure/db/repositories/chapter-challenger-review-repository.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -114,6 +116,17 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   const bookBrandingDesignPipeline = new BookBrandingDesignPipelineService(
     new BookBrandingDesignRepository(database),
     new VolumePlanGenerationRepository(database),
+    new TaskService(database, config.releaseId, volumePlanClock),
+    volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds,
+    volumePlanClock,
+    modelAdapters
+  );
+  const chapterChallengerReviewPipeline = new ChapterChallengerReviewPipelineService(
+    config.dataDir,
+    new ChapterChallengerReviewRepository(database),
     new TaskService(database, config.releaseId, volumePlanClock),
     volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
@@ -243,6 +256,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
             ? await volumePlanGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'book_branding_design'
               ? await bookBrandingDesignPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+            : task.task_type === 'chapter_challenger_review'
+              ? await chapterChallengerReviewPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'story_event_generation'
               ? await storyEventGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : task.task_type === 'settlement_follow_up'

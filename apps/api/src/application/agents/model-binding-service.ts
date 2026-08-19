@@ -2,7 +2,6 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
-import { literaryReviewerCodingProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
@@ -186,7 +185,7 @@ function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModel
   if (profiles.chief_editor.provider === 'opencodego') {
     return 'DEC-100：十四名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
   }
-  return 'DEC-CURRENT-066：十四名创作成员统一走火山方舟双套餐（Agent Plan + Coding Plan），停用 MiniMax M3；保留历史调用快照，只影响未来任务';
+  return 'DEC-CURRENT-067：每章审校固定三席、异模型规矩放宽为四席，文学审查改用 DeepSeek V4 Flash；保留历史调用快照，只影响未来任务';
 }
 
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
@@ -203,8 +202,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.chief_editor),
     fact_reviewer: profile('fact_reviewer', profiles.style_editor),
-    literary_reviewer: profile('literary_reviewer',
-      profiles.reviewer.plan === 'deterministic' ? profiles.reviewer : literaryReviewerCodingProfile()),
+    literary_reviewer: profile('literary_reviewer', profiles.researcher),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
     experience_challenger: profile('experience_challenger', profiles.researcher),
     researcher: profile('researcher', profiles.researcher),

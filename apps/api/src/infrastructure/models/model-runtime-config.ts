@@ -245,20 +245,6 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
 }
 
 /**
- * 文学审查席的第六个独立模型：Agent Plan 停用 MiniMax M3 后只剩五个模型，
- * 凑不齐主笔/副笔+事实/文学/体验/挑剔六席互异；Coding Plan 的 doubao-seed-code
- * 是另一个真实模型（2026-08-19 实测接受 thinking 预算且直出文字），不是换名伪装。
- * 可用 WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL 覆盖模型名。
- */
-export function literaryReviewerCodingProfile(env: NodeJS.ProcessEnv = process.env): RoleModelProfile {
-  return {
-    provider: 'volcengine-ark-coding-plan',
-    modelId: firstNonEmpty(env.WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL) ?? 'doubao-seed-code',
-    plan: 'coding'
-  };
-}
-
-/**
  * opencodego 模式：角色模型分配与火山方舟 Agent Plan 保持一致（写手/编剧用
  * DeepSeek、审校用 MiniMax、体验用豆包、连续性用 GLM、主编用 Kimi 等），
  * 仅把 provider/baseUrl/apiKey 指向 opencodego，从而通过团队模型多样性校验，

@@ -32,7 +32,7 @@ AI成员直接在设定、卷、事件、章纲和正文对象旁提供方案、
 
 ## DEC-CURRENT-008 团队与模型
 
-当前创作团队保持14名成员，编制、姓名和分工以 DEC-CURRENT-046 与《AI团队与介入规则》为准。岗位、Agent实例和模型绑定解耦；小文秘书不是创作成员。三位编剧必须真实独立，不能用同模型冒充异模型；豆包不进入剧情席。正文由单一活动写手完成，事实、文学、体验、挑剔读者四席使用异模型独立审查，事实席由班昭固定承担、挑剔读者席由妙玉固定承担；没有挑剔读者岗位的11人旧书保持三席。
+当前创作团队保持14名成员，编制、姓名和分工以 DEC-CURRENT-046 与《AI团队与介入规则》为准。岗位、Agent实例和模型绑定解耦；小文秘书不是创作成员。三位编剧必须真实独立，不能用同模型冒充异模型；豆包不进入剧情席。正文由单一活动写手完成，事实、文学、体验三席使用异模型独立审查（写手与三审合计四个不同模型来源），事实席由班昭固定承担；妙玉（挑剔读者）不进固定审校席，作者在正文页按需点"请挑剔读者找茬"单独跑，结果只供参考不卡定稿（DEC-CURRENT-067）。
 
 ## DEC-CURRENT-009 上下文与混合RAG
 
@@ -296,6 +296,8 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 【当前】创作团队由11名扩充为14名：新增编剧C幼薇（脑洞、反套路与题材化新鲜感，默认 Kimi K2.7 Code）、事实审查班昭（固定承担正文审查事实席，默认 GLM 5.2）和体验·挑剔读者妙玉（老白读者找茬视角，默认 DeepSeek V4 Flash）；昭君定位为目标读者视角的体验审查。编剧形成婉儿（爽点与强冲突）、红玉（因果与逻辑）、幼薇（脑洞与新鲜感）三角，三席必须两两异模型且都不得使用豆包。正文审查的事实席由班昭固定承担，不再由设定成员动态顶替；写手与审查席合计使用五个不同模型来源。主编新增节奏体检职责；副编西施定位调整为资料员、摘要员和主编备份。创建新书原子生成14名成员与模型绑定；启动升级为零未终态任务的11人旧书补齐三名新成员，有未终态任务的旧书继续延后。后续批次依次落地：审查第四席与三编剧提案管线、三合一融合合同与题材简报层、设定页重构（核心六项＋题材包＋自由补充、类目级讨论、设定项版本链）。本决定取代 DEC-CURRENT-008 中的11人编制口径。
 ## DEC-CURRENT-047 审查第四席落地与章纲挑战开放（2026-08-18）
 
+> 【席位口径已被取代】本条"审查由三席扩为四席、妙玉固定第四席"已被 DEC-CURRENT-067 取代（每章固定三审，妙玉改按需找茬）；章纲挑战开放部分仍生效。
+
 【当前】落实 DEC-CURRENT-046 的第二批：正文审查由三席扩为四席，妙玉（体验·挑剔读者）作为固定第四席与事实、文学、体验三席并行，彼此不读取报告、与活动写手异模型；点评轮次按面板实际席数校验完整性，没有挑剔读者岗位的11人旧书面板保持三席兼容。章纲挑战不再固定由红玉承担，作者可在红玉、幼薇中任选一位挑战章链或单章候选，禁止主方案编剧挑战自己的方案。审查面板表新增可空的挑剔读者冻结列，点评报告角色枚举增加 challenger。
 
 
@@ -334,7 +336,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 ## DEC-CURRENT-052 回到火山方舟套餐与 GLM 5.3 思考余量（2026-08-18）
 
-> 【席位模型已被取代】本条第 1 款中"设定（文姬）/审校/副编用 minimax-m3"已被 DEC-CURRENT-066 取代（MiniMax M3 停用：文姬→Kimi K2.7 Code、副编→GLM 5.3、文学审校→Coding Plan doubao-seed-code）；其余套餐与预算口径仍生效。
+> 【席位模型已被取代】本条第 1 款中"设定（文姬）/审校/副编用 minimax-m3"已被 DEC-CURRENT-066/067 取代（MiniMax M3 停用：文姬→Kimi K2.7 Code、副编→GLM 5.3、文学审校→DeepSeek V4 Flash）；其余套餐与预算口径仍生效。
 
 【当前】opencodego 已下线，模型运行时统一回到火山方舟两个套餐（Agent Plan 与 Coding Plan），凭证只从服务器环境变量读取，不写入数据库、日志、文档、备份或 Git。
 1. 岗位模型：主编/编剧C/副编备份/版权席用 kimi-k2.7-code，写手/编剧A用 deepseek-v4-pro，编剧B（红玉）与事实审查（班昭）用 glm-5.3，设定（文姬）/审校/副编用 minimax-m3，体验席用 doubao-seed-2.1-turbo，妙玉/研究员用 deepseek-v4-flash。glm-5.2 由 glm-5.3 替换（生产经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。
@@ -475,6 +477,8 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 ## DEC-CURRENT-066 停用 MiniMax M3，三席换绑（2026-08-19）
 
+> 【部分取代】本条第 2 款"妲己→Coding Plan doubao-seed-code"已被 DEC-CURRENT-067 取代（妲己改回 Agent Plan 的 DeepSeek V4 Flash，六席互异放宽为四席后不再需要 Coding Plan）；停用 MiniMax 及其余换绑仍生效。
+
 【当前】老板拍板：minimax-m3 停用。定性：不完全是"能力不行"，而是它失控的思考习惯（budget_tokens 对它不生效，把全部输出额度烧进思考块、零可见文字，DEC-CURRENT-065 已实证）在关键时刻必掉链子，对生产不可靠。替换映射：
 1. 文姬（设定 setting）→ Kimi K2.7 Code（Agent Plan）；西施（副编 deputy_editor，主编备份）→ GLM 5.3（Agent Plan）。
 2. 妲己（文学审校 literary_reviewer）→ 火山方舟 Coding Plan 的 doubao-seed-code。原因：主笔/副笔+事实/文学/体验/挑剔六席必须互不相同（model-binding-v2 硬校验），Agent Plan 停用 MiniMax 后只剩五个模型凑不齐六席；doubao-seed-code 是另一个真实模型（2026-08-19 生产实测接受 thinking enabled+budget 且直出文字），不是同模型换名伪装。可用 `WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL` 覆盖模型名。
@@ -483,3 +487,14 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 5. 适配器层保留 minimax 兼容处理（thinking disabled、思考余量归零）：在途任务的冻结快照仍可能调 minimax，不能半路撤掉。
 6. ModelAdapterFactory 白名单放行文学审查的 Coding Plan 模型；opencodego 死路径里的 minimax 不动（已下线）。
 7. 测试同步 7 处断言；全量 713/713 绿、类型检查与构建通过。
+
+
+## DEC-CURRENT-067 审校改革：四席互异、每章固定三审、妙玉改按需找茬（2026-08-19）
+
+【当前】老板拍板两条硬规矩：①异模型硬规矩放宽——四个不同模型即可（写手+事实/文学/体验三审），不再要求六席互异；②现行每章固定四席审校太浪费 Token，改为固定三席。落地：
+1. 每章固定审校 4 席→3 席：班昭（事实）、妲己（文学）、昭君（体验）。妙玉（experience_challenger 挑剔读者）退出固定席改待命，每章省一席审读、约省 25% 审校 Token。ProductionReviewService 面板策略改 'three-fixed-seats-v3'，ReviewModelCompatibilityService.select 的 challenger 恒为 null。
+2. 模型校验放宽为四席互异：ModelBindingV2Service.validate 只对主笔/副笔+事实/文学/体验三席做"四个不同模型来源"签名校验，妙玉不再参与互异约束。
+3. 妲己（文学审校）→ DeepSeek V4 Flash（Agent Plan）：DEC-CURRENT-066 第 2 款"妲己→Coding Plan doubao-seed-code"被本条取代（当时是为了凑六席互异；四席互异后 Agent Plan 五模型足够）。literaryReviewerCodingProfile 与 ModelAdapterFactory 的 Seed Code 白名单全部移除，运行时不再有 Coding Plan 调用，模型全回一个套餐便于额度管理。停用 MiniMax（066 其余部分）继续生效。
+4. 妙玉按需找茬新功能：正文页"请挑剔读者找茬"按钮，作者点击后妙玉单独跑一次完整找茬（新迁移 0055 chapter_challenger_reviews 表 + 仓库/服务/管线/POST·GET 路由，任务类型 chapter_challenger_review，任务中心标签"挑剔读者找茬"）；结果只供参考、不卡定稿、不入审校门禁，可重复发起；进行中复用同任务不重复起；无正文的章返回 409"这一章还没有正文"。前端找茬卡片 3 秒轮询，报告展示并标注"只供参考，不影响定稿"。
+5. 质量门禁不变：三审报告仍是定稿硬门禁（完整点评门禁测试不改），妙玉找茬只是旁路参考。
+6. 测试同步：模型期望 5 处（妲己 flash/四席文案/challenger 恒 null）、管线行为 3 处（报告数 8→6、调用数 12→10、审校角色集去 challenger）、迁移清单 2 处（+0055）、应用层 SQL 下沉仓库层过数据库边界契约；新增 chapter-challenger-review 集成测试 2 用例；全量 715/715 绿、类型检查与构建通过。

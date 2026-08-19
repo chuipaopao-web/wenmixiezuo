@@ -73,6 +73,8 @@ import { SettingCollaborationCommandService } from '../application/knowledge/set
 import { BookProfileViewService } from '../application/books/book-profile-view-service.js';
 import { BookBrandingDesignService } from '../application/books/book-branding-design-service.js';
 import { BookBrandingDesignRepository } from '../infrastructure/db/repositories/book-branding-design-repository.js';
+import { ChapterChallengerReviewService } from '../application/creation/chapter-challenger-review-service.js';
+import { ChapterChallengerReviewRepository } from '../infrastructure/db/repositories/chapter-challenger-review-repository.js';
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
 import { OpeningDraftRepository } from '../infrastructure/db/repositories/opening-draft-repository.js';
@@ -197,6 +199,7 @@ function taskRequiresCreativeModel(taskType: string): boolean {
     'chapter_creation',
     'continuation_analysis',
     'book_branding_design',
+    'chapter_challenger_review',
     'settlement_follow_up'
   ]).has(taskType);
 }
@@ -298,6 +301,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
   const brandingDesigns = new BookBrandingDesignService(
     new BookBrandingDesignRepository(database), volumePlanGenerationRepository, tasks,
+    new UnitOfWork(database), ids, clock
+  );
+  const challengerReviews = new ChapterChallengerReviewService(
+    new ChapterChallengerReviewRepository(database), volumePlanGenerationRepository, tasks,
     new UnitOfWork(database), ids, clock
   );
 
@@ -735,6 +742,24 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         scope,
         request.query.kind === 'synopsis' ? 'synopsis' : 'title'
       ), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { idempotencyKey?: string } }>(
+    '/api/v1/books/:bookId/chapters/:chapterId/challenger-reviews', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(challengerReviews.start(scope, {
+        chapterId: request.params.chapterId,
+        idempotencyKey: typeof request.body?.idempotencyKey === 'string' ? request.body.idempotencyKey : ''
+      }), request.id);
+    }
+  );
+  app.get<{ Params: { bookId: string; chapterId: string } }>(
+    '/api/v1/books/:bookId/chapters/:chapterId/challenger-reviews/latest', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(challengerReviews.latest(scope, request.params.chapterId), request.id);
     }
   );
   app.get<{

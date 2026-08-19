@@ -78,9 +78,9 @@ export function validateTeamModelProfiles(
       if (profiles[role].plan !== 'deterministic' && !/(deepseek-v4-pro|kimi-k2\.7-code)/iu.test(profiles[role].modelId)) {
         throw new Error('写手仅允许火山方舟 Agent Plan 的 DeepSeek V4 Pro 或 Kimi K2.7 Code');
       }
-      const reviewSignatures = [signature(role), signature('fact_reviewer'), signature('literary_reviewer'), signature('experience_reviewer'), signature('experience_challenger')];
+      const reviewSignatures = [signature(role), signature('fact_reviewer'), signature('literary_reviewer'), signature('experience_reviewer')];
       if (new Set(reviewSignatures).size !== reviewSignatures.length) {
-        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验四席必须使用五个不同模型来源`);
+        throw new Error(`${role === 'lead_writer' ? '主笔' : '副笔'}与事实、文学、体验三席必须使用四个不同模型来源`);
       }
     }
 }
@@ -98,9 +98,10 @@ export class ReviewModelCompatibilityService {
       : (/glm/iu.test(activeWriter.modelId) ? byRole('lead_screenwriter') : byRole('setting'));
     const literary = byRole('literary_reviewer');
     const experience = byRole('experience_reviewer');
-    // 11人旧书没有挑剔读者岗位：第四席留空，面板按三席运行。
-    const challenger = team.find((agent) => agent.roleKey === 'experience_challenger') ?? null;
-    const all = [activeWriter, fact, literary, experience, ...(challenger === null ? [] : [challenger])].map(signature);
+    // DEC-CURRENT-067：挑剔读者退出每章固定席（省一份全文审读），改为作者按需召集，
+    // 固定面板恒为三席（事实/文学/体验）。
+    const challenger: TeamAgentRow | null = null;
+    const all = [activeWriter, fact, literary, experience].map(signature);
     if (new Set(all).size !== all.length) throw new Error('点评席必须彼此异模型并与活动写手异模型');
     return { fact, literary, experience, challenger };
   }

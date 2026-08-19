@@ -8,7 +8,6 @@ import {
 } from './deterministic-novel-models.js';
 import type { ModelAdapter } from './model-adapter.js';
 import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js';
-import { literaryReviewerCodingProfile } from './model-runtime-config.js';
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
@@ -58,9 +57,6 @@ export class ModelAdapterFactory {
     const allowed = new Set(Object.values(this.config.roleProfiles)
       .filter((profile) => profile.provider === provider)
       .map((profile) => profile.modelId));
-    // 文学审查席的第六模型挂在 Coding Plan（doubao-seed-code），不在九岗位配置里，单独放行。
-    const literaryCoding = literaryReviewerCodingProfile();
-    if (literaryCoding.provider === provider) allowed.add(literaryCoding.modelId);
     if (!allowed.has(modelId)) throw new Error(`模型不在已批准的套餐角色配置中：${provider}/${modelId}`);
     return new ArkPlanModelAdapter({
       plan: endpoint.plan,

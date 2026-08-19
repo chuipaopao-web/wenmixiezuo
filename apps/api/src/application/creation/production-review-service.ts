@@ -32,7 +32,7 @@ export class ProductionReviewService {
       tokenBudget: 30_000, fact: selected.fact, literary: selected.literary, experience: selected.experience,
       challenger: selected.challenger,
       selectionReason: {
-        policy: selected.challenger === null ? 'three-distinct-models-v1' : 'four-distinct-models-v2',
+        policy: selected.challenger === null ? 'three-fixed-seats-v3' : 'four-distinct-models-v2',
         factSubstitution: /glm/iu.test(input.writerModelId) ? 'writer_is_glm_use_deepseek' : 'default_glm',
         writer: `${input.writerProvider}/${input.writerModelId}`
       }, now: this.clock.now().toISOString()

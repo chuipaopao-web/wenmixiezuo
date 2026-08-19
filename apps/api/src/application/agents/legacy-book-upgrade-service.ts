@@ -1,7 +1,6 @@
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
-import { literaryReviewerCodingProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
 import type { LegacyBookUpgradeRepository } from '../../infrastructure/db/repositories/legacy-book-upgrade-repository.js';
 import type { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
@@ -149,7 +148,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
     fact_reviewer: profiles.style_editor,
-    literary_reviewer: profiles.reviewer.plan === 'deterministic' ? profiles.reviewer : literaryReviewerCodingProfile(),
+    literary_reviewer: profiles.researcher,
     experience_reviewer: profiles.reader_experience,
     experience_challenger: profiles.researcher,
     researcher: profiles.researcher,

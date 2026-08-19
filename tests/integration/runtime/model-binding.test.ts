@@ -43,7 +43,7 @@ describe('现有书籍模型快照绑定', () => {
       return `${agent?.provider}/${agent?.modelId}`;
     })).size).toBe(3);
     expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code' });
-    expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-code' });
+    expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-flash' });
     expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
 
     const fallback = loadModelRuntimeConfig({ WENMI_MODEL_MODE: 'subscription-plan' });

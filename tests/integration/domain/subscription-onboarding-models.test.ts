@@ -51,7 +51,7 @@ describe('subscription onboarding model allocation', () => {
       lead_writer: 'deepseek-v4-pro',
       fact_reviewer: 'glm-5.2',
       backup_writer: 'kimi-k2.7-code',
-      literary_reviewer: 'doubao-seed-code',
+      literary_reviewer: 'deepseek-v4-flash',
       experience_reviewer: 'doubao-seed-2.1-turbo',
       experience_challenger: 'deepseek-v4-flash',
       researcher: 'deepseek-v4-flash',

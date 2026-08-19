@@ -2,6 +2,7 @@ import type { TaskCenterBookData, TaskData } from '../../lib/api/client';
 
 export function taskLabel(type: string): string {
   if (type === 'chapter_creation') return '章节创作';
+  if (type === 'chapter_challenger_review') return '挑剔读者找茬';
   if (type === 'chapter_write') return '正文写作';
   if (type === 'discussion') return '团队讨论';
   if (type === 'conversation_reply') return '已停用历史任务';

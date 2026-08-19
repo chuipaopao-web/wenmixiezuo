@@ -21,12 +21,15 @@ import {
   fetchChapterDetail,
   fetchContinuationImport,
   fetchLatestContinuationImport,
+  fetchLatestChallengerReview,
   fetchVolumeChapters,
   finalizeChapter,
   previewContinuationImport,
   rewriteChapter,
   saveOwnerManuscript,
+  startChallengerReview,
   withdrawOwnerManuscript,
+  type ChallengerReviewData,
   type ChapterData,
   type ChapterPageData,
   type ContinuationImportData,
@@ -488,15 +491,15 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
             : '你的原文已经保存。AI修改会另存一份稿件，不会覆盖原文；你看过以后再决定是否定稿。'}</p>}
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
       </>}
-      {detail !== null && <ChapterProductionEvidence detail={detail} />}
+      {detail !== null && <ChapterProductionEvidence detail={detail} bookId={bookId} chapterId={chapter.chapterId} />}
     </article>
   );
 }
 
-function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<typeof fetchChapterDetail>> }): React.JSX.Element {
+function ChapterProductionEvidence({ detail, bookId, chapterId }: { detail: Awaited<ReturnType<typeof fetchChapterDetail>>; bookId: string; chapterId: string }): React.JSX.Element {
   const order = detail.production.writingOrders[0];
   const reports = detail.production.reviewReports.map((row) => ({ row, report: parseRecordJson(row.report_json) })).filter((item) => item.report !== null) as Array<{ row: Record<string, unknown>; report: Record<string, unknown> }>;
-  if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>本章写作记录</h3><p>本章还没有正式写作要求和三位模型的点评。</p></section>;
+  if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>本章写作记录</h3><p>本章还没有正式写作要求和三位模型的点评。</p><ChallengerReviewCard bookId={bookId} chapterId={chapterId} /></section>;
   return <section className="production-evidence"><header><h3>写作要求与AI点评</h3><p>三位模型点评的是同一份正文。AI腔检查会指出具体段落，不是在判断作者是不是AI；内容风险提示也不能代替法律或平台结论。</p></header>
     {order !== undefined && <article className="writing-order-card"><span>本章写作要求</span><strong>{String(order.objective ?? '本章要完成什么')}</strong><small>写作要求已确认</small></article>}
     <div className="review-evidence-grid">{reports.map(({ row, report }) => {
@@ -505,7 +508,58 @@ function ChapterProductionEvidence({ detail }: { detail: Awaited<ReturnType<type
       const sexual = isRecord(report.sexualContentRisk) ? report.sexualContentRisk : null;
       return <article key={String(row.review_report_id)}><header><span>{reviewerRoleLabel(String(row.reviewer_role))}</span><em>{authorityLabel(String(row.status ?? 'completed'))}</em></header><h4>{String(report.summary ?? '已完成结构化点评')}</h4><dl><div><dt>结论</dt><dd>{reviewVerdictLabel(String(report.verdict ?? 'pass'))}</dd></div>{aiStyle !== null && <><div><dt>AI腔风险</dt><dd>{String(aiStyle.riskScore ?? 0)}/100</dd></div><div><dt>证据段落</dt><dd>{String(aiStyle.flaggedParagraphCount ?? 0)}/{String(aiStyle.totalParagraphCount ?? 0)}（{formatPercent(Number(aiStyle.flaggedParagraphRatio ?? 0))}）</dd></div></>}{political !== null && <div><dt>政治风险</dt><dd>{riskLevelLabel(String(political.level ?? 'none'))}</dd></div>}{sexual !== null && <div><dt>情色风险</dt><dd>{riskLevelLabel(String(sexual.level ?? 'none'))}</dd></div>}</dl>{Array.isArray(report.issues) && report.issues.length > 0 && <details><summary>查看定位问题 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}</article>;
     })}</div>
+    <ChallengerReviewCard bookId={bookId} chapterId={chapterId} />
   </section>;
+}
+
+/** 挑剔读者妙玉的按需找茬卡（DEC-CURRENT-067）：不进入固定审校，结果只供参考，不影响定稿。 */
+function ChallengerReviewCard({ bookId, chapterId }: { bookId: string; chapterId: string }): React.JSX.Element {
+  const [review, setReview] = useState<ChallengerReviewData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    setReview(null);
+    setNotice(null);
+    const controller = new AbortController();
+    void fetchLatestChallengerReview(bookId, chapterId, controller.signal).then(setReview).catch(() => undefined);
+    return () => controller.abort();
+  }, [bookId, chapterId]);
+  useEffect(() => {
+    if (review === null || review.status !== 'working') return;
+    const timer = window.setInterval(() => {
+      void fetchLatestChallengerReview(bookId, chapterId).then(setReview).catch(() => undefined);
+    }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [bookId, chapterId, review]);
+  const start = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      setReview(await startChallengerReview(bookId, chapterId));
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : '找茬没有开始成功，请稍后重试。');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const working = review?.status === 'working';
+  const report = review?.status === 'succeeded' ? review.report : null;
+  return <div className="challenger-review-card">
+    <div className="challenger-review-actions">
+      <button className="secondary-button" type="button" disabled={busy || working} onClick={() => void start()}>
+        {working ? '挑剔读者正在找茬…' : report === null ? '请挑剔读者找茬' : '再让挑剔读者看一遍'}
+      </button>
+      <small>妙玉专挑毒点和弃读风险；她的意见只供参考，不影响定稿。</small>
+    </div>
+    {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+    {review?.status === 'failed' && <p className="binding-status" role="status">这次找茬中途失败了，可以再点一次重试。</p>}
+    {report !== null && <article className="challenger-review-report">
+      <header><span>挑剔读者 · 妙玉</span><em>{reviewVerdictLabel(report.verdict)}</em></header>
+      <h4>{report.summary}</h4>
+      {report.issues.length > 0 && <details><summary>查看吐槽点 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}
+    </article>}
+  </div>;
 }
 
 export function ManuscriptChapterBrowser({ workspace, selectedChapterId, onSelect, onCreateChapter, onOpenBatchImport, creatingChapter, batchImportActive }: {

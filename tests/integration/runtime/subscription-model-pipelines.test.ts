@@ -265,11 +265,11 @@ describe('订阅与套餐模型真实流水线接线', () => {
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2.7-code', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'deepseek-v4-pro', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5.2', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-coding-plan', model_id: 'doubao-seed-code', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'deepseek-v4-flash', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'doubao-seed-2.1-turbo', cash_micros: 0, state: 'succeeded' })
     ]));
     expect(modelCalls.some((call) => call.model_id === 'kimi-k3')).toBe(false);
-    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(true);
+    expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/coding/'))).toBe(false);
     expect(calls.some((call) => call.url.startsWith('https://ark.cn-beijing.volces.com/api/plan/'))).toBe(true);
     expect(calls.filter((call) => call.prompt.includes('方向已经锁定') && call.prompt.includes('章节跨度估算 {'))
       .every((call) => call.maxTokens >= 3_000)).toBe(true);

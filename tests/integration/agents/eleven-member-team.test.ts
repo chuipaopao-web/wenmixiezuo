@@ -31,9 +31,9 @@ describe('十四人创作团队', () => {
       plan: 'agent'
     });
     expect(base.literary_reviewer).toEqual({
-      provider: 'volcengine-ark-coding-plan',
-      modelId: 'doubao-seed-code',
-      plan: 'coding'
+      provider: 'volcengine-ark-agent-plan',
+      modelId: 'deepseek-v4-flash',
+      plan: 'agent'
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
     expect(() => service.validate({ ...base, third_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
@@ -43,7 +43,7 @@ describe('十四人创作团队', () => {
     expect(() => service.validate({ ...base, backup_writer: base.lead_writer })).toThrow('主笔与副笔必须使用不同模型');
   });
 
-  it('点评四席必须彼此异模型并与活动写手异模型，无挑剔读者岗位的旧书保持三席', () => {
+  it('点评三席必须彼此异模型并与活动写手异模型，挑剔读者改为按需找茬不进固定席', () => {
     const rows = creativeMemberContracts.map((member, index) => ({
       agentId: `agent-${index}`, roleKey: member.roleKey, roleTemplateId: member.roleTemplateId, memberName: member.memberName,
       shortTitle: member.shortTitle, provider: member.defaultModel.provider, modelId: member.defaultModel.modelId,
@@ -51,10 +51,9 @@ describe('十四人创作团队', () => {
     }));
     const writer = rows.find((row) => row.roleKey === 'lead_writer')!;
     const panel = new ReviewModelCompatibilityService().select(writer, rows);
-    expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, panel.challenger?.modelId, writer.modelId]).toHaveLength(5);
-    expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, panel.challenger?.modelId, writer.modelId]).size).toBe(5);
-    expect(panel.challenger?.roleKey).toBe('experience_challenger');
-    expect(panel.challenger?.modelId).toBe('deepseek-v4-flash');
+    expect([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).toHaveLength(4);
+    expect(new Set([panel.fact.modelId, panel.literary.modelId, panel.experience.modelId, writer.modelId]).size).toBe(4);
+    expect(panel.challenger).toBeNull();
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
     expect(backupPanel.fact.roleKey).toBe('fact_reviewer');

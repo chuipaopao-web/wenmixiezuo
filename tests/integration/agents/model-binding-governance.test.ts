@@ -66,7 +66,7 @@ describe('未来模型绑定与运行任务快照治理', () => {
       provider: agent.provider, modelId: agent.modelId, plan: agent.plan ?? 'deterministic'
     }])) as Record<CreativeRoleKey, TeamModelProfile>;
     profiles.experience_reviewer = { ...profiles.literary_reviewer };
-    expect(() => service.validate(profiles)).toThrow(/五个不同模型来源/u);
+    expect(() => service.validate(profiles)).toThrow(/四个不同模型来源/u);
   });
 
   it('真实套餐模式拒绝把历史确定性绑定恢复成未来活动配置', () => {

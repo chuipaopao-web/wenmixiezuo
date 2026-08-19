@@ -355,11 +355,11 @@ describe('单章完整创作流水线', () => {
     expect(new Set(panels.map((panel) => panel.manuscript_version_id)).size).toBe(2);
     const reports = context.database.prepare(`SELECT reviewer_role, model_snapshot_id, manuscript_version_id, report_json
       FROM review_reports WHERE owner_id = ? AND book_id = ? ORDER BY created_at, reviewer_role`).all(scope.ownerId, scope.bookId) as unknown as Array<{ reviewer_role: string; model_snapshot_id: string; manuscript_version_id: string; report_json: string }>;
-    expect(reports).toHaveLength(8);
+    expect(reports).toHaveLength(6);
     for (const version of new Set(reports.map((report) => report.manuscript_version_id))) {
       const sameVersion = reports.filter((report) => report.manuscript_version_id === version);
-      expect(new Set(sameVersion.map((report) => report.reviewer_role))).toEqual(new Set(['fact', 'literary', 'experience', 'challenger']));
-      expect(new Set(sameVersion.map((report) => report.model_snapshot_id)).size).toBe(4);
+      expect(new Set(sameVersion.map((report) => report.reviewer_role))).toEqual(new Set(['fact', 'literary', 'experience']));
+      expect(new Set(sameVersion.map((report) => report.model_snapshot_id)).size).toBe(3);
     }
     const literary = reports.find((report) => report.reviewer_role === 'literary')!;
     expect(JSON.parse(literary.report_json)).toEqual(expect.objectContaining({ aiStyle: expect.objectContaining({ isAuthorshipProbability: false }) }));
@@ -370,14 +370,14 @@ describe('单章完整创作流水线', () => {
       SELECT provider, model_id, context_pack_id, state FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, request_id
     `).all(scope.ownerId, scope.bookId, batch.taskIds[0]!) as unknown as Array<{ provider: string; model_id: string; context_pack_id: string | null; state: string }>;
-    expect(calls).toHaveLength(12);
+    expect(calls).toHaveLength(10);
     expect(calls.every((call) => call.state === 'succeeded' && call.context_pack_id !== null)).toBe(true);
     const writerModels = new Set(calls.filter((call) => call.provider.includes('writer')).map((call) => `${call.provider}/${call.model_id}`));
     const reviewerModels = new Set(calls.filter((call) => !call.provider.includes('writer')).map((call) => `${call.provider}/${call.model_id}`));
     expect(writerModels.size).toBe(1);
-    expect(reviewerModels.size).toBeGreaterThanOrEqual(4);
+    expect(reviewerModels.size).toBeGreaterThanOrEqual(3);
     expect([...writerModels][0]).not.toBe([...reviewerModels][0]);
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM budget_reservations WHERE owner_id = ? AND book_id = ? AND status = 'settled'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 12 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM budget_reservations WHERE owner_id = ? AND book_id = ? AND status = 'settled'`).get(scope.ownerId, scope.bookId)).toEqual({ count: 10 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM editor_review_syntheses WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId))
       .toEqual({ count: 2 });
     const qualitySnapshots = context.database.prepare(`
@@ -397,8 +397,7 @@ describe('单章完整创作流水线', () => {
       const dimensions = Object.keys(JSON.parse(snapshot.dimensions_json) as Record<string, number>);
       return dimensions.some((dimension) => dimension.startsWith('fact:'))
         && dimensions.some((dimension) => dimension.startsWith('literary:'))
-        && dimensions.some((dimension) => dimension.startsWith('experience:'))
-        && dimensions.some((dimension) => dimension.startsWith('challenger:'));
+        && dimensions.some((dimension) => dimension.startsWith('experience:'));
     })).toBe(true);
     expect(qualitySnapshots.find((snapshot) => snapshot.is_best === 1)?.manuscript_version_id)
       .toBe((context.database.prepare(`SELECT current_manuscript_version_id FROM chapters WHERE chapter_id = ?`)
@@ -409,7 +408,7 @@ describe('单章完整创作流水线', () => {
     `).all(scope.ownerId, scope.bookId, batch.taskIds[0]!) as unknown as Array<{ mode: string; role_key: string }>;
     expect(retrievalPlans.some((plan) => plan.mode === 'drafting' && plan.role_key === 'lead_writer')).toBe(true);
     expect(new Set(retrievalPlans.filter((plan) => plan.mode === 'review').map((plan) => plan.role_key)))
-      .toEqual(new Set(['fact_reviewer', 'literary_reviewer', 'experience_reviewer', 'experience_challenger']));
+      .toEqual(new Set(['fact_reviewer', 'literary_reviewer', 'experience_reviewer']));
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
 
     const sourcePanel = context.database.prepare(`SELECT * FROM review_panels

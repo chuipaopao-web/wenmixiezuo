@@ -1730,6 +1730,14 @@ svg {
 .writing-order-card strong { font-size: calc(12px * var(--font-scale)); }
 .writing-order-card small { color: var(--ink-faint); }
 .review-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.challenger-review-card { margin-top: 12px; border: 1px dashed var(--line); border-radius: var(--surface-radius); padding: 12px; background: var(--panel); }
+.challenger-review-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.challenger-review-actions small { color: var(--ink-faint); font-size: calc(9px * var(--font-scale)); line-height: 1.5; }
+.challenger-review-report { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.challenger-review-report > header { display: flex; justify-content: space-between; gap: 6px; }
+.challenger-review-report > header span { color: var(--accent-strong); font-size: calc(9px * var(--font-scale)); }
+.challenger-review-report > header em { color: var(--ink-faint); font-size: calc(8px * var(--font-scale)); font-style: normal; }
+.challenger-review-report h4 { margin: 8px 0 4px; font-size: calc(11px * var(--font-scale)); line-height: 1.5; }
 .review-evidence-grid > article { min-width: 0; border: 1px solid var(--line); border-radius: var(--surface-radius); padding: 11px; background: var(--panel); }
 .review-evidence-grid article > header { display: flex; justify-content: space-between; gap: 6px; }
 .review-evidence-grid article > header span { color: var(--accent-strong); font-size: calc(9px * var(--font-scale)); }

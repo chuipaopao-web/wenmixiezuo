@@ -2004,6 +2004,43 @@ export function fetchLatestBrandingDesign(
   );
 }
 
+export interface ChallengerReviewData {
+  reviewId: string;
+  chapterId: string;
+  manuscriptVersionId: string;
+  status: 'working' | 'succeeded' | 'failed' | 'cancelled';
+  taskId: string;
+  taskStatus: string;
+  errorCode: string | null;
+  report: {
+    verdict: string;
+    summary: string;
+    issues: Array<{ location: string; issueType: string; severity: string; evidence: string; requiredAction: string }>;
+    scores: Record<string, number>;
+  } | null;
+  member: { roleKey: string; agentId: string; displayName: string; provider: string; modelId: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function startChallengerReview(bookId: string, chapterId: string): Promise<ChallengerReviewData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/challenger-reviews`, {
+    method: 'POST',
+    body: JSON.stringify({ idempotencyKey: crypto.randomUUID() })
+  });
+}
+
+export function fetchLatestChallengerReview(
+  bookId: string,
+  chapterId: string,
+  signal?: AbortSignal
+): Promise<ChallengerReviewData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/challenger-reviews/latest`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
 export function fetchPlanningState(bookId: string, signal?: AbortSignal): Promise<PlanningStateData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/planning-state`, signal === undefined ? {} : { signal });
 }
