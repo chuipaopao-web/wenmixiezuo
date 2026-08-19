@@ -7051,8 +7051,9 @@ svg {
 
 /* 清空全部设定：低调入口 + 明确二次确认 */
 .setting-clear-zone { margin-top: 18px; text-align: center; }
-.setting-clear-link { background: none; border: 0; color: var(--text-tertiary, #9a9a9a); font-size: 12.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.setting-clear-link:hover { color: #c0392b; }
+.setting-queue-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line, #e6e2d8); border-radius: 12px; background: var(--panel, #fafaf7); }
+.setting-queue-bar > span { font-size: 13px; color: var(--ink-soft); }
+.setting-start-button { padding: 10px 24px; font-size: 15px; }
 .setting-clear-confirm { max-width: 520px; margin: 0 auto; text-align: left; border: 1px solid color-mix(in srgb, #c0392b 35%, transparent); border-radius: 12px; padding: 16px; background: color-mix(in srgb, #c0392b 5%, transparent); }
 .setting-clear-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; }
 .setting-clear-warning { color: #c0392b; font-weight: 600; }
@@ -7088,5 +7089,15 @@ svg {
 .setting-member.working em::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 4px; animation: settingWorkingPulse 1.2s ease-in-out infinite; }
 @keyframes settingWorkingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-/* 已确认项的重新设计入口：警示色醒目按钮 */
-.setting-redesign-button { background: linear-gradient(135deg, #c05621, #c0392b) !important; }
+/* 重新设计 / 清空设定 / 确认设定统一绿色主按钮（老板 08-19 决定） */
+.setting-redesign-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.setting-redesign-line span { font-size: 12.5px; color: var(--ink-soft); }
+.setting-redesign-button { padding: 9px 22px; font-size: 14px; }
+.setting-clear-zone .setting-clear-button { padding: 10px 26px; font-size: 14.5px; }
+.setting-queue-toggle { border: 1px solid var(--line, #d8d8d8); background: #fff; border-radius: 8px; padding: 7px 14px; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+.setting-queue-list { list-style: none; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--line, #e2e2e2); border-radius: 10px; background: #fff; display: flex; flex-direction: column; gap: 6px; flex-basis: 100%; }
+.setting-queue-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.setting-queue-list li.done span { color: var(--ink-soft); text-decoration: line-through; }
+.setting-queue-list li em { font-style: normal; font-size: 11px; color: var(--accent-hover); margin-left: 6px; }
+.setting-queue-list li em.setting-queue-core { color: #b7791f; }
+.setting-queue-list li button { border: 0; background: none; color: #c0392b; font-size: 12px; cursor: pointer; padding: 2px 6px; }

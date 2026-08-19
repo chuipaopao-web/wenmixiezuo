@@ -85,17 +85,19 @@ describe('设定大纲工作状态', () => {
   });
 
   it('推荐条目按主题材优先、副题材靠后排序', () => {
-    // 主分类历史脑洞，副题材带游戏词：历史包的条目必须排在游戏包条目之前。
+    // 主分类历史脑洞，副题材带游戏：历史包的条目必须排在游戏包条目之前。
+    // 题材包只由分类和副题材决定；主标签是风格词，选了"悬疑"风格也不激活悬疑包。
     const profile = resolveSettingOutlineProfile(blueprint({
       channel: 'male',
       categoryKey: 'male-history-brain',
-      mainTags: ['历史', '游戏'],
-      auxiliaryTags: [],
+      mainTags: ['历史', '游戏', '悬疑', '推理'],
+      auxiliaryTags: ['游戏异界'],
       storyTraits: [],
       storyDirection: '主角带着游戏面板穿越南宋，改写历史。'
     }));
     expect(profile.profileKey).toContain('history');
     expect(profile.profileKey).toContain('game');
+    expect(profile.profileKey).not.toContain('mystery');
     const historyIndex = profile.recommended.indexOf('history-baseline');
     const gameIndex = profile.recommended.indexOf('game-entry');
     expect(historyIndex).toBeGreaterThanOrEqual(0);

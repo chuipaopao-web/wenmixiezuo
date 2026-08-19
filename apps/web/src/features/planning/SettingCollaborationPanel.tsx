@@ -410,7 +410,7 @@ export function SettingCollaborationPanel({
           </div>
         </details>
         <footer><span>{selectionCount === 0 ? '勾选方案里的段落，或整份选用' : pickedFragments.length > 0 ? `已勾选 ${pickedFragments.length} 段` : `已选用 ${[...selected].sort((a, b) => a - b).join('、')}`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的勾选融合'}</button></footer>
-        <div className="setting-mine-line">三份都不满意？<button type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button>，团队会围绕这一项重新出三份方案。</div>
+        <div className="setting-mine-line setting-redesign-line"><span>三份都不满意？团队会围绕这一项重新出三份方案。</span><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button></div>
       </section>}
       {revisionRunning && <p className="setting-collaboration-state">主编正在按你的勾选或修改意见融合，完成前暂不覆盖当前编辑稿。</p>}
 
@@ -427,7 +427,7 @@ export function SettingCollaborationPanel({
             setPickedFragments([]);
             proposalAnchor.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }}>退回重融</button>
-          <button type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button>
+          <button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button>
         </div>
         <div className="setting-mine-line">不想用团队的？<button type="button" onClick={() => { setDraft(''); setSelfWriting(true); }}>自己写一份</button> · <button type="button" disabled={busy !== null} onClick={() => void leaveBlank()}>先留白，以后再定</button></div>
       </section>}

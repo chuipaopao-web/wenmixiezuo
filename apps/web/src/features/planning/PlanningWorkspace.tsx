@@ -417,6 +417,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   const [auditReport, setAuditReport] = useState<SettingQualityReportView | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Record<string, boolean>>({});
   const [designQueue, setDesignQueue] = useState<string[] | null>(null);
+  const [queueListOpen, setQueueListOpen] = useState(false);
   const [auditWaiting, setAuditWaiting] = useState(false);
   const [acknowledgedIssues, setAcknowledgedIssues] = useState<string[]>([]);
   const [activeItemKey, setActiveItemKey] = useState<string | null>(null);
@@ -548,6 +549,19 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     });
     return () => controller.abort();
   }, [bookId]);
+
+  // 勾选状态按书存在浏览器本地：页面刷新或重进都不会丢，换书各自独立。
+  useEffect(() => {
+    if (bookId === null) { setCheckedKeys({}); return; }
+    try {
+      const raw = window.localStorage.getItem(`wenmi-setting-checked-v1-${bookId}`);
+      setCheckedKeys(raw === null ? {} : JSON.parse(raw) as Record<string, boolean>);
+    } catch { setCheckedKeys({}); }
+  }, [bookId]);
+  useEffect(() => {
+    if (bookId === null) return;
+    try { window.localStorage.setItem(`wenmi-setting-checked-v1-${bookId}`, JSON.stringify(checkedKeys)); } catch { /* 存储满时静默 */ }
+  }, [checkedKeys, bookId]);
 
   // 主编质检轮询：检查完成或失败后把结果摆上页面。
   useEffect(() => {
@@ -699,6 +713,19 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     advanceQueue(queue, statuses);
   };
 
+  /** 从队列里移除一项：核心六项必须设计不可移除，其他项同时取消勾选。 */
+  const removeFromQueue = (key: string): void => {
+    if (requiredKeys.has(key)) return;
+    setCheckedKeys((current) => ({ ...current, [key]: false }));
+    setDesignQueue((current) => {
+      if (current === null) return current;
+      const next = current.filter((item) => item !== key);
+      return next.length === 0 ? null : next;
+    });
+  };
+
+  const queueLabel = (key: string): string => allItems.find((item) => item.key === key)?.label ?? key;
+
   // 队列自动推进：当前项确认后打开下一项并召集团队；候选待确认时停下等作者确认。
   useEffect(() => {
     if (designQueue === null || bookId === null) return;
@@ -824,9 +851,25 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
         ? <><span>核心六项必须设计；其他条目勾选后一起按顺序设计。</span>
           <button className="primary-button setting-start-button" type="button" disabled={busyKey !== null} onClick={startDesignQueue}>
             开始设计（共 {buildQueue().length} 项）
+          </button>
+          <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
+            {queueListOpen ? '收起设计清单' : '设计清单'}
           </button></>
         : <><span>正在按顺序设计，还剩 <strong>{designQueue.filter((key) => statuses[key] !== '已确认').length}</strong> 项；确认当前项后自动进入下一项。</span>
+          <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
+            {queueListOpen ? '收起设计清单' : '设计清单'}
+          </button>
           <button type="button" onClick={() => setDesignQueue(null)}>停下队列</button></>}
+      {queueListOpen && <ul className="setting-queue-list">
+        {(designQueue ?? buildQueue()).map((key) => {
+          const done = statuses[key] === '已确认';
+          const isCore = requiredKeys.has(key);
+          return <li key={key} className={done ? 'done' : ''}>
+            <span>{queueLabel(key)}{isCore && <em className="setting-queue-core">必谈</em>}{done && <em>已定稿</em>}</span>
+            {!isCore && !done && <button type="button" aria-label={`把${queueLabel(key)}移出设计清单`} onClick={() => removeFromQueue(key)}>移出</button>}
+          </li>;
+        })}
+      </ul>}
     </section>}
     {auditWaiting && <p className="setting-collaboration-state">主编正在逐条检查整份设定……</p>}
     {auditReport !== null && auditReport.report !== null && <section className="setting-audit-report" aria-label="主编检查报告">
@@ -863,7 +906,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     </section>
     {bookId !== null && <section className="setting-clear-zone">
       {!clearing
-        ? <button type="button" className="setting-clear-link" onClick={() => setClearing(true)}>清空全部设定</button>
+        ? <button type="button" className="primary-button setting-clear-button" onClick={() => setClearing(true)}>清空全部设定</button>
         : <div className="setting-clear-confirm">
           <p><strong>确定要清空这本书的全部设定吗？</strong>所有已填和已确认的设定内容都会被清掉，条目保留，历史版本仍可追溯。</p>
           {profile?.hasCanonChapters === true && <p className="setting-clear-warning">这本书已经有正文：清空设定后，新旧设定可能和已有正文前后矛盾。正文本身不会被删，但建议慎重。</p>}

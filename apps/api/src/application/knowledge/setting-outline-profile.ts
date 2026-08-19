@@ -123,12 +123,11 @@ function blueprintSignals(blueprint: OpeningBlueprintInput): { hints: string; pa
     .flatMap((subject) => subject.packKeys);
 
   return {
+    // 题材包只由主要题材（分类）和副题材决定：主标签、故事特质、自定义标签
+    // 都是风格词，选一个“悬疑”风格标签不代表要写悬疑类型，不能因此激活整个题材包。
     hints: [
       ...categories.flatMap((category) => [category.key, category.name]),
-      ...(blueprint.auxiliaryTags ?? []),
-      ...(blueprint.mainTags ?? []),
-      ...(blueprint.storyTraits ?? []),
-      ...(blueprint.customTags ?? [])
+      ...(blueprint.auxiliaryTags ?? [])
     ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join(' '),
     packKeys: new Set([
       ...categories.flatMap((category) => category.tagPackKeys),
