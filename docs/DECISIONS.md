@@ -581,3 +581,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 前端兜底（SettingCollaborationPanel）：提案任务失败 20 秒后自动点一次"继续完成"（每个任务只自动一次，断点续跑只补缺席席位）；失败提示点名缺席成员（"红玉没有交出方案：系统已自动补发资料仍未完成，稍后会自动再补写一次；其余成员的方案已保留"）。
 4. 原因报备与后台同步：每次失败调用本就落库 state/error_class/error_detail（管理员后台算力消耗可见），补全错误信息点名成员+原因，任务中心可见。
 5. 测试：新增 tests/integration/runtime/discussion-makeup.test.ts——GLM 首次调用 TypeError 中断，验证任务最终成功、三份方案集齐、GLM 恰好补发 1 次、其余两席各只调用 1 次、失败记录 provider_result_unknown 落库。全量 729 绿、双端 typecheck 通过。
+
+
+## DEC-CURRENT-076 预算上限提至2000万+融合/质检进度条+确认后自动收起（2026-08-20）
+
+【当前】老板实测设定融合任务全部失败+确认后页面无变化+融合无进度。三件事落地：
+1. 失败根因=预算耗尽误卡：建书默认预算上限仍是早期 24 万 Token（book-onboarding-service INSERT budgets token_limit=240000），老板的书已耗 21.7 万，融合任务预约 ~2.4 万即触发 BUDGET_EXHAUSTED 批量失败。套餐包量制下 24 万毫无道理。修复：默认值 240000→20000000（保留熔断防失控，注释说明套餐包量制），生产存量 5 本 active 预算全部回填 2000 万，老板已失败的融合任务点"继续完成"或等 20 秒自动续跑即可。
+2. 进度条覆盖所有任务启动：主编融合（revisionRunning）从一行灰字改为醒目进度块"主编正在融合您的勾选"+不定态进度条，同时收起方案区与勾选区；整份设定质检（auditWaiting）同样改进度块"主编正在逐条检查整份设定"。CSS 复用 DEC-074 的 setting-design-progress 类。
+3. 确认后自动收起：SettingCollaborationPanel 按 confirmedAt 判定轮次新旧——条目已确认且方案/融合稿创建于确认时间之前（上一轮）则全部收起，只留"已定稿+重新设计/自己动手改"入口；重新设计开启的新一轮（createdAt>confirmedAt）照常显示，确认前旧定稿一直有效的规则不变。PlanningWorkspace 新增 confirmedAts 映射（初始化/快照/清空三处同步）传入面板。面板 props 的 item Pick 补 confirmedAt 字段。
+4. 自动续跑扩到融合任务：面板 20 秒自动续跑原只覆盖方案任务（DEC-075），老板这次失败的恰是融合任务；failedAutoTaskId 统一取方案/融合两类失败任务，每任务仍只自动一次。
+5. 测试：全量 729 绿（无断言引用被收起区域的文案），双端 typecheck 通过。

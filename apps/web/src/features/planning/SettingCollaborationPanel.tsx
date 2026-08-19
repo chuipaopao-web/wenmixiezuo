@@ -25,7 +25,7 @@ export function SettingCollaborationPanel({
   onSnapshot
 }: {
   bookId: string;
-  item: Pick<SettingOutlineWorkspaceData, 'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder' | 'content' | 'pendingCandidate'>;
+  item: Pick<SettingOutlineWorkspaceData, 'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder' | 'content' | 'pendingCandidate' | 'confirmedAt'>;
   onSnapshot: (item: SettingOutlineWorkspaceData) => void;
 }): React.JSX.Element {
   const [data, setData] = useState<SettingCollaborationData | null>(null);
@@ -83,13 +83,17 @@ export function SettingCollaborationPanel({
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
 
-  // 目标导向兜底：系统自动补发资料仍未完成时，20 秒后自动让缺席成员补写一次
-  //（检查点复用只补缺席席位，不重复消耗），作者无需守着页面手动点。
+  // 目标导向兜底：方案或主编融合任务意外失败时，20 秒后自动续跑一次
+  //（检查点复用只补未完成的部分，不重复消耗），作者无需守着页面手动点。
   const autoRetriedTaskRef = useRef<string | null>(null);
-  const panelTaskFailed = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus);
+  const failedAutoTaskId = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus)
+    ? data.panel.taskId
+    : data?.revisionTask != null && ['failed', 'interrupted'].includes(data.revisionTask.status)
+      ? data.revisionTask.taskId
+      : null;
   useEffect(() => {
-    if (!panelTaskFailed || busy !== null || data?.panel == null) return undefined;
-    const taskId = data.panel.taskId;
+    if (failedAutoTaskId === null || busy !== null) return undefined;
+    const taskId = failedAutoTaskId;
     if (autoRetriedTaskRef.current === taskId) return undefined;
     const timer = window.setTimeout(() => {
       autoRetriedTaskRef.current = taskId;
@@ -100,7 +104,7 @@ export function SettingCollaborationPanel({
         .finally(() => { setBusy(null); });
     }, 20_000);
     return () => window.clearTimeout(timer);
-  }, [panelTaskFailed, busy, data?.panel, bookId, refresh]);
+  }, [failedAutoTaskId, busy, bookId, refresh]);
 
   const start = async (): Promise<void> => {
     if (busy !== null) return;
@@ -360,6 +364,13 @@ export function SettingCollaborationPanel({
   const hasPendingCandidate = (currentItem.pendingCandidate ?? null) !== null;
   const candidateReady = ((currentItem.status) === '候选待确认' || hasPendingCandidate) && draft.trim().length > 0;
   const fusionDraft = data?.fusionDraft ?? null;
+  // 已确认条目：确认时间之前那一轮的方案和融合稿全部收起，只留"已有定稿"摘要，
+  // 避免作者误以为没确认成功而重复点击；重新设计开启的新一轮（晚于确认时间）照常显示。
+  const confirmedAt = currentItem.status === '已确认' ? currentItem.confirmedAt : null;
+  const roundIsStale = (createdAt: string | null | undefined): boolean =>
+    confirmedAt !== null && (createdAt == null || createdAt <= confirmedAt);
+  const proposalsStale = roundIsStale(data?.panel?.createdAt);
+  const fusionStale = roundIsStale(fusionDraft?.createdAt);
   const selectionCount = pickedFragments.length > 0 ? pickedFragments.length : selected.length;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
 
@@ -378,8 +389,8 @@ export function SettingCollaborationPanel({
           <em className={`setting-dot dot-${member.status === 'completed' ? 'done' : member.status === 'failed' ? 'failed' : 'work'}`} title={memberStatusLabel(member.status)} />
         </span>)}
       </div>}
-      {data.panel === null && !candidateReady && !selfWriting && (data?.item.status ?? item.status) === '已确认' && <div className="setting-collaboration-start">
-        <p className="setting-collaboration-state">这一项已有定稿。反悔了就让团队围绕它重新出三份新方案，确认新方案前旧定稿一直有效。</p>
+      {(data.panel === null || proposalsStale) && !candidateReady && !selfWriting && (data?.item.status ?? item.status) === '已确认' && <div className="setting-collaboration-start">
+        <p className="setting-collaboration-state">这一项已定稿。反悔了就让团队围绕它重新出三份新方案，确认新方案前旧定稿一直有效。</p>
         <footer><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button></footer>
         <div className="setting-mine-line">只想小改？<button type="button" onClick={() => setSelfWriting(true)}>自己动手改</button></div>
       </div>}
@@ -413,7 +424,7 @@ export function SettingCollaborationPanel({
       {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果会保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
       {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
 
-      {proposals.length > 0 && !candidateReady && <div className="setting-proposal-grid" ref={proposalAnchor}>
+      {proposals.length > 0 && !candidateReady && !proposalsStale && !revisionRunning && <div className="setting-proposal-grid" ref={proposalAnchor}>
         {proposals.map((proposal) => {
           const fragmentCount = proposalPickedCount(proposal);
           const wholePicked = proposal.fragments.length === 0 && selected.includes(proposal.number);
@@ -436,7 +447,7 @@ export function SettingCollaborationPanel({
           </article>;
         })}
       </div>}
-      {proposals.length > 0 && !candidateReady && <section className="setting-author-choice">
+      {proposals.length > 0 && !candidateReady && !proposalsStale && !revisionRunning && <section className="setting-author-choice">
         <details className="setting-collapsible-input"><summary>我还想补充自己的想法</summary><label>你的补充想法<ImeTextarea rows={4} maxChars={800} value={idea} onChange={setIdea} placeholder="例如：我喜欢方案1的世界规则，但人物关系想用方案2。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段话怎么用">
             <label className={ideaStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'preference'} onChange={() => setIdeaStrength('preference')} /> <b>仅供参考</b><small>主编以专业判断为主，你的想法占两到五成</small></label>
@@ -446,9 +457,13 @@ export function SettingCollaborationPanel({
         <footer><span>{selectionCount === 0 ? '勾选方案里的段落，或整份选用' : pickedFragments.length > 0 ? `已勾选 ${pickedFragments.length} 段` : `已选用 ${[...selected].sort((a, b) => a - b).join('、')}`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的勾选融合'}</button></footer>
         <div className="setting-mine-line setting-redesign-line"><span>三份都不满意？团队会围绕这一项重新出三份方案。</span><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button></div>
       </section>}
-      {revisionRunning && <p className="setting-collaboration-state">主编正在按你的勾选或修改意见融合，完成前暂不覆盖当前编辑稿。</p>}
+      {revisionRunning && <div className="setting-design-progress" role="status">
+        <strong>主编正在融合您的勾选</strong>
+        <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
+        <small>主编把您选的内容揉成一份通顺的设定，完成前暂不覆盖当前编辑稿，请稍等。</small>
+      </div>}
 
-      {fusionDraft !== null && !revisionRunning && <section className="setting-fusion" aria-label="主编融合稿">
+      {fusionDraft !== null && !revisionRunning && !fusionStale && <section className="setting-fusion" aria-label="主编融合稿">
         <div className="setting-proposal-who"><b>主编融合稿</b><span className="setting-style-tag tag-fusion">按您的勾选整理</span></div>
         <div className="setting-fusion-note">您勾了 {fusionDraft.selectedFragmentIds.length} 段，主编把它们揉成了一份通顺的设定；绿色部分是主编补的衔接。</div>
         <div className="setting-fusion-body">{fusionDraft.segments.map((segment, index) => segment.source === 'stitch'

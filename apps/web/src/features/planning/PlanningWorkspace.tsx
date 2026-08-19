@@ -410,6 +410,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
   const [contents, setContents] = useState<Record<string, string>>({});
   const [pendingCandidates, setPendingCandidates] = useState<Record<string, string>>({});
+  const [confirmedAts, setConfirmedAts] = useState<Record<string, string>>({});
   const [profile, setProfile] = useState<SettingReadinessView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -477,6 +478,12 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       else next[snapshot.itemKey] = snapshot.pendingCandidate;
       return next;
     });
+    setConfirmedAts((current) => {
+      const next = { ...current };
+      if (snapshot.confirmedAt === null) delete next[snapshot.itemKey];
+      else next[snapshot.itemKey] = snapshot.confirmedAt;
+      return next;
+    });
     if (snapshot.custom) {
       setCustomItems((current) => current.some((item) => item.key === snapshot.itemKey) ? current : [...current, {
         key: snapshot.itemKey,
@@ -495,6 +502,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setStatuses({});
       setContents({});
       setPendingCandidates({});
+      setConfirmedAts({});
       setProfile(null);
       return;
     }
@@ -532,6 +540,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setStatuses(Object.fromEntries(completeItems.map((item) => [item.itemKey, item.status])));
       setContents(Object.fromEntries(completeItems.flatMap((item) => item.content === null ? [] : [[item.itemKey, item.content]])));
       setPendingCandidates(Object.fromEntries(completeItems.flatMap((item) => item.pendingCandidate === null ? [] : [[item.itemKey, item.pendingCandidate]])));
+      setConfirmedAts(Object.fromEntries(completeItems.flatMap((item) => item.confirmedAt === null ? [] : [[item.itemKey, item.confirmedAt]])));
       setCustomItems(completeItems.filter((item) => item.custom).map((item) => ({
         key: item.itemKey,
         label: item.label,
@@ -653,6 +662,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setStatuses((current) => Object.fromEntries(Object.keys(current).map((key) => [key, '待讨论' as SettingOutlineStatus])));
       setContents({});
       setPendingCandidates({});
+      setConfirmedAts({});
       setLegacyItems((current) => current.map((item) => ({ ...item, status: '待讨论' as SettingOutlineStatus, content: null })));
       setNotice('已清空全部设定内容，条目保留，可以随时重新设计。历史版本都还在。');
       await onPlanningStateChanged();
@@ -759,7 +769,8 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
           custom: activeItem.source === '作者自定义',
           sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === activeItem.key)),
           content: contents[activeItem.key] ?? null,
-          pendingCandidate: pendingCandidates[activeItem.key] ?? null
+          pendingCandidate: pendingCandidates[activeItem.key] ?? null,
+          confirmedAt: confirmedAts[activeItem.key] ?? null
         }}
         onSnapshot={applySnapshot}
       />
@@ -887,7 +898,11 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
         })}
       </ul>}
     </section>}
-    {auditWaiting && <p className="setting-collaboration-state">主编正在逐条检查整份设定……</p>}
+    {auditWaiting && <div className="setting-design-progress" role="status">
+      <strong>主编正在逐条检查整份设定</strong>
+      <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
+      <small>检查完会自动给出报告，请稍等。</small>
+    </div>}
     {auditReport !== null && auditReport.report !== null && <section className="setting-audit-report" aria-label="主编检查报告">
       <header className="setting-core-card-row">
         <h4>主编检查报告</h4>

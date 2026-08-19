@@ -189,12 +189,15 @@ export class BookOnboardingService {
         promptCompiler.compile(roleKey, { objective: '岗位默认运行合同', mode: 'discussion', contextManifest: [], outputSchema: { type: 'object' } });
       }
       if (failAt === 'after_team') throw new Error('simulated-onboarding-failure');
+      // 单书预算上限是防失控保险丝，不是日常消耗刻度：套餐为包量制，24 万的旧默认值
+      // 会在正常设计半本书时就误报 BUDGET_EXHAUSTED 卡死融合（2026-08-20 生产事故）。
+      // 放宽到 2000 万，仍保留失控熔断能力。
       this.database.prepare(`
         INSERT INTO budgets (
           budget_id, owner_id, book_id, mode, token_limit, cash_limit_micros,
           reserved_tokens, reserved_cash_micros, spent_tokens, spent_cash_micros,
           status, created_at, updated_at
-        ) VALUES (?, ?, ?, 'standard', 240000, 0, 0, 0, 0, 0, 'active', ?, ?)
+        ) VALUES (?, ?, ?, 'standard', 20000000, 0, 0, 0, 0, 0, 'active', ?, ?)
       `).run(budgetId, scope.ownerId, draft.proposedBookId, now, now);
       const storyBible = storyBibleSkeleton(draft.title, draft.fields, draft.tags, draft.openingBlueprint);
       this.database.prepare(`

@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`aaa4d53627fb`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`247c05e86269`
 
 #### 当前生效决定
 
@@ -3788,6 +3788,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 原因报备与后台同步：每次失败调用本就落库 state/error_class/error_detail（管理员后台算力消耗可见），补全错误信息点名成员+原因，任务中心可见。
 5. 测试：新增 tests/integration/runtime/discussion-makeup.test.ts——GLM 首次调用 TypeError 中断，验证任务最终成功、三份方案集齐、GLM 恰好补发 1 次、其余两席各只调用 1 次、失败记录 provider_result_unknown 落库。全量 729 绿、双端 typecheck 通过。
 
+
+##### DEC-CURRENT-076 预算上限提至2000万+融合/质检进度条+确认后自动收起（2026-08-20）
+
+【当前】老板实测设定融合任务全部失败+确认后页面无变化+融合无进度。三件事落地：
+1. 失败根因=预算耗尽误卡：建书默认预算上限仍是早期 24 万 Token（book-onboarding-service INSERT budgets token_limit=240000），老板的书已耗 21.7 万，融合任务预约 ~2.4 万即触发 BUDGET_EXHAUSTED 批量失败。套餐包量制下 24 万毫无道理。修复：默认值 240000→20000000（保留熔断防失控，注释说明套餐包量制），生产存量 5 本 active 预算全部回填 2000 万，老板已失败的融合任务点"继续完成"或等 20 秒自动续跑即可。
+2. 进度条覆盖所有任务启动：主编融合（revisionRunning）从一行灰字改为醒目进度块"主编正在融合您的勾选"+不定态进度条，同时收起方案区与勾选区；整份设定质检（auditWaiting）同样改进度块"主编正在逐条检查整份设定"。CSS 复用 DEC-074 的 setting-design-progress 类。
+3. 确认后自动收起：SettingCollaborationPanel 按 confirmedAt 判定轮次新旧——条目已确认且方案/融合稿创建于确认时间之前（上一轮）则全部收起，只留"已定稿+重新设计/自己动手改"入口；重新设计开启的新一轮（createdAt>confirmedAt）照常显示，确认前旧定稿一直有效的规则不变。PlanningWorkspace 新增 confirmedAts 映射（初始化/快照/清空三处同步）传入面板。面板 props 的 item Pick 补 confirmedAt 字段。
+4. 自动续跑扩到融合任务：面板 20 秒自动续跑原只覆盖方案任务（DEC-075），老板这次失败的恰是融合任务；failedAutoTaskId 统一取方案/融合两类失败任务，每任务仍只自动一次。
+5. 测试：全量 729 绿（无断言引用被收起区域的文案），双端 typecheck 通过。
+
 ---
 
 ### 当前开发与验收计划
@@ -4226,7 +4236,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`f00e0ba471b0`
+> 当前源文件：`HANDOFF.md` · 指纹：`3bdf5c9a0990`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4244,6 +4254,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 预算上限提至2000万+融合/质检进度条+确认后自动收起（DEC-CURRENT-076）：老板实测设定融合全部失败+确认后页面没变化+融合无进度。① 根因=预算误卡：建书默认预算上限仍是早期 24 万 Token，老板的书已耗 21.7 万，融合预约 ~2.4 万即 BUDGET_EXHAUSTED；默认值改 2000 万（book-onboarding-service INSERT budgets），生产 5 本 active 预算已回填。② 进度条覆盖所有任务：主编融合（revisionRunning）与整份质检（auditWaiting）都改为醒目进度块+不定态进度条，融合期间收起方案区。③ 确认后自动收起：按 confirmedAt 判定轮次新旧——上一轮的方案/融合稿全部收起只留"已定稿+重新设计"入口，新一轮（createdAt>confirmedAt）照常显示；PlanningWorkspace 新增 confirmedAts 映射传入面板。④ 面板 20 秒自动续跑从方案任务扩到融合任务（failedAutoTaskId 统一取两类失败）。全量 729 绿、双端 typecheck 通过。
 1. 讨论任务以目标为导向：缺席席位自动补发资料（DEC-CURRENT-075）：老板实测"主角处境"两人出方案、任务失败卡死。① 管线 collectGoalOriented——独立方案与交叉质疑都改"首轮并行+最多2轮自动补全（轮间15秒）"，每轮只召集缺席席位，成功席位检查点不陪跑；仍失败点名成员+原因，断点续跑同样只补缺席；补全轮 phase_key 带 :makeup-N 后缀绕开 model_calls 唯一约束。② 关键卡点修复——model-call-service begin 幂等去重原本把任何同输入重发都挡死（"拒绝重复调用"），补发根本发不出去；改为只认活着的调用（pending/working/awaiting_provider/succeeded），failed/interrupted 终结行放行，真正未知的 awaiting_provider 仍拦截不重复扣量。③ 前端兜底——提案任务失败 20 秒自动续跑一次+失败提示点名缺席成员。新增 discussion-makeup 集成测试（GLM 中断→自动补发→集齐三方案，其余两席零陪跑），全量 729 绿。
 1. 输入法安全字数+开局结局300字+设定提示+设计进度条（DEC-CURRENT-074）：① 新建共享组件 features/shared/ImeSafeField.tsx（ImeInput/ImeTextarea，maxChars）——拼音 composition 期间不占字数不截断，落定才截，按码点计（emoji 不截半），弃用原生 maxLength；已替换全部作者向限长输入框（开书对话框、设定协作面板、设定清单自定义项、卷重点表达、作者原话、团队岗位要求、取名提示、整本导入）。② 开局/结局上限 100→300 字（前后端+测试同步）。③ 设定页提示"设定条目按需选择设计……只设计核心设定即可"，后按老板要求移到页面最上方成员栏下并改红字醒目样式。④ 团队设计进度条：单项改为醒目进度块"团队正在设计「条目名」"+不定态滑动条；队列条显示"已定稿 N/M 项"+确定性进度条。新增 ime-safe-field 测试 3 用例，全量 728 绿。
 1. 提案席三编剧+模型换绑+任务红点+三席并行（DEC-CURRENT-073）：① 设定提案三席从文姬改为三名编剧（婉儿/红玉/幼薇），讨论管线席位指令补 third_screenwriter 分支，前端顶部常驻成员栏同步。② 模型按老板名单换绑：貂蝉→DeepSeek V4 Pro、西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、文姬→DeepSeek V4 Flash；注意 toCreativeProfiles 有两份副本（model-binding-service.ts 与 book-onboarding-service.ts），换绑必须同步改，否则建书校验"三编剧互异模型"失败。③ 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取；已改进入应用即拉+60秒轮询+事件流始终刷新，功能栏"任务"按钮加红点（在跑/卡住/有未看结果即亮），seen 工具上移到 shared/task-presentation.ts。④ 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改 Promise.all 并行（三席互不可见本就独立），耗时从"各席相加"降为"最慢一席"，失败席位重试可复用检查点。同步 10 处旧断言，全量 725 绿。
