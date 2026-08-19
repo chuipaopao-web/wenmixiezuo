@@ -498,3 +498,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 妙玉按需找茬新功能：正文页"请挑剔读者找茬"按钮，作者点击后妙玉单独跑一次完整找茬（新迁移 0055 chapter_challenger_reviews 表 + 仓库/服务/管线/POST·GET 路由，任务类型 chapter_challenger_review，任务中心标签"挑剔读者找茬"）；结果只供参考、不卡定稿、不入审校门禁，可重复发起；进行中复用同任务不重复起；无正文的章返回 409"这一章还没有正文"。前端找茬卡片 3 秒轮询，报告展示并标注"只供参考，不影响定稿"。
 5. 质量门禁不变：三审报告仍是定稿硬门禁（完整点评门禁测试不改），妙玉找茬只是旁路参考。
 6. 测试同步：模型期望 5 处（妲己 flash/四席文案/challenger 恒 null）、管线行为 3 处（报告数 8→6、调用数 12→10、审校角色集去 challenger）、迁移清单 2 处（+0055）、应用层 SQL 下沉仓库层过数据库边界契约；新增 chapter-challenger-review 集成测试 2 用例；全量 715/715 绿、类型检查与构建通过。
+
+
+## DEC-CURRENT-068 清空全部老书，用户按新流程重新建书（2026-08-19）
+
+【当前】老板拍板：清理生产环境所有用户的老书，避免旧数据在新流程下出问题，用户按当前流程重新创建书籍。执行记录：
+1. 范围：生产 44 本书（43 active + 1 archived，约 40 个 owner）全部先归档再永久删除，复用正式 BookLifecycleService 链路（通用 purge 仓库删除所有 owner_id+book_id 行、写删除墓碑、删书籍文件）；用户账号（60 个）全部保留，只清书籍数据。
+2. 兜底：执行前停服完整备份——数据库整库 769MB 与 books/indexes 目录包存于生产 `/opt/wenmi/data/backups/pre-purge-20260819/`，误删可整体回滚。
+3. 残留清理：books 目录随 purge 清空；LanceDB 两张向量投影表（可重建投影）与 imports 下 9 个旧导入包一并删除。
+4. 脚本留存：`scripts/ops/purge-all-books.mjs`（一次性运维脚本，仓库留档）。
+5. 验证：books/agent_instances/manuscript_versions 均 0、deletion_tombstones 累计 67、双服务 active、首页 200、日志无新报错。

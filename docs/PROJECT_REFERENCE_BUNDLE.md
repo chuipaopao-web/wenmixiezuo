@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`ec01bdd09794`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`5293766a4174`
 
 #### 当前生效决定
 
@@ -3705,6 +3705,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 5. 质量门禁不变：三审报告仍是定稿硬门禁（完整点评门禁测试不改），妙玉找茬只是旁路参考。
 6. 测试同步：模型期望 5 处（妲己 flash/四席文案/challenger 恒 null）、管线行为 3 处（报告数 8→6、调用数 12→10、审校角色集去 challenger）、迁移清单 2 处（+0055）、应用层 SQL 下沉仓库层过数据库边界契约；新增 chapter-challenger-review 集成测试 2 用例；全量 715/715 绿、类型检查与构建通过。
 
+
+##### DEC-CURRENT-068 清空全部老书，用户按新流程重新建书（2026-08-19）
+
+【当前】老板拍板：清理生产环境所有用户的老书，避免旧数据在新流程下出问题，用户按当前流程重新创建书籍。执行记录：
+1. 范围：生产 44 本书（43 active + 1 archived，约 40 个 owner）全部先归档再永久删除，复用正式 BookLifecycleService 链路（通用 purge 仓库删除所有 owner_id+book_id 行、写删除墓碑、删书籍文件）；用户账号（60 个）全部保留，只清书籍数据。
+2. 兜底：执行前停服完整备份——数据库整库 769MB 与 books/indexes 目录包存于生产 `/opt/wenmi/data/backups/pre-purge-20260819/`，误删可整体回滚。
+3. 残留清理：books 目录随 purge 清空；LanceDB 两张向量投影表（可重建投影）与 imports 下 9 个旧导入包一并删除。
+4. 脚本留存：`scripts/ops/purge-all-books.mjs`（一次性运维脚本，仓库留档）。
+5. 验证：books/agent_instances/manuscript_versions 均 0、deletion_tombstones 累计 67、双服务 active、首页 200、日志无新报错。
+
 ---
 
 ### 当前开发与验收计划
@@ -4143,7 +4153,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`f91abab68e96`
+> 当前源文件：`HANDOFF.md` · 指纹：`53d9e886150e`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4161,6 +4171,8 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。
+1. 首页空状态文案：改为"专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品"（会员提示保留），已上线。
 1. 审校改革（DEC-CURRENT-067）：老板拍板①异模型硬规矩放宽为四席互异（写手+事实/文学/体验三审，四个不同模型来源即可，不再六席互异）；②每章固定审校 4 席→3 席省 token（班昭/妲己/昭君，妙玉退出固定席改待命，约省 25% 审校 token）。妲己（文学审校）从 Coding Plan doubao-seed-code 改回 Agent Plan DeepSeek V4 Flash（066 第 2 款被取代；literaryReviewerCodingProfile 与 Seed Code 白名单全删，运行时不再有 Coding Plan 调用）；停用 MiniMax（066 其余部分）继续生效。妙玉按需找茬新功能：迁移 0055 chapter_challenger_reviews + 仓库/服务/管线/POST·GET 路由（任务类型 chapter_challenger_review），正文页"请挑剔读者找茬"按钮，结果只供参考不卡定稿、可重复发起、无正文 409；前端找茬卡片 3 秒轮询。三审报告仍是定稿硬门禁。应用层 SQL 全部下沉仓库层（过数据库边界契约）。测试同步 12 处+新增 2 用例，全量 715 绿。
 1. 停用 MiniMax M3（DEC-CURRENT-066）：老板拍板停用（定性：不是完全能力不行，是它失控的思考习惯在关键时刻必掉链子=不可靠）。三席换绑——文姬（设定）→Kimi K2.7 Code、西施（副编）→GLM 5.3、妲己（文学审校）→**Coding Plan 的 doubao-seed-code**（Agent Plan 停用 MiniMax 后只剩 5 个模型，凑不齐主笔/副笔+事实/文学/体验/挑剔六席互异硬校验；doubao-seed-code 已实测接受 thinking 预算且直出文字，非换名伪装，可用 WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL 覆盖）。运行时 reviewer 槽改 Kimi；三处 toCreativeProfiles 同步（副编取 style_editor 槽 GLM）。存量书：启动迁移"订阅策略激活"判定扩展为双套餐（Agent+Coding），绑定不一致的 V2 书自动 reviseFuture 收敛，历史快照/在途任务冻结不受影响。适配器层保留 minimax 兼容（在途冻结快照仍可能调它）；ModelAdapterFactory 白名单放行 Coding Plan 文学模型。测试 7 处断言同步，全量 713 绿。
 1. 热修·设定队列卡死根因（DEC-CURRENT-065）：老板实测设计到三四项必卡。生产证据全是 minimax-m3（副编西施）——thinking 块写 4.6-5.7 万字符、24000 输出 Token 全烧光、零可见文字，重试确定性复现。根因：DEC-053 统一六模型启用带预算思考时踩掉了 requiresVisibleOutput 里"MiniMax 任何用途关闭思考"的保护，且 16000 预算对 MiniMax 不生效。修复：thinkingField 对 minimax- 前缀恢复 disabled，thinkingTokenAllowance 对 minimax 归零（max_tokens 与预算冻结口径一致）；测试断言同步改为 disabled。已卡任务在任务中心点"继续重试"即可。全量测试 713 项全绿。
