@@ -14,6 +14,7 @@
 
 ## 最近完成的改动（最新在最上）
 
+1. 中断调用预算自动兜底（DEC-CURRENT-071）：复查发现兜底缺口——远程中断无结果的调用永久冻结预算，生产两本书 18 条预留 43.2 万 Token 卡死、33 个讨论任务失败。已加 sweepStaleInterruptedCalls：中断超 10 分钟无结果自动释放预留+标记 failed+记调和 discarded，无主预留一并释放；API 启动即巡检+每 5 分钟周期巡检；宽限期内保持冻结等人工调和，迟到结果仍优先按真实用量结算。部署门禁已写进 AGENTS.md。测试 +3 用例，全量 723 绿。
 1. 管理后台三板块+用户侧不显示大模型（DEC-CURRENT-070）：后台（AdminWorkspace）新增算力消耗（GET /admin/usage：总量/按用户/按模型/30天趋势柱）与模型管理（GET/POST /admin/model-scheme：14 成员下拉选火山方舟模型，保存过白名单+四席互异校验后全量书收敛 reviseFuture，历史快照/在途任务不动；新迁移 0056 platform_model_scheme 单行表，新书写入与启动收敛统一读库存方案）。用户侧彻底裁剪：设置弹窗删"成员模型/书籍级模型绑定"两板块（只留主题/字体/运维）、团队页删"模型来源"、App.tsx 移除 capabilities/modelBindings；接口层 capabilities 对非管理员 profiles 置空、model-bindings 四路由与书籍 usage 加管理员门禁、任务详情对非管理员 provider/model 显示"创作服务"且 error_detail 过 sanitizeModelLeak（保留限流等可读原因，管理员看原始证据）。新增 admin-platform 集成测试 4 用例，迁移清单 3 处+SQL 边界白名单同步，全量 720 绿。
 1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构不变，taxonomy 升 2026-08-19-v11。同日补前端：标签库面板此前只渲染主标签+特质两泳道（辅助 609 词没进 UI，老板实测看不到新词），已改三泳道全量展示+搜索全覆盖；推荐升级智能搭配（已选标签同组搭配优先，上限 16）；两处测试版本串改常量、新增向导覆盖测试。全量 716 绿。
 1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。

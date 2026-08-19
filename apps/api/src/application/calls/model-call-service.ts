@@ -369,6 +369,50 @@ export class ModelCallService {
     return { requestId, finalState: 'awaiting_provider', settled: false, reason: '供应商结果未知且本地无法查询，保持冻结等待人工或供应商确认' };
   }
 
+  /**
+   * 自动兜底：中断超过宽限期仍无结果的调用，释放冻结预算并标记失败，
+   * 避免重启/断网后预留永久冻结、用户新书被"预算不足"卡死。
+   * 同时清理解雇重启残留的"无主预留"（有预留无调用记录）。
+   * 返回处理的调用与预留数量，供启动与周期巡检记录。
+   */
+  public sweepStaleInterruptedCalls(staleMs: number): { releasedCalls: number; releasedOrphans: number } {
+    const cutoff = new Date(this.clock.now().getTime() - staleMs).toISOString();
+    const now = this.clock.now().toISOString();
+    const staleCalls = this.database.prepare(`
+      SELECT c.request_id, c.owner_id, c.book_id, c.reservation_id
+      FROM model_calls c
+      WHERE c.state = 'interrupted' AND COALESCE(c.completed_at, c.created_at) < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM model_call_results r WHERE r.request_id = c.request_id
+            AND r.owner_id = c.owner_id AND r.book_id = c.book_id
+        )
+    `).all(cutoff) as unknown as Array<{ request_id: string; owner_id: string; book_id: string; reservation_id: string }>;
+    let releasedCalls = 0;
+    for (const call of staleCalls) {
+      const scope = { ownerId: call.owner_id, bookId: call.book_id };
+      this.budgets.release(scope, call.reservation_id);
+      this.database.prepare(`
+        UPDATE model_calls SET state = 'failed', error_class = 'interrupted_timeout', completed_at = ?
+        WHERE request_id = ? AND owner_id = ? AND book_id = ? AND state = 'interrupted'
+      `).run(now, call.request_id, call.owner_id, call.book_id);
+      this.database.prepare(`
+        INSERT INTO model_call_reconciliations (request_id, owner_id, book_id, state, reason_code, details_json, created_at, resolved_at)
+        VALUES (?, ?, ?, 'discarded', 'AUTO_RELEASE_STALE_TIMEOUT', '{}', ?, ?)
+        ON CONFLICT(request_id) DO UPDATE SET state = 'discarded', reason_code = 'AUTO_RELEASE_STALE_TIMEOUT', resolved_at = excluded.resolved_at
+      `).run(call.request_id, call.owner_id, call.book_id, now, now);
+      releasedCalls += 1;
+    }
+    const orphans = this.database.prepare(`
+      SELECT reservation_id, owner_id, book_id FROM budget_reservations
+      WHERE status = 'reserved' AND created_at < ?
+        AND request_id NOT IN (SELECT request_id FROM model_calls)
+    `).all(cutoff) as unknown as Array<{ reservation_id: string; owner_id: string; book_id: string }>;
+    for (const orphan of orphans) {
+      this.budgets.release({ ownerId: orphan.owner_id, bookId: orphan.book_id }, orphan.reservation_id);
+    }
+    return { releasedCalls, releasedOrphans: orphans.length };
+  }
+
   public reportUnreconciledReservations(scope: BookScope): {
     orphanReservationCount: number;
     orphanReservations: Array<{ reservationId: string; requestId: string; frozenTokens: number }>;

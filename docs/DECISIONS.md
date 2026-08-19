@@ -528,3 +528,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. 后台三板块全部挂现有 AdminWorkspace（/api/v1/admin/*，requireAdministrator）：用户数据（原有用户/会员管理不变）、算力消耗（GET /admin/usage：总量/按用户/按模型/近 30 天趋势柱）、模型管理（GET/POST /admin/model-scheme：14 成员下拉选模型、保存显示校验错误或收敛结果）。
 3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；任务详情对非管理员把 modelCalls 的 provider/model_id 改为"创作服务"、error_detail 过 sanitizeModelLeak（新 model-leak-sanitizer：供应商词与模型名替换为"创作服务"，保留限流/额度/超时等可读原因）；管理员保留完整技术证据。
 4. 测试：新增 tests/integration/security/admin-platform.test.ts 4 用例（非管理员 7 条路由 403+capabilities 置空；任务详情清洗与管理员证据保留；同模型/名单外方案 400；服务层保存收敛+幂等）；迁移清单 3 处加 0056；应用层 SQL 边界白名单加 platform-model-scheme-service；旧"成员模型"UI 测试改为断言设置页无任何模型信息。全量 720 绿、双端 typecheck 与构建通过。
+
+
+## DEC-CURRENT-071 中断调用预算自动兜底（2026-08-19）
+
+【当前】老板要求"一切更新不能影响用户"，追问部署中断任务是否有兜底。复查发现兜底缺口：远程中断调用无结果时永久保持 awaiting_provider，冻结预算不释放，导致用户书被"预算不足"卡死（生产两本书 18 条预留共 43.2 万 Token 冻结、33 个讨论任务失败）。落地：
+1. ModelCallService 新增 sweepStaleInterruptedCalls(宽限期)：中断超 10 分钟仍无结果的调用自动 release 预留+标记 failed(interrupted_timeout)+记调和 discarded/AUTO_RELEASE_STALE_TIMEOUT；重启残留的"无主预留"（有预留无调用记录）超龄一并释放。
+2. API 启动时立即巡检一次，之后每 5 分钟周期巡检（unref + onClose 清理），失败只记日志下周期重试。
+3. 宽限期内的中断调用保持冻结等待人工调和（原 reconcile 路由不变），有迟到的结果仍按真实用量结算优先（sweep 只处理无结果行）。
+4. 部署门禁已写入 AGENTS.md：构建先于重启、重启前查在途任务、迁移向后兼容、旧前端兼容、部署后验证。
+5. 测试：model-calls 集成测试新增 3 用例（超时释放+标记、宽限期内不动、无主预留释放），全量 723 绿。

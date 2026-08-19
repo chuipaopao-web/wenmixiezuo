@@ -216,3 +216,53 @@ describe('中断调用主动调和与无主预留巡检', () => {
     expect(report2.orphanReservations[0]!.requestId).toBe('request-orphan');
   });
 });
+
+describe('中断调用超时自动兜底', () => {
+  it('中断超过宽限期仍无结果的调用自动释放预算并标记失败', () => {
+    const clock = new MutableClock();
+    const fixture = setup(clock);
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-stale', 200, 0);
+    insertInterruptedCall(fixture, 'request-stale', reservationId, 'ark-volc', 'kimi-v1', true);
+    clock.advance(11 * 60 * 1000);
+    const calls = new ModelCallService(context!.database, clock, fixture.budgets);
+    const outcome = calls.sweepStaleInterruptedCalls(10 * 60 * 1000);
+    expect(outcome).toEqual({ releasedCalls: 1, releasedOrphans: 0 });
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId))
+      .toEqual({ status: 'released' });
+    expect(context!.database.prepare(`SELECT reserved_tokens FROM budgets WHERE budget_id = ?`).get(fixture.budget.budgetId))
+      .toEqual({ reserved_tokens: 0 });
+    expect(context!.database.prepare(`SELECT state, error_class FROM model_calls WHERE request_id = ?`).get('request-stale'))
+      .toEqual({ state: 'failed', error_class: 'interrupted_timeout' });
+    expect(context!.database.prepare(`SELECT state, reason_code FROM model_call_reconciliations WHERE request_id = ?`).get('request-stale'))
+      .toEqual({ state: 'discarded', reason_code: 'AUTO_RELEASE_STALE_TIMEOUT' });
+  });
+
+  it('宽限期内的中断调用不动，预留保持冻结等待人工调和', () => {
+    const clock = new MutableClock();
+    const fixture = setup(clock);
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-fresh', 200, 0);
+    insertInterruptedCall(fixture, 'request-fresh', reservationId, 'ark-volc', 'kimi-v1', true);
+    clock.advance(5 * 60 * 1000);
+    const calls = new ModelCallService(context!.database, clock, fixture.budgets);
+    const outcome = calls.sweepStaleInterruptedCalls(10 * 60 * 1000);
+    expect(outcome).toEqual({ releasedCalls: 0, releasedOrphans: 0 });
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId))
+      .toEqual({ status: 'reserved' });
+    expect(context!.database.prepare(`SELECT state FROM model_calls WHERE request_id = ?`).get('request-fresh'))
+      .toEqual({ state: 'interrupted' });
+  });
+
+  it('重启残留的无主预留超时被自动释放', () => {
+    const clock = new MutableClock();
+    const fixture = setup(clock);
+    const reservationId = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'request-orphan-sweep', 200, 0);
+    clock.advance(11 * 60 * 1000);
+    const calls = new ModelCallService(context!.database, clock, fixture.budgets);
+    const outcome = calls.sweepStaleInterruptedCalls(10 * 60 * 1000);
+    expect(outcome).toEqual({ releasedCalls: 0, releasedOrphans: 1 });
+    expect(context!.database.prepare(`SELECT status FROM budget_reservations WHERE reservation_id = ?`).get(reservationId))
+      .toEqual({ status: 'released' });
+    expect(context!.database.prepare(`SELECT reserved_tokens FROM budgets WHERE budget_id = ?`).get(fixture.budget.budgetId))
+      .toEqual({ reserved_tokens: 0 });
+  });
+});

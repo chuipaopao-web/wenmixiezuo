@@ -276,6 +276,23 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const planningStageArtifacts = new PlanningStageArtifactService(database, clock);
   const budgets = new BudgetService(database, ids, clock);
   const modelCalls = new ModelCallService(database, clock, budgets);
+  // 自动兜底：启动时与每 5 分钟巡检一次，把中断超过 10 分钟仍无结果的调用释放预算，
+  // 防止重启/断网后预留永久冻结导致用户被"预算不足"卡死。
+  const INTERRUPTED_CALL_STALE_MS = 10 * 60 * 1000;
+  const sweepInterruptedCalls = (): void => {
+    try {
+      const outcome = modelCalls.sweepStaleInterruptedCalls(INTERRUPTED_CALL_STALE_MS);
+      if (outcome.releasedCalls > 0 || outcome.releasedOrphans > 0) {
+        app.log.info(outcome, '中断调用预算自动释放完成');
+      }
+    } catch (error) {
+      app.log.error({ err: error }, '中断调用预算自动释放失败，下一周期重试');
+    }
+  };
+  sweepInterruptedCalls();
+  const interruptedCallSweepTimer = setInterval(sweepInterruptedCalls, 5 * 60 * 1000);
+  interruptedCallSweepTimer.unref();
+  app.addHook('onClose', async () => { clearInterval(interruptedCallSweepTimer); });
   const editors = new EditorLeaseService(database, ids, clock);
   const chapterApprovals = new ChapterApprovalService(
     new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists, new CreationWorkflowProgressService(database)

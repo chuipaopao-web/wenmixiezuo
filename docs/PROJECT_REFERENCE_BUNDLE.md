@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`8a4c6ccecb4c`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`3b548cb178ff`
 
 #### 当前生效决定
 
@@ -3735,6 +3735,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；任务详情对非管理员把 modelCalls 的 provider/model_id 改为"创作服务"、error_detail 过 sanitizeModelLeak（新 model-leak-sanitizer：供应商词与模型名替换为"创作服务"，保留限流/额度/超时等可读原因）；管理员保留完整技术证据。
 4. 测试：新增 tests/integration/security/admin-platform.test.ts 4 用例（非管理员 7 条路由 403+capabilities 置空；任务详情清洗与管理员证据保留；同模型/名单外方案 400；服务层保存收敛+幂等）；迁移清单 3 处加 0056；应用层 SQL 边界白名单加 platform-model-scheme-service；旧"成员模型"UI 测试改为断言设置页无任何模型信息。全量 720 绿、双端 typecheck 与构建通过。
 
+
+##### DEC-CURRENT-071 中断调用预算自动兜底（2026-08-19）
+
+【当前】老板要求"一切更新不能影响用户"，追问部署中断任务是否有兜底。复查发现兜底缺口：远程中断调用无结果时永久保持 awaiting_provider，冻结预算不释放，导致用户书被"预算不足"卡死（生产两本书 18 条预留共 43.2 万 Token 冻结、33 个讨论任务失败）。落地：
+1. ModelCallService 新增 sweepStaleInterruptedCalls(宽限期)：中断超 10 分钟仍无结果的调用自动 release 预留+标记 failed(interrupted_timeout)+记调和 discarded/AUTO_RELEASE_STALE_TIMEOUT；重启残留的"无主预留"（有预留无调用记录）超龄一并释放。
+2. API 启动时立即巡检一次，之后每 5 分钟周期巡检（unref + onClose 清理），失败只记日志下周期重试。
+3. 宽限期内的中断调用保持冻结等待人工调和（原 reconcile 路由不变），有迟到的结果仍按真实用量结算优先（sweep 只处理无结果行）。
+4. 部署门禁已写入 AGENTS.md：构建先于重启、重启前查在途任务、迁移向后兼容、旧前端兼容、部署后验证。
+5. 测试：model-calls 集成测试新增 3 用例（超时释放+标记、宽限期内不动、无主预留释放），全量 723 绿。
+
 ---
 
 ### 当前开发与验收计划
@@ -4173,7 +4183,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`f18409ad5bd8`
+> 当前源文件：`HANDOFF.md` · 指纹：`af2c5a58a25e`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4191,6 +4201,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 中断调用预算自动兜底（DEC-CURRENT-071）：复查发现兜底缺口——远程中断无结果的调用永久冻结预算，生产两本书 18 条预留 43.2 万 Token 卡死、33 个讨论任务失败。已加 sweepStaleInterruptedCalls：中断超 10 分钟无结果自动释放预留+标记 failed+记调和 discarded，无主预留一并释放；API 启动即巡检+每 5 分钟周期巡检；宽限期内保持冻结等人工调和，迟到结果仍优先按真实用量结算。部署门禁已写进 AGENTS.md。测试 +3 用例，全量 723 绿。
 1. 管理后台三板块+用户侧不显示大模型（DEC-CURRENT-070）：后台（AdminWorkspace）新增算力消耗（GET /admin/usage：总量/按用户/按模型/30天趋势柱）与模型管理（GET/POST /admin/model-scheme：14 成员下拉选火山方舟模型，保存过白名单+四席互异校验后全量书收敛 reviseFuture，历史快照/在途任务不动；新迁移 0056 platform_model_scheme 单行表，新书写入与启动收敛统一读库存方案）。用户侧彻底裁剪：设置弹窗删"成员模型/书籍级模型绑定"两板块（只留主题/字体/运维）、团队页删"模型来源"、App.tsx 移除 capabilities/modelBindings；接口层 capabilities 对非管理员 profiles 置空、model-bindings 四路由与书籍 usage 加管理员门禁、任务详情对非管理员 provider/model 显示"创作服务"且 error_detail 过 sanitizeModelLeak（保留限流等可读原因，管理员看原始证据）。新增 admin-platform 集成测试 4 用例，迁移清单 3 处+SQL 边界白名单同步，全量 720 绿。
 1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构不变，taxonomy 升 2026-08-19-v11。同日补前端：标签库面板此前只渲染主标签+特质两泳道（辅助 609 词没进 UI，老板实测看不到新词），已改三泳道全量展示+搜索全覆盖；推荐升级智能搭配（已选标签同组搭配优先，上限 16）；两处测试版本串改常量、新增向导覆盖测试。全量 716 绿。
 1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。
