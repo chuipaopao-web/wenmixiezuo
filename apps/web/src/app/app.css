@@ -7100,7 +7100,7 @@ svg {
 .setting-queue-bar > span { font-size: 13px; color: var(--ink-soft); }
 
 /* 设定页提示行与团队设计进度条 */
-.setting-queue-hint { margin: 14px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
+.setting-queue-hint { margin: 10px 0 0; padding: 9px 14px; border-radius: 10px; font-size: 14px; font-weight: 700; line-height: 1.6; color: #c92a2a; background: rgb(229 72 77 / 9%); border: 1px solid rgb(229 72 77 / 30%); }
 .setting-queue-progress { flex: 1 1 100%; display: grid; gap: 6px; }
 .setting-queue-progress strong { font-size: 14px; }
 .setting-queue-progress small { color: var(--ink-soft); font-size: 12px; }

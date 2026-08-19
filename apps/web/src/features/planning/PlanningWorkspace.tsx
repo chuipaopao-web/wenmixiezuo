@@ -744,6 +744,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   return <section className="setting-outline-workbench setting-desk">
     <h3 className="sr-only">设定</h3>
     <SettingMemberBar workspace={workspace} />
+    {bookId !== null && <p className="setting-queue-hint">设定条目按需选择设计，不是选的越多越好；如果不想设计很多，只设计核心设定即可。</p>}
     {bookId !== null && activeItem !== undefined && activeGroup !== undefined && <div className="setting-desk-workbench" ref={workbenchRef}>
       <SettingCollaborationPanel
         key={activeItem.key}
@@ -847,7 +848,6 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
         </form>
       </section>
     </section>
-    {bookId !== null && <p className="setting-queue-hint">设定条目按需选择设计，不是选的越多越好；如果不想设计很多，只设计核心设定即可。</p>}
     {bookId !== null && <section className="setting-queue-bar">
       {designQueue === null
         ? <><span>核心六项必须设计；其他条目勾选后一起按顺序设计。</span>
