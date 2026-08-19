@@ -17,6 +17,7 @@ import { toAuthorFacingText } from '../../app/author-presentation';
 import { bookDisplayTitle } from '../../app/display-labels';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
+import { ImeTextarea } from '../shared/ImeSafeField';
 import { memberIdentity } from '../shared/agent-presentation';
 import {
   isActiveTask,
@@ -229,12 +230,12 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
                 <span><h3>{toAuthorFacingText(config.promptPolicy.editableLabel)}</h3><p>{toAuthorFacingText(config.promptPolicy.priority)}</p></span>
                 <small>{member.promptPreference.version > 0 ? '已保存本书要求' : '使用默认要求'}</small>
               </div>
-              <textarea
+              <ImeTextarea
                 value={draft}
-                maxLength={config.promptPolicy.maxChars}
+                maxChars={config.promptPolicy.maxChars}
                 aria-label={`${memberIdentity(member)}的本书岗位补充要求`}
                 placeholder={`例如：为《${workspace === null ? '本书' : bookDisplayTitle(workspace.book.title)}》工作时，重点关注……`}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={setDraft}
               />
               <div className="prompt-editor-actions">
                 <small>{draft.length}/{config.promptPolicy.maxChars} 字符　系统原始提示词和不能改变的安全要求不能在这里编辑。</small>

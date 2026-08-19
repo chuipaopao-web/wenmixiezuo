@@ -7098,6 +7098,22 @@ svg {
 .setting-clear-zone { margin-top: 18px; text-align: center; }
 .setting-queue-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line, #e6e2d8); border-radius: 12px; background: var(--panel, #fafaf7); }
 .setting-queue-bar > span { font-size: 13px; color: var(--ink-soft); }
+
+/* 设定页提示行与团队设计进度条 */
+.setting-queue-hint { margin: 14px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
+.setting-queue-progress { flex: 1 1 100%; display: grid; gap: 6px; }
+.setting-queue-progress strong { font-size: 14px; }
+.setting-queue-progress small { color: var(--ink-soft); font-size: 12px; }
+.setting-design-progress { display: grid; gap: 8px; margin: 0; border-radius: var(--control-radius); padding: 14px 16px; background: color-mix(in srgb, var(--accent-soft, #e8f0ec) 70%, var(--panel, #fff)); border: 1px solid color-mix(in srgb, var(--accent, #3f6f5e) 24%, var(--line, #e6e2d8)); }
+.setting-design-progress strong { font-size: 14px; }
+.setting-design-progress small { color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.setting-progress-track { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #3f6f5e) 12%, var(--panel, #fff)); overflow: hidden; }
+.setting-progress-bar { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent, #3f6f5e), color-mix(in srgb, var(--accent, #3f6f5e) 70%, #7fb069)); transition: width .5s ease; }
+.setting-progress-bar.indeterminate { width: 38%; animation: setting-progress-slide 1.4s ease-in-out infinite; }
+@keyframes setting-progress-slide {
+  0% { margin-left: -38%; }
+  100% { margin-left: 100%; }
+}
 .setting-start-button { padding: 10px 24px; font-size: 15px; }
 .setting-clear-confirm { max-width: 520px; margin: 0 auto; text-align: left; border: 1px solid color-mix(in srgb, #c0392b 35%, transparent); border-radius: 12px; padding: 16px; background: color-mix(in srgb, #c0392b 5%, transparent); }
 .setting-clear-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; }

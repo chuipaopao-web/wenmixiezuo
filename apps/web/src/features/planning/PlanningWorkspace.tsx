@@ -41,6 +41,7 @@ import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog
 import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
 import { AgentAvatar } from '../shared/AgentAvatar';
+import { ImeInput } from '../shared/ImeSafeField';
 import { memberIdentity } from '../shared/agent-presentation';
 import { VolumePlanningPanel } from './VolumePlanningPanel';
 import { EventPlanningPanel } from './EventPlanningPanel';
@@ -840,12 +841,13 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
           persistItem(group, item, '待讨论', true);
           setCustomDraft('');
         }}>
-          <input aria-label="自定义板块名称" maxLength={24} value={customGroupDraft} onChange={(event) => setCustomGroupDraft(event.target.value)} placeholder="板块名称，例如：神名禁忌" />
-          <input aria-label="自定义设定项" maxLength={40} value={customDraft} onChange={(event) => setCustomDraft(event.target.value)} placeholder="新增设定项，例如：梦境税" />
+          <ImeInput aria-label="自定义板块名称" maxChars={24} value={customGroupDraft} onChange={setCustomGroupDraft} placeholder="板块名称，例如：神名禁忌" />
+          <ImeInput aria-label="自定义设定项" maxChars={40} value={customDraft} onChange={setCustomDraft} placeholder="新增设定项，例如：梦境税" />
           <button className="primary-button" type="submit">添加到清单</button>
         </form>
       </section>
     </section>
+    {bookId !== null && <p className="setting-queue-hint">设定条目按需选择设计，不是选的越多越好；如果不想设计很多，只设计核心设定即可。</p>}
     {bookId !== null && <section className="setting-queue-bar">
       {designQueue === null
         ? <><span>核心六项必须设计；其他条目勾选后一起按顺序设计。</span>
@@ -855,11 +857,25 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
           <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
             {queueListOpen ? '收起设计清单' : '设计清单'}
           </button></>
-        : <><span>正在按顺序设计，还剩 <strong>{designQueue.filter((key) => statuses[key] !== '已确认').length}</strong> 项；确认当前项后自动进入下一项。</span>
-          <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
-            {queueListOpen ? '收起设计清单' : '设计清单'}
-          </button>
-          <button type="button" onClick={() => setDesignQueue(null)}>停下队列</button></>}
+        : (() => {
+            const total = designQueue.length;
+            const remaining = designQueue.filter((key) => statuses[key] !== '已确认');
+            const doneCount = total - remaining.length;
+            const currentKey = remaining[0];
+            return <>
+              <div className="setting-queue-progress" role="status">
+                <strong>团队正在设计{currentKey !== undefined ? `「${queueLabel(currentKey)}」` : ''} · 已定稿 {doneCount}/{total} 项</strong>
+                <div className="setting-progress-track" aria-hidden="true">
+                  <i className="setting-progress-bar" style={{ width: `${total === 0 ? 0 : Math.round((doneCount / total) * 100)}%` }} />
+                </div>
+                <small>成员正在出方案，请稍等；确认当前项后自动进入下一项。</small>
+              </div>
+              <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
+                {queueListOpen ? '收起设计清单' : '设计清单'}
+              </button>
+              <button type="button" onClick={() => setDesignQueue(null)}>停下队列</button>
+            </>;
+          })()}
       {queueListOpen && <ul className="setting-queue-list">
         {(designQueue ?? buildQueue()).map((key) => {
           const done = statuses[key] === '已确认';

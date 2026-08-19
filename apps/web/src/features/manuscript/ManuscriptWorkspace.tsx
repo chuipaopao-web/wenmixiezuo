@@ -37,6 +37,7 @@ import {
   type WorkspaceData
 } from '../../lib/api/client';
 import { StructuredContent, authorityLabel, isRecord } from '../shared/StructuredContent';
+import { ImeInput } from '../shared/ImeSafeField';
 
 export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenPlanning }: {
   workspace: WorkspaceData | null;
@@ -309,7 +310,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
         <button className="icon-button continuation-collapse-button" type="button" aria-label="关闭整本导入" disabled={busy === 'confirm' || busy === 'handoff'} onClick={onClose}><XIcon /></button>
       </header>
       <div className="continuation-source-actions">
-        <label className="continuation-source-name">资料名称<input value={sourceName} maxLength={240} onChange={(event) => setSourceName(event.target.value)} disabled={busy !== null || preview !== null} /></label>
+        <label className="continuation-source-name">资料名称<ImeInput value={sourceName} maxChars={240} onChange={setSourceName} disabled={busy !== null || preview !== null} /></label>
         <input ref={fileInputRef} className="visually-hidden" type="file" accept=".txt,text/plain" onChange={(event) => {
           const file = event.target.files?.[0];
           if (file !== undefined) void readFile(file);
@@ -331,7 +332,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
         <div className="continuation-preview-list" aria-label="章节识别预览">{preview.chapters.map((item) => <article className={item.included ? '' : 'excluded'} key={item.importChapterId}>
           <label className="continuation-include"><input type="checkbox" checked={item.included} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { included: event.target.checked })} /><span>纳入</span></label>
           <span className="continuation-ordinal">{item.ordinal}</span>
-          <label className="continuation-title"><span className="visually-hidden">第{item.ordinal}项标题</span><input value={item.title} maxLength={120} disabled={busy !== null || preview.status !== 'parsed'} onChange={(event) => updateChapter(item.importChapterId, { title: event.target.value })} /></label>
+          <label className="continuation-title"><span className="visually-hidden">第{item.ordinal}项标题</span><ImeInput value={item.title} maxChars={120} disabled={busy !== null || preview.status !== 'parsed'} onChange={(next) => updateChapter(item.importChapterId, { title: next })} /></label>
           <small>{item.characterCount.toLocaleString('zh-CN')} 字符</small>
         </article>)}</div>
         {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{preview.errorMessage ?? '已完成部分已经保留，可以继续。'}</p></div>}

@@ -7,6 +7,7 @@ import {
   XIcon
 } from '@phosphor-icons/react';
 import { BOOK_TITLE_MAX_CHARACTERS, bookTitleCharacterCount, limitBookTitle } from '@wenmi/contracts';
+import { ImeInput, ImeTextarea } from '../shared/ImeSafeField';
 import {
   clearOpeningDraftOnServer,
   createBook,
@@ -531,13 +532,13 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
                 <label htmlFor={`protagonist-role-${index}`}>角色身份<select id={`protagonist-role-${index}`} value={protagonist.role} onChange={(event) => updateProtagonist(index, { role: event.target.value as ProtagonistRole })}>{PROTAGONIST_ROLES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
                 <div className="protagonist-name-field">
                   <div><label htmlFor={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`}>姓名</label><button type="button" aria-label={`为角色${index + 1}取名`} onClick={() => setNamingProtagonistIndex(index)}><MagicWandIcon aria-hidden="true" />取名助手</button></div>
-                  <input id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(event) => updateProtagonist(index, { name: event.target.value })} placeholder="例如：林舟" maxLength={80} />
+                  <ImeInput id={index === 0 ? 'opening-protagonist-name' : `protagonist-name-${index}`} value={protagonist.name} onChange={(next) => updateProtagonist(index, { name: next })} placeholder="例如：林舟" maxChars={80} />
                 </div>
               </div>
               <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} type="number" min={0} max={99999} inputMode="numeric" value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：18" /></label>
-              <label htmlFor={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`}>家庭背景<textarea id={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`} value={protagonist.familyBackground} onChange={(event) => updateProtagonist(index, { familyBackground: event.target.value })} placeholder="例如：出身边城小吏之家，父母早亡，与妹妹相依为命" rows={2} maxLength={2000} /></label>
-              <label htmlFor={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`}>职业背景<textarea id={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`} value={protagonist.careerBackground} onChange={(event) => updateProtagonist(index, { careerBackground: event.target.value })} placeholder="例如：县衙书吏，管户籍档案；修仙文可写宗门身份" rows={2} maxLength={2000} /></label>
-              <label htmlFor={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`}>金手指<textarea id={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`} value={protagonist.goldenFinger} onChange={(event) => updateProtagonist(index, { goldenFinger: event.target.value })} placeholder="主角独有的依仗或优势，没有可留空" rows={2} maxLength={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`}>家庭背景<ImeTextarea id={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`} value={protagonist.familyBackground} onChange={(next) => updateProtagonist(index, { familyBackground: next })} placeholder="例如：出身边城小吏之家，父母早亡，与妹妹相依为命" rows={2} maxChars={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`}>职业背景<ImeTextarea id={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`} value={protagonist.careerBackground} onChange={(next) => updateProtagonist(index, { careerBackground: next })} placeholder="例如：县衙书吏，管户籍档案；修仙文可写宗门身份" rows={2} maxChars={2000} /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`}>金手指<ImeTextarea id={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`} value={protagonist.goldenFinger} onChange={(next) => updateProtagonist(index, { goldenFinger: next })} placeholder="主角独有的依仗或优势，没有可留空" rows={2} maxChars={2000} /></label>
               <PersonalityPicker
                 groups={taxonomy?.personalityGroups ?? [{ key: 'all', name: '性格特点', description: '选择最能影响角色行动的特点。', options: taxonomy?.personalityOptions ?? [] }]}
                 selected={protagonist.personalities}
@@ -557,15 +558,15 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
               const selected = selectedMustFollow.includes(item);
               return <button className={selected ? 'tag-choice selected hard' : 'tag-choice hard'} type="button" aria-pressed={selected} aria-label={`${selected ? '取消' : '选择'}必须遵守：${item}`} key={item} onClick={() => toggleMustFollow(item)}>{selected && <CheckCircleIcon />}{item}</button>;
             })}</div></section>)}
-            <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<textarea id="must-follow" aria-label="自定义必须遵守" maxLength={6000} rows={3} value={mustFollowText} onChange={(event) => { setMustFollowText(event.target.value); if (event.target.value.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 15 && <small className="inline-error" role="alert">必须遵守最多15条，请减少{mustFollow.length - 15}条。</small>}</section>
+            <section className="boundary-custom-field"><label htmlFor="must-follow">自定义必须遵守<ImeTextarea id="must-follow" aria-label="自定义必须遵守" maxChars={6000} rows={3} value={mustFollowText} onChange={(next) => { setMustFollowText(next); if (next.trim().length > 0) setSelectedMustFollow((items) => items.filter((item) => item !== '无额外限制')); }} placeholder="每行一条；例如：不靠巧合解决核心冲突" /></label>{mustFollow.length > 15 && <small className="inline-error" role="alert">必须遵守最多15条，请减少{mustFollow.length - 15}条。</small>}</section>
           </details>
         </section>}
         {step === 3 && <section className="opening-form-section story-direction-section">
           <div className="section-heading"><div><span>03</span><h3>故事方向</h3></div><small>可留空</small></div>
           <p className="story-direction-note">想好了就写一句，没想好可以留空，之后和团队讨论时再定。填了的话，团队设计设定和剧情时就有了方向。开局和结局要一起填。</p>
-          <label htmlFor="opening-start">开局（说清主角的处境、卷入的冲突、眼前的危机，最多100字）<textarea id="opening-start" aria-label="开局" maxLength={100} rows={2} value={openingStart} onChange={(event) => setOpeningStart(event.target.value)} placeholder="例如：小职员重生回到被裁员当天，发现上司正拿着他的方案邀功，而三天后项目暴雷，他将替人背锅、被行业除名" /></label>
-          <label htmlFor="story-ending">结局（说清故事怎么收场、主角达成了什么、最终的身份地位，最多100字）<textarea id="story-ending" aria-label="结局" maxLength={100} rows={2} value={storyEnding} onChange={(event) => setStoryEnding(event.target.value)} placeholder="例如：主角查清十年悬案为父翻案、扳倒幕后财团，从人人唾弃的罪人之子成为行业传奇，与并肩作战的爱人终成眷属" /></label>
-          <label htmlFor="story-direction-custom">自定义补充（选填，最多300字）<textarea id="story-direction-custom" aria-label="自定义补充" maxLength={300} rows={3} value={storyDirection} onChange={(event) => setStoryDirection(event.target.value)} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
+          <label htmlFor="opening-start">开局（说清主角的处境、卷入的冲突、眼前的危机，最多300字）<ImeTextarea id="opening-start" aria-label="开局" maxChars={300} rows={3} value={openingStart} onChange={setOpeningStart} placeholder="例如：小职员重生回到被裁员当天，发现上司正拿着他的方案邀功，而三天后项目暴雷，他将替人背锅、被行业除名" /></label>
+          <label htmlFor="story-ending">结局（说清故事怎么收场、主角达成了什么、最终的身份地位，最多300字）<ImeTextarea id="story-ending" aria-label="结局" maxChars={300} rows={3} value={storyEnding} onChange={setStoryEnding} placeholder="例如：主角查清十年悬案为父翻案、扳倒幕后财团，从人人唾弃的罪人之子成为行业传奇，与并肩作战的爱人终成眷属" /></label>
+          <label htmlFor="story-direction-custom">自定义补充（选填，最多300字）<ImeTextarea id="story-direction-custom" aria-label="自定义补充" maxChars={300} rows={3} value={storyDirection} onChange={setStoryDirection} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
         </section>}
       </div>
       <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/3步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 3 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
@@ -663,7 +664,7 @@ function PersonalityPicker({ groups, selected, onToggle }: {
     </details>)}</div>
     <div className="personality-custom-row">
       <label htmlFor="opening-custom-personality">自定义性格</label>
-      <div><input id="opening-custom-personality" value={custom} maxLength={40} onChange={(event) => setCustom(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustom(); } }} placeholder="例如：越害怕越爱说反话" /><button type="button" disabled={selected.length >= 12 || custom.trim().length === 0} onClick={addCustom}><PlusIcon />添加</button></div>
+      <div><ImeInput id="opening-custom-personality" value={custom} maxChars={40} onChange={setCustom} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustom(); } }} placeholder="例如：越害怕越爱说反话" /><button type="button" disabled={selected.length >= 12 || custom.trim().length === 0} onClick={addCustom}><PlusIcon />添加</button></div>
     </div>
     {customSelected.length > 0 && <div className="selected-tag-strip">{customSelected.map((item) => <button type="button" key={item} onClick={() => onToggle(item)}>{item}<XIcon /></button>)}</div>}
   </section>;

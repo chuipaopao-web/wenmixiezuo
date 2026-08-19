@@ -31,6 +31,7 @@ import {
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
+import { ImeInput } from '../shared/ImeSafeField';
 
 interface VolumePlanningSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -463,12 +464,12 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
     </section>}
     <section className="volume-focus-editor" aria-label="本卷重点表达">
       <header><div><strong>本卷重点表达</strong><small>这一卷想重点写给读者看什么，比如“权谋智斗＋智商在线＋热血爽”。只调当卷侧重，不改全书调子；留空就沿用全书调子。</small></div></header>
-      <input
+      <ImeInput
         value={value.focusExpression ?? ''}
-        maxLength={40}
+        maxChars={40}
         placeholder="例如：权谋智斗＋智商在线＋热血爽"
         aria-label="本卷重点表达"
-        onChange={(event) => onChange({ ...value, focusExpression: event.target.value.trim().length === 0 ? null : event.target.value })}
+        onChange={(next) => onChange({ ...value, focusExpression: next.trim().length === 0 ? null : next })}
       />
     </section>
     <div className="volume-editor-grid">

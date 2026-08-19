@@ -10,6 +10,7 @@ import {
   type AuthorAttachmentData
 } from '../../lib/api/client';
 import { toAuthorFacingText } from '../../app/author-presentation';
+import { ImeInput, ImeTextarea } from '../shared/ImeSafeField';
 
 const intentOptions: Array<{ value: AuthorIntentStrength; label: string; help: string }> = [
   { value: 'must', label: '必须遵守', help: '作为当前对象的明确目标；如与已确认事实冲突，先提示你决定。' },
@@ -160,8 +161,8 @@ export function AuthorIdeaComposer({
     {loading && <p className="author-idea-loading">正在读取这一步的作者想法…</p>}
     <label className="author-idea-text">
       <span>你的原话</span>
-      <textarea value={text} maxLength={20_000} onChange={(event) => {
-        setText(event.target.value);
+      <ImeTextarea value={text} maxChars={20_000} onChange={(next) => {
+        setText(next);
         if (retryIdempotencyKey.current !== null) retryIdempotencyKey.current = null;
       }} placeholder="例如：这个事件不要靠硬碰硬取胜，希望主角用前文已经学会的阵法知识。" />
     </label>
@@ -174,8 +175,8 @@ export function AuthorIdeaComposer({
       </button>)}
       <p id="author-intent-help">{selectedIntent.help}</p>
     </fieldset>
-    <label className="author-scope-notes"><span>只影响哪里？（可不填）</span><input value={scopeNotes} maxLength={4000}
-      onChange={(event) => { setScopeNotes(event.target.value); retryIdempotencyKey.current = null; }} placeholder="例如：只影响本事件结尾，不改变卷末结果" /></label>
+    <label className="author-scope-notes"><span>只影响哪里？（可不填）</span><ImeInput value={scopeNotes} maxChars={4000}
+      onChange={(next) => { setScopeNotes(next); retryIdempotencyKey.current = null; }} placeholder="例如：只影响本事件结尾，不改变卷末结果" /></label>
     {agents.length > 0 && <details className="author-mentions">
       <summary>点名成员（可不选）</summary>
       <div>{agents.map((agent) => <label key={agent.agentId}>

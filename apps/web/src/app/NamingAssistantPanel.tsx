@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { ArrowClockwiseIcon, CheckIcon, CopyIcon, MagicWandIcon } from '@phosphor-icons/react';
+import { ImeInput } from '../features/shared/ImeSafeField';
 import {
   NAMING_TARGET_GROUPS,
   generateNamingCandidates,
@@ -124,11 +125,11 @@ export function NamingAssistantPanel({
           <div className="naming-candidate-toolbar">
             <label>
               <span>字数或题材语感（可选）</span>
-              <input
+              <ImeInput
                 value={hint}
-                onChange={(event) => { setHint(event.target.value); setBatch(0); }}
+                onChange={(next) => { setHint(next); setBatch(0); }}
                 placeholder="例如：两个字、西幻、仙侠或科幻"
-                maxLength={80}
+                maxChars={80}
               />
             </label>
             <label className="naming-count-control">
