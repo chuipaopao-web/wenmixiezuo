@@ -6514,6 +6514,18 @@ svg {
 }
 
 .ios-function-bar button svg { width: 17px; height: 17px; }
+.ios-function-bar button { position: relative; }
+.ios-function-bar .nav-task-dot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5484d;
+  box-shadow: 0 0 0 3px rgb(229 72 77 / 18%);
+  pointer-events: none;
+}
 .ios-function-bar button:hover:not(:disabled) { color: var(--ink); background: var(--panel-muted); transform: translateY(-1px); }
 .ios-function-bar button.active {
   border-color: color-mix(in srgb, var(--accent) 18%, var(--line));

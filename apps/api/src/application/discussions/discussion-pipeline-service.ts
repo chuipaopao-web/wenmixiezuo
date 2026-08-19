@@ -573,10 +573,11 @@ export class DiscussionPipelineService {
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
       if (editor === undefined && brief.purpose !== 'setting_proposal_panel') throw new Error('讨论缺少当前活动主编');
       const specialists = participants.filter((participant) => participant.agent_id !== task.assigned_agent_id);
-      const independent: CollectedOpinion[] = [];
-      for (const specialist of specialists) {
-        independent.push(await collectOpinion(specialist, 'independent'));
-      }
+      // 各席方案按规则互不可见、彼此独立：并行召集，整体耗时从"各席相加"降为"最慢一席"。
+      // 任一席失败时其余席的已落库检查点仍可在重试时复用，不会重复消耗。
+      const independent: CollectedOpinion[] = await Promise.all(
+        specialists.map((specialist) => collectOpinion(specialist, 'independent'))
+      );
 
       if (brief.purpose === 'stage_outline_synthesis') {
         if (specialists.length !== 0) throw new Error('阶段剧情整理只能由活动主编执行');
@@ -597,13 +598,13 @@ export class DiscussionPipelineService {
       }
 
       if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel' || brief.purpose === 'stage_outline_panel') {
-        // 设定提案三席是编剧A、编剧B与设定成员；活动主编不提交提案，只在作者勾选后融合。
+        // 设定提案三席是三名编剧；活动主编不提交提案，只在作者勾选后融合。
         const editorOpinion = brief.purpose === 'setting_proposal_panel'
           ? null
           : await collectOpinion(editor!, 'independent', []);
         const proposals = editorOpinion === null ? [...independent] : [editorOpinion, ...independent];
         if (brief.purpose === 'setting_proposal_panel' && proposals.length !== 3) {
-          throw new Error('设定提案必须由编剧A、编剧B与设定三席各提交一份独立方案，不能伪装成已完成');
+          throw new Error('设定提案必须由三名编剧各提交一份独立方案，不能伪装成已完成');
         }
         const preparedProposals = proposals.map((opinion) => ({
           opinion,
@@ -656,11 +657,12 @@ export class DiscussionPipelineService {
       if (creativePurpose) {
         const current = discussions.require(scope, brief.discussionId);
         if (current.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'cross_review');
-        for (const specialist of specialists) {
+        // 交叉质疑同样是各席独立调用：并行执行，只读彼此的独立方案，不写共享状态。
+        await Promise.all(specialists.map((specialist) => {
           const peers = independent.filter((opinion) => opinion.agentId !== specialist.agent_id);
           if (peers.length === 0) throw new Error('双编剧交叉质疑缺少另一份独立方案');
-          await collectOpinion(specialist, 'cross_review', peers);
-        }
+          return collectOpinion(specialist, 'cross_review', peers);
+        }));
       }
 
       const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor!.agent_id);
@@ -1442,9 +1444,11 @@ function buildDiscussionPrompt(input: {
         ? '侧重爽点、强冲突和持续追读张力：这项设定怎么让读者看得爽、冲突更硬、更想追下去。'
         : participant.role_key === 'second_screenwriter'
           ? '侧重因果链与逻辑闭环：这项设定的前因后果、代价和边界是否前后一致、能不能被剧情稳定执行。'
-          : participant.role_key === 'setting'
-            ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
-            : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
+          : participant.role_key === 'third_screenwriter'
+            ? '侧重脑洞、新鲜感与可玩性：这项设定有没有让人眼前一亮的玩法和记忆点，同时能落地、不破坏因果。'
+            : participant.role_key === 'setting'
+              ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
+              : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
       '只写一个候选，正文建议200至400字，具体到能直接落地；最后用一句话告诉作者：这项设定以后写故事时要抓住什么。不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
       '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成4至8条可以独立勾选的具体设定主张；每条是一句能独立成立、互不重复、直接回答本项当前问题的话，合起来要覆盖你的完整方案，不拆空话套话；作者会逐条勾选或全选后交给主编融合）。',
       AUTHOR_PLAIN_LANGUAGE_RULES,

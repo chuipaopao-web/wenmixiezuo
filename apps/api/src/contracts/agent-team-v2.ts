@@ -33,7 +33,7 @@ export interface CreativeMemberContract {
 
 const deepseek = { provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent' } as const;
 const deepseekFlash = { provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-flash', plan: 'agent' } as const;
-const glm = { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.2', plan: 'agent' } as const;
+const glm = { provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3', plan: 'agent' } as const;
 const kimiK27 = { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code', plan: 'agent' } as const;
 const doubao = { provider: 'volcengine-ark-agent-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'agent' } as const;
 
@@ -55,12 +55,12 @@ const creativeMemberContractDefinitions: readonly CreativeMemberContract[] = [
 ] as const;
 
 export const roleModelProfiles: Record<CreativeRoleKey, TeamModelProfile> = {
-  chief_editor: kimiK27,
+  chief_editor: deepseek,
   deputy_editor: glm,
   lead_screenwriter: deepseek,
   second_screenwriter: glm,
   third_screenwriter: kimiK27,
-  setting: kimiK27,
+  setting: deepseekFlash,
   lead_writer: deepseek,
   backup_writer: kimiK27,
   fact_reviewer: glm,

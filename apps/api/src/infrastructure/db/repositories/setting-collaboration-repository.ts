@@ -182,7 +182,7 @@ export class SettingCollaborationRepository {
   public proposalPanelAgentIds(scope: BookScope): Array<{ agentId: string; roleKey: string }> {
     assertBookScope(scope);
     const rows = this.database.prepare(
-      "SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, a.agent_id"
+      "SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'third_screenwriter') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, a.agent_id"
     ).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
     return rows.map((row) => ({ agentId: row.agent_id, roleKey: row.role_key }));
   }

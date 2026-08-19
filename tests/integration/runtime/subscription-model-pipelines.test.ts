@@ -42,7 +42,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('剧情讨论使用K2.7主编与DeepSeek、GLM双编剧，章节保持写手和三点评四模型来源', async () => {
+  it('剧情讨论使用DeepSeek主编与DeepSeek、GLM、K2.7三编剧独立提案，章节保持写手和三点评四模型来源', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -211,7 +211,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
       FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-        AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting')`)
+        AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'third_screenwriter')`)
       .all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
     const editor = context.database.prepare(`SELECT a.agent_id
       FROM agent_instances a JOIN role_templates r
@@ -246,7 +246,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
       WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'
       ORDER BY r.role_key`).all(scope.ownerId, scope.bookId, scheduled.discussionId);
     expect(proposalRoles).toEqual(expect.arrayContaining([
-      { role_key: 'lead_screenwriter' }, { role_key: 'second_screenwriter' }, { role_key: 'setting' }
+      { role_key: 'lead_screenwriter' }, { role_key: 'second_screenwriter' }, { role_key: 'third_screenwriter' }
     ]));
     prepareBookForWriting(context, scope, ids, clock, 1);
 
@@ -264,7 +264,7 @@ describe('订阅与套餐模型真实流水线接线', () => {
     expect(modelCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2.7-code', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'deepseek-v4-pro', cash_micros: 0, state: 'succeeded' }),
-      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5.2', cash_micros: 0, state: 'succeeded' }),
+      expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'glm-5.3', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'deepseek-v4-flash', cash_micros: 0, state: 'succeeded' }),
       expect.objectContaining({ provider: 'volcengine-ark-agent-plan', model_id: 'doubao-seed-2.1-turbo', cash_micros: 0, state: 'succeeded' })
     ]));

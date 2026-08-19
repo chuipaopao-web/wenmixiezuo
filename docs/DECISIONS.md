@@ -549,3 +549,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 下游软参考注入：composeStyleToneText 增加第三参 focusExpression，输出"本卷重点表达：xxx。这是本卷当前重点的软参考，只调整当卷侧重，不推翻全书基调，也不当硬指标逐字执行"；正文管线与妙玉找茬管线的 currentVolumeTone 同步传入。事件管线本就携带整份卷内容 JSON，自动获得该字段。全书标签本就以题材简报进资料包（软参考），不重复注入。
 5. 前端：卷方案状态卡与候选卡展示"本卷重点表达"（缺省显示"沿用全书调子"）；卷规划编辑器新增输入框（40 字内、可留空、带示例与软参考说明），作者确认/修改卷方案时顺带确认，无新增步骤。
 6. 测试：新增 tests/unit/volume-focus-expression.test.ts 2 用例（合同解析兼容+基调文本软参考措辞）；卷生成集成测试期望对象补 focusExpression 字段。全量 725 绿、双端 typecheck 与构建通过。
+
+
+## DEC-CURRENT-073 设定提案席改三名编剧+成员模型按老板名单换绑+任务红点+三席并行（2026-08-20）
+
+【当前】老板四条指令合并落地：
+1. 设定提案三席从"编剧A/编剧B/设定（文姬）"改为三名编剧（婉儿/红玉/幼薇）：SettingCollaborationRepository 提案席 role_key 改为 lead/second/third_screenwriter；讨论管线席位视角指令链补 third_screenwriter 分支（脑洞、新鲜感与可玩性），报错与注释同步"三名编剧"；前端设定页顶部常驻成员栏改为 貂蝉+婉儿+红玉+幼薇，待命文案同步。
+2. 成员模型按老板名单换绑：主编貂蝉→DeepSeek V4 Pro、副编西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、设定文姬→DeepSeek V4 Flash。落地三处映射必须同步改（本次踩坑：book-onboarding-service.ts 私有一份 toCreativeProfiles 副本，只改 model-binding-service.ts 导致建书校验"三名编剧必须互异模型"失败）：contracts/agent-team-v2.ts roleModelProfiles、infrastructure/models/model-runtime-config.ts 订阅槽位（chief_editor 槽→DeepSeek、GLM 默认 5.3）、application/agents/model-binding-service.ts 与 application/books/book-onboarding-service.ts 两份 toCreativeProfiles（third_screenwriter/backup_writer←reviewer 槽 Kimi，setting←researcher 槽 Flash）。编剧三角互异、写手双模型、写手+三点评四席互异等硬校验全部保持。
+3. 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取，功能栏"任务"按钮也无红点元素。修复：seen 工具上移到 shared/task-presentation.ts 并新增 taskNeedsAttention（在跑/卡住/有未看结果即亮）；App.tsx 进入应用即拉任务中心+60 秒慢轮询兜底+运行时事件流始终刷新（不再限任务页）；功能栏"任务"按钮加红点（aria-hidden 纯视觉，避免改变按钮无障碍名称）；fetchTaskCenter 返回异常时兜底空数组防渲染崩溃。
+4. 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改为 Promise.all 并行——三席方案按规则互不可见、彼此独立，并行不违反独立性；整体耗时从"各席相加"降为"最慢一席"；任一席失败时其余席已落库检查点可在重试时复用，不重复消耗。
+5. 测试：同步 10 处旧断言（K2.7 主编、GLM 5.2、提案席 setting 等）；subscription-model-pipelines 提案席参与者改为三编剧；全量 725 绿、双端 typecheck 通过。

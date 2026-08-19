@@ -14,6 +14,8 @@
 
 ## 最近完成的改动（最新在最上）
 
+1. 提案席三编剧+模型换绑+任务红点+三席并行（DEC-CURRENT-073）：① 设定提案三席从文姬改为三名编剧（婉儿/红玉/幼薇），讨论管线席位指令补 third_screenwriter 分支，前端顶部常驻成员栏同步。② 模型按老板名单换绑：貂蝉→DeepSeek V4 Pro、西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、文姬→DeepSeek V4 Flash；注意 toCreativeProfiles 有两份副本（model-binding-service.ts 与 book-onboarding-service.ts），换绑必须同步改，否则建书校验"三编剧互异模型"失败。③ 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取；已改进入应用即拉+60秒轮询+事件流始终刷新，功能栏"任务"按钮加红点（在跑/卡住/有未看结果即亮），seen 工具上移到 shared/task-presentation.ts。④ 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改 Promise.all 并行（三席互不可见本就独立），耗时从"各席相加"降为"最慢一席"，失败席位重试可复用检查点。同步 10 处旧断言，全量 725 绿。
+
 1. 开书标签软参考+本卷重点表达（DEC-CURRENT-072）：开书标签文案改为"参考方向、只影响基础设计、不限制死"；卷阶段不加二次选择——VolumePlanContent 新增 focusExpression（本卷重点表达一句短语，null=沿用全书调子），主编在卷方案中自动提炼、作者顺带确认（卷编辑器新增输入框，40字可留空）；composeStyleToneText 注入"软参考、不推翻全书基调、不当硬指标"说明，正文管线与妙玉找茬管线同步。测试 +2 用例，全量 725 绿。
 1. 中断调用预算自动兜底（DEC-CURRENT-071）：复查发现兜底缺口——远程中断无结果的调用永久冻结预算，生产两本书 18 条预留 43.2 万 Token 卡死、33 个讨论任务失败。已加 sweepStaleInterruptedCalls：中断超 10 分钟无结果自动释放预留+标记 failed+记调和 discarded，无主预留一并释放；API 启动即巡检+每 5 分钟周期巡检；宽限期内保持冻结等人工调和，迟到结果仍优先按真实用量结算。部署门禁已写进 AGENTS.md。测试 +3 用例，全量 723 绿。
 1. 管理后台三板块+用户侧不显示大模型（DEC-CURRENT-070）：后台（AdminWorkspace）新增算力消耗（GET /admin/usage：总量/按用户/按模型/30天趋势柱）与模型管理（GET/POST /admin/model-scheme：14 成员下拉选火山方舟模型，保存过白名单+四席互异校验后全量书收敛 reviseFuture，历史快照/在途任务不动；新迁移 0056 platform_model_scheme 单行表，新书写入与启动收敛统一读库存方案）。用户侧彻底裁剪：设置弹窗删"成员模型/书籍级模型绑定"两板块（只留主题/字体/运维）、团队页删"模型来源"、App.tsx 移除 capabilities/modelBindings；接口层 capabilities 对非管理员 profiles 置空、model-bindings 四路由与书籍 usage 加管理员门禁、任务详情对非管理员 provider/model 显示"创作服务"且 error_detail 过 sanitizeModelLeak（保留限流等可读原因，管理员看原始证据）。新增 admin-platform 集成测试 4 用例，迁移清单 3 处+SQL 边界白名单同步，全量 720 绿。

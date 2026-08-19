@@ -9,6 +9,8 @@ import {
   confirmationLabel,
   isActiveTask,
   isStuckTask,
+  loadTaskSeen,
+  markTaskSeen,
   phaseLabel,
   statusLabel,
   taskChapterLabel,
@@ -18,21 +20,6 @@ import {
   taskStuckReason,
   taskTitle
 } from '../shared/task-presentation';
-
-/** 任务中心红点：记录作者已看过的任务状态，状态变化（出新结果/卡住）就重新亮红点。 */
-const TASK_SEEN_KEY = 'wenmi-task-center-seen-v1';
-function loadTaskSeen(): Record<string, string> {
-  try {
-    const raw = globalThis.localStorage?.getItem(TASK_SEEN_KEY);
-    return raw === null || raw === undefined ? {} : JSON.parse(raw) as Record<string, string>;
-  } catch { return {}; }
-}
-function markTaskSeen(taskId: string, status: string): Record<string, string> {
-  const seen = loadTaskSeen();
-  seen[taskId] = status;
-  try { globalThis.localStorage?.setItem(TASK_SEEN_KEY, JSON.stringify(seen)); } catch { /* 存储不可用时静默降级 */ }
-  return seen;
-}
 
 function TaskButton({ task, workspace, seen, onSelect }: { task: TaskData; workspace: TaskCenterBookData; seen: Record<string, string>; onSelect: (task: TaskData) => void }): React.JSX.Element {
   const title = taskTitle(task, workspace);

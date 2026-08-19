@@ -217,7 +217,7 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
   };
   const agentGlm: RoleModelProfile = {
     provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_GLM_MODEL, 'glm-5.2'),
+    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_GLM_MODEL, 'glm-5.3'),
     plan: 'agent'
   };
   const agentDoubao: RoleModelProfile = {
@@ -232,7 +232,7 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
     plan: 'agent'
   };
   return {
-    chief_editor: { ...agentKimiK27 },
+    chief_editor: { ...agentDeepSeekPro },
     plot_architect: { ...agentDeepSeekPro },
     continuity: { ...agentGlm },
     writer: { ...agentDeepSeekPro },

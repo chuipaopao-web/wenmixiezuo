@@ -27,7 +27,7 @@ describe('十四人创作团队', () => {
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5.2',
+      modelId: 'glm-5.3',
       plan: 'agent'
     });
     expect(base.literary_reviewer).toEqual({
@@ -57,7 +57,7 @@ describe('十四人创作团队', () => {
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
     expect(backupPanel.fact.roleKey).toBe('fact_reviewer');
-    expect(backupPanel.fact.modelId).toBe('glm-5.2');
+    expect(backupPanel.fact.modelId).toBe('glm-5.3');
     const legacyRows = rows.filter((row) => row.roleKey !== 'experience_challenger');
     const legacyPanel = new ReviewModelCompatibilityService().select(writer, legacyRows);
     expect(legacyPanel.challenger).toBeNull();

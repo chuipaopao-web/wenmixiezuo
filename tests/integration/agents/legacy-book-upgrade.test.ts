@@ -161,7 +161,7 @@ describe('历史九人书终局升级', () => {
     expect(toppedUp.team).toHaveLength(14);
     const byRole = new Map(toppedUp.team.map((member) => [member.roleKey, `${member.provider}/${member.modelId}`]));
     expect(byRole.get('third_screenwriter')).toBe('volcengine-ark-agent-plan/kimi-k2.7-code');
-    expect(byRole.get('fact_reviewer')).toBe('volcengine-ark-agent-plan/glm-5.2');
+    expect(byRole.get('fact_reviewer')).toBe('volcengine-ark-agent-plan/glm-5.3');
     expect(new AgentTeamService(context.database, ids, clock).list(scope)).toHaveLength(14);
   });
 

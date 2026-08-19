@@ -34,15 +34,15 @@ describe('现有书籍模型快照绑定', () => {
     expect(context.database.prepare(`SELECT status FROM writer_selections WHERE writer_selection_id = ?`)
       .get(selection.writerSelectionId)).toEqual({ status: 'superseded' });
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
-    expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code' });
+    expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_writer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_screenwriter')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' });
-    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.2' });
+    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'glm-5.3' });
     expect(new Set(['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'].map((roleKey) => {
       const agent = team.find((member) => member.roleKey as string === roleKey);
       return `${agent?.provider}/${agent?.modelId}`;
     })).size).toBe(3);
-    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code' });
+    expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-flash' });
     expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-flash' });
     expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
 

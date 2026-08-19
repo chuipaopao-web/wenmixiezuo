@@ -56,6 +56,7 @@ import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
 import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
 import { WorkspaceSkeleton } from '../features/shared/WorkspaceSkeleton';
 import { GlobalTaskWorkspace, TaskDetailsDialog } from '../features/tasks/TaskWorkspace';
+import { loadTaskSeen, taskNeedsAttention } from '../features/shared/task-presentation';
 import { TeamWorkspace } from '../features/team/TeamWorkspace';
 import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
@@ -122,6 +123,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
   const [homeTasksLoading, setHomeTasksLoading] = useState(false);
   const [homeTasksError, setHomeTasksError] = useState<string | null>(null);
+  const [taskSeen, setTaskSeen] = useState<Record<string, string>>(() => loadTaskSeen());
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<ChapterData | null>(null);
   const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
@@ -171,6 +173,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const activeBooks = books.filter((book) => book.status !== 'archived');
   const archivedBooks = books.filter((book) => book.status === 'archived');
   const selectedBook = activeBooks.find((book) => book.bookId === selectedBookId) ?? null;
+  // 功能栏"任务"按钮红点：任何书有任务在跑、卡住或出了没看过的新结果就亮。
+  const tasksAttention = homeTaskEntries.some((entry) =>
+    entry.tasks.some((task) => taskNeedsAttention(task, taskSeen)));
   const membershipRecord = membershipStatus?.membership ?? null;
   const membershipUsable = account.role === 'admin'
     || (membershipRecord !== null && membershipRecord.status === 'active' && !membershipRecord.expired && membershipRecord.tokensRemaining > 0);
@@ -240,16 +245,14 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const refreshHomeTasks = useCallback(async (signal?: AbortSignal) => {
     const taskCenter = await fetchTaskCenter(signal);
     if (signal?.aborted === true) return;
-    setHomeTaskEntries(taskCenter.books);
+    setHomeTaskEntries(Array.isArray(taskCenter?.books) ? taskCenter.books : []);
     setHomeTasksError(null);
     setHomeTasksLoading(false);
   }, []);
 
-  // 事件流刷新依赖当前选中书/视图但订阅本身只需建立一次：用 ref 镜像最新值，避免按书重连分叉游标。
+  // 事件流刷新依赖当前选中书但订阅本身只需建立一次：用 ref 镜像最新值，避免按书重连分叉游标。
   const selectedBookIdRef = useRef(selectedBookId);
   selectedBookIdRef.current = selectedBookId;
-  const utilityViewRef = useRef(utilityView);
-  utilityViewRef.current = utilityView;
   const refreshWorkspaceRef = useRef(refreshWorkspace);
   refreshWorkspaceRef.current = refreshWorkspace;
   const refreshHomeTasksRef = useRef(refreshHomeTasks);
@@ -261,20 +264,18 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     const unsubscribe = subscribeRuntimeEvents({
       onEvent: (event) => {
         const bookId = selectedBookIdRef.current;
-        if (bookId !== null && event.bookId === bookId) {
-          if (workspaceTimer !== null) return;
+        if (bookId !== null && event.bookId === bookId && workspaceTimer === null) {
           workspaceTimer = window.setTimeout(() => {
             workspaceTimer = null;
             void refreshWorkspaceRef.current(bookId).catch(() => undefined);
           }, 80);
         }
-        if (utilityViewRef.current === 'tasks') {
-          if (tasksTimer !== null) return;
-          tasksTimer = window.setTimeout(() => {
-            tasksTimer = null;
-            void refreshHomeTasksRef.current().catch(() => undefined);
-          }, 80);
-        }
+        // 任务事件始终刷新任务中心：功能栏"任务"按钮的红点依赖这份数据，不限于打开任务页时。
+        if (tasksTimer !== null) return;
+        tasksTimer = window.setTimeout(() => {
+          tasksTimer = null;
+          void refreshHomeTasksRef.current().catch(() => undefined);
+        }, 80);
       }
     });
     return () => {
@@ -297,8 +298,19 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
-    return () => controller.abort();
-  }, [loadBooks]);
+    // 功能栏"任务"红点需要任务数据：进入应用即加载一次，并慢速轮询兜底（事件流是主通道）。
+    void refreshHomeTasks(controller.signal).catch(() => undefined);
+    const tasksPoll = window.setInterval(() => { void refreshHomeTasks().catch(() => undefined); }, 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(tasksPoll);
+    };
+  }, [loadBooks, refreshHomeTasks]);
+
+  // 从任务中心返回其他页面时，重新读取"已看过"记录，红点立即熄灭。
+  useEffect(() => {
+    setTaskSeen(loadTaskSeen());
+  }, [utilityView]);
 
   useEffect(() => {
     if (selectedBookId === null) {
@@ -628,7 +640,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         </div>
         <div className="function-nav-utilities" hidden={loading}>
           <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>{workspaceFunctionLabel('team')}</span></button>
-          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span></button>
+          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span>{tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>
           <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
           <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>{workspaceFunctionLabel('settings')}</span></button>
         </div>

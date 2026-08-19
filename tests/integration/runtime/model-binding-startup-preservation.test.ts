@@ -90,7 +90,7 @@ describe('启动时保留书籍模型方案', () => {
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
     expect(team.find((agent) => agent.roleKey === 'deputy_editor')).toMatchObject({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'glm-5.2'
+      modelId: 'glm-5.3'
     });
     expect(team.find((agent) => agent.roleKey === 'researcher')).toMatchObject({
       modelId: 'glm-5-2-custom-research'
@@ -139,14 +139,14 @@ describe('启动时保留书籍模型方案', () => {
     expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 14 });
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
-      chief_editor: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      deputy_editor: 'volcengine-ark-agent-plan/glm-5.2',
+      chief_editor: 'volcengine-ark-agent-plan/deepseek-v4-pro',
+      deputy_editor: 'volcengine-ark-agent-plan/glm-5.3',
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
+      second_screenwriter: 'volcengine-ark-agent-plan/glm-5.3',
       third_screenwriter: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      setting: 'volcengine-ark-agent-plan/kimi-k2.7-code',
+      setting: 'volcengine-ark-agent-plan/deepseek-v4-flash',
       lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      fact_reviewer: 'volcengine-ark-agent-plan/glm-5.2',
+      fact_reviewer: 'volcengine-ark-agent-plan/glm-5.3',
       backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       literary_reviewer: 'volcengine-ark-agent-plan/deepseek-v4-flash',
       experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',

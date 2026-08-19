@@ -26,22 +26,22 @@ describe('模型运行配置', () => {
 
     expect(config.activeMode).toBe('subscription-plan');
     expect(config.roleProfiles.chief_editor).toMatchObject({
-      provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k2.7-code', plan: 'agent'
+      provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent'
     });
     expect(config.roleProfiles.writer).toMatchObject({
       provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro', plan: 'agent'
     });
     expect(config.roleProfiles.plot_architect).toMatchObject({ modelId: 'deepseek-v4-pro' });
-    expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5.2' });
+    expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5.3' });
     expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'kimi-k2.7-code' });
     expect(config.roleProfiles.reader_experience).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
-    expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'glm-5.2' });
+    expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'glm-5.3' });
     expect(config.roleProfiles.researcher).toMatchObject({ modelId: 'deepseek-v4-flash' });
     expect(config.codex.timeoutMs).toBe(900_000);
     expect(config.publicProfiles).toEqual(expect.arrayContaining([
       expect.objectContaining({ modelId: 'kimi-k2.7-code', credentialConfigured: true }),
       expect.objectContaining({ modelId: 'deepseek-v4-pro', credentialConfigured: true }),
-      expect.objectContaining({ modelId: 'glm-5.2', credentialConfigured: true })
+      expect.objectContaining({ modelId: 'glm-5.3', credentialConfigured: true })
     ]));
     expect(JSON.stringify(config.publicProfiles)).not.toContain('test-key');
     expect(JSON.stringify(config.publicProfiles)).not.toContain('kimi-k3');
@@ -56,7 +56,7 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL: 'doubao-seed-2-0-pro-260215'
     });
 
-    expect(config.roleProfiles.chief_editor.modelId).toBe('kimi-k2.7-code');
+    expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('glm-5.2');
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
 
@@ -65,7 +65,7 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
       WENMI_ARK_AGENT_PLAN_KIMI_MODEL: 'kimi-k3'
     });
-    expect(k3.roleProfiles.chief_editor.modelId).toBe('kimi-k2.7-code');
+    expect(k3.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('glm-5.2');
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
   });

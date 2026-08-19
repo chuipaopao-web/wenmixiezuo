@@ -364,7 +364,7 @@ export function SettingCollaborationPanel({
         <div className="setting-mine-line">只想小改？<button type="button" onClick={() => setSelfWriting(true)}>自己动手改</button></div>
       </div>}
       {data.panel === null && !candidateReady && !selfWriting && (data?.item.status ?? item.status) !== '已确认' && <div className="setting-collaboration-start">
-        <p className="setting-collaboration-state">婉儿、红玉、文姬待命，随时可以开始。</p>
+        <p className="setting-collaboration-state">婉儿、红玉、幼薇待命，随时可以开始。</p>
         <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={800} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段内容怎么用">
             <label className={sourceStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'preference'} onChange={() => setSourceStrength('preference')} /> <b>仅供参考</b><small>团队以专业设计为主，你的想法占两到五成</small></label>
@@ -454,7 +454,7 @@ function createClientKey(): string {
 }
 
 function seatMark(roleKey: string | null): string {
-  return ({ lead_screenwriter: 'A', second_screenwriter: 'B', setting: '设', chief_editor: '主', deputy_editor: '副' } as Record<string, string>)[roleKey ?? ''] ?? '·';
+  return ({ lead_screenwriter: 'A', second_screenwriter: 'B', third_screenwriter: 'C', setting: '设', chief_editor: '主', deputy_editor: '副' } as Record<string, string>)[roleKey ?? ''] ?? '·';
 }
 
 function memberStatusLabel(status: NonNullable<SettingCollaborationData['panel']>['members'][number]['status']): string {

@@ -281,7 +281,7 @@ export class SettingCollaborationCommandService {
     }
 
     const lease = this.requireEditorLease(scope);
-    // 提案三席是编剧A（强冲突）、编剧B（重因果）与设定（规则严谨）；
+    // 提案三席是三名编剧（强冲突、重因果、脑洞反套路）；
     // 活动主编不提交提案，只在作者勾选后负责融合。
     const participants = input.includeScreenwriters
       ? this.repository.proposalPanelAgentIds(scope).map((seat) => ({
@@ -293,7 +293,7 @@ export class SettingCollaborationCommandService {
         reason: '活动主编按作者选择整理待确认版本'
       }];
     if (input.includeScreenwriters && participants.length !== 3) {
-      throw new Error('设定独立提案需要编剧A、编剧B与设定三席都可用');
+      throw new Error('设定独立提案需要三名编剧都可用');
     }
 
     const budgetId = this.repository.activeBudgetId(scope);

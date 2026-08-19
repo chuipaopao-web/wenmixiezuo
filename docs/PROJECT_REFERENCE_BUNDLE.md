@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`bff3f4479385`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`72b73171beb3`
 
 #### 当前生效决定
 
@@ -3756,6 +3756,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 5. 前端：卷方案状态卡与候选卡展示"本卷重点表达"（缺省显示"沿用全书调子"）；卷规划编辑器新增输入框（40 字内、可留空、带示例与软参考说明），作者确认/修改卷方案时顺带确认，无新增步骤。
 6. 测试：新增 tests/unit/volume-focus-expression.test.ts 2 用例（合同解析兼容+基调文本软参考措辞）；卷生成集成测试期望对象补 focusExpression 字段。全量 725 绿、双端 typecheck 与构建通过。
 
+
+##### DEC-CURRENT-073 设定提案席改三名编剧+成员模型按老板名单换绑+任务红点+三席并行（2026-08-20）
+
+【当前】老板四条指令合并落地：
+1. 设定提案三席从"编剧A/编剧B/设定（文姬）"改为三名编剧（婉儿/红玉/幼薇）：SettingCollaborationRepository 提案席 role_key 改为 lead/second/third_screenwriter；讨论管线席位视角指令链补 third_screenwriter 分支（脑洞、新鲜感与可玩性），报错与注释同步"三名编剧"；前端设定页顶部常驻成员栏改为 貂蝉+婉儿+红玉+幼薇，待命文案同步。
+2. 成员模型按老板名单换绑：主编貂蝉→DeepSeek V4 Pro、副编西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、设定文姬→DeepSeek V4 Flash。落地三处映射必须同步改（本次踩坑：book-onboarding-service.ts 私有一份 toCreativeProfiles 副本，只改 model-binding-service.ts 导致建书校验"三名编剧必须互异模型"失败）：contracts/agent-team-v2.ts roleModelProfiles、infrastructure/models/model-runtime-config.ts 订阅槽位（chief_editor 槽→DeepSeek、GLM 默认 5.3）、application/agents/model-binding-service.ts 与 application/books/book-onboarding-service.ts 两份 toCreativeProfiles（third_screenwriter/backup_writer←reviewer 槽 Kimi，setting←researcher 槽 Flash）。编剧三角互异、写手双模型、写手+三点评四席互异等硬校验全部保持。
+3. 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取，功能栏"任务"按钮也无红点元素。修复：seen 工具上移到 shared/task-presentation.ts 并新增 taskNeedsAttention（在跑/卡住/有未看结果即亮）；App.tsx 进入应用即拉任务中心+60 秒慢轮询兜底+运行时事件流始终刷新（不再限任务页）；功能栏"任务"按钮加红点（aria-hidden 纯视觉，避免改变按钮无障碍名称）；fetchTaskCenter 返回异常时兜底空数组防渲染崩溃。
+4. 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改为 Promise.all 并行——三席方案按规则互不可见、彼此独立，并行不违反独立性；整体耗时从"各席相加"降为"最慢一席"；任一席失败时其余席已落库检查点可在重试时复用，不重复消耗。
+5. 测试：同步 10 处旧断言（K2.7 主编、GLM 5.2、提案席 setting 等）；subscription-model-pipelines 提案席参与者改为三编剧；全量 725 绿、双端 typecheck 通过。
+
 ---
 
 ### 当前开发与验收计划
@@ -4194,7 +4204,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`f3f44031973e`
+> 当前源文件：`HANDOFF.md` · 指纹：`395a1c1e3739`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4211,6 +4221,8 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
 ##### 最近完成的改动（最新在最上）
+
+1. 提案席三编剧+模型换绑+任务红点+三席并行（DEC-CURRENT-073）：① 设定提案三席从文姬改为三名编剧（婉儿/红玉/幼薇），讨论管线席位指令补 third_screenwriter 分支，前端顶部常驻成员栏同步。② 模型按老板名单换绑：貂蝉→DeepSeek V4 Pro、西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、文姬→DeepSeek V4 Flash；注意 toCreativeProfiles 有两份副本（model-binding-service.ts 与 book-onboarding-service.ts），换绑必须同步改，否则建书校验"三编剧互异模型"失败。③ 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取；已改进入应用即拉+60秒轮询+事件流始终刷新，功能栏"任务"按钮加红点（在跑/卡住/有未看结果即亮），seen 工具上移到 shared/task-presentation.ts。④ 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改 Promise.all 并行（三席互不可见本就独立），耗时从"各席相加"降为"最慢一席"，失败席位重试可复用检查点。同步 10 处旧断言，全量 725 绿。
 
 1. 开书标签软参考+本卷重点表达（DEC-CURRENT-072）：开书标签文案改为"参考方向、只影响基础设计、不限制死"；卷阶段不加二次选择——VolumePlanContent 新增 focusExpression（本卷重点表达一句短语，null=沿用全书调子），主编在卷方案中自动提炼、作者顺带确认（卷编辑器新增输入框，40字可留空）；composeStyleToneText 注入"软参考、不推翻全书基调、不当硬指标"说明，正文管线与妙玉找茬管线同步。测试 +2 用例，全量 725 绿。
 1. 中断调用预算自动兜底（DEC-CURRENT-071）：复查发现兜底缺口——远程中断无结果的调用永久冻结预算，生产两本书 18 条预留 43.2 万 Token 卡死、33 个讨论任务失败。已加 sweepStaleInterruptedCalls：中断超 10 分钟无结果自动释放预留+标记 failed+记调和 discarded，无主预留一并释放；API 启动即巡检+每 5 分钟周期巡检；宽限期内保持冻结等人工调和，迟到结果仍优先按真实用量结算。部署门禁已写进 AGENTS.md。测试 +3 用例，全量 723 绿。

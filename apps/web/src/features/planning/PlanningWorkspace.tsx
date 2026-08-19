@@ -366,7 +366,7 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
  */
 function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): React.JSX.Element | null {
   if (workspace === null) return null;
-  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'setting'];
+  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'third_screenwriter'];
   const members = crewKeys
     .map((key) => workspace.agents.find((agent) => agent.roleKey === key))
     .filter((agent): agent is WorkspaceData['agents'][number] => agent !== undefined);
@@ -380,7 +380,7 @@ function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): R
   const workingAgentIds = new Set(activeSettingTasks.map((task) => task.assignedAgentId).filter((id): id is string => id !== null));
   const panelWorking = activeSettingTasks.some((task) => task.brief.purpose === 'setting_proposal_panel');
   const shortTitle = (roleKey: string): string => (
-    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', setting: '设定' } as Record<string, string>
+    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧' } as Record<string, string>
   )[roleKey] ?? '成员';
   return <div className="setting-member-bar" aria-label="当前创作成员">
     {members.map((member) => {

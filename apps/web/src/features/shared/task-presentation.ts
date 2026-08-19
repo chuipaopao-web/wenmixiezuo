@@ -49,6 +49,27 @@ export function isStuckTask(status: string): boolean {
   return ['blocked', 'interrupted'].includes(status);
 }
 
+/** 任务红点：记录作者已看过的任务状态，状态变化（出新结果/卡住）就重新亮红点。任务中心列表和功能栏"任务"按钮共用。 */
+const TASK_SEEN_KEY = 'wenmi-task-center-seen-v1';
+export function loadTaskSeen(): Record<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(TASK_SEEN_KEY);
+    return raw === null || raw === undefined ? {} : JSON.parse(raw) as Record<string, string>;
+  } catch { return {}; }
+}
+export function markTaskSeen(taskId: string, status: string): Record<string, string> {
+  const seen = loadTaskSeen();
+  seen[taskId] = status;
+  try { globalThis.localStorage?.setItem(TASK_SEEN_KEY, JSON.stringify(seen)); } catch { /* 存储不可用时静默降级 */ }
+  return seen;
+}
+
+/** 功能栏"任务"按钮红点：有任务在跑、卡住，或已结束但状态没看过，就亮。 */
+export function taskNeedsAttention(task: TaskData, seen: Record<string, string>): boolean {
+  if (isActiveTask(task.status)) return true;
+  return seen[task.taskId] !== task.status;
+}
+
 /** 卡住任务的大白话原因：列表行直接告诉作者"为什么停、怎么继续"，不再只写"已阻断"。 */
 export function taskStuckReason(task: TaskData): string {
   const code = task.errorCode ?? '';
