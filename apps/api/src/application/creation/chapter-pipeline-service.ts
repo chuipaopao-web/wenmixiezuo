@@ -1978,10 +1978,11 @@ export class ChapterPipelineService {
     `).get(scope.ownerId, scope.bookId, chapter.volume_id) as { content_json: string } | undefined;
     if (row === undefined) return '';
     try {
-      const content = JSON.parse(row.content_json) as { stylePrimary?: unknown; styleSecondary?: unknown };
+      const content = JSON.parse(row.content_json) as { stylePrimary?: unknown; styleSecondary?: unknown; focusExpression?: unknown };
       return composeStyleToneText(
         typeof content.stylePrimary === 'string' ? content.stylePrimary : null,
-        typeof content.styleSecondary === 'string' ? content.styleSecondary : null
+        typeof content.styleSecondary === 'string' ? content.styleSecondary : null,
+        typeof content.focusExpression === 'string' ? content.focusExpression : null
       );
     } catch { return ''; }
   }

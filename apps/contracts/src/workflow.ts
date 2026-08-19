@@ -239,6 +239,8 @@ export interface VolumePlanContent {
   stylePrimary?: string | null;
   /** 本卷可选副基调，不与主基调重复。 */
   styleSecondary?: string | null;
+  /** 本卷重点表达（主编提炼的一句短语，如"权谋智斗＋智商在线＋热血爽"）；null 表示沿用全书基调。 */
+  focusExpression?: string | null;
   /** 主编融合稿的三合一说明；独立候选为 null。 */
   fusionNotes?: FusionNotes | null;
 }
@@ -478,6 +480,7 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     boundaries: parseCreativeBoundarySet(value.boundaries),
     stylePrimary: optionalText(value.stylePrimary, '本卷主基调'),
     styleSecondary: optionalText(value.styleSecondary, '本卷副基调'),
+    focusExpression: optionalText(value.focusExpression, '本卷重点表达'),
     ...omitNullFusionNotes(value.fusionNotes)
   };
 }

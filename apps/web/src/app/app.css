@@ -5758,6 +5758,10 @@ svg {
 .volume-tone-picker { display: grid; gap: 12px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); border-radius: 14px; padding: 13px; background: color-mix(in srgb, var(--accent-soft) 42%, var(--panel-raised)); }
 .volume-tone-picker > header > div { display: grid; gap: 3px; }
 .volume-tone-picker > header small { color: var(--ink-soft); font-weight: 500; }
+.volume-focus-editor { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 14px; padding: 13px; background: var(--panel-raised); }
+.volume-focus-editor > header > div { display: grid; gap: 3px; }
+.volume-focus-editor > header small { color: var(--ink-soft); font-weight: 500; }
+.volume-focus-editor input { min-height: 38px; border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; background: var(--panel); }
 .template-choice-group { display: grid; gap: 10px; border-radius: 14px; }
 .template-choice-group.recommended { padding: 13px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 42%, var(--panel-raised)); }
 .template-choice-heading, .template-more-options > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; }

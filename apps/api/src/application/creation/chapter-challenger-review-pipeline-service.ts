@@ -221,10 +221,11 @@ export class ChapterChallengerReviewPipelineService {
     const contentJson = this.repository.volumeToneContentJson(scope, chapterId);
     if (contentJson === undefined) return '';
     try {
-      const content = JSON.parse(contentJson) as { stylePrimary?: unknown; styleSecondary?: unknown };
+      const content = JSON.parse(contentJson) as { stylePrimary?: unknown; styleSecondary?: unknown; focusExpression?: unknown };
       return composeStyleToneText(
         typeof content.stylePrimary === 'string' ? content.stylePrimary : null,
-        typeof content.styleSecondary === 'string' ? content.styleSecondary : null
+        typeof content.styleSecondary === 'string' ? content.styleSecondary : null,
+        typeof content.focusExpression === 'string' ? content.focusExpression : null
       );
     } catch { return ''; }
   }

@@ -225,11 +225,14 @@ export function validateVolumeStyleTones(stylePrimary: string | null | undefined
 }
 
 /** 把本卷基调拼成给AI的写作倾向说明；未选择基调时返回空串。 */
-export function composeStyleToneText(stylePrimary: string | null | undefined, styleSecondary: string | null | undefined): string {
+export function composeStyleToneText(stylePrimary: string | null | undefined, styleSecondary: string | null | undefined, focusExpression?: string | null): string {
   const parts = [stylePrimary, styleSecondary]
     .filter((tone): tone is string => typeof tone === 'string' && STYLE_TONES.includes(tone))
     .map((tone) => `${tone}（${STYLE_TONE_GUIDANCE[tone] ?? ''}）`);
-  return parts.length === 0 ? '' : `本卷基调：${parts.join('＋')}。基调是写作倾向，按场景目的把握，不机械打卡。`;
+  const toneText = parts.length === 0 ? '' : `本卷基调：${parts.join('＋')}。基调是写作倾向，按场景目的把握，不机械打卡。`;
+  const focus = typeof focusExpression === 'string' && focusExpression.trim().length > 0 ? focusExpression.trim() : null;
+  const focusText = focus === null ? '' : `本卷重点表达：${focus}。这是本卷当前重点的软参考，只调整当卷侧重，不推翻全书基调，也不当硬指标逐字执行。`;
+  return [toneText, focusText].filter((text) => text.length > 0).join('\n');
 }
 
 const allSelectableTags = [...new Set(OPENING_TAG_GROUPS.flatMap((group) => [

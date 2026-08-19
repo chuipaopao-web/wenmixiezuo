@@ -276,6 +276,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         <div><small>当前状态</small><strong>{selectedPlan.activeVersion === null ? '比较方案中' : `已确认第${selectedPlan.activeVersion.version}稿`}</strong></div>
         <div><small>上游依据</small><strong>{selectedPlan.planNumber === 1 ? '开书资料 + 设定基线' : '上卷结算 + 当前设定'}</strong></div>
         <div><small>本卷基调</small><strong>{[selectedPlan.activeVersion?.content.stylePrimary, selectedPlan.activeVersion?.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</strong></div>
+        <div><small>本卷重点表达</small><strong>{selectedPlan.activeVersion?.content.focusExpression ?? '沿用全书调子'}</strong></div>
         <button type="button" disabled={busy} onClick={() => {
           const inheritedTone = snapshot.plans
             .filter((plan) => plan.planNumber < selectedPlan.planNumber)
@@ -460,6 +461,16 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
         return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" aria-pressed={active} aria-label={blockedTone ? `副基调：${tone}（已选为主基调）` : `${active ? '取消' : '选择'}副基调：${tone}`} title={blockedTone ? '已选为主基调' : undefined} disabled={blockedTone} key={tone} onClick={() => pickSecondaryTone(tone)}>{active && <CheckCircleIcon />}{tone}</button>;
       })}</div></section>
     </section>}
+    <section className="volume-focus-editor" aria-label="本卷重点表达">
+      <header><div><strong>本卷重点表达</strong><small>这一卷想重点写给读者看什么，比如“权谋智斗＋智商在线＋热血爽”。只调当卷侧重，不改全书调子；留空就沿用全书调子。</small></div></header>
+      <input
+        value={value.focusExpression ?? ''}
+        maxLength={40}
+        placeholder="例如：权谋智斗＋智商在线＋热血爽"
+        aria-label="本卷重点表达"
+        onChange={(event) => onChange({ ...value, focusExpression: event.target.value.trim().length === 0 ? null : event.target.value })}
+      />
+    </section>
     <div className="volume-editor-grid">
       <label><span>卷标题</span><input value={value.title} onChange={(event) => setText('title', event.target.value)} /></label>
       <label><span>开卷时人物与局面</span><textarea rows={3} value={value.openingState} onChange={(event) => setText('openingState', event.target.value)} /></label>
@@ -497,7 +508,7 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
   return <article className={`volume-version-card ${active ? 'active' : ''}`}>
     <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
-    <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
+    <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷重点表达</dt><dd>{version.content.focusExpression ?? '沿用全书调子'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
     {version.content.fusionNotes != null && <div className="fusion-notes">
       <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
       <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>
