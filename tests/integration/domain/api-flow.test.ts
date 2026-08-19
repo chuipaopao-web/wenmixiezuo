@@ -4,6 +4,7 @@ import { DiscussionPipelineService } from '../../../apps/api/src/application/dis
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import type { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -270,7 +271,7 @@ describe('建书REST流程', () => {
         payload: { title: '北宋副本', text: '主角进入游戏副本，从朱仙镇开始', category: '历史', tags: ['成长'],
           openingBlueprint: {
             styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
-            taxonomyVersion: 'wenmi-single-category-subject-library-2026-08-17-v10', channel: 'male', categoryKey: 'male-history-brain',
+            taxonomyVersion: OPENING_TAXONOMY.version, channel: 'male', categoryKey: 'male-history-brain',
             targetAudience: '历史题材读者',
             protagonists: [{ role: 'male_lead', name: '赵四', age: '二十岁', background: '朱仙镇屯兵之子。', personalities: ['果断'] }],
             storyDirection: '赵四进入南宋副本，从朱仙镇开始改写岳家军的命运。',

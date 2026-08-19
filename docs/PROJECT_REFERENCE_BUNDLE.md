@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`5293766a4174`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`84030341a531`
 
 #### 当前生效决定
 
@@ -3715,6 +3715,15 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 脚本留存：`scripts/ops/purge-all-books.mjs`（一次性运维脚本，仓库留档）。
 5. 验证：books/agent_instances/manuscript_versions 均 0、deletion_tombstones 累计 67、双服务 active、首页 200、日志无新报错。
 
+
+##### DEC-CURRENT-069 标签库扩充为全网级覆盖（2026-08-19）
+
+【当前】老板反馈标签库太少、要全网最全。扩充落地：
+1. 规模：16 个分组三泳道（主标签/辅助标签/故事特质）从约 500 词扩到 1114 词（主 227、辅助 609、特质 278），新增起点/番茄/晋江/七猫等公开平台高频标签——覆盖玄幻境界词、仙侠修行词、系统副本词、历史制度词、电竞赛事词、经营生产词、都市职业词、言情婚俗词、民俗灵异词、科幻设定词、西幻职业词、国术劲力词、年代物件词、同人圈词等。
+2. 去重纪律（脚本校验 scripts/ops/tag-library-check.mts 留档）：同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（平台二级题材词只进融合题材）、不收近义词；既有标签全部保留，老草稿不失效。
+3. 结构不变：分组、三泳道、packKeys、推荐逻辑、合同校验全部复用，前端标签库面板与推荐自动吃新数据；taxonomy 版本升 2026-08-19-v11（老书已清空，无旧版本草稿存留）。
+4. 两处测试从硬编码 v10 版本串改为引用 OPENING_TAXONOMY.version 常量，避免以后升版本再踩。全量 715 绿、类型检查与构建通过。
+
 ---
 
 ### 当前开发与验收计划
@@ -4153,7 +4162,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`53d9e886150e`
+> 当前源文件：`HANDOFF.md` · 指纹：`de842af93f9d`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4171,6 +4180,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构与推荐逻辑不变，前端自动吃新数据；taxonomy 升 2026-08-19-v11。两处测试硬编码版本串改常量引用。全量 715 绿。
 1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。
 1. 首页空状态文案：改为"专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品"（会员提示保留），已上线。
 1. 审校改革（DEC-CURRENT-067）：老板拍板①异模型硬规矩放宽为四席互异（写手+事实/文学/体验三审，四个不同模型来源即可，不再六席互异）；②每章固定审校 4 席→3 席省 token（班昭/妲己/昭君，妙玉退出固定席改待命，约省 25% 审校 token）。妲己（文学审校）从 Coding Plan doubao-seed-code 改回 Agent Plan DeepSeek V4 Flash（066 第 2 款被取代；literaryReviewerCodingProfile 与 Seed Code 白名单全删，运行时不再有 Coding Plan 调用）；停用 MiniMax（066 其余部分）继续生效。妙玉按需找茬新功能：迁移 0055 chapter_challenger_reviews + 仓库/服务/管线/POST·GET 路由（任务类型 chapter_challenger_review），正文页"请挑剔读者找茬"按钮，结果只供参考不卡定稿、可重复发起、无正文 409；前端找茬卡片 3 秒轮询。三审报告仍是定稿硬门禁。应用层 SQL 全部下沉仓库层（过数据库边界契约）。测试同步 12 处+新增 2 用例，全量 715 绿。

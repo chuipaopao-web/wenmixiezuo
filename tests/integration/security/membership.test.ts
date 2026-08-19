@@ -8,6 +8,7 @@ import {
 } from '../../../apps/api/src/infrastructure/security/membership-service.js';
 import { FixedClock, MutableClock } from '../../helpers/test-context.js';
 import { DomainError } from '../../../apps/api/src/domain/errors.js';
+import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
 
 const BROWSER_HEADERS = {
   host: '127.0.0.1:43111',
@@ -179,7 +180,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
       const openingBlueprint = {
         styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
-        taxonomyVersion: 'wenmi-single-category-subject-library-2026-08-17-v10', channel: 'male', categoryKey: 'male-history-brain',
+        taxonomyVersion: OPENING_TAXONOMY.version, channel: 'male', categoryKey: 'male-history-brain',
         targetAudience: '历史题材读者',
         protagonists: [{ role: 'male_lead', name: '赵四', age: '二十岁', background: '朱仙镇屯兵之子。', personalities: ['果断'] }],
         storyDirection: '赵四进入南宋副本，从朱仙镇开始改写岳家军的命运。',
