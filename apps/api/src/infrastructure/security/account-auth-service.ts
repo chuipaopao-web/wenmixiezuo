@@ -8,6 +8,7 @@ import {
 import type { DatabaseSync } from 'node:sqlite';
 import { DomainError } from '../../domain/errors.js';
 import type { AccountRole, AuthContext } from './auth-context.js';
+import { grantDefaultBronze } from './membership-service.js';
 
 const SESSION_COOKIE = 'wenmi_session';
 const PASSWORD_BYTES = 64;
@@ -107,6 +108,8 @@ export class AccountAuthService {
           role, status, created_at, updated_at, last_login_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
       `).run(userId, ownerId, email, displayName, salt, passwordHash, role, now, now, now);
+      // 普通账号注册即发放青铜体验（20万算力值）；首位管理员不受会员门禁限制，无需发放。
+      if (role === 'user') grantDefaultBronze(this.database, userId, ownerId, now);
       this.recordAudit('register', userId, email, userId, now, {
         role,
         adoptedLegacyData: legacyOwner !== undefined

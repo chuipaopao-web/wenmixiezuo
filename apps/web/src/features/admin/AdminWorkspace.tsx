@@ -7,18 +7,30 @@ import {
 } from '../../lib/api/client';
 
 const PLAN_OPTIONS: Array<{ value: MembershipPlanKey; label: string }> = [
-  { value: 'monthly', label: '包月 · 3亿算力值' },
-  { value: 'quarterly', label: '包季 · 10亿算力值' },
-  { value: 'yearly', label: '包年 · 百亿算力值' }
+  { value: 'bronze', label: '青铜 · 20万算力值' },
+  { value: 'silver', label: '白银 · 98元 · 2000万算力值' },
+  { value: 'gold', label: '黄金 · 198元 · 5000万算力值' },
+  { value: 'diamond', label: '钻石 · 980元 · 2亿算力值' }
 ];
 
 const ADMIN_PAGE_SIZE = 50;
 
+/** 算力值展示口径（2026-08-20 老板拍板）：系统记真实消耗，前台一律按双倍显示算力值。 */
+const COMPUTE_DISPLAY_MULTIPLIER = 2;
+
 /** 算力值展示：亿为单位保留一位小数，不足一亿显示万。 */
 function formatComputePoints(tokens: number): string {
-  if (tokens >= 100_000_000) return `${(tokens / 100_000_000).toFixed(1)}亿`;
-  if (tokens >= 10_000) return `${(tokens / 10_000).toFixed(1)}万`;
-  return String(tokens);
+  const value = tokens * COMPUTE_DISPLAY_MULTIPLIER;
+  if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}亿`;
+  if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`;
+  return String(value);
+}
+
+/** token_quota 本身就是算力值（双倍口径），无需再乘。 */
+function formatComputeQuota(computeValue: number): string {
+  if (computeValue >= 100_000_000) return `${(computeValue / 100_000_000).toFixed(1)}亿`;
+  if (computeValue >= 10_000) return `${(computeValue / 10_000).toFixed(1)}万`;
+  return String(computeValue);
 }
 
 function formatDate(iso: string): string {
@@ -86,7 +98,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
   };
 
   const grant = async (userId: string): Promise<void> => {
-    const plan = planChoice[userId] ?? 'monthly';
+    const plan = planChoice[userId] ?? 'silver';
     setBusyUserId(userId);
     try {
       await grantAdminMembership(userId, plan);
@@ -168,7 +180,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
                     {record.planLabel}{active ? '' : record.expired ? ' · 已到期' : ' · 已撤销'}
                   </span>}
             {account.role !== 'admin' && active && record !== null && (
-              <span className="membership-quota">剩余 {formatComputePoints(Math.max(0, record.tokenQuota - record.periodTokens))} / {formatComputePoints(record.tokenQuota)} 算力值 · 至 {formatDate(record.periodEnd)}</span>
+              <span className="membership-quota">剩余 {formatComputeQuota(Math.max(0, record.tokenQuota - record.periodTokens * COMPUTE_DISPLAY_MULTIPLIER))} / {formatComputeQuota(record.tokenQuota)} 算力值 · 至 {formatDate(record.periodEnd)}</span>
             )}
             {membership !== undefined && membership.totalTokens > 0 && (
               <span className="membership-total">累计消耗 {formatComputePoints(membership.totalTokens)}</span>
@@ -176,7 +188,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
           {account.role !== 'admin' && (
             <div className="admin-membership-actions">
               <select
-                value={planChoice[account.userId] ?? 'monthly'}
+                value={planChoice[account.userId] ?? 'silver'}
                 aria-label="选择会员套餐"
                 disabled={busyUserId === account.userId}
                 onChange={(event) => setPlanChoice((current) => ({ ...current, [account.userId]: event.target.value as MembershipPlanKey }))}

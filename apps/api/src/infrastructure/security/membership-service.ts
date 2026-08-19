@@ -2,19 +2,41 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock } from '../../domain/ids.js';
 
-/** 会员套餐：周期（自然月数）与算力值（token）配额。 */
+/**
+ * 算力值口径（2026-08-20 老板拍板）：算力值 = 真实 token × 2。
+ * usage_ledger、预算冻结与结算永远记真实 token（与火山方舟后台对齐）；
+ * 会员配额、前台展示一律用算力值（双倍），前端不出现 token 字眼。
+ */
+export const COMPUTE_VALUE_MULTIPLIER = 2;
+
+/** 算力值配额换算成真实 token 额度（预算、冻结等真实口径使用）。 */
+export function realTokenAllowance(computeQuota: number): number {
+  return Math.max(1, Math.floor(computeQuota / COMPUTE_VALUE_MULTIPLIER));
+}
+
+/** 会员套餐：周期（自然月数）与算力值配额。青铜为免费体验档，长期有效不卡到期。 */
 export const MEMBERSHIP_PLANS = {
-  monthly: { months: 1, tokenQuota: 300_000_000 },
-  quarterly: { months: 3, tokenQuota: 1_000_000_000 },
-  yearly: { months: 12, tokenQuota: 10_000_000_000 }
+  bronze: { months: 1200, tokenQuota: 200_000 },
+  silver: { months: 12, tokenQuota: 20_000_000 },
+  gold: { months: 12, tokenQuota: 50_000_000 },
+  diamond: { months: 12, tokenQuota: 200_000_000 }
 } as const;
 
 export type MembershipPlan = keyof typeof MEMBERSHIP_PLANS;
 
 export const MEMBERSHIP_PLAN_LABELS: Record<MembershipPlan, string> = {
-  monthly: '包月会员',
-  quarterly: '包季会员',
-  yearly: '包年会员'
+  bronze: '青铜会员',
+  silver: '白银会员',
+  gold: '黄金会员',
+  diamond: '钻石会员'
+};
+
+/** 各档位公开价格，仅用于展示。 */
+export const MEMBERSHIP_PLAN_PRICES: Record<MembershipPlan, string> = {
+  bronze: '免费',
+  silver: '98元',
+  gold: '198元',
+  diamond: '980元'
 };
 
 /** 办理会员联系方式的唯一来源；错误详情与前端提示共用。 */
@@ -41,10 +63,12 @@ export interface MembershipStatus {
   membership: null | {
     plan: MembershipPlan;
     planLabel: string;
+    planPrice: string;
     status: 'active' | 'revoked';
-    tokenQuota: number;
-    tokensConsumed: number;
-    tokensRemaining: number;
+    /** 以下三项均为算力值（=真实 token × 2），前台直接展示，不出现 token 字眼。 */
+    computeQuota: number;
+    computeConsumed: number;
+    computeRemaining: number;
     periodStart: string;
     periodEnd: string;
     expired: boolean;
@@ -112,8 +136,9 @@ export function membershipGenerationBlockReason(
   if (row === undefined) return 'membership-required';
   // 已有生效会员记录但周期已过：不是"从未开通"，应提示续费而非开通。
   if (row.period_end <= nowIso) return 'membership-expired';
+  // 配额是算力值（双倍口径），真实消耗换算成算力值后再比较。
   const consumed = tokensConsumedSince(database, ownerId, row.period_start);
-  return consumed >= row.token_quota ? 'quota-exhausted' : null;
+  return consumed * COMPUTE_VALUE_MULTIPLIER >= row.token_quota ? 'quota-exhausted' : null;
 }
 
 /**
@@ -136,6 +161,30 @@ export function assertMembershipAllowsGeneration(database: DatabaseSync, ownerId
   }
 }
 
+/** 书籍预算的真实 token 上限：跟随所有者当前会员等级，未开通会员（含管理员、遗留所有者）给宽松的默认值。 */
+export const DEFAULT_BOOK_TOKEN_LIMIT = 20_000_000;
+
+export function bookTokenLimitForOwner(database: DatabaseSync, ownerId: string): number {
+  const row = database.prepare(
+    "SELECT token_quota FROM user_memberships WHERE owner_id = ? AND status = 'active'"
+  ).get(ownerId) as { token_quota: number } | undefined;
+  if (row === undefined) return DEFAULT_BOOK_TOKEN_LIMIT;
+  return realTokenAllowance(Number(row.token_quota));
+}
+
+/**
+ * 新注册普通账号自动发放青铜体验（20万算力值，长期有效）。
+ * 必须在注册事务内调用；granted_by 记本人（系统默认发放）。
+ */
+export function grantDefaultBronze(database: DatabaseSync, userId: string, ownerId: string, nowIso: string): void {
+  database.prepare(`
+    INSERT INTO user_memberships (
+      user_id, owner_id, plan, token_quota, period_start, period_end, status, granted_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, 'bronze', ?, ?, '2099-12-31T00:00:00.000Z', 'active', ?, ?, ?)
+    ON CONFLICT(user_id) DO NOTHING
+  `).run(userId, ownerId, MEMBERSHIP_PLANS.bronze.tokenQuota, nowIso, userId, nowIso, nowIso);
+}
+
 export class MembershipService {
   public constructor(
     private readonly database: DatabaseSync,
@@ -152,16 +201,18 @@ export class MembershipService {
     ).get(ownerId) as MembershipRow | undefined;
     if (row === undefined) return { isAdmin: false, membership: null };
     const consumed = tokensConsumedSince(this.database, ownerId, row.period_start);
+    const computeConsumed = consumed * COMPUTE_VALUE_MULTIPLIER;
     const expired = row.period_end <= nowIso;
     return {
       isAdmin: false,
       membership: {
         plan: row.plan,
         planLabel: MEMBERSHIP_PLAN_LABELS[row.plan],
+        planPrice: MEMBERSHIP_PLAN_PRICES[row.plan],
         status: row.status,
-        tokenQuota: Number(row.token_quota),
-        tokensConsumed: consumed,
-        tokensRemaining: Math.max(0, Number(row.token_quota) - consumed),
+        computeQuota: Number(row.token_quota),
+        computeConsumed,
+        computeRemaining: Math.max(0, Number(row.token_quota) - computeConsumed),
         periodStart: row.period_start,
         periodEnd: row.period_end,
         expired
@@ -171,7 +222,7 @@ export class MembershipService {
 
   public grant(actorUserId: string, targetUserId: string, plan: MembershipPlan): MembershipStatus {
     if (!isMembershipPlan(plan)) {
-      throw new DomainError(errorCodes.validation, '请选择包月、包季或包年套餐', {}, false, 400);
+      throw new DomainError(errorCodes.validation, '请选择青铜、白银、黄金或钻石会员', {}, false, 400);
     }
     const target = findAccountById(this.database, targetUserId);
     if (target === undefined) {
@@ -204,6 +255,15 @@ export class MembershipService {
           granted_by_user_id = excluded.granted_by_user_id,
           updated_at = excluded.updated_at
       `).run(target.user_id, target.owner_id, plan, definition.tokenQuota, nowIso, periodEnd, actorUserId, nowIso, nowIso);
+      // 书籍预算上限跟随会员等级（算力值配额换算真实 token）：升级后立即解封，
+      // 避免"会员还有额度、书籍预算却提前卡死"的双重限制（2026-08-20 老板指令：不要乱限制用户）。
+      const allowance = realTokenAllowance(definition.tokenQuota);
+      this.database.prepare(`
+        UPDATE budgets SET token_limit = ?,
+          status = CASE WHEN spent_tokens + reserved_tokens >= ? THEN 'exhausted' ELSE 'active' END,
+          updated_at = ?
+        WHERE owner_id = ? AND status IN ('active', 'exhausted')
+      `).run(allowance, allowance, nowIso, target.owner_id);
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');

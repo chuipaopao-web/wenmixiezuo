@@ -1089,17 +1089,19 @@ export function updateAdminUserStatus(userId: string, status: 'active' | 'suspen
   });
 }
 
-export type MembershipPlanKey = 'monthly' | 'quarterly' | 'yearly';
+export type MembershipPlanKey = 'bronze' | 'silver' | 'gold' | 'diamond';
 
 export interface MembershipStatusData {
   isAdmin: boolean;
   membership: null | {
     plan: MembershipPlanKey;
     planLabel: string;
+    planPrice: string;
     status: 'active' | 'revoked';
-    tokenQuota: number;
-    tokensConsumed: number;
-    tokensRemaining: number;
+    /** 算力值口径（=真实消耗 × 2），前台直接展示，不出现 token 字眼。 */
+    computeQuota: number;
+    computeConsumed: number;
+    computeRemaining: number;
     periodStart: string;
     periodEnd: string;
     expired: boolean;

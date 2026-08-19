@@ -591,3 +591,14 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 确认后自动收起：SettingCollaborationPanel 按 confirmedAt 判定轮次新旧——条目已确认且方案/融合稿创建于确认时间之前（上一轮）则全部收起，只留"已定稿+重新设计/自己动手改"入口；重新设计开启的新一轮（createdAt>confirmedAt）照常显示，确认前旧定稿一直有效的规则不变。PlanningWorkspace 新增 confirmedAts 映射（初始化/快照/清空三处同步）传入面板。面板 props 的 item Pick 补 confirmedAt 字段。
 4. 自动续跑扩到融合任务：面板 20 秒自动续跑原只覆盖方案任务（DEC-075），老板这次失败的恰是融合任务；failedAutoTaskId 统一取方案/融合两类失败任务，每任务仍只自动一次。
 5. 测试：全量 729 绿（无断言引用被收起区域的文案），双端 typecheck 通过。
+
+
+## DEC-CURRENT-077 会员四等级+算力值双倍口径+预算跟随等级+个人中心（2026-08-20）
+
+【当前】老板拍板会员体系改版与配套规则：
+1. 四等级取代包月/包季/包年：青铜 20万算力值（免费体验）/ 白银 98元 2000万 / 黄金 198元 5000万 / 钻石 980元 2亿（MEMBERSHIP_PLANS bronze/silver/gold/diamond；价格 MEMBERSHIP_PLAN_PRICES 仅展示）。付费档周期 12 个月，青铜长期有效不卡到期（老板未定周期，先按此执行，可调）。
+2. 算力值口径：算力值 = 真实 token × 2（COMPUTE_VALUE_MULTIPLIER=2）。usage_ledger、预算冻结与结算永远记真实 token（与火山方舟后台对账）；会员配额 token_quota 直接存算力值；门禁判定 真实消耗×2 ≥ 配额；/membership/me 返回 computeQuota/computeConsumed/computeRemaining 算力值三件套（planPrice 同返），前端一律显示算力值、不出现 token 字眼；管理后台消耗展示也×2（formatComputePoints），配额行用 formatComputeQuota（本身是算力值不再乘）。
+3. 现有会员全部升钻石：迁移 0057 重建 user_memberships（CHECK 改四档），active 行全部映射 diamond+2亿配额，revoked 行映射 bronze 保持撤销；无会员记录的历史普通账号补发青铜（20万，至 2099 年）。新注册普通账号由注册流程自动发放青铜（grantDefaultBronze，注册事务内，granted_by 记本人），首位管理员不发放。
+4. 预算跟随等级、不再乱卡：bookTokenLimitForOwner——建书预算上限=会员算力值配额换算真实 token（realTokenAllowance=配额/2），无会员所有者（管理员/遗留）默认 2000 万；MembershipService.grant 开通/续费后同步刷新该 owner 全部 active/exhausted 预算的 token_limit 并按已用量重算状态，升级立即解封。真实耗尽时仍由会员门禁以"算力值已用完+客服微信"友好拦截。
+5. 个人中心：新增 features/account/PersonalCenterDialog.tsx——点头像进入（桌面左侧栏头像+移动端功能栏右侧"我的"头像按钮），展示头像/昵称/邮箱、会员等级+价格+到期日、已消耗算力值/总额/剩余+进度条、客服微信 595341366（一键复制）、退出登录；管理员显示"算力值不限"。App.tsx 徽标与可用判定切换 computeRemaining；后台开通档位默认白银。
+6. 测试：membership.test 四用例改写（注册自动青铜、双倍口径耗尽=真实配额/2、白银 12 个月到期推进 370 天、无会员路径先撤销青铜再验证）；admin-platform grant 改 silver；迁移清单 3 处加 0057。全量 729 绿、双端 typecheck 通过。

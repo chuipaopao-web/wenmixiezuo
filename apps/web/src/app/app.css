@@ -7178,3 +7178,39 @@ svg {
 .book-tag-library summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
 .book-tag-library summary small { color: var(--ink-soft); }
 .book-tag-library details .tag-options { margin-top: 8px; }
+
+/* 个人中心（2026-08-20）：点头像进入，展示会员等级、已耗算力值与客服微信 */
+button.sidebar-account-avatar { border: none; padding: 0; cursor: pointer; flex: none; }
+button.sidebar-account-avatar:hover { filter: brightness(1.12); }
+.function-avatar { display: grid; place-items: center; gap: 2px; }
+.function-avatar i {
+  width: 26px; height: 26px; display: grid; place-items: center; border-radius: 999px;
+  color: #f7f3e8; background: linear-gradient(145deg, #3a6154, #2c4a42 58%, #223b34);
+  font-size: 12px; font-weight: 760; font-style: normal;
+}
+.dialog.personal-center { max-width: 400px; display: grid; gap: 12px; position: relative; }
+.personal-center-head { display: flex; align-items: center; gap: 10px; }
+.personal-center-head > div { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.personal-center-head > div strong { font-size: 16px; }
+.personal-center-head > div span { font-size: 12px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; }
+.personal-center-avatar {
+  width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px;
+  color: #f7f3e8; background: linear-gradient(145deg, #3a6154, #2c4a42 58%, #223b34);
+  font-size: 18px; font-weight: 760; font-style: normal; flex: none;
+}
+.personal-center-card { border: 1px solid var(--line, #e6e2d8); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; background: color-mix(in srgb, var(--panel, #fff) 88%, transparent); }
+.personal-center-tier { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.personal-center-tier b { font-size: 15px; color: var(--accent, #3f6f5e); }
+.personal-center-tier em { font-style: normal; font-size: 12px; color: var(--ink-soft); }
+.personal-center-usage { display: grid; gap: 6px; }
+.personal-center-usage-numbers { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); }
+.personal-center-usage-numbers b { color: var(--ink); font-size: 15px; }
+.personal-center-track { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #3f6f5e) 12%, var(--panel, #fff)); overflow: hidden; }
+.personal-center-track i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent, #3f6f5e), color-mix(in srgb, var(--accent, #3f6f5e) 70%, #7fb069)); transition: width .4s ease; }
+.personal-center-usage small { font-size: 12px; color: var(--ink-faint); }
+.personal-center-support { display: flex; align-items: center; gap: 10px; }
+.personal-center-support span { font-size: 13px; color: var(--ink-soft); }
+.personal-center-support b { font-size: 17px; letter-spacing: 1px; color: var(--accent, #3f6f5e); flex: 1; }
+.personal-center-support button { border: 1px solid var(--line, #e6e2d8); background: var(--panel, #fff); border-radius: 999px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+.personal-center-support button:hover { border-color: var(--accent, #3f6f5e); color: var(--accent, #3f6f5e); }
+.personal-center-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

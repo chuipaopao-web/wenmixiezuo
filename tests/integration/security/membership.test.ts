@@ -77,30 +77,34 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(denied.statusCode).toBe(403);
       const badPlan = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'lifetime' } });
       expect(badPlan.statusCode).toBe(400);
-      const missingUser = await app.inject({ method: 'POST', url: '/api/v1/admin/memberships/no-such-user', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'monthly' } });
+      const missingUser = await app.inject({ method: 'POST', url: '/api/v1/admin/memberships/no-such-user', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
       expect(missingUser.statusCode).toBe(404);
 
+      // 注册即自动发放青铜体验（2026-08-20 起），无需管理员操作。
       const emptyStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } });
       expect(emptyStatus.statusCode).toBe(200);
-      expect(emptyStatus.json().data).toEqual({ isAdmin: false, membership: null });
-
-      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'monthly' } });
-      expect(grant.statusCode).toBe(200);
-      expect(grant.json().data.membership).toMatchObject({
-        plan: 'monthly', planLabel: '包月会员', status: 'active',
-        tokenQuota: MEMBERSHIP_PLANS.monthly.tokenQuota, tokensConsumed: 0,
-        tokensRemaining: MEMBERSHIP_PLANS.monthly.tokenQuota, expired: false
+      expect(emptyStatus.json().data.membership).toMatchObject({
+        plan: 'bronze', planLabel: '青铜会员', status: 'active',
+        computeQuota: MEMBERSHIP_PLANS.bronze.tokenQuota, computeConsumed: 0, expired: false
       });
 
-      const renew = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'yearly' } });
+      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
+      expect(grant.statusCode).toBe(200);
+      expect(grant.json().data.membership).toMatchObject({
+        plan: 'silver', planLabel: '白银会员', status: 'active',
+        computeQuota: MEMBERSHIP_PLANS.silver.tokenQuota, computeConsumed: 0,
+        computeRemaining: MEMBERSHIP_PLANS.silver.tokenQuota, expired: false
+      });
+
+      const renew = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'diamond' } });
       expect(renew.statusCode).toBe(200);
-      expect(renew.json().data.membership).toMatchObject({ plan: 'yearly', planLabel: '包年会员', tokenQuota: MEMBERSHIP_PLANS.yearly.tokenQuota });
+      expect(renew.json().data.membership).toMatchObject({ plan: 'diamond', planLabel: '钻石会员', computeQuota: MEMBERSHIP_PLANS.diamond.tokenQuota });
 
       const list = await app.inject({ method: 'GET', url: '/api/v1/admin/memberships', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(list.statusCode).toBe(200);
       const entries = (list.json().data as { items: Array<{ userId: string; membership: { plan: string } | null }> }).items;
       expect(entries).toHaveLength(2);
-      expect(entries.find((entry) => entry.userId === user.user_id)?.membership).toMatchObject({ plan: 'yearly' });
+      expect(entries.find((entry) => entry.userId === user.user_id)?.membership).toMatchObject({ plan: 'diamond' });
 
       const revoke = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
       expect(revoke.statusCode).toBe(200);
@@ -144,11 +148,12 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
     expect(() => assertMembershipAllowsGeneration(database, user.owner_id, now)).toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_REQUIRED' }) as unknown as Error);
 
-    memberships.grant(adminRegister.user_id, user.user_id, 'monthly');
+    memberships.grant(adminRegister.user_id, user.user_id, 'silver');
     expect(() => assertMembershipAllowsGeneration(database, user.owner_id, now)).not.toThrow();
 
-    // 周期内用完套餐算力值后再次拦截。
-    seedBookAndUsage(database, user.owner_id, MEMBERSHIP_PLANS.monthly.tokenQuota, now);
+    // 周期内用完套餐算力值后再次拦截：配额是算力值（双倍口径），真实 token 用掉一半即耗尽。
+    const realTokensToExhaust = MEMBERSHIP_PLANS.silver.tokenQuota / 2;
+    seedBookAndUsage(database, user.owner_id, realTokensToExhaust, now);
     try {
       assertMembershipAllowsGeneration(database, user.owner_id, now);
       expect.unreachable('算力值用完后应当被拦截');
@@ -157,15 +162,15 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect((error as DomainError).code).toBe('MEMBERSHIP_QUOTA_EXHAUSTED');
     }
 
-    // 管理列表能读到周期消耗与累计消耗。
+    // 管理列表能读到周期消耗与累计消耗（真实 token 口径，供与供应商后台对账）。
     const list = memberships.listUsersWithMembership();
     const entry = list.items.find((row) => row.userId === user.user_id);
-    expect(entry?.membership).toMatchObject({ plan: 'monthly', periodTokens: MEMBERSHIP_PLANS.monthly.tokenQuota });
-    expect(entry?.totalTokens).toBe(MEMBERSHIP_PLANS.monthly.tokenQuota);
+    expect(entry?.membership).toMatchObject({ plan: 'silver', periodTokens: realTokensToExhaust });
+    expect(entry?.totalTokens).toBe(realTokensToExhaust);
 
-    // statusForOwner 汇报剩余 0。
+    // statusForOwner 汇报算力值口径：已消耗=真实×2，剩余 0。
     const status = memberships.statusForOwner(user.owner_id);
-    expect(status.membership).toMatchObject({ tokensConsumed: MEMBERSHIP_PLANS.monthly.tokenQuota, tokensRemaining: 0 });
+    expect(status.membership).toMatchObject({ computeConsumed: MEMBERSHIP_PLANS.silver.tokenQuota, computeRemaining: 0 });
   });
 
   it('无会员用户可以开书但不会创建首个AI任务，开通会员后恢复', async () => {
@@ -178,6 +183,9 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const userCookie = cookieFrom(userRegister);
       const rows = accountRows(context.database);
       const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
+      // 新注册默认发放青铜体验；本用例验证"无会员"路径，先撤销青铜恢复未开通状态。
+      const revokeBronze = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
+      expect(revokeBronze.statusCode).toBe(200);
       const openingBlueprint = {
         styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
         taxonomyVersion: OPENING_TAXONOMY.version, channel: 'male', categoryKey: 'male-history-brain',
@@ -208,7 +216,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect((blockedPanel.json() as { error: { code: string } }).error.code).toBe('MEMBERSHIP_REQUIRED');
 
       // 开通会员后再次开书：建书不再自动建任务，手动召集照常创建任务。
-      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'monthly' } });
+      const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
       expect(grant.statusCode).toBe(200);
       const memberDraft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '会员开书', text: '验证会员开书创建首个任务', openingBlueprint } })).json().data as { draftId: string; version: number };
       const memberConfirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${memberDraft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: memberDraft.version } });
@@ -246,8 +254,9 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       `).run(account.user_id, account.owner_id, `${account.user_id}@example.com`, account.user_id, now, now);
     }
 
-    memberships.grant(admin.user_id, user.user_id, 'monthly');
-    clock.advance(32 * 24 * 60 * 60 * 1000);
+    memberships.grant(admin.user_id, user.user_id, 'silver');
+    // 付费档周期 12 个月：推进 370 天后到期拦截。
+    clock.advance(370 * 24 * 60 * 60 * 1000);
     const later = clock.now().toISOString();
     expect(() => assertMembershipAllowsGeneration(database, user.owner_id, later)).toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_EXPIRED' }) as unknown as Error);
     expect(memberships.statusForOwner(user.owner_id).membership).toMatchObject({ expired: true, status: 'active' });

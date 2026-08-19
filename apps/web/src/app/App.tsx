@@ -63,6 +63,7 @@ import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace'
 import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
 import { AuthScreen } from '../features/auth/AuthScreen';
 import { AdminWorkspace } from '../features/admin/AdminWorkspace';
+import { PersonalCenterDialog, formatComputeValue } from '../features/account/PersonalCenterDialog';
 import {
   MEMBERSHIP_BLOCK_COPY,
   MembershipGateProvider,
@@ -144,6 +145,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
   const [membershipChecking, setMembershipChecking] = useState(false);
   const [membershipBlock, setMembershipBlock] = useState<MembershipBlockReason | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [noticeDismissed, setNoticeDismissedState] = useState(() => {
     try { return window.localStorage.getItem('wenmi-notice-dismissed') === '1'; } catch { return false; }
   });
@@ -178,7 +180,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     entry.tasks.some((task) => taskNeedsAttention(task, taskSeen)));
   const membershipRecord = membershipStatus?.membership ?? null;
   const membershipUsable = account.role === 'admin'
-    || (membershipRecord !== null && membershipRecord.status === 'active' && !membershipRecord.expired && membershipRecord.tokensRemaining > 0);
+    || (membershipRecord !== null && membershipRecord.status === 'active' && !membershipRecord.expired && membershipRecord.computeRemaining > 0);
   // AI 介入前置检查：管理员或持有生效会员可放行；未开通会员则弹窗提示并阻断调用。
   const guardAi = useCallback((): boolean => {
     if (membershipUsable) return true;
@@ -613,7 +615,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           </div>
         </div>
         <div className="sidebar-account">
-          <div className="sidebar-account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</div>
+          <button className="sidebar-account-avatar" type="button" aria-label="打开个人中心" title="个人中心" onClick={() => setProfileOpen(true)}>{account.displayName.slice(0, 1).toUpperCase()}</button>
           <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></div>
           <div className="sidebar-account-actions">
             {account.role === 'admin' && <button type="button" onClick={() => setUtilityView('admin')}>管理</button>}
@@ -643,6 +645,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span>{tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>
           <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
           <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>{workspaceFunctionLabel('settings')}</span></button>
+          <button className="function-avatar" type="button" aria-label="打开个人中心" onClick={() => setProfileOpen(true)}><i aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</i><span>我的</span></button>
         </div>
       </nav>
 
@@ -689,6 +692,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       </main>
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
+      {profileOpen && <PersonalCenterDialog account={account} membership={membershipStatus} onClose={() => setProfileOpen(false)} onSignOut={() => { setProfileOpen(false); void onSignOut(); }} />}
       {createOpen && <CompleteCreateBookDialog accountId={account.userId} busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {account.role !== 'admin' && membershipStatus !== null && !membershipUsable && !noticeDismissed && (
         <div className="dialog-backdrop membership-gate-backdrop">
@@ -748,14 +752,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 function formatMembershipBadge(status: MembershipStatusData | null): string {
   const record = status?.membership ?? null;
   if (record === null) return '作者账号 · 未开通会员';
-  const usable = record.status === 'active' && !record.expired && record.tokensRemaining > 0;
+  const usable = record.status === 'active' && !record.expired && record.computeRemaining > 0;
   if (!usable) return record.expired ? `作者账号 · ${record.planLabel}已到期` : '作者账号 · 会员可用算力值已用完';
-  const remaining = record.tokensRemaining >= 100_000_000
-    ? `${(record.tokensRemaining / 100_000_000).toFixed(1)}亿`
-    : record.tokensRemaining >= 10_000
-      ? `${(record.tokensRemaining / 10_000).toFixed(1)}万`
-      : String(record.tokensRemaining);
-  return `作者账号 · ${record.planLabel} · 剩余${remaining}算力值`;
+  return `作者账号 · ${record.planLabel} · 剩余${formatComputeValue(record.computeRemaining)}算力值`;
 }
 
 function UnifiedEmptyState({ title, description, hint, onCreate }: { title: string; description: string; hint?: string; onCreate?: () => void }): React.JSX.Element {

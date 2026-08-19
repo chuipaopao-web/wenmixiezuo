@@ -83,7 +83,7 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       const ownerId = ownerIdOf('writer@example.com');
       const writerUserId = (context.database.prepare('SELECT user_id FROM user_accounts WHERE email_normalized = ?').get('writer@example.com') as { user_id: string }).user_id;
       const adminUserId = (context.database.prepare('SELECT user_id FROM user_accounts WHERE email_normalized = ?').get('admin@example.com') as { user_id: string }).user_id;
-      new MembershipService(context.database, clock).grant(adminUserId, writerUserId, 'monthly');
+      new MembershipService(context.database, clock).grant(adminUserId, writerUserId, 'silver');
       const book = initializeDomainBook(context, ownerId, ids, clock, { title: '清洗测试书' });
       const scope = { ownerId, bookId: book.bookId };
       const agent = new AgentGovernanceRepository(context.database).listTeam(scope)[0]!;

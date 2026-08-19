@@ -19,6 +19,7 @@ import { OPENING_TAXONOMY, type OpeningBlueprintInput, type ProtagonistRole } fr
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { SettingGuidanceService } from '../knowledge/setting-guidance-service.js';
+import { bookTokenLimitForOwner } from '../../infrastructure/security/membership-service.js';
 
 export interface OnboardingResult {
   bookId: string;
@@ -189,16 +190,17 @@ export class BookOnboardingService {
         promptCompiler.compile(roleKey, { objective: '岗位默认运行合同', mode: 'discussion', contextManifest: [], outputSchema: { type: 'object' } });
       }
       if (failAt === 'after_team') throw new Error('simulated-onboarding-failure');
-      // 单书预算上限是防失控保险丝，不是日常消耗刻度：套餐为包量制，24 万的旧默认值
-      // 会在正常设计半本书时就误报 BUDGET_EXHAUSTED 卡死融合（2026-08-20 生产事故）。
-      // 放宽到 2000 万，仍保留失控熔断能力。
+      // 单书预算上限是防失控保险丝，不是日常消耗刻度：跟随所有者会员等级
+      //（算力值配额换算真实 token），会员升级时由 MembershipService.grant 同步刷新，
+      // 避免"会员还有额度、书籍预算却提前卡死"的双重限制（2026-08-20 老板指令）。
+      const bookTokenLimit = bookTokenLimitForOwner(this.database, scope.ownerId);
       this.database.prepare(`
         INSERT INTO budgets (
           budget_id, owner_id, book_id, mode, token_limit, cash_limit_micros,
           reserved_tokens, reserved_cash_micros, spent_tokens, spent_cash_micros,
           status, created_at, updated_at
-        ) VALUES (?, ?, ?, 'standard', 20000000, 0, 0, 0, 0, 0, 'active', ?, ?)
-      `).run(budgetId, scope.ownerId, draft.proposedBookId, now, now);
+        ) VALUES (?, ?, ?, 'standard', ?, 0, 0, 0, 0, 0, 'active', ?, ?)
+      `).run(budgetId, scope.ownerId, draft.proposedBookId, bookTokenLimit, now, now);
       const storyBible = storyBibleSkeleton(draft.title, draft.fields, draft.tags, draft.openingBlueprint);
       this.database.prepare(`
         INSERT INTO artifacts (
