@@ -43,9 +43,15 @@ export class ModelCallService {
     assertBookScope(scope);
     const inputHash = createHash('sha256').update(call.input).digest('hex');
     const parametersHash = createHash('sha256').update(call.parameters).digest('hex');
+    // 幂等去重只认"活着的"调用（排队/执行中/等待供应商/已成功）：
+    // 已终结的失败行（failed/interrupted）不再阻挡补发——这正是讨论席位缺席后
+    // 系统自动补发资料、以及任务断点续跑必须能重新发起同一输入调用的前提。
+    // 结果真正未知的调用保持 awaiting_provider，不会被放行重复扣量。
     const existing = this.database.prepare(`
       SELECT request_id FROM model_calls
       WHERE task_id = ? AND phase_key = ? AND model_snapshot_id = ? AND input_hash = ?
+        AND state IN ('pending', 'working', 'awaiting_provider', 'succeeded')
+      ORDER BY created_at DESC LIMIT 1
     `).get(call.taskId, call.phaseKey, call.modelSnapshotId, inputHash) as { request_id: string } | undefined;
     if (existing !== undefined) return existing.request_id;
     const valid = this.database.prepare(`

@@ -571,3 +571,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 5. 测试：新增 tests/unit/ime-safe-field.test.tsx 3 用例（拼音过程不截断/落定截断、普通输入立即限长、emoji 不截半），全量 728 绿、双端 typecheck 通过。
 
 > 【074 补充·同日】老板要求提示行放到设定页最上方并红字醒目：已从队列条上方移到成员栏正下方（页面首屏位置），样式改红字+浅红底+红边框。
+
+
+## DEC-CURRENT-075 讨论任务以目标为导向：缺席席位自动补发资料（2026-08-20）
+
+【当前】老板实测"主角处境"只有两名成员出方案、任务失败且不自动继续，作者卡死无法融合。生产证据：GLM 5.3 调用网络中断（provider_result_unknown），讨论直接判败。老板要求：任务以目标为导向——三席方案必须集齐；缺席成员报备原因；系统自动给缺席成员补发资料补全，其余成员不陪跑；有时间限制不能让用户一直等。落地：
+1. 管线补全机制（discussion-pipeline-service collectGoalOriented）：独立方案与交叉质疑两阶段都改为"首轮并行 + 最多 2 轮自动补全（轮间 15 秒）"。每轮只召集缺席席位（Promise.allSettled 收集成败），成功席位的已落库检查点不重复调用；自动补全仍失败的抛出点名错误（成员名+真实原因），任务可按断点继续且同样只补缺席席位。补全轮 phase_key 带 :makeup-N 后缀，绕开 model_calls 的 (task,phase_key,snapshot,input_hash) 唯一约束，同时保留 attempt-% 前缀让检查点复用匹配不受影响。
+2. 幂等去重放行终结失败（model-call-service begin）：原守卫按四元组去重，任何同输入重发（包括补发和断点续跑）都被"拒绝重复调用"挡死——这是老板场景的真正卡点。改为只认活着的调用（pending/working/awaiting_provider/succeeded），failed/interrupted 终结行不再阻挡重发；真正结果未知的 awaiting_provider 行仍然拦截，不会重复扣量。中断调用的冻结预算仍由 DEC-071 巡检 10 分钟后自动释放。
+3. 前端兜底（SettingCollaborationPanel）：提案任务失败 20 秒后自动点一次"继续完成"（每个任务只自动一次，断点续跑只补缺席席位）；失败提示点名缺席成员（"红玉没有交出方案：系统已自动补发资料仍未完成，稍后会自动再补写一次；其余成员的方案已保留"）。
+4. 原因报备与后台同步：每次失败调用本就落库 state/error_class/error_detail（管理员后台算力消耗可见），补全错误信息点名成员+原因，任务中心可见。
+5. 测试：新增 tests/integration/runtime/discussion-makeup.test.ts——GLM 首次调用 TypeError 中断，验证任务最终成功、三份方案集齐、GLM 恰好补发 1 次、其余两席各只调用 1 次、失败记录 provider_result_unknown 落库。全量 729 绿、双端 typecheck 通过。

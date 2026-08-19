@@ -83,6 +83,25 @@ export function SettingCollaborationPanel({
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
 
+  // 目标导向兜底：系统自动补发资料仍未完成时，20 秒后自动让缺席成员补写一次
+  //（检查点复用只补缺席席位，不重复消耗），作者无需守着页面手动点。
+  const autoRetriedTaskRef = useRef<string | null>(null);
+  const panelTaskFailed = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus);
+  useEffect(() => {
+    if (!panelTaskFailed || busy !== null || data?.panel == null) return undefined;
+    const taskId = data.panel.taskId;
+    if (autoRetriedTaskRef.current === taskId) return undefined;
+    const timer = window.setTimeout(() => {
+      autoRetriedTaskRef.current = taskId;
+      setBusy('retry');
+      void retryTask(bookId, taskId)
+        .then(() => refresh())
+        .catch(() => undefined)
+        .finally(() => { setBusy(null); });
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [panelTaskFailed, busy, data?.panel, bookId, refresh]);
+
   const start = async (): Promise<void> => {
     if (busy !== null) return;
     if (!guardAi()) return;
@@ -380,7 +399,17 @@ export function SettingCollaborationPanel({
         <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
         <small>三位成员同时动笔，方案出来会自动显示，请稍等；已完成的内容会自动保留。</small>
       </div>}
-      {(panelFailed || revisionFailed) && <div className="setting-collaboration-error"><p>这轮没有完成，已有方案仍然保留。</p><button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在继续…' : '继续完成'}</button></div>}
+      {(panelFailed || revisionFailed) && (() => {
+        const failedNames = panelFailed
+          ? panelMembers.filter((member) => member.status === 'failed').map((member) => member.memberName)
+          : [];
+        return <div className="setting-collaboration-error">
+          <p>{failedNames.length > 0
+            ? `${failedNames.join('、')}没有交出方案：系统已自动补发资料仍未完成，稍后会自动再让缺席成员补写一次；其余成员的方案已保留，不会重复消耗。`
+            : '这轮没有完成，已有方案仍然保留，稍后会自动继续一次。'}</p>
+          <button type="button" disabled={busy !== null} onClick={() => void retry()}>{busy === 'retry' ? '正在继续…' : '继续完成'}</button>
+        </div>;
+      })()}
       {paused && <div className="setting-collaboration-error"><p>任务已暂停，已有结果会保留。</p><button type="button" disabled={busy !== null} onClick={() => void resume()}>{busy === 'resume' ? '正在继续…' : '继续这项任务'}</button></div>}
       {blocked && <p className="setting-collaboration-state">任务需要先处理阻塞原因；请在任务中心查看具体说明，现有方案不会丢失。</p>}
 

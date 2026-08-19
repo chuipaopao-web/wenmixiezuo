@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`7f359f84c833`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`aaa4d53627fb`
 
 #### 当前生效决定
 
@@ -3778,6 +3778,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 > 【074 补充·同日】老板要求提示行放到设定页最上方并红字醒目：已从队列条上方移到成员栏正下方（页面首屏位置），样式改红字+浅红底+红边框。
 
+
+##### DEC-CURRENT-075 讨论任务以目标为导向：缺席席位自动补发资料（2026-08-20）
+
+【当前】老板实测"主角处境"只有两名成员出方案、任务失败且不自动继续，作者卡死无法融合。生产证据：GLM 5.3 调用网络中断（provider_result_unknown），讨论直接判败。老板要求：任务以目标为导向——三席方案必须集齐；缺席成员报备原因；系统自动给缺席成员补发资料补全，其余成员不陪跑；有时间限制不能让用户一直等。落地：
+1. 管线补全机制（discussion-pipeline-service collectGoalOriented）：独立方案与交叉质疑两阶段都改为"首轮并行 + 最多 2 轮自动补全（轮间 15 秒）"。每轮只召集缺席席位（Promise.allSettled 收集成败），成功席位的已落库检查点不重复调用；自动补全仍失败的抛出点名错误（成员名+真实原因），任务可按断点继续且同样只补缺席席位。补全轮 phase_key 带 :makeup-N 后缀，绕开 model_calls 的 (task,phase_key,snapshot,input_hash) 唯一约束，同时保留 attempt-% 前缀让检查点复用匹配不受影响。
+2. 幂等去重放行终结失败（model-call-service begin）：原守卫按四元组去重，任何同输入重发（包括补发和断点续跑）都被"拒绝重复调用"挡死——这是老板场景的真正卡点。改为只认活着的调用（pending/working/awaiting_provider/succeeded），failed/interrupted 终结行不再阻挡重发；真正结果未知的 awaiting_provider 行仍然拦截，不会重复扣量。中断调用的冻结预算仍由 DEC-071 巡检 10 分钟后自动释放。
+3. 前端兜底（SettingCollaborationPanel）：提案任务失败 20 秒后自动点一次"继续完成"（每个任务只自动一次，断点续跑只补缺席席位）；失败提示点名缺席成员（"红玉没有交出方案：系统已自动补发资料仍未完成，稍后会自动再补写一次；其余成员的方案已保留"）。
+4. 原因报备与后台同步：每次失败调用本就落库 state/error_class/error_detail（管理员后台算力消耗可见），补全错误信息点名成员+原因，任务中心可见。
+5. 测试：新增 tests/integration/runtime/discussion-makeup.test.ts——GLM 首次调用 TypeError 中断，验证任务最终成功、三份方案集齐、GLM 恰好补发 1 次、其余两席各只调用 1 次、失败记录 provider_result_unknown 落库。全量 729 绿、双端 typecheck 通过。
+
 ---
 
 ### 当前开发与验收计划
@@ -4216,7 +4226,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`6f3e9994a8ad`
+> 当前源文件：`HANDOFF.md` · 指纹：`f00e0ba471b0`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4234,7 +4244,8 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 输入法安全字数+开局结局300字+设定提示+设计进度条（DEC-CURRENT-074）：① 新建共享组件 features/shared/ImeSafeField.tsx（ImeInput/ImeTextarea，maxChars）——拼音 composition 期间不占字数不截断，落定才截，按码点计（emoji 不截半），弃用原生 maxLength；已替换全部作者向限长输入框（开书对话框、设定协作面板、设定清单自定义项、卷重点表达、作者原话、团队岗位要求、取名提示、整本导入）。② 开局/结局上限 100→300 字（前后端+测试同步）。③ 设定页队列条上方新增提示"设定条目按需选择设计，不是选的越多越好……只设计核心设定即可"。④ 团队设计进度条：单项改为醒目进度块"团队正在设计「条目名」"+不定态滑动条；队列条显示"已定稿 N/M 项"+确定性进度条。新增 ime-safe-field 测试 3 用例，全量 728 绿。
+1. 讨论任务以目标为导向：缺席席位自动补发资料（DEC-CURRENT-075）：老板实测"主角处境"两人出方案、任务失败卡死。① 管线 collectGoalOriented——独立方案与交叉质疑都改"首轮并行+最多2轮自动补全（轮间15秒）"，每轮只召集缺席席位，成功席位检查点不陪跑；仍失败点名成员+原因，断点续跑同样只补缺席；补全轮 phase_key 带 :makeup-N 后缀绕开 model_calls 唯一约束。② 关键卡点修复——model-call-service begin 幂等去重原本把任何同输入重发都挡死（"拒绝重复调用"），补发根本发不出去；改为只认活着的调用（pending/working/awaiting_provider/succeeded），failed/interrupted 终结行放行，真正未知的 awaiting_provider 仍拦截不重复扣量。③ 前端兜底——提案任务失败 20 秒自动续跑一次+失败提示点名缺席成员。新增 discussion-makeup 集成测试（GLM 中断→自动补发→集齐三方案，其余两席零陪跑），全量 729 绿。
+1. 输入法安全字数+开局结局300字+设定提示+设计进度条（DEC-CURRENT-074）：① 新建共享组件 features/shared/ImeSafeField.tsx（ImeInput/ImeTextarea，maxChars）——拼音 composition 期间不占字数不截断，落定才截，按码点计（emoji 不截半），弃用原生 maxLength；已替换全部作者向限长输入框（开书对话框、设定协作面板、设定清单自定义项、卷重点表达、作者原话、团队岗位要求、取名提示、整本导入）。② 开局/结局上限 100→300 字（前后端+测试同步）。③ 设定页提示"设定条目按需选择设计……只设计核心设定即可"，后按老板要求移到页面最上方成员栏下并改红字醒目样式。④ 团队设计进度条：单项改为醒目进度块"团队正在设计「条目名」"+不定态滑动条；队列条显示"已定稿 N/M 项"+确定性进度条。新增 ime-safe-field 测试 3 用例，全量 728 绿。
 1. 提案席三编剧+模型换绑+任务红点+三席并行（DEC-CURRENT-073）：① 设定提案三席从文姬改为三名编剧（婉儿/红玉/幼薇），讨论管线席位指令补 third_screenwriter 分支，前端顶部常驻成员栏同步。② 模型按老板名单换绑：貂蝉→DeepSeek V4 Pro、西施→GLM 5.3、婉儿→DeepSeek V4 Pro、红玉→GLM 5.3、幼薇→Kimi K2.7、文姬→DeepSeek V4 Flash；注意 toCreativeProfiles 有两份副本（model-binding-service.ts 与 book-onboarding-service.ts），换绑必须同步改，否则建书校验"三编剧互异模型"失败。③ 任务红点修复（DEC-062 号称做过实际没生效）：根因是任务中心数据只在打开任务页才拉取；已改进入应用即拉+60秒轮询+事件流始终刷新，功能栏"任务"按钮加红点（在跑/卡住/有未看结果即亮），seen 工具上移到 shared/task-presentation.ts。④ 生成慢优化：讨论管线各席独立意见与交叉质疑从串行 await 改 Promise.all 并行（三席互不可见本就独立），耗时从"各席相加"降为"最慢一席"，失败席位重试可复用检查点。同步 10 处旧断言，全量 725 绿。
 
 1. 开书标签软参考+本卷重点表达（DEC-CURRENT-072）：开书标签文案改为"参考方向、只影响基础设计、不限制死"；卷阶段不加二次选择——VolumePlanContent 新增 focusExpression（本卷重点表达一句短语，null=沿用全书调子），主编在卷方案中自动提炼、作者顺带确认（卷编辑器新增输入框，40字可留空）；composeStyleToneText 注入"软参考、不推翻全书基调、不当硬指标"说明，正文管线与妙玉找茬管线同步。测试 +2 用例，全量 725 绿。

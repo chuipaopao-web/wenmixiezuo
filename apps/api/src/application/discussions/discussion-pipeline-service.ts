@@ -220,7 +220,8 @@ export class DiscussionPipelineService {
       const collectOpinion = async (
         participant: ParticipantRow,
         phase: DiscussionPhase,
-        peerOpinions: CollectedOpinion[] = []
+        peerOpinions: CollectedOpinion[] = [],
+        keyTag = ''
       ): Promise<CollectedOpinion> => {
         const isEditor = participant.agent_id === task.assigned_agent_id;
         const matchingOpinions = opinions.filter(
@@ -433,7 +434,7 @@ export class DiscussionPipelineService {
           try {
             result = await calls.execute(scope, {
               requestId, taskId,
-              phaseKey: `${phase}:${participant.role_key}:attempt-${claimedTask.currentAttemptNo}:try-${technicalTry}`,
+              phaseKey: `${phase}:${participant.role_key}:attempt-${claimedTask.currentAttemptNo}:try-${technicalTry}${keyTag}`,
               agentId: participant.agent_id,
               modelSnapshotId: participant.model_snapshot_id, provider: participant.provider, modelId: participant.model_id,
               input: attemptPrompt,
@@ -573,11 +574,43 @@ export class DiscussionPipelineService {
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
       if (editor === undefined && brief.purpose !== 'setting_proposal_panel') throw new Error('讨论缺少当前活动主编');
       const specialists = participants.filter((participant) => participant.agent_id !== task.assigned_agent_id);
-      // 各席方案按规则互不可见、彼此独立：并行召集，整体耗时从"各席相加"降为"最慢一席"。
-      // 任一席失败时其余席的已落库检查点仍可在重试时复用，不会重复消耗。
-      const independent: CollectedOpinion[] = await Promise.all(
-        specialists.map((specialist) => collectOpinion(specialist, 'independent'))
-      );
+      // 以目标为导向：本轮必须集齐所有席位的方案。各席并行召集；有席位失败时，
+      // 成功席的已落库检查点自动复用，只给缺席席位补发资料包继续写（自动补 2 轮，轮间稍等），
+      // 不让作者干等、也不让已完成的席位陪跑重复消耗。自动补全仍失败的点名成员与原因，
+      // 任务可按断点继续（同样只补缺席席位）。
+      const MAKEUP_ROUNDS = 2;
+      const MAKEUP_WAIT_MS = 15_000;
+      const sleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
+      const collectGoalOriented = async (
+        phase: 'independent' | 'cross_review',
+        peersOf?: (specialist: ParticipantRow) => CollectedOpinion[]
+      ): Promise<CollectedOpinion[]> => {
+        const done = new Map<string, CollectedOpinion>();
+        let pending = [...specialists];
+        let failures: Array<{ name: string; reason: string }> = [];
+        for (let round = 0; round <= MAKEUP_ROUNDS && pending.length > 0; round += 1) {
+          if (round > 0) await sleep(MAKEUP_WAIT_MS);
+          const settled = await Promise.allSettled(pending.map((specialist) =>
+            collectOpinion(specialist, phase, peersOf?.(specialist), round === 0 ? '' : `:makeup-${round}`)
+          ));
+          failures = [];
+          pending = pending.filter((specialist, index) => {
+            const outcome = settled[index];
+            if (outcome?.status === 'fulfilled') { done.set(specialist.agent_id, outcome.value); return false; }
+            failures.push({
+              name: specialist.display_name,
+              reason: outcome?.reason instanceof Error ? outcome.reason.message : String(outcome?.reason)
+            });
+            return true;
+          });
+        }
+        if (pending.length > 0) {
+          const summary = failures.map((failure) => `${failure.name}（${failure.reason}）`).join('；');
+          throw new Error(`系统已自动为缺席成员补发资料 ${MAKEUP_ROUNDS} 轮，仍有成员没有交出方案：${summary}。其余成员的方案已保留，继续完成时只让缺席成员补写，不重复消耗。`);
+        }
+        return specialists.map((specialist) => done.get(specialist.agent_id)!);
+      };
+      const independent: CollectedOpinion[] = await collectGoalOriented('independent');
 
       if (brief.purpose === 'stage_outline_synthesis') {
         if (specialists.length !== 0) throw new Error('阶段剧情整理只能由活动主编执行');
@@ -657,12 +690,12 @@ export class DiscussionPipelineService {
       if (creativePurpose) {
         const current = discussions.require(scope, brief.discussionId);
         if (current.status === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'cross_review');
-        // 交叉质疑同样是各席独立调用：并行执行，只读彼此的独立方案，不写共享状态。
-        await Promise.all(specialists.map((specialist) => {
+        // 交叉质疑同样以目标为导向：只读彼此的独立方案，缺席席位自动补发资料继续写。
+        await collectGoalOriented('cross_review', (specialist) => {
           const peers = independent.filter((opinion) => opinion.agentId !== specialist.agent_id);
           if (peers.length === 0) throw new Error('双编剧交叉质疑缺少另一份独立方案');
-          return collectOpinion(specialist, 'cross_review', peers);
-        }));
+          return peers;
+        });
       }
 
       const specialistEvidence = opinions.filter((opinion) => opinion.agentId !== editor!.agent_id);
