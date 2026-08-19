@@ -657,7 +657,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         : utilityView === 'ideas' ? (selectedBook === null
           ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
           : <IdeationWorkspace bookId={selectedBook.bookId} currentLocation={creationTab} onError={setError} />)
-        : selectedBook === null ? <UnifiedEmptyState title="创建您的第一本书" description="花几分钟填一份开书资料，AI 团队就会为您设计设定和故事大纲；您确认后，团队逐章写出正文——每一步都等您拍板，不满意就重来。" hint="未开通会员也可以先建书、填资料；开通后 AI 团队立刻开始干活。" onCreate={() => setCreateOpen(true)} />
+        : selectedBook === null ? <UnifiedEmptyState title="创建您的第一本书" description="专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品。" hint="未开通会员也可以先建书、填资料；开通后 AI 团队立刻开始干活。" onCreate={() => setCreateOpen(true)} />
         : (
           <>
             <PlanningWorkspace
