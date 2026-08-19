@@ -6627,7 +6627,8 @@ svg {
   .function-book-toggle { display: inline-flex !important; flex: 0 0 40px; }
   .ios-book-sidebar {
     position: fixed;
-    z-index: 50;
+    /* 必须高于抽屉遮罩 .drawer-scrim（z-index 60），否则遮罩盖住抽屉：展开书籍整屏变暗且无法点书 */
+    z-index: 70;
     inset: 0 auto 0 0;
     width: 144px !important;
     transform: translateX(-105%);
@@ -6643,8 +6644,9 @@ svg {
 
 @media (max-width: 640px) {
   .app-shell.unified-desk { grid-template-rows: 118px minmax(0, 1fr); }
-  .ios-function-bar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px 3px; padding: 6px 8px 8px 50px; align-items: stretch; }
-  .function-book-toggle { position: absolute; z-index: 1; top: 50%; left: 8px; transform: translateY(-50%); }
+  /* 功能栏固定两排六列；书籍抽屉开关独占最左一列、纵向跨两排，不与功能按钮混排 */
+  .ios-function-bar { display: grid; grid-template-columns: 44px repeat(6, minmax(0, 1fr)); gap: 4px 3px; padding: 6px 8px 8px; align-items: stretch; }
+  .function-book-toggle { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center; }
   .function-nav-primary, .function-nav-utilities { display: contents; }
   .ios-function-bar button { min-height: 50px; flex-direction: column; gap: 3px; padding: 6px 2px; }
   .ios-function-bar button svg { width: 18px; height: 18px; }
@@ -7182,12 +7184,6 @@ svg {
 /* 个人中心（2026-08-20）：点头像进入，展示会员等级、已耗算力值与客服微信 */
 button.sidebar-account-avatar { border: none; padding: 0; cursor: pointer; flex: none; }
 button.sidebar-account-avatar:hover { filter: brightness(1.12); }
-.function-avatar { display: grid; place-items: center; gap: 2px; }
-.function-avatar i {
-  width: 26px; height: 26px; display: grid; place-items: center; border-radius: 999px;
-  color: #f7f3e8; background: linear-gradient(145deg, #3a6154, #2c4a42 58%, #223b34);
-  font-size: 12px; font-weight: 760; font-style: normal;
-}
 .dialog.personal-center { max-width: 400px; display: grid; gap: 12px; position: relative; }
 .personal-center-head { display: flex; align-items: center; gap: 10px; }
 .personal-center-head > div { display: grid; gap: 1px; min-width: 0; flex: 1; }

@@ -602,3 +602,11 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 预算跟随等级、不再乱卡：bookTokenLimitForOwner——建书预算上限=会员算力值配额换算真实 token（realTokenAllowance=配额/2），无会员所有者（管理员/遗留）默认 2000 万；MembershipService.grant 开通/续费后同步刷新该 owner 全部 active/exhausted 预算的 token_limit 并按已用量重算状态，升级立即解封。真实耗尽时仍由会员门禁以"算力值已用完+客服微信"友好拦截。
 5. 个人中心：新增 features/account/PersonalCenterDialog.tsx——点头像进入（桌面左侧栏头像+移动端功能栏右侧"我的"头像按钮），展示头像/昵称/邮箱、会员等级+价格+到期日、已消耗算力值/总额/剩余+进度条、客服微信 595341366（一键复制）、退出登录；管理员显示"算力值不限"。App.tsx 徽标与可用判定切换 computeRemaining；后台开通档位默认白银。
 6. 测试：membership.test 四用例改写（注册自动青铜、双倍口径耗尽=真实配额/2、白银 12 个月到期推进 370 天、无会员路径先撤销青铜再验证）；admin-platform grant 改 silver；迁移清单 3 处加 0057。全量 729 绿、双端 typecheck 通过。
+
+
+## DEC-CURRENT-078 手机端热修：撤下功能栏"我的"+抽屉黑屏+两排六列固定排版（2026-08-20）
+
+【当前】老板手机端实测三个问题：
+1. 功能栏"我的"按钮撤下（077 加的）：它让功能按钮变成 13 个，手机端两排装不下挤出第三排、桌面窄屏也换行，溢出遮挡内容。个人中心只保留"点头像进入"（书籍栏底部头像，手机端展开书籍抽屉后点）。
+2. 手机端展开书籍直接黑屏、无法点书：根因是抽屉遮罩 .drawer-scrim z-index 60 高于书籍抽屉 .ios-book-sidebar z-index 50，遮罩盖住抽屉整屏变暗且所有点击都落在遮罩上。抽屉 z-index 改 70（注释说明原因）。
+3. 手机端功能栏排版：640px 以下从"6 列网格+开关绝对定位叠在 50px 左留白上"改为"开关独占最左 44px 列并纵向跨两排 + 右侧两排六列 12 个功能"（grid-template-columns: 44px repeat(6,1fr)，function-book-toggle grid-row: 1 / span 2），页面高度固定 118px 不再被挤出第三排。

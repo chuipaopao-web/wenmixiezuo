@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`09d08a8da48e`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`4d108a740cc9`
 
 #### 当前生效决定
 
@@ -3809,6 +3809,14 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 5. 个人中心：新增 features/account/PersonalCenterDialog.tsx——点头像进入（桌面左侧栏头像+移动端功能栏右侧"我的"头像按钮），展示头像/昵称/邮箱、会员等级+价格+到期日、已消耗算力值/总额/剩余+进度条、客服微信 595341366（一键复制）、退出登录；管理员显示"算力值不限"。App.tsx 徽标与可用判定切换 computeRemaining；后台开通档位默认白银。
 6. 测试：membership.test 四用例改写（注册自动青铜、双倍口径耗尽=真实配额/2、白银 12 个月到期推进 370 天、无会员路径先撤销青铜再验证）；admin-platform grant 改 silver；迁移清单 3 处加 0057。全量 729 绿、双端 typecheck 通过。
 
+
+##### DEC-CURRENT-078 手机端热修：撤下功能栏"我的"+抽屉黑屏+两排六列固定排版（2026-08-20）
+
+【当前】老板手机端实测三个问题：
+1. 功能栏"我的"按钮撤下（077 加的）：它让功能按钮变成 13 个，手机端两排装不下挤出第三排、桌面窄屏也换行，溢出遮挡内容。个人中心只保留"点头像进入"（书籍栏底部头像，手机端展开书籍抽屉后点）。
+2. 手机端展开书籍直接黑屏、无法点书：根因是抽屉遮罩 .drawer-scrim z-index 60 高于书籍抽屉 .ios-book-sidebar z-index 50，遮罩盖住抽屉整屏变暗且所有点击都落在遮罩上。抽屉 z-index 改 70（注释说明原因）。
+3. 手机端功能栏排版：640px 以下从"6 列网格+开关绝对定位叠在 50px 左留白上"改为"开关独占最左 44px 列并纵向跨两排 + 右侧两排六列 12 个功能"（grid-template-columns: 44px repeat(6,1fr)，function-book-toggle grid-row: 1 / span 2），页面高度固定 118px 不再被挤出第三排。
+
 ---
 
 ### 当前开发与验收计划
@@ -4247,7 +4255,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`84b21ef2f179`
+> 当前源文件：`HANDOFF.md` · 指纹：`9a75871d5c6d`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4268,7 +4276,8 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
-1. 会员四等级+算力值双倍口径+预算跟随等级+个人中心（DEC-CURRENT-077）：① 青铜20万(免费)/白银98元2000万/黄金198元5000万/钻石980元2亿，迁移 0057 重建 user_memberships，生产现有会员全部映射钻石、无会员历史账号补青铜、新注册自动发青铜（grantDefaultBronze）。② 算力值=真实token×2（COMPUTE_VALUE_MULTIPLIER）：usage_ledger/预算记真实 token，配额存算力值，门禁按 真实×2≥配额 判定，/membership/me 返 compute 三件套，前端零 token 字眼，后台展示也×2。③ 预算跟随等级：建书预算=配额/2 真实 token（bookTokenLimitForOwner，无会员默认2000万），grant 后同步刷新 owner 全部预算并解封。④ 个人中心 PersonalCenterDialog：点头像进入（侧栏头像+功能栏"我的"），显示等级/已耗算力值/进度条/客服微信595341366/退出。付费档周期12个月、青铜长期有效——老板未定，先按此执行。全量 729 绿。
+1. 手机端热修·撤"我的"+抽屉黑屏+两排六列（DEC-CURRENT-078）：① 撤下功能栏"我的"按钮（077 加的，13 个按钮挤出第三排遮挡内容），个人中心只走"点头像"。② 抽屉黑屏根因：遮罩 .drawer-scrim z-index 60 高于书籍抽屉 z-index 50，整屏变暗且点不到书；抽屉改 70。③ 手机端功能栏改"开关独占最左 44px 列跨两排 + 右侧两排六列 12 功能"，118px 高度固定。全量 729 绿基线不变（UI 测试 27 项过）。
+1. 会员四等级+算力值双倍口径+预算跟随等级+个人中心（DEC-CURRENT-077）：① 青铜20万(免费)/白银98元2000万/黄金198元5000万/钻石980元2亿，迁移 0057 重建 user_memberships，生产现有会员全部映射钻石、无会员历史账号补青铜、新注册自动发青铜（grantDefaultBronze）。② 算力值=真实token×2（COMPUTE_VALUE_MULTIPLIER）：usage_ledger/预算记真实 token，配额存算力值，门禁按 真实×2≥配额 判定，/membership/me 返 compute 三件套，前端零 token 字眼，后台展示也×2。③ 预算跟随等级：建书预算=配额/2 真实 token（bookTokenLimitForOwner，无会员默认2000万），grant 后同步刷新 owner 全部预算并解封。④ 个人中心 PersonalCenterDialog：点头像进入（书籍栏底部头像），显示等级/已耗算力值/进度条/客服微信595341366/退出。付费档周期12个月、青铜长期有效——老板未定，先按此执行。全量 729 绿。
 1. 预算上限提至2000万+融合/质检进度条+确认后自动收起（DEC-CURRENT-076）：老板实测设定融合全部失败+确认后页面没变化+融合无进度。① 根因=预算误卡：建书默认预算上限仍是早期 24 万 Token，老板的书已耗 21.7 万，融合预约 ~2.4 万即 BUDGET_EXHAUSTED；默认值改 2000 万（book-onboarding-service INSERT budgets），生产 5 本 active 预算已回填。② 进度条覆盖所有任务：主编融合（revisionRunning）与整份质检（auditWaiting）都改为醒目进度块+不定态进度条，融合期间收起方案区。③ 确认后自动收起：按 confirmedAt 判定轮次新旧——上一轮的方案/融合稿全部收起只留"已定稿+重新设计"入口，新一轮（createdAt>confirmedAt）照常显示；PlanningWorkspace 新增 confirmedAts 映射传入面板。④ 面板 20 秒自动续跑从方案任务扩到融合任务（failedAutoTaskId 统一取两类失败）。全量 729 绿、双端 typecheck 通过。
 1. 讨论任务以目标为导向：缺席席位自动补发资料（DEC-CURRENT-075）：老板实测"主角处境"两人出方案、任务失败卡死。① 管线 collectGoalOriented——独立方案与交叉质疑都改"首轮并行+最多2轮自动补全（轮间15秒）"，每轮只召集缺席席位，成功席位检查点不陪跑；仍失败点名成员+原因，断点续跑同样只补缺席；补全轮 phase_key 带 :makeup-N 后缀绕开 model_calls 唯一约束。② 关键卡点修复——model-call-service begin 幂等去重原本把任何同输入重发都挡死（"拒绝重复调用"），补发根本发不出去；改为只认活着的调用（pending/working/awaiting_provider/succeeded），failed/interrupted 终结行放行，真正未知的 awaiting_provider 仍拦截不重复扣量。③ 前端兜底——提案任务失败 20 秒自动续跑一次+失败提示点名缺席成员。新增 discussion-makeup 集成测试（GLM 中断→自动补发→集齐三方案，其余两席零陪跑），全量 729 绿。
 1. 输入法安全字数+开局结局300字+设定提示+设计进度条（DEC-CURRENT-074）：① 新建共享组件 features/shared/ImeSafeField.tsx（ImeInput/ImeTextarea，maxChars）——拼音 composition 期间不占字数不截断，落定才截，按码点计（emoji 不截半），弃用原生 maxLength；已替换全部作者向限长输入框（开书对话框、设定协作面板、设定清单自定义项、卷重点表达、作者原话、团队岗位要求、取名提示、整本导入）。② 开局/结局上限 100→300 字（前后端+测试同步）。③ 设定页提示"设定条目按需选择设计……只设计核心设定即可"，后按老板要求移到页面最上方成员栏下并改红字醒目样式。④ 团队设计进度条：单项改为醒目进度块"团队正在设计「条目名」"+不定态滑动条；队列条显示"已定稿 N/M 项"+确定性进度条。新增 ime-safe-field 测试 3 用例，全量 728 绿。

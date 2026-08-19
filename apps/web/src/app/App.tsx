@@ -645,7 +645,6 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span>{tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>
           <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
           <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>{workspaceFunctionLabel('settings')}</span></button>
-          <button className="function-avatar" type="button" aria-label="打开个人中心" onClick={() => setProfileOpen(true)}><i aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</i><span>我的</span></button>
         </div>
       </nav>
 
