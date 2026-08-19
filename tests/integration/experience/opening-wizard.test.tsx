@@ -147,6 +147,41 @@ describe('四步开书', () => {
     }));
   });
 
+  it('第2步按题材推荐本书标签：可加入、删除、不再推荐，也能从标签库搜索添加', async () => {
+    const onCreate = vi.fn().mockResolvedValue(true);
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
+    fireEvent.click(screen.getByRole('radio', { name: '女频' }));
+    fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
+
+    // 推荐区按分类+通用组给出标签；点一下加入，已加入的不再出现在推荐里
+    fireEvent.click(await screen.findByRole('button', { name: '加入标签：悬疑' }));
+    expect(screen.getByRole('button', { name: '删除标签：悬疑' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '加入标签：悬疑' })).not.toBeInTheDocument();
+    // 点 × 不再推荐，推荐区立刻消失
+    fireEvent.click(screen.getByRole('button', { name: '不再推荐标签：群像' }));
+    expect(screen.queryByRole('button', { name: '加入标签：群像' })).not.toBeInTheDocument();
+    // 从标签库搜索添加被跳过的标签
+    fireEvent.click(screen.getByRole('button', { name: '从标签库添加' }));
+    fireEvent.change(screen.getByLabelText('搜索标签'), { target: { value: '群像' } });
+    fireEvent.click(screen.getByRole('button', { name: '加入标签：群像' }));
+    expect(screen.getAllByRole('button', { name: '删除标签：群像' }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '选择必须遵守：无额外限制' }));
+    const first = screen.getByRole('article');
+    fireEvent.change(within(first).getByLabelText('姓名'), { target: { value: '林舟' } });
+    fireEvent.change(within(first).getByLabelText('年龄'), { target: { value: '18' } });
+    fireEvent.change(within(first).getByLabelText('家庭背景'), { target: { value: '旧城档案员家庭' } });
+    fireEvent.click(within(first).getByRole('button', { name: '选择角色性格：冷静' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      openingBlueprint: expect.objectContaining({ mainTags: ['悬疑', '群像'] })
+    }));
+  });
+
   it('第3步可填开局、结局和自定义补充，随完整资料一起提交', async () => {
     const onCreate = vi.fn().mockResolvedValue(true);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);

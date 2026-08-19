@@ -71,6 +71,9 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const [initialMap, setInitialMap] = useState(initialDraft.initialMap);
   const [customTags, setCustomTags] = useState<string[]>(initialDraft.customTags);
   const [allSubjectsOpen, setAllSubjectsOpen] = useState(initialDraft.allSubjectsOpen);
+  const [dismissedBookTags, setDismissedBookTags] = useState<string[]>([]);
+  const [tagLibraryOpen, setTagLibraryOpen] = useState(false);
+  const [tagQuery, setTagQuery] = useState('');
   const [selectedMustFollow, setSelectedMustFollow] = useState<string[]>(initialDraft.selectedMustFollow);
   const [mustFollowText, setMustFollowText] = useState(initialDraft.mustFollowText);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -178,6 +181,35 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     ...(category === null ? [] : [category.name]),
     ...mainTags, ...storyTraits, ...customTags
   ].filter((tag) => !auxiliaryTags.includes(tag)));
+  // 本书标签：推荐只由作品分类与融合题材决定（标签不再激活题材包，只给团队定调）。
+  // 作者删过的推荐记进 dismissedBookTags，重算时不再出现；手动添加的永远保留。
+  const BOOK_TAG_MAX = 12;
+  const activeTagPackKeys = new Set([
+    ...(category?.tagPackKeys ?? []),
+    ...subjects.filter((item) => auxiliaryTags.includes(item.name)).flatMap((item) => item.packKeys ?? ['common'])
+  ]);
+  const matchedTagGroups = (taxonomy?.tagGroups ?? [])
+    .filter((group) => group.key === 'common' || group.packKeys.some((pack) => activeTagPackKeys.has(pack)));
+  const recommendedBookTags = [...new Set([
+    ...(category?.recommendedMainTags ?? []),
+    ...matchedTagGroups.flatMap((group) => [...group.mainTags, ...group.storyTraits])
+  ])].filter((tag) => !mainTags.includes(tag) && !dismissedBookTags.includes(tag)
+    && !auxiliaryTags.includes(tag) && tag !== category?.name).slice(0, 10);
+  const normalizedTagQuery = tagQuery.trim();
+  const tagLibraryGroups = (taxonomy?.tagGroups ?? []).map((group) => ({
+    key: group.key,
+    name: group.name,
+    description: group.description,
+    options: [...new Set([...group.mainTags, ...group.storyTraits])]
+      .filter((tag) => normalizedTagQuery.length === 0 || tag.includes(normalizedTagQuery))
+  })).filter((group) => group.options.length > 0);
+  const addBookTag = (tag: string): void => {
+    if (mainTags.includes(tag) || mainTags.length >= BOOK_TAG_MAX) return;
+    setMainTags([...mainTags, tag]);
+  };
+  const removeBookTag = (tag: string): void => {
+    setMainTags(mainTags.filter((item) => item !== tag));
+  };
   const customMustFollow = mustFollowText.split(/[；;\n\r]+/u).map((item) => item.trim()).filter(Boolean);
   const mustFollow = [...new Set([...selectedMustFollow, ...customMustFollow])];
   const basicRequirements = [
@@ -457,6 +489,33 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
               <StringTagPicker title="融合题材（多选）" hint={`最多5个 · 已选 ${auxiliaryTags.length} 个`} kind="题材" options={subjectOptions.map((item) => item.name)} selected={auxiliaryTags} onToggle={(item) => toggleTag(item, auxiliaryTags, setAuxiliaryTags, 5)} blocked={blockedSubjectTags} />
               <button className="subject-toggle" type="button" aria-expanded={allSubjectsOpen} onClick={() => setAllSubjectsOpen(!allSubjectsOpen)}>{allSubjectsOpen ? '只看当前分类推荐' : '展开全部题材'}</button>
             </section>
+          </section>}
+          {step === 2 && <section className="opening-form-section book-tags-section">
+            <div className="section-heading"><div><span>03</span><h3>本书标签</h3></div><small>可留空 · 最多{BOOK_TAG_MAX}个 · 已选 {mainTags.length} 个</small></div>
+            <p className="story-direction-note">标签帮团队把握故事的调子：是权谋博弈还是轻松日常，团队设计设定和剧情时会照着来。不想要的删掉，不影响类型。</p>
+            {mainTags.length > 0 && <div className="tag-options">{mainTags.map((tag) => (
+              <button className="tag-choice selected" type="button" key={tag} aria-label={`删除标签：${tag}`} onClick={() => removeBookTag(tag)}><CheckCircleIcon />{tag}<span className="book-tag-x" aria-hidden="true">×</span></button>
+            ))}</div>}
+            {recommendedBookTags.length > 0 && <section className="tag-picker book-tag-recommended"><header><strong>根据题材推荐</strong><small>点标签加入；点 × 不再推荐</small></header>
+              <div className="tag-options">{recommendedBookTags.map((tag) => (
+                <span className="book-tag-recommend" key={tag}>
+                  <button className="tag-choice" type="button" aria-label={`加入标签：${tag}`} disabled={mainTags.length >= BOOK_TAG_MAX} onClick={() => addBookTag(tag)}>{tag}</button>
+                  <button className="book-tag-dismiss" type="button" aria-label={`不再推荐标签：${tag}`} onClick={() => setDismissedBookTags((current) => [...current, tag])}>×</button>
+                </span>
+              ))}</div>
+            </section>}
+            <button className="subject-toggle" type="button" aria-expanded={tagLibraryOpen} onClick={() => setTagLibraryOpen(!tagLibraryOpen)}>{tagLibraryOpen ? '收起标签库' : '从标签库添加'}</button>
+            {tagLibraryOpen && <section className="book-tag-library">
+              <label className="book-tag-search">搜索标签<input type="search" value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="例如：权谋、经营、轻松……" /></label>
+              {tagLibraryGroups.map((group) => <details key={group.key} open={normalizedTagQuery.length > 0}>
+                <summary><span><strong>{group.name}</strong><small>{group.description}</small></span></summary>
+                <div className="tag-options">{group.options.map((tag) => {
+                  const active = mainTags.includes(tag);
+                  return <button className={active ? 'tag-choice selected' : 'tag-choice'} type="button" key={tag} disabled={!active && mainTags.length >= BOOK_TAG_MAX} aria-label={`${active ? '删除' : '加入'}标签：${tag}`} onClick={() => active ? removeBookTag(tag) : addBookTag(tag)}>{active && <CheckCircleIcon />}{tag}</button>;
+                })}</div>
+              </details>)}
+              {tagLibraryGroups.length === 0 && <p className="setting-empty-state">没有匹配的标签。</p>}
+            </section>}
           </section>}
           {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始角色</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 2} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/2）</button></div>
