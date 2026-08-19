@@ -460,3 +460,12 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 标签库复用既有资产 OPENING_TAG_GROUPS（16 分组三泳道），题材接口本已返回 tagGroups，无需后端数据改动；合同校验天然兼容（三泳道词全在许可集）。
 5. 残留清理：设定资料包"主要标签：未填写""作品特点：未填写"改为有内容才渲染；genre-brief 本就有空值守卫。
 6. 否决的替代方案：AI 自动提炼标签（老板选择让作者保留确认权）；彻底去掉标签字段（5 处既有注入点会全部荒废）。
+
+
+## DEC-CURRENT-065 MiniMax M3 全用途关闭思考（设定队列卡死根因修复）（2026-08-19）
+
+【当前】老板实测设定页设计到第三、四项必卡死。生产证据：失败全部是 minimax-m3（副编西施），thinking 块写到 4.6 万—5.7 万字符、24000 输出 Token 全部烧光、可见文字为零（停止原因=max_tokens），重试 3/4/5 次确定性复现，讨论任务 DISCUSSION_FAILED 后队列停摆。根因：DEC-CURRENT-053 统一"六模型全部启用带预算思考"时踩掉了 `requiresVisibleOutput` 里"MiniMax 任何用途都关闭思考"的既有保护，而 budget_tokens=16000 对 MiniMax 并不生效。修复：
+1. `thinkingField`：火山方舟套餐端点对 `minimax-` 前缀模型恢复 `{thinking:{type:'disabled'}}`（2026-08-18 实测该模型接受 disabled 且直出文字），其余五模型维持 enabled+16000 预算。
+2. `thinkingTokenAllowance`：minimax 前缀归零，max_tokens 与各管线预算冻结同步不再追加思考余量（两侧共用同一函数，口径一致）。
+3. 测试断言同步：MiniMax 文学审查与全用途用例改为断言 disabled；生产现象、实测结论写进代码注释，防止再次统一化踩掉。
+4. 队列恢复方式：已失败的任务在任务中心点"继续重试"即可重跑（重启/停止按钮此前已上线）；重启 worker 后在途任务由遗孤自愈逻辑接管。

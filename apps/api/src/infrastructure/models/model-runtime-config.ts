@@ -177,7 +177,11 @@ export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
 
 export function thinkingTokenAllowance(modelId: string): number {
   // 本地确定性夹具不经过真实模型，没有思考开销。
-  return modelId === 'wenmi-fixture-v1' ? 0 : SUBSCRIPTION_THINKING_BUDGET_TOKENS;
+  if (modelId === 'wenmi-fixture-v1') return 0;
+  // MiniMax M3 在任何用途下都关闭思考（预算对它不生效，会把全部额度烧进思考块），
+  // max_tokens 与预算冻结都不追加思考余量。
+  if (modelId.startsWith('minimax-')) return 0;
+  return SUBSCRIPTION_THINKING_BUDGET_TOKENS;
 }
 
 function deterministicProfiles(): Record<NovelRoleKey, RoleModelProfile> {

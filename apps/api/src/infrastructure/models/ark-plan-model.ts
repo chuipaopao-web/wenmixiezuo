@@ -180,10 +180,13 @@ function thinkingField(
   modelId: string,
   purpose: ModelPurpose
 ): { thinking?: { type: 'enabled' | 'disabled'; budget_tokens?: number } } {
-  // 火山方舟套餐端点：六个在役模型都接受 enabled+budget_tokens，且预算真实生效
-  // （思考在预算内收束后继续产出可见文字）；glm-5.3 与 kimi-k2.7-code 反而会拒绝
-  // disabled（400 InvalidParameter）。统一启用有预算的思考。2026-08-18 实测。
+  // 火山方舟套餐端点：glm-5.3 与 kimi-k2.7-code 拒绝 disabled（400 InvalidParameter），
+  // 统一启用有预算的思考。2026-08-18 实测。
+  // 例外：MiniMax M3 的预算并不生效——生产实测 budget_tokens=16000 下它仍把
+  // 24000 输出 Token 全部烧进 thinking 块（5 万余字符思考、零可见文字，重试必现），
+  // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
   if (plan === 'coding' || plan === 'agent') {
+    if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
     return { thinking: { type: 'enabled', budget_tokens: SUBSCRIPTION_THINKING_BUDGET_TOKENS } };
   }
   // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。

@@ -85,10 +85,10 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('MiniMax文学审查带着预算思考而不是只返回思考块', async () => {
+  it('MiniMax文学审查关闭思考直出文字（预算对它不生效，会把全部额度烧进思考块）', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
-      expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+      expect(body.thinking).toEqual({ type: 'disabled' });
       return Response.json({
         content: [{ type: 'text', text: '{verdict:pass}' }],
         usage: { input_tokens: 8, output_tokens: 12 }
@@ -361,11 +361,11 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('MiniMax M3 带着预算思考（不设预算会把全部额度烧进思考块）', async () => {
+  it('MiniMax M3 全用途关闭思考（生产实测预算不生效，思考烧光 24000 输出 Token 零可见文字）', async () => {
     for (const purpose of ['discussion', 'structured_planning', 'novel_reviewer'] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
-        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+        expect(body.thinking).toEqual({ type: 'disabled' });
         return Response.json({
           content: [{ type: 'text', text: '可见输出' }],
           usage: { input_tokens: 5, output_tokens: 8 }
