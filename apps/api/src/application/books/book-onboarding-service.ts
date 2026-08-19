@@ -54,7 +54,8 @@ export class BookOnboardingService {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>,
-    private readonly releaseId?: string
+    private readonly releaseId?: string,
+    private readonly platformSchemes?: { currentProfiles(fallback: Record<CreativeRoleKey, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> }
   ) {}
 
   public confirmDraft(
@@ -181,7 +182,7 @@ export class BookOnboardingService {
       `).run(adaptationSnapshotId, scope.ownerId, draft.proposedBookId, JSON.stringify(rules), hashJson(rules), now);
       const createdTeam = team.createTeam(bookScope, {
         deterministic: this.roleProfiles === undefined || Object.values(this.roleProfiles).every((profile) => profile.plan === 'deterministic'),
-        profiles: this.roleProfiles === undefined ? undefined : toCreativeProfiles(this.roleProfiles)
+        profiles: this.roleProfiles === undefined ? undefined : this.resolveCreativeProfiles()
       });
       const promptCompiler = new PromptCompiler(new PromptTemplateRepository(this.database), this.ids, this.clock);
       for (const roleKey of creativeRoleKeys) {
@@ -358,6 +359,12 @@ export class BookOnboardingService {
         VALUES (?, ?, ?, ?, ?)
       `).run(scope.ownerId, scope.bookId, positioningVersion, tagKey, tag.sourceStatus);
     }
+  }
+
+  /** 平台模型方案优先于环境默认槽位；未保存过后台方案时回退到槽位映射。 */
+  private resolveCreativeProfiles(): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
+    const fallback = toCreativeProfiles(this.roleProfiles!) as Record<CreativeRoleKey, TeamModelProfile>;
+    return this.platformSchemes?.currentProfiles(fallback) ?? fallback;
   }
 }
 

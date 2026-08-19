@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`2b8d927d6de4`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`8a4c6ccecb4c`
 
 #### 当前生效决定
 
@@ -3726,6 +3726,15 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 > 【069 补充·同日】老板实测前端看不到新标签。根因：标签库面板与推荐此前只渲染主标签+故事特质两条泳道，辅助泳道（609 词，占扩库大头）根本没进 UI。修复：① 标签库面板三泳道全量展示，搜索覆盖全部 1114 词；② 推荐升级为智能搭配——已选标签的同组搭配优先（选"出马仙"带出"东北五仙、保家仙"），其次分类推荐词与题材命中组，每区上限 16 个；③ 新增向导测试：未命中分组不进推荐、三泳道词条免搜索可见、手动加标签后同组搭配进推荐。全量 716 绿。
 
+
+##### DEC-CURRENT-070 管理后台三板块+用户侧彻底不显示大模型（2026-08-19）
+
+【当前】老板拍板：做一个后台显示用户数据、算力消耗、模型管理；前端不显示大模型，也不给用户随意调整大模型的权利。落地：
+1. 平台级模型方案（新迁移 0056 platform_model_scheme 单行表）：管理员在后台调整 14 岗位"哪个成员用哪个模型"，保存时走 normalize→白名单（合同 roleModelProfiles∪运行时火山方舟槽位）→validateTeamModelProfiles（四席互异等硬规矩不变）→UPSERT→convergeAllBooks（存量 V2 书绑定不一致才 reviseFuture，历史快照与在途任务冻结不受影响）；新书写入与启动收敛统一读库存方案（BookOnboardingService.resolveCreativeProfiles + main.ts bindAllBooks override）。
+2. 后台三板块全部挂现有 AdminWorkspace（/api/v1/admin/*，requireAdministrator）：用户数据（原有用户/会员管理不变）、算力消耗（GET /admin/usage：总量/按用户/按模型/近 30 天趋势柱）、模型管理（GET/POST /admin/model-scheme：14 成员下拉选模型、保存显示校验错误或收敛结果）。
+3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；任务详情对非管理员把 modelCalls 的 provider/model_id 改为"创作服务"、error_detail 过 sanitizeModelLeak（新 model-leak-sanitizer：供应商词与模型名替换为"创作服务"，保留限流/额度/超时等可读原因）；管理员保留完整技术证据。
+4. 测试：新增 tests/integration/security/admin-platform.test.ts 4 用例（非管理员 7 条路由 403+capabilities 置空；任务详情清洗与管理员证据保留；同模型/名单外方案 400；服务层保存收敛+幂等）；迁移清单 3 处加 0056；应用层 SQL 边界白名单加 platform-model-scheme-service；旧"成员模型"UI 测试改为断言设置页无任何模型信息。全量 720 绿、双端 typecheck 与构建通过。
+
 ---
 
 ### 当前开发与验收计划
@@ -4164,7 +4173,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`257298e83215`
+> 当前源文件：`HANDOFF.md` · 指纹：`f18409ad5bd8`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4182,6 +4191,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 管理后台三板块+用户侧不显示大模型（DEC-CURRENT-070）：后台（AdminWorkspace）新增算力消耗（GET /admin/usage：总量/按用户/按模型/30天趋势柱）与模型管理（GET/POST /admin/model-scheme：14 成员下拉选火山方舟模型，保存过白名单+四席互异校验后全量书收敛 reviseFuture，历史快照/在途任务不动；新迁移 0056 platform_model_scheme 单行表，新书写入与启动收敛统一读库存方案）。用户侧彻底裁剪：设置弹窗删"成员模型/书籍级模型绑定"两板块（只留主题/字体/运维）、团队页删"模型来源"、App.tsx 移除 capabilities/modelBindings；接口层 capabilities 对非管理员 profiles 置空、model-bindings 四路由与书籍 usage 加管理员门禁、任务详情对非管理员 provider/model 显示"创作服务"且 error_detail 过 sanitizeModelLeak（保留限流等可读原因，管理员看原始证据）。新增 admin-platform 集成测试 4 用例，迁移清单 3 处+SQL 边界白名单同步，全量 720 绿。
 1. 标签库扩充为全网级（DEC-CURRENT-069）：16 分组三泳道从约 500 词扩到 1114 词（主 227/辅助 609/特质 278），起点/番茄/晋江/七猫高频标签全收录；同泳道零重复、跨泳道一词一家、不撞 subjects 题材词（校验脚本 scripts/ops/tag-library-check.mts 留档可复跑）；既有标签全保留、结构不变，taxonomy 升 2026-08-19-v11。同日补前端：标签库面板此前只渲染主标签+特质两泳道（辅助 609 词没进 UI，老板实测看不到新词），已改三泳道全量展示+搜索全覆盖；推荐升级智能搭配（已选标签同组搭配优先，上限 16）；两处测试版本串改常量、新增向导覆盖测试。全量 716 绿。
 1. 清空全部老书（DEC-CURRENT-068）：老板拍板清理生产所有用户老书，按新流程重新建书。44 本（43 active+1 archived，约 40 个 owner）经正式 BookLifecycleService 先归档再永久删除；60 个用户账号全保留。执行前停服备份（整库 769MB+books/indexes 包，在生产 /opt/wenmi/data/backups/pre-purge-20260819/，可整体回滚）；LanceDB 孤儿投影与 imports 旧导入包一并清理。脚本留档 scripts/ops/purge-all-books.mjs。验证：books/agents/manuscripts 均 0、双服务 active、首页 200。
 1. 首页空状态文案：改为"专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品"（会员提示保留），已上线。

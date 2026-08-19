@@ -40,6 +40,7 @@ export class ModelBindingService {
     preserveActiveRevision?: boolean;
     migrateDeputyEditorToAgentPlan?: boolean;
     migrateAllMembersToAgentPlan?: boolean;
+    creativeProfilesOverride?: Record<CreativeRoleKey, TeamModelProfile>;
   } = {}): ModelBindingResult {
     const v2Books = this.database.prepare(`
       SELECT DISTINCT a.owner_id, a.book_id
@@ -47,7 +48,7 @@ export class ModelBindingService {
       WHERE a.role_template_version = 2 AND a.enabled = 1 AND b.status <> 'purged'
       ORDER BY a.owner_id, a.book_id
     `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
-    const creativeProfiles = toCreativeProfiles(this.roleProfiles);
+    const creativeProfiles = options.creativeProfilesOverride ?? toCreativeProfiles(this.roleProfiles);
     // “订阅策略激活”涵盖火山方舟 Agent Plan 与 Coding Plan（opencodego 已下线）：
     // 只要全岗位统一走订阅来源，就把存量 V2 书籍一并迁移到该来源，避免保留旧绑定；
     // 停用 MiniMax M3 后，存量书的三席旧绑定也经此路径自动重绑。
@@ -188,7 +189,7 @@ function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModel
   return 'DEC-CURRENT-067：每章审校固定三席、异模型规矩放宽为四席，文学审查改用 DeepSeek V4 Flash；保留历史调用快照，只影响未来任务';
 }
 
-function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
+export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
   const profile = (role: CreativeRoleKey, value: RoleModelProfile): TeamModelProfile => value.plan === 'deterministic'
     ? { ...value, modelId: `wenmi-fixture-v2-${role}` }
     : value;

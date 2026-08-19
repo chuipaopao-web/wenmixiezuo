@@ -111,7 +111,10 @@ import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/
 import { buildPlanningTemplateSignals } from '../application/planning/template-recommendation-signals.js';
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
-import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
+import { requireAdministrator, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
+import { sanitizeModelLeak } from '../infrastructure/security/model-leak-sanitizer.js';
+import { PlatformModelSchemeService } from '../application/agents/platform-model-scheme-service.js';
+import { registerAdminPlatformRoutes } from './admin-platform-routes.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -226,7 +229,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const promptViewAccess = new PromptViewAccessService(config.promptViewPassword);
   const owner = (request: FastifyRequest) => requireAuthenticatedOwner(request);
   const positioning = new PositioningService(database, ids, clock);
-  const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId);
+  const platformSchemes = new PlatformModelSchemeService(database, ids, clock, config.modelRuntime.activeMode);
+  const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId, platformSchemes);
   const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
   const books = new BookRepository(database);
   const agents = new AgentTeamService(database, ids, clock, config.modelRuntime.roleProfiles);
@@ -1522,6 +1526,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/model-bindings', async (request) => {
+    requireAdministrator(request);
     const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const revisions = database.prepare(`SELECT agent_model_binding_revision_id AS revisionId, version, effective_from AS effectiveFrom,
@@ -1531,6 +1536,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile> } }>('/api/v1/books/:bookId/model-bindings/preview', async (request) => {
+    requireAdministrator(request);
     const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const profiles = normalizeTeamProfiles(request.body.profiles);
@@ -1548,6 +1554,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string }; Body: { profiles: Record<string, TeamModelProfile>; reason?: string } }>('/api/v1/books/:bookId/model-bindings/activate', async (request) => {
+    requireAdministrator(request);
     const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const profiles = normalizeTeamProfiles(request.body.profiles);
@@ -1556,6 +1563,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.post<{ Params: { bookId: string; revisionId: string } }>('/api/v1/books/:bookId/model-bindings/:revisionId/restore', async (request) => {
+    requireAdministrator(request);
     const scope = { ...owner(request), bookId: request.params.bookId };
     books.require(scope);
     const version = modelBindings.restoreFuture(
@@ -2043,10 +2051,19 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const phases = database.prepare(`SELECT * FROM task_phases WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY entered_at, phase_key`)
       .all(scope.ownerId, scope.bookId, request.params.taskId);
     const modelCalls = database.prepare(`SELECT * FROM model_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, request_id`)
-      .all(scope.ownerId, scope.bookId, request.params.taskId);
+      .all(scope.ownerId, scope.bookId, request.params.taskId) as unknown as Array<Record<string, unknown>>;
     const toolCalls = database.prepare(`SELECT * FROM tool_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, tool_call_id`)
       .all(scope.ownerId, scope.bookId, request.params.taskId);
-    return success({ task, phases, modelCalls, toolCalls }, request.id);
+    // 普通用户不可见供应商与模型名（含错误原文里的线索）；管理员保留完整技术证据。
+    const visibleModelCalls = request.authContext?.role === 'admin'
+      ? modelCalls
+      : modelCalls.map((call) => ({
+        ...call,
+        provider: '创作服务',
+        model_id: '创作服务',
+        error_detail: sanitizeModelLeak(typeof call.error_detail === 'string' ? call.error_detail : null)
+      }));
+    return success({ task, phases, modelCalls: visibleModelCalls, toolCalls }, request.id);
   });
 
   app.post<{ Params: { bookId: string; taskId: string } }>('/api/v1/books/:bookId/tasks/:taskId/pause', async (request) => {
@@ -2177,6 +2194,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/usage', async (request) => {
+    requireAdministrator(request);
     return success(database.prepare(`
       SELECT provider, model_id, SUM(input_tokens) AS input_tokens,
              SUM(output_tokens) AS output_tokens, SUM(cash_micros) AS cash_micros,
@@ -2254,6 +2272,8 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.post<{ Params: { backupId: string } }>('/api/v1/backups/:backupId/verify', async (request) => {
     return success(backups.verify(request.params.backupId), request.id);
   });
+
+  await registerAdminPlatformRoutes(app, database, config.modelRuntime.roleProfiles, platformSchemes);
 }
 
 function parseStoredJson(value: string): unknown {

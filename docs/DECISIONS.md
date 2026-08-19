@@ -519,3 +519,12 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 4. 两处测试从硬编码 v10 版本串改为引用 OPENING_TAXONOMY.version 常量，避免以后升版本再踩。全量 715 绿、类型检查与构建通过。
 
 > 【069 补充·同日】老板实测前端看不到新标签。根因：标签库面板与推荐此前只渲染主标签+故事特质两条泳道，辅助泳道（609 词，占扩库大头）根本没进 UI。修复：① 标签库面板三泳道全量展示，搜索覆盖全部 1114 词；② 推荐升级为智能搭配——已选标签的同组搭配优先（选"出马仙"带出"东北五仙、保家仙"），其次分类推荐词与题材命中组，每区上限 16 个；③ 新增向导测试：未命中分组不进推荐、三泳道词条免搜索可见、手动加标签后同组搭配进推荐。全量 716 绿。
+
+
+## DEC-CURRENT-070 管理后台三板块+用户侧彻底不显示大模型（2026-08-19）
+
+【当前】老板拍板：做一个后台显示用户数据、算力消耗、模型管理；前端不显示大模型，也不给用户随意调整大模型的权利。落地：
+1. 平台级模型方案（新迁移 0056 platform_model_scheme 单行表）：管理员在后台调整 14 岗位"哪个成员用哪个模型"，保存时走 normalize→白名单（合同 roleModelProfiles∪运行时火山方舟槽位）→validateTeamModelProfiles（四席互异等硬规矩不变）→UPSERT→convergeAllBooks（存量 V2 书绑定不一致才 reviseFuture，历史快照与在途任务冻结不受影响）；新书写入与启动收敛统一读库存方案（BookOnboardingService.resolveCreativeProfiles + main.ts bindAllBooks override）。
+2. 后台三板块全部挂现有 AdminWorkspace（/api/v1/admin/*，requireAdministrator）：用户数据（原有用户/会员管理不变）、算力消耗（GET /admin/usage：总量/按用户/按模型/近 30 天趋势柱）、模型管理（GET/POST /admin/model-scheme：14 成员下拉选模型、保存显示校验错误或收敛结果）。
+3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；任务详情对非管理员把 modelCalls 的 provider/model_id 改为"创作服务"、error_detail 过 sanitizeModelLeak（新 model-leak-sanitizer：供应商词与模型名替换为"创作服务"，保留限流/额度/超时等可读原因）；管理员保留完整技术证据。
+4. 测试：新增 tests/integration/security/admin-platform.test.ts 4 用例（非管理员 7 条路由 403+capabilities 置空；任务详情清洗与管理员证据保留；同模型/名单外方案 400；服务层保存收敛+幂等）；迁移清单 3 处加 0056；应用层 SQL 边界白名单加 platform-model-scheme-service；旧"成员模型"UI 测试改为断言设置页无任何模型信息。全量 720 绿、双端 typecheck 与构建通过。

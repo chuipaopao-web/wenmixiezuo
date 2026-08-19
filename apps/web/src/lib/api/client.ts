@@ -1156,6 +1156,42 @@ export function revokeAdminMembership(userId: string): Promise<{ revoked: boolea
   });
 }
 
+export interface AdminUsageUserRow {
+  userId: string; email: string; displayName: string; role: 'admin' | 'user'; status: string;
+  createdAt: string; lastLoginAt: string | null; books: number; tokens: number; calls: number;
+}
+export interface AdminUsageModelRow { provider: string; modelId: string; calls: number; tokens: number }
+export interface AdminUsageDailyRow { day: string; tokens: number; calls: number }
+export interface AdminUsageData {
+  totalTokens: number; totalCashMicros: number; totalCalls: number;
+  perUser: AdminUsageUserRow[]; perModel: AdminUsageModelRow[]; daily: AdminUsageDailyRow[];
+}
+export function fetchAdminUsage(signal?: AbortSignal): Promise<AdminUsageData> {
+  return request('/api/v1/admin/usage', signal === undefined ? {} : { signal });
+}
+
+export interface AdminModelProfile { provider: string; modelId: string; plan: string }
+export interface AdminSchemeMember { roleKey: string; memberName: string; shortTitle: string }
+export interface AdminModelSchemeData {
+  source: 'custom' | 'default'; updatedAt: string | null; updatedBy: string | null;
+  profiles: Record<string, AdminModelProfile>;
+  allowedModels: AdminModelProfile[];
+  members: AdminSchemeMember[];
+}
+export function fetchAdminModelScheme(signal?: AbortSignal): Promise<AdminModelSchemeData> {
+  return request('/api/v1/admin/model-scheme', signal === undefined ? {} : { signal });
+}
+export interface AdminModelSchemeSaveResult {
+  updatedAt: string;
+  convergence: { booksVisited: number; revisedBooks: number; updatedAgents: number };
+}
+export function saveAdminModelScheme(profiles: Record<string, AdminModelProfile>, reason?: string): Promise<AdminModelSchemeSaveResult> {
+  return request('/api/v1/admin/model-scheme', {
+    method: 'POST',
+    body: JSON.stringify({ profiles, reason })
+  });
+}
+
 export interface RuntimeEventData {
   eventSeq:number;eventId:string;eventType:string;ownerId:string;bookId:string|null;occurredAt:string;data:Record<string,unknown>;
 }

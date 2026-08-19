@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const LEGACY_SQL_APPLICATION_FILES = new Set([
-  'agents/agent-team-service.ts', 'agents/model-binding-service.ts',
+  'agents/agent-team-service.ts', 'agents/model-binding-service.ts', 'agents/platform-model-scheme-service.ts',
   'artifacts/artifact-service.ts', 'artifacts/planning-artifact-service.ts',
   'books/book-lifecycle-service.ts', 'books/book-onboarding-service.ts', 'books/positioning-service.ts',
   'budget/budget-service.ts', 'calls/model-call-service.ts', 'calls/tool-call-service.ts',

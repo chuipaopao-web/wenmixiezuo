@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  fetchAdminMemberships, fetchAdminOverview, fetchAdminUsers, grantAdminMembership,
-  revokeAdminMembership, updateAdminUserStatus,
-  type AdminMembershipUserData, type AdminOverviewData, type AuthAccountData, type MembershipPlanKey
+  fetchAdminMemberships, fetchAdminModelScheme, fetchAdminOverview, fetchAdminUsage, fetchAdminUsers,
+  grantAdminMembership, revokeAdminMembership, saveAdminModelScheme, updateAdminUserStatus,
+  type AdminMembershipUserData, type AdminModelSchemeData, type AdminOverviewData, type AdminUsageData,
+  type AuthAccountData, type MembershipPlanKey
 } from '../../lib/api/client';
 
 const PLAN_OPTIONS: Array<{ value: MembershipPlanKey; label: string }> = [
@@ -35,15 +36,27 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [planChoice, setPlanChoice] = useState<Record<string, MembershipPlanKey>>({});
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<AdminUsageData | null>(null);
+  const [scheme, setScheme] = useState<AdminModelSchemeData | null>(null);
+  const [schemeChoice, setSchemeChoice] = useState<Record<string, string>>({});
+  const [schemeBusy, setSchemeBusy] = useState(false);
+  const [schemeMessage, setSchemeMessage] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    const [nextOverview, nextUsers, nextMemberships] = await Promise.all([
+    const [nextOverview, nextUsers, nextMemberships, nextUsage, nextScheme] = await Promise.all([
       fetchAdminOverview(signal),
       fetchAdminUsers({ query, status, offset, limit: ADMIN_PAGE_SIZE }, signal),
-      fetchAdminMemberships({ query, status, offset, limit: ADMIN_PAGE_SIZE }, signal)
+      fetchAdminMemberships({ query, status, offset, limit: ADMIN_PAGE_SIZE }, signal),
+      fetchAdminUsage(signal),
+      fetchAdminModelScheme(signal)
     ]);
     setOverview(nextOverview); setUsers(nextUsers.items); setMemberships(nextMemberships.items);
-    setTotal(nextUsers.total); setError(null);
+    setTotal(nextUsers.total); setUsage(nextUsage); setScheme(nextScheme);
+    setSchemeChoice(Object.fromEntries(nextScheme.members.map((member) => {
+      const profile = nextScheme.profiles[member.roleKey];
+      return [member.roleKey, profile === undefined ? '' : `${profile.provider}/${profile.modelId}`];
+    })));
+    setError(null);
   }, [query, status, offset]);
 
   useEffect(() => {
@@ -96,6 +109,27 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       setError(reason instanceof Error ? reason.message : '会员没有撤销成功');
     } finally {
       setBusyUserId(null);
+    }
+  };
+
+  const saveScheme = async (): Promise<void> => {
+    if (scheme === null) return;
+    setSchemeBusy(true);
+    setSchemeMessage(null);
+    try {
+      const profiles = Object.fromEntries(scheme.members.map((member) => {
+        const key = schemeChoice[member.roleKey] ?? '';
+        const [provider = '', modelId = ''] = key.split('/');
+        const allowed = scheme.allowedModels.find((item) => item.provider === provider && item.modelId === modelId);
+        return [member.roleKey, allowed ?? { provider, modelId, plan: 'agent' }];
+      }));
+      const result = await saveAdminModelScheme(profiles);
+      setSchemeMessage(`已保存并应用到全部书籍：检查 ${result.convergence.booksVisited} 本，更新 ${result.convergence.revisedBooks} 本。`);
+      await load();
+    } catch (reason) {
+      setSchemeMessage(reason instanceof Error ? reason.message : '模型方案没有保存成功');
+    } finally {
+      setSchemeBusy(false);
     }
   };
 
@@ -167,5 +201,60 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
         <button type="button" disabled={offset + users.length >= total} onClick={() => setOffset(offset + ADMIN_PAGE_SIZE)}>下一页</button>
       </div>}
     </div>
+    {usage !== null && <section className="admin-usage" aria-label="算力消耗">
+      <h3>算力消耗</h3>
+      <div className="admin-overview">
+        <article><strong>{formatComputePoints(usage.totalTokens)}</strong><span>总算力值</span></article>
+        <article><strong>{usage.totalCalls}</strong><span>总调用次数</span></article>
+      </div>
+      {usage.perModel.length > 0 && <div className="admin-usage-models">
+        <h4>按模型统计</h4>
+        {usage.perModel.map((row) => <div key={`${row.provider}/${row.modelId}`} className="admin-usage-row">
+          <span className="admin-usage-name">{row.modelId}</span>
+          <span>{formatComputePoints(row.tokens)} 算力值 · {row.calls} 次</span>
+        </div>)}
+      </div>}
+      {usage.daily.length > 0 && <div className="admin-usage-daily">
+        <h4>近 30 天趋势</h4>
+        {[...usage.daily].reverse().map((row) => {
+          const peak = Math.max(...usage.daily.map((item) => item.tokens), 1);
+          return <div key={row.day} className="admin-usage-day">
+            <span className="admin-usage-day-label">{row.day.slice(5)}</span>
+            <span className="admin-usage-day-bar" style={{ width: `${Math.max(2, Math.round((row.tokens / peak) * 100))}%` }} />
+            <span className="admin-usage-day-value">{formatComputePoints(row.tokens)}</span>
+          </div>;
+        })}
+      </div>}
+    </section>}
+    {scheme !== null && <section className="admin-scheme" aria-label="模型管理">
+      <h3>模型管理</h3>
+      <p className="admin-scheme-note">
+        这里决定每位创作成员背后使用哪个创作服务，保存后立即应用到所有书籍的未来任务，已经开始的任务不受影响。
+        {scheme.source === 'custom' && scheme.updatedAt !== null ? ` 当前为自定义方案，最后保存于 ${scheme.updatedAt.slice(0, 16).replace('T', ' ')}。` : ' 当前使用默认方案。'}
+      </p>
+      <div className="admin-scheme-list">
+        {scheme.members.map((member) => <div key={member.roleKey} className="admin-scheme-row">
+          <span className="admin-scheme-member">{member.memberName}<small>{member.shortTitle}</small></span>
+          <select
+            value={schemeChoice[member.roleKey] ?? ''}
+            aria-label={`${member.memberName}的创作服务`}
+            disabled={schemeBusy}
+            onChange={(event) => setSchemeChoice((current) => ({ ...current, [member.roleKey]: event.target.value }))}
+          >
+            {(schemeChoice[member.roleKey] ?? '') === '' && <option value="">未选择</option>}
+            {scheme.allowedModels.map((model) => {
+              const key = `${model.provider}/${model.modelId}`;
+              return <option key={key} value={key}>{model.modelId}</option>;
+            })}
+          </select>
+        </div>)}
+      </div>
+      <div className="admin-scheme-actions">
+        <button type="button" className="primary" disabled={schemeBusy} onClick={() => void saveScheme()}>
+          {schemeBusy ? '正在保存…' : '保存并应用到全部书籍'}
+        </button>
+        {schemeMessage !== null && <p className="admin-scheme-message" role="status">{schemeMessage}</p>}
+      </div>
+    </section>}
   </section>;
 }

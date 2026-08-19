@@ -6852,6 +6852,27 @@ svg {
 .admin-pager button:disabled { cursor: not-allowed; opacity: .45; }
 .admin-pager span { color: var(--ink-faint); font-size: 12px; text-align: center; }
 
+.admin-usage, .admin-scheme { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 18px; }
+.admin-usage h3, .admin-scheme h3 { margin: 0 0 12px; font-size: 18px; }
+.admin-usage h4 { margin: 14px 0 8px; color: var(--ink-soft); font-size: 13px; }
+.admin-usage-models, .admin-usage-daily { display: grid; gap: 6px; }
+.admin-usage-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto; gap: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--panel); font-size: 12px; }
+.admin-usage-name { font-weight: 680; }
+.admin-usage-row span:last-child { color: var(--ink-faint); }
+.admin-usage-day { display: grid; grid-template-columns: 44px minmax(0, 1fr) 64px; align-items: center; gap: 8px; font-size: 11px; }
+.admin-usage-day-label { color: var(--ink-faint); }
+.admin-usage-day-bar { display: block; height: 10px; border-radius: 999px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--line); background-image: linear-gradient(90deg, var(--accent), var(--accent)); background-repeat: no-repeat; }
+.admin-usage-day-value { color: var(--ink-soft); text-align: right; }
+.admin-scheme-note { max-width: 560px; margin: 0 0 12px; color: var(--ink-soft); font-size: 12px; }
+.admin-scheme-list { display: grid; gap: 6px; }
+.admin-scheme-row { display: grid; grid-template-columns: minmax(180px, 1fr) 240px; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--panel); }
+.admin-scheme-member { display: grid; gap: 2px; font-weight: 680; }
+.admin-scheme-member small { color: var(--ink-faint); font-weight: 400; }
+.admin-scheme-row select { min-height: 34px; border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; background: var(--panel-raised); }
+.admin-scheme-actions { display: grid; gap: 8px; margin-top: 12px; }
+.admin-scheme-actions button { width: max-content; }
+.admin-scheme-message { margin: 0; color: var(--ink-soft); font-size: 12px; }
+
 .admin-overview.five-cards, .admin-workspace .admin-overview[aria-label="用户概况"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .admin-membership-list > article.admin-membership-row { grid-template-columns: minmax(180px, 1.2fr) 88px 78px minmax(200px, 1.4fr) auto 94px; }
 .admin-membership-info { min-width: 0; display: grid; gap: 3px; font-size: 12px; }

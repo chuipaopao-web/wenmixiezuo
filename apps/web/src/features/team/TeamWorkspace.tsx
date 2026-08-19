@@ -190,7 +190,6 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
           <article className="team-member-editor">
             <header>
               <div className="agent-dialog-identity"><AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} /><span><h3>{memberIdentity(member)}</h3><p>{toAuthorFacingText(member.publicSummary ?? '未记录')}</p></span></div>
-              <span className="model-source">{modelProviderLabel(member.provider)}</span>
             </header>
             <section className="team-live-task-card">
               <header><h3>当前工作状态</h3><span className={memberTask === null ? 'idle' : 'working'}>{memberTask === null ? '空闲' : statusLabel(memberTask.status)}</span></header>
@@ -328,7 +327,6 @@ export function TeamTemplateWorkspace({ data, books, onManageBook }: { data: Tea
         <DetailList title="岗位职责" values={selected.responsibilities} />
         <DetailList title="负责什么" values={selected.boundaries} />
         <DetailList title="检索重点" values={selected.retrievalFocus} />
-        <section><h4>模型来源</h4><p>{modelProviderLabel(selected.defaultModel.provider)}</p></section>
         <section><h4>岗位表达</h4><p>{toAuthorFacingText(selected.roleStatement)}</p></section>
         <ProtectedPromptViewer key={selected.roleKey} roleKey={selected.roleKey} configured={data.fullPromptAccess?.configured ?? false} />
       </article>}
@@ -340,15 +338,6 @@ function DetailList({ title, values }: { title: string; values: string[] }): Rea
   return <section><h4>{title}</h4><ul>{values.map((value) => <li key={value}>{toAuthorFacingText(value)}</li>)}</ul></section>;
 }
 
-function modelProviderLabel(provider: string): string {
-  if (provider === 'openai-codex-subscription') return 'Codex订阅';
-  if (provider === 'volcengine-ark-coding-plan') return '火山方舟Coding Plan';
-  if (provider === 'volcengine-ark-agent-plan') return '火山方舟Agent Plan';
-  if (provider === 'opencodego') return 'opencodego';
-  if (provider === 'local-deterministic') return '创作模型尚未连接';
-  return '已配置模型服务';
-}
-
 export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData; task: TaskData | null; onClose: () => void }): React.JSX.Element {
   const groups = [
     ['负责', agent.responsibilities ?? []], ['不负责', agent.boundaries ?? []], ['检索重点', agent.retrievalFocus ?? []], ['交付物', agent.outputKinds ?? []]
@@ -356,7 +345,6 @@ export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData;
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="dialog agent-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-detail-title">
       <header><div className="agent-dialog-identity"><AgentAvatar roleKey={agent.roleKey} roleName={memberIdentity(agent)} /><span><h2 id="agent-detail-title">{memberIdentity(agent)}</h2><p>{agent.publicSummary ?? roleSummary(agent.roleKey)}</p></span></div><button className="icon-button" type="button" aria-label="关闭岗位详情" onClick={onClose}><XIcon /></button></header>
-      <div className="agent-detail-model"><span>模型来源</span><strong>{modelProviderLabel(agent.provider)}</strong></div>
       <div className="agent-detail-groups">{groups.map(([title, items]) => <section key={title}><h3>{title}</h3>{items.length === 0 ? <p>暂无公开条目</p> : <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul>}</section>)}</div>
       <section className="agent-evidence"><h3>当前任务</h3><p>{task === null ? '当前没有分配给该成员的活动任务。' : `${taskChapterFromBrief(task)}，${phaseLabel(task.currentPhase)}，${statusLabel(task.status)}`}</p><small>进度会根据成员的实际工作自动更新。</small></section>
       <footer><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>

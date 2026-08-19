@@ -1,42 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { XIcon } from '@phosphor-icons/react';
 import {
-  activateModelBindings,
   exportBookPackage,
   importBookCopy,
-  previewModelBindings,
-  restoreModelBindingRevision,
-  type CapabilityData,
-  type ModelBindingsData,
-  type OperationsStatusData,
-  type TeamModelProfileData
+  type OperationsStatusData
 } from '../../lib/api/client';
 import { DEFAULT_WORKSPACE_PREFERENCES, type WorkspacePreferences } from '../../app/workspace-preferences';
 import { formatBytes } from '../shared/task-presentation';
-import { roleSummary } from '../team/TeamWorkspace';
 
-export function SettingsDialog({ preferences, capabilities, bookId, bindings, operations, onBindingsChanged, onBooksChanged, onChange, onClose }: {
+export function SettingsDialog({ preferences, bookId, operations, onBooksChanged, onChange, onClose }: {
   preferences: WorkspacePreferences;
-  capabilities: CapabilityData | null;
   bookId: string | null;
-  bindings: ModelBindingsData | null;
   operations: OperationsStatusData | null;
-  onBindingsChanged: () => void;
   onBooksChanged: () => void;
   onChange: (preferences: WorkspacePreferences) => void;
   onClose: () => void;
 }): React.JSX.Element {
-  const [bindingProfiles, setBindingProfiles] = useState<Record<string, TeamModelProfileData>>({});
-  const [bindingBusy, setBindingBusy] = useState(false);
-  const [bindingStatus, setBindingStatus] = useState<string | null>(null);
+  const [portableBusy, setPortableBusy] = useState(false);
   const [portableStatus, setPortableStatus] = useState<string | null>(null);
   const [importName, setImportName] = useState('');
-  useEffect(() => {
-    if (bindings === null) return;
-    setBindingProfiles(Object.fromEntries(bindings.active.map((binding) => [binding.roleKey, {
-      provider: binding.provider, modelId: binding.modelId, plan: binding.plan
-    }])));
-  }, [bindings]);
   const themes = [
     { value: 'sage', label: '青黛', description: '月白底、黛绿主色的默认新中式工作台' },
     { value: 'paper', label: '宣纸', description: '暖纸底色，适合长时间阅读正文' },
@@ -77,108 +59,23 @@ export function SettingsDialog({ preferences, capabilities, bookId, bindings, op
           </div>
         </fieldset>
         <fieldset>
-          <legend>成员模型</legend>
-          <div className="model-runtime-summary">
-            <div className={capabilities?.modelRuntime.activeMode === 'subscription-plan' ? 'runtime-state active' : 'runtime-state'}>
-              <span aria-hidden="true" />
-              <strong>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '创作模型已经连接' : '创作模型尚未连接'}</strong>
-              <small>{capabilities?.modelRuntime.activeMode === 'subscription-plan' ? '不会转为按量付费模型' : 'AI创作入口已暂停，不会生成测试模板'}</small>
-            </div>
-            <div className="model-profile-list">
-              {capabilities?.modelRuntime.activeMode === 'subscription-plan' && capabilities.modelRuntime.profiles.map((profile) => (
-                <div className="model-profile" key={`${profile.provider}/${profile.modelId}`}>
-                  <span><strong>{profile.modelId}</strong></span>
-                  <span><small>{profile.roles.map(roleLabel).join('、')}</small><em>{profile.credentialConfigured ? planLabel(profile.plan) : '暂不可用'}</em></span>
-                </div>
-              ))}
-              {capabilities?.modelRuntime.activeMode === 'deterministic' && <p>设定、分卷、规划、章纲、正文、点评和灵感暂时不能由AI生成。已有内容仍可查看和编辑。</p>}
-              {capabilities === null && <p>连接本地服务后显示创作团队的真实模型状态。</p>}
-            </div>
-            {capabilities !== null && <p className="capability-note">本地运行环境正常 · 本地资料库正常 · 全文查找{capabilities.sqlite.fts5 ? '可用' : '需要修复'} · 语义查找{capabilities.degradation.vectorSearchAvailable ? '可用' : '需要安装'}</p>}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>书籍级模型绑定</legend>
-          {capabilities?.modelRuntime.activeMode !== 'subscription-plan' ? <p className="capability-note">连接创作模型后，可以在这里查看并调整十四名成员未来任务的模型安排。</p> : bookId === null ? <p className="capability-note">选择一本书后可管理未来任务的模型绑定。</p> : bindings === null ? <div className="binding-skeleton" aria-label="正在加载模型绑定"><span /><span /><span /></div> : (
-            <div className="binding-manager">
-              <p>修改只影响之后的新任务，进行中的任务不受影响。两名编剧需要使用不同的模型；豆包不用于剧情创作；GLM 做副笔时，事实检查会改用 DeepSeek。</p>
-              <div className="binding-role-list">{bindings.active.map((binding) => {
-                const options = uniqueProfiles(capabilities, bindings);
-                const selected = bindingProfiles[binding.roleKey] ?? { provider: binding.provider, modelId: binding.modelId, plan: binding.plan };
-                return <label key={binding.roleKey}><span><strong>{binding.memberName}（{binding.shortTitle}）</strong><small>{roleSummary(binding.roleKey)}</small></span><select aria-label={`${binding.memberName}模型`} value={modelProfileValue(selected)} onChange={(event) => {
-                  const next = options.find((option) => modelProfileValue(option) === event.target.value);
-                  if (next !== undefined) setBindingProfiles((current) => ({ ...current, [binding.roleKey]: next }));
-                }}>{options.map((option) => <option key={modelProfileValue(option)} value={modelProfileValue(option)}>{option.modelId}（{planLabel(option.plan)}）</option>)}</select></label>;
-              })}</div>
-              {bindingStatus !== null && <p className="binding-status" role="status">{bindingStatus}</p>}
-              <div className="binding-actions"><button type="button" className="secondary-button" disabled={bindingBusy} onClick={() => {
-                if (bookId === null) return;
-                setBindingBusy(true); setBindingStatus(null);
-                void previewModelBindings(bookId, bindingProfiles).then(() => setBindingStatus('预检通过：模型安排符合团队规则。')).catch((reason: unknown) => setBindingStatus(reason instanceof Error ? reason.message : '预检失败')).finally(() => setBindingBusy(false));
-              }}>预览校验</button><button type="button" className="primary-button" disabled={bindingBusy} onClick={() => {
-                if (bookId === null) return;
-                setBindingBusy(true); setBindingStatus(null);
-                void previewModelBindings(bookId, bindingProfiles).then(() => activateModelBindings(bookId, bindingProfiles, '老板在设置页激活未来任务模型绑定')).then(() => {
-                  setBindingStatus('已激活新修订，仅未来任务生效。'); onBindingsChanged();
-                }).catch((reason: unknown) => setBindingStatus(reason instanceof Error ? reason.message : '激活失败')).finally(() => setBindingBusy(false));
-              }}>激活未来任务</button></div>
-              <details className="binding-history"><summary>绑定历史 {bindings.revisions.length}</summary>{bindings.revisions.map((revision) => <div key={revision.revisionId}><strong>修订 {revision.version}</strong><span>{revision.reason}</span><em>{revision.status === 'active' ? '当前活动' : '历史'}</em>{revision.status !== 'active' && <button type="button" className="text-button" disabled={bindingBusy} onClick={() => {
-                if (bookId === null) return;
-                setBindingBusy(true); setBindingStatus(null);
-                void restoreModelBindingRevision(bookId, revision.revisionId).then(() => {
-                  setBindingStatus(`已从修订 ${revision.version} 创建新的活动修订，仅未来任务生效。`); onBindingsChanged();
-                }).catch((reason: unknown) => setBindingStatus(reason instanceof Error ? reason.message : '恢复失败')).finally(() => setBindingBusy(false));
-              }}>恢复为新修订</button>}</div>)}</details>
-            </div>
-          )}
-        </fieldset>
-        <fieldset>
           <legend>本机运维与可移植</legend>
           {operations === null ? <div className="binding-skeleton" aria-label="正在加载本机诊断"><span /><span /></div> : <div className="operations-summary">
             <div><span>Schema</span><strong>{operations.schemaVersion}</strong></div><div><span>剩余磁盘</span><strong>{formatBytes(operations.disk.freeBytes)}</strong></div><div><span>排队/工作</span><strong>{operations.queue.queued}/{operations.queue.working}</strong></div><div><span>受阻</span><strong>{operations.queue.blocked}</strong></div>
           </div>}
           <p className="capability-note">内容只保存在这台电脑上，不发送使用记录。导出文件不包含模型密钥和临时索引；复制导入会另建一本书，不覆盖已有书籍。</p>
           {portableStatus !== null && <p className="binding-status" role="status">{portableStatus}</p>}
-          <div className="portable-actions"><button type="button" className="secondary-button" disabled={bindingBusy || bookId === null} onClick={() => {
+          <div className="portable-actions"><button type="button" className="secondary-button" disabled={portableBusy || bookId === null} onClick={() => {
             if (bookId === null) return;
-            setBindingBusy(true); setPortableStatus(null);
-            void exportBookPackage(bookId).then((result) => setPortableStatus(`已导出 ${result.packageName}，保存于 ${result.packagePath}。清单哈希 ${result.manifestHash.slice(0, 12)}。`)).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导出失败')).finally(() => setBindingBusy(false));
-          }}>导出当前书</button><label><span>从 data/imports 复制导入</span><input value={importName} onChange={(event) => setImportName(event.target.value)} placeholder="文件名.wenmi-book" /></label><button type="button" className="primary-button" disabled={bindingBusy || !importName.endsWith('.wenmi-book')} onClick={() => {
-            setBindingBusy(true); setPortableStatus(null);
-            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导入失败')).finally(() => setBindingBusy(false));
+            setPortableBusy(true); setPortableStatus(null);
+            void exportBookPackage(bookId).then((result) => setPortableStatus(`已导出 ${result.packageName}，保存于 ${result.packagePath}。清单哈希 ${result.manifestHash.slice(0, 12)}。`)).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导出失败')).finally(() => setPortableBusy(false));
+          }}>导出当前书</button><label><span>从 data/imports 复制导入</span><input value={importName} onChange={(event) => setImportName(event.target.value)} placeholder="文件名.wenmi-book" /></label><button type="button" className="primary-button" disabled={portableBusy || !importName.endsWith('.wenmi-book')} onClick={() => {
+            setPortableBusy(true); setPortableStatus(null);
+            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导入失败')).finally(() => setPortableBusy(false));
           }}>安全导入副本</button></div>
         </fieldset>
         <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>
       </section>
     </div>
   );
-}
-
-function planLabel(plan: 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego'): string {
-  if (plan === 'codex') return 'Codex 登录态';
-  if (plan === 'coding') return 'Coding Plan';
-  if (plan === 'agent') return 'Agent Plan';
-  if (plan === 'opencodego') return 'opencodego';
-  return '本地测试';
-}
-
-function roleLabel(role: string): string {
-  return ({
-    chief_editor: '主编', deputy_editor: '副编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧',
-    plot_architect: '编剧', setting: '设定', continuity: '设定师', lead_writer: '主笔', backup_writer: '副笔', writer: '主笔',
-    fact_reviewer: '事实审校', literary_reviewer: '文学审校', experience_reviewer: '体验审校', experience_challenger: '体验审校', reviewer: '审校',
-    reader_experience: '体验官', style_editor: '文编', researcher: '研究员', copyright: '版权顾问'
-  } as Record<string, string>)[role] ?? role;
-}
-
-function uniqueProfiles(capabilities: CapabilityData | null, bindings: ModelBindingsData): TeamModelProfileData[] {
-  const candidates: TeamModelProfileData[] = [
-    ...(capabilities?.modelRuntime.profiles ?? []).map((profile) => ({ provider: profile.provider, modelId: profile.modelId, plan: profile.plan })),
-    ...bindings.active.map((binding) => ({ provider: binding.provider, modelId: binding.modelId, plan: binding.plan }))
-  ];
-  return candidates.filter((profile, index, all) => all.findIndex((item) => modelProfileValue(item) === modelProfileValue(profile)) === index);
-}
-
-function modelProfileValue(profile: TeamModelProfileData): string {
-  return `${profile.provider}\n${profile.modelId}\n${profile.plan}`;
 }

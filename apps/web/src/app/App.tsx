@@ -23,7 +23,6 @@ import {
   createBook,
   fetchArtifacts,
   fetchBooks,
-  fetchCapabilities,
   fetchChapterContent,
   fetchChapterDetail,
   fetchHealth,
@@ -31,7 +30,6 @@ import {
   fetchMyMembership,
   logoutAccount,
   fetchLibrary,
-  fetchModelBindings,
   fetchOperationsStatus,
   fetchTaskCenter,
   fetchWorkspace,
@@ -43,10 +41,8 @@ import {
   retryTask,
   type AuthAccountData,
   type BookData,
-  type CapabilityData,
   type ChapterData,
   type MembershipStatusData,
-  type ModelBindingsData,
   type OperationsStatusData,
   type TaskCenterBookData,
   type WorkspaceData
@@ -118,7 +114,6 @@ export function App(): React.JSX.Element {
 }
 
 function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSignOut: () => Promise<void> }): React.JSX.Element {
-  const [capabilities, setCapabilities] = useState<CapabilityData | null>(null);
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
@@ -132,7 +127,6 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
   const [chapterDetail, setChapterDetail] = useState<Awaited<ReturnType<typeof fetchChapterDetail>> | null>(null);
   const [referenceData, setReferenceData] = useState<unknown>([]);
-  const [modelBindings, setModelBindings] = useState<ModelBindingsData | null>(null);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatusData | null>(null);
   const [leftOpen, setLeftOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(() => new URLSearchParams(window.location.search).get('newBook') === '1');
@@ -293,9 +287,8 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal), fetchCapabilities(controller.signal)])
-      .then(([, , nextCapabilities]) => {
-        setCapabilities(nextCapabilities);
+    Promise.all([fetchHealth(controller.signal), loadBooks(controller.signal)])
+      .then(() => {
         setError(null);
       })
       .catch((reason: unknown) => {
@@ -403,19 +396,18 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   }, [creationTab, selectedBookId, workspace?.book.canonRevision]);
 
   useEffect(() => {
-    if (!settingsOpen || selectedBookId === null) {
-      setModelBindings(null);
+    if (!settingsOpen) {
       setOperationsStatus(null);
       return;
     }
     const controller = new AbortController();
-    void Promise.all([fetchModelBindings(selectedBookId, controller.signal), fetchOperationsStatus(controller.signal)]).then(([nextBindings, nextOperations]) => {
-      setModelBindings(nextBindings); setOperationsStatus(nextOperations);
+    void fetchOperationsStatus(controller.signal).then((nextOperations) => {
+      setOperationsStatus(nextOperations);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '模型绑定加载失败');
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '本机诊断加载失败');
     });
     return () => controller.abort();
-  }, [selectedBookId, settingsOpen]);
+  }, [settingsOpen]);
 
   const selectBook = (bookId: string): void => {
     setSelectedBookId(bookId);
@@ -723,7 +715,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       )}
       {archiveCandidate !== null && <ArchiveBookDialog book={archiveCandidate} busy={busy} onCancel={() => setArchiveCandidate(null)} onConfirm={archiveSelectedBook} />}
       {purgeCandidate !== null && <PurgeBookDialog book={purgeCandidate} busy={busy} onCancel={() => setPurgeCandidate(null)} onConfirm={permanentlyDeleteArchivedBook} />}
-      {settingsOpen && <SettingsDialog preferences={preferences} capabilities={capabilities} bookId={selectedBookId} bindings={modelBindings} operations={operationsStatus} onBindingsChanged={() => selectedBookId === null ? undefined : void fetchModelBindings(selectedBookId).then(setModelBindings)} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsDialog preferences={preferences} bookId={selectedBookId} operations={operationsStatus} onBooksChanged={() => void loadBooks()} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />}
       {selectedTaskContext !== null && (
         <TaskDetailsDialog
           bookId={selectedTaskContext.bookId}

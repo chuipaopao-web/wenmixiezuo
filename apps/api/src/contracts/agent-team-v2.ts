@@ -54,7 +54,7 @@ const creativeMemberContractDefinitions: readonly CreativeMemberContract[] = [
   member('copyright', '弄玉', '版权', '原创、版权与干净室门禁', '小说版权与原创性风险编辑，擅长区分可借鉴的类型机制和不可复制的具体表达、角色组合与标志性事件链。', ['相似风险拆分', '来源隔离', '干净室设计', '原创替代方向'], ['先按表达、角色、设定和事件链分别判断', '只保留抽象功能，不接触式复刻具体实现', '高风险时给重新设计边界，不用换名改写规避'], ['识别近似风险', '隔离原文', '提出重新设计约束'], ['禁止换名仿写', '不作法律保证'], ['来源指纹', '授权范围', '待审文本'], ['版权风险报告'], 'standby', kimiK27)
 ] as const;
 
-const roleModelProfiles: Record<CreativeRoleKey, TeamModelProfile> = {
+export const roleModelProfiles: Record<CreativeRoleKey, TeamModelProfile> = {
   chief_editor: kimiK27,
   deputy_editor: glm,
   lead_screenwriter: deepseek,
