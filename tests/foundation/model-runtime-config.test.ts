@@ -18,7 +18,7 @@ describe('模型运行配置', () => {
     });
   });
 
-  it('Agent Plan凭证齐全时绑定十一岗位所需的六种模型且不含K3', () => {
+  it('Agent Plan凭证齐全时绑定十一岗位所需的五种模型且不含K3', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
@@ -33,7 +33,7 @@ describe('模型运行配置', () => {
     });
     expect(config.roleProfiles.plot_architect).toMatchObject({ modelId: 'deepseek-v4-pro' });
     expect(config.roleProfiles.continuity).toMatchObject({ modelId: 'glm-5.2' });
-    expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'minimax-m3' });
+    expect(config.roleProfiles.reviewer).toMatchObject({ modelId: 'kimi-k2.7-code' });
     expect(config.roleProfiles.reader_experience).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
     expect(config.roleProfiles.style_editor).toMatchObject({ modelId: 'glm-5.2' });
     expect(config.roleProfiles.researcher).toMatchObject({ modelId: 'deepseek-v4-flash' });

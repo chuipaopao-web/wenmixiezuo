@@ -826,7 +826,7 @@ React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本�
 
 ### AI成员完整工作手册（当前实际运行版）
 
-> 当前源文件：`docs/ROLE_PROMPTS.md` · 指纹：`51734bf3ea65`
+> 当前源文件：`docs/ROLE_PROMPTS.md` · 指纹：`4a1a56df4f60`
 
 #### AI成员完整工作手册（当前实际运行版）
 
@@ -972,7 +972,7 @@ Token估算对中文字符按约1 Token、其他字符按约0.25 Token计算，�
 - **输出**：设定/卷纲/事件融合稿；审查优先级与保留分歧。
 - **边界**：不伪造共识，不替作者确认，不以多数票压过事实错误，不在汇总时偷改正文。
 
-###### 5.2 西施｜副编｜MiniMax M3
+###### 5.2 西施｜副编｜GLM 5.3
 
 - **介入**：副编定位调整为资料员、摘要员和主编备份；资料编译仍由确定性`ContextCompiler`在每次任务前完成，摘要维护已落地：事件或卷结算完成后，西施把结算实际结果写成不超过六句的大白话摘要（结算后续任务的第二步，真实模型调用）；主编租约失效时按同一冻结资料包接管。只有确有需要并发生真实模型调用时，西施才显示正在工作。
 - **接收**：当前书正式对象、版本、来源、预算、检索重点、排除规则和正式结算。
@@ -1004,9 +1004,9 @@ Token估算对中文字符按约1 Token、其他字符按约0.25 Token计算，�
 - **输出**：剧情方案、玩法重组建议或跨度估算。
 - **边界**：不把讨论写入正史，不为反转而反转，不冒充其他模型意见。
 
-###### 5.6 文姬｜设定｜MiniMax M3
+###### 5.6 文姬｜设定｜Kimi K2.7 Code
 
-- **介入**：设定阶段；资料库事实候选提取；设定类目讨论的提案席（侧重规则严谨与可核验），输出可勾选碎片。正文后的事实一致性审查改由班昭承担。默认模型2026-08-18起由GLM 5.2改为MiniMax M3，避免与红玉在提案三席撞模型。
+- **介入**：设定阶段；资料库事实候选提取；设定类目讨论的提案席（侧重规则严谨与可核验），输出可勾选碎片。正文后的事实一致性审查改由班昭承担。默认模型2026-08-19起为Kimi K2.7 Code（MiniMax M3 因思考失控不可靠已停用，DEC-CURRENT-066）。
 - **设定资料**：全部开书信息、当前设定项、作者意见、已确认相关设定。
 - **审查资料**：不可变正文、章纲和上游约束、前文状态、相关正式原文与资料库证据；不读文学和体验报告。
 - **方法**：设定时守住开书承诺，补世界逻辑、人物边界和可持续冲突。审查先查人物/能力/物品/地点/时间/数量/状态，再查因果、认知边界和伏笔；问题带位置、双方证据和修复动作；证据不足标未知。
@@ -1036,7 +1036,7 @@ Token估算对中文字符按约1 Token、其他字符按约0.25 Token计算，�
 - **输出**：事实点评JSON：事实矛盾、需确认项和来源证据。
 - **边界**：不臆造数量对应关系，不作文学评价，不直接改正文。
 
-###### 5.10 妲己｜文学审查｜MiniMax M3
+###### 5.10 妲己｜文学审查｜Doubao Seed Code（Coding Plan）
 
 - **介入**：正文通过硬检查后，与另两审并行；修改后按新版本重审。
 - **接收**：不可变正文、章纲、写作合同、风格胶囊、必要近章对照和少量证据；不读另两份报告。
@@ -3202,7 +3202,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`609db489489f`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`b36d8dd52d1d`
 
 #### 当前生效决定
 
@@ -3540,6 +3540,8 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 
 ##### DEC-CURRENT-052 回到火山方舟套餐与 GLM 5.3 思考余量（2026-08-18）
 
+> 【席位模型已被取代】本条第 1 款中"设定（文姬）/审校/副编用 minimax-m3"已被 DEC-CURRENT-066 取代（MiniMax M3 停用：文姬→Kimi K2.7 Code、副编→GLM 5.3、文学审校→Coding Plan doubao-seed-code）；其余套餐与预算口径仍生效。
+
 【当前】opencodego 已下线，模型运行时统一回到火山方舟两个套餐（Agent Plan 与 Coding Plan），凭证只从服务器环境变量读取，不写入数据库、日志、文档、备份或 Git。
 1. 岗位模型：主编/编剧C/副编备份/版权席用 kimi-k2.7-code，写手/编剧A用 deepseek-v4-pro，编剧B（红玉）与事实审查（班昭）用 glm-5.3，设定（文姬）/审校/副编用 minimax-m3，体验席用 doubao-seed-2.1-turbo，妙玉/研究员用 deepseek-v4-flash。glm-5.2 由 glm-5.3 替换（生产经 WENMI_ARK_AGENT_PLAN_GLM_MODEL 指定）。
 2. 统一带预算思考：方舟套餐端点上六个在役模型（glm-5.3、kimi-k2.7-code、deepseek-v4-pro/flash、minimax-m3、doubao-seed-2.1-turbo）都接受 thinking={type:enabled,budget_tokens} 且预算真实生效（2026-08-18 逐一实测）；关闭思考（disabled）反而被 glm-5.3 与 kimi-k2.7-code 拒绝（400），不设预算时 minimax 等会把全部输出额度烧进思考块。适配器对两个套餐端点统一发送 budget_tokens=4000 的启用思考，max_tokens=可见输出限额+4000；讨论、章节、卷纲、事件、章纲、结算后续、续写分析、主编设计全部八处预算冻结同步追加同一份预算（thinkingTokenAllowance），否则结算端会以"实际用量超过冻结上限"拒绝。opencodego（已下线）维持旧的关闭思考行为不变。
@@ -3675,6 +3677,18 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. `thinkingTokenAllowance`：minimax 前缀归零，max_tokens 与各管线预算冻结同步不再追加思考余量（两侧共用同一函数，口径一致）。
 3. 测试断言同步：MiniMax 文学审查与全用途用例改为断言 disabled；生产现象、实测结论写进代码注释，防止再次统一化踩掉。
 4. 队列恢复方式：已失败的任务在任务中心点"继续重试"即可重跑（重启/停止按钮此前已上线）；重启 worker 后在途任务由遗孤自愈逻辑接管。
+
+
+##### DEC-CURRENT-066 停用 MiniMax M3，三席换绑（2026-08-19）
+
+【当前】老板拍板：minimax-m3 停用。定性：不完全是"能力不行"，而是它失控的思考习惯（budget_tokens 对它不生效，把全部输出额度烧进思考块、零可见文字，DEC-CURRENT-065 已实证）在关键时刻必掉链子，对生产不可靠。替换映射：
+1. 文姬（设定 setting）→ Kimi K2.7 Code（Agent Plan）；西施（副编 deputy_editor，主编备份）→ GLM 5.3（Agent Plan）。
+2. 妲己（文学审校 literary_reviewer）→ 火山方舟 Coding Plan 的 doubao-seed-code。原因：主笔/副笔+事实/文学/体验/挑剔六席必须互不相同（model-binding-v2 硬校验），Agent Plan 停用 MiniMax 后只剩五个模型凑不齐六席；doubao-seed-code 是另一个真实模型（2026-08-19 生产实测接受 thinking enabled+budget 且直出文字），不是同模型换名伪装。可用 `WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL` 覆盖模型名。
+3. 九岗位运行时配置：`reviewer` 槽改为 Kimi K2.7 Code；三处 `toCreativeProfiles` 同步（副编取 style_editor 槽的 GLM，文学审查取 Coding Plan doubao-seed-code，确定性模式仍走本地夹具）。
+4. 存量书重绑：启动迁移（ModelBindingService.bindAllBooks）的"订阅策略激活"判定扩展为接受 Agent Plan + Coding Plan 双套餐，凡当前绑定与团队合同不一致的 V2 书籍自动 reviseFuture 收敛到新配置；历史调用快照与旧修订全部保留，只影响未来任务，在途任务继续用已冻结快照。
+5. 适配器层保留 minimax 兼容处理（thinking disabled、思考余量归零）：在途任务的冻结快照仍可能调 minimax，不能半路撤掉。
+6. ModelAdapterFactory 白名单放行文学审查的 Coding Plan 模型；opencodego 死路径里的 minimax 不动（已下线）。
+7. 测试同步 7 处断言；全量 713/713 绿、类型检查与构建通过。
 
 ---
 
@@ -4114,7 +4128,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`1842e696f513`
+> 当前源文件：`HANDOFF.md` · 指纹：`577e43fd28fc`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -4132,6 +4146,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ##### 最近完成的改动（最新在最上）
 
+1. 停用 MiniMax M3（DEC-CURRENT-066）：老板拍板停用（定性：不是完全能力不行，是它失控的思考习惯在关键时刻必掉链子=不可靠）。三席换绑——文姬（设定）→Kimi K2.7 Code、西施（副编）→GLM 5.3、妲己（文学审校）→**Coding Plan 的 doubao-seed-code**（Agent Plan 停用 MiniMax 后只剩 5 个模型，凑不齐主笔/副笔+事实/文学/体验/挑剔六席互异硬校验；doubao-seed-code 已实测接受 thinking 预算且直出文字，非换名伪装，可用 WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL 覆盖）。运行时 reviewer 槽改 Kimi；三处 toCreativeProfiles 同步（副编取 style_editor 槽 GLM）。存量书：启动迁移"订阅策略激活"判定扩展为双套餐（Agent+Coding），绑定不一致的 V2 书自动 reviseFuture 收敛，历史快照/在途任务冻结不受影响。适配器层保留 minimax 兼容（在途冻结快照仍可能调它）；ModelAdapterFactory 白名单放行 Coding Plan 文学模型。测试 7 处断言同步，全量 713 绿。
 1. 热修·设定队列卡死根因（DEC-CURRENT-065）：老板实测设计到三四项必卡。生产证据全是 minimax-m3（副编西施）——thinking 块写 4.6-5.7 万字符、24000 输出 Token 全烧光、零可见文字，重试确定性复现。根因：DEC-053 统一六模型启用带预算思考时踩掉了 requiresVisibleOutput 里"MiniMax 任何用途关闭思考"的保护，且 16000 预算对 MiniMax 不生效。修复：thinkingField 对 minimax- 前缀恢复 disabled，thinkingTokenAllowance 对 minimax 归零（max_tokens 与预算冻结口径一致）；测试断言同步改为 disabled。已卡任务在任务中心点"继续重试"即可。全量测试 713 项全绿。
 1. 标签选择加回开书信息（DEC-CURRENT-064）：开书向导第 2 步新增"本书标签"区块——已选 chips 可删、按分类+融合题材自动推荐 8-10 个（点标签加入、点 × 不再推荐且不回加）、"从标签库添加"面板（16 分组浏览+搜索），可留空不卡创建、最多 12 个，修改开书资料弹窗同组件老书可补选。推荐纯规则计算（分类 recommendedMainTags+题材包命中分组的主标签/特质泳道），不经 AI；标签只进资料包定调，不激活推荐设定包（DEC-063 不变）。设定资料包"主要标签/作品特点：未填写"残留改为有才渲染。新增向导回归测试（推荐加入/删除/不再推荐/搜索添加/提交链路）。全量测试 713 项全绿。
 1. 设定页走修·五点（DEC-CURRENT-063）：① 悬疑调查乱推荐修复——根因是 blueprintSignals 把主标签/故事特质/自定义标签也计入题材包匹配，作者风格主标签选了"悬疑、推理"就激活悬疑包；已改为题材包只由分类（主要题材）和副题材决定。② 勾选持久化——设计勾选从页面内存改为按书存浏览器本地（wenmi-setting-checked-v1-{bookId}），刷新不丢（老板实测勾十几项变回 6 项的 bug）。③ 设计清单可查可删——队列条新增"设计清单"展开列表，核心项标"必谈"不可移出，其他项可单独移出并取消勾选。④ 按钮统一绿色——重新设计两处与清空全部设定改为与"确认整份设定"一致的绿色主按钮，删橙红警示色覆盖。⑤ 九条改造逐项复查确认全部落地。全量测试 712 项全绿。

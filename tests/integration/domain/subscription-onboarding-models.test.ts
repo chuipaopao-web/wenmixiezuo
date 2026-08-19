@@ -13,7 +13,7 @@ describe('subscription onboarding model allocation', () => {
     context = undefined;
   });
 
-  it('creates the fourteen-member team with only valid Agent Plan role bindings', () => {
+  it('creates the fourteen-member team with only valid plan role bindings', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -43,15 +43,15 @@ describe('subscription onboarding model allocation', () => {
     expect(byRole.size).toBe(14);
     expect(Object.fromEntries(byRole)).toMatchObject({
       chief_editor: 'kimi-k2.7-code',
-      deputy_editor: 'minimax-m3',
+      deputy_editor: 'glm-5.2',
       lead_screenwriter: 'deepseek-v4-pro',
       second_screenwriter: 'glm-5.2',
       third_screenwriter: 'kimi-k2.7-code',
-      setting: 'minimax-m3',
+      setting: 'kimi-k2.7-code',
       lead_writer: 'deepseek-v4-pro',
       fact_reviewer: 'glm-5.2',
       backup_writer: 'kimi-k2.7-code',
-      literary_reviewer: 'minimax-m3',
+      literary_reviewer: 'doubao-seed-code',
       experience_reviewer: 'doubao-seed-2.1-turbo',
       experience_challenger: 'deepseek-v4-flash',
       researcher: 'deepseek-v4-flash',

@@ -90,7 +90,7 @@ describe('启动时保留书籍模型方案', () => {
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
     expect(team.find((agent) => agent.roleKey === 'deputy_editor')).toMatchObject({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'minimax-m3'
+      modelId: 'glm-5.2'
     });
     expect(team.find((agent) => agent.roleKey === 'researcher')).toMatchObject({
       modelId: 'glm-5-2-custom-research'
@@ -102,7 +102,7 @@ describe('启动时保留书籍模型方案', () => {
       });
   });
 
-  it('把十四名成员的未来任务统一迁移到Agent Plan并保留旧修订快照', () => {
+  it('把十四名成员的未来任务统一迁移到方舟双套餐并保留旧修订快照', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -140,15 +140,15 @@ describe('启动时保留书籍模型方案', () => {
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
       chief_editor: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      deputy_editor: 'volcengine-ark-agent-plan/minimax-m3',
+      deputy_editor: 'volcengine-ark-agent-plan/glm-5.2',
       lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-agent-plan/glm-5.2',
       third_screenwriter: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      setting: 'volcengine-ark-agent-plan/minimax-m3',
+      setting: 'volcengine-ark-agent-plan/kimi-k2.7-code',
       lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
       fact_reviewer: 'volcengine-ark-agent-plan/glm-5.2',
       backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      literary_reviewer: 'volcengine-ark-agent-plan/minimax-m3',
+      literary_reviewer: 'volcengine-ark-coding-plan/doubao-seed-code',
       experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',
       experience_challenger: 'volcengine-ark-agent-plan/deepseek-v4-flash',
       researcher: 'volcengine-ark-agent-plan/deepseek-v4-flash',

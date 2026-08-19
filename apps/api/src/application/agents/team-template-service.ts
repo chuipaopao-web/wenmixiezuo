@@ -106,7 +106,7 @@ export class TeamTemplateService {
 
   /**
    * 修复存量书籍：设定成员与编剧B绑定了同一模型时，提案三席无法保证各自独立出方案。
-   * 把设定岗位的未来绑定改为指定配置（默认 minimax）；只影响之后的新任务，
+   * 把设定岗位的未来绑定改为指定配置（当前为 Kimi K2.7 Code）；只影响之后的新任务，
    * 运行中的任务继续使用已冻结模型快照。返回是否做了修复。
    */
   public repairSettingSeatModel(scope: BookScope, profile: TeamModelProfile): boolean {

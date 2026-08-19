@@ -1,6 +1,7 @@
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import { literaryReviewerCodingProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
 import type { LegacyBookUpgradeRepository } from '../../infrastructure/db/repositories/legacy-book-upgrade-repository.js';
 import type { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
@@ -140,7 +141,7 @@ export class LegacyBookUpgradeService {
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
   return {
     chief_editor: profiles.chief_editor,
-    deputy_editor: profiles.reviewer,
+    deputy_editor: profiles.style_editor,
     lead_screenwriter: profiles.plot_architect,
     second_screenwriter: profiles.continuity,
     third_screenwriter: profiles.chief_editor,
@@ -148,7 +149,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partia
     lead_writer: profiles.writer,
     backup_writer: profiles.chief_editor,
     fact_reviewer: profiles.style_editor,
-    literary_reviewer: profiles.reviewer,
+    literary_reviewer: profiles.reviewer.plan === 'deterministic' ? profiles.reviewer : literaryReviewerCodingProfile(),
     experience_reviewer: profiles.reader_experience,
     experience_challenger: profiles.researcher,
     researcher: profiles.researcher,

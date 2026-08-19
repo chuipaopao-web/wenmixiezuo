@@ -27,8 +27,13 @@ describe('十四人创作团队', () => {
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
       provider: 'volcengine-ark-agent-plan',
-      modelId: 'minimax-m3',
+      modelId: 'glm-5.2',
       plan: 'agent'
+    });
+    expect(base.literary_reviewer).toEqual({
+      provider: 'volcengine-ark-coding-plan',
+      modelId: 'doubao-seed-code',
+      plan: 'coding'
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
     expect(() => service.validate({ ...base, third_screenwriter: base.lead_screenwriter })).toThrow('互不相同');

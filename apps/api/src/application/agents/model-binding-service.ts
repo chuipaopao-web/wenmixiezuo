@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import { literaryReviewerCodingProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
@@ -48,10 +49,12 @@ export class ModelBindingService {
       ORDER BY a.owner_id, a.book_id
     `).all() as unknown as Array<{ owner_id: string; book_id: string }>;
     const creativeProfiles = toCreativeProfiles(this.roleProfiles);
-    // “订阅策略激活”既涵盖火山方舟 Agent Plan，也涵盖 opencodego：只要全岗位
-    // 统一走某一条订阅来源，就把存量 V2 书籍一并迁移到该来源，避免保留旧绑定。
+    // “订阅策略激活”涵盖火山方舟 Agent Plan 与 Coding Plan（opencodego 已下线）：
+    // 只要全岗位统一走订阅来源，就把存量 V2 书籍一并迁移到该来源，避免保留旧绑定；
+    // 停用 MiniMax M3 后，存量书的三席旧绑定也经此路径自动重绑。
     const subscriptionPolicyActive = creativeRoleKeys.every((role) =>
       (creativeProfiles[role].provider === 'volcengine-ark-agent-plan' && creativeProfiles[role].plan === 'agent')
+      || (creativeProfiles[role].provider === 'volcengine-ark-coding-plan' && creativeProfiles[role].plan === 'coding')
       || (creativeProfiles[role].provider === 'opencodego' && creativeProfiles[role].plan === 'opencodego')
     );
     let updatedV2Agents = 0;
@@ -183,7 +186,7 @@ function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModel
   if (profiles.chief_editor.provider === 'opencodego') {
     return 'DEC-100：十四名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
   }
-  return 'DEC-099：十四名创作成员统一迁移至火山方舟 Agent Plan；保留历史调用快照，只影响未来任务';
+  return 'DEC-CURRENT-066：十四名创作成员统一走火山方舟双套餐（Agent Plan + Coding Plan），停用 MiniMax M3；保留历史调用快照，只影响未来任务';
 }
 
 function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
@@ -192,7 +195,7 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     : value;
   return {
     chief_editor: profile('chief_editor', profiles.chief_editor),
-    deputy_editor: profile('deputy_editor', profiles.reviewer),
+    deputy_editor: profile('deputy_editor', profiles.style_editor),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     third_screenwriter: profile('third_screenwriter', profiles.chief_editor),
@@ -200,7 +203,8 @@ function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.chief_editor),
     fact_reviewer: profile('fact_reviewer', profiles.style_editor),
-    literary_reviewer: profile('literary_reviewer', profiles.reviewer),
+    literary_reviewer: profile('literary_reviewer',
+      profiles.reviewer.plan === 'deterministic' ? profiles.reviewer : literaryReviewerCodingProfile()),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
     experience_challenger: profile('experience_challenger', profiles.researcher),
     researcher: profile('researcher', profiles.researcher),

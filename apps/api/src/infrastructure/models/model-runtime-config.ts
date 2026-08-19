@@ -231,21 +231,30 @@ function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, Role
       firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL), 'kimi-k2.7-code'),
     plan: 'agent'
   };
-  const agentMinimax: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL, 'minimax-m3'),
-    plan: 'agent'
-  };
   return {
     chief_editor: { ...agentKimiK27 },
     plot_architect: { ...agentDeepSeekPro },
     continuity: { ...agentGlm },
     writer: { ...agentDeepSeekPro },
-    reviewer: { ...agentMinimax },
+    reviewer: { ...agentKimiK27 },
     reader_experience: { ...agentDoubao },
     style_editor: { ...agentGlm },
     researcher: { ...agentDeepSeekFlash },
     copyright: { ...agentKimiK27 }
+  };
+}
+
+/**
+ * 文学审查席的第六个独立模型：Agent Plan 停用 MiniMax M3 后只剩五个模型，
+ * 凑不齐主笔/副笔+事实/文学/体验/挑剔六席互异；Coding Plan 的 doubao-seed-code
+ * 是另一个真实模型（2026-08-19 实测接受 thinking 预算且直出文字），不是换名伪装。
+ * 可用 WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL 覆盖模型名。
+ */
+export function literaryReviewerCodingProfile(env: NodeJS.ProcessEnv = process.env): RoleModelProfile {
+  return {
+    provider: 'volcengine-ark-coding-plan',
+    modelId: firstNonEmpty(env.WENMI_ARK_CODING_PLAN_DOUBAO_CODE_MODEL) ?? 'doubao-seed-code',
+    plan: 'coding'
   };
 }
 
