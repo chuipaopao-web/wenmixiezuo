@@ -498,7 +498,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           </section>}
           {step === 2 && <section className="opening-form-section book-tags-section">
             <div className="section-heading"><div><span>03</span><h3>本书标签</h3></div><small>可留空 · 最多{BOOK_TAG_MAX}个 · 已选 {mainTags.length} 个</small></div>
-            <p className="story-direction-note">标签帮团队把握故事的调子：是权谋博弈还是轻松日常，团队设计设定和剧情时会照着来。不想要的删掉，不影响类型。</p>
+            <p className="story-direction-note">标签是全书调子的参考方向，只影响基础设计：团队设计设定和分卷时会参考，但不会限制死。不想要的删掉，不影响类型。</p>
             {mainTags.length > 0 && <div className="tag-options">{mainTags.map((tag) => (
               <button className="tag-choice selected" type="button" key={tag} aria-label={`删除标签：${tag}`} onClick={() => removeBookTag(tag)}><CheckCircleIcon />{tag}<span className="book-tag-x" aria-hidden="true">×</span></button>
             ))}</div>}
