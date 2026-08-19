@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createServer } from '../../../apps/api/src/http/server.js';
+import { SettingQualityReportRepository } from '../../../apps/api/src/infrastructure/db/repositories/setting-quality-report-repository.js';
+import { hashConfirmedSettings } from '../../../apps/api/src/application/knowledge/setting-quality-shared.js';
 import {
   parseSettingOutlineDeposit,
   SettingOutlineWorkspaceService
@@ -36,6 +39,28 @@ function blueprint(overrides: Partial<OpeningBlueprintInput>): OpeningBlueprintI
   };
 }
 
+/** 直接落一份覆盖当前已确认内容的质检报告，供定稿门禁测试使用。 */
+let seedQualityReportSeq = 0;
+function seedFreshQualityReport(
+  context: TestContext,
+  scope: { ownerId: string; bookId: string },
+  clock: FixedClock,
+  issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string }>
+): void {
+  const workspace = new SettingOutlineWorkspaceService(context.database, clock);
+  const confirmed = workspace.list(scope).filter((item) => item.status === '已确认' && item.content !== null);
+  seedQualityReportSeq += 1;
+  new SettingQualityReportRepository(context.database).save(scope, {
+    reportId: `report-${String(seedQualityReportSeq).padStart(6, '0')}`,
+    taskId: null,
+    contentHash: hashConfirmedSettings(confirmed),
+    verdict: issues.some((issue) => issue.severity === 'hard') ? 'fail' : 'pass',
+    summary: '测试质检报告',
+    issues,
+    now: clock.now().toISOString()
+  });
+}
+
 describe('设定大纲工作状态', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
@@ -57,6 +82,25 @@ describe('设定大纲工作状态', () => {
       'theme-intent', 'differentiator', 'tone-boundary', 'open', 'intentional-unknown',
       'power-source', 'levels', 'production', 'army', 'game-panel', 'ranking'
     ]));
+  });
+
+  it('推荐条目按主题材优先、副题材靠后排序', () => {
+    // 主分类历史脑洞，副题材带游戏词：历史包的条目必须排在游戏包条目之前。
+    const profile = resolveSettingOutlineProfile(blueprint({
+      channel: 'male',
+      categoryKey: 'male-history-brain',
+      mainTags: ['历史', '游戏'],
+      auxiliaryTags: [],
+      storyTraits: [],
+      storyDirection: '主角带着游戏面板穿越南宋，改写历史。'
+    }));
+    expect(profile.profileKey).toContain('history');
+    expect(profile.profileKey).toContain('game');
+    const historyIndex = profile.recommended.indexOf('history-baseline');
+    const gameIndex = profile.recommended.indexOf('game-entry');
+    expect(historyIndex).toBeGreaterThanOrEqual(0);
+    expect(gameIndex).toBeGreaterThanOrEqual(0);
+    expect(historyIndex).toBeLessThan(gameIndex);
   });
 
   it('商业经营和梗概中的普通经营词不会误激活领主领地模板', () => {
@@ -418,6 +462,7 @@ describe('设定大纲工作状态', () => {
     const planning = context.database.prepare(`
       SELECT version FROM book_planning_states WHERE owner_id = ? AND book_id = ?
     `).get(scope.ownerId, scope.bookId) as { version: number };
+    seedFreshQualityReport(context, scope, clock, []);
     baselines.confirm(scope, planning.version);
 
     const state = context.database.prepare(`
@@ -452,6 +497,7 @@ describe('设定大纲工作状态', () => {
     const beforeReconfirm = context.database.prepare(`
       SELECT version FROM book_planning_states WHERE owner_id = ? AND book_id = ?
     `).get(scope.ownerId, scope.bookId) as { version: number };
+    seedFreshQualityReport(context, scope, clock, []);
     const reconfirmed = baselines.confirm(scope, beforeReconfirm.version);
     expect(reconfirmed).toMatchObject({
       stage: 'setting_ready',
@@ -597,5 +643,144 @@ describe('设定大纲工作状态', () => {
 
     expect(service.listVersions(scope, 'story-kernel')).toHaveLength(2);
     expect(service.listVersions(scope, 'opposition')).toEqual([]);
+  });
+
+  it('已确认设定重新设计：旧定稿继续有效，作者确认新候选后才替换', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '反悔的书', text: '历史脑洞' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new SettingOutlineWorkspaceService(context.database, clock);
+    service.save(scope, {
+      itemKey: 'story-kernel',
+      groupTitle: '核心设定',
+      label: '故事内核',
+      prompt: '这个故事在讲什么',
+      sourceLabel: '核心模板',
+      status: '已确认',
+      content: '旧定稿内核。'
+    });
+
+    // 重新设计出的候选只挂在待定区：状态仍是已确认，正式内容不变，下游继续读旧定稿。
+    const withPending = service.recordGuidanceCandidate(scope, 'story-kernel', '新候选内核。');
+    expect(withPending.status).toBe('已确认');
+    expect(withPending.content).toBe('旧定稿内核。');
+    expect(withPending.pendingCandidate).toBe('新候选内核。');
+
+    // 作者确认后新候选才替换正式内容，旧稿留在版本历史里。
+    const confirmed = service.confirmGuidanceCandidate(scope, 'story-kernel');
+    expect(confirmed.status).toBe('已确认');
+    expect(confirmed.content).toBe('新候选内核。');
+    expect(confirmed.pendingCandidate).toBeNull();
+    expect(service.listVersions(scope, 'story-kernel').map((version) => version.content))
+      .toEqual(['新候选内核。', '旧定稿内核。']);
+
+    // 再挂一轮候选后作者手动确认其他内容：待定候选作废。
+    service.recordGuidanceCandidate(scope, 'story-kernel', '第二轮候选。');
+    const saved = service.save(scope, {
+      itemKey: 'story-kernel',
+      groupTitle: '核心设定',
+      label: '故事内核',
+      prompt: '这个故事在讲什么',
+      sourceLabel: '核心模板',
+      status: '已确认',
+      content: '作者手写定稿。'
+    });
+    expect(saved.pendingCandidate).toBeNull();
+    expect(saved.content).toBe('作者手写定稿。');
+  });
+
+  it('清空全部设定：内容归零、基线作废、版本历史保留', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '清空的书', text: '历史脑洞' });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const service = new SettingOutlineWorkspaceService(context.database, clock);
+    service.save(scope, {
+      itemKey: 'story-kernel', groupTitle: '核心设定', label: '故事内核',
+      prompt: '这个故事在讲什么', sourceLabel: '核心模板', status: '已确认', content: '旧定稿内核。'
+    });
+    service.recordGuidanceCandidate(scope, 'story-kernel', '待定候选。');
+    // 模拟这本书已确认过设定基线。
+    context.database.prepare(`UPDATE book_planning_states SET stage = 'setting_ready', setting_baseline_version_id = 'fake-baseline'
+      WHERE owner_id = ? AND book_id = ?`).run(scope.ownerId, scope.bookId);
+
+    const result = new SettingBaselineService(context.database, ids, clock).clear(scope);
+    expect(result.clearedItems).toBeGreaterThan(0);
+    expect(result.hasCanonChapters).toBe(false);
+    const item = service.list(scope).find((row) => row.itemKey === 'story-kernel')!;
+    expect(item).toMatchObject({ status: '待讨论', content: null, pendingCandidate: null, confirmedAt: null });
+    expect(service.listVersions(scope, 'story-kernel').map((version) => version.content)).toContain('旧定稿内核。');
+    expect(context.database.prepare(`SELECT stage, setting_baseline_version_id FROM book_planning_states
+      WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId))
+      .toEqual({ stage: 'setting_in_progress', setting_baseline_version_id: null });
+  });
+
+  it('清空接口必须输入 YES，否则拒绝', async () => {
+    context = createTestContext();
+    const app = await createServer(context.config, context.database, { trustedTest: true });
+    try {
+      const book = initializeDomainBook(context, context.config.ownerId, new SequenceIds(), new FixedClock(), { title: '清空门禁书', text: '都市' });
+      const url = `/api/v1/books/${book.bookId}/setting-outline-workspace/clear`;
+      const refused = await app.inject({ method: 'POST', url, payload: { confirmText: '确定' } });
+      expect(refused.statusCode).toBe(409);
+      const accepted = await app.inject({ method: 'POST', url, payload: { confirmText: 'YES' } });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json().data).toMatchObject({ hasCanonChapters: false });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('定稿门禁：无质检报告、报告过期或硬伤未确认时拒绝确认整份设定', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const draft = new PositioningService(context.database, ids, clock).createDraft(
+      { ownerId: context.config.ownerId },
+      { title: '门禁书', text: '都市', openingBlueprint: blueprint({ auxiliaryTags: [], storyTraits: [] }) }
+    );
+    const book = new BookOnboardingService(context.database, ids, clock).confirmDraft(
+      { ownerId: context.config.ownerId }, draft.draftId, draft.version
+    );
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const workspace = new SettingOutlineWorkspaceService(context.database, clock);
+    const baselines = new SettingBaselineService(context.database, ids, clock);
+    const required = baselines.inspect(scope).required;
+    required.forEach((itemKey, index) => {
+      workspace.save(scope, {
+        itemKey, groupTitle: '设定基线', label: `设定项${index + 1}`, prompt: '确认。',
+        sourceLabel: '测试模板', status: '已确认', sortOrder: index, content: `${itemKey}的内容`
+      });
+    });
+    const planningVersion = (): number => (context!.database.prepare(`
+      SELECT version FROM book_planning_states WHERE owner_id = ? AND book_id = ?
+    `).get(scope.ownerId, scope.bookId) as { version: number }).version;
+
+    // 没有质检报告：拒绝。
+    expect(() => baselines.confirm(scope, planningVersion()))
+      .toThrowError(expect.objectContaining({ code: 'SETTING_QUALITY_AUDIT_REQUIRED' }) as unknown as Error);
+
+    // 质检后又改了内容：指纹不匹配，旧报告作废。
+    seedFreshQualityReport(context, scope, clock, []);
+    workspace.save(scope, {
+      itemKey: required[0]!, groupTitle: '设定基线', label: '设定项1', prompt: '确认。',
+      sourceLabel: '测试模板', status: '已确认', content: '质检后又改过的内容'
+    });
+    expect(() => baselines.confirm(scope, planningVersion()))
+      .toThrowError(expect.objectContaining({ code: 'SETTING_QUALITY_AUDIT_REQUIRED' }) as unknown as Error);
+
+    // 有硬伤但未逐项确认“仍要保留”：拒绝。
+    seedFreshQualityReport(context, scope, clock, [
+      { id: 'h1', severity: 'hard', itemKey: 'whole', problem: '设定整体跑题', suggestion: '回到开书方向重做' }
+    ]);
+    expect(() => baselines.confirm(scope, planningVersion()))
+      .toThrowError(expect.objectContaining({ code: 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED' }) as unknown as Error);
+
+    // 逐项确认后放行。
+    const confirmed = baselines.confirm(scope, planningVersion(), ['h1']);
+    expect(confirmed.stage).toBe('setting_ready');
   });
 });

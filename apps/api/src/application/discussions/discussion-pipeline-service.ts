@@ -30,6 +30,7 @@ import {
   parseSettingOutlineDeposit,
   SettingOutlineWorkspaceService
 } from '../knowledge/setting-outline-workspace-service.js';
+import { SettingQualityReportRepository } from '../../infrastructure/db/repositories/setting-quality-report-repository.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { parseFusionSegments, parseSettingProposalStructure } from '@wenmi/contracts';
 import {
@@ -68,7 +69,7 @@ interface ParticipantRow {
   model_id: string;
 }
 
-type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'setting_synthesis' | 'stage_outline_panel' | 'stage_outline_synthesis';
+type DiscussionPurpose = 'open_discussion' | 'creative_exploration' | 'locked_planning' | 'creative_concept_panel' | 'setting_proposal_panel' | 'setting_synthesis' | 'stage_outline_panel' | 'stage_outline_synthesis' | 'setting_quality_audit';
 type DiscussionPhase = 'independent' | 'cross_review';
 
 interface CollectedOpinion {
@@ -133,6 +134,16 @@ export class DiscussionPipelineService {
           scopeText: brief.scopeText,
           content: recommendation.summary
         });
+        if (brief.purpose === 'setting_quality_audit') {
+          const recovered = parseSettingQualityAudit(parseModelJsonFields(recommendation.summary));
+          if (recovered === null) throw new Error('主编质检回复缺少有效的质检结构，不能把普通总结伪装成质检报告');
+          new SettingQualityReportRepository(this.database).save(scope, {
+            reportId: this.ids.next(), taskId,
+            contentHash: extractSettingQualityFingerprint(brief.scopeText),
+            verdict: recovered.verdict, summary: recovered.summary, issues: recovered.issues,
+            now: this.clock.now().toISOString()
+          });
+        }
       }
       const opinionCount = (this.database.prepare(`
         SELECT COUNT(*) AS count FROM discussion_opinions
@@ -670,6 +681,18 @@ export class DiscussionPipelineService {
         impacts: [{ scope: 'current_book', cashCostCny: 0, requiresBossConfirmation: true }]
       });
       const effectiveEditorOutput = editorOpinion.effective ?? prepareEffectiveOutput(editorOpinion.output);
+      if (brief.purpose === 'setting_quality_audit') {
+        const audit = parseSettingQualityAudit(parseModelJsonFields(editorOpinion.output));
+        if (audit === null) {
+          throw new Error('主编质检回复缺少有效的质检结构，不能把普通总结伪装成质检报告');
+        }
+        new SettingQualityReportRepository(this.database).save(scope, {
+          reportId: this.ids.next(), taskId,
+          contentHash: extractSettingQualityFingerprint(brief.scopeText),
+          verdict: audit.verdict, summary: audit.summary, issues: audit.issues,
+          now: this.clock.now().toISOString()
+        });
+      }
       const settingCandidates = new SettingOutlineWorkspaceService(this.database, this.clock).recordDiscussionCandidates(scope, {
         discussionId: brief.discussionId,
         decisionId,
@@ -797,6 +820,41 @@ export class DiscussionPipelineService {
     if (rows.length > 0) repository.saveProposalFragments(scope, rows);
   }
 
+}
+
+/** 校验主编质检输出结构；任何字段漂移都判无效，任务失败重试，不保存伪报告。 */
+export function parseSettingQualityAudit(fields: Record<string, unknown> | null): {
+  verdict: 'pass' | 'warn' | 'fail';
+  summary: string;
+  issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string }>;
+} | null {
+  if (fields === null) return null;
+  const verdict = fields.verdict;
+  if (verdict !== 'pass' && verdict !== 'warn' && verdict !== 'fail') return null;
+  const summary = typeof fields.summary === 'string' ? fields.summary.trim() : '';
+  if (summary.length === 0) return null;
+  const rawIssues = Array.isArray(fields.issues) ? fields.issues : [];
+  const issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string }> = [];
+  for (const [index, raw] of rawIssues.entries()) {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const record = raw as Record<string, unknown>;
+    const severity = record.severity === 'hard' ? 'hard' : record.severity === 'soft' ? 'soft' : null;
+    const problem = typeof record.problem === 'string' ? record.problem.trim() : '';
+    if (severity === null || problem.length === 0) return null;
+    issues.push({
+      id: typeof record.id === 'string' && record.id.trim().length > 0 ? record.id.trim() : `i${index + 1}`,
+      severity,
+      itemKey: typeof record.itemKey === 'string' ? record.itemKey : 'whole',
+      problem,
+      suggestion: typeof record.suggestion === 'string' ? record.suggestion.trim() : ''
+    });
+  }
+  if (verdict === 'fail' && !issues.some((issue) => issue.severity === 'hard')) return null;
+  return { verdict, summary, issues };
+}
+
+function extractSettingQualityFingerprint(scopeText: string): string {
+  return scopeText.match(/【质检内容指纹】([0-9a-f]{64})/)?.[1] ?? '__unknown__';
 }
 
 /** 从模型JSON输出中取出fields对象；解析失败返回null，不做任何猜测。 */

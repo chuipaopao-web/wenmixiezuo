@@ -8,6 +8,19 @@ export function taskLabel(type: string): string {
   return type;
 }
 
+/** 任务中心的大白话标题：设定类任务直接写清在设计什么，不暴露内部任务类型词。 */
+export function taskTitle(task: TaskData, workspace: TaskCenterBookData): string {
+  if (task.taskType === 'discussion') {
+    const purpose = typeof task.brief.purpose === 'string' ? task.brief.purpose : '';
+    const itemKey = typeof task.brief.settingItemKey === 'string' ? task.brief.settingItemKey : '';
+    const label = workspace.settingItems?.find((item) => item.itemKey === itemKey)?.label ?? '设定';
+    if (purpose === 'setting_proposal_panel') return `设计${label}`;
+    if (purpose === 'setting_synthesis') return `整理${label}的定稿`;
+    if (purpose === 'setting_quality_audit') return '主编检查整份设定';
+  }
+  return `${taskChapterLabel(task, workspace)} · ${taskLabel(task.taskType)}`;
+}
+
 export function taskGoal(task: TaskData, chapter: string): string {
   if (task.taskType === 'conversation_reply') return '这是旧版本遗留的审计记录，不能重新执行，也不会影响当前对象工作流。';
   if (task.taskType === 'discussion') {

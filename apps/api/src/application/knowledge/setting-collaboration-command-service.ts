@@ -8,6 +8,9 @@ import { SettingCollaborationRepository } from '../../infrastructure/db/reposito
 import { SettingGuidanceService, type SettingGuidanceSnapshot } from './setting-guidance-service.js';
 import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
+import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
+import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
+import { hashConfirmedSettings, SETTING_QUALITY_AUDIT_INSTRUCTION } from './setting-quality-shared.js';
 
 interface CommandResult {
   taskId: string;
@@ -86,7 +89,7 @@ export class SettingCollaborationCommandService {
     if (existing !== undefined && ['pending', 'queued', 'working'].includes(existing.task_status)) {
       throw new DomainError(errorCodes.operationIncomplete, '这一轮设计还在进行中，等它结束后才能重新设计', {}, false, 409);
     }
-    const guidance = this.requireGuidance(scope, itemKey);
+    const guidance = this.requireGuidance(scope, itemKey, true);
     const authorText = this.authorInputText(scope, itemKey, input.authorInputId ?? null);
     return this.schedule(scope, {
       type: 'collaborative',
@@ -178,6 +181,42 @@ export class SettingCollaborationCommandService {
     });
   }
 
+  /**
+   * 整份设定质检：活动主编独立苛刻检查全部已确认设定。
+   * 幂等键带内容指纹：内容没变时重复点击复用同一任务，不产生双倍调用。
+   */
+  public audit(scope: BookScope, input: { idempotencyKey: string }): CommandResult {
+    assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    const workspace = new SettingOutlineWorkspaceService(this.database, this.clock);
+    const confirmed = workspace.list(scope)
+      .filter((item) => item.status === '已确认' && item.content !== null);
+    if (confirmed.length === 0) {
+      throw new DomainError(errorCodes.operationIncomplete, '还没有已确认的设定，先完成至少一项再让主编检查', {}, false, 409);
+    }
+    const fingerprint = hashConfirmedSettings(confirmed);
+    const blueprint = new PlanningWorkflowRepository(this.database).openingBlueprint(scope) ?? '{}';
+    const scopeText = [
+      '【整份设定质检资料包】',
+      '【质检内容指纹】' + fingerprint,
+      '本书完整开书信息（作者已填写，是判断是否跑题的依据）：' + blueprint,
+      '全部已确认设定：' + JSON.stringify(confirmed.map((item) => ({
+        itemKey: item.itemKey, label: item.label, content: item.content
+      }))),
+      SETTING_QUALITY_AUDIT_INSTRUCTION,
+      '只输出质检报告JSON，不改写设定内容，不生成剧情、卷纲或正文。'
+    ].join('\n');
+    return this.schedule(scope, {
+      type: 'quick',
+      purpose: 'setting_quality_audit',
+      itemKey: '__whole_setting__',
+      scopeText,
+      authorInputIds: [],
+      idempotencyKey: 'setting-quality-audit:' + fingerprint + ':' + normalizeKey(input.idempotencyKey),
+      includeScreenwriters: false
+    });
+  }
+
   private scheduleSynthesis(
     scope: BookScope,
     guidance: SettingGuidanceSnapshot,
@@ -221,7 +260,7 @@ export class SettingCollaborationCommandService {
     scope: BookScope,
     input: {
       type: 'quick' | 'collaborative';
-      purpose: 'setting_proposal_panel' | 'setting_synthesis';
+      purpose: 'setting_proposal_panel' | 'setting_synthesis' | 'setting_quality_audit';
       itemKey: string;
       scopeText: string;
       authorInputIds: string[];

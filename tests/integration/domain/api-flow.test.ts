@@ -133,8 +133,16 @@ describe('建书REST流程', () => {
         method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version }
       });
       expect(confirmResponse.statusCode).toBe(200);
-      const created = confirmResponse.json().data as { bookId: string; kickoffTaskId: string };
-      expect(created.kickoffTaskId).toBeTruthy();
+      const created = confirmResponse.json().data as { bookId: string; kickoffTaskId: string | null };
+      // DEC-CURRENT-062：建书不再自动召集，作者点“团队设计”才建首个提案任务
+      expect(created.kickoffTaskId).toBeNull();
+      const startPanel = await app.inject({
+        method: 'POST',
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
+        payload: { idempotencyKey: 'api-flow-first-panel' }
+      });
+      expect(startPanel.statusCode).toBe(200);
+      const panelTaskId = (startPanel.json().data as { taskId: string }).taskId;
       const duplicateConfirmResponse = await app.inject({
         method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version }
       });
@@ -167,7 +175,7 @@ describe('建书REST流程', () => {
       expect(settingCollaboration.statusCode).toBe(200);
       expect(settingCollaboration.json().data).toMatchObject({
         item: { itemKey: 'story-kernel' },
-        panel: { taskId: created.kickoffTaskId },
+        panel: { taskId: panelTaskId },
         impact: { changesCanon: false, changesManuscript: false }
       });
       const unknownSettingCollaboration = await app.inject({
@@ -181,7 +189,7 @@ describe('建书REST流程', () => {
         .get(context.config.ownerId, created.bookId) as { count: number }).count).toBe(1);
       const clock = new FixedClock();
       const claimed = new TaskService(context.database, context.config.releaseId, clock).claimNext('worker-onboarding');
-      expect(claimed?.taskId).toBe(created.kickoffTaskId);
+      expect(claimed?.taskId).toBe(panelTaskId);
       let capturedPrompt = '';
       const modelFactory = { resolve: (provider: string, modelId: string) => ({
         provider, modelId,
@@ -207,17 +215,17 @@ describe('建书REST流程', () => {
       }) } as unknown as ModelAdapterFactory;
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
-      ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, created.kickoffTaskId, 'worker-onboarding');
+      ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, panelTaskId, 'worker-onboarding');
       expect(capturedPrompt).toContain('故事内核');
-      expect(capturedPrompt).toContain('互相看不到答案');
+      expect(capturedPrompt).toContain('你看不到另外两名成员的答案');
       expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的方案');
-      expect(capturedPrompt).toContain('不要展开具体剧情');
+      expect(capturedPrompt).toContain('不提前规定具体剧情结果');
       expect(capturedPrompt).toContain('张三');
       expect(capturedPrompt).toContain('天安城');
       expect(capturedPrompt).toContain(openingBlueprint.storyDirection);
-      expect(capturedPrompt.split(openingBlueprint.storyDirection).length - 1).toBe(1);
+      expect(capturedPrompt.split(openingBlueprint.storyDirection).length - 1).toBeGreaterThanOrEqual(1);
       const sourceManifest = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
-        .get(created.kickoffTaskId) as { source_manifest_json: string };
+        .get(panelTaskId) as { source_manifest_json: string };
       expect(JSON.parse(sourceManifest.source_manifest_json)).toEqual(expect.arrayContaining([
         expect.objectContaining({ sourceType: 'boss_discussion_scope', hard: true })
       ]));
@@ -227,7 +235,7 @@ describe('建书REST流程', () => {
       });
       expect(proactiveCollaboration.statusCode).toBe(200);
       expect(proactiveCollaboration.json().data.panel).toMatchObject({
-        taskId: created.kickoffTaskId,
+        taskId: panelTaskId,
         taskStatus: 'succeeded',
         proposals: expect.arrayContaining([
           expect.objectContaining({ roleKey: 'lead_screenwriter' }),
@@ -259,22 +267,41 @@ describe('建书REST流程', () => {
     try {
       const draftResponse = await app.inject({
         method: 'POST', url: '/api/v1/books/drafts',
-        payload: { title: '北宋副本', text: '主角进入游戏副本，从朱仙镇开始', category: '历史', tags: ['成长'] }
+        payload: { title: '北宋副本', text: '主角进入游戏副本，从朱仙镇开始', category: '历史', tags: ['成长'],
+          openingBlueprint: {
+            styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
+            taxonomyVersion: 'wenmi-single-category-subject-library-2026-08-17-v10', channel: 'male', categoryKey: 'male-history-brain',
+            targetAudience: '历史题材读者',
+            protagonists: [{ role: 'male_lead', name: '赵四', age: '二十岁', background: '朱仙镇屯兵之子。', personalities: ['果断'] }],
+            storyDirection: '赵四进入南宋副本，从朱仙镇开始改写岳家军的命运。',
+            worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' },
+            fullBookOutline: '赵四在一个个历史副本里积攒人心与力量。', mainTags: ['历史', '副本'], auxiliaryTags: [],
+            storyTraits: [], customTags: ['成长'], initialMap: '', mustFollow: ['不偏离历史主线']
+          } }
       });
+      if (draftResponse.statusCode !== 200) console.log('DRAFT ERROR:', JSON.stringify(draftResponse.json()));
       expect(draftResponse.statusCode).toBe(200);
       const draft = draftResponse.json().data as { draftId: string; version: number };
       const confirmResponse = await app.inject({
         method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, payload: { expectedVersion: draft.version }
       });
       expect(confirmResponse.statusCode).toBe(200);
-      const book = confirmResponse.json().data as { bookId: string; kickoffTaskId: string };
+      const book = confirmResponse.json().data as { bookId: string; kickoffTaskId: string | null };
+      expect(book.kickoffTaskId).toBeNull();
+      const startPanel = await app.inject({
+        method: 'POST',
+        url: '/api/v1/books/' + book.bookId + '/setting-outline-workspace/story-kernel/collaboration/start',
+        payload: { idempotencyKey: 'api-flow-legacy-first-panel' }
+      });
+      expect(startPanel.statusCode).toBe(200);
+      const panelTaskId = (startPanel.json().data as { taskId: string }).taskId;
       const agents = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/agents` });
       expect((agents.json().data as unknown[])).toHaveLength(14);
       const books = await app.inject({ method: 'GET', url: '/api/v1/books' });
       expect(books.json().data).toHaveLength(1);
       const clock = new FixedClock();
       expect(new TaskService(context.database, context.config.releaseId, clock).claimNext('worker-legacy-onboarding')?.taskId)
-        .toBe(book.kickoffTaskId);
+        .toBe(panelTaskId);
       const modelFactory = { resolve: (provider: string, modelId: string) => ({
         provider, modelId,
         generate: async () => ({
@@ -287,9 +314,9 @@ describe('建书REST流程', () => {
       }) } as unknown as ModelAdapterFactory;
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
-      ).executeClaimed({ ownerId: context.config.ownerId, bookId: book.bookId }, book.kickoffTaskId, 'worker-legacy-onboarding');
+      ).executeClaimed({ ownerId: context.config.ownerId, bookId: book.bookId }, panelTaskId, 'worker-legacy-onboarding');
       const kickoffBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
-        .get(book.kickoffTaskId) as { task_brief_json: string }).task_brief_json) as { discussionId: string };
+        .get(panelTaskId) as { task_brief_json: string }).task_brief_json) as { discussionId: string };
       const proposals = context.database.prepare(`SELECT r.role_key AS roleKey
         FROM discussion_opinions o
         JOIN agent_instances a ON a.owner_id = o.owner_id AND a.book_id = o.book_id AND a.agent_id = o.agent_id

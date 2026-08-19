@@ -800,11 +800,25 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(settingBaselines.inspect(scope), request.id);
   });
 
-  app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number } }>(
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/setting-baseline/quality-report', async (request) => {
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    return success(settingBaselines.qualityReport(scope), request.id);
+  });
+
+  app.post<{ Params: { bookId: string }; Body: { idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-baseline/quality-audit',
+    async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(settingCollaborationCommands.audit(scope, request.body), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string }; Body: { expectedPlanningVersion: number; acknowledgedIssueIds?: string[] } }>(
     '/api/v1/books/:bookId/setting-baseline/confirm',
     async (request) => {
       const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
-      return success(settingBaselines.confirm(scope, request.body.expectedPlanningVersion), request.id);
+      return success(settingBaselines.confirm(scope, request.body.expectedPlanningVersion, request.body.acknowledgedIssueIds ?? []), request.id);
     }
   );
 
@@ -911,6 +925,10 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
           SELECT mode, token_limit, spent_tokens, reserved_tokens, cash_limit_micros, spent_cash_micros, status
           FROM budgets WHERE owner_id = ? AND book_id = ? ORDER BY created_at LIMIT 1
         `).get(scope.ownerId, scope.bookId) ?? null;
+        // 设定类任务的大白话标题需要条目名称（"设计故事内核"），只取键与名称，不带内容。
+        const settingItemRows = database.prepare(`
+          SELECT item_key, label FROM setting_outline_workspace WHERE owner_id = ? AND book_id = ?
+        `).all(scope.ownerId, scope.bookId) as unknown as Array<{ item_key: string; label: string }>;
         const confirmationRows = database.prepare(`
           SELECT confirmation_id, target_type, target_id, expected_canon_revision,
                  scope_json, impact_json, created_at
@@ -924,6 +942,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
           book,
           chapters: taskChapters,
           agents: taskAgents,
+          settingItems: settingItemRows.map((row) => ({ itemKey: row.item_key, label: row.label })),
           tasks: visibleTasks,
           budget,
           confirmations: {
@@ -1432,6 +1451,16 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       ...request.body
     }), request.id);
   });
+
+  app.post<{ Params: { bookId: string }; Body: { confirmText?: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/clear', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      if ((request.body?.confirmText ?? '') !== 'YES') {
+        throw new DomainError(errorCodes.confirmationMismatch, '清空全部设定需要先输入 YES 确认', {}, false, 409);
+      }
+      return success(settingBaselines.clear(scope), request.id);
+    }
+  );
 
   app.post<{ Params: { bookId: string }; Body: { items: Array<{
     itemKey: string;

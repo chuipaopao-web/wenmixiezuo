@@ -6,6 +6,9 @@ import { ExistingManuscriptContinuationService } from '../../../apps/api/src/app
 import { SettingCollaborationCommandService } from '../../../apps/api/src/application/knowledge/setting-collaboration-command-service.js';
 import { SettingBaselineService } from '../../../apps/api/src/application/knowledge/setting-baseline-service.js';
 import { SettingGuidanceService } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
+import { SettingOutlineWorkspaceService } from '../../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
+import { hashConfirmedSettings } from '../../../apps/api/src/application/knowledge/setting-quality-shared.js';
+import { SettingQualityReportRepository } from '../../../apps/api/src/infrastructure/db/repositories/setting-quality-report-repository.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
@@ -359,7 +362,23 @@ describe('已有正文续写导入', () => {
           }
         }
       }));
-      const confirmation = guidanceWorkflow.confirmCurrent(scope);
+      const confirmation = (() => {
+        // 新门禁：定稿前必须有覆盖当前设定内容的主编质检报告。
+        // 预种一份覆盖“本次确认后的已确认集合”的报告，与真实前端先质检再确认的顺序一致。
+        const workspace = new SettingOutlineWorkspaceService(context.database, clock);
+        const expectedConfirmed = workspace.list(scope)
+          .filter((item) => (item.status === '已确认' || item.itemKey === current.itemKey) && item.content !== null);
+        new SettingQualityReportRepository(context.database).save(scope, {
+          reportId: `seed-quality-report-${round}`,
+          taskId: null,
+          contentHash: hashConfirmedSettings(expectedConfirmed),
+          verdict: 'pass',
+          summary: '测试质检报告',
+          issues: [],
+          now: clock.now().toISOString()
+        });
+        return guidanceWorkflow.confirmCurrent(scope);
+      })();
       if (confirmation.completed) {
         settingCompleted = true;
         break;

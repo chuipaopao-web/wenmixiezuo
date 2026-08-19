@@ -23,6 +23,9 @@ export interface SettingOutlineWorkspaceItem {
   sourceDecisionId: string | null;
   candidateAt: string | null;
   confirmedAt: string | null;
+  /** 已确认条目重新设计出的新方案：仅在作者确认前挂在待定区，正式内容不变。 */
+  pendingCandidate: string | null;
+  pendingCandidateAt: string | null;
   updatedAt: string;
 }
 
@@ -72,6 +75,8 @@ export class SettingOutlineWorkspaceService {
       sourceDecisionId: row.source_decision_id,
       candidateAt: row.candidate_at,
       confirmedAt: row.confirmed_at,
+      pendingCandidate: row.pending_candidate_text ?? null,
+      pendingCandidateAt: row.pending_candidate_at ?? null,
       updatedAt: row.updated_at
     }));
   }
@@ -111,9 +116,17 @@ export class SettingOutlineWorkspaceService {
       now
     });
     if (input.status === '已确认' && contentText !== null) {
+      // 作者手动确认新内容后，重新设计挂着的待定候选即作废。
+      this.repository.clearPendingCandidate(scope, itemKey, now);
       this.repository.appendVersion(scope, { itemKey, contentText, sourceKind: 'manual', now });
     }
     return this.list(scope).find((item) => item.itemKey === itemKey)!;
+  }
+
+  /** 清空全部设定：条目保留、内容与状态归零，版本历史与下游正文不动。 */
+  public clearAll(scope: BookScope): number {
+    assertBookScope(scope);
+    return this.repository.resetAll(scope, this.clock.now().toISOString());
   }
 
   public initialize(scope: BookScope, items: Array<{
@@ -177,6 +190,16 @@ export class SettingOutlineWorkspaceService {
         if (!allowed.has(deposit.itemKey)) continue;
         const existing = this.list(scope).find((item) => item.itemKey === deposit.itemKey);
         if (existing === undefined) continue;
+        if (existing.status === '已确认') {
+          this.repository.setPendingCandidate(scope, {
+            itemKey: existing.itemKey,
+            contentText: required(deposit.content, `设定项${deposit.itemKey}的讨论结论`, 20_000),
+            sourceDiscussionId: input.discussionId,
+            sourceDecisionId: input.decisionId,
+            now
+          });
+          continue;
+        }
         this.repository.upsert(scope, {
           itemKey: existing.itemKey,
           groupTitle: existing.groupTitle,
@@ -194,8 +217,10 @@ export class SettingOutlineWorkspaceService {
         });
       }
       return this.list(scope).filter((item) => (
-        item.sourceDiscussionId === input.discussionId
-        && item.sourceDecisionId === input.decisionId
+        (item.sourceDiscussionId === input.discussionId && item.sourceDecisionId === input.decisionId)
+        || (item.pendingCandidate !== null
+          && this.repository.listByPendingDiscussion(scope, input.discussionId)
+            .some((row) => row.item_key === item.itemKey && row.pending_source_decision_id === input.decisionId))
       ));
     }
     const target = parseSettingTarget(input.scopeText);
@@ -212,6 +237,17 @@ export class SettingOutlineWorkspaceService {
     const custom = 'is_custom' in existing ? existing.is_custom === 1 : existing.custom;
     const sortOrder = 'sort_order' in existing ? existing.sort_order : existing.sortOrder;
     const now = this.clock.now().toISOString();
+    const existingStatus = 'item_status' in existing ? existing.item_status : existing.status;
+    if (existingStatus === '已确认') {
+      this.repository.setPendingCandidate(scope, {
+        itemKey,
+        contentText: required(input.content, '讨论结论', 20_000),
+        sourceDiscussionId: input.discussionId,
+        sourceDecisionId: input.decisionId,
+        now
+      });
+      return [this.list(scope).find((item) => item.itemKey === itemKey)!];
+    }
     this.repository.upsert(scope, {
       itemKey, groupTitle, label, prompt, sourceLabel,
       itemStatus: '候选待确认', isCustom: custom, sortOrder,
@@ -267,6 +303,10 @@ export class SettingOutlineWorkspaceService {
     if (current === undefined) throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在', {}, false, 404);
     const normalized = required(content, `${current.label}候选内容`, 20_000);
     const now = this.clock.now().toISOString();
+    if (current.status === '已确认') {
+      this.repository.setPendingCandidate(scope, { itemKey, contentText: normalized, now });
+      return this.list(scope).find((item) => item.itemKey === itemKey)!;
+    }
     this.repository.upsert(scope, {
       itemKey: current.itemKey,
       groupTitle: current.groupTitle,
@@ -287,10 +327,24 @@ export class SettingOutlineWorkspaceService {
     assertBookScope(scope);
     const current = this.list(scope).find((item) => item.itemKey === itemKey);
     if (current === undefined) throw new DomainError(errorCodes.operationIncomplete, '当前设定项不存在', {}, false, 404);
+    const now = this.clock.now().toISOString();
+    if (current.status === '已确认' && current.pendingCandidate !== null) {
+      // 重新设计的待定候选转正：此刻才替换正式内容，此前的旧定稿一直有效。
+      this.repository.promotePendingCandidate(scope, itemKey, now);
+      const promoted = this.list(scope).find((item) => item.itemKey === itemKey)!;
+      this.repository.appendVersion(scope, {
+        itemKey,
+        contentText: promoted.content!,
+        sourceKind: 'guidance',
+        sourceDiscussionId: promoted.sourceDiscussionId,
+        sourceDecisionId: promoted.sourceDecisionId,
+        now
+      });
+      return promoted;
+    }
     if (current.status !== '候选待确认' || current.content === null) {
       throw new DomainError(errorCodes.operationIncomplete, `“${current.label}”还没有可确认的候选内容`, {}, false, 409);
     }
-    const now = this.clock.now().toISOString();
     this.repository.upsert(scope, {
       itemKey: current.itemKey,
       groupTitle: current.groupTitle,
@@ -354,7 +408,21 @@ export class SettingOutlineWorkspaceService {
         now
       });
     }
-    const keys = new Set(existingRows.map((row) => row.item_key));
+    const pendingRows = this.repository.listByPendingDiscussion(scope, discussionId)
+      .filter((row) => row.pending_source_decision_id === decisionId && row.pending_candidate_text !== null);
+    for (const row of pendingRows) {
+      this.repository.promotePendingCandidate(scope, row.item_key, now);
+      const promoted = this.list(scope).find((item) => item.itemKey === row.item_key)!;
+      this.repository.appendVersion(scope, {
+        itemKey: row.item_key,
+        contentText: promoted.content!,
+        sourceKind: 'discussion',
+        sourceDiscussionId: discussionId,
+        sourceDecisionId: decisionId,
+        now
+      });
+    }
+    const keys = new Set([...existingRows.map((row) => row.item_key), ...pendingRows.map((row) => row.item_key)]);
     return this.list(scope).filter((item) => keys.has(item.itemKey));
   }
 

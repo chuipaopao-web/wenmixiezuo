@@ -10,6 +10,12 @@ import {
   addArtifactVersion,
   compareArtifactVersions,
   confirmSettingBaseline,
+  clearSettingOutlineWorkspace,
+  fetchSettingQualityReport,
+  startSettingQualityAudit,
+  startSettingCollaboration,
+  ApiRequestError,
+  type SettingQualityReportView,
   fetchArtifactVersions,
   fetchBookProfile,
   fetchPlanningState,
@@ -34,6 +40,8 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
+import { AgentAvatar } from '../shared/AgentAvatar';
+import { memberIdentity } from '../shared/agent-presentation';
 import { VolumePlanningPanel } from './VolumePlanningPanel';
 import { EventPlanningPanel } from './EventPlanningPanel';
 import { EventChapterPlanningPanel } from './EventChapterPlanningPanel';
@@ -278,6 +286,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
       ) : <div className="artifact-list">{renderableArtifacts.map(({ artifact, projection }) => <ArtifactCard key={`${String(artifact.artifact_id)}:${projection}`} bookId={workspace?.book.bookId ?? null} artifact={artifact} projection={projection} />)}</div>}
       {tab === 'basic' && <SettingCatalog
         bookId={workspace?.book.bookId ?? null}
+        workspace={workspace}
         planningState={planningState}
         onPlanningStateChanged={refreshPlanningState}
       />}
@@ -351,7 +360,43 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
   </section>;
 }
 
-function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
+/**
+ * 设定页顶部成员栏：永久显示设定班底（主编+三席），状态由真实任务驱动。
+ * 提案任务进行中时三席与主编都是工作中；融合/质检任务只有主编工作中。
+ */
+function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): React.JSX.Element | null {
+  if (workspace === null) return null;
+  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'setting'];
+  const members = crewKeys
+    .map((key) => workspace.agents.find((agent) => agent.roleKey === key))
+    .filter((agent): agent is WorkspaceData['agents'][number] => agent !== undefined);
+  if (members.length === 0) return null;
+  const activeSettingTasks = workspace.tasks.filter((task) => (
+    ['pending', 'queued', 'working'].includes(task.status)
+    && task.taskType === 'discussion'
+    && typeof task.brief.purpose === 'string'
+    && (task.brief.purpose as string).startsWith('setting_')
+  ));
+  const workingAgentIds = new Set(activeSettingTasks.map((task) => task.assignedAgentId).filter((id): id is string => id !== null));
+  const panelWorking = activeSettingTasks.some((task) => task.brief.purpose === 'setting_proposal_panel');
+  const shortTitle = (roleKey: string): string => (
+    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', setting: '设定' } as Record<string, string>
+  )[roleKey] ?? '成员';
+  return <div className="setting-member-bar" aria-label="当前创作成员">
+    {members.map((member) => {
+      const working = workingAgentIds.has(member.agentId) || (panelWorking && member.roleKey !== 'chief_editor');
+      return <span key={member.agentId} className={`setting-member${working ? ' working' : ''}`}>
+        <AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} />
+        <b>{memberIdentity(member)}</b>
+        <small>{shortTitle(member.roleKey)}</small>
+        <em>{working ? '工作中' : '待命'}</em>
+      </span>;
+    })}
+  </div>;
+}
+
+function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged }: {
+  workspace: WorkspaceData | null;
   bookId: string | null;
   planningState: PlanningStateData | null;
   onPlanningStateChanged: () => Promise<void>;
@@ -363,9 +408,17 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
   const [customGroupDraft, setCustomGroupDraft] = useState('本书扩展');
   const [statuses, setStatuses] = useState<Record<string, SettingOutlineStatus>>({});
   const [contents, setContents] = useState<Record<string, string>>({});
+  const [pendingCandidates, setPendingCandidates] = useState<Record<string, string>>({});
   const [profile, setProfile] = useState<SettingReadinessView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
+  const [auditReport, setAuditReport] = useState<SettingQualityReportView | null>(null);
+  const [checkedKeys, setCheckedKeys] = useState<Record<string, boolean>>({});
+  const [designQueue, setDesignQueue] = useState<string[] | null>(null);
+  const [auditWaiting, setAuditWaiting] = useState(false);
+  const [acknowledgedIssues, setAcknowledgedIssues] = useState<string[]>([]);
   const [activeItemKey, setActiveItemKey] = useState<string | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
@@ -407,12 +460,6 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       || `${group.title}${item.label}${item.prompt}${item.source}`.toLocaleLowerCase().includes(normalizedQuery)))
   })).filter((group) => group.items.length > 0);
   const allItems = groups.flatMap((group) => group.items);
-  const confirmedRequired = [...requiredKeys].filter((key) => statuses[key] === '已确认').length;
-  const currentGuidanceItem = allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] === '讨论中')
-    ?? allItems.find((item) => requiredKeys.has(item.key) && statuses[item.key] !== '已确认');
-  const currentGuidanceGroup = currentGuidanceItem === undefined
-    ? undefined
-    : groups.find((group) => group.items.some((item) => item.key === currentGuidanceItem.key));
 
   const applySnapshot = useCallback((snapshot: SettingOutlineWorkspaceData): void => {
     setStatuses((current) => ({ ...current, [snapshot.itemKey]: snapshot.status }));
@@ -420,6 +467,12 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       const next = { ...current };
       if (snapshot.content === null) delete next[snapshot.itemKey];
       else next[snapshot.itemKey] = snapshot.content;
+      return next;
+    });
+    setPendingCandidates((current) => {
+      const next = { ...current };
+      if (snapshot.pendingCandidate === null) delete next[snapshot.itemKey];
+      else next[snapshot.itemKey] = snapshot.pendingCandidate;
       return next;
     });
     if (snapshot.custom) {
@@ -439,6 +492,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       setLegacyItems([]);
       setStatuses({});
       setContents({});
+      setPendingCandidates({});
       setProfile(null);
       return;
     }
@@ -475,6 +529,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
       if (controller.signal.aborted) return;
       setStatuses(Object.fromEntries(completeItems.map((item) => [item.itemKey, item.status])));
       setContents(Object.fromEntries(completeItems.flatMap((item) => item.content === null ? [] : [[item.itemKey, item.content]])));
+      setPendingCandidates(Object.fromEntries(completeItems.flatMap((item) => item.pendingCandidate === null ? [] : [[item.itemKey, item.pendingCandidate]])));
       setCustomItems(completeItems.filter((item) => item.custom).map((item) => ({
         key: item.itemKey,
         label: item.label,
@@ -494,6 +549,30 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
     return () => controller.abort();
   }, [bookId]);
 
+  // 主编质检轮询：检查完成或失败后把结果摆上页面。
+  useEffect(() => {
+    if (!auditWaiting || bookId === null) return undefined;
+    const timer = window.setInterval(() => {
+      void fetchSettingQualityReport(bookId).then((view) => {
+        if (view.fresh && view.report !== null) {
+          setAuditWaiting(false);
+          setAuditReport(view);
+          setNotice(null);
+        } else if (view.taskStatus !== null && ['failed', 'interrupted', 'cancelled'].includes(view.taskStatus)) {
+          setAuditWaiting(false);
+          setNotice('这次检查没有完成，请重新点“确认整份设定”再试一次。');
+        }
+      }).catch(() => undefined);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [auditWaiting, bookId]);
+
+  const toggleIssueAck = (issueId: string): void => {
+    setAcknowledgedIssues((current) => current.includes(issueId)
+      ? current.filter((id) => id !== issueId)
+      : [...current, issueId]);
+  };
+
   const persistItem = (group: SettingOutlineGroup, item: SettingOutlineItem, status: SettingOutlineStatus, custom = false): void => {
     if (bookId === null) return;
     const sortOrder = allTemplateItems.findIndex((candidate) => candidate.key === item.key);
@@ -510,7 +589,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
     }).then(applySnapshot).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
   };
 
-  const confirmSetting = (): void => {
+  const confirmSetting = (acknowledged: string[] = []): void => {
     if (bookId === null || planningState === null) return;
     setBusyKey('confirm-setting');
     void fetchSettingReadiness(bookId).then((readiness) => {
@@ -520,27 +599,115 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
         setNotice(`设定还不能确认，请先处理：${outstanding.map((key) => labels.get(key) ?? key).join('、') || '未完成项目'}`);
         return;
       }
-      return confirmSettingBaseline(bookId, planningState.version).then(async () => {
+      return confirmSettingBaseline(bookId, planningState.version, acknowledged).then(async () => {
+        setAuditReport(null);
+        setAcknowledgedIssues([]);
         setNotice('设定已形成新的正式稿。现在可以进入“分卷”，只规划当前一卷。');
         await onPlanningStateChanged();
       });
     }).catch((reason: unknown) => {
+      const code = reason instanceof ApiRequestError ? reason.code : null;
+      if (code === 'SETTING_QUALITY_AUDIT_REQUIRED' && bookId !== null) {
+        // 定稿前自动让主编检查一遍整份设定，检查结果出来后再请作者确认。
+        void startSettingQualityAudit(bookId, crypto.randomUUID()).then(() => {
+          setAuditWaiting(true);
+          setNotice('主编正在检查整份设定，完成后会把检查结果放在这里。');
+        }).catch((auditReason: unknown) => {
+          setNotice(auditReason instanceof Error ? auditReason.message : '发起检查失败');
+        });
+        return;
+      }
+      if (code === 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED' && bookId !== null) {
+        void fetchSettingQualityReport(bookId).then((view) => {
+          setAuditReport(view);
+          setNotice('主编发现了需要您过目的问题，确认处理方式后才能定稿。');
+        }).catch(() => setNotice('检查结果读取失败，请重试'));
+        return;
+      }
       setNotice(reason instanceof Error ? reason.message : '确认设定失败');
+    }).finally(() => setBusyKey(null));
+  };
+
+  const clearAllSettings = (): void => {
+    if (bookId === null || clearConfirmText !== 'YES') return;
+    setBusyKey('clear-setting');
+    void clearSettingOutlineWorkspace(bookId, clearConfirmText).then(async () => {
+      setClearing(false);
+      setClearConfirmText('');
+      setActiveItemKey(null);
+      setStatuses((current) => Object.fromEntries(Object.keys(current).map((key) => [key, '待讨论' as SettingOutlineStatus])));
+      setContents({});
+      setPendingCandidates({});
+      setLegacyItems((current) => current.map((item) => ({ ...item, status: '待讨论' as SettingOutlineStatus, content: null })));
+      setNotice('已清空全部设定内容，条目保留，可以随时重新设计。历史版本都还在。');
+      await onPlanningStateChanged();
+    }).catch((reason: unknown) => {
+      setNotice(reason instanceof Error ? reason.message : '清空设定失败');
     }).finally(() => setBusyKey(null));
   };
 
   const addOptionalItem = (group: SettingOutlineGroup, item: SettingOutlineItem): void => {
     setStatuses((current) => ({ ...current, [item.key]: '稍后补充' }));
     persistItem(group, item, '稍后补充');
-    setNotice(`“${item.label}”已加入本书的建议完善清单，不会阻塞进入卷纲设计。`);
+    setNotice(`“${item.label}”已加入本书并勾进设计队列。`);
   };
 
   const openItem = (key: string): void => {
     setActiveItemKey(key);
     window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
-  const activeItem = (activeItemKey === null ? undefined : allItems.find((item) => item.key === activeItemKey))
-    ?? currentGuidanceItem;
+
+  const toggleChecked = (key: string): void => {
+    setCheckedKeys((current) => ({ ...current, [key]: current[key] !== true }));
+  };
+
+  /** 队列顺序：核心六项（模板顺序）→ 勾选的推荐项（主题材优先的画像顺序）→ 勾选的自定义/资料库项。 */
+  const buildQueue = (): string[] => {
+    const unfinished = (key: string): boolean => statuses[key] !== '已确认';
+    const coreQueue = coreItems.map((item) => item.key).filter(unfinished);
+    const profileOrder = new Map((profile?.recommended ?? []).map((key, index) => [key, index]));
+    const packItems = packGroups.flatMap((group) => group.items);
+    const recommendedQueue = packItems
+      .filter((item) => checkedKeys[item.key] === true && unfinished(item.key))
+      .sort((left, right) => (profileOrder.get(left.key) ?? 999) - (profileOrder.get(right.key) ?? 999))
+      .map((item) => item.key);
+    return [...coreQueue, ...recommendedQueue];
+  };
+
+  const advanceQueue = (queue: string[], statusMap: Record<string, SettingOutlineStatus>): void => {
+    const nextKey = queue.find((key) => statusMap[key] !== '已确认');
+    if (nextKey === undefined) {
+      setDesignQueue(null);
+      setNotice('所选条目都已有定稿，可以确认整份设定。');
+      return;
+    }
+    openItem(nextKey);
+    const status = statusMap[nextKey] ?? '待讨论';
+    if ((status === '待讨论' || status === '稍后补充') && bookId !== null) {
+      void startSettingCollaboration(bookId, nextKey, { authorInputId: null, idempotencyKey: crypto.randomUUID() })
+        .catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '召集团队失败'));
+    }
+  };
+
+  const startDesignQueue = (): void => {
+    const queue = buildQueue();
+    if (queue.length === 0) {
+      setNotice('核心项都已完成，也没有勾选其他条目；想加设定就先勾选再开始。');
+      return;
+    }
+    setDesignQueue(queue);
+    advanceQueue(queue, statuses);
+  };
+
+  // 队列自动推进：当前项确认后打开下一项并召集团队；候选待确认时停下等作者确认。
+  useEffect(() => {
+    if (designQueue === null || bookId === null) return;
+    if (activeItemKey !== null && (statuses[activeItemKey] ?? '待讨论') !== '已确认') return;
+    advanceQueue(designQueue, statuses);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statuses, designQueue, activeItemKey, bookId]);
+  // 建书后不再自动展开第一项：只有作者点了条目或“开始设计”才打开设计区。
+  const activeItem = activeItemKey === null ? undefined : allItems.find((item) => item.key === activeItemKey);
   const activeGroup = activeItem === undefined ? undefined
     : groups.find((group) => group.items.some((item) => item.key === activeItem.key));
   const coreItems = requiredGroups.flatMap((group) => group.items);
@@ -548,10 +715,7 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
 
   return <section className="setting-outline-workbench setting-desk">
     <h3 className="sr-only">设定</h3>
-    <header className="setting-desk-pagehead">
-      <h3>这本书的设定 <small>设定是 AI 创作时的参考，确认后随时可以回来改</small></h3>
-      <div className="setting-desk-progress">必要项 <strong>{confirmedRequired} / {requiredKeys.size}</strong> 已确认{requiredKeys.size > 0 && confirmedRequired < requiredKeys.size ? ' · 全部确认后解锁分卷' : ''}</div>
-    </header>
+    <SettingMemberBar workspace={workspace} />
     {bookId !== null && activeItem !== undefined && activeGroup !== undefined && <div className="setting-desk-workbench" ref={workbenchRef}>
       <SettingCollaborationPanel
         key={activeItem.key}
@@ -565,48 +729,58 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
           status: statuses[activeItem.key] ?? '待讨论',
           custom: activeItem.source === '作者自定义',
           sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === activeItem.key)),
-          content: contents[activeItem.key] ?? null
+          content: contents[activeItem.key] ?? null,
+          pendingCandidate: pendingCandidates[activeItem.key] ?? null
         }}
         onSnapshot={applySnapshot}
       />
     </div>}
     <section className="setting-desk-section" aria-label="核心设定">
-      <div className="setting-desk-section-title"><h4>核心设定</h4><span className="setting-desk-tagline">每本书都需要</span><em>先定这几项，书的方向就立住了</em></div>
+      <details className="setting-fold" open>
+      <summary><strong>核心设定</strong><em>必须逐项设计，已默认勾选</em></summary>
       {coreItems.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : <div className="setting-core-grid">
         {coreItems.map((item) => {
           const status = statuses[item.key] ?? '待讨论';
           const content = contents[item.key];
           return <article className={`setting-core-card${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
-            <div className="setting-core-card-row"><h5>{item.label}<span className="setting-badge-req">必要</span></h5><span className={`setting-status-pill st-${settingStatusClass(status)}`}>{status === '候选待确认' ? '待您确认' : status}</span></div>
+            <div className="setting-core-card-row"><h4>{item.label}<span className="setting-badge-req">必要</span></h4><span className={`setting-status-pill st-${pendingCandidates[item.key] !== undefined ? 'candidate' : settingStatusClass(status)}`}>{pendingCandidates[item.key] !== undefined ? '新方案待确认' : status === '候选待确认' ? '待您确认' : status}</span></div>
             {status === '已确认' && content !== undefined
               ? <p className="setting-core-folded">已定稿：{content.slice(0, 40)}{content.length > 40 ? '…' : ''}</p>
               : <p className={content === undefined ? 'empty' : ''}>{content ?? item.prompt}</p>}
-            <button type="button" className={status === '已确认' ? 'setting-card-button ghost' : 'setting-card-button primary'} onClick={() => openItem(item.key)}>{settingCardAction(status)}</button>
+            <button type="button" className={status === '已确认' && pendingCandidates[item.key] === undefined ? 'setting-card-button ghost' : 'setting-card-button primary'} onClick={() => openItem(item.key)}>{settingCardAction(status, pendingCandidates[item.key] !== undefined)}</button>
           </article>;
         })}
       </div>}
+      </details>
     </section>
     {packGroups.length > 0 && <section className="setting-desk-section" aria-label="根据题材推荐">
-      <div className="setting-desk-section-title"><h4>根据题材推荐</h4><span className="setting-desk-tagline">{profile?.profileLabel ?? '通用'}</span><em>建议项，不定也能往下走</em></div>
+      <details className="setting-fold">
+      <summary><strong>推荐设定</strong><em>{profile?.profileLabel ?? '通用'} · 勾选后和核心项一起按顺序设计</em></summary>
       <div className="setting-pack-grid">{packGroups.map((group) => {
         const talking = group.items.filter((item) => statuses[item.key] === '讨论中').length;
         return <article className="setting-pack-card" key={group.key}>
-          <div className="setting-core-card-row"><h5>{group.title}</h5><span className={`setting-status-pill ${talking > 0 ? 'st-active' : 'st-pending'}`}>{talking > 0 ? `${talking} 项讨论中` : '按需完善'}</span></div>
+          <div className="setting-core-card-row"><h4>{group.title}</h4><span className={`setting-status-pill ${talking > 0 ? 'st-active' : 'st-pending'}`}>{talking > 0 ? `${talking} 项讨论中` : '按需完善'}</span></div>
           <div className="setting-pack-items">{group.items.map((item) => {
             const status = statuses[item.key] ?? '待讨论';
-            return <button type="button" className={`setting-pack-item${activeItem?.key === item.key ? ' active' : ''}`} key={item.key} onClick={() => openItem(item.key)}>
-              <span className="nm">{item.label}<small>{item.prompt.length > 26 ? `${item.prompt.slice(0, 26)}…` : item.prompt}</small></span>
-              <span className={`setting-status-pill st-${settingStatusClass(status)}`}>{status === '候选待确认' ? '待确认' : status}</span>
-            </button>;
+            return <div className={`setting-pack-item${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
+              <label className="setting-pack-check" title="勾选后加入设计队列" onClick={(event) => event.stopPropagation()}>
+                <input type="checkbox" checked={checkedKeys[item.key] === true} disabled={status === '已确认'} onChange={() => toggleChecked(item.key)} />
+              </label>
+              <button type="button" className="setting-pack-open" onClick={() => openItem(item.key)}>
+                <span className="nm">{item.label}<small>{item.prompt.length > 26 ? `${item.prompt.slice(0, 26)}…` : item.prompt}</small></span>
+                <span className={`setting-status-pill st-${pendingCandidates[item.key] !== undefined ? 'candidate' : settingStatusClass(status)}`}>{pendingCandidates[item.key] !== undefined ? '新方案待确认' : status === '候选待确认' ? '待确认' : status}</span>
+              </button>
+            </div>;
           })}</div>
         </article>;
       })}</div>
+      </details>
     </section>}
     {legacyItems.length > 0 && <section className="setting-desk-section" aria-label="早期条目">
       <details className="setting-legacy-items">
         <summary><strong>早期条目</strong><em>旧版清单里的内容，已填写的都还在，点开可查看</em></summary>
         <div className="setting-legacy-list">{legacyItems.map((item) => <article key={item.key}>
-          <div className="setting-core-card-row"><h5>{item.label}</h5><span className={`setting-status-pill st-${settingStatusClass(item.status)}`}>{item.status}</span></div>
+          <div className="setting-core-card-row"><h4>{item.label}</h4><span className={`setting-status-pill st-${settingStatusClass(item.status)}`}>{item.status}</span></div>
           {item.content !== null && <p>{item.content}</p>}
         </article>)}</div>
       </details>
@@ -618,12 +792,15 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
         <label className="setting-search">搜索完整资料库<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：货币、排行榜、血脉……" /></label>
         <div className="setting-library-groups">{optionalGroups.map((group) => <section key={group.key}>
           <header><div><h4>{group.title}</h4><p>{group.description}</p></div><span>{group.items.length} 项</span></header>
-          <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><button type="button" disabled={bookId === null || busyKey !== null} onClick={() => addOptionalItem(group, item)}>加入本书</button></article>)}</div>
+          <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><label className="setting-library-check"><input type="checkbox" disabled={bookId === null || busyKey !== null} checked={checkedKeys[item.key] === true} onChange={() => {
+            if (checkedKeys[item.key] !== true) addOptionalItem(group, item);
+            toggleChecked(item.key);
+          }} />加入设计</label></article>)}</div>
         </section>)}</div>
         {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
       </details>
       <section className="custom-setting-builder">
-        <header><h4>本书自定义</h4><p>只添加这本书确实需要的设定问题。</p></header>
+        <header><h4>本书自定义</h4><p>这本书确实需要、上面没有的设定。</p></header>
         <form onSubmit={(event) => {
           event.preventDefault();
           const value = customDraft.trim();
@@ -642,11 +819,61 @@ function SettingCatalog({ bookId, planningState, onPlanningStateChanged }: {
         </form>
       </section>
     </section>
+    {bookId !== null && <section className="setting-queue-bar">
+      {designQueue === null
+        ? <><span>核心六项必须设计；其他条目勾选后一起按顺序设计。</span>
+          <button className="primary-button setting-start-button" type="button" disabled={busyKey !== null} onClick={startDesignQueue}>
+            开始设计（共 {buildQueue().length} 项）
+          </button></>
+        : <><span>正在按顺序设计，还剩 <strong>{designQueue.filter((key) => statuses[key] !== '已确认').length}</strong> 项；确认当前项后自动进入下一项。</span>
+          <button type="button" onClick={() => setDesignQueue(null)}>停下队列</button></>}
+    </section>}
+    {auditWaiting && <p className="setting-collaboration-state">主编正在逐条检查整份设定……</p>}
+    {auditReport !== null && auditReport.report !== null && <section className="setting-audit-report" aria-label="主编检查报告">
+      <header className="setting-core-card-row">
+        <h4>主编检查报告</h4>
+        <span className={`setting-status-pill ${auditReport.report.verdict === 'pass' ? 'st-confirmed' : auditReport.report.verdict === 'warn' ? 'st-candidate' : 'st-failed'}`}>
+          {auditReport.report.verdict === 'pass' ? '检查通过' : auditReport.report.verdict === 'warn' ? '有小瑕疵' : '发现硬伤'}
+        </span>
+      </header>
+      {!auditReport.fresh && <p className="setting-clear-warning">检查后设定内容又有改动，这份报告已失效，请重新点“确认整份设定”发起新检查。</p>}
+      <p>{auditReport.report.summary}</p>
+      {auditReport.report.issues.map((issue) => <article key={issue.id} className={`setting-audit-issue${issue.severity === 'hard' ? ' hard' : ''}`}>
+        <b>{issue.severity === 'hard' ? '硬伤' : '小瑕疵'}</b>
+        <p>{issue.problem}</p>
+        {issue.suggestion.length > 0 && <small>建议：{issue.suggestion}</small>}
+        {issue.severity === 'hard' && <label className="setting-audit-ack">
+          <input type="checkbox" checked={acknowledgedIssues.includes(issue.id)} onChange={() => toggleIssueAck(issue.id)} />
+          我已知晓，仍要保留
+        </label>}
+      </article>)}
+      <footer className="setting-clear-actions">
+        <button className="primary-button" type="button"
+          disabled={busyKey !== null || !auditReport.fresh || auditReport.report.issues.some((issue) => issue.severity === 'hard' && !acknowledgedIssues.includes(issue.id))}
+          onClick={() => confirmSetting(acknowledgedIssues)}>
+          {busyKey === 'confirm-setting' ? '正在定稿…' : auditReport.report.verdict === 'pass' ? '检查通过，确认定稿' : '我已处理，确认定稿'}
+        </button>
+        <button type="button" onClick={() => { setAuditReport(null); setAcknowledgedIssues([]); }}>回去修改</button>
+      </footer>
+    </section>}
     <section className="planning-stage-action">
-      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || currentGuidanceItem !== undefined} onClick={confirmSetting}>
+      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || auditWaiting} onClick={() => confirmSetting()}>
         {busyKey === 'confirm-setting' ? '正在检查…' : '确认整份设定'}
       </button>
     </section>
+    {bookId !== null && <section className="setting-clear-zone">
+      {!clearing
+        ? <button type="button" className="setting-clear-link" onClick={() => setClearing(true)}>清空全部设定</button>
+        : <div className="setting-clear-confirm">
+          <p><strong>确定要清空这本书的全部设定吗？</strong>所有已填和已确认的设定内容都会被清掉，条目保留，历史版本仍可追溯。</p>
+          {profile?.hasCanonChapters === true && <p className="setting-clear-warning">这本书已经有正文：清空设定后，新旧设定可能和已有正文前后矛盾。正文本身不会被删，但建议慎重。</p>}
+          <label>输入 YES 确认清空<input value={clearConfirmText} onChange={(event) => setClearConfirmText(event.target.value)} placeholder="YES" /></label>
+          <div className="setting-clear-actions">
+            <button type="button" className="setting-card-button danger" disabled={busyKey !== null || clearConfirmText !== 'YES'} onClick={clearAllSettings}>{busyKey === 'clear-setting' ? '正在清空…' : '确认清空'}</button>
+            <button type="button" onClick={() => { setClearing(false); setClearConfirmText(''); }}>取消</button>
+          </div>
+        </div>}
+    </section>}
     {notice !== null && <p className="binding-status" role="status">{notice}</p>}
   </section>;
 }
@@ -654,7 +881,8 @@ function settingStatusClass(status: SettingOutlineStatus): string {
   return status === '已确认' ? 'confirmed' : status === '讨论中' ? 'active' : status === '候选待确认' ? 'candidate' : 'pending';
 }
 
-function settingCardAction(status: SettingOutlineStatus): string {
+function settingCardAction(status: SettingOutlineStatus, hasPending = false): string {
+  if (hasPending) return '看看新方案';
   switch (status) {
     case '已确认': return '查看 / 修改';
     case '讨论中': return '去看看方案';

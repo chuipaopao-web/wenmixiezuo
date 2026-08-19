@@ -139,13 +139,23 @@ function blueprintSignals(blueprint: OpeningBlueprintInput): { hints: string; pa
 
 export function resolveSettingOutlineProfile(blueprint: OpeningBlueprintInput): SettingOutlineProfile {
   const { hints, packKeys } = blueprintSignals(blueprint);
+  // 主分类单独取信号：推荐排序必须让主题材的条目优先，副题材靠后，
+  // 团队按这个顺序逐项讨论，先立住主类型，再补副题材。
+  const primaryCategory = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey);
+  const primaryHints = primaryCategory === undefined ? '' : `${primaryCategory.key} ${primaryCategory.name}`;
+  const primaryPackKeys = new Set(primaryCategory?.tagPackKeys ?? []);
   const matched = PROFILE_RULES.filter((rule) => (
     rule.packKeys.some((packKey) => packKeys.has(packKey)) || rule.pattern.test(hints)
   ));
+  const primaryMatched = matched.filter((rule) => (
+    rule.packKeys.some((packKey) => primaryPackKeys.has(packKey))
+    || (primaryHints.length > 0 && rule.pattern.test(primaryHints))
+  ));
+  const ordered = [...primaryMatched, ...matched.filter((rule) => !primaryMatched.includes(rule))];
   const required = unique([...CORE_REQUIRED]);
   const recommended = unique([
-    ...matched.flatMap((rule) => rule.required ?? []),
-    ...matched.flatMap((rule) => rule.recommended ?? []),
+    ...ordered.flatMap((rule) => rule.required ?? []),
+    ...ordered.flatMap((rule) => rule.recommended ?? []),
     ...CORE_RECOMMENDED
   ]).filter((key) => !required.includes(key));
 

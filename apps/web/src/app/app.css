@@ -6921,7 +6921,7 @@ svg {
 }
 .setting-core-card.active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 16%, transparent); }
 .setting-core-card-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.setting-core-card-row h5 { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.setting-core-card-row h4 { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .setting-badge-req {
   font-size: 10px; font-weight: 400; color: #c0392b;
   background: rgb(220 80 60 / 10%); border: 1px solid rgb(220 80 60 / 25%);
@@ -7048,3 +7048,45 @@ svg {
   .setting-fusion-actions { flex-direction: column; }
   .setting-fusion-actions button { width: 100%; }
 }
+
+/* 清空全部设定：低调入口 + 明确二次确认 */
+.setting-clear-zone { margin-top: 18px; text-align: center; }
+.setting-clear-link { background: none; border: 0; color: var(--text-tertiary, #9a9a9a); font-size: 12.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.setting-clear-link:hover { color: #c0392b; }
+.setting-clear-confirm { max-width: 520px; margin: 0 auto; text-align: left; border: 1px solid color-mix(in srgb, #c0392b 35%, transparent); border-radius: 12px; padding: 16px; background: color-mix(in srgb, #c0392b 5%, transparent); }
+.setting-clear-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; }
+.setting-clear-warning { color: #c0392b; font-weight: 600; }
+.setting-clear-confirm label { display: block; font-size: 12.5px; margin-bottom: 12px; }
+.setting-clear-confirm input { display: block; margin-top: 6px; width: 120px; padding: 7px 10px; border: 1px solid var(--border, #ddd); border-radius: 8px; font-size: 13px; }
+.setting-clear-actions { display: flex; gap: 10px; }
+.setting-card-button.danger { background: #c0392b; color: #fff; width: auto; padding: 8px 18px; }
+.setting-card-button.danger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 主编检查报告 */
+.setting-status-pill.st-failed { color: #c0392b; background: rgb(192 57 43 / 10%); }
+.setting-audit-report { border: 1px solid var(--border, #e5e0d8); border-radius: 14px; padding: 16px 18px; margin: 14px 0; background: var(--panel, #fff); }
+.setting-audit-report > p { font-size: 13.5px; line-height: 1.8; margin: 8px 0 12px; }
+.setting-audit-issue { border-left: 3px solid #d8b13c; padding: 8px 12px; margin: 10px 0; background: color-mix(in srgb, #d8b13c 6%, transparent); border-radius: 0 10px 10px 0; }
+.setting-audit-issue.hard { border-left-color: #c0392b; background: color-mix(in srgb, #c0392b 6%, transparent); }
+.setting-audit-issue b { font-size: 12px; }
+.setting-audit-issue p { margin: 4px 0; font-size: 13px; line-height: 1.7; }
+.setting-audit-issue small { display: block; color: var(--ink-faint, #777); font-size: 12px; line-height: 1.6; }
+.setting-audit-ack { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12.5px; cursor: pointer; }
+
+/* 任务中心红点：新结果与卡住任务 */
+.task-news-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e5484d; margin-left: 6px; vertical-align: middle; box-shadow: 0 0 0 3px rgb(229 72 77 / 18%); }
+
+/* 设定页顶部成员栏 */
+.setting-member-bar { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 4px 2px; }
+.setting-member { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--border, #e5e0d8); border-radius: 999px; background: var(--panel, #fff); }
+.setting-member .agent-avatar { width: 30px; height: 30px; }
+.setting-member b { font-size: 13px; }
+.setting-member small { color: var(--ink-faint, #777); font-size: 11px; }
+.setting-member em { font-style: normal; font-size: 11px; color: var(--ink-faint, #777); }
+.setting-member.working { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.setting-member.working em { color: var(--accent-hover); font-weight: 600; }
+.setting-member.working em::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 4px; animation: settingWorkingPulse 1.2s ease-in-out infinite; }
+@keyframes settingWorkingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* 已确认项的重新设计入口：警示色醒目按钮 */
+.setting-redesign-button { background: linear-gradient(135deg, #c05621, #c0392b) !important; }

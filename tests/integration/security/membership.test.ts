@@ -177,9 +177,19 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const userCookie = cookieFrom(userRegister);
       const rows = accountRows(context.database);
       const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
+      const openingBlueprint = {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
+        taxonomyVersion: 'wenmi-single-category-subject-library-2026-08-17-v10', channel: 'male', categoryKey: 'male-history-brain',
+        targetAudience: '历史题材读者',
+        protagonists: [{ role: 'male_lead', name: '赵四', age: '二十岁', background: '朱仙镇屯兵之子。', personalities: ['果断'] }],
+        storyDirection: '赵四进入南宋副本，从朱仙镇开始改写岳家军的命运。',
+        worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' },
+        fullBookOutline: '赵四在一个个历史副本里积攒人心与力量。', mainTags: ['历史'], auxiliaryTags: [],
+        storyTraits: [], customTags: ['成长'], initialMap: '', mustFollow: ['不偏离历史主线']
+      };
 
       // 未开通会员：开书本身必须成功（否则用户进不了设定页看会员提示）。
-      const draft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '无会员开书', text: '验证开书不被会员门禁拦截' } })).json().data as { draftId: string; version: number };
+      const draft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '无会员开书', text: '验证开书不被会员门禁拦截', openingBlueprint } })).json().data as { draftId: string; version: number };
       const confirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: draft.version } });
       expect(confirm.statusCode).toBe(200);
       const bookId = (confirm.json().data as { bookId: string }).bookId;
@@ -188,14 +198,30 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const discussionCount = (context.database.prepare('SELECT COUNT(*) AS total FROM discussions WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
       expect(discussionCount).toBe(0);
 
-      // 开通会员后再次开书：首个策划理念任务照常创建。
+      // 未开通会员：手动召集 AI 被会员门禁拦截。
+      const blockedPanel = await app.inject({
+        method: 'POST', url: `/api/v1/books/${bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-blocked-panel' }
+      });
+      expect(blockedPanel.statusCode).toBe(403);
+      expect((blockedPanel.json() as { error: { code: string } }).error.code).toBe('MEMBERSHIP_REQUIRED');
+
+      // 开通会员后再次开书：建书不再自动建任务，手动召集照常创建任务。
       const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'monthly' } });
       expect(grant.statusCode).toBe(200);
-      const memberDraft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '会员开书', text: '验证会员开书创建首个任务' } })).json().data as { draftId: string; version: number };
+      const memberDraft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '会员开书', text: '验证会员开书创建首个任务', openingBlueprint } })).json().data as { draftId: string; version: number };
       const memberConfirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${memberDraft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: memberDraft.version } });
       expect(memberConfirm.statusCode).toBe(200);
+      const memberBookId = (memberConfirm.json().data as { bookId: string }).bookId;
       const memberTaskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
-      expect(memberTaskCount).toBeGreaterThan(0);
+      expect(memberTaskCount).toBe(0);
+      const startPanel = await app.inject({
+        method: 'POST', url: `/api/v1/books/${memberBookId}/setting-outline-workspace/story-kernel/collaboration/start`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-first-panel' }
+      });
+      expect(startPanel.statusCode).toBe(200);
+      const taskCountAfterStart = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
+      expect(taskCountAfterStart).toBeGreaterThan(0);
       expect(bookId).toBeTruthy();
     } finally {
       await app.close();

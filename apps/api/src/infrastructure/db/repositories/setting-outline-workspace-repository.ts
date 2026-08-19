@@ -15,6 +15,10 @@ export interface SettingOutlineWorkspaceRow {
   source_decision_id: string | null;
   candidate_at: string | null;
   confirmed_at: string | null;
+  pending_candidate_text: string | null;
+  pending_candidate_at: string | null;
+  pending_source_discussion_id: string | null;
+  pending_source_decision_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -36,7 +40,9 @@ export class SettingOutlineWorkspaceRepository {
     return this.database.prepare(`
       SELECT item_key, group_title, label, prompt, source_label, item_status,
         is_custom, sort_order, content_text, source_discussion_id, source_decision_id,
-        candidate_at, confirmed_at, created_at, updated_at
+        candidate_at, confirmed_at,
+        pending_candidate_text, pending_candidate_at,
+        pending_source_discussion_id, pending_source_decision_id, created_at, updated_at
       FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ?
       ORDER BY is_custom, sort_order, item_key
@@ -115,7 +121,9 @@ export class SettingOutlineWorkspaceRepository {
     return this.database.prepare(`
       SELECT item_key, group_title, label, prompt, source_label, item_status,
         is_custom, sort_order, content_text, source_discussion_id, source_decision_id,
-        candidate_at, confirmed_at, created_at, updated_at
+        candidate_at, confirmed_at,
+        pending_candidate_text, pending_candidate_at,
+        pending_source_discussion_id, pending_source_decision_id, created_at, updated_at
       FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? AND source_discussion_id = ?
       LIMIT 1
@@ -126,7 +134,9 @@ export class SettingOutlineWorkspaceRepository {
     return this.database.prepare(`
       SELECT item_key, group_title, label, prompt, source_label, item_status,
         is_custom, sort_order, content_text, source_discussion_id, source_decision_id,
-        candidate_at, confirmed_at, created_at, updated_at
+        candidate_at, confirmed_at,
+        pending_candidate_text, pending_candidate_at,
+        pending_source_discussion_id, pending_source_decision_id, created_at, updated_at
       FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? AND source_discussion_id = ?
       ORDER BY sort_order, item_key
@@ -141,11 +151,75 @@ export class SettingOutlineWorkspaceRepository {
     return this.database.prepare(`
       SELECT item_key, group_title, label, prompt, source_label, item_status,
         is_custom, sort_order, content_text, source_discussion_id, source_decision_id,
-        candidate_at, confirmed_at, created_at, updated_at
+        candidate_at, confirmed_at,
+        pending_candidate_text, pending_candidate_at,
+        pending_source_discussion_id, pending_source_decision_id, created_at, updated_at
       FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? AND group_title = ? AND label = ?
       LIMIT 1
     `).get(scope.ownerId, scope.bookId, groupTitle, label) as SettingOutlineWorkspaceRow | undefined;
+  }
+
+
+  /**
+   * 已确认条目重新设计出的新候选：只挂在待定栏位，正式内容与“已确认”状态不动，
+   * 下游创作继续读旧定稿，直到作者确认后才替换。
+   */
+  public setPendingCandidate(scope: BookScope, input: {
+    itemKey: string;
+    contentText: string;
+    sourceDiscussionId?: string | null;
+    sourceDecisionId?: string | null;
+    now: string;
+  }): void {
+    this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET pending_candidate_text = ?, pending_candidate_at = ?,
+        pending_source_discussion_id = ?, pending_source_decision_id = ?, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+    `).run(
+      input.contentText, input.now,
+      input.sourceDiscussionId ?? null, input.sourceDecisionId ?? null, input.now,
+      scope.ownerId, scope.bookId, input.itemKey
+    );
+  }
+
+  /** 作者确认待定候选：候选转正成为正式内容并清空待定栏位。 */
+  public promotePendingCandidate(scope: BookScope, itemKey: string, now: string): void {
+    this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET content_text = pending_candidate_text,
+        candidate_at = pending_candidate_at,
+        source_discussion_id = pending_source_discussion_id,
+        source_decision_id = pending_source_decision_id,
+        item_status = '已确认', confirmed_at = ?,
+        pending_candidate_text = NULL, pending_candidate_at = NULL,
+        pending_source_discussion_id = NULL, pending_source_decision_id = NULL,
+        updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND item_key = ? AND pending_candidate_text IS NOT NULL
+    `).run(now, now, scope.ownerId, scope.bookId, itemKey);
+  }
+
+  public clearPendingCandidate(scope: BookScope, itemKey: string, now: string): void {
+    this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET pending_candidate_text = NULL, pending_candidate_at = NULL,
+        pending_source_discussion_id = NULL, pending_source_decision_id = NULL, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+    `).run(now, scope.ownerId, scope.bookId, itemKey);
+  }
+
+  public listByPendingDiscussion(scope: BookScope, discussionId: string): SettingOutlineWorkspaceRow[] {
+    return this.database.prepare(`
+      SELECT item_key, group_title, label, prompt, source_label, item_status,
+        is_custom, sort_order, content_text, source_discussion_id, source_decision_id,
+        candidate_at, confirmed_at,
+        pending_candidate_text, pending_candidate_at,
+        pending_source_discussion_id, pending_source_decision_id, created_at, updated_at
+      FROM setting_outline_workspace
+      WHERE owner_id = ? AND book_id = ? AND pending_source_discussion_id = ?
+      ORDER BY sort_order, item_key
+    `).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingOutlineWorkspaceRow[];
   }
 
   public prefillContentIfEmpty(scope: BookScope, itemKey: string, contentText: string, now: string): void {
@@ -154,6 +228,20 @@ export class SettingOutlineWorkspaceRepository {
       SET content_text = ?, updated_at = ?
       WHERE owner_id = ? AND book_id = ? AND item_key = ? AND content_text IS NULL
     `).run(contentText, now, scope.ownerId, scope.bookId, itemKey);
+  }
+
+  /** 清空全部设定内容：条目保留、内容与状态归零，版本历史不动。 */
+  public resetAll(scope: BookScope, now: string): number {
+    return Number(this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET item_status = '待讨论', content_text = NULL,
+        source_discussion_id = NULL, source_decision_id = NULL,
+        candidate_at = NULL, confirmed_at = NULL,
+        pending_candidate_text = NULL, pending_candidate_at = NULL,
+        pending_source_discussion_id = NULL, pending_source_decision_id = NULL,
+        updated_at = ?
+      WHERE owner_id = ? AND book_id = ?
+    `).run(now, scope.ownerId, scope.bookId).changes);
   }
 
   public appendVersion(scope: BookScope, input: {

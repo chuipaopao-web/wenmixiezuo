@@ -7,7 +7,6 @@ import { TeamTemplateService } from '../agents/team-template-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
-import { membershipGenerationBlockReason } from '../../infrastructure/security/membership-service.js';
 import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
@@ -18,7 +17,6 @@ import { PromptCompiler } from '../agents/prompt-compiler.js';
 import { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput, type ProtagonistRole } from '../../contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
-import { TaskService } from '../tasks/task-service.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { SettingGuidanceService } from '../knowledge/setting-guidance-service.js';
 
@@ -104,8 +102,6 @@ export class BookOnboardingService {
     const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
     const isContinuation = draft.openingBlueprint?.creationMode === 'continuation';
     const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
-    const kickoffTaskId = this.ids.next();
-    const kickoffDiscussionId = this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
 
     this.database.exec('BEGIN IMMEDIATE');
@@ -232,67 +228,11 @@ export class BookOnboardingService {
         UPDATE books SET positioning_version = 1, active_editor_agent_id = ?, editor_epoch = 1,
           updated_at = ? WHERE owner_id = ? AND book_id = ?
       `).run(editor.agent_id, now, scope.ownerId, draft.proposedBookId);
-      const settingGuidance = draft.openingBlueprint === null || isContinuation
-        ? null
-        : new SettingGuidanceService(this.database, this.ids, this.clock)
-            .ensureInitialized(bookScope, draft.openingBlueprint);
-      // 无生效会员的用户放行开书（保证能进入设定页看到会员提示），但不创建首个AI任务，避免被生成门禁拦下整个事务。
-      const generationBlocked = membershipGenerationBlockReason(this.database, scope.ownerId, now) !== null;
-      if (this.releaseId !== undefined && !isContinuation && !generationBlocked) {
-        const kickoffContent = buildKickoffInstruction(draft.title, draft.openingBlueprint, settingGuidance?.label, settingGuidance?.prompt);
-
-        const proposalSeats = this.database.prepare(`
-          SELECT a.agent_id, a.model_snapshot_id, r.role_key
-          FROM agent_instances a
-          JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-          WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1
-            AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'setting')
-          ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END
-        `).all(scope.ownerId, draft.proposedBookId) as unknown as Array<{
-          agent_id: string;
-          model_snapshot_id: string;
-          role_key: string;
-        }>;
-        if (proposalSeats.length !== 3) throw new Error('首个核心设定独立提案需要编剧A、编剧B与设定三席都可用');
-        this.database.prepare(`
-          INSERT INTO discussions (
-            discussion_id, owner_id, book_id, discussion_type, scope_text, status,
-            call_limit, token_limit, created_by_agent_id, created_at, updated_at
-          ) VALUES (?, ?, ?, 'quick', ?, 'collecting', 3, 40000, ?, ?, ?)
-        `).run(kickoffDiscussionId, scope.ownerId, draft.proposedBookId, kickoffContent, editor.agent_id, now, now);
-        const insertParticipant = this.database.prepare(`
-          INSERT INTO discussion_participants (
-            discussion_id, owner_id, book_id, agent_id, invited_reason, model_snapshot_id
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        // 提案三席为编剧A、编剧B与设定；活动主编只主持与融合，不作为讨论参与者提交方案。
-        for (const seat of proposalSeats) {
-          insertParticipant.run(
-            kickoffDiscussionId, scope.ownerId, draft.proposedBookId, seat.agent_id,
-            '提案席独立提出首个核心设定方案，不读取其他成员答案', seat.model_snapshot_id
-          );
-        }
-        const taskService = new TaskService(this.database, this.requireReleaseId(), this.clock);
-        taskService.create(bookScope, {
-          taskId: kickoffTaskId,
-          taskType: 'discussion',
-          assignedAgentId: editor.agent_id,
-          idempotencyKey: `onboarding-kickoff:${draft.proposedBookId}`,
-          budgetId,
-          requiredEditorEpoch: 1,
-          initialPhase: 'collecting',
-          brief: {
-            discussionId: kickoffDiscussionId,
-            scopeText: kickoffContent,
-            purpose: 'setting_proposal_panel',
-            settingItemKey: settingGuidance?.itemKey ?? 'story-kernel',
-            settingItemLabel: settingGuidance?.label ?? '故事内核',
-            requestedChapterCount: null,
-            proactiveOnboarding: true,
-            openingBlueprintId
-          }
-        });
-        taskService.queue(bookScope, kickoffTaskId);
+      // DEC-CURRENT-062：建书不再自动召集 AI 成员、不创建任何任务、不激活首个设定项。
+      // 作者进入设定页勾选好条目、点“开始设计”后才建任务；团队全程待命。
+      if (draft.openingBlueprint !== null && !isContinuation) {
+        new SettingGuidanceService(this.database, this.ids, this.clock)
+          .ensureInitialized(bookScope, draft.openingBlueprint, false);
       }
       if (failAt === 'after_kickoff') throw new Error('simulated-onboarding-failure');
       this.database.prepare(`
@@ -311,7 +251,7 @@ export class BookOnboardingService {
         expressionProfileId,
         activeEditorAgentId: editor.agent_id,
         openingBlueprintId,
-        kickoffTaskId: this.releaseId === undefined || isContinuation ? null : kickoffTaskId,
+        kickoffTaskId: null,
         agentCount: createdTeam.length
       };
     } catch (error) {
@@ -319,15 +259,6 @@ export class BookOnboardingService {
       throw error;
     }
   }
-
-  private requireReleaseId(): string {
-    if (this.releaseId !== undefined) return this.releaseId;
-    const row = this.database.prepare('SELECT release_id FROM release_runs ORDER BY created_at DESC LIMIT 1')
-      .get() as { release_id: string } | undefined;
-    if (row === undefined) throw new Error('开书任务无法找到活动release');
-    return row.release_id;
-  }
-
   private insertOpeningBlueprint(
     scope: { ownerId: string; bookId: string },
     openingBlueprintId: string,
@@ -493,46 +424,4 @@ function storyBibleSkeleton(
     },
     openQuestions: fields.filter((field) => field.sourceStatus === 'unspecified' || field.sourceStatus === 'conflict').map((field) => field.key)
   };
-}
-
-function buildKickoffInstruction(title: string, blueprint: OpeningBlueprintInput | null, firstSettingLabel?: string, firstSettingPrompt?: string): string {
-  if (blueprint === null) {
-    return `《${title}》刚刚创建。请以活动主编身份主动开场：先说明当前只有基础定位，再提出1至3个最有价值的问题，帮助老板补齐主角、第一阶段剧情和关键边界。不得直接写正文。`;
-  }
-  const categoryName = OPENING_TAXONOMY.categories.find((item) => item.key === blueprint.categoryKey)?.name
-    ?? blueprint.categoryKey;
-  const protagonistSummary = blueprint.protagonists.length === 0
-    ? '暂未填写'
-    : blueprint.protagonists.map((item) => [
-      `${item.name || '未命名角色'}（${PROTAGONIST_ROLE_LABELS[item.role] ?? item.role}，${item.age || '年龄未定'}）`,
-      item.familyBackground?.trim() ? `家庭背景：${item.familyBackground.trim()}` : '',
-      item.careerBackground?.trim() ? `职业背景：${item.careerBackground.trim()}` : '',
-      item.goldenFinger?.trim() ? `金手指：${item.goldenFinger.trim()}` : '',
-      item.background?.trim(),
-      item.personalities.length > 0 ? `性格：${item.personalities.join('、')}` : ''
-    ].filter(Boolean).join('；')).join('；');
-  const creativeTags = [
-    ...(blueprint.auxiliaryTags ?? []),
-    ...(blueprint.mainTags ?? []),
-    ...(blueprint.customTags ?? [])
-  ].filter(Boolean);
-  const openingReference = [
-    `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
-    `分类：${categoryName}`,
-    `主角：${protagonistSummary}`,
-    `故事方向（可修改的软参考）：${blueprint.storyDirection || '暂未填写'}`,
-    `开局：${blueprint.openingStart?.trim() || '暂未填写'}`,
-    `结局：${blueprint.storyEnding?.trim() || '暂未填写'}`,
-    `创意线索：${creativeTags.length > 0 ? creativeTags.join('、') : '暂未填写'}`,
-    `必须遵守：${(blueprint.mustFollow ?? []).length > 0 ? (blueprint.mustFollow ?? []).join('；') : '无额外限制'}`
-  ].join('\n');
-  return [
-    '【核心设定三席独立提案】',
-    `《${title}》已完成作品基本信息，当前设定项为“${firstSettingLabel ?? '故事内核'}”。`,
-    '请读取本任务唯一的开书快照来源。故事方向只是可讨论、可修订的软规划参考，不是已发生正史；分类、题材和标签只是创意线索，不得机械拼接。',
-    openingReference,
-    `编剧A、编剧B与设定成员分别独立回答同一个命题：针对本书目前的资料，你真正推荐什么样的“${firstSettingLabel ?? '故事内核'}”？当前问题：${firstSettingPrompt?.trim() || '给出最适合本书的明确设定方案'}。方案必须说清：核心主张是什么；它靠什么让读者一直追下去；它和同类书拉开差距的点在哪里。`,
-    '三人互相看不到答案，不交叉质疑、不投票、不综合，也不替作者确认。每人只给一个自然、具体、容易理解的候选。',
-    '不要展开具体剧情，不生成剧情总纲、章纲或正文，不启动主笔。三份候选全部展示给作者后，等待作者选择其中一份、组合指定内容，或直接提交自己的版本。'
-  ].join('\n');
 }

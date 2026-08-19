@@ -24,7 +24,7 @@ export function SettingCollaborationPanel({
   onSnapshot
 }: {
   bookId: string;
-  item: Pick<SettingOutlineWorkspaceData, 'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder' | 'content'>;
+  item: Pick<SettingOutlineWorkspaceData, 'itemKey' | 'groupTitle' | 'label' | 'prompt' | 'sourceLabel' | 'status' | 'custom' | 'sortOrder' | 'content' | 'pendingCandidate'>;
   onSnapshot: (item: SettingOutlineWorkspaceData) => void;
 }): React.JSX.Element {
   const [data, setData] = useState<SettingCollaborationData | null>(null);
@@ -34,7 +34,7 @@ export function SettingCollaborationPanel({
   const [idea, setIdea] = useState('');
   const [sourceStrength, setSourceStrength] = useState<'must' | 'preference'>('preference');
   const [ideaStrength, setIdeaStrength] = useState<'must' | 'preference'>('preference');
-  const [draft, setDraft] = useState(item.content ?? '');
+  const [draft, setDraft] = useState(item.pendingCandidate ?? item.content ?? '');
   const [selfWriting, setSelfWriting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -49,7 +49,10 @@ export function SettingCollaborationPanel({
   const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const next = await fetchSettingCollaboration(bookId, item.itemKey, signal);
     setData(next);
-    setDraft((current) => next.item.content === null ? current : next.item.content!);
+    setDraft((current) => {
+      const nextDraft = next.item.pendingCandidate ?? next.item.content;
+      return nextDraft === null ? current : nextDraft;
+    });
     onSnapshot(next.item);
   }, [bookId, item.itemKey, onSnapshot]);
 
@@ -60,12 +63,12 @@ export function SettingCollaborationPanel({
     setPickedFragments([]);
     setSource('');
     setSelfWriting(false);
-    setDraft(item.content ?? '');
+    setDraft(item.pendingCandidate ?? item.content ?? '');
     void refresh(controller.signal).catch((reason: unknown) => {
       if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '协作状态读取失败');
     });
     return () => controller.abort();
-  }, [item.content, refresh]);
+  }, [item.content, item.pendingCandidate, refresh]);
 
   const panelStatus = data?.panel?.taskStatus ?? null;
   const revisionStatus = data?.revisionTask?.status ?? null;
@@ -204,7 +207,9 @@ export function SettingCollaborationPanel({
       setData((current) => current === null ? current : { ...current, item: saved });
       setSelfWriting(false);
       setNotice(status === '已确认'
-        ? '这一项已确认。它不会改写正文或已确认内容；完成全部必谈项后才生成新的正式设定稿。'
+        ? (item.pendingCandidate != null
+          ? '新方案已替换旧定稿，旧稿保留在历史版本里。'
+          : '这一项已确认。它不会改写正文或已确认内容；完成全部必谈项后才生成新的正式设定稿。')
         : '修改已保存为待确认内容。');
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : '设定内容保存失败');
@@ -331,7 +336,9 @@ export function SettingCollaborationPanel({
   const paused = data?.panel?.taskStatus === 'paused' || data?.revisionTask?.status === 'paused';
   const blocked = data?.panel?.taskStatus === 'blocked' || data?.revisionTask?.status === 'blocked';
   const revisionRunning = data?.revisionTask != null && activeTaskStatuses.has(data.revisionTask.status);
-  const candidateReady = (data?.item.status ?? item.status) === '候选待确认' && draft.trim().length > 0;
+  const currentItem = data?.item ?? item;
+  const hasPendingCandidate = (currentItem.pendingCandidate ?? null) !== null;
+  const candidateReady = ((currentItem.status) === '候选待确认' || hasPendingCandidate) && draft.trim().length > 0;
   const fusionDraft = data?.fusionDraft ?? null;
   const selectionCount = pickedFragments.length > 0 ? pickedFragments.length : selected.length;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
@@ -351,7 +358,12 @@ export function SettingCollaborationPanel({
           <em className={`setting-dot dot-${member.status === 'completed' ? 'done' : member.status === 'failed' ? 'failed' : 'work'}`} title={memberStatusLabel(member.status)} />
         </span>)}
       </div>}
-      {data.panel === null && !candidateReady && !selfWriting && <div className="setting-collaboration-start">
+      {data.panel === null && !candidateReady && !selfWriting && (data?.item.status ?? item.status) === '已确认' && <div className="setting-collaboration-start">
+        <p className="setting-collaboration-state">这一项已有定稿。反悔了就让团队围绕它重新出三份新方案，确认新方案前旧定稿一直有效。</p>
+        <footer><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button></footer>
+        <div className="setting-mine-line">只想小改？<button type="button" onClick={() => setSelfWriting(true)}>自己动手改</button></div>
+      </div>}
+      {data.panel === null && !candidateReady && !selfWriting && (data?.item.status ?? item.status) !== '已确认' && <div className="setting-collaboration-start">
         <p className="setting-collaboration-state">婉儿、红玉、文姬待命，随时可以开始。</p>
         <details className="setting-collapsible-input"><summary>我有现成内容，展开补充（选填）</summary><label>已有设定原文<textarea aria-label="已有设定原文" rows={4} maxLength={800} value={source} onChange={(event) => setSource(event.target.value)} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段内容怎么用">
@@ -421,7 +433,7 @@ export function SettingCollaborationPanel({
       </section>}
 
       {(candidateReady || selfWriting) && !revisionRunning && <section className="setting-candidate-editor">
-        <header><div><small>{candidateReady ? '待确认稿' : '自己写'}</small><strong>{candidateReady ? '主编已整理，可直接修改' : '写完保存或确认'}</strong></div><span>确认后仍不会直接改动已确认内容</span></header>
+        <header><div><small>{candidateReady ? '待确认稿' : '自己写'}</small><strong>{candidateReady ? '主编已整理，可直接修改' : '写完保存或确认'}</strong></div><span>{hasPendingCandidate ? '确认后才替换现有定稿，旧稿留在历史版本里' : '确认后仍不会直接改动已确认内容'}</span></header>
         <textarea aria-label="待确认设定内容" rows={10} maxLength={20_000} value={draft} disabled={revisionRunning} onChange={(event) => setDraft(event.target.value)} />
         {candidateReady && <details className="setting-collapsible-input"><summary>还想让主编定点修改？</summary><label>修改意见<textarea rows={3} maxLength={800} value={idea} disabled={revisionRunning} onChange={(event) => setIdea(event.target.value)} placeholder="写具体修改意见；主编只按意见调整这份内容。" /></label></details>}
         <div className="setting-candidate-actions">

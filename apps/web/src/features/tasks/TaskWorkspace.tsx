@@ -15,17 +15,36 @@ import {
   taskCheckpointLabel,
   taskGoal,
   taskLabel,
-  taskStuckReason
+  taskStuckReason,
+  taskTitle
 } from '../shared/task-presentation';
 
-function TaskButton({ task, workspace, onSelect }: { task: TaskData; workspace: TaskCenterBookData; onSelect: (task: TaskData) => void }): React.JSX.Element {
-  const chapter = taskChapterLabel(task, workspace);
+/** 任务中心红点：记录作者已看过的任务状态，状态变化（出新结果/卡住）就重新亮红点。 */
+const TASK_SEEN_KEY = 'wenmi-task-center-seen-v1';
+function loadTaskSeen(): Record<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(TASK_SEEN_KEY);
+    return raw === null || raw === undefined ? {} : JSON.parse(raw) as Record<string, string>;
+  } catch { return {}; }
+}
+function markTaskSeen(taskId: string, status: string): Record<string, string> {
+  const seen = loadTaskSeen();
+  seen[taskId] = status;
+  try { globalThis.localStorage?.setItem(TASK_SEEN_KEY, JSON.stringify(seen)); } catch { /* 存储不可用时静默降级 */ }
+  return seen;
+}
+
+function TaskButton({ task, workspace, seen, onSelect }: { task: TaskData; workspace: TaskCenterBookData; seen: Record<string, string>; onSelect: (task: TaskData) => void }): React.JSX.Element {
+  const title = taskTitle(task, workspace);
   const stuck = isStuckTask(task.status);
+  const finished = ['succeeded', 'failed', 'cancelled'].includes(task.status);
+  // 卡住的任务始终亮红点；已结束的任务状态变了（出了新结果）也亮红点，看过才熄灭。
+  const showNews = stuck || (finished && seen[task.taskId] !== task.status);
   return (
-    <button className={`task-button${stuck ? ' is-stuck' : ''}`} type="button" aria-label={`${chapter} ${taskLabel(task.taskType)} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
+    <button className={`task-button${stuck ? ' is-stuck' : ''}`} type="button" aria-label={`${title} ${phaseLabel(task.currentPhase)}`} onClick={() => onSelect(task)}>
       <span className={`task-status-dot ${task.status}`} aria-hidden="true" />
       <span>
-        <strong>{chapter} · {taskLabel(task.taskType)}</strong>
+        <strong>{title}{showNews && <i className="task-news-dot" aria-label="有新情况" />}</strong>
         <small>{stuck ? taskStuckReason(task) : `${phaseLabel(task.currentPhase)} · ${statusLabel(task.status)}`}</small>
       </span>
       <CaretRightIcon />
@@ -41,6 +60,11 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
   onSelect: (bookId: string, task: TaskData) => void;
   onDecide: (bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean) => Promise<void>;
 }): React.JSX.Element {
+  const [seenTasks, setSeenTasks] = useState<Record<string, string>>(() => loadTaskSeen());
+  const handleSelect = (bookId: string, task: TaskData): void => {
+    setSeenTasks(markTaskSeen(task.taskId, task.status));
+    onSelect(bookId, task);
+  };
   const activeTaskCount = entries.reduce((total, entry) =>
     total + entry.tasks.filter((task) => isActiveTask(task.status)).length, 0);
   const activeBookCount = entries.filter((entry) =>
@@ -67,7 +91,7 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
             const historyTasks = workspace.tasks.filter((task) => !isActiveTask(task.status)).slice(-8).reverse();
             const stuckGroups = new Map<string, TaskData[]>();
             for (const task of stuckTasks) {
-              const groupKey = `${taskChapterLabel(task, workspace)} · ${taskLabel(task.taskType)}`;
+              const groupKey = taskTitle(task, workspace);
               const group = stuckGroups.get(groupKey) ?? [];
               group.push(task);
               stuckGroups.set(groupKey, group);
@@ -87,7 +111,7 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
                       <div className="task-workspace-heading"><h4>进行中的任务</h4><span>{activeTasks.length}</span></div>
                       {activeTasks.length === 0 ? <p className="task-workspace-empty">这本书当前没有进行中的任务。</p> : (
                         <div className="task-list">{activeTasks.map((task) =>
-                          <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                          <TaskButton key={task.taskId} task={task} workspace={workspace} seen={seenTasks} onSelect={(selected) => handleSelect(book.bookId, selected)} />
                         )}</div>
                       )}
                     </section>
@@ -99,7 +123,7 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
                           <details className="task-stuck-group" key={groupKey} open={stuckGroups.size === 1}>
                             <summary>{groupKey}<span>{tasks.length} 项</span></summary>
                             <div className="task-list">{tasks.map((task) =>
-                              <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                              <TaskButton key={task.taskId} task={task} workspace={workspace} seen={seenTasks} onSelect={(selected) => handleSelect(book.bookId, selected)} />
                             )}</div>
                           </details>
                         ))}
@@ -109,7 +133,7 @@ export function GlobalTaskWorkspace({ entries, loading, loadError, busy, onSelec
                       <div className="task-workspace-heading"><h4>最近任务</h4><span>{historyTasks.length}</span></div>
                       {historyTasks.length === 0 ? <p className="task-workspace-empty">还没有已结束的任务记录。</p> : (
                         <div className="task-list">{historyTasks.map((task) =>
-                          <TaskButton key={task.taskId} task={task} workspace={workspace} onSelect={(selected) => onSelect(book.bookId, selected)} />
+                          <TaskButton key={task.taskId} task={task} workspace={workspace} seen={seenTasks} onSelect={(selected) => handleSelect(book.bookId, selected)} />
                         )}</div>
                       )}
                     </section>
@@ -170,7 +194,7 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
   const canCancel = isActiveTask(task.status) && !task.cancelRequested;
   const canRetry = ['failed', 'interrupted'].includes(task.status);
   const canResume = ['paused', 'pending'].includes(task.status);
-  const chapter = taskChapterLabel(task, workspace).replace(/^第(\d+)章$/u, '第 $1 章');
+  const chapter = taskTitle(task, workspace);
   // 失败/中断时拉取任务详情，把 provider 真实拒绝原因（model_calls.error_detail）展示给用户，
   // 避免"重试17次都不知道为什么失败"。
   const [realError, setRealError] = useState<string | null>(null);

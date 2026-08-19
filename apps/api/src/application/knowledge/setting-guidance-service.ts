@@ -69,7 +69,7 @@ export class SettingGuidanceService {
     this.workspace = new SettingOutlineWorkspaceService(database, clock);
   }
 
-  public ensureInitialized(scope: BookScope, suppliedBlueprint?: OpeningBlueprintInput): SettingGuidanceSnapshot | null {
+  public ensureInitialized(scope: BookScope, suppliedBlueprint?: OpeningBlueprintInput, activateFirst = true): SettingGuidanceSnapshot | null {
     assertBookScope(scope);
     const context = this.guidanceContext(scope, suppliedBlueprint);
     if (context === null) return null;
@@ -81,7 +81,9 @@ export class SettingGuidanceService {
       sourceLabel: item.sourceLabel,
       sortOrder: item.sortOrder
     })));
-    return this.current(scope, suppliedBlueprint);
+    // 建书时只初始化清单、不激活首项（activateFirst=false）：
+    // “讨论中”状态代表真的开工了，作者点“开始设计”才激活。
+    return activateFirst ? this.current(scope, suppliedBlueprint) : null;
   }
 
   public current(scope: BookScope, suppliedBlueprint?: OpeningBlueprintInput): SettingGuidanceSnapshot | null {
@@ -108,7 +110,7 @@ export class SettingGuidanceService {
       .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
     const relevantConfirmed = selectRelevantConfirmedContext(confirmed, target.itemKey);
     return {
-      phase: target.status === '候选待确认' ? 'revise' : 'ask',
+      phase: (target.status === '候选待确认' || target.pendingCandidate !== null) ? 'revise' : 'ask',
       itemKey: target.itemKey,
       groupTitle: target.groupTitle,
       label: target.label,
@@ -121,7 +123,9 @@ export class SettingGuidanceService {
       storyDirectionReference: context.storyDirectionReference,
       openingBookCore: context.openingBookCore,
       confirmedContext: relevantConfirmed,
-      previousCandidate: target.content === null ? null : clip(target.content, 1_200),
+      previousCandidate: target.pendingCandidate !== null
+        ? clip(target.pendingCandidate, 1_200)
+        : target.content === null ? null : clip(target.content, 1_200),
       feedbackMode: 'initial',
       dissatisfactionRound: 0
     };
@@ -148,7 +152,7 @@ export class SettingGuidanceService {
       .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
     const relevantConfirmed = selectRelevantConfirmedContext(confirmed, itemKey);
     return {
-      phase: target.status === '候选待确认' ? 'revise' : 'ask',
+      phase: (target.status === '候选待确认' || target.pendingCandidate !== null) ? 'revise' : 'ask',
       itemKey: target.itemKey,
       groupTitle: target.groupTitle,
       label: target.label,
@@ -161,7 +165,9 @@ export class SettingGuidanceService {
       storyDirectionReference: context.storyDirectionReference,
       openingBookCore: context.openingBookCore,
       confirmedContext: relevantConfirmed,
-      previousCandidate: target.content === null ? null : clip(target.content, 1_200),
+      previousCandidate: target.pendingCandidate !== null
+        ? clip(target.pendingCandidate, 1_200)
+        : target.content === null ? null : clip(target.content, 1_200),
       feedbackMode: 'initial',
       dissatisfactionRound: 0
     };

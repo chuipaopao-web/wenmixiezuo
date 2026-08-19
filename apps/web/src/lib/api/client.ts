@@ -123,6 +123,9 @@ export interface SettingOutlineWorkspaceData {
   sourceDecisionId: string | null;
   candidateAt: string | null;
   confirmedAt: string | null;
+  /** 已确认条目重新设计出的新方案：作者确认前挂在待定区，正式内容不变。 */
+  pendingCandidate: string | null;
+  pendingCandidateAt: string | null;
   updatedAt: string;
 }
 
@@ -761,6 +764,7 @@ export interface TaskCenterBookData {
   book: BookData;
   chapters: ChapterData[];
   agents: AgentData[];
+  settingItems?: Array<{ itemKey: string; label: string }>;
   tasks: TaskData[];
   budget: WorkspaceData['budget'];
   confirmations: WorkspaceData['confirmations'];
@@ -1003,6 +1007,14 @@ async function performRequest(path: string, init: RequestInit): Promise<Response
   return response;
 }
 
+/** 带业务码的请求错误：前端需要按 code 分支处理（如设定质检门禁）时使用。 */
+export class ApiRequestError extends Error {
+  public constructor(message: string, public readonly code: string | null) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     const response = await performRequest(path, init);
@@ -1011,7 +1023,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       const errorBody = 'error' in body && body.error !== undefined ? body.error : undefined;
       const reason = membershipBlockReasonFromCode(errorBody?.code);
       if (reason !== null) raiseMembershipBlocked(reason);
-      throw new Error(authorErrorMessage(errorBody?.message ?? '', response.status));
+      throw new ApiRequestError(authorErrorMessage(errorBody?.message ?? '', response.status), errorBody?.code ?? null);
     }
     return (body as ApiResponse<T>).data;
   } catch (error) {
@@ -2008,16 +2020,58 @@ export function fetchSettingReadiness(bookId: string): Promise<{
   recommended: string[];
   profileKey: string;
   profileLabel: string;
+  hasCanonChapters: boolean;
 }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/readiness`);
 }
 
-export function confirmSettingBaseline(bookId: string, expectedPlanningVersion: number): Promise<{
+export function clearSettingOutlineWorkspace(bookId: string, confirmText: string): Promise<{
+  clearedItems: number;
+  hasCanonChapters: boolean;
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/clear`, {
+    method: 'POST',
+    body: JSON.stringify({ confirmText })
+  });
+}
+
+export function confirmSettingBaseline(bookId: string, expectedPlanningVersion: number, acknowledgedIssueIds: string[] = []): Promise<{
   stage: string; version: number;
 }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/confirm`, {
     method: 'POST',
-    body: JSON.stringify({ expectedPlanningVersion })
+    body: JSON.stringify({ expectedPlanningVersion, acknowledgedIssueIds })
+  });
+}
+
+export interface SettingQualityIssueData {
+  id: string;
+  severity: 'hard' | 'soft';
+  itemKey: string;
+  problem: string;
+  suggestion: string;
+}
+
+export interface SettingQualityReportView {
+  report: {
+    reportId: string;
+    verdict: 'pass' | 'warn' | 'fail';
+    summary: string;
+    issues: SettingQualityIssueData[];
+    createdAt: string;
+  } | null;
+  fresh: boolean;
+  taskStatus: string | null;
+}
+
+export function fetchSettingQualityReport(bookId: string, signal?: AbortSignal): Promise<SettingQualityReportView> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/quality-report`, signal === undefined ? {} : { signal });
+}
+
+export function startSettingQualityAudit(bookId: string, idempotencyKey: string): Promise<{ taskId: string; status: string }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/quality-audit`, {
+    method: 'POST',
+    body: JSON.stringify({ idempotencyKey })
   });
 }
 

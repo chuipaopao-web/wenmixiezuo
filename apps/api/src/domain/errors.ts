@@ -33,6 +33,8 @@ export const errorCodes = {
   modelRequestRejected: 'MODEL_REQUEST_REJECTED',
   operationIncomplete: 'OPERATION_INCOMPLETE',
   permanentDeleteConfirmationInvalid: 'PERMANENT_DELETE_CONFIRMATION_INVALID',
+  settingQualityAuditRequired: 'SETTING_QUALITY_AUDIT_REQUIRED',
+  settingQualityIssuesUnacknowledged: 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED',
   taskAlreadyRunning: 'TASK_ALREADY_RUNNING',
   validation: 'VALIDATION_ERROR'
 } as const;

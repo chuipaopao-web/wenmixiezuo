@@ -67,26 +67,20 @@ describe('定位草稿与原子建书', () => {
         { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' }
       ]);
-    expect(result.kickoffTaskId).toBeTruthy();
-    expect(context.database.prepare(`SELECT task_type, status, assigned_agent_id FROM tasks WHERE task_id = ?`).get(result.kickoffTaskId))
-      .toMatchObject({ task_type: 'discussion', status: 'queued', assigned_agent_id: result.activeEditorAgentId });
+    expect(result.kickoffTaskId).toBeNull();
+    // 建书后不自动召集 AI：不建讨论任务、不建讨论、不激活设定项
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
+      WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'`)
+      .get('owner-one', result.bookId)).toEqual({ count: 0 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussions
+      WHERE owner_id = ? AND book_id = ?`)
+      .get('owner-one', result.bookId)).toEqual({ count: 0 });
     const settingItems = context.database.prepare(`
       SELECT item_key, label, item_status FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? ORDER BY sort_order, item_key
     `).all('owner-one', result.bookId) as Array<{ item_key: string; label: string; item_status: string }>;
-    expect(settingItems[0]).toEqual({ item_key: 'story-kernel', label: '故事内核', item_status: '讨论中' });
-    expect(settingItems.filter((item) => item.item_status === '讨论中')).toHaveLength(1);
-    const kickoffTask = context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
-      .get(result.kickoffTaskId) as { task_brief_json: string };
-    expect(JSON.parse(kickoffTask.task_brief_json)).toMatchObject({
-      purpose: 'setting_proposal_panel',
-      proactiveOnboarding: true
-    });
-    expect(JSON.parse(kickoffTask.task_brief_json).scopeText).toContain(openingBlueprint.storyDirection);
-    expect(JSON.parse(kickoffTask.task_brief_json).scopeText).toContain('唯一的开书快照来源');
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants
-      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
-      .get('owner-one', result.bookId, JSON.parse(kickoffTask.task_brief_json).discussionId)).toEqual({ count: 3 });
+    expect(settingItems[0]).toEqual({ item_key: 'story-kernel', label: '故事内核', item_status: '待讨论' });
+    expect(settingItems.filter((item) => item.item_status === '讨论中')).toHaveLength(0);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
       .get('owner-one', result.bookId)).toEqual({ count: 11 });
     expect(new BookProfileViewService(context.database).get({ ownerId: 'owner-one', bookId: result.bookId }).storyDirection)

@@ -121,4 +121,14 @@ export class OwnerManuscriptRepository {
     this.database.prepare(`UPDATE file_registry SET status = 'archived', archived_at = ?
       WHERE file_id = ? AND owner_id = ? AND book_id = ?`).run(now, fileId, scope.ownerId, scope.bookId);
   }
+
+  /** 该书是否已有正文正史：有正文的书在清空或改动设定前需要更强的警告。 */
+  public hasCanonChapters(scope: BookScope): boolean {
+    assertBookScope(scope);
+    const row = this.database.prepare(`
+      SELECT COUNT(*) AS total FROM chapters
+      WHERE owner_id = ? AND book_id = ? AND canon_manuscript_version_id IS NOT NULL
+    `).get(scope.ownerId, scope.bookId) as { total: number };
+    return row.total > 0;
+  }
 }

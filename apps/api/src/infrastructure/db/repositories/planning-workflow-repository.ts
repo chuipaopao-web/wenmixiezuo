@@ -107,6 +107,19 @@ export class PlanningWorkflowRepository {
     `).run(id, now, scope.ownerId, scope.bookId, expected).changes === 1;
   }
 
+  /** 清空设定后作废设定基线：阶段退回设定进行中，下游卷/事件/正文数据保持不动。 */
+  public resetSettingBaseline(scope: BookScope, now: string): void {
+    this.database.prepare(`
+      UPDATE book_planning_states SET version = version + 1, stage = 'setting_in_progress',
+        setting_baseline_version_id = NULL, updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND setting_baseline_version_id IS NOT NULL
+    `).run(now, scope.ownerId, scope.bookId);
+    this.database.prepare(`
+      UPDATE creation_workflow_states SET stage = 'setting_in_progress', updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND stage = 'setting_confirmed'
+    `).run(now, scope.ownerId, scope.bookId);
+  }
+
   public synchronizeCreationWorkflowAfterSetting(scope: BookScope, now: string): void {
     this.database.prepare(`
       INSERT INTO creation_workflow_states (
