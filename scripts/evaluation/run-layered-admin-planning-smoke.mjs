@@ -15,7 +15,7 @@ const noTemplate = (scope) => ({
 });
 
 let cookie = '';
-const evidence = { schemaVersion: 'layered-admin-planning-smoke-v1', runKey: RUN_KEY,
+const evidence = { schemaVersion: 'layered-admin-full-chain-smoke-v2', runKey: RUN_KEY,
   api: API, startedAt: new Date().toISOString(), checks: [] };
 
 function record(name, details = {}) {
@@ -261,6 +261,63 @@ async function main() {
   record('第一章章纲冻结', { chapterNumber: firstOutline.chapterNumber,
     hasFirst500Contract: true, chapterCount: chapterSequence.outlines.length });
 
+  const expression = await request(`/api/v1/books/${bookId}/expression-profile`);
+  const confirmedExpression = await request(`/api/v1/books/${bookId}/expression-profile`, {
+    method: 'POST', body: {
+      narrativePerson: expression?.narrativePerson ?? 'third',
+      viewpointDistance: expression?.viewpointDistance ?? 'close',
+      languageTone: expression?.languageTone?.length ? expression.languageTone : ['自然有力'],
+      textDensity: expression?.textDensity ?? 'balanced',
+      targetAudience: expression?.targetAudience ?? blueprint.targetAudience,
+      contentBoundaries: expression?.contentBoundaries ?? { mustFollow: blueprint.mustFollow },
+      humorSeriousness: expression?.humorSeriousness ?? 'serious',
+      voiceEvidence: expression?.voiceEvidence ?? [],
+      impactScope: { appliesFrom: 'chapter-1' },
+      confirm: true
+    }
+  });
+  assert(confirmedExpression.status === 'confirmed', 'expression viewpoint was not confirmed');
+  record('叙事视角确认', { narrativePerson: confirmedExpression.narrativePerson,
+    viewpointDistance: confirmedExpression.viewpointDistance });
+
+  const writingRun = await request(`/api/v1/books/${bookId}/writing-runs`, {
+    method: 'POST', body: { volumeTitle: plan.activeVersion.content.title, chapterTitle: outlineCandidate.content.title }
+  });
+  assert(writingRun.chapterIds.length === 1 && writingRun.taskIds.length === 1, 'single chapter writing run was not scheduled');
+  const chapterId = writingRun.chapterIds[0];
+  const chapterTaskId = writingRun.taskIds[0];
+  const writingTask = await waitTask(bookId, chapterTaskId, '第一章正文与三责独立审查');
+  assert(writingTask.task.status === 'waiting_confirmation', 'chapter did not wait for author confirmation');
+
+  const chapterBeforeApproval = await request(`/api/v1/books/${bookId}/chapters/${chapterId}`);
+  assert(chapterBeforeApproval.manuscripts.length > 0, 'chapter manuscript candidate missing');
+  assert(chapterBeforeApproval.production.reviewPanels.length > 0, 'review panel missing');
+  assert(chapterBeforeApproval.production.reviewReports.length >= 3, 'three independent review reports missing');
+  const currentManuscript = chapterBeforeApproval.manuscripts.at(-1);
+  const contentBeforeApproval = await request(`/api/v1/books/${bookId}/chapters/${chapterId}/content?start=0&end=600`);
+  assert(contentBeforeApproval.totalLength >= 500, 'chapter manuscript is shorter than the first-500 validation window');
+  record('正文候选与三级审查', { manuscriptVersionId: currentManuscript.manuscript_version_id,
+    reviewPanelCount: chapterBeforeApproval.production.reviewPanels.length,
+    reviewReportCount: chapterBeforeApproval.production.reviewReports.length,
+    firstWindowLength: contentBeforeApproval.content.length });
+
+  const taskWorkspace = await request('/api/v1/task-center');
+  const bookWorkspace = taskWorkspace.books.find((item) => item.book.bookId === bookId);
+  const manuscriptConfirmation = bookWorkspace?.confirmations.items.find((item) =>
+    item.targetType === 'manuscript' && item.targetId === currentManuscript.manuscript_version_id);
+  assert(manuscriptConfirmation, 'manuscript owner confirmation missing');
+  const settled = await request(`/api/v1/books/${bookId}/confirmations/${manuscriptConfirmation.confirmationId}/accept`, {
+    method: 'POST', body: { expectedCanonRevision: manuscriptConfirmation.expectedCanonRevision }
+  });
+  assert(settled.status === 'settled', 'owner acceptance did not settle the chapter');
+  const chapterAfterApproval = await request(`/api/v1/books/${bookId}/chapters/${chapterId}`);
+  assert(chapterAfterApproval.chapter.settlementStatus === 'settled', 'chapter settlement status is not settled');
+  assert(chapterAfterApproval.chapter.canonManuscriptVersionId === currentManuscript.manuscript_version_id,
+    'accepted manuscript did not become canon');
+  const firstVolumeProgress = await request(`/api/v1/books/${bookId}/first-volume-launch-progress`);
+  record('作者确认与章节结算', { chapterId, canonRevision: settled.canonRevision,
+    canonManuscriptVersionId: chapterAfterApproval.chapter.canonManuscriptVersionId,
+    effectiveChars: firstVolumeProgress.totalEffectiveCharacters });
   evidence.bookId = bookId;
   evidence.finishedAt = new Date().toISOString();
   evidence.result = 'passed';

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { createPortal } from 'react-dom';
 import { FileTextIcon } from '@phosphor-icons/react';
 import {
@@ -557,7 +558,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
         .filter((item) => !item.custom && !knownTemplateKeys.has(item.itemKey) && (item.status !== '待讨论' || item.content !== null))
         .map((item) => ({ key: item.itemKey, label: item.label, status: item.status, content: item.content })));
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '设定清单读取失败');
+      if (!controller.signal.aborted) setNotice(authorErrorFromUnknown(reason, '设定清单读取失败'));
     });
     return () => controller.abort();
   }, [bookId]);
@@ -612,7 +613,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       custom,
       sortOrder: sortOrder < 0 ? allTemplateItems.length + customItems.length : sortOrder,
       content: contents[item.key] ?? null
-    }).then(applySnapshot).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '设定项保存失败'));
+    }).then(applySnapshot).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '设定项保存失败')));
   };
 
   const confirmSetting = (acknowledged: string[] = []): void => {
@@ -633,24 +634,25 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       });
     }).catch((reason: unknown) => {
       const code = reason instanceof ApiRequestError ? reason.code : null;
-      if (code === 'SETTING_QUALITY_AUDIT_REQUIRED' && bookId !== null) {
+      const action = reason instanceof ApiRequestError ? reason.action : null;
+      if ((action === 'start_setting_quality_audit' || code === 'SETTING_QUALITY_AUDIT_REQUIRED') && bookId !== null) {
         // 定稿前自动让主编检查一遍整份设定，检查结果出来后再请作者确认。
         void startSettingQualityAudit(bookId, crypto.randomUUID()).then(() => {
           setAuditWaiting(true);
           setNotice('主编正在检查整份设定，完成后会把检查结果放在这里。');
         }).catch((auditReason: unknown) => {
-          setNotice(auditReason instanceof Error ? auditReason.message : '发起检查失败');
+          setNotice(authorErrorFromUnknown(auditReason, '发起检查失败'));
         });
         return;
       }
-      if (code === 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED' && bookId !== null) {
+      if ((action === 'review_setting_quality_issues' || code === 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED') && bookId !== null) {
         void fetchSettingQualityReport(bookId).then((view) => {
           setAuditReport(view);
           setNotice('主编发现了需要您过目的问题，确认处理方式后才能定稿。');
         }).catch(() => setNotice('检查结果读取失败，请重试'));
         return;
       }
-      setNotice(reason instanceof Error ? reason.message : '确认设定失败');
+      setNotice(authorErrorFromUnknown(reason, '确认设定失败'));
     }).finally(() => setBusyKey(null));
   };
 
@@ -669,7 +671,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setNotice('已清空全部设定内容，条目保留，可以随时重新设计。历史版本都还在。');
       await onPlanningStateChanged();
     }).catch((reason: unknown) => {
-      setNotice(reason instanceof Error ? reason.message : '清空设定失败');
+      setNotice(authorErrorFromUnknown(reason, '清空设定失败'));
     }).finally(() => setBusyKey(null));
   };
 
@@ -712,7 +714,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     const status = statusMap[nextKey] ?? '待讨论';
     if ((status === '待讨论' || status === '稍后补充') && bookId !== null) {
       void startSettingCollaboration(bookId, nextKey, { authorInputId: null, idempotencyKey: crypto.randomUUID() })
-        .catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '召集团队失败'));
+        .catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '召集团队失败')));
     }
   };
 
@@ -989,7 +991,7 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
   const reloadVersions = (): void => {
     if (bookId === null || artifactId.length === 0) return;
     setBusy(true);
-    void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '历史稿加载失败')).finally(() => setBusy(false));
+    void fetchArtifactVersions(bookId, artifactId).then(setVersions).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '历史稿加载失败'))).finally(() => setBusy(false));
   };
   const chapterOutlineV2 = artifactType === 'chapter_outline' && content.outlineSchema === 'chapter_outline_v2';
   const reverseChapterOutline = artifactType === 'chapter_outline'
@@ -1003,17 +1005,17 @@ function ArtifactCard({ artifact, bookId, projection }: { artifact: Record<strin
     {editing && <div className="artifact-editor"><h4>编辑一份待确认稿</h4><ArtifactEditFields value={editableProjection} onChange={(next) => setDraft(mergeArtifactProjection(draft, next, projection))} /><div className="artifact-actions"><button className="secondary-button" type="button" onClick={() => { setEditing(false); setDraft(content); }}>取消</button><button className="primary-button" type="button" disabled={busy || bookId === null} onClick={() => {
       if (bookId === null) return;
       setBusy(true); setNotice(null);
-      void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`第${created.version}稿已保存，确认后才会成为正式内容。`); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '保存失败')).finally(() => setBusy(false));
+      void addArtifactVersion(bookId, artifactId, draft, activeVersionId || null).then((created) => { setVersions((current) => [...(current ?? []), created]); setEditing(false); setNotice(`第${created.version}稿已保存，确认后才会成为正式内容。`); }).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '保存失败'))).finally(() => setBusy(false));
     }}>保存待确认稿</button></div></div>}
     {versions !== null && <div className="artifact-versions"><h4>历史稿件</h4>{versions.map((version) => <div key={version.artifactVersionId}><span><strong>第 {version.version} 稿</strong><small>{authorityLabel(version.status)}</small></span><div>{activeVersionId && version.artifactVersionId !== activeVersionId && <button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void compareArtifactVersions(bookId, artifactId, activeVersionId, version.artifactVersionId).then((result) => setNotice(result.same ? '与当前正式稿内容一致。' : `变化字段：${result.changedTopLevelKeys.map(fieldLabel).join('、')}`)).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '稿件比较失败')).finally(() => setBusy(false));
+        setBusy(true); void compareArtifactVersions(bookId, artifactId, activeVersionId, version.artifactVersionId).then((result) => setNotice(result.same ? '与当前正式稿内容一致。' : `变化字段：${result.changedTopLevelKeys.map(fieldLabel).join('、')}`)).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '稿件比较失败'))).finally(() => setBusy(false));
       }}>比较</button>}{version.status === 'candidate' && <><button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void selectArtifactVersion(bookId, artifactId, version.artifactVersionId).then((selected) => { setContent(selected.content); setStatus(selected.status); setActiveVersionId(selected.artifactVersionId); setNotice(`第${selected.version}稿已确认为正式规划。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '稿件确认失败')).finally(() => setBusy(false));
+        setBusy(true); void selectArtifactVersion(bookId, artifactId, version.artifactVersionId).then((selected) => { setContent(selected.content); setStatus(selected.status); setActiveVersionId(selected.artifactVersionId); setNotice(`第${selected.version}稿已确认为正式规划。`); reloadVersions(); }).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '稿件确认失败'))).finally(() => setBusy(false));
       }}>确认</button><button type="button" disabled={busy} onClick={() => {
         if (bookId === null) return;
-        setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`第${version.version}稿本次未采用，仍会保留。`); reloadVersions(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '操作没有完成')).finally(() => setBusy(false));
+        setBusy(true); void rejectArtifactVersion(bookId, artifactId, version.artifactVersionId).then(() => { setNotice(`第${version.version}稿本次未采用，仍会保留。`); reloadVersions(); }).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '操作没有完成'))).finally(() => setBusy(false));
       }}>否决</button></>}</div></div>)}</div>}
     <footer><span>第 {String(artifact.version ?? 1)} 稿</span><span>原来的内容和修改记录都会保留</span><span className="artifact-footer-actions"><button type="button" disabled={busy || bookId === null} onClick={() => { setDraft(content); setEditing((value) => !value); }}>编辑内容</button><button type="button" disabled={busy || bookId === null} onClick={reloadVersions}>{versions === null ? '查看历史' : '刷新历史'}</button></span></footer></article>;
 }

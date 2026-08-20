@@ -19,7 +19,8 @@ import type {
   EventChapterSequenceContent
 } from '@wenmi/contracts';
 import { authorErrorMessage } from './author-error';
-import { membershipBlockReasonFromCode, raiseMembershipBlocked } from '../../features/shared/membership-gate';
+export { authorErrorFromUnknown } from './author-error';
+import { membershipBlockReasonFromAction, membershipBlockReasonFromCode, raiseMembershipBlocked } from '../../features/shared/membership-gate';
 
 
 export interface AuthAccountData {
@@ -1012,6 +1013,9 @@ function waitBeforeRateLimitRetry(ms: number, signal: AbortSignal | null | undef
 
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
+  if (path.startsWith('/api/v1/') && !path.startsWith('/api/v1/admin/') && !path.startsWith('/api/v1/internal/')) {
+    headers.set('x-wenmi-author-projection', 'clean-v1');
+  }
   if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
@@ -1029,25 +1033,58 @@ async function performRequest(path: string, init: RequestInit): Promise<Response
   return response;
 }
 
-/** 带业务码的请求错误：前端需要按 code 分支处理（如设定质检门禁）时使用。 */
+/** 新版使用作者业务动作；code 只兼容未带干净投影头的旧前端缓存。 */
 export class ApiRequestError extends Error {
-  public constructor(message: string, public readonly code: string | null) {
+  public constructor(
+    message: string,
+    public readonly code: string | null,
+    public readonly action: string | null
+  ) {
     super(message);
     this.name = 'ApiRequestError';
   }
 }
 
+const AUTHOR_CLIENT_ALIASES: Readonly<Record<string, string>> = {
+  recoveryKey: 'taskId', recovery_key: 'task_id', recoveryKeys: 'taskIds', recovery_keys: 'task_ids',
+  currentRecoveryKey: 'currentTaskId', current_recovery_key: 'current_task_id',
+  collaborationKey: 'discussionId', collaboration_key: 'discussion_id',
+  collaborationStatus: 'discussionStatus', collaboration_status: 'discussion_status',
+  memberKey: 'agentId', member_key: 'agent_id',
+  assignedMemberKey: 'assignedAgentId', assigned_member_key: 'assigned_agent_id',
+  createdByMemberKey: 'createdByAgentId', created_by_member_key: 'created_by_agent_id',
+  workKind: 'taskType', work_kind: 'task_type', workStatus: 'taskStatus', work_status: 'task_status',
+  progressStage: 'currentPhase', progress_stage: 'current_phase', recoveryProgress: 'checkpoint',
+  recoveryMessage: 'errorMessage', recovery_message: 'error_message'
+};
+
+/** 新版网络响应不含内部字段；这里只在浏览器内还原现有组件需要的兼容键，不向界面显示。 */
+function restoreAuthorClientAliases(value: unknown, depth = 0): unknown {
+  if (depth > 24 || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((item) => restoreAuthorClientAliases(item, depth + 1));
+  if (typeof value !== 'object') return value;
+  const restored: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    restored[AUTHOR_CLIENT_ALIASES[key] ?? key] = restoreAuthorClientAliases(item, depth + 1);
+  }
+  return restored;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     const response = await performRequest(path, init);
-    const body = await response.json() as ApiResponse<T> | { error?: { message?: string; code?: string } };
+    const body = await response.json() as ApiResponse<T> | { error?: { message?: string; code?: string; action?: string } };
     if (!response.ok) {
       const errorBody = 'error' in body && body.error !== undefined ? body.error : undefined;
-      const reason = membershipBlockReasonFromCode(errorBody?.code);
+      const reason = membershipBlockReasonFromAction(errorBody?.action) ?? membershipBlockReasonFromCode(errorBody?.code);
       if (reason !== null) raiseMembershipBlocked(reason);
-      throw new ApiRequestError(authorErrorMessage(errorBody?.message ?? '', response.status), errorBody?.code ?? null);
+      throw new ApiRequestError(
+        authorErrorMessage(errorBody?.message ?? '', response.status),
+        errorBody?.code ?? null,
+        errorBody?.action ?? null
+      );
     }
-    return (body as ApiResponse<T>).data;
+    return restoreAuthorClientAliases((body as ApiResponse<T>).data) as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     if (error instanceof TypeError && /fetch|network|load failed/iu.test(error.message)) {
@@ -1235,7 +1272,7 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
       try{
         const query=new URLSearchParams({after:String(cursor)});
         let response=await fetch(`${API_ORIGIN}/api/v1/events?${query.toString()}`,{credentials:'include',signal:controller.signal,
-          headers:{accept:'text/event-stream','last-event-id':String(cursor)}});        if(response.status===401){input.onState?.('closed');break;}
+          headers:{accept:'text/event-stream','last-event-id':String(cursor),'x-wenmi-author-projection':'clean-v1'}});        if(response.status===401){input.onState?.('closed');break;}
         // 被限流时降到15秒一连，避免每秒重连把自己持续锁在限流桶外。
         if(response.status===429){reconnectDelayMs=15_000;throw new Error('事件流被限流，稍后重连');}
         if(!response.ok||response.body===null)throw new Error('事件流连接失败');
@@ -1257,7 +1294,7 @@ export function subscribeRuntimeEvents(input:{bookId?:string;onEvent:(event:Runt
 function parseSseBlock(block:string):RuntimeEventData|null{
   const data=block.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
   if(data.length===0)return null;
-  try{const parsed=JSON.parse(data) as Partial<RuntimeEventData>;return typeof parsed.eventSeq==='number'&&typeof parsed.eventType==='string'
+  try{const parsed=restoreAuthorClientAliases(JSON.parse(data)) as Partial<RuntimeEventData>;return typeof parsed.eventSeq==='number'&&typeof parsed.eventType==='string'
     ?parsed as RuntimeEventData:null;}catch{return null;}
 }
 function readEventCursor(key:string):number{try{const value=Number(globalThis.localStorage?.getItem(key)??'0');return Number.isInteger(value)&&value>=0?value:0;}catch{return 0;}}
@@ -1845,18 +1882,7 @@ export function resumeTask(bookId: string, taskId: string): Promise<TaskData> {
 
 export interface TaskDetailData {
   task: TaskData;
-  phases: Array<{ phase_key: string; status: string; entered_at: string; heartbeat_at: string | null }>;
-  modelCalls: Array<{
-    request_id: string;
-    provider: string;
-    model_id: string;
-    state: string;
-    error_class: string | null;
-    error_detail: string | null;
-    completed_at: string | null;
-    created_at: string;
-  }>;
-  toolCalls: unknown[];
+  recovery: { hasFailureEvidence: boolean; message: string | null };
 }
 
 export function fetchTaskDetail(bookId: string, taskId: string, signal?: AbortSignal): Promise<TaskDetailData> {

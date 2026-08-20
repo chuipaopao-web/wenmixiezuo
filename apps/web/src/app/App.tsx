@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { authorErrorFromUnknown } from '../lib/api/author-error';
 import {
   ArchiveBoxIcon,
   BookOpenTextIcon,
@@ -77,6 +78,7 @@ import {
   type WorkspacePreferences
 } from './workspace-preferences';
 import './app.css';
+import { installMobileViewportBridge } from './mobile-viewport';
 
 type UtilityView = 'tasks' | 'team' | 'ideas' | 'admin' | null;
 type PlanningTab = WorkspacePrimaryFunctionKey;
@@ -90,13 +92,15 @@ export function App(): React.JSX.Element {
   const [account, setAccount] = useState<AuthAccountData | null | undefined>(undefined);
   const [startupError, setStartupError] = useState<string | null>(null);
 
+  useEffect(() => installMobileViewportBridge(), []);
+
   useEffect(() => {
     const controller = new AbortController();
     void fetchCurrentAccount(controller.signal)
       .then((current) => { setAccount(current); setStartupError(null); })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) {
-          setStartupError(reason instanceof Error ? reason.message : '暂时无法连接文秘写作');
+          setStartupError(authorErrorFromUnknown(reason, '暂时无法连接文秘写作'));
           setAccount(null);
         }
       });
@@ -295,7 +299,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
         setError(null);
       })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '无法连接本地服务');
+        if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '无法连接本地服务'));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -321,7 +325,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     }
     const controller = new AbortController();
     void refreshWorkspace(selectedBookId, controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '工作区加载失败');
+      if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '工作区加载失败'));
     });
     const poll = window.setInterval(() => { void refreshWorkspace(selectedBookId).catch(() => undefined); }, 30_000);
     return () => {
@@ -336,7 +340,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     setHomeTasksLoading(true);
     void refreshHomeTasks(controller.signal).catch((reason: unknown) => {
       if (!controller.signal.aborted) {
-        setHomeTasksError(reason instanceof Error ? reason.message : '任务中心加载失败');
+        setHomeTasksError(authorErrorFromUnknown(reason, '任务中心加载失败'));
         setHomeTasksLoading(false);
       }
     });
@@ -418,7 +422,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     void fetchOperationsStatus(controller.signal).then((nextOperations) => {
       setOperationsStatus(nextOperations);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '本机诊断加载失败');
+      if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '本机诊断加载失败'));
     });
     return () => controller.abort();
   }, [settingsOpen]);
@@ -448,7 +452,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setError(null);
       return true;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '建书失败');
+      setError(authorErrorFromUnknown(reason, '建书失败'));
       return false;
     } finally {
       setBusy(false);
@@ -463,7 +467,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       await refreshHomeTasks();
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '确认操作失败');
+      setError(authorErrorFromUnknown(reason, '确认操作失败'));
     } finally {
       setBusy(false);
     }
@@ -478,7 +482,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setSelectedTask(null);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '任务取消失败');
+      setError(authorErrorFromUnknown(reason, '任务取消失败'));
     } finally {
       setBusy(false);
     }
@@ -493,7 +497,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setSelectedTask(null);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '任务重试失败');
+      setError(authorErrorFromUnknown(reason, '任务重试失败'));
     } finally {
       setBusy(false);
     }
@@ -508,7 +512,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setSelectedTask(null);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '任务继续失败');
+      setError(authorErrorFromUnknown(reason, '任务继续失败'));
     } finally {
       setBusy(false);
     }
@@ -523,7 +527,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       await loadBooks();
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '归档书籍失败');
+      setError(authorErrorFromUnknown(reason, '归档书籍失败'));
     } finally {
       setBusy(false);
     }
@@ -539,7 +543,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setArchiveOpen(false);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '恢复书籍失败');
+      setError(authorErrorFromUnknown(reason, '恢复书籍失败'));
     } finally {
       setBusy(false);
     }
@@ -564,7 +568,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       setArchiveOpen(false);
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '永久删除书籍失败');
+      setError(authorErrorFromUnknown(reason, '永久删除书籍失败'));
     } finally {
       setBusy(false);
     }

@@ -24,3 +24,17 @@ export function authorErrorMessage(message: string, status?: number): string {
     .replaceAll('候选', '待确认内容')
     .replaceAll('落库', '保存'), 'error');
 }
+
+/**
+ * 页面层唯一允许的异常展示入口。无论异常来自请求、浏览器还是本地处理，
+ * 都先经过作者错误门；服务端原始错误仍保留在日志与审计记录中。
+ */
+export function authorErrorFromUnknown(reason: unknown, fallback = '这次操作没有完成，请稍后再试。'): string {
+  const message = reason instanceof Error
+    ? reason.message
+    : typeof reason === 'string'
+      ? reason
+      : fallback;
+  const sanitized = authorErrorMessage(message);
+  return sanitized.trim().length > 0 ? sanitized : authorErrorMessage(fallback);
+}

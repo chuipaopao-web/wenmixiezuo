@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { XIcon } from '@phosphor-icons/react';
 import {
   fetchLatestBrandingDesign,
@@ -33,7 +34,7 @@ export function BrandingDesignDialog({ bookId, kind, profile, onClose, onApplied
       if (!cancelledRef.current) setDesign(started);
     } catch (error) {
       if (!cancelledRef.current) {
-        setStartError(error instanceof Error ? error.message : '主编设计启动失败，请稍后再试。');
+        setStartError(authorErrorFromUnknown(error, '主编设计启动失败，请稍后再试。'));
       }
     }
   }, [bookId, kind]);
@@ -67,7 +68,7 @@ export function BrandingDesignDialog({ bookId, kind, profile, onClose, onApplied
       });
       await onApplied(updated);
     } catch (error) {
-      setApplyError(error instanceof Error ? error.message : '采用失败，请刷新后再试。');
+      setApplyError(authorErrorFromUnknown(error, '采用失败，请刷新后再试。'));
       setApplying(null);
     }
   };
@@ -88,7 +89,7 @@ export function BrandingDesignDialog({ bookId, kind, profile, onClose, onApplied
         <p>主编正在依据第一卷的故事、已确认设定和开书信息设计多套方案，通常需要几十秒，请稍等……</p>
       </div>}
       {design?.status === 'failed' && <div className="branding-design-notice" role="alert">
-        <p>本轮设计没有完成{design.errorCode === null ? '' : `（${design.errorCode}）`}。可以重新让主编设计一组。</p>
+        <p>本轮设计没有完成，已保存的书籍信息不会丢失。可以重新让主编设计一组。</p>
         <button className="secondary-button" type="button" onClick={() => void begin()}>重新设计</button>
       </div>}
       {design?.status === 'cancelled' && <div className="branding-design-notice" role="status">

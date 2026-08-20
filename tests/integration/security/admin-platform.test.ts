@@ -112,7 +112,7 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       expect(userCall.provider).toBe('创作服务');
       expect(userCall.model_id).toBe('创作服务');
       expect(userCall.error_detail).not.toMatch(/deepseek|volcengine|ark/iu);
-      expect(userCall.error_detail).toContain('限流');
+      expect(userCall.error_detail).toContain('已保存的内容不会被覆盖');
 
       // 管理员查看自己名下书籍的任务详情时保留完整技术证据（跨用户书籍按 owner 隔离，本就不可见）。
       const adminOwnerId = ownerIdOf('admin@example.com');
@@ -137,9 +137,14 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       );
       const adminView = await app.inject({ method: 'GET', url: `/api/v1/books/${adminBook.bookId}/tasks/task-evidence`, headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(adminView.statusCode).toBe(200);
-      const adminCall = adminView.json().data.modelCalls[0] as { provider: string; model_id: string };
-      expect(adminCall.provider).toBe('volcengine-ark-agent-plan');
-      expect(adminCall.model_id).toBe('deepseek-v4-pro');
+      const publicAdminCall = adminView.json().data.modelCalls[0] as { provider: string; model_id: string };
+      expect(publicAdminCall.provider).toBe('创作服务');
+      expect(publicAdminCall.model_id).toBe('创作服务');
+      const adminAudit = await app.inject({ method: 'GET', url: `/api/v1/admin/audit/books/${adminBook.bookId}/tasks/task-evidence`, headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
+      expect(adminAudit.statusCode).toBe(200);
+      const auditCall = adminAudit.json().data.modelCalls[0] as { provider: string; model_id: string };
+      expect(auditCall.provider).toBe('volcengine-ark-agent-plan');
+      expect(auditCall.model_id).toBe('deepseek-v4-pro');
     } finally {
       await app.close();
     }

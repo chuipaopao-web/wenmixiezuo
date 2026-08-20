@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import {
   createAuthorPlanningInput,
   fetchSettingCollaboration,
@@ -66,7 +67,7 @@ export function SettingCollaborationPanel({
     setSelfWriting(false);
     setDraft(item.pendingCandidate ?? item.content ?? '');
     void refresh(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setNotice(reason instanceof Error ? reason.message : '协作状态读取失败');
+      if (!controller.signal.aborted) setNotice(authorErrorFromUnknown(reason, '协作状态读取失败'));
     });
     return () => controller.abort();
   }, [item.content, item.pendingCandidate, refresh]);
@@ -78,7 +79,7 @@ export function SettingCollaborationPanel({
   useEffect(() => {
     if (!polling) return undefined;
     const timer = window.setInterval(() => {
-      void refresh().catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '协作状态刷新失败'));
+      void refresh().catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '协作状态刷新失败')));
     }, 1_800);
     return () => window.clearInterval(timer);
   }, [polling, refresh]);
@@ -139,7 +140,7 @@ export function SettingCollaborationPanel({
       setNotice('团队已开始设计，稍等片刻就能看到方案。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '启动协作失败');
+      setNotice(authorErrorFromUnknown(reason, '启动协作失败'));
     } finally { setBusy(null); }
   };
 
@@ -159,7 +160,7 @@ export function SettingCollaborationPanel({
       setNotice('团队已重新开始设计，稍等片刻就能看到新方案。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '重新设计失败');
+      setNotice(authorErrorFromUnknown(reason, '重新设计失败'));
     } finally { setBusy(null); }
   };
 
@@ -204,7 +205,7 @@ export function SettingCollaborationPanel({
       setNotice('主编正在按你的勾选融合一份通顺的设定稿。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '提交选择失败');
+      setNotice(authorErrorFromUnknown(reason, '提交选择失败'));
     } finally { setBusy(null); }
   };
 
@@ -233,7 +234,7 @@ export function SettingCollaborationPanel({
           : '这一项已确认。它不会改写正文或已确认内容；完成全部必谈项后才生成新的正式设定稿。')
         : '修改已保存为待确认内容。');
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '设定内容保存失败');
+      setNotice(authorErrorFromUnknown(reason, '设定内容保存失败'));
     } finally { setBusy(null); }
   };
 
@@ -256,7 +257,7 @@ export function SettingCollaborationPanel({
       setData((current) => current === null ? current : { ...current, item: saved });
       setNotice('这一项先留白，以后随时可以回来定。');
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '操作没有完成');
+      setNotice(authorErrorFromUnknown(reason, '操作没有完成'));
     } finally { setBusy(null); }
   };
 
@@ -288,7 +289,7 @@ export function SettingCollaborationPanel({
       setNotice('修改意见已交给主编，现有稿件和三份原始方案都会保留。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '提交修改意见失败');
+      setNotice(authorErrorFromUnknown(reason, '提交修改意见失败'));
     } finally { setBusy(null); }
   };
 
@@ -309,7 +310,7 @@ export function SettingCollaborationPanel({
       setNotice('将继续完成尚未结束的部分，已经完成的方案会保留。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '任务重试失败');
+      setNotice(authorErrorFromUnknown(reason, '任务重试失败'));
     } finally { setBusy(null); }
   };
 
@@ -326,7 +327,7 @@ export function SettingCollaborationPanel({
       setNotice('已经继续处理，现有结果会保留。');
       await refresh();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '任务继续失败');
+      setNotice(authorErrorFromUnknown(reason, '任务继续失败'));
     } finally { setBusy(null); }
   };
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { loginAccount, registerAccount, type AuthAccountData } from '../../lib/api/client';
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (account: AuthAccountData) => void }): React.JSX.Element {
@@ -25,7 +26,7 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (account: Aut
         : await loginAccount({ email, password });
       onAuthenticated(result.account);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '这次没有登录成功，请稍后再试');
+      setError(authorErrorFromUnknown(reason, '这次没有登录成功，请稍后再试'));
     } finally {
       setBusy(false);
     }

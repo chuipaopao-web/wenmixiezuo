@@ -118,9 +118,9 @@ import { buildPlanningTemplateSignals } from '../application/planning/template-r
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
 import { StageSettlementService } from '../application/continuity/stage-settlement-service.js';
 import { requireAdministrator, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
-import { sanitizeModelLeak } from '../infrastructure/security/model-leak-sanitizer.js';
 import { PlatformModelSchemeService } from '../application/agents/platform-model-scheme-service.js';
 import { registerAdminPlatformRoutes } from './admin-platform-routes.js';
+import { requestsCleanAuthorProjection } from './author-api-projection.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
   discussion: '讨论与规划',
@@ -2313,15 +2313,27 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       .all(scope.ownerId, scope.bookId, request.params.taskId) as unknown as Array<Record<string, unknown>>;
     const toolCalls = database.prepare(`SELECT * FROM tool_calls WHERE owner_id = ? AND book_id = ? AND task_id = ? ORDER BY created_at, tool_call_id`)
       .all(scope.ownerId, scope.bookId, request.params.taskId);
-    // 普通用户不可见供应商与模型名（含错误原文里的线索）；管理员保留完整技术证据。
-    const visibleModelCalls = request.authContext?.role === 'admin'
-      ? modelCalls
-      : modelCalls.map((call) => ({
-        ...call,
-        provider: '创作服务',
-        model_id: '创作服务',
-        error_detail: sanitizeModelLeak(typeof call.error_detail === 'string' ? call.error_detail : null)
-      }));
+    if (requestsCleanAuthorProjection(request.headers)) {
+      const hasFailureEvidence = modelCalls.some((call) => typeof call.error_detail === 'string' && call.error_detail.length > 0);
+      return success({
+        task,
+        recovery: {
+          hasFailureEvidence,
+          message: hasFailureEvidence
+            ? '这一步没有完成，可以从已保存的进度重试；作者原话、已确认版本和已定稿正文不会被覆盖。'
+            : null
+        }
+      }, request.id);
+    }
+    // 旧版缓存页面仍按旧合同读取；新版作者端不再获得这些审计原件。
+    const visibleModelCalls = modelCalls.map((call) => ({
+      ...call,
+      provider: '创作服务',
+      model_id: '创作服务',
+      error_detail: typeof call.error_detail === 'string' && call.error_detail.length > 0
+        ? '这一步没有完成，已保存的内容不会被覆盖，可以重试。'
+        : null
+    }));
     return success({ task, phases, modelCalls: visibleModelCalls, toolCalls }, request.id);
   });
 

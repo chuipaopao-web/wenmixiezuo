@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BooksIcon, CaretRightIcon, XIcon } from '@phosphor-icons/react';
 import { fetchTaskDetail, type TaskCenterBookData, type TaskData, type TaskDetailData } from '../../lib/api/client';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { StructuredContent } from '../shared/StructuredContent';
 import { WorkspaceSkeleton } from '../shared/WorkspaceSkeleton';
 import { memberIdentity } from '../shared/agent-presentation';
@@ -182,9 +183,8 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
   const canRetry = ['failed', 'interrupted'].includes(task.status);
   const canResume = ['paused', 'pending'].includes(task.status);
   const chapter = taskTitle(task, workspace);
-  // 失败/中断时拉取任务详情，把 provider 真实拒绝原因（model_calls.error_detail）展示给用户，
-  // 避免"重试17次都不知道为什么失败"。
-  const [realError, setRealError] = useState<string | null>(null);
+  // 作者只读取可恢复说明；供应商拒绝原文、调用栈和模型证据仅在管理员审计路由中保留。
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
   useEffect(() => {
     if (!canRetry) return;
     let active = true;
@@ -192,9 +192,9 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
     void fetchTaskDetail(bookId, task.taskId, controller.signal)
       .then((detail: TaskDetailData) => {
         if (!active) return;
-        const failed = detail.modelCalls.filter((call) => call.error_detail !== null && call.error_detail.length > 0);
-        const lastFailed = failed[failed.length - 1];
-        if (lastFailed) setRealError(lastFailed.error_detail);
+        setRecoveryMessage(detail.recovery.message === null
+          ? null
+          : authorErrorFromUnknown(detail.recovery.message, '这一步没有完成，可以重试。'));
       })
       .catch(() => undefined);
     return () => { active = false; controller.abort(); };
@@ -214,7 +214,7 @@ export function TaskDetailsDialog({ bookId, task, workspace, busy, onCancelTask,
           <div className="task-detail-wide"><dt>任务目标</dt><dd>{taskGoal(task, chapter)}</dd></div>
           <div className="task-detail-wide"><dt>当前进度</dt><dd>{taskCheckpointLabel(task.checkpoint)}</dd></div>
           {canRetry && <div className="task-detail-wide"><dt>继续说明</dt><dd>系统将重新执行本任务；已保存并生效的正式内容不会被覆盖，也不会重复生成。</dd></div>}
-          {canRetry && realError !== null && <div className="task-detail-wide"><dt>失败原因</dt><dd className="task-error-detail">{realError}</dd></div>}
+          {canRetry && recoveryMessage !== null && <div className="task-detail-wide"><dt>恢复说明</dt><dd className="task-error-detail">{recoveryMessage}</dd></div>}
         </dl>
         <footer>
           <button className="secondary-button" type="button" disabled={busy} onClick={onClose}>关闭</button>

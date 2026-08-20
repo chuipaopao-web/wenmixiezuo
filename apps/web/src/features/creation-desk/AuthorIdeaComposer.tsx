@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { PaperclipIcon, XIcon } from '@phosphor-icons/react';
 import type { AuthorInputSurface, AuthorIntentStrength } from '@wenmi/contracts';
 import {
@@ -71,7 +72,7 @@ export function AuthorIdeaComposer({
     const controller = new AbortController();
     setLoading(true);
     void refresh(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '作者想法加载失败。');
+      if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '作者想法加载失败。'));
     }).finally(() => {
       if (!controller.signal.aborted) setLoading(false);
     });
@@ -107,7 +108,7 @@ export function AuthorIdeaComposer({
       if (reason instanceof DOMException && reason.name === 'AbortError') {
         setError('这次保存已取消；再次点击保存会沿用同一请求，不会重复记录。');
       } else {
-        setError(reason instanceof Error ? reason.message : '保存失败，请稍后重试。');
+        setError(authorErrorFromUnknown(reason, '保存失败，请稍后重试。'));
       }
     } finally {
       if (saveController.current === controller) saveController.current = null;
@@ -129,7 +130,7 @@ export function AuthorIdeaComposer({
     } catch (reason) {
       setAttachments((current) => [...current, ...uploaded]);
       retryIdempotencyKey.current = null;
-      setError(reason instanceof Error ? reason.message : '附件上传失败。');
+      setError(authorErrorFromUnknown(reason, '附件上传失败。'));
     } finally {
       setUploading(false);
     }
@@ -141,7 +142,7 @@ export function AuthorIdeaComposer({
       setAttachments((current) => current.filter((item) => item.attachmentId !== attachment.attachmentId));
       retryIdempotencyKey.current = null;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '附件移除失败。');
+      setError(authorErrorFromUnknown(reason, '附件移除失败。'));
     }
   };
 

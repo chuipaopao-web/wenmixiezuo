@@ -20,6 +20,7 @@ import { requireAuthenticatedOwner } from '../infrastructure/security/auth-conte
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerRuntimeRoutes } from './runtime-routes.js';
 import { registerAccountRoutes } from './account-routes.js';
+import { projectAuthorApiValue, projectSerializedAuthorResponse, requestsCleanAuthorProjection, shouldProjectAuthorResponse } from './author-api-projection.js';
 import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
 import { ModelAssetRegistry } from '../infrastructure/capabilities/model-asset-registry.js';
@@ -60,6 +61,11 @@ import { ChapterChallengerReviewPipelineService } from '../application/creation/
 import { ChapterChallengerReviewRepository } from '../infrastructure/db/repositories/chapter-challenger-review-repository.js';
 import { SettingGapService } from '../application/knowledge/setting-gap-service.js';
 import { SettingGapRepository } from '../infrastructure/db/repositories/setting-gap-repository.js';
+import {
+  assertLayeredCreationWritesAllowed,
+  resolveLayeredCreationWriteMode,
+  type LayeredCreationWriteMode
+} from './layered-creation-safety.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -71,7 +77,11 @@ interface WorkerHealthRow {
   current_task_id: string | null;
 }
 
-export async function createServer(config: RuntimeConfig, database: DatabaseSync, options: RequestPolicyOptions = {}): Promise<FastifyInstance> {
+export interface ServerOptions extends RequestPolicyOptions {
+  layeredCreationWrites?: LayeredCreationWriteMode;
+}
+
+export async function createServer(config: RuntimeConfig, database: DatabaseSync, options: ServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.WENMI_LOG_LEVEL ?? 'info' },
     logController: new LogController({ disableRequestLogging: true }),
@@ -89,6 +99,15 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   });
   const accounts = new AccountAuthService(database, config.webOrigin.startsWith('https://'), config.ownerId);
   await registerRequestPolicy(app, config, accounts, options);
+  const layeredCreationWriteMode = resolveLayeredCreationWriteMode(options.layeredCreationWrites);
+  app.addHook('onRequest', async (request) => {
+    assertLayeredCreationWritesAllowed(layeredCreationWriteMode, request.method, request.url);
+  });
+  app.addHook('onSend', async (request, reply, payload) => {
+    return shouldProjectAuthorResponse(request.url, reply.statusCode, request.headers)
+      ? projectSerializedAuthorResponse(payload)
+      : payload;
+  });
   const events = new EventStore(database, new UuidGenerator(), new SystemClock());
   const modelAdapters = new ModelAdapterFactory(config.modelRuntime);
   const retrievalIds = new UuidGenerator();
@@ -313,7 +332,10 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     const writePending = (): void => {
       const pending = events.replay({ ...requireAuthenticatedOwner(request), bookId: request.query.bookId ?? null }, cursor);
       for (const event of pending) {
-        reply.raw.write(`id: ${event.eventSeq}\nevent: ${event.eventType}\ndata: ${JSON.stringify(event)}\n\n`);
+        const publicEvent = requestsCleanAuthorProjection(request.headers)
+          ? projectAuthorApiValue(event)
+          : event;
+        reply.raw.write(`id: ${event.eventSeq}\nevent: ${event.eventType}\ndata: ${JSON.stringify(publicEvent)}\n\n`);
         cursor = event.eventSeq;
       }
     };

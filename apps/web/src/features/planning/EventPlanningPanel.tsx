@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import type { EventChainContent, EventChainVersion, PlanningTemplateInstance, PublicNarrativeTemplate, StoryEventContent } from '@wenmi/contracts';
 import {
   abandonStoryThread, actOnEventChainGeneration, actOnStoryEventGeneration, addEventChainVersion, addStoryEventVersion, applyEventOperation, confirmEventChain, confirmStoryEventVersion,
@@ -516,7 +517,7 @@ function lines(value:string){return[...new Set(value.split(/\r?\n/u).map(item=>i
 function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()??Date.now()+'-'+Math.random());}
 function threadStatusLabel(status:StoryThreadData['status']){return({planned:'等待正文埋下',planted:'正文已经埋下',advanced:'正在推进',
   due:'已经到兑现窗口',resolved:'已经解决',abandoned_by_author:'作者决定放弃'}as const)[status];}
-function messageOf(reason:unknown){return reason instanceof Error?reason.message:'事件规划操作失败，请稍后重试。';}
+function messageOf(reason:unknown){return authorErrorFromUnknown(reason, '事件规划操作失败，请稍后重试。');}
 function eventStatus(status:string){return({planning:'规划中',active:'已确认',settled:'已完成',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
 function eventVersionOf(item:StoryEventData){return item.activeVersion??item.latestVersion;}
 function eventContentOf(item:StoryEventData){return eventVersionOf(item)?.content??emptyEvent('待设计事件');}

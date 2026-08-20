@@ -236,30 +236,24 @@ sudo systemctl start wenmi-worker
 
 ### 更新部署
 
-服务器 /opt/wenmi 没有 .git（代码以文件形式部署），从本机打 tar 上传更新：
+服务器在线目录不含`.git`。发布必须遵守DEC-CURRENT-082，禁止把新文件直接解包到`/opt/wenmi`后在线构建，也禁止同时重启API和Worker。
+
+1. 本机完成全量类型检查、测试、四端构建、迁移/恢复专项、Skill验证与文档同步检查，提交并推送；使用`git -c core.autocrlf=false -c core.eol=lf archive`生成只包含该提交的发布包。
+2. 上传到服务器后，解包至公网不可见且唯一的`/opt/wenmi-releases/<commit>`暂存目录；复用只读依赖或执行`npm ci`，在暂存目录完成Contracts、API、Worker和Web构建。不得在此阶段覆盖`/opt/wenmi/apps/web/dist`。
+3. 在暂存版本运行迁移预检；迁移只能向前兼容。正式迁移前再次备份数据库并检查校验和，任何已合并迁移字节变化立即停止发布。
+4. 查询生产`tasks`表，`working`、`queued`、`pending`、`waiting_confirmation`必须连续30秒全部为0，并在每个服务切换前立即复核。只能等待，不能取消、暂停或改写作者任务制造窗口。
+5. 先将暂存API构建原子切换为运行构建，重启`wenmi-api`，立即检查`active`、启动日志和`/health`；再以同样方式切换Worker，确认心跳和恢复正常。任一步失败立即恢复上一构建，不继续扩大。
+6. 后端验证完成后最后原子切换Web静态目录，验证首页、登录门禁、旧缓存前端兼容、书籍隔离和核心链路。旧后端与Web构建至少保留到本次验收结束。
+7. 发布后检查双服务、Caddy、迁移版本、SQLite完整性/外键、任务恢复与近期日志；生产管理员全链和手机实机只有取得真实证据后才能在总表勾选。
+
+本机打包示例：
 
 ```powershell
-# 本机（Windows）：务必加 -c core.autocrlf=false，否则 git archive 会把 LF 转成 CRLF，
-# 迁移 SQL 字节变化导致启动时"已合并迁移校验和发生变化"崩溃（2026-08-15 踩过）。
-git -c core.autocrlf=false archive --format=tar -o update.tar HEAD <变更的源码路径>
+git -c core.autocrlf=false -c core.eol=lf archive --format=tar -o update.tar HEAD
 scp -i ~\.ssh\wenmi-hk-server update.tar root@47.243.152.159:/tmp/update.tar
 ```
 
-```bash
-# 服务器
-cd /opt/wenmi
-tar -xf /tmp/update.tar -C /opt/wenmi
-sudo chown -R wenmi:wenmi /opt/wenmi/apps
-sudo -u wenmi npm run build
-sudo -u wenmi npm run migrate
-sudo systemctl restart wenmi-api wenmi-worker
-sleep 6
-sudo systemctl is-active wenmi-api wenmi-worker
-curl -fsS http://127.0.0.1:43111/health
-```
-
-注意：已应用过的迁移 SQL 文件字节不可变（校验和写入 `schema_migrations`）；新增迁移只追加新文件。若因行尾等问题误改了迁移文件，可在停服后将文件恢复为 LF 并按文件实际 sha256 重算 `schema_migrations.checksum`（内容未变时安全）。
-
+服务器暂存目录、备份目录和切换路径必须带本次提交号，禁止复用未核验的旧暂存目录。发布命令应逐步执行并逐步看结果，不提供可一次性跳过静默检查的批量重启命令。
 ### 手动备份
 
 ```bash

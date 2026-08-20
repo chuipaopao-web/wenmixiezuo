@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import {
   fetchAdminMemberships, fetchAdminModelScheme, fetchAdminOverview, fetchAdminUsage, fetchAdminUsers,
   grantAdminMembership, revokeAdminMembership, saveAdminModelScheme, updateAdminUserStatus,
@@ -74,7 +75,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '用户列表暂时无法打开');
+      if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '用户列表暂时无法打开'));
     });
     return () => controller.abort();
   }, [load]);
@@ -91,7 +92,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       await updateAdminUserStatus(account.userId, account.status === 'active' ? 'suspended' : 'active');
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '账号状态没有修改成功');
+      setError(authorErrorFromUnknown(reason, '账号状态没有修改成功'));
     } finally {
       setBusyUserId(null);
     }
@@ -105,7 +106,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       await load();
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '会员没有开通成功');
+      setError(authorErrorFromUnknown(reason, '会员没有开通成功'));
     } finally {
       setBusyUserId(null);
     }
@@ -118,7 +119,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       await load();
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '会员没有撤销成功');
+      setError(authorErrorFromUnknown(reason, '会员没有撤销成功'));
     } finally {
       setBusyUserId(null);
     }
@@ -139,7 +140,7 @@ export function AdminWorkspace({ currentUser }: { currentUser: AuthAccountData }
       setSchemeMessage(`已保存并应用到全部书籍：检查 ${result.convergence.booksVisited} 本，更新 ${result.convergence.revisedBooks} 本。`);
       await load();
     } catch (reason) {
-      setSchemeMessage(reason instanceof Error ? reason.message : '模型方案没有保存成功');
+      setSchemeMessage(authorErrorFromUnknown(reason, '模型方案没有保存成功'));
     } finally {
       setSchemeBusy(false);
     }

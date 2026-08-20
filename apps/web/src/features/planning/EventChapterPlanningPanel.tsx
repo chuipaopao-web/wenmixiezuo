@@ -1,4 +1,5 @@
 import type { EventChapterChallengeContent } from '@wenmi/contracts';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { useCallback,useEffect,useMemo,useState } from 'react';
 import {
   actOnEventChapterGeneration,confirmEventChapterSequence,fetchAuthorPlanningInputs,fetchCreationWorkflow,fetchExpressionProfile,fetchFirstVolumeLaunchProgress,
@@ -347,4 +348,4 @@ function currentIdeas(items:Array<{authorInputId:string;status:string}>){return 
 function viewpointLabel(value:ExpressionProfileData['viewpointDistance']){return({close:'贴近人物',medium:'适中',distant:'偏全局',adaptive:'随场景调整'}as Record<string,string>)[value??'']??'未确认';}
 function statusLabel(status:string){return({planned:'待细化',candidate:'待确认',frozen:'已冻结',settled:'已定稿',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
 function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()??Date.now()+'-'+Math.random());}
-function messageOf(reason:unknown){return reason instanceof Error?reason.message:'章纲操作没有完成，请稍后重试。';}
+function messageOf(reason:unknown){return authorErrorFromUnknown(reason, '章纲操作没有完成，请稍后重试。');}

@@ -53,6 +53,13 @@ export function raiseMembershipBlocked(reason: MembershipBlockReason): void {
   blockedListener?.(reason);
 }
 
+export function membershipBlockReasonFromAction(action: string | undefined): MembershipBlockReason | null {
+  if (action === 'open_membership_required') return 'required';
+  if (action === 'open_membership_quota') return 'quota';
+  if (action === 'open_membership_expired') return 'expired';
+  return null;
+}
+
 export function membershipBlockReasonFromCode(code: string | undefined): MembershipBlockReason | null {
   if (code === 'MEMBERSHIP_REQUIRED') return 'required';
   if (code === 'MEMBERSHIP_QUOTA_EXHAUSTED') return 'quota';

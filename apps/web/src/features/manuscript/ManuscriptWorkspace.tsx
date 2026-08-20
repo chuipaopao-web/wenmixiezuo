@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { inspectAuthorStoryText, toAuthorFacingText } from '../../app/author-presentation';
 import {
   BookOpenTextIcon,
@@ -91,7 +92,7 @@ export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, rea
       setNotice(`第${chapterNumber}章已加入目录。请在右侧粘贴原文或选择单章 TXT。`);
       onChanged();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '章节没有创建成功，请稍后重试。');
+      setNotice(authorErrorFromUnknown(reason, '章节没有创建成功，请稍后重试。'));
     } finally {
       setCreatingChapter(false);
     }
@@ -210,7 +211,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       setSourceText(text);
       setNotice(`已读取 ${file.name}，共 ${text.length.toLocaleString('zh-CN')} 个字符。请先检查，再识别章节。`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '读取文件失败。');
+      setNotice(authorErrorFromUnknown(reason, '读取文件失败。'));
     } finally {
       setBusy(null);
       if (fileInputRef.current !== null) fileInputRef.current.value = '';
@@ -226,7 +227,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       onImportChanged(result);
       setNotice(`已识别 ${result.chapters.length.toLocaleString('zh-CN')} 个章节。预览不会创建正文，也不会修改已经确认的内容。`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '章节识别没有完成。');
+      setNotice(authorErrorFromUnknown(reason, '章节识别没有完成。'));
     } finally {
       setBusy(null);
     }
@@ -257,7 +258,7 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       if (analysis.status === 'ready') await handoffToEditor(result);
       else setNotice(`正文已安全保存。文姬正在逐章提炼设定、人物状态、事件和未回收线索（${analysis.analyzedChapterCount}/${analysis.totalChapterCount}），整理完成后再交给主编。`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '导入没有完成；已经保存的内容不会重复写入。');
+      setNotice(authorErrorFromUnknown(reason, '导入没有完成；已经保存的内容不会重复写入。'));
       try {
         const latest = await fetchContinuationImport(bookId, preview.importId);
         setPreview(latest);
@@ -284,12 +285,12 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
       if (analysis.status === 'ready') {
         setNotice('逐章整理已经完成。主编会以已有正文为准，只确认缺口、冲突和接下来的创作方向。');
       } else if (analysis.status === 'failed') {
-        setNotice(`逐章整理未完成：${analysis.errorMessage ?? '可点击重试；已经导入的正文不会回滚或丢失。'}`);
+        setNotice(`逐章整理未完成：${authorErrorFromUnknown(analysis.errorMessage, '可点击重试；已经导入的正文不会回滚或丢失。')}`);
       } else {
         setNotice(`文姬正在逐章整理（${analysis.analyzedChapterCount}/${analysis.totalChapterCount}）。正文已经保存，可以稍后再查看进度。`);
       }
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '没有取得最新整理进度。');
+      setNotice(authorErrorFromUnknown(reason, '没有取得最新整理进度。'));
     } finally {
       setBusy(null);
     }
@@ -335,12 +336,12 @@ function ExistingManuscriptImportPanel({ bookId, initialImport, onImportChanged,
           <label className="continuation-title"><span className="visually-hidden">第{item.ordinal}项标题</span><ImeInput value={item.title} maxChars={120} disabled={busy !== null || preview.status !== 'parsed'} onChange={(next) => updateChapter(item.importChapterId, { title: next })} /></label>
           <small>{item.characterCount.toLocaleString('zh-CN')} 字符</small>
         </article>)}</div>
-        {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{preview.errorMessage ?? '已完成部分已经保留，可以继续。'}</p></div>}
+        {preview.status === 'failed' && <div className="continuation-warnings"><strong>上次导入没有完成</strong><p>{authorErrorFromUnknown(preview.errorMessage, '已完成部分已经保留，可以继续。')}</p></div>}
         {['parsed', 'failed', 'importing'].includes(preview.status) && <div className="continuation-confirm">
           <label><input type="checkbox" checked={confirmed} disabled={busy !== null} onChange={(event) => setConfirmed(event.target.checked)} /><span>我已检查章节拆分，确认把所选正文作为这本书已经发生的正式前文。</span></label>
           <div>{preview.status === 'parsed' && <button className="secondary-button" type="button" disabled={busy !== null} onClick={() => { setPreview(null); setConfirmed(false); setNotice(null); }}>返回修改原文</button>}<button className="primary-button" type="button" disabled={busy !== null || !confirmed || includedCount === 0} onClick={() => void confirmImport()}>{busy === 'confirm' ? '正在导入…' : preview.status === 'parsed' ? `确认导入 ${includedCount} 章` : '继续导入'}</button></div>
         </div>}
-        {preview.status === 'ready' && analysis !== null && analysis.status !== 'ready' && <div className="continuation-ready"><ClockCountdownIcon /><div><strong>正文已保存，正在逐章整理</strong><span>{analysis.analyzedChapterCount.toLocaleString('zh-CN')} / {analysis.totalChapterCount.toLocaleString('zh-CN')} 章；整理失败也不会影响已导入正文。</span>{analysis.errorMessage !== null && <small>{analysis.errorMessage}</small>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void refreshAnalysis()}>{busy === 'analyze' ? '正在检查…' : analysis.status === 'failed' || analysis.status === 'not_started' ? '开始逐章整理' : '刷新整理进度'}</button></div>}
+        {preview.status === 'ready' && analysis !== null && analysis.status !== 'ready' && <div className="continuation-ready"><ClockCountdownIcon /><div><strong>正文已保存，正在逐章整理</strong><span>{analysis.analyzedChapterCount.toLocaleString('zh-CN')} / {analysis.totalChapterCount.toLocaleString('zh-CN')} 章；整理失败也不会影响已导入正文。</span>{analysis.errorMessage !== null && <small>{authorErrorFromUnknown(analysis.errorMessage, '整理没有完成，可以重试。')}</small>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => void refreshAnalysis()}>{busy === 'analyze' ? '正在检查…' : analysis.status === 'failed' || analysis.status === 'not_started' ? '开始逐章整理' : '刷新整理进度'}</button></div>}
         {preview.status === 'ready' && analysis?.status === 'ready' && <div className="continuation-ready"><CheckCircleIcon /><div><strong>前文与反向章纲均已准备好</strong><span>共 {preview.importedChapterCount.toLocaleString('zh-CN')} 章。人物状态、剧情事件、规则、线索和逐章章纲已经整理；这些是可重建参考，原文仍是权威来源。</span>{analysis.summary !== null && analysis.summary.trim().length > 0 && <details className="continuation-analysis-summary"><summary>查看前文章节摘要</summary><p>{analysis.summary}</p></details>}{reverseOutlines.length > 0 && <details className="continuation-reverse-outlines"><summary>查看逐章反向章纲（{reverseOutlines.length}章）</summary><div>{reverseOutlines.map((outline) => <article key={`${outline.chapterNumber ?? 'unknown'}-${outline.title}`}><h4>{outline.chapterNumber === null ? '' : `第${outline.chapterNumber}章 `}{outline.title}</h4><dl><div><dt>本章目标</dt><dd>{outline.chapterGoal || '原文没有足够信息'}</dd></div><div><dt>开场状态</dt><dd>{outline.openingState || '原文没有足够信息'}</dd></div><div><dt>出场人物</dt><dd><StructuredContent value={outline.cast} /></dd></div><div><dt>剧情推进</dt><dd><StructuredContent value={outline.plotBeats} /></dd></div><div><dt>主要冲突</dt><dd>{outline.centralConflict || '原文没有明确冲突'}</dd></div><div><dt>情绪变化</dt><dd><StructuredContent value={outline.emotionalArc} /></dd></div><div><dt>爽点与压力</dt><dd><StructuredContent value={outline.payoffOrPressure} /></dd></div><div><dt>伏笔与钩子</dt><dd><StructuredContent value={outline.threadActions} /></dd></div><div><dt>描写重点</dt><dd><StructuredContent value={outline.descriptionFocus} /></dd></div><div><dt>章末承接</dt><dd><StructuredContent value={outline.ending} /></dd></div></dl></article>)}</div></details>}</div><button className="primary-button" type="button" disabled={busy !== null} onClick={() => handoffToEditor(preview)}>进入设定</button></div>}
       </>}
       {notice !== null && <p className="binding-status continuation-notice" role="status">{notice}</p>}
@@ -402,7 +403,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
       }
       onChanged();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '这次操作没有完成，请稍后重试。');
+      setNotice(authorErrorFromUnknown(reason, '这次操作没有完成，请稍后重试。'));
     } finally {
       setBusyAction(null);
     }
@@ -420,7 +421,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
       setDraft(text);
       setNotice(`已把 ${file.name} 放入第${chapter.chapterNumber}章编辑区。请检查后点击保存，原文件不会被修改。`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '单章文件读取失败。');
+      setNotice(authorErrorFromUnknown(reason, '单章文件读取失败。'));
     } finally {
       setBusyAction(null);
       if (singleChapterFileRef.current !== null) singleChapterFileRef.current.value = '';
@@ -440,7 +441,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
       setNotice('当前正文已撤下；历史稿仍安全保留，之后仍可恢复。');
       onChanged();
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '正文没有删除成功，请稍后重试。');
+      setNotice(authorErrorFromUnknown(reason, '正文没有删除成功，请稍后重试。'));
     } finally {
       setBusyAction(null);
     }
@@ -539,7 +540,7 @@ function ChallengerReviewCard({ bookId, chapterId }: { bookId: string; chapterId
     try {
       setReview(await startChallengerReview(bookId, chapterId));
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : '找茬没有开始成功，请稍后重试。');
+      setNotice(authorErrorFromUnknown(reason, '找茬没有开始成功，请稍后重试。'));
     } finally {
       setBusy(false);
     }

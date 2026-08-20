@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import {
   fetchSettlementFollowUp,
   startSettlementFollowUp,
@@ -58,7 +59,7 @@ export function SettlementFollowUpCard({ bookId, stageKind, stageObjectId }: {
     setError(null);
     void startSettlementFollowUp(bookId, stageKind, stageObjectId)
       .then((next) => { setData(next); setMissing(false); })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '暂时无法发起，请稍后重试。'))
+      .catch((reason: unknown) => setError(authorErrorFromUnknown(reason, '暂时无法发起，请稍后重试。')))
       .finally(() => setBusy(false));
   };
 

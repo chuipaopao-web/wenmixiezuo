@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { XIcon } from '@phosphor-icons/react';
 import {
   exportBookPackage,
@@ -68,10 +69,10 @@ export function SettingsDialog({ preferences, bookId, operations, onBooksChanged
           <div className="portable-actions"><button type="button" className="secondary-button" disabled={portableBusy || bookId === null} onClick={() => {
             if (bookId === null) return;
             setPortableBusy(true); setPortableStatus(null);
-            void exportBookPackage(bookId).then((result) => setPortableStatus(`已导出 ${result.packageName}，保存于 ${result.packagePath}。清单哈希 ${result.manifestHash.slice(0, 12)}。`)).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导出失败')).finally(() => setPortableBusy(false));
+            void exportBookPackage(bookId).then((result) => setPortableStatus(`已导出 ${result.packageName}，保存于 ${result.packagePath}。清单哈希 ${result.manifestHash.slice(0, 12)}。`)).catch((reason: unknown) => setPortableStatus(authorErrorFromUnknown(reason, '导出失败'))).finally(() => setPortableBusy(false));
           }}>导出当前书</button><label><span>从 data/imports 复制导入</span><input value={importName} onChange={(event) => setImportName(event.target.value)} placeholder="文件名.wenmi-book" /></label><button type="button" className="primary-button" disabled={portableBusy || !importName.endsWith('.wenmi-book')} onClick={() => {
             setPortableBusy(true); setPortableStatus(null);
-            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(reason instanceof Error ? reason.message : '导入失败')).finally(() => setPortableBusy(false));
+            void importBookCopy(importName).then((result) => { setPortableStatus(`已复制导入《${result.title}》。`); setImportName(''); onBooksChanged(); }).catch((reason: unknown) => setPortableStatus(authorErrorFromUnknown(reason, '导入失败'))).finally(() => setPortableBusy(false));
           }}>安全导入副本</button></div>
         </fieldset>
         <footer><button className="secondary-button" type="button" onClick={() => onChange(DEFAULT_WORKSPACE_PREFERENCES)}>恢复默认</button><button className="primary-button" type="button" onClick={onClose}>完成</button></footer>

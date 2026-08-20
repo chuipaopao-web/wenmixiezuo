@@ -5,19 +5,20 @@
 > 分层创作后续开发的唯一实施与验收总表：`docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md`。部分完成不得勾选完成，未通过E3/E4不得宣布整套方案完成。
 
 
-## 项目现状（2026-08-20 交接给 Codex）
+## 项目现状（2026-08-21 交接给 Codex）
 
 - 项目是**初始版本**：工作流程和前端 UI 都在快速迭代。工作方式 = 老板逐页走查截图 → 讨论 → 修改 → 部署。
 - 原则：**改到哪一页，顺手删掉死代码、同步改文档；文档只描述当前生效的功能**。老板说改什么就改什么，不多做；有必要的附带改动先问。
 - 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi；数据库 `/opt/wenmi/data/database/wenmi.sqlite`；清书前整库备份在 `/opt/wenmi/data/backups/pre-purge-20260819/`）。
 - 分支 `codex/desktop-entry`，远程 GitHub `chuipaopao-web/wenmixiezuo`，每次提交后推送。
-- 当前基线：**全量测试 762 绿（178 文件）**，contracts/API/Worker/Web/测试五组 TypeScript 检查与四端生产构建通过，最新迁移 `0062_setting_gap_status.sql`。
+- 当前本地基线：**全量测试 773 绿（184 文件）**，contracts/API/Worker/Web/测试五组 TypeScript 检查、四端生产构建及15文件27项迁移/升级/恢复专项通过，最新迁移仍为 `0062_setting_gap_status.sql`。
 - 创作团队 14 人，模型全部走火山方舟双套餐（Agent Plan + Coding Plan），Key 只在服务器环境变量（`WENMI_ARK_AGENT_PLAN_API_KEY` / `WENMI_ARK_CODING_PLAN_API_KEY`），**绝不进 Git/文档/日志**；当前名单：貂蝉 DeepSeek V4 Pro、西施 GLM 5.3、婉儿 DeepSeek V4 Pro、红玉 GLM 5.3、幼薇 Kimi K2.7、文姬 DeepSeek V4 Flash（其余岗位见 `apps/api/src/contracts/agent-team-v2.ts` 与后台模型管理）。MiniMax 已停用。
 - 会员四等级已上线：青铜 20万算力值（注册自动送）/ 白银 98元 2000万 / 黄金 198元 5000万 / 钻石 980元 2亿；算力值=真实 token×2（`COMPUTE_VALUE_MULTIPLIER`），前端不出现 token 字眼；书籍预算上限跟随会员等级。
 - Windows 部署打包必须 `git -c core.autocrlf=false -c core.eol=lf archive`：本机 `core.autocrlf=true` 会让 git archive 把全部文本转成 CRLF，迁移文件校验和与数据库记录不符导致生产启动崩溃（2026-08-19 已踩过；`.gitattributes` 已给 `*.sql` 加 `eol=lf` 兜底，但其他文件仍建议用该命令保持 LF）。
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
 ## 最近完成的改动（最新在最上）
+1. 分层创作工程补缺（DEC-CURRENT-084）：普通作者JSON、失败响应和SSE增加`clean-v1`网络洁净投影，管理员任务审计走独立物理路由；全部TSX统一作者错误门禁并静态禁止`Error.message`/路径/堆栈/Worker泄漏。手机端用`visualViewport`动态高度处理输入法并滚入焦点。十类停止条件和分层写入只读回滚通过集成快照，作者输入、定稿正文、结算、规划版本和调用证据不变。管理员隔离HTTP全链由15步扩展到19步，已从开书走到第一章2876有效字、6份独立审查、作者确认后canon/settled，证据在`data/verification/layered-admin-full-chain-fullchain3.json`。本地184文件773项全绿、五组类型检查、四端构建及迁移/升级/恢复专项通过。E3五题材、I09—I18真实文学效果、E4长期质量和生产手机实机仍未完成；内置浏览器受Windows沙箱`helper_unknown_error`阻断，且本机没有可用真实模型凭证，不能伪造通过。当前改动尚待安全生产部署复验。
 1. 分层创作E2工程闭环（DEC-CURRENT-081）：四项核心设定、按需补设定三选一、硬/软/留白上下文、全书故事总线与线程账本、卷方向/事件链拆分、22种隐藏结构方法、双路线整选/片选/融合、首卷前500字/黄金三章/10万字高潮追踪、完整事件章链与近期细纲已经贯通。管理员隔离HTTP冒烟从开书走到第一章详细章纲冻结共15项通过，并据此发现并修复Worker漏注册`event_chain_generation`的真实阻断；证据在`data/verification/layered-admin-planning-final4.json`。360/390/430px组件布局与44px触控门禁通过；浏览器像素级实机复核仍待可用浏览器环境。E3真实模型多题材盲审和E4 20/50/100/200章长期质量未开始，不能宣称整套文学质量验收完成。提交`1144273`已推送，生产Web、API、Worker及0058—0062迁移已上线。生产日志随后暴露讨论取消时阶段状态误写`cancelled`的旧BUG；热修`f9aa664`已在公网不可见暂存目录构建，并由静默守卫确认在途任务连续30秒为0、切换前再次复核后于22:20:41上线。生产运行文件与本地762项全量测试构建哈希一致；双服务active、首页/健康正常、未登录会话401、SQLite完整性与外键检查通过，热修后日志未再出现CHECK错误（DEC-CURRENT-083）。
 1. 分层创作唯一实施总表（DEC-CURRENT-080，A—J共148项）：已按2026-08-20 07:59前聊天逐条复核，并保守纳入07:59:18最终指令；补齐全书故事总线、故事线程账本、作者原话分级、结构方法五类分工、八类稳定资料包、旧六项兼容、硬事实100%覆盖、K3交互门禁、停止/回滚合同和聊天追溯矩阵。总表另含8个实施批次和E0—E4证据等级，当前已完成/部分/未开始基线明确，部分完成不能结算。
 

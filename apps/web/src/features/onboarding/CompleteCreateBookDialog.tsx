@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import {
   CheckCircleIcon,
   MagicWandIcon,
@@ -91,7 +92,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     void fetchOpeningTaxonomy(controller.signal).then((value) => {
       setTaxonomy(value); setTaxonomyError(null);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setTaxonomyError(reason instanceof Error ? reason.message : '分类目录加载失败');
+      if (!controller.signal.aborted) setTaxonomyError(authorErrorFromUnknown(reason, '分类目录加载失败'));
     });
     return () => controller.abort();
   }, []);
@@ -409,7 +410,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       }
       else if (!saved) setSubmitError(editing ? '修改没有保存，请检查提示后重试。' : '创建没有完成，已保留全部草稿，可以检查提示后重试。');
     } catch (reason) {
-      setSubmitError(reason instanceof Error ? reason.message : editing ? '修改没有保存。' : '创建没有完成，已保留全部草稿。');
+      setSubmitError(authorErrorFromUnknown(reason, editing ? '修改没有保存。' : '创建没有完成，已保留全部草稿。'));
     } finally {
       setSubmitting(false);
     }

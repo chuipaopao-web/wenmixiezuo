@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { DatabaseIcon, TreeStructureIcon, UserCircleIcon } from '@phosphor-icons/react';
 import {
   appendProtagonistState,
@@ -144,7 +145,7 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
     setDashboard(nextDashboard); setFormulas(nextFormulas);
     setSelectedProfileId((current) => nextDashboard.profiles.some((profile) => profile.profileId === current) ? current : nextDashboard.profiles[0]?.profileId ?? '');
   }, [bookId]);
-  useEffect(() => { void refresh().catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角面板加载失败')); }, [refresh]);
+  useEffect(() => { void refresh().catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '主角面板加载失败'))); }, [refresh]);
   const selected = dashboard.profiles.find((profile) => profile.profileId === selectedProfileId) ?? dashboard.profiles[0] ?? null;
   const selectedStates = selected === null ? [] : [...selected.current, ...selected.pending];
   const categories = [...new Set(selectedStates.map((item) => item.category))]
@@ -163,7 +164,7 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
       setLabel(''); setRawValue(''); setUnit(''); setStateStatus('active'); setEffectiveChapter(''); setConfirmed(false);
       await refresh();
       setNotice(confirmed ? '已经保存到当前主角资料中，以前的记录仍然保留。' : '已经保存，等你确认后才会成为正式人物资料。');
-    } catch (reason) { setNotice(reason instanceof Error ? reason.message : '主角状态保存失败'); }
+    } catch (reason) { setNotice(authorErrorFromUnknown(reason, '主角状态保存失败')); }
     finally { setBusy(false); }
   };
   const classifyState = async (item: ProtagonistStateData): Promise<void> => {
@@ -176,7 +177,7 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
       setClassificationDrafts((current) => { const next = { ...current }; delete next[item.entryId]; return next; });
       await refresh();
       setNotice(`已将“${item.label}”归入“${protagonistCategoryLabel(categoryKey)}”；原来的值、来源和历史记录都已保留。`);
-    } catch (reason) { setNotice(reason instanceof Error ? reason.message : '资料归类失败'); }
+    } catch (reason) { setNotice(authorErrorFromUnknown(reason, '资料归类失败')); }
     finally { setBusy(false); }
   };
   return <div className="protagonist-workspace">
@@ -185,14 +186,14 @@ function ProtagonistWorkspace({ bookId, initialDashboard, initialFormulas }: {
     </section>
     {selected === null ? <form className="protagonist-create" onSubmit={(event) => {
       event.preventDefault(); if (bookId === null || !profileName.trim()) return; setBusy(true);
-      void saveProtagonistProfile(bookId, { displayName: profileName.trim(), isPrimary: true }).then(async (profile) => { setSelectedProfileId(profile.profileId); setProfileName(''); await refresh(); }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '主角档案创建失败')).finally(() => setBusy(false));
+      void saveProtagonistProfile(bookId, { displayName: profileName.trim(), isPrimary: true }).then(async (profile) => { setSelectedProfileId(profile.profileId); setProfileName(''); await refresh(); }).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '主角档案创建失败'))).finally(() => setBusy(false));
     }}><label>主角姓名<input value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="例如：张三" /></label><button className="primary-button" disabled={busy || !profileName.trim()}>建立主角面板</button></form> : <>
       {categories.length === 0 ? <EmptyReference icon={<UserCircleIcon />} title="还没有主角资料" description="定稿章节产生明确主角事实后，小文秘书会自动整理到这里；也可以先手工补充作者已经确认的信息。" /> : <div className="protagonist-state-grid">{categories.map((key) => {
         const title = protagonistCategoryLabel(key);
         const records = selected.current.filter((item) => item.category === key);
         const pending = selected.pending.filter((item) => item.category === key);
         return <section key={key}><header><h4>{title}</h4><span>{records.length + pending.length}</span></header>{[...records, ...pending].map((item) => <article key={item.entryId}><div><strong>{item.label}</strong><small>{item.authorityLayer === 'candidate' ? '待确认' : item.authorityLayer === 'canon' ? '正式内容' : '计算结果'}</small></div><span>{authorFormatScalar(item.value)}{item.unit ?? ''}</span><button type="button" title="从当前面板移除，历史仍保留" disabled={busy} onClick={() => {
-          if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '状态移除失败')).finally(() => setBusy(false));
+          if (bookId === null) return; setBusy(true); void archiveProtagonistState(bookId, item.entryId).then(refresh).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '状态移除失败'))).finally(() => setBusy(false));
         }}>移除</button><small className="protagonist-state-origin">{protagonistStatePosition(item)}</small>{isUnclassifiedCategory(item.category) && <form className="protagonist-classifier" onSubmit={(event) => { event.preventDefault(); void classifyState(item); }}><p>系统已记录这项资料，但不能可靠判断应该放在哪一类。可以询问主编建议，最终由作者确认。</p><label>确认分类<input aria-label={`为${item.label}确认分类`} value={classificationDrafts[item.entryId] ?? ''} onChange={(event) => setClassificationDrafts((current) => ({ ...current, [item.entryId]: event.target.value }))} placeholder="例如：契约伙伴" /></label><button className="secondary-button" disabled={busy || !(classificationDrafts[item.entryId]?.trim())}>确认分类</button></form>}</article>)}</section>;
       })}</div>}
       <ProtagonistHistory records={selected.history ?? []} />
@@ -210,7 +211,7 @@ function FormulaCalculator({ bookId, formulas }: { bookId: string | null; formul
     event.preventDefault(); if (bookId === null) return;
     const payload: Record<string, number> = {};
     for (const variable of formula.variables) payload[variable.key] = Number(values[`${formula.formulaId}:${variable.key}`] ?? variable.defaultValue ?? '');
-    void evaluateAttributeFormula(bookId, formula.formulaId, payload).then((result) => setResults((current) => ({ ...current, [formula.formulaId]: `${result.result}${formula.unit ?? ''}` }))).catch((reason: unknown) => setResults((current) => ({ ...current, [formula.formulaId]: reason instanceof Error ? reason.message : '计算失败' })));
+    void evaluateAttributeFormula(bookId, formula.formulaId, payload).then((result) => setResults((current) => ({ ...current, [formula.formulaId]: `${result.result}${formula.unit ?? ''}` }))).catch((reason: unknown) => setResults((current) => ({ ...current, [formula.formulaId]: authorErrorFromUnknown(reason, '计算失败') })));
   }}><strong>{formula.label}</strong><code>{formula.expression}</code><div>{formula.variables.map((variable) => <label key={variable.key}>{variable.label}<input type="number" step="any" value={values[`${formula.formulaId}:${variable.key}`] ?? String(variable.defaultValue ?? '')} onChange={(event) => setValues((current) => ({ ...current, [`${formula.formulaId}:${variable.key}`]: event.target.value }))} /></label>)}</div><button className="secondary-button">计算</button>{results[formula.formulaId] !== undefined && <output>{results[formula.formulaId]}</output>}</form>)}</section>;
 }
 
@@ -373,7 +374,7 @@ function TagCenter({ records, bookId }: { records: Array<Record<string, unknown>
     void createLibraryTag(bookId, { namespace: namespace.trim(), name: name.trim(), description: description.trim(), appliesTo: [target] }).then((created) => {
       setLocal((current) => [...current, { tag_definition_id: created.tagId, namespace, name, description, created_source: 'boss', status: created.status, assignment_count: 0 }]);
       setNotice(`标签“${name.trim()}”已创建，只更新结构化元数据，不会重写正文或全量重嵌入。`); setName(''); setDescription('');
-    }).catch((reason: unknown) => setNotice(reason instanceof Error ? reason.message : '标签创建失败'));
+    }).catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '标签创建失败')));
   }}><header><h3>新增资料标签</h3><p>普通标签不会改变已经发生的故事；如果会改变正式内容，仍需你确认。</p></header><div><label>标签分类<input value={namespace} onChange={(event) => setNamespace(event.target.value)} /></label><label>标签名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>适用对象<select value={target} onChange={(event) => setTarget(event.target.value)}><option value="character">人物</option><option value="location">地点</option><option value="organization">势力</option><option value="item">道具</option><option value="event">事件</option><option value="world_rule">规则</option><option value="chapter">章节</option></select></label></div><label>说明<input value={description} onChange={(event) => setDescription(event.target.value)} /></label><button className="primary-button" type="submit" disabled={bookId === null || !name.trim()}>创建标签</button></form>{notice !== null && <p className="binding-status" role="status">{notice}</p>}<RecordCollection records={all} empty="还没有资料标签。可在这里创建，也可直接告诉主编需要增加的标签。" /></div>;
 }
 

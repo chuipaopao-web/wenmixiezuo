@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { CheckCircleIcon, LightbulbIcon, PaperPlaneTiltIcon, UsersThreeIcon } from '@phosphor-icons/react';
 import {
   fetchIdeationMembers,
@@ -53,7 +54,7 @@ export function IdeationWorkspace({
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) onError(reason instanceof Error ? reason.message : '灵感加载失败');
+      if (!controller.signal.aborted) onError(authorErrorFromUnknown(reason, '灵感加载失败'));
     });
     const timer = window.setInterval(() => {
       if (rounds.some((round) => ['pending', 'queued', 'working'].includes(round.status))) {
@@ -90,7 +91,7 @@ export function IdeationWorkspace({
       setMessage('');
       await refresh();
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : '无法发起讨论');
+      onError(authorErrorFromUnknown(reason, '无法发起讨论'));
     } finally {
       setBusy(false);
     }
@@ -109,7 +110,7 @@ export function IdeationWorkspace({
       });
       setPromotedOpinionIds((current) => [...new Set([...current, opinionId])]);
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : '无法转为作者意见');
+      onError(authorErrorFromUnknown(reason, '无法转为作者意见'));
     } finally {
       setBusy(false);
     }

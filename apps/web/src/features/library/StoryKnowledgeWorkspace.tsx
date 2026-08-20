@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { BookOpenTextIcon, GraphIcon } from '@phosphor-icons/react';
 import {
   fetchGraphWorkspace,
@@ -26,7 +27,7 @@ export function StoryKnowledgeWorkspace({ bookId }: { bookId: string }): React.J
       setLibrary(nextLibrary);
       setGraph(nextGraph);
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '资料库加载失败');
+      if (!controller.signal.aborted) setError(authorErrorFromUnknown(reason, '资料库加载失败'));
     });
     return () => controller.abort();
   }, [bookId]);

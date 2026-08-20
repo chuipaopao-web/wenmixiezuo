@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { CheckCircleIcon } from '@phosphor-icons/react';
 import type {
   PlanningTemplateInstance,
@@ -500,7 +501,7 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
           <p>{generationMemberState(generation, member.roleKey)}</p>
         </article>)}
       </div>
-      {generation.errorMessage !== null && <p className="inline-error">{generation.errorMessage}</p>}
+      {generation.errorMessage !== null && <p className="inline-error">{authorErrorFromUnknown(generation.errorMessage, '生成没有完成，可以重试。')}</p>}
       <footer className="button-row">
         {generation.canCancel && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
         {generation.canResume && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
@@ -716,7 +717,7 @@ function generationMemberState(generation: VolumePlanGenerationData, roleKey: st
 }
 
 function messageOf(reason: unknown): string {
-  return reason instanceof Error ? reason.message : '当前卷规划操作失败，请稍后重试。';
+  return authorErrorFromUnknown(reason, '当前卷规划操作失败，请稍后重试。');
 }
 
 function candidateLabel(kind: VolumePlanVersionData['candidateKind']): string {

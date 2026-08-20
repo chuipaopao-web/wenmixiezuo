@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { EyeIcon, XIcon } from '@phosphor-icons/react';
 import {
   fetchProtectedRolePrompt,
@@ -56,7 +57,7 @@ function ProtectedPromptViewer({ roleKey, configured, bookId, agentId }: {
     } catch (reason) {
       setResult(null);
       setPassword('');
-      setError(reason instanceof Error ? reason.message : '完整提示词暂时无法查看');
+      setError(authorErrorFromUnknown(reason, '完整提示词暂时无法查看'));
     } finally {
       setLoading(false);
     }
@@ -124,7 +125,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal).catch((reason: unknown) => {
-      if (!controller.signal.aborted) onError(reason instanceof Error ? reason.message : '团队配置加载失败');
+      if (!controller.signal.aborted) onError(authorErrorFromUnknown(reason, '团队配置加载失败'));
     });
     return () => controller.abort();
   }, [load, onError]);
@@ -156,7 +157,7 @@ export function TeamWorkspace({ bookId, workspace, onError }: {
       setDraft(preference.content);
       setNotice(content.trim().length === 0 ? '已恢复默认要求，新任务开始生效。' : '已保存，新任务开始生效。');
     } catch (reason) {
-      onError(reason instanceof Error ? reason.message : '提示词保存失败');
+      onError(authorErrorFromUnknown(reason, '提示词保存失败'));
       await load().catch(() => undefined);
     } finally {
       setSaving(false);

@@ -282,14 +282,14 @@ describe('完整创作工作台', () => {
   it('把应用壳固定在动态视口并只让内容区独立滚动', () => {
     const css = readFileSync(resolve('apps/web/src/app/app.css'), 'utf8');
     expect(css).toMatch(/html\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/su);
-    expect(css).toMatch(/#root\s*\{[^}]*height:\s*100dvh[^}]*overflow:\s*hidden/su);
-    expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*100dvh[^}]*max-height:\s*100dvh[^}]*overflow:\s*hidden/su);
+    expect(css).toMatch(/#root\s*\{[^}]*height:\s*var\(--app-viewport-height,\s*100dvh\)[^}]*overflow:\s*hidden/su);
+    expect(css).toMatch(/\.app-shell\s*\{[^}]*height:\s*var\(--app-viewport-height,\s*100dvh\)[^}]*max-height:\s*var\(--app-viewport-height,\s*100dvh\)[^}]*overflow:\s*hidden/su);
     expect(css).toMatch(/\.creation-desk-body\s*\{[^}]*overflow:\s*auto/su);
     expect(css).not.toMatch(/\.conversation-stream|\.composer-wrap|\.chat-workspace/su);
     expect(css).toMatch(/\.manuscript-view,[^}]*\.reference-view,[^}]*\.task-workspace\s*\{[^}]*overflow:\s*auto/su);
     expect(css).toMatch(/\.manuscript-workspace\s*\{[^}]*grid-template-columns:\s*clamp\(176px,\s*13vw,\s*224px\)\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.manuscript-view\s*\{[^}]*padding:\s*0\s+clamp\(10px,\s*1\.4vw,\s*22px\)/su);
-    expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(100dvh\s*-\s*300px\),\s*520px\)/su);
+    expect(css).toMatch(/\.manuscript-editor-textarea\s*\{[^}]*width:\s*100%[^}]*min-height:\s*max\(calc\(var\(--app-viewport-height,\s*100dvh\)\s*-\s*300px\),\s*520px\)/su);
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-areas:\s*"sidebar functions"\s*"sidebar main"/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*overflow:\s*visible/su);
     expect(css).toMatch(/\.ios-function-bar\s*\{[^}]*gap:\s*4px/su);

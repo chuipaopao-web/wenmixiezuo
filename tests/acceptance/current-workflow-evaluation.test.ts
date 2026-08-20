@@ -18,7 +18,11 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('firstChapterLaunch');
     expect(script).toContain("assert(!('taskId' in view)");
     expect(script).toContain("assert(!('currentPhase' in view)");
-    expect(script).toContain('layered-admin-planning-smoke-v1');
+    expect(script).toContain('layered-admin-full-chain-smoke-v2');
+    expect(script).toContain('/writing-runs');
+    expect(script).toContain('/confirmations/');
+    expect(script).toContain('/accept');
+    expect(script).toContain('reviewReportCount');
   });
 
   it('旧长篇脚本只保留纵向资产与E2标签，不冒充分层流程或文学质量完成', () => {

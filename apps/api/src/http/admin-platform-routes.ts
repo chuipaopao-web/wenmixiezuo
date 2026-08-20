@@ -54,6 +54,24 @@ export async function registerAdminPlatformRoutes(
     }, request.id);
   });
 
+  app.get<{ Params: { bookId: string; taskId: string } }>('/api/v1/admin/audit/books/:bookId/tasks/:taskId', async (request) => {
+    requireAdministrator(request);
+    const task = database.prepare(`SELECT * FROM tasks WHERE book_id = ? AND task_id = ?`)
+      .get(request.params.bookId, request.params.taskId) as Record<string, unknown> | undefined;
+    if (task === undefined) {
+      return success({ found: false, task: null, phases: [], modelCalls: [], toolCalls: [], structureMethodAudits: [] }, request.id);
+    }
+    const phases = database.prepare(`SELECT * FROM task_phases WHERE book_id = ? AND task_id = ? ORDER BY entered_at, phase_key`)
+      .all(request.params.bookId, request.params.taskId);
+    const modelCalls = database.prepare(`SELECT * FROM model_calls WHERE book_id = ? AND task_id = ? ORDER BY created_at, request_id`)
+      .all(request.params.bookId, request.params.taskId);
+    const toolCalls = database.prepare(`SELECT * FROM tool_calls WHERE book_id = ? AND task_id = ? ORDER BY created_at, tool_call_id`)
+      .all(request.params.bookId, request.params.taskId);
+    const structureMethodAudits = database.prepare(`SELECT * FROM volume_route_method_audits
+      WHERE book_id = ? AND source_task_id = ? ORDER BY created_at, candidate_kind`)
+      .all(request.params.bookId, request.params.taskId);
+    return success({ found: true, task, phases, modelCalls, toolCalls, structureMethodAudits }, request.id);
+  });
   app.get('/api/v1/admin/model-scheme', async (request) => {
     requireAdministrator(request);
     return success(schemes.describe(roleProfiles, toCreativeProfiles(roleProfiles)), request.id);
