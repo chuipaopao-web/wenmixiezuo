@@ -1,3 +1,4 @@
+import { Agent, type Dispatcher } from 'undici';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
 import { assertPlanBaseUrl, SUBSCRIPTION_THINKING_BUDGET_TOKENS, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
@@ -88,8 +89,9 @@ export class ArkPlanModelAdapter implements ModelAdapter {
             content: opencodegoWire ? [{ type: 'text', text: request.prompt }] : request.prompt
           }]
         }),
-        signal: controller.signal
-      });
+        signal: controller.signal,
+        dispatcher: longRequestDispatcher(timeoutMs)
+      } as RequestInit & { dispatcher: Dispatcher });
     } catch (error) {
       if (timedOut) throw new ModelAdapterError(
         `${planDisplayName(this.options.plan)}模型调用在${timeoutMs}毫秒内未完成，供应商结果状态未知`,
@@ -142,6 +144,20 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+const longRequestDispatchers = new Map<number, Dispatcher>();
+
+function longRequestDispatcher(timeoutMs: number): Dispatcher {
+  const existing = longRequestDispatchers.get(timeoutMs);
+  if (existing !== undefined) return existing;
+  const dispatcher = new Agent({
+    headersTimeout: timeoutMs,
+    bodyTimeout: timeoutMs,
+    connectTimeout: Math.min(timeoutMs, 30_000)
+  });
+  longRequestDispatchers.set(timeoutMs, dispatcher);
+  return dispatcher;
 }
 
 function describeEmptyResponse(body: ArkMessagesResponse): string {

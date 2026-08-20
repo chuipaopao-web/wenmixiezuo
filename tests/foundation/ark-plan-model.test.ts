@@ -17,6 +17,7 @@ describe('火山方舟严格套餐适配器', () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toBe('https://ark.cn-beijing.volces.com/api/plan/v1/messages');
       expect(init?.method).toBe('POST');
+      expect((init as RequestInit & { dispatcher?: unknown }).dispatcher).toBeDefined();
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer agent-test-key');
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number; messages: unknown[]; thinking?: { type?: string; budget_tokens?: number } };
       expect(body).toMatchObject({ model: 'kimi-k2-6-modelhub', max_tokens: 100 + 16_000 });
