@@ -18,7 +18,7 @@
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
 ## 最近完成的改动（最新在最上）
-1. 分层创作E2工程闭环（DEC-CURRENT-081）：四项核心设定、按需补设定三选一、硬/软/留白上下文、全书故事总线与线程账本、卷方向/事件链拆分、22种隐藏结构方法、双路线整选/片选/融合、首卷前500字/黄金三章/10万字高潮追踪、完整事件章链与近期细纲已经贯通。管理员隔离HTTP冒烟从开书走到第一章详细章纲冻结共15项通过，并据此发现并修复Worker漏注册`event_chain_generation`的真实阻断；证据在`data/verification/layered-admin-planning-final4.json`。360/390/430px组件布局与44px触控门禁通过；浏览器像素级实机复核仍待可用浏览器环境。E3真实模型多题材盲审和E4 20/50/100/200章长期质量未开始，不能宣称整套文学质量验收完成。生产在途任务已清零，进入构建与发布收口。
+1. 分层创作E2工程闭环（DEC-CURRENT-081）：四项核心设定、按需补设定三选一、硬/软/留白上下文、全书故事总线与线程账本、卷方向/事件链拆分、22种隐藏结构方法、双路线整选/片选/融合、首卷前500字/黄金三章/10万字高潮追踪、完整事件章链与近期细纲已经贯通。管理员隔离HTTP冒烟从开书走到第一章详细章纲冻结共15项通过，并据此发现并修复Worker漏注册`event_chain_generation`的真实阻断；证据在`data/verification/layered-admin-planning-final4.json`。360/390/430px组件布局与44px触控门禁通过；浏览器像素级实机复核仍待可用浏览器环境。E3真实模型多题材盲审和E4 20/50/100/200章长期质量未开始，不能宣称整套文学质量验收完成。提交`1144273`已推送；生产Web、API及0058—0062迁移已上线并通过首页/健康门禁，Worker因持续存在作者讨论任务尚未重启，`wenmi-worker-deploy-1144273.service`会在任务连续30秒为0时安全重启并自检。
 1. 分层创作唯一实施总表（DEC-CURRENT-080，A—J共148项）：已按2026-08-20 07:59前聊天逐条复核，并保守纳入07:59:18最终指令；补齐全书故事总线、故事线程账本、作者原话分级、结构方法五类分工、八类稳定资料包、旧六项兼容、硬事实100%覆盖、K3交互门禁、停止/回滚合同和聊天追溯矩阵。总表另含8个实施批次和E0—E4证据等级，当前已完成/部分/未开始基线明确，部分完成不能结算。
 
 1. 分层故事设计+隐藏叙事方法+手机优先（DEC-CURRENT-079）：开书只定基础方向；设定核心收为世界舞台、主角底板、规矩与代价、边界与留白四项，故事内核降为可选，扩展设定按需。内部叙事方法库覆盖22种常用方法，普通作者只看两条实质不同的具体卷路线，不显示三幕式、拯救猫咪等专业名。第一卷增加全书故事总线、前500字职责、黄金三章和10万有效字内重大高潮；事件阅读感受改为大白话单选，章链完整规划但只滚动细化最近1—3章。ContextCompiler按硬事实/任务约束/软参考/开放区和计划/已发生双轴编译，硬来源不再静默截断。管理员隔离数据实测完成开书→四核心设定→整份质检→三份卷方案→事件链→8章章链→近期细纲→冻结进入正文；360/390/430px重点页面无横向溢出，390px事件与章纲操作目标均不小于44px。
@@ -107,20 +107,15 @@
 
 ## 部署流程（Git Bash）
 
-```bash
-npm.cmd run verify          # 大改才全量跑（约 3 分钟，基线 729 绿）；小改只跑相关测试 + 前后端 tsc
-node scripts/sync-project-docs.mjs && node scripts/sync-project-docs.mjs --check   # 每次结算必过
-git add -A && git commit -m "..."
-git push origin codex/desktop-entry
-# 部署门禁（AGENTS.md）：先查在途任务，为 0 才继续；有任务就等
-ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "sqlite3 /opt/wenmi/data/database/wenmi.sqlite \"SELECT COUNT(*) FROM tasks WHERE status IN ('working','queued','pending');\""
-git -c core.autocrlf=false -c core.eol=lf archive HEAD apps | gzip > /tmp/wenmi-apps.tar.gz
-scp -i ~/.ssh/wenmi-hk-server /tmp/wenmi-apps.tar.gz root@47.243.152.159:/tmp/
-# 构建先于重启；新迁移在 API 启动时自动执行
-ssh -i ~/.ssh/wenmi-hk-server root@47.243.152.159 "cd /opt/wenmi && tar -xzf /tmp/wenmi-apps.tar.gz && npm run build && systemctl reset-failed wenmi-api wenmi-worker && systemctl restart wenmi-api wenmi-worker && sleep 4 && systemctl is-active wenmi-api wenmi-worker"
-curl -s -o /dev/null -w '%{http_code}' https://wenmixiezuo.com/   # 要 200
-```
+> DEC-CURRENT-082后，旧的“直接解包到`/opt/wenmi`并在线构建”命令已经禁用：它会先改掉Nginx正在读取的Web资源，形成前后端半版本。
 
+1. 本机完成全量验证、文档同步、提交和推送，并用`core.autocrlf=false`打包。
+2. 上传后只解包到公网不可见的暂存/发布目录，在该目录完成contracts、API、Worker和Web构建；不得覆盖当前`apps/web/dist`。
+3. 连续30秒检查`working/queued/pending/waiting_confirmation`全部为0，并在切换前立即复核；任一非0就继续等待，不取消作者任务。
+4. 逐个切换或重启API、Worker，每次立刻检查active和日志；最后原子切换Web静态资源。
+5. 验证双服务active、首页200、健康接口200、登录门禁、迁移版本、核心链路和任务恢复；任何失败立即停止扩大并回到上一发布目录。
+
+在暂存发布脚本正式落库前，只能人工按上述步骤执行；不得恢复旧单目录命令。
 ## 协作规矩（老板定的）
 
 - 逐页走查：老板截图指出问题 → 确认方案 → 改 → 部署 → 老板强刷（Ctrl+Shift+R）验证。
