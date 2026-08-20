@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseModelJsonFields } from '../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import {
+  parseModelJsonFields,
+  workflowArtifactValidationFailure
+} from '../../apps/api/src/application/discussions/discussion-pipeline-service.js';
 
 describe('parseModelJsonFields 围栏兼容与坏输出门禁', () => {
   it('解析裸 JSON 输出', () => {
@@ -32,5 +35,17 @@ describe('parseModelJsonFields 围栏兼容与坏输出门禁', () => {
     expect(fields).not.toBeNull();
     expect((fields?.fragments as string[]).length).toBe(4);
     expect(fields?.answer).toBe('方案');
+  });
+
+  it('setting quality audits reject the generic answer envelope and accept the dedicated audit contract', () => {
+    const generic = JSON.stringify({ version: 1, fields: { answer: 'ordinary discussion summary' } });
+    expect(workflowArtifactValidationFailure('', 'setting_quality_audit', generic))
+      .toContain('setting quality audit is missing');
+
+    const audit = JSON.stringify({
+      version: 1,
+      fields: { verdict: 'pass', summary: 'settings are coherent', issues: [] }
+    });
+    expect(workflowArtifactValidationFailure('', 'setting_quality_audit', audit)).toBeNull();
   });
 });

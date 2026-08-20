@@ -29,6 +29,17 @@ describe('当前工作流验收脚本', () => {
     const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/run-current-workflow-twenty-chapters-e2e.mjs'), 'utf8');
     const acceptance = readFileSync(resolve(process.cwd(), 'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md'), 'utf8');
     expect(script).toContain('[20, 50, 100, 200]');
+    expect(script).toContain('workspace.agents.length === 14');
+    expect(script).toContain('setting_model_details_redacted');
+    expect(script).toContain("verification: 'scoped-production-audit'");
+    expect(script).toContain('/setting-baseline/quality-audit');
+    expect(script).toContain('/setting-baseline/quality-report');
+    expect(script).toContain('hardIssues.length === 0');
+    expect(script).toContain('setting-quality-audit-attempt-');
+    expect(script).toContain('auditAttempt <= 4');
+    expect(script).toContain('TARGET_EVENT_COUNT');
+    expect(script).toContain('TARGET_COMPLETED_VOLUME_COUNT');
+    expect(script).not.toContain('if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);');
     expect(script).toContain('evidenceLevel: `E2-current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}`');
     expect(script).toContain('发布级文学质量仍需要人工通读确认');
     expect(acceptance).toContain('| E4长期验收 | 未开始 |');

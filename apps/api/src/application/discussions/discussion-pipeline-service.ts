@@ -1120,13 +1120,17 @@ function hasRequiredWorkflowArtifact(
   ) === null;
 }
 
-function workflowArtifactValidationFailure(
+export function workflowArtifactValidationFailure(
   scopeText: string,
   purpose: DiscussionPurpose,
   output: string,
   firstChapterNumber: number | null = null,
   requestedChapterCount: number | null = null
 ): string | null {
+  if (purpose === 'setting_quality_audit') {
+    const audit = parseSettingQualityAudit(parseModelJsonFields(output));
+    return audit === null ? 'setting quality audit is missing the required verdict, summary, and issues structure' : null;
+  }
   if (scopeText.includes('【剧情总纲专项讨论资料包】')) {
     return isValidMasterOutlineOutput(output) ? null : '剧情总纲缺少完整的stage_master_v2结构';
   }
@@ -1171,6 +1175,15 @@ function buildStructuredArtifactRecoveryPrompt(
   invalidOutput: string | null,
   validationFailure: string | null
 ): string {
+  if (purpose === 'setting_quality_audit') {
+    return [
+      prompt,
+      `The previous setting quality audit was invalid${validationFailure === null ? '' : `: ${validationFailure}`}.`,
+      invalidOutput === null ? '' : `Invalid previous output for structure repair only:\n${boundedHeadAndTail(invalidOutput, 3_500)}`,
+      'Return exactly one JSON object shaped as {"version":1,"fields":{"verdict":"pass|warn|fail","summary":"...","issues":[{"id":"i1","severity":"hard|soft","itemKey":"whole","problem":"...","suggestion":"..."}]}}.',
+      'Do not use the generic answer field, markdown fences, analysis, or any text outside the JSON object.'
+    ].filter(Boolean).join('\n');
+  }
   if (purpose !== 'locked_planning') {
     return [
       prompt,
@@ -1411,6 +1424,16 @@ function buildDiscussionPrompt(input: {
   const stageContract = purpose === 'locked_planning'
     ? stageBoundaryContractLine(evidenceContext)
     : null;
+  if (purpose === 'setting_quality_audit') {
+    return [
+      `你是${participant.display_name}，正在对本书全部已确认设定做一次独立主编质检。`,
+      scopeText,
+      `与本次质检直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
+      '这是质检专用机器合同，不使用普通讨论的answer字段。',
+      '只输出一个JSON对象：{"version":1,"fields":{"verdict":"pass或warn或fail","summary":"一段总评","issues":[{"id":"i1","severity":"hard或soft","itemKey":"设定项键或whole","problem":"具体问题","suggestion":"具体建议"}]}}。',
+      '不得输出Markdown围栏、分析过程、前后说明、answer字段或第二份JSON。'
+    ].join('\n');
+  }
   if (purpose === 'stage_outline_panel') {
     const emphasis = participant.role_key === 'lead_screenwriter'
       ? '优先从人物欲望、关系变化和持续戏剧张力出发。'

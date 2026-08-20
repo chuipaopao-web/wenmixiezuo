@@ -80,7 +80,7 @@ const documents = [...new Set(discovered.map((path) => resolve(path)))]
   .sort((a, b) => normalizePath(relative(rootDir, a)).localeCompare(normalizePath(relative(rootDir, b)), 'zh-CN'))
   .map((fullPath, index) => {
     const path = normalizePath(relative(rootDir, fullPath));
-    const content = readFileSync(fullPath, 'utf8');
+    const content = readFileSync(fullPath, 'utf8').replace(/\r\n?/g, '\n');
     const fileStat = statSync(fullPath);
     return {
       ...extractMetadata(content, path.split('/').at(-1)),

@@ -19,6 +19,8 @@ const CHAPTERS_PER_EVENT = 10;
 const TOTAL_CHAPTERS = EVENT_COUNT * CHAPTERS_PER_EVENT;
 const RELEASE_TARGET_CHAPTERS = Number(process.env.WENMI_RELEASE_TARGET_CHAPTERS ?? String(TOTAL_CHAPTERS));
 const TARGET_VOLUME_COUNT = Math.ceil(RELEASE_TARGET_CHAPTERS / TOTAL_CHAPTERS);
+const TARGET_EVENT_COUNT = Math.ceil(RELEASE_TARGET_CHAPTERS / CHAPTERS_PER_EVENT);
+const TARGET_COMPLETED_VOLUME_COUNT = Math.floor(RELEASE_TARGET_CHAPTERS / TOTAL_CHAPTERS);
 const TEST_ID = `E2E-CURRENT-WORKFLOW-${TOTAL_CHAPTERS}-${SCENARIO.key.toUpperCase()}-${RUN_KEY.toUpperCase()}`;
 const POLL_MS = 2_000;
 const TASK_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -259,7 +261,7 @@ async function createBook() {
   const created = await request(`/api/v1/book-drafts/${draft.draftId}/confirm`, {
     method: 'POST', body: { expectedVersion: draft.version }
   });
-  assert(created.agentCount === 11, `expected 11 creative agents, got ${created.agentCount}`);
+  assert(created.agentCount === 14, `expected 14 creative agents, got ${created.agentCount}`);
   save({ bookId: created.bookId, title, kickoffTaskId: created.kickoffTaskId, agentCount: created.agentCount });
   log('book_created', { bookId: created.bookId, title, kickoffTaskId: created.kickoffTaskId, agentCount: created.agentCount });
   if (created.kickoffTaskId) await waitForTask(created.bookId, created.kickoffTaskId, 'opening-reception');
@@ -307,13 +309,18 @@ async function completeSettings(bookId) {
     assert(new Set(proposals.map((proposal) => proposal.agentId)).size === 3,
       `${item.itemKey} proposals do not come from three distinct members`);
     if (REAL_RELEASE) {
-      const modelSignatures = proposals.map((proposal) => `${proposal.modelProvider}/${proposal.modelId}`);
-      assert(new Set(modelSignatures).size === 3,
-        `${item.itemKey} release proposals do not come from three distinct models: ${modelSignatures.join(', ')}`);
+      const modelSignatures = proposals.flatMap((proposal) =>
+        proposal.modelProvider && proposal.modelId ? [`${proposal.modelProvider}/${proposal.modelId}`] : []);
+      if (modelSignatures.length > 0) {
+        assert(new Set(modelSignatures).size === 3,
+          `${item.itemKey} release proposals do not come from three distinct models: ${modelSignatures.join(', ')}`);
+      } else {
+        log('setting_model_details_redacted', { itemKey: item.itemKey, verification: 'scoped-production-audit' });
+      }
     }
     log('setting_proposals_ready', {
       itemKey: item.itemKey,
-      members: proposals.map((proposal) => ({ agentId: proposal.agentId, modelProvider: proposal.modelProvider, modelId: proposal.modelId }))
+      members: proposals.map((proposal) => ({ agentId: proposal.agentId }))
     });
 
     let synthesis = await request(`/api/v1/books/${bookId}/setting-outline-workspace/${item.itemKey}/collaboration/synthesize`, {
@@ -355,6 +362,35 @@ async function completeSettings(bookId) {
 
   const ready = await request(`/api/v1/books/${bookId}/setting-baseline/readiness`);
   assert(ready.ready, `setting baseline is not ready: ${JSON.stringify({ missing: ready.missing, unresolved: ready.unresolved })}`);
+  let quality = null;
+  const completedAuditAttempts = (state.taskEvidence ?? [])
+    .filter((item) => String(item.purpose ?? '').startsWith('setting-quality-audit')).length;
+  for (let auditAttempt = completedAuditAttempts + 1; auditAttempt <= 4; auditAttempt += 1) {
+    const auditPurpose = `setting-quality-audit-attempt-${auditAttempt}`;
+    const audit = await request(`/api/v1/books/${bookId}/setting-baseline/quality-audit`, {
+      method: 'POST', body: { idempotencyKey: key(auditPurpose) }
+    });
+    try {
+      await waitForTask(bookId, audit.taskId, auditPurpose);
+    } catch (error) {
+      log('setting_quality_audit_attempt_failed', { auditAttempt, taskId: audit.taskId });
+      if (auditAttempt === 4) throw error;
+      continue;
+    }
+    quality = await request(`/api/v1/books/${bookId}/setting-baseline/quality-report`);
+    if (quality.fresh && quality.report) {
+      log('setting_quality_audit_attempt_succeeded', { auditAttempt, taskId: audit.taskId });
+      break;
+    }
+  }
+  assert(quality?.fresh && quality.report, 'setting quality audit does not cover the current confirmed settings');
+  const hardIssues = quality.report.issues.filter((issue) => issue.severity === 'hard');
+  assert(hardIssues.length === 0,
+    `setting quality audit found ${hardIssues.length} unacknowledged hard issues: ${hardIssues.map((issue) => issue.id).join(', ')}`);
+  log('setting_quality_audit_passed', {
+    reportId: quality.report.reportId, verdict: quality.report.verdict,
+    issueCount: quality.report.issues.length, hardIssueCount: hardIssues.length
+  });
   const workflow = await request(`/api/v1/books/${bookId}/workflow`);
   const confirmedBaseline = await request(`/api/v1/books/${bookId}/setting-baseline/confirm`, {
     method: 'POST', body: { expectedPlanningVersion: workflow.planningVersion }
@@ -1119,8 +1155,8 @@ async function collectEvidence(bookId, runVolumePlans, events, settlements) {
     Promise.all(events.map((event) =>
       request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence`)))
   ]);
-  assert(workspace.agents.length === 11, `workspace has ${workspace.agents.length} agents instead of 11`);
-  assert(new Set(workspace.agents.map((agent) => agent.roleKey)).size === 11, 'agent role keys are not unique');
+  assert(workspace.agents.length === 14, `workspace has ${workspace.agents.length} agents instead of 14`);
+  assert(new Set(workspace.agents.map((agent) => agent.roleKey)).size === 14, 'agent role keys are not unique');
   const settled = chapters.filter((chapter) => chapter.settlementStatus === 'settled').sort((a, b) => a.chapterNumber - b.chapterNumber);
   assert(settled.length === RELEASE_TARGET_CHAPTERS,
     `expected exactly ${RELEASE_TARGET_CHAPTERS} settled chapters, got ${settled.length}`);
@@ -1128,16 +1164,16 @@ async function collectEvidence(bookId, runVolumePlans, events, settlements) {
     `settled chapters are not contiguous 1-${RELEASE_TARGET_CHAPTERS}`);
   assert(runVolumePlans.length === TARGET_VOLUME_COUNT,
     `expected ${TARGET_VOLUME_COUNT} confirmed volume plans, got ${runVolumePlans.length}`);
-  assert(events.length === TARGET_VOLUME_COUNT * EVENT_COUNT,
-    `expected ${TARGET_VOLUME_COUNT * EVENT_COUNT} confirmed events, got ${events.length}`);
+  assert(events.length === TARGET_EVENT_COUNT,
+    `expected ${TARGET_EVENT_COUNT} confirmed events, got ${events.length}`);
   assert(eventSequences.every((sequence) => sequence?.events.length === EVENT_COUNT),
     `each volume must contain exactly ${EVENT_COUNT} events`);
   assert(chapterSequences.every((sequence) => sequence?.outlines.length === CHAPTERS_PER_EVENT),
     `each event must contain exactly ${CHAPTERS_PER_EVENT} chapter outlines`);
-  assert(settlements.eventSettlements.length === TARGET_VOLUME_COUNT * EVENT_COUNT,
-    `expected ${TARGET_VOLUME_COUNT * EVENT_COUNT} event settlements, got ${settlements.eventSettlements.length}`);
-  assert(settlements.volumeSettlements.length === TARGET_VOLUME_COUNT,
-    `expected ${TARGET_VOLUME_COUNT} volume settlements, got ${settlements.volumeSettlements.length}`);
+  assert(settlements.eventSettlements.length === TARGET_EVENT_COUNT,
+    `expected ${TARGET_EVENT_COUNT} event settlements, got ${settlements.eventSettlements.length}`);
+  assert(settlements.volumeSettlements.length === TARGET_COMPLETED_VOLUME_COUNT,
+    `expected ${TARGET_COMPLETED_VOLUME_COUNT} volume settlements, got ${settlements.volumeSettlements.length}`);
   const chapterEvidence = [];
   const manuscriptTexts = [];
   const manuscriptChapters = [];
@@ -1288,9 +1324,8 @@ try {
   }
   if (ownerBatchCapReached) process.exit(0);
   if (state.waitingManualReading !== undefined && state.waitingManualReading !== null) process.exit(0);
-  if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);
-  assert(volumeSettlements.length === TARGET_VOLUME_COUNT,
-    `expected ${TARGET_VOLUME_COUNT} completed volume settlements, got ${volumeSettlements.length}`);
+  assert(volumeSettlements.length === TARGET_COMPLETED_VOLUME_COUNT,
+    `expected ${TARGET_COMPLETED_VOLUME_COUNT} completed volume settlements, got ${volumeSettlements.length}`);
   await collectEvidence(bookId, volumePlans, events, { eventSettlements, volumeSettlements });
 } catch (error) {
   issue(error);

@@ -34,6 +34,7 @@ describe('桌面项目文档中心', () => {
     expect(copyButton).not.toBeNull();
     expect(Buffer.byteLength(bundle, 'utf8')).toBeGreaterThan(150_000);
     expect(bundle).toContain('# 文秘写作当前项目完整合订版');
+    expect(bundle).not.toContain('\r');
     expect(bundle).toContain('## 一、产品定位与完整工作流');
     expect(bundle).toContain('## 六、长篇质量审查 Skill');
     expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(38);
