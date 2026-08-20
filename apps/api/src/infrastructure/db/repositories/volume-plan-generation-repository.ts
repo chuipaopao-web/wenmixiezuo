@@ -453,6 +453,40 @@ export class VolumePlanGenerationRepository {
     ) as StoredModelResult | undefined;
   }
 
+  public attemptedCandidateAgentIds(scope: BookScope, taskId: string): string[] {
+    assertBookScope(scope);
+    const rows = this.database.prepare(`
+      SELECT DISTINCT agent_id
+      FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+        AND (phase_key LIKE 'candidate_a:%' OR phase_key LIKE 'candidate_b:%')
+      ORDER BY agent_id
+    `).all(scope.ownerId, scope.bookId, taskId) as Array<{ agent_id: string }>;
+    return rows.map((row) => row.agent_id);
+  }
+
+  public latestSucceededCandidateProducer(
+    scope: BookScope,
+    taskId: string,
+    candidateKind: 'candidate_a' | 'candidate_b'
+  ): { agentId: string; provider: string; modelId: string } | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(`
+      SELECT agent_id,provider,model_id
+      FROM model_calls
+      WHERE owner_id = ? AND book_id = ? AND task_id = ?
+        AND phase_key LIKE ? AND state = 'succeeded'
+      ORDER BY completed_at DESC,created_at DESC,request_id DESC LIMIT 1
+    `).get(scope.ownerId, scope.bookId, taskId, `${candidateKind}:%`) as {
+      agent_id: string; provider: string; model_id: string;
+    } | undefined;
+    return row === undefined ? undefined : {
+      agentId: row.agent_id,
+      provider: row.provider,
+      modelId: row.model_id
+    };
+  }
+
   public hasUnresolvedModelCall(scope: BookScope, taskId: string): boolean {
     assertBookScope(scope);
     return this.database.prepare(`

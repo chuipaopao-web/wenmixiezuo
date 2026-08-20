@@ -130,10 +130,23 @@ export class VolumePlanGenerationPipelineService {
       ]);
       let candidateA = candidateResults[0].status === 'fulfilled' ? candidateResults[0].value : null;
       let candidateB = candidateResults[1].status === 'fulfilled' ? candidateResults[1].value : null;
-      let candidateASeat = initialA;
-      let candidateBSeat = initialB;
+      let candidateASeat = candidateA === null ? initialA : this.storedCandidateSeat(
+        scope, taskId, 'candidate_a', brief.seats, initialA
+      );
+      let candidateBSeat = candidateB === null ? initialB : this.storedCandidateSeat(
+        scope, taskId, 'candidate_b', brief.seats, initialB
+      );
+      const attemptedCandidateAgentIds = new Set(
+        this.repository.attemptedCandidateAgentIds(scope, taskId)
+      );
+      const attemptedCandidateSeats = brief.seats.filter((seat) =>
+        attemptedCandidateAgentIds.has(seat.agentId)
+      );
       if (candidateA === null && isKnownRetryableTechnicalFailure(candidateResults[0])) {
-        const substitute = selectTechnicalSubstitute(brief.seats, [lead, second, editor, initialA, initialB]);
+        const substitute = selectTechnicalSubstitute(
+          brief.seats,
+          [lead, second, editor, initialA, initialB, candidateBSeat, ...attemptedCandidateSeats]
+        );
         if (substitute !== null) {
           candidateASeat = substitute;
           candidateA = await this.generateAndStore(
@@ -144,7 +157,7 @@ export class VolumePlanGenerationPipelineService {
       if (candidateB === null && isKnownRetryableTechnicalFailure(candidateResults[1])) {
         const substitute = selectTechnicalSubstitute(
           brief.seats,
-          [lead, second, editor, initialA, initialB, candidateASeat]
+          [lead, second, editor, initialA, initialB, candidateASeat, ...attemptedCandidateSeats]
         );
         if (substitute !== null) {
           candidateBSeat = substitute;
@@ -451,6 +464,21 @@ export class VolumePlanGenerationPipelineService {
       );
     }
     return snapshot;
+  }
+
+  private storedCandidateSeat(
+    scope: BookScope,
+    taskId: string,
+    candidateKind: 'candidate_a' | 'candidate_b',
+    seats: VolumePlanGenerationSeat[],
+    fallback: VolumePlanGenerationSeat
+  ): VolumePlanGenerationSeat {
+    const producer = this.repository.latestSucceededCandidateProducer(scope, taskId, candidateKind);
+    return producer === undefined ? fallback : seats.find((seat) =>
+      seat.agentId === producer.agentId
+      && seat.provider === producer.provider
+      && seat.modelId === producer.modelId
+    ) ?? fallback;
   }
 
   private assertClaim(task: TaskRecord, workerId: string, leaseFence?: TaskLeaseFence): void {
@@ -997,14 +1025,18 @@ function isKnownRetryableTechnicalFailure(result: PromiseSettledResult<unknown>)
     && !result.reason.outcomeUnknown;
 }
 
-function selectTechnicalSubstitute(
+export function selectTechnicalSubstitute(
   seats: VolumePlanGenerationSeat[],
   unavailable: VolumePlanGenerationSeat[]
 ): VolumePlanGenerationSeat | null {
   const unavailableAgents = new Set(unavailable.map((seat) => seat.agentId));
+  const unavailableBindings = new Set(unavailable.map((seat) =>
+    JSON.stringify([seat.provider, seat.modelId])
+  ));
   const preference = ['backup_writer', 'researcher', 'literary_reviewer', 'deputy_editor', 'setting'];
   return [...seats]
-    .filter((seat) => !seat.editor && !unavailableAgents.has(seat.agentId))
+    .filter((seat) => !seat.editor && !unavailableAgents.has(seat.agentId)
+      && !unavailableBindings.has(JSON.stringify([seat.provider, seat.modelId])))
     .sort((left, right) => {
       const leftRank = preference.indexOf(left.roleKey);
       const rightRank = preference.indexOf(right.roleKey);

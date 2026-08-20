@@ -10,6 +10,7 @@ import {
   parseVolumeDirectionModelOutput,
   parseVolumePlanModelOutput,
   isVolumePlanOutputCapped,
+  selectTechnicalSubstitute,
   selectEditorTechnicalSubstitute,
   volumePlanExpressionBudget,
   volumePlanOutputTokenLimit,
@@ -181,6 +182,12 @@ describe('卷规划团队生成', () => {
     expect(methodAudits.every((item) => JSON.parse(item.method_version_ids_json).length >= 3)).toBe(true);
     expect(methodAudits.every((item) => (JSON.parse(item.call_evidence_json).callCount as number) >= 1)).toBe(true);
     expect(methodAudits[0]!.method_version_ids_json).not.toBe(methodAudits[1]!.method_version_ids_json);
+    const candidateAProducer = repository.latestSucceededCandidateProducer(
+      scope, scheduled.taskId, 'candidate_a'
+    );
+    expect(candidateAProducer).toBeDefined();
+    expect(repository.attemptedCandidateAgentIds(scope, scheduled.taskId))
+      .toContain(candidateAProducer!.agentId);
 
     const fusionStartInput = {
       ...startInput,
@@ -348,6 +355,17 @@ describe('卷规划团队生成', () => {
     const researcher = seat('researcher');
     expect(selectEditorTechnicalSubstitute(
       [chief, lead, second, backup, deputy, researcher], [chief, lead, second]
+    )?.roleKey).toBe('researcher');
+
+    const sameModelAsBackup = {
+      ...seat('third_screenwriter'),
+      modelId: backup.modelId
+    };
+    expect(selectTechnicalSubstitute(
+      [lead, second, backup, sameModelAsBackup], [lead, second, backup]
+    )).toBeNull();
+    expect(selectTechnicalSubstitute(
+      [lead, second, backup, sameModelAsBackup, researcher], [lead, second, backup]
     )?.roleKey).toBe('researcher');
   });
 
