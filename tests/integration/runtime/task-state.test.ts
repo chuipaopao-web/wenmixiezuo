@@ -100,6 +100,31 @@ describe('持久任务状态机', () => {
       });
   });
 
+  it('工作中取消在任务层记cancelled，在阶段层用合法的interrupted收尾', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
+    initializeRuntimeBook(context, scope, ids, clock);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    tasks.create(scope, {
+      taskId: 'task-cancelled-while-working', taskType: 'runtime_probe',
+      idempotencyKey: 'idem-cancelled-while-working', initialPhase: 'execute', brief: {}
+    });
+    tasks.queue(scope, 'task-cancelled-while-working');
+    const claimed = tasks.claimNext('worker-one')!;
+    tasks.requestCancel(scope, claimed.taskId);
+
+    expect(tasks.complete(scope, claimed.taskId, 'worker-one')).toMatchObject({ status: 'cancelled' });
+    expect(context.database.prepare('SELECT status, completed_at FROM task_phases WHERE task_id = ? AND phase_key = ?')
+      .get(claimed.taskId, claimed.currentPhase)).toMatchObject({
+        status: 'interrupted', completed_at: expect.any(String)
+      });
+    expect(context.database.prepare('SELECT status, error_code FROM task_attempts WHERE task_id = ? AND attempt_no = ?')
+      .get(claimed.taskId, claimed.currentAttemptNo)).toEqual({
+        status: 'cancelled', error_code: null
+      });
+  });
   it('跨书不能读取、依赖或控制任务', () => {
     context = createTestContext();
     const ids = new SequenceIds();

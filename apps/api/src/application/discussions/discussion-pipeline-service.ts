@@ -776,28 +776,9 @@ export class DiscussionPipelineService {
         this.database.prepare(`UPDATE agent_instances SET activation_state = 'standby', updated_at = ? WHERE owner_id = ? AND book_id = ? AND agent_id = ?`)
           .run(now, scope.ownerId, scope.bookId, participant.agent_id);
       }
-      const failure = this.database.prepare(`
-        UPDATE tasks SET status = ?, error_code = ?, lease_owner = NULL, lease_expires_at = NULL,
-          lease_token = NULL, heartbeat_at = NULL, updated_at = ?
-        WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND status = 'working'
-          AND lease_expires_at > ? AND (? IS NULL OR (lease_token = ? AND current_attempt_no = ?))
-          AND (required_editor_epoch = 0 OR required_editor_epoch = (
-            SELECT editor_epoch FROM books WHERE owner_id = ? AND book_id = ?
-          ))
-      `).run(cancelled ? 'cancelled' : 'failed', failureCode, now,
-        taskId, scope.ownerId, scope.bookId, workerId, now, leaseFence?.leaseToken ?? null,
-        leaseFence?.leaseToken ?? null, leaseFence?.attemptNo ?? 0, scope.ownerId, scope.bookId);
-      if (failure.changes !== 1) throw error;
-      this.database.prepare(`
-        UPDATE task_attempts SET status = ?, error_code = ?, completed_at = ?
-        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND attempt_no = ? AND status = 'working'
-      `).run(cancelled ? 'cancelled' : 'failed', failureCode, now,
-        scope.ownerId, scope.bookId, taskId, leaseFence?.attemptNo ?? claimedTask.currentAttemptNo);
-      this.database.prepare(`
-        UPDATE task_phases
-        SET status = ?, heartbeat_at = ?, completed_at = ?
-        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND status = 'working'
-      `).run(cancelled ? 'cancelled' : 'failed', now, now, scope.ownerId, scope.bookId, taskId);
+      const taskService = new TaskService(this.database, this.releaseId, this.clock);
+      if (cancelled) taskService.complete(scope, taskId, workerId, leaseFence);
+      else taskService.fail(scope, taskId, workerId, failureCode, leaseFence);
       throw error;
     }
   }

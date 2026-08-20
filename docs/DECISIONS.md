@@ -658,8 +658,8 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 第一卷路线携带首卷强启动合同：事件链覆盖前500字、黄金三章、早期回报、冲突/情绪升级、10万有效正文字符前或卷末重大高潮；前三章形成整体启动包，第一章另有前500字执行合同；运行时按定稿有效字符在85k预警、超过100k判逾期，并以实际结算确认高潮兑现而非只认计划。
 4. 管理员隔离环境通过真实HTTP会话完成开书、四核心设定、整份质检、卷A/B路线、作者整选与融合、事件链生成确认、当前事件生成确认、黄金三章/章链、第一章详细章纲及冻结共15项检查。该链首次暴露Worker未注册`event_chain_generation`，已补入可执行任务白名单并加回归测试；确定性证据保存于`data/verification/layered-admin-planning-final4.json`。
 5. 360、390、430px组件级布局门禁验证重点规划页面单列、无横向溢出、主要触控目标不小于44px；当前内置浏览器在Windows沙箱返回`helper_unknown_error`，因此本轮没有把浏览器像素截图或输入法弹起实机交互误标为通过。
-6. 本轮全量门禁结果为178个测试文件、761项测试通过；contracts/API/Worker/Web/测试五组TypeScript检查通过；contracts、API、Worker、Web生产构建通过；迁移最新到0062且升级/幂等/首管理员接管测试通过；更新后的9文件长篇质量Skill和审计验证器通过完整分层审计样本。
-7. 生产部署已完成Web、API和0058—0062迁移，首页与健康接口200、未登录会话401门禁正常。构建期间又出现作者讨论任务，Worker不得重启；`wenmi-worker-deploy-1144273.service`仅在任务连续30秒为0并最终复核后重启Worker和检查健康。生产管理员开书到结算和手机实机仍未验收。
+6. 本轮全量门禁结果为178个测试文件、762项测试通过；contracts/API/Worker/Web/测试五组TypeScript检查通过；contracts、API、Worker、Web生产构建通过；迁移最新到0062且升级/幂等/首管理员接管测试通过；更新后的9文件长篇质量Skill和审计验证器通过完整分层审计样本。
+7. 生产部署已完成Web、API、Worker和0058—0062迁移；静默守候器在任务连续30秒为0后于21:57:45安全重启Worker。双服务active，首页与健康接口200、未登录会话401、SQLite完整性和外键检查通过。生产管理员开书到结算和手机实机仍未验收。
 8. E3真实模型多题材盲审、真实前500字与黄金三章阅读、候选多样性和人物生命力非劣效，以及E4 20/50/100/200章长期漂移验收均未开始；E2完成不得改写为整套创作质量完成。
 
 ## DEC-CURRENT-082 生产暂存构建与双服务静默窗口（2026-08-20）
@@ -670,3 +670,13 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. `working`、`queued`、`pending`、`waiting_confirmation`任一数量非0时，API和Worker都不重启；API不能再被假定为与模型任务完全无关。
 3. 无人值守守候器至少连续30秒确认任务为0，并在重启前立即复核；只等待，不取消、暂停或改写作者任务。
 4. 每个服务单独重启并立即看active、启动日志和健康接口；前端资源指纹、迁移版本、首页、登录门禁和核心链路分别验收。
+
+## DEC-CURRENT-083 讨论取消阶段状态CHECK约束热修（2026-08-20）
+
+【当前】分层版本上线后的生产日志出现`CHECK constraint failed: status IN ('pending','working','paused','interrupted','failed','succeeded')`。事实回查确认约束属于`task_phases.status`；任务本体和任务尝试允许`cancelled`，任务阶段从0003迁移起不允许`cancelled`。
+
+1. 根因有两处：`TaskService.complete`在工作中收到取消请求后把`cancelled`同时写入任务阶段；讨论管线失败/取消路径又复制了一份任务、尝试和阶段收尾SQL，同样把`cancelled`写入阶段。
+2. 正式语义固定为：`tasks.status`和`task_attempts.status`保留`cancelled`，表示作者取消整项任务；`task_phases.status`写`interrupted`，表示执行阶段被取消打断。
+3. 讨论管线删除重复收尾SQL，统一调用`TaskService.complete/fail`，以后任务租约、尝试、阶段和事件语义只由一个状态机维护。
+4. 新增工作中取消回归用例，验证任务=`cancelled`、阶段=`interrupted`、尝试=`cancelled`且不触发CHECK；任务状态、讨论和缺席补写定向9项、API类型检查、178文件762项全量测试及API生产构建通过。
+5. 热修只改API运行代码和测试，不改迁移、不改作者数据；生产API仍须等待在途任务连续清零后重启，不能用修BUG为由打断当前任务。

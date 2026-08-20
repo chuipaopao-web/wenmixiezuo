@@ -748,7 +748,7 @@ ContextCompiler为每份资料标注硬事实、当前任务、软参考或创�
 
 ### 分层创作系统实施方案与验收清单
 
-> 当前源文件：`docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md` · 指纹：`0e1d7b7bd277`
+> 当前源文件：`docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md` · 指纹：`d139bfd01db4`
 
 #### 分层创作系统实施方案与验收清单
 
@@ -1665,7 +1665,7 @@ interface FirstChapterLaunchContract {
 | Worker任务可达性 | 已完成（E2） | 管理员走查发现并修复`event_chain_generation`白名单遗漏；增加全部执行类型集合回归 |
 | E3真实模型验收 | 未开始 | 仍需玄幻、言情、悬疑、都市、日常多题材盲审和真实前500/三章/高潮阅读 |
 | E4长期验收 | 未开始 | 仍需20/50/100/200章纵向证据，不能由确定性工程冒充 |
-| 生产部署验收 | 部分完成 | Web、API及0058—0062迁移已上线，首页/健康/登录门禁正常；Worker因持续有作者讨论任务未重启，安全守候器等待连续30秒清零后执行 |
+| 生产部署验收 | 部分完成 | Web、API、Worker及0058—0062已上线，双服务active、首页/健康/登录门禁和数据库完整性正常；讨论取消状态热修待API静默重启，生产管理员全链与手机实机仍未验收 |
 | 文档一致性 | 已完成（E2） | 38份当前资料完成同步；文档中心一致性检查通过 |
 
 ###### 15.1 本轮E2证据索引
@@ -4429,7 +4429,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`6ec47d13be93`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`d5ab9dca37c0`
 
 #### 当前生效决定
 
@@ -5091,8 +5091,8 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 3. 第一卷路线携带首卷强启动合同：事件链覆盖前500字、黄金三章、早期回报、冲突/情绪升级、10万有效正文字符前或卷末重大高潮；前三章形成整体启动包，第一章另有前500字执行合同；运行时按定稿有效字符在85k预警、超过100k判逾期，并以实际结算确认高潮兑现而非只认计划。
 4. 管理员隔离环境通过真实HTTP会话完成开书、四核心设定、整份质检、卷A/B路线、作者整选与融合、事件链生成确认、当前事件生成确认、黄金三章/章链、第一章详细章纲及冻结共15项检查。该链首次暴露Worker未注册`event_chain_generation`，已补入可执行任务白名单并加回归测试；确定性证据保存于`data/verification/layered-admin-planning-final4.json`。
 5. 360、390、430px组件级布局门禁验证重点规划页面单列、无横向溢出、主要触控目标不小于44px；当前内置浏览器在Windows沙箱返回`helper_unknown_error`，因此本轮没有把浏览器像素截图或输入法弹起实机交互误标为通过。
-6. 本轮全量门禁结果为178个测试文件、761项测试通过；contracts/API/Worker/Web/测试五组TypeScript检查通过；contracts、API、Worker、Web生产构建通过；迁移最新到0062且升级/幂等/首管理员接管测试通过；更新后的9文件长篇质量Skill和审计验证器通过完整分层审计样本。
-7. 生产部署已完成Web、API和0058—0062迁移，首页与健康接口200、未登录会话401门禁正常。构建期间又出现作者讨论任务，Worker不得重启；`wenmi-worker-deploy-1144273.service`仅在任务连续30秒为0并最终复核后重启Worker和检查健康。生产管理员开书到结算和手机实机仍未验收。
+6. 本轮全量门禁结果为178个测试文件、762项测试通过；contracts/API/Worker/Web/测试五组TypeScript检查通过；contracts、API、Worker、Web生产构建通过；迁移最新到0062且升级/幂等/首管理员接管测试通过；更新后的9文件长篇质量Skill和审计验证器通过完整分层审计样本。
+7. 生产部署已完成Web、API、Worker和0058—0062迁移；静默守候器在任务连续30秒为0后于21:57:45安全重启Worker。双服务active，首页与健康接口200、未登录会话401、SQLite完整性和外键检查通过。生产管理员开书到结算和手机实机仍未验收。
 8. E3真实模型多题材盲审、真实前500字与黄金三章阅读、候选多样性和人物生命力非劣效，以及E4 20/50/100/200章长期漂移验收均未开始；E2完成不得改写为整套创作质量完成。
 
 ##### DEC-CURRENT-082 生产暂存构建与双服务静默窗口（2026-08-20）
@@ -5103,6 +5103,16 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 2. `working`、`queued`、`pending`、`waiting_confirmation`任一数量非0时，API和Worker都不重启；API不能再被假定为与模型任务完全无关。
 3. 无人值守守候器至少连续30秒确认任务为0，并在重启前立即复核；只等待，不取消、暂停或改写作者任务。
 4. 每个服务单独重启并立即看active、启动日志和健康接口；前端资源指纹、迁移版本、首页、登录门禁和核心链路分别验收。
+
+##### DEC-CURRENT-083 讨论取消阶段状态CHECK约束热修（2026-08-20）
+
+【当前】分层版本上线后的生产日志出现`CHECK constraint failed: status IN ('pending','working','paused','interrupted','failed','succeeded')`。事实回查确认约束属于`task_phases.status`；任务本体和任务尝试允许`cancelled`，任务阶段从0003迁移起不允许`cancelled`。
+
+1. 根因有两处：`TaskService.complete`在工作中收到取消请求后把`cancelled`同时写入任务阶段；讨论管线失败/取消路径又复制了一份任务、尝试和阶段收尾SQL，同样把`cancelled`写入阶段。
+2. 正式语义固定为：`tasks.status`和`task_attempts.status`保留`cancelled`，表示作者取消整项任务；`task_phases.status`写`interrupted`，表示执行阶段被取消打断。
+3. 讨论管线删除重复收尾SQL，统一调用`TaskService.complete/fail`，以后任务租约、尝试、阶段和事件语义只由一个状态机维护。
+4. 新增工作中取消回归用例，验证任务=`cancelled`、阶段=`interrupted`、尝试=`cancelled`且不触发CHECK；任务状态、讨论和缺席补写定向9项、API类型检查、178文件762项全量测试及API生产构建通过。
+5. 热修只改API运行代码和测试，不改迁移、不改作者数据；生产API仍须等待在途任务连续清零后重启，不能用修BUG为由打断当前任务。
 
 ---
 
@@ -5611,7 +5621,7 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 
 ### 文秘写作交接笔记（HANDOFF）
 
-> 当前源文件：`HANDOFF.md` · 指纹：`44e78bdbd3dd`
+> 当前源文件：`HANDOFF.md` · 指纹：`88f689ac69ab`
 
 #### 文秘写作交接笔记（HANDOFF）
 
@@ -5626,14 +5636,14 @@ E0规格，E1机制存在，E2确定性工程，E3独立金标/真实模型盲�
 - 原则：**改到哪一页，顺手删掉死代码、同步改文档；文档只描述当前生效的功能**。老板说改什么就改什么，不多做；有必要的附带改动先问。
 - 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi；数据库 `/opt/wenmi/data/database/wenmi.sqlite`；清书前整库备份在 `/opt/wenmi/data/backups/pre-purge-20260819/`）。
 - 分支 `codex/desktop-entry`，远程 GitHub `chuipaopao-web/wenmixiezuo`，每次提交后推送。
-- 当前基线：**全量测试 761 绿（178 文件）**，contracts/API/Worker/Web/测试五组 TypeScript 检查与四端生产构建通过，最新迁移 `0062_setting_gap_status.sql`。
+- 当前基线：**全量测试 762 绿（178 文件）**，contracts/API/Worker/Web/测试五组 TypeScript 检查与四端生产构建通过，最新迁移 `0062_setting_gap_status.sql`。
 - 创作团队 14 人，模型全部走火山方舟双套餐（Agent Plan + Coding Plan），Key 只在服务器环境变量（`WENMI_ARK_AGENT_PLAN_API_KEY` / `WENMI_ARK_CODING_PLAN_API_KEY`），**绝不进 Git/文档/日志**；当前名单：貂蝉 DeepSeek V4 Pro、西施 GLM 5.3、婉儿 DeepSeek V4 Pro、红玉 GLM 5.3、幼薇 Kimi K2.7、文姬 DeepSeek V4 Flash（其余岗位见 `apps/api/src/contracts/agent-team-v2.ts` 与后台模型管理）。MiniMax 已停用。
 - 会员四等级已上线：青铜 20万算力值（注册自动送）/ 白银 98元 2000万 / 黄金 198元 5000万 / 钻石 980元 2亿；算力值=真实 token×2（`COMPUTE_VALUE_MULTIPLIER`），前端不出现 token 字眼；书籍预算上限跟随会员等级。
 - Windows 部署打包必须 `git -c core.autocrlf=false -c core.eol=lf archive`：本机 `core.autocrlf=true` 会让 git archive 把全部文本转成 CRLF，迁移文件校验和与数据库记录不符导致生产启动崩溃（2026-08-19 已踩过；`.gitattributes` 已给 `*.sql` 加 `eol=lf` 兜底，但其他文件仍建议用该命令保持 LF）。
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
 ##### 最近完成的改动（最新在最上）
-1. 分层创作E2工程闭环（DEC-CURRENT-081）：四项核心设定、按需补设定三选一、硬/软/留白上下文、全书故事总线与线程账本、卷方向/事件链拆分、22种隐藏结构方法、双路线整选/片选/融合、首卷前500字/黄金三章/10万字高潮追踪、完整事件章链与近期细纲已经贯通。管理员隔离HTTP冒烟从开书走到第一章详细章纲冻结共15项通过，并据此发现并修复Worker漏注册`event_chain_generation`的真实阻断；证据在`data/verification/layered-admin-planning-final4.json`。360/390/430px组件布局与44px触控门禁通过；浏览器像素级实机复核仍待可用浏览器环境。E3真实模型多题材盲审和E4 20/50/100/200章长期质量未开始，不能宣称整套文学质量验收完成。提交`1144273`已推送；生产Web、API及0058—0062迁移已上线并通过首页/健康门禁，Worker因持续存在作者讨论任务尚未重启，`wenmi-worker-deploy-1144273.service`会在任务连续30秒为0时安全重启并自检。
+1. 分层创作E2工程闭环（DEC-CURRENT-081）：四项核心设定、按需补设定三选一、硬/软/留白上下文、全书故事总线与线程账本、卷方向/事件链拆分、22种隐藏结构方法、双路线整选/片选/融合、首卷前500字/黄金三章/10万字高潮追踪、完整事件章链与近期细纲已经贯通。管理员隔离HTTP冒烟从开书走到第一章详细章纲冻结共15项通过，并据此发现并修复Worker漏注册`event_chain_generation`的真实阻断；证据在`data/verification/layered-admin-planning-final4.json`。360/390/430px组件布局与44px触控门禁通过；浏览器像素级实机复核仍待可用浏览器环境。E3真实模型多题材盲审和E4 20/50/100/200章长期质量未开始，不能宣称整套文学质量验收完成。提交`1144273`已推送，生产Web、API、Worker及0058—0062迁移已上线，双服务active、首页/健康门禁和数据库完整性通过。生产日志又暴露讨论取消时阶段状态误写`cancelled`的旧BUG；本地已修复并通过762项全量测试，等待无在途任务窗口发布API热修（DEC-CURRENT-083）。
 1. 分层创作唯一实施总表（DEC-CURRENT-080，A—J共148项）：已按2026-08-20 07:59前聊天逐条复核，并保守纳入07:59:18最终指令；补齐全书故事总线、故事线程账本、作者原话分级、结构方法五类分工、八类稳定资料包、旧六项兼容、硬事实100%覆盖、K3交互门禁、停止/回滚合同和聊天追溯矩阵。总表另含8个实施批次和E0—E4证据等级，当前已完成/部分/未开始基线明确，部分完成不能结算。
 
 1. 分层故事设计+隐藏叙事方法+手机优先（DEC-CURRENT-079）：开书只定基础方向；设定核心收为世界舞台、主角底板、规矩与代价、边界与留白四项，故事内核降为可选，扩展设定按需。内部叙事方法库覆盖22种常用方法，普通作者只看两条实质不同的具体卷路线，不显示三幕式、拯救猫咪等专业名。第一卷增加全书故事总线、前500字职责、黄金三章和10万有效字内重大高潮；事件阅读感受改为大白话单选，章链完整规划但只滚动细化最近1—3章。ContextCompiler按硬事实/任务约束/软参考/开放区和计划/已发生双轴编译，硬来源不再静默截断。管理员隔离数据实测完成开书→四核心设定→整份质检→三份卷方案→事件链→8章章链→近期细纲→冻结进入正文；360/390/430px重点页面无横向溢出，390px事件与章纲操作目标均不小于44px。
