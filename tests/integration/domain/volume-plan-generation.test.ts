@@ -6,6 +6,7 @@ import { ContextPackService } from '../../../apps/api/src/application/memory/con
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import {
   assertMateriallyDifferentRoutes,
+  invalidVolumePlanOutputFailure,
   parseVolumeDirectionModelOutput,
   parseVolumePlanModelOutput,
   isVolumePlanOutputCapped,
@@ -297,6 +298,14 @@ describe('卷规划团队生成', () => {
     expect(volumePlanExpressionBudget('candidate_a')).toContain(
       'Do not design event lists, chapter lists, scene beats or dialogue in the volume direction.'
     );
+    const invalidOutput = invalidVolumePlanOutputFailure('第一卷方向必须包含首卷强启动设计');
+    expect(invalidOutput).toMatchObject({
+      failureClass: 'technical_failure',
+      retryable: true,
+      statusCode: 200,
+      outcomeUnknown: false
+    });
+    expect(invalidOutput.message).toContain('另一可用模型补位');
   });
 
   it('真实模型输出按正式卷方向合同解析，不接受卷内事件列表作为方向内容', () => {

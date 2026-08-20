@@ -417,6 +417,7 @@ export class VolumePlanGenerationPipelineService {
         if (this.repository.isUnresolvedModelCall(scope, requestId)) throw error;
       }
     }
+    if (validationFailure !== null) throw invalidVolumePlanOutputFailure(validationFailure);
     throw lastError instanceof Error ? lastError : new Error('模型没有返回有效的卷规划。');
   }
 
@@ -976,6 +977,16 @@ function requiredSeat(seats: VolumePlanGenerationSeat[], roleKey: string): Volum
   const seat = seats.find((candidate) => candidate.roleKey === roleKey);
   if (seat === undefined) throw new Error(`卷规划任务缺少冻结岗位：${roleKey}`);
   return seat;
+}
+
+export function invalidVolumePlanOutputFailure(validationFailure: string): ModelAdapterError {
+  return new ModelAdapterError(
+    `卷规划输出在有界重试后仍未通过结构校验，需要由另一可用模型补位：${validationFailure}`,
+    'technical_failure',
+    true,
+    200,
+    false
+  );
 }
 
 function isKnownRetryableTechnicalFailure(result: PromiseSettledResult<unknown>): boolean {

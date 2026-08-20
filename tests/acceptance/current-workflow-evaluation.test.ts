@@ -37,6 +37,13 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('hardIssues.length === 0');
     expect(script).toContain('setting-quality-audit-attempt-');
     expect(script).toContain('auditAttempt <= 4');
+    expect(script).toContain('SCENARIO.requiredSettingKeys ?? []');
+    expect(script).toContain('setting-quality-audit-after-setting-remediation-1');
+    expect(script).toContain("item.purpose === 'setting-quality-audit'");
+    expect(script).toContain('startOrResumeAuthorGeneration');
+    expect(script).toContain('task.idempotencyKey === idempotencyKey && task.taskType === taskType');
+    expect(script).toContain('task.idempotencyKey.endsWith(`:${idempotencyKey}`)');
+    expect(script).toContain('author_generation_task_retried');
     expect(script).toContain('TARGET_EVENT_COUNT');
     expect(script).toContain('TARGET_COMPLETED_VOLUME_COUNT');
     expect(script).not.toContain('if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);');
@@ -44,6 +51,16 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('发布级文学质量仍需要人工通读确认');
     expect(acceptance).toContain('| E4长期验收 | 未开始 |');
   });
+
+  it('仙侠验收把开书明确留待确认的境界体系作为正式补充设定', () => {
+    const scenario = workflowScenarios.xianxia!;
+    expect(scenario.requiredSettingKeys).toContain('levels');
+    const answer = scenario.answerFor({ itemKey: 'levels', label: '等级、境界与晋升', prompt: '' });
+    expect(answer).toContain('淬体、引气、凝脉、筑台、金丹、元婴、化神');
+    expect(answer).toContain('阵痕');
+    expect(answer).toContain('不能替代修为积累');
+  });
+
 
   it('数据审计逐层检查规划、正文绑定与数据库完整性', () => {
     const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/full-flow-data-audit.mjs'), 'utf8');

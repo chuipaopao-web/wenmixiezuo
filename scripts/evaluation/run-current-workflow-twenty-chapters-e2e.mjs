@@ -241,6 +241,48 @@ async function waitForTask(bookId, taskId, purpose) {
   throw new Error(`${purpose} task ${taskId} exceeded ${TASK_TIMEOUT_MS / 60_000} minutes`);
 }
 
+function assertAuthorSafeGenerationView(view, purpose) {
+  assert(view !== null && typeof view === 'object', `${purpose} did not return an author generation view`);
+  assert(!('taskId' in view), `${purpose} leaked internal taskId through the author generation view`);
+  assert(!('currentPhase' in view), `${purpose} leaked internal currentPhase through the author generation view`);
+}
+
+async function taskByIdempotency(bookId, idempotencyKey, taskType, required) {
+  const tasks = await request(`/api/v1/books/${bookId}/tasks`);
+  const exactMatches = tasks.filter((task) => task.idempotencyKey === idempotencyKey && task.taskType === taskType);
+  const serviceScopedMatches = tasks.filter((task) => task.taskType === taskType
+    && task.idempotencyKey.endsWith(`:${idempotencyKey}`));
+  const matches = exactMatches.length > 0 ? exactMatches : serviceScopedMatches;
+  assert(matches.length <= 1,
+    `${taskType} has ${matches.length} tasks for exact idempotency key ${idempotencyKey}`);
+  if (required) assert(matches.length === 1, `${taskType} task was not recoverable by its exact idempotency key`);
+  return matches[0] ?? null;
+}
+
+async function startOrResumeAuthorGeneration(bookId, { path, body, taskType, purpose }) {
+  const existing = await taskByIdempotency(bookId, body.idempotencyKey, taskType, false);
+  if (existing !== null) {
+    if (['failed', 'interrupted'].includes(existing.status)) {
+      const retried = await request(`/api/v1/books/${bookId}/tasks/${existing.taskId}/retry`, {
+        method: 'POST', body: {}
+      });
+      log('author_generation_task_retried', {
+        purpose, taskType, taskId: retried.taskId, previousStatus: existing.status,
+        preservedCandidateCheckpoint: true
+      });
+      return { taskId: retried.taskId, view: null, recovered: true, retried: true };
+    }
+    log('author_generation_task_recovered', {
+      purpose, taskType, taskId: existing.taskId, status: existing.status, exactIdempotencyKey: true
+    });
+    return { taskId: existing.taskId, view: null, recovered: true, retried: false };
+  }
+  const view = await request(path, { method: 'POST', body });
+  assertAuthorSafeGenerationView(view, purpose);
+  const created = await taskByIdempotency(bookId, body.idempotencyKey, taskType, true);
+  return { taskId: created.taskId, view, recovered: false, retried: false };
+}
+
 function blueprint(taxonomyVersion) {
   return SCENARIO.openingBlueprint(taxonomyVersion);
 }
@@ -285,7 +327,11 @@ async function completeSettings(bookId) {
   if (state.settingsCompleted) return;
   activePhase = 'setting-outline';
   const readiness = await request(`/api/v1/books/${bookId}/setting-baseline/readiness`);
-  for (const itemKey of readiness.required) {
+  const requiredSettingKeys = [...new Set([
+    ...readiness.required,
+    ...(SCENARIO.requiredSettingKeys ?? [])
+  ])];
+  for (const itemKey of requiredSettingKeys) {
     let items = await request(`/api/v1/books/${bookId}/setting-outline-workspace`);
     let item = items.find((candidate) => candidate.itemKey === itemKey);
     assert(item, `required setting item ${itemKey} is missing from workspace`);
@@ -362,26 +408,43 @@ async function completeSettings(bookId) {
 
   const ready = await request(`/api/v1/books/${bookId}/setting-baseline/readiness`);
   assert(ready.ready, `setting baseline is not ready: ${JSON.stringify({ missing: ready.missing, unresolved: ready.unresolved })}`);
-  let quality = null;
+  let quality = await request(`/api/v1/books/${bookId}/setting-baseline/quality-report`);
   const completedAuditAttempts = (state.taskEvidence ?? [])
-    .filter((item) => String(item.purpose ?? '').startsWith('setting-quality-audit')).length;
-  for (let auditAttempt = completedAuditAttempts + 1; auditAttempt <= 4; auditAttempt += 1) {
-    const auditPurpose = `setting-quality-audit-attempt-${auditAttempt}`;
-    const audit = await request(`/api/v1/books/${bookId}/setting-baseline/quality-audit`, {
-      method: 'POST', body: { idempotencyKey: key(auditPurpose) }
+    .filter((item) => item.purpose === 'setting-quality-audit'
+      || /^setting-quality-audit-attempt-\d+$/u.test(String(item.purpose ?? ''))).length;
+  if (!(quality.fresh && quality.report)) {
+    for (let auditAttempt = completedAuditAttempts + 1; auditAttempt <= 4; auditAttempt += 1) {
+      const auditPurpose = `setting-quality-audit-attempt-${auditAttempt}`;
+      const audit = await request(`/api/v1/books/${bookId}/setting-baseline/quality-audit`, {
+        method: 'POST', body: { idempotencyKey: key(auditPurpose) }
+      });
+      try {
+        await waitForTask(bookId, audit.taskId, auditPurpose);
+      } catch (error) {
+        log('setting_quality_audit_attempt_failed', { auditAttempt, taskId: audit.taskId });
+        if (auditAttempt === 4) throw error;
+        continue;
+      }
+      quality = await request(`/api/v1/books/${bookId}/setting-baseline/quality-report`);
+      if (quality.fresh && quality.report) {
+        log('setting_quality_audit_attempt_succeeded', { auditAttempt, taskId: audit.taskId });
+        break;
+      }
+    }
+  }
+  if (!(quality.fresh && quality.report)) {
+    const remediationPurpose = 'setting-quality-audit-after-setting-remediation-1';
+    const remediationAlreadyUsed = (state.taskEvidence ?? [])
+      .some((item) => item.purpose === remediationPurpose);
+    assert(!remediationAlreadyUsed, 'setting quality audit after setting remediation already ran without a fresh report');
+    const remediationAudit = await request(`/api/v1/books/${bookId}/setting-baseline/quality-audit`, {
+      method: 'POST', body: { idempotencyKey: key(remediationPurpose) }
     });
-    try {
-      await waitForTask(bookId, audit.taskId, auditPurpose);
-    } catch (error) {
-      log('setting_quality_audit_attempt_failed', { auditAttempt, taskId: audit.taskId });
-      if (auditAttempt === 4) throw error;
-      continue;
-    }
+    await waitForTask(bookId, remediationAudit.taskId, remediationPurpose);
     quality = await request(`/api/v1/books/${bookId}/setting-baseline/quality-report`);
-    if (quality.fresh && quality.report) {
-      log('setting_quality_audit_attempt_succeeded', { auditAttempt, taskId: audit.taskId });
-      break;
-    }
+    log('setting_quality_audit_after_remediation_completed', {
+      taskId: remediationAudit.taskId, fresh: quality.fresh, hasReport: Boolean(quality.report)
+    });
   }
   assert(quality?.fresh && quality.report, 'setting quality audit does not cover the current confirmed settings');
   const hardIssues = quality.report.issues.filter((issue) => issue.severity === 'hard');
@@ -474,8 +537,10 @@ async function planVolume(bookId, volumeNumber) {
     workflow = await request(`/api/v1/books/${bookId}/workflow`);
     plans = await request(`/api/v1/books/${bookId}/volume-plans`);
     plan = plans.find((item) => item.volumePlanId === plan.volumePlanId);
-    const generation = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/generate`, {
-      method: 'POST', body: {
+    const generation = await startOrResumeAuthorGeneration(bookId, {
+      path: `/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/generate`,
+      taskType: 'volume_plan_generation', purpose: `volume-${volumeNumber}-generation`,
+      body: {
         expectedPlanRevision: plan.revision, expectedActiveVersionId: plan.activeVersionId,
         expectedWorkflowVersion: workflow.planningVersion, template: noneTemplate('volume'),
         authorInputRefs: [ideaId], idempotencyKey: key(volumeLabel(volumeNumber, 'volume-generate'))
@@ -483,7 +548,9 @@ async function planVolume(bookId, volumeNumber) {
     });
     generationTaskId = generation.taskId;
     saveVolumeState('volumeGenerationTaskIds', volumeNumber, generationTaskId, 'volumeGenerationTaskId');
-    log('volume_generation_started', { volumeNumber, taskId: generation.taskId, members: generation.members });
+    log('volume_generation_started', {
+      volumeNumber, taskId: generation.taskId, members: generation.view?.members ?? [], recovered: generation.recovered
+    });
   }
   await waitForTask(bookId, generationTaskId, `volume-${volumeNumber}-candidates-and-editor`);
   let versions = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`);
@@ -574,8 +641,11 @@ async function planEvent(bookId, volumePlan, volumeNumber, eventIndex) {
     workflow = await request(`/api/v1/books/${bookId}/workflow`);
     sequence = await request(`/api/v1/books/${bookId}/volume-plans/${volumePlan.volumePlanId}/event-sequence`);
     event = sequence.events[eventIndex];
-    const generation = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/generate`, {
-      method: 'POST', body: {
+    const generation = await startOrResumeAuthorGeneration(bookId, {
+      path: `/api/v1/books/${bookId}/story-events/${event.eventId}/generate`,
+      taskType: 'story_event_generation',
+      purpose: `volume-${volumeNumber}-event-${eventIndex + 1}-generation`,
+      body: {
         expectedEventRevision: event.revision, expectedActiveVersionId: event.activeVersionId,
         expectedWorkflowVersion: workflow.planningVersion, template: noneTemplate('event'),
         authorInputRefs: [ideaId], idempotencyKey: key(volumeLabel(volumeNumber, `event-${eventIndex + 1}-generate`))
@@ -583,7 +653,10 @@ async function planEvent(bookId, volumePlan, volumeNumber, eventIndex) {
     });
     eventTaskId = generation.taskId;
     save({ eventGenerationTaskIds: { ...(state.eventGenerationTaskIds ?? {}), [globalIndex]: eventTaskId } });
-    log('event_generation_started', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, taskId: eventTaskId, members: generation.members });
+    log('event_generation_started', {
+      volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1,
+      taskId: eventTaskId, members: generation.view?.members ?? [], recovered: generation.recovered
+    });
   }
   const eventTaskDetail = await request(`/api/v1/books/${bookId}/tasks/${eventTaskId}`);
   if (terminalFailures.has(eventTaskDetail.task.status)) {
@@ -699,8 +772,11 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
       }
     }
     if (!taskId) {
-      const generation = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/generate`, {
-        method: 'POST', body: {
+      const generation = await startOrResumeAuthorGeneration(bookId, {
+        path: `/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-sequence/generate`,
+        taskType: 'event_chapter_sequence_generation',
+        purpose: `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence-${attempt}`,
+        body: {
           expectedSequenceRevision: sequence.revision, expectedWorkflowVersion: workflow.planningVersion,
           authorInputRefs: [ideaId],
           idempotencyKey: key(volumeLabel(volumeNumber,
@@ -709,7 +785,10 @@ async function planChapterSequence(bookId, event, volumeNumber, eventIndex) {
       });
       taskId = generation.taskId;
       save({ chapterSequenceTaskIds: { ...(state.chapterSequenceTaskIds ?? {}), [globalIndex]: { ...(state.chapterSequenceTaskIds?.[globalIndex] ?? {}), [attempt]: taskId } } });
-      log('chapter_sequence_generation_started', { volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1, attempt, taskId, member: generation.member });
+      log('chapter_sequence_generation_started', {
+        volumeNumber, eventIndex: eventIndex + 1, globalEventIndex: globalIndex + 1,
+        attempt, taskId, member: generation.view?.members?.[0] ?? null, recovered: generation.recovered
+      });
     }
     try {
       await waitForTask(bookId, taskId, `volume-${volumeNumber}-event-${eventIndex + 1}-chapter-sequence-attempt-${attempt}`);
@@ -1042,14 +1121,19 @@ async function prepareAndWriteEventChapters(bookId, event) {
       const priorAttempts = (state.taskEvidence ?? [])
         .filter((item) => String(item.purpose ?? '').startsWith(detailAttempt)).length;
       const requestAttempt = `${detailAttempt}-attempt-${priorAttempts + 1}`;
-      const generation = await request(`/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-outlines/generate`, {
-        method: 'POST', body: {
+      const generation = await startOrResumeAuthorGeneration(bookId, {
+        path: `/api/v1/books/${bookId}/story-events/${event.eventId}/chapter-outlines/generate`,
+        taskType: 'event_chapter_detail_generation', purpose: requestAttempt,
+        body: {
           count: targets.length, expectedSequenceRevision: sequence.revision,
           expectedWorkflowVersion: workflow.planningVersion, authorInputRefs: [],
           idempotencyKey: key(requestAttempt)
         }
       });
-      log('chapter_details_generation_started', { start, count: targets.length, taskId: generation.taskId, member: generation.member });
+      log('chapter_details_generation_started', {
+        start, count: targets.length, taskId: generation.taskId,
+        member: generation.view?.members?.[0] ?? null, recovered: generation.recovered
+      });
       const purpose = requestAttempt;
       try {
         await waitForTask(bookId, generation.taskId, purpose);
