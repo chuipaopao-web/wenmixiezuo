@@ -59,15 +59,6 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   expect(screen.queryByText(/卷规划只约束目标/u)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '开始规划第一卷' }));
   expect(await screen.findByRole('heading', { name: '我的卷规划草案' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /解决一个麻烦，又引出更大的目标/u }));
-  expect(screen.getByText('根据本书推荐')).toBeInTheDocument();
-  fireEvent.click(screen.getByText('查看更多推进方案'));
-  fireEvent.click(screen.getByRole('button', { name: /让关系变化推动主线/u }));
-  fireEvent.click(screen.getByRole('button', { name: /让局势分段升级/u }));
-  fireEvent.click(screen.getByRole('button', { name: /先得后失再重建/u }));
-  expect(screen.getByText('已选 4 种')).toBeInTheDocument();
-
-
   change('卷标题', '雾城守夜卷');
   change('开卷时人物与局面', '张三仍是边军小卒，只掌握一条未经证实的预见线索。');
   change('这一卷必须完成什么', '让张三证明预见并非幻觉，同时决定是否承担守城责任。');
@@ -90,11 +81,10 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   expect(versionRequest?.body).toMatchObject({
     expectedPlanRevision: 1,
     candidateKind: 'author_edit',
-    template: { selectionMode: 'template', templateKey: 'volume-escalating-goals' },
+    template: { selectionMode: 'none', templateKey: null, scope: 'volume' },
     content: { title: '雾城守夜卷', eventSequence: [{ title: '钟响前的误报' }] }
   });
 
-  expect((versionRequest?.body?.template as { templateRefs?: unknown[] }).templateRefs).toHaveLength(4);
   fireEvent.click(screen.getByRole('button', { name: '确认这份稿' }));
   expect(await screen.findByText('已确认第1稿')).toBeInTheDocument();
   await waitFor(() => expect(requests.find((request) => request.path.endsWith('/confirm') && request.method === 'POST')?.body).toMatchObject({

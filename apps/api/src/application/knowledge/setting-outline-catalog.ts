@@ -18,10 +18,10 @@ export interface SettingOutlineTemplateItem {
 type Metadata = Omit<SettingOutlineTemplateItem, 'itemKey' | 'required' | 'sortOrder'>;
 
 const CATALOG: Record<string, Metadata> = {
-  'story-kernel': item('核心设定', '故事内核', '这本书最勾人的核心看点是什么？读者一直追下去，稳定获得什么爽感或满足？和同类书相比，它不可替代的地方在哪？'),
+  'story-kernel': item('可选方向', '长期吸引力', '如果已经想清楚，可以写下读者长期追更会获得什么满足；没想好可以留到第一卷一起设计。'),
   'world-stage': item('核心设定', '世界舞台', '故事发生在什么时代、什么样的世界？主角开场在哪里活动？这个世界的整体面貌和氛围是什么？'),
-  'protagonist-situation': item('核心设定', '主角处境', '主角是谁？开场拥有什么、缺少什么、被什么逼着往前走？他真正想要什么，又绝不会做什么？'),
-  opposition: item('核心设定', '对立面', '挡在主角面前的到底是谁或什么？对方想要什么、为什么绕不开？冲突靠什么一轮轮升级？'),
+  'protagonist-situation': item('核心设定', '主角底板', '主角的身份、能力基础、性格驱动力、日常处境和绝不越过的底线是什么？这里只定人物底板，不提前规定具体剧情。'),
+  opposition: item('早期条目', '旧版对立方向', '这项内容已由分卷阶段承担；旧书已填写内容继续保留为卷设计参考。'),
   'rules-costs': item('核心设定', '规矩与代价', '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？'),
   'boundaries-blanks': item('核心设定', '边界与留白', '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？'),
   geography: item('世界与环境', '地理地图与初始地点', '核心地理结构、交通边界和主角初始活动区域是什么？'),

@@ -15,6 +15,10 @@ import {
 import type { TaskRecord } from '../tasks/task-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import { VolumePlanService } from './volume-plan-service.js';
+import {
+  selectHiddenVolumeRouteRecipes,
+  type HiddenVolumeRouteRecipe
+} from './hidden-narrative-methods.js';
 
 export interface VolumePlanGenerationBrief {
   schema: 'volume-plan-generation-v1';
@@ -23,6 +27,7 @@ export interface VolumePlanGenerationBrief {
   expectedActiveVersionId: string | null;
   expectedWorkflowVersion: number;
   sourceFingerprint: string;
+  routeRecipes?: [HiddenVolumeRouteRecipe, HiddenVolumeRouteRecipe];
   template: PlanningTemplateInstance;
   authorInputRefs: string[];
   authorIdeas: Array<{
@@ -158,12 +163,17 @@ export class VolumePlanGenerationService {
       throw new DomainError(errorCodes.operationIncomplete, '当前书籍没有可用预算。', {}, false, 409);
     }
     const sourceFingerprint = volumePlanSourceFingerprint(snapshot);
+    const routeRecipes = selectHiddenVolumeRouteRecipes(
+      `${snapshot.bookTitle} ${snapshot.opening.content}`,
+      snapshot.planNumber === 1
+    );
     const requestHash = digest({
       volumePlanId,
       expectedPlanRevision,
       expectedActiveVersionId,
       expectedWorkflowVersion,
       sourceFingerprint,
+      routeRecipes,
       template,
       authorInputRefs,
       orderedIdeas,
@@ -199,6 +209,7 @@ export class VolumePlanGenerationService {
       expectedActiveVersionId,
       expectedWorkflowVersion,
       sourceFingerprint,
+      routeRecipes,
       template,
       authorInputRefs,
       authorIdeas: orderedIdeas,

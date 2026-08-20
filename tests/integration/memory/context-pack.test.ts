@@ -27,11 +27,15 @@ describe('不可变上下文包', () => {
     });
     expect(pack.sources[0]?.content).toBe(hardContent);
     expect(pack.sources[0]?.hard).toBe(true);
+    expect(pack.sources[0]).toMatchObject({ constraintStrength: 'hard_fact', truthStatus: 'confirmed', scopeType: 'book' });
+    expect(pack.sources.find((source) => source.sourceId === 'short-hint')).toMatchObject({ constraintStrength: 'soft_reference' });
     expect(pack.excluded).toContainEqual(expect.objectContaining({ sourceId: 'low-note', reason: 'token_budget_lower_priority' }));
     const stored = context.database.prepare(`SELECT source_manifest_json, content_hash FROM context_packs WHERE context_pack_id = ?`)
       .get(pack.contextPackId) as { source_manifest_json: string; content_hash: string };
     expect(JSON.parse(stored.source_manifest_json)[0].content).toBe(hardContent);
     expect(stored.content_hash).toBe(pack.contentHash);
+    expect(JSON.parse(stored.source_manifest_json)[0]).toMatchObject({
+      constraintStrength: 'hard_fact', truthStatus: 'confirmed', scopeType: 'book', dependencies: [] });
   });
 
   it('硬来源超预算时暂停而不是截断', () => {
@@ -71,6 +75,8 @@ describe('不可变上下文包', () => {
       ]
     });
     expect(pack.totalCharacters).toBeLessThanOrEqual(12);
+    expect(pack.sources.find((source) => source.sourceId === 'order-1'))
+      .toMatchObject({ constraintStrength: 'current_task', truthStatus: 'planned', scopeType: 'chapter' });
     expect(pack.policyVersion).toBe('writer-context-test-v2');
     expect(pack.sourceFingerprint).toMatch(/^[a-f0-9]{64}$/u);
     expect(pack.excluded).toContainEqual(expect.objectContaining({

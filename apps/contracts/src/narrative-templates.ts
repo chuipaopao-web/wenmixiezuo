@@ -33,7 +33,6 @@ export interface PublicNarrativeTemplate {
   templateVersion: number;
   contentHash: string;
   scope: PlanningScope;
-  sourceLabel: string;
   publicTitle: string;
   publicExplanation: string;
   fitConditions: string[];
@@ -279,7 +278,6 @@ export function toPublicTemplate(template: NarrativeTemplateDefinition, recommen
     templateVersion: template.templateVersion,
     contentHash: template.contentHash,
     scope: template.scope,
-    sourceLabel: template.sourceLabel ?? '通用叙事经验',
     publicTitle: template.publicTitle,
     publicExplanation: template.publicExplanation,
     fitConditions: [...template.fitConditions],

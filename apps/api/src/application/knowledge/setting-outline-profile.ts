@@ -7,13 +7,11 @@ export interface SettingOutlineProfile {
   recommended: string[];
 }
 
-// 核心六问：任何题材都必须先确认的六张卡。题材包项一律作为建议出现，
+// 非剧情骨架的核心四问：任何题材只需先确认这四张卡。题材包项一律作为建议出现，
 // 不再单独阻塞进入分卷；作者可以在建议、完整类目与自定义之间自由取舍。
 export const CORE_SETTING_KEYS = [
-  'story-kernel',
   'world-stage',
   'protagonist-situation',
-  'opposition',
   'rules-costs',
   'boundaries-blanks'
 ] as const;
@@ -21,6 +19,7 @@ export const CORE_SETTING_KEYS = [
 const CORE_REQUIRED: readonly string[] = [...CORE_SETTING_KEYS];
 
 const CORE_RECOMMENDED = [
+  'story-kernel',
   'geography',
   'strength-flaw',
   'supporting',

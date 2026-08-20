@@ -105,7 +105,7 @@ export class SettingCollaborationCommandService {
   public synthesize(
     scope: BookScope,
     itemKey: string,
-    input: { proposalIds: string[]; fragmentIds?: string[]; authorInputId?: string | null; idempotencyKey: string }
+    input: { proposalIds: string[]; wholeProposalIds?: string[]; fragmentIds?: string[]; authorInputId?: string | null; idempotencyKey: string }
   ): CommandResult {
     assertBookScope(scope);
     this.preferChiefWhenSafe(scope);
@@ -119,29 +119,35 @@ export class SettingCollaborationCommandService {
     if (uniqueIds.length === 0 || uniqueIds.length !== input.proposalIds.length) {
       throw new DomainError(errorCodes.validation, '请至少选择一份方案，并且不要重复选择');
     }
-    const selected = uniqueIds.map((proposalId) => {
+    const selectedSources = uniqueIds.map((proposalId) => {
       const proposal = proposals.find((candidate) => candidate.proposal_id === proposalId);
       if (proposal === undefined) {
         throw new DomainError(errorCodes.validation, '所选方案不存在或不属于当前设定项');
       }
-      return {
-        proposalId,
-        memberName: proposal.member_name ?? '未知成员',
-        content: compactProposalForSynthesis(proposal.content)
-      };
+      return proposal;
     });
-    const distinctModels = new Set(selected.map((proposal) => {
-      const source = proposals.find((candidate) => candidate.proposal_id === proposal.proposalId)!;
+    const distinctModels = new Set(selectedSources.map((source) => {
       return `${source.model_provider}/${source.model_id}`;
     }));
-    if (selected.length === 3 && distinctModels.size !== 3) {
+    if (selectedSources.length === 3 && distinctModels.size !== 3) {
       throw new DomainError(errorCodes.agentCapabilityUnavailable,
         '三份方案没有来自三种不同模型，不能当作三种独立意见进入融合。请重新召集成员。', {
-          selectedCount: selected.length,
+          selectedCount: selectedSources.length,
           distinctModelCount: distinctModels.size
         }, false, 409);
     }
     const fragmentIds = [...new Set(input.fragmentIds ?? [])];
+    const wholeProposalIds = input.wholeProposalIds === undefined
+      ? (fragmentIds.length === 0 ? uniqueIds : [])
+      : [...new Set(input.wholeProposalIds)];
+    if (wholeProposalIds.some((proposalId) => !uniqueIds.includes(proposalId))) {
+      throw new DomainError(errorCodes.validation, '整份选用的方案不在本次选择中');
+    }
+    const selected = selectedSources.filter((proposal) => wholeProposalIds.includes(proposal.proposal_id)).map((proposal) => ({
+      proposalId: proposal.proposal_id,
+      memberName: proposal.member_name ?? '未知成员',
+      content: compactProposalForSynthesis(proposal.content)
+    }));
     const selectedFragments = fragmentIds.length === 0 ? [] : this.repository.fragmentsByIds(scope, fragmentIds).map((row) => {
       if (row.discussion_id !== panel.discussion_id || row.item_key !== itemKey) {
         throw new DomainError(errorCodes.validation, '勾选的碎片不存在、已过期或不属于当前设定项');
@@ -156,8 +162,10 @@ export class SettingCollaborationCommandService {
       idempotencyKey: input.idempotencyKey,
       selected,
       selectedFragments,
-      instruction: selectedFragments.length > 0
-        ? '只依据作者勾选的碎片和补充原话融合；每条碎片的原意必须保留；碎片之间缺衔接时由你补写最短衔接，并逐段标注来源。'
+      instruction: selectedFragments.length > 0 && selected.length > 0
+        ? '同时保留作者整份选用的方案和逐段勾选的内容；不得因进入碎片模式丢掉整案。冲突处说明取舍，缺衔接时只补最短衔接并逐段标注来源。'
+        : selectedFragments.length > 0
+          ? '只依据作者勾选的碎片和补充原话融合；每条碎片的原意必须保留；碎片之间缺衔接时由你补写最短衔接，并逐段标注来源。'
         : '只依据作者明确选中的方案和补充；有冲突时说明取舍，不引入未选方案。'
     });
   }

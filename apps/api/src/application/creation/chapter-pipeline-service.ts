@@ -43,6 +43,7 @@ import { runWithSqliteBusyRetry } from '../../infrastructure/db/sqlite-busy-retr
 import { LongformContinuityRepository } from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import { WRITER_CONTEXT_POLICY } from '../memory/writer-context-policy.js';
+import { compileWriterSettingContext } from './writer-setting-context.js';
 import { ManuscriptQualitySnapshotService } from './manuscript-quality-snapshot-service.js';
 import { compileChapterOutlineForWriter } from './chapter-outline-compiler.js';
 import { PlanningChainContextService } from './planning-chain-context-service.js';
@@ -399,14 +400,15 @@ export class ChapterPipelineService {
     } | undefined;
     const continuity = new LongformContinuityRepository(this.database);
     const settlements = continuity.writerSettlementContext(scope, chapter.chapter_number, 3);
-    const commitments = continuity.listCommitments(scope, chapter.chapter_number).slice(0, 8);
+    const commitments = continuity.listCommitments(scope, chapter.chapter_number).slice(0, 12);
     const draftPolicy = WRITER_CONTEXT_POLICY.draft;
     const style = new StyleCapsuleService(this.database).active(scope);
     const openingProfile = new BookProfileViewService(this.database).find(scope);
     const genreBrief = openingProfile === null ? null : buildGenreBrief(JSON.stringify(openingProfile.openingBlueprint));
-    const confirmedSettingItems = this.confirmedSettingItems(scope);
     const volumeTone = this.currentVolumeTone(scope, chapter);
     const workOrder = compactWriterWorkOrder(outline.content, contract.content, draftPolicy.workOrderMaximum);
+    const writerSettingContext = compileWriterSettingContext(
+      this.confirmedSettingItems(scope), `${chapter.title}\n${workOrder}`);
     const hardSources: ContextSource[] = [
       {
         sourceType: 'system_rule',
@@ -426,7 +428,7 @@ export class ChapterPipelineService {
       ...(openingProfile === null ? [] : [{
         sourceType: 'opening_profile',
         sourceId: `opening-profile:${scope.bookId}:${openingProfile.version}`,
-        content: clipContext(JSON.stringify({
+        content: JSON.stringify({
           title: openingProfile.title,
           category: openingProfile.category,
           subjects: openingProfile.subjects,
@@ -443,7 +445,7 @@ export class ChapterPipelineService {
           })),
           storyDirection: openingProfile.storyDirection,
           mustFollow: openingProfile.mustFollow
-        }), draftPolicy.openingProfileMaximum),
+        }),
         reason: '老板确认的开书定位、人物、故事方向和必须遵守项；正文不得擅自改写专名或核心方向',
         priority: 100,
         version: openingProfile.version
@@ -455,12 +457,14 @@ export class ChapterPipelineService {
         reason: '本书题材简报；正文必须贴合该题材定位与基调',
         priority: 100
       }]),
-      ...(confirmedSettingItems.length === 0 ? [] : [{
+      ...(writerSettingContext.hardItems.length === 0 ? [] : [{
         sourceType: 'setting_confirmed_items',
         sourceId: `setting-confirmed:${scope.bookId}`,
-        content: clipContext(JSON.stringify(confirmedSettingItems), draftPolicy.openingProfileMaximum),
-        reason: '作者逐项确认的设定内容（核心六问及题材包）；正文中的人物、规则、代价与边界不得与之冲突',
-        priority: 100
+        content: JSON.stringify(writerSettingContext.hardItems),
+        reason: '四项书籍骨架设定与本章直接相关的已确认设定；正文不得冲突，其余设定按目录留待需要时回查',
+        priority: 100,
+        constraintStrength: 'hard_fact' as const,
+        truthStatus: 'confirmed' as const
       }]),
       ...(volumeTone.length === 0 ? [] : [{
         sourceType: 'volume_style_tone',
@@ -547,15 +551,28 @@ export class ChapterPipelineService {
       roleKey: 'lead_writer', mode: 'drafting', canonRevision: run.expected_canon_revision,
       taskId: run.task_id, sourceTypes: ['manuscript', 'fact', 'outline', 'setting', 'wiki', 'voice'], limit: 8
     });
-    hardSources.push(...retrievalSources.hardSources.slice(0, 4).map((source) => ({
-      ...source,
-      content: clipContext(source.content, draftPolicy.hardRetrievalMaximum),
-      reason: `${source.reason}；已按主笔最小资料包压缩`
-    })));
-    const optionalSources = retrievalSources.optionalSources.slice(0, 6).map((source) => ({
-      ...source,
-      content: clipContext(source.content, draftPolicy.optionalRetrievalMaximum)
-    }));
+    const optionalSources: ContextSource[] = [
+      ...(writerSettingContext.deferredCatalog.length === 0 ? [] : [{
+        sourceType: 'setting_reference_catalog',
+        sourceId: `setting-catalog:${scope.bookId}`,
+        content: JSON.stringify({
+          availableWhenNeeded: writerSettingContext.deferredCatalog,
+          instruction: '这些设定未因当前章相关性进入正文硬资料；不要猜测其内容。章纲若需要其中某项，应先补齐资料再写。'
+        }),
+        reason: '低注意力设定目录，只用于提醒存在性，不把整本设定稿堆进本章',
+        priority: 25,
+        constraintStrength: 'soft_reference' as const,
+        truthStatus: 'confirmed' as const
+      }]),
+      ...retrievalSources.hardSources.slice(0, 4).map((source) => ({
+        ...source,
+        constraintStrength: 'soft_reference' as const
+      })),
+      ...retrievalSources.optionalSources.slice(0, 6).map((source) => ({
+        ...source,
+        content: clipContext(source.content, draftPolicy.optionalRetrievalMaximum)
+      }))
+    ];
     new CopyrightService(this.database, this.ids, this.clock).assertWriterContextSafe([...hardSources, ...optionalSources]);
     const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
       taskId: run.task_id,
@@ -601,6 +618,10 @@ export class ChapterPipelineService {
         ? '故事刚刚开始'
         : '上一章已定稿；必须从资料包中的前章结尾原文和事实锚点自然承接，不得输出JSON、字段名、版本号或资料来源。',
       lengthContract: writerLengthContract(),
+      launchExecution: chapter.chapter_number === 1
+        ? '第一章前500有效字内必须同时形成：读者想追问的问题、正在发生的具体处境、贴着主角感受与行动的情绪抓力、故事即将变化的承诺。服从冻结章纲给出的具体内容，不机械套打脸或打斗。'
+        : chapter.chapter_number <= 3
+          ? `这是黄金三章中的第${chapter.chapter_number}章；必须执行冻结章纲中该章的职责、有效回报和下一章期待。` : null,
       ...(rewriteBase === null ? {} : {
         content: this.loadManuscript(scope, rewriteBase),
         requiredActions: [typeof taskBrief.instruction === 'string' && taskBrief.instruction.trim().length > 0
@@ -743,6 +764,8 @@ export class ChapterPipelineService {
     } | undefined;
     const volumeTone = this.currentVolumeTone(scope, chapter);
     const confirmedReviewSettings = this.confirmedSettingItems(scope);
+    const reviewSettingContext = compileWriterSettingContext(
+      confirmedReviewSettings, `${content}\n${JSON.stringify(frozenOutline.content)}`);
     const frozenReviewSources: ContextSource[] = [
       {
         sourceType: 'chapter_outline', sourceId: run.outline_version_id,
@@ -754,10 +777,10 @@ export class ChapterPipelineService {
         content: JSON.stringify(frozenContract.content), reason: '本章审校必须核对的冻结写作契约',
         priority: 100, version: frozenContract.version
       },
-      ...(confirmedReviewSettings.length === 0 ? [] : [{
+      ...(reviewSettingContext.hardItems.length === 0 ? [] : [{
         sourceType: 'setting_confirmed_items', sourceId: `setting-confirmed:${scope.bookId}`,
-        content: clipContext(JSON.stringify(confirmedReviewSettings), 4_000),
-        reason: '作者逐项确认的设定内容；事实席据此核对人物、规则、数量与边界', priority: 99
+        content: JSON.stringify(reviewSettingContext.hardItems),
+        reason: '四项书籍骨架与当前正文直接相关的已确认设定；仅由事实席核对人物、规则、数量与边界', priority: 99
       }]),
       ...(volumeTone.length === 0 ? [] : [{
         sourceType: 'volume_style_tone', sourceId: `volume-tone:${scope.bookId}:${chapter.chapter_number}`,
@@ -787,7 +810,7 @@ export class ChapterPipelineService {
       ? [{
           sourceType: 'owner_rewrite_instruction',
           sourceId: `instruction:${run.task_id}`,
-          content: clipContext(taskBrief.instruction.trim(), 600),
+          content: taskBrief.instruction.trim(),
           reason: '作者针对当前正文版本给出的最新修改要求；在不违反已确认正史和硬边界的前提下，优先于章纲中的软细节和旧承接措辞。',
           priority: 100
         }]
@@ -798,15 +821,7 @@ export class ChapterPipelineService {
       : 'active' as const;
     const planningFactSources = new PlanningChainContextService(this.database)
       .factReviewSources(scope, frozenOutline.artifactVersionId, planningMode);
-    const boundedFrozenReviewSources = frozenReviewSources.map((source) => ({
-      ...source,
-      content: clipContext(source.content,
-        source.sourceType === 'writing_contract' ? 1_000
-          : source.sourceType === 'previous_chapter_end' ? 500
-            : source.sourceType === 'previous_chapter_tail' ? 400
-              : source.sourceType === 'previous_chapter_anchors' ? 450
-              : 700)
-    }));
+    const completeFrozenReviewSources = frozenReviewSources;
     const manuscriptHash = createHash('sha256').update(content).digest('hex');
     const writerModel = this.modelIdentity(scope, run.writer_model_snapshot_id);
     const workflowRepository = new ProductionWorkflowRepository(this.database);
@@ -868,24 +883,20 @@ export class ChapterPipelineService {
         ? [{
             sourceType: 'previous_chapter_full',
             sourceId: previousChapter.canon_manuscript_version_id,
-            content: clipContext(this.loadManuscript(scope, previousChapter.canon_manuscript_version_id), 6_000),
+            content: this.loadManuscript(scope, previousChapter.canon_manuscript_version_id),
             reason: '事实席专用的前一章完整定稿；先逐项对照实体客观字段，再核对因果与知情状态',
             priority: 100
           }]
         : [];
       const roleFrozenReviewSources = reviewer.role === 'fact'
-        ? boundedFrozenReviewSources.filter((source) => !['previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
-        : boundedFrozenReviewSources;
+        ? completeFrozenReviewSources.filter((source) => !['previous_chapter_tail', 'previous_chapter_anchors'].includes(source.sourceType))
+        : completeFrozenReviewSources.filter((source) => source.sourceType !== 'setting_confirmed_items');
       const reviewHardSources: ContextSource[] = [
         { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '全体点评席共同读取的同一不可变完整正文', priority: 100 },
         ...ownerReviewSources,
         ...roleFrozenReviewSources,
         ...factPreviousChapterSource,
-        ...(reviewer.role === 'fact' ? planningFactSources : []),
-        ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
-          ...source,
-          content: clipContext(source.content, 300)
-        }))
+        ...(reviewer.role === 'fact' ? planningFactSources : [])
       ];
       const reviewBudget = productionReviewContextBudget(reviewer.role, reviewHardSources);
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
@@ -894,10 +905,15 @@ export class ChapterPipelineService {
         tokenBudget: reviewBudget.tokenBudget,
         characterBudget: reviewBudget.characterBudget,
         policyVersion: reviewer.role === 'fact'
-          ? 'production-review-fact-context-v6-adaptive-15000-18000chars'
+          ? 'production-review-fact-context-v7-complete-relevant-sources'
           : `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: reviewHardSources,
-        optionalSources: reviewerSources.optionalSources
+        optionalSources: [
+          ...reviewerSources.hardSources.slice(0, 1).map((source) => ({
+            ...source, constraintStrength: 'soft_reference' as const
+          })),
+          ...reviewerSources.optionalSources
+        ]
       });
       const adapter = this.modelAdapters.resolve(reviewer.agent.provider, reviewer.agent.modelId, 'novel_reviewer', reviewer.agent.roleKey as never);
       const reviewPhase = `review-${reviewRound}-${reviewer.role}-${panel.panelId}`;
@@ -1989,18 +2005,18 @@ export class ChapterPipelineService {
 
   /**
    * 作者逐项确认的设定是正文与审校的硬来源：写作不得与之冲突，
-   * 事实席据此核对。只取已确认且有内容的项，逐条截断，绝不使用候选稿。
+   * 事实席据此核对。这里只读取完整已确认项；相关性编译发生在任务层，绝不使用候选稿或静默截断。
    */
   private confirmedSettingItems(scope: BookScope): Array<{ itemKey: string; label: string; content: string }> {
     const rows = this.database.prepare(`
       SELECT item_key, label, content_text FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? AND item_status = '已确认' AND content_text IS NOT NULL
-      ORDER BY sort_order, item_key LIMIT 24
+      ORDER BY sort_order, item_key
     `).all(scope.ownerId, scope.bookId) as unknown as Array<{ item_key: string; label: string; content_text: string }>;
     return rows.map((row) => ({
       itemKey: row.item_key,
       label: row.label,
-      content: clipContext(row.content_text.trim(), 600)
+      content: row.content_text.trim()
     })).filter((row) => row.content.length > 0);
   }
 
@@ -2506,12 +2522,12 @@ export function productionReviewContextBudget(
   role: 'fact' | 'literary' | 'experience' | 'challenger',
   hardSources: ContextSource[]
 ): { tokenBudget: number; characterBudget: number } {
-  if (role !== 'fact') return { tokenBudget: 8_500, characterBudget: 8_500 };
+  if (role !== 'fact') return { tokenBudget: 12_000, characterBudget: 12_000 };
   const requiredCharacters = hardSources.reduce((sum, source) => sum + source.content.length, 0);
   const requiredTokens = hardSources.reduce((sum, source) => sum + estimateTokens(source.content), 0);
   return {
-    characterBudget: Math.min(18_000, Math.max(15_000, requiredCharacters)),
-    tokenBudget: Math.min(18_000, Math.max(15_000, requiredTokens))
+    characterBudget: Math.min(48_000, Math.max(16_000, requiredCharacters + 1_000)),
+    tokenBudget: Math.min(48_000, Math.max(16_000, requiredTokens + 1_000))
   };
 }
 

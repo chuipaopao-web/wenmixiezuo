@@ -5,6 +5,8 @@ import {
 } from '../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { parseMasterOutlineDepositOutput } from '../../apps/api/src/application/artifacts/planning-artifact-service.js';
 import { parseSettingOutlineDeposit } from '../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
+import { parseModelJsonFields, parseSettingQualityAudit } from '../../apps/api/src/application/discussions/discussion-pipeline-service.js';
+import { parseVolumePlanContent } from '../../apps/contracts/src/workflow.js';
 
 const request = {
   requestId: 'request-1',
@@ -53,6 +55,23 @@ describe('确定性假模型', () => {
     expect(master.output).not.toBe(chapters.output);
   });
 
+  it('第一卷确定性方案带具体路线和爆款开局约束', async () => {
+    const adapter = new DeterministicModelAdapter();
+    const generated = await adapter.generate({
+      ...request,
+      prompt: JSON.stringify({
+        operation: 'volume_plan_generation_v1',
+        book: { volumeNumber: 1 },
+        seat: { roleKey: 'lead_screenwriter', mode: 'independent' }
+      })
+    });
+    const volume = parseVolumePlanContent(JSON.parse(generated.output));
+    expect(volume.routeCard?.escalationPath.length).toBeGreaterThanOrEqual(3);
+    expect(volume.storySpine?.protectedOpenSpace.length).toBeGreaterThan(0);
+    expect(volume.firstVolumeLaunch?.goldenThree.map((chapter) => chapter.chapterNumber)).toEqual([1, 2, 3]);
+    expect(volume.firstVolumeLaunch?.majorClimax.latestEffectiveCharacters).toBeLessThanOrEqual(100_000);
+  });
+
   it('按事件预计体量生成连续章链，不把测试模型硬编码为三章', async () => {
     const adapter = new DeterministicModelAdapter();
     const storyEvent = {
@@ -83,6 +102,17 @@ describe('确定性假模型', () => {
     expect(sequence.closureCoverage.every((item) => item.evidenceChapterNumber === 10)).toBe(true);
   });
 
+  it('为整份设定质检返回可通过真实门禁的结构', async () => {
+    const adapter = new DeterministicModelAdapter();
+    const generated = await adapter.generate({
+      ...request,
+      prompt: '你是当前书籍的活动主编。\n【整份设定质检资料包】\n全部已确认设定：[]'
+    });
+
+    expect(parseSettingQualityAudit(parseModelJsonFields(generated.output))).toEqual(expect.objectContaining({
+      verdict: 'pass', issues: []
+    }));
+  });
 
   it('为设定对象融合返回可落库结构，不依赖已删除的聊天确认流程', async () => {
     const adapter = new DeterministicModelAdapter();

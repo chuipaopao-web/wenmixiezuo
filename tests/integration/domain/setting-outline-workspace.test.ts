@@ -65,13 +65,13 @@ describe('设定大纲工作状态', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('都市言情只激活关系和现实生活设定，核心六问始终必备', () => {
+  it('都市言情只激活关系和现实生活设定，四项书籍骨架始终必备', () => {
     const profile = resolveSettingOutlineProfile(blueprint({}));
 
     expect(profile.profileKey).toContain('romance');
     expect(profile.profileKey).toContain('urban');
     expect(profile.required).toEqual([
-      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'
     ]);
     expect(profile.recommended).toEqual(expect.arrayContaining([
       'geography', 'strength-flaw', 'supporting', 'relations',
@@ -145,7 +145,7 @@ describe('设定大纲工作状态', () => {
     expect(profile.profileKey).toContain('game');
     expect(profile.profileKey).toContain('history');
     expect(profile.required).toEqual([
-      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'
     ]);
     expect(profile.recommended).toEqual(expect.arrayContaining([
       'game-entry', 'game-panel', 'history-baseline', 'divergence'
@@ -170,7 +170,7 @@ describe('设定大纲工作状态', () => {
     }));
 
     expect(profile.required).toEqual([
-      'story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'
+      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'
     ]);
     expect(profile.recommended).toEqual(expect.arrayContaining([...expected]));
     expect(profile.recommended).not.toEqual(expect.arrayContaining([...excluded]));

@@ -289,7 +289,7 @@ describe('已有正文续写导入', () => {
 
     const handoff = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'story-kernel', { idempotencyKey: 'continuation-setting-start' });
+    ).start(scope, 'world-stage', { idempotencyKey: 'continuation-setting-start' });
     expect(handoff).toMatchObject({ status: 'queued', reused: false });
     const handoffBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
       .get(handoff.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
@@ -299,7 +299,7 @@ describe('已有正文续写导入', () => {
 
     const guidance = new SettingGuidanceService(context.database, ids, clock).current(scope);
     expect(guidance).toMatchObject({
-      itemKey: 'story-kernel',
+      itemKey: 'world-stage',
       positioningSummary: expect.stringContaining('已有正文续写'),
       storyDirectionReference: expect.any(String)
     });
@@ -341,7 +341,7 @@ describe('已有正文续写导入', () => {
     expect(readiness).toMatchObject({
       profileKey: 'continuation-reverse',
       ready: false,
-      required: expect.arrayContaining(['story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'])
+      required: expect.arrayContaining(['world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'])
     });
 
     const guidanceWorkflow = new SettingGuidanceService(context.database, ids, clock);

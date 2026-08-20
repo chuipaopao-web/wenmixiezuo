@@ -22,7 +22,8 @@ import { SettingCollaborationPanel } from '../../../apps/web/src/features/planni
 const item = {
   itemKey: 'creative-concept', groupTitle: '作品策划', label: '核心看点',
   prompt: '这本书为什么值得持续写下去？', sourceLabel: '通用',
-  status: '讨论中' as const, custom: false, sortOrder: 0, content: null
+  status: '讨论中' as const, custom: false, sortOrder: 0, content: null,
+  pendingCandidate: null, confirmedAt: null
 };
 
 const workspaceItem = {
@@ -125,7 +126,7 @@ describe('设定页内协作', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '你的补充想法' }), {
       target: { value: '保留方案一的代价，同时采用方案二的身份错位。' }
     });
-    fireEvent.click(screen.getByRole('button', { name: '按我的勾选融合' }));
+    fireEvent.click(screen.getByRole('button', { name: '按我的选择融合' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledTimes(1));
     expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
@@ -134,7 +135,7 @@ describe('设定页内协作', () => {
       intentStrength: 'preference', idempotencyKey: expect.any(String)
     }));
     expect(api.synthesizeSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
-      proposalIds: ['proposal-1', 'proposal-2'], authorInputId: 'idea-1', idempotencyKey: expect.any(String)
+      proposalIds: ['proposal-1', 'proposal-2'], wholeProposalIds: ['proposal-1', 'proposal-2'], authorInputId: 'idea-1', idempotencyKey: expect.any(String)
     });
     expect(screen.getByText(/不会改写已写正文或已确认内容/u)).toBeInTheDocument();
   });

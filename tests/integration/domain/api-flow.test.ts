@@ -176,7 +176,7 @@ describe('建书REST流程', () => {
       expect(settingCollaboration.statusCode).toBe(200);
       expect(settingCollaboration.json().data).toMatchObject({
         item: { itemKey: 'story-kernel' },
-        panel: { taskId: panelTaskId },
+        panel: { recoveryKey: panelTaskId },
         impact: { changesCanon: false, changesManuscript: false }
       });
       const unknownSettingCollaboration = await app.inject({
@@ -217,7 +217,7 @@ describe('建书REST流程', () => {
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, panelTaskId, 'worker-onboarding');
-      expect(capturedPrompt).toContain('故事内核');
+      expect(capturedPrompt).toContain('长期吸引力');
       expect(capturedPrompt).toContain('你看不到另外两名成员的答案');
       expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的方案');
       expect(capturedPrompt).toContain('不提前规定具体剧情结果');
@@ -236,7 +236,7 @@ describe('建书REST流程', () => {
       });
       expect(proactiveCollaboration.statusCode).toBe(200);
       expect(proactiveCollaboration.json().data.panel).toMatchObject({
-        taskId: panelTaskId,
+        recoveryKey: panelTaskId,
         taskStatus: 'succeeded',
         proposals: expect.arrayContaining([
           expect.objectContaining({ roleKey: 'lead_screenwriter' }),

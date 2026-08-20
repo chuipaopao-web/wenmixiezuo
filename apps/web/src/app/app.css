@@ -5974,6 +5974,9 @@ svg {
   .event-focus-card dl, .event-template-grid, .event-generation-summary, .event-generation-members, .event-version-grid, .event-side-panel, .event-editor-grid, .story-event-preview { grid-template-columns: 1fr; }
   .story-event-preview .story-event-carry { grid-column: auto; }
   .event-impact-card, .event-operation-card { position: static; grid-template-columns: 1fr; }
+  .event-planning-panel button:not(.story-event-node-card), .event-planning-panel summary { min-height: 44px; }
+  .event-planning-panel .event-focus-card .button-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .event-planning-panel .event-version-grid > article > button, .event-planning-panel .event-generation-card .primary-button { width: 100%; }
 }
 
 /* 事件内章链：先完整规划，再滚动冻结最近一至三章。 */
@@ -6039,6 +6042,9 @@ svg {
   .sequence-health { align-self: flex-start; }
   .chapter-count-actions,.freeze-chapters { align-items: stretch; flex-direction: column; }
   .chapter-count-actions label,.freeze-chapters label { justify-content: space-between; }
+  .event-chapter-panel button, .event-chapter-panel select, .event-chapter-panel summary { min-height: 44px; }
+  .event-chapter-panel .chapter-candidate-actions button, .event-chapter-panel .chapter-count-actions button,
+  .event-chapter-panel .freeze-chapters button { width: 100%; }
 }
 .writing-launch-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.8fr);gap:18px;align-items:center;margin-top:18px;padding:18px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--accent-soft) 34%,var(--surface));box-shadow:var(--shadow-sm)}
 .writing-launch-card small{color:var(--accent);font-weight:700}.writing-launch-card h4{margin:4px 0 6px}.writing-launch-card p{margin:0;color:var(--muted);line-height:1.65}
@@ -6988,7 +6994,7 @@ svg {
 .setting-legacy-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .setting-legacy-list article { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--panel-raised) 96%, transparent); }
 .setting-legacy-list article p { margin: 8px 0 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.7; white-space: pre-wrap; }
-.setting-card-button { border: 0; border-radius: 10px; font-size: 12.5px; padding: 8px 0; cursor: pointer; width: 100%; font-weight: 600; }
+.setting-card-button { min-height: 44px; border: 0; border-radius: 10px; font-size: 12.5px; padding: 8px 0; cursor: pointer; width: 100%; font-weight: 600; }
 .setting-card-button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: #fff; box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 28%, transparent); }
 .setting-card-button.ghost { background: var(--accent-soft); color: var(--accent-hover); }
 
@@ -7059,6 +7065,13 @@ svg {
 }
 .setting-frag input { margin-top: 3px; accent-color: var(--accent); flex: 0 0 auto; }
 .setting-picked-label { text-align: center; font-size: 11px; color: var(--accent-hover); font-weight: 650; }
+.setting-proposal-tradeoffs { border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 10px; padding: 0 10px; background: color-mix(in srgb, var(--panel-muted) 70%, transparent); }
+.setting-proposal-tradeoffs summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+.setting-proposal-tradeoffs > div { padding: 0 0 8px; }
+.setting-proposal-tradeoffs b { color: var(--ink); font-size: 11.5px; }
+.setting-proposal-tradeoffs ul { margin: 4px 0 0; padding-left: 18px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.65; }
+.setting-proposal-card .setting-card-button { min-height: 44px; }
+.setting-proposal-card, .setting-proposal-card * { min-width: 0; overflow-wrap: anywhere; }
 
 .setting-fusion {
   margin-top: 16px; border-radius: 16px;
@@ -7091,6 +7104,11 @@ svg {
   .setting-pack-grid { grid-template-columns: 1fr; }
   .setting-desk-pagehead h3 small { display: block; margin: 4px 0 0; }
   .setting-discussion { padding: 14px 13px; }
+  .setting-pack-item { min-height: 44px; }
+  .planning-stage-action .primary-button, .setting-start-button, .setting-clear-actions button, .setting-queue-toggle { min-height: 44px; }
+  .setting-mine-line button { min-height: 44px; padding-inline: 8px; }
+  .setting-frag { min-height: 44px; align-items: center; }
+  .setting-proposal-tradeoffs summary { min-height: 44px; }
   .setting-discussion-head { flex-direction: column; align-items: flex-start; gap: 6px; }
   .setting-fusion-actions { flex-direction: column; }
   .setting-fusion-actions button { width: 100%; }
@@ -7210,3 +7228,40 @@ button.sidebar-account-avatar:hover { filter: brightness(1.12); }
 .personal-center-support button { border: 1px solid var(--line, #e6e2d8); background: var(--panel, #fff); border-radius: 999px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
 .personal-center-support button:hover { border-color: var(--accent, #3f6f5e); color: var(--accent, #3f6f5e); }
 .personal-center-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* 分层卷设计：保持现有视觉语言，复杂信息默认折叠，移动端单列触控。 */
+.volume-concrete-route { display: grid; gap: 10px; min-width: 0; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 12px; padding: 12px; background: color-mix(in srgb, var(--accent-soft) 34%, var(--panel-raised)); }
+.volume-concrete-route dl > div { grid-template-columns: 110px minmax(0, 1fr); }
+.volume-concrete-route ol { display: grid; gap: 6px; margin: 0; padding-left: 22px; line-height: 1.6; }
+.volume-concrete-route details, .first-volume-design, .volume-layer-editor { min-width: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-raised); }
+.volume-concrete-route summary, .first-volume-design > summary, .volume-layer-editor > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; cursor: pointer; color: var(--accent-strong); font-weight: 750; }
+.volume-concrete-route details > div, .first-volume-design > div { padding: 0 12px 12px; overflow-wrap: anywhere; }
+.first-volume-design p { margin: 4px 0 10px; line-height: 1.65; }
+.first-volume-design ol { display: grid; gap: 6px; padding-left: 22px; }
+.volume-layer-editor { display: grid; overflow: hidden; }
+.volume-layer-editor > summary { justify-content: space-between; list-style: none; }
+.volume-layer-editor > summary::-webkit-details-marker { display: none; }
+.volume-layer-editor > summary small { color: var(--ink-soft); font-weight: 500; text-align: right; }
+.volume-layer-editor[open] > summary { border-bottom: 1px solid var(--line); }
+.volume-layer-editor > .volume-editor-grid, .volume-first-editor-body { padding: 14px; }
+.volume-first-editor-body { display: grid; gap: 16px; }
+.volume-first-editor-body section { display: grid; gap: 10px; min-width: 0; }
+.volume-first-editor-body h5, .volume-first-editor-body h6 { margin: 0; color: var(--accent-strong); }
+.golden-three-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.golden-three-editor article, .major-climax-editor { display: grid; gap: 9px; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel-muted); }
+.golden-three-editor label { display: grid; gap: 5px; font-size: .9em; font-weight: 700; }
+.golden-three-editor textarea { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 9px; padding: 9px 10px; color: var(--ink); background: var(--panel-raised); resize: vertical; }
+.volume-version-card, .volume-version-card * { min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 650px) {
+  .volume-planning-panel { gap: 14px; }
+  .volume-template-section, .volume-version-section, .volume-plan-editor, .volume-generation-card { padding: 13px; }
+  .volume-plan-editor > header .primary-button, .volume-generation-card > header .primary-button, .volume-version-card > button { width: 100%; min-height: 44px; }
+  .volume-concrete-route dl > div, .volume-version-card dl > div { grid-template-columns: 1fr; gap: 2px; }
+  .golden-three-editor { grid-template-columns: 1fr; }
+  .volume-layer-editor > summary { align-items: flex-start; flex-direction: column; justify-content: center; gap: 2px; padding-block: 9px; }
+  .volume-layer-editor > summary small { text-align: left; }
+  .volume-layer-editor > .volume-editor-grid, .volume-first-editor-body { padding: 11px; }
+  .volume-impact-card .button-row { display: grid; grid-template-columns: 1fr; }
+  .volume-impact-card .button-row button { min-height: 44px; }
+}

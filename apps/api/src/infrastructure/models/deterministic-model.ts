@@ -161,6 +161,48 @@ function deterministicVolumePlan(prompt: string): string | null {
     endingState: '本卷核心问题已经解决，人物关系和行动资格发生不可逆变化，更大冲突因本卷结果而被触发。',
     openThreads: ['真正推动旧规则的人仍未完全现身', '盟友提出的条件将在下一阶段继续生效'],
     nextVolumeTrigger: '本卷胜利改变了力量平衡，受影响的新势力主动介入，迫使主角进入更大的局面。',
+    routeCard: {
+      protagonistStart: '沈砚带着会响的旧铜铃逃离失物招领处，既不知道姐姐是否活着，也无法公开解释自己听见的未尽之言。',
+      drivingMotivation: alternative ? '他必须先保住被巡夜人带走的目击者，借盟友网络追查铜铃来源。' : fusion ? '他要同时救下目击者并锁定铜铃记录的缺口，把个人寻亲变成能公开核验的案件。' : '他必须在下一次失物齐鸣前查出铜铃是谁送来的，否则自己会被当成失踪案的制造者。',
+      escalationPath: alternative ? ['先争取一名不信任他的港区记录员', '用两次互相矛盾的失物证词逼出内部泄密者', '盟友被抓后改走公开听证路线', '在航路封锁前让证据链由多人共同保管'] : ['铜铃异响引来追捕并留下第一条可核验记录', '调查失物主人时发现十年前档案被同一规则篡改', '短暂脱身换来记忆缺失，主角误伤一段重要关系', '主角用前面累积的证据反制封锁并逼出执行者'],
+      keyChoiceAndCost: alternative ? '沈砚把自己听见失物遗言的秘密交给盟友验证，代价是失去独占线索和随时抽身的可能。' : '沈砚主动再触碰一次铜铃换取关键证词，代价是遗失与姐姐相处的一段真实记忆。',
+      climaxResolution: alternative ? '多名普通人用各自保管的证据拆穿巡夜人的统一口径，沈砚在公开场合救回目击者并取得查档资格。' : '沈砚把此前分散的失物证词拼成同一条航路记录，在港口封锁最严时反向证明追捕者才是规则破坏者。',
+      endingChange: alternative ? '沈砚从孤立嫌疑人变成有条件被港区居民支持的调查者，盟友也掌握了制约他的秘密。' : '沈砚洗清眼前罪名并拿到姐姐仍可能活着的证据，但失去的记忆让亲情目标出现新的空洞。',
+      benefits: alternative ? ['群体协作与信任拉扯更强', '悬疑证据可以多线交汇'] : ['个人危机抓力直接', '能力代价与亲情目标紧密相扣'],
+      risks: alternative ? ['多人物并行时要防止主角失去主动性'] : ['失忆代价不能沦为随用随丢的方便工具']
+    },
+    ...(volumeNumber === 1 ? {
+      storySpine: {
+        longTermPromise: '跟随沈砚破解一件件带着遗憾的失物，在规则反制与亲情真相中持续获得破局和情感兑现。',
+        protagonistLongArc: '从只想找回姐姐的孤立记录员，成长为愿意承担记忆代价、保护他人选择权的新航路守门人。',
+        centralQuestion: '当记忆可以被城市拿来维持秩序，一个人还能凭什么确认自己爱过谁、选择过什么？',
+        escalationLadder: ['先查个人失踪与铜铃来源', '再触及港区档案和巡夜规则', '最终面对整座雾港以记忆维持航路的真相'],
+        endingDirection: '终止以失踪者记忆维持航路的献祭规则，救回姐姐并建立可被监督的新规则。',
+        protectedOpenSpace: ['姐姐这些年如何保持自我暂不提前解释', '更远航路与其他城市的规则留待后续卷结算后设计']
+      },
+      firstVolumeLaunch: {
+        first500: {
+          readerQuestion: '十年前失踪姐姐的铜铃为什么会在今夜重新响起？',
+          immediateSituation: '暴雨夜所有失物同时发声，巡夜人破门而入并把沈砚认定为源头。',
+          emotionalGrip: '沈砚既想抓住姐姐仍活着的希望，又害怕再次触碰铜铃会忘掉她。',
+          changePromise: '一件普通失物将撕开雾港失踪案与记忆航路的隐藏规则。'
+        },
+        goldenThree: [
+          { chapterNumber: 1, responsibility: '让主角与核心危机同时登场', action: '沈砚带着铜铃逃出招领处并留下可追查线索', pressure: '巡夜人封锁港区且铜铃持续夺走记忆', payoff: '主角用失物遗言识破第一次围堵', nextExpectation: '送来铜铃的人就在封锁区内' },
+          { chapterNumber: 2, responsibility: '展示能力边界并兑现第一次小回报', action: '沈砚核验两件失物的矛盾证词', pressure: '每次触碰都会丢失自己的记忆', payoff: '他锁定一份被篡改的十年前档案', nextExpectation: '档案经手人正在被灭口' },
+          { chapterNumber: 3, responsibility: '闭合开局小冲突并打开本卷目标', action: '沈砚在追捕中救下档案经手人', pressure: '救人会暴露能力和姐姐线索', payoff: '他反证自己不是异响源头并取得有限盟友', nextExpectation: '真正源头指向封闭航路' }
+        ],
+        majorClimax: {
+          latestEffectiveCharacters: 90000,
+          setup: '前三个事件累积失物证词、篡改档案和盟友立场，让封港行动成为无法回避的公开冲突。',
+          choice: '沈砚必须在保留姐姐私人记忆与公开证据拯救更多失踪者之间作出选择。',
+          cost: '他公开关键记忆后永久失去一段与姐姐相处的往事，并让能力秘密暴露。',
+          irreversibleChange: '巡夜规则被撕开缺口，沈砚从被追捕者变成拥有有限查档资格的公开调查者。',
+          nextStage: '卷末证据证明姐姐仍在更深航路中，下一阶段由第一卷结算后再设计。'
+        },
+        immersionPriorities: ['让读者先跟随沈砚感受追捕与记忆流失，再逐步理解规则', '每次破局都来自已见证据和人物选择，不靠敌人降智']
+      }
+    } : {}),
     boundaries: {
       mustAchieve: ['本卷核心危机必须得到可验证结果', '主角的选择必须造成后续可见变化'],
       mustNotViolate: ['不能用无来源的新能力或巧合解决高潮', '不能让人物忘记前面已经付出的代价'],
@@ -560,6 +602,15 @@ function deterministicSettingGuidance(prompt: string): string | null {
 }
 
 function deterministicDiscussion(prompt: string): string | null {
+  if (prompt.includes('【整份设定质检资料包】')) {
+    const base = deterministicDiscussionReply();
+    Object.assign(base.fields, {
+      verdict: 'pass',
+      summary: '四项核心设定彼此不冲突，边界清楚且保留了后续卷与事件的创作空间。',
+      issues: []
+    });
+    return JSON.stringify(base);
+  }
   const settingProposalMatch = prompt.match(/正在参加本书“([^”]+)”独立提案/u);
   if (settingProposalMatch !== null) {
     const base = deterministicDiscussionReply();

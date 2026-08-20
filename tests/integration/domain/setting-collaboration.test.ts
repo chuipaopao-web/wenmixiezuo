@@ -52,7 +52,7 @@ describe('设定页内协作读模型', () => {
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const initialized = new SettingGuidanceService(context.database, ids, clock).ensureInitialized(scope);
-    expect(initialized?.itemKey).toBe('story-kernel');
+    expect(initialized?.itemKey).toBe('world-stage');
     const roles = context.database.prepare(`
       SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r
         ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
@@ -249,10 +249,10 @@ describe('设定页内协作读模型', () => {
     const firstView = new SettingCollaborationService(
       new SettingCollaborationRepository(context.database), firstWorkspace
     ).inspect(firstScope, 'creative-concept');
-    expect(firstView.panel).toMatchObject({ taskId, taskStatus: 'succeeded' });
+    expect(firstView.panel).toMatchObject({ recoveryKey: taskId, taskStatus: 'succeeded' });
     expect(firstView.panel?.proposals).toHaveLength(3);
     expect(firstView.panel?.proposals.map((proposal) => proposal.memberName)).toEqual(members.map((member) => member.display_name));
-    expect(firstView.panel?.proposals.every((proposal) => proposal.modelProvider !== null && proposal.modelId !== null)).toBe(true);
+    expect(firstView.panel?.proposals.every((proposal) => !('modelProvider' in proposal) && !('modelId' in proposal))).toBe(true);
     expect(firstView.impact).toEqual({ changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' });
 
     const secondView = new SettingCollaborationService(
@@ -294,7 +294,7 @@ describe('设定页内协作读模型', () => {
 
     expect(service.inspect(scope, 'era')).toMatchObject({
       item: { status: '候选待确认', content: expect.stringContaining('近未来沿海城市') },
-      revisionTask: { taskId, status: 'succeeded' }
+      revisionTask: { recoveryKey: taskId, status: 'succeeded' }
     });
     service.inspect(scope, 'era');
     const after = context.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ? AND book_id = ?`)
@@ -302,7 +302,7 @@ describe('设定页内协作读模型', () => {
     expect(after.count).toBe(before.count);
   });
 
-  it('后续设定提案收到本书完整开书资料和全部已确认前置设定', () => {
+  it('后续设定提案收到完整开书资料和明确依赖的完整设定，不回灌无关已确认项', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -328,13 +328,13 @@ describe('设定页内协作读模型', () => {
     guidance.ensureInitialized(scope);
     const workspace = new SettingOutlineWorkspaceService(context.database, clock);
     const items = workspace.list(scope);
-    const required = items.filter((item) => ['story-kernel', 'world-stage', 'protagonist-situation', 'opposition', 'rules-costs', 'boundaries-blanks'].includes(item.itemKey));
-    expect(required).toHaveLength(6);
+    const required = items.filter((item) => ['world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'].includes(item.itemKey));
+    expect(required).toHaveLength(4);
     for (const [index, item] of required.slice(0, -1).entries()) {
       workspace.save(scope, {
         itemKey: item.itemKey, groupTitle: item.groupTitle, label: item.label, prompt: item.prompt,
         sourceLabel: item.sourceLabel, sortOrder: item.sortOrder, status: '已确认',
-        content: index === 0 ? `第一项完整设定：${'甲'.repeat(700)}：末尾锚点` : `已确认前置设定${index + 1}`
+        content: item.itemKey === 'protagonist-situation' ? `主角完整设定：${'甲'.repeat(700)}：末尾锚点` : `已确认前置设定${index + 1}`
       });
     }
 
@@ -343,7 +343,7 @@ describe('设定页内协作读模型', () => {
     expect(snapshot!.itemKey).toBe('boundaries-blanks');
     expect(JSON.parse(snapshot!.openingBookCore)).toMatchObject({ storyDirection, initialMap });
     expect(snapshot!.confirmedContext.map((item) => item.itemKey)).toEqual([
-      'story-kernel', 'protagonist-situation', 'opposition', 'rules-costs'
+      'protagonist-situation', 'rules-costs'
     ]);
     expect(snapshot!.confirmedContext[0]?.content).toContain('末尾锚点');
 
@@ -398,6 +398,18 @@ describe('设定页内协作读模型', () => {
     const proposalIds = [...new Set(fragmentRows.map((row) => row.proposal_id))];
     expect(proposalIds).toHaveLength(3);
     expect(fragmentRows.length).toBeGreaterThanOrEqual(3);
+    const wholeProposalIds = proposalIds.slice(0, 2);
+    const wholeSynthesis = commands.synthesize(scope, itemKey, {
+      proposalIds: wholeProposalIds,
+      wholeProposalIds,
+      idempotencyKey: 'whole-proposal-synthesis'
+    });
+    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(wholeSynthesis.taskId);
+    await expect(pipeline.executeClaimed(scope, wholeSynthesis.taskId, 'worker-fragments')).resolves.toMatchObject({ opinionCount: 1 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM setting_fusion_drafts
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?`).get(scope.ownerId, scope.bookId, itemKey))
+      .toEqual({ count: 0 });
+
 
     const picked = [
       fragmentRows[0]!,
@@ -426,6 +438,25 @@ describe('设定页内协作读模型', () => {
     ).inspect(scope, itemKey);
     expect(view.fusionDraft?.segments).toHaveLength(segments.length);
     expect(view.panel?.proposals.every((proposal) => proposal.fragments.length >= 1)).toBe(true);
+    const auditWorkspace = new SettingOutlineWorkspaceService(context.database, clock);
+    const auditItem = auditWorkspace.list(scope).find((candidate) => candidate.itemKey === itemKey);
+    expect(auditItem).toBeDefined();
+    if (auditItem === undefined) throw new Error('缺少待质检设定项');
+    auditWorkspace.save(scope, {
+      itemKey: auditItem.itemKey, groupTitle: auditItem.groupTitle, label: auditItem.label, prompt: auditItem.prompt,
+      sourceLabel: auditItem.sourceLabel, sortOrder: auditItem.sortOrder, status: '已确认',
+      content: auditItem.pendingCandidate ?? auditItem.content ?? '保持开书方向并留出后续创作空间。'
+    });
+    const auditTask = commands.audit(scope, { idempotencyKey: 'deterministic-quality-audit' });
+    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(auditTask.taskId);
+    await expect(pipeline.executeClaimed(scope, auditTask.taskId, 'worker-fragments')).resolves.toMatchObject({ opinionCount: 1 });
+    const auditReport = context.database.prepare(`SELECT verdict, summary_text, issues_json
+      FROM setting_quality_reports WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`)
+      .get(scope.ownerId, scope.bookId) as { verdict: string; summary_text: string; issues_json: string };
+    expect(auditReport.verdict).toBe('pass');
+    expect(auditReport.summary_text).toContain('创作空间');
+    expect(JSON.parse(auditReport.issues_json)).toEqual([]);
+
 
     expect(() => commands.synthesize(scope, itemKey, {
       proposalIds, fragmentIds: ['missing-fragment'], idempotencyKey: 'fragment-synthesis-bad'
@@ -528,7 +559,7 @@ describe('设定页内协作读模型', () => {
     const guidance = new SettingGuidanceService(context.database, ids, clock);
     guidance.ensureInitialized(scope);
     const currentKey = guidance.current(scope)!.itemKey;
-    const otherKey = currentKey === 'opposition' ? 'rules-costs' : 'opposition';
+    const otherKey = currentKey === 'story-kernel' ? 'rules-costs' : 'story-kernel';
 
     const scheduled = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock

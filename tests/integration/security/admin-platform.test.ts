@@ -55,7 +55,7 @@ describe('管理后台：算力消耗与平台模型方案', () => {
         { method: 'GET' as const, url: `/api/v1/books/${book.bookId}/usage` }
       ];
       for (const denied of deniedUrls) {
-        const response = await app.inject({ method: denied.method, url: denied.url, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: denied.method === 'POST' ? {} : undefined });
+        const response = await app.inject({ method: denied.method, url: denied.url, headers: { ...BROWSER_HEADERS, cookie: userCookie }, ...(denied.method === 'POST' ? { payload: {} } : {}) });
         expect(response.statusCode, denied.url).toBe(403);
       }
 

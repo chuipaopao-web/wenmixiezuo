@@ -28,6 +28,10 @@ import {
   volumePlanSourceFingerprint
 } from './volume-plan-generation-service.js';
 import { VolumePlanService } from './volume-plan-service.js';
+import {
+  selectHiddenVolumeRouteRecipes,
+  type HiddenVolumeRouteRecipe
+} from './hidden-narrative-methods.js';
 
 type CandidateKind = 'candidate_a' | 'candidate_b' | 'fusion';
 
@@ -124,6 +128,9 @@ export class VolumePlanGenerationPipelineService {
       }, leaseFence);
       if (candidateA === null) throw rejectedReason(candidateResults[0]);
       if (candidateB === null) throw rejectedReason(candidateResults[1]);
+      if (![candidateASeat, candidateBSeat].every((seat) => seat.provider.startsWith('local-deterministic'))) {
+        assertMateriallyDifferentRoutes(candidateA.content, candidateB.content);
+      }
       this.throwIfCancelled(scope, taskId);
       const fusion = await this.generateAndStore(
         scope,
@@ -207,6 +214,7 @@ export class VolumePlanGenerationPipelineService {
           limit: candidateKind === 'fusion' ? 12 : 9
         });
     const hardSources = buildHardSources(snapshot, brief, peerCandidates);
+    const optionalSources = buildOptionalSources(snapshot, brief);
     const pack = this.contextPacks.build(scope, {
       taskId: task.taskId,
       agentId: seat.agentId,
@@ -214,9 +222,9 @@ export class VolumePlanGenerationPipelineService {
       positioningVersion: snapshot.positioningVersion,
       tokenBudget: candidateKind === 'fusion' ? 32_000 : 24_000,
       characterBudget: candidateKind === 'fusion' ? 76_000 : 58_000,
-      policyVersion: 'volume-plan-context-v1',
+      policyVersion: 'volume-plan-context-v2-layered-no-raw-truncation',
       hardSources: [...hardSources, ...retrieved.hardSources],
-      optionalSources: retrieved.optionalSources
+      optionalSources: [...optionalSources, ...retrieved.optionalSources]
     });
     const basePrompt = buildPrompt({
       seat,
@@ -231,7 +239,7 @@ export class VolumePlanGenerationPipelineService {
       })),
       peerCandidates
     });
-    const content = await this.callForValidContent(scope, task, seat, candidateKind, basePrompt, pack.contextPackId);
+    const content = await this.callForValidContent(scope, task, seat, candidateKind, snapshot.planNumber, basePrompt, pack.contextPackId);
     const version = this.volumePlans.addVersion(scope, brief.volumePlanId, {
       expectedPlanRevision: brief.expectedPlanRevision,
       candidateKind,
@@ -250,6 +258,7 @@ export class VolumePlanGenerationPipelineService {
     task: TaskRecord,
     seat: VolumePlanGenerationSeat,
     candidateKind: CandidateKind,
+    planNumber: number,
     basePrompt: string,
     contextPackId: string
   ): Promise<VolumePlanContent> {
@@ -275,7 +284,7 @@ export class VolumePlanGenerationPipelineService {
       });
       if (reusable !== undefined) {
         try {
-          return parseForCandidateKind(reusable.output_text, candidateKind);
+          return parseGeneratedCandidate(reusable.output_text, candidateKind, planNumber, seat.provider);
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '卷规划JSON无效';
           lastError = error;
@@ -325,7 +334,7 @@ export class VolumePlanGenerationPipelineService {
           maxOutputTokens
         });
         try {
-          return parseForCandidateKind(result.output, candidateKind);
+          return parseGeneratedCandidate(result.output, candidateKind, planNumber, seat.provider);
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '卷规划JSON无效';
           if (isVolumePlanOutputCapped(result.outputTokens, maxOutputTokens)) {
@@ -436,6 +445,45 @@ function parseForCandidateKind(output: string, candidateKind: CandidateKind): Vo
   return content;
 }
 
+function parseGeneratedCandidate(
+  output: string,
+  candidateKind: CandidateKind,
+  planNumber: number,
+  provider: string
+): VolumePlanContent {
+  const content = parseForCandidateKind(output, candidateKind);
+  if (provider.startsWith('local-deterministic')) return content;
+  if (content.routeCard === null || content.routeCard === undefined) {
+    throw new Error('卷方案缺少作者可直接比较的具体路线卡。');
+  }
+  if (planNumber === 1 && (content.storySpine === null || content.storySpine === undefined)) {
+    throw new Error('第一卷方案缺少全书故事总线。');
+  }
+  if (planNumber === 1 && (content.firstVolumeLaunch === null || content.firstVolumeLaunch === undefined)) {
+    throw new Error('第一卷方案缺少前500字、黄金三章和10万字内重大高潮计划。');
+  }
+  return content;
+}
+
+function assertMateriallyDifferentRoutes(first: VolumePlanContent, second: VolumePlanContent): void {
+  const left = first.routeCard;
+  const right = second.routeCard;
+  if (left === null || left === undefined || right === null || right === undefined) {
+    throw new Error('两份独立卷方案都必须带具体路线卡。');
+  }
+  const comparisons: Array<[string, string]> = [
+    [left.drivingMotivation, right.drivingMotivation],
+    [left.keyChoiceAndCost, right.keyChoiceAndCost],
+    [left.climaxResolution, right.climaxResolution],
+    [left.endingChange, right.endingChange],
+    [left.escalationPath.join('｜'), right.escalationPath.join('｜')]
+  ];
+  const different = comparisons.filter(([a, b]) => a.trim() !== b.trim()).length;
+  if (different < 2) {
+    throw new Error('两位编剧的路线过于相似；必须至少在推动动机、关键选择与代价、高潮解决、卷末变化或升级过程中的两项真正不同。');
+  }
+}
+
 export function volumePlanOutputTokenLimit(candidateKind: CandidateKind): number {
   // 十事件卷纲的结构化JSON已经在真实 DeepSeek/GLM 调用中稳定超过6k套餐输出：
   // 两个供应商都在卷末边界前被截断。12k仍是有界上限，配合下面的表达压缩
@@ -470,21 +518,12 @@ function buildHardSources(
   brief: VolumePlanGenerationBrief,
   peerCandidates: VolumePlanContent[]
 ): ContextSource[] {
-  const genreBrief = buildGenreBrief(snapshot.opening.content);
   const sources: ContextSource[] = [
-    ...(genreBrief === null ? [] : [{
-      sourceType: 'planning:genre_brief',
-      sourceId: `genre:${snapshot.opening.id}`,
-      version: snapshot.opening.version,
-      content: genreBrief,
-      reason: '本书题材简报；方案必须贴合该题材定位与基调',
-      priority: 100
-    }]),
     {
       sourceType: 'planning:opening_blueprint',
       sourceId: snapshot.opening.id,
       version: snapshot.opening.version,
-      content: boundedSource(snapshot.opening.content, 14_000),
+      content: snapshot.opening.content,
       reason: '作者确认的开书信息；未确认的故事方向只作为软参考',
       priority: 100
     },
@@ -492,15 +531,8 @@ function buildHardSources(
       sourceType: 'planning:setting_baseline',
       sourceId: snapshot.setting.id,
       version: snapshot.setting.version,
-      content: boundedSource(snapshot.setting.content, 20_000),
+      content: snapshot.setting.content,
       reason: '已确认设定基线；事实与能力边界必须遵守',
-      priority: 100
-    },
-    {
-      sourceType: 'planning:template_instance',
-      sourceId: `template:${brief.volumePlanId}`,
-      content: JSON.stringify(brief.template),
-      reason: '作者本轮选择的大白话推进参考；是可调整脚手架，不是公式',
       priority: 100
     },
     {
@@ -516,7 +548,7 @@ function buildHardSources(
       sourceType: 'planning:previous_volume',
       sourceId: snapshot.previousVolume.id,
       version: snapshot.previousVolume.version,
-      content: boundedSource(snapshot.previousVolume.content, 16_000),
+      content: snapshot.previousVolume.content,
       reason: '上一卷确认规划，仅用于理解承接责任',
       priority: 100
     });
@@ -526,7 +558,7 @@ function buildHardSources(
       sourceType: 'planning:previous_volume_settlement',
       sourceId: snapshot.previousSettlement.id,
       version: snapshot.previousSettlement.version,
-      content: boundedSource(snapshot.previousSettlement.content, 16_000),
+      content: snapshot.previousSettlement.content,
       reason: '上一卷实际结算；下一卷必须从真实结束状态出发',
       priority: 100
     });
@@ -543,6 +575,30 @@ function buildHardSources(
   return sources;
 }
 
+function buildOptionalSources(
+  snapshot: VolumePlanGenerationSourceSnapshot,
+  brief: VolumePlanGenerationBrief
+): ContextSource[] {
+  const genreBrief = buildGenreBrief(snapshot.opening.content);
+  return [
+    ...(genreBrief === null ? [] : [{
+      sourceType: 'planning:genre_brief',
+      sourceId: `genre:${snapshot.opening.id}`,
+      version: snapshot.opening.version,
+      content: genreBrief,
+      reason: '从开书信息派生的题材与基调导航，不是硬公式',
+      priority: 70
+    }]),
+    ...(brief.template.selectionMode === 'none' ? [] : [{
+      sourceType: 'planning:legacy_template_preference',
+      sourceId: `template:${brief.volumePlanId}`,
+      content: JSON.stringify(brief.template),
+      reason: '旧前端保存的作者推进偏好，只作兼容软参考，不进入硬约束',
+      priority: 35
+    }])
+  ];
+}
+
 function buildPrompt(input: {
   seat: VolumePlanGenerationSeat;
   candidateKind: CandidateKind;
@@ -552,6 +608,12 @@ function buildPrompt(input: {
   peerCandidates: VolumePlanContent[];
 }): string {
   const fusion = input.candidateKind === 'fusion';
+  const fallbackRecipes = selectHiddenVolumeRouteRecipes(
+    `${input.snapshot.bookTitle} ${input.snapshot.opening.content}`,
+    input.snapshot.planNumber === 1
+  );
+  const recipes = input.brief.routeRecipes ?? fallbackRecipes;
+  const routeRecipe: HiddenVolumeRouteRecipe | null = input.candidateKind === 'candidate_a' ? recipes[0] : input.candidateKind === 'candidate_b' ? recipes[1] : null;
   return JSON.stringify({
     operation: 'volume_plan_generation_v1',
     language: 'zh-CN',
@@ -564,6 +626,7 @@ function buildPrompt(input: {
       title: input.snapshot.bookTitle,
       volumeNumber: input.snapshot.planNumber
     },
+    narrativeScaffold: routeRecipe?.scaffold ?? [],
     instructions: fusion ? [
       '只基于两份独立候选、作者原话和冻结资料包，形成一个可执行的融合候选。',
       AUTHOR_IDEA_POLICY_PLANNING,
@@ -579,7 +642,7 @@ function buildPrompt(input: {
       input.seat.roleKey === 'lead_screenwriter'
         ? '优先从人物欲望、阻力、选择、代价和后果推演，不套固定爽点清单。'
         : '主动挑战最直觉的前提，寻找被忽略的关系、代价或结构路径，但反转必须能由前文因果支持。',
-      '推进模板只是大白话脚手架，可以移动、合并或舍弃可选节点；不要在输出中使用猫咪、三幕、五幕等术语。',
+      '按本轮收到的白话节点职责自然设计；可以移动、合并或舍弃软节点，不得在输出中提及任何专业结构名称。',
       '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
       '本卷基调默认延续上一卷（若资料中提供），除非本卷剧情走向明显变化；基调是写作倾向声明，不是内容清单。',
       '本卷重点表达（focusExpression）：从全书标签、开书信息、已确认设定和上一卷走向提炼一句短语（如"权谋智斗＋智商在线＋热血爽"），只写本卷重点，不推翻全书基调，不得写成内容清单或剧情梗概。',
@@ -598,6 +661,13 @@ function buildPrompt(input: {
       'informationPlan、escalationAndRecovery、characterChanges及各边界数组只保留本卷真正需要的要点，每项不超过两句。',
       '必须优先完整闭合eventSequence、endingState、nextVolumeTrigger和boundaries，不能写到中途截断。'
     ],
+    firstVolumeRules: input.snapshot.planNumber === 1 ? [
+      '前500有效中文字内必须建立读者问题、即时处境、情绪抓力和变化承诺；效果必须具体，手段不限定为打斗或打脸。',
+      '前三章作为一组设计：第一章出场与困境，第二章行动与压力并给首次回报，第三章完成阶段结果并打开更大目标。',
+      '第一卷维持有效冲突、情绪拉扯和代入，但不按固定间隔机械安排爽点或反转。',
+      '累计10万有效字以内或本卷结束前（取更早）安排重大高潮，必须包含选择、代价、不可逆变化和下一阶段。',
+      'storySpine只是全书软北极星，不得展开成全书逐章大纲；protectedOpenSpace必须保留未来创造空间。'
+    ] : [],
     sources: input.sources,
     outputContract: {
       title: '卷标题',
@@ -632,6 +702,51 @@ function buildPrompt(input: {
       stylePrimary: `本卷主基调：从词表【${STYLE_TONES.join('、')}】中选1个，贴合本卷剧情走向`,
       styleSecondary: '本卷可选副基调：同一词表，不与主基调重复；不需要则为null',
       focusExpression: '本卷重点表达：一句短语（如"权谋智斗＋智商在线＋热血爽"），从全书标签、开书信息与已确认设定提炼，只写当卷重点；沿用全书基调则为null',
+      routeCard: {
+        protagonistStart: '用一两句具体写清主角从什么状态出发',
+        drivingMotivation: '什么需要或压力让主角主动推进本卷',
+        escalationPath: ['三至五段因果相接的升级过程；不写专业方法名'],
+        keyChoiceAndCost: '主角必须作出的关键选择及真实代价',
+        climaxResolution: '高潮中用什么行动解决本卷核心问题，解决后改变什么',
+        endingChange: '卷末人物、关系和局面的可见变化',
+        benefits: ['选择这条路线的阅读收益，一至三条'],
+        risks: ['这条路线容易写坏或需要控制的风险，一至三条']
+      },
+      ...(input.snapshot.planNumber === 1 ? {
+        storySpine: {
+          longTermPromise: '整本书长期兑现给读者的核心满足',
+          protagonistLongArc: '主角跨卷的长期变化方向',
+          centralQuestion: '贯穿全书、可逐卷推进的中心问题',
+          escalationLadder: ['只写跨卷升级阶梯，不写全书详细剧情'],
+          endingDirection: '可选结局方向；未定则为null',
+          protectedOpenSpace: ['明确哪些未来内容保持开放，不提前解释']
+        },
+        firstVolumeLaunch: {
+          first500: {
+            readerQuestion: '500有效字内让读者想继续确认的问题',
+            immediateSituation: '500有效字内正在发生、不可忽视的具体处境',
+            emotionalGrip: '500有效字内通过人物感受与行动建立的情绪抓力',
+            changePromise: '500有效字内让读者看到故事即将发生何种变化'
+          },
+          goldenThree: [{
+            chapterNumber: '必须依次为1、2、3',
+            responsibility: '本章在开局组中的唯一职责',
+            action: '主角本章采取的具体行动',
+            pressure: '行动面对或造成的压力',
+            payoff: '本章给读者的有效回报，可为空间推进、信息、情绪或能力结果但不得为空',
+            nextExpectation: '自然承接下一章的期待，可为问题、决定、情绪余波或危机'
+          }],
+          majorClimax: {
+            latestEffectiveCharacters: '正整数且不大于100000；若本卷更短则安排在卷末前',
+            setup: '高潮此前如何逐步准备',
+            choice: '高潮迫使主角作出的主动选择',
+            cost: '选择真正付出的代价',
+            irreversibleChange: '高潮造成的不可逆人物或局面变化',
+            nextStage: '高潮兑现后打开的新阶段'
+          },
+          immersionPriorities: ['第一卷维持代入感与情绪拉扯时最需抓住的具体人物体验']
+        }
+      } : {}),
       ...(fusion ? {
         fusionNotes: {
           payoffDesign: '爽点设计说明：本融合稿的爽点埋在哪里、按什么节奏兑现、各自服务什么情绪',
@@ -675,11 +790,6 @@ function retrievalQuery(
   ].filter(Boolean).join(' ');
 }
 
-function boundedSource(value: string, limit: number): string {
-  if (value.length <= limit) return value;
-  const half = Math.floor((limit - 120) / 2);
-  return `${value.slice(0, half)}\n【中间内容未直接注入；需要时通过检索回查原始版本】\n${value.slice(-half)}`;
-}
 
 function parseBrief(value: Record<string, unknown>): VolumePlanGenerationBrief {
   const brief = value as unknown as VolumePlanGenerationBrief;

@@ -176,14 +176,14 @@ function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,
   const result:ContextSource[]=[
     ...(genreBrief===null?[]:[{sourceType:'planning:genre_brief',sourceId:'genre:'+s.opening.id,version:s.opening.version,
       content:genreBrief,reason:'本书题材简报；方案必须贴合该题材定位与基调',priority:100}]),
-    {sourceType:'planning:volume_plan',sourceId:s.volumePlanId,version:s.volumeVersion,content:bounded(s.volumeContent,18000),reason:'当前确认卷纲；事件必须服务卷目标',priority:100},
-    {sourceType:'planning:event_seed',sourceId:s.seed.id,version:s.seed.version,content:bounded(s.seed.content,9000),reason:'卷纲分配给本事件的任务和接口',priority:100},
-    {sourceType:'planning:setting_baseline',sourceId:s.setting.id,version:s.setting.version,content:bounded(s.setting.content,16000),reason:'已确认设定事实边界',priority:100},
+    {sourceType:'planning:volume_plan',sourceId:s.volumePlanId,version:s.volumeVersion,content:s.volumeContent,reason:'当前确认卷纲；事件必须服务卷目标',priority:100},
+    {sourceType:'planning:event_seed',sourceId:s.seed.id,version:s.seed.version,content:s.seed.content,reason:'卷纲分配给本事件的任务和接口',priority:100},
+    {sourceType:'planning:setting_baseline',sourceId:s.setting.id,version:s.setting.version,content:s.setting.content,reason:'已确认设定事实边界',priority:100},
     {sourceType:'owner:event_ideas',sourceId:'ideas:'+s.eventId,content:JSON.stringify(b.authorIdeas),reason:'作者原话；按强度处理：must必须100%执行，preference与inspiration参考融合（观点最多七成）',priority:100},
-    {sourceType:'planning:event_template',sourceId:'template:'+s.eventId,content:JSON.stringify(b.template),reason:'可调整推进参考，不是公式',priority:100}
+    {sourceType:'planning:event_template',sourceId:'template:'+s.eventId,content:JSON.stringify(b.template),reason:'作者只选择一种阅读感受；节点可调整、合并或舍弃，不是公式',priority:60,constraintStrength:'soft_reference'}
   ];
   if(s.previousSettlement!==null)result.push({sourceType:'planning:previous_event_settlement',sourceId:s.previousSettlement.id,
-    version:s.previousSettlement.version,content:bounded(s.previousSettlement.content,12000),reason:'上一事件实际结果；不是上一事件计划',priority:100});
+    version:s.previousSettlement.version,content:s.previousSettlement.content,reason:'上一事件实际结果；不是上一事件计划',priority:100});
   if(peers.length>0)result.push({sourceType:'planning:independent_event_candidates',sourceId:'peers:'+s.eventId,
     content:JSON.stringify(peers),reason:'两位编剧独立候选，供主编取舍融合',priority:100});
   return result;

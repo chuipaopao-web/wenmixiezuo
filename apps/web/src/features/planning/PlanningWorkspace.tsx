@@ -92,13 +92,14 @@ interface SettingOutlineGroup {
 }
 
 const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
-  { key: 'core-six', title: '核心设定', description: '任何题材都必须先想清楚的六件事；六项全部确认后才生成正式设定稿。', items: [
-    { key: 'story-kernel', label: '故事内核', prompt: '这本书最勾人的核心看点是什么？读者一直追下去，稳定获得什么爽感或满足？和同类书相比，它不可替代的地方在哪？', source: '通用', required: true },
+  { key: 'core-four', title: '核心设定', description: '只建立不涉及具体剧情的四块书籍骨架；四项确认后即可进入分卷。', items: [
     { key: 'world-stage', label: '世界舞台', prompt: '故事发生在什么时代、什么样的世界？主角开场在哪里活动？这个世界的整体面貌和氛围是什么？', source: '通用', required: true },
-    { key: 'protagonist-situation', label: '主角处境', prompt: '主角是谁？开场拥有什么、缺少什么、被什么逼着往前走？他真正想要什么，又绝不会做什么？', source: '通用', required: true },
-    { key: 'opposition', label: '对立面', prompt: '挡在主角面前的到底是谁或什么？对方想要什么、为什么绕不开？冲突靠什么一轮轮升级？', source: '通用', required: true },
+    { key: 'protagonist-situation', label: '主角底板', prompt: '主角的身份、能力基础、性格驱动力、日常处境和绝不越过的底线是什么？这里只定人物底板，不提前规定具体剧情。', source: '通用', required: true },
     { key: 'rules-costs', label: '规矩与代价', prompt: '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？', source: '通用', required: true },
     { key: 'boundaries-blanks', label: '边界与留白', prompt: '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？', source: '通用', required: true }
+  ] },
+  { key: 'book-direction', title: '可选方向', description: '已经想清楚就补充，没想好可以留到第一卷一起设计。', items: [
+    { key: 'story-kernel', label: '长期吸引力', prompt: '读者长期追更会获得什么满足？这只是方向参考，不提前规定具体剧情。', source: '通用' }
   ] },
   { key: 'world', title: '世界与环境', description: '这个世界是什么样，故事发生在哪里，过去发生过什么。', items: [
     { key: 'world-layer', label: '世界层级与空间结构', prompt: '世界由哪些层级、位面、区域或服务器构成？', source: '通用' },
@@ -452,7 +453,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     ...group,
     items: group.items.filter((item) => requiredKeys.has(item.key))
   })).filter((group) => group.items.length > 0);
-  const recommendedGroups = groups.map((group) => ({
+  const recommendedGroups = activeTemplateGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => !requiredKeys.has(item.key))
   })).filter((group) => group.items.length > 0);
@@ -686,7 +687,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     setCheckedKeys((current) => ({ ...current, [key]: current[key] !== true }));
   };
 
-  /** 队列顺序：核心六项（模板顺序）→ 勾选的推荐项（主题材优先的画像顺序）→ 勾选的自定义/资料库项。 */
+  /** 队列顺序：核心四项（模板顺序）→ 勾选的推荐项（主题材优先）→ 勾选的自定义/资料库项。 */
   const buildQueue = (): string[] => {
     const unfinished = (key: string): boolean => statuses[key] !== '已确认';
     const coreQueue = coreItems.map((item) => item.key).filter(unfinished);
@@ -724,7 +725,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     advanceQueue(queue, statuses);
   };
 
-  /** 从队列里移除一项：核心六项必须设计不可移除，其他项同时取消勾选。 */
+  /** 从队列里移除一项：核心四项必须设计不可移除，其他项同时取消勾选。 */
   const removeFromQueue = (key: string): void => {
     if (requiredKeys.has(key)) return;
     setCheckedKeys((current) => ({ ...current, [key]: false }));
@@ -777,7 +778,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     </div>}
     <section className="setting-desk-section" aria-label="核心设定">
       <details className="setting-fold" open>
-      <summary><strong>核心设定</strong><em>必须逐项设计，已默认勾选</em></summary>
+      <summary><strong>核心设定</strong><em>四项书籍骨架，确认后即可进入分卷</em></summary>
       {coreItems.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : <div className="setting-core-grid">
         {coreItems.map((item) => {
           const status = statuses[item.key] ?? '待讨论';
@@ -861,7 +862,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     </section>
     {bookId !== null && <section className="setting-queue-bar">
       {designQueue === null
-        ? <><span>核心六项必须设计；其他条目勾选后一起按顺序设计。</span>
+        ? <><span>核心四项必须设计；其他条目按需勾选后一起设计。</span>
           <button className="primary-button setting-start-button" type="button" disabled={busyKey !== null} onClick={startDesignQueue}>
             开始设计（共 {buildQueue().length} 项）
           </button>
@@ -1174,4 +1175,3 @@ function ArtifactEditFields({ value, onChange, depth = 0 }: { value: Record<stri
     return <label key={key}><span>{fieldLabel(key)}</span><input value={formatValue(item)} onChange={(event) => onChange({ ...value, [key]: event.target.value })} /></label>;
   })}</div>;
 }
-

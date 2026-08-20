@@ -37,8 +37,7 @@ describe('白话叙事模板接口', () => {
     });
     expect(response.json().data.templates.every((item: Record<string, unknown>) => item.scope === 'volume')).toBe(true);
     expect(response.body).not.toMatch(/sourceMethod|legacyIds|Save the Cat/iu);
-    expect(response.json().data.templates.map((item: Record<string, unknown>) => item.sourceLabel))
-      .toEqual(expect.arrayContaining(['三幕式', '五幕式', '救猫咪结构']));
+    expect(response.body).not.toMatch(/sourceLabel|三幕式|五幕式|救猫咪结构/iu);
   });
 
   it('把本书活动卷和最近真实卷结算加入推荐排序信号', () => {

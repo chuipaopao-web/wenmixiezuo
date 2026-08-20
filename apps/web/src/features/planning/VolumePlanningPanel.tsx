@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircleIcon } from '@phosphor-icons/react';
 import type {
-  NarrativeTemplateCatalogView,
   PlanningTemplateInstance,
-  PublicNarrativeTemplate,
   VolumePlanContent
 } from '@wenmi/contracts';
 import {
@@ -14,7 +12,6 @@ import {
   fetchAuthorPlanningInputs,
   fetchCreationWorkflow,
   fetchOpeningTaxonomy,
-  fetchPlanningTemplates,
   fetchVolumePlanGeneration,
   fetchVolumePlans,
   fetchVolumePlanVersions,
@@ -36,7 +33,6 @@ import { ImeInput } from '../shared/ImeSafeField';
 interface VolumePlanningSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
   plans: VolumePlanData[];
-  templates: NarrativeTemplateCatalogView;
 }
 
 export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.Element {
@@ -44,9 +40,6 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VolumePlanVersionData[]>([]);
   const [generation, setGeneration] = useState<VolumePlanGenerationData | null>(null);
-  const [selectedTemplates, setSelectedTemplates] = useState<PublicNarrativeTemplate[]>([]);
-  const [templateMode, setTemplateMode] = useState<'template' | 'custom' | 'none'>('none');
-  const [customDirection, setCustomDirection] = useState('');
   const [draft, setDraft] = useState<VolumePlanContent>(() => emptyVolumePlan(1));
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -64,12 +57,11 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   }, []);
 
   const load = useCallback(async (signal?: AbortSignal): Promise<void> => {
-    const [workflow, plans, templates] = await Promise.all([
+    const [workflow, plans] = await Promise.all([
       fetchCreationWorkflow(bookId, signal),
-      fetchVolumePlans(bookId, signal),
-      fetchPlanningTemplates(bookId, 'volume', signal)
+      fetchVolumePlans(bookId, signal)
     ]);
-    setSnapshot({ workflow, plans, templates });
+    setSnapshot({ workflow, plans });
     setSelectedPlanId((current) => {
       if (current !== null && plans.some((plan) => plan.volumePlanId === current)) return current;
       return plans.at(-1)?.volumePlanId ?? null;
@@ -165,7 +157,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         authorInputRefs: authorIdeas
           .filter((idea) => !['withdrawn', 'superseded'].includes(idea.status))
           .map((idea) => idea.authorInputId),
-        template: templateInstance(templateMode, selectedTemplates, customDirection),
+        template: freePlanningReference(),
         content: draft,
         idempotencyKey: key(`volume-author-${selectedPlan.volumePlanId}`)
       });
@@ -186,7 +178,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         expectedPlanRevision: selectedPlan.revision,
         expectedActiveVersionId: selectedPlan.activeVersionId,
         expectedWorkflowVersion: snapshot.workflow.planningVersion,
-        template: templateInstance(templateMode, selectedTemplates, customDirection),
+        template: freePlanningReference(),
         authorInputRefs: authorIdeas
           .filter((idea) => !['withdrawn', 'superseded'].includes(idea.status))
           .map((idea) => idea.authorInputId),
@@ -293,23 +285,6 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         stageObjectId={selectedPlan.volumePlanId}
       />}
 
-      <TemplateChooser
-        catalog={snapshot.templates}
-        mode={templateMode}
-        selected={selectedTemplates}
-        customDirection={customDirection}
-        onMode={setTemplateMode}
-        onSelect={(template) => {
-          setSelectedTemplates((current) => {
-            const next = current.some((item) => item.templateKey === template.templateKey)
-              ? current.filter((item) => item.templateKey !== template.templateKey)
-              : [...current, template];
-            setTemplateMode(next.length === 0 ? 'none' : 'template');
-            return next;
-          });
-        }}
-        onCustomDirection={setCustomDirection}
-      />
 
       <AuthorIdeaComposer
         bookId={bookId}
@@ -350,40 +325,6 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   </section>;
 }
 
-function TemplateChooser({ catalog, mode, selected, customDirection, onMode, onSelect, onCustomDirection }: {
-  catalog: NarrativeTemplateCatalogView;
-  mode: 'template' | 'custom' | 'none';
-  selected: PublicNarrativeTemplate[];
-  customDirection: string;
-  onMode: (mode: 'template' | 'custom' | 'none') => void;
-  onSelect: (template: PublicNarrativeTemplate) => void;
-  onCustomDirection: (value: string) => void;
-}): React.JSX.Element {
-  const recommendedTemplates = catalog.templates.filter((template) => template.recommended);
-  const additionalTemplates = catalog.templates.filter((template) => !template.recommended);
-  const renderTemplate = (template: PublicNarrativeTemplate, badge: string): React.JSX.Element => <button
-    type="button"
-    className={mode === 'template' && selected.some((item) => item.templateKey === template.templateKey) ? 'selected' : ''}
-    key={template.templateKey}
-    onClick={() => onSelect(template)}
-  ><span>{badge}</span><strong>{template.publicTitle}</strong><p>{template.publicExplanation}</p></button>;
-  return <section className="volume-template-section">
-    <header><div><h4>这一卷想怎么推进？</h4><p>可以不选；通常选0—3种就够了，确有需要也可继续混合。所有方案都是软参考，不规定固定章数、爽点或反转频率。</p></div>{mode === 'template' && <span>已选 {selected.length} 种</span>}</header>
-    <div className="template-choice-group recommended">
-      <div className="template-choice-heading"><div><strong>根据本书推荐</strong><small>结合题材、标签、当前卷信息和已完成卷的实际结算排序</small></div><span>{recommendedTemplates.length} 种</span></div>
-      <div className="volume-template-grid">{recommendedTemplates.map((template) => renderTemplate(template, '适合当前书况'))}</div>
-    </div>
-    {additionalTemplates.length > 0 && <details className="template-choice-group template-more-options">
-      <summary><span><strong>查看更多推进方案</strong><small>任何题材都可以自由选择，不受推荐限制</small></span><b>{additionalTemplates.length} 种</b></summary>
-      <div className="volume-template-grid">{additionalTemplates.map((template) => renderTemplate(template, '更多选择'))}</div>
-    </details>}
-    <div className="volume-template-grid template-alternative-grid">
-      <button type="button" className={mode === 'custom' ? 'selected' : ''} onClick={() => onMode('custom')}><span>自定义</span><strong>按我的想法推进</strong><p>只记录你的方向，不套用固定节奏。</p></button>
-      <button type="button" className={mode === 'none' ? 'selected' : ''} onClick={() => onMode('none')}><span>自由设计</span><strong>暂时不选推进参考</strong><p>让人物目标和已有因果自然决定本卷结构。</p></button>
-    </div>
-    {mode === 'custom' && <label className="volume-custom-direction"><span>我的推进方向</span><textarea rows={3} value={customDirection} onChange={(event) => onCustomDirection(event.target.value)} placeholder="例如：前半卷让主角以为自己找对了方向，中段发现胜利反而伤害了盟友，后半卷必须换一种办法。" /></label>}
-  </section>;
-}
 
 function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, onResume }: {
   generation: VolumePlanGenerationData | null;
@@ -397,7 +338,7 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
   const canRetry = generation?.status === 'failed' || generation?.status === 'interrupted';
   return <section className={`volume-generation-card ${active ? 'working' : ''}`} aria-label="卷规划团队设计">
     <header>
-      <div><h4>团队设计</h4></div>
+      <div><h4>团队设计</h4><p>两位编剧会按不同思路各写一条具体路线；你不需要先选或理解任何写作方法。</p></div>
       <button className="primary-button" type="button" disabled={busy || active} onClick={onStart}>
         {generation?.status === 'succeeded' ? '再设计一组方案' : '让团队开始设计'}
       </button>
@@ -429,6 +370,9 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
   styleTones: string[];
 }): React.JSX.Element {
   const firstEvent = value.eventSequence[0]!;
+  const routeCard = value.routeCard ?? null;
+  const storySpine = value.storySpine ?? null;
+  const firstVolumeLaunch = value.firstVolumeLaunch ?? null;
   const setText = (field: keyof VolumePlanContent, next: string): void => onChange({ ...value, [field]: next });
   const setList = (field: keyof VolumePlanContent, next: string): void => onChange({
     ...value, [field]: lines(next)
@@ -472,6 +416,53 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
         onChange={(next) => onChange({ ...value, focusExpression: next.trim().length === 0 ? null : next })}
       />
     </section>
+    {routeCard !== null && <details className="volume-layer-editor" open>
+      <summary><span>具体故事路线</span><small>AI给的是可修改的故事过程，不是固定公式。</small></summary>
+      <div className="volume-editor-grid">
+        <label><span>主角从哪里出发</span><textarea rows={2} value={routeCard.protagonistStart} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, protagonistStart: event.target.value } })} /></label>
+        <label><span>为什么主动往前走</span><textarea rows={2} value={routeCard.drivingMotivation} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, drivingMotivation: event.target.value } })} /></label>
+        <label><span>升级过程（每行一段）</span><textarea rows={4} value={routeCard.escalationPath.join('\n')} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, escalationPath: lines(event.target.value) } })} /></label>
+        <label><span>关键选择与代价</span><textarea rows={3} value={routeCard.keyChoiceAndCost} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, keyChoiceAndCost: event.target.value } })} /></label>
+        <label><span>高潮怎样解决</span><textarea rows={3} value={routeCard.climaxResolution} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, climaxResolution: event.target.value } })} /></label>
+        <label><span>卷末发生什么变化</span><textarea rows={3} value={routeCard.endingChange} onChange={(event) => onChange({ ...value, routeCard: { ...routeCard, endingChange: event.target.value } })} /></label>
+      </div>
+    </details>}
+    {(storySpine !== null || firstVolumeLaunch !== null) && <details className="volume-layer-editor first-volume-editor">
+      <summary><span>第一卷开局与全书故事总线</span><small>默认收起；只有需要调整时再展开。</small></summary>
+      <div className="volume-first-editor-body">
+        {storySpine !== null && <section><h5>全书软方向</h5><div className="volume-editor-grid">
+          <label><span>长期给读者什么满足</span><textarea rows={2} value={storySpine.longTermPromise} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, longTermPromise: event.target.value } })} /></label>
+          <label><span>主角跨卷怎样变化</span><textarea rows={2} value={storySpine.protagonistLongArc} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, protagonistLongArc: event.target.value } })} /></label>
+          <label><span>贯穿全书的中心问题</span><textarea rows={2} value={storySpine.centralQuestion} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, centralQuestion: event.target.value } })} /></label>
+          <label><span>跨卷升级阶梯（每行一层）</span><textarea rows={3} value={storySpine.escalationLadder.join('\n')} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, escalationLadder: lines(event.target.value) } })} /></label>
+          <label><span>可选结局方向</span><textarea rows={2} value={storySpine.endingDirection ?? ''} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, endingDirection: event.target.value.trim() || null } })} /></label>
+          <label><span>暂时保留的未知空间（每行一条）</span><textarea rows={3} value={storySpine.protectedOpenSpace.join('\n')} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, protectedOpenSpace: lines(event.target.value) } })} /></label>
+        </div></section>}
+        {firstVolumeLaunch !== null && <section><h5>爆款开局职责</h5>
+          <div className="volume-editor-grid">
+            <label><span>前500字让读者追问什么</span><textarea rows={2} value={firstVolumeLaunch.first500.readerQuestion} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, first500: { ...firstVolumeLaunch.first500, readerQuestion: event.target.value } } })} /></label>
+            <label><span>前500字正在发生什么</span><textarea rows={2} value={firstVolumeLaunch.first500.immediateSituation} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, first500: { ...firstVolumeLaunch.first500, immediateSituation: event.target.value } } })} /></label>
+            <label><span>前500字的情绪抓力</span><textarea rows={2} value={firstVolumeLaunch.first500.emotionalGrip} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, first500: { ...firstVolumeLaunch.first500, emotionalGrip: event.target.value } } })} /></label>
+            <label><span>前500字承诺什么变化</span><textarea rows={2} value={firstVolumeLaunch.first500.changePromise} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, first500: { ...firstVolumeLaunch.first500, changePromise: event.target.value } } })} /></label>
+          </div>
+          <div className="golden-three-editor">{firstVolumeLaunch.goldenThree.map((chapter) => <article key={chapter.chapterNumber}><h6>第{chapter.chapterNumber}章</h6>
+            <label><span>本章唯一职责</span><textarea rows={2} value={chapter.responsibility} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, goldenThree: firstVolumeLaunch.goldenThree.map((candidate) => candidate.chapterNumber === chapter.chapterNumber ? { ...candidate, responsibility: event.target.value } : candidate) } })} /></label>
+            <label><span>主角行动</span><textarea rows={2} value={chapter.action} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, goldenThree: firstVolumeLaunch.goldenThree.map((candidate) => candidate.chapterNumber === chapter.chapterNumber ? { ...candidate, action: event.target.value } : candidate) } })} /></label>
+            <label><span>压力与阻力</span><textarea rows={2} value={chapter.pressure} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, goldenThree: firstVolumeLaunch.goldenThree.map((candidate) => candidate.chapterNumber === chapter.chapterNumber ? { ...candidate, pressure: event.target.value } : candidate) } })} /></label>
+            <label><span>当章有效回报</span><textarea rows={2} value={chapter.payoff} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, goldenThree: firstVolumeLaunch.goldenThree.map((candidate) => candidate.chapterNumber === chapter.chapterNumber ? { ...candidate, payoff: event.target.value } : candidate) } })} /></label>
+            <label><span>下一章期待</span><textarea rows={2} value={chapter.nextExpectation} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, goldenThree: firstVolumeLaunch.goldenThree.map((candidate) => candidate.chapterNumber === chapter.chapterNumber ? { ...candidate, nextExpectation: event.target.value } : candidate) } })} /></label>
+          </article>)}</div>
+          <section className="major-climax-editor"><h6>第一卷重大高潮</h6><div className="volume-editor-grid">
+            <label><span>最晚累计有效字</span><input type="number" min={1} max={100000} value={firstVolumeLaunch.majorClimax.latestEffectiveCharacters} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, latestEffectiveCharacters: Math.max(1, Math.min(100000, Number(event.target.value) || 1)) } } })} /></label>
+            <label><span>前面怎样准备</span><textarea rows={2} value={firstVolumeLaunch.majorClimax.setup} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, setup: event.target.value } } })} /></label>
+            <label><span>主角作什么选择</span><textarea rows={2} value={firstVolumeLaunch.majorClimax.choice} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, choice: event.target.value } } })} /></label>
+            <label><span>付出什么代价</span><textarea rows={2} value={firstVolumeLaunch.majorClimax.cost} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, cost: event.target.value } } })} /></label>
+            <label><span>造成什么不可逆变化</span><textarea rows={2} value={firstVolumeLaunch.majorClimax.irreversibleChange} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, irreversibleChange: event.target.value } } })} /></label>
+            <label><span>打开什么新阶段</span><textarea rows={2} value={firstVolumeLaunch.majorClimax.nextStage} onChange={(event) => onChange({ ...value, firstVolumeLaunch: { ...firstVolumeLaunch, majorClimax: { ...firstVolumeLaunch.majorClimax, nextStage: event.target.value } } })} /></label>
+          </div></section>
+        </section>}
+      </div>
+    </details>}
     <div className="volume-editor-grid">
       <label><span>卷标题</span><input value={value.title} onChange={(event) => setText('title', event.target.value)} /></label>
       <label><span>开卷时人物与局面</span><textarea rows={3} value={value.openingState} onChange={(event) => setText('openingState', event.target.value)} /></label>
@@ -510,6 +501,18 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
     <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
     <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷重点表达</dt><dd>{version.content.focusExpression ?? '沿用全书调子'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
+    {version.content.routeCard != null && <section className="volume-concrete-route">
+      <dl>
+        <div><dt>主角从哪里出发</dt><dd>{version.content.routeCard.protagonistStart}</dd></div>
+        <div><dt>为什么主动往前走</dt><dd>{version.content.routeCard.drivingMotivation}</dd></div>
+        <div><dt>关键选择与代价</dt><dd>{version.content.routeCard.keyChoiceAndCost}</dd></div>
+        <div><dt>高潮怎样解决</dt><dd>{version.content.routeCard.climaxResolution}</dd></div>
+        <div><dt>卷末发生什么变化</dt><dd>{version.content.routeCard.endingChange}</dd></div>
+      </dl>
+      <ol>{version.content.routeCard.escalationPath.map((step) => <li key={step}>{step}</li>)}</ol>
+      <details><summary>这条路线的好处与风险</summary><div><b>好处</b><ul>{version.content.routeCard.benefits.map((item) => <li key={item}>{item}</li>)}</ul><b>风险</b><ul>{version.content.routeCard.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></details>
+    </section>}
+    {(version.content.storySpine != null || version.content.firstVolumeLaunch != null) && <details className="first-volume-design"><summary>第一卷开局与全书故事总线</summary><div>{version.content.storySpine != null && <><b>全书长期承诺</b><p>{version.content.storySpine.longTermPromise}</p><b>主角长期变化</b><p>{version.content.storySpine.protagonistLongArc}</p><b>中心问题</b><p>{version.content.storySpine.centralQuestion}</p></>}{version.content.firstVolumeLaunch != null && <><b>前500字</b><p>{version.content.firstVolumeLaunch.first500.immediateSituation}；{version.content.firstVolumeLaunch.first500.emotionalGrip}；{version.content.firstVolumeLaunch.first500.readerQuestion}</p><b>黄金三章</b><ol>{version.content.firstVolumeLaunch.goldenThree.map((chapter) => <li key={chapter.chapterNumber}>第{chapter.chapterNumber}章：{chapter.responsibility}；回报：{chapter.payoff}</li>)}</ol><b>重大高潮</b><p>最晚在累计 {version.content.firstVolumeLaunch.majorClimax.latestEffectiveCharacters.toLocaleString('zh-CN')} 有效字前：{version.content.firstVolumeLaunch.majorClimax.choice}；代价：{version.content.firstVolumeLaunch.majorClimax.cost}；变化：{version.content.firstVolumeLaunch.majorClimax.irreversibleChange}</p></>}</div></details>}
     {version.content.fusionNotes != null && <div className="fusion-notes">
       <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
       <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>
@@ -538,26 +541,10 @@ function emptyVolumePlan(
   };
 }
 
-function templateInstance(
-  mode: 'template' | 'custom' | 'none',
-  selected: PublicNarrativeTemplate[],
-  customDirection: string
-): PlanningTemplateInstance {
-  const primary = selected[0] ?? null;
-  if (mode === 'template' && primary !== null) return {
-    selectionMode: 'template', templateKey: primary.templateKey, templateVersion: primary.templateVersion,
-    templateHash: primary.contentHash,
-    templateRefs: selected.map((template) => ({
-      templateKey: template.templateKey, templateVersion: template.templateVersion, templateHash: template.contentHash
-    })),
-    scope: 'volume',
-    beats: selected.flatMap((template, templateIndex) => template.beats.map((beat) => ({
-      ...beat, beatId: `${template.templateKey}:${beat.beatId}`, order: templateIndex * 100 + beat.order, authorIdeaRefs: []
-    }))), customDirection: null
-  };
+function freePlanningReference(): PlanningTemplateInstance {
   return {
-    selectionMode: mode, templateKey: null, templateVersion: null, templateHash: null,
-    scope: 'volume', beats: [], customDirection: mode === 'custom' ? customDirection.trim() || null : null
+    selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
+    scope: 'volume', beats: [], customDirection: null
   };
 }
 
@@ -623,7 +610,7 @@ function messageOf(reason: unknown): string {
 }
 
 function candidateLabel(kind: VolumePlanVersionData['candidateKind']): string {
-  return ({ candidate_a: '编剧方案A', candidate_b: '编剧方案B', author_edit: '作者修改', fusion: '主编融合', legacy: '旧稿参考' })[kind];
+  return ({ candidate_a: '方案一', candidate_b: '方案二', author_edit: '我的修改', fusion: '主编整理版', legacy: '旧稿参考' })[kind];
 }
 
 function statusLabel(status: VolumePlanVersionData['status']): string {

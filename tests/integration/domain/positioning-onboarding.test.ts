@@ -79,7 +79,7 @@ describe('定位草稿与原子建书', () => {
       SELECT item_key, label, item_status FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? ORDER BY sort_order, item_key
     `).all('owner-one', result.bookId) as Array<{ item_key: string; label: string; item_status: string }>;
-    expect(settingItems[0]).toEqual({ item_key: 'story-kernel', label: '故事内核', item_status: '待讨论' });
+    expect(settingItems[0]).toEqual({ item_key: 'world-stage', label: '世界舞台', item_status: '待讨论' });
     expect(settingItems.filter((item) => item.item_status === '讨论中')).toHaveLength(0);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
       .get('owner-one', result.bookId)).toEqual({ count: 11 });

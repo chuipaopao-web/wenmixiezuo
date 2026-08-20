@@ -6,6 +6,9 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { stableJson } from '../knowledge/canon-service.js';
 
+export type ContextConstraintStrength = 'hard_fact' | 'current_task' | 'soft_reference' | 'open_space';
+export type ContextTruthStatus = 'planned' | 'confirmed' | 'actual';
+
 export interface ContextSource {
   sourceType: string;
   sourceId: string;
@@ -13,6 +16,11 @@ export interface ContextSource {
   reason: string;
   priority: number;
   version?: number | string;
+  constraintStrength?: ContextConstraintStrength;
+  truthStatus?: ContextTruthStatus;
+  scopeType?: 'book' | 'volume' | 'event' | 'chapter' | 'task';
+  scopeId?: string;
+  dependencies?: string[];
 }
 
 export interface ContextPackInput {
@@ -62,7 +70,12 @@ export class ContextPackService {
       ...source,
       tokenCount: estimateTokens(source.content),
       characterCount: source.content.length,
-      hard: true as const
+      hard: true as const,
+      constraintStrength: source.constraintStrength ?? inferConstraintStrength(source.sourceType, true),
+      truthStatus: source.truthStatus ?? inferTruthStatus(source.sourceType),
+      scopeType: source.scopeType ?? inferScopeType(source.sourceType),
+      scopeId: source.scopeId ?? source.sourceId,
+      dependencies: source.dependencies ?? [],
     }));
     const hardTokens = hard.reduce((sum, source) => sum + source.tokenCount, 0);
     const hardCharacters = hard.reduce((sum, source) => sum + source.characterCount, 0);
@@ -101,7 +114,12 @@ export class ContextPackService {
         ...source,
         tokenCount: estimateTokens(source.content),
         characterCount: source.content.length,
-        hard: false as const
+        hard: false as const,
+        constraintStrength: source.constraintStrength ?? inferConstraintStrength(source.sourceType, false),
+        truthStatus: source.truthStatus ?? inferTruthStatus(source.sourceType),
+        scopeType: source.scopeType ?? inferScopeType(source.sourceType),
+        scopeId: source.scopeId ?? source.sourceId,
+        dependencies: source.dependencies ?? [],
       }))
       .sort((left, right) => right.priority - left.priority || left.sourceId.localeCompare(right.sourceId));
     // P0-6: 同源去重。完整不可变版本已作为硬来源注入时，排除同版本/同一物理正文的派生检索块，
@@ -170,6 +188,11 @@ export class ContextPackService {
       compression: 'none',
       tokenCount: source.tokenCount,
       hard: source.hard,
+      constraintStrength: source.constraintStrength,
+      truthStatus: source.truthStatus,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      dependencies: source.dependencies,
       content: source.content
     }));
     const immutableContent = stableJson({
@@ -189,6 +212,11 @@ export class ContextPackService {
       sourceType: source.sourceType,
       sourceId: source.sourceId,
       version: source.version,
+      constraintStrength: source.constraintStrength,
+      truthStatus: source.truthStatus,
+      scopeType: source.scopeType,
+      scopeId: source.scopeId,
+      dependencies: source.dependencies,
       contentHash: createHash('sha256').update(source.content).digest('hex')
     })))).digest('hex');
     const contextPackId = this.ids.next();
@@ -218,6 +246,29 @@ export class ContextPackService {
       excluded
     };
   }
+}
+function inferConstraintStrength(sourceType: string, hard: boolean): ContextConstraintStrength {
+  if (!hard) return 'soft_reference';
+  if (/(system_rule|work_order|writing_contract|chapter_outline|owner_.*instruction|task)/u.test(sourceType)) {
+    return 'current_task';
+  }
+  if (/(creative_freedom|open_space)/u.test(sourceType)) return 'open_space';
+  if (/(style|tone|genre|template|brief)/u.test(sourceType)) return 'soft_reference';
+  return 'hard_fact';
+}
+
+function inferTruthStatus(sourceType: string): ContextTruthStatus {
+  if (/(manuscript|settlement|previous_chapter|commitment|canon|fact)/u.test(sourceType)) return 'actual';
+  if (/(plan|outline|contract|work_order|template|event_seed)/u.test(sourceType)) return 'planned';
+  return 'confirmed';
+}
+
+function inferScopeType(sourceType: string): NonNullable<ContextSource['scopeType']> {
+  if (/(chapter|writing_contract|work_order)/u.test(sourceType)) return 'chapter';
+  if (/(event|story_arc)/u.test(sourceType)) return 'event';
+  if (/volume/u.test(sourceType)) return 'volume';
+  if (/(task|owner_.*instruction)/u.test(sourceType)) return 'task';
+  return 'book';
 }
 
 function deduplicateCoveredHardSources(

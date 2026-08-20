@@ -142,11 +142,9 @@ export interface SettingOutlineItemVersionData {
 export interface SettingCollaborationData {
   item: SettingOutlineWorkspaceData;
   panel: null | {
-    taskId: string;
-    discussionId: string;
+    recoveryKey: string;
     taskStatus: string;
     discussionStatus: string;
-    errorCode: string | null;
     createdAt: string;
     updatedAt: string;
     proposals: Array<{
@@ -155,10 +153,9 @@ export interface SettingCollaborationData {
       agentId: string | null;
       memberName: string;
       roleKey: string | null;
-      modelProvider: string | null;
-      modelId: string | null;
       content: string;
-      decisionId: string | null;
+      benefits: string[];
+      costs: string[];
       createdAt: string;
       fragments: Array<{
         fragmentId: string;
@@ -171,22 +168,18 @@ export interface SettingCollaborationData {
       agentId: string;
       memberName: string;
       roleKey: string;
-      modelProvider: string;
-      modelId: string;
       status: 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
       contextSummary: string;
       outputSummary: string | null;
     }>;
   };
   revisionTask: null | {
-    taskId: string;
+    recoveryKey: string;
     status: string;
-    errorCode: string | null;
     updatedAt: string;
   };
   historyCount: number;
   fusionDraft: null | {
-    taskId: string;
     selectedFragmentIds: string[];
     segments: Array<{
       text: string;
@@ -992,7 +985,9 @@ function waitBeforeRateLimitRetry(ms: number, signal: AbortSignal | null | undef
 
 async function performRequest(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (!(init.body instanceof FormData) && !headers.has('content-type')) headers.set('content-type', 'application/json');
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
   const send = (): Promise<Response> => fetch(`${API_ORIGIN}${path}`, {
     ...init,
     credentials: 'include',
@@ -1974,6 +1969,7 @@ export function restartSettingCollaboration(bookId: string, itemKey: string, inp
 
 export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
   proposalIds: string[];
+  wholeProposalIds?: string[];
   fragmentIds?: string[];
   authorInputId?: string | null;
   idempotencyKey: string;

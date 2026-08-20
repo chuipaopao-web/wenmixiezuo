@@ -14,6 +14,18 @@ afterEach(() => {
 });
 
 describe('API客户端429限流处理', () => {
+  it('无请求体的读取请求不伪装成空JSON', async () => {
+    let requestHeaders = new Headers();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestHeaders = new Headers(init?.headers);
+      return jsonResponse(200, OK_BODY);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchBooks()).resolves.toEqual([]);
+    expect(requestHeaders.has('content-type')).toBe(false);
+  });
+
   it('遇到429自动延迟重试，恢复后正常返回数据', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()

@@ -1,4 +1,5 @@
 import type { BookScope } from '../../domain/scope.js';
+import { parseSettingProposalStructure, type SettingProposalStructure } from '@wenmi/contracts';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
@@ -9,11 +10,9 @@ type MemberStatus = 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
 export interface SettingCollaborationView {
   item: ReturnType<SettingOutlineWorkspaceService['list']>[number];
   panel: null | {
-    taskId: string;
-    discussionId: string;
+    recoveryKey: string;
     taskStatus: string;
     discussionStatus: string;
-    errorCode: string | null;
     createdAt: string;
     updatedAt: string;
     proposals: Array<{
@@ -22,10 +21,9 @@ export interface SettingCollaborationView {
       agentId: string | null;
       memberName: string;
       roleKey: string | null;
-      modelProvider: string | null;
-      modelId: string | null;
       content: string;
-      decisionId: string | null;
+      benefits: string[];
+      costs: string[];
       createdAt: string;
       fragments: Array<{
         fragmentId: string;
@@ -38,22 +36,18 @@ export interface SettingCollaborationView {
       agentId: string;
       memberName: string;
       roleKey: string;
-      modelProvider: string;
-      modelId: string;
       status: MemberStatus;
       contextSummary: string;
       outputSummary: string | null;
     }>;
   };
   revisionTask: null | {
-    taskId: string;
+    recoveryKey: string;
     status: string;
-    errorCode: string | null;
     updatedAt: string;
   };
   historyCount: number;
   fusionDraft: null | {
-    taskId: string;
     selectedFragmentIds: string[];
     segments: Array<{
       text: string;
@@ -93,10 +87,9 @@ export class SettingCollaborationService {
       agentId: proposal.sender_agent_id,
       memberName: proposal.member_name?.trim() || '成员' + (index + 1),
       roleKey: proposal.role_key,
-      modelProvider: proposal.model_provider,
-      modelId: proposal.model_id,
       content: proposalContent(proposal.content),
-      decisionId: proposal.decision_id,
+      benefits: proposalStructure(proposal.content)?.benefits ?? [],
+      costs: proposalStructure(proposal.content)?.costs ?? [],
       createdAt: proposal.created_at,
       fragments: fragmentRows
         .filter((fragment) => fragment.proposal_id === proposal.proposal_id)
@@ -110,11 +103,9 @@ export class SettingCollaborationService {
     return {
       item,
       panel: panel === undefined ? null : {
-        taskId: panel.task_id,
-        discussionId: panel.discussion_id,
+        recoveryKey: panel.task_id,
         taskStatus: panel.task_status,
         discussionStatus: panel.discussion_status,
-        errorCode: panel.error_code,
         createdAt: panel.created_at,
         updatedAt: panel.updated_at,
         proposals,
@@ -124,8 +115,6 @@ export class SettingCollaborationService {
             agentId: member.agent_id,
             memberName: member.member_name,
             roleKey: member.role_key,
-            modelProvider: member.model_provider,
-            modelId: member.model_id,
             status: memberStatus(panel.task_status, member.responded === 1),
             contextSummary: '本书完整开书资料 · 当前设定项 · 已确认的直接依赖设定 · 作者本项原话',
             outputSummary: proposal === undefined ? null : proposalContent(proposal.content).slice(0, 160)
@@ -133,14 +122,12 @@ export class SettingCollaborationService {
         })
       },
       revisionTask: revisionTask === undefined ? null : {
-        taskId: revisionTask.task_id,
+        recoveryKey: revisionTask.task_id,
         status: revisionTask.status,
-        errorCode: revisionTask.error_code,
         updatedAt: revisionTask.updated_at
       },
       historyCount: this.repository.panelCount(scope, itemKey),
       fusionDraft: fusionRow === undefined ? null : {
-        taskId: fusionRow.task_id,
         selectedFragmentIds: JSON.parse(fusionRow.selected_fragment_ids_json) as string[],
         segments: JSON.parse(fusionRow.segments_json) as Array<{
           text: string;
@@ -164,6 +151,30 @@ function proposalContent(value: string): string {
   return prepareEffectiveOutput(value).visibleContent.trim();
 }
 
+function proposalStructure(value: string): SettingProposalStructure | null {
+  const fenced = value.match(/```(?:json)?\s*\n([\s\S]*?)\n?\s*```/u)?.[1];
+  for (const candidate of [fenced, value]) {
+    if (candidate === undefined) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) continue;
+    const root = parsed as Record<string, unknown>;
+    const fields = typeof root.fields === 'object' && root.fields !== null && !Array.isArray(root.fields)
+      ? root.fields as Record<string, unknown>
+      : root;
+    try {
+      return parseSettingProposalStructure(fields);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+
+}
 function memberStatus(taskStatus: string, responded: boolean): MemberStatus {
   if (responded) return 'completed';
   if (['failed', 'interrupted', 'cancelled', 'blocked'].includes(taskStatus)) return 'failed';

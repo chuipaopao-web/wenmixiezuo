@@ -372,7 +372,8 @@ export class DiscussionPipelineService {
         const displayablePanelPayloadRequired = brief.purpose === 'creative_concept_panel'
           || brief.purpose === 'setting_proposal_panel'
           || brief.purpose === 'stage_outline_panel';
-        const synthesisFusionRequired = brief.purpose === 'setting_synthesis' && isEditor && phase === 'independent';
+        const synthesisFusionRequired = brief.purpose === 'setting_synthesis' && isEditor && phase === 'independent'
+          && Array.isArray(brief.selectedFragmentIds) && brief.selectedFragmentIds.length > 0;
         let reusableIsValid = reusable !== undefined
           && (!isEditor || hasRequiredWorkflowArtifact(
             prompt,
@@ -516,6 +517,7 @@ export class DiscussionPipelineService {
           brief.purpose === 'locked_planning'
           || brief.scopeText.includes('【剧情总纲专项讨论资料包】')
           || groupedSettingDiscussion
+          || brief.purpose === 'setting_quality_audit'
         )
           ? result.output
           : effective?.fullContent ?? result.output;

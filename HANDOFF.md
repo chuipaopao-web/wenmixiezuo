@@ -9,13 +9,14 @@
 - 原则：**改到哪一页，顺手删掉死代码、同步改文档；文档只描述当前生效的功能**。老板说改什么就改什么，不多做；有必要的附带改动先问。
 - 已上线：`https://wenmixiezuo.com`（阿里云香港 47.243.152.159，服务 wenmi-api / wenmi-worker，目录 /opt/wenmi，用户 wenmi；数据库 `/opt/wenmi/data/database/wenmi.sqlite`；清书前整库备份在 `/opt/wenmi/data/backups/pre-purge-20260819/`）。
 - 分支 `codex/desktop-entry`，远程 GitHub `chuipaopao-web/wenmixiezuo`，每次提交后推送。
-- 当前基线：**全量测试 729 绿（171 文件）**，双端 typecheck 通过，最新迁移 `0057_membership_tiers.sql`。
+- 当前基线：**全量测试 736 绿（172 文件）**，双端 typecheck 通过，最新迁移 `0057_membership_tiers.sql`。
 - 创作团队 14 人，模型全部走火山方舟双套餐（Agent Plan + Coding Plan），Key 只在服务器环境变量（`WENMI_ARK_AGENT_PLAN_API_KEY` / `WENMI_ARK_CODING_PLAN_API_KEY`），**绝不进 Git/文档/日志**；当前名单：貂蝉 DeepSeek V4 Pro、西施 GLM 5.3、婉儿 DeepSeek V4 Pro、红玉 GLM 5.3、幼薇 Kimi K2.7、文姬 DeepSeek V4 Flash（其余岗位见 `apps/api/src/contracts/agent-team-v2.ts` 与后台模型管理）。MiniMax 已停用。
 - 会员四等级已上线：青铜 20万算力值（注册自动送）/ 白银 98元 2000万 / 黄金 198元 5000万 / 钻石 980元 2亿；算力值=真实 token×2（`COMPUTE_VALUE_MULTIPLIER`），前端不出现 token 字眼；书籍预算上限跟随会员等级。
 - Windows 部署打包必须 `git -c core.autocrlf=false -c core.eol=lf archive`：本机 `core.autocrlf=true` 会让 git archive 把全部文本转成 CRLF，迁移文件校验和与数据库记录不符导致生产启动崩溃（2026-08-19 已踩过；`.gitattributes` 已给 `*.sql` 加 `eol=lf` 兜底，但其他文件仍建议用该命令保持 LF）。
 - 若服务反复启动失败被 systemd 节流（Start request repeated too quickly），先 `systemctl reset-failed wenmi-api wenmi-worker` 再 start。
 
 ## 最近完成的改动（最新在最上）
+1. 分层故事设计+隐藏叙事方法+手机优先（DEC-CURRENT-079）：开书只定基础方向；设定核心收为世界舞台、主角底板、规矩与代价、边界与留白四项，故事内核降为可选，扩展设定按需。内部叙事方法库覆盖22种常用方法，普通作者只看两条实质不同的具体卷路线，不显示三幕式、拯救猫咪等专业名。第一卷增加全书故事总线、前500字职责、黄金三章和10万有效字内重大高潮；事件阅读感受改为大白话单选，章链完整规划但只滚动细化最近1—3章。ContextCompiler按硬事实/任务约束/软参考/开放区和计划/已发生双轴编译，硬来源不再静默截断。管理员隔离数据实测完成开书→四核心设定→整份质检→三份卷方案→事件链→8章章链→近期细纲→冻结进入正文；360/390/430px重点页面无横向溢出，390px事件与章纲操作目标均不小于44px。
 
 1. 手机端热修·撤"我的"+抽屉黑屏+两排六列（DEC-CURRENT-078）：① 撤下功能栏"我的"按钮（077 加的，13 个按钮挤出第三排遮挡内容），个人中心只走"点头像"。② 抽屉黑屏根因：遮罩 .drawer-scrim z-index 60 高于书籍抽屉 z-index 50，整屏变暗且点不到书；抽屉改 70。③ 手机端功能栏改"开关独占最左 44px 列跨两排 + 右侧两排六列 12 功能"，118px 高度固定。全量 729 绿基线不变（UI 测试 27 项过）。
 1. 会员四等级+算力值双倍口径+预算跟随等级+个人中心（DEC-CURRENT-077）：① 青铜20万(免费)/白银98元2000万/黄金198元5000万/钻石980元2亿，迁移 0057 重建 user_memberships，生产现有会员全部映射钻石、无会员历史账号补青铜、新注册自动发青铜（grantDefaultBronze）。② 算力值=真实token×2（COMPUTE_VALUE_MULTIPLIER）：usage_ledger/预算记真实 token，配额存算力值，门禁按 真实×2≥配额 判定，/membership/me 返 compute 三件套，前端零 token 字眼，后台展示也×2。③ 预算跟随等级：建书预算=配额/2 真实 token（bookTokenLimitForOwner，无会员默认2000万），grant 后同步刷新 owner 全部预算并解封。④ 个人中心 PersonalCenterDialog：点头像进入（书籍栏底部头像），显示等级/已耗算力值/进度条/客服微信595341366/退出。付费档周期12个月、青铜长期有效——老板未定，先按此执行。全量 729 绿。

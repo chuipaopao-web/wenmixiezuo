@@ -164,11 +164,11 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
 
   const recommendedTemplates=snapshot.templates.templates.filter(template=>template.recommended);
   const additionalTemplates=snapshot.templates.templates.filter(template=>!template.recommended);
-  const renderTemplate=(template:PublicNarrativeTemplate)=>{const emotion=emotionGuide(template);return <button type="button"
+  const renderTemplate=(template:PublicNarrativeTemplate)=>{const emotion=eventEmotionGuide(template);return <button type="button"
     className={mode==='template'&&selectedTemplates.some(item=>item.templateKey===template.templateKey)?'selected':''}
     aria-pressed={mode==='template'&&selectedTemplates.some(item=>item.templateKey===template.templateKey)}
     key={template.templateKey} onClick={()=>{setSelectedTemplates(current=>{const next=current.some(item=>item.templateKey===template.templateKey)
-      ?current.filter(item=>item.templateKey!==template.templateKey):[...current,template];setMode(next.length===0?'none':'template');return next;});}}>
+      ?[]:[template];setMode(next.length===0?'none':'template');return next;});}}>
     <span aria-hidden="true">{emotion.emoji}</span><strong>{emotion.label}</strong><p>{emotion.explanation}</p></button>;};
 
   return <section className="event-planning-panel" aria-labelledby="event-planning-title">
@@ -207,7 +207,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
             <button type="button" disabled={busy||selected.order===sequence.events.length} onClick={mergeNext}>与下一个合并</button></div>
         </section>
 
-        <section className="event-template-section"><header><div><h4>这段剧情最想让读者感受到什么？</h4><p>可选。它只告诉编剧希望形成的阅读感受，不是必须完成的配方，也不会限制具体写法。</p></div>{mode==='template'&&<span>已选 {selectedTemplates.length} 种</span>}</header>
+        <section className="event-template-section"><header><div><h4>这段剧情最想让读者感受到什么？</h4><p>可选且一次只选一种。它只告诉编剧希望形成的阅读感受，不是必须完成的配方，也不会限制具体写法。</p></div>{mode==='template'&&<span>已选一种</span>}</header>
           <div className="template-choice-group recommended"><div className="template-choice-heading"><div><strong>根据当前故事推荐</strong><small>结合题材、当前卷、人物处境和已经发生的结果排序</small></div><span>{recommendedTemplates.length} 种</span></div>
             <div className="event-template-grid emotion-goal-grid">{recommendedTemplates.map(renderTemplate)}</div></div>
           {additionalTemplates.length>0&&<details className="template-choice-group template-more-options"><summary><span><strong>查看更多阅读感受</strong><small>推荐只负责排序，不限制你的选择</small></span><b>{additionalTemplates.length} 种</b></summary>
@@ -361,9 +361,9 @@ function templateInstance(mode:'template'|'custom'|'none',selected:PublicNarrati
   const primary=selected[0]??null;
   if(mode==='template'&&primary!==null)return{selectionMode:'template',templateKey:primary.templateKey,
     templateVersion:primary.templateVersion,templateHash:primary.contentHash,
-    templateRefs:selected.map(template=>({templateKey:template.templateKey,templateVersion:template.templateVersion,templateHash:template.contentHash})),
-    scope:'event',beats:selected.flatMap((template,index)=>template.beats.map(beat=>({...beat,
-      beatId:template.templateKey+':'+beat.beatId,order:index*100+beat.order,authorIdeaRefs:[]}))),customDirection:null};
+    templateRefs:[{templateKey:primary.templateKey,templateVersion:primary.templateVersion,templateHash:primary.contentHash}],
+    scope:'event',beats:primary.beats.map(beat=>({...beat,
+      beatId:primary.templateKey+':'+beat.beatId,authorIdeaRefs:[]})),customDirection:null};
   return{selectionMode:mode,templateKey:null,templateVersion:null,templateHash:null,scope:'event',beats:[],
     customDirection:mode==='custom'?direction.trim()||null:null};}
 function lines(value:string){return[...new Set(value.split(/\r?\n/u).map(item=>item.trim()).filter(Boolean))];}
@@ -386,7 +386,19 @@ function StoryViewSwitch({value,onChange}:{value:'story'|'detail';onChange:(valu
     <button type="button" aria-pressed={value==='detail'} className={value==='detail'?'selected':''} onClick={()=>onChange('detail')}>细节视图</button>
   </div>;
 }
-function emotionGuide(template:PublicNarrativeTemplate){
+export function eventEmotionGuide(template:PublicNarrativeTemplate){
+  const guides:Record<string,{emoji:string;label:string;explanation:string}>={
+    'event-problem-demands-response':{emoji:'⚡',label:'危机逼近',explanation:'让新问题立刻落到人物身上，逼他回应，并让回应产生下一步后果。'},
+    'event-pressure-reveals-capability':{emoji:'😤',label:'逆风亮招',explanation:'先让人物被低估或受压，再用有准备、有代价的行动改变他人判断。'},
+    'event-false-win-higher-cost':{emoji:'🤯',label:'赢了却更危险',explanation:'先兑现眼前收获，再揭示胜利带来的更大代价，让反转有前因可循。'},
+    'event-failure-finds-breakthrough':{emoji:'🔥',label:'绝境翻盘',explanation:'让旧办法真正失败，再从人物已有能力与线索里找到新的突破口。'},
+    'event-clues-change-understanding':{emoji:'😱',label:'真相翻面',explanation:'让公平出现的线索改变原有判断，读者回看时能找到依据。'},
+    'event-factions-change-sides':{emoji:'🧠',label:'阵营博弈',explanation:'让不同立场因利益和选择发生变化，每次站队都反过来改变局势。'},
+    'event-relationship-forces-choice':{emoji:'💔',label:'关系抉择',explanation:'让重要关系经受一次不能两全的选择，结果同时改变感情与行动。'},
+    'event-hope-loss-choice':{emoji:'🌧️',label:'希望落空后的选择',explanation:'先让人物看见希望，再失去原来的解法，最终用新的选择继续向前。'}
+  };
+  const guide=guides[template.templateKey];
+  if(guide!==undefined)return guide;
   const text=(template.templateKey+' '+template.publicTitle+' '+template.publicExplanation).toLowerCase();
   if(/线索|谜|真相|clue|mystery/u.test(text))return{emoji:'😱',label:'细思极恐',explanation:'线索改变原有判断，让读者发现事情远没有表面那么简单。'};
   if(/阵营|博弈|计谋|智|faction|strategy/u.test(text))return{emoji:'🧠',label:'智斗博弈',explanation:'靠判断、信息和布局取胜，让每一步选择都能反过来影响局势。'};
@@ -401,8 +413,8 @@ function taskStatus(status:string){return({pending:'准备中',queued:'等待开
 function taskPhase(phase:string){return({preparing_context:'准备卷纲、设定、结算与作者想法',screenwriter_candidates:'两份独立方案已完成，主编正在融合',
   fusion_complete:'主编融合方案已保存',failed:'已保留当前进度'}as Record<string,string>)[phase]??'正在处理';}
 function roleLabel(role:string){return({lead_screenwriter:'编剧A',second_screenwriter:'编剧B',main_editor:'主编',deputy_editor:'代理主编'}as Record<string,string>)[role]??'创作成员';}
-function candidateLabel(kind:StoryEventVersionData['candidateKind']){return({candidate_a:'编剧方案A',candidate_b:'编剧方案B',
-  author_edit:'作者修改',fusion:'主编融合',volume_seed:'卷纲分配的初始任务'})[kind];}
+function candidateLabel(kind:StoryEventVersionData['candidateKind']){return({candidate_a:'方案一',candidate_b:'方案二',
+  author_edit:'我的修改',fusion:'主编整理版',volume_seed:'卷纲分配的初始任务'})[kind];}
 function versionStatus(status:StoryEventVersionData['status']){return({candidate:'待确认',active:'已确认',superseded:'历史确认版',archived:'已归档'})[status];}
 function operationLabel(kind:EventOperationData['operationKind']){return({reorder:'调整事件顺序',insert:'插入新事件',split:'拆分事件',merge:'合并事件'})[kind];}
 function rangeLabel(content:StoryEventContent|undefined){if(content===undefined)return'待设计';const r=content.estimatedChapterRange;

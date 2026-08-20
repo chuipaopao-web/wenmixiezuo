@@ -221,6 +221,52 @@ export interface FusionNotes {
   freshness: string;
 }
 
+export interface VolumeRouteCard {
+  protagonistStart: string;
+  drivingMotivation: string;
+  escalationPath: string[];
+  keyChoiceAndCost: string;
+  climaxResolution: string;
+  endingChange: string;
+  benefits: string[];
+  risks: string[];
+}
+
+export interface StorySpine {
+  longTermPromise: string;
+  protagonistLongArc: string;
+  centralQuestion: string;
+  escalationLadder: string[];
+  endingDirection: string | null;
+  protectedOpenSpace: string[];
+}
+
+export interface FirstVolumeLaunchPlan {
+  first500: {
+    readerQuestion: string;
+    immediateSituation: string;
+    emotionalGrip: string;
+    changePromise: string;
+  };
+  goldenThree: Array<{
+    chapterNumber: number;
+    responsibility: string;
+    action: string;
+    pressure: string;
+    payoff: string;
+    nextExpectation: string;
+  }>;
+  majorClimax: {
+    latestEffectiveCharacters: number;
+    setup: string;
+    choice: string;
+    cost: string;
+    irreversibleChange: string;
+    nextStage: string;
+  };
+  immersionPriorities: string[];
+}
+
 export interface VolumePlanContent {
   title: string;
   openingState: string;
@@ -241,6 +287,12 @@ export interface VolumePlanContent {
   styleSecondary?: string | null;
   /** 本卷重点表达（主编提炼的一句短语，如"权谋智斗＋智商在线＋热血爽"）；null 表示沿用全书基调。 */
   focusExpression?: string | null;
+  /** 作者直接比较的具体故事路线；旧版本可缺省。 */
+  routeCard?: VolumeRouteCard | null;
+  /** 全书软北极星，只在第一卷首次形成，后续卷继承而不重做。 */
+  storySpine?: StorySpine | null;
+  /** 第一卷开局与十万字内重大高潮计划；后续卷不重复生成。 */
+  firstVolumeLaunch?: FirstVolumeLaunchPlan | null;
   /** 主编融合稿的三合一说明；独立候选为 null。 */
   fusionNotes?: FusionNotes | null;
 }
@@ -481,7 +533,84 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     stylePrimary: optionalText(value.stylePrimary, '本卷主基调'),
     styleSecondary: optionalText(value.styleSecondary, '本卷副基调'),
     focusExpression: optionalText(value.focusExpression, '本卷重点表达'),
+    ...parseOptionalVolumeRouteCard(value.routeCard),
+    ...parseOptionalStorySpine(value.storySpine),
+    ...parseOptionalFirstVolumeLaunch(value.firstVolumeLaunch),
     ...omitNullFusionNotes(value.fusionNotes)
+  };
+}
+
+function parseOptionalVolumeRouteCard(value: unknown): { routeCard?: VolumeRouteCard } {
+  if (value === null || value === undefined) return {};
+  const record = requireRecord(value, '具体故事路线');
+  const escalationPath = requireUniqueTextArray(record.escalationPath, '路线升级过程');
+  if (escalationPath.length === 0) throw new Error('具体故事路线至少需要一段升级过程。');
+  return {
+    routeCard: {
+      protagonistStart: requireText(record.protagonistStart, '路线主角起点'),
+      drivingMotivation: requireText(record.drivingMotivation, '路线推动动机'),
+      escalationPath,
+      keyChoiceAndCost: requireText(record.keyChoiceAndCost, '路线关键选择与代价'),
+      climaxResolution: requireText(record.climaxResolution, '路线高潮解决'),
+      endingChange: requireText(record.endingChange, '路线卷末变化'),
+      benefits: requireUniqueTextArray(record.benefits, '路线好处'),
+      risks: requireUniqueTextArray(record.risks, '路线风险')
+    }
+  };
+}
+
+function parseOptionalStorySpine(value: unknown): { storySpine?: StorySpine } {
+  if (value === null || value === undefined) return {};
+  const record = requireRecord(value, '全书故事总线');
+  return {
+    storySpine: {
+      longTermPromise: requireText(record.longTermPromise, '长期阅读承诺'),
+      protagonistLongArc: requireText(record.protagonistLongArc, '主角长期变化'),
+      centralQuestion: requireText(record.centralQuestion, '全书中心问题'),
+      escalationLadder: requireUniqueTextArray(record.escalationLadder, '全书升级阶梯'),
+      endingDirection: optionalText(record.endingDirection, '结局方向'),
+      protectedOpenSpace: requireUniqueTextArray(record.protectedOpenSpace, '全书保留空间')
+    }
+  };
+}
+
+function parseOptionalFirstVolumeLaunch(value: unknown): { firstVolumeLaunch?: FirstVolumeLaunchPlan } {
+  if (value === null || value === undefined) return {};
+  const record = requireRecord(value, '第一卷开局计划');
+  const first500 = requireRecord(record.first500, '前500字计划');
+  const goldenThree = requireRecordArray(record.goldenThree, '黄金三章计划').map((chapter) => ({
+    chapterNumber: requirePositiveInteger(chapter.chapterNumber, '黄金三章章号'),
+    responsibility: requireText(chapter.responsibility, '黄金三章职责'),
+    action: requireText(chapter.action, '黄金三章行动'),
+    pressure: requireText(chapter.pressure, '黄金三章压力'),
+    payoff: requireText(chapter.payoff, '黄金三章回报'),
+    nextExpectation: requireText(chapter.nextExpectation, '黄金三章后续期待')
+  }));
+  if (goldenThree.length !== 3 || goldenThree.some((chapter, index) => chapter.chapterNumber !== index + 1)) {
+    throw new Error('黄金三章计划必须按第1、2、3章各写一项。');
+  }
+  const majorClimax = requireRecord(record.majorClimax, '第一卷重大高潮');
+  const latestEffectiveCharacters = requirePositiveInteger(majorClimax.latestEffectiveCharacters, '重大高潮最晚有效字数');
+  if (latestEffectiveCharacters > 100_000) throw new Error('第一卷重大高潮不得晚于累计10万有效字。');
+  return {
+    firstVolumeLaunch: {
+      first500: {
+        readerQuestion: requireText(first500.readerQuestion, '前500字读者问题'),
+        immediateSituation: requireText(first500.immediateSituation, '前500字即时处境'),
+        emotionalGrip: requireText(first500.emotionalGrip, '前500字情绪抓力'),
+        changePromise: requireText(first500.changePromise, '前500字变化承诺')
+      },
+      goldenThree,
+      majorClimax: {
+        latestEffectiveCharacters,
+        setup: requireText(majorClimax.setup, '重大高潮铺垫'),
+        choice: requireText(majorClimax.choice, '重大高潮选择'),
+        cost: requireText(majorClimax.cost, '重大高潮代价'),
+        irreversibleChange: requireText(majorClimax.irreversibleChange, '重大高潮不可逆变化'),
+        nextStage: requireText(majorClimax.nextStage, '重大高潮后新阶段')
+      },
+      immersionPriorities: requireUniqueTextArray(record.immersionPriorities, '第一卷代入重点')
+    }
   };
 }
 

@@ -29,7 +29,7 @@ export function SettingCollaborationPanel({
   onSnapshot: (item: SettingOutlineWorkspaceData) => void;
 }): React.JSX.Element {
   const [data, setData] = useState<SettingCollaborationData | null>(null);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [pickedFragments, setPickedFragments] = useState<string[]>([]);
   const [source, setSource] = useState('');
   const [idea, setIdea] = useState('');
@@ -87,9 +87,9 @@ export function SettingCollaborationPanel({
   //（检查点复用只补未完成的部分，不重复消耗），作者无需守着页面手动点。
   const autoRetriedTaskRef = useRef<string | null>(null);
   const failedAutoTaskId = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus)
-    ? data.panel.taskId
+    ? recoveryKeyOf(data.panel)
     : data?.revisionTask != null && ['failed', 'interrupted'].includes(data.revisionTask.status)
-      ? data.revisionTask.taskId
+      ? recoveryKeyOf(data.revisionTask)
       : null;
   useEffect(() => {
     if (failedAutoTaskId === null || busy !== null) return undefined;
@@ -167,14 +167,10 @@ export function SettingCollaborationPanel({
     const panel = data?.panel;
     if (busy !== null || panel === null || panel === undefined) return;
     if (!guardAi()) return;
-    const fragmentMode = pickedFragments.length > 0;
-    const proposalIds = fragmentMode
-      ? [...new Set(panel.proposals
-        .filter((proposal) => proposal.fragments.some((fragment) => pickedFragments.includes(fragment.fragmentId)))
-        .map((proposal) => proposal.proposalId))]
-      : panel.proposals
-        .filter((proposal) => selected.includes(proposal.number))
-        .map((proposal) => proposal.proposalId);
+    const fragmentProposalIds = panel.proposals
+      .filter((proposal) => proposal.fragments.some((fragment) => pickedFragments.includes(fragment.fragmentId)))
+      .map((proposal) => proposal.proposalId);
+    const proposalIds = [...new Set([...selected, ...fragmentProposalIds])];
     if (proposalIds.length === 0) return;
     setBusy('synthesize'); setNotice(null);
     try {
@@ -198,7 +194,8 @@ export function SettingCollaborationPanel({
       synthesisKey.current ??= createClientKey();
       await synthesizeSettingCollaboration(bookId, item.itemKey, {
         proposalIds,
-        ...(fragmentMode ? { fragmentIds: pickedFragments } : {}),
+        wholeProposalIds: selected,
+        ...(pickedFragments.length > 0 ? { fragmentIds: pickedFragments } : {}),
         authorInputId,
         idempotencyKey: synthesisKey.current
       });
@@ -301,11 +298,11 @@ export function SettingCollaborationPanel({
     const panelFailed = data?.panel != null
       && ['failed', 'interrupted'].includes(data.panel.taskStatus);
     const taskId = revisionFailed
-      ? data.revisionTask!.taskId
+      ? recoveryKeyOf(data.revisionTask)
       : panelFailed
-        ? data.panel!.taskId
-        : undefined;
-    if (taskId === undefined || busy !== null) return;
+        ? recoveryKeyOf(data.panel)
+        : null;
+    if (taskId === null || busy !== null) return;
     setBusy('retry'); setNotice(null);
     try {
       await retryTask(bookId, taskId);
@@ -318,11 +315,11 @@ export function SettingCollaborationPanel({
 
   const resume = async (): Promise<void> => {
     const taskId = data?.revisionTask?.status === 'paused'
-      ? data.revisionTask.taskId
+      ? recoveryKeyOf(data.revisionTask)
       : data?.panel?.taskStatus === 'paused'
-        ? data.panel.taskId
-        : undefined;
-    if (taskId === undefined || busy !== null) return;
+        ? recoveryKeyOf(data.panel)
+        : null;
+    if (taskId === null || busy !== null) return;
     setBusy('resume'); setNotice(null);
     try {
       await resumeTask(bookId, taskId);
@@ -340,17 +337,9 @@ export function SettingCollaborationPanel({
   };
 
   const pickWholeProposal = (proposal: Proposal): void => {
-    if (proposal.fragments.length > 0) {
-      const ids = proposal.fragments.map((fragment) => fragment.fragmentId);
-      const allPicked = ids.every((id) => pickedFragments.includes(id));
-      setPickedFragments((current) => allPicked
-        ? current.filter((id) => !ids.includes(id))
-        : [...new Set([...current, ...ids])]);
-      return;
-    }
-    setSelected((current) => selected.includes(proposal.number)
-      ? current.filter((number) => number !== proposal.number)
-      : [...current, proposal.number]);
+    setSelected((current) => current.includes(proposal.proposalId)
+      ? current.filter((proposalId) => proposalId !== proposal.proposalId)
+      : [...current, proposal.proposalId]);
   };
 
   const proposals = data?.panel?.proposals ?? [];
@@ -371,7 +360,7 @@ export function SettingCollaborationPanel({
     confirmedAt !== null && (createdAt == null || createdAt <= confirmedAt);
   const proposalsStale = roundIsStale(data?.panel?.createdAt);
   const fusionStale = roundIsStale(fusionDraft?.createdAt);
-  const selectionCount = pickedFragments.length > 0 ? pickedFragments.length : selected.length;
+  const selectionCount = pickedFragments.length + selected.length;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
 
   return <section className="setting-collaboration setting-discussion" aria-labelledby={`setting-collaboration-${item.itemKey}`}>
@@ -427,21 +416,26 @@ export function SettingCollaborationPanel({
       {proposals.length > 0 && !candidateReady && !proposalsStale && !revisionRunning && <div className="setting-proposal-grid" ref={proposalAnchor}>
         {proposals.map((proposal) => {
           const fragmentCount = proposalPickedCount(proposal);
-          const wholePicked = proposal.fragments.length === 0 && selected.includes(proposal.number);
+          const benefits = proposal.benefits ?? [];
+          const costs = proposal.costs ?? [];
+          const wholePicked = selected.includes(proposal.proposalId);
           const picked = fragmentCount > 0 || wholePicked;
           return <article className={`setting-proposal-card${picked ? ' picked' : ''}`} key={proposal.proposalId}>
             <div className="setting-proposal-who">
               <b><i className={`setting-avatar seat-${proposal.roleKey ?? ''}`}>{seatMark(proposal.roleKey)}</i>{proposal.memberName} 的方案</b>
             </div>
             <p>{proposal.content}</p>
+            {(benefits.length > 0 || costs.length > 0) && <details className="setting-proposal-tradeoffs">
+              <summary>这份方案的好处与取舍</summary>
+              {benefits.length > 0 && <div><b>可能带来</b><ul>{benefits.map((value) => <li key={value}>{value}</li>)}</ul></div>}
+              {costs.length > 0 && <div><b>需要接受</b><ul>{costs.map((value) => <li key={value}>{value}</li>)}</ul></div>}
+            </details>}
             {proposal.fragments.map((fragment) => <label className="setting-frag" key={fragment.fragmentId}>
               <input type="checkbox" checked={pickedFragments.includes(fragment.fragmentId)} onChange={() => toggleFragment(fragment.fragmentId)} />
               <span>{fragment.text}</span>
             </label>)}
             <button type="button" className="setting-card-button primary" onClick={() => pickWholeProposal(proposal)}>
-              {proposal.fragments.length > 0
-                ? (fragmentCount === proposal.fragments.length && proposal.fragments.length > 0 ? '取消整份' : '整份都要')
-                : (wholePicked ? '取消选用' : '整份选用')}
+              {wholePicked ? '取消整份' : '整份选用'}
             </button>
             {fragmentCount > 0 && <div className="setting-picked-label">✓ 您勾选了这份里的 {fragmentCount} 段</div>}
           </article>;
@@ -454,7 +448,7 @@ export function SettingCollaborationPanel({
             <label className={ideaStrength === 'must' ? 'selected' : ''}><input type="radio" name={`idea-strength-${item.itemKey}`} checked={ideaStrength === 'must'} onChange={() => setIdeaStrength('must')} /> <b>必须遵守</b><small>融合稿不得与它冲突</small></label>
           </div>
         </details>
-        <footer><span>{selectionCount === 0 ? '勾选方案里的段落，或整份选用' : pickedFragments.length > 0 ? `已勾选 ${pickedFragments.length} 段` : `已选用 ${[...selected].sort((a, b) => a - b).join('、')}`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的勾选融合'}</button></footer>
+        <footer><span>{selectionCount === 0 ? '可选整份，也可只勾喜欢的段落' : `已选 ${selected.length} 份整案、${pickedFragments.length} 段内容`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesize()}>{busy === 'synthesize' ? '正在提交…' : '按我的选择融合'}</button></footer>
         <div className="setting-mine-line setting-redesign-line"><span>三份都不满意？团队会围绕这一项重新出三份方案。</span><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : '重新设计'}</button></div>
       </section>}
       {revisionRunning && <div className="setting-design-progress" role="status">
@@ -508,4 +502,10 @@ function seatMark(roleKey: string | null): string {
 
 function memberStatusLabel(status: NonNullable<SettingCollaborationData['panel']>['members'][number]['status']): string {
   return ({ preparing: '准备资料', working: '构思中', completed: '方案已完成', failed: '需要处理', paused: '已暂停' } as const)[status];
+}
+
+function recoveryKeyOf(value: { recoveryKey?: string } | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const compatible = value as { recoveryKey?: string; taskId?: string };
+  return compatible.recoveryKey ?? compatible.taskId ?? null;
 }

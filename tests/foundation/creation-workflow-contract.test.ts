@@ -58,7 +58,7 @@ describe('创作工作流共享合同', () => {
     expect(event.templates.every((item) => item.scope === 'event')).toBe(true);
     expect(JSON.stringify(volume)).not.toMatch(/sourceMethod|legacyIds|Save the Cat/iu);
     expect(volume.templates.every((item) => !/三幕|五幕|猫咪/iu.test(`${item.publicTitle}${item.publicExplanation}`))).toBe(true);
-    expect(volume.templates.map((item) => item.sourceLabel)).toEqual(expect.arrayContaining(['三幕式', '五幕式', '救猫咪结构']));
+    expect(JSON.stringify(volume)).not.toMatch(/sourceLabel|三幕式|五幕式|救猫咪结构/iu);
     expect(volume.templates[0]).toMatchObject({ recommended: true });
     expect(volume.alternativeChoices.map((item) => item.mode)).toEqual(['custom', 'none']);
   });

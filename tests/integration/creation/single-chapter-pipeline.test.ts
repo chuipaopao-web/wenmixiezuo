@@ -24,16 +24,16 @@ describe('单章完整创作流水线', () => {
       sourceType: 'test', sourceId, content: '甲'.repeat(length), reason: '测试硬来源', priority: 100
     });
     expect(productionReviewContextBudget('fact', [source('a', 15_437)])).toEqual({
-      tokenBudget: 15_437,
-      characterBudget: 15_437
+      tokenBudget: 16_437,
+      characterBudget: 16_437
     });
     expect(productionReviewContextBudget('fact', [source('a', 19_000)])).toEqual({
-      tokenBudget: 18_000,
-      characterBudget: 18_000
+      tokenBudget: 20_000,
+      characterBudget: 20_000
     });
     expect(productionReviewContextBudget('literary', [source('a', 15_437)])).toEqual({
-      tokenBudget: 8_500,
-      characterBudget: 8_500
+      tokenBudget: 12_000,
+      characterBudget: 12_000
     });
   });
 
@@ -89,9 +89,9 @@ describe('单章完整创作流水线', () => {
     const sources = JSON.parse(pack.source_manifest_json) as Array<{ sourceType: string; content: string }>;
     const profile = sources.find((source) => source.sourceType === 'opening_profile');
     expect(profile?.content).toContain('失物招领中心');
-    expect(WRITER_CONTEXT_POLICY.draft.characterBudget).toBe(9_000);
+    expect(WRITER_CONTEXT_POLICY.draft.characterBudget).toBe(15_000);
     expect(WRITER_CONTEXT_POLICY.ownerRewrite.characterBudget).toBe(12_000);
-    expect(sources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(9_000);
+    expect(sources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(15_000);
   });
 
   it('结算时保存前章全文锚点，并在下一章写作与审校资料包中强制携带', async () => {
@@ -145,7 +145,7 @@ describe('单章完整创作流水线', () => {
         phase_key: string; policy_version: string; source_manifest_json: string;
       }>;
     const factReview = reviewCalls.find((call) => call.phase_key.includes('-fact-'));
-    expect(factReview?.policy_version).toBe('production-review-fact-context-v6-adaptive-15000-18000chars');
+    expect(factReview?.policy_version).toBe('production-review-fact-context-v7-complete-relevant-sources');
     const factSources = JSON.parse(factReview?.source_manifest_json ?? '[]') as Array<{ sourceType: string; content: string }>;
     expect(factSources.map((source) => source.sourceType)).toContain('previous_chapter_full');
     expect(factSources.find((source) => source.sourceType === 'previous_chapter_full')?.content.length).toBeGreaterThan(800);
@@ -186,9 +186,9 @@ describe('单章完整创作流水线', () => {
       sourceType: string;
       content: string;
     }>;
-    expect(draftPack.policy_version).toBe('writer-draft-context-v6-full-current-outline-9000chars');
-    expect(draftPack.total_tokens).toBeLessThanOrEqual(9_000);
-    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(9_000);
+    expect(draftPack.policy_version).toBe('writer-draft-context-v7-layered-setting-ledger-15000chars');
+    expect(draftPack.total_tokens).toBeLessThanOrEqual(15_000);
+    expect(draftSources.reduce((total, source) => total + source.content.length, 0)).toBeLessThanOrEqual(15_000);
     expect(draftSources.map((source) => source.sourceType)).not.toContain('creative_plan');
     const rewritePack = context.database.prepare(`SELECT policy_version, source_manifest_json FROM context_packs WHERE context_pack_id = ?`)
       .get(rewriteCall.context_pack_id) as { policy_version: string; source_manifest_json: string };
