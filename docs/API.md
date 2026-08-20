@@ -54,7 +54,7 @@
 
 ## 5. 作者想法与附件
 
-作者想法按 `surface`、`subjectType`、`subjectId` 附着开书、设定、卷、事件、章纲或正文，并保存原话、意图等级、版本和状态。附件使用 `/author-attachments` 上传、读取、绑定和丢弃。
+作者想法按 `surface`、`subjectType`、`subjectId` 附着开书、设定、卷、事件链、事件、章纲或正文，并保存原话、意图等级、版本和状态。事件链使用 `surface=event`、`subjectType=event_sequence`、`subjectId=volumePlanId`；生成接口接收对应 `authorInputRefs`，同时继承确认卷方向仍有效的作者原话。附件使用 `/author-attachments` 上传、读取、绑定和丢弃。
 
 ## 6. 分卷
 

@@ -7,16 +7,19 @@ import {
   type VolumeDirectionContent
 } from '@wenmi/contracts';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { AUTHOR_IDEA_POLICY_PLANNING } from '../../domain/author-idea-policy.js';
 import type { BookScope } from '../../domain/scope.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import {
-  VolumePlanGenerationRepository
+  VolumePlanGenerationRepository,
+  type VolumePlanGenerationSeat
 } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens, type ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
+import { authorIdeaContextSources } from './author-idea-context-sources.js';
 import {
   parseEventChainGenerationBrief,
   type EventChainGenerationBrief
@@ -63,24 +66,56 @@ export class EventChainGenerationPipelineService {
         return { taskId, eventChainVersionId: '', status: 'cancelled' };
       }
       const sources = eventChainSources(brief);
-      const pack = this.contextPacks.build(scope, {
-        taskId,
-        agentId: brief.designer.agentId,
-        canonRevision: brief.sourceSnapshot.canonRevision,
-        positioningVersion: brief.sourceSnapshot.positioningVersion,
-        tokenBudget: 18_000,
-        characterBudget: 42_000,
-        policyVersion: 'event-chain-context-v1-layered-responsibility-coverage',
-        hardSources: sources.filter((source) => source.priority >= 90),
-        optionalSources: sources.filter((source) => source.priority < 90)
-      });
-      const prompt = buildEventChainPrompt(brief, pack.sources.map((source) => ({
-        sourceType: source.sourceType,
-        sourceId: source.sourceId,
-        reason: source.reason,
-        content: source.content
-      })));
-      const content = await this.callModel(scope, taskId, brief, prompt, pack.contextPackId);
+      const generate = async (
+        seat: VolumePlanGenerationSeat,
+        phase: 'candidate_a' | 'candidate_b' | 'fusion',
+        phaseSources: ContextSource[]
+      ): Promise<EventChainContent> => {
+        const pack = this.contextPacks.build(scope, {
+          taskId,
+          agentId: seat.agentId,
+          canonRevision: brief.sourceSnapshot.canonRevision,
+          positioningVersion: brief.sourceSnapshot.positioningVersion,
+          tokenBudget: phase === 'fusion' ? 24_000 : 18_000,
+          characterBudget: phase === 'fusion' ? 58_000 : 42_000,
+          policyVersion: 'event-chain-context-v2-author-input-three-seat-fusion',
+          hardSources: phaseSources.filter((source) => source.priority >= 90),
+          optionalSources: phaseSources.filter((source) => source.priority < 90)
+        });
+        const prompt = buildEventChainPrompt(brief, pack.sources.map((source) => ({
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          reason: source.reason,
+          content: source.content
+        })), phase);
+        return this.callModel(scope, taskId, brief, seat, phase, prompt, pack.contextPackId);
+      };
+      let content: EventChainContent;
+      if (brief.secondDesigner === undefined) {
+        content = await generate(brief.designer, 'fusion', sources);
+      } else {
+        const [candidateA, candidateB] = await Promise.all([
+          generate(brief.designer, 'candidate_a', sources),
+          generate(brief.secondDesigner, 'candidate_b', sources)
+        ]);
+        this.tasks.checkpoint(scope, taskId, workerId, 'event_chain_candidates', {
+          candidateAHash: digest(candidateA),
+          candidateBHash: digest(candidateB),
+          independent: true,
+          crossReviewUsed: false
+        }, fence);
+        const fusionSources: ContextSource[] = [...sources,
+          { sourceType: 'planning:event_chain_candidate_a', sourceId: taskId + ':candidate-a',
+            content: JSON.stringify(candidateA), reason: '第一位编剧独立设计的完整事件链候选',
+            priority: 100, constraintStrength: 'current_task', truthStatus: 'planned',
+            scopeType: 'task', scopeId: taskId },
+          { sourceType: 'planning:event_chain_candidate_b', sourceId: taskId + ':candidate-b',
+            content: JSON.stringify(candidateB), reason: '第二位编剧独立设计的完整事件链候选',
+            priority: 100, constraintStrength: 'current_task', truthStatus: 'planned',
+            scopeType: 'task', scopeId: taskId }
+        ];
+        content = await generate(brief.editor, 'fusion', fusionSources);
+      }
       const created = this.layered.addEventChain(scope, brief.volumePlanId, {
         planNumber: brief.planNumber,
         content,
@@ -134,12 +169,14 @@ export class EventChainGenerationPipelineService {
     scope: BookScope,
     taskId: string,
     brief: EventChainGenerationBrief,
+    seat: VolumePlanGenerationSeat,
+    phase: 'candidate_a' | 'candidate_b' | 'fusion',
     prompt: string,
     contextPackId: string
   ): Promise<EventChainContent> {
     const task = this.tasks.require(scope, taskId);
     if (task.budgetId === null) throw new Error('事件链任务缺少冻结预算。');
-    const seat = brief.designer;
+
     const adapter = this.modelAdapters.resolve(seat.provider, seat.modelId, 'discussion', seat.roleKey as never);
     const maxOutputTokens = 9_000;
     let validationFailure: string | null = null;
@@ -181,7 +218,7 @@ export class EventChainGenerationPipelineService {
         const result = await this.calls.execute(scope, {
           requestId,
           taskId,
-          phaseKey: `event_chain:${seat.roleKey}:attempt-${task.currentAttemptNo}:try-${technicalTry}`,
+          phaseKey: `event_chain:${phase}:${seat.roleKey}:attempt-${task.currentAttemptNo}:try-${technicalTry}`,
           agentId: seat.agentId,
           modelSnapshotId: seat.modelSnapshotId,
           provider: seat.provider,
@@ -281,6 +318,11 @@ export function directionCoverageKeys(direction: VolumeDirectionContent): string
 }
 
 function eventChainSources(brief: EventChainGenerationBrief): ContextSource[] {
+  const authorSources = authorIdeaContextSources(brief.authorIdeas, {
+    sourceTypePrefix: 'owner:event_chain_ideas',
+    sourceId: 'author-event-chain-ideas:' + brief.volumePlanId,
+    layer: 'planning'
+  });
   const result: ContextSource[] = [
     { sourceType: 'planning:opening_blueprint', sourceId: brief.sourceSnapshot.opening.id,
       version: brief.sourceSnapshot.opening.version, content: brief.sourceSnapshot.opening.content,
@@ -304,12 +346,14 @@ function eventChainSources(brief: EventChainGenerationBrief): ContextSource[] {
       content: JSON.stringify(brief.storySpine),
       reason: '全书软方向，只用于避免当前卷偏离长期承诺，不得提前展开未来卷', priority: 55 });
   }
+  result.push(...authorSources.hardSources, ...authorSources.optionalSources);
   return result;
 }
 
 function buildEventChainPrompt(
   brief: EventChainGenerationBrief,
-  sources: Array<{ sourceType: string; sourceId: string; reason: string; content: string }>
+  sources: Array<{ sourceType: string; sourceId: string; reason: string; content: string }>,
+  phase: 'candidate_a' | 'candidate_b' | 'fusion'
 ): string {
   const coverage = directionCoverageKeys(brief.direction);
   return JSON.stringify({
@@ -317,6 +361,12 @@ function buildEventChainPrompt(
     language: 'zh-CN',
     book: { title: brief.sourceSnapshot.bookTitle, volumeNumber: brief.planNumber },
     instructions: [
+      AUTHOR_IDEA_POLICY_PLANNING,
+      phase === 'candidate_a'
+        ? '你是第一位独立编剧。独立完成整条事件链，优先检查人物主动行动、冲突因果和阶段兑现，不猜测另一位编剧会怎样写。'
+        : phase === 'candidate_b'
+          ? '你是第二位独立编剧。独立完成整条事件链，优先检查人物关系变化、铺垫兑现和节奏换型，不读取或迎合另一位编剧。'
+          : '你是主编。只融合资料包中的两份独立候选，逐项核对卷责任、作者必须要求、因果交接和首卷责任；不得为了缩短而合并作者明确要求分开的事件。',
       '把已确认卷方向拆成一条有明确因果交接的事件链。事件是能独立形成进入状态、人物行动、阻力升级、阶段回报或代价、退出状态的小故事，不是章节列表。',
       '每个事件必须由上一事件结果和人物新状态触发；除最后一项外leadsToNext不能为空，最后一项必须为null。',
       'coverage必须逐项覆盖requiredCoverage中的稳定责任键；不能用同一个空泛事件假装覆盖全部责任。',
@@ -330,6 +380,7 @@ function buildEventChainPrompt(
     ],
     requiredCoverage: coverage,
     firstVolumeResponsibilities: brief.planNumber === 1 ? firstVolumeCoverageResponsibilityValues : [],
+    collaborationPhase: phase,
     sources,
     outputContract: {
       eventChain: {

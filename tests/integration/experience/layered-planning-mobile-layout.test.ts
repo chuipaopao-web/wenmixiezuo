@@ -14,3 +14,13 @@ describe.each([360, 390, 430])('分层规划移动端 %dpx', (viewportWidth) => 
     expect(css).toMatch(/@media \(max-width: 640px\)\s*\{[\s\S]*?\.setting-gap-actions \{ display: grid; grid-template-columns: 1fr; \}[\s\S]*?\.setting-gap-actions button \{ min-height: 44px; width: 100%; \}/u);
   });
 });
+const eventPanel = readFileSync(new URL('../../../apps/web/src/features/planning/EventPlanningPanel.tsx', import.meta.url), 'utf8');
+
+describe('事件链作者输入交互', () => {
+  it('把当前卷事件链想法作为可选折叠项，并在生成时提交有效引用', () => {
+    expect(eventPanel).toContain('subjectType="event_sequence"');
+    expect(eventPanel).toContain("surface:'event',subjectType:'event_sequence',subjectId:snapshot.plan!.volumePlanId");
+    expect(eventPanel).toContain('expectedWorkflowVersion:snapshot.workflow.planningVersion,authorInputRefs');
+    expect(eventPanel).toContain('补充你想要的事件顺序（可选）');
+  });
+});

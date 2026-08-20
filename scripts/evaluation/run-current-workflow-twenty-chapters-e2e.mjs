@@ -629,13 +629,25 @@ async function ensureEventChain(bookId, plan, volumeNumber) {
       `active event chain has ${active.content.events.length} events instead of ${EVENT_COUNT}`);
     return active;
   }
+  let eventChainIdeaId = volumeState('eventChainIdeaIds', volumeNumber, 'eventChainIdeaId');
+  if (!eventChainIdeaId) {
+    const idea = await createIdea(bookId, {
+      surface: 'event', subjectType: 'event_sequence', subjectId: plan.volumePlanId,
+      originalText: SCENARIO.volumeIdeaFor(volumeNumber),
+      scopeNotes: '只约束当前卷事件链的事件数量、顺序、阶段边界和因果承接',
+      idempotencyLabel: volumeLabel(volumeNumber, 'event-chain-idea-v2')
+    });
+    eventChainIdeaId = idea.authorInputId;
+    saveVolumeState('eventChainIdeaIds', volumeNumber, eventChainIdeaId, 'eventChainIdeaId');
+  }
   const workflow = await request(`/api/v1/books/${bookId}/workflow`);
   const generation = await startOrResumeAuthorGeneration(bookId, {
     path: `/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/event-chains/generate`,
     taskType: 'event_chain_generation', purpose: `volume-${volumeNumber}-event-chain-generation`,
     body: {
       expectedWorkflowVersion: workflow.planningVersion,
-      idempotencyKey: key(volumeLabel(volumeNumber, 'event-chain-generation'))
+      authorInputRefs: [eventChainIdeaId],
+      idempotencyKey: key(volumeLabel(volumeNumber, 'event-chain-generation-author-input-v2'))
     }
   });
   saveVolumeState('eventChainGenerationTaskIds', volumeNumber, generation.taskId, 'eventChainGenerationTaskId');

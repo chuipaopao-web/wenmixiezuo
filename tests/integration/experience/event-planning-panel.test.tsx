@@ -100,6 +100,7 @@ it('已完成卷仍可回看事件链与事件大纲，不会被当成空白当�
     if(path.endsWith('/workflow'))return response({...workflow(),stage:'ready_for_next_volume',planningVersion:23});
     if(path.endsWith('/volume-plans'))return response([completedPlan]);
     if(path.endsWith('/planning-templates'))return response(templateCatalog());
+    if(path.endsWith('/author-planning-inputs'))return response([]);
     if(path.endsWith('/event-chains/generation'))return response(null);
     if(path.endsWith('/event-chains'))return response([]);
     if(path.endsWith('/event-sequence'))return response(completedSequence);
@@ -134,11 +135,12 @@ it('手机端先由AI设计并确认事件链，再进入逐事件设计，不�
     if(path.endsWith('/workflow'))return response(workflow());
     if(path.endsWith('/volume-plans'))return response([volumePlan()]);
     if(path.endsWith('/planning-templates'))return response(templateCatalog());
+    if(path.endsWith('/author-planning-inputs'))return response([]);
     if(path.endsWith('/event-chains/generation')&&method==='GET')return response(chainGeneration);
     if(path.endsWith('/event-chains/generate')&&method==='POST'){
       chains=[eventChain('candidate')];
       chainGeneration={stateText:'本轮方案已经准备好',phaseText:'事件链候选已经准备好',isRunning:false,isCompleted:true,
-        canCancel:false,canResume:false,canRetry:false,errorMessage:null,members:[{roleKey:'lead_screenwriter',displayName:'幼薇'}],
+        canCancel:false,canResume:false,canRetry:false,errorMessage:null,members:[{roleKey:'lead_screenwriter',displayName:'幼薇'},{roleKey:'second_screenwriter',displayName:'红玉'},{roleKey:'chief_editor',displayName:'貂蝉'}],
         candidateEventChainId:'chain-v1'};
       return response(chainGeneration);
     }

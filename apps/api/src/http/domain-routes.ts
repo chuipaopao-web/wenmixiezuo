@@ -675,7 +675,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   );
 
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
-    expectedWorkflowVersion: number; idempotencyKey: string;
+    expectedWorkflowVersion: number; authorInputRefs?: string[]; idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains/generate', async (request) => {
     assertCreativeModelReady(config.modelRuntime);
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };

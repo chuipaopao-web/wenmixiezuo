@@ -19,6 +19,19 @@ export interface VolumePlanGenerationSeat {
   editor: boolean;
 }
 
+export interface VolumePlanGenerationAuthorInput {
+  id: string;
+  intentStrength: string;
+  originalText: string;
+  scopeNotes: string | null;
+  attachmentExcerpts: Array<{
+    attachmentId: string;
+    originalName: string;
+    parseStatus: string;
+    excerpt: string;
+  }>;
+}
+
 export interface VolumePlanGenerationSourceSnapshot {
   volumePlanId: string;
   planNumber: number;
@@ -214,18 +227,7 @@ export class VolumePlanGenerationRepository {
     `).get(scope.ownerId, scope.bookId) as { budget_id: string } | undefined)?.budget_id;
   }
 
-  public authorInputs(scope: BookScope, volumePlanId: string, ids: string[]): Array<{
-    id: string;
-    intentStrength: string;
-    originalText: string;
-    scopeNotes: string | null;
-    attachmentExcerpts: Array<{
-      attachmentId: string;
-      originalName: string;
-      parseStatus: string;
-      excerpt: string;
-    }>;
-  }> {
+  public authorInputs(scope: BookScope, volumePlanId: string, ids: string[]): VolumePlanGenerationAuthorInput[] {
     assertBookScope(scope);
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(', ');
@@ -234,6 +236,59 @@ export class VolumePlanGenerationRepository {
       FROM author_planning_inputs
       WHERE owner_id = ? AND book_id = ? AND surface = 'volume_plan'
         AND subject_type = 'volume_plan' AND subject_id = ?
+        AND status NOT IN ('withdrawn', 'superseded')
+        AND author_input_id IN (${placeholders})
+    `).all(scope.ownerId, scope.bookId, volumePlanId, ...ids) as unknown as Array<{
+      author_input_id: string;
+      intent_strength: string;
+      original_text: string;
+      scope_notes: string | null;
+    }>;
+    const attachmentQuery = this.database.prepare(`
+      SELECT a.attachment_id, a.original_name, a.parse_status, a.context_excerpt
+      FROM author_planning_input_links l
+      JOIN author_attachments a
+        ON a.owner_id = l.owner_id AND a.book_id = l.book_id
+       AND a.attachment_id = l.target_id
+      WHERE l.owner_id = ? AND l.book_id = ? AND l.author_input_id = ?
+        AND l.link_type = 'attachment' AND l.target_type = 'author_attachment'
+        AND a.parse_status <> 'discarded'
+      ORDER BY l.sort_order, l.link_id
+    `);
+    return rows.map((row) => ({
+      id: row.author_input_id,
+      intentStrength: row.intent_strength,
+      originalText: row.original_text,
+      scopeNotes: row.scope_notes,
+      attachmentExcerpts: (attachmentQuery.all(
+        scope.ownerId, scope.bookId, row.author_input_id
+      ) as unknown as Array<{
+        attachment_id: string;
+        original_name: string;
+        parse_status: string;
+        context_excerpt: string;
+      }>).map((attachment) => ({
+        attachmentId: attachment.attachment_id,
+        originalName: attachment.original_name,
+        parseStatus: attachment.parse_status,
+        excerpt: attachment.context_excerpt
+      }))
+    }));
+  }
+
+  public eventChainAuthorInputs(
+    scope: BookScope,
+    volumePlanId: string,
+    ids: string[]
+  ): VolumePlanGenerationAuthorInput[] {
+    assertBookScope(scope);
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.database.prepare(`
+      SELECT author_input_id, intent_strength, original_text, scope_notes
+      FROM author_planning_inputs
+      WHERE owner_id = ? AND book_id = ? AND surface = 'event'
+        AND subject_type = 'event_sequence' AND subject_id = ?
         AND status NOT IN ('withdrawn', 'superseded')
         AND author_input_id IN (${placeholders})
     `).all(scope.ownerId, scope.bookId, volumePlanId, ...ids) as unknown as Array<{

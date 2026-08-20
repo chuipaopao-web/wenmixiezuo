@@ -1541,7 +1541,7 @@ export function fetchEventChainGeneration(
 }
 
 export function startEventChainGeneration(bookId: string, volumePlanId: string, input: {
-  expectedWorkflowVersion: number; idempotencyKey: string;
+  expectedWorkflowVersion: number; authorInputRefs?: string[]; idempotencyKey: string;
 }): Promise<EventChainGenerationData> {
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains/generate`,

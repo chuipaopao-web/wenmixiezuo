@@ -7,6 +7,7 @@ import { ContextPackService } from '../../../apps/api/src/application/memory/con
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
 import { directionCoverageKeys, eventChainValidationRetryInstruction, EventChainGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
 import { EventChainGenerationService } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
+import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
 import { StoryThreadService } from '../../../apps/api/src/application/planning/story-thread-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -20,6 +21,7 @@ import { CreationSettlementRepository } from '../../../apps/api/src/infrastructu
 import { VolumePlanRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
 import { VolumePlanGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { StoryEventRepository } from '../../../apps/api/src/infrastructure/db/repositories/story-event-repository.js';
+import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastructure/db/repositories/author-planning-input-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { PromotionService } from '../../../apps/api/src/infrastructure/recovery/promotion-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
@@ -71,9 +73,19 @@ describe('版本化卷规划', () => {
       idempotencyKey: 'create-volume-one'
     }).volumePlanId).toBe(plan.volumePlanId);
 
+    const inheritedVolumeIdea = new AuthorCollaborationService(
+      new AuthorPlanningInputRepository(context.database), new UnitOfWork(context.database), ids, clock
+    ).create(scope, {
+      surface: 'volume_plan', subjectType: 'volume_plan', subjectId: plan.volumePlanId, intentStrength: 'must',
+      originalText: '本卷后续事件链必须保留十个阶段，守夜、抢修和掌门试局不能合并。',
+      attachmentRefs: [], mentionedAgentIds: [], scopeNotes: '卷方向确认后继续约束事件链',
+      idempotencyKey: 'inherited-volume-chain-idea'
+    });
+
     const candidateA = service.addVersion(scope, plan.volumePlanId, {
       expectedPlanRevision: 1,
       candidateKind: 'candidate_a',
+      authorInputRefs: [inheritedVolumeIdea.authorInputId],
       template: noTemplate(),
       content: volumeContent('主动破局', '主角公开挑战旧规则'),
       idempotencyKey: 'volume-one-candidate-a'
@@ -148,15 +160,34 @@ describe('版本化卷规划', () => {
     const teamRepository = new VolumePlanGenerationRepository(context.database);
     const taskService = new TaskService(context.database, context.config.releaseId, clock);
     const budgetService = new BudgetService(context.database, ids, clock);
+    const chainIdea = new AuthorCollaborationService(
+      new AuthorPlanningInputRepository(context.database), new UnitOfWork(context.database), ids, clock
+    ).create(scope, {
+      surface: 'event', subjectType: 'event_sequence', subjectId: plan.volumePlanId,
+      intentStrength: 'must', originalText: '本卷必须拆成十个彼此独立的阶段事件，不能合并守夜、抢修与掌门试局。',
+      attachmentRefs: [], mentionedAgentIds: [], scopeNotes: '只约束当前卷事件链的数量和阶段边界',
+      idempotencyKey: 'first-independent-event-chain-idea'
+    });
     const chainGeneration = new EventChainGenerationService(
       new LayeredPlanningRepository(context.database), teamRepository, layered, service,
       taskService, new UnitOfWork(context.database), ids, clock
     );
     const scheduledChain = chainGeneration.start(scope, plan.volumePlanId, {
       expectedWorkflowVersion: service.workflow(scope).planningVersion,
+      authorInputRefs: [chainIdea.authorInputId],
       idempotencyKey: 'first-independent-event-chain'
     });
     expect(scheduledChain).toMatchObject({ status: 'queued', currentPhase: 'preparing_context' });
+    expect(scheduledChain.members.map((member) => member.roleKey)).toEqual([
+      'lead_screenwriter', 'second_screenwriter', 'chief_editor'
+    ]);
+    expect(taskService.require(scope, scheduledChain.taskId).brief).toMatchObject({
+      authorInputRefs: [inheritedVolumeIdea.authorInputId, chainIdea.authorInputId],
+      authorIdeas: [
+        expect.objectContaining({ originalText: expect.stringContaining('十个阶段') }),
+        expect.objectContaining({ originalText: expect.stringContaining('十个彼此独立') })
+      ]
+    });
     const chainClaim = taskService.claimNext('worker-event-chain', 120_000)!;
     const chainPipeline = new EventChainGenerationPipelineService(
       teamRepository, layered, taskService, budgetService,
@@ -182,6 +213,13 @@ describe('版本化卷规划', () => {
       status: 'succeeded', currentPhase: 'event_chain_ready',
       candidateEventChainId: chain.id
     });
+    const chainCalls = context.database.prepare(`SELECT phase_key,agent_id FROM model_calls
+      WHERE owner_id=? AND book_id=? AND task_id=? ORDER BY phase_key`)
+      .all(scope.ownerId, scope.bookId, scheduledChain.taskId) as unknown as Array<{phase_key:string;agent_id:string}>;
+    expect(chainCalls.map((call) => call.phase_key)).toEqual(expect.arrayContaining([
+      expect.stringContaining('candidate_a'), expect.stringContaining('candidate_b'), expect.stringContaining('fusion')
+    ]));
+    expect(new Set(chainCalls.map((call) => call.agent_id)).size).toBe(3);
     const authorChain = layered.addEventChain(scope, plan.volumePlanId, {
       planNumber: 1,
       content: {...chain.content,events:chain.content.events.map((event,index)=>index===0

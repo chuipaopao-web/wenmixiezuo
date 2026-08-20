@@ -114,8 +114,11 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const run=async(work:()=>Promise<void>)=>{setBusy(true);setError(null);try{await work();}catch(reason){setError(messageOf(reason));}finally{setBusy(false);}};
 
   const generateChain=()=>{if(snapshot?.plan===null||snapshot===null)return;if(!guardAi())return;void run(async()=>{
+    const authorInputRefs=(await fetchAuthorPlanningInputs(bookId,{
+      surface:'event',subjectType:'event_sequence',subjectId:snapshot.plan!.volumePlanId
+    })).filter(item=>!['withdrawn','superseded'].includes(item.status)).map(item=>item.authorInputId);
     const next=await startEventChainGeneration(bookId,snapshot.plan!.volumePlanId,{
-      expectedWorkflowVersion:snapshot.workflow.planningVersion,idempotencyKey:key('event-chain-team')
+      expectedWorkflowVersion:snapshot.workflow.planningVersion,authorInputRefs,idempotencyKey:key('event-chain-team')
     });setChainGeneration(next);if(!next.isRunning)await load();
   });};
 
@@ -217,6 +220,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     const displayChain=candidateChain??activeChain;
     return <EventChainDesignCard
       bookId={bookId}
+      volumePlanId={snapshot.plan.volumePlanId}
       chain={displayChain}
       active={displayChain?.status==='active'}
       generation={chainGeneration}
@@ -358,8 +362,8 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   </section>;
 }
 
-function EventChainDesignCard({bookId,chain,active,generation,busy,error,onGenerate,onSave,onConfirm,onInitialize,onTaskAction}:{
-  bookId:string;chain:EventChainVersion|null;active:boolean;generation:EventChainGenerationData|null;busy:boolean;error:string|null;
+function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,error,onGenerate,onSave,onConfirm,onInitialize,onTaskAction}:{
+  bookId:string;volumePlanId:string;chain:EventChainVersion|null;active:boolean;generation:EventChainGenerationData|null;busy:boolean;error:string|null;
   onGenerate:()=>void;onSave:(chain:EventChainVersion,content:EventChainContent)=>void;onConfirm:()=>void;
   onInitialize:()=>void;onTaskAction:(action:'cancel'|'retry'|'resume')=>void;
 }):React.JSX.Element{
@@ -372,11 +376,15 @@ function EventChainDesignCard({bookId,chain,active,generation,busy,error,onGener
       {chain===null&&!working&&<button className="primary-button" type="button" disabled={busy} onClick={onGenerate}>让团队设计事件链</button>}
     </header>
     {error!==null&&<p className="inline-error" role="alert">{error}</p>}
+    {chain===null&&<details className="event-chain-author-ideas"><summary>补充你想要的事件顺序（可选）</summary>
+      <AuthorIdeaComposer bookId={bookId} surface="event" subjectType="event_sequence" subjectId={volumePlanId}
+        title="告诉AI这卷要怎样拆成小故事"/>
+    </details>}
     <SettingGapPanel bookId={bookId}/>
     {generation!==null&&<section className="event-chain-generation-status" role="status">
       <div><strong>{working?'团队正在拆分事件':generation.isCompleted?'事件链候选已准备好':'本轮事件链未完成'}</strong>
         <span>{generation.phaseText}</span></div>
-      <div>{generation.members.map(member=><span key={member.roleKey}>{member.roleKey==='lead_screenwriter'?'编剧':'主编'} · {member.displayName}</span>)}</div>
+      <div>{generation.members.map(member=><span key={member.roleKey}>{member.roleKey.includes('screenwriter')?'编剧':'主编'} · {member.displayName}</span>)}</div>
       <footer>
         {generation.canCancel&&<button type="button" disabled={busy} onClick={()=>onTaskAction('cancel')}>停止本轮</button>}
         {generation.canResume&&<button type="button" disabled={busy} onClick={()=>onTaskAction('resume')}>继续本轮</button>}
