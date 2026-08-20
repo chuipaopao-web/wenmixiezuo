@@ -88,7 +88,12 @@ export class EventChainGenerationService {
     }
     const team = this.teamRepository.generationSeats(scope);
     const designer = team.seats.find((seat) => seat.roleKey === 'lead_screenwriter');
-    const secondDesigner = team.seats.find((seat) => seat.roleKey === 'second_screenwriter');
+    const secondDesignerCandidates = team.seats.filter((seat) =>
+      ['second_screenwriter', 'third_screenwriter'].includes(seat.roleKey)
+    );
+    const secondDesigner = designer === undefined
+      ? undefined
+      : selectEventChainSecondDesigner(designer, secondDesignerCandidates);
     const editor = team.seats.find((seat) => seat.editor);
     if (designer === undefined || secondDesigner === undefined || editor === undefined) {
       throw new DomainError(errorCodes.operationIncomplete, '事件链设计需要两位编剧和主编席都可用。', {}, false, 409);
@@ -203,6 +208,25 @@ export class EventChainGenerationService {
 
 export function parseEventChainGenerationBrief(value: Record<string, unknown>): EventChainGenerationBrief {
   return parseBrief(value);
+}
+
+export function eventChainCandidateModelPriority(modelId: string): number {
+  return modelId.toLowerCase().startsWith('glm-5.3') ? 0 : 1;
+}
+
+export function selectEventChainSecondDesigner(
+  lead: VolumePlanGenerationSeat,
+  candidates: VolumePlanGenerationSeat[]
+): VolumePlanGenerationSeat | undefined {
+  const available = candidates.filter((candidate) => candidate.agentId !== lead.agentId);
+  const pool = lead.provider.startsWith('local-deterministic')
+    ? available
+    : available.filter((candidate) =>
+        candidate.provider !== lead.provider || candidate.modelId !== lead.modelId
+      );
+  return [...pool].sort((left, right) =>
+    eventChainCandidateModelPriority(right.modelId) - eventChainCandidateModelPriority(left.modelId)
+  )[0];
 }
 
 function parseBrief(value: Record<string, unknown>): EventChainGenerationBrief {

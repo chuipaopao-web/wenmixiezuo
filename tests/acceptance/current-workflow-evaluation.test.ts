@@ -53,7 +53,7 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('eventChainGenerationTaskIds');
     expect(script).toContain("subjectType: 'event_sequence'");
     expect(script).toContain('authorInputRefs: [eventChainIdeaId]');
-    expect(script).toContain('event-chain-generation-author-input-v2');
+    expect(script).toContain('event-chain-generation-author-input-v3');
     expect(script).not.toContain('forceExactEventPlan');
     expect(script).toContain('TARGET_EVENT_COUNT');
     expect(script).toContain('TARGET_COMPLETED_VOLUME_COUNT');

@@ -647,7 +647,7 @@ async function ensureEventChain(bookId, plan, volumeNumber) {
     body: {
       expectedWorkflowVersion: workflow.planningVersion,
       authorInputRefs: [eventChainIdeaId],
-      idempotencyKey: key(volumeLabel(volumeNumber, 'event-chain-generation-author-input-v2'))
+      idempotencyKey: key(volumeLabel(volumeNumber, 'event-chain-generation-author-input-v3'))
     }
   });
   saveVolumeState('eventChainGenerationTaskIds', volumeNumber, generation.taskId, 'eventChainGenerationTaskId');

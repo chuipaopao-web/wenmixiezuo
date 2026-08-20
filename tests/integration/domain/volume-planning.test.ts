@@ -6,7 +6,7 @@ import { ModelCallService } from '../../../apps/api/src/application/calls/model-
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
 import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
-import { EventChainGenerationService } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
+import { eventChainCandidateModelPriority, EventChainGenerationService, selectEventChainSecondDesigner } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
 import { StoryThreadService } from '../../../apps/api/src/application/planning/story-thread-service.js';
@@ -19,7 +19,7 @@ import { LayeredPlanningRepository } from '../../../apps/api/src/infrastructure/
 import { LongformContinuityRepository } from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
 import { CreationSettlementRepository } from '../../../apps/api/src/infrastructure/db/repositories/creation-settlement-repository.js';
 import { VolumePlanRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
-import { VolumePlanGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-generation-repository.js';
+import { VolumePlanGenerationRepository, type VolumePlanGenerationSeat } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { StoryEventRepository } from '../../../apps/api/src/infrastructure/db/repositories/story-event-repository.js';
 import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastructure/db/repositories/author-planning-input-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
@@ -44,6 +44,16 @@ describe('版本化卷规划', () => {
     expect(eventChainOutputTokenLimit('glm-5.3')).toBe(24_000);
     expect(eventChainOutputTokenLimit('glm-5.3', true)).toBe(32_000);
     expect(eventChainOutputTokenLimit('deepseek-v4-pro')).toBe(9_000);
+    expect(eventChainCandidateModelPriority('glm-5.3')).toBeLessThan(
+      eventChainCandidateModelPriority('kimi-k2.7-code')
+    );
+    const seat = (roleKey: string, modelId: string): VolumePlanGenerationSeat => ({
+      roleKey, modelId, agentId: roleKey, displayName: roleKey,
+      modelSnapshotId: roleKey + '-snapshot', provider: 'volcengine-ark-agent-plan', editor: false
+    });
+    expect(selectEventChainSecondDesigner(seat('lead_screenwriter', 'deepseek-v4-pro'), [
+      seat('second_screenwriter', 'glm-5.3'), seat('third_screenwriter', 'kimi-k2.7-code')
+    ])?.roleKey).toBe('third_screenwriter');
     const knownEmpty = new ModelAdapterError('已执行但没有形成可提交文字', 'technical_failure', true, 200, false);
     expect(shouldRetryKnownEmptyEventChainOutput(knownEmpty, 1)).toBe(true);
     expect(shouldRetryKnownEmptyEventChainOutput(knownEmpty, 2)).toBe(false);
