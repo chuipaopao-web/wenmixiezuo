@@ -5,7 +5,7 @@ import { BudgetService } from '../../../apps/api/src/application/budget/budget-s
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
-import { directionCoverageKeys, eventChainValidationRetryInstruction, EventChainGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
+import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
 import { EventChainGenerationService } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
@@ -23,6 +23,7 @@ import { VolumePlanGenerationRepository } from '../../../apps/api/src/infrastruc
 import { StoryEventRepository } from '../../../apps/api/src/infrastructure/db/repositories/story-event-repository.js';
 import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastructure/db/repositories/author-planning-input-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { PromotionService } from '../../../apps/api/src/infrastructure/recovery/promotion-service.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
@@ -40,6 +41,15 @@ describe('版本化卷规划', () => {
     expect(instruction).toContain('重新输出完整JSON');
     expect(eventChainValidationRetryInstruction('首卷责任无效。', false))
       .toContain('所有firstVolumeResponsibilities都必须是空数组');
+    expect(eventChainOutputTokenLimit('glm-5.3')).toBe(24_000);
+    expect(eventChainOutputTokenLimit('glm-5.3', true)).toBe(32_000);
+    expect(eventChainOutputTokenLimit('deepseek-v4-pro')).toBe(9_000);
+    const knownEmpty = new ModelAdapterError('已执行但没有形成可提交文字', 'technical_failure', true, 200, false);
+    expect(shouldRetryKnownEmptyEventChainOutput(knownEmpty, 1)).toBe(true);
+    expect(shouldRetryKnownEmptyEventChainOutput(knownEmpty, 2)).toBe(false);
+    expect(shouldRetryKnownEmptyEventChainOutput(
+      new ModelAdapterError('供应商结果状态未知', 'technical_failure', false, undefined, true), 1
+    )).toBe(false);
   });
 
   it('要求已确认设定，并让两个独立候选并存后以CAS确认和切回', async () => {

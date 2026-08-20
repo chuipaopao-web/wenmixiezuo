@@ -9,6 +9,7 @@ import {
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { AUTHOR_IDEA_POLICY_PLANNING } from '../../domain/author-idea-policy.js';
 import type { BookScope } from '../../domain/scope.js';
+import { ModelAdapterError } from '../../infrastructure/models/model-adapter.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
 import {
@@ -178,10 +179,11 @@ export class EventChainGenerationPipelineService {
     if (task.budgetId === null) throw new Error('事件链任务缺少冻结预算。');
 
     const adapter = this.modelAdapters.resolve(seat.provider, seat.modelId, 'discussion', seat.roleKey as never);
-    const maxOutputTokens = 9_000;
+    let retryKnownEmptyOutput = false;
     let validationFailure: string | null = null;
     let lastError: unknown;
     for (let technicalTry = 1; technicalTry <= 2; technicalTry += 1) {
+      const maxOutputTokens = eventChainOutputTokenLimit(seat.modelId, retryKnownEmptyOutput);
       const currentPrompt = validationFailure === null
         ? prompt
         : `${prompt}\n\n${eventChainValidationRetryInstruction(
@@ -246,11 +248,30 @@ export class EventChainGenerationPipelineService {
         }
       } catch (error) {
         if (this.teamRepository.isUnresolvedModelCall(scope, requestId)) throw error;
+        if (shouldRetryKnownEmptyEventChainOutput(error, technicalTry)) {
+          retryKnownEmptyOutput = true;
+          lastError = error;
+          continue;
+        }
         throw error;
       }
     }
     throw lastError instanceof Error ? lastError : new Error('模型没有返回完整、合法的事件链。');
   }
+}
+
+export function eventChainOutputTokenLimit(modelId: string, expandedAfterKnownEmpty = false): number {
+  if (modelId.toLowerCase().startsWith('glm-5.3')) return expandedAfterKnownEmpty ? 32_000 : 24_000;
+  return expandedAfterKnownEmpty ? 18_000 : 9_000;
+}
+
+export function shouldRetryKnownEmptyEventChainOutput(error: unknown, technicalTry: number): boolean {
+  return technicalTry < 2
+    && error instanceof ModelAdapterError
+    && error.retryable
+    && !error.outcomeUnknown
+    && error.statusCode === 200
+    && error.message.includes('没有形成可提交文字');
 }
 
 export function eventChainValidationRetryInstruction(
