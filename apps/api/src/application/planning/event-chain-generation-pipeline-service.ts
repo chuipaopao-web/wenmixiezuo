@@ -141,51 +141,93 @@ export class EventChainGenerationPipelineService {
     if (task.budgetId === null) throw new Error('事件链任务缺少冻结预算。');
     const seat = brief.designer;
     const adapter = this.modelAdapters.resolve(seat.provider, seat.modelId, 'discussion', seat.roleKey as never);
-    const inputHash = createHash('sha256').update(prompt).digest('hex');
-    const reusable = this.teamRepository.succeededModelResult(scope, {
-      taskId,
-      agentId: seat.agentId,
-      modelSnapshotId: seat.modelSnapshotId,
-      inputHash
-    });
-    if (reusable !== undefined) {
-      return parseEventChainModelOutput(reusable.output_text, brief.planNumber, brief.direction);
-    }
     const maxOutputTokens = 9_000;
-    const estimatedInput = Math.max(Math.ceil(prompt.length / 2), Math.ceil(estimateTokens(prompt) * 1.35));
-    const requestId = this.ids.next();
-    const reservationId = this.budgets.reserve(
-      scope,
-      task.budgetId,
-      requestId,
-      Math.max(12_000, estimatedInput + maxOutputTokens + thinkingTokenAllowance(seat.modelId)),
-      0
-    );
-    const result = await this.calls.execute(scope, {
-      requestId,
-      taskId,
-      phaseKey: `event_chain:${seat.roleKey}:attempt-${task.currentAttemptNo}`,
-      agentId: seat.agentId,
-      modelSnapshotId: seat.modelSnapshotId,
-      provider: seat.provider,
-      modelId: seat.modelId,
-      input: prompt,
-      parameters: JSON.stringify({ maxOutputTokens, planOnly: !seat.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
-      reservationId,
-      contextPackId,
-      leaseToken: task.leaseToken,
-      attemptNo: task.currentAttemptNo
-    }, adapter, {
-      requestId,
-      taskId,
-      ownerId: scope.ownerId,
-      bookId: scope.bookId,
-      agentId: seat.agentId,
-      prompt,
-      maxOutputTokens
-    });
-    return parseEventChainModelOutput(result.output, brief.planNumber, brief.direction);
+    let validationFailure: string | null = null;
+    let lastError: unknown;
+    for (let technicalTry = 1; technicalTry <= 2; technicalTry += 1) {
+      const currentPrompt = validationFailure === null
+        ? prompt
+        : `${prompt}\n\n${eventChainValidationRetryInstruction(
+            validationFailure, brief.planNumber === 1)}`;
+      const inputHash = createHash('sha256').update(currentPrompt).digest('hex');
+      const reusable = this.teamRepository.succeededModelResult(scope, {
+        taskId,
+        agentId: seat.agentId,
+        modelSnapshotId: seat.modelSnapshotId,
+        inputHash
+      });
+      if (reusable !== undefined) {
+        try {
+          return parseEventChainModelOutput(reusable.output_text, brief.planNumber, brief.direction);
+        } catch (error) {
+          validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
+          lastError = error;
+          continue;
+        }
+      }
+      const estimatedInput = Math.max(
+        Math.ceil(currentPrompt.length / 2),
+        Math.ceil(estimateTokens(currentPrompt) * 1.35)
+      );
+      const requestId = this.ids.next();
+      const reservationId = this.budgets.reserve(
+        scope,
+        task.budgetId,
+        requestId,
+        Math.max(12_000, estimatedInput + maxOutputTokens + thinkingTokenAllowance(seat.modelId)),
+        0
+      );
+      try {
+        const result = await this.calls.execute(scope, {
+          requestId,
+          taskId,
+          phaseKey: `event_chain:${seat.roleKey}:attempt-${task.currentAttemptNo}:try-${technicalTry}`,
+          agentId: seat.agentId,
+          modelSnapshotId: seat.modelSnapshotId,
+          provider: seat.provider,
+          modelId: seat.modelId,
+          input: currentPrompt,
+          parameters: JSON.stringify({ maxOutputTokens, planOnly: !seat.provider.startsWith('local-deterministic'), cashFallbackAllowed: false }),
+          reservationId,
+          contextPackId,
+          leaseToken: task.leaseToken,
+          attemptNo: task.currentAttemptNo
+        }, adapter, {
+          requestId,
+          taskId,
+          ownerId: scope.ownerId,
+          bookId: scope.bookId,
+          agentId: seat.agentId,
+          prompt: currentPrompt,
+          maxOutputTokens
+        });
+        try {
+          return parseEventChainModelOutput(result.output, brief.planNumber, brief.direction);
+        } catch (error) {
+          validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
+          lastError = error;
+        }
+      } catch (error) {
+        if (this.teamRepository.isUnresolvedModelCall(scope, requestId)) throw error;
+        throw error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('模型没有返回完整、合法的事件链。');
   }
+}
+
+export function eventChainValidationRetryInstruction(
+  validationFailure: string,
+  firstVolume = true
+): string {
+  const lines = [
+    `上一份事件链未通过结构校验：${validationFailure}`,
+    '请定点纠正并重新输出完整JSON，不要解释。'
+  ];
+  lines.push(firstVolume
+    ? `firstVolumeResponsibilities只允许逐字使用这些稳定键：${firstVolumeCoverageResponsibilityValues.join('、')}。不得改写成中文标签、同义词、序号或自定义键，也不得删除任何首卷责任。`
+    : '本卷不是第一卷，所有firstVolumeResponsibilities都必须是空数组。');
+  return lines.join('\n');
 }
 
 export function parseEventChainModelOutput(

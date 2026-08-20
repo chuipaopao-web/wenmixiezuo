@@ -44,6 +44,14 @@ describe('当前工作流验收脚本', () => {
     expect(script).toContain('task.idempotencyKey === idempotencyKey && task.taskType === taskType');
     expect(script).toContain('task.idempotencyKey.endsWith(`:${idempotencyKey}`)');
     expect(script).toContain('author_generation_task_retried');
+    expect(script).toContain('/directions');
+    expect(script).toContain('/route-selection');
+    expect(script).toContain('item.sourceTaskId === generationTaskId');
+    expect(script).toContain('currentLegacyVersionIds.has(item.legacyVolumePlanVersionId)');
+    expect(script).toContain('volumeFusionTaskIds');
+    expect(script).toContain('/event-chains/generate');
+    expect(script).toContain('eventChainGenerationTaskIds');
+    expect(script).not.toContain('forceExactEventPlan');
     expect(script).toContain('TARGET_EVENT_COUNT');
     expect(script).toContain('TARGET_COMPLETED_VOLUME_COUNT');
     expect(script).not.toContain('if (RELEASE_TARGET_CHAPTERS < TOTAL_CHAPTERS) process.exit(0);');

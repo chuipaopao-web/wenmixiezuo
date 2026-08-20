@@ -5,7 +5,7 @@ import { BudgetService } from '../../../apps/api/src/application/budget/budget-s
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
-import { EventChainGenerationPipelineService, directionCoverageKeys } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
+import { directionCoverageKeys, eventChainValidationRetryInstruction, EventChainGenerationPipelineService } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
 import { EventChainGenerationService } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
 import { StoryThreadService } from '../../../apps/api/src/application/planning/story-thread-service.js';
@@ -29,6 +29,16 @@ describe('版本化卷规划', () => {
   let context: TestContext | undefined;
 
   afterEach(() => context?.close());
+
+  it('事件链结构纠错只允许稳定首卷责任键，不放宽硬合同', () => {
+    const instruction = eventChainValidationRetryInstruction('首卷责任无效。');
+    expect(instruction).toContain('opening_launch');
+    expect(instruction).toContain('major_climax_before_100k');
+    expect(instruction).toContain('不得改写成中文标签');
+    expect(instruction).toContain('重新输出完整JSON');
+    expect(eventChainValidationRetryInstruction('首卷责任无效。', false))
+      .toContain('所有firstVolumeResponsibilities都必须是空数组');
+  });
 
   it('要求已确认设定，并让两个独立候选并存后以CAS确认和切回', async () => {
     context = createTestContext('wenmi-volume-plan-');

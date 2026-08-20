@@ -478,12 +478,6 @@ async function createIdea(bookId, input) {
   return created;
 }
 
-function forceExactEventPlan(content) {
-  const first = content.eventSequence[0];
-  assert(first, 'generated volume plan has no event');
-  return { ...content, ...SCENARIO.volumeContent(first) };
-}
-
 async function planVolume(bookId, volumeNumber) {
   activePhase = `volume-${volumeNumber}-plan`;
   let workflow = await request(`/api/v1/books/${bookId}/workflow`);
@@ -504,6 +498,7 @@ async function planVolume(bookId, volumeNumber) {
   if (plan.activeVersionId !== null) {
     saveVolumeState('volumePlanIds', volumeNumber, plan.volumePlanId, 'volumePlanId');
     saveVolumeState('volumePlanVersionIds', volumeNumber, plan.activeVersionId, 'volumePlanVersionId');
+    await ensureEventChain(bookId, plan, volumeNumber);
     return plan;
   }
   let ideaId = volumeState('volumeIdeaIds', volumeNumber, 'volumeIdeaId');
@@ -554,31 +549,54 @@ async function planVolume(bookId, volumeNumber) {
   }
   await waitForTask(bookId, generationTaskId, `volume-${volumeNumber}-candidates-and-editor`);
   let versions = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`);
-  const candidates = ['candidate_a', 'candidate_b', 'fusion'].map((kind) => versions.find((item) => item.candidateKind === kind));
-  assert(candidates.every(Boolean), 'volume generation did not create A, B and fusion candidates');
-  const sources = candidates.slice(0, 2).map((item) => `${item.sourceTaskId}:${item.contentHash}`);
+  const candidates = ['candidate_a', 'candidate_b'].map((kind) =>
+    versions.filter((item) => item.sourceTaskId === generationTaskId && item.candidateKind === kind).at(-1)
+  );
+  assert(candidates.every(Boolean), 'volume route generation did not create independent A and B candidates');
+  const sources = candidates.map((item) => `${item.sourceTaskId}:${item.contentHash}`);
   assert(new Set(sources).size === 2, 'volume A and B candidates are not independently traceable');
-  let selected = versions.filter((item) => item.candidateKind === 'author_edit').at(-1)
-    ?? versions.filter((item) => item.candidateKind === 'fusion').at(-1);
-  assert(selected, 'volume fusion candidate missing');
-  const volumeShapeMatchesReleaseBrief = selected.content.eventSequence.length === EVENT_COUNT
-    && selected.content.eventSequence.every((event) => event.estimatedChapterRange?.likely === CHAPTERS_PER_EVENT);
-  if (REAL_RELEASE) {
-    assert(volumeShapeMatchesReleaseBrief,
-      `real volume candidate did not follow the requested ${EVENT_COUNT}-event/${TOTAL_CHAPTERS}-chapter scope; it must be revised by the creative workflow, not replaced with a fixture`);
-  } else if (volumeNumber === 1 && !volumeShapeMatchesReleaseBrief) {
-    plans = await request(`/api/v1/books/${bookId}/volume-plans`);
-    plan = plans.find((item) => item.volumePlanId === plan.volumePlanId);
-    selected = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`, {
-      method: 'POST', body: {
-        expectedPlanRevision: plan.revision, candidateKind: 'author_edit',
-        parentVersionId: selected.volumePlanVersionId, sourceTaskId: generationTaskId,
-        authorInputRefs: [ideaId], template: noneTemplate('volume'),
-        content: forceExactEventPlan(selected.content), idempotencyKey: key(volumeLabel(volumeNumber, 'volume-author-final'))
-      }
-    });
-    log('volume_author_adjustment_saved', { volumePlanVersionId: selected.volumePlanVersionId, reason: `${SCENARIO.key}-${EVENT_COUNT}-event-${TOTAL_CHAPTERS}-chapter-test-scope` });
-  }
+  const currentLegacyVersionIds = new Set(candidates.map((item) => item.volumePlanVersionId));
+  const allDirections = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/directions`);
+  const directions = allDirections.filter((item) =>
+    currentLegacyVersionIds.has(item.legacyVolumePlanVersionId)
+  );
+  assert(directions.length === 2, `expected two author-visible volume routes, got ${directions.length}`);
+  assert(new Set(directions.map((item) => item.candidateKind)).size === 2,
+    'author-visible volume routes do not preserve A/B identity');
+  const chosenDirection = directions.find((item) => item.candidateKind === 'candidate_a') ?? directions[0];
+  const selection = {
+    selectionMode: 'whole', selectedProposalId: chosenDirection.proposalId,
+    selectedVersionId: chosenDirection.volumeDirectionVersionId, fragments: [],
+    authorNotes: '验收作者整份采用方案一，由主编整理确认稿。'
+  };
+  await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/route-selection`, {
+    method: 'POST', body: {
+      selection, idempotencyKey: key(volumeLabel(volumeNumber, 'volume-route-selection'))
+    }
+  });
+  log('volume_route_selected', {
+    volumeNumber, proposalId: chosenDirection.proposalId, candidateKind: chosenDirection.candidateKind
+  });
+  plans = await request(`/api/v1/books/${bookId}/volume-plans`);
+  plan = plans.find((item) => item.volumePlanId === plan.volumePlanId);
+  workflow = await request(`/api/v1/books/${bookId}/workflow`);
+  const fusionGeneration = await startOrResumeAuthorGeneration(bookId, {
+    path: `/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/generate`,
+    taskType: 'volume_plan_generation', purpose: `volume-${volumeNumber}-fusion`,
+    body: {
+      expectedPlanRevision: plan.revision, expectedActiveVersionId: plan.activeVersionId,
+      expectedWorkflowVersion: workflow.planningVersion, template: noneTemplate('volume'),
+      authorInputRefs: [ideaId], selection,
+      idempotencyKey: key(volumeLabel(volumeNumber, 'volume-fusion'))
+    }
+  });
+  saveVolumeState('volumeFusionTaskIds', volumeNumber, fusionGeneration.taskId, 'volumeFusionTaskId');
+  await waitForTask(bookId, fusionGeneration.taskId, `volume-${volumeNumber}-author-selection-fusion`);
+  versions = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/versions`);
+  const selected = versions.filter((item) => item.candidateKind === 'fusion').at(-1);
+  assert(selected, 'author selection did not create a chief-editor fusion candidate');
+  assert(selected.content.eventSequence.length === 0,
+    'volume direction incorrectly contains event or chapter planning');
   await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/impact-preview`, {
     method: 'POST', body: { volumePlanVersionId: selected.volumePlanVersionId }
   });
@@ -591,10 +609,57 @@ async function planVolume(bookId, volumeNumber) {
       expectedActiveVersionId: plan.activeVersionId, expectedWorkflowVersion: workflow.planningVersion
     }
   });
-  assert(confirmed.activeVersion?.content.eventSequence.length === EVENT_COUNT, `confirmed volume does not contain exactly ${EVENT_COUNT} events`);
+  assert(confirmed.activeVersion?.content.eventSequence.length === 0,
+    'confirmed volume direction must not contain event or chapter planning');
+  if (volumeNumber === 1) assert(confirmed.activeVersion.content.firstVolumeLaunch,
+    'confirmed first volume is missing the strong-launch contract');
   saveVolumeState('volumePlanIds', volumeNumber, confirmed.volumePlanId, 'volumePlanId');
   saveVolumeState('volumePlanVersionIds', volumeNumber, confirmed.activeVersionId, 'volumePlanVersionId');
   log('volume_plan_confirmed', { volumeNumber, volumePlanId: confirmed.volumePlanId, versionId: confirmed.activeVersionId, title: confirmed.activeVersion.content.title });
+  await ensureEventChain(bookId, confirmed, volumeNumber);
+  return confirmed;
+}
+
+async function ensureEventChain(bookId, plan, volumeNumber) {
+  activePhase = `volume-${volumeNumber}-event-chain`;
+  let chains = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/event-chains`);
+  const active = chains.find((item) => item.status === 'active');
+  if (active) {
+    assert(active.content.events.length === EVENT_COUNT,
+      `active event chain has ${active.content.events.length} events instead of ${EVENT_COUNT}`);
+    return active;
+  }
+  const workflow = await request(`/api/v1/books/${bookId}/workflow`);
+  const generation = await startOrResumeAuthorGeneration(bookId, {
+    path: `/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/event-chains/generate`,
+    taskType: 'event_chain_generation', purpose: `volume-${volumeNumber}-event-chain-generation`,
+    body: {
+      expectedWorkflowVersion: workflow.planningVersion,
+      idempotencyKey: key(volumeLabel(volumeNumber, 'event-chain-generation'))
+    }
+  });
+  saveVolumeState('eventChainGenerationTaskIds', volumeNumber, generation.taskId, 'eventChainGenerationTaskId');
+  await waitForTask(bookId, generation.taskId, `volume-${volumeNumber}-event-chain-generation`);
+  chains = await request(`/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/event-chains`);
+  const candidate = [...chains].reverse().find((item) => item.status === 'candidate');
+  assert(candidate, 'event-chain generation did not create an author-reviewable candidate');
+  assert(candidate.content.events.length === EVENT_COUNT,
+    `event-chain generation produced ${candidate.content.events.length} events instead of the author-requested ${EVENT_COUNT}`);
+  if (volumeNumber === 1) {
+    const launchResponsibilities = new Set(candidate.content.events.flatMap((event) =>
+      event.firstVolumeResponsibilities
+    ));
+    assert(launchResponsibilities.size === 7,
+      `first-volume event chain covers ${launchResponsibilities.size} strong-launch responsibilities instead of 7`);
+  }
+  const confirmed = await request(
+    `/api/v1/books/${bookId}/volume-plans/${plan.volumePlanId}/event-chains/${candidate.id}/confirm`,
+    { method: 'POST', body: {} }
+  );
+  saveVolumeState('eventChainVersionIds', volumeNumber, confirmed.id, 'eventChainVersionId');
+  log('event_chain_confirmed', {
+    volumeNumber, eventChainVersionId: confirmed.id, eventCount: confirmed.content.events.length
+  });
   return confirmed;
 }
 

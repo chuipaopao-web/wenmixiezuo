@@ -24,7 +24,7 @@
 - **文秘写作功能实现、交互、AI检索与上下文说明** — 本文件说明当前版本每个作者功能“怎么用、页面如何反馈、后台如何实现、AI成员何时介入、检索什么以及明确排除什么”。它描述当前生效版本，不包含旧聊天工作流、旧页面名称或已经退出的功能。 — `docs/FEATURE_IMPLEMENTATION_GUIDE.md` · 19.5 KB · `311e5e86c154`
 - **当前卷—事件工作流的混合RAG设计** — 混合RAG只为当前书、当前任务补充必要证据。它不能替代开书信息、活动设定、活动卷纲、活动事件、完整章纲、定稿正文或作者原话，也不能把摘要、向量结果、Wiki或AI候选升级为正史。 — `docs/HYBRID_RAG_DESIGN.md` · 12.2 KB · `8307fe3cc576`
 - **分层创作系统实施方案与验收清单** — 本文件把已经确认的产品决定集中转换成可实施、可测试、可验收的开发合同。它不能替代项目章程和生效决定；发生冲突时，按 AGENTS.md 规定的权威顺序处理。 — `docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md` · 56.7 KB · `596c1478093d`
-- **长篇小说创作质量与工作流规范 V2** — 本规范用于保证长篇小说在持续创作中保持事实可靠、规划可追溯、人物有生命力、事件有因果、正文有创造性、失败可恢复，并让作者始终拥有最终决定权。 — `docs/LONGFORM_QUALITY.md` · 31.5 KB · `86b700637675`
+- **长篇小说创作质量与工作流规范 V2** — 本规范用于保证长篇小说在持续创作中保持事实可靠、规划可追溯、人物有生命力、事件有因果、正文有创造性、失败可恢复，并让作者始终拥有最终决定权。 — `docs/LONGFORM_QUALITY.md` · 31.8 KB · `abeb65450dd3`
 - **上下文、记忆与任务资料规范** — 上下文由确定性 ContextCompiler 按任务编译，不由拟人成员自由访问全库。越往下游越压缩上层信息，但上层硬约束必须完整保留；当前任务对象使用完整版本。其他书、旧聊天、过期版本、无关候选、全文堆叠和无依据猜测始终排除。 — `docs/MEMORY.md` · 6.7 KB · `acc4db380621`
 - **产品规格** — 文秘写作是面向长篇网文作者、使用统一账号体系的 AI 协作创作台。AI 模拟专业主创团队，但作者始终拥有最终选择、编辑、确认和定稿权。 — `docs/PRODUCT.md` · 17.2 KB · `f223f2b16354`
 - **项目总章程** — 帮助作者有规划地完成长篇小说，同时保留作者决定权、人物生命力和合理惊喜。系统负责准备资料、提出方案、执行正文、核对事实和结算状态，不能把创作压成固定公式。 — `docs/PROJECT_CHARTER.md` · 4.4 KB · `c6678e97f8bd`
@@ -53,6 +53,6 @@
 - **创造性、人物生命力与输出非劣效** — 质量审查不能成为小说生成器的逐项打分提示。它用于发现系统机制是否把创作压平，而不是要求每章同时满足所有指标。 — `.agents/skills/wenmi-longform-quality/references/creativity-and-output-quality.md` · 5.6 KB · `6c26b5c4562e`
 - **验收与工程证据合同** — E0—E4不是小说质量层级，不进入AI成员提示词，不限制候选方案，也不能把一章评成“E2质量”。任何质量声明必须写明适用范围、样本、基线和不确定性。 — `.agents/skills/wenmi-longform-quality/references/evaluation-contract.md` · 7.9 KB · `f7adca796ba9`
 - **卷—事件长篇故障模型** — 先确认可观察症状，再从真实版本、ContextPack、检索轨迹、调用记录、正文和结算寻找根因。一个症状可以有多个根因，不要用“换更强模型”跳过定位。 — `.agents/skills/wenmi-longform-quality/references/longform-failure-model.md` · 5.4 KB · `630fb989083a`
-- **卷—事件生产闭环与运行质量** — 设定、卷方向、事件链、事件完整设计、完整章链和近期详细章纲统一使用对象化闭环： — `.agents/skills/wenmi-longform-quality/references/runtime-quality-loops.md` · 7.8 KB · `9b0579da317d`
+- **卷—事件生产闭环与运行质量** — 设定、卷方向、事件链、事件完整设计、完整章链和近期详细章纲统一使用对象化闭环： — `.agents/skills/wenmi-longform-quality/references/runtime-quality-loops.md` · 8.1 KB · `3a6dfd3f7748`
 - **当前工作流、界面与项目精简** — 创作台只围绕当前书显示六个主步骤： — `.agents/skills/wenmi-longform-quality/references/workflow-and-simplification.md` · 9.5 KB · `c69a81452cb5`
 - **文秘写作长篇质量审查** — name: wenmi-longform-quality — `.agents/skills/wenmi-longform-quality/SKILL.md` · 18.5 KB · `f38bdedad8cb`
