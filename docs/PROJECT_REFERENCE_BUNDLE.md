@@ -4438,7 +4438,7 @@ sudo ufw allow 443/tcp
 
 ### 当前生效决定
 
-> 当前源文件：`docs/DECISIONS.md` · 指纹：`a1053876496e`
+> 当前源文件：`docs/DECISIONS.md` · 指纹：`62122461eb2a`
 
 #### 当前生效决定
 
@@ -4968,7 +4968,7 @@ ContextCompiler和检索器继续按当前任务动态取材。类型化档案�
 【当前】老板拍板：做一个后台显示用户数据、算力消耗、模型管理；前端不显示大模型，也不给用户随意调整大模型的权利。落地：
 1. 平台级模型方案（新迁移 0056 platform_model_scheme 单行表）：管理员在后台调整 14 岗位"哪个成员用哪个模型"，保存时走 normalize→白名单（合同 roleModelProfiles∪运行时火山方舟槽位）→validateTeamModelProfiles（四席互异等硬规矩不变）→UPSERT→convergeAllBooks（存量 V2 书绑定不一致才 reviseFuture，历史快照与在途任务冻结不受影响）；新书写入与启动收敛统一读库存方案（BookOnboardingService.resolveCreativeProfiles + main.ts bindAllBooks override）。
 2. 后台三板块全部挂现有 AdminWorkspace（/api/v1/admin/*，requireAdministrator）：用户数据（原有用户/会员管理不变）、算力消耗（GET /admin/usage：总量/按用户/按模型/近 30 天趋势柱）、模型管理（GET/POST /admin/model-scheme：14 成员下拉选模型、保存显示校验错误或收敛结果）。
-3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；任务详情对非管理员把 modelCalls 的 provider/model_id 改为"创作服务"、error_detail 过 sanitizeModelLeak（新 model-leak-sanitizer：供应商词与模型名替换为"创作服务"，保留限流/额度/超时等可读原因）；管理员保留完整技术证据。
+3. 用户侧彻底裁剪：设置弹窗删除"成员模型"与"书籍级模型绑定"两个板块（SettingsDialog 重写，只留主题/字体/本机运维）；团队页删除成员卡片与岗位详情的"模型来源"；App.tsx 移除 capabilities/modelBindings 状态与拉取。接口层：capabilities 对非管理员 modelRuntime.profiles 置空；书籍 model-bindings 四路由与 /books/:id/usage 加管理员门禁；DEC-CURRENT-084起，普通作者JSON、失败和SSE统一经过`clean-v1`网络洁净投影，完整删除模型调用与原始错误并只返回业务恢复动作；管理员经独立物理审计路由保留完整技术证据。旧任务详情局部`sanitizeModelLeak`实现已无运行引用并删除，可由本条历史与Git追溯。
 4. 测试：新增 tests/integration/security/admin-platform.test.ts 4 用例（非管理员 7 条路由 403+capabilities 置空；任务详情清洗与管理员证据保留；同模型/名单外方案 400；服务层保存收敛+幂等）；迁移清单 3 处加 0056；应用层 SQL 边界白名单加 platform-model-scheme-service；旧"成员模型"UI 测试改为断言设置页无任何模型信息。全量 720 绿、双端 typecheck 与构建通过。
 
 
