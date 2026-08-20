@@ -40,7 +40,7 @@ export interface SettingOutlineItemVersion {
 }
 
 /**
- * 核心六问的预填来源：旧书已填写的设定在第一次初始化新核心项时汇成预填稿，
+ * 四项核心与两个旧版可选项的兼容预填来源：旧书已填写的设定在第一次初始化对应条目时汇成预填稿，
  * 状态仍为“待讨论”，作者与团队讨论确认后才生效；映射不到来源的核心项保持空白待讨论。
  */
 export const CORE_PREFILL_SOURCES: Record<string, readonly string[]> = {

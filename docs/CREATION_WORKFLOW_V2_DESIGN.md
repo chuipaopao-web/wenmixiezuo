@@ -1,5 +1,7 @@
 # 创作工作流 V2 完整设计
 
+> 分层创作的完整实施批次、当前缺口和逐项验收证据统一维护在 `LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md`；本文件描述目标工作流，不代替实施结算清单。
+
 ## 1. 核心对象链
 
 ```text

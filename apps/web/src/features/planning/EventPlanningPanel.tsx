@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { PlanningTemplateInstance, PublicNarrativeTemplate, StoryEventContent } from '@wenmi/contracts';
+import type { EventChainContent, EventChainVersion, PlanningTemplateInstance, PublicNarrativeTemplate, StoryEventContent } from '@wenmi/contracts';
 import {
-  addStoryEventVersion, applyEventOperation, cancelTask, confirmStoryEventVersion,
-  fetchAuthorPlanningInputs, fetchCreationWorkflow, fetchEventSequence, fetchPlanningTemplates,
-  fetchStoryEventGeneration, fetchStoryEventVersions, fetchVolumePlans, initializeEventSequence,
-  previewEventOperation, previewStoryEventImpact, resumeTask, retryTask, startStoryEventGeneration,
-  type EventOperationData, type EventOperationProposal, type EventSequenceData,
-  type StoryEventData, type StoryEventGenerationData, type StoryEventImpactData,
+  abandonStoryThread, actOnEventChainGeneration, actOnStoryEventGeneration, addEventChainVersion, addStoryEventVersion, applyEventOperation, confirmEventChain, confirmStoryEventVersion,
+  fetchAuthorPlanningInputs, fetchCreationWorkflow, fetchEventChainGeneration, fetchEventChains,
+  fetchEventSequence, fetchPlanningTemplates, fetchStoryEventGeneration, fetchStoryEventVersions, fetchStoryThreads,
+  fetchVolumePlans, initializeEventSequence,
+  previewEventOperation, previewStoryEventImpact, startEventChainGeneration, startStoryEventGeneration,
+  type EventChainGenerationData, type EventOperationData, type EventOperationProposal, type EventSequenceData,
+  type StoryEventData, type StoryEventGenerationData, type StoryEventImpactData, type StoryThreadData,
   type StoryEventVersionData, type VolumePlanData
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
@@ -17,6 +18,7 @@ import {
   StoryEventPreview,
 } from './StoryEventCard';
 import { useMembershipGate } from '../shared/membership-gate';
+import { SettingGapPanel } from './SettingGapPanel';
 
 interface EventWorkspaceSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -27,6 +29,8 @@ interface EventWorkspaceSnapshot {
 export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.Element {
   const [snapshot,setSnapshot]=useState<EventWorkspaceSnapshot|null>(null);
   const [sequence,setSequence]=useState<EventSequenceData|null>(null);
+  const [chainVersions,setChainVersions]=useState<EventChainVersion[]>([]);
+  const [chainGeneration,setChainGeneration]=useState<EventChainGenerationData|null>(null);
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const [versions,setVersions]=useState<StoryEventVersionData[]>([]);
   const [generation,setGeneration]=useState<StoryEventGenerationData|null>(null);
@@ -40,15 +44,29 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const [operation,setOperation]=useState<EventOperationData|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
+  const [storyThreads,setStoryThreads]=useState<StoryThreadData[]>([]);
+  const [abandoningThreadId,setAbandoningThreadId]=useState<string|null>(null);
+  const [abandonReason,setAbandonReason]=useState('');
   const {guardAi}=useMembershipGate();
 
   const load=useCallback(async(signal?:AbortSignal)=>{
-    const[workflow,plans,templates]=await Promise.all([
-      fetchCreationWorkflow(bookId,signal),fetchVolumePlans(bookId,signal),fetchPlanningTemplates(bookId,'event',signal)
+    const[workflow,plans,templates,threads]=await Promise.all([
+      fetchCreationWorkflow(bookId,signal),fetchVolumePlans(bookId,signal),fetchPlanningTemplates(bookId,'event',signal),
+      fetchStoryThreads(bookId,signal).catch(()=>[])
     ]);
     const plan=[...plans].reverse().find(item=>['active','completed'].includes(item.status)&&item.activeVersionId!==null)??null;
-    const nextSequence=plan===null?null:await fetchEventSequence(bookId,plan.volumePlanId,signal);
-    setSnapshot({workflow,plan,templates});setSequence(nextSequence);
+    const [loadedSequence,nextChains,nextChainGeneration]:[
+      EventSequenceData|null,EventChainVersion[],EventChainGenerationData|null
+    ]=plan===null
+      ?[null,[],null]
+      :await Promise.all([
+        fetchEventSequence(bookId,plan.volumePlanId,signal),
+        fetchEventChains(bookId,plan.volumePlanId,signal),
+        fetchEventChainGeneration(bookId,plan.volumePlanId,signal)
+      ]);
+    const nextSequence=loadedSequence!==null&&loadedSequence.volumePlanVersionId===plan?.activeVersionId?loadedSequence:null;
+    setSnapshot({workflow,plan,templates});setSequence(nextSequence);setStoryThreads(threads);
+    setChainVersions(nextChains);setChainGeneration(nextChainGeneration);
     setSelectedId(current=>current!==null&&nextSequence?.events.some(item=>item.eventId===current)
       ?current:nextSequence?.events[0]?.eventId??null);
   },[bookId]);
@@ -56,6 +74,19 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   useEffect(()=>{const controller=new AbortController();setError(null);
     void load(controller.signal).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
     return()=>controller.abort();},[load]);
+
+  useEffect(()=>{const plan=snapshot?.plan;
+    if(plan===null||plan===undefined||chainGeneration===null||!chainGeneration.isRunning||sequence!==null)return;
+    const controller=new AbortController(),timer=window.setInterval(()=>{
+      void Promise.all([
+        fetchEventChainGeneration(bookId,plan.volumePlanId,controller.signal),
+        fetchEventChains(bookId,plan.volumePlanId,controller.signal)
+      ]).then(([nextGeneration,nextChains])=>{
+        setChainGeneration(nextGeneration);setChainVersions(nextChains);
+        if(nextGeneration!==null&&!nextGeneration.isRunning)void load();
+      }).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
+    },1250);return()=>{controller.abort();window.clearInterval(timer);};
+  },[bookId,chainGeneration?.isRunning,chainGeneration?.candidateEventChainId,load,sequence,snapshot?.plan?.volumePlanId]);
 
   const selected=useMemo(()=>sequence?.events.find(item=>item.eventId===selectedId)??null,[selectedId,sequence]);
   useEffect(()=>{if(selected===null){setVersions([]);setGeneration(null);return;}
@@ -69,17 +100,38 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     return()=>controller.abort();
   },[bookId,selected?.eventId,selected?.activeVersionId]);
 
-  useEffect(()=>{if(selected===null||generation===null||!activeTask(generation.status))return;
+  useEffect(()=>{if(selected===null||generation===null||!generation.isRunning)return;
     const controller=new AbortController(),timer=window.setInterval(()=>{
       void Promise.all([fetchStoryEventGeneration(bookId,selected.eventId,controller.signal),
         fetchStoryEventVersions(bookId,selected.eventId,controller.signal)]).then(([nextGeneration,nextVersions])=>{
           setGeneration(nextGeneration);setVersions(nextVersions);
-          if(nextGeneration!==null&&!activeTask(nextGeneration.status))void load();
+          if(nextGeneration!==null&&!nextGeneration.isRunning)void load();
         }).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
     },1250);return()=>{controller.abort();window.clearInterval(timer);};
-  },[bookId,generation?.status,generation?.taskId,load,selected?.eventId]);
+  },[bookId,generation?.isRunning,generation?.updatedAt,load,selected?.eventId]);
 
   const run=async(work:()=>Promise<void>)=>{setBusy(true);setError(null);try{await work();}catch(reason){setError(messageOf(reason));}finally{setBusy(false);}};
+
+  const generateChain=()=>{if(snapshot?.plan===null||snapshot===null)return;if(!guardAi())return;void run(async()=>{
+    const next=await startEventChainGeneration(bookId,snapshot.plan!.volumePlanId,{
+      expectedWorkflowVersion:snapshot.workflow.planningVersion,idempotencyKey:key('event-chain-team')
+    });setChainGeneration(next);if(!next.isRunning)await load();
+  });};
+
+  const saveChain=(chain:EventChainVersion,content:EventChainContent)=>{if(snapshot?.plan===null||snapshot===null)return;void run(async()=>{
+    await addEventChainVersion(bookId,snapshot.plan!.volumePlanId,{
+      content,parentVersionId:chain.id,idempotencyKey:key('event-chain-author')
+    });await load();
+  });};
+
+  const confirmChain=(eventChainVersionId:string)=>{if(snapshot?.plan===null||snapshot===null)return;void run(async()=>{
+    await confirmEventChain(bookId,snapshot.plan!.volumePlanId,eventChainVersionId);await load();
+  });};
+
+  const chainTaskAction=(action:'cancel'|'retry'|'resume')=>{if(snapshot?.plan===null||snapshot===null||chainGeneration===null)return;void run(async()=>{
+    await actOnEventChainGeneration(bookId,snapshot.plan!.volumePlanId,action);
+    setChainGeneration(await fetchEventChainGeneration(bookId,snapshot.plan!.volumePlanId));
+  });};
 
   const initialize=()=>{if(snapshot?.plan===null||snapshot===null)return;void run(async()=>{
     const next=await initializeEventSequence(bookId,snapshot.plan!.volumePlanId,{
@@ -117,10 +169,11 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
     setImpact(null);await load();
   });};
 
+  const abandonThread=()=>{if(abandoningThreadId===null)return;void run(async()=>{
+    await abandonStoryThread(bookId,abandoningThreadId,abandonReason);setAbandoningThreadId(null);setAbandonReason('');await load();
+  });};
   const taskAction=(action:'cancel'|'retry'|'resume')=>{if(selected===null||generation===null)return;void run(async()=>{
-    if(action==='cancel')await cancelTask(bookId,generation.taskId);
-    else if(action==='retry')await retryTask(bookId,generation.taskId);
-    else await resumeTask(bookId,generation.taskId);
+    await actOnStoryEventGeneration(bookId,selected.eventId,action);
     setGeneration(await fetchStoryEventGeneration(bookId,selected.eventId));
   });};
 
@@ -156,9 +209,25 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
 
   if(snapshot===null)return <section className="event-planning-panel"><p>{error??'正在读取当前事件链…'}</p></section>;
   if(snapshot.plan===null)return <section className="event-planning-panel event-empty-state"><h3>先确认当前卷规划</h3><p>事件必须服务于当前卷目标。确认卷规划后，这里会建立有因果关系的事件链。</p></section>;
-  if(sequence===null)return <section className="event-planning-panel event-empty-state"><span className="eyebrow">当前卷已经确认</span>
-    <h3>把卷规划拆成可以连续创作的小事件</h3><p>系统会保留卷纲给出的事件任务，但不会把预计章数变成硬限制。</p>
-    {error!==null&&<p className="inline-error">{error}</p>}<button className="primary-button" type="button" disabled={busy} onClick={initialize}>建立事件链</button></section>;
+  if(sequence===null){
+    const activeChain=chainVersions.find(item=>item.status==='active')??null;
+    const candidateChain=[...chainVersions].reverse().find(item=>item.status==='candidate')
+      ??chainVersions.find(item=>item.id===chainGeneration?.candidateEventChainId&&item.status==='candidate')??null;
+    const displayChain=candidateChain??activeChain;
+    return <EventChainDesignCard
+      bookId={bookId}
+      chain={displayChain}
+      active={displayChain?.status==='active'}
+      generation={chainGeneration}
+      busy={busy}
+      error={error}
+      onGenerate={generateChain}
+      onSave={saveChain}
+      onConfirm={()=>{if(candidateChain!==null)confirmChain(candidateChain.id);}}
+      onInitialize={initialize}
+      onTaskAction={chainTaskAction}
+    />;
+  }
   if(snapshot.plan.status==='completed')return <CompletedEventPlanningView plan={snapshot.plan} sequence={sequence}
     selected={selected} selectedId={selectedId} versions={versions} onSelect={setSelectedId}/>;
 
@@ -176,6 +245,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
       <div className="event-sequence-meta"><small>当前卷</small><strong>{snapshot.plan.activeVersion?.content.title}</strong></div>
     </header>
     {error!==null&&<p className="inline-error" role="alert">{error}</p>}
+    <SettingGapPanel bookId={bookId}/>
     <div className="event-chain story-artery" aria-label="事件因果链">{sequence.events.map((item,index)=>{const content=eventContentOf(item);
       const next=sequence.events[index+1]??null,nextContent=next===null?null:eventContentOf(next);
       const presentation=eventPresentation(sequence,item,content);
@@ -222,17 +292,17 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
         <AuthorIdeaComposer bookId={bookId} surface="event" subjectType="story_event" subjectId={selected.eventId}
           title="告诉团队你对这个事件的想法" />
 
-        <section className={`event-generation-card ${generation!==null&&activeTask(generation.status)?'working':''}`}>
+        <section className={`event-generation-card ${generation?.isRunning===true?'working':''}`}>
           <header><h4>团队设计</h4>
-            <button className="primary-button" type="button" disabled={busy||(generation!==null&&activeTask(generation.status))} onClick={generate}>
-              {generation?.status==='succeeded'?'再设计一组':'开始设计事件'}</button></header>
-          {generation!==null&&<><div className="event-generation-summary" role="status"><strong>{taskStatus(generation.status)}</strong>
-            <span>{taskPhase(generation.currentPhase)}</span></div>
-            <div className="event-generation-members">{generation.members.map(member=><article key={member.roleKey+member.agentId}>
+            <button className="primary-button" type="button" disabled={busy||(generation?.isRunning===true)} onClick={generate}>
+              {generation?.isCompleted===true?'再设计一组':'开始设计事件'}</button></header>
+          {generation!==null&&<><div className="event-generation-summary" role="status"><strong>{generation.stateText}</strong>
+            <span>{generation.phaseText}</span></div>
+            <div className="event-generation-members">{generation.members.map(member=><article key={member.roleKey}>
               <strong>{roleLabel(member.roleKey)} · {member.displayName}</strong></article>)}</div>
-            <div className="button-row">{activeTask(generation.status)&&generation.status!=='paused'&&<button onClick={()=>taskAction('cancel')}>停止本轮</button>}
-              {generation.status==='paused'&&<button onClick={()=>taskAction('resume')}>继续本轮</button>}
-              {['failed','interrupted'].includes(generation.status)&&<button onClick={()=>taskAction('retry')}>继续完成</button>}</div></>}
+            <div className="button-row">{generation.canCancel&&<button onClick={()=>taskAction('cancel')}>停止本轮</button>}
+              {generation.canResume&&<button onClick={()=>taskAction('resume')}>继续本轮</button>}
+              {generation.canRetry&&<button onClick={()=>taskAction('retry')}>继续完成</button>}</div></>}
         </section>
 
         <section className="event-version-section"><header><div><h4>方案与历史稿</h4><p>编剧方案、主编融合稿和作者修改稿都会保留，不互相覆盖。</p></div>
@@ -260,6 +330,17 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
           <dt>预计篇幅</dt><dd>{rangeLabel(selected.latestVersion?.content)}</dd></dl></section>
         <section><h4>链路记录</h4><p>已有 {sequence.operations.length} 次结构预览或调整，全部保留历史。</p>
           <ul>{sequence.operations.slice(0,5).map(item=><li key={item.operationId}>{operationLabel(item.operationKind)} · {item.status==='applied'?'已应用':'仅预览'}</li>)}</ul></section>
+        <section className="story-thread-ledger"><h4>未解决的承诺与伏笔</h4><p>规划只登记责任；只有正文定稿并完成事件结算，状态才会变成已埋、推进或解决。</p>
+          {storyThreads.filter(thread=>!['resolved','abandoned_by_author'].includes(thread.status)).length===0?<small>当前没有需要追踪的故事线。</small>:
+            <ul>{storyThreads.filter(thread=>!['resolved','abandoned_by_author'].includes(thread.status)).map(thread=><li key={thread.threadId}>
+              <div><strong>{thread.title}</strong><span>{threadStatusLabel(thread.status)}{thread.actualEvidenceCount>0?` · ${thread.actualEvidenceCount}份正文证据`:''}</span></div>
+              {abandoningThreadId===thread.threadId?<div className="story-thread-abandon"><textarea rows={2} value={abandonReason}
+                onChange={event=>setAbandonReason(event.target.value)} placeholder="为什么不再继续这条线？这个原因会保留。"/>
+                <div><button type="button" onClick={()=>{setAbandoningThreadId(null);setAbandonReason('');}}>取消</button>
+                  <button type="button" disabled={busy||abandonReason.trim().length<2} onClick={abandonThread}>确认放弃</button></div></div>:
+                <button className="text-button" type="button" onClick={()=>setAbandoningThreadId(thread.threadId)}>不再继续这条线</button>}
+            </li>)}</ul>}
+        </section>
       </aside>
     </div>}
 
@@ -276,6 +357,71 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   </section>;
 }
 
+function EventChainDesignCard({bookId,chain,active,generation,busy,error,onGenerate,onSave,onConfirm,onInitialize,onTaskAction}:{
+  bookId:string;chain:EventChainVersion|null;active:boolean;generation:EventChainGenerationData|null;busy:boolean;error:string|null;
+  onGenerate:()=>void;onSave:(chain:EventChainVersion,content:EventChainContent)=>void;onConfirm:()=>void;
+  onInitialize:()=>void;onTaskAction:(action:'cancel'|'retry'|'resume')=>void;
+}):React.JSX.Element{
+  const working=generation?.isRunning===true;
+  const[editing,setEditing]=useState(false);
+  const[draft,setDraft]=useState<EventChainContent|null>(chain?.content??null);
+  useEffect(()=>{setDraft(chain?.content??null);setEditing(false);},[chain?.id]);
+  return <section className="event-planning-panel event-chain-design-card" aria-label="当前卷事件链设计">
+    <header><div><span className="eyebrow">卷方向已经确认</span><h3>把大故事方向拆成连续的小故事</h3><p>团队只设计事件之间的进入状态、人物行动、阻力、回报或代价和因果交接；章数、场景和对白留到后面。</p></div>
+      {chain===null&&!working&&<button className="primary-button" type="button" disabled={busy} onClick={onGenerate}>让团队设计事件链</button>}
+    </header>
+    {error!==null&&<p className="inline-error" role="alert">{error}</p>}
+    <SettingGapPanel bookId={bookId}/>
+    {generation!==null&&<section className="event-chain-generation-status" role="status">
+      <div><strong>{working?'团队正在拆分事件':generation.isCompleted?'事件链候选已准备好':'本轮事件链未完成'}</strong>
+        <span>{generation.phaseText}</span></div>
+      <div>{generation.members.map(member=><span key={member.roleKey}>{member.roleKey==='lead_screenwriter'?'编剧':'主编'} · {member.displayName}</span>)}</div>
+      <footer>
+        {generation.canCancel&&<button type="button" disabled={busy} onClick={()=>onTaskAction('cancel')}>停止本轮</button>}
+        {generation.canResume&&<button type="button" disabled={busy} onClick={()=>onTaskAction('resume')}>继续本轮</button>}
+        {generation.canRetry&&<button type="button" disabled={busy} onClick={()=>onTaskAction('retry')}>继续完成</button>}
+      </footer>
+    </section>}
+    {chain!==null&&<section className="event-chain-candidate">
+      <header><div><strong>{active?'已经确认的事件链':'团队给出的事件链候选'}</strong><small>{chain.content.events.length} 个连续事件</small></div><span>{active?'已确认':'待你确认'}</span></header>
+      <ol>{chain.content.events.map(event=><li key={event.nodeId}>
+        <div><small>事件 {event.order}</small><strong>{event.title}</strong></div>
+        <dl><div><dt>人物行动</dt><dd>{event.protagonistAction}</dd></div><div><dt>阻力怎样升级</dt><dd>{event.oppositionEscalation}</dd></div><div><dt>回报或代价</dt><dd>{event.stagePayoffOrCost}</dd></div><div><dt>结束后变成什么局面</dt><dd>{event.exitState}</dd></div></dl>
+        {event.leadsToNext!==null&&<p><b>接到下一个事件：</b>{event.leadsToNext}</p>}
+        {(event.plantThreadIds.length>0||event.payoffThreadIds.length>0||event.consequenceThreadIds.length>0)&&<div className="event-thread-responsibilities">
+          {event.plantThreadIds.length>0&&<span><b>本事件埋下</b>{event.plantThreadIds.join('、')}</span>}
+          {event.payoffThreadIds.length>0&&<span><b>本事件兑现</b>{event.payoffThreadIds.join('、')}</span>}
+          {event.consequenceThreadIds.length>0&&<span><b>交给后续</b>{event.consequenceThreadIds.join('、')}</span>}
+        </div>}
+      </li>)}</ol>
+      {editing&&draft!==null&&<EventChainEditor value={draft} onChange={setDraft}/>}
+      <footer><button type="button" disabled={busy||working} onClick={()=>setEditing(value=>!value)}>{editing?'收起修改':'修改这条链'}</button>
+        {editing&&draft!==null&&<button type="button" disabled={busy} onClick={()=>onSave(chain,draft)}>保存为我的版本</button>}
+        {active
+          ?<button className="primary-button" type="button" disabled={busy||editing} onClick={onInitialize}>按这条链进入逐事件设计</button>
+          :<><button type="button" disabled={busy||working} onClick={onGenerate}>重新设计</button><button className="primary-button" type="button" disabled={busy||working||editing} onClick={onConfirm}>确认这条事件链</button></>}
+      </footer>
+    </section>}
+  </section>;
+}
+
+function EventChainEditor({value,onChange}:{value:EventChainContent;onChange:(value:EventChainContent)=>void}):React.JSX.Element{
+  const update=(index:number,field:'title'|'protagonistAction'|'oppositionEscalation'|'stagePayoffOrCost'|'exitState'|'leadsToNext',next:string)=>{
+    const events=value.events.map((event,eventIndex)=>eventIndex===index?{...event,[field]:field==='leadsToNext'&&next.trim()===''?null:next}:event);
+    onChange({...value,events});
+  };
+  return <section className="event-chain-editor" aria-label="修改事件链">
+    <header><strong>修改具体故事走向</strong><p>责任覆盖、伏笔引用和因果位置由系统保留；你只需调整人物怎样行动、阻力怎样升级、得到什么和怎样接到下一件事。</p></header>
+    <div>{value.events.map((event,index)=><article key={event.nodeId}><h4>事件 {event.order}</h4>
+      <label><span>事件名称</span><input value={event.title} onChange={e=>update(index,'title',e.target.value)}/></label>
+      <label><span>人物行动</span><textarea rows={2} value={event.protagonistAction} onChange={e=>update(index,'protagonistAction',e.target.value)}/></label>
+      <label><span>阻力怎样升级</span><textarea rows={2} value={event.oppositionEscalation} onChange={e=>update(index,'oppositionEscalation',e.target.value)}/></label>
+      <label><span>回报或代价</span><textarea rows={2} value={event.stagePayoffOrCost} onChange={e=>update(index,'stagePayoffOrCost',e.target.value)}/></label>
+      <label><span>结束后变成什么局面</span><textarea rows={2} value={event.exitState} onChange={e=>update(index,'exitState',e.target.value)}/></label>
+      {event.leadsToNext!==null&&<label><span>怎样接到下一个事件</span><textarea rows={2} value={event.leadsToNext} onChange={e=>update(index,'leadsToNext',e.target.value)}/></label>}
+    </article>)}</div>
+  </section>;
+}
 function CompletedEventPlanningView({plan,sequence,selected,selectedId,versions,onSelect}:{
   plan:VolumePlanData;sequence:EventSequenceData;selected:StoryEventData|null;selectedId:string|null;
   versions:StoryEventVersionData[];onSelect:(eventId:string)=>void;
@@ -368,7 +514,8 @@ function templateInstance(mode:'template'|'custom'|'none',selected:PublicNarrati
     customDirection:mode==='custom'?direction.trim()||null:null};}
 function lines(value:string){return[...new Set(value.split(/\r?\n/u).map(item=>item.trim()).filter(Boolean))];}
 function key(prefix:string){return prefix+':'+(globalThis.crypto?.randomUUID?.()??Date.now()+'-'+Math.random());}
-function activeTask(status:string){return['pending','queued','working','paused'].includes(status);}
+function threadStatusLabel(status:StoryThreadData['status']){return({planned:'等待正文埋下',planted:'正文已经埋下',advanced:'正在推进',
+  due:'已经到兑现窗口',resolved:'已经解决',abandoned_by_author:'作者决定放弃'}as const)[status];}
 function messageOf(reason:unknown){return reason instanceof Error?reason.message:'事件规划操作失败，请稍后重试。';}
 function eventStatus(status:string){return({planning:'规划中',active:'已确认',settled:'已完成',archived:'已归档'}as Record<string,string>)[status]??'正在处理';}
 function eventVersionOf(item:StoryEventData){return item.activeVersion??item.latestVersion;}
@@ -408,10 +555,6 @@ export function eventEmotionGuide(template:PublicNarrativeTemplate){
   if(/反转|假胜|代价|false.win|cost/u.test(text))return{emoji:'🤯',label:'意外反转',explanation:'眼前的赢法带来更大代价，让结果意外，却能从前面的因果中找到依据。'};
   return{emoji:'✨',label:template.publicTitle,explanation:template.publicExplanation};
 }
-function taskStatus(status:string){return({pending:'准备中',queued:'等待开始',working:'团队设计中',paused:'已暂停',
-  succeeded:'三份方案已保存',failed:'本轮未完成',interrupted:'任务中断',cancelled:'本轮已停止',blocked:'等待处理'}as Record<string,string>)[status]??'正在处理';}
-function taskPhase(phase:string){return({preparing_context:'准备卷纲、设定、结算与作者想法',screenwriter_candidates:'两份独立方案已完成，主编正在融合',
-  fusion_complete:'主编融合方案已保存',failed:'已保留当前进度'}as Record<string,string>)[phase]??'正在处理';}
 function roleLabel(role:string){return({lead_screenwriter:'编剧A',second_screenwriter:'编剧B',main_editor:'主编',deputy_editor:'代理主编'}as Record<string,string>)[role]??'创作成员';}
 function candidateLabel(kind:StoryEventVersionData['candidateKind']){return({candidate_a:'方案一',candidate_b:'方案二',
   author_edit:'我的修改',fusion:'主编整理版',volume_seed:'卷纲分配的初始任务'})[kind];}

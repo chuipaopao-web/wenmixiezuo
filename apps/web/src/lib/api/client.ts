@@ -7,6 +7,11 @@ import type {
   CreationWorkflowStateView,
   PlanningTemplateInstance,
   PlanningScope,
+  EventChainContent,
+  FirstChapterLaunchContract,
+  EventChainVersion,
+  VolumeDirectionContent,
+  VolumeRouteSelection,
   VolumePlanContent,
   StoryEventContent,
   ChapterOutlineContent,
@@ -341,27 +346,38 @@ export interface VolumePlanImpactData {
   note: string;
 }
 
-export interface VolumePlanGenerationData {
-  taskId: string;
-  status: string;
-  currentPhase: string;
-  errorCode: string | null;
-  checkpoint: Record<string, unknown>;
-  modelDiversityVerified: boolean;
-  members: Array<{
-    roleKey: string;
-    agentId: string;
-    displayName: string;
-    provider: string;
-    modelId: string;
-  }>;
-  candidateVersionIds: {
-    candidateA: string | null;
-    candidateB: string | null;
-    fusion: string | null;
-  };
+export interface AuthorGenerationStateData {
+  stateText: string;
+  phaseText: string;
+  isRunning: boolean;
+  isCompleted: boolean;
+  canCancel: boolean;
+  canResume: boolean;
+  canRetry: boolean;
+  errorMessage: string | null;
+  members: Array<{ roleKey: string; displayName: string }>;
+}
+
+export interface VolumePlanGenerationData extends AuthorGenerationStateData {
+  candidateVersionIds: { candidateA: string | null; candidateB: string | null; fusion: string | null };
   createdAt: string;
   updatedAt: string;
+}
+export interface VolumeDirectionVersionData {
+  volumeDirectionVersionId: string;
+  volumePlanId: string;
+  legacyVolumePlanVersionId: string | null;
+  version: number;
+  proposalId: string;
+  candidateKind: 'candidate_a' | 'candidate_b' | 'author_edit' | 'fusion' | 'legacy_projection';
+  status: 'candidate' | 'active' | 'superseded' | 'archived';
+  parentVersionId: string | null;
+  sourceVersionIds: string[];
+  authorInputRefs: string[];
+  content: VolumeDirectionContent;
+  contentHash: string;
+  createdAt: string;
+  confirmedAt: string | null;
 }
 export type StoryEventCandidateKind = 'candidate_a' | 'candidate_b' | 'author_edit' | 'fusion' | 'volume_seed';
 
@@ -427,6 +443,9 @@ export interface EventOperationData {
   appliedAt: string | null;
 }
 
+export interface EventChainGenerationData extends AuthorGenerationStateData {
+  candidateEventChainId: string | null;
+}
 export interface EventSequenceData {
   volumePlanId: string;
   volumePlanVersionId: string;
@@ -446,20 +465,11 @@ export interface StoryEventImpactData {
   note: string;
 }
 
-export interface StoryEventGenerationData {
-  taskId: string;
-  status: string;
-  currentPhase: string;
-  errorCode: string | null;
-  checkpoint: Record<string, unknown>;
-  modelDiversityVerified: boolean;
-  members: Array<{ roleKey: string; agentId: string; displayName: string; provider: string; modelId: string }>;
+export interface StoryEventGenerationData extends AuthorGenerationStateData {
   candidateVersionIds: { candidateA: string | null; candidateB: string | null; fusion: string | null };
   createdAt: string;
   updatedAt: string;
 }
-
-
 export interface ChapterOutlineV2Data {
   outlineSchema:'chapter_outline_v2';chapterNumber:number;title:string;chapterFunction:string;openingState:string;requiredEndingState:string;
   cast:Array<{name:string;objective:string;knowledgeBoundary:string;chapterRole:string;stateChange?:string}>;
@@ -468,6 +478,7 @@ export interface ChapterOutlineV2Data {
   experience?:{primaryTone?:string;emotionalCurve:string[];payoffPoints:string[];pressurePoints:string[];readerEffect?:string};
   ending:{result:string;stateChanges:string[];hook:string;nextChapterInterface:string};
   mustImplement:string[];mustNotViolate:string[];allowedCandidates:string[];creativeFreedom:string[];
+  firstChapterLaunch?:FirstChapterLaunchContract;
 }
 export interface EventChapterSequenceVersionData {
   sequenceVersionId:string;sequenceId:string;version:number;parentVersionId:string|null;
@@ -494,10 +505,26 @@ export interface EventChapterSequenceData {
   activeVersion:EventChapterSequenceVersionData|null;versions:EventChapterSequenceVersionData[];
   outlines:EventChapterOutlineData[];nextChapterNumber:number;valid:boolean;createdAt:string;updatedAt:string;
 }
-export interface EventChapterGenerationData {
-  taskId:string;kind:'sequence'|'details'|'sequence_challenge'|'detail_challenge';status:string;currentPhase:string;errorCode:string|null;
-  checkpoint:Record<string,unknown>&{challenge?:EventChapterChallengeContent};member:{roleKey:string;agentId:string;displayName:string;provider:string;modelId:string};
-  createdAt:string;updatedAt:string;
+export interface EventChapterGenerationData extends AuthorGenerationStateData {
+  kind:'sequence'|'details'|'sequence_challenge'|'detail_challenge';
+  challenge?:EventChapterChallengeContent;
+  createdAt:string;
+  updatedAt:string;
+}export interface SettingGapData {
+  gapId:string;scopeType:'volume'|'event'|'chapter';scopeId:string;question:string;whyNeeded:string;affectedObjects:string[];
+  decision:'design_now'|'not_used_this_volume'|'keep_unknown'|null;status:'pending'|'needs_setting'|'decided';
+  resolvedSettingVersionId:string|null;createdAt:string;updatedAt:string;
+}
+export interface StoryThreadData {
+  threadId:string;threadKey:string;title:string;type:'promise'|'foreshadowing'|'question'|'relationship'|'inner_change'|'conflict'|'identity_resource_emotion';
+  scopeType:'book'|'volume'|'event';scopeId:string;status:'planned'|'planted'|'advanced'|'due'|'resolved'|'abandoned_by_author';
+  plannedWindow:Record<string,unknown>|null;actualEvidenceCount:number;abandonmentReason:string|null;revision:number;updatedAt:string;
+}
+export interface FirstVolumeLaunchProgressData {
+  volumePlanId:string;volumeDirectionVersionId:string;totalEffectiveCharacters:number;latestSettledChapterNumber:number;
+  climaxStatus:'planned'|'approaching'|'at_risk'|'completed'|'completed_late'|'overdue';climaxEventId:string|null;
+  climaxCompletedAtEffectiveCharacters:number|null;prediction:Record<string,unknown>;
+  actualEvidence:Record<string,unknown>|null;updatedAt:string;
 }
 export interface PlanningSettlementData {
   settlementId:string;stageKind:'event'|'volume';stageObjectId:string;planVersionId:string;version:number;
@@ -1286,6 +1313,24 @@ export function fetchCreationWorkflow(bookId: string, signal?: AbortSignal): Pro
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/workflow`, signal === undefined ? {} : { signal });
 }
 
+export function fetchSettingGaps(bookId:string,signal?:AbortSignal):Promise<SettingGapData[]>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-gaps`,signal===undefined?{}:{signal});
+}
+export function decideSettingGap(bookId:string,gapId:string,decision:'design_now'|'not_used_this_volume'|'keep_unknown',
+  resolvedSettingVersionId?:string|null):Promise<SettingGapData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-gaps/${encodeURIComponent(gapId)}/decide`,
+    {method:'POST',body:JSON.stringify({decision,resolvedSettingVersionId:resolvedSettingVersionId??null})});
+}
+export function fetchStoryThreads(bookId:string,signal?:AbortSignal):Promise<StoryThreadData[]>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-threads`,signal===undefined?{}:{signal});
+}
+export function abandonStoryThread(bookId:string,threadId:string,reason:string):Promise<StoryThreadData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-threads/${encodeURIComponent(threadId)}/abandon`,
+    {method:'POST',body:JSON.stringify({reason})});
+}
+export function fetchFirstVolumeLaunchProgress(bookId:string,signal?:AbortSignal):Promise<FirstVolumeLaunchProgressData|null>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/first-volume-launch-progress`,signal===undefined?{}:{signal});
+}
 export function fetchExpressionProfile(bookId:string,signal?:AbortSignal):Promise<ExpressionProfileData|null>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/expression-profile`,signal===undefined?{}:{signal});
 }
@@ -1368,11 +1413,37 @@ export function startVolumePlanGeneration(bookId: string, volumePlanId: string, 
   expectedWorkflowVersion: number;
   template: PlanningTemplateInstance;
   authorInputRefs?: string[];
+  selection?: VolumeRouteSelection;
   idempotencyKey: string;
 }): Promise<VolumePlanGenerationData> {
   return request(
     `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/generate`,
     { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function actOnVolumePlanGeneration(bookId:string,volumePlanId:string,action:'cancel'|'retry'|'resume'):Promise<VolumePlanGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/generation/action`,
+    {method:'POST',body:JSON.stringify({action})});
+}
+export function fetchVolumeDirections(
+  bookId: string, volumePlanId: string, signal?: AbortSignal
+): Promise<VolumeDirectionVersionData[]> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/directions`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function saveVolumeRouteSelection(
+  bookId: string,
+  volumePlanId: string,
+  selection: VolumeRouteSelection,
+  idempotencyKey: string
+): Promise<VolumeRouteSelection> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/route-selection`,
+    { method: 'POST', body: JSON.stringify({ selection, idempotencyKey }) }
   );
 }
 
@@ -1414,6 +1485,54 @@ export function confirmVolumePlanVersion(bookId: string, volumePlanId: string, i
     { method: 'POST', body: JSON.stringify(input) }
   );
 }
+export function fetchEventChains(
+  bookId: string, volumePlanId: string, signal?: AbortSignal
+): Promise<EventChainVersion[]> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function fetchEventChainGeneration(
+  bookId: string, volumePlanId: string, signal?: AbortSignal
+): Promise<EventChainGenerationData | null> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains/generation`,
+    signal === undefined ? {} : { signal }
+  );
+}
+
+export function startEventChainGeneration(bookId: string, volumePlanId: string, input: {
+  expectedWorkflowVersion: number; idempotencyKey: string;
+}): Promise<EventChainGenerationData> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains/generate`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export function actOnEventChainGeneration(bookId:string,volumePlanId:string,action:'cancel'|'retry'|'resume'):Promise<EventChainGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains/generation/action`,
+    {method:'POST',body:JSON.stringify({action})});
+}
+export function addEventChainVersion(bookId: string, volumePlanId: string, input: {
+  content: EventChainContent; parentVersionId?: string | null; idempotencyKey: string;
+}): Promise<EventChainVersion> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains`,
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+export function confirmEventChain(
+  bookId: string, volumePlanId: string, eventChainVersionId: string
+): Promise<EventChainVersion> {
+  return request(
+    `/api/v1/books/${encodeURIComponent(bookId)}/volume-plans/${encodeURIComponent(volumePlanId)}/event-chains/${encodeURIComponent(eventChainVersionId)}/confirm`,
+    { method: 'POST', body: '{}' }
+  );
+}
+
 export function fetchEventSequence(
   bookId: string, volumePlanId: string, signal?: AbortSignal
 ): Promise<EventSequenceData | null> {
@@ -1480,6 +1599,10 @@ export function startStoryEventGeneration(bookId: string, eventId: string, input
   );
 }
 
+export function actOnStoryEventGeneration(bookId:string,eventId:string,action:'cancel'|'retry'|'resume'):Promise<StoryEventGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/generation/action`,
+    {method:'POST',body:JSON.stringify({action})});
+}
 export function previewStoryEventImpact(
   bookId: string, eventId: string, versionId: string
 ): Promise<StoryEventImpactData> {
@@ -1530,6 +1653,11 @@ export function fetchEventChapterGeneration(bookId:string,eventId:string,kind:'s
   Promise<EventChapterGenerationData|null>{
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generation?kind=${kind}`,
     signal===undefined?{}:{signal});
+}
+export function actOnEventChapterGeneration(bookId:string,eventId:string,kind:EventChapterGenerationData['kind'],
+  action:'cancel'|'retry'|'resume'):Promise<EventChapterGenerationData>{
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/story-events/${encodeURIComponent(eventId)}/chapter-sequence/generation/action`,
+    {method:'POST',body:JSON.stringify({kind,action})});
 }
 export function startEventChapterSequenceGeneration(bookId:string,eventId:string,input:{expectedSequenceRevision:number;
   expectedWorkflowVersion:number;authorInputRefs?:string[];idempotencyKey:string}):Promise<EventChapterGenerationData>{

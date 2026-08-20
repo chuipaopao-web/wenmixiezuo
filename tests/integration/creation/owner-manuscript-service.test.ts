@@ -6,7 +6,7 @@ import { ChapterCatalogService } from '../../../apps/api/src/application/chapter
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { ChapterPipelineService } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
-import { countNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
+import { countNovelCharacters, extractFirstEffectiveNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { resolveInside } from '../../../apps/api/src/infrastructure/files/file-utils.js';
 import { createKnowledgeFixture } from '../../helpers/knowledge-fixture.js';
 import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
@@ -229,6 +229,15 @@ describe('作者正文修订', () => {
     }
   });
 
+  it('extracts exactly the first 500 effective正文characters without counting a chapter title, whitespace or punctuation', () => {
+    const content=`第1章 雨夜归来\n\n${'甲，'.repeat(501)}尾声`;
+    const excerpt=extractFirstEffectiveNovelCharacters(content,500);
+    expect(excerpt.complete).toBe(true);
+    expect(excerpt.effectiveCount).toBe(500);
+    expect(countNovelCharacters(excerpt.text)).toBe(500);
+    expect(excerpt.text).not.toContain('第1章');
+    expect(excerpt.text).toContain('，');
+  });
   it('allows an owner correction after a quality-blocked task has released its lease', () => {
     const context = createTestContext();
     try {

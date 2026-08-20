@@ -1,3 +1,5 @@
+import { hashStableContractContent } from '@wenmi/contracts';
+
 export const HIDDEN_NARRATIVE_REGISTRY_VERSION = 1;
 
 type MethodCategory = 'macro' | 'character' | 'causality' | 'serial' | 'presentation';
@@ -14,6 +16,8 @@ export interface HiddenVolumeRouteRecipe {
   recipeKey: string;
   registryVersion: number;
   methodKeys: string[];
+  methodVersionIds: string[];
+  selectionReason: string;
   scaffold: string[];
 }
 
@@ -78,6 +82,8 @@ function recipe(prefix: string, selected: HiddenNarrativeMethod[]): HiddenVolume
     recipeKey: `${prefix}-v${HIDDEN_NARRATIVE_REGISTRY_VERSION}-${unique.map((candidate) => candidate.methodKey).join('.')}`,
     registryVersion: HIDDEN_NARRATIVE_REGISTRY_VERSION,
     methodKeys: unique.map((candidate) => candidate.methodKey),
+    methodVersionIds: unique.map((candidate) => methodVersionId(candidate.methodKey)),
+    selectionReason: `根据本卷题材、长度、当前任务与${prefix === 'route-a' ? '人物主动推进' : '压力变化和连载期待'}选择互补工具；只使用职责映射，不照搬节拍。`,
     scaffold: [
       ...unique.map((candidate) => candidate.scaffold),
       '这些参考只描述节点职责：把人物变化、连载期待和叙述方式映射到同一条因果链，不得把多套完整节拍首尾拼接。'
@@ -97,4 +103,69 @@ function requireMethod(methodKey: string): HiddenNarrativeMethod {
 
 function isMethod(value: HiddenNarrativeMethod | null | undefined): value is HiddenNarrativeMethod {
   return value !== null && value !== undefined;
+}
+
+export interface HiddenNarrativeMethodVersion {
+  id: string;
+  methodKey: string;
+  version: string;
+  category: 'macro' | 'character_arc' | 'causal_principle' | 'serial_rhythm' | 'narration';
+  contentFingerprint: string;
+  content: {
+    internalLabel: string;
+    suitableProblems: string[];
+    organization: string[];
+    fitLengths: string[];
+    fitGenres: string[];
+    routineRisks: string[];
+    adaptability: { movable: boolean; mergeable: boolean; deletable: boolean; note: string };
+  };
+}
+
+export function hiddenNarrativeMethodVersions(): HiddenNarrativeMethodVersion[] {
+  return METHODS.map((item) => {
+    const content: HiddenNarrativeMethodVersion['content'] = {
+      internalLabel: item.internalLabel,
+      suitableProblems: [item.scaffold],
+      organization: [item.scaffold],
+      fitLengths: item.category === 'serial' ? ['连载长篇', '单卷', '事件链'] : item.category === 'presentation' ? ['单卷', '事件', '章节'] : ['整本书', '单卷'],
+      fitGenres: [...item.signals],
+      routineRisks: [methodRisk(item)],
+      adaptability: {
+        movable: true,
+        mergeable: true,
+        deletable: true,
+        note: '只保留对当前故事有用的节点职责；允许移动、合并或删除，不得强迫故事逐拍执行。'
+      }
+    };
+    return {
+      id: methodVersionId(item.methodKey),
+      methodKey: item.methodKey,
+      version: '1.0.0',
+      category: databaseCategory(item.category),
+      contentFingerprint: hashStableContractContent(content).slice('sha256:'.length),
+      content
+    };
+  });
+}
+
+function methodVersionId(methodKey: string): string {
+  return `structure-method:${methodKey}:1.0.0`;
+}
+
+function databaseCategory(category: MethodCategory): HiddenNarrativeMethodVersion['category'] {
+  return ({
+    macro: 'macro', character: 'character_arc', causality: 'causal_principle',
+    serial: 'serial_rhythm', presentation: 'narration'
+  } as const)[category];
+}
+
+function methodRisk(item: HiddenNarrativeMethod): string {
+  if (item.methodKey === 'save-the-cat' || item.methodKey === 'payoff-loop') return '容易把有效变化误写成同一种打脸、反转或奖励循环。';
+  if (item.methodKey === 'golden-three') return '容易只留悬念不兑现，或为了快而牺牲人物可信度。';
+  if (item.category === 'macro') return '容易把阶段职责机械换算成固定章数或固定比例。';
+  if (item.category === 'character') return '容易只写内心变化而缺少外部行动、因果和代价。';
+  if (item.category === 'serial') return '容易重复同一种刺激，造成疲劳和模板感。';
+  if (item.category === 'presentation') return '容易让叙述技巧压过人物、事实与情绪。';
+  return '容易只追求结构整齐，削弱人物意外但合理的选择。';
 }

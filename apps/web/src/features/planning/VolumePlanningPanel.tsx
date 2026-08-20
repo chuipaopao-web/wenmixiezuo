@@ -2,25 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircleIcon } from '@phosphor-icons/react';
 import type {
   PlanningTemplateInstance,
+  VolumeDirectionFragmentKey,
+  VolumeRouteSelection,
   VolumePlanContent
 } from '@wenmi/contracts';
 import {
+  actOnVolumePlanGeneration,
   addVolumePlanVersion,
-  cancelTask,
   confirmVolumePlanVersion,
   createVolumePlan,
   fetchAuthorPlanningInputs,
   fetchCreationWorkflow,
   fetchOpeningTaxonomy,
+  fetchVolumeDirections,
   fetchVolumePlanGeneration,
   fetchVolumePlans,
   fetchVolumePlanVersions,
   previewVolumePlanImpact,
-  resumeTask,
-  retryTask,
+  saveVolumeRouteSelection,
   settleVolumePlan,
   startVolumePlanGeneration,
   type VolumePlanData,
+  type VolumeDirectionVersionData,
   type VolumePlanGenerationData,
   type VolumePlanImpactData,
   type VolumePlanVersionData
@@ -28,6 +31,7 @@ import {
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
+import { SettingGapPanel } from './SettingGapPanel';
 import { ImeInput } from '../shared/ImeSafeField';
 
 interface VolumePlanningSnapshot {
@@ -39,6 +43,8 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [snapshot, setSnapshot] = useState<VolumePlanningSnapshot | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VolumePlanVersionData[]>([]);
+  const [directions, setDirections] = useState<VolumeDirectionVersionData[]>([]);
+  const [fragmentChoices, setFragmentChoices] = useState<Partial<Record<VolumeDirectionFragmentKey,string>>>({});
   const [generation, setGeneration] = useState<VolumePlanGenerationData | null>(null);
   const [draft, setDraft] = useState<VolumePlanContent>(() => emptyVolumePlan(1));
   const [editing, setEditing] = useState(false);
@@ -85,15 +91,19 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   useEffect(() => {
     if (selectedPlan === null) {
       setVersions([]);
+      setDirections([]);
+      setFragmentChoices({});
       setGeneration(null);
       return;
     }
     const controller = new AbortController();
     void Promise.all([
       fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal),
+      fetchVolumeDirections(bookId, selectedPlan.volumePlanId, controller.signal),
       fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId, controller.signal)
-    ]).then(([nextVersions, nextGeneration]) => {
+    ]).then(([nextVersions, nextDirections, nextGeneration]) => {
       setVersions(nextVersions);
+      setDirections(nextDirections);
       setGeneration(nextGeneration);
     }).catch((reason) => { if (!controller.signal.aborted) setError(messageOf(reason)); });
     const inheritedTone = snapshot?.plans
@@ -106,22 +116,24 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   }, [bookId, selectedPlan?.volumePlanId, selectedPlan?.activeVersionId]);
 
   useEffect(() => {
-    if (selectedPlan === null || generation === null || !generationIsActive(generation.status)) return;
+    if (selectedPlan === null || generation === null || !generation.isRunning) return;
     const controller = new AbortController();
     const timer = window.setInterval(() => {
       void Promise.all([
         fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId, controller.signal),
-        fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal)
-      ]).then(([nextGeneration, nextVersions]) => {
+        fetchVolumePlanVersions(bookId, selectedPlan.volumePlanId, controller.signal),
+        fetchVolumeDirections(bookId, selectedPlan.volumePlanId, controller.signal)
+      ]).then(([nextGeneration, nextVersions, nextDirections]) => {
         setGeneration(nextGeneration);
         setVersions(nextVersions);
-        if (nextGeneration !== null && !generationIsActive(nextGeneration.status)) void load();
+        setDirections(nextDirections);
+        if (nextGeneration !== null && !nextGeneration.isRunning) void load();
       }).catch((reason) => {
         if (!controller.signal.aborted) setError(messageOf(reason));
       });
     }, 1_250);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [bookId, generation?.status, generation?.taskId, load, selectedPlan?.volumePlanId]);
+  }, [bookId, generation?.isRunning, generation?.updatedAt, load, selectedPlan?.volumePlanId]);
 
   const run = async (work: () => Promise<void>): Promise<void> => {
     setBusy(true); setError(null);
@@ -188,10 +200,67 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     });
   };
 
+  const adoptWholeDirection = (direction: VolumeDirectionVersionData): void => {
+    if (selectedPlan === null || direction.legacyVolumePlanVersionId === null) return;
+    void run(async () => {
+      const selection: VolumeRouteSelection = {
+        selectionMode: 'whole',
+        selectedProposalId: direction.proposalId,
+        selectedVersionId: direction.volumeDirectionVersionId,
+        fragments: [],
+        authorNotes: null
+      };
+      await saveVolumeRouteSelection(
+        bookId, selectedPlan.volumePlanId, selection,
+        key('volume-route-whole-' + direction.proposalId)
+      );
+      setImpact(await previewVolumePlanImpact(
+        bookId, selectedPlan.volumePlanId, direction.legacyVolumePlanVersionId!
+      ));
+    });
+  };
+
+  const requestSelectedFusion = (): void => {
+    if (selectedPlan === null || snapshot === null || !guardAi()) return;
+    const fragments = Object.entries(fragmentChoices).flatMap(([field, versionId]) => {
+      const direction = directions.find((item) => item.volumeDirectionVersionId === versionId);
+      return direction === undefined ? [] : [{
+        fragmentId: direction.proposalId + ':' + field,
+        field: field as VolumeDirectionFragmentKey,
+        sourceProposalId: direction.proposalId,
+        sourceVersionId: direction.volumeDirectionVersionId
+      }];
+    });
+    if (fragments.length === 0) {
+      setError('请先从方案一或方案二中至少选择一部分。');
+      return;
+    }
+    const selection: VolumeRouteSelection = {
+      selectionMode: 'fragments', fragments,
+      authorNotes: '只融合作者在页面中明确勾选的部分'
+    };
+    void run(async () => {
+      const authorIdeas = await fetchAuthorPlanningInputs(bookId, {
+        surface: 'volume_plan', subjectType: 'volume_plan', subjectId: selectedPlan.volumePlanId
+      });
+      setGeneration(await startVolumePlanGeneration(bookId, selectedPlan.volumePlanId, {
+        expectedPlanRevision: selectedPlan.revision,
+        expectedActiveVersionId: selectedPlan.activeVersionId,
+        expectedWorkflowVersion: snapshot.workflow.planningVersion,
+        template: freePlanningReference(),
+        authorInputRefs: authorIdeas.filter((idea) =>
+          !['withdrawn', 'superseded'].includes(idea.status)
+        ).map((idea) => idea.authorInputId),
+        selection,
+        idempotencyKey: key('volume-fusion-' + selectedPlan.volumePlanId)
+      }));
+    });
+  };
+
   const cancelGeneration = (): void => {
     if (selectedPlan === null || generation === null) return;
     void run(async () => {
-      await cancelTask(bookId, generation.taskId);
+      await actOnVolumePlanGeneration(bookId, selectedPlan.volumePlanId, 'cancel');
       setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
     });
   };
@@ -199,7 +268,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const retryGeneration = (): void => {
     if (selectedPlan === null || generation === null) return;
     void run(async () => {
-      await retryTask(bookId, generation.taskId);
+      await actOnVolumePlanGeneration(bookId, selectedPlan.volumePlanId, 'retry');
       setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
     });
   };
@@ -207,7 +276,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const resumeGeneration = (): void => {
     if (selectedPlan === null || generation === null) return;
     void run(async () => {
-      await resumeTask(bookId, generation.taskId);
+      await actOnVolumePlanGeneration(bookId, selectedPlan.volumePlanId, 'resume');
       setGeneration(await fetchVolumePlanGeneration(bookId, selectedPlan.volumePlanId));
     });
   };
@@ -258,6 +327,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     </ol>
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
+    <SettingGapPanel bookId={bookId}/>
 {snapshot.workflow.stage === 'volume_settlement_in_progress' && selectedPlan !== null && <section className="writing-launch-card volume-settlement-card">
       <div><small>本卷事件已全部完成</small><h4>核对实际后果，完成本卷</h4><p>卷结算只汇总已结算事件和已确认内容；原卷规划单独用于差异对照。完成后才会解锁下一卷规划。</p></div>
       <div className="writing-launch-action"><button className="primary-button" type="button" disabled={busy} onClick={settleCurrentVolume}>完成本卷，规划下一卷</button></div>
@@ -303,6 +373,21 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
         onResume={resumeGeneration}
       />
 
+      {directions.some((item) => ['candidate_a', 'candidate_b'].includes(item.candidateKind)) &&
+        <VolumeDirectionChoicePanel
+          directions={directions.filter((item) => ['candidate_a', 'candidate_b'].includes(item.candidateKind))}
+          choices={fragmentChoices}
+          busy={busy || (generation !== null && generation.isRunning)}
+          onChoose={(field, directionId) => setFragmentChoices((current) => {
+            const next = { ...current };
+            if (current[field] === directionId) delete next[field];
+            else next[field] = directionId;
+            return next;
+          })}
+          onAdoptWhole={adoptWholeDirection}
+          onFuse={requestSelectedFusion}
+        />}
+
       {editing && <VolumePlanEditor value={draft} onChange={setDraft} onSave={saveAuthorDraft} busy={busy} styleTones={styleTones} />}
 
       {versions.length > 0 && <section className="volume-version-section">
@@ -326,6 +411,69 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
 }
 
 
+const directionChoiceFields: ReadonlyArray<{
+  key: Exclude<VolumeDirectionFragmentKey, 'firstVolumeLaunch'>;
+  label: string;
+}> = [
+  { key: 'openingSituation', label: '开卷局面' },
+  { key: 'protagonistDrive', label: '主角为什么行动' },
+  { key: 'volumeGoal', label: '本卷要解决什么' },
+  { key: 'centralOpposition', label: '主要对立力量' },
+  { key: 'escalationPath', label: '事情怎样一步步升级' },
+  { key: 'majorChoices', label: '关键选择' },
+  { key: 'relationshipMovement', label: '人物关系怎样变化' },
+  { key: 'expressionFocus', label: '本卷重点表达' },
+  { key: 'climaxResponsibility', label: '高潮要兑现什么' },
+  { key: 'costAndConsequence', label: '主角付出什么代价' },
+  { key: 'closingState', label: '卷末进入什么局面' },
+  { key: 'openSpaces', label: '留给后续设计的空间' }
+];
+
+function VolumeDirectionChoicePanel({ directions, choices, busy, onChoose, onAdoptWhole, onFuse }: {
+  directions: VolumeDirectionVersionData[];
+  choices: Partial<Record<VolumeDirectionFragmentKey, string>>;
+  busy: boolean;
+  onChoose: (field: VolumeDirectionFragmentKey, directionId: string) => void;
+  onAdoptWhole: (direction: VolumeDirectionVersionData) => void;
+  onFuse: () => void;
+}): React.JSX.Element {
+  const selectedCount = Object.keys(choices).length;
+  return <section className="volume-direction-choice" aria-label="选择本卷故事路线">
+    <header>
+      <div><h4>这卷故事可以这样走</h4><p>可以整份采用，也可以从两份路线里分别挑选；主编只会整理你明确选中的部分。</p></div>
+      <span>{selectedCount > 0 ? `已选 ${selectedCount} 部分` : '尚未分段选择'}</span>
+    </header>
+    <div className="volume-direction-grid">
+      {directions.map((direction) => <article className="volume-direction-card" key={direction.volumeDirectionVersionId}>
+        <header><div><small>{direction.candidateKind === 'candidate_a' ? '方案一' : '方案二'}</small><h5>{direction.content.title}</h5></div><button type="button" disabled={busy || direction.legacyVolumePlanVersionId === null} onClick={() => onAdoptWhole(direction)}>整份采用</button></header>
+        <div className="volume-direction-parts">
+          {directionChoiceFields.map((item) => {
+            const selected = choices[item.key] === direction.volumeDirectionVersionId;
+            return <section className={selected ? 'direction-choice-row selected' : 'direction-choice-row'} key={item.key}>
+              <div><strong>{item.label}</strong><p>{directionValueText(direction, item.key)}</p></div>
+              <button type="button" aria-pressed={selected} disabled={busy} onClick={() => onChoose(item.key, direction.volumeDirectionVersionId)}>{selected ? '已选这部分' : '选这部分'}</button>
+            </section>;
+          })}
+          {direction.content.firstVolumeLaunch !== undefined && <section className={choices.firstVolumeLaunch === direction.volumeDirectionVersionId ? 'direction-choice-row first-volume-route selected' : 'direction-choice-row first-volume-route'}>
+            <div><strong>第一卷强启动</strong><p>前500字：{direction.content.firstVolumeLaunch.first500Interest.readerQuestion}；前三章完成第一次回报；重大高潮不晚于累计10万有效字。</p></div>
+            <button type="button" aria-pressed={choices.firstVolumeLaunch === direction.volumeDirectionVersionId} disabled={busy} onClick={() => onChoose('firstVolumeLaunch', direction.volumeDirectionVersionId)}>{choices.firstVolumeLaunch === direction.volumeDirectionVersionId ? '已选这部分' : '选这部分'}</button>
+          </section>}
+        </div>
+        <details><summary>这条路线好看在哪里、要注意什么</summary><div className="volume-direction-notes"><section><b>好看之处</b><ul>{direction.content.benefits.map((item) => <li key={item}>{item}</li>)}</ul></section><section><b>需要注意</b><ul>{direction.content.risks.map((item) => <li key={item}>{item}</li>)}</ul></section></div></details>
+      </article>)}
+    </div>
+    <footer><p>{selectedCount === 0 ? '想混合两条路线时，先在上面挑选需要的部分。' : '主编不会补入未选择的候选内容；整理后仍可继续修改。'}</p><button className="primary-button" type="button" disabled={busy || selectedCount === 0} onClick={onFuse}>请主编只融合已选部分</button></footer>
+  </section>;
+}
+
+function directionValueText(
+  direction: VolumeDirectionVersionData,
+  field: Exclude<VolumeDirectionFragmentKey, 'firstVolumeLaunch'>
+): string {
+  const value = direction.content[field];
+  return Array.isArray(value) ? value.join('；') : value;
+}
+
 function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, onResume }: {
   generation: VolumePlanGenerationData | null;
   busy: boolean;
@@ -334,28 +482,28 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
   onRetry: () => void;
   onResume: () => void;
 }): React.JSX.Element {
-  const active = generation !== null && generationIsActive(generation.status);
-  const canRetry = generation?.status === 'failed' || generation?.status === 'interrupted';
+  const active = generation !== null && generation.isRunning;
+  const canRetry = generation?.canRetry ?? false;
   return <section className={`volume-generation-card ${active ? 'working' : ''}`} aria-label="卷规划团队设计">
     <header>
       <div><h4>团队设计</h4><p>两位编剧会按不同思路各写一条具体路线；你不需要先选或理解任何写作方法。</p></div>
       <button className="primary-button" type="button" disabled={busy || active} onClick={onStart}>
-        {generation?.status === 'succeeded' ? '再设计一组方案' : '让团队开始设计'}
+        {generation?.isCompleted === true ? '再设计一组方案' : '让团队开始设计'}
       </button>
     </header>
 
     {generation !== null && <>
-      <p className="volume-generation-progress" role="status">{generationStatusLabel(generation.status)} · {generationPhaseLabel(generation.currentPhase)}</p>
+      <p className="volume-generation-progress" role="status">{generation.stateText} · {generation.phaseText}</p>
       <div className="volume-generation-members">
-        {generation.members.map((member) => <article key={`${member.roleKey}:${member.agentId}`}>
+        {generation.members.map((member) => <article key={member.roleKey}>
           <div><strong>{generationRoleLabel(member.roleKey)}</strong><span>{member.displayName}</span></div>
           <p>{generationMemberState(generation, member.roleKey)}</p>
         </article>)}
       </div>
-      {generation.errorCode !== null && <p className="inline-error">本轮没有完整结束，已完成的方案仍然保留。</p>}
+      {generation.errorMessage !== null && <p className="inline-error">{generation.errorMessage}</p>}
       <footer className="button-row">
-        {active && generation.status !== 'paused' && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
-        {generation.status === 'paused' && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
+        {generation.canCancel && <button type="button" disabled={busy} onClick={onCancel}>停止本轮</button>}
+        {generation.canResume && <button type="button" disabled={busy} onClick={onResume}>继续本轮</button>}
         {canRetry && <button type="button" disabled={busy} onClick={onRetry}>继续完成</button>}
       </footer>
     </>}
@@ -369,17 +517,12 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
   busy: boolean;
   styleTones: string[];
 }): React.JSX.Element {
-  const firstEvent = value.eventSequence[0]!;
   const routeCard = value.routeCard ?? null;
   const storySpine = value.storySpine ?? null;
   const firstVolumeLaunch = value.firstVolumeLaunch ?? null;
   const setText = (field: keyof VolumePlanContent, next: string): void => onChange({ ...value, [field]: next });
   const setList = (field: keyof VolumePlanContent, next: string): void => onChange({
     ...value, [field]: lines(next)
-  });
-  const setEvent = (field: keyof typeof firstEvent, next: string): void => onChange({
-    ...value,
-    eventSequence: [{ ...firstEvent, [field]: next }, ...value.eventSequence.slice(1)]
   });
   const pickPrimaryTone = (tone: string): void => {
     const next = value.stylePrimary === tone ? null : tone;
@@ -473,14 +616,6 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
       <label><span>卷末留下什么局面</span><textarea rows={3} value={value.endingState} onChange={(event) => setText('endingState', event.target.value)} /></label>
       <label><span>怎样自然引出下一卷</span><textarea rows={3} value={value.nextVolumeTrigger} onChange={(event) => setText('nextVolumeTrigger', event.target.value)} /></label>
     </div>
-    <fieldset className="volume-event-seed"><legend>第一个事件种子</legend><div className="volume-editor-grid">
-      <label><span>事件名称</span><input value={firstEvent.title} onChange={(event) => setEvent('title', event.target.value)} /></label>
-      <label><span>它为本卷承担什么任务</span><textarea rows={2} value={firstEvent.responsibility} onChange={(event) => setEvent('responsibility', event.target.value)} /></label>
-      <label><span>从什么状态进入</span><textarea rows={2} value={firstEvent.entryState} onChange={(event) => setEvent('entryState', event.target.value)} /></label>
-      <label><span>什么事情触发它</span><textarea rows={2} value={firstEvent.trigger} onChange={(event) => setEvent('trigger', event.target.value)} /></label>
-      <label><span>人物采取什么行动</span><textarea rows={2} value={firstEvent.action} onChange={(event) => setEvent('action', event.target.value)} /></label>
-      <label><span>行动造成什么结果</span><textarea rows={2} value={firstEvent.result} onChange={(event) => setEvent('result', event.target.value)} /></label>
-    </div></fieldset>
     <div className="volume-editor-grid compact">
       <label><span>信息怎样逐步揭示（每行一条）</span><textarea rows={3} value={value.informationPlan.join('\n')} onChange={(event) => setList('informationPlan', event.target.value)} /></label>
       <label><span>压力怎样升级、人物怎样喘息（每行一条）</span><textarea rows={3} value={value.escalationAndRecovery.join('\n')} onChange={(event) => setList('escalationAndRecovery', event.target.value)} /></label>
@@ -500,7 +635,7 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
   return <article className={`volume-version-card ${active ? 'active' : ''}`}>
     <header><span>{candidateLabel(version.candidateKind)}</span><small>第{version.version}稿 · {active ? '当前确认稿' : statusLabel(version.status)}</small></header>
     <h5>{version.content.title}</h5>
-    <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷重点表达</dt><dd>{version.content.focusExpression ?? '沿用全书调子'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div><div><dt>事件数量</dt><dd>{version.content.eventSequence.length} 个</dd></div></dl>
+    <dl><div><dt>本卷基调</dt><dd>{[version.content.stylePrimary, version.content.styleSecondary].filter(Boolean).join('＋') || '未选择'}</dd></div><div><dt>本卷重点表达</dt><dd>{version.content.focusExpression ?? '沿用全书调子'}</dd></div><div><dt>本卷目标</dt><dd>{version.content.coreGoal}</dd></div><div><dt>核心冲突</dt><dd>{version.content.coreConflict}</dd></div><div><dt>卷末状态</dt><dd>{version.content.endingState}</dd></div></dl>
     {version.content.routeCard != null && <section className="volume-concrete-route">
       <dl>
         <div><dt>主角从哪里出发</dt><dd>{version.content.routeCard.protagonistStart}</dd></div>
@@ -531,11 +666,7 @@ function emptyVolumePlan(
     characterChanges: [],
     stylePrimary: tone?.stylePrimary ?? null,
     styleSecondary: tone?.styleSecondary ?? null,
-    eventSequence: [{
-      eventId: `event-${planNumber}-1`, order: 1, title: '', responsibility: '', entryState: '',
-      trigger: '', action: '', result: '', leadsToNext: null,
-      estimatedChapterRange: { minimum: null, likely: null, maximum: null }
-    }],
+    eventSequence: [],
     informationPlan: [], escalationAndRecovery: [], endingState: '', openThreads: [], nextVolumeTrigger: '',
     boundaries: { mustAchieve: [], mustNotViolate: [], creativeFreedom: [], openQuestions: [] }
   };
@@ -557,26 +688,6 @@ function key(prefix: string): string {
   return `${prefix}:${randomId ?? `${Date.now()}-${Math.random()}`}`;
 }
 
-function generationIsActive(status: string): boolean {
-  return ['pending', 'queued', 'working', 'paused'].includes(status);
-}
-
-function generationStatusLabel(status: string): string {
-  return ({
-    pending: '正在准备', queued: '已进入任务队列', working: '团队正在设计', paused: '已暂停',
-    succeeded: '三个方案已完成', failed: '本轮未完成', interrupted: '任务被中断',
-    cancelled: '本轮已停止', blocked: '等待处理'
-  } as Record<string, string>)[status] ?? '正在处理';
-}
-
-function generationPhaseLabel(phase: string): string {
-  return ({
-    preparing_context: '正在整理本书资料',
-    screenwriter_candidates: '两位编剧的方案已完成，主编正在比较',
-    fusion_complete: '融合方案已准备好',
-    failed: '已保留当前进度'
-  } as Record<string, string>)[phase] ?? '正在处理';
-}
 
 function generationRoleLabel(roleKey: string): string {
   return ({
@@ -592,14 +703,13 @@ function generationMemberState(generation: VolumePlanGenerationData, roleKey: st
       ? generation.candidateVersionIds.candidateB
       : generation.candidateVersionIds.fusion;
   if (storedId !== null) return '方案已准备好';
-  if (generation.status === 'cancelled') return '本轮已停止';
-  if (generation.status === 'failed' || generation.status === 'interrupted') return '本轮未完成，可以继续';
-  if (generation.status === 'paused') return '已暂停，等待继续';
-  if (['pending', 'queued'].includes(generation.status)) return '等待开始';
+  if (generation.canRetry) return '本轮未完成，可以继续';
+  if (generation.canResume) return '已暂停，等待继续';
+  if (!generation.isRunning && !generation.isCompleted) return generation.stateText;
   const screenwritersReady = generation.candidateVersionIds.candidateA !== null
     && generation.candidateVersionIds.candidateB !== null;
   if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey) && screenwritersReady) {
-    return '正在比较两份完整方案并融合';
+    return '等待你选择整份路线或具体部分';
   }
   if (!['lead_screenwriter', 'second_screenwriter'].includes(roleKey)) return '等待两位编剧完成';
   return '正在构思方案';

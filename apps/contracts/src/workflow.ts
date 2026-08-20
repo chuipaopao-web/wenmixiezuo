@@ -241,7 +241,7 @@ export interface StorySpine {
   protectedOpenSpace: string[];
 }
 
-export interface FirstVolumeLaunchPlan {
+export interface LegacyFirstVolumeLaunchPlan {
   first500: {
     readerQuestion: string;
     immediateSituation: string;
@@ -292,7 +292,7 @@ export interface VolumePlanContent {
   /** 全书软北极星，只在第一卷首次形成，后续卷继承而不重做。 */
   storySpine?: StorySpine | null;
   /** 第一卷开局与十万字内重大高潮计划；后续卷不重复生成。 */
-  firstVolumeLaunch?: FirstVolumeLaunchPlan | null;
+  firstVolumeLaunch?: LegacyFirstVolumeLaunchPlan | null;
   /** 主编融合稿的三合一说明；独立候选为 null。 */
   fusionNotes?: FusionNotes | null;
 }
@@ -377,6 +377,19 @@ export interface EventChapterClosureCoverage {
   evidenceChapterNumber: number;
 }
 
+export interface GoldenThreeLaunchPackage {
+  overallPromise: string;
+  chapters: Array<{
+    chapterNumber: 1 | 2 | 3;
+    responsibility: string;
+    protagonistAction: string;
+    pressureOrPull: string;
+    deliveredPayoff: string;
+    nextExpectation: string;
+  }>;
+  recalibrateAfterChapterOne: true;
+}
+
 export interface EventChapterSequenceContent {
   eventTitle: string;
   startChapterNumber: number;
@@ -384,6 +397,7 @@ export interface EventChapterSequenceContent {
   eventEndingConditions: string[];
   closureCoverage: EventChapterClosureCoverage[];
   flexibilityNotes: string[];
+  goldenThreeLaunch?: GoldenThreeLaunchPackage;
 }
 
 export const chapterChallengeFocusValues = [
@@ -509,7 +523,6 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     leadsToNext: optionalText(item.leadsToNext, '下一事件接口'),
     estimatedChapterRange: parseEstimatedChapterRange(item.estimatedChapterRange)
   }));
-  if (eventSequence.length === 0) throw new Error('卷规划至少需要一个事件。');
   const orders = eventSequence.map((item) => item.order);
   if (new Set(orders).size !== orders.length) throw new Error('事件顺序不能重复。');
   const sortedOrders = [...orders].sort((left, right) => left - right);
@@ -574,7 +587,7 @@ function parseOptionalStorySpine(value: unknown): { storySpine?: StorySpine } {
   };
 }
 
-function parseOptionalFirstVolumeLaunch(value: unknown): { firstVolumeLaunch?: FirstVolumeLaunchPlan } {
+function parseOptionalFirstVolumeLaunch(value: unknown): { firstVolumeLaunch?: LegacyFirstVolumeLaunchPlan } {
   if (value === null || value === undefined) return {};
   const record = requireRecord(value, '第一卷开局计划');
   const first500 = requireRecord(record.first500, '前500字计划');
@@ -689,16 +702,42 @@ export function parseEventChapterSequenceContent(input: unknown): EventChapterSe
     || item.evidenceChapterNumber >= startChapterNumber + chapters.length)) {
     throw new Error('事件闭环位置必须属于当前事件章纲序列。');
   }
+  const goldenThreeLaunch = value.goldenThreeLaunch === undefined
+    ? undefined
+    : parseGoldenThreeLaunchPackage(value.goldenThreeLaunch);
+  if (goldenThreeLaunch !== undefined && startChapterNumber !== 1) {
+    throw new Error('黄金三章启动包只能附着在从第一章开始的首个事件章链。');
+  }
   return {
     eventTitle: requireText(value.eventTitle, '事件名称'),
     startChapterNumber,
     chapters,
     eventEndingConditions,
     closureCoverage,
-    flexibilityNotes: requireUniqueTextArray(value.flexibilityNotes, '序列弹性说明')
+    flexibilityNotes: requireUniqueTextArray(value.flexibilityNotes, '序列弹性说明'),
+    ...(goldenThreeLaunch === undefined ? {} : { goldenThreeLaunch })
   };
 }
 
+function parseGoldenThreeLaunchPackage(input: unknown): GoldenThreeLaunchPackage {
+  const value = requireRecord(input, '黄金三章总体启动包');
+  if (!Array.isArray(value.chapters) || value.chapters.length !== 3) {
+    throw new Error('黄金三章总体启动包必须包含第一、二、三章。');
+  }
+  const chapters = value.chapters.map((item, index) => {
+    const chapter = requireRecord(item, '黄金三章职责');
+    const chapterNumber = requirePositiveInteger(chapter.chapterNumber, '黄金三章章号');
+    if (chapterNumber !== index + 1) throw new Error('黄金三章必须按第一、二、三章连续排列。');
+    return {chapterNumber:chapterNumber as 1|2|3,
+      responsibility:requireText(chapter.responsibility,'黄金三章职责'),
+      protagonistAction:requireText(chapter.protagonistAction,'黄金三章主角行动'),
+      pressureOrPull:requireText(chapter.pressureOrPull,'黄金三章压力或吸引力'),
+      deliveredPayoff:requireText(chapter.deliveredPayoff,'黄金三章有效回报'),
+      nextExpectation:requireText(chapter.nextExpectation,'黄金三章下一期待')};
+  });
+  if (value.recalibrateAfterChapterOne !== true) throw new Error('黄金三章启动包必须允许第一章结算后回校第二、三章。');
+  return {overallPromise:requireText(value.overallPromise,'黄金三章总体承诺'),chapters,recalibrateAfterChapterOne:true};
+}
 export function parseEventChapterChallengeContent(input: unknown): EventChapterChallengeContent {
   const value = requireRecord(input, '章纲挑战意见');
   if (!Array.isArray(value.suggestions) || value.suggestions.length < 1 || value.suggestions.length > 3) {

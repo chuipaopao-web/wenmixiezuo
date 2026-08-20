@@ -5,6 +5,8 @@ import { ModelCallService } from '../../../apps/api/src/application/calls/model-
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import {
+  assertMateriallyDifferentRoutes,
+  parseVolumeDirectionModelOutput,
   parseVolumePlanModelOutput,
   isVolumePlanOutputCapped,
   selectEditorTechnicalSubstitute,
@@ -12,11 +14,14 @@ import {
   volumePlanOutputTokenLimit,
   VolumePlanGenerationPipelineService
 } from '../../../apps/api/src/application/planning/volume-plan-generation-pipeline-service.js';
+import { HIDDEN_NARRATIVE_METHOD_COUNT } from '../../../apps/api/src/application/planning/hidden-narrative-methods.js';
+import { LayeredPlanningService } from '../../../apps/api/src/application/planning/layered-planning-service.js';
 import { VolumePlanGenerationService } from '../../../apps/api/src/application/planning/volume-plan-generation-service.js';
 import { VolumePlanService } from '../../../apps/api/src/application/planning/volume-plan-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { UnitOfWork } from '../../../apps/api/src/infrastructure/db/unit-of-work.js';
 import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastructure/db/repositories/author-planning-input-repository.js';
+import { LayeredPlanningRepository } from '../../../apps/api/src/infrastructure/db/repositories/layered-planning-repository.js';
 import { VolumePlanGenerationRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { VolumePlanRepository } from '../../../apps/api/src/infrastructure/db/repositories/volume-plan-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
@@ -44,8 +49,11 @@ describe('卷规划团队生成', () => {
     prepareSetting(context, scope, ids, clock);
 
     const unitOfWork = new UnitOfWork(context.database);
+    const layeredPlanning = new LayeredPlanningService(
+      new LayeredPlanningRepository(context.database), unitOfWork, ids, clock
+    );
     const volumePlans = new VolumePlanService(
-      new VolumePlanRepository(context.database), unitOfWork, ids, clock
+      new VolumePlanRepository(context.database), unitOfWork, ids, clock, layeredPlanning
     );
     const plan = volumePlans.create(scope, {
       expectedWorkflowVersion: volumePlans.workflow(scope).planningVersion,
@@ -69,7 +77,7 @@ describe('卷规划团队生成', () => {
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     const budgets = new BudgetService(context.database, ids, clock);
     const generations = new VolumePlanGenerationService(
-      repository, volumePlans, tasks, unitOfWork, ids, clock
+      repository, volumePlans, tasks, unitOfWork, ids, clock, layeredPlanning
     );
     const startInput = {
       expectedPlanRevision: plan.revision,
@@ -121,53 +129,110 @@ describe('卷规划团队生成', () => {
       attemptNo: claim!.currentAttemptNo
     });
 
-    expect(result).toMatchObject({ status: 'succeeded' });
+    expect(result).toMatchObject({ status: 'succeeded', fusionId: null });
     expect(result.candidateAId).not.toBeNull();
     expect(result.candidateBId).not.toBeNull();
-    expect(result.fusionId).not.toBeNull();
-    const versions = volumePlans.listVersions(scope, plan.volumePlanId);
+    let versions = volumePlans.listVersions(scope, plan.volumePlanId);
+    expect(versions.map((version) => version.candidateKind).sort()).toEqual([
+      'candidate_a', 'candidate_b'
+    ].sort());
+    expect(versions.every((version) =>
+      version.content.fusionNotes === null || version.content.fusionNotes === undefined
+    )).toBe(true);
+    expect(versions.every((version) => version.sourceTaskId === scheduled.taskId)).toBe(true);
+    expect(versions.every((version) => version.content.eventSequence.length === 0)).toBe(true);
+    expect(volumePlans.get(scope, plan.volumePlanId).activeVersionId).toBeNull();
+    expect(generations.latest(scope, plan.volumePlanId)).toMatchObject({
+      status: 'succeeded',
+      currentPhase: 'routes_ready',
+      checkpoint: {
+        automaticFusionUsed: false,
+        awaitingAuthorSelection: true,
+        candidateAProducedBy: { roleKey: 'backup_writer', technicalSubstitute: true },
+        candidateBProducedBy: { roleKey: 'second_screenwriter', technicalSubstitute: false }
+      },
+      candidateVersionIds: {
+        candidateA: result.candidateAId,
+        candidateB: result.candidateBId,
+        fusion: null
+      }
+    });
+    expect(volumePlans.workflow(scope).waitingTaskId).toBeNull();
+
+    const directions = layeredPlanning.listDirections(scope, plan.volumePlanId);
+    const directionA = directions.find((item) => item.candidateKind === 'candidate_a')!;
+    const storedMethods = context.database.prepare(`SELECT method_key,version,category,content_fingerprint,content_json
+      FROM internal_structure_method_versions WHERE status='active' ORDER BY method_key`).all() as unknown as Array<{
+        method_key:string;version:string;category:string;content_fingerprint:string;content_json:string;
+      }>;
+    expect(storedMethods).toHaveLength(HIDDEN_NARRATIVE_METHOD_COUNT);
+    expect(storedMethods.every((item) => item.version === '1.0.0' && item.content_fingerprint.length === 64)).toBe(true);
+    expect(new Set(storedMethods.map((item) => item.category))).toEqual(new Set([
+      'macro','character_arc','causal_principle','serial_rhythm','narration'
+    ]));
+    const methodAudits = context.database.prepare(`SELECT proposal_id,candidate_kind,method_version_ids_json,selection_reason,call_evidence_json
+      FROM volume_route_method_audits WHERE owner_id=? AND book_id=? AND source_task_id=? ORDER BY candidate_kind`)
+      .all(scope.ownerId,scope.bookId,scheduled.taskId) as unknown as Array<{
+        proposal_id:string;candidate_kind:string;method_version_ids_json:string;selection_reason:string;call_evidence_json:string;
+      }>;
+    expect(methodAudits).toHaveLength(2);
+    expect(new Set(methodAudits.map((item) => item.proposal_id))).toEqual(new Set(directions.map((item) => item.proposalId)));
+    expect(methodAudits.every((item) => JSON.parse(item.method_version_ids_json).length >= 3)).toBe(true);
+    expect(methodAudits.every((item) => (JSON.parse(item.call_evidence_json).callCount as number) >= 1)).toBe(true);
+    expect(methodAudits[0]!.method_version_ids_json).not.toBe(methodAudits[1]!.method_version_ids_json);
+
+    const fusionStartInput = {
+      ...startInput,
+      selection: {
+        selectionMode: 'fragments',
+        fragments: [{
+          fragmentId: 'choose-a-goal',
+          field: 'volumeGoal',
+          sourceProposalId: directionA.proposalId,
+          sourceVersionId: directionA.volumeDirectionVersionId
+        }, {
+          fragmentId: 'choose-a-climax',
+          field: 'climaxResponsibility',
+          sourceProposalId: directionA.proposalId,
+          sourceVersionId: directionA.volumeDirectionVersionId
+        }],
+        authorNotes: '只融合我选中的本卷目标和高潮责任'
+      },
+      idempotencyKey: 'team-volume-fusion-after-selection'
+    };
+    const fusionScheduled = generations.start(scope, plan.volumePlanId, fusionStartInput);
+    const fusionClaim = tasks.claimNext('worker-volume-fusion', 120_000)!;
+    const fusionResult = await pipeline.executeClaimed(
+      scope, fusionScheduled.taskId, 'worker-volume-fusion',
+      { leaseToken: fusionClaim.leaseToken!, attemptNo: fusionClaim.currentAttemptNo }
+    );
+    expect(fusionResult).toMatchObject({ status: 'succeeded', candidateAId: null, candidateBId: null });
+    expect(fusionResult.fusionId).not.toBeNull();
+    versions = volumePlans.listVersions(scope, plan.volumePlanId);
     expect(versions.map((version) => version.candidateKind).sort()).toEqual([
       'candidate_a', 'candidate_b', 'fusion'
     ].sort());
     const fusionVersion = versions.find((version) => version.candidateKind === 'fusion')!;
     expect(fusionVersion.content.fusionNotes).toMatchObject({
-      payoffDesign: expect.any(String),
-      logicChain: expect.any(String),
-      freshness: expect.any(String)
+      payoffDesign: expect.any(String), logicChain: expect.any(String), freshness: expect.any(String)
     });
-    expect(versions.filter((version) => version.candidateKind !== 'fusion')
-      .every((version) => version.content.fusionNotes === null || version.content.fusionNotes === undefined)).toBe(true);
-    expect(new Set(versions.map((version) => version.contentHash)).size).toBe(3);
-    expect(versions.every((version) => version.sourceTaskId === scheduled.taskId)).toBe(true);
-    expect(volumePlans.get(scope, plan.volumePlanId).activeVersionId).toBeNull();
     expect(generations.latest(scope, plan.volumePlanId)).toMatchObject({
-      status: 'succeeded',
       currentPhase: 'fusion_complete',
       checkpoint: {
-        candidateAProducedBy: {
-          roleKey: 'backup_writer',
-          technicalSubstitute: true
-        },
-        candidateBProducedBy: {
-          roleKey: 'second_screenwriter',
-          technicalSubstitute: false
-        }
+        selectedFragmentsOnly: true,
+        awaitingAuthorConfirmation: true,
+        selectedVersionIds: [directionA.volumeDirectionVersionId]
       },
-      candidateVersionIds: {
-        candidateA: result.candidateAId,
-        candidateB: result.candidateBId,
-        fusion: result.fusionId
-      }
+      candidateVersionIds: { fusion: fusionResult.fusionId }
     });
-    expect(volumePlans.workflow(scope).waitingTaskId).toBeNull();
 
     const calls = context.database.prepare(`
-      SELECT phase_key, context_pack_id
+      SELECT task_id, phase_key, context_pack_id
       FROM model_calls
-      WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'succeeded'
+      WHERE owner_id = ? AND book_id = ? AND task_id IN (?, ?) AND state = 'succeeded'
       ORDER BY phase_key
-    `).all(scope.ownerId, scope.bookId, scheduled.taskId) as unknown as Array<{
-      phase_key: string;
+    `).all(scope.ownerId, scope.bookId, scheduled.taskId, fusionScheduled.taskId) as unknown as Array<{
+      task_id: string; phase_key: string;
       context_pack_id: string;
     }>;
     expect(calls).toHaveLength(3);
@@ -178,7 +243,7 @@ describe('卷规划团队生成', () => {
       `).get(scope.ownerId, scope.bookId, call.context_pack_id) as { source_manifest_json: string };
       return [call.phase_key, JSON.parse(row.source_manifest_json) as Array<{
         sourceType: string;
-        content: string;
+        content: string; constraintStrength?: string;
       }>];
     }));
     const independentPacks = [...manifests.entries()].filter(([phase]) =>
@@ -187,26 +252,27 @@ describe('卷规划团队生成', () => {
     expect(independentPacks).toHaveLength(2);
     for (const [, manifest] of independentPacks) {
       expect(manifest.map((source) => source.sourceType)).not.toContain('planning:independent_volume_candidates');
-      expect(manifest.find((source) => source.sourceType === 'owner:volume_ideas')?.content)
+      expect(manifest.find((source) => source.sourceType === 'owner:volume_ideas:preference')?.content)
         .toContain('主动承担一次会伤害盟友关系的选择');
-      expect(manifest.find((source) => source.sourceType === 'owner:volume_ideas')?.content)
+      expect(manifest.find((source) => source.sourceType === 'owner:volume_ideas:preference')?.content)
         .toContain('只影响第一卷的主要选择与代价');
+      expect(manifest.find((source) => source.sourceType === 'owner:volume_ideas:preference')?.constraintStrength)
+        .toBe('soft_reference');
     }
     const fusionManifest = [...manifests.entries()].find(([phase]) => phase.startsWith('fusion:'))?.[1];
     const fusedCandidates = fusionManifest?.find(
       (source) => source.sourceType === 'planning:independent_volume_candidates'
     );
-    const candidateA = versions.find((version) => version.candidateKind === 'candidate_a')!;
-    const candidateB = versions.find((version) => version.candidateKind === 'candidate_b')!;
-    expect(fusedCandidates?.content).toContain(candidateA.content.title);
-    expect(fusedCandidates?.content).toContain(candidateB.content.title);
+    expect(fusedCandidates?.content).toContain(directionA.content.volumeGoal);
+    expect(fusedCandidates?.content).toContain(directionA.content.climaxResponsibility);
+    expect(fusedCandidates?.content).not.toContain(directionA.content.openingSituation);
 
     // A terminal generation must not be permanently returned for the same author action.
     // The new task receives a retry lineage key while preserving the frozen request hash.
     context.database.prepare(`UPDATE tasks SET status = 'failed', error_code = 'TEST_FAILURE' WHERE task_id = ?`)
-      .run(scheduled.taskId);
-    const retry = generations.start(scope, plan.volumePlanId, startInput);
-    expect(retry.taskId).not.toBe(scheduled.taskId);
+      .run(fusionScheduled.taskId);
+    const retry = generations.start(scope, plan.volumePlanId, fusionStartInput);
+    expect(retry.taskId).not.toBe(fusionScheduled.taskId);
     expect(retry.status).toBe('queued');
   });
 
@@ -216,18 +282,43 @@ describe('卷规划团队生成', () => {
       .toEqual(content);
   });
 
-  it('为十事件真实卷纲保留完整JSON输出空间', () => {
-    expect(volumePlanOutputTokenLimit('candidate_a')).toBe(12_000);
-    expect(volumePlanOutputTokenLimit('candidate_b')).toBe(12_000);
-    expect(volumePlanOutputTokenLimit('fusion')).toBe(12_000);
-    expect(isVolumePlanOutputCapped(12_001, 12_000)).toBe(true);
-    expect(isVolumePlanOutputCapped(5_493, 12_000)).toBe(false);
+  it('卷方向不携带事件链，并使用适合分层设计的有界输出空间', () => {
+    expect(volumePlanOutputTokenLimit('candidate_a')).toBe(8_000);
+    expect(volumePlanOutputTokenLimit('candidate_b')).toBe(8_000);
+    expect(volumePlanOutputTokenLimit('fusion')).toBe(8_000);
+    expect(isVolumePlanOutputCapped(8_001, 8_000)).toBe(true);
+    expect(isVolumePlanOutputCapped(5_493, 8_000)).toBe(false);
     expect(volumePlanExpressionBudget('fusion')).toContain(
-      'The complete fusion JSON must stay within 7,500 Chinese characters.'
+      'The complete fusion direction JSON must stay within 5,500 Chinese characters.'
     );
     expect(volumePlanExpressionBudget('candidate_a')).toContain(
-      'The complete candidate JSON must stay within 9,000 Chinese characters.'
+      'The complete route direction JSON must stay within 6,500 Chinese characters.'
     );
+    expect(volumePlanExpressionBudget('candidate_a')).toContain(
+      'Do not design event lists, chapter lists, scene beats or dialogue in the volume direction.'
+    );
+  });
+
+  it('真实模型输出按正式卷方向合同解析，不接受卷内事件列表作为方向内容', () => {
+    const direction = {
+      title: '雾城破局', openingSituation: '主角被困在即将封闭的雾城。',
+      protagonistDrive: '为了救出同伴，主角必须主动查清封城真相。',
+      volumeGoal: '揭开封城原因并取得离城资格。', centralOpposition: '守城军令与隐藏内应同时施压。',
+      escalationPath: ['找到异常证据', '承担公开违令的代价', '在审判前逼出内应'],
+      majorChoices: ['是否用自己的身份担保同伴'], relationshipMovement: ['主角与同伴从猜疑转为共同承担'],
+      expressionFocus: ['紧迫感', '选择的代价'], climaxResponsibility: '公开揭穿内应并改变封城命令。',
+      costAndConsequence: '主角失去原有军籍，从此无法回到旧生活。',
+      closingState: '雾城暂时开放，主角被更大的势力盯上。',
+      benefits: ['行动线清楚且人物必须作选择'], risks: ['避免把军中所有人都写成愚蠢阻力'],
+      openSpaces: ['内应背后的势力留到事件设计继续探索']
+    };
+    const parsed = parseVolumeDirectionModelOutput(
+      `模型说明：\n\`\`\`json\n${JSON.stringify({ direction })}\n\`\`\``,
+      2
+    );
+    expect(parsed.direction).toEqual(direction);
+    expect(parsed.direction).not.toHaveProperty('eventSequence');
+    expect(parsed.storySpine).toBeNull();
   });
 
   it('主编结果未知时由独立研究席优先接管融合，而不盲目重试原模型', () => {
@@ -249,6 +340,43 @@ describe('卷规划团队生成', () => {
     expect(selectEditorTechnicalSubstitute(
       [chief, lead, second, backup, deputy, researcher], [chief, lead, second]
     )?.roleKey).toBe('researcher');
+  });
+
+  it('拒绝只换说法的同质候选，并接受因果路径和后果都不同的路线', () => {
+    const routeA = {
+      coreConflict: '主角与封锁雾城的守城军令正面对抗。',
+      characterChanges: ['主角与同伴从猜疑转为共同承担。'],
+      focusExpression: '行动压力、选择代价与破局后的释放感。',
+      routeCard: {
+        protagonistStart: '主角被困在即将封闭的雾城。',
+        drivingMotivation: '为救出同伴，必须主动查明封城真相。',
+        escalationPath: ['寻找异常证据', '公开违令', '在审判前逼出内应'],
+        keyChoiceAndCost: '用自己的身份担保同伴，并失去军籍。',
+        climaxResolution: '在公开审判中揭穿内应，迫使封城命令改变。',
+        endingChange: '雾城开放，主角却被更大势力盯上。',
+        benefits: ['行动线清楚'],
+        risks: ['避免阻力脸谱化']
+      }
+    } as never;
+    const paraphrase = JSON.parse(JSON.stringify(routeA)) as never;
+    expect(() => assertMateriallyDifferentRoutes(routeA, paraphrase)).toThrow(/过于相似/);
+
+    const routeB = {
+      coreConflict: '城内居民为有限通行名额互相猜疑，旧友隐瞒的身份成为核心阻力。',
+      characterChanges: ['主角先与旧友决裂，最终选择共同背负真相造成的伤害。'],
+      focusExpression: '秘密逐层揭露、关系拉扯与艰难信任。',
+      routeCard: {
+        protagonistStart: '主角已拿到离城资格，却发现旧友刻意放弃名额。',
+        drivingMotivation: '他想弄清旧友为何留下，并判断是否值得牺牲自己的出口。',
+        escalationPath: ['追查被涂改的名册', '发现旧友与封城源头有关', '居民暴动迫使两人公开立场'],
+        keyChoiceAndCost: '主角烧毁自己的通行证，换取居民听完真相的机会。',
+        climaxResolution: '两人公布污染源并组织居民自救，而不是推翻守城者。',
+        endingChange: '城门仍未开放，但居民拥有了新的生存秩序，二人的关系留下裂痕。',
+        benefits: ['关系和秘密共同推动'],
+        risks: ['避免只靠连续揭密拖延兑现']
+      }
+    } as never;
+    expect(() => assertMateriallyDifferentRoutes(routeA, routeB)).not.toThrow();
   });
 });
 

@@ -232,6 +232,8 @@ export class SettingOutlineWorkspaceRepository {
 
   /** 清空全部设定内容：条目保留、内容与状态归零，版本历史不动。 */
   public resetAll(scope: BookScope, now: string): number {
+    this.database.prepare(`UPDATE setting_clauses SET status='archived',updated_at=?
+      WHERE owner_id=? AND book_id=? AND status='active'`).run(now,scope.ownerId,scope.bookId);
     return Number(this.database.prepare(`
       UPDATE setting_outline_workspace
       SET item_status = '待讨论', content_text = NULL,
@@ -267,7 +269,22 @@ export class SettingOutlineWorkspaceRepository {
       input.sourceKind, input.sourceDiscussionId ?? null, input.sourceDecisionId ?? null,
       input.now
     );
+    this.projectConfirmedClauses(scope,input.itemKey,row.next_no,input.contentText,input.now);
     return row.next_no;
+  }
+
+  private projectConfirmedClauses(scope:BookScope,itemKey:string,versionNo:number,contentText:string,now:string):void{
+    const sourceVersionId=`setting-item:${itemKey}:v${versionNo}`;
+    this.database.prepare(`UPDATE setting_clauses SET status='superseded',updated_at=?
+      WHERE owner_id=? AND book_id=? AND source_version_id LIKE ? AND status='active'`)
+      .run(now,scope.ownerId,scope.bookId,`setting-item:${itemKey}:v%`);
+    const clauses=settingClauseParts(contentText);
+    const insert=this.database.prepare(`INSERT INTO setting_clauses(setting_clause_id,owner_id,book_id,kind,statement,
+      strength,truth_status,scope_type,scope_id,source_version_id,dependency_version_ids_json,status,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,'confirmed','book',?,?, '[]','active',?,?)`);
+    clauses.forEach((statement,index)=>{const classification=classifySettingClause(itemKey,statement);
+      insert.run(`${scope.bookId}:setting:${itemKey}:${versionNo}:${index+1}`,scope.ownerId,scope.bookId,
+        classification.kind,statement,classification.strength,scope.bookId,sourceVersionId,now,now);});
   }
 
   public listVersions(scope: BookScope, itemKey: string): SettingOutlineItemVersionRow[] {
@@ -279,4 +296,17 @@ export class SettingOutlineWorkspaceRepository {
       ORDER BY version_no DESC
     `).all(scope.ownerId, scope.bookId, itemKey) as unknown as SettingOutlineItemVersionRow[];
   }
+}
+
+function settingClauseParts(content:string):string[]{
+  const lines=content.split(/\r?\n|(?<=[。！？；])/u).map(item=>item.trim()).filter(Boolean);
+  return lines.length>0?lines:[content.trim()];
+}
+function classifySettingClause(itemKey:string,statement:string):{kind:'fact'|'direction'|'boundary'|'blank';
+  strength:'hard_fact'|'soft_reference'|'open_space'}{
+  if(/留白|未知|未定|暂不|以后再|后文再|谜团|不解释/u.test(statement))return{kind:'blank',strength:'open_space'};
+  if(itemKey==='boundaries-blanks'||itemKey==='rules-costs'||/禁止|不能|不可|绝不|必须|代价|限制|边界/u.test(statement))
+    return{kind:'boundary',strength:'hard_fact'};
+  if(['world-stage','protagonist-situation'].includes(itemKey))return{kind:'fact',strength:'hard_fact'};
+  return{kind:'direction',strength:'soft_reference'};
 }

@@ -1,4 +1,5 @@
 import type {DatabaseSync} from 'node:sqlite';
+import type {EventChainContent} from '@wenmi/contracts';
 import {assertBookScope,type BookScope} from '../../../domain/scope.js';
 
 export interface SettlementWorkflowRow{
@@ -151,6 +152,70 @@ export class CreationSettlementRepository{
       .run(stage,input.now,scope.ownerId,scope.bookId,input.expectedPlanningVersion,input.eventId).changes===1;
   }
 
+  public recordFirstVolumeClimaxCompletion(scope:BookScope,input:{eventId:string;settlementId:string;
+    chapterStart:number;chapterEnd:number;actual:Record<string,unknown>;now:string}):boolean{
+    assertBookScope(scope);
+    const source=this.database.prepare(`SELECT p.volume_plan_id AS volumePlanId,
+      d.volume_direction_version_id AS directionVersionId,e.sequence_order AS eventOrder,ec.content_json AS chainContent
+      FROM story_events e JOIN volume_plans p ON p.owner_id=e.owner_id AND p.book_id=e.book_id
+        AND p.volume_plan_id=e.volume_plan_id AND p.plan_number=1
+      JOIN volume_direction_versions d ON d.owner_id=p.owner_id AND d.book_id=p.book_id
+        AND d.volume_plan_id=p.volume_plan_id AND d.status='active'
+      JOIN event_chain_versions ec ON ec.owner_id=p.owner_id AND ec.book_id=p.book_id
+        AND ec.volume_plan_id=p.volume_plan_id AND ec.volume_direction_version_id=d.volume_direction_version_id
+        AND ec.status='active'
+      WHERE e.owner_id=? AND e.book_id=? AND e.event_id=?`)
+      .get(scope.ownerId,scope.bookId,input.eventId) as {volumePlanId:string;directionVersionId:string;
+        eventOrder:number;chainContent:string}|undefined;
+    if(source===undefined)return false;
+    let climaxNodeId:string|null=null;
+    let setupResponsibilities:Array<{nodeId:string;order:number;responsibilities:string[]}>=[];
+    try{
+      const chain=JSON.parse(source.chainContent) as EventChainContent;
+      const node=chain.events.find(item=>item.order===source.eventOrder
+        && item.firstVolumeResponsibilities.includes('major_climax_before_100k'));
+      climaxNodeId=node?.nodeId??null;
+      setupResponsibilities=chain.events.filter(item=>item.firstVolumeResponsibilities.length>0)
+        .map(item=>({nodeId:item.nodeId,order:item.order,responsibilities:item.firstVolumeResponsibilities}));
+    }catch{return false;}
+    if(climaxNodeId===null)return false;
+    const stats=this.database.prepare(`SELECT COALESCE(SUM(m.word_count),0) AS total,
+      COALESCE(MAX(c.chapter_number),0) AS latest
+      FROM chapters c JOIN volumes v ON v.volume_id=c.volume_id
+      JOIN manuscript_versions m ON m.manuscript_version_id=c.canon_manuscript_version_id
+        AND m.owner_id=c.owner_id AND m.book_id=c.book_id
+      WHERE c.owner_id=? AND c.book_id=? AND v.volume_number=1 AND c.settlement_status='settled'`)
+      .get(scope.ownerId,scope.bookId) as {total:number;latest:number};
+    const existing=this.database.prepare(`SELECT prediction_json FROM first_volume_launch_progress
+      WHERE owner_id=? AND book_id=? AND volume_plan_id=?`).get(scope.ownerId,scope.bookId,source.volumePlanId) as
+      {prediction_json:string}|undefined;
+    let prediction:Record<string,unknown>={};
+    if(existing!==undefined)try{prediction=JSON.parse(existing.prediction_json) as Record<string,unknown>;}catch{prediction={};}
+    const late=stats.total>100000;
+    prediction={...prediction,climaxEventOrder:source.eventOrder,climaxEventStarted:true,
+      climaxActuallySettled:true,noLaterThanEffectiveCharacters:100000,
+      recommendedAction:late?'高潮已经兑现，但实际结算晚于10万有效字；下一轮设计必须前移承载事件并压缩重复铺垫。':null};
+    const evidence={completed:true,late,settlementId:input.settlementId,eventId:input.eventId,
+      eventNodeId:climaxNodeId,eventOrder:source.eventOrder,chapterStart:input.chapterStart,chapterEnd:input.chapterEnd,
+      completedAtEffectiveCharacters:stats.total,actualSettlement:input.actual};
+    this.database.prepare(`INSERT INTO first_volume_launch_progress(owner_id,book_id,volume_plan_id,
+      launch_plan_direction_version_id,effective_character_count,climax_event_node_id,climax_status,
+      setup_responsibilities_json,actual_fulfillment_json,forecast_effective_character_count,exceeds_limit_risk,
+      latest_settled_chapter_number,climax_completed_at_effective_characters,prediction_json,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,book_id,volume_plan_id) DO UPDATE SET
+      launch_plan_direction_version_id=excluded.launch_plan_direction_version_id,
+      effective_character_count=excluded.effective_character_count,climax_event_node_id=excluded.climax_event_node_id,
+      climax_status=excluded.climax_status,setup_responsibilities_json=excluded.setup_responsibilities_json,
+      actual_fulfillment_json=excluded.actual_fulfillment_json,
+      forecast_effective_character_count=excluded.forecast_effective_character_count,
+      exceeds_limit_risk=excluded.exceeds_limit_risk,latest_settled_chapter_number=excluded.latest_settled_chapter_number,
+      climax_completed_at_effective_characters=excluded.climax_completed_at_effective_characters,
+      prediction_json=excluded.prediction_json,updated_at=excluded.updated_at`)
+      .run(scope.ownerId,scope.bookId,source.volumePlanId,source.directionVersionId,stats.total,climaxNodeId,'completed',
+        JSON.stringify(setupResponsibilities),JSON.stringify(evidence),stats.total,late?1:0,stats.latest,stats.total,
+        JSON.stringify(prediction),input.now);
+    return true;
+  }
   public completeVolume(scope:BookScope,input:{volumePlanId:string;expectedPlanningVersion:number;now:string}):boolean{
     assertBookScope(scope);
     this.database.prepare(`UPDATE volume_plans SET status='completed',revision=revision+1,updated_at=?

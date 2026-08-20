@@ -141,7 +141,7 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(()=>planningContext.validate(scope,secondFrozenArtifactVersionId)).toThrow();
   });
 
-  it('通过真实任务保存完整章链候选，再只细化最近两章且不越权冻结',async()=>{
+  it('通过真实任务保存黄金三章总体包，首轮只细化第一章且保留挑战审计',async()=>{
     context=createTestContext('wenmi-event-chapter-generation-');
     const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
     const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'章纲生成测试书'});
@@ -195,6 +195,7 @@ describe('事件章纲序列与近期冻结',()=>{
     const current=outlines.get(scope,event.eventId)!;
     const candidate=current.versions.find(version=>version.sequenceVersionId===sequenceResult.sequenceVersionId)!;
     expect(candidate.content.chapters).toHaveLength(10);
+    expect(candidate.content.goldenThreeLaunch).toMatchObject({recalibrateAfterChapterOne:true,chapters:[{chapterNumber:1},{chapterNumber:2},{chapterNumber:3}]});
     candidate.content.chapters.slice(1).forEach((chapter,index)=>expect(chapter.openingState).toBe(candidate.content.chapters[index]!.endingState));
     const sequenceVersionCount=current.versions.length;
     const sequenceChallengeTask=generations.startSequenceChallenge(scope,event.eventId,candidate.sequenceVersionId,{
@@ -214,17 +215,23 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(outlines.get(scope,event.eventId)!.versions).toHaveLength(sequenceVersionCount);
     const confirmed=outlines.confirmSequence(scope,event.eventId,{sequenceVersionId:candidate.sequenceVersionId,
       expectedSequenceRevision:current.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion});
-    const detailTask=generations.startDetails(scope,event.eventId,{count:3,expectedSequenceRevision:confirmed.revision,
+    expect(()=>generations.startDetails(scope,event.eventId,{count:3,expectedSequenceRevision:confirmed.revision,
+      expectedWorkflowVersion:volumes.workflow(scope).planningVersion,idempotencyKey:'ai-details-too-early'})).toThrow(/只详细设计并冻结第一章/u);
+    const detailTask=generations.startDetails(scope,event.eventId,{count:1,expectedSequenceRevision:confirmed.revision,
       expectedWorkflowVersion:volumes.workflow(scope).planningVersion,idempotencyKey:'ai-details-generate'});
     const detailClaim=tasks.claimNext('worker-event-chapters',120_000)!;
     const detailResult=await pipeline.executeClaimed(scope,detailTask.taskId,'worker-event-chapters',
       {leaseToken:detailClaim.leaseToken!,attemptNo:detailClaim.currentAttemptNo});
     expect(detailResult).toMatchObject({status:'succeeded'});
     const after=outlines.get(scope,event.eventId)!;
-    expect(after.outlines.slice(0,3).map(item=>item.status)).toEqual(['candidate','candidate','candidate']);
-    expect(after.outlines.slice(3).every(item=>item.status==='planned')).toBe(true);
-    expect(after.outlines.slice(0,3).every(item=>item.versions.length===1&&item.activeVersionId===null)).toBe(true);
-    expect(after.outlines.slice(0,3).every(item=>item.versions[0]!.content.creativeFreedom.length>0)).toBe(true);
+    expect(after.outlines[0]?.status).toBe('candidate');
+    expect(after.outlines.slice(1).every(item=>item.status==='planned')).toBe(true);
+    expect(after.outlines[0]?.versions).toHaveLength(1);
+    expect(after.outlines[0]?.activeVersionId).toBeNull();
+    expect(after.outlines[0]?.versions[0]!.content.creativeFreedom.length).toBeGreaterThan(0);
+    expect(after.outlines[0]?.versions[0]!.content.firstChapterLaunch).toMatchObject({
+      immediateSituation:'主角眼前就要失去唯一退路',firstPayoff:'主角用行动保住第一条线索'
+    });
     const firstOutline=after.outlines[0]!,firstVersion=firstOutline.versions[0]!,outlineVersionCount=firstOutline.versions.length;
     const detailChallengeTask=generations.startDetailChallenge(scope,event.eventId,firstOutline.outlineId,firstVersion.outlineVersionId,{
       expectedSequenceRevision:after.revision,expectedWorkflowVersion:volumes.workflow(scope).planningVersion,
@@ -259,12 +266,12 @@ describe('事件章纲序列与近期冻结',()=>{
     const calls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceTask.taskId,detailTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
     expect(calls.filter(call=>call.task_id===sequenceTask.taskId).length).toBeGreaterThan(1);
-    expect(calls.filter(call=>call.task_id===detailTask.taskId)).toHaveLength(3);
+    expect(calls.filter(call=>call.task_id===detailTask.taskId)).toHaveLength(1);
     const detailPack=context.database.prepare('SELECT source_manifest_json FROM context_packs WHERE owner_id=? AND book_id=? AND context_pack_id=?')
       .get(scope.ownerId,scope.bookId,calls.find(call=>call.task_id===detailTask.taskId)!.context_pack_id) as {source_manifest_json:string};
     const types=(JSON.parse(detailPack.source_manifest_json) as Array<{sourceType:string}>).map(source=>source.sourceType);
-    expect(types).toEqual(expect.arrayContaining(['planning:volume_plan','planning:story_event','planning:event_chapter_sequence',
-      'owner:chapter_outline_ideas']));
+    expect(types).toEqual(expect.arrayContaining(['planning:volume_plan','planning:story_event','planning:event_chapter_sequence']));
+    expect(types.some(type=>type.startsWith('owner:chapter_outline_ideas'))).toBe(false);
     expect(types).not.toContain('planning:recent_chapter_slots');
     const challengeCalls=context.database.prepare("SELECT task_id,context_pack_id FROM model_calls WHERE owner_id=? AND book_id=? AND task_id IN (?,?) AND state='succeeded'")
       .all(scope.ownerId,scope.bookId,sequenceChallengeTask.taskId,detailChallengeTask.taskId) as unknown as Array<{task_id:string;context_pack_id:string}>;
@@ -301,7 +308,14 @@ function volumeContent(){return{title:'第一卷',openingState:'主角失去退�
     responsibility:'建立卷冲突',entryState:'只有线索',trigger:'同伴受损',action:'公开行动',result:'取得有限资格',
     leadsToNext:null,estimatedChapterRange:{minimum:3,likely:3,maximum:5}}],informationPlan:['揭示规则由人操纵'],
   escalationAndRecovery:['进展引发反制'],endingState:'站稳脚跟',openThreads:['幕后人'],nextVolumeTrigger:'幕后人出手',
-  boundaries:{mustAchieve:['主角行动改变局面'],mustNotViolate:['不能无代价变强'],creativeFreedom:['对白与场景自由'],openQuestions:[]}};}
+  boundaries:{mustAchieve:['主角行动改变局面'],mustNotViolate:['不能无代价变强'],creativeFreedom:['对白与场景自由'],openQuestions:[]},
+  firstVolumeLaunch:{first500:{readerQuestion:'主角能否保住唯一线索',immediateSituation:'主角眼前就要失去唯一退路',
+    emotionalGrip:'读者担心盟友被连累',changePromise:'主角必须从被动求生转为主动选择'},goldenThree:[
+      {chapterNumber:1,responsibility:'让读者进入主角处境并看见独特规则',action:'主角主动核查线索',pressure:'盟友即将因他受罚',payoff:'主角用行动保住第一条线索',nextExpectation:'线索指向更大的规则漏洞'},
+      {chapterNumber:2,responsibility:'让主角行动并升级阻力',action:'主角利用漏洞争取资格',pressure:'对手公开封锁证据',payoff:'主角换来一次公开申辩机会',nextExpectation:'真正操纵规则的人露出痕迹'},
+      {chapterNumber:3,responsibility:'兑现首次明确回报并打开大目标',action:'主角承担代价公开证据',pressure:'公开会伤害重要关系',payoff:'主角取得有限行动资格',nextExpectation:'更强对手开始反制'}],
+    majorClimax:{latestEffectiveCharacters:100000,setup:'局部胜利逐步暴露幕后规则',choice:'主角公开真相并承担后果',cost:'失去重要关系的信任',irreversibleChange:'旧规则被撕开且主角无法退回原位',nextStage:'更强对手公开入场'},
+    immersionPriorities:['贴近主角即时感受与行动']}};}
 function eventContent(){return{title:'公开选择',volumeResponsibility:'把卷冲突变成现实问题',startingState:'事件开始状态',
   trigger:'同伴受损',participants:['主角','盟友'],characterGoals:['守住行动资格'],obstacles:['证据不足'],
   choicesAndCosts:['公开行动并承担身份暴露'],informationMoves:['确认规则由人操纵'],localProgression:['试探','受阻','选择'],

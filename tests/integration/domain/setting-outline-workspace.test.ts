@@ -693,6 +693,34 @@ describe('设定大纲工作状态', () => {
     expect(saved.content).toBe('作者手写定稿。');
   });
 
+  it('确认四项核心后投影事实、方向、边界和留白片段，重设计确认前旧片段继续有效',()=>{
+    context=createTestContext();const ids=new SequenceIds(),clock=new FixedClock();
+    const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'设定片段书',text:'天空城冒险'});
+    const scope={ownerId:context.config.ownerId,bookId:book.bookId};
+    const service=new SettingOutlineWorkspaceService(context.database,clock);
+    const save=(itemKey:string,label:string,content:string)=>service.save(scope,{itemKey,groupTitle:'核心设定',label,
+      prompt:'确认本项书籍骨架',sourceLabel:'四项核心',status:'已确认',content});
+    save('world-stage','世界舞台','人类生活在风暴带上方的天空城。');
+    save('protagonist-situation','主角底板','主角是修船学徒，擅长听辨机械异响。');
+    save('rules-costs','规矩与代价','每次驱动古代引擎必须失去一段近期记忆。');
+    save('boundaries-blanks','边界与留白','禁止用复活抹去死亡后果。神墓真相暂不解释，作为留白。');
+    const rows=context.database.prepare(`SELECT kind,strength,truth_status,scope_type,scope_id,statement,
+      source_version_id,status FROM setting_clauses WHERE owner_id=? AND book_id=? ORDER BY setting_clause_id`)
+      .all(scope.ownerId,scope.bookId) as unknown as Array<Record<string,unknown>>;
+    expect(new Set(rows.map(row=>row.kind))).toEqual(new Set(['fact','boundary','blank']));
+    expect(rows.every(row=>row.truth_status==='confirmed'&&row.scope_type==='book'&&row.scope_id===book.bookId)).toBe(true);
+    expect(rows.find(row=>String(row.statement).includes('暂不解释'))).toMatchObject({kind:'blank',strength:'open_space'});
+    expect(rows.find(row=>String(row.statement).includes('必须失去'))).toMatchObject({kind:'boundary',strength:'hard_fact'});
+    service.recordGuidanceCandidate(scope,'world-stage','地表仍有少数移动城邦，但天空城居民不知道。');
+    expect(context.database.prepare(`SELECT statement FROM setting_clauses WHERE owner_id=? AND book_id=?
+      AND status='active' AND source_version_id LIKE 'setting-item:world-stage:%'`).all(scope.ownerId,scope.bookId))
+      .toEqual([{statement:'人类生活在风暴带上方的天空城。'}]);
+    service.confirmGuidanceCandidate(scope,'world-stage');
+    expect(context.database.prepare(`SELECT statement,status FROM setting_clauses WHERE owner_id=? AND book_id=?
+      AND source_version_id LIKE 'setting-item:world-stage:%' ORDER BY source_version_id`).all(scope.ownerId,scope.bookId))
+      .toEqual([{statement:'人类生活在风暴带上方的天空城。',status:'superseded'},
+        {statement:'地表仍有少数移动城邦，但天空城居民不知道。',status:'active'}]);
+  });
   it('清空全部设定：内容归零、基线作废、版本历史保留', () => {
     context = createTestContext();
     const ids = new SequenceIds();

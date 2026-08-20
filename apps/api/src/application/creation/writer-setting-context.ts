@@ -34,7 +34,6 @@ export function compileWriterSettingContext(
     .map((item) => ({ item, score: relevanceScore(item, query) }))
     .filter((candidate) => candidate.score > 0)
     .sort((left, right) => right.score - left.score || left.item.itemKey.localeCompare(right.item.itemKey, 'zh-CN'))
-    .slice(0, 4)
     .map(({ item }) => item);
   const hardIds = new Set([...core, ...ranked].map((item) => item.itemKey));
   return {

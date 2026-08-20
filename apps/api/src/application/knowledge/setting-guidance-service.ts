@@ -133,7 +133,7 @@ export class SettingGuidanceService {
 
   /**
    * 为任意已在本书设定清单里的类目构建讨论资料快照。
-   * 核心六问之外的题材包/资料库/自定义项也可以直接请团队出主意，
+   * 四项核心之外的题材包、资料库和自定义项也可以按需请团队出主意，
    * 不再要求它必须是逐项引导的当前项；未激活的项会被激活为讨论中。
    */
   public snapshotFor(scope: BookScope, itemKey: string): SettingGuidanceSnapshot | null {
@@ -286,17 +286,11 @@ export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
   confirmed: T[],
   targetItemKey: string
 ): T[] {
-  // 核心六问中的“故事内核、主角处境、边界与留白”对一切后续设定都有约束；
+  // 四项核心设定对后续按需设定提供书籍骨架；旧版核心项只作为兼容来源，不再强制为核心。
   // 同时保留旧版核心项，兼容重构前已确认的历史数据。
-  const alwaysRelevant = new Set([
-    'story-kernel',
-    'protagonist-situation',
-    'boundaries-blanks',
-    'creative-concept',
-    'reader-promise',
-    'protagonist',
-    'motivation',
-    'must-follow'
+  const coreSkeleton = new Set(['world-stage','protagonist-situation','rules-costs','boundaries-blanks']);
+  const legacyAlwaysRelevant = new Set([
+    'creative-concept','reader-promise','protagonist','motivation','must-follow'
   ]);
   const explicitDependencies: Record<string, readonly string[]> = {
     'world-stage': ['story-kernel'],
@@ -341,7 +335,10 @@ export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
   // 最近两项覆盖同一题材包内尚未显式列举的局部接口；它们仍是作者已确认
   // 的正式来源，不是模型摘要或聊天记忆。
   for (const item of confirmed.slice(-2)) direct.add(item.itemKey);
-  return confirmed.filter((item) => alwaysRelevant.has(item.itemKey) || direct.has(item.itemKey));
+  const includeWholeCoreSkeleton = !coreSkeleton.has(targetItemKey);
+  return confirmed.filter((item) => direct.has(item.itemKey)
+    || legacyAlwaysRelevant.has(item.itemKey)
+    || (includeWholeCoreSkeleton && coreSkeleton.has(item.itemKey)));
 }
 
 function compileOpeningBookCore(blueprint: OpeningBlueprintInput): string {

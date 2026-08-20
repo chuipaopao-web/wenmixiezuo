@@ -1,12 +1,13 @@
 import {
   hashStableContractContent, parsePlanningTemplateInstance, parseStoryEventContent,
-  parseVolumePlanContent, type EventSequenceItem, type PlanningTemplateInstance,
+  parseVolumePlanContent, type EventChainNode, type EventSequenceItem, type PlanningTemplateInstance,
   type StoryEventContent, type VersionReference
 } from '@wenmi/contracts';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { BookScope } from '../../domain/scope.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
+import type { LayeredPlanningService } from './layered-planning-service.js';
 import {
   StoryEventRepository, type EventSequenceOperationRow, type StoryEventCandidateKind,
   type StoryEventRow, type StoryEventVersionRow
@@ -47,7 +48,8 @@ export interface EventSequenceView {
 export class StoryEventService {
   public constructor(
     private readonly repo:StoryEventRepository, private readonly uow:UnitOfWork,
-    private readonly ids:IdGenerator, private readonly clock:Clock
+    private readonly ids:IdGenerator, private readonly clock:Clock,
+    private readonly layered?:LayeredPlanningService
   ) {}
 
   public getSequence(scope:BookScope, volumeId:string):EventSequenceView|null {
@@ -65,17 +67,24 @@ export class StoryEventService {
       if(workflow.planning_version!==expected||workflow.active_volume_plan_id!==volumeId
         ||workflow.active_volume_plan_version_id!==volume.active_version_id)throw conflict('当前卷或创作流程已经变化，请刷新后重试。');
       if(!['volume_plan_confirmed','event_sequence_in_progress'].includes(workflow.stage))throw conflict('请先确认分卷。');
-      const plan=parseVolumePlanContent(JSON.parse(volume.content_json) as unknown);
+      const activeChain=this.layered?.activeEventChain(scope,volumeId)??null;
+      if(this.layered!==undefined&&activeChain===null)throw conflict('请先让团队设计并确认当前卷事件链。');
+      const plan=activeChain===null?parseVolumePlanContent(JSON.parse(volume.content_json) as unknown):null;
+      const seeds:Array<{order:number;source:unknown;content:StoryEventContent}>=activeChain!==null
+        ?activeChain.content.events.map((node,index,nodes)=>({order:node.order,source:node,content:chainNodeContent(node,
+          index===0?'卷方向确认后的开场局面触发事件。':nodes[index-1]?.leadsToNext??'上一事件的实际结果形成新的进入状态。')}))
+        :(plan?.eventSequence??[]).map(seed=>({order:seed.order,source:seed,content:seedContent(seed)}));
+      if(seeds.length===0)throw conflict('当前卷还没有已确认的事件链。');
       this.repo.insertSequence(scope,{volumePlanId:volumeId,volumePlanVersionId:volume.active_version_id,now});
       let previous:string|null=null;
-      for(const seed of plan.eventSequence){
+      for(const seed of seeds){
         const eventId=this.ids.next();
         this.repo.insertEvent(scope,{eventId,volumePlanId:volumeId,sequenceOrder:seed.order,previousEventId:previous,
-          previousSettlementId:null,idempotencyKey:key+':event:'+seed.order,requestHash:hash(seed),now});
+          previousSettlementId:null,idempotencyKey:key+':event:'+seed.order,requestHash:hash(seed.source),now});
         const event=this.event(scope,eventId);
         this.store(scope,event,{candidateKind:'volume_seed',parentVersionId:null,sourceTaskId:null,authorInputRefs:[],
-          template:noTemplate(),content:seedContent(seed),idempotencyKey:key+':seed:'+seed.order,
-          requestHash:hash({eventId,seed}),now,dependencies:[volumeRef(volume)]});
+          template:noTemplate(),content:seed.content,idempotencyKey:key+':seed:'+seed.order,
+          requestHash:hash({eventId,source:seed.source}),now,dependencies:[volumeRef(volume)]});
         previous=eventId;
       }
       if(!this.repo.updateWorkflowForSequence(scope,{volumePlanId:volumeId,volumePlanVersionId:volume.active_version_id,
@@ -284,6 +293,18 @@ export class StoryEventService {
 }
 
 function volumeRef(v:{volume_plan_id:string;version:number;content_hash:string}):VersionReference{return{kind:'volume_plan',id:v.volume_plan_id,version:v.version,contentHash:v.content_hash,required:true};}
+function chainNodeContent(node:EventChainNode,trigger:string):StoryEventContent{return{
+  title:node.title,volumeResponsibility:node.volumeResponsibility,startingState:node.entryState,
+  trigger,
+  participants:[],characterGoals:[node.protagonistAction],obstacles:[node.oppositionEscalation],
+  choicesAndCosts:[node.stagePayoffOrCost],informationMoves:[...node.plantThreadIds,...node.payoffThreadIds],
+  localProgression:[node.protagonistAction,node.oppositionEscalation],requiredResult:node.exitState,
+  flexibleExecution:['具体场景、对白、局部转折和意象由后续事件大纲与章纲自由设计。'],
+  endingConditions:[node.exitState],nextEventImpact:node.leadsToNext??'完成本卷高潮责任并进入卷末新状态。',
+  characterArcImpact:node.exitState,volumeClimaxImpact:node.volumeResponsibility,
+  estimatedChapterRange:{minimum:null,likely:null,maximum:null},
+  uncertaintyNotes:node.consequenceThreadIds.map(id=>'后续需要继续追踪：'+id)
+};}
 function seedContent(s:EventSequenceItem):StoryEventContent{return{title:s.title,volumeResponsibility:s.responsibility,
   startingState:s.entryState,trigger:s.trigger,participants:[],characterGoals:[],obstacles:[],choicesAndCosts:[],
   informationMoves:[],localProgression:[s.action],requiredResult:s.result,

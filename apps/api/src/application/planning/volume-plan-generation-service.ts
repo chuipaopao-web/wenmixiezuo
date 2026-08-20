@@ -14,15 +14,19 @@ import {
 } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { TaskRecord } from '../tasks/task-service.js';
 import { TaskService } from '../tasks/task-service.js';
+import type { LayeredPlanningService, VolumeFusionSource } from './layered-planning-service.js';
 import { VolumePlanService } from './volume-plan-service.js';
 import {
+  hiddenNarrativeMethodVersions,
   selectHiddenVolumeRouteRecipes,
   type HiddenVolumeRouteRecipe
 } from './hidden-narrative-methods.js';
 
 export interface VolumePlanGenerationBrief {
   schema: 'volume-plan-generation-v1';
+  mode?: 'routes' | 'fusion';
   volumePlanId: string;
+  fusionSource?: VolumeFusionSource;
   expectedPlanRevision: number;
   expectedActiveVersionId: string | null;
   expectedWorkflowVersion: number;
@@ -77,7 +81,8 @@ export class VolumePlanGenerationService {
     private readonly tasks: TaskService,
     private readonly unitOfWork: UnitOfWork,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly layeredPlanning?: LayeredPlanningService
   ) {}
 
   public start(scope: BookScope, volumePlanId: string, input: {
@@ -86,6 +91,7 @@ export class VolumePlanGenerationService {
     expectedWorkflowVersion: number;
     template: unknown;
     authorInputRefs?: string[];
+    selection?: unknown;
     idempotencyKey: string;
   }): VolumePlanGenerationView {
     const expectedPlanRevision = positiveInteger(input.expectedPlanRevision, '卷规划版本');
@@ -118,6 +124,18 @@ export class VolumePlanGenerationService {
         actualWorkflowVersion: workflow.planningVersion
       });
     }
+    const mode: 'routes' | 'fusion' = input.selection === undefined ? 'routes' : 'fusion';
+    let fusionSource: VolumeFusionSource | undefined;
+    if (mode === 'fusion') {
+      if (this.layeredPlanning === undefined) {
+        throw new DomainError(errorCodes.operationIncomplete, '分层卷方向服务未就绪。', {}, false, 409);
+      }
+      const selection = this.layeredPlanning.recordRouteSelection(scope, volumePlanId, {
+        selection: input.selection,
+        idempotencyKey: 'fusion-selection:' + idempotencyKey
+      });
+      fusionSource = this.layeredPlanning.buildFusionSource(scope, volumePlanId, selection);
+    }
     const snapshot = this.repository.sourceSnapshot(scope, volumePlanId);
     if (snapshot === undefined) {
       throw new DomainError(
@@ -137,43 +155,53 @@ export class VolumePlanGenerationService {
     const editor = team.seats.find((seat) => seat.editor);
     const lead = team.seats.find((seat) => seat.roleKey === 'lead_screenwriter');
     const second = team.seats.find((seat) => seat.roleKey === 'second_screenwriter');
-    if (editor === undefined || lead === undefined || second === undefined) {
+    if (editor === undefined || (mode === 'routes' && (lead === undefined || second === undefined))) {
       throw new DomainError(
         errorCodes.operationIncomplete,
-        '当前卷设计需要当前主编和两位编剧都可用。',
+        mode === 'routes' ? '当前卷设计需要当前主编和两位编剧都可用。' : '当前卷融合需要主编可用。',
         { availableRoles: team.seats.map((seat) => seat.roleKey) },
         false,
         409
       );
     }
-    const deterministicFixture = [lead, second].every((seat) => seat.provider.startsWith('local-deterministic'));
-    const distinctBindings = lead.provider !== second.provider || lead.modelId !== second.modelId;
-    const modelDiversityVerified = !deterministicFixture && distinctBindings;
-    if (!distinctBindings && !deterministicFixture) {
-      throw new DomainError(
-        errorCodes.operationIncomplete,
-        '两位编剧当前绑定了同一个模型，不能冒充异模型独立方案。请先调整模型绑定。',
-        { leadModel: `${lead.provider}/${lead.modelId}`, secondModel: `${second.provider}/${second.modelId}` },
-        false,
-        409
-      );
+    let modelDiversityVerified = false;
+    if (mode === 'routes') {
+      const routeLead = lead!;
+      const routeSecond = second!;
+      const deterministicFixture = [routeLead, routeSecond]
+        .every((seat) => seat.provider.startsWith('local-deterministic'));
+      const distinctBindings = routeLead.provider !== routeSecond.provider || routeLead.modelId !== routeSecond.modelId;
+      modelDiversityVerified = !deterministicFixture && distinctBindings;
+      if (!distinctBindings && !deterministicFixture) {
+        throw new DomainError(
+          errorCodes.operationIncomplete,
+          '两位编剧当前绑定了同一个模型，不能冒充异模型独立方案。请先调整模型绑定。',
+          { leadModel: routeLead.provider + '/' + routeLead.modelId, secondModel: routeSecond.provider + '/' + routeSecond.modelId },
+          false, 409
+        );
+      }
     }
     const budgetId = this.repository.activeBudgetId(scope);
     if (budgetId === undefined) {
       throw new DomainError(errorCodes.operationIncomplete, '当前书籍没有可用预算。', {}, false, 409);
     }
     const sourceFingerprint = volumePlanSourceFingerprint(snapshot);
-    const routeRecipes = selectHiddenVolumeRouteRecipes(
+    const routeRecipes = mode === 'routes' ? selectHiddenVolumeRouteRecipes(
       `${snapshot.bookTitle} ${snapshot.opening.content}`,
       snapshot.planNumber === 1
-    );
+    ) : undefined;
+    if (routeRecipes !== undefined) {
+      this.repository.syncInternalStructureMethods(hiddenNarrativeMethodVersions(), this.clock.now().toISOString());
+    }
     const requestHash = digest({
+      mode,
       volumePlanId,
       expectedPlanRevision,
       expectedActiveVersionId,
       expectedWorkflowVersion,
       sourceFingerprint,
       routeRecipes,
+      fusionSource,
       template,
       authorInputRefs,
       orderedIdeas,
@@ -204,12 +232,14 @@ export class VolumePlanGenerationService {
     }
     const brief: VolumePlanGenerationBrief = {
       schema: 'volume-plan-generation-v1',
+      mode,
       volumePlanId,
+      ...(fusionSource === undefined ? {} : { fusionSource }),
       expectedPlanRevision,
       expectedActiveVersionId,
       expectedWorkflowVersion,
       sourceFingerprint,
-      routeRecipes,
+      ...(routeRecipes === undefined ? {} : { routeRecipes }),
       template,
       authorInputRefs,
       authorIdeas: orderedIdeas,

@@ -4,30 +4,30 @@ import { describe, expect, it } from 'vitest';
 import { workflowScenarios } from '../../scripts/evaluation/current-workflow-scenarios.mjs';
 
 describe('当前工作流验收脚本', () => {
-  it('可配置章节与题材流程使用对象接口并明确区分确定性工程证据', () => {
-    const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/run-current-workflow-twenty-chapters-e2e.mjs'), 'utf8');
+  it('当前分层规划使用管理员真实HTTP会话并覆盖事件链、黄金三章与第一章冻结', () => {
+    const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/run-layered-admin-planning-smoke.mjs'), 'utf8');
     expect(script).not.toContain('/messages');
-    expect(script).toContain('/collaboration/start');
-    expect(script).toContain('/collaboration/synthesize');
-    expect(script).toContain('/setting-baseline/confirm');
-    expect(script).toContain('/event-sequence/initialize');
-    expect(script).toContain('/chapter-sequence/initialize');
+    expect(script).toContain('/setting-outline-workspace');
+    expect(script).toContain('/volume-plans');
+    expect(script).toContain('/directions');
+    expect(script).toContain('/route-selection');
+    expect(script).toContain('/event-chains/generate');
+    expect(script).toContain('/story-events/');
+    expect(script).toContain('/chapter-sequence/generate');
     expect(script).toContain('/chapter-outlines/freeze');
-    expect(script).toContain('const TOTAL_CHAPTERS = EVENT_COUNT * CHAPTERS_PER_EVENT');
-    expect(script).toContain('evidenceLevel: `E2-current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}`');
-    expect(script).toContain('scenarioName: SCENARIO.displayName');
+    expect(script).toContain('firstChapterLaunch');
+    expect(script).toContain("assert(!('taskId' in view)");
+    expect(script).toContain("assert(!('currentPhase' in view)");
+    expect(script).toContain('layered-admin-planning-smoke-v1');
+  });
+
+  it('旧长篇脚本只保留纵向资产与E2标签，不冒充分层流程或文学质量完成', () => {
+    const script = readFileSync(resolve(process.cwd(), 'scripts/evaluation/run-current-workflow-twenty-chapters-e2e.mjs'), 'utf8');
+    const acceptance = readFileSync(resolve(process.cwd(), 'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md'), 'utf8');
     expect(script).toContain('[20, 50, 100, 200]');
-    expect(script).toContain('TARGET_VOLUME_COUNT');
-    expect(script).toContain('assertManuscriptIsNotTemplateCopies');
+    expect(script).toContain('evidenceLevel: `E2-current-workflow-${RELEASE_TARGET_CHAPTERS}-chapters-${SCENARIO.key}`');
     expect(script).toContain('发布级文学质量仍需要人工通读确认');
-    expect(script).toContain('WENMI_RELEASE_OWNER_AUTHORIZED_BOOK_ID');
-    expect(script).toContain('ebc3b29e-c0d4-45e9-b839-bb0ee2999501');
-    expect(script).toContain('bookId === OWNER_AUTHORIZED_BOOK_ID');
-    expect(script).toContain('OWNER_AUTHORIZED_BATCH_CAP = 3');
-    expect(script).toContain('batchStartupGate');
-    expect(script).toContain('owner_authorized_batch_completed');
-    expect(script).toContain('item.target_id === expectedVersionId');
-    expect(script).not.toContain('item.task_id === taskId');
+    expect(acceptance).toContain('| E4长期验收 | 未开始 |');
   });
 
   it('数据审计逐层检查规划、正文绑定与数据库完整性', () => {

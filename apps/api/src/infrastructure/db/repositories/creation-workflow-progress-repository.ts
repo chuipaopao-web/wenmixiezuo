@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { EventChainContent } from '@wenmi/contracts';
 import { assertBookScope, type BookScope } from '../../../domain/scope.js';
 
 export interface WorkflowProgressRow {
@@ -13,6 +14,16 @@ export interface FrozenChapterOutlineRow {
   artifactId: string;
 }
 
+export interface FirstVolumeLaunchProgressRow {
+  volumePlanId:string;volumeDirectionVersionId:string;totalEffectiveCharacters:number;
+  latestSettledChapterNumber:number;climaxStatus:'planned'|'approaching'|'at_risk'|'completed'|'completed_late'|'overdue';
+  climaxEventId:string|null;climaxCompletedAtEffectiveCharacters:number|null;
+  predictionJson:string;actualEvidenceJson:string|null;updatedAt:string;
+}
+function launchCompletionStatus(actualJson:string|null):'completed'|'completed_late'{
+  if(actualJson===null)return'completed';
+  try{return (JSON.parse(actualJson) as {late?:unknown}).late===true?'completed_late':'completed';}catch{return'completed';}
+}
 export class CreationWorkflowProgressRepository {
   public constructor(private readonly database: DatabaseSync) {}
 
@@ -122,6 +133,99 @@ export class CreationWorkflowProgressRepository {
     return row.count;
   }
 
+  public refreshFirstVolumeLaunchProgress(scope:BookScope,now:string):FirstVolumeLaunchProgressRow|null{
+    assertBookScope(scope);
+    const source=this.database.prepare(`SELECT p.volume_plan_id AS volumePlanId,d.volume_direction_version_id AS directionVersionId,
+      ec.content_json AS chainContent
+      FROM volume_plans p JOIN volume_direction_versions d ON d.owner_id=p.owner_id AND d.book_id=p.book_id
+        AND d.volume_plan_id=p.volume_plan_id AND d.status='active'
+      LEFT JOIN event_chain_versions ec ON ec.owner_id=p.owner_id AND ec.book_id=p.book_id
+        AND ec.volume_plan_id=p.volume_plan_id AND ec.volume_direction_version_id=d.volume_direction_version_id AND ec.status='active'
+      WHERE p.owner_id=? AND p.book_id=? AND p.plan_number=1 AND p.status IN ('active','completed')`)
+      .get(scope.ownerId,scope.bookId) as {volumePlanId:string;directionVersionId:string;chainContent:string|null}|undefined;
+    if(source===undefined)return null;
+    const stats=this.database.prepare(`SELECT COALESCE(SUM(m.word_count),0) AS total,COALESCE(MAX(c.chapter_number),0) AS latest,
+      COUNT(*) AS chapterCount FROM chapters c JOIN volumes v ON v.volume_id=c.volume_id
+      JOIN manuscript_versions m ON m.manuscript_version_id=c.canon_manuscript_version_id
+        AND m.owner_id=c.owner_id AND m.book_id=c.book_id
+      WHERE c.owner_id=? AND c.book_id=? AND v.volume_number=1 AND c.settlement_status='settled'`)
+      .get(scope.ownerId,scope.bookId) as {total:number;latest:number;chapterCount:number};
+    let climaxOrder:number|null=null,climaxNodeId:string|null=null;
+    let setupResponsibilities:Array<{nodeId:string;order:number;responsibilities:string[]}>=[];
+    if(source.chainContent!==null)try{
+      const chain=JSON.parse(source.chainContent) as EventChainContent;
+      const climax=chain.events.find(item=>item.firstVolumeResponsibilities.includes('major_climax_before_100k'));
+      climaxOrder=climax?.order??null;climaxNodeId=climax?.nodeId??null;
+      setupResponsibilities=chain.events.filter(item=>item.firstVolumeResponsibilities.length>0)
+        .map(item=>({nodeId:item.nodeId,order:item.order,responsibilities:item.firstVolumeResponsibilities}));
+    }catch{climaxOrder=null;climaxNodeId=null;setupResponsibilities=[];}
+    const event=climaxOrder===null?undefined:this.database.prepare(`SELECT event_id,status FROM story_events
+      WHERE owner_id=? AND book_id=? AND volume_plan_id=? AND sequence_order=? AND status<>'archived'`)
+      .get(scope.ownerId,scope.bookId,source.volumePlanId,climaxOrder) as {event_id:string;status:string}|undefined;
+    const existing=this.database.prepare(`SELECT launch_plan_direction_version_id,climax_status,actual_fulfillment_json,
+      climax_completed_at_effective_characters FROM first_volume_launch_progress
+      WHERE owner_id=? AND book_id=? AND volume_plan_id=?`).get(scope.ownerId,scope.bookId,source.volumePlanId) as
+      {launch_plan_direction_version_id:string;climax_status:string;actual_fulfillment_json:string|null;
+        climax_completed_at_effective_characters:number|null}|undefined;
+    const completed=existing?.launch_plan_direction_version_id===source.directionVersionId&&existing.climax_status==='completed';
+    const average=stats.chapterCount===0?3000:Math.round(stats.total/stats.chapterCount);
+    const settledEvents=(this.database.prepare(`SELECT COUNT(*) AS count FROM story_events WHERE owner_id=? AND book_id=?
+      AND volume_plan_id=? AND status='settled'`).get(scope.ownerId,scope.bookId,source.volumePlanId) as {count:number}).count;
+    const remainingEvents=climaxOrder===null?null:Math.max(0,climaxOrder-settledEvents);
+    const projectedClimaxAt=remainingEvents===null?null:stats.total+remainingEvents*Math.max(12000,average*4);
+    const publicStatus:FirstVolumeLaunchProgressRow['climaxStatus']=completed
+      ? launchCompletionStatus(existing.actual_fulfillment_json)
+      : stats.total>100000?'overdue':stats.total>=85000||(projectedClimaxAt!==null&&projectedClimaxAt>100000)
+        ?'at_risk':stats.total>=70000?'approaching':'planned';
+    const storedStatus=publicStatus==='completed'||publicStatus==='completed_late'?'completed':publicStatus==='overdue'?'missed':
+      publicStatus==='at_risk'?'in_progress':publicStatus==='approaching'?'setup_started':'planned';
+    const action=publicStatus==='overdue'?'高潮承载事件尚未实际结算；立即停止继续扩写铺垫，重新调整当前事件或章链。':
+      publicStatus==='at_risk'?'按当前进度可能超过10万有效字；优先压缩重复铺垫，并把高潮责任前移到当前或下一个事件章链。':
+        publicStatus==='approaching'?'已进入首卷高潮准备区；核对铺垫是否足够，并确认高潮承载事件已经开始。':null;
+    const prediction={averageSettledChapterEffectiveCharacters:average,settledEventCount:settledEvents,
+      climaxEventOrder:climaxOrder,climaxEventStarted:event!==undefined&&['active','settled'].includes(event.status),
+      projectedClimaxAtEffectiveCharacters:projectedClimaxAt,noLaterThanEffectiveCharacters:100000,
+      recommendedAction:action};
+    this.database.prepare(`INSERT INTO first_volume_launch_progress(owner_id,book_id,volume_plan_id,
+      launch_plan_direction_version_id,effective_character_count,climax_event_node_id,climax_status,
+      setup_responsibilities_json,actual_fulfillment_json,forecast_effective_character_count,exceeds_limit_risk,
+      latest_settled_chapter_number,climax_completed_at_effective_characters,prediction_json,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,book_id,volume_plan_id) DO UPDATE SET
+      launch_plan_direction_version_id=excluded.launch_plan_direction_version_id,
+      effective_character_count=excluded.effective_character_count,climax_event_node_id=excluded.climax_event_node_id,
+      climax_status=excluded.climax_status,setup_responsibilities_json=excluded.setup_responsibilities_json,
+      actual_fulfillment_json=excluded.actual_fulfillment_json,
+      forecast_effective_character_count=excluded.forecast_effective_character_count,
+      exceeds_limit_risk=excluded.exceeds_limit_risk,latest_settled_chapter_number=excluded.latest_settled_chapter_number,
+      climax_completed_at_effective_characters=excluded.climax_completed_at_effective_characters,
+      prediction_json=excluded.prediction_json,updated_at=excluded.updated_at`)
+      .run(scope.ownerId,scope.bookId,source.volumePlanId,source.directionVersionId,stats.total,climaxNodeId,storedStatus,
+        JSON.stringify(setupResponsibilities),completed?existing?.actual_fulfillment_json??null:null,projectedClimaxAt,
+        ['at_risk','overdue','completed_late'].includes(publicStatus)?1:0,stats.latest,
+        completed?existing?.climax_completed_at_effective_characters??stats.total:null,JSON.stringify(prediction),now);
+    return this.firstVolumeLaunchProgress(scope);
+  }
+
+  public firstVolumeLaunchProgress(scope:BookScope):FirstVolumeLaunchProgressRow|null{
+    assertBookScope(scope);
+    const row=this.database.prepare(`SELECT volume_plan_id,launch_plan_direction_version_id,effective_character_count,
+      latest_settled_chapter_number,climax_status,climax_completed_at_effective_characters,
+      prediction_json,actual_fulfillment_json,updated_at FROM first_volume_launch_progress
+      WHERE owner_id=? AND book_id=? ORDER BY updated_at DESC LIMIT 1`).get(scope.ownerId,scope.bookId) as Record<string,unknown>|undefined;
+    if(row===undefined)return null;
+    const actualJson=typeof row.actual_fulfillment_json==='string'?row.actual_fulfillment_json:null;
+    let eventId:string|null=null;
+    if(actualJson!==null)try{const actual=JSON.parse(actualJson) as Record<string,unknown>;
+      eventId=typeof actual.eventId==='string'?actual.eventId:null;}catch{eventId=null;}
+    const stored=String(row.climax_status);
+    const climaxStatus:FirstVolumeLaunchProgressRow['climaxStatus']=stored==='completed'?launchCompletionStatus(actualJson):
+      stored==='missed'?'overdue':stored==='in_progress'?'at_risk':stored==='setup_started'?'approaching':'planned';
+    return{volumePlanId:String(row.volume_plan_id),volumeDirectionVersionId:String(row.launch_plan_direction_version_id),
+      totalEffectiveCharacters:Number(row.effective_character_count),latestSettledChapterNumber:Number(row.latest_settled_chapter_number),
+      climaxStatus,climaxEventId:eventId,
+      climaxCompletedAtEffectiveCharacters:row.climax_completed_at_effective_characters===null?null:Number(row.climax_completed_at_effective_characters),
+      predictionJson:String(row.prediction_json),actualEvidenceJson:actualJson,updatedAt:String(row.updated_at)};
+  }
   public advanceAfterChapterSettlement(scope: BookScope, input: {
     expectedPlanningVersion: number;
     eventId: string;

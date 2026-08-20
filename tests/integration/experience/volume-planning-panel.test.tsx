@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { VolumePlanningPanel } from '../../../apps/web/src/features/planning/VolumePlanningPanel';
 
@@ -33,6 +33,7 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
       workflow = workflowView('volume_plan_in_progress', 3, 'plan-1');
       return apiResponse(plan);
     }
+    if (path.endsWith('/directions') && method === 'GET') return apiResponse([]);
     if (path.endsWith('/versions') && method === 'GET') return apiResponse(versions);
     if (path.endsWith('/versions') && method === 'POST') {
       const version = volumeVersion(body!);
@@ -41,7 +42,7 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
     }
     if (path.endsWith('/impact-preview') && method === 'POST') return apiResponse({
       volumePlanId: 'plan-1', candidateVersionId: 'plan-version-1', activeVersionId: null,
-      changedFields: ['title', 'coreGoal', 'eventSequence'], downstreamDependencyCount: 0,
+      changedFields: ['title', 'coreGoal'], downstreamDependencyCount: 0,
       requiresDownstreamReview: false, note: '当前没有已确认的下游内容，切换后可继续设计事件。'
     });
     if (path.endsWith('/confirm') && method === 'POST') {
@@ -67,22 +68,17 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   change('人物要发生的变化（每行一条）', '张三从只求自保变为主动承担后果');
   change('卷末留下什么局面', '雾城暂时守住，但预见指向更大的灾难。');
   change('怎样自然引出下一卷', '敌军撤退路线暴露了王都内部的接应者。');
-  change('事件名称', '钟响前的误报');
-  change('它为本卷承担什么任务', '让张三第一次为预见承担公开风险。');
-  change('从什么状态进入', '无人相信张三。');
-  change('什么事情触发它', '城外斥候失联。');
-  change('人物采取什么行动', '张三违令关闭侧门并寻找证据。');
-  change('行动造成什么结果', '伏兵暴露，但张三被押去问罪。');
   fireEvent.click(screen.getByRole('button', { name: '保存为新候选版' }));
 
   expect(await screen.findByLabelText('改动影响预览')).toBeInTheDocument();
-  expect(screen.getByText('卷标题、本卷目标、事件链')).toBeInTheDocument();
+  expect(screen.getByText('卷标题、本卷目标')).toBeInTheDocument();
+  expect(screen.queryByText('第一个事件种子')).not.toBeInTheDocument();
   const versionRequest = requests.find((request) => request.path.endsWith('/versions') && request.method === 'POST');
   expect(versionRequest?.body).toMatchObject({
     expectedPlanRevision: 1,
     candidateKind: 'author_edit',
     template: { selectionMode: 'none', templateKey: null, scope: 'volume' },
-    content: { title: '雾城守夜卷', eventSequence: [{ title: '钟响前的误报' }] }
+    content: { title: '雾城守夜卷' }
   });
 
   fireEvent.click(screen.getByRole('button', { name: '确认这份稿' }));
@@ -116,16 +112,16 @@ it('用自然语言显示真实卷规划进度，隐藏模型内部编号，并�
     if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
     if (path.endsWith('/author-planning-inputs')) return apiResponse(ideas);
     if (path.endsWith('/volume-plans') && method === 'GET') return apiResponse([plan]);
+    if (path.endsWith('/directions') && method === 'GET') return apiResponse([]);
     if (path.endsWith('/versions') && method === 'GET') return apiResponse([]);
     if (path.endsWith('/generation') && method === 'GET') return apiResponse(generation);
     if (path.endsWith('/generate') && method === 'POST') {
-      generation = {
-        taskId: 'task-volume-ai', status: 'succeeded', currentPhase: 'fusion_complete', errorCode: null,
-        checkpoint: { awaitingAuthorChoice: true }, modelDiversityVerified: false,
+      generation = {        stateText: '本轮方案已经准备好', phaseText: '融合方案已准备好', isRunning: false, isCompleted: true,
+        canCancel: false, canResume: false, canRetry: false, errorMessage: null,
         members: [
-          { roleKey: 'lead_screenwriter', agentId: 'agent-a', displayName: '婉儿', provider: 'local-deterministic', modelId: 'fixture-a' },
-          { roleKey: 'second_screenwriter', agentId: 'agent-b', displayName: '红玉', provider: 'local-deterministic', modelId: 'fixture-b' },
-          { roleKey: 'main_editor', agentId: 'agent-editor', displayName: '昭昭', provider: 'local-deterministic', modelId: 'fixture-editor' }
+          { roleKey: 'lead_screenwriter', displayName: '婉儿' },
+          { roleKey: 'second_screenwriter', displayName: '红玉' },
+          { roleKey: 'main_editor', displayName: '昭昭' }
         ],
         candidateVersionIds: { candidateA: 'version-a', candidateB: 'version-b', fusion: 'version-fusion' },
         createdAt: '2026-08-08T12:00:00.000Z', updatedAt: '2026-08-08T12:01:00.000Z'
@@ -140,7 +136,7 @@ it('用自然语言显示真实卷规划进度，隐藏模型内部编号，并�
   expect(await screen.findByText('希望主角靠承担代价解决问题。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '让团队开始设计' }));
 
-  expect(await screen.findByText(/三个方案已完成.*融合方案已准备好/u)).toBeInTheDocument();
+  expect(await screen.findByText(/本轮方案已经准备好.*融合方案已准备好/u)).toBeInTheDocument();
   expect(screen.queryByText(/候选版本|本地确定性|local-deterministic|fixture-/u)).not.toBeInTheDocument();
   expect(screen.getByText('婉儿')).toBeInTheDocument();
   expect(screen.getByText('红玉')).toBeInTheDocument();
@@ -158,6 +154,76 @@ it('用自然语言显示真实卷规划进度，隐藏模型内部编号，并�
     && request.query.includes('subjectId=plan-1'))).toBe(true);
 });
 
+it('在手机宽度下用两条具体故事路线完成分段选择，融合请求只携带作者选中部分且不泄漏专业术语', async () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+  const plan = volumePlan(null, 1);
+  const directions = [
+    volumeDirection('direction-a', 'proposal-a', 'candidate_a', '主动守城路线', '主角发现城门异动，主动违令查证。', '守住侧门并证明判断。'),
+    volumeDirection('direction-b', 'proposal-b', 'candidate_b', '关系失衡路线', '主角被同伴误解后卷入军令冲突。', '在公开审判中揭开真正内应。')
+  ];
+  let generation: Record<string, unknown> = {    stateText: '本轮方案已经准备好', phaseText: '两份故事路线已经准备好', isRunning: false, isCompleted: true,
+    canCancel: false, canResume: false, canRetry: false, errorMessage: null,
+    members: [
+      { roleKey: 'lead_screenwriter', displayName: '婉儿' },
+      { roleKey: 'second_screenwriter', displayName: '红玉' },
+      { roleKey: 'main_editor', displayName: '昭昭' }
+    ],
+    candidateVersionIds: { candidateA: 'legacy-a', candidateB: 'legacy-b', fusion: null },
+    createdAt: '2026-08-20T08:00:00.000Z', updatedAt: '2026-08-20T08:01:00.000Z'
+  };
+  const requests: Array<{ path: string; method: string; body: Record<string, unknown> | null }> = [];
+
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://127.0.0.1');
+    const path = url.pathname;
+    const method = init?.method ?? 'GET';
+    const body = init?.body === undefined ? null : JSON.parse(String(init.body)) as Record<string, unknown>;
+    requests.push({ path, method, body });
+    if (path.endsWith('/workflow')) return apiResponse(workflowView('volume_plan_in_progress', 3, 'plan-1'));
+    if (path.endsWith('/author-planning-inputs')) return apiResponse([]);
+    if (path.endsWith('/volume-plans') && method === 'GET') return apiResponse([plan]);
+    if (path.endsWith('/versions') && method === 'GET') return apiResponse([]);
+    if (path.endsWith('/directions') && method === 'GET') return apiResponse(directions);
+    if (path.endsWith('/generation') && method === 'GET') return apiResponse(generation);
+    if (path.endsWith('/generate') && method === 'POST') {
+      generation = {
+        ...generation, stateText: '本轮方案已经准备好', phaseText: '融合方案已准备好',
+        candidateVersionIds: { candidateA: 'legacy-a', candidateB: 'legacy-b', fusion: 'legacy-fusion' }
+      };
+      return apiResponse(generation);
+    }
+    return new Response(JSON.stringify({ error: { message: `未配置测试接口 ${method} ${path}` } }), { status: 404 });
+  }));
+
+  render(<VolumePlanningPanel bookId="book-volume-ui" />);
+  expect(await screen.findByRole('heading', { name: '这卷故事可以这样走' })).toBeInTheDocument();
+  expect(screen.queryByText('第一个事件种子')).not.toBeInTheDocument();
+  expect(document.body.textContent).not.toMatch(/拯救猫咪|三幕式|五幕式|三幕九线|节拍/u);
+
+  const routeOne = screen.getByRole('heading', { name: '主动守城路线' }).closest('article');
+  const routeTwo = screen.getByRole('heading', { name: '关系失衡路线' }).closest('article');
+  expect(routeOne).not.toBeNull();
+  expect(routeTwo).not.toBeNull();
+  fireEvent.click(within(routeOne!).getAllByRole('button', { name: '选这部分' })[0]!);
+  fireEvent.click(within(routeTwo!).getAllByRole('button', { name: '选这部分' })[8]!);
+  expect(screen.getByText('已选 2 部分')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '请主编只融合已选部分' }));
+
+  await waitFor(() => {
+    const request = requests.find((item) => item.path.endsWith('/generate') && item.method === 'POST');
+    expect(request?.body).toMatchObject({
+      selection: {
+        selectionMode: 'fragments',
+        fragments: [
+          { fragmentId: 'proposal-a:openingSituation', field: 'openingSituation', sourceProposalId: 'proposal-a', sourceVersionId: 'direction-a' },
+          { fragmentId: 'proposal-b:climaxResponsibility', field: 'climaxResponsibility', sourceProposalId: 'proposal-b', sourceVersionId: 'direction-b' }
+        ]
+      }
+    });
+  });
+  expect(await screen.findByText(/融合方案已准备好/u)).toBeInTheDocument();
+});
+
 function change(label: string, value: string): void {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
@@ -168,6 +234,35 @@ function workflowView(stage: string, planningVersion: number, activeVolumePlanId
     activeVolumePlanRef: activeVolumePlanId === null ? null : { volumePlanId: activeVolumePlanId, volumePlanVersionId: null },
     activeEventRef: null, frozenChapterOutlineRefs: [], waitingTaskId: null, blockingReason: null,
     updatedAt: '2026-08-08T12:00:00.000Z'
+  };
+}
+
+function volumeDirection(
+  id: string,
+  proposalId: string,
+  candidateKind: 'candidate_a' | 'candidate_b',
+  title: string,
+  openingSituation: string,
+  climaxResponsibility: string
+): Record<string, unknown> {
+  return {
+    volumeDirectionVersionId: id, volumePlanId: 'plan-1',
+    legacyVolumePlanVersionId: candidateKind === 'candidate_a' ? 'legacy-a' : 'legacy-b',
+    version: candidateKind === 'candidate_a' ? 1 : 2, proposalId, candidateKind, status: 'candidate',
+    parentVersionId: null, sourceVersionIds: ['setting-active'], authorInputRefs: [],
+    content: {
+      title, openingSituation, protagonistDrive: '主角必须在军令和亲眼所见之间作出选择。',
+      volumeGoal: '让这次选择真正改变雾城局面。', centralOpposition: '军令秩序、内应和时间压力同时阻拦。',
+      escalationPath: ['先找到异常证据', '公开行动后承担问责', '在局面失控前逼出真正对手'],
+      majorChoices: ['是否违令关闭侧门'], relationshipMovement: ['主角与同伴从互信走向裂痕再重建'],
+      expressionFocus: ['紧迫感', '选择的代价'], climaxResponsibility,
+      costAndConsequence: '即使守住城门，主角也失去原有身份和退路。',
+      closingState: '雾城暂时安全，主角被迫进入更大的权力冲突。',
+      benefits: ['人物行动清楚', '结果会留下真实后果'], risks: ['避免连续使用同一种误会'],
+      openSpaces: ['内应的真实动机留到事件设计时决定']
+    },
+    contentHash: `sha256:${candidateKind === 'candidate_a' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+    createdAt: '2026-08-20T08:00:00.000Z', confirmedAt: null
   };
 }
 

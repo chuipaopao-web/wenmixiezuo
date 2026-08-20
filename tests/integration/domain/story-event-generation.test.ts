@@ -90,14 +90,15 @@ describe('事件双编剧团队生成',()=>{
       const row=context!.database.prepare(
         'SELECT source_manifest_json FROM context_packs WHERE owner_id=? AND book_id=? AND context_pack_id=?'
       ).get(scope.ownerId,scope.bookId,call.context_pack_id) as {source_manifest_json:string};
-      return[call.phase_key,JSON.parse(row.source_manifest_json) as Array<{sourceType:string;content:string}>] as const;
+      return[call.phase_key,JSON.parse(row.source_manifest_json) as Array<{sourceType:string;content:string;constraintStrength?:string}>] as const;
     }));
     const independent=[...manifests.entries()].filter(([phase])=>phase.startsWith('candidate_a:')||phase.startsWith('candidate_b:'));
     expect(independent).toHaveLength(2);
     for(const[,manifest]of independent){
       expect(manifest.map(source=>source.sourceType)).not.toContain('planning:independent_event_candidates');
-      expect(manifest.find(source=>source.sourceType==='owner:event_ideas')?.content).toContain('诱使对手主动犯错');
-      expect(manifest.find(source=>source.sourceType==='owner:event_ideas')?.content).toContain('只影响这个事件');
+      expect(manifest.find(source=>source.sourceType==='owner:event_ideas:preference')?.content).toContain('诱使对手主动犯错');
+      expect(manifest.find(source=>source.sourceType==='owner:event_ideas:preference')?.content).toContain('只影响这个事件');
+      expect(manifest.find(source=>source.sourceType==='owner:event_ideas:preference')?.constraintStrength).toBe('soft_reference');
     }
     const fusion=[...manifests.entries()].find(([phase])=>phase.startsWith('fusion:'))?.[1];
     const peers=fusion?.find(source=>source.sourceType==='planning:independent_event_candidates');

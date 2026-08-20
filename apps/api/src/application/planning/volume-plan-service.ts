@@ -17,6 +17,7 @@ import {
   type VolumePlanRow,
   type VolumePlanVersionRow
 } from '../../infrastructure/db/repositories/volume-plan-repository.js';
+import type { LayeredPlanningService } from './layered-planning-service.js';
 
 export const volumePlanCandidateKinds = [
   'candidate_a', 'candidate_b', 'author_edit', 'fusion', 'legacy'
@@ -69,7 +70,8 @@ export class VolumePlanService {
     private readonly repository: VolumePlanRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly layeredPlanning?: LayeredPlanningService
   ) {}
 
   public list(scope: BookScope): VolumePlanView[] {
@@ -282,7 +284,18 @@ export class VolumePlanService {
         dependencies,
         now
       });
-      return toVersionView(this.requireVersion(scope, volumePlanId, volumePlanVersionId));
+      const stored = toVersionView(this.requireVersion(scope, volumePlanId, volumePlanVersionId));
+      this.layeredPlanning?.projectLegacyVolumeVersion(scope, {
+        volumePlanId,
+        legacyVolumePlanVersionId: volumePlanVersionId,
+        planNumber: plan.plan_number,
+        candidateKind,
+        sourceTaskId,
+        parentLegacyVersionId: parentVersionId,
+        authorInputRefs,
+        content
+      });
+      return stored;
     });
   }
 
@@ -363,6 +376,7 @@ export class VolumePlanService {
         expectedPlanningVersion: expectedWorkflowVersion,
         now
       })) throw conflict('创作流程已经变化，请刷新后重新确认。');
+      this.layeredPlanning?.confirmDirectionForLegacy(scope, volumePlanVersionId);
       return this.toPlanView(scope, this.requirePlan(scope, volumePlanId));
     });
   }

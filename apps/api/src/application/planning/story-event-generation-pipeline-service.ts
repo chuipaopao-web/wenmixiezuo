@@ -13,14 +13,17 @@ import {
 import type { VolumePlanGenerationSeat } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
+import type { SettingGapService } from '../knowledge/setting-gap-service.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
 import type { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
 import { TaskService,type TaskLeaseFence,type TaskRecord } from '../tasks/task-service.js';
+import { authorIdeaContextSources } from './author-idea-context-sources.js';
 import {
   storyEventFingerprint,type StoryEventGenerationBrief
 } from './story-event-generation-service.js';
+import { SETTING_GAP_OUTPUT_INSTRUCTION,stopForDetectedSettingGaps } from './setting-gap-detection.js';
 import { StoryEventService } from './story-event-service.js';
 
 type Kind='candidate_a'|'candidate_b'|'fusion';
@@ -35,7 +38,8 @@ export class StoryEventGenerationPipelineService {
     private readonly repo:StoryEventGenerationRepository,private readonly eventRepo:StoryEventRepository,
     private readonly events:StoryEventService,private readonly tasks:TaskService,private readonly budgets:BudgetService,
     private readonly calls:ModelCallService,private readonly packs:ContextPackService,private readonly ids:IdGenerator,
-    private readonly clock:Clock,private readonly adapters:ModelAdapterFactory,private readonly retrieval?:RetrievalContextSourceService
+    private readonly clock:Clock,private readonly adapters:ModelAdapterFactory,private readonly retrieval?:RetrievalContextSourceService,
+    private readonly settingGaps?:SettingGapService
   ){}
 
   public async executeClaimed(scope:BookScope,taskId:string,workerId:string,fence?:TaskLeaseFence){
@@ -83,21 +87,25 @@ export class StoryEventGenerationPipelineService {
       taskId:task.taskId,sourceTypes:['fact','manuscript','outline','setting','wiki','voice'],limit:kind==='fusion'?10:7
     });
     const contextBudget=storyEventContextBudget(kind);
+    const authorSources=authorIdeaContextSources(brief.authorIdeas,{
+      sourceTypePrefix:'owner:event_ideas',sourceId:'ideas:'+brief.eventId,layer:'planning'
+    });
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:member.agentId,canonRevision:snapshot.canonRevision,
       positioningVersion:snapshot.positioningVersion,tokenBudget:contextBudget.tokenBudget,
       characterBudget:contextBudget.characterBudget,policyVersion:'story-event-context-v1',
-      hardSources:[...hardSources(snapshot,brief,peers),...retrieved.hardSources],optionalSources:retrieved.optionalSources});
+      hardSources:[...hardSources(snapshot,brief,peers),...authorSources.hardSources,...retrieved.hardSources],
+      optionalSources:[...authorSources.optionalSources,...retrieved.optionalSources]});
     const prompt=promptFor(member,kind,snapshot,brief,pack.sources.map(s=>({
       sourceType:s.sourceType,sourceId:s.sourceId,reason:s.reason,content:s.content
     })));
-    const content=await this.call(scope,task,member,kind,prompt,pack.contextPackId);
+    const content=await this.call(scope,task,brief,member,kind,prompt,pack.contextPackId);
     const version=this.events.addVersion(scope,brief.eventId,{expectedEventRevision:brief.expectedEventRevision,
       candidateKind:kind,parentVersionId:brief.expectedActiveVersionId,sourceTaskId:task.taskId,
       authorInputRefs:brief.authorInputRefs,template:brief.template,content,idempotencyKey:task.taskId+':'+kind});
     return{id:version.storyEventVersionId,content:version.content};
   }
 
-  private async call(scope:BookScope,task:TaskRecord,member:VolumePlanGenerationSeat,kind:Kind,base:string,packId:string){
+  private async call(scope:BookScope,task:TaskRecord,brief:StoryEventGenerationBrief,member:VolumePlanGenerationSeat,kind:Kind,base:string,packId:string){
     if(task.budgetId===null)throw new Error('事件任务缺少预算。');
     const adapter=this.adapters.resolve(member.provider,member.modelId,'discussion',member.roleKey as CreativeRoleKey);
     let issue:string|null=null,last:unknown;
@@ -106,7 +114,8 @@ export class StoryEventGenerationPipelineService {
       const inputHash=createHash('sha256').update(input).digest('hex');
       const saved=this.repo.succeededResult(scope,{taskId:task.taskId,agentId:member.agentId,
         modelSnapshotId:member.modelSnapshotId,inputHash});
-      if(saved!==undefined){try{return parseForKind(saved.output_text,kind);}catch(error){issue=message(error);last=error;continue;}}
+      if(saved!==undefined){stopForDetectedSettingGaps({output:saved.output_text,service:this.settingGaps,scope,scopeType:'event',scopeId:brief.eventId});
+        try{return parseForKind(saved.output_text,kind);}catch(error){issue=message(error);last=error;continue;}}
       const maxOutputTokens=kind==='fusion'?9000:6000;
       // A following event carries the previous event settlement, so its prompt can be
       // materially larger than the first event. Freeze against the actual request
@@ -129,6 +138,7 @@ export class StoryEventGenerationPipelineService {
           reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
           requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:member.agentId,prompt:input,maxOutputTokens
         });
+        stopForDetectedSettingGaps({output:result.output,service:this.settingGaps,scope,scopeType:'event',scopeId:brief.eventId});
         try{return parseForKind(result.output,kind);}catch(error){issue=message(error);last=error;}
       }catch(error){last=error;if(this.repo.hasUnresolved(scope,task.taskId))throw error;}
     }
@@ -179,7 +189,6 @@ function hardSources(s:StoryEventGenerationSnapshot,b:StoryEventGenerationBrief,
     {sourceType:'planning:volume_plan',sourceId:s.volumePlanId,version:s.volumeVersion,content:s.volumeContent,reason:'当前确认卷纲；事件必须服务卷目标',priority:100},
     {sourceType:'planning:event_seed',sourceId:s.seed.id,version:s.seed.version,content:s.seed.content,reason:'卷纲分配给本事件的任务和接口',priority:100},
     {sourceType:'planning:setting_baseline',sourceId:s.setting.id,version:s.setting.version,content:s.setting.content,reason:'已确认设定事实边界',priority:100},
-    {sourceType:'owner:event_ideas',sourceId:'ideas:'+s.eventId,content:JSON.stringify(b.authorIdeas),reason:'作者原话；按强度处理：must必须100%执行，preference与inspiration参考融合（观点最多七成）',priority:100},
     {sourceType:'planning:event_template',sourceId:'template:'+s.eventId,content:JSON.stringify(b.template),reason:'作者只选择一种阅读感受；节点可调整、合并或舍弃，不是公式',priority:60,constraintStrength:'soft_reference'}
   ];
   if(s.previousSettlement!==null)result.push({sourceType:'planning:previous_event_settlement',sourceId:s.previousSettlement.id,
@@ -192,13 +201,14 @@ function promptFor(member:VolumePlanGenerationSeat,kind:Kind,s:StoryEventGenerat
   const fusion=kind==='fusion';return JSON.stringify({operation:'story_event_generation_v1',language:'zh-CN',
     seat:{roleKey:member.roleKey,displayName:member.displayName,mode:fusion?'chief_editor_fusion':'independent_screenwriter'},
     book:{title:s.bookTitle,eventOrder:s.order},instructions:fusion?[
-      '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。',AUTHOR_IDEA_POLICY_PLANNING,'事件必须在卷纲约束内改变状态并自然引出下一事件。',
+      '比较两份独立候选，选择因果更强、人物更鲜活的路径，不要平均拼接。',AUTHOR_IDEA_POLICY_PLANNING,SETTING_GAP_OUTPUT_INSTRUCTION,'事件必须在卷纲约束内改变状态并自然引出下一事件。',
       '融合候选必须填写 fusionNotes：向作者说清这份稿子的爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里；每块一两句具体说明，不写空话。',
       ...STORY_EVENT_NARRATIVE_RULES,'保留具体场景、对白、意象和局部解法的自由。','只输出JSON。'
-    ]:['独立提出完整小事件，不能看到另一位编剧答案。',AUTHOR_IDEA_POLICY_PLANNING,'从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
+    ]:['独立提出完整小事件，不能看到另一位编剧答案。',AUTHOR_IDEA_POLICY_PLANNING,SETTING_GAP_OUTPUT_INSTRUCTION,'从欲望、阻力、选择、代价、结果推演，不套爽点清单。',
       ...STORY_EVENT_NARRATIVE_RULES,'模板只是可调整参考；保留场景、对白和局部反转自由。','只输出JSON。'],
     sourcePolicy:{confirmedSettingIsFact:true,previousSettlementIsFact:true,volumePlanIsConstraint:true,
-      unsupportedCoreSetting:'put into uncertaintyNotes'},sources,outputContract:{
+      unsupportedCoreSetting:'put into uncertaintyNotes',authorQuestionNeverBecomesContent:true},sources,outputContract:{
+      settingGaps:[{question:'当前事件缺少什么必要设定',whyNeeded:'为什么不决定就无法继续',affectedObjects:['当前事件或下游章纲']}],
       title:'事件名',volumeResponsibility:'服务本卷什么目标',startingState:'进入状态',trigger:'因果触发',
       participants:['参与人物'],characterGoals:['人物目标'],obstacles:['阻力'],choicesAndCosts:['选择与代价'],
       informationMoves:['信息变化'],localProgression:['内部推进节点'],requiredResult:'必须得到的结果',

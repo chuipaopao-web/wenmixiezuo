@@ -431,11 +431,11 @@ function authorIdeaLine(idea: { text: string; intent: string } | null): string {
     case 'must':
       return `作者本轮要求（必须遵守，方案不得与之冲突）：${idea.text}`;
     case 'question':
-      return `作者本轮疑问（方案里顺带回答它）：${idea.text}`;
+      return `作者本轮疑问（只回答和标明未知，不得把问题本身自动写成正式设定）：${idea.text}`;
     case 'inspiration':
       return `作者本轮灵感（只是启发，可采用也可不采用）：${idea.text}`;
     default:
-      return `作者本轮想法（仅供参考融合：你是专业设计者，方案必须由你主导；方案中符合作者想法的观点保持两到五成，最多不超过一半，不得把作者想法照抄当成结论；开书信息里的"必须遵守"条目仍是硬边界）：${idea.text}`;
+      return `作者本轮强烈偏好（优先照顾，但不是已确认事实；你是专业设计者，方案必须由你主导；方案中符合作者想法的观点保持两到五成，最多不超过一半，不得把作者想法照抄当成结论；开书信息里的"必须遵守"条目仍是硬边界）：${idea.text}`;
   }
 }
 

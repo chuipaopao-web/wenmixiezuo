@@ -1,3 +1,4 @@
+import { parseFirstChapterLaunchContract, type FirstChapterLaunchContract } from '@wenmi/contracts';
 export type ArtifactType = 'creative_plan' | 'story_bible' | 'master_outline' | 'volume_outline' | 'chapter_outline' | 'writing_contract';
 
 export interface StageMasterOutlineStage {
@@ -137,6 +138,7 @@ export interface ChapterOutlineV2 {
   mustNotViolate: string[];
   allowedCandidates: string[];
   creativeFreedom: string[];
+  firstChapterLaunch?: FirstChapterLaunchContract;
 }
 
 const requiredKeys: Record<ArtifactType, string[]> = {
@@ -244,6 +246,10 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
   const stageBoundary = content.stageBoundary === undefined
     ? undefined
     : parseChapterStageBoundary(content.stageBoundary);
+  const firstChapterLaunch = content.firstChapterLaunch === undefined
+    ? undefined
+    : parseFirstChapterLaunchContract(content.firstChapterLaunch);
+  if (firstChapterLaunch !== undefined && chapterNumber !== 1) throw new Error('第一章强启动合同不能附着到其他章节。');
   const mustImplement = requiredTextList(content.mustImplement, '章纲必须实现', 1);
   const mustNotViolate = requiredTextList(content.mustNotViolate, '章纲不得违反', 1);
   const creativeFreedom = requiredTextList(content.creativeFreedom, '章纲自由创作区', 1);
@@ -283,7 +289,8 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
     mustImplement,
     mustNotViolate,
     allowedCandidates: optionalTextList(content.allowedCandidates, '允许新增候选', 8),
-    creativeFreedom
+    creativeFreedom,
+    ...(firstChapterLaunch === undefined ? {} : { firstChapterLaunch })
   };
 }
 

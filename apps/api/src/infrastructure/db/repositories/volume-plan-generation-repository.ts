@@ -1,6 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { assertBookScope, type BookScope } from '../../../domain/scope.js';
 
+export interface InternalStructureMethodVersionRecord {
+  id: string;
+  methodKey: string;
+  version: string;
+  category: 'macro' | 'character_arc' | 'causal_principle' | 'serial_rhythm' | 'narration';
+  contentFingerprint: string;
+  content: Record<string, unknown>;
+}
 export interface VolumePlanGenerationSeat {
   roleKey: string;
   agentId: string;
@@ -322,6 +330,49 @@ export class VolumePlanGenerationRepository {
     ).changes === 1;
   }
 
+  public syncInternalStructureMethods(methods: InternalStructureMethodVersionRecord[], now: string): void {
+    const insert = this.database.prepare(`INSERT OR IGNORE INTO internal_structure_method_versions (
+      internal_structure_method_version_id,method_key,version,category,content_fingerprint,content_json,status,created_at
+    ) VALUES (?,?,?,?,?,?,'active',?)`);
+    const find = this.database.prepare(`SELECT content_fingerprint FROM internal_structure_method_versions
+      WHERE internal_structure_method_version_id=?`);
+    for (const method of methods) {
+      insert.run(method.id, method.methodKey, method.version, method.category, method.contentFingerprint,
+        JSON.stringify(method.content), now);
+      const stored = find.get(method.id) as { content_fingerprint: string } | undefined;
+      if (stored?.content_fingerprint !== method.contentFingerprint) {
+        throw new Error(`内部结构方法 ${method.methodKey} 内容已变化，必须提升方法版本。`);
+      }
+    }
+  }
+
+  public recordRouteMethodAudit(scope: BookScope, input: {
+    auditId: string;
+    volumePlanId: string;
+    taskId: string;
+    volumePlanVersionId: string;
+    candidateKind: 'candidate_a' | 'candidate_b';
+    methodVersionIds: string[];
+    selectionReason: string;
+    now: string;
+  }): void {
+    assertBookScope(scope);
+    const direction = this.database.prepare(`SELECT proposal_id FROM volume_direction_versions
+      WHERE owner_id=? AND book_id=? AND volume_plan_id=? AND legacy_volume_plan_version_id=?`)
+      .get(scope.ownerId, scope.bookId, input.volumePlanId, input.volumePlanVersionId) as { proposal_id: string } | undefined;
+    if (direction === undefined) throw new Error('卷路线方法审计找不到作者可见方案。');
+    const calls = this.database.prepare(`SELECT request_id,phase_key,agent_id,model_snapshot_id,context_pack_id,input_hash,state
+      FROM model_calls WHERE owner_id=? AND book_id=? AND task_id=? AND phase_key LIKE ? ORDER BY created_at,request_id`)
+      .all(scope.ownerId, scope.bookId, input.taskId, `${input.candidateKind}:%`) as unknown as Array<Record<string, unknown>>;
+    this.database.prepare(`INSERT OR IGNORE INTO volume_route_method_audits (
+      volume_route_method_audit_id,owner_id,book_id,volume_plan_id,source_task_id,proposal_id,candidate_kind,
+      method_version_ids_json,selection_reason,call_evidence_json,created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      input.auditId, scope.ownerId, scope.bookId, input.volumePlanId, input.taskId, direction.proposal_id,
+      input.candidateKind, JSON.stringify(input.methodVersionIds), input.selectionReason,
+      JSON.stringify({ calls, callCount: calls.length }), input.now
+    );
+  }
   public markFailed(scope: BookScope, taskId: string, reason: string, now: string): void {
     assertBookScope(scope);
     this.database.prepare(`
@@ -338,6 +389,21 @@ export class VolumePlanGenerationRepository {
       SET waiting_task_id = NULL, blocking_reason = NULL, updated_at = ?
       WHERE owner_id = ? AND book_id = ? AND waiting_task_id = ?
     `).run(now, scope.ownerId, scope.bookId, taskId);
+  }
+
+  public supersedeCandidate(scope: BookScope, volumePlanVersionId: string, now: string): void {
+    assertBookScope(scope);
+    this.database.prepare(`UPDATE volume_plan_versions SET status = 'superseded'
+      WHERE owner_id = ? AND book_id = ? AND volume_plan_version_id = ? AND status = 'candidate'`)
+      .run(scope.ownerId, scope.bookId, volumePlanVersionId);
+    this.database.prepare(`UPDATE volume_direction_versions SET status = 'superseded'
+      WHERE owner_id = ? AND book_id = ? AND legacy_volume_plan_version_id = ? AND status = 'candidate'`)
+      .run(scope.ownerId, scope.bookId, volumePlanVersionId);
+    this.database.prepare(`UPDATE volume_plans SET updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND volume_plan_id = (
+        SELECT volume_plan_id FROM volume_plan_versions
+        WHERE owner_id = ? AND book_id = ? AND volume_plan_version_id = ?
+      )`).run(now, scope.ownerId, scope.bookId, scope.ownerId, scope.bookId, volumePlanVersionId);
   }
 
   public candidateByTask(

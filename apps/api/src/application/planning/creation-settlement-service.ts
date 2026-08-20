@@ -4,11 +4,12 @@ import {assertBookScope,type BookScope} from '../../domain/scope.js';
 import type {CreationSettlementRepository,PlanningSettlementView,StageSettlementRow} from '../../infrastructure/db/repositories/creation-settlement-repository.js';
 import type {LongformContinuityRepository,SettlementContextRecord} from '../../infrastructure/db/repositories/longform-continuity-repository.js';
 import type {StageSettlementService} from '../continuity/stage-settlement-service.js';
+import type {StoryThreadService} from './story-thread-service.js';
 
 export class CreationSettlementService{
   public constructor(private readonly repository:CreationSettlementRepository,
     private readonly continuity:LongformContinuityRepository,private readonly settlements:StageSettlementService,
-    private readonly ids:IdGenerator,private readonly clock:Clock){}
+    private readonly ids:IdGenerator,private readonly clock:Clock,private readonly storyThreads?:StoryThreadService){}
 
   public getEvent(scope:BookScope,eventId:string):PlanningSettlementView|null{
     assertBookScope(scope);return this.repository.assessment(scope,'event',eventId);
@@ -65,6 +66,9 @@ export class CreationSettlementService{
       if(latest.activeEventId===eventId&&latest.stage==='event_settlement_in_progress')
         throw conflict('事件结算完成时创作进度发生冲突，请刷新后重试。');
     }
+    this.repository.recordFirstVolumeClimaxCompletion(scope,{eventId,settlementId:settlement.stage_settlement_id,
+      chapterStart:settlement.chapter_start,chapterEnd:settlement.chapter_end,actual,now:this.clock.now().toISOString()});
+    this.storyThreads?.applyEventSettlement(scope,eventId,settlement.stage_settlement_id);
     return this.repository.assessment(scope,'event',eventId)!;
   }
 

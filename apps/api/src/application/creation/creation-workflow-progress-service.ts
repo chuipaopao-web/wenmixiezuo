@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
-import { CreationWorkflowProgressRepository } from '../../infrastructure/db/repositories/creation-workflow-progress-repository.js';
+import { CreationWorkflowProgressRepository, type FirstVolumeLaunchProgressRow } from '../../infrastructure/db/repositories/creation-workflow-progress-repository.js';
 
 const managedStages = new Set([
   'next_chapters_ready', 'manuscript_in_progress', 'waiting_for_author', 'chapter_settlement_in_progress'
@@ -13,6 +13,11 @@ export interface ChapterProgressResult {
   eventId: string | null;
 }
 
+export interface FirstVolumeLaunchProgressView {
+  volumePlanId:string;volumeDirectionVersionId:string;totalEffectiveCharacters:number;latestSettledChapterNumber:number;
+  climaxStatus:FirstVolumeLaunchProgressRow['climaxStatus'];climaxEventId:string|null;climaxCompletedAtEffectiveCharacters:number|null;
+  prediction:Record<string,unknown>;actualEvidence:Record<string,unknown>|null;updatedAt:string;
+}
 export class CreationWorkflowProgressService {
   private readonly repository: CreationWorkflowProgressRepository;
 
@@ -40,6 +45,18 @@ export class CreationWorkflowProgressService {
     this.repository.markChapterSettlementStarted(scope, taskId);
   }
 
+  public firstVolumeLaunchProgress(scope:BookScope):FirstVolumeLaunchProgressView|null{
+    assertBookScope(scope);
+    const row=this.repository.refreshFirstVolumeLaunchProgress(scope,new Date().toISOString());
+    if(row===null)return null;
+    return{volumePlanId:row.volumePlanId,volumeDirectionVersionId:row.volumeDirectionVersionId,
+      totalEffectiveCharacters:row.totalEffectiveCharacters,latestSettledChapterNumber:row.latestSettledChapterNumber,
+      climaxStatus:row.climaxStatus,climaxEventId:row.climaxEventId,
+      climaxCompletedAtEffectiveCharacters:row.climaxCompletedAtEffectiveCharacters,
+      prediction:JSON.parse(row.predictionJson) as Record<string,unknown>,
+      actualEvidence:row.actualEvidenceJson===null?null:JSON.parse(row.actualEvidenceJson) as Record<string,unknown>,
+      updatedAt:row.updatedAt};
+  }
   public markChapterSettled(scope: BookScope, chapterNumber: number): ChapterProgressResult {
     assertBookScope(scope);
     return this.repository.runInTransaction(() => {
@@ -99,6 +116,7 @@ export class CreationWorkflowProgressService {
           409
         );
       }
+      this.repository.refreshFirstVolumeLaunchProgress(scope,now);
       return { managed: true, stage: nextStage, eventId: workflow.activeEventId };
     });
   }

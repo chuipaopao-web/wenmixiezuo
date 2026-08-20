@@ -15,6 +15,7 @@ import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { resolveInside } from '../../infrastructure/files/file-utils.js';
 import {
   countNovelCharacters,
+  extractFirstEffectiveNovelCharacters,
   type StructuredReview
 } from '../../infrastructure/models/deterministic-novel-models.js';
 import type { ModelAdapter } from '../../infrastructure/models/model-adapter.js';
@@ -753,6 +754,7 @@ export class ChapterPipelineService {
     const frozenOutline = artifacts.requireVersion(scope, run.outline_version_id);
     const frozenContract = artifacts.requireVersion(scope, run.writing_contract_version_id);
     const chapter = this.requireChapter(scope, run.chapter_id);
+    const first500Evidence=chapter.chapter_number===1?extractFirstEffectiveNovelCharacters(content,500):null;
     const previousChapter = this.database.prepare(`
       SELECT e.state_json, c.canon_manuscript_version_id FROM chapters c JOIN chapter_end_states e
         ON e.chapter_end_state_id = c.chapter_end_state_id
@@ -893,6 +895,8 @@ export class ChapterPipelineService {
         : completeFrozenReviewSources.filter((source) => source.sourceType !== 'setting_confirmed_items');
       const reviewHardSources: ContextSource[] = [
         { sourceType: 'current_manuscript', sourceId: manuscriptVersionId, content, reason: '全体点评席共同读取的同一不可变完整正文', priority: 100 },
+        ...(reviewer.role==='experience'&&first500Evidence!==null?[{sourceType:'current_manuscript_first_500',sourceId:`first500:${manuscriptVersionId}`,
+          content:JSON.stringify(first500Evidence),reason:'体验席专用：按统一有效字符算法截出的第一章前500正文证据；不含章节标题和空行',priority:100}]:[]),
         ...ownerReviewSources,
         ...roleFrozenReviewSources,
         ...factPreviousChapterSource,
@@ -969,9 +973,12 @@ export class ChapterPipelineService {
                   '若requiredAction只需补充、删除或替换一两句，添加身份/前情注记、动作过渡、微反应或一句钩子台词，则severity最高只能是minor且verdict应为pass。',
                   '长篇连载章节可以直接承接上一章并从动作中开始，不强制每章复述前情；只要当前场景可理解，缺少回顾最多是observation。正文已用岗位称呼、持有物或行动展示职责时，不得仅因没有背景履历判定人物根基缺失。',
                   experienceReviewJurisdictionRule(),
+                  ...(first500Evidence===null?[]:['第一章前500有效正文字符必须产生可定位的读者问题、期待或情绪抓力，并出现正在发生的具体处境或人物行动。只依据current_manuscript_first_500判断，不得用题材标签或关键词评分代替阅读体验；若全是背景说明且没有兴趣锚点，必须引用其中连续正文原句，判major/rewrite并要求定点重写第一章开头，不能放行生成第二章。']),
                   '政治/情色风险等级必须基于明确政策证据，不能由题材、冲突强度或个人不适推断。'
                 ],
           ...(adapter.provider.startsWith('local-deterministic') ? { content } : {}),
+          ...(reviewer.role==='experience'&&first500Evidence!==null?{first500ReviewContract:{effectiveCharacterCount:first500Evidence.effectiveCount,
+            excerpt:first500Evidence.text,evidenceMustBeExactSubstring:true,algorithmicInterestScoringForbidden:true}}:{}),
           factExtractionScope: reviewer.role === 'fact'
             ? '逐项检查正文中实际出现且会影响后续的人物、势力、地点、道具/资源、规则、事件、关系与状态；只保存有正文原句证据的类别，不要求凑齐，不得把规划或猜测写成事实。人物隶属某势力时，若正文还明确写出该势力的类型、驻地、人物或行动，应同时为势力本身输出organization事实，不能只把势力名塞进人物affiliation。地点、道具同理：正文给出其自身属性时要以自身为主体。每章若发生了会改变后续局面的明确行动，可输出1至3条event.chapter_章节号事实；事件主体必须是自然事件名，value用一句话记录实际结果，不能用“某人参与了第几章”冒充事件。' : undefined,
           contract: reviewer.role === 'literary'

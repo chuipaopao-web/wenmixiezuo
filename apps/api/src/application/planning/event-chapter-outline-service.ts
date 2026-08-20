@@ -1,6 +1,6 @@
 import {
-  hashStableContractContent,parseEventChapterSequenceContent,type ChapterOutlineContent,
-  type EventChapterSequenceContent,type VersionReference
+  hashStableContractContent,parseEventChapterSequenceContent,parseVolumePlanContent,type ChapterOutlineContent,
+  type EventChapterSequenceContent,type FirstChapterLaunchContract,type GoldenThreeLaunchPackage,type VersionReference
 } from '@wenmi/contracts';
 import { ArtifactService } from '../artifacts/artifact-service.js';
 import { parseChapterOutlineV2,type ChapterOutlineV2 } from '../../domain/artifact-schemas.js';
@@ -72,6 +72,7 @@ export class EventChapterOutlineService {
     return this.uow.run(()=>{
       const replay=this.repo.sequenceVersionByKey(scope,key);if(replay!==undefined){same(replay.request_hash,requestHash);return sequenceVersionView(replay);}
       const sequence=this.sequence(scope,eventId),snapshot=this.snapshot(scope,eventId);
+      content=bindGoldenThreeLaunch(content,snapshot.volumeContent);
       if(sequence.revision!==expected)throw conflict('事件章纲序列已经变化。');
       this.assertSequenceCurrent(sequence,snapshot);this.assertSequenceContent(scope,sequence,snapshot,content);
       if(parent!==null&&this.repo.sequenceVersion(scope,sequence.event_chapter_sequence_id,parent)===undefined)throw validation('父版本不属于当前序列。');
@@ -179,7 +180,9 @@ export class EventChapterOutlineService {
     input:Record<string,unknown>,contextOpeningState:string|null):ChapterOutlineV2{
     const planned=JSON.parse(outline.planned_content_json) as ChapterOutlineContent,first=all[0]!,last=all.at(-1)!;
     const isLast=outline.event_chapter_outline_id===last.event_chapter_outline_id;
+    const firstChapterLaunch=outline.chapter_number===1?firstChapterLaunchFromVolume(snapshot.volumeContent):null;
     const candidate={...input,outlineSchema:'chapter_outline_v2',chapterNumber:outline.chapter_number,
+      ...(firstChapterLaunch===null?{firstChapterLaunch:undefined}:{firstChapterLaunch}),
       title:typeof input.title==='string'&&input.title.trim().length>0?input.title:planned.title,
       sourceStage:{stageNumber:snapshot.eventOrder,title:parseEvent(snapshot).title,
         chapterRange:{start:first.chapter_number,end:last.chapter_number}},
@@ -235,6 +238,29 @@ export class EventChapterOutlineService {
   private requireSequenceVersion(scope:BookScope,sequenceId:string,id:string){const value=this.repo.sequenceVersion(scope,sequenceId,id);if(value===undefined)throw notFound('当前序列中没有这个版本。');return value;}
   private requireOutlineVersion(scope:BookScope,outlineId:string,id:string){const value=this.repo.outlineVersion(scope,outlineId,id);if(value===undefined)throw notFound('当前章纲中没有这个版本。');return value;}
   private workflow(scope:BookScope){const value=this.repo.workflow(scope);if(value===undefined)throw conflict('当前书籍没有创作流程状态。');return value;}
+}
+function launchPlanFromVolume(content:string){try{
+  return parseVolumePlanContent(JSON.parse(content) as unknown).firstVolumeLaunch??null;
+}catch{return null;}}
+function bindGoldenThreeLaunch(content:EventChapterSequenceContent,volumeContent:string):EventChapterSequenceContent{
+  if(content.startChapterNumber!==1){const{goldenThreeLaunch:_,...withoutLaunch}=content;return withoutLaunch;}
+  const launch=launchPlanFromVolume(volumeContent);if(launch===null)return content;
+  const chapters=launch.goldenThree.map(item=>({chapterNumber:item.chapterNumber as 1|2|3,
+    responsibility:item.responsibility,protagonistAction:item.action,pressureOrPull:item.pressure,
+    deliveredPayoff:item.payoff,nextExpectation:item.nextExpectation}));
+  const goldenThreeLaunch:GoldenThreeLaunchPackage={
+    overallPromise:`${launch.first500.changePromise}；前三章第一次回报后继续期待：${chapters[2]!.nextExpectation}`,
+    chapters,recalibrateAfterChapterOne:true};
+  return{...content,goldenThreeLaunch};
+}
+function firstChapterLaunchFromVolume(volumeContent:string):FirstChapterLaunchContract|null{
+  const launch=launchPlanFromVolume(volumeContent);if(launch===null)return null;const first=launch.goldenThree[0]!;
+  return{first500InterestAnchor:`${launch.first500.readerQuestion}；${launch.first500.emotionalGrip}`,
+    immediateSituation:launch.first500.immediateSituation,
+    firstDesireDangerOrEmotion:`${first.action}；${first.pressure}`,
+    requiredEffectiveChange:launch.first500.changePromise,
+    firstRevealOfUniqueAppeal:first.responsibility,firstPayoff:first.payoff,nextExpectation:first.nextExpectation,
+    writerFreedom:['具体对白、动作、场景调度和意象由主笔自由设计','只要求达到兴趣与变化效果，不限定打斗、打脸或反转手段']};
 }
 function parseEvent(s:ActiveEventChapterSnapshot){return JSON.parse(s.eventContent) as{title:string;requiredResult:string;endingConditions:string[];uncertaintyNotes:string[]};}
 function baseDependencies(s:ActiveEventChapterSnapshot):VersionReference[]{return[

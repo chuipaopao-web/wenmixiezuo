@@ -31,9 +31,12 @@ import { KnowledgeRepository } from '../infrastructure/db/repositories/knowledge
 import { ChunkSnapshotRepository } from '../infrastructure/db/repositories/chunk-snapshot-repository.js';
 import { loadLocalRetrievalRuntime } from '../infrastructure/retrieval/local-retrieval-runtime.js';
 import { VolumePlanGenerationPipelineService } from '../application/planning/volume-plan-generation-pipeline-service.js';
+import { EventChainGenerationPipelineService } from '../application/planning/event-chain-generation-pipeline-service.js';
 import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
 import { VolumePlanService } from '../application/planning/volume-plan-service.js';
+import { LayeredPlanningRepository } from '../infrastructure/db/repositories/layered-planning-repository.js';
+import { LayeredPlanningService } from '../application/planning/layered-planning-service.js';
 import { UnitOfWork } from '../infrastructure/db/unit-of-work.js';
 import { TaskService } from '../application/tasks/task-service.js';
 import { BudgetService } from '../application/budget/budget-service.js';
@@ -55,6 +58,8 @@ import { BookBrandingDesignPipelineService } from '../application/books/book-bra
 import { BookBrandingDesignRepository } from '../infrastructure/db/repositories/book-branding-design-repository.js';
 import { ChapterChallengerReviewPipelineService } from '../application/creation/chapter-challenger-review-pipeline-service.js';
 import { ChapterChallengerReviewRepository } from '../infrastructure/db/repositories/chapter-challenger-review-repository.js';
+import { SettingGapService } from '../application/knowledge/setting-gap-service.js';
+import { SettingGapRepository } from '../infrastructure/db/repositories/setting-gap-repository.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -96,22 +101,31 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   const volumePlanIds = new UuidGenerator();
   const volumePlanClock = new SystemClock();
   const volumePlanBudgets = new BudgetService(database, volumePlanIds, volumePlanClock);
+  const runtimeLayeredPlanning = new LayeredPlanningService(
+    new LayeredPlanningRepository(database), new UnitOfWork(database), volumePlanIds, volumePlanClock
+  );
+  const runtimeVolumePlans = new VolumePlanService(
+    new VolumePlanRepository(database), new UnitOfWork(database),
+    volumePlanIds, volumePlanClock, runtimeLayeredPlanning
+  );
+  const runtimeTeamRepository = new VolumePlanGenerationRepository(database);
+  const runtimeTaskService = new TaskService(database, config.releaseId, volumePlanClock);
+  const runtimeSettingGaps = new SettingGapService(
+    new SettingGapRepository(database), new UnitOfWork(database), volumePlanIds, volumePlanClock
+  );
   const volumePlanGenerationPipeline = new VolumePlanGenerationPipelineService(
-    new VolumePlanGenerationRepository(database),
-    new VolumePlanService(
-      new VolumePlanRepository(database),
-      new UnitOfWork(database),
-      volumePlanIds,
-      volumePlanClock
-    ),
-    new TaskService(database, config.releaseId, volumePlanClock),
-    volumePlanBudgets,
+    runtimeTeamRepository, runtimeVolumePlans, runtimeTaskService, volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
     new ContextPackService(database, volumePlanIds, volumePlanClock),
-    volumePlanIds,
-    volumePlanClock,
-    modelAdapters,
-    new RetrievalContextSourceService(productionRetrieval)
+    volumePlanIds, volumePlanClock, modelAdapters,
+    new RetrievalContextSourceService(productionRetrieval),
+    runtimeSettingGaps
+  );
+  const eventChainGenerationPipeline = new EventChainGenerationPipelineService(
+    runtimeTeamRepository, runtimeLayeredPlanning, runtimeTaskService, volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    new ContextPackService(database, volumePlanIds, volumePlanClock),
+    volumePlanIds, volumePlanClock, modelAdapters
   );
   const bookBrandingDesignPipeline = new BookBrandingDesignPipelineService(
     new BookBrandingDesignRepository(database),
@@ -139,7 +153,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   const storyEventGenerationPipeline = new StoryEventGenerationPipelineService(
     new StoryEventGenerationRepository(database),
     storyEventRepository,
-    new StoryEventService(storyEventRepository, new UnitOfWork(database), volumePlanIds, volumePlanClock),
+    new StoryEventService(storyEventRepository, new UnitOfWork(database), volumePlanIds, volumePlanClock, runtimeLayeredPlanning),
     new TaskService(database, config.releaseId, volumePlanClock),
     volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
@@ -147,7 +161,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     volumePlanIds,
     volumePlanClock,
     modelAdapters,
-    new RetrievalContextSourceService(productionRetrieval)
+    new RetrievalContextSourceService(productionRetrieval),
+    runtimeSettingGaps
   );
   const settlementFollowUpPipeline = new SettlementFollowUpPipelineService(
     new SettlementFollowUpRepository(database),
@@ -177,7 +192,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     eventChapterGenerationService, eventChapterTaskService, volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
     new ContextPackService(database, volumePlanIds, volumePlanClock),
-    volumePlanIds, volumePlanClock, modelAdapters
+    volumePlanIds, volumePlanClock, modelAdapters, runtimeSettingGaps
   );  const capabilities = new CapabilityService(
     new RuntimeCapabilityProbe(database, config.dataDir),
     new ModelAssetRegistry(config.dataDir),
@@ -254,6 +269,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
           ? await new ContinuationAnalysisPipelineService(database, config.dataDir, config.releaseId, new UuidGenerator(), new SystemClock(), modelAdapters).executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
           : task.task_type === 'volume_plan_generation'
             ? await volumePlanGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+            : task.task_type === 'event_chain_generation'
+              ? await eventChainGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'book_branding_design'
               ? await bookBrandingDesignPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
             : task.task_type === 'chapter_challenger_review'

@@ -12,11 +12,14 @@ import { LongformContinuityRepository,type SettlementContextRecord } from '../..
 import { compactStageSettlementContext } from '../continuity/stage-settlement-presentation.js';
 import type { ModelAdapterFactory } from '../../infrastructure/models/model-adapter-factory.js';
 import { thinkingTokenAllowance } from '../../infrastructure/models/model-runtime-config.js';
+import type { SettingGapService } from '../knowledge/setting-gap-service.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens,type ContextPackService,type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService,type TaskLeaseFence,type TaskRecord } from '../tasks/task-service.js';
+import { authorIdeaContextSources } from './author-idea-context-sources.js';
 import { EventChapterGenerationService,type EventChapterGenerationBrief } from './event-chapter-generation-service.js';
+import { SETTING_GAP_OUTPUT_INSTRUCTION,stopForDetectedSettingGaps } from './setting-gap-detection.js';
 import { EventChapterOutlineService } from './event-chapter-outline-service.js';
 
 export class EventChapterGenerationPipelineService {
@@ -25,7 +28,7 @@ export class EventChapterGenerationPipelineService {
     private readonly plans:EventChapterOutlineService,_generations:EventChapterGenerationService,
     private readonly tasks:TaskService,private readonly budgets:BudgetService,private readonly calls:ModelCallService,
     private readonly packs:ContextPackService,private readonly ids:IdGenerator,private readonly clock:Clock,
-    private readonly adapters:ModelAdapterFactory){}
+    private readonly adapters:ModelAdapterFactory,private readonly settingGaps?:SettingGapService){}
 
   public async executeClaimed(scope:BookScope,taskId:string,workerId:string,fence?:TaskLeaseFence){
     const task=this.tasks.require(scope,taskId);this.assertClaim(task,workerId,fence);
@@ -52,6 +55,9 @@ export class EventChapterGenerationPipelineService {
 
   private async generateSequence(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
+    const authorSources=authorIdeaContextSources(brief.authorIdeas,{
+      sourceTypePrefix:'owner:chapter_sequence_ideas',sourceId:'ideas:'+brief.eventId,layer:'execution'
+    });
     const sources:ContextSource[]=[
       ...settlementSources(this.continuity.writerSettlementContext(scope,view.nextChapterNumber,5)),
       ...genreBriefSources(snapshot),
@@ -59,21 +65,20 @@ export class EventChapterGenerationPipelineService {
         content:compactVolumeForEvent(snapshot.volumeContent,eventTitle(snapshot.eventContent)),
         reason:'活动卷纲中与当前事件直接相关的上层约束',priority:100},
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
-        content:snapshot.eventContent,reason:'已确认事件大纲；完整章节序列必须实现其结束条件',priority:100},
-      {sourceType:'owner:chapter_sequence_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
-        reason:'作者对当前事件章序列的原话；按指令执行（must必须100%遵守）',priority:100}
+        content:snapshot.eventContent,reason:'已确认事件大纲；完整章节序列必须实现其结束条件',priority:100}
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
       canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
-      tokenBudget:16000,characterBudget:36000,policyVersion:'event-chapter-sequence-v1',hardSources:sources,optionalSources:[]});
+      tokenBudget:16000,characterBudget:36000,policyVersion:'event-chapter-sequence-v1',hardSources:[...sources,...authorSources.hardSources],
+      optionalSources:authorSources.optionalSources});
     const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
     const skeletonPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton',language:'zh-CN',
       seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},startChapterNumber:view.nextChapterNumber,
-      instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。',AUTHOR_IDEA_POLICY_EXECUTION,'先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
+      instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。',AUTHOR_IDEA_POLICY_EXECUTION,SETTING_GAP_OUTPUT_INSTRUCTION,'先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
         '若卷纲带有firstVolumeLaunch：第1至3章必须分别承接对应黄金三章职责；第1章另须把前500有效字的读者问题、即时处境、情绪抓力和变化承诺写进章节职责；承担卷高潮的事件必须落实重大高潮的选择、代价和不可逆变化。',
         '相邻章必须严格承接：后一章openingState与前一章endingState逐字相同。','每项已确认事件结束条件都要原样复制，并标明在哪一章闭环。',
         '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
-      outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
+      outputContract:{settingGaps:[{question:'章序列缺少什么必要设定',whyNeeded:'为什么现在无法继续',affectedObjects:['当前事件或章节']}],eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
         eventResponsibility:'本章对事件的唯一作用',openingState:'开章状态',endingState:'章末状态',nextChapterInterface:'下一章接口'}],
         eventEndingConditions:['原样复制事件结束条件'],closureCoverage:[{endingCondition:'结束条件',evidenceChapterNumber:1}],
         flexibilityNotes:['可滚动调整的部分']}});
@@ -82,7 +87,7 @@ export class EventChapterGenerationPipelineService {
     try{skeleton=parseSequenceSkeleton(skeletonOutput);}catch{
       const repairPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton_repair',language:'zh-CN',
         instruction:'上一次返回接近完整，但至少缺少一个必填字段。只修复JSON结构，不改变故事内容；每章都必须有chapterNumber、title、eventResponsibility、openingState、endingState、nextChapterInterface，最后一章也不能省略nextChapterInterface。',
-        invalidOutput:skeletonOutput,outputContract:{eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,
+        invalidOutput:skeletonOutput,outputContract:{settingGaps:[{question:'章序列缺少什么必要设定',whyNeeded:'为什么现在无法继续',affectedObjects:['当前事件或章节']}],eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,
           chapters:[{chapterNumber:view.nextChapterNumber,title:'章名',eventResponsibility:'本章作用',openingState:'开章状态',endingState:'章末状态',
             nextChapterInterface:'下一章或下一事件承接'}],eventEndingConditions:['事件结束条件'],
           closureCoverage:[{endingCondition:'必须与结束条件逐字相同',evidenceChapterNumber:view.nextChapterNumber}],flexibilityNotes:['可自由发挥处']}});
@@ -95,10 +100,10 @@ export class EventChapterGenerationPipelineService {
       const detailPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'chapter_details',language:'zh-CN',
         seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},eventTitle:skeleton.eventTitle,startChapterNumber:skeleton.startChapterNumber,
         targetChapterNumbers:chapterNumbers,sequenceSkeleton:skeleton,
-        instructions:['只补全targetChapterNumbers指定的两至三章，不重复输出其他章节。',AUTHOR_IDEA_POLICY_EXECUTION,'每章的人物目标、冲突、选择与代价必须具体，并由人物处境自然推出。',
+        instructions:['只补全targetChapterNumbers指定的两至三章，不重复输出其他章节。',AUTHOR_IDEA_POLICY_EXECUTION,SETTING_GAP_OUTPUT_INSTRUCTION,'每章的人物目标、冲突、选择与代价必须具体，并由人物处境自然推出。',
           '每章给出三至五个粗粒度剧情推进点，不写正文，不重复同义句。','软建议与自由创作区必须分开；自由创作区保持非空，让正文写手可以设计对话、动作、意象和局部调度。',
           '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
-        outputContract:{chapters:targets.map(chapter=>({chapterNumber:chapter.chapterNumber,characterGoals:['人物当章目标'],conflicts:['具体阻力'],
+        outputContract:{settingGaps:[{question:'章节细节缺少什么必要设定',whyNeeded:'为什么现在无法继续',affectedObjects:['当前章节']}],chapters:targets.map(chapter=>({chapterNumber:chapter.chapterNumber,characterGoals:['人物当章目标'],conflicts:['具体阻力'],
           choicesAndCosts:['人物选择与相应代价'],informationChanges:['本章新增、纠正或隐藏的信息'],storyBeats:['三至五个粗粒度推进节点'],
           softSuggestions:['可不用的体验建议'],creativeFreedom:['对白、动作、意象和局部调度的自由空间']}))}});
       details.push(...parseSequenceDetails(await this.call(scope,task,brief,detailPrompt,pack.contextPackId,
@@ -118,6 +123,9 @@ export class EventChapterGenerationPipelineService {
   private async generateDetails(scope:BookScope,task:TaskRecord,brief:EventChapterGenerationBrief){
     const view=this.plans.get(scope,brief.eventId)!;const snapshot=this.outlineRepo.activeSnapshot(scope,brief.eventId)!;
     const targets=brief.outlineRefs.map(ref=>view.outlines.find(item=>item.outlineId===ref.outlineId)!);
+    const authorSources=authorIdeaContextSources(brief.authorIdeas,{
+      sourceTypePrefix:'owner:chapter_outline_ideas',sourceId:'ideas:'+brief.eventId,layer:'execution'
+    });
     const activeSequence=view.activeVersion!.content,firstIndex=activeSequence.chapters.findIndex(chapter=>chapter.chapterNumber===targets[0]!.chapterNumber),
       lastIndex=activeSequence.chapters.findIndex(chapter=>chapter.chapterNumber===targets.at(-1)!.chapterNumber);
     const sequenceContext={eventTitle:activeSequence.eventTitle,startChapterNumber:activeSequence.startChapterNumber,
@@ -137,13 +145,12 @@ export class EventChapterGenerationPipelineService {
       {sourceType:'planning:story_event',sourceId:snapshot.eventId,version:snapshot.eventVersion,
         content:snapshot.eventContent,reason:'活动事件硬约束',priority:100},
       {sourceType:'planning:event_chapter_sequence',sourceId:view.activeVersionId!,version:view.activeVersion!.version,
-        content:JSON.stringify(sequenceContext),reason:'已确认章序列中本轮三章及其前后承接点',priority:100},
-      {sourceType:'owner:chapter_outline_ideas',sourceId:'ideas:'+brief.eventId,content:JSON.stringify(brief.authorIdeas),
-        reason:'作者对本轮章纲的原话；按指令执行（must必须100%遵守）',priority:100}
+        content:JSON.stringify(sequenceContext),reason:'已确认章序列中本轮三章及其前后承接点',priority:100}
     ];
     const pack=this.packs.build(scope,{taskId:task.taskId,agentId:brief.member.agentId,
       canonRevision:this.continuity.latestCanonRevision(scope),positioningVersion:0,
-      tokenBudget:22000,characterBudget:50000,policyVersion:'event-chapter-details-v1',hardSources:sources,optionalSources:[]});
+      tokenBudget:22000,characterBudget:50000,policyVersion:'event-chapter-details-v1',hardSources:[...sources,...authorSources.hardSources],
+      optionalSources:authorSources.optionalSources});
     const sourcePayload=pack.sources.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,content:source.content}));
     const details:ChapterOutlineV2[]=[];
     const latestSettledChapter=this.continuity.latestSettledChapter(scope);
@@ -153,7 +160,7 @@ export class EventChapterGenerationPipelineService {
       const prompt=JSON.stringify({operation:'event_chapter_detail_generation_v1',generationPhase:'single_chapter',language:'zh-CN',
         seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},chapterNumbers:[target.chapterNumber],
         previousGeneratedEndingState,
-        instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',AUTHOR_IDEA_POLICY_EXECUTION,
+        instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',AUTHOR_IDEA_POLICY_EXECUTION,SETTING_GAP_OUTPUT_INSTRUCTION,
           ...(previousGeneratedEndingState===null?[]:[`本章openingState必须逐字等于上一份详细章纲的requiredEndingState：${previousGeneratedEndingState}`]),
           ...(target.chapterNumber===1?[
             '这是全书第一章：mustImplement必须写入前500有效字内的读者问题、即时处境、情绪抓力和变化承诺，并承接卷纲goldenThree第1章职责；手段由人物和题材决定，不机械打脸。',
@@ -162,7 +169,7 @@ export class EventChapterGenerationPipelineService {
           '只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
           '保留非空自由创作区，正文不是逐字段扩写。','设计三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。',
           '保持自然、具体、简洁，不写正文，不解释系统规则；只输出JSON。'],sources:sourcePayload,
-        outputContract:{outlines:[detailContract(target.chapterNumber)]}});
+        outputContract:{settingGaps:[{question:'本章缺少什么必要设定',whyNeeded:'为什么现在无法继续',affectedObjects:['当前章纲']}],outlines:[detailContract(target.chapterNumber)]}});
       const [generated]=parseDetails(await this.call(scope,task,brief,prompt,pack.contextPackId,
         'details-chapter-'+target.chapterNumber),1);
       const normalized=normalizeGeneratedDetailContinuity({generated:generated!,plannedOpeningState:target.planned.openingState,
@@ -232,7 +239,9 @@ export class EventChapterGenerationPipelineService {
     const adapter=this.adapters.resolve(brief.member.provider,brief.member.modelId,'structured_planning',brief.member.roleKey as never);
     const inputHash=createHash('sha256').update(prompt).digest('hex'),stored=this.repo.succeeded(scope,{taskId:task.taskId,
       agentId:brief.member.agentId,modelSnapshotId:brief.member.modelSnapshotId,inputHash});
-    if(stored!==undefined)return stored.output_text;
+    if(stored!==undefined){if(brief.kind==='sequence'||brief.kind==='details')stopForDetectedSettingGaps({
+      output:stored.output_text,service:this.settingGaps,scope,scopeType:'chapter',scopeId:brief.eventId});
+      return stored.output_text;}
     const maxOutputTokens=maxOutputTokensOverride??eventChapterOutputTokenLimit(brief.kind),protocolOverhead=adapter.provider==='openai-codex-subscription'?24000:0;
     const estimatedInputCeiling=Math.max(Math.ceil(prompt.length/2),Math.ceil(estimateTokens(prompt)*1.35));
     const requestId=this.ids.next(),reservationId=this.budgets.reserve(scope,task.budgetId,requestId,
@@ -242,6 +251,8 @@ export class EventChapterGenerationPipelineService {
       input:prompt,parameters:JSON.stringify({maxOutputTokens,planOnly:!brief.member.provider.startsWith('local-deterministic'),
         cashFallbackAllowed:false}),reservationId,contextPackId:packId,leaseToken:task.leaseToken,attemptNo:task.currentAttemptNo},adapter,{
       requestId,taskId:task.taskId,ownerId:scope.ownerId,bookId:scope.bookId,agentId:brief.member.agentId,prompt,maxOutputTokens});
+    if(brief.kind==='sequence'||brief.kind==='details')stopForDetectedSettingGaps({
+      output:result.output,service:this.settingGaps,scope,scopeType:'chapter',scopeId:brief.eventId});
     return result.output;
   }
 
@@ -358,6 +369,10 @@ function jsonObjects(value:string){const out:string[]=[];for(let start=0;start<v
   for(let i=start;i<value.length;i++){const ch=value[i]!;if(str){if(esc)esc=false;else if(ch==='\\')esc=true;else if(ch==='"')str=false;continue;}
     if(ch==='"')str=true;else if(ch==='{')depth++;else if(ch==='}'&&--depth===0){out.push(value.slice(start,i+1));start=i;break;}}}return out;}
 function detailContract(chapterNumber:number){return{outlineSchema:'chapter_outline_v2',chapterNumber,title:'章名',
+  ...(chapterNumber===1?{firstChapterLaunch:{first500InterestAnchor:'读者为什么继续看',immediateSituation:'主角眼前正在发生的处境',
+    firstDesireDangerOrEmotion:'读者最先感到的欲望、危机或情绪',requiredEffectiveChange:'第一章必须发生的有效变化',
+    firstRevealOfUniqueAppeal:'本书独特看点第一次怎样露出',firstPayoff:'本章给出的第一次小回报',
+    nextExpectation:'章末打开的下一步期待',writerFreedom:['对白、动作、意象和场景细节自由']}}:{firstChapterLaunch:undefined}),
   sourceStage:{stageNumber:1,title:'服务端会绑定',chapterRange:{start:chapterNumber,end:chapterNumber}},chapterFunction:'本章功能',
   openingState:'开章状态',requiredEndingState:'必须结束状态',cast:[{name:'人物',objective:'当下目标',knowledgeBoundary:'知情边界',
     chapterRole:'本章作用',stateChange:'可选变化'}],conflict:{surface:'表层冲突',underlying:'深层冲突',oppositionGoal:'对手目标',

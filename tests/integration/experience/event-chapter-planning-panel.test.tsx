@@ -26,20 +26,20 @@ it('显示完整事件章链，只细化并冻结最近章节，同时传递真�
       return api(kind==='details'?detailTask:kind==='detail_challenge'?detailChallengeTask:null);
     }
     if(path.endsWith('/challenge')&&method==='POST'){
-      detailChallengeTask={taskId:'detail-challenge-task',kind:'detail_challenge',status:'succeeded',
-        currentPhase:'detail_challenge_saved',errorCode:null,checkpoint:{challenge:{targetKind:'detail',targetId:'outline-1',
+      detailChallengeTask={kind:'detail_challenge',stateText:'本轮方案已经准备好',phaseText:'单章参考意见已经准备好',
+        isRunning:false,isCompleted:true,canCancel:false,canResume:false,canRetry:false,errorMessage:null,
+        challenge:{targetKind:'detail',targetId:'outline-1',
           targetVersionId:'outline-version-1',summary:'这一章最值得再看的，是人物选择能否同时推动关系变化。',suggestions:[{
             focus:'core_conflict',alternative:'让同伴提出一条更安全却会牺牲无辜者的办法，逼主角当场表态。',
             benefit:'冲突同时体现人物关系和价值选择。',tradeoff:'必须给同伴合理动机，不能把他写成工具人。',
-            downstreamImpact:'下一章需要承接分歧，关系不能自动恢复。'}]}},member:{roleKey:'third_screenwriter',agentId:'screenwriter-c',
-          displayName:'幼薇',provider:'local-deterministic',modelId:'fixture-challenger'},
+            downstreamImpact:'下一章需要承接分歧，关系不能自动恢复。'}]},members:[{roleKey:'third_screenwriter',displayName:'幼薇'}],
         createdAt:'2026-08-09T00:00:30.000Z',updatedAt:'2026-08-09T00:00:40.000Z'};
       return api(detailChallengeTask);
     }
     if(path.endsWith('/chapter-outlines/generate')&&method==='POST'){
-      detailTask={taskId:'detail-task',kind:'details',status:'succeeded',currentPhase:'detail_candidates_saved',errorCode:null,
-        checkpoint:{outlineVersionIds:['outline-version-1']},member:{roleKey:'main_editor',agentId:'editor',
-          displayName:'昭明',provider:'local-deterministic',modelId:'fixture-editor'},
+      detailTask={kind:'details',stateText:'本轮方案已经准备好',phaseText:'近期详细章纲已经保存',
+        isRunning:false,isCompleted:true,canCancel:false,canResume:false,canRetry:false,errorMessage:null,
+        members:[{roleKey:'main_editor',displayName:'昭明'}],
         createdAt:'2026-08-09T00:00:00.000Z',updatedAt:'2026-08-09T00:01:00.000Z'};
       return api(detailTask);
     }

@@ -7,11 +7,11 @@ const DEFAULT_MAX_CONCURRENCY = 8;
 const MAX_CONCURRENCY_CAP = 32;
 
 /** 可并发执行的任务类型：不同书的这些任务彼此独立，允许并行。 */
-const EXECUTABLE_TASK_TYPES = new Set([
+export const EXECUTABLE_TASK_TYPES = new Set([
   'chapter_creation', 'discussion', 'continuation_analysis', 'volume_plan_generation',
-  'book_branding_design',
+  'event_chain_generation', 'book_branding_design',
   'story_event_generation', 'event_chapter_sequence_generation', 'event_chapter_detail_generation',
-  'event_chapter_sequence_challenge', 'event_chapter_detail_challenge'
+  'event_chapter_sequence_challenge', 'event_chapter_detail_challenge', 'settlement_follow_up'
 ]);
 
 export class WorkerLoop {

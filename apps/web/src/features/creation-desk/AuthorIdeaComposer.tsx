@@ -14,7 +14,7 @@ import { ImeInput, ImeTextarea } from '../shared/ImeSafeField';
 
 const intentOptions: Array<{ value: AuthorIntentStrength; label: string; help: string }> = [
   { value: 'must', label: '必须遵守', help: '作为当前对象的明确目标；如与已确认事实冲突，先提示你决定。' },
-  { value: 'preference', label: '尽量照顾', help: '优先满足，但允许AI说明有理由的调整。' },
+  { value: 'preference', label: '强烈偏好', help: 'AI会优先满足；确有冲突或更好理由时必须向你说明调整。' },
   { value: 'inspiration', label: '灵感参考', help: '可以变形、组合或不用，不会自动升级成硬要求。' },
   { value: 'question', label: '我想先问问', help: '先讨论，不会自动变成决定或正式内容。' }
 ];

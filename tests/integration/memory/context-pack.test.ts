@@ -224,4 +224,68 @@ describe('不可变上下文包', () => {
     });
     expect(pack.sources.map((source) => source.sourceId)).toEqual(['manuscript-v1', 'manuscript-v1:cluster-a']);
   });
+  it('每次调用保存八类稳定组合包、来源版本、纳入排除理由和预算',()=>{
+    context=createTestContext();
+    const ids=new SequenceIds(),clock=new FixedClock(),fixture=createKnowledgeFixture(context,ids,clock);
+    const pack=new ContextPackService(context.database,ids,clock).build(fixture.scope,{
+      taskId:fixture.taskId,agentId:fixture.agentId,chapterId:fixture.chapterId,
+      canonRevision:0,positioningVersion:1,tokenBudget:300,characterBudget:300,
+      hardSources:[
+        {sourceType:'book_opening',sourceId:'opening-v2',version:'opening-v2',content:'开书方向',reason:'本书基本方向',priority:100,componentKind:'BookCorePack'},
+        {sourceType:'chapter_outline',sourceId:'outline-v3',version:'outline-v3',content:'当前章必须完成明确选择',reason:'直接父级章纲',priority:100,componentKind:'ChapterTaskPack'}
+      ],
+      optionalSources:[
+        {sourceType:'story_thread',sourceId:'thread-1',version:2,content:'未解决承诺',reason:'当前事件相关线程',priority:40,componentKind:'StoryThreadPack'},
+        {sourceType:'setting_clause',sourceId:'setting-v4',version:'setting-v4',content:'低优先级但很长的可选设定'.repeat(80),reason:'相关可选设定',priority:1,componentKind:'SettingConstraintPack'}
+      ]
+    });
+    const rows=context.database.prepare(`SELECT component_kind,source_version_ids_json,included_reasons_json,
+      excluded_reasons_json,token_budget,character_budget,content_hash FROM context_pack_components
+      WHERE context_pack_id=? ORDER BY component_kind`).all(pack.contextPackId) as Array<Record<string,unknown>>;
+    expect(rows).toHaveLength(8);
+    expect(new Set(rows.map(row=>row.component_kind))).toEqual(new Set([
+      'BookCorePack','SettingConstraintPack','BookStorySpinePack','VolumeResponsibilityPack',
+      'EventResponsibilityPack','ChapterTaskPack','RecentActualStatePack','StoryThreadPack'
+    ]));
+    const book=rows.find(row=>row.component_kind==='BookCorePack')!;
+    expect(JSON.parse(String(book.source_version_ids_json))).toContain('opening-v2');
+    expect(JSON.parse(String(book.included_reasons_json))).toEqual(expect.arrayContaining([
+      expect.objectContaining({sourceId:'opening-v2',reason:'本书基本方向'})
+    ]));
+    const settings=rows.find(row=>row.component_kind==='SettingConstraintPack')!;
+    expect(JSON.parse(String(settings.excluded_reasons_json))).toEqual(expect.arrayContaining([
+      expect.objectContaining({sourceId:'setting-v4',reason:'character_budget_lower_priority'})
+    ]));
+    expect(rows.every(row=>Number(row.token_budget)>=0&&Number(row.character_budget)>=0
+      &&/^[a-f0-9]{64}$/u.test(String(row.content_hash)))).toBe(true);
+  });
+  it('四核心全文始终进入，增加大量无关可选设定不会让任务上下文线性膨胀',()=>{
+    context=createTestContext();const ids=new SequenceIds(),clock=new FixedClock(),fixture=createKnowledgeFixture(context,ids,clock);
+    const insert=context.database.prepare(`INSERT INTO setting_clauses(setting_clause_id,owner_id,book_id,kind,statement,
+      strength,truth_status,scope_type,scope_id,source_version_id,dependency_version_ids_json,status,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,'confirmed','book',?,?, '[]','active',?,?)`);
+    const now=clock.now().toISOString();
+    const add=(id:string,itemKey:string,statement:string,strength:'hard_fact'|'soft_reference'|'open_space')=>insert.run(id,fixture.scope.ownerId,
+      fixture.scope.bookId,strength==='open_space'?'blank':strength==='hard_fact'?'fact':'direction',statement,strength,
+      fixture.scope.bookId,`setting-item:${itemKey}:v1`,now,now);
+    add('clause-core-world','world-stage','天空城位于永久风暴带上方。','hard_fact');
+    add('clause-core-hero','protagonist-situation','主角是只能听辨机械故障的修船学徒。','hard_fact');
+    add('clause-core-rule','rules-costs','古代引擎每次启动都会消耗近期记忆。','hard_fact');
+    add('clause-core-blank','boundaries-blanks','地表文明真相暂时留白，不得提前解释。','open_space');
+    add('clause-relevant','fuel-economy','飞行艇燃料短缺会迫使船员改变航线。','soft_reference');
+    const build=()=>new ContextPackService(context!.database,ids,clock).build(fixture.scope,{
+      taskId:fixture.taskId,agentId:fixture.agentId,chapterId:fixture.chapterId,canonRevision:0,positioningVersion:1,
+      tokenBudget:2000,characterBudget:2000,hardSources:[{sourceType:'chapter_work_order',sourceId:'outline-fuel',
+        content:'本章围绕飞行艇燃料短缺展开，主角必须决定是否改变航线。',reason:'当前章任务',priority:100}],optionalSources:[]});
+    const before=build();
+    for(let index=1;index<=40;index+=1)add(`clause-unrelated-${index}`,`remote-custom-${index}`,
+      `第${index}处远方岛屿使用独立的礼仪称谓和节庆颜色。`,'soft_reference');
+    const after=build();
+    const settingIds=(pack:ReturnType<typeof build>)=>pack.sources.filter(source=>source.componentKind==='SettingConstraintPack')
+      .map(source=>source.sourceId).sort();
+    expect(settingIds(before)).toEqual(['clause-core-blank','clause-core-hero','clause-core-rule','clause-core-world','clause-relevant']);
+    expect(settingIds(after)).toEqual(settingIds(before));
+    expect(after.totalCharacters).toBe(before.totalCharacters);
+    expect(after.sources.some(source=>source.sourceId.startsWith('clause-unrelated-'))).toBe(false);
+  });
 });

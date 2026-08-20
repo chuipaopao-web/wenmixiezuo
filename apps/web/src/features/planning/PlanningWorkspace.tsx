@@ -40,6 +40,7 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
+import { SettingGapPanel } from './SettingGapPanel';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { ImeInput } from '../shared/ImeSafeField';
 import { memberIdentity } from '../shared/agent-presentation';
@@ -794,6 +795,7 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       </div>}
       </details>
     </section>
+    {bookId !== null && <section className="setting-desk-section"><SettingGapPanel bookId={bookId}/></section>}
     {packGroups.length > 0 && <section className="setting-desk-section" aria-label="根据题材推荐">
       <details className="setting-fold">
       <summary><strong>推荐设定</strong><em>{profile?.profileLabel ?? '通用'} · 勾选后和核心项一起按顺序设计</em></summary>

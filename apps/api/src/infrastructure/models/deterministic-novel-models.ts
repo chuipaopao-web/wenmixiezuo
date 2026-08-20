@@ -127,6 +127,24 @@ export function countNovelCharacters(content: string): number {
   return [...content].filter((character) => /[\p{L}\p{N}]/u.test(character)).length;
 }
 
+export function extractFirstEffectiveNovelCharacters(content:string,limit=500):{
+  text:string;effectiveCount:number;complete:boolean;
+}{
+  if(!Number.isSafeInteger(limit)||limit<1)throw new Error('有效字符截取上限必须是正整数');
+  const normalized=content.replace(/^\uFEFF/u,'').replace(/\r\n?/gu,'\n');
+  const lines=normalized.split('\n');
+  const firstContentLine=lines.findIndex(line=>line.trim().length>0);
+  if(firstContentLine>=0&&/^(第[零〇一二三四五六七八九十百千万两\d]+章(?:\s|$)|chapter\s+\d+(?:\s|$))/iu.test(lines[firstContentLine]!.trim()))
+    lines.splice(firstContentLine,1);
+  const body=lines.join('\n').replace(/^\s+/u,'');
+  let effectiveCount=0,end=0;
+  for(const [index,character] of [...body].entries()){
+    end=index+1;if(/[\p{L}\p{N}]/u.test(character))effectiveCount++;
+    if(effectiveCount===limit)break;
+  }
+  const characters=[...body];
+  return{text:characters.slice(0,end).join('').trimEnd(),effectiveCount,complete:effectiveCount===limit};
+}
 export function reviewNovel(content: string): StructuredReview {
   const issues: StructuredReviewIssue[] = [];
   if (content.includes('就在这时，就在这时')) {

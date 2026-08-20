@@ -24,6 +24,7 @@ export class DeterministicModelAdapter implements ModelAdapter {
       .update(`${request.bookId}\n${request.agentId}\n${request.prompt}`)
       .digest('hex');
     const volumePlan = deterministicVolumePlan(request.prompt);
+    const eventChain = deterministicEventChain(request.prompt);
     const storyEvent = deterministicStoryEvent(request.prompt);
     const eventChapterSequence = deterministicEventChapterSequence(request.prompt);
     const eventChapterDetails = deterministicEventChapterDetails(request.prompt);
@@ -35,7 +36,7 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const bookBranding = deterministicBookBranding(request.prompt);
     const settlementFollowUp = deterministicSettlementFollowUp(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? settlementFollowUp ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? eventChain ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? settlementFollowUp ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -99,7 +100,7 @@ function deterministicBookBranding(prompt: string): string | null {
 function deterministicVolumePlan(prompt: string): string | null {
   let root: unknown;
   try { root = JSON.parse(prompt) as unknown; } catch { return null; }
-  if (!isRecord(root) || root.operation !== 'volume_plan_generation_v1') return null;
+  if (!isRecord(root) || !['volume_plan_generation_v1', 'volume_direction_generation_v2'].includes(String(root.operation))) return null;
   const seat = isRecord(root.seat) ? root.seat : {};
   const roleKey = typeof seat.roleKey === 'string' ? seat.roleKey : 'chief_editor';
   const book = isRecord(root.book) ? root.book : {};
@@ -148,6 +149,73 @@ function deterministicVolumePlan(prompt: string): string | null {
       estimatedChapterRange: { minimum: 8, likely: 10, maximum: 13 }
     }
   ];
+  if (root.operation === 'volume_direction_generation_v2') {
+    const direction = {
+      title: `第${volumeNumber}卷·代价与新局`,
+      openingSituation: openingState,
+      protagonistDrive: alternative
+        ? '主角必须先保住被带走的目击者，借盟友网络追查铜铃来源。'
+        : '主角必须在下一次失物齐鸣前查出铜铃是谁送来的，否则会被当成失踪案制造者。',
+      volumeGoal: '让主角把有限立足点变成能够承担下一阶段冲突的真实位置。',
+      centralOpposition: '既得利益、关系裂痕和能力边界同时要求主角付出代价。',
+      escalationPath: alternative
+        ? ['争取一名不信任他的记录员', '用矛盾证词逼出泄密者', '盟友被抓后改走公开听证', '让证据链由多人共同保管']
+        : ['铜铃异响引来追捕', '失物主人指向被篡改档案', '短暂脱身换来记忆缺失', '用累积证据反制封锁'],
+      majorChoices: [alternative ? '公开能力秘密换取盟友验证。' : '再次触碰铜铃换取证词并失去一段真实记忆。'],
+      relationshipMovement: [alternative ? '主角把不信任的记录员变成有条件的共同决策者。' : '主角与盟友因隐瞒代价产生裂痕后重建信任。'],
+      expressionFocus: ['破局爽感', '选择的代价', '关系拉扯'],
+      climaxResponsibility: alternative
+        ? '让普通人共同保管的证据拆穿统一口径，并救回目击者。'
+        : '把分散证词拼成航路记录，反证追捕者才是规则破坏者。',
+      costAndConsequence: '主角公开能力并永久失去一段与姐姐相处的记忆，从此无法抽身。',
+      closingState: '眼前罪名洗清并取得查档资格，但姐姐线索指向更深航路。',
+      benefits: alternative ? ['群体协作与信任拉扯更强'] : ['个人危机与亲情目标紧密相扣'],
+      risks: alternative ? ['多人物并行时要保持主角主动性'] : ['失忆代价不能随用随丢'],
+      openSpaces: ['姐姐如何保持自我留到事件设计继续探索'],
+      ...(volumeNumber === 1 ? {
+        firstVolumeLaunch: {
+          primaryDrivers: ['异常谜团', '人物危机', '破局回报'],
+          immersionAnchor: '跟随沈砚在追捕和记忆流失中抓住姐姐仍活着的希望。',
+          first500Interest: {
+            readerQuestion: '十年前失踪姐姐的铜铃为什么在今夜重新响起？',
+            immediateSituation: '暴雨夜所有失物同时发声，巡夜人破门并认定沈砚是源头。',
+            emotionalGrip: '他既想抓住姐姐活着的希望，又怕触碰铜铃会忘掉她。',
+            promisedMovement: '一件失物将撕开失踪案与记忆航路的隐藏规则。'
+          },
+          goldenThree: [
+            { chapterNumber: 1, responsibility: '人物与核心危机同时登场', protagonistAction: '带着铜铃逃出招领处', pressureOrPull: '巡夜人封锁且铜铃夺走记忆', deliveredPayoff: '用失物遗言识破第一次围堵', nextExpectation: '送铃人仍在封锁区' },
+            { chapterNumber: 2, responsibility: '展示能力边界并给小回报', protagonistAction: '核验两件失物的矛盾证词', pressureOrPull: '每次触碰都会丢失记忆', deliveredPayoff: '锁定一份被篡改档案', nextExpectation: '经手人正在被灭口' },
+            { chapterNumber: 3, responsibility: '闭合开局冲突并打开卷目标', protagonistAction: '在追捕中救下经手人', pressureOrPull: '救人会暴露能力', deliveredPayoff: '反证自己不是异响源头', nextExpectation: '真正源头指向封闭航路' }
+          ],
+          earlyMomentum: ['每次调查都产生证据、关系或处境变化', '阶段回报之后立即打开更大的责任'],
+          majorClimax: {
+            promiseToFulfill: '用前三章建立的证据与盟友立场撕开巡夜规则。',
+            centralChoice: '公开姐姐的私人记忆以拯救更多失踪者。',
+            cost: '永久失去一段与姐姐相处的往事并暴露能力。',
+            centralConflictChange: '巡夜人的统一口径被公开证据打破。',
+            irreversibleChange: '主角从被追捕者变成有查档资格的调查者。',
+            nextStageTrigger: '证据证明姐姐仍在更深航路中。',
+            noLaterThanEffectiveChars: 100000
+          },
+          variationAndRecovery: ['追捕、证据核验和关系选择轮换', '重大揭示前安排人物恢复与情感蓄力'],
+          forbiddenShortcuts: ['不能连续靠敌人降智脱险', '不能重复用失忆制造廉价反转']
+        }
+      } : {})
+    };
+    return JSON.stringify({
+      direction,
+      ...(volumeNumber === 1 ? {
+        storySpine: {
+          longTermReaderPromises: ['破解带着遗憾的失物，并持续兑现规则破局与亲情真相。'],
+          protagonistLongArc: '从孤立寻亲者成长为保护他人选择权的新航路守门人。',
+          centralQuestion: '当记忆被城市用来维持秩序，人还能凭什么确认自己的爱与选择？',
+          escalationLadder: ['个人失踪与铜铃来源', '港区档案与巡夜规则', '整座雾港的记忆航路真相'],
+          optionalEndingDirections: ['终止以失踪者记忆维持航路的规则并建立可监督的新规则。'],
+          protectedOpenSpaces: ['姐姐这些年如何保持自我', '更远航路和其他城市的规则']
+        }
+      } : {})
+    });
+  }
   return JSON.stringify({
     title: `第${volumeNumber}卷·代价与新局`,
     openingState,
@@ -218,6 +286,98 @@ function deterministicVolumePlan(prompt: string): string | null {
     } : {})
   });
 }
+function deterministicEventChain(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'event_chain_generation_v1') return null;
+  const outputContract = isRecord(root.outputContract) ? root.outputContract : {};
+  const chainContract = isRecord(outputContract.eventChain) ? outputContract.eventChain : {};
+  const directionVersionId = typeof chainContract.volumeDirectionVersionId === 'string'
+    ? chainContract.volumeDirectionVersionId : 'direction-fixture';
+  const requiredCoverage = Array.isArray(root.requiredCoverage)
+    ? root.requiredCoverage.filter((item): item is string => typeof item === 'string') : [];
+  const firstResponsibilities = Array.isArray(root.firstVolumeResponsibilities)
+    ? root.firstVolumeResponsibilities.filter((item): item is string => typeof item === 'string') : [];
+  const nodes = [
+    {
+      nodeId: 'event-chain-1', order: 1, title: '异常迫使主角公开行动',
+      volumeResponsibility: '承接开卷局面，让主角作出无法撤回的第一次选择。',
+      entryState: '主角仍有退路，但异常事实已威胁最在意的人。',
+      protagonistAction: '主角主动核验证据并公开采取行动。',
+      oppositionEscalation: '维护旧秩序的人封锁消息并夺走主角的安全身份。',
+      stagePayoffOrCost: '主角证实异常并救下一个人，同时暴露自己。',
+      exitState: '异常被证实，主角失去退路并获得一名有条件的盟友。',
+      leadsToNext: '对手利用主角暴露的身份反向追查盟友和证据。',
+      plantThreadIds: ['thread-core-secret'], payoffThreadIds: [],
+      consequenceThreadIds: ['thread-exposed-identity'],
+      firstVolumeResponsibilities: firstResponsibilities.filter((item) => ['opening_launch','golden_three'].includes(item))
+    },
+    {
+      nodeId: 'event-chain-2', order: 2, title: '第一次回报引来反制',
+      volumeResponsibility: '兑现早期回报，并把局部胜利变成更难处理的现实问题。',
+      entryState: '主角有证据和盟友，但身份已经暴露。',
+      protagonistAction: '主角用已有证据争取公开验证。',
+      oppositionEscalation: '对手制造一份更可信的假证据并迫使盟友表态。',
+      stagePayoffOrCost: '主角拆穿一层假象，却伤害了关键关系。',
+      exitState: '主角保住证据，但盟友不再无条件信任他。',
+      leadsToNext: '关系裂痕让对手有机会切断证据链，主角必须改变路径。',
+      plantThreadIds: ['thread-relationship-debt'], payoffThreadIds: [],
+      consequenceThreadIds: ['thread-trust-fracture'],
+      firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'early_payoff')
+    },
+    {
+      nodeId: 'event-chain-3', order: 3, title: '改变路径后逼近真相',
+      volumeResponsibility: '升级冲突和情绪拉扯，让主角的选择真正改变关系与局面。',
+      entryState: '证据链将断，盟友对主角的做法产生怀疑。',
+      protagonistAction: '主角放弃独占线索，允许盟友共同验证并承担失败责任。',
+      oppositionEscalation: '对手转而攻击普通参与者并封锁公开渠道。',
+      stagePayoffOrCost: '多人保住关键证据，但主角付出资源和信任代价。',
+      exitState: '证据由多人掌握，冲突从个人追捕升级为公开规则之争。',
+      leadsToNext: '公开证据迫使真正执行者提前发动最后封锁。',
+      plantThreadIds: ['thread-public-proof'], payoffThreadIds: ['thread-trust-fracture'],
+      consequenceThreadIds: ['thread-open-conflict'],
+      firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'conflict_and_emotion_escalation')
+    },
+    {
+      nodeId: 'event-chain-4', order: 4, title: '高潮前的选择与蓄力',
+      volumeResponsibility: '完成高潮所需铺垫，并逼主角确认愿意支付的代价。',
+      entryState: '真相已有公开可能，但最后封锁会让所有参与者受损。',
+      protagonistAction: '主角组织证据分散保管，并坦白自己的能力边界。',
+      oppositionEscalation: '对手扣押目击者并要求主角用核心秘密交换。',
+      stagePayoffOrCost: '盟友重新选择同行，但主角必须放弃一段珍贵记忆。',
+      exitState: '证据、关系与代价全部到位，主角拥有发动最后行动的条件。',
+      leadsToNext: '交换期限到来，主角只能在保全私人记忆和公开真相之间选择。',
+      plantThreadIds: [], payoffThreadIds: ['thread-relationship-debt'],
+      consequenceThreadIds: ['thread-memory-cost'],
+      firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'climax_setup')
+    },
+    {
+      nodeId: 'event-chain-5', order: 5, title: '兑现承诺并进入新局',
+      volumeResponsibility: '完成卷高潮、兑现主要承诺，并留下不可逆后果和下一阶段入口。',
+      entryState: '主角已具备行动条件，也清楚胜利会失去什么。',
+      protagonistAction: '主角支付既定代价，利用全卷累积的证据和关系公开破局。',
+      oppositionEscalation: '对手启动最后封锁并迫使所有人公开站队。',
+      stagePayoffOrCost: '核心问题得到可验证解决，主角身份、关系和资源发生不可逆变化。',
+      exitState: '本卷问题已解决，新势力因力量平衡改变而进入局面。',
+      leadsToNext: null,
+      plantThreadIds: ['thread-next-stage'], payoffThreadIds: ['thread-core-secret','thread-public-proof'],
+      consequenceThreadIds: ['thread-irreversible-status'],
+      firstVolumeResponsibilities: firstResponsibilities.filter((item) => ['major_climax_before_100k','climax_consequence'].includes(item))
+    }
+  ];
+  return JSON.stringify({
+    eventChain: {
+      volumeDirectionVersionId: directionVersionId,
+      events: nodes,
+      coverage: requiredCoverage.map((responsibility, index) => ({
+        responsibility,
+        eventNodeIds: [nodes[Math.min(nodes.length - 1, Math.floor(index * nodes.length / Math.max(1, requiredCoverage.length)))]!.nodeId],
+        status: 'covered'
+      }))
+    }
+  });
+}
+
 function deterministicStoryEvent(prompt: string): string | null {
   let root: unknown;
   try { root = JSON.parse(prompt) as unknown; } catch { return null; }

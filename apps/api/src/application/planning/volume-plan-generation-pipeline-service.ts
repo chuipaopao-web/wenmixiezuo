@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import {
+  parseBookStorySpineContent,
+  parseVolumeDirectionContent,
   parseVolumePlanContent,
+  type BookStorySpineContent,
+  type LegacyFirstVolumeLaunchPlan,
+  type StorySpine,
+  type VolumeDirectionContent,
   type VolumePlanContent
 } from '@wenmi/contracts';
 import { STYLE_TONES, validateVolumeStyleTones } from '../../contracts/opening-blueprint.js';
@@ -18,15 +24,18 @@ import {
   type VolumePlanGenerationSeat,
   type VolumePlanGenerationSourceSnapshot
 } from '../../infrastructure/db/repositories/volume-plan-generation-repository.js';
+import type { SettingGapService } from '../knowledge/setting-gap-service.js';
 import type { BudgetService } from '../budget/budget-service.js';
 import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens, type ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import type { RetrievalContextSourceService } from '../memory/retrieval-context-source-service.js';
 import { TaskService, type TaskLeaseFence, type TaskRecord } from '../tasks/task-service.js';
+import { authorIdeaContextSources } from './author-idea-context-sources.js';
 import {
   type VolumePlanGenerationBrief,
   volumePlanSourceFingerprint
 } from './volume-plan-generation-service.js';
+import { SETTING_GAP_OUTPUT_INSTRUCTION,stopForDetectedSettingGaps } from './setting-gap-detection.js';
 import { VolumePlanService } from './volume-plan-service.js';
 import {
   selectHiddenVolumeRouteRecipes,
@@ -59,7 +68,8 @@ export class VolumePlanGenerationPipelineService {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly modelAdapters: ModelAdapterFactory,
-    private readonly retrieval?: RetrievalContextSourceService
+    private readonly retrieval?: RetrievalContextSourceService,
+    private readonly settingGaps?: SettingGapService
   ) {}
 
   public async executeClaimed(
@@ -72,17 +82,42 @@ export class VolumePlanGenerationPipelineService {
     this.assertClaim(claimed, workerId, leaseFence);
     const brief = parseBrief(claimed.brief);
     const snapshot = this.requireCurrentSnapshot(scope, brief);
-    const lead = requiredSeat(brief.seats, 'lead_screenwriter');
-    const second = requiredSeat(brief.seats, 'second_screenwriter');
     const requestedEditor = brief.seats.find((seat) => seat.editor);
     if (requestedEditor === undefined) throw new Error('卷规划任务缺少冻结的主编席快照。');
     const editor = this.repository.hasUnresolvedModelBinding(
       scope, requestedEditor.provider, requestedEditor.modelId
     )
-      ? selectEditorTechnicalSubstitute(brief.seats, [lead, second, requestedEditor]) ?? requestedEditor
+      ? selectEditorTechnicalSubstitute(brief.seats, [requestedEditor]) ?? requestedEditor
       : requestedEditor;
     try {
       this.throwIfCancelled(scope, taskId);
+      if ((brief.mode ?? 'routes') === 'fusion') {
+        if (brief.fusionSource === undefined || brief.fusionSource.selectedDirections.length === 0) {
+          throw new Error('主编融合任务缺少作者实际选择的路线内容。');
+        }
+        const fusion = await this.generateAndStore(
+          scope,
+          claimed,
+          brief,
+          snapshot,
+          editor,
+          'fusion',
+          brief.fusionSource.selectedDirections.map((item) => item.selectedContent)
+        );
+        this.tasks.checkpoint(scope, taskId, workerId, 'fusion_complete', {
+          fusionId: fusion.versionId,
+          sourceCandidateTaskId: brief.fusionSource.sourceTaskId,
+          selectedVersionIds: brief.fusionSource.selectedDirections.map((item) => item.versionId),
+          selectedFragmentsOnly: true,
+          awaitingAuthorConfirmation: true,
+          fusionProducedBy: seatAttribution(editor, editor.agentId !== requestedEditor.agentId)
+        }, leaseFence);
+        this.tasks.complete(scope, taskId, workerId, leaseFence);
+        this.repository.clearWaitingTask(scope, taskId, this.clock.now().toISOString());
+        return { taskId, status: 'succeeded', candidateAId: null, candidateBId: null, fusionId: fusion.versionId };
+      }
+      const lead = requiredSeat(brief.seats, 'lead_screenwriter');
+      const second = requiredSeat(brief.seats, 'second_screenwriter');
       const initialA = this.repository.hasUnresolvedModelBinding(scope, lead.provider, lead.modelId)
         ? selectTechnicalSubstitute(brief.seats, [lead, second, editor]) ?? lead
         : lead;
@@ -128,37 +163,37 @@ export class VolumePlanGenerationPipelineService {
       }, leaseFence);
       if (candidateA === null) throw rejectedReason(candidateResults[0]);
       if (candidateB === null) throw rejectedReason(candidateResults[1]);
-      if (![candidateASeat, candidateBSeat].every((seat) => seat.provider.startsWith('local-deterministic'))) {
+      try {
         assertMateriallyDifferentRoutes(candidateA.content, candidateB.content);
+      } catch (error) {
+        this.repository.supersedeCandidate(scope, candidateB.versionId, this.clock.now().toISOString());
+        candidateB = await this.generateAndStore(
+          scope, claimed, brief, snapshot, candidateBSeat, 'candidate_b', [], {
+            retryKey: 'diversity-1',
+            instruction: '上一条B路线与另一名编剧的路线过于相似。保留当前书的事实和本卷责任，但请重新选择明显不同的进入方式、主要对立力量、因果解决路径、人物关系变化、代价、高潮触发和卷末状态。不要解释原因，只输出完整JSON。'
+          }
+        );
+        assertMateriallyDifferentRoutes(candidateA.content, candidateB.content);
+        this.tasks.checkpoint(scope, taskId, workerId, 'screenwriter_candidates', {
+          candidateAId: candidateA.versionId, candidateBId: candidateB.versionId,
+          independent: true, crossReviewUsed: false, diversityRetry: 'candidate_b_only',
+          candidateAProducedBy: seatAttribution(candidateASeat, candidateASeat.agentId !== lead.agentId),
+          candidateBProducedBy: seatAttribution(candidateBSeat, candidateBSeat.agentId !== second.agentId)
+        }, leaseFence);
       }
-      this.throwIfCancelled(scope, taskId);
-      const fusion = await this.generateAndStore(
-        scope,
-        claimed,
-        brief,
-        snapshot,
-        editor,
-        'fusion',
-        [candidateA.content, candidateB.content]
-      );
-      this.tasks.checkpoint(scope, taskId, workerId, 'fusion_complete', {
+      this.tasks.checkpoint(scope, taskId, workerId, 'routes_ready', {
         candidateAId: candidateA.versionId,
         candidateBId: candidateB.versionId,
-        fusionId: fusion.versionId,
-        awaitingAuthorChoice: true,
-        fusionProducedBy: seatAttribution(editor, editor.agentId !== requestedEditor.agentId),
+        fusionId: null,
+        awaitingAuthorSelection: true,
+        automaticFusionUsed: false,
         candidateAProducedBy: seatAttribution(candidateASeat, candidateASeat.agentId !== lead.agentId),
         candidateBProducedBy: seatAttribution(candidateBSeat, candidateBSeat.agentId !== second.agentId)
       }, leaseFence);
       this.tasks.complete(scope, taskId, workerId, leaseFence);
       this.repository.clearWaitingTask(scope, taskId, this.clock.now().toISOString());
-      return {
-        taskId,
-        status: 'succeeded',
-        candidateAId: candidateA.versionId,
-        candidateBId: candidateB.versionId,
-        fusionId: fusion.versionId
-      };
+      return { taskId, status: 'succeeded', candidateAId: candidateA.versionId,
+        candidateBId: candidateB.versionId, fusionId: null };
     } catch (error) {
       const current = this.tasks.require(scope, taskId);
       if (current.cancelRequested) {
@@ -194,9 +229,12 @@ export class VolumePlanGenerationPipelineService {
     snapshot: VolumePlanGenerationSourceSnapshot,
     seat: VolumePlanGenerationSeat,
     candidateKind: CandidateKind,
-    peerCandidates: VolumePlanContent[]
+    peerCandidates: unknown[],
+    retry?: { retryKey: string; instruction: string }
   ): Promise<GeneratedCandidate> {
-    const stored = this.repository.candidateByTask(scope, brief.volumePlanId, task.taskId, candidateKind);
+    const stored = retry === undefined
+      ? this.repository.candidateByTask(scope, brief.volumePlanId, task.taskId, candidateKind)
+      : undefined;
     if (stored !== undefined) {
       return {
         versionId: stored.volume_plan_version_id,
@@ -215,6 +253,9 @@ export class VolumePlanGenerationPipelineService {
         });
     const hardSources = buildHardSources(snapshot, brief, peerCandidates);
     const optionalSources = buildOptionalSources(snapshot, brief);
+    const authorSources = authorIdeaContextSources(brief.authorIdeas, {
+      sourceTypePrefix: 'owner:volume_ideas', sourceId: 'author-ideas:'+brief.volumePlanId, layer: 'planning'
+    });
     const pack = this.contextPacks.build(scope, {
       taskId: task.taskId,
       agentId: seat.agentId,
@@ -223,8 +264,8 @@ export class VolumePlanGenerationPipelineService {
       tokenBudget: candidateKind === 'fusion' ? 32_000 : 24_000,
       characterBudget: candidateKind === 'fusion' ? 76_000 : 58_000,
       policyVersion: 'volume-plan-context-v2-layered-no-raw-truncation',
-      hardSources: [...hardSources, ...retrieved.hardSources],
-      optionalSources: [...optionalSources, ...retrieved.optionalSources]
+      hardSources: [...hardSources, ...authorSources.hardSources, ...retrieved.hardSources],
+      optionalSources: [...optionalSources, ...authorSources.optionalSources, ...retrieved.optionalSources]
     });
     const basePrompt = buildPrompt({
       seat,
@@ -238,8 +279,8 @@ export class VolumePlanGenerationPipelineService {
         content: source.content
       })),
       peerCandidates
-    });
-    const content = await this.callForValidContent(scope, task, seat, candidateKind, snapshot.planNumber, basePrompt, pack.contextPackId);
+    }) + (retry === undefined ? '' : `\n\n【只重做当前B路线】${retry.instruction}`);
+    const content = await this.callForValidContent(scope, task, seat, candidateKind, snapshot.planNumber, brief.volumePlanId, basePrompt, pack.contextPackId);
     const version = this.volumePlans.addVersion(scope, brief.volumePlanId, {
       expectedPlanRevision: brief.expectedPlanRevision,
       candidateKind,
@@ -248,9 +289,25 @@ export class VolumePlanGenerationPipelineService {
       authorInputRefs: brief.authorInputRefs,
       template: brief.template,
       content,
-      idempotencyKey: `${task.taskId}:${candidateKind}`
+      idempotencyKey: `${task.taskId}:${candidateKind}${retry === undefined ? '' : `:${retry.retryKey}`}`
     });
-    return { versionId: version.volumePlanVersionId, content: version.content };
+    if (candidateKind === 'candidate_a' || candidateKind === 'candidate_b') {
+      const recipes = brief.routeRecipes ?? selectHiddenVolumeRouteRecipes(
+        `${snapshot.bookTitle} ${snapshot.opening.content}`,
+        snapshot.planNumber === 1
+      );
+      const routeRecipe = candidateKind === 'candidate_a' ? recipes[0] : recipes[1];
+      this.repository.recordRouteMethodAudit(scope, {
+        auditId: this.ids.next(),
+        volumePlanId: brief.volumePlanId,
+        taskId: task.taskId,
+        volumePlanVersionId: version.volumePlanVersionId,
+        candidateKind,
+        methodVersionIds: routeRecipe.methodVersionIds,
+        selectionReason: routeRecipe.selectionReason,
+        now: this.clock.now().toISOString()
+      });
+    }    return { versionId: version.volumePlanVersionId, content: version.content };
   }
 
   private async callForValidContent(
@@ -259,6 +316,7 @@ export class VolumePlanGenerationPipelineService {
     seat: VolumePlanGenerationSeat,
     candidateKind: CandidateKind,
     planNumber: number,
+    volumePlanId: string,
     basePrompt: string,
     contextPackId: string
   ): Promise<VolumePlanContent> {
@@ -272,6 +330,7 @@ export class VolumePlanGenerationPipelineService {
     let validationFailure: string | null = null;
     let lastError: unknown;
     for (let technicalTry = 1; technicalTry <= 2; technicalTry += 1) {
+      if (technicalTry > 1 && validationFailure !== null && seat.provider.startsWith('local-deterministic')) break;
       const prompt = validationFailure === null
         ? basePrompt
         : `${basePrompt}\n\n上一份输出未通过结构校验：${validationFailure}\n请重新输出完整JSON，不要解释。`;
@@ -283,6 +342,8 @@ export class VolumePlanGenerationPipelineService {
         inputHash
       });
       if (reusable !== undefined) {
+        stopForDetectedSettingGaps({output:reusable.output_text,service:this.settingGaps,scope,
+          scopeType:'volume',scopeId:volumePlanId});
         try {
           return parseGeneratedCandidate(reusable.output_text, candidateKind, planNumber, seat.provider);
         } catch (error) {
@@ -333,6 +394,8 @@ export class VolumePlanGenerationPipelineService {
           prompt,
           maxOutputTokens
         });
+        stopForDetectedSettingGaps({output:result.output,service:this.settingGaps,scope,
+          scopeType:'volume',scopeId:volumePlanId});
         try {
           return parseGeneratedCandidate(result.output, candidateKind, planNumber, seat.provider);
         } catch (error) {
@@ -451,44 +514,187 @@ function parseGeneratedCandidate(
   planNumber: number,
   provider: string
 ): VolumePlanContent {
-  const content = parseForCandidateKind(output, candidateKind);
-  if (provider.startsWith('local-deterministic')) return content;
-  if (content.routeCard === null || content.routeCard === undefined) {
-    throw new Error('卷方案缺少作者可直接比较的具体路线卡。');
+  try {
+    const route = parseVolumeDirectionModelOutput(output, planNumber);
+    return canonicalRouteToLegacy(route.direction, route.storySpine, candidateKind);
+  } catch (error) {
+    if (provider.startsWith('local-deterministic')) {
+      try { return parseForCandidateKind(output, candidateKind); }
+      catch (legacyError) {
+        const formalMessage = error instanceof Error ? error.message : '正式卷方向无效';
+        const legacyMessage = legacyError instanceof Error ? legacyError.message : '旧卷规划无效';
+        throw new Error(`本地卷方向输出无效：${formalMessage}；兼容解析：${legacyMessage}`);
+      }
+    }
+    throw error;
   }
-  if (planNumber === 1 && (content.storySpine === null || content.storySpine === undefined)) {
-    throw new Error('第一卷方案缺少全书故事总线。');
-  }
-  if (planNumber === 1 && (content.firstVolumeLaunch === null || content.firstVolumeLaunch === undefined)) {
-    throw new Error('第一卷方案缺少前500字、黄金三章和10万字内重大高潮计划。');
-  }
-  return content;
 }
 
-function assertMateriallyDifferentRoutes(first: VolumePlanContent, second: VolumePlanContent): void {
+export function parseVolumeDirectionModelOutput(output: string, planNumber: number): {
+  direction: VolumeDirectionContent;
+  storySpine: BookStorySpineContent | null;
+} {
+  const candidates: unknown[] = [];
+  let lastError: unknown;
+  try { candidates.push(JSON.parse(output) as unknown); } catch (error) { lastError = error; }
+  for (const value of extractCompleteJsonObjects(output)) {
+    try { candidates.push(JSON.parse(value) as unknown); } catch (error) { lastError = error; }
+  }
+  for (const candidate of candidates) {
+    for (const value of unwrapCandidates(candidate)) {
+      if (!isRecord(value)) continue;
+      try {
+        const direction = parseVolumeDirectionContent(
+          value.direction ?? value.volumeDirection ?? value,
+          planNumber === 1
+        );
+        const storySpine = planNumber === 1
+          ? parseBookStorySpineContent(value.storySpine)
+          : null;
+        return { direction, storySpine };
+      } catch (error) { lastError = error; }
+    }
+  }
+  const detail = lastError instanceof Error ? `：${lastError.message}` : '';
+  throw new Error((planNumber === 1
+    ? '输出缺少完整卷方向、首卷强启动或全书故事总线'
+    : '输出缺少完整、合法的卷方向JSON') + detail + '。');
+}
+
+function canonicalRouteToLegacy(
+  direction: VolumeDirectionContent,
+  storySpine: BookStorySpineContent | null,
+  candidateKind: CandidateKind
+): VolumePlanContent {
+  const content: VolumePlanContent = {
+    title: direction.title,
+    openingState: direction.openingSituation,
+    coreGoal: direction.volumeGoal,
+    coreConflict: direction.centralOpposition,
+    failureCost: direction.costAndConsequence,
+    characterChanges: direction.relationshipMovement,
+    eventSequence: [],
+    informationPlan: [],
+    escalationAndRecovery: direction.escalationPath,
+    endingState: direction.closingState,
+    openThreads: [],
+    nextVolumeTrigger: direction.closingState,
+    boundaries: {
+      mustAchieve: [direction.volumeGoal, direction.climaxResponsibility],
+      mustNotViolate: [],
+      creativeFreedom: direction.openSpaces,
+      openQuestions: []
+    },
+    stylePrimary: null,
+    styleSecondary: null,
+    focusExpression: direction.expressionFocus.join('＋'),
+    routeCard: {
+      protagonistStart: direction.openingSituation,
+      drivingMotivation: direction.protagonistDrive,
+      escalationPath: direction.escalationPath,
+      keyChoiceAndCost: [...direction.majorChoices, direction.costAndConsequence].join('；'),
+      climaxResolution: direction.climaxResponsibility,
+      endingChange: direction.closingState,
+      benefits: direction.benefits,
+      risks: direction.risks
+    }
+  };
+  if (direction.firstVolumeLaunch !== undefined) {
+    content.firstVolumeLaunch = canonicalLaunchToLegacy(direction.firstVolumeLaunch);
+  }
+  if (storySpine !== null) content.storySpine = canonicalSpineToLegacy(storySpine);
+  if (candidateKind === 'fusion') {
+    content.fusionNotes = {
+      payoffDesign: direction.expressionFocus.join('；'),
+      logicChain: direction.escalationPath.join(' → '),
+      freshness: direction.benefits.join('；')
+    };
+  }
+  return parseVolumePlanContent(content);
+}
+
+function canonicalLaunchToLegacy(
+  value: NonNullable<VolumeDirectionContent['firstVolumeLaunch']>
+): LegacyFirstVolumeLaunchPlan {
+  return {
+    first500: {
+      readerQuestion: value.first500Interest.readerQuestion,
+      immediateSituation: value.first500Interest.immediateSituation,
+      emotionalGrip: value.first500Interest.emotionalGrip,
+      changePromise: value.first500Interest.promisedMovement
+    },
+    goldenThree: value.goldenThree.map((chapter) => ({
+      chapterNumber: chapter.chapterNumber,
+      responsibility: chapter.responsibility,
+      action: chapter.protagonistAction,
+      pressure: chapter.pressureOrPull,
+      payoff: chapter.deliveredPayoff,
+      nextExpectation: chapter.nextExpectation
+    })),
+    majorClimax: {
+      latestEffectiveCharacters: value.majorClimax.noLaterThanEffectiveChars,
+      setup: value.majorClimax.promiseToFulfill,
+      choice: value.majorClimax.centralChoice,
+      cost: value.majorClimax.cost,
+      irreversibleChange: value.majorClimax.irreversibleChange,
+      nextStage: value.majorClimax.nextStageTrigger
+    },
+    immersionPriorities: [...new Set([value.immersionAnchor, ...value.primaryDrivers])]
+  };
+}
+
+function canonicalSpineToLegacy(value: BookStorySpineContent): StorySpine {
+  return {
+    longTermPromise: value.longTermReaderPromises.join('；'),
+    protagonistLongArc: value.protagonistLongArc,
+    centralQuestion: value.centralQuestion,
+    escalationLadder: value.escalationLadder,
+    endingDirection: value.optionalEndingDirections[0] ?? null,
+    protectedOpenSpace: value.protectedOpenSpaces
+  };
+}
+
+export function assertMateriallyDifferentRoutes(first: VolumePlanContent, second: VolumePlanContent): void {
   const left = first.routeCard;
   const right = second.routeCard;
   if (left === null || left === undefined || right === null || right === undefined) {
     throw new Error('两份独立卷方案都必须带具体路线卡。');
   }
-  const comparisons: Array<[string, string]> = [
-    [left.drivingMotivation, right.drivingMotivation],
-    [left.keyChoiceAndCost, right.keyChoiceAndCost],
-    [left.climaxResolution, right.climaxResolution],
-    [left.endingChange, right.endingChange],
-    [left.escalationPath.join('｜'), right.escalationPath.join('｜')]
+  const comparisons = [
+    { group: 'entry', left: left.protagonistStart, right: right.protagonistStart },
+    { group: 'causal', left: left.drivingMotivation, right: right.drivingMotivation },
+    { group: 'causal', left: first.coreConflict, right: second.coreConflict },
+    { group: 'causal', left: left.escalationPath.join('｜'), right: right.escalationPath.join('｜') },
+    { group: 'causal', left: left.keyChoiceAndCost, right: right.keyChoiceAndCost },
+    { group: 'consequence', left: first.characterChanges.join('｜'), right: second.characterChanges.join('｜') },
+    { group: 'experience', left: first.focusExpression ?? first.stylePrimary ?? '', right: second.focusExpression ?? second.stylePrimary ?? '' },
+    { group: 'consequence', left: left.climaxResolution, right: right.climaxResolution },
+    { group: 'consequence', left: left.endingChange, right: right.endingChange }
   ];
-  const different = comparisons.filter(([a, b]) => a.trim() !== b.trim()).length;
-  if (different < 2) {
-    throw new Error('两位编剧的路线过于相似；必须至少在推动动机、关键选择与代价、高潮解决、卷末变化或升级过程中的两项真正不同。');
+  const different = comparisons.filter((item) => routeTextSimilarity(item.left, item.right) < 0.72);
+  const groups = new Set(different.map((item) => item.group));
+  if (different.length < 4 || !groups.has('causal') || !groups.has('consequence')) {
+    throw new Error('两位编剧的路线过于相似；必须在进入方式、推动动机、对立力量、解决路径、关键选择、关系变化、读者体验、高潮或卷末状态中至少四项真正不同，并同时改变因果路径与结果后果。');
   }
 }
 
+function routeTextSimilarity(first: string, second: string): number {
+  const normalize = (value: string) => value.toLocaleLowerCase('zh-CN').replace(/[\s，。！？、；：,.!?;:—\-]/gu, '');
+  const left = normalize(first);
+  const right = normalize(second);
+  if (left === right) return 1;
+  if (left.length === 0 || right.length === 0) return 0;
+  const grams = (value: string) => new Set(Array.from({ length: Math.max(1, value.length - 1) }, (_, index) => value.slice(index, index + 2)));
+  const a = grams(left);
+  const b = grams(right);
+  const intersection = [...a].filter((item) => b.has(item)).length;
+  return intersection / Math.max(1, a.size + b.size - intersection);
+}
+
 export function volumePlanOutputTokenLimit(candidateKind: CandidateKind): number {
-  // 十事件卷纲的结构化JSON已经在真实 DeepSeek/GLM 调用中稳定超过6k套餐输出：
-  // 两个供应商都在卷末边界前被截断。12k仍是有界上限，配合下面的表达压缩
-  // 指令保证空间用于完整因果链，而不是增加事件数量或重复解释。
-  return candidateKind === 'fusion' ? 12_000 : 12_000;
+  // 卷方向不再携带事件链；8k有界额度覆盖首卷强启动与独立故事总线，
+  // 同时避免模型把多余额度消耗在重复设定和提前展开事件细节上。
+  return candidateKind === 'fusion' ? 8_000 : 8_000;
 }
 
 export function isVolumePlanOutputCapped(outputTokens: number, maximumTokens: number): boolean {
@@ -516,7 +722,7 @@ function unwrapCandidates(value: unknown): unknown[] {
 function buildHardSources(
   snapshot: VolumePlanGenerationSourceSnapshot,
   brief: VolumePlanGenerationBrief,
-  peerCandidates: VolumePlanContent[]
+  peerCandidates: unknown[]
 ): ContextSource[] {
   const sources: ContextSource[] = [
     {
@@ -534,15 +740,7 @@ function buildHardSources(
       content: snapshot.setting.content,
       reason: '已确认设定基线；事实与能力边界必须遵守',
       priority: 100
-    },
-    {
-      sourceType: 'owner:volume_ideas',
-      sourceId: `author-ideas:${brief.volumePlanId}`,
-      content: JSON.stringify(brief.authorIdeas),
-      reason: '作者原话；按强度处理：must必须100%执行，preference与inspiration参考融合（观点最多七成）',
-      priority: 100
-    }
-  ];
+    }];
   if (snapshot.previousVolume !== null) {
     sources.push({
       sourceType: 'planning:previous_volume',
@@ -605,7 +803,7 @@ function buildPrompt(input: {
   snapshot: VolumePlanGenerationSourceSnapshot;
   brief: VolumePlanGenerationBrief;
   sources: Array<{ sourceType: string; sourceId: string; reason: string; content: string }>;
-  peerCandidates: VolumePlanContent[];
+  peerCandidates: unknown[];
 }): string {
   const fusion = input.candidateKind === 'fusion';
   const fallbackRecipes = selectHiddenVolumeRouteRecipes(
@@ -615,7 +813,7 @@ function buildPrompt(input: {
   const recipes = input.brief.routeRecipes ?? fallbackRecipes;
   const routeRecipe: HiddenVolumeRouteRecipe | null = input.candidateKind === 'candidate_a' ? recipes[0] : input.candidateKind === 'candidate_b' ? recipes[1] : null;
   return JSON.stringify({
-    operation: 'volume_plan_generation_v1',
+    operation: 'volume_direction_generation_v2',
     language: 'zh-CN',
     seat: {
       roleKey: input.seat.roleKey,
@@ -628,130 +826,103 @@ function buildPrompt(input: {
     },
     narrativeScaffold: routeRecipe?.scaffold ?? [],
     instructions: fusion ? [
-      '只基于两份独立候选、作者原话和冻结资料包，形成一个可执行的融合候选。',
+      '只基于作者明确选中的候选部分、作者原话和冻结资料包，形成一条完整可执行的卷方向；不得补回未选候选内容。',
       AUTHOR_IDEA_POLICY_PLANNING,
+      SETTING_GAP_OUTPUT_INSTRUCTION,
       '不要平均拼接。明确选择更有因果力量的路径，保留真正有价值的分歧和不确定项。',
-      '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
-      '事件之间必须由上一事件结果和人物新状态自然触发，不用巧合强行串联。',
+      '卷方向只约束目标、冲突、人物变化、高潮责任与卷末状态；不要在这一阶段设计事件列表、章节、场景或对白。',
+      '方向中的升级阶段必须由人物选择、阻力和后果自然相接，不用巧合强行转向。',
       '融合候选保留你选定路线的本卷基调与本卷重点表达，不要平均拼接两种味道。',
-      '融合候选必须填写 fusionNotes：向作者说清这份稿子的爽点怎么兑现、逻辑链怎么闭环、新鲜感来自哪里；每块一两句具体说明，不写空话。',
+      '融合方向必须用benefits和risks向作者说清阅读收益与写作风险，不输出额外理论说明。',
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ] : [
       '你与另一位编剧互相看不到答案。独立提出一条真正值得写、因果成立且结构有辨识度的卷路线。',
       AUTHOR_IDEA_POLICY_PLANNING,
+      SETTING_GAP_OUTPUT_INSTRUCTION,
       input.seat.roleKey === 'lead_screenwriter'
         ? '优先从人物欲望、阻力、选择、代价和后果推演，不套固定爽点清单。'
         : '主动挑战最直觉的前提，寻找被忽略的关系、代价或结构路径，但反转必须能由前文因果支持。',
       '按本轮收到的白话节点职责自然设计；可以移动、合并或舍弃软节点，不得在输出中提及任何专业结构名称。',
-      '卷规划约束目标、冲突、人物变化、事件因果与卷末接口，不锁死场景、对白和局部反转。',
+      '卷方向只约束目标、冲突、人物变化、高潮责任与卷末状态；事件链将在确认后单独设计。',
       '本卷基调默认延续上一卷（若资料中提供），除非本卷剧情走向明显变化；基调是写作倾向声明，不是内容清单。',
-      '本卷重点表达（focusExpression）：从全书标签、开书信息、已确认设定和上一卷走向提炼一句短语（如"权谋智斗＋智商在线＋热血爽"），只写本卷重点，不推翻全书基调，不得写成内容清单或剧情梗概。',
+      '本卷重点表达（expressionFocus）：从全书标签、开书信息、已确认设定和上一卷走向提炼一至三项具体阅读感受，只写当卷重点，不推翻全书基调。',
       '只输出一个JSON对象，不要Markdown、解释、评分或内部思考。'
     ],
     sourcePolicy: {
       confirmedSettingIsFact: true,
       authorMustIsHard: true,
       authorPreferenceAndInspirationAreSoft: true,
-      unsupportedCoreSettingAction: 'put the question into boundaries.openQuestions instead of inventing it'
+      authorQuestionNeverBecomesContent: true,
+      unsupportedCoreSettingAction: 'keep the unknown in direction.openSpaces instead of inventing a hard fact'
     },
     expressionBudget: volumePlanExpressionBudget(input.candidateKind),
-    legacyExpressionBudget: [
-      '以下限制只控制JSON传输长度，不限制故事创造性、事件差异或人物选择。',
-      '每个事件字段用一至两句具体中文说清人物、行动、代价和状态变化，不复述整份设定。',
-      'informationPlan、escalationAndRecovery、characterChanges及各边界数组只保留本卷真正需要的要点，每项不超过两句。',
-      '必须优先完整闭合eventSequence、endingState、nextVolumeTrigger和boundaries，不能写到中途截断。'
-    ],
     firstVolumeRules: input.snapshot.planNumber === 1 ? [
       '前500有效中文字内必须建立读者问题、即时处境、情绪抓力和变化承诺；效果必须具体，手段不限定为打斗或打脸。',
       '前三章作为一组设计：第一章出场与困境，第二章行动与压力并给首次回报，第三章完成阶段结果并打开更大目标。',
       '第一卷维持有效冲突、情绪拉扯和代入，但不按固定间隔机械安排爽点或反转。',
       '累计10万有效字以内或本卷结束前（取更早）安排重大高潮，必须包含选择、代价、不可逆变化和下一阶段。',
-      'storySpine只是全书软北极星，不得展开成全书逐章大纲；protectedOpenSpace必须保留未来创造空间。'
+      'storySpine是独立于卷方向的全书软北极星，不得展开成全书逐章大纲；protectedOpenSpaces必须保留未来创造空间。'
     ] : [],
     sources: input.sources,
     outputContract: {
-      title: '卷标题',
-      openingState: '开卷时人物和局面',
-      coreGoal: '本卷必须完成什么',
-      coreConflict: '贯穿本卷的主要对抗',
-      failureCost: '失败会失去什么',
-      characterChanges: ['人物在本卷要发生的可见变化'],
-      eventSequence: [{
-        eventId: '本候选内唯一稳定标识',
-        order: 1,
-        title: '事件名称',
-        responsibility: '为本卷承担什么任务',
-        entryState: '从什么人物与局面状态进入',
-        trigger: '什么因果触发事件',
-        action: '人物采取什么行动',
-        result: '行动造成什么新状态',
-        leadsToNext: '如何自然触发下一事件；最后一个事件可为null',
-        estimatedChapterRange: { minimum: null, likely: null, maximum: null }
-      }],
-      informationPlan: ['信息如何逐步释放'],
-      escalationAndRecovery: ['压力如何升级以及人物如何获得喘息'],
-      endingState: '卷末真实状态',
-      openThreads: ['卷末仍开放的线索'],
-      nextVolumeTrigger: '如何自然引出下一卷',
-      boundaries: {
-        mustAchieve: ['必须完成'],
-        mustNotViolate: ['不能违反'],
-        creativeFreedom: ['留给规划、章纲和主笔的自由'],
-        openQuestions: ['需要作者以后确认或可继续探索']
-      },
-      stylePrimary: `本卷主基调：从词表【${STYLE_TONES.join('、')}】中选1个，贴合本卷剧情走向`,
-      styleSecondary: '本卷可选副基调：同一词表，不与主基调重复；不需要则为null',
-      focusExpression: '本卷重点表达：一句短语（如"权谋智斗＋智商在线＋热血爽"），从全书标签、开书信息与已确认设定提炼，只写当卷重点；沿用全书基调则为null',
-      routeCard: {
-        protagonistStart: '用一两句具体写清主角从什么状态出发',
-        drivingMotivation: '什么需要或压力让主角主动推进本卷',
-        escalationPath: ['三至五段因果相接的升级过程；不写专业方法名'],
-        keyChoiceAndCost: '主角必须作出的关键选择及真实代价',
-        climaxResolution: '高潮中用什么行动解决本卷核心问题，解决后改变什么',
-        endingChange: '卷末人物、关系和局面的可见变化',
-        benefits: ['选择这条路线的阅读收益，一至三条'],
-        risks: ['这条路线容易写坏或需要控制的风险，一至三条']
+      settingGaps: [{ question: '当前任务缺少什么必要设定', whyNeeded: '为什么此刻不决定就无法继续', affectedObjects: ['当前卷或下游对象'] }],
+      direction: {
+        title: '卷标题',
+        openingSituation: '开卷时人物与局面',
+        protagonistDrive: '什么需要、选择或压力真正推动主角行动',
+        volumeGoal: '本卷必须解决或推进什么',
+        centralOpposition: '主要对立力量，以及它为什么能持续施压',
+        escalationPath: ['三至五段因果相接的升级过程，不出现专业方法名'],
+        majorChoices: ['会真正改变局面的关键选择'],
+        relationshipMovement: ['本卷重要人物关系怎样变化'],
+        expressionFocus: ['本卷想重点带给读者的感受或看点'],
+        climaxResponsibility: '高潮必须兑现什么前期承诺、解决什么核心矛盾',
+        costAndConsequence: '主角付出的代价及高潮后的真实后果',
+        closingState: '卷末人物、关系和局面进入什么新状态',
+        benefits: ['这条路线具体好看在哪里'],
+        risks: ['最容易套路化、失真或疲劳的地方'],
+        openSpaces: ['明确留给事件、章纲和正文继续创造的空间'],
+        ...(input.snapshot.planNumber === 1 ? {
+          firstVolumeLaunch: {
+            primaryDrivers: ['这一卷主要靠什么形成持续追读动力'],
+            immersionAnchor: '读者主要代入谁的什么欲望、困境或关系',
+            first500Interest: {
+              readerQuestion: '前500有效正文字符让读者想继续确认什么',
+              immediateSituation: '开篇正在发生、不能忽略的具体处境',
+              emotionalGrip: '通过人物感受和行动形成什么情绪抓力',
+              promisedMovement: '前500字让读者看见故事即将发生什么变化'
+            },
+            goldenThree: [{
+              chapterNumber: '必须依次为1、2、3',
+              responsibility: '这一章在前三章整体中的唯一职责',
+              protagonistAction: '主角采取的具体行动',
+              pressureOrPull: '行动面对的阻力或关系拉力',
+              deliveredPayoff: '当章必须兑现的有效回报',
+              nextExpectation: '自然打开下一章的具体期待'
+            }],
+            earlyMomentum: ['首卷前期怎样持续产生有效变化和阶段回报'],
+            majorClimax: {
+              promiseToFulfill: '兑现前面哪个重要承诺',
+              centralChoice: '主角必须作出的重大主动选择',
+              cost: '选择真正付出的代价',
+              centralConflictChange: '哪条主要冲突发生决定性变化',
+              irreversibleChange: '人物、关系或局面怎样不可逆改变',
+              nextStageTrigger: '怎样打开下一阶段',
+              noLaterThanEffectiveChars: 100000
+            },
+            variationAndRecovery: ['怎样更换冲突与情绪类型，并安排必要蓄力和喘息'],
+            forbiddenShortcuts: ['本书应避免重复使用的套路化捷径']
+          }
+        } : {})
       },
       ...(input.snapshot.planNumber === 1 ? {
         storySpine: {
-          longTermPromise: '整本书长期兑现给读者的核心满足',
+          longTermReaderPromises: ['整本书长期持续兑现给读者的核心满足'],
           protagonistLongArc: '主角跨卷的长期变化方向',
           centralQuestion: '贯穿全书、可逐卷推进的中心问题',
-          escalationLadder: ['只写跨卷升级阶梯，不写全书详细剧情'],
-          endingDirection: '可选结局方向；未定则为null',
-          protectedOpenSpace: ['明确哪些未来内容保持开放，不提前解释']
-        },
-        firstVolumeLaunch: {
-          first500: {
-            readerQuestion: '500有效字内让读者想继续确认的问题',
-            immediateSituation: '500有效字内正在发生、不可忽视的具体处境',
-            emotionalGrip: '500有效字内通过人物感受与行动建立的情绪抓力',
-            changePromise: '500有效字内让读者看到故事即将发生何种变化'
-          },
-          goldenThree: [{
-            chapterNumber: '必须依次为1、2、3',
-            responsibility: '本章在开局组中的唯一职责',
-            action: '主角本章采取的具体行动',
-            pressure: '行动面对或造成的压力',
-            payoff: '本章给读者的有效回报，可为空间推进、信息、情绪或能力结果但不得为空',
-            nextExpectation: '自然承接下一章的期待，可为问题、决定、情绪余波或危机'
-          }],
-          majorClimax: {
-            latestEffectiveCharacters: '正整数且不大于100000；若本卷更短则安排在卷末前',
-            setup: '高潮此前如何逐步准备',
-            choice: '高潮迫使主角作出的主动选择',
-            cost: '选择真正付出的代价',
-            irreversibleChange: '高潮造成的不可逆人物或局面变化',
-            nextStage: '高潮兑现后打开的新阶段'
-          },
-          immersionPriorities: ['第一卷维持代入感与情绪拉扯时最需抓住的具体人物体验']
-        }
-      } : {}),
-      ...(fusion ? {
-        fusionNotes: {
-          payoffDesign: '爽点设计说明：本融合稿的爽点埋在哪里、按什么节奏兑现、各自服务什么情绪',
-          logicChain: '逻辑链说明：关键因果如何闭环，为什么选择这条路线而不是另一条',
-          freshness: '新鲜感说明：本稿的差异化与惊喜来自哪里，如何避免套路拼贴'
+          escalationLadder: ['只写跨卷升级阶梯，不展开全书详细剧情'],
+          optionalEndingDirections: ['可选结局方向；尚未决定可留空数组'],
+          protectedOpenSpaces: ['哪些未来内容必须保持开放，不能提前解释']
         }
       } : {})
     }
@@ -760,16 +931,15 @@ function buildPrompt(input: {
 
 export function volumePlanExpressionBudget(candidateKind: CandidateKind): string[] {
   const common = [
-    'Length limits control transport size only; they must not flatten causality, character choice or event differences.',
-    'Do not repeat the same fact in responsibility, entryState, trigger, action, result and leadsToNext.',
-    'Keep every top-level prose field within 120 Chinese characters.',
-    'Keep characterChanges, informationPlan, escalationAndRecovery and every boundaries array at no more than 5 items; each item must stay within 90 Chinese characters.',
-    'For every event, keep responsibility within 70 Chinese characters and each of entryState, trigger, action, result and leadsToNext within 110 Chinese characters.',
-    'Finish the complete JSON object before adding detail. Never spend the output limit on explanation, Markdown or repeated setting summaries.'
+    'Length limits control transport size only; they must not flatten causality, character choice or route differences.',
+    'Keep every prose field concrete and concise; do not repeat setting summaries across fields.',
+    'Keep escalationPath at 3-5 items and other arrays at no more than 5 items unless the first-volume contract explicitly requires 3 chapters.',
+    'Do not design event lists, chapter lists, scene beats or dialogue in the volume direction.',
+    'Finish the complete JSON object before adding detail. Never spend the output limit on explanation, Markdown or professional structure terms.'
   ];
   return candidateKind === 'fusion'
-    ? ['The complete fusion JSON must stay within 7,500 Chinese characters.', ...common]
-    : ['The complete candidate JSON must stay within 9,000 Chinese characters.', ...common];
+    ? ['The complete fusion direction JSON must stay within 5,500 Chinese characters.', ...common]
+    : ['The complete route direction JSON must stay within 6,500 Chinese characters.', ...common];
 }
 
 function retrievalQuery(
@@ -785,7 +955,7 @@ function retrievalQuery(
   return [
     snapshot.bookTitle,
     `第${snapshot.planNumber}卷规划`,
-    candidateKind === 'fusion' ? '整合两个独立卷方案' : '人物目标 冲突 代价 因果 伏笔',
+    candidateKind === 'fusion' ? '只整理作者选中的卷路线部分' : '人物目标 冲突 代价 关系 高潮责任',
     authorText
   ].filter(Boolean).join(' ');
 }

@@ -82,6 +82,8 @@ import { PlanningStateService } from '../application/books/planning-state-servic
 import { StyleBaselineService } from '../application/books/style-baseline-service.js';
 import type { StyleBaselineInput } from '../contracts/style-baseline.js';
 import { SettingBaselineService } from '../application/knowledge/setting-baseline-service.js';
+import { SettingGapService } from '../application/knowledge/setting-gap-service.js';
+import { SettingGapRepository } from '../infrastructure/db/repositories/setting-gap-repository.js';
 import { PlanningStageArtifactService } from '../application/artifacts/planning-stage-artifact-service.js';
 import { ExistingManuscriptContinuationService } from '../application/continuation/existing-manuscript-continuation-service.js';
 import { PromptViewAccessService } from '../infrastructure/security/prompt-view-access.js';
@@ -94,8 +96,11 @@ import { AuthorPlanningInputRepository } from '../infrastructure/db/repositories
 import { IdeationService } from '../application/ideation/ideation-service.js';
 import { VolumePlanService, type VolumePlanCandidateKind } from '../application/planning/volume-plan-service.js';
 import { VolumePlanRepository } from '../infrastructure/db/repositories/volume-plan-repository.js';
+import { LayeredPlanningRepository } from '../infrastructure/db/repositories/layered-planning-repository.js';
+import { LayeredPlanningService } from '../application/planning/layered-planning-service.js';
 import { VolumePlanGenerationRepository } from '../infrastructure/db/repositories/volume-plan-generation-repository.js';
 import { VolumePlanGenerationService } from '../application/planning/volume-plan-generation-service.js';
+import { EventChainGenerationService } from '../application/planning/event-chain-generation-service.js';
 import { StoryEventService } from '../application/planning/story-event-service.js';
 import { StoryEventRepository, type StoryEventCandidateKind } from '../infrastructure/db/repositories/story-event-repository.js';
 import { StoryEventGenerationRepository } from '../infrastructure/db/repositories/story-event-generation-repository.js';
@@ -107,6 +112,7 @@ import { EventChapterGenerationService, type EventChapterGenerationKind } from '
 import { CreationSettlementService } from '../application/planning/creation-settlement-service.js';
 import { CreationSettlementRepository } from '../infrastructure/db/repositories/creation-settlement-repository.js';
 import { SettlementFollowUpService } from '../application/planning/settlement-follow-up-service.js';
+import { StoryThreadService } from '../application/planning/story-thread-service.js';
 import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import { buildPlanningTemplateSignals } from '../application/planning/template-recommendation-signals.js';
 import { LongformContinuityRepository } from '../infrastructure/db/repositories/longform-continuity-repository.js';
@@ -194,6 +200,7 @@ function taskRequiresCreativeModel(taskType: string): boolean {
   return new Set([
     'discussion',
     'volume_plan_generation',
+    'event_chain_generation',
     'story_event_generation',
     'event_chapter_sequence_generation',
     'event_chapter_detail_generation',
@@ -222,6 +229,65 @@ function authorAttachmentView(record: AuthorAttachmentRecord): Record<string, un
   };
 }
 
+type InternalGenerationView = {
+  taskId: string;
+  status: string;
+  currentPhase: string;
+  errorCode: string | null;
+  checkpoint?: Record<string, unknown>;
+  members?: Array<{ roleKey: string; displayName: string }>;
+  member?: { roleKey: string; displayName: string };
+  candidateVersionIds?: Record<string, string | null>;
+  candidateEventChainId?: string | null;
+  kind?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function authorGenerationView(view: InternalGenerationView | null): Record<string, unknown> | null {
+  if (view === null) return null;
+  const pollingStates = ['pending', 'queued', 'working', 'waiting_confirmation'];
+  const isRunning = pollingStates.includes(view.status);
+  const canCancel = isRunning;
+  const canResume = view.status === 'paused';
+  const canRetry = ['failed', 'interrupted'].includes(view.status);
+  const stateText = view.status === 'succeeded' ? '本轮方案已经准备好'
+    : view.status === 'cancelled' ? '本轮已经停止'
+      : canResume ? '本轮已暂停，可以继续'
+        : canRetry ? '本轮没有完成，可以继续'
+          : ['pending', 'queued'].includes(view.status) ? '正在等待开始'
+            : isRunning ? '团队正在设计'
+              : '正在处理';
+  const phaseText = ({
+    preparing_context: '正在整理本书资料',
+    screenwriter_candidates: '两份独立方案已完成，正在整理差异',
+    routes_ready: '两份故事路线已经准备好',
+    event_chain_ready: '事件链候选已经准备好',
+    sequence_candidate_saved: '完整章链候选已经保存',
+    detail_candidates_saved: '近期详细章纲已经保存',
+    sequence_challenge_saved: '章链参考意见已经准备好',
+    detail_challenge_saved: '单章参考意见已经准备好'
+  } as Record<string, string>)[view.currentPhase] ?? (isRunning ? '团队正在继续处理' : stateText);
+  const challenge = view.checkpoint?.challenge;
+  return {
+    stateText,
+    phaseText,
+    isRunning,
+    isCompleted: view.status === 'succeeded',
+    canCancel,
+    canResume,
+    canRetry,
+    errorMessage: canRetry ? '本轮没有完成，系统已保留已有结果，可以继续。' : null,
+    members: (view.members ?? (view.member === undefined ? [] : [view.member]))
+      .map((member) => ({ roleKey: member.roleKey, displayName: member.displayName })),
+    ...(view.candidateVersionIds === undefined ? {} : { candidateVersionIds: view.candidateVersionIds }),
+    ...(view.candidateEventChainId === undefined ? {} : { candidateEventChainId: view.candidateEventChainId }),
+    ...(view.kind === undefined ? {} : { kind: view.kind }),
+    ...(challenge === undefined ? {} : { challenge }),
+    ...(view.createdAt === undefined ? {} : { createdAt: view.createdAt }),
+    ...(view.updatedAt === undefined ? {} : { updatedAt: view.updatedAt })
+  };
+}
 export async function registerDomainRoutes(app: FastifyInstance, database: DatabaseSync, config: RuntimeConfig): Promise<void> {
   const ids = new UuidGenerator();
   const clock = new SystemClock();
@@ -273,6 +339,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const planningStates = new PlanningStateService(database);
   const styleBaselines = new StyleBaselineService(database, ids, clock);
   const settingBaselines = new SettingBaselineService(database, ids, clock);
+  const settingGaps = new SettingGapService(new SettingGapRepository(database),new UnitOfWork(database),ids,clock);
   const planningStageArtifacts = new PlanningStageArtifactService(database, clock);
   const budgets = new BudgetService(database, ids, clock);
   const modelCalls = new ModelCallService(database, clock, budgets);
@@ -294,8 +361,9 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   interruptedCallSweepTimer.unref();
   app.addHook('onClose', async () => { clearInterval(interruptedCallSweepTimer); });
   const editors = new EditorLeaseService(database, ids, clock);
+  const creationWorkflowProgress = new CreationWorkflowProgressService(database);
   const chapterApprovals = new ChapterApprovalService(
-    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists, new CreationWorkflowProgressService(database)
+    new ProductionWorkflowRepository(database), config.dataDir, config.releaseId, ids, clock, chapters, canon, tasks, protagonists, creationWorkflowProgress
   );
   const backups = new BackupService(database, config);
   const expressionProfiles = new ExpressionProfileService(new ExpressionProfileRepository(database), new UnitOfWork(database), ids, clock);
@@ -313,12 +381,20 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const ideation = new IdeationService(
     database, ids, clock, discussions, tasks, authorCollaboration
   );
+  const storyThreads = new StoryThreadService(database,new UnitOfWork(database),ids,clock);
+  const layeredPlanning = new LayeredPlanningService(
+    new LayeredPlanningRepository(database), new UnitOfWork(database), ids, clock, storyThreads
+  );
   const volumePlans = new VolumePlanService(
-    new VolumePlanRepository(database), new UnitOfWork(database), ids, clock
+    new VolumePlanRepository(database), new UnitOfWork(database), ids, clock, layeredPlanning
   );
   const volumePlanGenerationRepository = new VolumePlanGenerationRepository(database);
   const volumePlanGenerations = new VolumePlanGenerationService(
-    volumePlanGenerationRepository, volumePlans, tasks, new UnitOfWork(database), ids, clock
+    volumePlanGenerationRepository, volumePlans, tasks, new UnitOfWork(database), ids, clock, layeredPlanning
+  );
+  const eventChainGenerations = new EventChainGenerationService(
+    new LayeredPlanningRepository(database), volumePlanGenerationRepository, layeredPlanning,
+    volumePlans, tasks, new UnitOfWork(database), ids, clock
   );
   const brandingDesigns = new BookBrandingDesignService(
     new BookBrandingDesignRepository(database), volumePlanGenerationRepository, tasks,
@@ -331,7 +407,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   const storyEventRepository = new StoryEventRepository(database);
   const storyEvents = new StoryEventService(
-    storyEventRepository, new UnitOfWork(database), ids, clock
+    storyEventRepository, new UnitOfWork(database), ids, clock, layeredPlanning
   );
   const storyEventGenerationRepository = new StoryEventGenerationRepository(database);
   const storyEventGenerations = new StoryEventGenerationService(
@@ -347,11 +423,40 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     eventChapterGenerationRepository, eventChapterOutlines, volumePlanGenerationRepository, tasks,
     new UnitOfWork(database), ids, clock
   );
+  const actOnCurrentGeneration = (
+    scope: { ownerId: string; bookId: string },
+    generation: InternalGenerationView | null,
+    action: 'cancel' | 'retry' | 'resume'
+  ): void => {
+    if (generation === null) {
+      throw new DomainError(errorCodes.validation, '当前没有可以操作的设计任务。', {}, false, 404);
+    }
+    const task = tasks.require(scope, generation.taskId);
+    if (action === 'cancel') {
+      const cancelledTask = tasks.requestCancel(scope, task.taskId);
+      volumePlanGenerations.reconcileTerminal(scope, cancelledTask);
+      eventChainGenerations.reconcileTerminal(scope, cancelledTask);
+      storyEventGenerations.reconcileTerminal(scope, cancelledTask);
+      eventChapterGenerations.reconcileTerminal(scope, cancelledTask);
+      const modelCallRows = database.prepare(`SELECT request_id FROM model_calls
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
+        .all(scope.ownerId, scope.bookId, task.taskId) as unknown as Array<{ request_id: string }>;
+      const toolCallRows = database.prepare(`SELECT tool_call_id FROM tool_calls
+        WHERE owner_id = ? AND book_id = ? AND task_id = ? AND state = 'working'`)
+        .all(scope.ownerId, scope.bookId, task.taskId) as unknown as Array<{ tool_call_id: string }>;
+      modelCallRows.forEach((call) => { cancelActiveModelCall(call.request_id); });
+      toolCallRows.forEach((call) => { cancelActiveToolCall(call.tool_call_id); });
+      return;
+    }
+    assertCreativeModelReady(config.modelRuntime);
+    if (action === 'resume') tasks.queue(scope, task.taskId);
+    else tasks.retryFailed(scope, task.taskId);
+  };
   const continuityRepository = new LongformContinuityRepository(database);
   const creationSettlementRepository = new CreationSettlementRepository(database);
   const creationSettlements = new CreationSettlementService(
     creationSettlementRepository, continuityRepository,
-    new StageSettlementService(continuityRepository, new UnitOfWork(database), ids, clock), ids, clock
+    new StageSettlementService(continuityRepository, new UnitOfWork(database), ids, clock), ids, clock, storyThreads
   );
   const settlementFollowUps = new SettlementFollowUpService(
     new SettlementFollowUpRepository(database), creationSettlementRepository,
@@ -409,6 +514,35 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(volumePlans.workflow(scope), request.id);
   });
 
+  app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/first-volume-launch-progress', async (request) => {
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(creationWorkflowProgress.firstVolumeLaunchProgress(scope), request.id);
+  });
+
+  app.get<{Params:{bookId:string}}>('/api/v1/books/:bookId/setting-gaps',async(request)=>{
+    const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+    return success(settingGaps.list(scope),request.id);
+  });
+  app.post<{Params:{bookId:string};Body:{scopeType:'volume'|'event'|'chapter';scopeId:string;question:string;
+    whyNeeded:string;affectedObjects?:string[]}}>('/api/v1/books/:bookId/setting-gaps',async(request)=>{
+    const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+    return success(settingGaps.discover(scope,request.body),request.id);
+  });
+  app.post<{Params:{bookId:string;gapId:string};Body:{decision:'design_now'|'not_used_this_volume'|'keep_unknown';
+    resolvedSettingVersionId?:string|null}}>('/api/v1/books/:bookId/setting-gaps/:gapId/decide',async(request)=>{
+    const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+    return success(settingGaps.decide(scope,request.params.gapId,request.body),request.id);
+  });
+  app.get<{Params:{bookId:string}}>('/api/v1/books/:bookId/story-threads',async(request)=>{
+    const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+    return success(storyThreads.list(scope),request.id);
+  });
+  app.post<{Params:{bookId:string;threadId:string};Body:{reason?:string}}>(
+    '/api/v1/books/:bookId/story-threads/:threadId/abandon',async(request)=>{
+      const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
+      return success(storyThreads.abandon(scope,request.params.threadId,request.body.reason??''),request.id);
+    });
   app.get<{Params:{bookId:string;eventId:string}}>(
     '/api/v1/books/:bookId/story-events/:eventId/settlement',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
@@ -503,10 +637,85 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/directions', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      volumePlans.get(scope, request.params.volumePlanId);
+      return success(layeredPlanning.listDirections(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    selection: unknown; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/route-selection', async (request) => {
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    volumePlans.get(scope, request.params.volumePlanId);
+    return success(layeredPlanning.recordRouteSelection(
+      scope, request.params.volumePlanId, request.body
+    ), request.id);
+  });
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      volumePlans.get(scope, request.params.volumePlanId);
+      return success(layeredPlanning.listEventChains(scope, request.params.volumePlanId), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains/generation', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      volumePlans.get(scope, request.params.volumePlanId);
+      return success(authorGenerationView(eventChainGenerations.latest(scope, request.params.volumePlanId)), request.id);
+    }
+  );
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    expectedWorkflowVersion: number; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains/generate', async (request) => {
+    assertCreativeModelReady(config.modelRuntime);
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    return success(authorGenerationView(eventChainGenerations.start(scope, request.params.volumePlanId, request.body)), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: {
+    content: unknown; parentVersionId?: string | null; idempotencyKey: string;
+  } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains', async (request) => {
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    const plan = volumePlans.get(scope, request.params.volumePlanId);
+    const input = {
+      planNumber: plan.planNumber,
+      content: request.body.content,
+      idempotencyKey: request.body.idempotencyKey,
+      ...(request.body.parentVersionId === undefined ? {} : { parentVersionId: request.body.parentVersionId })
+    };
+    return success(layeredPlanning.addEventChain(
+      scope, request.params.volumePlanId, input
+    ), request.id);
+  });
+
+  app.post<{ Params: { bookId: string; volumePlanId: string; eventChainVersionId: string } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains/:eventChainVersionId/confirm',
+    async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(layeredPlanning.confirmEventChain(
+        scope, request.params.volumePlanId, request.params.eventChainVersionId
+      ), request.id);
+    }
+  );
+
+  app.get<{ Params: { bookId: string; volumePlanId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/generation', async (request) => {
       const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
-      return success(volumePlanGenerations.latest(scope, request.params.volumePlanId), request.id);
+      return success(authorGenerationView(volumePlanGenerations.latest(scope, request.params.volumePlanId)), request.id);
     }
   );
 
@@ -516,14 +725,47 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     expectedWorkflowVersion: number;
     template: unknown;
     authorInputRefs?: string[];
+    selection?: unknown;
     idempotencyKey: string;
   } }>('/api/v1/books/:bookId/volume-plans/:volumePlanId/generate', async (request) => {
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     assertCreativeModelReady(config.modelRuntime);
-    return success(volumePlanGenerations.start(
+    return success(authorGenerationView(volumePlanGenerations.start(
       scope, request.params.volumePlanId, request.body
-    ), request.id);
+    )), request.id);
+  });
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { action: 'cancel' | 'retry' | 'resume' } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/generation/action', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      actOnCurrentGeneration(scope, volumePlanGenerations.latest(scope, request.params.volumePlanId), request.body.action);
+      return success(authorGenerationView(volumePlanGenerations.latest(scope, request.params.volumePlanId)), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { action: 'cancel' | 'retry' | 'resume' } }>(
+    '/api/v1/books/:bookId/volume-plans/:volumePlanId/event-chains/generation/action', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      actOnCurrentGeneration(scope, eventChainGenerations.latest(scope, request.params.volumePlanId), request.body.action);
+      return success(authorGenerationView(eventChainGenerations.latest(scope, request.params.volumePlanId)), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; eventId: string }; Body: { action: 'cancel' | 'retry' | 'resume' } }>(
+    '/api/v1/books/:bookId/story-events/:eventId/generation/action', async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      actOnCurrentGeneration(scope, storyEventGenerations.latest(scope, request.params.eventId), request.body.action);
+      return success(authorGenerationView(storyEventGenerations.latest(scope, request.params.eventId)), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; eventId: string }; Body: {
+    action: 'cancel' | 'retry' | 'resume'; kind: EventChapterGenerationKind;
+  } }>('/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generation/action', async (request) => {
+    const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+    books.require(scope);
+    actOnCurrentGeneration(scope, eventChapterGenerations.latest(scope, request.params.eventId, request.body.kind), request.body.action);
+    return success(authorGenerationView(eventChapterGenerations.latest(scope, request.params.eventId, request.body.kind)), request.id);
   });
   app.post<{ Params: { bookId: string; volumePlanId: string }; Body: { volumePlanVersionId: string } }>(
     '/api/v1/books/:bookId/volume-plans/:volumePlanId/impact-preview', async (request) => {
@@ -582,7 +824,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     '/api/v1/books/:bookId/story-events/:eventId/generation', async (request) => {
       const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
       books.require(scope);
-      return success(storyEventGenerations.latest(scope, request.params.eventId), request.id);
+      return success(authorGenerationView(storyEventGenerations.latest(scope, request.params.eventId)), request.id);
     }
   );
 
@@ -593,7 +835,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
     books.require(scope);
     assertCreativeModelReady(config.modelRuntime);
-    return success(storyEventGenerations.start(scope, request.params.eventId, request.body), request.id);
+    return success(authorGenerationView(storyEventGenerations.start(scope, request.params.eventId, request.body)), request.id);
   });
   app.get<{ Params: { bookId: string; eventId: string } }>(
     '/api/v1/books/:bookId/story-events/:eventId/versions', async (request) => {
@@ -651,37 +893,37 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params:{bookId:string;eventId:string};Querystring:{kind?:EventChapterGenerationKind} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generation',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
-      return success(eventChapterGenerations.latest(scope,request.params.eventId,request.query.kind??'sequence'),request.id);
+      return success(authorGenerationView(eventChapterGenerations.latest(scope,request.params.eventId,request.query.kind??'sequence')),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/generate',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body),request.id);
+      return success(authorGenerationView(eventChapterGenerations.startSequence(scope,request.params.eventId,request.body)),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;sequenceVersionId:string};Body:{expectedSequenceRevision:number;
     expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-sequence/versions/:sequenceVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(eventChapterGenerations.startSequenceChallenge(scope,request.params.eventId,
-        request.params.sequenceVersionId,request.body),request.id);
+      return success(authorGenerationView(eventChapterGenerations.startSequenceChallenge(scope,request.params.eventId,
+        request.params.sequenceVersionId,request.body)),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string};Body:{count:number;expectedSequenceRevision:number;expectedWorkflowVersion:number;
     authorInputRefs?:string[];idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/chapter-outlines/generate',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body),request.id);
+      return success(authorGenerationView(eventChapterGenerations.startDetails(scope,request.params.eventId,request.body)),request.id);
     });
   app.post<{ Params:{bookId:string;eventId:string;outlineId:string;outlineVersionId:string};Body:{expectedSequenceRevision:number;
     expectedWorkflowVersion:number;challengerRoleKey?:string;idempotencyKey:string} }>(
     '/api/v1/books/:bookId/story-events/:eventId/event-chapter-outlines/:outlineId/versions/:outlineVersionId/challenge',async(request)=>{
       const scope={ownerId:owner(request).ownerId,bookId:request.params.bookId};books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(eventChapterGenerations.startDetailChallenge(scope,request.params.eventId,request.params.outlineId,
-        request.params.outlineVersionId,request.body),request.id);
+      return success(authorGenerationView(eventChapterGenerations.startDetailChallenge(scope,request.params.eventId,request.params.outlineId,
+        request.params.outlineVersionId,request.body)),request.id);
     });
   app.get<{ Params:{bookId:string;outlineId:string} }>(
     '/api/v1/books/:bookId/event-chapter-outlines/:outlineId/versions',async(request)=>{

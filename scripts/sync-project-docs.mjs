@@ -14,6 +14,7 @@ const currentPaths = [
   'HANDOFF.md', 'PROJECT_HANDBOOK.md', 'AGENTS.md', 'README.md', 'KNOWLEDGE.md', 'TASKS.md',
   'docs/PROJECT_CHARTER.md', 'docs/DECISIONS.md', 'docs/PRODUCT.md',
   'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/ARCHITECTURE.md', 'docs/DATA_MODEL.md',
+  'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md',
   'docs/AGENT_SYSTEM.md', 'docs/MEMORY.md', 'docs/LONGFORM_QUALITY.md',
   'docs/HYBRID_RAG_DESIGN.md', 'docs/CHUNKING_DESIGN.md', 'docs/API.md',
   'docs/DEVELOPMENT_ROADMAP.md', 'docs/ACCEPTANCE.md', 'docs/ULTRA_LONGFORM_CONTINUITY.md',
@@ -97,7 +98,8 @@ const documentByPath = new Map(documents.map((document) => [document.path, docum
 const bundleGroups = [
   { title: '一、产品定位与完整工作流', paths: [
     'README.md', 'docs/PROJECT_CHARTER.md', 'docs/PRODUCT.md',
-    'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/USER_GUIDE.md'
+    'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/USER_GUIDE.md',
+    'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md',
   ] },
   { title: '二、AI成员、上下文、检索与创作质量', paths: [
     'docs/AGENT_SYSTEM.md', 'docs/ROLE_PROMPTS.md', 'docs/MEMORY.md',

@@ -5,9 +5,13 @@ import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { stableJson } from '../knowledge/canon-service.js';
+import { compileWriterSettingContext,type WriterSettingItem } from '../creation/writer-setting-context.js';
 
 export type ContextConstraintStrength = 'hard_fact' | 'current_task' | 'soft_reference' | 'open_space';
 export type ContextTruthStatus = 'planned' | 'confirmed' | 'actual';
+export const contextComponentKinds=['BookCorePack','SettingConstraintPack','BookStorySpinePack','VolumeResponsibilityPack',
+  'EventResponsibilityPack','ChapterTaskPack','RecentActualStatePack','StoryThreadPack'] as const;
+export type ContextComponentKind=typeof contextComponentKinds[number];
 
 export interface ContextSource {
   sourceType: string;
@@ -18,9 +22,10 @@ export interface ContextSource {
   version?: number | string;
   constraintStrength?: ContextConstraintStrength;
   truthStatus?: ContextTruthStatus;
-  scopeType?: 'book' | 'volume' | 'event' | 'chapter' | 'task';
+  scopeType?: 'book' | 'volume' | 'event' | 'chapter' | 'scene' | 'task';
   scopeId?: string;
   dependencies?: string[];
+  componentKind?: ContextComponentKind;
 }
 
 export interface ContextPackInput {
@@ -58,12 +63,16 @@ export class ContextPackService {
 
   public build(scope: BookScope, input: ContextPackInput): ContextPackRecord {
     assertBookScope(scope);
+    const automaticStoryThreadSources=loadStoryThreadSources(this.database,scope,input);
+    const automaticSettingSources=loadSettingClauseSources(this.database,scope,input);
+    const requestedHardSources=[...input.hardSources,...automaticSettingSources.hard];
+    const requestedOptionalSources=[...input.optionalSources,...automaticSettingSources.optional,...automaticStoryThreadSources];
     const characterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
     const policyVersion = input.policyVersion?.trim() || 'context-pack-v2';
     const excluded: ContextPackRecord['excluded'] = [];
     const seenContent = new Set<string>();
     const hardSources = deduplicateCoveredHardSources(
-      deduplicateExactSources(input.hardSources, seenContent, excluded, 'duplicate_of_hard_source'),
+      deduplicateExactSources(requestedHardSources, seenContent, excluded, 'duplicate_of_hard_source'),
       excluded
     );
     const hard = hardSources.map((source) => ({
@@ -104,7 +113,7 @@ export class ContextPackService {
     let totalTokens = hardTokens;
     let totalCharacters = hardCharacters;
     const optionalSources = deduplicateExactSources(
-      input.optionalSources,
+      requestedOptionalSources,
       seenContent,
       excluded,
       'duplicate_of_included_source'
@@ -235,6 +244,7 @@ export class ContextPackService {
       input.tokenBudget, totalTokens, stableJson(manifest), stableJson(excluded),
       contentHash, policyVersion, sourceFingerprint, this.clock.now().toISOString()
     ));
+    persistContextPackComponents(this.database,this.ids,scope,contextPackId,manifest,excluded,[...requestedHardSources,...requestedOptionalSources]);
     return {
       contextPackId,
       totalTokens,
@@ -246,6 +256,100 @@ export class ContextPackService {
       excluded
     };
   }
+}
+function loadSettingClauseSources(database:DatabaseSync,scope:BookScope,input:ContextPackInput):{
+  hard:ContextSource[];optional:ContextSource[]}{
+  const scopeIds=new Set<string>([scope.bookId]);
+  for(const source of [...input.hardSources,...input.optionalSources]){
+    scopeIds.add(source.sourceId);if(source.scopeId!==undefined)scopeIds.add(source.scopeId);
+  }
+  const rows=database.prepare(`SELECT setting_clause_id,kind,statement,strength,truth_status,scope_type,scope_id,
+    source_version_id,dependency_version_ids_json FROM setting_clauses
+    WHERE owner_id=? AND book_id=? AND status='active' ORDER BY source_version_id,setting_clause_id`)
+    .all(scope.ownerId,scope.bookId) as unknown as Array<Record<string,unknown>>;
+  const scoped=rows.filter(row=>row.scope_type==='book'||scopeIds.has(String(row.scope_id)));
+  const grouped=new Map<string,WriterSettingItem>();
+  for(const row of scoped){
+    const sourceVersion=String(row.source_version_id),match=/^setting-item:(.+):v\d+$/u.exec(sourceVersion);
+    const itemKey=match?.[1]??sourceVersion,current=grouped.get(itemKey);
+    grouped.set(itemKey,{itemKey,label:itemKey,content:current===undefined?String(row.statement):current.content+'\n'+String(row.statement)});
+  }
+  const query=[...input.hardSources,...input.optionalSources]
+    .filter(source=>source.componentKind!=='SettingConstraintPack'&&!/setting/u.test(source.sourceType))
+    .map(source=>source.content).join('\n');
+  const selected=new Set(compileWriterSettingContext([...grouped.values()],query).hardItems.map(item=>item.itemKey));
+  const hard:ContextSource[]=[],optional:ContextSource[]=[];
+  for(const row of scoped){
+    const sourceVersion=String(row.source_version_id),match=/^setting-item:(.+):v\d+$/u.exec(sourceVersion);
+    const itemKey=match?.[1]??sourceVersion;if(!selected.has(itemKey))continue;
+    const strength=String(row.strength) as ContextConstraintStrength;
+    const source:ContextSource={sourceType:'setting_clause:'+String(row.kind),sourceId:String(row.setting_clause_id),
+      version:sourceVersion,content:String(row.statement),reason:['world-stage','protagonist-situation','rules-costs','boundaries-blanks'].includes(itemKey)
+        ?'四项核心设定的确认片段，完整进入任务资料。':'与当前任务语义相关的确认设定片段。',priority:90,
+      constraintStrength:strength,truthStatus:String(row.truth_status) as ContextTruthStatus,
+      scopeType:String(row.scope_type) as 'book'|'volume'|'event'|'chapter'|'scene',scopeId:String(row.scope_id),
+      dependencies:JSON.parse(String(row.dependency_version_ids_json)) as string[],componentKind:'SettingConstraintPack'};
+    if(strength==='hard_fact'||strength==='open_space')hard.push(source);else optional.push(source);
+  }
+  return{hard,optional};
+}
+function loadStoryThreadSources(database:DatabaseSync,scope:BookScope,input:ContextPackInput):ContextSource[]{
+  const scopeIds=new Set<string>([scope.bookId]);
+  for(const source of [...input.hardSources,...input.optionalSources]){
+    scopeIds.add(source.sourceId);if(source.scopeId!==undefined)scopeIds.add(source.scopeId);
+  }
+  const rows=database.prepare(`SELECT story_thread_record_id,thread_key,title,thread_type,scope_type,scope_id,status,
+    planned_window_json,actual_evidence_version_ids_json,revision FROM story_thread_records
+    WHERE owner_id=? AND book_id=? AND status NOT IN ('resolved','abandoned_by_author')`)
+    .all(scope.ownerId,scope.bookId) as unknown as Array<Record<string,unknown>>;
+  return rows.filter(row=>row.scope_type==='book'||scopeIds.has(String(row.scope_id))).map(row=>({
+    sourceType:'story_thread',sourceId:String(row.story_thread_record_id),version:Number(row.revision),
+    content:stableJson({title:row.title,type:row.thread_type,status:row.status,
+      plannedWindow:row.planned_window_json===null?null:JSON.parse(String(row.planned_window_json)),
+      actualEvidenceCount:(JSON.parse(String(row.actual_evidence_version_ids_json)) as unknown[]).length}),
+    reason:row.status==='due'?'已经到期但尚未兑现的故事线程，当前任务必须显式处理或说明延后。':'与当前业务对象直接相关的未解决故事线程。',
+    priority:row.status==='due'?92:row.status==='advanced'?78:row.status==='planted'?72:52,
+    constraintStrength:row.status==='due'?'current_task':'soft_reference',
+    truthStatus:row.status==='planned'?'planned':'actual',scopeType:String(row.scope_type) as 'book'|'volume'|'event',
+    scopeId:String(row.scope_id),componentKind:'StoryThreadPack'
+  }));
+}
+function persistContextPackComponents(database:DatabaseSync,ids:IdGenerator,scope:BookScope,contextPackId:string,
+  manifest:Array<Record<string,unknown>>,excluded:Array<{sourceType:string;sourceId:string;reason:string;tokenCount:number}>,
+  originalSources:ContextSource[]):void{
+  const sourceKinds=new Map(originalSources.map(source=>[source.sourceType+'\u0000'+source.sourceId,
+    source.componentKind??inferComponentKind(source.sourceType)]));
+  for(const kind of contextComponentKinds){
+    const included=manifest.filter(source=>{
+      const sourceType=String(source.sourceType),sourceId=String(source.sourceId);
+      return (sourceKinds.get(sourceType+'\u0000'+sourceId)??inferComponentKind(sourceType))===kind;
+    });
+    const omitted=excluded.filter(source=>
+      (sourceKinds.get(source.sourceType+'\u0000'+source.sourceId)??inferComponentKind(source.sourceType))===kind);
+    const sourceVersionIds=[...new Set(included.map(source=>String(source.version??source.sourceId)))];
+    const includedReasons=included.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,
+      reason:source.reason,hard:source.hard,constraintStrength:source.constraintStrength,truthStatus:source.truthStatus}));
+    const excludedReasons=omitted.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,reason:source.reason}));
+    const tokenBudget=included.reduce((sum,source)=>sum+Number(source.tokenCount??0),0);
+    const characterBudget=included.reduce((sum,source)=>sum+Number(source.originalLength??0),0);
+    const contentHash=createHash('sha256').update(stableJson({kind,sourceVersionIds,includedReasons,excludedReasons,
+      tokenBudget,characterBudget})).digest('hex');
+    runWithSqliteBusyRetry(()=>database.prepare(`INSERT INTO context_pack_components(
+      context_pack_component_id,owner_id,book_id,context_pack_id,component_kind,compile_version,
+      source_version_ids_json,included_reasons_json,excluded_reasons_json,token_budget,character_budget,content_hash,created_at)
+      VALUES(?,?,?,?,?,1,?,?,?,?,?,?,datetime('now'))`).run(ids.next(),scope.ownerId,scope.bookId,contextPackId,kind,
+        stableJson(sourceVersionIds),stableJson(includedReasons),stableJson(excludedReasons),tokenBudget,characterBudget,contentHash));
+  }
+}
+function inferComponentKind(sourceType:string):ContextComponentKind{
+  if(/story[_:-]?thread/u.test(sourceType))return'StoryThreadPack';
+  if(/story[_:-]?spine/u.test(sourceType))return'BookStorySpinePack';
+  if(/setting|rule|boundary|world|character|organization|resource/u.test(sourceType))return'SettingConstraintPack';
+  if(/previous|manuscript|settlement|canon|fact|actual|continuity/u.test(sourceType))return'RecentActualStatePack';
+  if(/chapter|outline|writing_contract|work_order|first_500/u.test(sourceType))return'ChapterTaskPack';
+  if(/event|story_arc/u.test(sourceType))return'EventResponsibilityPack';
+  if(/volume/u.test(sourceType))return'VolumeResponsibilityPack';
+  return'BookCorePack';
 }
 function inferConstraintStrength(sourceType: string, hard: boolean): ContextConstraintStrength {
   if (!hard) return 'soft_reference';

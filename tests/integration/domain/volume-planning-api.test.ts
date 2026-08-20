@@ -33,6 +33,39 @@ describe('卷规划REST流程', () => {
       expect(planResponse.statusCode).toBe(200);
       const plan = planResponse.json().data as { volumePlanId: string; revision: number };
 
+      const workflowBeforeGeneration = (await app.inject({
+        method: 'GET', url: `/api/v1/books/${book.bookId}/workflow`
+      })).json().data as { planningVersion: number };
+      const generationResponse = await app.inject({
+        method: 'POST', url: `/api/v1/books/${book.bookId}/volume-plans/${plan.volumePlanId}/generate`,
+        payload: {
+          expectedPlanRevision: plan.revision,
+          expectedActiveVersionId: null,
+          expectedWorkflowVersion: workflowBeforeGeneration.planningVersion,
+          template: {
+            selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
+            scope: 'volume', beats: [], customDirection: null
+          },
+          idempotencyKey: 'api-volume-generation-clean-view'
+        }
+      });
+      expect(generationResponse.statusCode).toBe(200);
+      expect(generationResponse.json().data).toMatchObject({
+        stateText: expect.any(String), phaseText: expect.any(String), isRunning: true,
+        canCancel: true, members: expect.any(Array)
+      });
+      expect(generationResponse.body).not.toMatch(/taskId|currentPhase|checkpoint|provider|modelId|agentId|modelDiversityVerified/u);
+
+      const stoppedGeneration = await app.inject({
+        method: 'POST',
+        url: `/api/v1/books/${book.bookId}/volume-plans/${plan.volumePlanId}/generation/action`,
+        payload: { action: 'cancel' }
+      });
+      expect(stoppedGeneration.statusCode).toBe(200);
+      expect(stoppedGeneration.json().data).toMatchObject({
+        stateText: '本轮已经停止', isRunning: false, canCancel: false
+      });
+      expect(stoppedGeneration.body).not.toMatch(/taskId|currentPhase|checkpoint|provider|modelId|agentId/u);
       const candidateResponse = await app.inject({
         method: 'POST', url: `/api/v1/books/${book.bookId}/volume-plans/${plan.volumePlanId}/versions`,
         payload: {
