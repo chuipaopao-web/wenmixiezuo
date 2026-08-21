@@ -12,7 +12,9 @@
 
 - `user_accounts`：登录账号，保存规范化邮箱、昵称、密码盐值与摘要、角色、状态和最近登录时间；邮箱唯一，账号与 `owners` 一对一。
 - `auth_sessions`：持久登录会话，只保存随机令牌摘要、到期时间、最近活动和撤销时间；不保存明文令牌。
-- `user_memberships`：会员记录，每账号至多一条，保存套餐（包月/包季/包年）、算力值配额、周期起止、状态（生效/撤销）与经办管理员；算力值消耗按 `usage_ledger` 周期内汇总，不单独存储余额。
+- `user_memberships`：会员当前状态，每账号至多一条，保存套餐、算力值配额、周期起止、状态与经办管理员；算力值消耗按 `usage_ledger` 周期内汇总，不单独存储余额。
+- `membership_transactions`：会员开通、续费与撤销的不可变流水，保存套餐、真实实收金额、周期、经办人和备注；当前会员状态更新不能覆盖历史收入。
+- `user_feedback`、`admin_issue_records`：作者反馈原件及管理员对失败任务/反馈的处理状态、严重程度和备注；反馈绑定书籍或任务时必须校验作者所有权。
 - `auth_audit_events`：注册、成功/失败登录、退出、暂停和恢复审计；不进入模型上下文或作者导出。
 - `owners`：每个注册账号对应的创作数据所有者；首位管理员复用历史本机老板所有者，后续账号各自新建所有者。
 - `books`：书籍、状态、版本、正史修订和活动主编epoch。
@@ -21,7 +23,10 @@
 - `role_templates`、`agent_instances`：岗位模板和逐书Agent实例。
 - `model_config_snapshots`、`agent_model_bindings`：不可变模型快照与活动绑定。
 - `editor_leases`、`writer_leases`：主编和写手租约。
-- `budgets`、`budget_reservations`、`usage_ledger`：调用预算和结算。
+- `budgets`、`budget_reservations`、`usage_ledger`：调用预算和真实结算；输入/输出用量、模型、调用次数和现金微元是API成本统计权威源。
+- `platform_prompt_overrides`：平台补充提示词的版本链和活动指针语义；按真实任务类型、岗位和阶段匹配，只作用于未来调用。
+- `model_call_prompt_snapshots`：每次新模型调用的最终任务提示词、补充要求和命中的平台覆盖快照；不保存思维链。
+- `narrative_method_overrides`：后台叙事方法的版本化内容与启停状态；基础方法仍由代码版本提供，作者公开投影不返回专业来源。
 
 ## 3. 作者输入与附件
 
@@ -34,7 +39,7 @@
 
 - `setting_outline_workspace`：当前设定项、状态、候选和确认结果。
 - `setting_outline_item_versions`：设定项不可变版本链；每次确认追加一条版本并记录来源（manual/guidance/discussion），当前生效内容仍以 `setting_outline_workspace` 为准。
-- `setting_proposal_fragments`：设定类目讨论三席提案拆出的可勾选碎片；按提案落库，解析失败时以整份方案作单条 implicit 碎片兜底。
+- `setting_proposal_fragments`：设定类目中作者所选1—4名编剧提案拆出的可勾选碎片；按提案落库，解析失败时以整份方案作单条 implicit 碎片兜底。
 - `setting_fusion_drafts`：主编按作者勾选碎片产生的融合稿；保存所选碎片、段级来源标记（fragment/stitch）与融合正文，按设定项取最新一份。
 - `discussions`、`discussion_participants`、`discussion_opinions`、`discussion_decisions`：对象化AI提案、独立意见与主编整理记录。
 - 独立提案保存真实Agent、模型快照和输出；作者选择、组合、修订和确认另行记录。
@@ -79,7 +84,7 @@
 ## 8. 任务、调用与审计
 
 - `tasks`、`task_attempts`、`task_phases`、`task_dependencies`：持久任务、尝试、检查点和依赖。
-- `context_packs`：每次调用冻结的来源清单、预算、哈希和排除项。
+- `context_packs`：每次正式模型调用冻结的来源清单、预算、哈希和排除项。逐项设定另从活动 `setting_outline_workspace` 即时派生非正史临时摘要包并写入任务快照；它可删除重建，不是正式设定基线。条目修改或全部清空后，新任务按最新内容重新编译，旧快照只留审计。
 - `model_calls`、`model_call_results`、`model_call_reconciliations`：模型调用、结果与中断调和。
 - `projection_outbox`、`projection_jobs`：正式事务到可重建投影的可靠交接。
 - 操作、备份、恢复、永久删除墓碑和安全审计表记录不可逆或高风险动作。

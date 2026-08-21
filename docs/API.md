@@ -19,12 +19,21 @@
 - `POST /api/v1/auth/logout`：撤销当前会话并清除 Cookie。
 - `GET /api/v1/auth/me`：读取当前账号公开资料与角色。
 - `GET /api/v1/admin/overview`：管理员查看用户与书籍总览。
+- `GET /api/v1/admin/dashboard`：独立后台运营总览，返回今日失败、真实API成本、算力、活跃会员、收入、七日趋势、高消耗用户与临期会员。
+- `GET /api/v1/admin/usage`：按用户、模型和日期汇总真实输入/输出用量、调用次数和 `cash_micros`，算力值仅在展示时按真实用量×2换算。
+- `POST /api/v1/feedback`：登录作者提交BUG/体验/建议，可安全绑定本人书籍和任务；不能绑定其他用户对象。
+- `GET /api/v1/admin/issues`、`PATCH /api/v1/admin/issues/:sourceType/:sourceId`：汇总失败任务与作者反馈，并维护严重程度、处理状态和备注。
+- `GET|PUT /api/v1/admin/narrative-methods[/:methodKey]`：读取或版本化覆盖后台叙事方法，支持启停；普通作者接口不返回内部方法名。
+- `GET /api/v1/admin/prompt-catalog`、`GET /api/v1/admin/runtime-system-prompt`：查看真实触发点、按钮/时机、AI成员、资料包、任务职责和运行时岗位提示词。
+- `POST /api/v1/admin/prompt-overrides`、`POST /api/v1/admin/prompt-overrides/:promptOverrideId/archive`：新增或归档平台补充提示词；只影响未来匹配调用。
+- `GET /api/v1/admin/prompt-calls`、`GET /api/v1/admin/prompt-calls/:requestId`：查看上线后保存的最终任务提示词、补充要求、调用结果与ContextPack清单；密钥和思维链不返回。
+- `GET /api/v1/admin/membership-stats`：统计活跃会员、实收收入、续费次数、临期人数、套餐分布和不可变会员流水。
 - `GET /api/v1/admin/audit/books/:bookId/tasks/:taskId`：管理员按书籍和任务读取完整任务、阶段、模型调用、工具调用与内部方法审计；普通作者路由没有该投影。
 - `GET /api/v1/admin/users`：管理员按关键字和状态查看账号。
 - `PATCH /api/v1/admin/users/:userId/status`：管理员暂停或恢复账号。
 - `GET /api/v1/membership/me`：当前账号会员状态（套餐、算力值配额/已用/剩余、到期时间）；管理员返回 `isAdmin: true` 不限额。
 - `GET /api/v1/admin/memberships`：管理员查看全部账号的会员与算力值消耗（周期内消耗与累计消耗）。
-- `POST /api/v1/admin/memberships/:userId`：管理员开通或续费会员，Body使用 `plan`：`bronze`（青铜20万算力值，长期体验）/`silver`（白银2000万）/`gold`（黄金5000万）/`diamond`（钻石2亿）；付费档当前周期12个月。算力值=真实token×2，普通作者页面不出现token口径。
+- `POST /api/v1/admin/memberships/:userId`：管理员开通或续费会员，Body使用 `plan`：`bronze`（青铜20万算力值，长期体验）/`silver`（白银2000万）/`gold`（黄金5000万）/`diamond`（钻石2亿），可附 `amountCny` 真实实收与 `note`；付费档当前周期12个月。算力值=真实token×2，普通作者页面不出现token口径。默认青铜转首个付费档记为开通，再次办理记为续费。
 - `POST /api/v1/admin/memberships/:userId/revoke`：管理员撤销会员。
 - 生成门禁：账号体系内的非管理员用户必须持有生效会员且周期内算力值未用完，否则任务创建返回 `MEMBERSHIP_REQUIRED`、`MEMBERSHIP_EXPIRED` 或 `MEMBERSHIP_QUOTA_EXHAUSTED`（403，附管理员联系方式）。
 - `GET /api/v1/capabilities`：当前检索和运行能力；普通作者投影不返回模型配置，管理员通过独立管理接口查看。
@@ -39,16 +48,19 @@
 - `GET /api/v1/opening-taxonomy`：频道、分类、题材和标签目录。
 - `GET /api/v1/books/:bookId/workflow`：当前卷—事件工作流状态。
 
-确认开书会原子创建书籍、定位版本、团队、模型绑定、预算、设定工作区和首个设定任务。
+确认开书会原子创建书籍、定位版本、团队、模型绑定、预算和设定工作区；不会自动创建或排队AI设定任务。
 
 ## 4. 设定对象协作
 
-- `GET /api/v1/books/:bookId/setting-outline-workspace`：当前设定工作区。
-- `GET /api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration`：当前项AI方案与任务。
-- `POST .../collaboration/start`：主编和两位编剧独立提案。
-- `POST .../collaboration/synthesize`：按作者选中的方案整理候选。
-- `POST .../collaboration/revise`：按作者本轮意见修订候选。
-- 设定项确认、跳过/留白和整份设定基线确认使用独立命令。
+- `GET /api/v1/books/:bookId/setting-outline-workspace`：当前设定工作区、条目选择和逐项状态。
+- `GET /api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration`：当前项候选、四名全能编剧的真实可用性与席位状态。
+- `POST .../collaboration/start`：Body必须明确提交1—4个 `screenwriterRoleKeys`，只启动作者所选编剧。创建前从当前 `owner_id + book_id` 的活动设定工作区编译非正史临时资料包，包含除当前项外全部已确认条目的预算内短摘要和内容指纹；指纹变化时不得复用旧面板。
+- `POST .../collaboration/start`、`restart` 与失败成员 `retry` 都读取调用时的最新临时包。修改已确认条目会产生新指纹；清空工作区后新包为空。临时包只进入任务快照，不写入正式设定基线。
+- `POST .../collaboration/restart`：重新设计当前项，仍必须重新明确选择编剧。
+- `POST .../collaboration/members/:roleKey/retry`：只重试失败席，保留其他成功候选。
+- 已废弃的逐项主编融合、逐项主编修订写接口已经删除；历史任务和历史融合稿只通过协作读取接口只读恢复，不能再触发旧流程。
+- 整篇设定质检和 `issues/:issueId/apply` 分别生成主编建议与采纳单条完整替换稿；采纳时校验基线哈希并创建新版本。
+- 设定项确认、稍后补充/留白和整份设定基线确认使用独立命令。
 
 这些接口直接读写当前设定对象、候选、作者选择和确认结果。
 

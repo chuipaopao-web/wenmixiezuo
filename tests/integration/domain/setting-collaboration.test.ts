@@ -3,16 +3,17 @@ import { DiscussionPipelineService } from '../../../apps/api/src/application/dis
 import { DiscussionService } from '../../../apps/api/src/application/discussions/discussion-service.js';
 import { SettingCollaborationService } from '../../../apps/api/src/application/knowledge/setting-collaboration-service.js';
 import { SettingCollaborationCommandService } from '../../../apps/api/src/application/knowledge/setting-collaboration-command-service.js';
-import { SettingOutlineWorkspaceService } from '../../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
+import { SettingOutlineWorkspaceService, type SettingOutlineWorkspaceItem } from '../../../apps/api/src/application/knowledge/setting-outline-workspace-service.js';
 import {
-  SettingGuidanceService,
-  selectRelevantConfirmedContext
+  compileTemporarySettingContextPack,
+  SettingGuidanceService
 } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { SettingCollaborationRepository } from '../../../apps/api/src/infrastructure/db/repositories/setting-collaboration-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
@@ -21,16 +22,36 @@ describe('设定页内协作读模型', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
-  it('后续设定只携带核心边界、显式依赖和最近接口，不回灌全部无关设定', () => {
-    const confirmed = [
-      'creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow',
-      'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'power-source', 'levels'
-    ].map((itemKey) => ({ itemKey, label: itemKey, content: itemKey }));
-    const selected = selectRelevantConfirmedContext(confirmed, 'costs');
-    expect(selected.map((item) => item.itemKey)).toEqual([
-      'creative-concept', 'reader-promise', 'protagonist', 'motivation', 'must-follow', 'power-source', 'levels'
+  it('临时资料包包含全部已确认条目的短摘要并明确保持非正史', () => {
+    const rows = [
+      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'
+    ].map((itemKey, sortOrder): SettingOutlineWorkspaceItem => ({
+      itemKey,
+      groupTitle: '核心设定',
+      label: itemKey,
+      prompt: itemKey + '应该怎样设计？',
+      sourceLabel: '通用',
+      status: '已确认',
+      custom: false,
+      sortOrder,
+      content: '第一句概述。' + '甲'.repeat(400) + '。必须保留这条边界。',
+      sourceDiscussionId: null,
+      sourceDecisionId: null,
+      candidateAt: null,
+      confirmedAt: '2026-08-21T08:00:00.000Z',
+      pendingCandidate: null,
+      pendingCandidateAt: null,
+      updatedAt: '2026-08-21T08:00:00.000Z'
+    }));
+    const pack = compileTemporarySettingContextPack(rows, 'boundaries-blanks', 720);
+    expect(pack.kind).toBe('temporary_non_canon');
+    expect(pack.itemCount).toBe(3);
+    expect(pack.items.map((item) => item.itemKey)).toEqual([
+      'world-stage', 'protagonist-situation', 'rules-costs'
     ]);
-    expect(selected.map((item) => item.itemKey)).not.toContain('loot');
+    expect(pack.items.every((item) => item.summary.length <= 240)).toBe(true);
+    expect(pack.items.every((item) => item.summary.includes('必须保留这条边界'))).toBe(true);
+    expect(pack.contentHash).toMatch(/^[a-f0-9]{64}$/u);
   });
 
   it('副编临时接管导致与编剧重模时先安全回切原主编，再创建三模型独立方案', () => {
@@ -86,7 +107,7 @@ describe('设定页内协作读模型', () => {
 
     const command = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'story-kernel', { idempotencyKey: 'distinct-model-panel' });
+    ).start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'distinct-model-panel' });
 
     expect(command).toMatchObject({ reused: false, status: 'queued' });
     const activeRole = context.database.prepare(`
@@ -121,7 +142,7 @@ describe('设定页内协作读模型', () => {
       .run('succeeded', 'complete', command.taskId);
     const rebuilt = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'story-kernel', { idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
+    ).start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
     expect(rebuilt).toMatchObject({ reused: false, status: 'queued' });
     expect(rebuilt.taskId).not.toBe(command.taskId);
     expect(rebuilt.discussionId).not.toBe(command.discussionId);
@@ -149,7 +170,7 @@ describe('设定页内协作读模型', () => {
     const commands = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
     );
-    const first = commands.start(scope, 'story-kernel', { idempotencyKey: 'redesign-first-round' });
+    const first = commands.start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-first-round' });
     expect(first).toMatchObject({ reused: false, status: 'queued' });
     // 补齐三份异模型提案并把任务标记完成，模拟一轮已出方案的讨论
     const participants = context.database.prepare(
@@ -167,22 +188,22 @@ describe('设定页内协作读模型', () => {
       .run('succeeded', 'complete', first.taskId);
 
     // 普通开始会复用旧讨论；重新设计必须全新一轮
-    const reused = commands.start(scope, 'story-kernel', { idempotencyKey: 'redesign-plain-start' });
+    const reused = commands.start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-plain-start' });
     expect(reused).toMatchObject({ reused: true, discussionId: first.discussionId });
-    const restarted = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-two' });
+    const restarted = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
     expect(restarted).toMatchObject({ reused: false, status: 'queued' });
     expect(restarted.discussionId).not.toBe(first.discussionId);
 
     // 新一轮进行中不得再发起重新设计
-    expect(() => commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-three' }))
+    expect(() => commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-three' }))
       .toThrowError('这一轮设计还在进行中');
 
     // 第二轮完成后，同幂等键重复点击不重复建任务，新键可以再开第三轮
     context.database.prepare('UPDATE tasks SET status = ?, current_phase = ? WHERE task_id = ?')
       .run('succeeded', 'complete', restarted.taskId);
-    const deduped = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-two' });
+    const deduped = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
     expect(deduped).toMatchObject({ reused: true, taskId: restarted.taskId });
-    const third = commands.restart(scope, 'story-kernel', { idempotencyKey: 'redesign-round-four' });
+    const third = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-four' });
     expect(third).toMatchObject({ reused: false, status: 'queued' });
     expect(third.discussionId).not.toBe(restarted.discussionId);
   });
@@ -262,7 +283,7 @@ describe('设定页内协作读模型', () => {
     expect(secondView.historyCount).toBe(0);
   });
 
-  it('重复读取不创建新任务，并返回主编整理任务与当前候选', () => {
+  it('重复读取不创建新任务，并只读返回历史整理任务与当前候选', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -302,7 +323,7 @@ describe('设定页内协作读模型', () => {
     expect(after.count).toBe(before.count);
   });
 
-  it('后续设定提案收到完整开书资料和明确依赖的完整设定，不回灌无关已确认项', () => {
+  it('后续设定提案收到完整开书资料和全部已确认条目的非正史短摘要，修改与清空后不复用旧包', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -334,7 +355,7 @@ describe('设定页内协作读模型', () => {
       workspace.save(scope, {
         itemKey: item.itemKey, groupTitle: item.groupTitle, label: item.label, prompt: item.prompt,
         sourceLabel: item.sourceLabel, sortOrder: item.sortOrder, status: '已确认',
-        content: item.itemKey === 'protagonist-situation' ? `主角完整设定：${'甲'.repeat(700)}：末尾锚点` : `已确认前置设定${index + 1}`
+        content: item.itemKey === 'protagonist-situation' ? `主角完整设定：${'甲'.repeat(700)}。必须保留末尾锚点。` : `已确认前置设定${index + 1}`
       });
     }
 
@@ -342,28 +363,59 @@ describe('设定页内协作读模型', () => {
     expect(snapshot).not.toBeNull();
     expect(snapshot!.itemKey).toBe('boundaries-blanks');
     expect(JSON.parse(snapshot!.openingBookCore)).toMatchObject({ storyDirection, initialMap });
-    expect(snapshot!.confirmedContext.map((item) => item.itemKey)).toEqual([
-      'protagonist-situation', 'rules-costs'
+    expect(snapshot!.temporaryContextPack.kind).toBe('temporary_non_canon');
+    expect(snapshot!.temporaryContextPack.items.map((item) => item.itemKey)).toEqual([
+      'world-stage', 'protagonist-situation', 'rules-costs'
     ]);
-    expect(snapshot!.confirmedContext[0]?.content).toContain('末尾锚点');
+    expect(snapshot!.temporaryContextPack.items[1]?.summary).toContain('末尾锚点');
+    const firstPackHash = snapshot!.temporaryContextPack.contentHash;
 
     const scheduled = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, snapshot!.itemKey, { idempotencyKey: 'complete-opening-pack' });
+    ).start(scope, snapshot!.itemKey, { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'complete-opening-pack' });
     const task = context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
       .get(scheduled.taskId) as { task_brief_json: string };
     const brief = JSON.parse(task.task_brief_json) as { scopeText: string };
     expect(brief.scopeText).toContain(storyDirection);
     expect(brief.scopeText).toContain(initialMap);
+    expect(brief.scopeText).toContain('尚未经过主编审查');
+    expect(brief.scopeText).toContain('不属于正史');
+    expect(brief.scopeText).toContain(firstPackHash);
     expect(brief.scopeText).toContain('末尾锚点');
+    expect(brief.scopeText).not.toContain('甲'.repeat(500));
+
+    const changed = workspace.list(scope).find((item) => item.itemKey === 'world-stage')!;
+    workspace.save(scope, {
+      itemKey: changed.itemKey, groupTitle: changed.groupTitle, label: changed.label, prompt: changed.prompt,
+      sourceLabel: changed.sourceLabel, sortOrder: changed.sortOrder, status: '已确认',
+      content: '世界舞台已经修改，新版临时资料必须使用这一句。'
+    });
+    const changedTask = new SettingCollaborationCommandService(
+      context.database, context.config.releaseId, ids, clock
+    ).start(scope, snapshot!.itemKey, { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'changed-opening-pack' });
+    expect(changedTask).toMatchObject({ reused: false });
+    const changedBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+      .get(changedTask.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
+    expect(changedBrief.scopeText).toContain('世界舞台已经修改');
+    expect(changedBrief.scopeText).not.toContain(firstPackHash);
+
+    workspace.clearAll(scope);
+    const clearedTask = new SettingCollaborationCommandService(
+      context.database, context.config.releaseId, ids, clock
+    ).start(scope, snapshot!.itemKey, { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'cleared-opening-pack' });
+    expect(clearedTask).toMatchObject({ reused: false });
+    const clearedBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+      .get(clearedTask.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
+    expect(clearedBrief.scopeText).toContain('已确认条目数量：0');
+    expect(clearedBrief.scopeText).not.toContain('世界舞台已经修改');
   });
 
-  it('提案三席产出可勾选碎片，主编按勾选碎片融合并保留段级来源', async () => {
+  it('作者所选编剧独立产出可勾选碎片，主编只执行全部设定完成后的整体审查', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '碎片融合书',
+      title: '独立方案与全篇审查书',
       openingBlueprint: {
         styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
         taxonomyVersion: OPENING_TAXONOMY.version,
@@ -380,64 +432,34 @@ describe('设定页内协作读模型', () => {
     guidance.ensureInitialized(scope);
     const itemKey = guidance.current(scope)!.itemKey;
     const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
-    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
-    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const pipeline = new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock,
+      new ModelAdapterFactory(loadModelRuntimeConfig({}))
+    );
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
 
-    const scheduled = commands.start(scope, itemKey, { idempotencyKey: 'fragment-panel' });
-    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(scheduled.taskId);
-    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-fragments');
+    const scheduled = commands.start(scope, itemKey, {
+      screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'],
+      idempotencyKey: 'independent-setting-panel'
+    });
+    expect(tasks.claimNext('worker-independent-setting')?.taskId).toBe(scheduled.taskId);
+    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-independent-setting');
 
-    const fragmentRows = context.database.prepare(`SELECT fragment_id, proposal_id, role_key, fragment_no, implicit
+    const fragmentRows = context.database.prepare(`SELECT fragment_id, proposal_id
       FROM setting_proposal_fragments
       WHERE owner_id = ? AND book_id = ? AND item_key = ?
       ORDER BY proposal_id, fragment_no`)
-      .all(scope.ownerId, scope.bookId, itemKey) as unknown as Array<{
-        fragment_id: string; proposal_id: string; role_key: string; fragment_no: number; implicit: number;
-      }>;
-    const proposalIds = [...new Set(fragmentRows.map((row) => row.proposal_id))];
-    expect(proposalIds).toHaveLength(3);
+      .all(scope.ownerId, scope.bookId, itemKey) as unknown as Array<{ fragment_id: string; proposal_id: string }>;
+    expect(new Set(fragmentRows.map((row) => row.proposal_id)).size).toBe(3);
     expect(fragmentRows.length).toBeGreaterThanOrEqual(3);
-    const wholeProposalIds = proposalIds.slice(0, 2);
-    const wholeSynthesis = commands.synthesize(scope, itemKey, {
-      proposalIds: wholeProposalIds,
-      wholeProposalIds,
-      idempotencyKey: 'whole-proposal-synthesis'
-    });
-    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(wholeSynthesis.taskId);
-    await expect(pipeline.executeClaimed(scope, wholeSynthesis.taskId, 'worker-fragments')).resolves.toMatchObject({ opinionCount: 1 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM setting_fusion_drafts
-      WHERE owner_id = ? AND book_id = ? AND item_key = ?`).get(scope.ownerId, scope.bookId, itemKey))
-      .toEqual({ count: 0 });
-
-
-    const picked = [
-      fragmentRows[0]!,
-      fragmentRows.find((row) => row.proposal_id !== fragmentRows[0]!.proposal_id)!
-    ].map((row) => row.fragment_id);
-    const synthesis = commands.synthesize(scope, itemKey, {
-      proposalIds, fragmentIds: picked, idempotencyKey: 'fragment-synthesis'
-    });
-    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(synthesis.taskId);
-    await pipeline.executeClaimed(scope, synthesis.taskId, 'worker-fragments');
-
-    const draft = context.database.prepare(`SELECT selected_fragment_ids_json, segments_json, content_text
-      FROM setting_fusion_drafts WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
-      .get(scope.ownerId, scope.bookId, itemKey) as {
-        selected_fragment_ids_json: string; segments_json: string; content_text: string;
-      };
-    expect(JSON.parse(draft.selected_fragment_ids_json)).toEqual(picked);
-    const segments = JSON.parse(draft.segments_json) as Array<{ source: string; fragmentId: string | null }>;
-    expect(segments.filter((segment) => segment.source === 'fragment')
-      .map((segment) => segment.fragmentId).sort()).toEqual([...picked].sort());
-    expect(segments.some((segment) => segment.source === 'stitch')).toBe(true);
-
     const view = new SettingCollaborationService(
       new SettingCollaborationRepository(context.database),
       new SettingOutlineWorkspaceService(context.database, clock)
     ).inspect(scope, itemKey);
-    expect(view.fusionDraft?.segments).toHaveLength(segments.length);
     expect(view.panel?.proposals.every((proposal) => proposal.fragments.length >= 1)).toBe(true);
+    expect(view.revisionTask).toBeNull();
+    expect(view.fusionDraft).toBeNull();
+
     const auditWorkspace = new SettingOutlineWorkspaceService(context.database, clock);
     const auditItem = auditWorkspace.list(scope).find((candidate) => candidate.itemKey === itemKey);
     expect(auditItem).toBeDefined();
@@ -445,99 +467,19 @@ describe('设定页内协作读模型', () => {
     auditWorkspace.save(scope, {
       itemKey: auditItem.itemKey, groupTitle: auditItem.groupTitle, label: auditItem.label, prompt: auditItem.prompt,
       sourceLabel: auditItem.sourceLabel, sortOrder: auditItem.sortOrder, status: '已确认',
-      content: auditItem.pendingCandidate ?? auditItem.content ?? '保持开书方向并留出后续创作空间。'
+      content: '保持开书方向，明确规则代价，并为后续创作留出空间。'
     });
-    const auditTask = commands.audit(scope, { idempotencyKey: 'deterministic-quality-audit' });
-    expect(tasks.claimNext('worker-fragments')?.taskId).toBe(auditTask.taskId);
-    await expect(pipeline.executeClaimed(scope, auditTask.taskId, 'worker-fragments')).resolves.toMatchObject({ opinionCount: 1 });
+    const auditTask = commands.audit(scope, { idempotencyKey: 'whole-setting-quality-audit' });
+    expect(tasks.claimNext('worker-whole-setting-audit')?.taskId).toBe(auditTask.taskId);
+    await expect(pipeline.executeClaimed(scope, auditTask.taskId, 'worker-whole-setting-audit'))
+      .resolves.toMatchObject({ opinionCount: 1 });
     const auditReport = context.database.prepare(`SELECT verdict, summary_text, issues_json
       FROM setting_quality_reports WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`)
       .get(scope.ownerId, scope.bookId) as { verdict: string; summary_text: string; issues_json: string };
     expect(auditReport.verdict).toBe('pass');
     expect(auditReport.summary_text).toContain('创作空间');
     expect(JSON.parse(auditReport.issues_json)).toEqual([]);
-
-
-    expect(() => commands.synthesize(scope, itemKey, {
-      proposalIds, fragmentIds: ['missing-fragment'], idempotencyKey: 'fragment-synthesis-bad'
-    })).toThrowError(/勾选的碎片/u);
   });
-
-  it('旧版本留下的坏融合稿回复不得在重试时复用，必须让主编重新生成', async () => {
-    context = createTestContext();
-    const ids = new SequenceIds();
-    const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '坏融合稿重试书',
-      openingBlueprint: {
-        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
-        taxonomyVersion: OPENING_TAXONOMY.version,
-        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
-        protagonists: [{ role: 'male_lead', name: '沈砚', age: '二十岁', background: '边城镖师', personalities: ['沉稳'] }],
-        storyDirection: '沈砚护送一枚关乎边城存亡的旧印。', worldBackground: '架空王朝边塞。',
-        openingBackground: '边城镖局深夜接镖。', stageOne: { start: '接镖', development: '破局', end: '发现密信' },
-        fullBookOutline: '护送旧印入京。', mainTags: ['仙侠'], auxiliaryTags: [], storyTraits: [],
-        customTags: [], initialMap: '边城', mustFollow: ['胜利必须付出代价']
-      }
-    });
-    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
-    const guidance = new SettingGuidanceService(context.database, ids, clock);
-    guidance.ensureInitialized(scope);
-    const itemKey = guidance.current(scope)!.itemKey;
-    const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
-    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
-    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
-    const tasks = new TaskService(context.database, context.config.releaseId, clock);
-
-    const scheduled = commands.start(scope, itemKey, { idempotencyKey: 'poison-panel' });
-    expect(tasks.claimNext('worker-poison')?.taskId).toBe(scheduled.taskId);
-    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-poison');
-
-    const fragmentRows = context.database.prepare(`SELECT fragment_id, proposal_id FROM setting_proposal_fragments
-      WHERE owner_id = ? AND book_id = ? AND item_key = ? ORDER BY proposal_id, fragment_no`)
-      .all(scope.ownerId, scope.bookId, itemKey) as unknown as Array<{ fragment_id: string; proposal_id: string }>;
-    const proposalIds = [...new Set(fragmentRows.map((row) => row.proposal_id))];
-    const picked = [fragmentRows[0]!, fragmentRows.find((row) => row.proposal_id !== fragmentRows[0]!.proposal_id)!]
-      .map((row) => row.fragment_id);
-    const synthesis = commands.synthesize(scope, itemKey, {
-      proposalIds, fragmentIds: picked, idempotencyKey: 'poison-synthesis'
-    });
-
-    // 模拟旧版本崩溃窗口留下的"已通过落库校验、但整体 JSON 残缺、没有有效
-    // fusionSegments"的主编意见：它能通过设定落库的宽容提取，却不能作为融合稿。
-    const editor = context.database.prepare(`SELECT a.agent_id, a.model_snapshot_id
-      FROM agent_instances a JOIN role_templates r
-        ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
-      WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key = 'chief_editor'`)
-      .get(scope.ownerId, scope.bookId) as { agent_id: string; model_snapshot_id: string };
-    const poisonedOutput = [
-      `设定落库 ${JSON.stringify({ items: [{ itemKey, content: '现代地球开局，万界母校录取通知把主角拉进超凡体系，学籍是长期约束。' }] })}`,
-      '{"version":1,"format":"json_object","fields":{"answer":"这份回复少了收尾引号'
-    ].join('\n');
-    new DiscussionService(context.database, ids, clock).addOpinion(scope, synthesis.discussionId, {
-      agentId: editor.agent_id, modelSnapshotId: editor.model_snapshot_id, phase: 'independent',
-      content: { role: 'chief_editor', recommendation: poisonedOutput, basis: '旧版本崩溃窗口遗留' },
-      tokens: 100
-    });
-
-    expect(tasks.claimNext('worker-poison')?.taskId).toBe(synthesis.taskId);
-    const result = await pipeline.executeClaimed(scope, synthesis.taskId, 'worker-poison');
-    expect(result.discussionId).toBe(synthesis.discussionId);
-    expect(tasks.require(scope, synthesis.taskId).status).toBe('succeeded');
-
-    // 主编必须真实重新生成：融合稿来自确定性夹具的衔接段，而不是坏输出。
-    const draft = context.database.prepare(`SELECT segments_json FROM setting_fusion_drafts
-      WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
-      .get(scope.ownerId, scope.bookId, itemKey) as { segments_json: string };
-    const segments = JSON.parse(draft.segments_json) as Array<{ source: string; text: string }>;
-    expect(segments.some((segment) => segment.source === 'stitch'
-      && segment.text.includes('以上按作者勾选的碎片融合为一项设定'))).toBe(true);
-    const editorOpinions = context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_opinions
-      WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND agent_id = ? AND phase = 'independent'`)
-      .get(scope.ownerId, scope.bookId, synthesis.discussionId, editor.agent_id) as { count: number };
-    expect(editorOpinions.count).toBe(2);
-  });
-
   it('非当前引导项的类目也可以直接请团队出主意', () => {
     context = createTestContext();
     const ids = new SequenceIds();
@@ -561,9 +503,23 @@ describe('设定页内协作读模型', () => {
     const currentKey = guidance.current(scope)!.itemKey;
     const otherKey = currentKey === 'story-kernel' ? 'rules-costs' : 'story-kernel';
 
+    const collaboration = new SettingCollaborationService(
+      new SettingCollaborationRepository(context.database),
+      new SettingOutlineWorkspaceService(context.database, clock)
+    );
+    const initialView = collaboration.inspect(scope, otherKey);
+    expect(initialView.screenwriters).toHaveLength(4);
+    expect(initialView.screenwriters.find((member) => member.roleKey === 'senior_screenwriter'))
+      .toMatchObject({ memberName: '清照', highCompute: true, availability: 'available' });
+    context.database.prepare(`UPDATE agent_instances SET activation_state = 'disabled'
+      WHERE owner_id = ? AND book_id = ? AND role_template_id IN (
+        SELECT role_template_id FROM role_templates WHERE role_key = 'senior_screenwriter'
+      )`).run(scope.ownerId, scope.bookId);
+    expect(collaboration.inspect(scope, otherKey).screenwriters.find((member) => member.roleKey === 'senior_screenwriter'))
+      .toMatchObject({ highCompute: true, availability: 'unavailable' });
     const scheduled = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, otherKey, { idempotencyKey: 'free-item-panel' });
+    ).start(scope, otherKey, { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'free-item-panel' });
 
     expect(scheduled).toMatchObject({ reused: false, status: 'queued' });
     const brief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
@@ -573,10 +529,150 @@ describe('设定页内协作读模型', () => {
     const participants = context.database.prepare(`SELECT COUNT(*) AS count FROM discussion_participants
       WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`)
       .get(scope.ownerId, scope.bookId, scheduled.discussionId) as { count: number };
-    expect(participants.count).toBe(3);
+    expect(participants.count).toBe(1);
     const itemRow = context.database.prepare(`SELECT item_status FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? AND item_key = ?`)
       .get(scope.ownerId, scope.bookId, otherKey) as { item_status: string };
     expect(itemRow.item_status).toBe('讨论中');
+  });
+
+  it('单个编剧失败时保留成功方案，并且只重试失败席位', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '单席失败兜底书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '顾川', age: '十九岁', background: '边城学徒', personalities: ['冷静'] }],
+        storyDirection: '顾川查清边城阵眼失控的真相。', worldBackground: '架空边城。',
+        openingBackground: '阵眼突然熄灭。', stageOne: { start: '追查', development: '受阻', end: '找到内鬼线索' },
+        fullBookOutline: '顾川逐层修复阵网并查出幕后人。', mainTags: ['仙侠'], auxiliaryTags: [], storyTraits: ['智斗'],
+        customTags: [], initialMap: '边城', mustFollow: ['破局必须有依据']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.ensureInitialized(scope);
+    const itemKey = guidance.current(scope)!.itemKey;
+    const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
+    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const originalResolve = factory.resolve.bind(factory);
+    factory.resolve = (provider, modelId, purpose, roleKey) => {
+      const adapter = originalResolve(provider, modelId, purpose, roleKey);
+      if (roleKey !== 'second_screenwriter') return adapter;
+      return {
+        provider: adapter.provider,
+        modelId: adapter.modelId,
+        generate: async () => { throw new ModelAdapterError('该编剧模型暂时不可用', 'request_failure', false, 503); }
+      };
+    };
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const scheduled = commands.start(scope, itemKey, {
+      screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter'], idempotencyKey: 'partial-failure-panel'
+    });
+    expect(tasks.claimNext('worker-partial')?.taskId).toBe(scheduled.taskId);
+    await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-partial');
+    expect(tasks.require(scope, scheduled.taskId).status).toBe('succeeded');
+    const collaboration = new SettingCollaborationService(
+      new SettingCollaborationRepository(context.database),
+      new SettingOutlineWorkspaceService(context.database, clock)
+    );
+    let view = collaboration.inspect(scope, itemKey);
+    expect(view.panel?.proposals).toHaveLength(1);
+    const failed = view.panel?.members.find((member) => member.roleKey === 'second_screenwriter');
+    expect(failed).toMatchObject({ status: 'unavailable', retryable: true });
+    const workspace = new SettingOutlineWorkspaceService(context.database, clock);
+    const newlyConfirmed = workspace.list(scope).find((item) => item.itemKey !== itemKey)!;
+    workspace.save(scope, {
+      itemKey: newlyConfirmed.itemKey, groupTitle: newlyConfirmed.groupTitle, label: newlyConfirmed.label,
+      prompt: newlyConfirmed.prompt, sourceLabel: newlyConfirmed.sourceLabel, sortOrder: newlyConfirmed.sortOrder,
+      status: '已确认', content: '失败席位重试前刚确认的新设定。'
+    });
+    const retry = commands.retryMember(scope, itemKey, { roleKey: 'second_screenwriter', idempotencyKey: 'retry-second-only' });
+    const retryBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+      .get(retry.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
+    expect(retryBrief.scopeText).toContain('失败席位重试前刚确认的新设定');
+    expect(tasks.claimNext('worker-retry-seat')?.taskId).toBe(retry.taskId);
+    const normalPipeline = new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock, new ModelAdapterFactory(loadModelRuntimeConfig({}))
+    );
+    await normalPipeline.executeClaimed(scope, retry.taskId, 'worker-retry-seat');
+    view = collaboration.inspect(scope, itemKey);
+    expect(view.panel?.proposals).toHaveLength(2);
+    expect(view.panel?.members.every((member) => member.status === 'completed')).toBe(true);
+    const calls = context.database.prepare(`SELECT r.role_key, COUNT(*) AS count FROM model_calls c
+      JOIN agent_instances a ON a.owner_id = c.owner_id AND a.book_id = c.book_id AND a.agent_id = c.agent_id
+      JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
+      WHERE c.owner_id = ? AND c.book_id = ? AND r.role_key IN ('lead_screenwriter','second_screenwriter')
+      GROUP BY r.role_key`).all(scope.ownerId, scope.bookId) as unknown as Array<{ role_key: string; count: number }>;
+    expect(calls.find((row) => row.role_key === 'lead_screenwriter')?.count).toBe(1);
+    expect(calls.find((row) => row.role_key === 'second_screenwriter')?.count).toBe(2);
+});
+  it('所有所选编剧都失败时保存失败原因、任务进入可恢复失败，并允许逐席补写', async () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
+      title: '全席失败兜底书',
+      openingBlueprint: {
+        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['仙侠'], custom: [] },
+        taxonomyVersion: OPENING_TAXONOMY.version,
+        channel: 'male', categoryKey: 'male-eastern-xianxia', targetAudience: '仙侠读者',
+        protagonists: [{ role: 'male_lead', name: '顾川', age: '十九岁', background: '边城学徒', personalities: ['冷静'] }],
+        storyDirection: '顾川查清边城阵眼失控的真相。', worldBackground: '架空边城。',
+        openingBackground: '阵眼突然熄灭。', stageOne: { start: '追查', development: '受阻', end: '找到内鬼线索' },
+        fullBookOutline: '顾川逐层修复阵网并查出幕后人。', mainTags: ['仙侠'], auxiliaryTags: [], storyTraits: ['智斗'],
+        customTags: [], initialMap: '边城', mustFollow: ['破局必须有依据']
+      }
+    });
+    const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
+    const guidance = new SettingGuidanceService(context.database, ids, clock);
+    guidance.ensureInitialized(scope);
+    const itemKey = guidance.current(scope)!.itemKey;
+    const commands = new SettingCollaborationCommandService(context.database, context.config.releaseId, ids, clock);
+    const factory = new ModelAdapterFactory(loadModelRuntimeConfig({}));
+    const originalResolve = factory.resolve.bind(factory);
+    factory.resolve = (provider, modelId, purpose, roleKey) => {
+      const adapter = originalResolve(provider, modelId, purpose, roleKey);
+      if (roleKey !== 'lead_screenwriter') return adapter;
+      return {
+        provider: adapter.provider,
+        modelId: adapter.modelId,
+        generate: async () => { throw new ModelAdapterError('所选编剧当前不可用', 'request_failure', false, 503); }
+      };
+    };
+    const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
+    const tasks = new TaskService(context.database, context.config.releaseId, clock);
+    const scheduled = commands.start(scope, itemKey, {
+      screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'all-failure-panel'
+    });
+    expect(tasks.claimNext('worker-all-failed')?.taskId).toBe(scheduled.taskId);
+    await expect(pipeline.executeClaimed(scope, scheduled.taskId, 'worker-all-failed'))
+      .rejects.toThrow('都没有成功返回方案');
+    expect(tasks.require(scope, scheduled.taskId).status).toBe('failed');
+
+    const collaboration = new SettingCollaborationService(
+      new SettingCollaborationRepository(context.database),
+      new SettingOutlineWorkspaceService(context.database, clock)
+    );
+    let view = collaboration.inspect(scope, itemKey);
+    expect(view.panel?.proposals).toHaveLength(0);
+    expect(view.panel?.members).toEqual([
+      expect.objectContaining({ roleKey: 'lead_screenwriter', status: 'unavailable', retryable: true, errorSummary: '所选编剧当前不可用' })
+    ]);
+
+    const retry = commands.retryMember(scope, itemKey, { roleKey: 'lead_screenwriter', idempotencyKey: 'recover-all-failed-seat' });
+    expect(tasks.claimNext('worker-all-retry')?.taskId).toBe(retry.taskId);
+    const normalPipeline = new DiscussionPipelineService(
+      context.database, context.config.releaseId, ids, clock, new ModelAdapterFactory(loadModelRuntimeConfig({}))
+    );
+    await normalPipeline.executeClaimed(scope, retry.taskId, 'worker-all-retry');
+    view = collaboration.inspect(scope, itemKey);
+    expect(view.panel?.proposals).toHaveLength(1);
+    expect(view.panel?.members[0]).toMatchObject({ status: 'completed', retryable: false, errorSummary: null });
   });
 });

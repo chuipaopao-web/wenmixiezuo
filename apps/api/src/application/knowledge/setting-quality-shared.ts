@@ -12,6 +12,10 @@ export function hashConfirmedSettings(items: Array<{ itemKey: string; content: s
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
+export function hashSettingItemContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
 /**
  * 主编质检指令：苛刻、直接、不客套；输出固定 JSON 结构，坏输出判无效重试。
  */
@@ -22,6 +26,8 @@ export const SETTING_QUALITY_AUDIT_INSTRUCTION = [
   '3.可写性检查：空泛套话、无法指导后续写作的表述，逐条指出；',
   '4.完整度检查：核心项是否足以支撑后续分卷与正文。',
   '指出问题要直接、犀利、具体，不客套、不粉饰；确实没问题的项不要硬挑。',
-  '输出必须是可解析的JSON：{"fields":{"verdict":"pass或warn或fail","summary":"一段话总评","issues":[{"id":"i1","severity":"hard或soft","itemKey":"出问题的设定项键，整体问题用whole","problem":"问题是什么","suggestion":"建议怎么改"}]}}。',
+  '每个设定项最多给一条问题；若同一项有多个问题，合并成一条，避免作者采纳一次后其余修改失效。',
+  '每条具体设定项问题必须同时给出replacement：可直接替换该条目的完整修改后内容，不是局部句子，不得留空；itemKey为whole时replacement必须是空字符串。',
+  '输出必须是可解析的JSON：{"fields":{"verdict":"pass或warn或fail","summary":"一段话总评","issues":[{"id":"i1","severity":"hard或soft","itemKey":"出问题的设定项键，整体问题用whole","problem":"问题是什么","suggestion":"修改思路","replacement":"该条目修改后的完整内容，整体问题则为空字符串"}]}}。',
   '有跑题、互相矛盾、无法指导写作这类硬伤时verdict必须是fail且issues里至少有一条hard；只有小瑕疵用warn；确实合格才用pass。'
 ].join('\n');

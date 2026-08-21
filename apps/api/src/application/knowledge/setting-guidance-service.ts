@@ -12,7 +12,8 @@ import {
   resolveSettingOutlineTemplate,
   type SettingOutlineTemplateItem
 } from './setting-outline-catalog.js';
-import { SettingOutlineWorkspaceService, parseSettingOutlineDeposit } from './setting-outline-workspace-service.js';
+import { SettingOutlineWorkspaceService, parseSettingOutlineDeposit, type SettingOutlineWorkspaceItem } from './setting-outline-workspace-service.js';
+import { hashConfirmedSettings, hashSettingItemContent } from './setting-quality-shared.js';
 
 export type SettingGuidancePhase = 'ask' | 'collect' | 'revise';
 export type SettingGuidanceFeedbackMode =
@@ -35,7 +36,7 @@ export interface SettingGuidanceSnapshot {
   positioningSummary: string;
   storyDirectionReference: string;
   openingBookCore: string;
-  confirmedContext: Array<{ itemKey: string; label: string; content: string }>;
+  temporaryContextPack: TemporarySettingContextPack;
   previousCandidate: string | null;
   feedbackMode: SettingGuidanceFeedbackMode;
   dissatisfactionRound: number;
@@ -45,6 +46,19 @@ export interface SettingGuidanceSnapshot {
     content: string;
   }>;
   selectionNumbers?: number[];
+}
+
+export interface TemporarySettingContextPack {
+  kind: 'temporary_non_canon';
+  contentHash: string;
+  itemCount: number;
+  summaryCharacterBudget: number;
+  items: Array<{
+    itemKey: string;
+    label: string;
+    summary: string;
+    sourceContentHash: string;
+  }>;
 }
 
 interface SettingGuidanceContext {
@@ -104,11 +118,7 @@ export class SettingGuidanceService {
     if (!['候选待确认', '讨论中'].includes(target.status)) {
       target = this.workspace.activateGuidanceItem(scope, target.itemKey);
     }
-    const confirmed = required
-      .map((item) => byKey.get(item.itemKey))
-      .filter((item): item is NonNullable<typeof item> => item?.status === '已确认' && item.content !== null)
-      .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
-    const relevantConfirmed = selectRelevantConfirmedContext(confirmed, target.itemKey);
+    const temporaryContextPack = compileTemporarySettingContextPack(rows, target.itemKey);
     return {
       phase: (target.status === '候选待确认' || target.pendingCandidate !== null) ? 'revise' : 'ask',
       itemKey: target.itemKey,
@@ -122,7 +132,7 @@ export class SettingGuidanceService {
       positioningSummary: context.positioningSummary,
       storyDirectionReference: context.storyDirectionReference,
       openingBookCore: context.openingBookCore,
-      confirmedContext: relevantConfirmed,
+      temporaryContextPack,
       previousCandidate: target.pendingCandidate !== null
         ? clip(target.pendingCandidate, 1_200)
         : target.content === null ? null : clip(target.content, 1_200),
@@ -147,10 +157,7 @@ export class SettingGuidanceService {
       target = this.workspace.activateGuidanceItem(scope, target.itemKey);
     }
     const required = context.template.filter((item) => item.required);
-    const confirmed = rows
-      .filter((item) => item.status === '已确认' && item.content !== null && item.itemKey !== itemKey)
-      .map((item) => ({ itemKey: item.itemKey, label: item.label, content: clip(item.content!, 900) }));
-    const relevantConfirmed = selectRelevantConfirmedContext(confirmed, itemKey);
+    const temporaryContextPack = compileTemporarySettingContextPack(rows, itemKey);
     return {
       phase: (target.status === '候选待确认' || target.pendingCandidate !== null) ? 'revise' : 'ask',
       itemKey: target.itemKey,
@@ -164,7 +171,7 @@ export class SettingGuidanceService {
       positioningSummary: context.positioningSummary,
       storyDirectionReference: context.storyDirectionReference,
       openingBookCore: context.openingBookCore,
-      confirmedContext: relevantConfirmed,
+      temporaryContextPack,
       previousCandidate: target.pendingCandidate !== null
         ? clip(target.pendingCandidate, 1_200)
         : target.content === null ? null : clip(target.content, 1_200),
@@ -278,69 +285,53 @@ function clip(value: string, maximum: number): string {
 }
 
 /**
- * 设定阶段始终接收完整开书活动版本，但后续设定项只接收与当前问题有直接
- * 约束关系的已确认设定。这样既不让模型丢掉人物、读者承诺和作者禁区，
- * 也不把越来越长的整份设定原文反复塞入每一次提案与融合。
+ * 逐项设定期间的临时资料包。它只从当前书活动工作区的已确认条目派生，
+ * 不写入正式设定基线；修改或清空工作区后，下一次任务会得到新的指纹和摘要。
  */
-export function selectRelevantConfirmedContext<T extends { itemKey: string }>(
-  confirmed: T[],
-  targetItemKey: string
-): T[] {
-  // 四项核心设定对后续按需设定提供书籍骨架；旧版核心项只作为兼容来源，不再强制为核心。
-  // 同时保留旧版核心项，兼容重构前已确认的历史数据。
-  const coreSkeleton = new Set(['world-stage','protagonist-situation','rules-costs','boundaries-blanks']);
-  const legacyAlwaysRelevant = new Set([
-    'creative-concept','reader-promise','protagonist','motivation','must-follow'
-  ]);
-  const explicitDependencies: Record<string, readonly string[]> = {
-    'world-stage': ['story-kernel'],
-    'protagonist-situation': ['story-kernel', 'world-stage'],
-    opposition: ['story-kernel', 'protagonist-situation'],
-    'rules-costs': ['story-kernel', 'world-stage', 'opposition'],
-    'boundaries-blanks': ['story-kernel', 'protagonist-situation', 'opposition', 'rules-costs'],
-    motivation: ['protagonist'],
-    'must-follow': ['creative-concept', 'reader-promise', 'protagonist', 'motivation'],
-    'power-source': ['era', 'protagonist', 'must-follow'],
-    levels: ['power-source', 'protagonist', 'must-follow'],
-    costs: ['power-source', 'levels', 'motivation', 'must-follow'],
-    abilities: ['power-source', 'levels', 'costs', 'must-follow'],
-    equipment: ['power-source', 'costs', 'abilities', 'must-follow'],
-    counters: ['power-source', 'levels', 'costs', 'abilities', 'must-follow'],
-    cultivation: ['power-source', 'levels', 'costs', 'must-follow'],
-    bloodline: ['power-source', 'levels', 'costs', 'must-follow'],
-    treasures: ['power-source', 'levels', 'costs', 'equipment', 'must-follow'],
-    causality: ['power-source', 'levels', 'costs', 'must-follow'],
-    'game-entry': ['era', 'protagonist', 'must-follow'],
-    'player-npc': ['game-entry', 'must-follow'],
-    'game-panel': ['game-entry', 'player-npc', 'protagonist', 'must-follow'],
-    'class-skill': ['game-entry', 'game-panel', 'protagonist', 'must-follow'],
-    loot: ['game-entry', 'player-npc', 'game-panel', 'class-skill', 'must-follow'],
-    'quest-instance': ['game-entry', 'player-npc', 'class-skill', 'loot', 'must-follow'],
-    ranking: ['game-entry', 'player-npc', 'game-panel', 'must-follow'],
-    territory: ['era', 'protagonist', 'must-follow'],
-    population: ['territory', 'must-follow'],
-    yield: ['territory', 'population', 'must-follow'],
-    army: ['territory', 'population', 'yield', 'must-follow'],
-    production: ['territory', 'population', 'yield', 'must-follow'],
-    currency: ['production', 'yield', 'must-follow'],
-    'history-baseline': ['era', 'must-follow'],
-    divergence: ['history-baseline', 'era', 'must-follow'],
-    'case-rules': ['era', 'protagonist', 'must-follow'],
-    'evidence-chain': ['case-rules', 'must-follow'],
-    'truth-layers': ['case-rules', 'evidence-chain', 'reader-promise', 'must-follow'],
-    'technology-boundary': ['era', 'protagonist', 'must-follow'],
-    'science-cost': ['technology-boundary', 'must-follow']
+export function compileTemporarySettingContextPack(
+  rows: SettingOutlineWorkspaceItem[],
+  targetItemKey: string,
+  summaryCharacterBudget = 7_200
+): TemporarySettingContextPack {
+  const confirmed = rows
+    .filter((item): item is SettingOutlineWorkspaceItem & { content: string } =>
+      item.itemKey !== targetItemKey && item.status === '已确认' && item.content !== null)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.itemKey.localeCompare(right.itemKey));
+  const perItemBudget = confirmed.length === 0
+    ? 0
+    : Math.max(64, Math.min(360, Math.floor(summaryCharacterBudget / confirmed.length)));
+  return {
+    kind: 'temporary_non_canon',
+    contentHash: hashConfirmedSettings(confirmed),
+    itemCount: confirmed.length,
+    summaryCharacterBudget,
+    items: confirmed.map((item) => ({
+      itemKey: item.itemKey,
+      label: item.label,
+      summary: compressConfirmedSetting(item.content, perItemBudget),
+      sourceContentHash: hashSettingItemContent(item.content)
+    }))
   };
-  const direct = new Set(explicitDependencies[targetItemKey] ?? []);
-  // 最近两项覆盖同一题材包内尚未显式列举的局部接口；它们仍是作者已确认
-  // 的正式来源，不是模型摘要或聊天记忆。
-  for (const item of confirmed.slice(-2)) direct.add(item.itemKey);
-  const includeWholeCoreSkeleton = !coreSkeleton.has(targetItemKey);
-  return confirmed.filter((item) => direct.has(item.itemKey)
-    || legacyAlwaysRelevant.has(item.itemKey)
-    || (includeWholeCoreSkeleton && coreSkeleton.has(item.itemKey)));
 }
 
+function compressConfirmedSetting(content: string, maximum: number): string {
+  const normalized = content.replace(/\s+/gu, ' ').trim();
+  if (normalized.length <= maximum) return normalized;
+  const sentences = normalized.match(/[^。！？；]+[。！？；]?/gu) ?? [normalized];
+  const priority = /(?:必须|不得|不能|边界|规则|代价|主角|世界|关系|目标|冲突)/u;
+  const selected: string[] = [];
+  const candidates = [sentences[0], ...sentences.filter((sentence, index) => index > 0 && priority.test(sentence))]
+    .filter((sentence): sentence is string => sentence !== undefined);
+  for (const sentence of candidates) {
+    if (selected.includes(sentence)) continue;
+    const next = selected.join('').length + sentence.length;
+    if (next > maximum - 1) continue;
+    selected.push(sentence);
+  }
+  const summary = selected.join('').trim();
+  if (summary.length > 0) return summary + '…';
+  return normalized.slice(0, maximum - 1) + '…';
+}
 function compileOpeningBookCore(blueprint: OpeningBlueprintInput): string {
   // 设定是开书信息的第一次正式推演，必须收到作者填写的全部开书字段。
   // 排除其他书和未摘录灵感，但不以“节省上下文”为由裁掉作者已填写的内容。

@@ -9,12 +9,12 @@ import {
 } from '@wenmi/contracts';
 import {
   addArtifactVersion,
+  applySettingQualitySuggestion,
   compareArtifactVersions,
   confirmSettingBaseline,
   clearSettingOutlineWorkspace,
   fetchSettingQualityReport,
   startSettingQualityAudit,
-  startSettingCollaboration,
   ApiRequestError,
   type SettingQualityReportView,
   fetchArtifactVersions,
@@ -41,7 +41,6 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
-import { SettingGapPanel } from './SettingGapPanel';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { ImeInput } from '../shared/ImeSafeField';
 import { memberIdentity } from '../shared/agent-presentation';
@@ -365,12 +364,12 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
 }
 
 /**
- * 设定页顶部成员栏：永久显示设定班底（主编+三席），状态由真实任务驱动。
- * 提案任务进行中时三席与主编都是工作中；融合/质检任务只有主编工作中。
+ * 设定页顶部成员栏：显示四位可选全能编剧与最终审查主编。
+ * 编剧状态来自作者实际启动的单项任务；主编只在全篇设定审查时工作。
  */
 function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): React.JSX.Element | null {
   if (workspace === null) return null;
-  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'third_screenwriter'];
+  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'];
   const members = crewKeys
     .map((key) => workspace.agents.find((agent) => agent.roleKey === key))
     .filter((agent): agent is WorkspaceData['agents'][number] => agent !== undefined);
@@ -381,25 +380,30 @@ function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): R
     && typeof task.brief.purpose === 'string'
     && (task.brief.purpose as string).startsWith('setting_')
   ));
-  const workingAgentIds = new Set(activeSettingTasks.map((task) => task.assignedAgentId).filter((id): id is string => id !== null));
-  const panelWorking = activeSettingTasks.some((task) => task.brief.purpose === 'setting_proposal_panel');
+  const workingAgentIds = new Set(activeSettingTasks.flatMap((task) => {
+    const targets = Array.isArray(task.brief.targetAgentIds)
+      ? task.brief.targetAgentIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    return task.assignedAgentId === null ? targets : [...targets, task.assignedAgentId];
+  }));
   const shortTitle = (roleKey: string): string => (
-    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧' } as Record<string, string>
+    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧', senior_screenwriter: '高级编剧' } as Record<string, string>
   )[roleKey] ?? '成员';
   return <div className="setting-member-bar" aria-label="当前创作成员">
     {members.map((member) => {
-      const working = workingAgentIds.has(member.agentId) || (panelWorking && member.roleKey !== 'chief_editor');
-      return <span key={member.agentId} className={`setting-member${working ? ' working' : ''}`}>
+      const unavailable = member.availability === 'unavailable' || member.activationState === 'disabled';
+      const working = !unavailable && workingAgentIds.has(member.agentId);
+      return <span key={member.agentId} title={member.availabilityReason ?? undefined} className={`setting-member${working ? ' working' : ''}${unavailable ? ' unavailable' : ''}`}>
         <AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} />
         <b>{memberIdentity(member)}</b>
         <small>{shortTitle(member.roleKey)}</small>
-        <em>{working ? '工作中' : '待命'}</em>
+        <em>{unavailable ? '不可用' : working ? '工作中' : '待命'}</em>
       </span>;
     })}
   </div>;
 }
 
-function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged }: {
+export function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged }: {
   workspace: WorkspaceData | null;
   bookId: string | null;
   planningState: PlanningStateData | null;
@@ -426,6 +430,11 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   const [auditWaiting, setAuditWaiting] = useState(false);
   const [acknowledgedIssues, setAcknowledgedIssues] = useState<string[]>([]);
   const [activeItemKey, setActiveItemKey] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryReviewed, setLibraryReviewed] = useState(false);
+  const [startConfirmOpen, setStartConfirmOpen] = useState(false);
+  const [designStarted, setDesignStarted] = useState(false);
+  const [localStateBookId, setLocalStateBookId] = useState<string | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
   const customGroups = [...new Set(customItems.map((item) => item.groupTitle ?? '本书扩展'))].map((groupTitle, index) => ({
@@ -507,6 +516,12 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setPendingCandidates({});
       setConfirmedAts({});
       setProfile(null);
+      setLibraryOpen(false);
+      setLibraryReviewed(false);
+      setStartConfirmOpen(false);
+      setDesignStarted(false);
+      setDesignQueue(null);
+      setLocalStateBookId(null);
       return;
     }
     const controller = new AbortController();
@@ -522,6 +537,13 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
         profileLabel: readiness.profileLabel ?? '通用故事'
       };
       setProfile(normalizedReadiness);
+      setCheckedKeys((current) => {
+        const next = { ...current };
+        for (const key of normalizedReadiness.recommended) {
+          if (!(key in next)) next[key] = true;
+        }
+        return next;
+      });
       const initialKeys = new Set([...normalizedReadiness.required, ...normalizedReadiness.recommended]);
       const templateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items
         .filter((item) => initialKeys.has(item.key))
@@ -563,18 +585,40 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     return () => controller.abort();
   }, [bookId]);
 
-  // 勾选状态按书存在浏览器本地：页面刷新或重进都不会丢，换书各自独立。
+  // 选择与逐项设计会话按书保存在本机；刷新后回到当前未完成条目，不重复发任务。
   useEffect(() => {
-    if (bookId === null) { setCheckedKeys({}); return; }
+    if (bookId === null) { setCheckedKeys({}); setLocalStateBookId(null); return; }
     try {
       const raw = window.localStorage.getItem(`wenmi-setting-checked-v1-${bookId}`);
       setCheckedKeys(raw === null ? {} : JSON.parse(raw) as Record<string, boolean>);
-    } catch { setCheckedKeys({}); }
+      setLibraryReviewed(window.localStorage.getItem(`wenmi-setting-library-reviewed-v2-${bookId}`) === 'true');
+      const sessionRaw = window.localStorage.getItem(`wenmi-setting-design-session-v2-${bookId}`);
+      const session = sessionRaw === null ? null : JSON.parse(sessionRaw) as { started?: boolean; queue?: unknown };
+      const restoredQueue = Array.isArray(session?.queue)
+        ? session.queue.filter((key): key is string => typeof key === 'string')
+        : null;
+      setDesignStarted(session?.started === true);
+      setDesignQueue(restoredQueue !== null && restoredQueue.length > 0 ? restoredQueue : null);
+      setLibraryOpen(false);
+    } catch {
+      setCheckedKeys({});
+      setLibraryReviewed(false);
+      setDesignStarted(false);
+      setDesignQueue(null);
+    }
+    setLocalStateBookId(bookId);
   }, [bookId]);
   useEffect(() => {
-    if (bookId === null) return;
-    try { window.localStorage.setItem(`wenmi-setting-checked-v1-${bookId}`, JSON.stringify(checkedKeys)); } catch { /* 存储满时静默 */ }
-  }, [checkedKeys, bookId]);
+    if (bookId === null || localStateBookId !== bookId) return;
+    try {
+      window.localStorage.setItem(`wenmi-setting-checked-v1-${bookId}`, JSON.stringify(checkedKeys));
+      window.localStorage.setItem(`wenmi-setting-library-reviewed-v2-${bookId}`, String(libraryReviewed));
+      window.localStorage.setItem(`wenmi-setting-design-session-v2-${bookId}`, JSON.stringify({
+        started: designStarted,
+        queue: designQueue
+      }));
+    } catch { /* 存储满时静默 */ }
+  }, [checkedKeys, libraryReviewed, designStarted, designQueue, bookId, localStateBookId]);
 
   // 主编质检轮询：检查完成或失败后把结果摆上页面。
   useEffect(() => {
@@ -587,18 +631,38 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
           setNotice(null);
         } else if (view.taskStatus !== null && ['failed', 'interrupted', 'cancelled'].includes(view.taskStatus)) {
           setAuditWaiting(false);
-          setNotice('这次检查没有完成，请重新点“确认整份设定”再试一次。');
+          setNotice('这次整理没有完成，请重新点“整理全篇设定”再试一次。');
         }
       }).catch(() => undefined);
     }, 2_000);
     return () => window.clearInterval(timer);
   }, [auditWaiting, bookId]);
 
+  const applyAuditIssue = (reportId: string, issueId: string): void => {
+    if (bookId === null || busyKey !== null) return;
+    setBusyKey(`apply-audit-${issueId}`);
+    setNotice(null);
+    void applySettingQualitySuggestion(bookId, reportId, issueId)
+      .then(async (saved) => {
+        applySnapshot(saved);
+        const refreshed = await fetchSettingQualityReport(bookId);
+        setAuditReport(refreshed);
+        setAcknowledgedIssues((current) => current.filter((id) => id !== issueId));
+        setNotice(`主编已修改“${saved.label}”，原版本仍保留在历史记录中。请继续处理其他建议，完成后重新整理全篇设定。`);
+      })
+      .catch((reason: unknown) => {
+        setNotice(authorErrorFromUnknown(reason, '采纳主编修改失败'));
+        void fetchSettingQualityReport(bookId).then(setAuditReport).catch(() => undefined);
+      })
+      .finally(() => setBusyKey(null));
+  };
+
   const toggleIssueAck = (issueId: string): void => {
     setAcknowledgedIssues((current) => current.includes(issueId)
       ? current.filter((id) => id !== issueId)
       : [...current, issueId]);
   };
+
 
   const persistItem = (group: SettingOutlineGroup, item: SettingOutlineItem, status: SettingOutlineStatus, custom = false): void => {
     if (bookId === null) return;
@@ -668,7 +732,13 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
       setPendingCandidates({});
       setConfirmedAts({});
       setLegacyItems((current) => current.map((item) => ({ ...item, status: '待讨论' as SettingOutlineStatus, content: null })));
-      setNotice('已清空全部设定内容，条目保留，可以随时重新设计。历史版本都还在。');
+      setCheckedKeys({});
+      setLibraryReviewed(false);
+      setDesignStarted(false);
+      setDesignQueue(null);
+      setQueueListOpen(false);
+      setLibraryOpen(false);
+      setNotice('已清空全部设定内容和当前临时资料包，条目与历史版本仍保留，可以重新选择设计范围。');
       await onPlanningStateChanged();
     }).catch((reason: unknown) => {
       setNotice(authorErrorFromUnknown(reason, '清空设定失败'));
@@ -687,7 +757,9 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   };
 
   const toggleChecked = (key: string): void => {
+    if (designStarted) return;
     setCheckedKeys((current) => ({ ...current, [key]: current[key] !== true }));
+    setLibraryReviewed(false);
   };
 
   /** 队列顺序：核心四项（模板顺序）→ 勾选的推荐项（主题材优先）→ 勾选的自定义/资料库项。 */
@@ -706,42 +778,45 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
   const advanceQueue = (queue: string[], statusMap: Record<string, SettingOutlineStatus>): void => {
     const nextKey = queue.find((key) => statusMap[key] !== '已确认');
     if (nextKey === undefined) {
+
       setDesignQueue(null);
-      setNotice('所选条目都已有定稿，可以确认整份设定。');
+      setActiveItemKey(null);
+
+      setNotice('所选条目都已有定稿，可以整理全篇设定。');
       return;
     }
     openItem(nextKey);
-    const status = statusMap[nextKey] ?? '待讨论';
-    if ((status === '待讨论' || status === '稍后补充') && bookId !== null) {
-      void startSettingCollaboration(bookId, nextKey, { authorInputId: null, idempotencyKey: crypto.randomUUID() })
-        .catch((reason: unknown) => setNotice(authorErrorFromUnknown(reason, '召集团队失败')));
-    }
   };
 
   const startDesignQueue = (): void => {
     const queue = buildQueue();
-    if (queue.length === 0) {
-      setNotice('核心项都已完成，也没有勾选其他条目；想加设定就先勾选再开始。');
+    if (!libraryReviewed) {
+      setNotice('请先打开完整设定库，确认核心、推荐和其他设定的选择范围。');
       return;
     }
+    if (queue.length === 0) {
+      setNotice('本轮所选设定都已经确认，可以直接请主编审查。');
+      setDesignStarted(true);
+      setLibraryOpen(false);
+      return;
+    }
+    setStartConfirmOpen(true);
+  };
+
+  const confirmStartDesignQueue = (): void => {
+    const queue = buildQueue();
+    setStartConfirmOpen(false);
+    setDesignStarted(true);
+    setLibraryOpen(false);
+    setQueueListOpen(false);
     setDesignQueue(queue);
     advanceQueue(queue, statuses);
   };
 
-  /** 从队列里移除一项：核心四项必须设计不可移除，其他项同时取消勾选。 */
-  const removeFromQueue = (key: string): void => {
-    if (requiredKeys.has(key)) return;
-    setCheckedKeys((current) => ({ ...current, [key]: false }));
-    setDesignQueue((current) => {
-      if (current === null) return current;
-      const next = current.filter((item) => item !== key);
-      return next.length === 0 ? null : next;
-    });
-  };
 
   const queueLabel = (key: string): string => allItems.find((item) => item.key === key)?.label ?? key;
 
-  // 队列自动推进：当前项确认后打开下一项并召集团队；候选待确认时停下等作者确认。
+  // 队列只负责依次打开条目；是否调用哪位编剧完全由作者点击决定。
   useEffect(() => {
     if (designQueue === null || bookId === null) return;
     if (activeItemKey !== null && (statuses[activeItemKey] ?? '待讨论') !== '已确认') return;
@@ -754,209 +829,310 @@ function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChang
     : groups.find((group) => group.items.some((item) => item.key === activeItem.key));
   const coreItems = requiredGroups.flatMap((group) => group.items);
   const packGroups = [...recommendedGroups, ...customGroups];
+  const selectedDesignKeys = [
+    ...coreItems.map((item) => item.key),
+    ...packGroups.flatMap((group) => group.items)
+      .filter((item) => checkedKeys[item.key] === true)
+      .map((item) => item.key)
+  ];
+  const unfinishedSelectedCount = selectedDesignKeys.filter((key) =>
+    statuses[key] !== '已确认' || pendingCandidates[key] !== undefined).length;
+  const completedSelectedCount = selectedDesignKeys.length - unfinishedSelectedCount;
+  const canOrganizeSettings = designStarted && selectedDesignKeys.length > 0 && unfinishedSelectedCount === 0;
+  const chiefEditor = workspace?.agents.find((agent) => agent.roleKey === 'chief_editor');
+  const chiefEditorUnavailable = chiefEditor !== undefined
+    && (chiefEditor.availability === 'unavailable' || chiefEditor.activationState === 'disabled');
+  const chiefEditorUnavailableReason = chiefEditor?.availabilityReason?.trim() || '主编使用的创作模型尚未连接';
 
-  return <section className="setting-outline-workbench setting-desk">
+  return <section className="setting-outline-workbench setting-library-flow">
     <h3 className="sr-only">设定</h3>
-    <SettingMemberBar workspace={workspace} />
-    {bookId !== null && <p className="setting-queue-hint">设定条目按需选择设计，不是选的越多越好；如果不想设计很多，只设计核心设定即可。</p>}
-    {bookId !== null && activeItem !== undefined && activeGroup !== undefined && <div className="setting-desk-workbench" ref={workbenchRef}>
-      <SettingCollaborationPanel
-        key={activeItem.key}
-        bookId={bookId}
-        item={{
-          itemKey: activeItem.key,
-          groupTitle: activeGroup.title,
-          label: activeItem.label,
-          prompt: activeItem.prompt,
-          sourceLabel: activeItem.source,
-          status: statuses[activeItem.key] ?? '待讨论',
-          custom: activeItem.source === '作者自定义',
-          sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === activeItem.key)),
-          content: contents[activeItem.key] ?? null,
-          pendingCandidate: pendingCandidates[activeItem.key] ?? null,
-          confirmedAt: confirmedAts[activeItem.key] ?? null
-        }}
-        onSnapshot={applySnapshot}
-      />
-    </div>}
-    <section className="setting-desk-section" aria-label="核心设定">
-      <details className="setting-fold" open>
-      <summary><strong>核心设定</strong><em>四项书籍骨架，确认后即可进入分卷</em></summary>
-      {coreItems.length === 0 ? <p className="setting-empty-state">正在整理本书设定清单……</p> : <div className="setting-core-grid">
-        {coreItems.map((item) => {
-          const status = statuses[item.key] ?? '待讨论';
-          const content = contents[item.key];
-          return <article className={`setting-core-card${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
-            <div className="setting-core-card-row"><h4>{item.label}<span className="setting-badge-req">必要</span></h4><span className={`setting-status-pill st-${pendingCandidates[item.key] !== undefined ? 'candidate' : settingStatusClass(status)}`}>{pendingCandidates[item.key] !== undefined ? '新方案待确认' : status === '候选待确认' ? '待您确认' : status}</span></div>
-            {status === '已确认' && content !== undefined
-              ? <p className="setting-core-folded">已定稿：{content.slice(0, 40)}{content.length > 40 ? '…' : ''}</p>
-              : <p className={content === undefined ? 'empty' : ''}>{content ?? item.prompt}</p>}
-            <button type="button" className={status === '已确认' && pendingCandidates[item.key] === undefined ? 'setting-card-button ghost' : 'setting-card-button primary'} onClick={() => openItem(item.key)}>{settingCardAction(status, pendingCandidates[item.key] !== undefined)}</button>
-          </article>;
-        })}
-      </div>}
-      </details>
-    </section>
-    {bookId !== null && <section className="setting-desk-section"><SettingGapPanel bookId={bookId}/></section>}
-    {packGroups.length > 0 && <section className="setting-desk-section" aria-label="根据题材推荐">
-      <details className="setting-fold">
-      <summary><strong>推荐设定</strong><em>{profile?.profileLabel ?? '通用'} · 勾选后和核心项一起按顺序设计</em></summary>
-      <div className="setting-pack-grid">{packGroups.map((group) => {
-        const talking = group.items.filter((item) => statuses[item.key] === '讨论中').length;
-        return <article className="setting-pack-card" key={group.key}>
-          <div className="setting-core-card-row"><h4>{group.title}</h4><span className={`setting-status-pill ${talking > 0 ? 'st-active' : 'st-pending'}`}>{talking > 0 ? `${talking} 项讨论中` : '按需完善'}</span></div>
-          <div className="setting-pack-items">{group.items.map((item) => {
-            const status = statuses[item.key] ?? '待讨论';
-            return <div className={`setting-pack-item${activeItem?.key === item.key ? ' active' : ''}`} key={item.key}>
-              <label className="setting-pack-check" title="勾选后加入设计队列" onClick={(event) => event.stopPropagation()}>
-                <input type="checkbox" checked={checkedKeys[item.key] === true} disabled={status === '已确认'} onChange={() => toggleChecked(item.key)} />
-              </label>
-              <button type="button" className="setting-pack-open" onClick={() => openItem(item.key)}>
-                <span className="nm">{item.label}<small>{item.prompt.length > 26 ? `${item.prompt.slice(0, 26)}…` : item.prompt}</small></span>
-                <span className={`setting-status-pill st-${pendingCandidates[item.key] !== undefined ? 'candidate' : settingStatusClass(status)}`}>{pendingCandidates[item.key] !== undefined ? '新方案待确认' : status === '候选待确认' ? '待确认' : status}</span>
-              </button>
-            </div>;
-          })}</div>
-        </article>;
-      })}</div>
-      </details>
-    </section>}
-    {legacyItems.length > 0 && <section className="setting-desk-section" aria-label="早期条目">
-      <details className="setting-legacy-items">
-        <summary><strong>早期条目</strong><em>旧版清单里的内容，已填写的都还在，点开可查看</em></summary>
-        <div className="setting-legacy-list">{legacyItems.map((item) => <article key={item.key}>
-          <div className="setting-core-card-row"><h4>{item.label}</h4><span className={`setting-status-pill st-${settingStatusClass(item.status)}`}>{item.status}</span></div>
-          {item.content !== null && <p>{item.content}</p>}
-        </article>)}</div>
-      </details>
-    </section>}
-    <section className="setting-desk-section" aria-label="全部类目">
-      <div className="setting-desk-section-title"><h4>全部类目</h4><em>推荐之外想定什么，自己挑</em></div>
-      <details className="setting-optional-library">
-        <summary><strong>完整设定资料库</strong><b>{optionalGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></summary>
-        <label className="setting-search">搜索完整资料库<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：货币、排行榜、血脉……" /></label>
-        <div className="setting-library-groups">{optionalGroups.map((group) => <section key={group.key}>
-          <header><div><h4>{group.title}</h4><p>{group.description}</p></div><span>{group.items.length} 项</span></header>
-          <div>{group.items.map((item) => <article key={item.key}><div><strong>{item.label}</strong><p>{item.prompt}</p></div><label className="setting-library-check"><input type="checkbox" disabled={bookId === null || busyKey !== null} checked={checkedKeys[item.key] === true} onChange={() => {
-            if (checkedKeys[item.key] !== true) addOptionalItem(group, item);
-            toggleChecked(item.key);
-          }} />加入设计</label></article>)}</div>
-        </section>)}</div>
-        {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的可选设定项。</p>}
-      </details>
-      <section className="custom-setting-builder">
-        <header><h4>本书自定义</h4><p>这本书确实需要、上面没有的设定。</p></header>
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          const value = customDraft.trim();
-          if (value.length === 0 || customItems.some((item) => item.label === value)) return;
-          const groupTitle = customGroupDraft.trim() || '本书扩展';
-          const item = { key: `custom-${Date.now()}`, label: value, prompt: `请说明“${value}”是什么、能做什么、不能做什么、要付出什么代价，还有哪些内容暂时没定。`, source: '作者自定义', groupTitle };
-          const group = { key: `custom-${groupTitle}`, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
-          setCustomItems((current) => [...current, item]);
-          setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
-          persistItem(group, item, '待讨论', true);
-          setCustomDraft('');
-        }}>
-          <ImeInput aria-label="自定义板块名称" maxChars={24} value={customGroupDraft} onChange={setCustomGroupDraft} placeholder="板块名称，例如：神名禁忌" />
-          <ImeInput aria-label="自定义设定项" maxChars={40} value={customDraft} onChange={setCustomDraft} placeholder="新增设定项，例如：梦境税" />
-          <button className="primary-button" type="submit">添加到清单</button>
-        </form>
-      </section>
-    </section>
-    {bookId !== null && <section className="setting-queue-bar">
-      {designQueue === null
-        ? <><span>核心四项必须设计；其他条目按需勾选后一起设计。</span>
-          <button className="primary-button setting-start-button" type="button" disabled={busyKey !== null} onClick={startDesignQueue}>
-            开始设计（共 {buildQueue().length} 项）
+    {bookId === null
+      ? <p className="setting-empty-state">请先选择一本书。</p>
+      : <>
+        <section className={'setting-library-shell' + (designStarted ? ' session-active' : '')}>
+          <button
+            type="button"
+            className="setting-library-trigger"
+            aria-expanded={libraryOpen}
+            aria-controls="complete-setting-library"
+            onClick={() => setLibraryOpen((open) => !open)}
+          >
+            <span>
+              <small>{designStarted ? '设计范围已锁定' : '先确定这本书要设计什么'}</small>
+              <strong>完整设定库</strong>
+              <em>{profile === null
+                ? '正在整理本书的核心、推荐和可选设定'
+                : designStarted
+                  ? '已选 ' + selectedDesignKeys.length + ' 项 · 已确认 ' + completedSelectedCount + ' 项'
+                  : '核心与题材推荐已默认选中，其他设定由你决定'}</em>
+            </span>
+            <b>{libraryOpen ? '收起' : '查看'}</b>
           </button>
-          <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
-            {queueListOpen ? '收起设计清单' : '设计清单'}
-          </button></>
-        : (() => {
+
+          {libraryOpen && <div id="complete-setting-library" className={'setting-library-body' + (designStarted ? ' locked' : '')}>
+            <header className="setting-library-intro">
+              <div>
+                <span>本轮设计范围</span>
+                <h4>{designStarted ? '查看已锁定的完整设定库' : '勾完再开始，开始后按顺序逐项设计'}</h4>
+              </div>
+              <p>{designStarted
+                ? '设计已经开始，范围暂时锁定。你仍可查看全部类目和打开已选条目，但不会在过程中改变队列。'
+                : '核心设定和本书题材推荐已经替你选好。请再看一遍其他类目，确实需要的再加入。'}</p>
+            </header>
+
+            <section className="setting-library-block" aria-label="核心设定">
+              <header><div><small>01</small><span><strong>核心设定</strong><em>书籍骨架，默认全部加入</em></span></div><b>{coreItems.length} 项</b></header>
+              <div className="setting-library-list">
+                {coreItems.length === 0
+                  ? <p className="setting-empty-state">正在整理核心设定……</p>
+                  : coreItems.map((item) => {
+                    const status = statuses[item.key] ?? '待讨论';
+                    const pending = pendingCandidates[item.key] !== undefined;
+                    return <article className={'setting-library-row' + (activeItem?.key === item.key ? ' active' : '')} key={item.key}>
+                      <label><input type="checkbox" checked readOnly /><span><strong>{item.label}</strong><small>{item.prompt}</small></span></label>
+                      <span className={'setting-status-pill st-' + (pending ? 'candidate' : settingStatusClass(status))}>{pending ? '新方案待确认' : status}</span>
+                      {designStarted && <button type="button" onClick={() => openItem(item.key)}>{settingCardAction(status, pending)}</button>}
+                    </article>;
+                  })}
+              </div>
+            </section>
+
+            <section className="setting-library-block recommended" aria-label="推荐设定">
+              <header><div><small>02</small><span><strong>推荐设定</strong><em>{profile?.profileLabel ?? '按本书题材推荐'}，默认加入，可在开始前取消</em></span></div><b>{packGroups.flatMap((group) => group.items).filter((item) => recommendedKeys.has(item.key)).length} 项</b></header>
+              <div className="setting-library-list">
+                {packGroups.length === 0
+                  ? <p className="setting-empty-state">这本书暂时没有额外推荐项。</p>
+                  : packGroups.map((group) => <div className="setting-library-subgroup" key={group.key}>
+                    <h5>{group.title}</h5>
+                    {group.items.map((item) => {
+                      const status = statuses[item.key] ?? '待讨论';
+                      const pending = pendingCandidates[item.key] !== undefined;
+                      return <article className={'setting-library-row' + (activeItem?.key === item.key ? ' active' : '')} key={item.key}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={checkedKeys[item.key] === true}
+                            disabled={designStarted || status === '已确认'}
+                            onChange={() => toggleChecked(item.key)}
+                          />
+                          <span><strong>{item.label}</strong><small>{item.prompt}</small></span>
+                        </label>
+                        <span className={'setting-status-pill st-' + (pending ? 'candidate' : settingStatusClass(status))}>{pending ? '新方案待确认' : status}</span>
+                        {designStarted && checkedKeys[item.key] === true && <button type="button" onClick={() => openItem(item.key)}>{settingCardAction(status, pending)}</button>}
+                      </article>;
+                    })}
+                  </div>)}
+              </div>
+            </section>
+
+            <section className="setting-library-block optional" aria-label="其他设定">
+              <header><div><small>03</small><span><strong>其他设定</strong><em>全部类目都在这里，需要什么再勾选</em></span></div><b>{optionalGroups.reduce((total, group) => total + group.items.length, 0)} 项</b></header>
+              <label className="setting-library-search">
+                <span>搜索其他设定</span>
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：货币、排行榜、血脉……" />
+              </label>
+              <div className="setting-library-categories">
+                {optionalGroups.map((group) => <details key={group.key}>
+                  <summary><span><strong>{group.title}</strong><small>{group.description}</small></span><b>{group.items.length} 项</b></summary>
+                  <div className="setting-library-list">{group.items.map((item) => <article className="setting-library-row" key={item.key}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        disabled={designStarted || busyKey !== null}
+                        checked={checkedKeys[item.key] === true}
+                        onChange={() => {
+                          if (checkedKeys[item.key] !== true) addOptionalItem(group, item);
+                          toggleChecked(item.key);
+                        }}
+                      />
+                      <span><strong>{item.label}</strong><small>{item.prompt}</small></span>
+                    </label>
+                  </article>)}</div>
+                </details>)}
+                {optionalGroups.length === 0 && <p className="setting-empty-state">没有匹配的其他设定项。</p>}
+              </div>
+            </section>
+
+            {!designStarted && <details className="setting-library-custom">
+              <summary><strong>本书专属设定</strong><span>资料库没有时再添加</span></summary>
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const value = customDraft.trim();
+                if (value.length === 0 || customItems.some((item) => item.label === value)) return;
+                const groupTitle = customGroupDraft.trim() || '本书扩展';
+                const item = { key: 'custom-' + Date.now(), label: value, prompt: '请说明“' + value + '”是什么、能做什么、不能做什么、要付出什么代价，还有哪些内容暂时没定。', source: '作者自定义', groupTitle };
+                const group = { key: 'custom-' + groupTitle, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
+                setCustomItems((current) => [...current, item]);
+                setStatuses((current) => ({ ...current, [item.key]: '待讨论' }));
+                setCheckedKeys((current) => ({ ...current, [item.key]: true }));
+                setLibraryReviewed(false);
+                persistItem(group, item, '待讨论', true);
+                setCustomDraft('');
+              }}>
+                <ImeInput aria-label="自定义板块名称" maxChars={24} value={customGroupDraft} onChange={setCustomGroupDraft} placeholder="板块名称，例如：神名禁忌" />
+                <ImeInput aria-label="自定义设定项" maxChars={40} value={customDraft} onChange={setCustomDraft} placeholder="新增设定项，例如：梦境税" />
+                <button className="secondary-button" type="submit">加入本轮清单</button>
+              </form>
+            </details>}
+
+            {legacyItems.length > 0 && <details className="setting-library-legacy">
+              <summary><strong>早期设定内容</strong><span>旧版填写内容仍然保留</span></summary>
+              <div className="setting-legacy-list">{legacyItems.map((item) => <article key={item.key}>
+                <div className="setting-core-card-row"><h4>{item.label}</h4><span className={'setting-status-pill st-' + settingStatusClass(item.status)}>{item.status}</span></div>
+                {item.content !== null && <p>{item.content}</p>}
+              </article>)}</div>
+            </details>}
+
+            {!designStarted && <footer className="setting-library-commit">
+              <label className={libraryReviewed ? 'reviewed' : ''}>
+                <input type="checkbox" checked={libraryReviewed} onChange={(event) => setLibraryReviewed(event.target.checked)} />
+                <span><strong>我已查看完整设定库，并确认本轮选择</strong><small>开始后会锁定范围；逐项确认完成前，主编不会介入。</small></span>
+              </label>
+              <div>
+                <span>本轮共 {selectedDesignKeys.length} 项</span>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={busyKey !== null || profile === null || !libraryReviewed || buildQueue().length === 0}
+                  onClick={startDesignQueue}
+                >
+                  {libraryReviewed ? '准备开始设计' : '先确认选择范围'}
+                </button>
+              </div>
+            </footer>}
+
+            <section className="setting-clear-zone">
+              {!clearing
+                ? <button type="button" className="setting-clear-button" onClick={() => setClearing(true)}>清空全部设定</button>
+                : <div className="setting-clear-confirm">
+                  <p><strong>确定要清空这本书的全部设定吗？</strong>当前设定内容和临时资料包会清空，条目与历史版本仍保留，正文不会删除。</p>
+                  {profile?.hasCanonChapters === true && <p className="setting-clear-warning">这本书已经有正文：重新设计后可能与已有正文矛盾，请谨慎确认。</p>}
+                  <label>输入 YES 确认清空<input value={clearConfirmText} onChange={(event) => setClearConfirmText(event.target.value)} placeholder="YES" /></label>
+                  <div className="setting-clear-actions">
+                    <button type="button" className="danger-button" disabled={busyKey !== null || clearConfirmText !== 'YES'} onClick={clearAllSettings}>{busyKey === 'clear-setting' ? '正在清空…' : '确认清空'}</button>
+                    <button type="button" className="secondary-button" onClick={() => { setClearing(false); setClearConfirmText(''); }}>取消</button>
+                  </div>
+                </div>}
+            </section>
+          </div>}
+        </section>
+
+        {designStarted && <>
+          <SettingMemberBar workspace={workspace} />
+          {designQueue !== null && (() => {
             const total = designQueue.length;
-            const remaining = designQueue.filter((key) => statuses[key] !== '已确认');
+            const remaining = designQueue.filter((key) => statuses[key] !== '已确认' || pendingCandidates[key] !== undefined);
             const doneCount = total - remaining.length;
             const currentKey = remaining[0];
-            return <>
-              <div className="setting-queue-progress" role="status">
-                <strong>团队正在设计{currentKey !== undefined ? `「${queueLabel(currentKey)}」` : ''} · 已定稿 {doneCount}/{total} 项</strong>
-                <div className="setting-progress-track" aria-hidden="true">
-                  <i className="setting-progress-bar" style={{ width: `${total === 0 ? 0 : Math.round((doneCount / total) * 100)}%` }} />
-                </div>
-                <small>成员正在出方案，请稍等；确认当前项后自动进入下一项。</small>
+            return <section className="setting-session-progress" aria-label="逐项设计进度">
+              <div role="status">
+                <small>逐项设计</small>
+                <strong>{currentKey === undefined ? '本轮设定已经完成' : '正在设计「' + queueLabel(currentKey) + '」'}</strong>
+                <span>已确认 {doneCount}/{total} 项</span>
               </div>
-              <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>
-                {queueListOpen ? '收起设计清单' : '设计清单'}
-              </button>
-              <button type="button" onClick={() => setDesignQueue(null)}>停下队列</button>
-            </>;
+              <div className="setting-progress-track" aria-hidden="true">
+                <i className="setting-progress-bar" style={{ width: String(total === 0 ? 0 : Math.round((doneCount / total) * 100)) + '%' }} />
+              </div>
+              <button type="button" className="setting-queue-toggle" onClick={() => setQueueListOpen((open) => !open)}>{queueListOpen ? '收起清单' : '查看设计清单'}</button>
+              {queueListOpen && <ol className="setting-session-list">
+                {designQueue.map((key) => <li key={key} className={statuses[key] === '已确认' && pendingCandidates[key] === undefined ? 'done' : key === currentKey ? 'current' : ''}>
+                  <span>{queueLabel(key)}</span>
+                  <em>{statuses[key] === '已确认' && pendingCandidates[key] === undefined ? '已确认' : key === currentKey ? '当前项' : '待设计'}</em>
+                </li>)}
+              </ol>}
+            </section>;
           })()}
-      {queueListOpen && <ul className="setting-queue-list">
-        {(designQueue ?? buildQueue()).map((key) => {
-          const done = statuses[key] === '已确认';
-          const isCore = requiredKeys.has(key);
-          return <li key={key} className={done ? 'done' : ''}>
-            <span>{queueLabel(key)}{isCore && <em className="setting-queue-core">必谈</em>}{done && <em>已定稿</em>}</span>
-            {!isCore && !done && <button type="button" aria-label={`把${queueLabel(key)}移出设计清单`} onClick={() => removeFromQueue(key)}>移出</button>}
-          </li>;
-        })}
-      </ul>}
-    </section>}
-    {auditWaiting && <div className="setting-design-progress" role="status">
-      <strong>主编正在逐条检查整份设定</strong>
-      <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
-      <small>检查完会自动给出报告，请稍等。</small>
-    </div>}
-    {auditReport !== null && auditReport.report !== null && <section className="setting-audit-report" aria-label="主编检查报告">
-      <header className="setting-core-card-row">
-        <h4>主编检查报告</h4>
-        <span className={`setting-status-pill ${auditReport.report.verdict === 'pass' ? 'st-confirmed' : auditReport.report.verdict === 'warn' ? 'st-candidate' : 'st-failed'}`}>
-          {auditReport.report.verdict === 'pass' ? '检查通过' : auditReport.report.verdict === 'warn' ? '有小瑕疵' : '发现硬伤'}
-        </span>
-      </header>
-      {!auditReport.fresh && <p className="setting-clear-warning">检查后设定内容又有改动，这份报告已失效，请重新点“确认整份设定”发起新检查。</p>}
-      <p>{auditReport.report.summary}</p>
-      {auditReport.report.issues.map((issue) => <article key={issue.id} className={`setting-audit-issue${issue.severity === 'hard' ? ' hard' : ''}`}>
-        <b>{issue.severity === 'hard' ? '硬伤' : '小瑕疵'}</b>
-        <p>{issue.problem}</p>
-        {issue.suggestion.length > 0 && <small>建议：{issue.suggestion}</small>}
-        {issue.severity === 'hard' && <label className="setting-audit-ack">
-          <input type="checkbox" checked={acknowledgedIssues.includes(issue.id)} onChange={() => toggleIssueAck(issue.id)} />
-          我已知晓，仍要保留
-        </label>}
-      </article>)}
-      <footer className="setting-clear-actions">
-        <button className="primary-button" type="button"
-          disabled={busyKey !== null || !auditReport.fresh || auditReport.report.issues.some((issue) => issue.severity === 'hard' && !acknowledgedIssues.includes(issue.id))}
-          onClick={() => confirmSetting(acknowledgedIssues)}>
-          {busyKey === 'confirm-setting' ? '正在定稿…' : auditReport.report.verdict === 'pass' ? '检查通过，确认定稿' : '我已处理，确认定稿'}
-        </button>
-        <button type="button" onClick={() => { setAuditReport(null); setAcknowledgedIssues([]); }}>回去修改</button>
-      </footer>
-    </section>}
-    <section className="planning-stage-action">
-      <button className="primary-button" type="button" disabled={bookId === null || planningState === null || busyKey !== null || auditWaiting} onClick={() => confirmSetting()}>
-        {busyKey === 'confirm-setting' ? '正在检查…' : '确认整份设定'}
-      </button>
-    </section>
-    {bookId !== null && <section className="setting-clear-zone">
-      {!clearing
-        ? <button type="button" className="primary-button setting-clear-button" onClick={() => setClearing(true)}>清空全部设定</button>
-        : <div className="setting-clear-confirm">
-          <p><strong>确定要清空这本书的全部设定吗？</strong>所有已填和已确认的设定内容都会被清掉，条目保留，历史版本仍可追溯。</p>
-          {profile?.hasCanonChapters === true && <p className="setting-clear-warning">这本书已经有正文：清空设定后，新旧设定可能和已有正文前后矛盾。正文本身不会被删，但建议慎重。</p>}
-          <label>输入 YES 确认清空<input value={clearConfirmText} onChange={(event) => setClearConfirmText(event.target.value)} placeholder="YES" /></label>
-          <div className="setting-clear-actions">
-            <button type="button" className="setting-card-button danger" disabled={busyKey !== null || clearConfirmText !== 'YES'} onClick={clearAllSettings}>{busyKey === 'clear-setting' ? '正在清空…' : '确认清空'}</button>
-            <button type="button" onClick={() => { setClearing(false); setClearConfirmText(''); }}>取消</button>
-          </div>
+
+          {activeItem !== undefined && activeGroup !== undefined && <div className="setting-desk-workbench" ref={workbenchRef}>
+            <SettingCollaborationPanel
+              key={activeItem.key}
+              bookId={bookId}
+              item={{
+                itemKey: activeItem.key,
+                groupTitle: activeGroup.title,
+                label: activeItem.label,
+                prompt: activeItem.prompt,
+                sourceLabel: activeItem.source,
+                status: statuses[activeItem.key] ?? '待讨论',
+                custom: activeItem.source === '作者自定义',
+                sortOrder: Math.max(0, allTemplateItems.findIndex((candidate) => candidate.key === activeItem.key)),
+                content: contents[activeItem.key] ?? null,
+                pendingCandidate: pendingCandidates[activeItem.key] ?? null,
+                confirmedAt: confirmedAts[activeItem.key] ?? null
+              }}
+              onSnapshot={applySnapshot}
+            />
+          </div>}
+
+          {auditWaiting && <div className="setting-design-progress" role="status">
+            <strong>主编正在审查整份设定</strong>
+            <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
+            <small>主编会检查跑题、冲突、可写性和完整度，结果完成后自动显示。</small>
+          </div>}
+
+          {auditReport !== null && auditReport.report !== null && <section className="setting-audit-report" aria-label="主编审查报告">
+            <header className="setting-core-card-row">
+              <h4>主编审查报告</h4>
+              <span className={'setting-status-pill ' + (auditReport.report.verdict === 'pass' ? 'st-confirmed' : auditReport.report.verdict === 'warn' ? 'st-candidate' : 'st-failed')}>
+                {auditReport.report.verdict === 'pass' ? '审查通过' : auditReport.report.verdict === 'warn' ? '有小瑕疵' : '发现硬伤'}
+              </span>
+            </header>
+            {!auditReport.fresh && <p className="setting-clear-warning">设定内容已经改动，这份报告不再覆盖当前全篇；处理完请重新请主编审查。</p>}
+            <p>{auditReport.report.summary}</p>
+            {auditReport.report.issues.map((issue) => <article key={issue.id} className={'setting-audit-issue' + (issue.severity === 'hard' ? ' hard' : '')}>
+              <b>{issue.severity === 'hard' ? '硬伤' : '小瑕疵'}</b>
+              <p>{issue.problem}</p>
+              {issue.suggestion.length > 0 && <small>主编建议：{issue.suggestion}</small>}
+              {issue.replacement.length > 0 && <details className="setting-audit-replacement"><summary>查看主编准备的完整修改稿</summary><p>{issue.replacement}</p></details>}
+              {issue.replacement.length > 0 && <button className="primary-button" type="button" disabled={busyKey !== null || !issue.applicable} onClick={() => applyAuditIssue(auditReport.report!.reportId, issue.id)}>
+                {busyKey === 'apply-audit-' + issue.id ? '主编正在修改…' : issue.applicable ? '采纳并修改' : '已处理或原文已变化'}
+              </button>}
+              {issue.severity === 'hard' && <label className="setting-audit-ack"><input type="checkbox" checked={acknowledgedIssues.includes(issue.id)} onChange={() => toggleIssueAck(issue.id)} />不采纳，保留原文</label>}
+            </article>)}
+            <footer className="setting-clear-actions">
+              <button className="primary-button" type="button"
+                disabled={busyKey !== null || !auditReport.fresh || auditReport.report.issues.some((issue) => issue.severity === 'hard' && !acknowledgedIssues.includes(issue.id))}
+                onClick={() => confirmSetting(acknowledgedIssues)}>
+                {busyKey === 'confirm-setting' ? '正在定稿…' : auditReport.report.verdict === 'pass' ? '审查通过，确认定稿' : '我已处理，确认定稿'}
+              </button>
+              <button type="button" className="secondary-button" onClick={() => { setAuditReport(null); setAcknowledgedIssues([]); }}>返回修改</button>
+            </footer>
+          </section>}
+
+          <section className={'setting-editor-gate' + (canOrganizeSettings ? ' ready' : '')}>
+            <div>
+              <small>最后一步</small>
+              <strong>{canOrganizeSettings ? '全部设定已确认，可以交给主编审查' : '主编会在逐项设计全部完成后介入'}</strong>
+              <p>{canOrganizeSettings
+                ? '当前临时资料包会交给主编统一检查；审查通过并由你确认后，才形成正式设定稿。'
+                : '还有 ' + unfinishedSelectedCount + ' 项没有确认。当前内容只在临时资料包中，不属于正史。'}</p>
+              {canOrganizeSettings && chiefEditorUnavailable && <p className="setting-clear-warning">主编当前不可用：{chiefEditorUnavailableReason}。已完成设定不会丢失，模型恢复后即可继续。</p>}
+            </div>
+            <button className="primary-button" type="button" disabled={planningState === null || busyKey !== null || auditWaiting || !canOrganizeSettings || chiefEditorUnavailable} onClick={() => confirmSetting()}>
+              {busyKey === 'confirm-setting' ? '正在请主编审查…' : !canOrganizeSettings ? '完成逐项设计后再审查' : chiefEditorUnavailable ? '主编当前不可用' : '请主编审查'}
+            </button>
+          </section>
+        </>}
+
+        {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+
+        {startConfirmOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setStartConfirmOpen(false); }}>
+          <section className="dialog setting-start-dialog" role="dialog" aria-modal="true" aria-labelledby="setting-start-dialog-title">
+            <div className="dialog-heading">
+              <div><span className="dialog-eyebrow">开始前确认</span><h2 id="setting-start-dialog-title">确认开始逐项设计？</h2><p>本轮共选择 {selectedDesignKeys.length} 项。开始后完整设定库会收成一个按钮，系统只打开当前项。</p></div>
+            </div>
+            <ol>{selectedDesignKeys.slice(0, 8).map((key) => <li key={key}>{queueLabel(key)}</li>)}</ol>
+            {selectedDesignKeys.length > 8 && <p>另有 {selectedDesignKeys.length - 8} 项已收入本轮清单。</p>}
+            <aside><strong>流程不会跳步</strong><span>逐项设计并由你确认 → 自动压缩临时资料包 → 下一项读取最新资料 → 全部完成后主编审查。</span></aside>
+            <footer>
+              <button type="button" className="secondary-button" onClick={() => setStartConfirmOpen(false)}>返回检查</button>
+              <button type="button" className="primary-button" autoFocus onClick={confirmStartDesignQueue}>确认并开始设计</button>
+            </footer>
+          </section>
         </div>}
-    </section>}
-    {notice !== null && <p className="binding-status" role="status">{notice}</p>}
+      </>}
   </section>;
-}
-function settingStatusClass(status: SettingOutlineStatus): string {
+}function settingStatusClass(status: SettingOutlineStatus): string {
   return status === '已确认' ? 'confirmed' : status === '讨论中' ? 'active' : status === '候选待确认' ? 'candidate' : 'pending';
 }
 
