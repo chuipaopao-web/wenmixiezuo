@@ -41,7 +41,7 @@ describe('启动时保留书籍模型方案', () => {
       .map(({ roleKey, provider, modelId }) => ({ roleKey, provider, modelId }))).toEqual(before);
   });
 
-  it('把现有副编迁移到独立Agent Plan模型并保留其他人工绑定和旧修订', () => {
+  it('把现有副编迁移到当前Coding Plan模型并保留其他人工绑定和旧修订', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -79,17 +79,17 @@ describe('启动时保留书籍模型方案', () => {
 
     const result = binding.bindAllBooks({
       preserveActiveRevision: true,
-      migrateDeputyEditorToAgentPlan: true
+      migrateDeputyEditorToCurrentPlan: true
     });
 
     expect(result).toMatchObject({
       booksVisited: 1,
-      updatedAgents: 14,
+      updatedAgents: 15,
       supersededWriterSelections: 0
     });
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
     expect(team.find((agent) => agent.roleKey === 'deputy_editor')).toMatchObject({
-      provider: 'volcengine-ark-agent-plan',
+      provider: 'volcengine-ark-coding-plan',
       modelId: 'glm-5.3'
     });
     expect(team.find((agent) => agent.roleKey === 'researcher')).toMatchObject({
@@ -102,16 +102,17 @@ describe('启动时保留书籍模型方案', () => {
       });
   });
 
-  it('把十四名成员的未来任务统一迁移到方舟双套餐并保留旧修订快照', () => {
+  it('把十五名成员的未来任务统一迁移到方舟双套餐并保留旧修订快照', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '十四人模型迁移测试书'
+      title: '十五人模型迁移测试书'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const runtime = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
     });
     const binding = new ModelBindingService(context.database, ids, clock, runtime.roleProfiles);
@@ -133,32 +134,33 @@ describe('启动时保留书籍模型方案', () => {
 
     const result = binding.bindAllBooks({
       preserveActiveRevision: true,
-      migrateAllMembersToAgentPlan: true
+      migrateAllMembersToCurrentPlan: true
     });
 
-    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 14 });
+    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 15 });
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
-      chief_editor: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      deputy_editor: 'volcengine-ark-agent-plan/glm-5.3',
-      lead_screenwriter: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      second_screenwriter: 'volcengine-ark-agent-plan/glm-5.3',
-      third_screenwriter: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      setting: 'volcengine-ark-agent-plan/deepseek-v4-flash',
-      lead_writer: 'volcengine-ark-agent-plan/deepseek-v4-pro',
-      fact_reviewer: 'volcengine-ark-agent-plan/glm-5.3',
-      backup_writer: 'volcengine-ark-agent-plan/kimi-k2.7-code',
-      literary_reviewer: 'volcengine-ark-agent-plan/deepseek-v4-flash',
-      experience_reviewer: 'volcengine-ark-agent-plan/doubao-seed-2.1-turbo',
-      experience_challenger: 'volcengine-ark-agent-plan/deepseek-v4-flash',
-      researcher: 'volcengine-ark-agent-plan/deepseek-v4-flash',
-      copyright: 'volcengine-ark-agent-plan/kimi-k2.7-code'
+      chief_editor: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      deputy_editor: 'volcengine-ark-coding-plan/glm-5.3',
+      lead_screenwriter: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      second_screenwriter: 'volcengine-ark-coding-plan/glm-5.3',
+      third_screenwriter: 'volcengine-ark-coding-plan/kimi-k2.7-code',
+      senior_screenwriter: 'volcengine-ark-agent-plan/kimi-k3',
+      setting: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      lead_writer: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      fact_reviewer: 'volcengine-ark-coding-plan/glm-5.3',
+      backup_writer: 'volcengine-ark-coding-plan/kimi-k2.7-code',
+      literary_reviewer: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      experience_reviewer: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
+      experience_challenger: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      researcher: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      copyright: 'volcengine-ark-coding-plan/kimi-k2.7-code'
     });
     expect(repository.revisionBindings(scope, previousRevision.id)
       .every((agent) => agent.modelId.endsWith('-previous'))).toBe(true);
   });
 
-  it('Agent Plan凭证缺失时不把现有真实绑定迁移为确定性假模型', () => {
+  it('Coding Plan凭证缺失时不把现有真实绑定迁移为确定性假模型', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -168,6 +170,7 @@ describe('启动时保留书籍模型方案', () => {
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const agentRuntime = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
     });
     new ModelBindingService(context.database, ids, clock, agentRuntime.roleProfiles).bindAllBooks();
@@ -178,7 +181,7 @@ describe('启动时保留书籍模型方案', () => {
       WENMI_MODEL_MODE: 'subscription-plan'
     });
     const result = new ModelBindingService(context.database, ids, clock, missingCredentialRuntime.roleProfiles)
-      .bindAllBooks({ preserveActiveRevision: true, migrateAllMembersToAgentPlan: true });
+      .bindAllBooks({ preserveActiveRevision: true, migrateAllMembersToCurrentPlan: true });
 
     expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 0 });
     expect(new AgentTeamService(context.database, ids, clock).list(scope)

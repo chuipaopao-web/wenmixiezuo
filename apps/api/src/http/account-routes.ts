@@ -80,14 +80,21 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
 
   app.post<{
     Params: { userId: string };
-    Body: { plan?: string };
+    Body: { plan?: string; amountCny?: number; note?: string };
   }>('/api/v1/admin/memberships/:userId', async (request) => {
     const administrator = requireAdministrator(request);
     const plan = request.body?.plan;
     if (!isMembershipPlan(plan)) {
       throw new DomainError('INVALID_MEMBERSHIP_PLAN', '请选择包月、包季或包年套餐', {}, false, 400);
     }
-    return success(memberships.grant(administrator.userId, request.params.userId, plan), request.id);
+    const amountCny = request.body?.amountCny;
+    if (amountCny !== undefined && (!Number.isFinite(amountCny) || amountCny < 0 || amountCny > 100_000)) {
+      throw new DomainError('INVALID_MEMBERSHIP_AMOUNT', '实收金额不正确', {}, false, 400);
+    }
+    return success(memberships.grant(administrator.userId, request.params.userId, plan, {
+      ...(amountCny === undefined ? {} : { amountCashMicros: Math.round(amountCny * 1_000_000) }),
+      ...(typeof request.body?.note === 'string' ? { note: request.body.note } : {})
+    }), request.id);
   });
 
   app.post<{

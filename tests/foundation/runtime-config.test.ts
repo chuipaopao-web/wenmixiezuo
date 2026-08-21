@@ -15,8 +15,21 @@ describe('本机监听门禁', () => {
     expect(config.apiHost).toBe('127.0.0.1');
     expect(config.apiPort).toBe(43111);
     expect(config.webOrigin).toBe('http://127.0.0.1:43110');
+    expect(config.adminOrigin).toBeNull();
     expect(config.promptViewPassword).toBeNull();
     expect(config.dataDir.endsWith('wenmixiezuo\\data') || config.dataDir.endsWith('wenmixiezuo/data')).toBe(true);
+  });
+
+  it('读取独立后台Origin并拒绝带路径的配置', () => {
+    const config = loadRuntimeConfig({
+      WENMI_PROJECT_ROOT: process.cwd(),
+      WENMI_ADMIN_ORIGIN: 'https://admin.wenmixiezuo.com'
+    });
+    expect(config.adminOrigin).toBe('https://admin.wenmixiezuo.com');
+    expect(() => loadRuntimeConfig({
+      WENMI_PROJECT_ROOT: process.cwd(),
+      WENMI_ADMIN_ORIGIN: 'https://admin.wenmixiezuo.com/admin'
+    })).toThrow('WENMI_ADMIN_ORIGIN');
   });
 
   it('只从环境变量读取完整提示词查看密码', () => {

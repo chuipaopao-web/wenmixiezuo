@@ -11,7 +11,7 @@ export interface SettingOutlineProfile {
 // 不再单独阻塞进入分卷；作者可以在建议、完整类目与自定义之间自由取舍。
 export const CORE_SETTING_KEYS = [
   'world-stage',
-  'protagonist-situation',
+  'social-order',
   'rules-costs',
   'boundaries-blanks'
 ] as const;
@@ -19,12 +19,23 @@ export const CORE_SETTING_KEYS = [
 const CORE_REQUIRED: readonly string[] = [...CORE_SETTING_KEYS];
 
 const CORE_RECOMMENDED = [
-  'story-kernel',
   'geography',
-  'strength-flaw',
-  'supporting',
-  'relations'
+  'governance',
+  'information'
 ] as const;
+
+const RETIRED_NON_MACRO_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'story-kernel', 'protagonist-situation', 'opposition', 'strength-flaw', 'supporting', 'naming', 'relations',
+  'relationship-premise', 'relationship-obstacle', 'relationship-growth', 'emotional-boundaries', 'life-circle',
+  'truth-layers'
+]);
+
+/** 设定页只接收脱离具体人物与剧情仍然成立的世界规则。 */
+export function isMacroSettingItem(item: { itemKey: string; groupTitle?: string; label?: string }): boolean {
+  if (RETIRED_NON_MACRO_SETTING_KEYS.has(item.itemKey)) return false;
+  const name = `${item.groupTitle ?? ''} ${item.label ?? ''}`;
+  return !/(?:人物与命名|主角|配角|反派|人物关系|角色关系|姓名库|核心关系|关系变化|吸引基础|关系支线|感情线)/u.test(name);
+}
 
 interface ProfileRule {
   key: string;
@@ -38,18 +49,17 @@ interface ProfileRule {
 const PROFILE_RULES: readonly ProfileRule[] = [
   {
     key: 'romance',
-    label: '言情关系',
+    label: '婚恋社会规则',
     packKeys: ['romance'],
     pattern: /言情|现言|恋爱|爱情|甜宠|婚恋|豪门|情感|青春|先婚后爱|破镜重圆|romance|wealthy|youth/u,
-    required: ['relationship-premise', 'relationship-obstacle'],
-    recommended: ['relationship-growth', 'emotional-boundaries', 'life-circle', 'class', 'information']
+    recommended: ['intimacy-norms', 'family-structure', 'privacy-reputation', 'class', 'culture', 'information']
   },
   {
     key: 'urban',
     label: '都市现实',
     packKeys: ['urban', 'reality', 'era'],
     pattern: /都市|现代|现实|职场|商战|娱乐圈|校园|日常|年代|modern|urban/u,
-    recommended: ['life-circle', 'geography', 'class', 'culture', 'information']
+    recommended: ['urban-life-system', 'geography', 'class', 'culture', 'information']
   },
   {
     key: 'game',
@@ -95,7 +105,7 @@ const PROFILE_RULES: readonly ProfileRule[] = [
     label: '悬疑调查',
     packKeys: ['suspense'],
     pattern: /悬疑|推理|探案|刑侦|灵异|规则怪谈|民俗怪谈|suspense|supernatural/u,
-    required: ['case-rules', 'evidence-chain', 'truth-layers'],
+    required: ['case-rules', 'evidence-chain'],
     recommended: ['investigation', 'information']
   },
   {

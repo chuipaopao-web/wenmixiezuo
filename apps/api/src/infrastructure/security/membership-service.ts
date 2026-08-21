@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock } from '../../domain/ids.js';
 
@@ -38,6 +39,15 @@ export const MEMBERSHIP_PLAN_PRICES: Record<MembershipPlan, string> = {
   gold: '198元',
   diamond: '980元'
 };
+
+/** 后台会员流水的默认实收金额；管理员可在办理时按真实收款覆盖。 */
+export const MEMBERSHIP_PLAN_PRICE_CASH_MICROS: Record<MembershipPlan, number> = {
+  bronze: 0,
+  silver: 98_000_000,
+  gold: 198_000_000,
+  diamond: 980_000_000
+};
+
 
 /** 办理会员联系方式的唯一来源；错误详情与前端提示共用。 */
 export const MEMBERSHIP_CONTACT = { wechat: '595341366' } as const;
@@ -220,7 +230,12 @@ export class MembershipService {
     };
   }
 
-  public grant(actorUserId: string, targetUserId: string, plan: MembershipPlan): MembershipStatus {
+  public grant(
+    actorUserId: string,
+    targetUserId: string,
+    plan: MembershipPlan,
+    payment: { amountCashMicros?: number; note?: string } = {}
+  ): MembershipStatus {
     if (!isMembershipPlan(plan)) {
       throw new DomainError(errorCodes.validation, '请选择青铜、白银、黄金或钻石会员', {}, false, 400);
     }
@@ -236,8 +251,8 @@ export class MembershipService {
       // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
       // 在事务内读取 existingActive，避免并发连续 grant 都基于旧 period_end 计算、丢失后一次顺延。
       const existingActive = this.database.prepare(
-        "SELECT period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
-      ).get(target.user_id) as { period_end: string } | undefined;
+        "SELECT plan, period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
+      ).get(target.user_id) as { plan: MembershipPlan; period_end: string } | undefined;
       const baseEnd = existingActive !== undefined && existingActive.period_end > nowIso
         ? existingActive.period_end
         : nowIso;
@@ -255,6 +270,21 @@ export class MembershipService {
           granted_by_user_id = excluded.granted_by_user_id,
           updated_at = excluded.updated_at
       `).run(target.user_id, target.owner_id, plan, definition.tokenQuota, nowIso, periodEnd, actorUserId, nowIso, nowIso);
+      const amountCashMicros = payment.amountCashMicros ?? MEMBERSHIP_PLAN_PRICE_CASH_MICROS[plan];
+      if (!Number.isInteger(amountCashMicros) || amountCashMicros < 0 || amountCashMicros > 100_000_000_000) {
+        throw new DomainError(errorCodes.validation, '实收金额不正确', {}, false, 400);
+      }
+      const eventType = existingActive === undefined
+        || (existingActive.plan === 'bronze' && plan !== 'bronze') ? 'grant' : 'renew';
+      this.database.prepare(`
+        INSERT INTO membership_transactions (
+          transaction_id, user_id, owner_id, event_type, plan, amount_cash_micros,
+          period_start, period_end, actor_user_id, note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(), target.user_id, target.owner_id, eventType, plan,
+        amountCashMicros, nowIso, periodEnd, actorUserId, payment.note?.trim().slice(0, 500) ?? '', nowIso
+      );
       // 书籍预算上限跟随会员等级（算力值配额换算真实 token）：升级后立即解封，
       // 避免"会员还有额度、书籍预算却提前卡死"的双重限制（2026-08-20 老板指令：不要乱限制用户）。
       const allowance = realTokenAllowance(definition.tokenQuota);
@@ -278,12 +308,24 @@ export class MembershipService {
       throw new DomainError(errorCodes.validation, '目标账号不存在', {}, false, 404);
     }
     const nowIso = this.clock.now().toISOString();
+    const existing = this.database.prepare(`
+      SELECT plan, period_start, period_end FROM user_memberships WHERE user_id = ? AND status = 'active'
+    `).get(target.user_id) as { plan: MembershipPlan; period_start: string; period_end: string } | undefined;
     const result = this.database.prepare(`
       UPDATE user_memberships SET status = 'revoked', updated_at = ?
       WHERE user_id = ? AND status = 'active'
     `).run(nowIso, target.user_id);
     if (result.changes !== 1) {
       throw new DomainError(errorCodes.validation, '该账号当前没有生效的会员', {}, false, 409);
+    }
+    if (existing !== undefined) {
+      this.database.prepare(`
+        INSERT INTO membership_transactions (
+          transaction_id, user_id, owner_id, event_type, plan, amount_cash_micros,
+          period_start, period_end, actor_user_id, note, created_at
+        ) VALUES (?, ?, ?, 'revoke', ?, 0, ?, ?, ?, '', ?)
+      `).run(randomUUID(), target.user_id, target.owner_id, existing.plan, existing.period_start, existing.period_end,
+        actorUserId, nowIso);
     }
   }
 

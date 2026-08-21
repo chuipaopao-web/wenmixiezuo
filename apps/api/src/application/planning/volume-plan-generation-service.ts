@@ -19,7 +19,8 @@ import { VolumePlanService } from './volume-plan-service.js';
 import {
   hiddenNarrativeMethodVersions,
   selectHiddenVolumeRouteRecipes,
-  type HiddenVolumeRouteRecipe
+  type HiddenVolumeRouteRecipe,
+  type HiddenNarrativeMethodOverride
 } from './hidden-narrative-methods.js';
 
 export interface VolumePlanGenerationBrief {
@@ -186,12 +187,16 @@ export class VolumePlanGenerationService {
       throw new DomainError(errorCodes.operationIncomplete, '当前书籍没有可用预算。', {}, false, 409);
     }
     const sourceFingerprint = volumePlanSourceFingerprint(snapshot);
+    const methodOverrides = this.repository.activeNarrativeMethodOverrides()
+      .filter((item): item is HiddenNarrativeMethodOverride => item.content !== null && typeof item.content === 'object')
+      .map((item) => ({ ...item, content: item.content as HiddenNarrativeMethodOverride['content'] }));
     const routeRecipes = mode === 'routes' ? selectHiddenVolumeRouteRecipes(
       `${snapshot.bookTitle} ${snapshot.opening.content}`,
-      snapshot.planNumber === 1
+      snapshot.planNumber === 1,
+      methodOverrides
     ) : undefined;
     if (routeRecipes !== undefined) {
-      this.repository.syncInternalStructureMethods(hiddenNarrativeMethodVersions(), this.clock.now().toISOString());
+      this.repository.syncInternalStructureMethods(hiddenNarrativeMethodVersions(methodOverrides), this.clock.now().toISOString());
     }
     const requestHash = digest({
       mode,

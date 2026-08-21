@@ -24,7 +24,7 @@ describe('设定页内协作读模型', () => {
 
   it('临时资料包包含全部已确认条目的短摘要并明确保持非正史', () => {
     const rows = [
-      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'
+      'world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'
     ].map((itemKey, sortOrder): SettingOutlineWorkspaceItem => ({
       itemKey,
       groupTitle: '核心设定',
@@ -47,7 +47,7 @@ describe('设定页内协作读模型', () => {
     expect(pack.kind).toBe('temporary_non_canon');
     expect(pack.itemCount).toBe(3);
     expect(pack.items.map((item) => item.itemKey)).toEqual([
-      'world-stage', 'protagonist-situation', 'rules-costs'
+      'world-stage', 'social-order', 'rules-costs'
     ]);
     expect(pack.items.every((item) => item.summary.length <= 240)).toBe(true);
     expect(pack.items.every((item) => item.summary.includes('必须保留这条边界'))).toBe(true);
@@ -107,7 +107,7 @@ describe('设定页内协作读模型', () => {
 
     const command = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'distinct-model-panel' });
+    ).start(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'distinct-model-panel' });
 
     expect(command).toMatchObject({ reused: false, status: 'queued' });
     const activeRole = context.database.prepare(`
@@ -142,7 +142,7 @@ describe('设定页内协作读模型', () => {
       .run('succeeded', 'complete', command.taskId);
     const rebuilt = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
+    ).start(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'rebuild-completed-duplicate-model-panel' });
     expect(rebuilt).toMatchObject({ reused: false, status: 'queued' });
     expect(rebuilt.taskId).not.toBe(command.taskId);
     expect(rebuilt.discussionId).not.toBe(command.discussionId);
@@ -170,7 +170,7 @@ describe('设定页内协作读模型', () => {
     const commands = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
     );
-    const first = commands.start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-first-round' });
+    const first = commands.start(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-first-round' });
     expect(first).toMatchObject({ reused: false, status: 'queued' });
     // 补齐三份异模型提案并把任务标记完成，模拟一轮已出方案的讨论
     const participants = context.database.prepare(
@@ -188,22 +188,53 @@ describe('设定页内协作读模型', () => {
       .run('succeeded', 'complete', first.taskId);
 
     // 普通开始会复用旧讨论；重新设计必须全新一轮
-    const reused = commands.start(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-plain-start' });
+    const reused = commands.start(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-plain-start' });
     expect(reused).toMatchObject({ reused: true, discussionId: first.discussionId });
-    const restarted = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
+
+    // 单个编剧重做时，调用当下重新编译资料包，显式排除旧方案，同时其他编剧旧方案继续可见。
+    const workspace = new SettingOutlineWorkspaceService(context.database, clock);
+    workspace.activateGuidanceItem(scope, 'social-order');
+    workspace.recordGuidanceCandidate(scope, 'social-order', '社会秩序只约束群体分层与公共资源分配，不预设任何人物关系。');
+    workspace.confirmGuidanceCandidate(scope, 'social-order');
+    const collaborationRepository = new SettingCollaborationRepository(context.database);
+    const priorLead = collaborationRepository.latestProposalsByRole(scope, 'world-stage')
+      .find((proposal) => proposal.role_key === 'lead_screenwriter')!;
+    const memberRedesign = commands.redesignMember(scope, 'world-stage', {
+      roleKey: 'lead_screenwriter',
+      proposalId: priorLead.proposal_id,
+      idempotencyKey: 'lead-member-redesign'
+    });
+    expect(memberRedesign).toMatchObject({ reused: false, status: 'queued' });
+    const memberScope = collaborationRepository.discussionScopeText(scope, memberRedesign.discussionId)!;
+    expect(memberScope).toContain('社会秩序只约束群体分层与公共资源分配');
+    expect(memberScope).toContain('上一方案摘要：' + priorLead.content);
+    expect(memberScope).toContain('不能复述、换词改写或沿用上一方案');
+    const redesignedRoles = context.database.prepare(
+      'SELECT r.role_key FROM discussion_participants p '
+      + 'JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id '
+      + 'JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version '
+      + 'WHERE p.owner_id = ? AND p.book_id = ? AND p.discussion_id = ?'
+    ).all(scope.ownerId, scope.bookId, memberRedesign.discussionId) as unknown as Array<{ role_key: string }>;
+    expect(redesignedRoles).toEqual([{ role_key: 'lead_screenwriter' }]);
+    const whileRedesigning = new SettingCollaborationService(collaborationRepository, workspace).inspect(scope, 'world-stage');
+    expect(whileRedesigning.panel?.proposals).toHaveLength(3);
+    context.database.prepare('UPDATE tasks SET status = ?, current_phase = ? WHERE task_id = ?')
+      .run('succeeded', 'complete', memberRedesign.taskId);
+
+    const restarted = commands.restart(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
     expect(restarted).toMatchObject({ reused: false, status: 'queued' });
     expect(restarted.discussionId).not.toBe(first.discussionId);
 
     // 新一轮进行中不得再发起重新设计
-    expect(() => commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-three' }))
+    expect(() => commands.restart(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-three' }))
       .toThrowError('这一轮设计还在进行中');
 
     // 第二轮完成后，同幂等键重复点击不重复建任务，新键可以再开第三轮
     context.database.prepare('UPDATE tasks SET status = ?, current_phase = ? WHERE task_id = ?')
       .run('succeeded', 'complete', restarted.taskId);
-    const deduped = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
+    const deduped = commands.restart(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-two' });
     expect(deduped).toMatchObject({ reused: true, taskId: restarted.taskId });
-    const third = commands.restart(scope, 'story-kernel', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-four' });
+    const third = commands.restart(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'], idempotencyKey: 'redesign-round-four' });
     expect(third).toMatchObject({ reused: false, status: 'queued' });
     expect(third.discussionId).not.toBe(restarted.discussionId);
   });
@@ -323,7 +354,7 @@ describe('设定页内协作读模型', () => {
     expect(after.count).toBe(before.count);
   });
 
-  it('后续设定提案收到完整开书资料和全部已确认条目的非正史短摘要，修改与清空后不复用旧包', () => {
+  it('后续设定提案只收到宏观开书资料和已确认宏观条目的非正史短摘要，修改与清空后不复用旧包', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -349,23 +380,27 @@ describe('设定页内协作读模型', () => {
     guidance.ensureInitialized(scope);
     const workspace = new SettingOutlineWorkspaceService(context.database, clock);
     const items = workspace.list(scope);
-    const required = items.filter((item) => ['world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'].includes(item.itemKey));
+    const required = items.filter((item) => ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'].includes(item.itemKey));
     expect(required).toHaveLength(4);
     for (const [index, item] of required.slice(0, -1).entries()) {
       workspace.save(scope, {
         itemKey: item.itemKey, groupTitle: item.groupTitle, label: item.label, prompt: item.prompt,
         sourceLabel: item.sourceLabel, sortOrder: item.sortOrder, status: '已确认',
-        content: item.itemKey === 'protagonist-situation' ? `主角完整设定：${'甲'.repeat(700)}。必须保留末尾锚点。` : `已确认前置设定${index + 1}`
+        content: item.itemKey === 'social-order' ? `社会秩序完整设定：${'甲'.repeat(700)}。必须保留末尾锚点。` : `已确认前置设定${index + 1}`
       });
     }
 
     const snapshot = guidance.current(scope);
     expect(snapshot).not.toBeNull();
     expect(snapshot!.itemKey).toBe('boundaries-blanks');
-    expect(JSON.parse(snapshot!.openingBookCore)).toMatchObject({ storyDirection, initialMap });
+    const macroOpening = JSON.parse(snapshot!.openingBookCore) as Record<string, unknown>;
+    expect(macroOpening).toMatchObject({ categoryKey: 'male-eastern-xianxia', worldBackground: '群岛以浮空索道相连，坠城会切断贸易与救援。', initialMap, mustFollow: ['普通人不能成为无代价耗材'] });
+    expect(macroOpening).not.toHaveProperty('storyDirection');
+    expect(macroOpening).toHaveProperty('initialMap', initialMap);
+    expect(macroOpening).not.toHaveProperty('protagonists');
     expect(snapshot!.temporaryContextPack.kind).toBe('temporary_non_canon');
     expect(snapshot!.temporaryContextPack.items.map((item) => item.itemKey)).toEqual([
-      'world-stage', 'protagonist-situation', 'rules-costs'
+      'world-stage', 'social-order', 'rules-costs'
     ]);
     expect(snapshot!.temporaryContextPack.items[1]?.summary).toContain('末尾锚点');
     const firstPackHash = snapshot!.temporaryContextPack.contentHash;
@@ -376,8 +411,10 @@ describe('设定页内协作读模型', () => {
     const task = context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
       .get(scheduled.taskId) as { task_brief_json: string };
     const brief = JSON.parse(task.task_brief_json) as { scopeText: string };
-    expect(brief.scopeText).toContain(storyDirection);
+    expect(brief.scopeText).not.toContain(storyDirection);
     expect(brief.scopeText).toContain(initialMap);
+    expect(brief.scopeText).toContain('普通人不能成为无代价耗材');
+    expect(brief.scopeText).toContain('不得设计主角、配角、反派、人物关系');
     expect(brief.scopeText).toContain('尚未经过主编审查');
     expect(brief.scopeText).toContain('不属于正史');
     expect(brief.scopeText).toContain(firstPackHash);
@@ -501,7 +538,7 @@ describe('设定页内协作读模型', () => {
     const guidance = new SettingGuidanceService(context.database, ids, clock);
     guidance.ensureInitialized(scope);
     const currentKey = guidance.current(scope)!.itemKey;
-    const otherKey = currentKey === 'story-kernel' ? 'rules-costs' : 'story-kernel';
+    const otherKey = currentKey === 'world-stage' ? 'rules-costs' : 'world-stage';
 
     const collaboration = new SettingCollaborationService(
       new SettingCollaborationRepository(context.database),

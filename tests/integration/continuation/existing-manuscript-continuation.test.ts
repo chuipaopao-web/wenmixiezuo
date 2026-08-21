@@ -289,7 +289,7 @@ describe('已有正文续写导入', () => {
 
     const handoff = new SettingCollaborationCommandService(
       context.database, context.config.releaseId, ids, clock
-    ).start(scope, 'world-stage', { idempotencyKey: 'continuation-setting-start' });
+    ).start(scope, 'world-stage', { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'continuation-setting-start' });
     expect(handoff).toMatchObject({ status: 'queued', reused: false });
     const handoffBrief = JSON.parse((context.database.prepare(`SELECT task_brief_json FROM tasks WHERE task_id = ?`)
       .get(handoff.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string };
@@ -336,12 +336,13 @@ describe('已有正文续写导入', () => {
       storyDirectionReference: expect.stringContaining('正文反向分析')
     });
     expect(continuationGuidance?.positioningSummary).toContain('已导入正文和反向章纲优先');
-    expect(continuationGuidance?.storyDirectionReference).toContain('开书简介只作为后续方向参考');
+    expect(continuationGuidance?.storyDirectionReference).toContain('只提取正文证据中的世界环境、制度、资源、信息和客观规则');
+    expect(continuationGuidance?.storyDirectionReference).not.toContain('开书简介只作为后续方向参考');
     const readiness = new SettingBaselineService(context.database, ids, clock).inspect(scope);
     expect(readiness).toMatchObject({
       profileKey: 'continuation-reverse',
       ready: false,
-      required: expect.arrayContaining(['world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks'])
+      required: expect.arrayContaining(['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'])
     });
 
     const guidanceWorkflow = new SettingGuidanceService(context.database, ids, clock);
@@ -429,8 +430,8 @@ describe('已有正文续写导入', () => {
 
       const prematureStart = await app.inject({
         method: 'POST',
-        url: `/api/v1/books/${book.bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
-        payload: { idempotencyKey: 'continuation-premature-setting-start' }
+        url: `/api/v1/books/${book.bookId}/setting-outline-workspace/world-stage/collaboration/start`,
+        payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'continuation-premature-setting-start' }
       });
       expect(prematureStart.statusCode).toBe(409);
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks

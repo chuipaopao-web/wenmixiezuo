@@ -133,7 +133,7 @@
 
 ## 分层设计的兼容数据
 
-- 活动设定核心键固定为world-stage、protagonist-situation、rules-costs、boundaries-blanks；story-kernel和opposition等历史键继续作为可选或旧版项读取，不迁移删除作者数据。
+- 活动设定核心键固定为world-stage、social-order、rules-costs、boundaries-blanks。protagonist-situation、story-kernel、opposition、supporting、relations和旧人物关系扩展等键只做历史兼容：可从当前工作区移除并归档活动检索片段，但不可变版本、正文和结算不永久删除。
 - 卷内容JSON可选保存routeCard、storySpine和firstVolumeLaunch；旧卷缺失时解析成功，新卷确认后随版本不可变。
 - 内部叙事方法保存版本、方法键和任务快照，作者公开投影不保存或返回专业名称。
 - 设定融合选择保存稳定方案ID、完整方案ID列表、片段来源和作者文字，不保存依赖前端排序的数组下标。

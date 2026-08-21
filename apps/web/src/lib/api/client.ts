@@ -147,6 +147,14 @@ export interface SettingOutlineItemVersionData {
 
 export interface SettingCollaborationData {
   item: SettingOutlineWorkspaceData;
+  screenwriters: Array<{
+    agentId: string | null;
+    memberName: string;
+    roleKey: 'lead_screenwriter' | 'second_screenwriter' | 'third_screenwriter' | 'senior_screenwriter';
+    availability: 'available' | 'unavailable';
+    availabilityReason: string | null;
+    highCompute: boolean;
+  }>;
   panel: null | {
     recoveryKey: string;
     taskStatus: string;
@@ -174,9 +182,12 @@ export interface SettingCollaborationData {
       agentId: string;
       memberName: string;
       roleKey: string;
-      status: 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
+      status: 'preparing' | 'working' | 'completed' | 'failed' | 'unavailable' | 'paused';
       contextSummary: string;
       outputSummary: string | null;
+      errorSummary: string | null;
+      retryable: boolean;
+      lastAttemptedAt: string | null;
     }>;
   };
   revisionTask: null | {
@@ -1123,6 +1134,13 @@ export function loginAccount(input: { email: string; password: string }): Promis
 
 export function logoutAccount(): Promise<{ loggedOut: boolean }> {
   return request('/api/v1/auth/logout', { method: 'POST', body: '{}' });
+}
+
+export function submitUserFeedback(input: {
+  bookId?: string; taskId?: string; category: 'bug' | 'experience' | 'suggestion' | 'other';
+  message: string; pagePath?: string; recoveryKey?: string;
+}): Promise<{ feedbackId: string; received: boolean }> {
+  return request('/api/v1/feedback', { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function fetchAdminOverview(signal?: AbortSignal): Promise<AdminOverviewData> {
@@ -2106,6 +2124,7 @@ export interface SettingCollaborationCommandData {
 export function startSettingCollaboration(bookId: string, itemKey: string, input: {
   authorInputId?: string | null;
   idempotencyKey: string;
+  screenwriterRoleKeys: string[];
 }): Promise<SettingCollaborationCommandData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/start`, {
     method: 'POST', body: JSON.stringify(input)
@@ -2115,30 +2134,33 @@ export function startSettingCollaboration(bookId: string, itemKey: string, input
 export function restartSettingCollaboration(bookId: string, itemKey: string, input: {
   authorInputId?: string | null;
   idempotencyKey: string;
+  screenwriterRoleKeys: string[];
 }): Promise<SettingCollaborationCommandData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/restart`, {
     method: 'POST', body: JSON.stringify(input)
   });
 }
 
-export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
-  proposalIds: string[];
-  wholeProposalIds?: string[];
-  fragmentIds?: string[];
-  authorInputId?: string | null;
-  idempotencyKey: string;
-}): Promise<SettingCollaborationCommandData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/synthesize`, {
+export function redesignSettingCollaborationMember(
+  bookId: string,
+  itemKey: string,
+  roleKey: string,
+  input: { proposalId: string; idempotencyKey: string }
+): Promise<SettingCollaborationCommandData> {
+  return request('/api/v1/books/' + encodeURIComponent(bookId) + '/setting-outline-workspace/' + encodeURIComponent(itemKey)
+    + '/collaboration/members/' + encodeURIComponent(roleKey) + '/redesign', {
     method: 'POST', body: JSON.stringify(input)
   });
 }
 
-export function reviseSettingCollaboration(bookId: string, itemKey: string, input: {
-  authorInputId: string;
-  idempotencyKey: string;
-}): Promise<SettingCollaborationCommandData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/revise`, {
-    method: 'POST', body: JSON.stringify(input)
+export function retrySettingCollaborationMember(
+  bookId: string,
+  itemKey: string,
+  roleKey: string,
+  idempotencyKey: string
+): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/members/${encodeURIComponent(roleKey)}/retry`, {
+    method: 'POST', body: JSON.stringify({ idempotencyKey })
   });
 }
 
@@ -2275,6 +2297,9 @@ export interface SettingQualityIssueData {
   itemKey: string;
   problem: string;
   suggestion: string;
+  replacement: string;
+  baseContentHash: string;
+  applicable: boolean;
 }
 
 export interface SettingQualityReportView {
@@ -2300,6 +2325,17 @@ export function startSettingQualityAudit(bookId: string, idempotencyKey: string)
   });
 }
 
+export function applySettingQualitySuggestion(
+  bookId: string,
+  reportId: string,
+  issueId: string
+): Promise<SettingOutlineWorkspaceData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-baseline/quality-report/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issueId)}/apply`, {
+    method: 'POST'
+  });
+}
+
+
 export function confirmPlanningArtifact(
   bookId: string,
   expectedPlanningVersion: number,
@@ -2309,6 +2345,15 @@ export function confirmPlanningArtifact(
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/planning-artifacts/confirm`, {
     method: 'POST',
     body: JSON.stringify({ expectedPlanningVersion, artifactVersionId, artifactType })
+  });
+}
+
+export function removeCurrentSettingOutlineItem(
+  bookId: string,
+  itemKey: string
+): Promise<SettingOutlineWorkspaceData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/current`, {
+    method: 'DELETE'
   });
 }
 

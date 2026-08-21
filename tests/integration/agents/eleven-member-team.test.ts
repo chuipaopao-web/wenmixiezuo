@@ -4,36 +4,36 @@ import { createTestContext, FixedClock, SequenceIds, type TestContext } from '..
 import { creativeMemberContracts } from '../../../apps/api/src/contracts/agent-team-v2.js';
 import { ReviewModelCompatibilityService, ModelBindingV2Service } from '../../../apps/api/src/application/agents/model-binding-v2-service.js';
 
-describe('十四人创作团队', () => {
+describe('十五人创作团队', () => {
   let context: TestContext | undefined;
   afterEach(() => { context?.close(); context = undefined; });
 
-  it('新书创建十四名女性成员，小文秘书不冒充创作成员Agent', () => {
+  it('新书创建十五名女性成员，小文秘书不冒充创作成员Agent', () => {
     context = createTestContext();
     const book = initializeDomainBook(context, 'owner-one', new SequenceIds(), new FixedClock());
     const members = context.database.prepare(`SELECT a.display_name, r.role_key, r.display_name AS title
       FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
       WHERE a.owner_id = ? AND a.book_id = ? ORDER BY a.created_at, a.agent_id`).all('owner-one', book.bookId);
-    expect(members).toHaveLength(14);
+    expect(members).toHaveLength(15);
     expect(members).toEqual(expect.arrayContaining(creativeMemberContracts.map((member) => expect.objectContaining({
       display_name: member.memberName, role_key: member.roleKey, title: member.shortTitle
     }))));
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_instances WHERE display_name = '小文秘书'`).get()).toEqual({ count: 0 });
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_bindings WHERE owner_id = ? AND book_id = ?`).get('owner-one', book.bookId)).toEqual({ count: 14 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_bindings WHERE owner_id = ? AND book_id = ?`).get('owner-one', book.bookId)).toEqual({ count: 15 });
   });
 
   it('模型绑定拒绝同模型双编剧、豆包编剧和不允许的写手', () => {
     const service = Object.create(ModelBindingV2Service.prototype) as ModelBindingV2Service;
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
-      provider: 'volcengine-ark-agent-plan',
+      provider: 'volcengine-ark-coding-plan',
       modelId: 'glm-5.3',
-      plan: 'agent'
+      plan: 'coding'
     });
     expect(base.literary_reviewer).toEqual({
-      provider: 'volcengine-ark-agent-plan',
+      provider: 'volcengine-ark-coding-plan',
       modelId: 'deepseek-v4-flash',
-      plan: 'agent'
+      plan: 'coding'
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
     expect(() => service.validate({ ...base, third_screenwriter: base.lead_screenwriter })).toThrow('互不相同');

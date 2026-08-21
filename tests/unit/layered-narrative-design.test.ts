@@ -60,21 +60,24 @@ describe('分层叙事设计门禁', () => {
     expect(parseVolumePlanContent(legacy).routeCard).toBeUndefined();
   });
 
-  it('正文设定包始终保留四项骨架，只完整加入本章相关扩展项，其余只留目录', () => {
+  it('正文设定包始终保留四项宏观骨架，旧人物设定不再注入，只按相关性加入扩展项', () => {
     const marker = '内容末尾不可丢';
     const items = [
       ['world-stage', '世界舞台', `群岛城市。${marker}`],
-      ['protagonist-situation', '主角底板', '顾川是旧港修械学徒。'],
+      ['social-order', '社会运行与秩序', '群岛议会按维修工时分配通行权。'],
+      ['protagonist-situation', '旧主角底板', '顾川是旧港修械学徒。'],
       ['rules-costs', '规则与代价', '使用浮空索会消耗寿命。'],
       ['boundaries-blanks', '边界与留白', '幕后者动机暂不确定。'],
       ['case-rules', '案件规则', '雾中凶案证据链必须可回查。'],
-      ['romance-side', '关系支线', '旧友关系以后再设计。']
+      ['currency', '货币规则', '港币只在三座主城通行。']
     ].map(([itemKey, label, content]) => ({ itemKey: itemKey!, label: label!, content: content! }));
     const compiled = compileWriterSettingContext(items, '本章调查雾中凶案证据链，并核对现场证据。');
     expect(compiled.hardItems.map((item) => item.itemKey)).toEqual(expect.arrayContaining([
-      'world-stage', 'protagonist-situation', 'rules-costs', 'boundaries-blanks', 'case-rules'
+      'world-stage', 'social-order', 'rules-costs', 'boundaries-blanks', 'case-rules'
     ]));
     expect(compiled.hardItems.find((item) => item.itemKey === 'world-stage')?.content.endsWith(marker)).toBe(true);
-    expect(compiled.deferredCatalog).toContainEqual({ itemKey: 'romance-side', label: '关系支线' });
+    expect(compiled.deferredCatalog).toContainEqual({ itemKey: 'currency', label: '货币规则' });
+    expect([...compiled.hardItems, ...compiled.deferredCatalog].map((item) => item.itemKey))
+      .not.toContain('protagonist-situation');
   });
 });

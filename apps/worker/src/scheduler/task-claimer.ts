@@ -226,6 +226,37 @@ export class TaskClaimer {
     }
   }
 
+
+  public fail(task: ClaimedTask, reason: string): void {
+    const now = this.now().toISOString();
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const result = this.database.prepare(`
+        UPDATE tasks SET status = 'failed', current_phase = 'failed', error_code = ?,
+          lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+          heartbeat_at = NULL, updated_at = ?
+        WHERE task_id = ? AND owner_id = ? AND book_id = ? AND lease_owner = ? AND lease_token = ?
+          AND current_attempt_no = ? AND lease_expires_at > ? AND status = 'working'
+      `).run(reason, now, task.taskId, task.ownerId, task.bookId, this.workerId,
+        task.leaseToken, task.attemptNo, now);
+      if (result.changes !== 1) throw new Error('TASK_FAIL_FENCE_REJECTED');
+      this.database.prepare(`
+        UPDATE task_phases SET status = 'failed', completed_at = ?, heartbeat_at = ?
+        WHERE task_id = ? AND phase_key = ? AND status = 'working'
+      `).run(now, now, task.taskId, task.currentPhase);
+      this.database.prepare(`
+        UPDATE task_attempts SET status = 'failed', error_code = ?, completed_at = ?
+        WHERE task_id = ? AND attempt_no = ? AND lease_token = ? AND status = 'working'
+      `).run(reason, now, task.taskId, task.attemptNo, task.leaseToken);
+      this.database.prepare(`UPDATE worker_health SET current_task_id = NULL, heartbeat_at = ? WHERE worker_id = ? AND current_task_id = ?`)
+        .run(now, this.workerId, task.taskId);
+      this.appendEvent(task, 'task.phase.changed', { taskId: task.taskId, status: 'failed', errorCode: reason });
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
   public block(task: ClaimedTask, reason: string): void {
     const now = this.now().toISOString();
     this.database.exec('BEGIN IMMEDIATE');

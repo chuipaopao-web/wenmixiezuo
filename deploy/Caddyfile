@@ -67,7 +67,61 @@ wenmixiezuo.com {
   }
 }
 
+# 独立管理后台：同一发布包，前端按 Host 只加载管理壳
+admin.wenmixiezuo.com {
+  request_body {
+    max_size 24MiB
+  }
+
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    -Server
+    -X-Powered-By
+  }
+
+  log {
+    output file /var/log/caddy/wenmi-admin-access.log {
+      roll_size 10MiB
+      roll_keep 5
+      roll_keep_for 720h
+    }
+    format json
+    level INFO
+  }
+
+  handle /api/* {
+    reverse_proxy 127.0.0.1:43111 {
+      header_up X-Forwarded-Proto https
+      flush_interval -1
+    }
+  }
+
+  handle /health {
+    reverse_proxy 127.0.0.1:43111
+  }
+
+  handle {
+    root * /opt/wenmi/apps/web/dist
+    encode gzip zstd
+    try_files {path} /index.html
+    file_server
+  }
+
+  tls {
+    protocols tls1.2 tls1.3
+  }
+}
 # HTTP -> HTTPS 跳转（Caddy 对显式站点块不会自动生成，需显式声明）
-http://wenmixiezuo.com {
+http://wenmixiezuo.com, http://www.wenmixiezuo.com {
   redir https://{host}{uri} permanent
+}
+
+http://admin.wenmixiezuo.com {
+  redir https://{host}{uri} permanent
+}
+www.wenmixiezuo.com {
+  redir https://wenmixiezuo.com{uri} permanent
 }

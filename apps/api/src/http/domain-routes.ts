@@ -67,6 +67,7 @@ import { OpeningSynopsisAnalysisService } from '../application/books/opening-syn
 import { AgentPromptPreferenceService } from '../application/agents/agent-prompt-preference-service.js';
 import { AgentPromptPreferenceRepository } from '../infrastructure/db/repositories/agent-prompt-preference-repository.js';
 import { SettingOutlineWorkspaceService } from '../application/knowledge/setting-outline-workspace-service.js';
+import { isMacroSettingItem } from '../application/knowledge/setting-outline-profile.js';
 import { SettingCollaborationService } from '../application/knowledge/setting-collaboration-service.js';
 import { SettingCollaborationRepository } from '../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { SettingCollaborationCommandService } from '../application/knowledge/setting-collaboration-command-service.js';
@@ -120,6 +121,7 @@ import { StageSettlementService } from '../application/continuity/stage-settleme
 import { requireAdministrator, requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 import { PlatformModelSchemeService } from '../application/agents/platform-model-scheme-service.js';
 import { registerAdminPlatformRoutes } from './admin-platform-routes.js';
+import { registerAdminConsoleRoutes } from './admin-console-routes.js';
 import { requestsCleanAuthorProjection } from './author-api-projection.js';
 
 const promptPurposeLabels: Readonly<Record<ModelPurpose, string>> = {
@@ -331,6 +333,36 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const settingCollaborationCommands = new SettingCollaborationCommandService(
     database, config.releaseId, ids, clock
   );
+  const inspectSettingCollaboration = (scope: { ownerId: string; bookId: string }, itemKey: string) => {
+    const view = settingCollaboration.inspect(scope, itemKey);
+    const byRole = new Map<string, AgentRecord>(agents.list(scope).map((member) => [member.roleKey, member]));
+    return {
+      ...view,
+      screenwriters: view.screenwriters.map((screenwriter) => {
+        const member = byRole.get(screenwriter.roleKey);
+        const availability = member === undefined
+          ? { availability: 'unavailable' as const, availabilityReason: '成员尚未配置' }
+          : agentAvailability(member, config.modelRuntime);
+        return { ...screenwriter, ...availability };
+      })
+    };
+  };
+  const assertScreenwritersAvailable = (
+    scope: { ownerId: string; bookId: string },
+    roleKeys: string[]
+  ): void => {
+    const byRole = new Map<string, AgentRecord>(agents.list(scope).map((member) => [member.roleKey, member]));
+    const unavailable = roleKeys.map((roleKey) => {
+      const member = byRole.get(roleKey);
+      if (member === undefined) return { roleKey, reason: '成员尚未配置' };
+      const state = agentAvailability(member, config.modelRuntime);
+      return state.availability === 'available' ? null : { roleKey, reason: state.availabilityReason };
+    }).filter((item): item is { roleKey: string; reason: string | null } => item !== null);
+    if (unavailable.length > 0) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable,
+        '所选编剧当前不可用，请刷新成员状态后重新选择。', { unavailable }, false, 409);
+    }
+  };
   const bookProfileView = new BookProfileViewService(database);
   const openingBlueprints = new OpeningBlueprintService(
     new OpeningBlueprintRepository(database), books, new UnitOfWork(database), ids, clock
@@ -1093,6 +1125,16 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     return success(settingBaselines.qualityReport(scope), request.id);
   });
 
+  app.post<{ Params: { bookId: string; reportId: string; issueId: string } }>(
+    '/api/v1/books/:bookId/setting-baseline/quality-report/:reportId/issues/:issueId/apply',
+    async (request) => {
+      const scope = { ownerId: owner(request).ownerId, bookId: request.params.bookId };
+      books.require(scope);
+      return success(settingBaselines.applyQualitySuggestion(scope, request.params.reportId, request.params.issueId), request.id);
+    }
+  );
+
+
   app.post<{ Params: { bookId: string }; Body: { idempotencyKey: string } }>(
     '/api/v1/books/:bookId/setting-baseline/quality-audit',
     async (request) => {
@@ -1569,7 +1611,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
       FROM knowledge_gap_findings WHERE owner_id = ? AND book_id = ? ORDER BY
       CASE severity WHEN 'blocking' THEN 0 WHEN 'important' THEN 1 WHEN 'optional' THEN 2 ELSE 3 END, created_at DESC LIMIT 500`)
       .all(scope.ownerId, scope.bookId);
-    const settings = settingOutlineWorkspace.list(scope).filter((item) => item.status === '已确认' && item.content !== null);
+    const settings = settingOutlineWorkspace.list(scope).filter((item) => isMacroSettingItem(item) && item.status === '已确认' && item.content !== null);
     const bookProfile = bookProfileView.find(scope);
     const protagonistDashboard = protagonists.dashboard(scope);
     const protagonistEntityIds = new Set(protagonistDashboard.profiles.flatMap((profile) => profile.entityId === null ? [] : [profile.entityId]));
@@ -1691,35 +1733,51 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.get<{ Params: { bookId: string; itemKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
-      return success(settingCollaboration.inspect(scope, request.params.itemKey), request.id);
+      return success(inspectSettingCollaboration(scope, request.params.itemKey), request.id);
     }
   );
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string } }>(
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string; screenwriterRoleKeys: string[] } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/start', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
+      assertScreenwritersAvailable(scope, request.body.screenwriterRoleKeys);
       return success(settingCollaborationCommands.start(scope, request.params.itemKey, request.body), request.id);
     }
   );
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string } }>(
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId?: string | null; idempotencyKey: string; screenwriterRoleKeys: string[] } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/restart', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
+      assertScreenwritersAvailable(scope, request.body.screenwriterRoleKeys);
       return success(settingCollaborationCommands.restart(scope, request.params.itemKey, request.body), request.id);
     }
   );
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { proposalIds: string[]; wholeProposalIds?: string[]; fragmentIds?: string[]; authorInputId?: string | null; idempotencyKey: string } }>(
-    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
+  app.post<{ Params: { bookId: string; itemKey: string; roleKey: string }; Body: { proposalId: string; idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/members/:roleKey/redesign', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(settingCollaborationCommands.synthesize(scope, request.params.itemKey, request.body), request.id);
+      assertScreenwritersAvailable(scope, [request.params.roleKey]);
+      return success(settingCollaborationCommands.redesignMember(
+        scope, request.params.itemKey, {
+          roleKey: request.params.roleKey,
+          proposalId: request.body.proposalId,
+          idempotencyKey: request.body.idempotencyKey
+        }), request.id);
     }
   );
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId: string; idempotencyKey: string } }>(
-    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/revise', async (request) => {
+  app.post<{ Params: { bookId: string; itemKey: string; roleKey: string }; Body: { idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/members/:roleKey/retry', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
       assertCreativeModelReady(config.modelRuntime);
-      return success(settingCollaborationCommands.revise(scope, request.params.itemKey, request.body), request.id);
+      assertScreenwritersAvailable(scope, [request.params.roleKey]);
+      return success(settingCollaborationCommands.retryMember(
+        scope, request.params.itemKey, { roleKey: request.params.roleKey, idempotencyKey: request.body.idempotencyKey }), request.id);
+    }
+  );
+  app.delete<{ Params: { bookId: string; itemKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/current', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      return success(settingBaselines.removeCurrentItem(scope, request.params.itemKey), request.id);
     }
   );
 
@@ -2545,6 +2603,7 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   });
 
   await registerAdminPlatformRoutes(app, database, config.modelRuntime.roleProfiles, platformSchemes);
+  await registerAdminConsoleRoutes(app, database);
 }
 
 function parseStoredJson(value: string): unknown {

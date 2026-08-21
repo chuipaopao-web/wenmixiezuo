@@ -13,12 +13,13 @@ describe('subscription onboarding model allocation', () => {
     context = undefined;
   });
 
-  it('creates the fourteen-member team with only valid plan role bindings', () => {
+  it('creates the fifteen-member team with only valid plan role bindings', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const runtime = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-plan-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-plan-test-key'
     });
     const draft = new PositioningService(context.database, ids, clock).createDraft(
@@ -40,13 +41,14 @@ describe('subscription onboarding model allocation', () => {
         .map((member) => [String(member.roleKey), member.modelId])
     );
 
-    expect(byRole.size).toBe(14);
+    expect(byRole.size).toBe(15);
     expect(Object.fromEntries(byRole)).toMatchObject({
       chief_editor: 'deepseek-v4-pro',
       deputy_editor: 'glm-5.3',
       lead_screenwriter: 'deepseek-v4-pro',
       second_screenwriter: 'glm-5.3',
       third_screenwriter: 'kimi-k2.7-code',
+      senior_screenwriter: 'kimi-k3',
       setting: 'deepseek-v4-flash',
       lead_writer: 'deepseek-v4-pro',
       fact_reviewer: 'glm-5.3',

@@ -101,7 +101,7 @@ const retiredAgentPlanModelAliases = new Map<string, string>([
   ['doubao-seed-2-0-pro-260215', 'doubao-seed-2.1-turbo']
 ]);
 
-function currentAgentPlanModelId(value: string | undefined, fallback: string): string {
+function currentPlanModelId(value: string | undefined, fallback: string): string {
   const configured = firstNonEmpty(value);
   if (configured === undefined) return fallback;
   return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
@@ -204,79 +204,36 @@ function defaultCodexExecutable(env: NodeJS.ProcessEnv): string {
   return 'codex.cmd';
 }
 
-function subscriptionProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
-  const agentDeepSeekPro: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL, 'deepseek-v4-pro'),
-    plan: 'agent'
-  };
-  const agentDeepSeekFlash: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL, 'deepseek-v4-flash'),
-    plan: 'agent'
-  };
-  const agentGlm: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_GLM_MODEL, 'glm-5.3'),
-    plan: 'agent'
-  };
-  const agentDoubao: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(env.WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL, 'doubao-seed-2.1-turbo'),
-    plan: 'agent'
-  };
-  const agentKimiK27: RoleModelProfile = {
-    provider: 'volcengine-ark-agent-plan',
-    modelId: currentAgentPlanModelId(
-      firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_AGENT_PLAN_KIMI_MODEL), 'kimi-k2.7-code'),
-    plan: 'agent'
-  };
-  return {
-    chief_editor: { ...agentDeepSeekPro },
-    plot_architect: { ...agentDeepSeekPro },
-    continuity: { ...agentGlm },
-    writer: { ...agentDeepSeekPro },
-    reviewer: { ...agentKimiK27 },
-    reader_experience: { ...agentDoubao },
-    style_editor: { ...agentGlm },
-    researcher: { ...agentDeepSeekFlash },
-    copyright: { ...agentKimiK27 }
-  };
-}
-
-/**
- * opencodego 模式：角色模型分配与火山方舟 Agent Plan 保持一致（写手/编剧用
- * DeepSeek、审校用 MiniMax、体验用豆包、连续性用 GLM、主编用 Kimi 等），
- * 仅把 provider/baseUrl/apiKey 指向 opencodego，从而通过团队模型多样性校验，
- * 且模型名在 opencodego 与方舟 catalog 同名时可无缝替换。逐角色模型可用
- * `WENMI_OPENCODEGO_*_MODEL` 覆盖，未配置时沿用方舟同款回退值。
- *
- * 2026-08-16 实测 opencode.ai/zen/go 目录不含豆包模型；按"适配不了的不要
- * 变化"，体验席默认继续使用火山方舟 Agent Plan 的豆包配置（需保留
- * WENMI_ARK_AGENT_PLAN_API_KEY）。只有显式设置 WENMI_OPENCODEGO_DOUBAO_MODEL
- * 时才把体验席切到 opencodego。
- */
-function opencodegoProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
-  const profile = (envKey: string, fallback: string): RoleModelProfile => ({
-    provider: 'opencodego',
-    modelId: currentAgentPlanModelId(env[`WENMI_OPENCODEGO_${envKey}_MODEL`], fallback),
-    plan: 'opencodego'
+function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
+  const codingProfile = (envKey: string, fallback: string): RoleModelProfile => ({
+    provider: 'volcengine-ark-coding-plan',
+    modelId: currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback),
+    plan: 'coding'
   });
+  const deepSeekPro = codingProfile('DEEPSEEK', 'deepseek-v4-pro');
+  const deepSeekFlash = codingProfile('DEEPSEEK_FLASH', 'deepseek-v4-flash');
+  const glm = codingProfile('GLM', 'glm-5.3');
+  const doubao = codingProfile('DOUBAO', 'doubao-seed-2.1-turbo');
+  const kimiK27: RoleModelProfile = {
+    provider: 'volcengine-ark-coding-plan',
+    modelId: currentPlanModelId(
+      firstNonEmpty(env.WENMI_ARK_CODING_PLAN_KIMI_K27_MODEL, env.WENMI_ARK_CODING_PLAN_KIMI_MODEL),
+      'kimi-k2.7-code'
+    ),
+    plan: 'coding'
+  };
   return {
-    chief_editor: profile('KIMI_K27', 'kimi-k2.7-code'),
-    plot_architect: profile('DEEPSEEK', 'deepseek-v4-pro'),
-    continuity: profile('GLM', 'glm-5.2'),
-    writer: profile('DEEPSEEK', 'deepseek-v4-pro'),
-    reviewer: profile('MINIMAX', 'minimax-m3'),
-    reader_experience: firstNonEmpty(env.WENMI_OPENCODEGO_DOUBAO_MODEL) !== undefined
-      ? profile('DOUBAO', 'doubao-seed-2.1-turbo')
-      : subscriptionProfiles(env).reader_experience,
-    style_editor: profile('GLM', 'glm-5.2'),
-    researcher: profile('DEEPSEEK_FLASH', 'deepseek-v4-flash'),
-    copyright: profile('KIMI_K27', 'kimi-k2.7-code')
+    chief_editor: { ...deepSeekPro },
+    plot_architect: { ...deepSeekPro },
+    continuity: { ...glm },
+    writer: { ...deepSeekPro },
+    reviewer: { ...kimiK27 },
+    reader_experience: { ...doubao },
+    style_editor: { ...glm },
+    researcher: { ...deepSeekFlash },
+    copyright: { ...kimiK27 }
   };
 }
-
 function toPublicProfiles(
   profiles: Record<NovelRoleKey, RoleModelProfile>,
   endpoints: ModelRuntimeConfig['endpoints']
@@ -315,9 +272,8 @@ export function loadModelRuntimeConfig(
     compatibleEndpoint?.plan === 'agent' ? compatibleToken : undefined
   );
   const opencodegoKey = firstNonEmpty(env.WENMI_OPENCODEGO_API_KEY);
-  const opencodegoActive = opencodegoKey !== undefined;
   const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE)
-    ?? (agentKey === undefined && !opencodegoActive ? 'deterministic' : 'subscription-plan');
+    ?? (codingKey === undefined && agentKey === undefined ? 'deterministic' : 'subscription-plan');
   if (rawMode !== 'deterministic' && rawMode !== 'subscription-plan') {
     throw new Error('WENMI_MODEL_MODE只允许deterministic或subscription-plan');
   }
@@ -355,15 +311,19 @@ export function loadModelRuntimeConfig(
         firstNonEmpty(env.WENMI_OPENCODEGO_BASE_URL) ?? OPENCODEGO_DEFAULT_BASE_URL
       ),
       apiKey: opencodegoKey,
-      modelId: currentAgentPlanModelId(env.WENMI_OPENCODEGO_MODEL, 'deepseek-v4-flash')
+      modelId: currentPlanModelId(env.WENMI_OPENCODEGO_MODEL, 'deepseek-v4-flash')
     }
   };
   const missingCredentials: ModelRuntimeConfig['missingCredentials'] = [];
-  // opencodego 激活时不再要求方舟 Agent Plan 凭证；两者皆缺才报 agent-plan 缺失。
-  if (!opencodegoActive && agentKey === undefined) missingCredentials.push('agent-plan');
-  const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && missingCredentials.length === 0 ? 'subscription-plan' : 'deterministic';
+  if (codingKey === undefined) missingCredentials.push('coding-plan');
+  if (agentKey === undefined) missingCredentials.push('agent-plan');
+  // Coding Plan 承担全部常规岗位；只要它可用，常规创作即可运行。
+  // Agent Plan 只服务作者主动选择的高级编剧 Kimi K3，缺失时由席位可用性单独禁用。
+  const activeMode: ModelRuntimeMode = requestedMode === 'subscription-plan' && codingKey !== undefined
+    ? 'subscription-plan'
+    : 'deterministic';
   const roleProfiles = activeMode === 'subscription-plan'
-    ? opencodegoActive ? opencodegoProfiles(env) : subscriptionProfiles(env)
+    ? codingPlanProfiles(env)
     : deterministicProfiles();
   const codexTimeout = Number(firstNonEmpty(env.WENMI_CODEX_TIMEOUT_MS) ?? '900000');
   if (!Number.isInteger(codexTimeout) || codexTimeout < 30_000 || codexTimeout > 900_000) {

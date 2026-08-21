@@ -281,7 +281,7 @@ describe('不可变上下文包', () => {
     expect(rows.every(row=>Number(row.token_budget)>=0&&Number(row.character_budget)>=0
       &&/^[a-f0-9]{64}$/u.test(String(row.content_hash)))).toBe(true);
   });
-  it('四核心全文始终进入，增加大量无关可选设定不会让任务上下文线性膨胀',()=>{
+  it('四项宏观核心全文始终进入，增加大量无关可选设定不会让任务上下文线性膨胀',()=>{
     context=createTestContext();const ids=new SequenceIds(),clock=new FixedClock(),fixture=createKnowledgeFixture(context,ids,clock);
     const insert=context.database.prepare(`INSERT INTO setting_clauses(setting_clause_id,owner_id,book_id,kind,statement,
       strength,truth_status,scope_type,scope_id,source_version_id,dependency_version_ids_json,status,created_at,updated_at)
@@ -291,7 +291,7 @@ describe('不可变上下文包', () => {
       fixture.scope.bookId,strength==='open_space'?'blank':strength==='hard_fact'?'fact':'direction',statement,strength,
       fixture.scope.bookId,`setting-item:${itemKey}:v1`,now,now);
     add('clause-core-world','world-stage','天空城位于永久风暴带上方。','hard_fact');
-    add('clause-core-hero','protagonist-situation','主角是只能听辨机械故障的修船学徒。','hard_fact');
+    add('clause-core-order','social-order','天空城议会按维修工时分配通行权。','hard_fact');
     add('clause-core-rule','rules-costs','古代引擎每次启动都会消耗近期记忆。','hard_fact');
     add('clause-core-blank','boundaries-blanks','地表文明真相暂时留白，不得提前解释。','open_space');
     add('clause-relevant','fuel-economy','飞行艇燃料短缺会迫使船员改变航线。','soft_reference');
@@ -305,7 +305,7 @@ describe('不可变上下文包', () => {
     const after=build();
     const settingIds=(pack:ReturnType<typeof build>)=>pack.sources.filter(source=>source.componentKind==='SettingConstraintPack')
       .map(source=>source.sourceId).sort();
-    expect(settingIds(before)).toEqual(['clause-core-blank','clause-core-hero','clause-core-rule','clause-core-world','clause-relevant']);
+    expect(settingIds(before)).toEqual(['clause-core-blank','clause-core-order','clause-core-rule','clause-core-world','clause-relevant']);
     expect(settingIds(after)).toEqual(settingIds(before));
     expect(after.totalCharacters).toBe(before.totalCharacters);
     expect(after.sources.some(source=>source.sourceId.startsWith('clause-unrelated-'))).toBe(false);

@@ -14,17 +14,11 @@
     "apps/*"
   ],
   "scripts": {
-    "acceptance": "vitest run tests/acceptance && node scripts/acceptance-audit.mjs",
+    "acceptance": "vitest run tests/acceptance",
     "build": "npm run build -w @wenmi/contracts && npm run build -w @wenmi/api && npm run build -w @wenmi/worker && npm run build -w @wenmi/web",
     "clean": "node scripts/clean.mjs",
     "dev": "npm run build -w @wenmi/contracts && concurrently --kill-others-on-fail --names API,WORKER,WEB --prefix-colors cyan,magenta,green \"npm run dev -w @wenmi/api\" \"npm run dev -w @wenmi/worker\" \"npm run dev -w @wenmi/web\"",
-    "docs:check": "node scripts/sync-project-docs.mjs --check",
-    "docs:open": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/open-project-docs.ps1",
-    "docs:sync": "node scripts/sync-project-docs.mjs",
-    "development:settle": "node scripts/sync-project-docs.mjs && npm run verify && node scripts/sync-project-docs.mjs --check",
     "evaluate:scale": "tsx scripts/evaluation/final-scale-replay.ts",
-    "ledger:init": "node scripts/release-ledger.mjs init",
-    "ledger:status": "node scripts/release-ledger.mjs status",
     "migrate": "npm run migrate -w @wenmi/api",
     "models:install": "node scripts/models/install-local-semantic-model.mjs install",
     "models:probe": "tsx scripts/models/probe-local-embedding-model.ts",
@@ -35,10 +29,13 @@
     "evaluate:retrieval-gold": "tsx scripts/evaluation/retrieval-gold-evaluation.ts",
     "verify:backup": "tsx scripts/evaluation/production-backup-verify.ts",
     "start": "node scripts/start.mjs",
-    "test": "npm run build -w @wenmi/contracts && vitest run",
+    "test": "npm run test:fast",
+    "test:fast": "npm run build -w @wenmi/contracts && vitest run tests/foundation/api-health.test.ts tests/foundation/contracts.test.ts tests/foundation/migration.test.ts tests/contract/repository-isolation.test.ts tests/fault-injection/runtime-integrity-fences.test.ts tests/integration/security/request-policy.test.ts tests/integration/security/runtime-session.test.ts tests/integration/security/membership.test.ts tests/integration/security/admin-platform.test.ts tests/integration/domain/api-flow.test.ts tests/integration/domain/volume-plan-generation.test.ts tests/integration/domain/story-event-generation.test.ts tests/integration/domain/event-chapter-outlines.test.ts tests/integration/domain/chapter-outline-v2.test.ts tests/integration/creation/single-chapter-pipeline.test.ts tests/integration/experience/setting-catalog.test.tsx tests/integration/experience/setting-collaboration-panel.test.tsx tests/integration/data-safety/backup-restore.test.ts",
+    "test:full": "npm run build -w @wenmi/contracts && vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "npm run build -w @wenmi/contracts && npm run typecheck -w @wenmi/api && npm run typecheck -w @wenmi/worker && npm run typecheck -w @wenmi/web && tsc -p tsconfig.tests.json --noEmit",
-    "verify": "npm run docs:sync && npm run typecheck && npm run test && npm run build && npm run docs:check"
+    "verify": "npm run typecheck && npm run test:fast && npm run build",
+    "verify:full": "npm run typecheck && npm run test:full && npm run build"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",

@@ -48,12 +48,18 @@ if (config.publicOrigin === null) {
     hint: 'WENMI_WEB_ORIGIN 与 WENMI_PUBLIC_ORIGIN 不一致会拒绝浏览器写入请求，请确认是否故意配置'
   }));
 }
+if (config.publicOrigin !== null && config.adminOrigin === null) {
+  console.warn(JSON.stringify({
+    event: 'admin_origin_missing',
+    hint: '独立管理后台需设置 WENMI_ADMIN_ORIGIN=https://admin.wenmixiezuo.com'
+  }));
+}
 // 管理后台保存的平台模型方案优先于环境默认；启动收敛与后台调整走同一条 reviseFuture 链路。
 const platformSchemes = new PlatformModelSchemeService(database, ids, clock, config.modelRuntime.activeMode);
 new ModelBindingService(database, ids, clock, config.modelRuntime.roleProfiles)
   .bindAllBooks({
     preserveActiveRevision: true,
-    migrateAllMembersToAgentPlan: true,
+    migrateAllMembersToCurrentPlan: true,
     creativeProfilesOverride: platformSchemes.currentProfiles(toCreativeProfiles(config.modelRuntime.roleProfiles))
   });
 const app = await createServer(config, database);

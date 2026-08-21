@@ -24,7 +24,7 @@ describe('定位草稿与原子建书', () => {
       channel: 'female', categoryKey: 'female-modern-brain',
       targetAudience: '喜欢都市悬疑、女性成长和群像关系的读者',
       protagonists: [
-        { role: 'female_lead', name: '林雾', age: '二十四岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] },
+        { role: 'female_lead', name: '林雾', age: '二十五岁', background: '城市规划师，返乡处理旧宅。', personalities: ['冷静', '敏锐'] },
         { role: 'male_lead', name: '顾潮', age: '二十六岁', background: '轮渡工程师，掌握旧港水文档案。', personalities: ['克制', '有底线'] }
       ],
       storyDirection: '林雾因一封未来日期的拆迁通知返回旧港，发现城市规划图会改写居民记忆；她要查清姐姐失踪与旧城改造的真相，并在真实代价和完美幻象之间作出选择。',
@@ -157,7 +157,7 @@ describe('定位草稿与原子建书', () => {
       .toBe(blueprint.fullBookOutline);
   });
 
-  it('确认指定草稿版本后原子创建书、14岗位、预算、故事圣经和主编租约', () => {
+  it('确认指定草稿版本后原子创建书、15岗位、预算、故事圣经和主编租约', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -167,9 +167,9 @@ describe('定位草稿与原子建书', () => {
     expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version))
       .toThrow('版本已经变化');
     const result = new BookOnboardingService(context.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, updated.version);
-    expect(result.agentCount).toBe(14);
+    expect(result.agentCount).toBe(15);
     expect(new BookRepository(context.database).require({ ownerId: 'owner-one', bookId: result.bookId })).toMatchObject({ title: '甲书修订名', status: 'active', positioningVersion: 1, editorEpoch: 1 });
-    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 14 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 15 });
     expect(context.database.prepare('SELECT cash_limit_micros FROM budgets WHERE budget_id = ?').get(result.budgetId)).toEqual({ cash_limit_micros: 0 });
     expect(context.database.prepare('SELECT status FROM artifacts WHERE artifact_id = ?').get(result.storyBibleArtifactId)).toEqual({ status: 'draft' });
     expect(context.database.prepare('SELECT editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ editor_epoch: 1 });

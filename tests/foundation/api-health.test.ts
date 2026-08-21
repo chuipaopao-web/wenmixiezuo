@@ -26,6 +26,7 @@ describe('API健康检查', () => {
       releaseId: 'wm-v1-20260716-220959-d5dd704d',
       ownerId: 'owner-local-boss',
       webOrigin: 'http://127.0.0.1:43110',
+      adminOrigin: null,
       workerToken: 'test-worker-token-00000000000000000000000000000000',
       promptViewPassword: 'test-prompt-view-password',
       modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(tempDirectory, 'cache', 'codex-runtime') }),

@@ -158,7 +158,7 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       const describe0 = await app.inject({ method: 'GET', url: '/api/v1/admin/model-scheme', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(describe0.statusCode).toBe(200);
       expect(describe0.json().data.source).toBe('default');
-      expect(describe0.json().data.members.length).toBe(14);
+      expect(describe0.json().data.members.length).toBe(15);
       expect(describe0.json().data.allowedModels.length).toBeGreaterThan(0);
 
       const sameModel = Object.fromEntries(Object.keys(roleModelProfiles).map((role) => [role, roleModelProfiles.chief_editor]));
@@ -185,7 +185,7 @@ describe('管理后台：算力消耗与平台模型方案', () => {
     const result = service.save('user-admin', roleModelProfiles, roleProfiles, '测试收敛');
     expect(result.convergence.booksVisited).toBe(1);
     expect(result.convergence.revisedBooks).toBe(1);
-    expect(result.convergence.updatedAgents).toBe(14);
+    expect(result.convergence.updatedAgents).toBe(15);
     expect(service.storedProfiles()).toEqual(roleModelProfiles);
 
     const bindings = new AgentGovernanceRepository(context.database).activeBindings(scope);

@@ -401,6 +401,19 @@ export class VolumePlanGenerationRepository {
     }
   }
 
+  public activeNarrativeMethodOverrides(): Array<{ methodKey: string; version: number; enabled: boolean; content: unknown }> {
+    const rows = this.database.prepare(`SELECT method_key,version,enabled,content_json
+      FROM narrative_method_overrides WHERE status='active' ORDER BY method_key`).all() as Array<{
+      method_key: string; version: number; enabled: number; content_json: string;
+    }>;
+    return rows.map((row) => ({
+      methodKey: row.method_key,
+      version: Number(row.version),
+      enabled: row.enabled === 1,
+      content: JSON.parse(row.content_json) as unknown
+    }));
+  }
+
   public recordRouteMethodAudit(scope: BookScope, input: {
     auditId: string;
     volumePlanId: string;

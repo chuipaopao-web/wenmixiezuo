@@ -357,8 +357,8 @@ export function AgentDetailsDialog({ agent, task, onClose }: { agent: AgentData;
 export function roleSummary(roleKey: string): string {
   return ({
     chief_editor: '主持讨论、安排任务并汇总结果', deputy_editor: '编译资料、维护摘要，必要时接替主编',
-    lead_screenwriter: '独立设计剧情、因果和章节跨度', second_screenwriter: '提出重因果的剧情方案',
-    third_screenwriter: '提出脑洞与反套路方案',
+    lead_screenwriter: '全能编剧，独立完成任意设定与故事框架', second_screenwriter: '全能编剧，独立完成任意设定与故事框架',
+    third_screenwriter: '全能编剧，独立完成任意设定与故事框架', senior_screenwriter: '高级全能编剧，使用高算力模型按作者选择工作',
     setting: '整理世界规则、时间线和人物状态', lead_writer: '按照确认要求写出完整章节', backup_writer: '接替主笔或按要求写待确认稿',
     fact_reviewer: '核对设定、正史与因果事实',
     literary_reviewer: '点评文学表达、语言和AI腔风险', experience_reviewer: '评估追读体验与政治情色风险',

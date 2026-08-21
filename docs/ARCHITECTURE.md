@@ -77,9 +77,9 @@ API在展示层之前再设置网络洁净投影边界：当前Web对普通作�
 
 认证属于基础设施边界，但账号状态和管理员权限由应用服务判定。`user_accounts` 一对一关联 `owners`；首次注册在事务内优先复用尚未认领且含本机书籍的历史老板所有者，后续注册创建新所有者。升级库只重新绑定唯一空管理员的所有者关系，不批量改写任何创作表。`auth_sessions` 只保存随机令牌的 SHA-256 摘要；密码使用每账号独立盐值的 scrypt 摘要。浏览器通过 HttpOnly、SameSite=Lax Cookie 维持会话，HTTPS 部署额外启用 Secure。所有业务路由在进入应用服务前从会话解析 `user_id + owner_id + role`，领域路由不再读取固定配置所有者。
 
-首个注册使用 `BEGIN IMMEDIATE` 原子判断并授予管理员角色。管理员路由只提供统计、用户检索、暂停和恢复；暂停用户时撤销其所有活动会话。不能暂停当前管理员自己或最后一个活动管理员。测试注入身份只存在于受控测试配置，不进入生产路由。
+首个注册使用 `BEGIN IMMEDIATE` 原子判断并授予管理员角色。Web使用同一构建按Host分流：`admin.wenmixiezuo.com` 渲染独立管理壳，`wenmixiezuo.com` 始终渲染作者创作台；仅本机回环地址保留 `/admin` 调试入口。两站各使用Host-only HttpOnly会话，全部 `/api/v1/admin/*` 路由仍在服务端逐请求校验管理员身份。后台读取SQLite正式对象和 `usage_ledger`，写操作采用版本化覆盖、不可变流水或可恢复状态，不直接改写正文与作者原话。暂停用户时撤销其所有活动会话；不能暂停当前管理员自己或最后一个活动管理员。测试注入身份只存在于受控测试配置，不进入生产路由。
 
-公网保持单域部署：`https://wenmixiezuo.com` 同时承载 Web 与 `/api`，反向代理负责 TLS、请求大小、访问日志脱敏与外围限流。API、SQLite、文件、LanceDB 和 Worker 仍位于服务器本机回环/本地文件边界。完整部署步骤见 [DEPLOY.md](DEPLOY.md)。手机号、微信以后作为登录身份绑定到现有 `user_id`，不能建立第二套书籍所有权。
+公网使用主站与管理子域：`https://wenmixiezuo.com` 承载作者 Web，`https://admin.wenmixiezuo.com` 承载后台 Web；两个Host各自同源代理 `/api` 到同一回环API，反向代理负责 TLS、请求大小、访问日志脱敏与外围限流。API、SQLite、文件、LanceDB 和 Worker 仍位于服务器本机回环/本地文件边界。完整部署步骤见 [DEPLOY.md](DEPLOY.md)。手机号、微信以后作为登录身份绑定到现有 `user_id`，不能建立第二套书籍所有权。
 
 ## 分层规划与上下文编译
 

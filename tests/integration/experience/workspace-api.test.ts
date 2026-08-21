@@ -24,13 +24,13 @@ describe('工作台API', () => {
     app = await createServer(context.config, context.database, { trustedTest: true });
     const teamTemplateResponse = await app.inject({ method: 'GET', url: '/api/v1/team-template' });
     expect(teamTemplateResponse.statusCode).toBe(200);
-    expect(teamTemplateResponse.json().data.members).toHaveLength(14);
+    expect(teamTemplateResponse.json().data.members).toHaveLength(15);
     expect(teamTemplateResponse.json().data.members[0]).toEqual(expect.objectContaining({
       memberName: '貂蝉',
       shortTitle: '主编',
       publicSummary: expect.any(String),
       roleStatement: expect.stringContaining('貂蝉'),
-      defaultModel: expect.objectContaining({ provider: 'volcengine-ark-agent-plan', modelId: 'deepseek-v4-pro' })
+      defaultModel: expect.objectContaining({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' })
     }));
     expect(teamTemplateResponse.json().data.fullPromptAccess).toEqual({ configured: true, passwordProtected: true });
     expect(teamTemplateResponse.body).not.toContain('记忆规则');
@@ -41,7 +41,7 @@ describe('工作台API', () => {
       book: { bookId: book.bookId, title: '工作台接口书' },
       confirmations: { count: 0 }
     });
-    expect(workspaceResponse.json().data.agents).toHaveLength(14);
+    expect(workspaceResponse.json().data.agents).toHaveLength(15);
     expect(workspaceResponse.json().data).toMatchObject({
       volumes: [],
       localAssistant: expect.objectContaining({ displayName: '小文秘书', status: 'ready' })
@@ -94,6 +94,15 @@ describe('工作台API', () => {
       url: `/api/v1/books/${book.bookId}/setting-outline-workspace/${settingItem.itemKey}`,
       payload: { ...settingItem, status: '已确认', content: '架空王朝的边境要塞时代。' }
     })).statusCode).toBe(200);
+    const retiredPersonSetting = {
+      itemKey: 'emotional-boundaries', groupTitle: '人物与命名', label: '情感边界',
+      prompt: '人物关系如何推进？', sourceLabel: '早期设定模板', sortOrder: 2
+    };
+    expect((await app.inject({
+      method: 'PUT',
+      url: `/api/v1/books/${book.bookId}/setting-outline-workspace/${retiredPersonSetting.itemKey}`,
+      payload: { ...retiredPersonSetting, status: '已确认', content: '旧版人物关系约束。' }
+    })).statusCode).toBe(200);
     const libraryResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/library` });
     expect(libraryResponse.statusCode).toBe(200);
     expect(libraryResponse.json().data).toEqual(expect.objectContaining({
@@ -111,15 +120,18 @@ describe('工作台API', () => {
       bookProfile: null,
       summary: expect.objectContaining({ timelineCount: 0 })
     }));
+    expect(libraryResponse.json().data.settings).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemKey: 'emotional-boundaries' })
+    ]));
     const bindingsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/model-bindings` });
     expect(bindingsResponse.statusCode).toBe(200);
-    expect(bindingsResponse.json().data.active).toHaveLength(14);
+    expect(bindingsResponse.json().data.active).toHaveLength(15);
     const profiles = Object.fromEntries(bindingsResponse.json().data.active.map((binding: Record<string, unknown>) => [binding.roleKey, {
       provider: binding.provider, modelId: binding.modelId, plan: binding.plan
     }]));
     const previewResponse = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/model-bindings/preview`, payload: { profiles } });
     expect(previewResponse.statusCode).toBe(200);
-    expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 14 });
+    expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 15 });
 
     const retiredMessageEndpoint = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }

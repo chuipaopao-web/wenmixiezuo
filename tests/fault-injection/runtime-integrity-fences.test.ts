@@ -48,6 +48,15 @@ describe('任务、模型结果和预算完整性栅栏', () => {
     expect(fixture.tasks.require(fixture.scope, 'task-fence').status).toBe('succeeded');
   });
 
+
+  it('不可重试执行错误在当前租约内进入失败终态并释放任务', () => {
+    const fixture = setup();
+    fixture.claimer.fail(fixture.claimed, 'INTERNAL_ERROR');
+    expect(fixture.tasks.require(fixture.scope, 'task-fence')).toMatchObject({
+      status: 'failed', errorCode: 'INTERNAL_ERROR', currentPhase: 'failed', leaseOwner: null
+    });
+    expect(context!.database.prepare('SELECT status, error_code FROM task_attempts WHERE task_id = ?').get('task-fence')).toEqual({ status: 'failed', error_code: 'INTERNAL_ERROR' });
+  });
   it('已释放预算拒绝晚到结算且计数保持守恒', () => {
     const fixture = setup();
     const reservation = fixture.budgets.reserve(fixture.scope, fixture.budget.budgetId, 'late-budget', 500, 0);

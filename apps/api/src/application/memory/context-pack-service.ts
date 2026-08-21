@@ -303,8 +303,8 @@ function loadSettingClauseSources(database:DatabaseSync,scope:BookScope,input:Co
     const itemKey=match?.[1]??sourceVersion;if(!selected.has(itemKey))continue;
     const strength=String(row.strength) as ContextConstraintStrength;
     const source:ContextSource={sourceType:'setting_clause:'+String(row.kind),sourceId:String(row.setting_clause_id),
-      version:sourceVersion,content:String(row.statement),reason:['world-stage','protagonist-situation','rules-costs','boundaries-blanks'].includes(itemKey)
-        ?'四项核心设定的确认片段，完整进入任务资料。':'与当前任务语义相关的确认设定片段。',priority:90,
+      version:sourceVersion,content:String(row.statement),reason:['world-stage','social-order','rules-costs','boundaries-blanks'].includes(itemKey)
+        ?'四项宏观核心设定的确认片段，完整进入任务资料。':'与当前任务语义相关的确认设定片段。',priority:90,
       constraintStrength:strength,truthStatus:String(row.truth_status) as ContextTruthStatus,
       scopeType:String(row.scope_type) as 'book'|'volume'|'event'|'chapter'|'scene',scopeId:String(row.scope_id),
       dependencies:JSON.parse(String(row.dependency_version_ids_json)) as string[],componentKind:'SettingConstraintPack'};

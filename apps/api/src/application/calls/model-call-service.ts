@@ -82,6 +82,19 @@ export class ModelCallService {
 
   public async execute(scope: BookScope, call: BeginModelCall, adapter: ModelAdapter, request: ModelRequest): Promise<ModelResult> {
     if (adapter.provider !== call.provider || adapter.modelId !== call.modelId) throw new Error('模型适配器与配置快照来源不匹配');
+    const runtime = this.database.prepare(`SELECT t.task_type,r.role_key FROM tasks t JOIN agent_instances a
+      ON a.agent_id=? AND a.owner_id=t.owner_id AND a.book_id=t.book_id
+      JOIN role_templates r ON r.role_template_id=a.role_template_id AND r.version=a.role_template_version
+      WHERE t.task_id=? AND t.owner_id=? AND t.book_id=?`).get(call.agentId, call.taskId, scope.ownerId, scope.bookId) as {
+      task_type: string; role_key: string;
+    } | undefined;
+    if (runtime === undefined) throw new Error('模型调用缺少真实任务或成员身份');
+    const platformOverride = this.database.prepare(`SELECT prompt_override_id,version,content FROM platform_prompt_overrides
+      WHERE trigger_key=? AND status='active' AND role_key IN (?, '*') AND phase_key IN (?, '*')
+      ORDER BY (role_key=?) DESC,(phase_key=?) DESC,version DESC LIMIT 1`)
+      .get(runtime.task_type, runtime.role_key, call.phaseKey, runtime.role_key, call.phaseKey) as {
+        prompt_override_id: string; version: number; content: string;
+      } | undefined;
     const preference = this.database.prepare(`
       SELECT prompt_preference_id, version, content
       FROM agent_prompt_preferences
@@ -90,19 +103,27 @@ export class ModelCallService {
     `).get(scope.ownerId, scope.bookId, call.agentId) as {
       prompt_preference_id: string; version: number; content: string;
     } | undefined;
-    const effectiveCall = preference === undefined ? call : {
-      ...call,
-      input: `${call.input}\n[prompt-preference:${preference.prompt_preference_id}:v${preference.version}]`
-    };
-    const effectiveRequest = preference === undefined || preference.content.trim().length === 0
-      ? request
-      : { ...request, supplementalInstructions: preference.content };
+    const promptMarkers = [
+      ...(preference === undefined ? [] : [`prompt-preference:${preference.prompt_preference_id}:v${preference.version}`]),
+      ...(platformOverride === undefined ? [] : [`platform-prompt:${platformOverride.prompt_override_id}:v${platformOverride.version}`])
+    ];
+    const effectiveCall = promptMarkers.length === 0 ? call : { ...call, input: `${call.input}\n[${promptMarkers.join('|')}]` };
+    const supplements = [request.supplementalInstructions, preference?.content, platformOverride?.content]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    const effectiveRequest = supplements.length === 0 ? request : { ...request, supplementalInstructions: supplements.join('\n\n') };
     const requestId = this.begin(scope, effectiveCall);
     if (preference !== undefined && requestId === call.requestId) {
       this.database.prepare(`
         UPDATE model_calls SET prompt_preference_id = ?
         WHERE request_id = ? AND owner_id = ? AND book_id = ?
       `).run(preference.prompt_preference_id, requestId, scope.ownerId, scope.bookId);
+    }
+    if (requestId === call.requestId) {
+      this.database.prepare(`INSERT OR IGNORE INTO model_call_prompt_snapshots (
+        request_id,task_type,role_key,phase_key,task_prompt,supplemental_instructions,prompt_override_id,created_at
+      ) VALUES (?,?,?,?,?,?,?,?)`).run(requestId, runtime.task_type, runtime.role_key, call.phaseKey,
+        effectiveRequest.prompt, effectiveRequest.supplementalInstructions ?? '', platformOverride?.prompt_override_id ?? null,
+        this.clock.now().toISOString());
     }
     if (requestId !== call.requestId) {
       const reusable = this.loadSucceededResult(scope, requestId, call.provider, call.modelId);

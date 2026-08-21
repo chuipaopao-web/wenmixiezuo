@@ -6,7 +6,7 @@
 
 | 文件 | 用途 | 部署路径 |
 |------|------|----------|
-| `Caddyfile` | Caddy 反向代理配置（TLS + 限流 + 静态文件） | `/etc/caddy/Caddyfile` |
+| `Caddyfile` | 作者主站与 `admin.wenmixiezuo.com` 管理子域的TLS、同源API代理和静态文件配置 | `/etc/caddy/Caddyfile` |
 | `wenmi-api.service` | API systemd 服务单元 | `/etc/systemd/system/` |
 | `wenmi-worker.service` | Worker systemd 服务单元 | `/etc/systemd/system/` |
 | `backup.sh` | SQLite 数据库自动备份脚本 | `/opt/wenmi/deploy/backup.sh` |

@@ -52,11 +52,13 @@
 
 ## 4. 设定对象协作
 
-- `GET /api/v1/books/:bookId/setting-outline-workspace`：当前设定工作区、条目选择和逐项状态。
+- `GET /api/v1/books/:bookId/setting-outline-workspace`：当前宏观设定工作区、条目选择和逐项状态。
+- `DELETE /api/v1/books/:bookId/setting-outline-workspace/:itemKey/current`：按当前 `owner_id + book_id + itemKey` 从活动设定和新任务临时资料包移除单项，清除当前内容、来源、确认与待定候选，使当前设定基线重新待审；不可变历史版本、正文和结算保留，活动检索片段归档。
 - `GET /api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration`：当前项候选、四名全能编剧的真实可用性与席位状态。
-- `POST .../collaboration/start`：Body必须明确提交1—4个 `screenwriterRoleKeys`，只启动作者所选编剧。创建前从当前 `owner_id + book_id` 的活动设定工作区编译非正史临时资料包，包含除当前项外全部已确认条目的预算内短摘要和内容指纹；指纹变化时不得复用旧面板。
-- `POST .../collaboration/start`、`restart` 与失败成员 `retry` 都读取调用时的最新临时包。修改已确认条目会产生新指纹；清空工作区后新包为空。临时包只进入任务快照，不写入正式设定基线。
+- `POST .../collaboration/start`：Body必须明确提交1—4个 `screenwriterRoleKeys`，只启动作者所选编剧。创建前从当前 `owner_id + book_id` 的活动设定工作区编译非正史临时资料包，只包含除当前项外已确认的宏观世界规则短摘要和内容指纹；已下架的人物、关系与剧情类旧键不会进入资料包，指纹变化时不得复用旧面板。
+- `POST .../collaboration/start`、`restart`、单编剧 `redesign` 与失败成员 `retry` 都读取调用时的最新临时包。修改已确认条目会产生新指纹；清空工作区后新包为空。临时包只进入任务快照，不写入正式设定基线。
 - `POST .../collaboration/restart`：重新设计当前项，仍必须重新明确选择编剧。
+- `POST .../collaboration/members/:roleKey/redesign`：Body提交当前 `proposalId` 与 `idempotencyKey`，只为该方案所属编剧创建新任务。任务携带旧方案摘要与SHA-256指纹作为排除依据，要求在机制、代价和可写性后果上实质不同；读取接口按席位保留其他成员最近成功方案，并以该席新结果替换其当前候选。
 - `POST .../collaboration/members/:roleKey/retry`：只重试失败席，保留其他成功候选。
 - 已废弃的逐项主编融合、逐项主编修订写接口已经删除；历史任务和历史融合稿只通过协作读取接口只读恢复，不能再触发旧流程。
 - 整篇设定质检和 `issues/:issueId/apply` 分别生成主编建议与采纳单条完整替换稿；采纳时校验基线哈希并创建新版本。
@@ -103,6 +105,8 @@
 ## 12. 团队、任务与模型
 
 - 团队模板、逐书成员、岗位公开说明、真实状态和模型绑定。
+- 普通AI岗位使用 `volcengine-ark-coding-plan` / `coding`；高级编剧使用 `volcengine-ark-agent-plan` / `agent` / `kimi-k3`。两条路线分别校验环境变量凭证，缺少 Agent Plan 只令高级编剧不可用。
+- 存量书创建新的活动模型绑定版本；运行中任务、历史调用快照和用量记录不可改写。
 - 任务中心、任务详情、暂停、取消、失败重试和结果未知调和。
 - 模型调用、预算和用量只显示可审计元数据，不返回密钥或思维链。
 

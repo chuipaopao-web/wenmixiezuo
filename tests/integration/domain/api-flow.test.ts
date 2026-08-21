@@ -137,10 +137,28 @@ describe('建书REST流程', () => {
       const created = confirmResponse.json().data as { bookId: string; kickoffTaskId: string | null };
       // DEC-CURRENT-062：建书不再自动召集，作者点“团队设计”才建首个提案任务
       expect(created.kickoffTaskId).toBeNull();
+      context.database.prepare(`UPDATE model_config_snapshots SET provider='volcengine-ark-agent-plan', model_id='kimi-k3', parameters_json='{"plan":"agent"}'
+        WHERE model_snapshot_id=(SELECT a.model_snapshot_id FROM agent_instances a JOIN role_templates r
+          ON r.role_template_id=a.role_template_id AND r.version=a.role_template_version
+          WHERE a.owner_id=? AND a.book_id=? AND r.role_key='senior_screenwriter' LIMIT 1)`).run(context.config.ownerId, created.bookId);
+      const memberAvailability = await app.inject({
+        method: 'GET', url: `/api/v1/books/${created.bookId}/setting-outline-workspace/world-stage/collaboration`
+      });
+      expect(memberAvailability.statusCode).toBe(200);
+      expect(memberAvailability.json().data.screenwriters).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleKey: 'senior_screenwriter', availability: 'unavailable', availabilityReason: '模型路线缺少可用凭证' })
+      ]));
+      const bypassUnavailable = await app.inject({
+        method: 'POST',
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/world-stage/collaboration/start`,
+        payload: { screenwriterRoleKeys: ['senior_screenwriter'], idempotencyKey: 'api-flow-unavailable-senior' }
+      });
+      expect(bypassUnavailable.statusCode).toBe(409);
+      expect(bypassUnavailable.json().error.message).toContain('不可用');
       const startPanel = await app.inject({
         method: 'POST',
-        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
-        payload: { idempotencyKey: 'api-flow-first-panel' }
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/world-stage/collaboration/start`,
+        payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'api-flow-first-panel' }
       });
       expect(startPanel.statusCode).toBe(200);
       const panelTaskId = (startPanel.json().data as { taskId: string }).taskId;
@@ -171,11 +189,11 @@ describe('建书REST流程', () => {
       expect(staleProfile.json().error).toMatchObject({ code: 'BOOK_VERSION_CONFLICT' });
       const settingCollaboration = await app.inject({
         method: 'GET',
-        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration`
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/world-stage/collaboration`
       });
       expect(settingCollaboration.statusCode).toBe(200);
       expect(settingCollaboration.json().data).toMatchObject({
-        item: { itemKey: 'story-kernel' },
+        item: { itemKey: 'world-stage' },
         panel: { recoveryKey: panelTaskId },
         impact: { changesCanon: false, changesManuscript: false }
       });
@@ -206,7 +224,7 @@ describe('建书REST流程', () => {
               workflowArtifact: {
                 type: 'setting_outline',
                 payload: { items: [{
-                  itemKey: 'story-kernel',
+                  itemKey: 'world-stage',
                   content: '通过张三在城邦冲突中的有代价选择，探讨个人尊严与共同体责任，让读者获得热血推进中的道德张力。'
                 }] }
               }
@@ -217,14 +235,16 @@ describe('建书REST流程', () => {
       await new DiscussionPipelineService(
         context.database, context.config.releaseId, new SequenceIds(), clock, modelFactory
       ).executeClaimed({ ownerId: context.config.ownerId, bookId: created.bookId }, panelTaskId, 'worker-onboarding');
-      expect(capturedPrompt).toContain('长期吸引力');
-      expect(capturedPrompt).toContain('你看不到另外两名成员的答案');
-      expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的方案');
-      expect(capturedPrompt).toContain('不提前规定具体剧情结果');
-      expect(capturedPrompt).toContain('张三');
-      expect(capturedPrompt).toContain('天安城');
-      expect(capturedPrompt).toContain(openingBlueprint.storyDirection);
-      expect(capturedPrompt.split(openingBlueprint.storyDirection).length - 1).toBeGreaterThanOrEqual(1);
+      expect(capturedPrompt).toContain('世界舞台');
+      expect(capturedPrompt).not.toContain('王怡心里恨夏炎');
+      expect(capturedPrompt).toContain('你看不到其他成员的答案');
+      expect(capturedPrompt).toContain('只提交一个你自己真正推荐、可供作者选择的完整方案');
+      expect(capturedPrompt).toContain('不依赖具体人物和剧情也成立');
+      expect(capturedPrompt).not.toContain('张三');
+      expect(capturedPrompt).toContain(openingBlueprint.worldBackground);
+      expect(capturedPrompt).toContain(openingBlueprint.initialMap);
+      expect(capturedPrompt).not.toContain(openingBlueprint.storyDirection);
+      expect(capturedPrompt.split(openingBlueprint.storyDirection).length - 1).toBe(0);
       const sourceManifest = context.database.prepare(`SELECT source_manifest_json FROM context_packs WHERE task_id = ?`)
         .get(panelTaskId) as { source_manifest_json: string };
       expect(JSON.parse(sourceManifest.source_manifest_json)).toEqual(expect.arrayContaining([
@@ -232,26 +252,22 @@ describe('建书REST流程', () => {
       ]));
       const proactiveCollaboration = await app.inject({
         method: 'GET',
-        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/story-kernel/collaboration`
+        url: `/api/v1/books/${created.bookId}/setting-outline-workspace/world-stage/collaboration`
       });
       expect(proactiveCollaboration.statusCode).toBe(200);
       expect(proactiveCollaboration.json().data.panel).toMatchObject({
         recoveryKey: panelTaskId,
         taskStatus: 'succeeded',
-        proposals: expect.arrayContaining([
-          expect.objectContaining({ roleKey: 'lead_screenwriter' }),
-          expect.objectContaining({ roleKey: 'second_screenwriter' }),
-          expect.objectContaining({ roleKey: 'third_screenwriter' })
-        ])
+        proposals: [expect.objectContaining({ roleKey: 'lead_screenwriter' })]
       });
       expect(context.database.prepare(`SELECT item_status, content_text FROM setting_outline_workspace
-        WHERE owner_id = ? AND book_id = ? AND item_key = 'story-kernel'`)
+        WHERE owner_id = ? AND book_id = ? AND item_key = 'world-stage'`)
         .get(context.config.ownerId, created.bookId)).toMatchObject({
         item_status: '讨论中',
         content_text: null
       });
       expect(proactiveCollaboration.json().data.item).toMatchObject({
-        itemKey: 'story-kernel', status: '讨论中'
+        itemKey: 'world-stage', status: '讨论中'
       });
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
         WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'
@@ -262,7 +278,7 @@ describe('建书REST流程', () => {
     }
   });
 
-  it('从自然语言定位草稿到确认建书并查询9岗位', async () => {
+  it('从自然语言定位草稿到确认建书并查询15人团队', async () => {
     context = createTestContext();
     const app = await createServer(context.config, context.database, { trustedTest: true });
     try {
@@ -291,13 +307,13 @@ describe('建书REST流程', () => {
       expect(book.kickoffTaskId).toBeNull();
       const startPanel = await app.inject({
         method: 'POST',
-        url: '/api/v1/books/' + book.bookId + '/setting-outline-workspace/story-kernel/collaboration/start',
-        payload: { idempotencyKey: 'api-flow-legacy-first-panel' }
+        url: '/api/v1/books/' + book.bookId + '/setting-outline-workspace/world-stage/collaboration/start',
+        payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'api-flow-legacy-first-panel' }
       });
       expect(startPanel.statusCode).toBe(200);
       const panelTaskId = (startPanel.json().data as { taskId: string }).taskId;
       const agents = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/agents` });
-      expect((agents.json().data as unknown[])).toHaveLength(14);
+      expect((agents.json().data as unknown[])).toHaveLength(15);
       const books = await app.inject({ method: 'GET', url: '/api/v1/books' });
       expect(books.json().data).toHaveLength(1);
       const clock = new FixedClock();
@@ -324,10 +340,7 @@ describe('建书REST流程', () => {
         JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version
         WHERE o.owner_id = ? AND o.book_id = ? AND o.discussion_id = ? AND o.phase = 'independent'`)
         .all(context.config.ownerId, book.bookId, kickoffBrief.discussionId);
-      expect(proposals).toEqual(expect.arrayContaining([
-        { roleKey: 'lead_screenwriter' }, { roleKey: 'second_screenwriter' }, { roleKey: 'third_screenwriter' }
-      ]));
-      expect(proposals).toHaveLength(3);
+      expect(proposals).toEqual([{ roleKey: 'lead_screenwriter' }]);
     } finally {
       await app.close();
     }

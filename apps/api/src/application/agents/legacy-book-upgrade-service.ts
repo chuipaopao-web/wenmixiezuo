@@ -59,7 +59,7 @@ export class LegacyBookUpgradeService {
           const editor = team.find((member) => member.roleKey === 'chief_editor');
           const writer = team.find((member) => member.roleKey === 'lead_writer');
           if (editor === undefined || writer === undefined || team.length !== creativeRoleKeys.length) {
-            throw new Error(`书籍${scope.bookId}的十四人团队创建不完整`);
+            throw new Error(`书籍${scope.bookId}的十五人团队创建不完整`);
           }
           const now = this.clock.now();
           legacyAgentsRetired += this.repository.finalizeTeamUpgrade(scope, {

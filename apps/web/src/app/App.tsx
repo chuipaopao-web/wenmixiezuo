@@ -63,8 +63,8 @@ import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
 import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
 import { AuthScreen } from '../features/auth/AuthScreen';
-import { AdminWorkspace } from '../features/admin/AdminWorkspace';
 import { PersonalCenterDialog, formatComputeValue } from '../features/account/PersonalCenterDialog';
+import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import {
   MEMBERSHIP_BLOCK_COPY,
   MembershipGateProvider,
@@ -80,7 +80,7 @@ import {
 import './app.css';
 import { installMobileViewportBridge } from './mobile-viewport';
 
-type UtilityView = 'tasks' | 'team' | 'ideas' | 'admin' | null;
+type UtilityView = 'tasks' | 'team' | 'ideas' | null;
 type PlanningTab = WorkspacePrimaryFunctionKey;
 
 interface TaskSelection {
@@ -150,6 +150,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [membershipChecking, setMembershipChecking] = useState(false);
   const [membershipBlock, setMembershipBlock] = useState<MembershipBlockReason | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [noticeDismissed, setNoticeDismissedState] = useState(() => {
     try { return window.localStorage.getItem('wenmi-notice-dismissed') === '1'; } catch { return false; }
   });
@@ -622,7 +623,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           <button className="sidebar-account-avatar" type="button" aria-label="打开个人中心" title="个人中心" onClick={() => setProfileOpen(true)}>{account.displayName.slice(0, 1).toUpperCase()}</button>
           <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></div>
           <div className="sidebar-account-actions">
-            {account.role === 'admin' && <button type="button" onClick={() => setUtilityView('admin')}>管理</button>}
+            <button type="button" onClick={() => setFeedbackOpen(true)}>反馈</button>
             <button type="button" onClick={() => void onSignOut()}>退出</button>
           </div>
         </div>
@@ -654,7 +655,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
       <main className="workspace-main">
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
-        {loading ? <WorkspaceSkeleton /> : utilityView === 'admin' ? <AdminWorkspace currentUser={account} /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
+        {loading ? <WorkspaceSkeleton /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
           entries={homeTaskEntries}
           loading={homeTasksLoading}
           loadError={homeTasksError}
@@ -662,7 +663,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
           onDecide={decideConfirmation}
         /> : utilityView === 'team' ? (selectedBook === null
-          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部14名创作成员。" onCreate={() => setCreateOpen(true)} />
+          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部15名创作成员。" onCreate={() => setCreateOpen(true)} />
           : <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />)
         : utilityView === 'ideas' ? (selectedBook === null
           ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
@@ -696,6 +697,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {profileOpen && <PersonalCenterDialog account={account} membership={membershipStatus} onClose={() => setProfileOpen(false)} onSignOut={() => { setProfileOpen(false); void onSignOut(); }} />}
+      {feedbackOpen && <FeedbackDialog bookId={selectedBookId} onClose={() => setFeedbackOpen(false)} />}
       {createOpen && <CompleteCreateBookDialog accountId={account.userId} busy={busy} onCancel={() => setCreateOpen(false)} onCreate={createNewBook} />}
       {account.role !== 'admin' && membershipStatus !== null && !membershipUsable && !noticeDismissed && (
         <div className="dialog-backdrop membership-gate-backdrop">

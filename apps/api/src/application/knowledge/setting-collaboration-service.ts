@@ -1,14 +1,25 @@
 import type { BookScope } from '../../domain/scope.js';
+import { creativeMemberContracts } from '../../contracts/agent-team-v2.js';
 import { parseSettingProposalStructure, type SettingProposalStructure } from '@wenmi/contracts';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
 import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
 
-type MemberStatus = 'preparing' | 'working' | 'completed' | 'failed' | 'paused';
+type MemberStatus = 'preparing' | 'working' | 'completed' | 'failed' | 'unavailable' | 'paused';
+const screenwriterRoleKeys = [
+  'lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'] as const;
 
 export interface SettingCollaborationView {
   item: ReturnType<SettingOutlineWorkspaceService['list']>[number];
+  screenwriters: Array<{
+    agentId: string | null;
+    memberName: string;
+    roleKey: typeof screenwriterRoleKeys[number];
+    availability: 'available' | 'unavailable';
+    availabilityReason: string | null;
+    highCompute: boolean;
+  }>;
   panel: null | {
     recoveryKey: string;
     taskStatus: string;
@@ -39,6 +50,9 @@ export interface SettingCollaborationView {
       status: MemberStatus;
       contextSummary: string;
       outputSummary: string | null;
+      errorSummary: string | null;
+      retryable: boolean;
+      lastAttemptedAt: string | null;
     }>;
   };
   revisionTask: null | {
@@ -78,8 +92,15 @@ export class SettingCollaborationService {
     }
     const panel = this.repository.latestPanel(scope, itemKey);
     const revisionTask = this.repository.latestRevisionTask(scope, itemKey);
-    const proposalRows = panel === undefined ? [] : this.repository.proposals(scope, panel.discussion_id);
-    const fragmentRows = panel === undefined ? [] : this.repository.fragmentsByDiscussion(scope, panel.discussion_id);
+    const proposalRows = panel === undefined
+      ? []
+      : item.status === '已确认'
+        ? this.repository.proposals(scope, panel.discussion_id)
+        : this.repository.latestProposalsByRole(scope, itemKey);
+    const fragmentRows = this.repository.fragmentsByProposalIds(
+      scope,
+      proposalRows.map((proposal) => proposal.proposal_id)
+    );
     const fusionRow = this.repository.latestFusionDraft(scope, itemKey);
     const proposals = proposalRows.map((proposal, index) => ({
       number: index + 1,
@@ -100,8 +121,30 @@ export class SettingCollaborationService {
           implicit: fragment.implicit === 1
         }))
     }));
+    const screenwriterRows = this.repository.screenwriterOptions(scope);
+    const screenwriters = screenwriterRoleKeys.map((roleKey) => {
+      const row = screenwriterRows.find((candidate) => candidate.role_key === roleKey);
+      const contract = creativeMemberContracts.find((candidate) => candidate.roleKey === roleKey)!;
+      const activationAvailable = row !== undefined
+        && row.enabled === 1 && ['idle', 'standby'].includes(row.activation_state);
+      return {
+        agentId: row?.agent_id ?? null,
+        memberName: row?.member_name ?? contract.memberName,
+        roleKey,
+        availability: activationAvailable ? 'available' as const : 'unavailable' as const,
+        availabilityReason: activationAvailable
+          ? null
+          : row === undefined
+            ? '成员尚未配置'
+            : row.enabled !== 1 || row.activation_state === 'disabled'
+              ? '成员已停用'
+              : row.activation_state === 'paused' ? '成员已暂停' : '成员当前不可用',
+        highCompute: roleKey === 'senior_screenwriter'
+      };
+    });
     return {
       item,
+      screenwriters,
       panel: panel === undefined ? null : {
         recoveryKey: panel.task_id,
         taskStatus: panel.task_status,
@@ -115,9 +158,12 @@ export class SettingCollaborationService {
             agentId: member.agent_id,
             memberName: member.member_name,
             roleKey: member.role_key,
-            status: memberStatus(panel.task_status, member.responded === 1),
+            status: member.run_status ?? memberStatus(panel.task_status, member.responded === 1),
             contextSummary: '本书完整开书资料 · 当前设定项 · 已确认的直接依赖设定 · 作者本项原话',
-            outputSummary: proposal === undefined ? null : proposalContent(proposal.content).slice(0, 160)
+            outputSummary: proposal === undefined ? null : proposalContent(proposal.content).slice(0, 160),
+            errorSummary: member.error_summary,
+            retryable: member.run_status === 'failed' || member.run_status === 'unavailable',
+            lastAttemptedAt: member.last_attempted_at
           };
         })
       },

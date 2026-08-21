@@ -40,14 +40,12 @@ export interface SettingOutlineItemVersion {
 }
 
 /**
- * 四项核心与两个旧版可选项的兼容预填来源：旧书已填写的设定在第一次初始化对应条目时汇成预填稿，
- * 状态仍为“待讨论”，作者与团队讨论确认后才生效；映射不到来源的核心项保持空白待讨论。
+ * 宏观核心项的兼容预填来源：旧书已填写的世界规则在第一次初始化对应条目时汇成预填稿，
+ * 状态仍为“待讨论”，作者与团队讨论确认后才生效；人物与剧情类旧项不再预填进新设定。
  */
 export const CORE_PREFILL_SOURCES: Record<string, readonly string[]> = {
-  'story-kernel': ['creative-concept', 'reader-promise', 'theme-intent', 'differentiator'],
   'world-stage': ['era', 'world-layer', 'geography', 'civilization', 'history', 'hazards'],
-  'protagonist-situation': ['protagonist', 'motivation', 'strength-flaw'],
-  opposition: ['factions'],
+  'social-order': ['governance', 'class', 'culture', 'education', 'information'],
   'rules-costs': ['power-source', 'levels', 'costs', 'counters', 'governance'],
   'boundaries-blanks': ['must-follow', 'tone-boundary', 'open', 'intentional-unknown']
 };
@@ -120,6 +118,18 @@ export class SettingOutlineWorkspaceService {
       this.repository.clearPendingCandidate(scope, itemKey, now);
       this.repository.appendVersion(scope, { itemKey, contentText, sourceKind: 'manual', now });
     }
+    return this.list(scope).find((item) => item.itemKey === itemKey)!;
+  }
+
+  /** 从当前设定与临时资料包移除单项；不可变版本历史与正文不动。 */
+  public removeCurrent(scope: BookScope, rawItemKey: string): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const itemKey = required(rawItemKey, '设定项键', 100);
+    const existing = this.list(scope).find((item) => item.itemKey === itemKey);
+    if (existing === undefined) {
+      throw new DomainError(errorCodes.validation, '要移除的设定项不存在', {}, false, 404);
+    }
+    this.repository.removeCurrent(scope, itemKey, this.clock.now().toISOString());
     return this.list(scope).find((item) => item.itemKey === itemKey)!;
   }
 

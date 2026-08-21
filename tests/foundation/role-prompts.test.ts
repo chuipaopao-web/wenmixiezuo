@@ -41,10 +41,11 @@ describe('九岗位定位提示词', () => {
     expect(prompt).toContain('如果满意再继续');
   });
 
-  it('当前十四人团队使用各自真实身份而不是继承主岗位姓名', () => {
+  it('当前十五人团队使用各自真实身份而不是继承主岗位姓名', () => {
     const deputyEditor = buildRuntimeRoleSystemPrompt('deputy_editor', 'discussion');
     const secondScreenwriter = buildRuntimeRoleSystemPrompt('second_screenwriter', 'discussion');
     const thirdScreenwriter = buildRuntimeRoleSystemPrompt('third_screenwriter', 'discussion');
+    const seniorScreenwriter = buildRuntimeRoleSystemPrompt('senior_screenwriter', 'discussion');
     const backupWriter = buildRuntimeRoleSystemPrompt('backup_writer', 'novel_writer');
     const factReviewer = buildRuntimeRoleSystemPrompt('fact_reviewer', 'discussion');
     const experienceChallenger = buildRuntimeRoleSystemPrompt('experience_challenger', 'discussion');
@@ -55,6 +56,8 @@ describe('九岗位定位提示词', () => {
     expect(secondScreenwriter).not.toContain('婉儿（编剧）');
     expect(thirdScreenwriter).toContain('幼薇（编剧）');
     expect(thirdScreenwriter).not.toContain('婉儿（编剧）');
+    expect(seniorScreenwriter).toContain('清照（高级编剧）');
+    expect(seniorScreenwriter).not.toContain('婉儿（编剧）');
     expect(backupWriter).toContain('湘君（副笔）');
     expect(backupWriter).not.toContain('秋香（主笔）');
     expect(factReviewer).toContain('班昭（事实）');
@@ -63,13 +66,14 @@ describe('九岗位定位提示词', () => {
     expect(experienceChallenger).not.toContain('昭君（体验）');
   });
 
-  it('十四名成员都使用具体专业身份、核心专长和差异化方法', () => {
+  it('十五名成员都使用具体专业身份、核心专长和明确工作方法', () => {
     const prompts = [
       ['chief_editor', '长篇网文主编', '只推进当前最需要确认的一步'],
       ['deputy_editor', '资料档案官', '只准备可追溯资料'],
-      ['lead_screenwriter', '长篇类型小说编剧', '不超过五十章的完整事件弧'],
-      ['second_screenwriter', '结构挑战者', '不为猎奇强行反转'],
-      ['third_screenwriter', '类型小说创意策划', '第三条路'],
+      ['lead_screenwriter', '长篇类型小说编剧', '先独立理解本书和当前问题'],
+      ['second_screenwriter', '长篇类型小说编剧', '先独立理解本书和当前问题'],
+      ['third_screenwriter', '长篇类型小说编剧', '先独立理解本书和当前问题'],
+      ['senior_screenwriter', '长篇类型小说高级编剧', '不读取其他编剧答案'],
       ['setting', '连续性编辑', '明确事实、合理推断和未知'],
       ['lead_writer', '长篇类型小说作者', '人物通过选择、行动和后果推动场景'],
       ['backup_writer', '接替写手', '先核对活动写手、版本和接管原因'],

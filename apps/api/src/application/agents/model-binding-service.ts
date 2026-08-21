@@ -38,8 +38,8 @@ export class ModelBindingService {
 
   public bindAllBooks(options: {
     preserveActiveRevision?: boolean;
-    migrateDeputyEditorToAgentPlan?: boolean;
-    migrateAllMembersToAgentPlan?: boolean;
+    migrateDeputyEditorToCurrentPlan?: boolean;
+    migrateAllMembersToCurrentPlan?: boolean;
     creativeProfilesOverride?: Record<CreativeRoleKey, TeamModelProfile>;
   } = {}): ModelBindingResult {
     const v2Books = this.database.prepare(`
@@ -69,18 +69,18 @@ export class ModelBindingService {
         LIMIT 1
       `).get(scope.ownerId, scope.bookId) !== undefined;
       const currentDeputy = current.find((item) => item.roleKey === 'deputy_editor');
-      const migrateDeputyEditorToAgentPlan = options.migrateDeputyEditorToAgentPlan === true
+      const migrateDeputyEditorToCurrentPlan = options.migrateDeputyEditorToCurrentPlan === true
         && hasActiveRevision
         && currentDeputy !== undefined
         && (currentDeputy.provider !== creativeProfiles.deputy_editor.provider
           || currentDeputy.modelId !== creativeProfiles.deputy_editor.modelId);
-      const migrateAllMembersToAgentPlan = options.migrateAllMembersToAgentPlan === true
+      const migrateAllMembersToCurrentPlan = options.migrateAllMembersToCurrentPlan === true
         && hasActiveRevision
         && subscriptionPolicyActive;
-      if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToAgentPlan && !migrateAllMembersToAgentPlan) continue;
-      const targetProfiles = migrateAllMembersToAgentPlan
+      if (options.preserveActiveRevision === true && hasActiveRevision && !migrateDeputyEditorToCurrentPlan && !migrateAllMembersToCurrentPlan) continue;
+      const targetProfiles = migrateAllMembersToCurrentPlan
         ? creativeProfiles
-        : migrateDeputyEditorToAgentPlan
+        : migrateDeputyEditorToCurrentPlan
         ? preserveCurrentProfilesWithDeputyMigration(current, creativeProfiles.deputy_editor)
         : creativeProfiles;
       const requiresRevision = creativeRoleKeys.some((role) => {
@@ -97,9 +97,9 @@ export class ModelBindingService {
           .reviseFuture(
             scope,
             targetProfiles,
-            migrateAllMembersToAgentPlan
+            migrateAllMembersToCurrentPlan
               ? subscriptionMigrationReason(creativeProfiles)
-              : migrateDeputyEditorToAgentPlan
+              : migrateDeputyEditorToCurrentPlan
               ? 'DEC-076：副编调整为火山方舟 Agent Plan GLM 5.2；只影响未来任务'
               : '运行时模型策略更新；只影响未来任务'
           );
@@ -184,9 +184,9 @@ export class ModelBindingService {
 
 function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModelProfile>): string {
   if (profiles.chief_editor.provider === 'opencodego') {
-    return 'DEC-100：十四名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
+    return 'DEC-100：十五名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
   }
-  return 'DEC-CURRENT-067：每章审校固定三席、异模型规矩放宽为四席，文学审查改用 DeepSeek V4 Flash；保留历史调用快照，只影响未来任务';
+  return 'DEC-20260822：常规创作岗位切换火山方舟 Coding Plan，高级编剧单独使用 Agent Plan Kimi K3；保留历史调用快照，只影响未来任务';
 }
 
 export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
@@ -200,6 +200,11 @@ export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>):
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     third_screenwriter: profile('third_screenwriter', profiles.reviewer),
     setting: profile('setting', profiles.researcher),
+    senior_screenwriter: profiles.plot_architect.plan === 'deterministic'
+      ? profile('senior_screenwriter', profiles.plot_architect)
+      : profile('senior_screenwriter', {
+        provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent'
+      }),
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.reviewer),
     fact_reviewer: profile('fact_reviewer', profiles.style_editor),
@@ -221,7 +226,7 @@ function preserveCurrentProfilesWithDeputyMigration(
     plan: agent.plan ?? 'deterministic'
   }])) as Partial<Record<CreativeRoleKey, TeamModelProfile>>;
   if (creativeRoleKeys.some((role) => profiles[role] === undefined)) {
-    throw new Error('副编模型迁移前发现十四人团队配置不完整');
+    throw new Error('副编模型迁移前发现十五人团队配置不完整');
   }
   profiles.deputy_editor = deputyEditor;
   return profiles as Record<CreativeRoleKey, TeamModelProfile>;

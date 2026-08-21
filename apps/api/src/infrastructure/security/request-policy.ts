@@ -15,8 +15,16 @@ function reject(code: string, message: string, statusCode: number): never {
   throw new DomainError(code, message, {}, false, statusCode);
 }
 
+function browserOrigins(config: RuntimeConfig): Set<string> {
+  const origins = new Set([config.webOrigin]);
+  if (config.adminOrigin !== null) origins.add(config.adminOrigin);
+  return origins;
+}
+
 function verifyBrowserWrite(request: FastifyRequest, config: RuntimeConfig): void {
-  if (request.headers.origin !== config.webOrigin) reject('ORIGIN_REJECTED', '请求来源不受信任', 403);
+  if (request.headers.origin === undefined || !browserOrigins(config).has(request.headers.origin)) {
+    reject('ORIGIN_REJECTED', '请求来源不受信任', 403);
+  }
   const fetchSite = request.headers['sec-fetch-site'];
   if (fetchSite !== 'same-site' && fetchSite !== 'same-origin') reject('FETCH_METADATA_REJECTED', '请求站点范围不受信任', 403);
   const contentType = request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
@@ -36,6 +44,9 @@ function allowedHosts(config: RuntimeConfig): Set<string> {
     } catch {
       // publicOrigin 已在 runtime-config 中校验过，此处仅兜底。
     }
+  }
+  if (config.adminOrigin !== null) {
+    hosts.add(new URL(config.adminOrigin).host);
   }
   return hosts;
 }

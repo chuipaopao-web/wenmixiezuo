@@ -1,46 +1,34 @@
 # 文秘写作
 
-文秘写作是一套本地优先的长篇小说 AI 协作平台。作者通过明确的创作对象推进工作，AI 成员直接给出独立方案、融合候选、正文和审查报告，不使用聊天推动创作。
+文秘写作是统一账号的长篇小说AI协作平台。作者通过开书、设定、卷、事件、章纲、正文和结算对象逐层创作，AI只在作者主动触发时介入。
 
 ## 当前工作流
 
 ```text
-开书信息 → 设定 → 分卷 → 事件链 → 当前事件大纲
-→ 完整章链与近期详细章纲 → 单章正文 → 章节结算 → 事件结算 → 卷结算 → 下一卷
+开书 → 非剧情设定 → 卷方向 → 事件链 → 事件大纲
+→ 完整章链与近期章纲 → 正文 → 章节/事件/卷结算 → 下一卷
 ```
 
-已有正文可以导入并反向拆解，再进入同一套卷—事件流程；导入原文不会被覆盖。
+## 开发入口
 
-## 使用入口
+- 当前状态：`HANDOFF.md`
+- 开发规则：`AGENTS.md`
+- 当前专项清单：`docs/PROJECT_SLIMMING_IMPLEMENTATION_AND_ACCEPTANCE.md`
+- 产品：`docs/PRODUCT.md`
+- 架构、数据与接口：`docs/ARCHITECTURE.md`、`docs/DATA_MODEL.md`、`docs/API.md`
+- 安全与部署：`docs/SECURITY_AND_OPERATIONS.md`、`docs/DEPLOY.md`
+- 验收：`docs/ACCEPTANCE.md`
+- UI任务按需读取 `.agents/skills/wenmi-ui-ux/SKILL.md`
+- 长篇质量任务按需读取 `.agents/skills/wenmi-longform-quality/SKILL.md`
 
-- 双击 `文秘写作-启动.cmd` 启动。
-- 启动后先进入登录/注册页；首次使用请用邮箱、昵称和至少10位密码注册，首个注册账号自动成为管理员，以后使用同一邮箱和密码登录。
-- 双击 `文秘写作-停止.cmd` 停止本项目进程。
-- 双击桌面的“文秘写作项目文档”查看当前规则和功能说明。
-- 项目总入口：[PROJECT_HANDBOOK.md](PROJECT_HANDBOOK.md)。
-- 使用说明：[docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
+历史决定、旧验收和废弃方案只从Git历史追溯，不保留重复合订版。
 
-## 界面
+## 常用命令
 
-- 当前实现以书籍切换、创作阶段导航和中心工作区为基础；产品仍在快速迭代，导航密度、页面结构和视觉风格都可继续重设计。
-- 作者按开书、设定、分卷、事件、章纲和正文逐层推进，AI方案、作者选择、融合、修订和确认版本保存在对应业务对象中。
-- 手机端优先保证当前书、当前任务、状态、主操作和失败恢复可达；桌面端提供更宽的比较与写作空间。
-- 普通作者界面只显示业务语言，不显示内部模型、任务、方法、路径或协议字段。
+```powershell
+npm run dev
+npm run verify
+npm run verify:full
+```
 
-## 技术边界
-
-React、TypeScript、Vite、Fastify、SQLite、独立 Worker、REST/SSE 和本地 LanceDB 投影。本机测试时服务只监听 `127.0.0.1`；公网部署时通过 Caddy 反向代理对外提供 HTTPS 服务。
-
-## 公网部署
-
-详见 [docs/DEPLOY.md](docs/DEPLOY.md)。部署文件位于 `deploy/` 目录：
-
-- `deploy/Caddyfile` — Caddy 反向代理配置（TLS + 限流 + 静态文件）
-- `deploy/wenmi-api.service` — API systemd 服务单元
-- `deploy/wenmi-worker.service` — Worker systemd 服务单元
-- `deploy/backup.sh` — SQLite 数据库自动备份脚本
-- `deploy/.env.production.example` — 生产环境变量模板
-
-## 当前验证
-
-截至2026-08-12，仓库当前验证基线为：运行时可达性审计零孤儿源码，类型检查通过，158个测试文件中的585项测试通过，Contracts/API/Worker/Web生产构建通过。其他文档中的较小测试数字属于对应阶段的历史验收快照，不代表当前基线；最新结算以`TASKS.md`顶部证据为准。真实模型长期文学质量仍按E3/E4证据积累，不以工程测试冒充。
+`verify` 是日常快速门禁；`verify:full` 只用于发布、迁移、权限、恢复和核心工作流大改。真实长篇验证只在明确指定时运行，不属于默认工程测试。

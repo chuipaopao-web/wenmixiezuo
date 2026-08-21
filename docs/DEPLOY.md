@@ -1,6 +1,6 @@
 # 文秘写作 · 公网部署指南
 
-本文档说明如何将文秘写作部署到香港云服务器，通过 `wenmixiezuo.com` 域名对外提供服务。
+本文档说明如何将文秘写作部署到香港云服务器：作者官网使用 `wenmixiezuo.com`，独立管理后台使用 `admin.wenmixiezuo.com`。
 
 ## 部署架构
 
@@ -40,7 +40,8 @@
 ### 2. 域名
 
 - 购买 `wenmixiezuo.com`（任意域名注册商）
-- 将域名 DNS A 记录指向服务器公网 IP
+- 将主域 `wenmixiezuo.com` 的 DNS A 记录指向服务器公网 IP
+- 将子域 `admin.wenmixiezuo.com` 的 DNS A 记录指向同一服务器公网 IP
 - 等待 DNS 生效（通常 5-30 分钟）
 
 ### 3. 软件依赖
@@ -116,11 +117,13 @@ sudo -u wenmi nano deploy/.env.production
 | 变量 | 说明 |
 |------|------|
 | `WENMI_PUBLIC_ORIGIN` | `https://wenmixiezuo.com` |
-| `WENMI_ARK_AGENT_PLAN_API_KEY` | 火山方舟 Agent Plan API Key |
-| `WENMI_ARK_AGENT_PLAN_*_MODEL` | 各模型的端点 ID |
+| `WENMI_ADMIN_ORIGIN` | `https://admin.wenmixiezuo.com` |
+| `WENMI_ARK_CODING_PLAN_API_KEY` | 火山方舟 Coding Plan API Key，供除高级编剧外的全部AI岗位使用 |
+| `WENMI_ARK_CODING_PLAN_*_MODEL` | Coding Plan 各岗位模型 ID |
+| `WENMI_ARK_AGENT_PLAN_API_KEY` | 火山方舟 Agent Plan API Key，只供高级编剧 Kimi K3 使用 |
 | `WENMI_WORKER_TOKEN` | 建议设置固定值（至少 32 字符） |
 
-> **创作模型来源二选一**：配置 `WENMI_ARK_AGENT_PLAN_API_KEY`（火山方舟 Agent Plan）或 `WENMI_OPENCODEGO_API_KEY`（opencodego，配置后优先，角色模型默认沿用 Agent Plan 同款分配）。opencodego 的地址/逐角色模型覆盖见 `deploy/.env.production.example`。注意 opencodego 的 go 目录当前没有豆包模型：未显式设置 `WENMI_OPENCODEGO_DOUBAO_MODEL` 时体验席自动保留方舟 Agent Plan 绑定，因此切换 opencodego 后仍需保留 `WENMI_ARK_AGENT_PLAN_API_KEY`。
+> 常规创作岗位统一使用 Coding Plan。高级编剧清照固定使用 Agent Plan 的 `kimi-k3`，只有作者主动选择时才调用；未配置 Agent Plan 时仅该席位不可用。两类 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
 
 ### 第五步：运行数据库迁移
 
@@ -200,6 +203,7 @@ sudo systemctl status wenmi-worker
 
 # 检查 HTTPS 访问
 curl -s https://wenmixiezuo.com/health | python3 -m json.tool
+curl -s https://admin.wenmixiezuo.com/health | python3 -m json.tool
 ```
 
 ## 日常运维
@@ -247,7 +251,7 @@ sudo systemctl start wenmi-worker
 
 #### API / Worker / 数据迁移
 
-1. 本机按风险运行完整 `npm run verify` 及受影响迁移/恢复测试；使用 `git -c core.autocrlf=false -c core.eol=lf archive` 生成发布包。
+1. 本机按风险运行完整 `npm run verify:full` 及受影响迁移/恢复测试；使用 `git -c core.autocrlf=false -c core.eol=lf archive` 生成发布包。
 2. 在唯一暂存目录完成受影响服务构建和迁移预检；迁移只向后兼容，已合并迁移字节变化立即停止。
 3. 正式迁移前备份数据库。查询 `tasks`，`working`、`queued`、`pending`、`waiting_confirmation` 连续30秒为0，并在每次重启前立即复核；只等待，不取消/暂停/改写作者任务。
 4. 逐个原子切换并重启受影响服务，每一步检查active、日志、健康和任务恢复；失败立即回滚，不继续扩大。
@@ -293,7 +297,9 @@ curl -s http://127.0.0.1:43111/health | python3 -m json.tool
 
 部署完成后，逐项确认以下安全检查：
 
-- [ ] Caddy 已启用 HTTPS（`curl -I https://wenmixiezuo.com` 返回 200）
+- [ ] 作者官网 HTTPS 正常（`curl -I https://wenmixiezuo.com` 返回 200）
+- [ ] 独立后台 HTTPS 正常（`curl -I https://admin.wenmixiezuo.com` 返回 200）
+- [ ] 主域只显示作者创作台，后台子域只显示管理登录/工作台
 - [ ] HTTP 自动跳转到 HTTPS
 - [ ] API 端口 `43111` 不对外暴露（`curl http://服务器公网IP:43111/health` 不可达）
 - [ ] 注册接口限流生效（短时间内连续注册 3 次后被拒绝）
@@ -361,6 +367,7 @@ Let's Encrypt 证书在 Caddy 启动时自动申请和续期。如果证书申�
 ```bash
 # 确认域名 DNS 已指向服务器 IP
 dig wenmixiezuo.com +short
+dig admin.wenmixiezuo.com +short
 
 # 确认端口 80 可公网访问
 sudo ufw status

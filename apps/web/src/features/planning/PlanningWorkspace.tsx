@@ -24,6 +24,7 @@ import {
   fetchSettingOutlineWorkspace,
   fetchSettingReadiness,
   initializeSettingOutlineWorkspace,
+  removeCurrentSettingOutlineItem,
   updateBookProfile,
   rejectArtifactVersion,
   saveSettingOutlineItem,
@@ -58,24 +59,7 @@ const basicSettingDefaults: Record<string, unknown> = {
   worldView: '', powerSystem: '', resourceSystem: '', equipmentTiers: [], economicRules: [], attributeFields: [], worldRules: []
 };
 
-const SETTING_CATALOG: Array<{ group: string; description: string; kind: 'common' | 'extension' | 'formula'; items: string[] }> = [
-  { group: '世界与环境', description: '时代、空间、地点和自然限制', kind: 'common', items: ['时代背景', '世界层级', '地理地图', '气候环境', '国家地区', '城市地点', '种族物种', '文明科技', '历法时间', '灾难与禁区'] },
-  { group: '社会与秩序', description: '社会怎样运转，人们遵守什么，冲突从哪里来', kind: 'common', items: ['政权制度', '法律规则', '社会阶层', '宗教信仰', '组织势力', '行业职业', '教育传承', '风俗文化', '道德禁忌', '信息传播'] },
-  { group: '力量与成长', description: '能力来源、成长路线、代价与克制', kind: 'common', items: ['力量来源', '等级境界', '职业路线', '天赋资质', '血脉体质', '能量消耗', '成长方式', '突破条件', '克制关系', '代价与限制', '死亡与复活'] },
-  { group: '人物与命名', description: '引用同书人物实体，起名前先查重', kind: 'common', items: ['主角', '重要配角', '普通配角', '反派', '导师', '队友', '家族成员', '别名与称号', '名字占用表', '人物关系', '当前状态'] },
-  { group: '势力与组织', description: '组织结构、资源和相互关系', kind: 'common', items: ['国家', '宗门', '家族', '公司', '学校', '军队', '联盟', '公会', '阵营', '秘密组织', '组织结构', '势力资源', '势力关系'] },
-  { group: '物品与资源', description: '物品用途、来源、稀缺性与流转', kind: 'common', items: ['货币', '材料', '道具', '武器', '装备', '药品', '宝物', '消耗品', '稀有度', '获取方式', '制造方式', '交易规则'] },
-  { group: '能力、特性与技能', description: '主动与被动能力的完整规则', kind: 'common', items: ['被动特性', '主动技能', '天赋能力', '血脉能力', '职业技能', '组合技能', '羁绊效果', '触发条件', '作用目标', '持续时间', '冷却时间', '消耗', '效果系数', '克制与免疫', '使用限制', '副作用'] },
-  { group: '冲突与战术', description: '战斗、商战、权谋和调查均可复用', kind: 'common', items: ['战斗规则', '主流战术', '阵型', '团队分工', '信息战', '资源战', '心理战', '谈判策略', '权谋手段', '调查手段', '常见反制', '优势条件', '失败代价'] },
-  { group: '经济与运转', description: '收入、生产、消耗和时间闭环', kind: 'common', items: ['货币体系', '收入来源', '生产与产出', '消耗与维护', '物价', '税收', '交易', '库存容量', '资源循环', '稀缺资源', '升级成本', '时间成本'] },
-  { group: '游戏与领主扩展', description: '仅在相关题材中按需启用', kind: 'extension', items: ['属性面板', '职业', '任务', '成就', '称号', '副本', '竞技对战', '赛季', '排行榜', '个人战力榜', '掉落概率', '宠物', '坐骑', '召唤物', '兵种', '军团', '领地等级', '城池等级', '建筑等级', '人口民心', '生产队列', '资源产量', '升级时间'] },
-  { group: '玄幻与修真扩展', description: '境界、功法与传承类题材按需启用', kind: 'extension', items: ['功法', '法术', '丹药', '法宝', '灵根', '体质', '宗门等级', '洞天秘境', '天劫', '因果气运'] },
-  { group: '悬疑与调查扩展', description: '案件、证据和信息差按需启用', kind: 'extension', items: ['案件', '证据链', '嫌疑人', '作案条件', '时间线', '不在场证明', '调查权限', '线索误导', '真相层级', '信息差'] },
-  { group: '计算公式', description: '只计算声明变量，不执行脚本', kind: 'formula', items: ['基础属性', '衍生属性', '个人战力', '装备战力', '综合战力', '军队战力', '伤害结算', '治疗结算', '概率规则', '资源产出', '升级成本', '升级时间', '排行榜积分'] }
-];
-
-export const FORMULA_CATEGORIES = SETTING_CATALOG.find((item) => item.group === '计算公式')!.items;
-
+export const FORMULA_CATEGORIES = ['基础属性', '衍生属性', '个人战力', '装备战力', '综合战力', '军队战力', '伤害结算', '治疗结算', '概率规则', '资源产出', '升级成本', '升级时间', '排行榜积分'];
 type SettingOutlineStatus = '待讨论' | '讨论中' | '候选待确认' | '已确认' | '稍后补充' | '刻意留白' | '不适用';
 interface SettingOutlineItem {
   key: string;
@@ -93,18 +77,15 @@ interface SettingOutlineGroup {
 }
 
 const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
-  { key: 'core-four', title: '核心设定', description: '只建立不涉及具体剧情的四块书籍骨架；四项确认后即可进入分卷。', items: [
-    { key: 'world-stage', label: '世界舞台', prompt: '故事发生在什么时代、什么样的世界？主角开场在哪里活动？这个世界的整体面貌和氛围是什么？', source: '通用', required: true },
-    { key: 'protagonist-situation', label: '主角底板', prompt: '主角的身份、能力基础、性格驱动力、日常处境和绝不越过的底线是什么？这里只定人物底板，不提前规定具体剧情。', source: '通用', required: true },
+  { key: 'core-four', title: '核心设定', description: '只建立不依赖具体人物和剧情也成立的四块世界骨架；本轮所选条目全部完成并经主编确认后进入分卷。', items: [
+    { key: 'world-stage', label: '世界舞台', prompt: '故事发生在什么时代、什么样的世界？这个世界的空间、生活条件和整体氛围是什么？', source: '通用', required: true },
+    { key: 'social-order', label: '社会运行与秩序', prompt: '普通人怎样生活，资源与权力怎样分配，制度如何执行，社会为何能够长期运转？', source: '通用', required: true },
     { key: 'rules-costs', label: '规矩与代价', prompt: '这个世界运转的关键规矩是什么（力量、社会、行业都行）？得到好处必须付出什么代价？什么事再急也做不到？', source: '通用', required: true },
-    { key: 'boundaries-blanks', label: '边界与留白', prompt: '哪些内容是作者明确要求必须遵守或绝不能写的？哪些谜题和空白要刻意留给后文，不能提前解释？', source: '通用', required: true }
-  ] },
-  { key: 'book-direction', title: '可选方向', description: '已经想清楚就补充，没想好可以留到第一卷一起设计。', items: [
-    { key: 'story-kernel', label: '长期吸引力', prompt: '读者长期追更会获得什么满足？这只是方向参考，不提前规定具体剧情。', source: '通用' }
+    { key: 'boundaries-blanks', label: '边界与留白', prompt: '哪些世界规则必须遵守或绝不能成立？哪些区域、机制或历史真相暂时保持未知，不能擅自补全？', source: '通用', required: true }
   ] },
   { key: 'world', title: '世界与环境', description: '这个世界是什么样，故事发生在哪里，过去发生过什么。', items: [
     { key: 'world-layer', label: '世界层级与空间结构', prompt: '世界由哪些层级、位面、区域或服务器构成？', source: '通用' },
-    { key: 'geography', label: '地理地图与初始地点', prompt: '重要地点怎么分布，交通能到哪里，主角最初在哪里活动？', source: '通用', required: true },
+    { key: 'geography', label: '地理地图与交通边界', prompt: '重要区域怎样分布，彼此如何往来，交通与移动受什么客观限制？', source: '通用', required: true },
     { key: 'civilization', label: '文明、科技与生产水平', prompt: '文明和科技发展到什么程度，哪些能力普及或稀缺？', source: '通用' },
     { key: 'history', label: '历史背景与历法', prompt: '哪些历史事件塑造了当下，各方如何记录时间？', source: '通用' },
     { key: 'hazards', label: '灾难、禁区与自然限制', prompt: '环境中有哪些不可忽视的危险、禁区和客观限制？', source: '通用' }
@@ -112,9 +93,10 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
   { key: 'society', title: '社会与秩序', description: '谁在管理社会，普通人怎么生活，违规会有什么后果。', items: [
     { key: 'governance', label: '政权、法律与治理', prompt: '谁制定规则，法律如何执行，违规的真实代价是什么？', source: '通用', required: true },
     { key: 'class', label: '阶层、身份与流动', prompt: '身份如何取得，阶层能否流动，特权与义务怎样对应？', source: '通用' },
-    { key: 'culture', label: '文化、宗教与禁忌', prompt: '共同信念、礼俗、宗教和社会禁忌如何影响人物选择？', source: '通用' },
+    { key: 'culture', label: '文化、宗教与禁忌', prompt: '共同信念、礼俗、宗教和社会禁忌如何约束公共生活，违反后会有什么后果？', source: '通用' },
     { key: 'education', label: '教育与知识传承', prompt: '知识、技能和秘密通过什么体系传播与垄断？', source: '通用' },
-    { key: 'information', label: '信息传播与舆论', prompt: '消息传播速度、可信度和控制权分别如何？', source: '通用' }
+    { key: 'information', label: '信息传播与舆论', prompt: '消息传播速度、可信度和控制权分别如何？', source: '通用' },
+    { key: 'language-naming', label: '语言、称谓与命名制度', prompt: '不同地区、阶层和族群遵循什么语言、称谓与命名制度？这里只定规则，不建立人物姓名库。', source: '通用' }
   ] },
   { key: 'growth', title: '力量与成长', description: '力量从哪里来，怎么变强，要付出什么代价。', items: [
     { key: 'power-source', label: '力量来源', prompt: '力量从哪里来，谁可以获得，是否能够被夺取或继承？', source: '通用', required: true },
@@ -124,17 +106,11 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
     { key: 'counters', label: '克制、免疫与平衡', prompt: '强弱关系如何成立，哪些反制可以防止能力无限膨胀？', source: '通用' },
     { key: 'death', label: '死亡、复活与继承', prompt: '死亡是否可逆，复活、继承和损失分别遵循什么规则？', source: '通用' }
   ] },
-  { key: 'characters', title: '人物与命名', description: '只建立人物运行基础，不提前规定具体剧情结果。', items: [
-    { key: 'strength-flaw', label: '优势、缺点与成长限制', prompt: '主角擅长什么、欠缺什么？哪些困难不能不付代价就轻易突破？', source: '通用' },
-    { key: 'supporting', label: '配角类型与人物作用', prompt: '故事需要哪些配角？他们各自想要什么，怎样避免只为主角服务？', source: '通用' },
-    { key: 'naming', label: '姓名库、称谓与命名规则', prompt: '不同地区、身份和种族如何命名，已占用名字有哪些？', source: '通用' },
-    { key: 'relations', label: '人物关系基本原则', prompt: '亲缘、利益、情感和权力关系由哪些长期因素维持或改变？', source: '通用' }
-  ] },
-  { key: 'organizations', title: '势力与组织', description: '定义国家、阵营和组织的结构、资源与相互关系。', items: [
-    { key: 'factions', label: '国家、阵营与主要势力', prompt: '主要势力分别追求什么，依靠什么资源存在？', source: '通用', required: true },
-    { key: 'structure', label: '组织结构与权力来源', prompt: '组织如何决策、晋升和监督，真实权力掌握在谁手里？', source: '通用' },
+  { key: 'organizations', title: '势力与组织', description: '只定义组织作为世界制度怎样成立，不预设剧情阵营或具体对手。', items: [
+    { key: 'factions', label: '组织类型、利益与生存基础', prompt: '这个世界存在哪些组织类型，各自依靠什么制度、资源和公共利益长期存在？', source: '通用', required: true },
+    { key: 'structure', label: '组织结构与权力来源', prompt: '组织如何决策、晋升和监督，权力通过什么制度取得与约束？', source: '通用' },
     { key: 'military', label: '军队、兵种与武装体系', prompt: '武装力量如何组织、补给、训练和承担损失？', source: '通用' },
-    { key: 'diplomacy', label: '联盟、敌对与外交规则', prompt: '势力关系如何建立、维持和破裂？', source: '通用' }
+    { key: 'diplomacy', label: '组织间合作与冲突规则', prompt: '组织间的合作、竞争、契约与冲突遵守哪些制度规则？', source: '通用' }
   ] },
   { key: 'resources', title: '物品、经济与资源', description: '东西从哪里来，怎么交易和消耗，什么最稀缺。', items: [
     { key: 'currency', label: '货币、价格与交易', prompt: '价值如何衡量，交易如何发生，信用和货币由谁保证？', source: '通用' },
@@ -152,12 +128,13 @@ const BASE_SETTING_OUTLINE: SettingOutlineGroup[] = [
 ];
 
 const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup }> = [
-  { match: /言情|现言|恋爱|爱情|甜宠|婚恋|豪门|情感|青春/u, group: { key: 'romance-extension', title: '题材扩展：人物关系', description: '言情、都市情感和人物关系类作品按需启用。', items: [
-    { key: 'relationship-premise', label: '核心关系与吸引基础', prompt: '核心人物因什么相遇、持续接触并产生不可替代的吸引，关系成立的现实基础是什么？', source: '言情扩展', required: true },
-    { key: 'relationship-obstacle', label: '关系阻力与不可速解矛盾', prompt: '阻碍关系发展的内外矛盾是什么，为什么不能靠一次坦白或误会解除就解决？', source: '言情扩展', required: true },
-    { key: 'relationship-growth', label: '关系变化与双向成长', prompt: '双方怎样逐步信任或依赖对方，相处分寸怎么变化，各自要付出什么代价？', source: '言情扩展' },
-    { key: 'emotional-boundaries', label: '相处分寸与底线', prompt: '两人相处时哪些事绝不能做？哪些人格和伦理底线不能越过？', source: '言情扩展' },
-    { key: 'life-circle', label: '生活圈、职业与日常压力', prompt: '人物日常生活由哪些工作、家庭和社交关系构成，现实压力如何持续影响选择？', source: '都市言情扩展' }
+  { match: /言情|现言|恋爱|爱情|甜宠|婚恋|豪门|情感|青春/u, group: { key: 'romance-extension', title: '题材扩展：婚恋社会规则', description: '只补充婚恋题材的制度与社会环境，不预设具体人物关系。', items: [
+    { key: 'intimacy-norms', label: '婚恋制度与亲密关系规范', prompt: '婚恋、伴侣关系与分离分别受哪些法律、礼俗和公共规则约束？', source: '言情扩展' },
+    { key: 'family-structure', label: '家庭结构与责任制度', prompt: '家庭由什么结构组成，赡养、继承、监护和财产责任如何分配？', source: '言情扩展' },
+    { key: 'privacy-reputation', label: '隐私、名誉与社会代价', prompt: '私人关系被公开后会产生哪些制度或社会后果，名誉与隐私如何被保护或利用？', source: '言情扩展' }
+  ] } },
+  { match: /都市|现代|现实|职场|商战|娱乐圈|校园|日常|年代/u, group: { key: 'urban-extension', title: '题材扩展：都市生活制度', description: '补充职业、居住与公共生活的客观运行条件。', items: [
+    { key: 'urban-life-system', label: '职业、居住与生活节奏', prompt: '职业制度、居住成本、通勤、公共服务和生活节奏怎样塑造普通人的日常？', source: '都市扩展' }
   ] } },
   { match: /游戏|电竞|网游|系统/u, group: { key: 'game-extension', title: '题材扩展：游戏规则', description: '由游戏相关分类或题材自动加入。', items: [
     { key: 'game-entry', label: '怎样进入游戏世界', prompt: '通过头盔、穿越、现实融合还是其他方式进入？进去后哪些事能做，哪些不能？', source: '游戏扩展', required: true },
@@ -173,24 +150,23 @@ const SETTING_EXTENSION_PACKS: Array<{ match: RegExp; group: SettingOutlineGroup
     { key: 'divergence', label: '架空分歧点', prompt: '世界从哪个事件开始偏离历史，直接和长期影响是什么？', source: '历史扩展', required: true },
     { key: 'politics-military', label: '政治、官制与军制', prompt: '权力、行政和军事制度如何真实运转？', source: '历史扩展' },
     { key: 'technology-spread', label: '技术传播与时代限制', prompt: '技术改进需要哪些前置条件，传播速度和阻力是什么？', source: '历史扩展' },
-    { key: 'historical-names', label: '年代、地名与人物校验', prompt: '年代、称谓、地名和历史人物如何保持可核对？', source: '历史扩展' }
+    { key: 'historical-names', label: '年代、地名与称谓校验', prompt: '年代、称谓和地名遵循什么资料基线，怎样保持可核对？', source: '历史扩展' }
   ] } },
   { match: /领主|种田|经营|基建/u, group: { key: 'lord-extension', title: '题材扩展：领地经营', description: '由领主、种田、经营或基建题材自动加入。', items: [
     { key: 'territory', label: '领地、城市与建筑等级', prompt: '领地和建筑如何升级，解锁条件、时间和成本是什么？', source: '领地扩展', required: true },
     { key: 'population', label: '人口、民心与劳动力', prompt: '人口如何增长、迁移、分工并影响秩序？', source: '领地扩展', required: true },
-    { key: 'army', label: '将领、士兵与兵种', prompt: '军队如何招募、训练、编制、补给和承担伤亡？', source: '领地扩展', required: true },
+    { key: 'army', label: '军队、兵种与编制', prompt: '军队如何招募、训练、编制、补给和承担伤亡？', source: '领地扩展', required: true },
     { key: 'yield', label: '资源产出与生产队列', prompt: '资源和建筑产出如何计算，生产队列受什么限制？', source: '领地扩展', required: true }
   ] } },
   { match: /玄幻|仙侠|修仙|奇幻|魔法/u, group: { key: 'fantasy-extension', title: '题材扩展：超凡体系', description: '由玄幻、仙侠、奇幻或魔法题材自动加入。', items: [
     { key: 'cultivation', label: '功法、修炼与传承', prompt: '修炼体系如何学习、传承、改进和走火入魔？', source: '超凡扩展' },
     { key: 'bloodline', label: '血脉、体质与天赋', prompt: '先天条件如何影响成长，能否改变，代价是什么？', source: '超凡扩展' },
     { key: 'treasures', label: '丹药、法宝与天材地宝', prompt: '超凡资源如何分级、获得、炼制和限制使用？', source: '超凡扩展' },
-    { key: 'causality', label: '天劫、因果与气运', prompt: '这些力量是否真的存在，会怎样影响人物，又有哪些事情做不到？', source: '超凡扩展' }
+    { key: 'causality', label: '天劫、因果与气运', prompt: '这些力量是否客观存在，如何作用，又有哪些事情绝对做不到？', source: '超凡扩展' }
   ] } },
   { match: /悬疑|推理|探案|灵异/u, group: { key: 'mystery-extension', title: '题材扩展：悬疑调查', description: '由悬疑、推理、探案或灵异题材自动加入。', items: [
-    { key: 'case-rules', label: '案件成立条件', prompt: '案件成立必须满足哪些客观条件？凶手能做到什么，不能做到什么？', source: '悬疑扩展' },
-    { key: 'evidence-chain', label: '证据链与验证规则', prompt: '哪些证据有效，如何验证、污染、隐藏或误导？', source: '悬疑扩展' },
-    { key: 'truth-layers', label: '真相层级与公平线索', prompt: '读者何时能够接触关键线索，怎样避免事后补设定？', source: '悬疑扩展' }
+    { key: 'case-rules', label: '犯罪条件与侦查边界', prompt: '常见犯罪受哪些客观条件限制，侦查权限、技术和程序的能力边界是什么？', source: '悬疑扩展' },
+    { key: 'evidence-chain', label: '证据链与验证规则', prompt: '哪些证据有效，如何验证、污染、隐藏或误导？', source: '悬疑扩展' }
   ] } },
   { match: /科幻|末世|星际|未来世界|赛博|机甲/u, group: { key: 'scifi-extension', title: '题材扩展：科技与未来', description: '由科幻、末世、星际、赛博或机甲题材按需启用。', items: [
     { key: 'technology-boundary', label: '核心科技能做什么', prompt: '核心科技能做到什么、不能做到什么？使用前需要满足哪些条件？', source: '科幻扩展', required: true },
@@ -278,7 +254,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
   };
   const currentIdeaContext = ideaContext[tab] ?? null;
   return (
-    <section className={`creation-desk ${tab === 'manuscript' ? 'manuscript-mode' : ''} ${['library','naming'].includes(tab) ? 'tool-mode' : ''}`} aria-labelledby="creation-desk-title">
+    <section className={`creation-desk ${tab === 'manuscript' ? 'manuscript-mode' : ''} ${tab === 'basic' ? 'setting-mode' : ''} ${['library','naming'].includes(tab) ? 'tool-mode' : ''}`} aria-labelledby="creation-desk-title">
       <header className="creation-desk-header">
         <h2 id="creation-desk-title">创作台</h2>
       </header>
@@ -292,6 +268,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         workspace={workspace}
         planningState={planningState}
         onPlanningStateChanged={refreshPlanningState}
+        onOpenVolumes={() => onTabChange('master')}
       />}
       </>}
       {bookId !== null && currentIdeaContext !== null && tab !== 'basic' && tab !== 'master' && tab !== 'event' && tab !== 'chapter' && <AuthorIdeaComposer
@@ -403,11 +380,12 @@ function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): R
   </div>;
 }
 
-export function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged }: {
+export function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged, onOpenVolumes }: {
   workspace: WorkspaceData | null;
   bookId: string | null;
   planningState: PlanningStateData | null;
   onPlanningStateChanged: () => Promise<void>;
+  onOpenVolumes?: () => void;
 }): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [customItems, setCustomItems] = useState<SettingOutlineItem[]>([]);
@@ -423,6 +401,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
+  const [legacyRemovalKey, setLegacyRemovalKey] = useState<string | null>(null);
   const [auditReport, setAuditReport] = useState<SettingQualityReportView | null>(null);
   const [checkedKeys, setCheckedKeys] = useState<Record<string, boolean>>({});
   const [designQueue, setDesignQueue] = useState<string[] | null>(null);
@@ -432,7 +411,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   const [activeItemKey, setActiveItemKey] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryReviewed, setLibraryReviewed] = useState(false);
-  const [startConfirmOpen, setStartConfirmOpen] = useState(false);
+
   const [designStarted, setDesignStarted] = useState(false);
   const [localStateBookId, setLocalStateBookId] = useState<string | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
@@ -511,6 +490,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
     if (bookId === null) {
       setCustomItems([]);
       setLegacyItems([]);
+      setLegacyRemovalKey(null);
       setStatuses({});
       setContents({});
       setPendingCandidates({});
@@ -518,7 +498,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setProfile(null);
       setLibraryOpen(false);
       setLibraryReviewed(false);
-      setStartConfirmOpen(false);
       setDesignStarted(false);
       setDesignQueue(null);
       setLocalStateBookId(null);
@@ -574,7 +553,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
         groupTitle: item.groupTitle
       })));
       // 旧版清单里已下架的条目（如"主角身份、起点与处境"）：新书不再提供，
-      // 但旧书已填内容必须在页面底部保留只读入口，不能因为目录瘦身而把作者内容藏起来。
+      // 但旧书已填内容必须在页面底部保留兼容查看与移除入口，不能因为目录瘦身而把作者内容藏起来。
       const knownTemplateKeys = new Set(allTemplateItems.map((candidate) => candidate.key));
       setLegacyItems(completeItems
         .filter((item) => !item.custom && !knownTemplateKeys.has(item.itemKey) && (item.status !== '待讨论' || item.content !== null))
@@ -589,10 +568,10 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   useEffect(() => {
     if (bookId === null) { setCheckedKeys({}); setLocalStateBookId(null); return; }
     try {
-      const raw = window.localStorage.getItem(`wenmi-setting-checked-v1-${bookId}`);
+      const raw = window.localStorage.getItem(`wenmi-setting-checked-v2-${bookId}`);
       setCheckedKeys(raw === null ? {} : JSON.parse(raw) as Record<string, boolean>);
-      setLibraryReviewed(window.localStorage.getItem(`wenmi-setting-library-reviewed-v2-${bookId}`) === 'true');
-      const sessionRaw = window.localStorage.getItem(`wenmi-setting-design-session-v2-${bookId}`);
+      setLibraryReviewed(window.localStorage.getItem(`wenmi-setting-library-reviewed-v3-${bookId}`) === 'true');
+      const sessionRaw = window.localStorage.getItem(`wenmi-setting-design-session-v3-${bookId}`);
       const session = sessionRaw === null ? null : JSON.parse(sessionRaw) as { started?: boolean; queue?: unknown };
       const restoredQueue = Array.isArray(session?.queue)
         ? session.queue.filter((key): key is string => typeof key === 'string')
@@ -611,9 +590,9 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   useEffect(() => {
     if (bookId === null || localStateBookId !== bookId) return;
     try {
-      window.localStorage.setItem(`wenmi-setting-checked-v1-${bookId}`, JSON.stringify(checkedKeys));
-      window.localStorage.setItem(`wenmi-setting-library-reviewed-v2-${bookId}`, String(libraryReviewed));
-      window.localStorage.setItem(`wenmi-setting-design-session-v2-${bookId}`, JSON.stringify({
+      window.localStorage.setItem(`wenmi-setting-checked-v2-${bookId}`, JSON.stringify(checkedKeys));
+      window.localStorage.setItem(`wenmi-setting-library-reviewed-v3-${bookId}`, String(libraryReviewed));
+      window.localStorage.setItem(`wenmi-setting-design-session-v3-${bookId}`, JSON.stringify({
         started: designStarted,
         queue: designQueue
       }));
@@ -693,8 +672,9 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       return confirmSettingBaseline(bookId, planningState.version, acknowledged).then(async () => {
         setAuditReport(null);
         setAcknowledgedIssues([]);
-        setNotice('设定已形成新的正式稿。现在可以进入“分卷”，只规划当前一卷。');
+        setNotice('设定已形成新的正式稿。现在进入“分卷”，只规划当前一卷。');
         await onPlanningStateChanged();
+        onOpenVolumes?.();
       });
     }).catch((reason: unknown) => {
       const code = reason instanceof ApiRequestError ? reason.code : null;
@@ -720,6 +700,26 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
     }).finally(() => setBusyKey(null));
   };
 
+  const removeLegacyItem = (item: { key: string; label: string }): void => {
+    if (bookId === null || busyKey !== null) return;
+    setBusyKey(`remove-legacy-${item.key}`);
+    setNotice(null);
+    void removeCurrentSettingOutlineItem(bookId, item.key).then(async (saved) => {
+      applySnapshot(saved);
+      setLegacyItems((current) => current.filter((candidate) => candidate.key !== item.key));
+      setLegacyRemovalKey(null);
+      setCheckedKeys((current) => {
+        const next = { ...current };
+        delete next[item.key];
+        return next;
+      });
+      setNotice(`已从当前设定和临时资料包移除“${item.label}”；历史版本与正文仍保留。`);
+      await onPlanningStateChanged();
+    }).catch((reason: unknown) => {
+      setNotice(authorErrorFromUnknown(reason, '移除早期设定失败'));
+    }).finally(() => setBusyKey(null));
+  };
+
   const clearAllSettings = (): void => {
     if (bookId === null || clearConfirmText !== 'YES') return;
     setBusyKey('clear-setting');
@@ -731,7 +731,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setContents({});
       setPendingCandidates({});
       setConfirmedAts({});
-      setLegacyItems((current) => current.map((item) => ({ ...item, status: '待讨论' as SettingOutlineStatus, content: null })));
+      setLegacyItems([]);
       setCheckedKeys({});
       setLibraryReviewed(false);
       setDesignStarted(false);
@@ -800,12 +800,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setLibraryOpen(false);
       return;
     }
-    setStartConfirmOpen(true);
-  };
-
-  const confirmStartDesignQueue = (): void => {
-    const queue = buildQueue();
-    setStartConfirmOpen(false);
     setDesignStarted(true);
     setLibraryOpen(false);
     setQueueListOpen(false);
@@ -858,13 +852,13 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
             onClick={() => setLibraryOpen((open) => !open)}
           >
             <span>
-              <small>{designStarted ? '设计范围已锁定' : '先确定这本书要设计什么'}</small>
+              <small>{designStarted ? '设定骨架 · 已进入逐项设计' : '设定骨架—勾选所需条目，请勿乱选'}</small>
               <strong>完整设定库</strong>
               <em>{profile === null
                 ? '正在整理本书的核心、推荐和可选设定'
                 : designStarted
                   ? '已选 ' + selectedDesignKeys.length + ' 项 · 已确认 ' + completedSelectedCount + ' 项'
-                  : '核心与题材推荐已默认选中，其他设定由你决定'}</em>
+                  : '核心宏观规则与题材机制已默认选中，其他世界规则由你决定'}</em>
             </span>
             <b>{libraryOpen ? '收起' : '查看'}</b>
           </button>
@@ -872,16 +866,15 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
           {libraryOpen && <div id="complete-setting-library" className={'setting-library-body' + (designStarted ? ' locked' : '')}>
             <header className="setting-library-intro">
               <div>
-                <span>本轮设计范围</span>
-                <h4>{designStarted ? '查看已锁定的完整设定库' : '勾完再开始，开始后按顺序逐项设计'}</h4>
+                <h4>{designStarted ? '查看已锁定的完整设定库' : '设定骨架—勾选所需条目，请勿乱选'}</h4>
               </div>
               <p>{designStarted
-                ? '设计已经开始，范围暂时锁定。你仍可查看全部类目和打开已选条目，但不会在过程中改变队列。'
-                : '核心设定和本书题材推荐已经替你选好。请再看一遍其他类目，确实需要的再加入。'}</p>
+                ? '设计已经开始，范围暂时锁定。这里仍只记录跨人物、跨剧情成立的世界规则。人物与关系会在分卷、事件和正文中逐层形成。'
+                : '这里只设计世界如何运行，不设计谁和谁发生什么。其他类目只在本书确实需要时勾选。'}</p>
             </header>
 
             <section className="setting-library-block" aria-label="核心设定">
-              <header><div><small>01</small><span><strong>核心设定</strong><em>书籍骨架，默认全部加入</em></span></div><b>{coreItems.length} 项</b></header>
+              <header><div><small>01</small><span><strong>核心设定</strong><em>不依赖具体人物和剧情也成立，默认全部加入</em></span></div><b>{coreItems.length} 项</b></header>
               <div className="setting-library-list">
                 {coreItems.length === 0
                   ? <p className="setting-empty-state">正在整理核心设定……</p>
@@ -960,6 +953,10 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
                 const value = customDraft.trim();
                 if (value.length === 0 || customItems.some((item) => item.label === value)) return;
                 const groupTitle = customGroupDraft.trim() || '本书扩展';
+                if (/(?:主角|配角|反派|人物关系|角色关系|关系线|感情线|姓名库)/u.test(`${groupTitle} ${value}`)) {
+                  setNotice('具体人物、人物关系和关系线不放在设定库；请在后续分卷、事件和正文中逐层设计。');
+                  return;
+                }
                 const item = { key: 'custom-' + Date.now(), label: value, prompt: '请说明“' + value + '”是什么、能做什么、不能做什么、要付出什么代价，还有哪些内容暂时没定。', source: '作者自定义', groupTitle };
                 const group = { key: 'custom-' + groupTitle, title: groupTitle, description: '由作者补充的本书专属设定项。', items: [item] };
                 setCustomItems((current) => [...current, item]);
@@ -976,27 +973,43 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
             </details>}
 
             {legacyItems.length > 0 && <details className="setting-library-legacy">
-              <summary><strong>早期设定内容</strong><span>旧版填写内容仍然保留</span></summary>
+              <summary><strong>早期设定内容</strong><span>已下架条目，可移除当前内容</span></summary>
               <div className="setting-legacy-list">{legacyItems.map((item) => <article key={item.key}>
-                <div className="setting-core-card-row"><h4>{item.label}</h4><span className={'setting-status-pill st-' + settingStatusClass(item.status)}>{item.status}</span></div>
+                <div className="setting-legacy-heading">
+                  <div><h4>{item.label}</h4><span className={'setting-status-pill st-' + settingStatusClass(item.status)}>{item.status}</span></div>
+                  <button
+                    type="button"
+                    className="setting-legacy-remove-button"
+                    aria-expanded={legacyRemovalKey === item.key}
+                    disabled={busyKey !== null}
+                    onClick={() => setLegacyRemovalKey((current) => current === item.key ? null : item.key)}
+                  >移除当前内容</button>
+                </div>
                 {item.content !== null && <p>{item.content}</p>}
+                {legacyRemovalKey === item.key && <div className="setting-legacy-remove-confirm" role="group" aria-label={`确认移除${item.label}`}>
+                  <p>移除后，这项内容不再进入当前设定和新任务的临时资料包；历史版本与正文仍保留。当前设定需要重新经主编审查后定稿。</p>
+                  <div>
+                    <button type="button" className="secondary-button" disabled={busyKey !== null} onClick={() => setLegacyRemovalKey(null)}>取消</button>
+                    <button type="button" className="setting-legacy-confirm-button" disabled={busyKey !== null} onClick={() => removeLegacyItem(item)}>{busyKey === `remove-legacy-${item.key}` ? '正在移除…' : '确认移除'}</button>
+                  </div>
+                </div>}
               </article>)}</div>
             </details>}
 
             {!designStarted && <footer className="setting-library-commit">
               <label className={libraryReviewed ? 'reviewed' : ''}>
                 <input type="checkbox" checked={libraryReviewed} onChange={(event) => setLibraryReviewed(event.target.checked)} />
-                <span><strong>我已查看完整设定库，并确认本轮选择</strong><small>开始后会锁定范围；逐项确认完成前，主编不会介入。</small></span>
+                <span><strong>我已确认勾选完毕</strong></span>
               </label>
               <div>
                 <span>本轮共 {selectedDesignKeys.length} 项</span>
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={busyKey !== null || profile === null || !libraryReviewed || buildQueue().length === 0}
+                  disabled={busyKey !== null || profile === null || !libraryReviewed}
                   onClick={startDesignQueue}
                 >
-                  {libraryReviewed ? '准备开始设计' : '先确认选择范围'}
+                  {libraryReviewed ? '开始设计' : '请先确认勾选'}
                 </button>
               </div>
             </footer>}
@@ -1102,10 +1115,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
           <section className={'setting-editor-gate' + (canOrganizeSettings ? ' ready' : '')}>
             <div>
               <small>最后一步</small>
-              <strong>{canOrganizeSettings ? '全部设定已确认，可以交给主编审查' : '主编会在逐项设计全部完成后介入'}</strong>
-              <p>{canOrganizeSettings
-                ? '当前临时资料包会交给主编统一检查；审查通过并由你确认后，才形成正式设定稿。'
-                : '还有 ' + unfinishedSelectedCount + ' 项没有确认。当前内容只在临时资料包中，不属于正史。'}</p>
+              <strong>全部设计完毕后，交由主编审核。</strong>
               {canOrganizeSettings && chiefEditorUnavailable && <p className="setting-clear-warning">主编当前不可用：{chiefEditorUnavailableReason}。已完成设定不会丢失，模型恢复后即可继续。</p>}
             </div>
             <button className="primary-button" type="button" disabled={planningState === null || busyKey !== null || auditWaiting || !canOrganizeSettings || chiefEditorUnavailable} onClick={() => confirmSetting()}>
@@ -1116,20 +1126,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
 
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
 
-        {startConfirmOpen && <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setStartConfirmOpen(false); }}>
-          <section className="dialog setting-start-dialog" role="dialog" aria-modal="true" aria-labelledby="setting-start-dialog-title">
-            <div className="dialog-heading">
-              <div><span className="dialog-eyebrow">开始前确认</span><h2 id="setting-start-dialog-title">确认开始逐项设计？</h2><p>本轮共选择 {selectedDesignKeys.length} 项。开始后完整设定库会收成一个按钮，系统只打开当前项。</p></div>
-            </div>
-            <ol>{selectedDesignKeys.slice(0, 8).map((key) => <li key={key}>{queueLabel(key)}</li>)}</ol>
-            {selectedDesignKeys.length > 8 && <p>另有 {selectedDesignKeys.length - 8} 项已收入本轮清单。</p>}
-            <aside><strong>流程不会跳步</strong><span>逐项设计并由你确认 → 自动压缩临时资料包 → 下一项读取最新资料 → 全部完成后主编审查。</span></aside>
-            <footer>
-              <button type="button" className="secondary-button" onClick={() => setStartConfirmOpen(false)}>返回检查</button>
-              <button type="button" className="primary-button" autoFocus onClick={confirmStartDesignQueue}>确认并开始设计</button>
-            </footer>
-          </section>
-        </div>}
       </>}
   </section>;
 }function settingStatusClass(status: SettingOutlineStatus): string {

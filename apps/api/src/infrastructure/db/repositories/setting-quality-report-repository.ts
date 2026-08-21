@@ -7,6 +7,8 @@ export interface SettingQualityIssue {
   itemKey: string;
   problem: string;
   suggestion: string;
+  replacement: string;
+  baseContentHash: string;
 }
 
 export interface SettingQualityReportRow {

@@ -8,10 +8,11 @@ import { ContinuationImportRepository } from '../../infrastructure/db/repositori
 import { OwnerManuscriptRepository } from '../../infrastructure/db/repositories/owner-manuscript-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { ArtifactService } from '../artifacts/artifact-service.js';
-import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
+import { SettingOutlineWorkspaceService, type SettingOutlineWorkspaceItem } from './setting-outline-workspace-service.js';
 import { SettingQualityReportRepository, type SettingQualityIssue } from '../../infrastructure/db/repositories/setting-quality-report-repository.js';
-import { hashConfirmedSettings } from './setting-quality-shared.js';
+import { hashConfirmedSettings, hashSettingItemContent } from './setting-quality-shared.js';
 import {
+  isMacroSettingItem,
   resolveContinuationSettingOutlineProfile,
   resolveSettingOutlineProfile,
   type SettingOutlineProfile
@@ -69,7 +70,7 @@ export class SettingBaselineService {
     // 定稿门禁：必须先有一份覆盖当前设定内容的主编质检报告；
     // 内容在质检后有任何改动，旧报告自动作废（指纹不匹配）。
     const confirmedItems = this.workspace.list(scope)
-      .filter((item) => item.status === '已确认' && item.content !== null);
+      .filter((item) => isMacroSettingItem(item) && item.status === '已确认' && item.content !== null);
     const fingerprint = hashConfirmedSettings(confirmedItems);
     const report = new SettingQualityReportRepository(this.database).latest(scope);
     if (report === undefined || report.content_hash !== fingerprint) {
@@ -101,7 +102,7 @@ export class SettingBaselineService {
     return new UnitOfWork(this.database).run(() => {
       const activeStoryBible = this.artifacts.requireVersion(scope, activeStoryBibleId);
       const confirmedItems = this.workspace.list(scope)
-        .filter((item) => item.status === '已确认' && item.content !== null)
+        .filter((item) => isMacroSettingItem(item) && item.status === '已确认' && item.content !== null)
         .map((item) => ({
           itemKey: item.itemKey,
           groupTitle: item.groupTitle,
@@ -145,6 +146,17 @@ export class SettingBaselineService {
     });
   }
 
+  /** 单项移除会使当前设定基线失效；保留其他条目、历史基线版本和正文。 */
+  public removeCurrentItem(scope: BookScope, itemKey: string): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const now = this.clock.now().toISOString();
+    return new UnitOfWork(this.database).run(() => {
+      const removed = this.workspace.removeCurrent(scope, itemKey);
+      this.repository.resetSettingBaseline(scope, now);
+      return removed;
+    });
+  }
+
   public clear(scope: BookScope): { clearedItems: number; hasCanonChapters: boolean } {
     assertBookScope(scope);
     const now = this.clock.now().toISOString();
@@ -167,7 +179,7 @@ export class SettingBaselineService {
       reportId: string;
       verdict: 'pass' | 'warn' | 'fail';
       summary: string;
-      issues: SettingQualityIssue[];
+      issues: Array<SettingQualityIssue & { applicable: boolean }>;
       createdAt: string;
     } | null;
     fresh: boolean;
@@ -175,7 +187,14 @@ export class SettingBaselineService {
   } {
     assertBookScope(scope);
     const confirmedItems = this.workspace.list(scope)
-      .filter((item) => item.status === '已确认' && item.content !== null);
+      .filter((item) => isMacroSettingItem(item) && item.status === '已确认' && item.content !== null);
+    const currentByKey = new Map(confirmedItems.map((item) => [item.itemKey, item]));
+    const issues = (row: { issues_json: string }): Array<SettingQualityIssue & { applicable: boolean }> =>
+      (JSON.parse(row.issues_json) as SettingQualityIssue[]).map((issue) => {
+        const content = currentByKey.get(issue.itemKey)?.content ?? null;
+        return { ...issue, applicable: issue.itemKey !== 'whole' && issue.replacement.length > 0
+          && content !== null && hashSettingItemContent(content) === issue.baseContentHash };
+      });
     const fingerprint = hashConfirmedSettings(confirmedItems);
     const qualityReports = new SettingQualityReportRepository(this.database);
     const row = qualityReports.latest(scope);
@@ -185,7 +204,7 @@ export class SettingBaselineService {
         reportId: row.report_id,
         verdict: row.verdict,
         summary: row.summary_text,
-        issues: JSON.parse(row.issues_json) as SettingQualityIssue[],
+        issues: issues(row),
         createdAt: row.created_at
       },
       fresh: row !== undefined && row.content_hash === fingerprint,
@@ -193,6 +212,52 @@ export class SettingBaselineService {
     };
   }
 
+  public applyQualitySuggestion(
+    scope: BookScope,
+    reportId: string,
+    issueId: string
+  ): SettingOutlineWorkspaceItem {
+    assertBookScope(scope);
+    const report = new SettingQualityReportRepository(this.database).latest(scope);
+    if (report === undefined || report.report_id !== reportId) {
+      throw new DomainError(
+        errorCodes.operationIncomplete,
+        '这份主编检查报告已经不是最新报告，请刷新后重试',
+        {},
+        true,
+        409
+      );
+    }
+    const issue = (JSON.parse(report.issues_json) as SettingQualityIssue[])
+      .find((candidate) => candidate.id === issueId);
+    if (issue === undefined || issue.itemKey === 'whole' || issue.replacement.trim().length === 0) {
+      throw new DomainError(errorCodes.validation, '这条建议不能直接修改具体设定项');
+    }
+    const current = this.workspace.list(scope).find((item) => item.itemKey === issue.itemKey);
+    if (current?.status !== '已确认' || current.content === null) {
+      throw new DomainError(errorCodes.operationIncomplete, '对应设定项当前不是已确认状态，请刷新后处理', {}, true, 409);
+    }
+    if (hashSettingItemContent(current.content) !== issue.baseContentHash) {
+      throw new DomainError(
+        errorCodes.bookVersionConflict,
+        '这项设定在主编检查后已经改过，不能再套用旧修改稿',
+        { itemKey: issue.itemKey },
+        true,
+        409
+      );
+    }
+    return new UnitOfWork(this.database).run(() => this.workspace.save(scope, {
+      itemKey: current.itemKey,
+      groupTitle: current.groupTitle,
+      label: current.label,
+      prompt: current.prompt,
+      sourceLabel: current.sourceLabel,
+      status: '已确认',
+      custom: current.custom,
+      sortOrder: current.sortOrder,
+      content: issue.replacement
+    }));
+  }
   private profile(scope: BookScope): SettingOutlineProfile {
     const blueprint = this.repository.openingBlueprint(scope);
     if (blueprint !== undefined) {

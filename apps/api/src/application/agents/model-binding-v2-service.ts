@@ -64,9 +64,9 @@ export function validateTeamModelProfiles(
       throw new Error('确定性模式不能激活需要真实套餐凭证的模型绑定');
     }
     const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
-    const screenwriterSignatures = (['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'] as const).map(signature);
-    if (new Set(screenwriterSignatures).size !== screenwriterSignatures.length) throw new Error('三名编剧必须使用互不相同的模型');
-    for (const role of ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter'] as const) {
+    const screenwriterSignatures = (['lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'] as const).map(signature);
+    if (new Set(screenwriterSignatures).size !== screenwriterSignatures.length) throw new Error('四名编剧必须使用互不相同的模型');
+    for (const role of ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'] as const) {
       if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
     }
     if (profiles.lead_writer.plan !== 'deterministic'
@@ -76,7 +76,7 @@ export function validateTeamModelProfiles(
     }
     for (const role of ['lead_writer', 'backup_writer'] as const) {
       if (profiles[role].plan !== 'deterministic' && !/(deepseek-v4-pro|kimi-k2\.7-code)/iu.test(profiles[role].modelId)) {
-        throw new Error('写手仅允许火山方舟 Agent Plan 的 DeepSeek V4 Pro 或 Kimi K2.7 Code');
+        throw new Error('写手仅允许火山方舟订阅套餐的 DeepSeek V4 Pro 或 Kimi K2.7 Code');
       }
       const reviewSignatures = [signature(role), signature('fact_reviewer'), signature('literary_reviewer'), signature('experience_reviewer')];
       if (new Set(reviewSignatures).size !== reviewSignatures.length) {

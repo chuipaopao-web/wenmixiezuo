@@ -1,15 +1,18 @@
+import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import type { OpeningBlueprintInput } from '../../contracts/opening-blueprint.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { DiscussionService } from '../discussions/discussion-service.js';
 import { TaskService } from '../tasks/task-service.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
-import { SettingGuidanceService, type SettingGuidanceSnapshot, type TemporarySettingContextPack } from './setting-guidance-service.js';
+import { compileMacroOpeningBookCore, SettingGuidanceService, type SettingGuidanceSnapshot, type TemporarySettingContextPack } from './setting-guidance-service.js';
 import { EditorLeaseService } from '../editors/editor-lease-service.js';
 import { SettingOutlineWorkspaceService } from './setting-outline-workspace-service.js';
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 import { hashConfirmedSettings, SETTING_QUALITY_AUDIT_INSTRUCTION } from './setting-quality-shared.js';
+import { isMacroSettingItem } from './setting-outline-profile.js';
 
 interface CommandResult {
   taskId: string;
@@ -109,6 +112,42 @@ export class SettingCollaborationCommandService {
     });
   }
 
+  public redesignMember(
+    scope: BookScope,
+    itemKey: string,
+    input: { roleKey: string; proposalId: string; idempotencyKey: string }
+  ): CommandResult {
+    assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    const roleKey = this.normalizeSelectedScreenwriters([input.roleKey])[0]!;
+    this.ensureDistinctPanelModels(scope, [roleKey]);
+    const existing = this.repository.latestPanel(scope, itemKey);
+    if (existing !== undefined && ['pending', 'queued', 'working'].includes(existing.task_status)) {
+      throw new DomainError(errorCodes.operationIncomplete, '这一轮设计还在进行中，等它结束后才能重新设计', {}, false, 409);
+    }
+    const prior = this.repository.latestProposalsByRole(scope, itemKey)
+      .find((proposal) => proposal.proposal_id === input.proposalId && proposal.role_key === roleKey);
+    if (prior === undefined) {
+      throw new DomainError(errorCodes.operationIncomplete, '待重做的编剧方案已经变化，请刷新后再试', {}, true, 409);
+    }
+    const guidance = this.requireGuidance(scope, itemKey, true);
+    const priorHash = createHash('sha256').update(prior.content).digest('hex');
+    const scopeText = buildProposalScope(guidance, '作者本轮原话：没有额外补充', 1)
+      + '\n' + buildMemberRedesignConstraint(prior.member_name, prior.content, priorHash);
+    return this.schedule(scope, {
+      type: 'quick',
+      purpose: 'setting_proposal_panel',
+      itemKey,
+      scopeText,
+      authorInputIds: [],
+      idempotencyKey: 'setting-proposal-member-redesign:' + itemKey + ':' + roleKey + ':'
+        + guidance.temporaryContextPack.contentHash.slice(0, 16) + ':' + priorHash.slice(0, 16) + ':'
+        + normalizeKey(input.idempotencyKey),
+      includeScreenwriters: true,
+      selectedRoleKeys: [roleKey]
+    });
+  }
+
   public retryMember(
     scope: BookScope,
     itemKey: string,
@@ -172,16 +211,20 @@ export class SettingCollaborationCommandService {
     this.preferChiefWhenSafe(scope);
     const workspace = new SettingOutlineWorkspaceService(this.database, this.clock);
     const confirmed = workspace.list(scope)
-      .filter((item) => item.status === '已确认' && item.content !== null);
+      .filter((item) => isMacroSettingItem(item) && item.status === '已确认' && item.content !== null);
     if (confirmed.length === 0) {
       throw new DomainError(errorCodes.operationIncomplete, '还没有已确认的设定，先完成至少一项再让主编检查', {}, false, 409);
     }
     const fingerprint = hashConfirmedSettings(confirmed);
-    const blueprint = new PlanningWorkflowRepository(this.database).openingBlueprint(scope) ?? '{}';
+    const rawBlueprint = new PlanningWorkflowRepository(this.database).openingBlueprint(scope) ?? '{}';
+    let macroOpeningBookCore = '{}';
+    try {
+      macroOpeningBookCore = compileMacroOpeningBookCore(JSON.parse(rawBlueprint) as OpeningBlueprintInput);
+    } catch { /* 历史坏数据由其他门禁处理；质检资料包不扩散。 */ }
     const scopeText = [
       '【整份设定质检资料包】',
       '【质检内容指纹】' + fingerprint,
-      '本书完整开书信息（作者已填写，是判断是否跑题的依据）：' + blueprint,
+      '本书宏观开书信息（只含世界背景、初始地图、题材风格和作者硬边界）：' + macroOpeningBookCore,
       '全部已确认设定：' + JSON.stringify(confirmed.map((item) => ({
         itemKey: item.itemKey, label: item.label, content: item.content
       }))),
@@ -353,13 +396,29 @@ function buildProposalScope(guidance: SettingGuidanceSnapshot, authorLine: strin
     '当前设定项编号：' + guidance.itemKey,
     '当前设定项：' + guidance.label,
     '当前问题：' + guidance.prompt,
-    '本书完整开书信息（作者已填写，优先级高于AI推测）：' + guidance.openingBookCore,
+    '本书宏观开书信息（只含世界背景、初始地图、题材风格和作者硬边界）：' + guidance.openingBookCore,
     '作品定位摘要：' + guidance.positioningSummary,
-    '故事方向参考：' + guidance.storyDirectionReference,
+    '宏观证据参考：' + guidance.storyDirectionReference,
     temporaryPackScopeBlock(guidance.temporaryContextPack),
     authorLine,
     `任务：作者本轮选择了${selectedCount}名通用编剧。每名编剧都能独立完成整个框架，必须分别独立思考，互不查看、讨论或综合其他成员答案；每人只提交一份真正推荐、可供作者选择的完整设定方案，并拆成作者可逐条勾选的碎片。`,
-    '故事方向只是参考；只讨论当前设定项，不得生成卷纲、事件、章纲或正文。内容不会自动合并，也不会自动确认。'
+    '只讨论不依赖具体人物和剧情也成立的世界规则。不得设计主角、配角、反派、人物关系、剧情对手、事件目标或情感进展；不得生成卷纲、事件、章纲或正文。内容不会自动合并，也不会自动确认。'
+  ].join('\n');
+}
+
+function buildMemberRedesignConstraint(
+  memberName: string | null,
+  priorContent: string,
+  priorHash: string
+): string {
+  const compactPrior = priorContent.replace(/\s+/gu, ' ').trim().slice(0, 1_200);
+  return [
+    '【单席重新设计排除依据】',
+    '上一方案编剧：' + (memberName?.trim() || '当前编剧'),
+    '上一方案指纹：' + priorHash,
+    '上一方案摘要：' + compactPrior,
+    '这是一次新的设计任务。必须使用上方调用时重新编译的临时设定资料包，但不能复述、换词改写或沿用上一方案的核心机制、因果组织、关键限制组合与表达结构。',
+    '新方案至少在世界机制、约束与代价、可写性后果三个方面形成实质不同的选择；若仍有相同硬边界，必须说明它来自资料包而非沿用旧方案。'
   ].join('\n');
 }
 

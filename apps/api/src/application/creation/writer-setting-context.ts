@@ -1,3 +1,5 @@
+import { isMacroSettingItem } from '../knowledge/setting-outline-profile.js';
+
 export interface WriterSettingItem {
   itemKey: string;
   label: string;
@@ -11,7 +13,7 @@ export interface WriterSettingContext {
 
 const CORE_SETTING_KEYS = new Set([
   'world-stage',
-  'protagonist-situation',
+  'social-order',
   'rules-costs',
   'boundaries-blanks'
 ]);
@@ -26,7 +28,7 @@ export function compileWriterSettingContext(
   query: string
 ): WriterSettingContext {
   const unique = [...new Map(items
-    .filter((item) => item.content.trim().length > 0)
+    .filter((item) => item.content.trim().length > 0 && isMacroSettingItem(item))
     .map((item) => [item.itemKey, { ...item, content: item.content.trim() }])).values()];
   const core = unique.filter((item) => CORE_SETTING_KEYS.has(item.itemKey));
   const ranked = unique

@@ -9,7 +9,7 @@
 ## 2. 网络与部署边界
 
 - API、Worker协调端口、SQLite、文件、LanceDB和内部健康信息不直接暴露公网；
-- 本机测试时API与Web开发服务使用回环地址；公网时由同机HTTPS反向代理接收 `wenmixiezuo.com` 并转发到回环端口；
+- 本机测试时API与Web开发服务使用回环地址；公网时由同机HTTPS反向代理分别接收作者主站 `wenmixiezuo.com` 与管理子域 `admin.wenmixiezuo.com`，两者各自同源转发API到回环端口；
 - Host只接受API监听地址和配置的Web域名，Origin只接受当前Web Origin，写请求校验 `Sec-Fetch-Site` 与JSON内容类型；
 - CORS只允许配置的Web Origin并携带凭证；SSE使用同一账号会话和书籍权限，不在URL携带令牌；
 - 反向代理负责TLS证书、HTTP到HTTPS跳转、请求大小和访问日志；公网部署时注册、登录与全局请求限流由应用层 `@fastify/rate-limit` 在API内执行；

@@ -11,7 +11,7 @@ import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
-import { creativeMemberContracts, type CreativeRoleKey } from '../../contracts/agent-team-v2.js';
+import { creativeMemberContracts, roleModelProfiles, type CreativeRoleKey } from '../../contracts/agent-team-v2.js';
 
 export class ModelAdapterFactory {
   public constructor(
@@ -54,7 +54,7 @@ export class ModelAdapterFactory {
     if (endpoint === undefined) throw new Error(`未注册的模型来源：${provider}/${modelId}`);
     if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起真实模型调用');
     if (endpoint.apiKey === undefined) throw new Error(`${endpoint.plan} plan凭证未配置`);
-    const allowed = new Set(Object.values(this.config.roleProfiles)
+    const allowed = new Set([...Object.values(this.config.roleProfiles), ...Object.values(roleModelProfiles)]
       .filter((profile) => profile.provider === provider)
       .map((profile) => profile.modelId));
     if (!allowed.has(modelId)) throw new Error(`模型不在已批准的套餐角色配置中：${provider}/${modelId}`);
@@ -103,7 +103,7 @@ function reviewerRoleFor(roleKey?: RoleKey | CreativeRoleKey): 'fact' | 'literar
 function legacyPromptRole(roleKey: RoleKey | CreativeRoleKey): RoleKey {
   const map: Partial<Record<CreativeRoleKey, RoleKey>> = {
     chief_editor: 'chief_editor', deputy_editor: 'chief_editor', lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'plot_architect', third_screenwriter: 'chief_editor', setting: 'continuity',
+    second_screenwriter: 'plot_architect', third_screenwriter: 'chief_editor', senior_screenwriter: 'plot_architect', setting: 'continuity',
     lead_writer: 'writer', backup_writer: 'writer', fact_reviewer: 'style_editor',
     literary_reviewer: 'reviewer', experience_reviewer: 'reader_experience', experience_challenger: 'researcher',
     researcher: 'researcher', copyright: 'copyright'

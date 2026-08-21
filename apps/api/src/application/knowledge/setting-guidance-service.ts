@@ -14,6 +14,7 @@ import {
 } from './setting-outline-catalog.js';
 import { SettingOutlineWorkspaceService, parseSettingOutlineDeposit, type SettingOutlineWorkspaceItem } from './setting-outline-workspace-service.js';
 import { hashConfirmedSettings, hashSettingItemContent } from './setting-quality-shared.js';
+import { isMacroSettingItem } from './setting-outline-profile.js';
 
 export type SettingGuidancePhase = 'ask' | 'collect' | 'revise';
 export type SettingGuidanceFeedbackMode =
@@ -224,20 +225,19 @@ export class SettingGuidanceService {
         ?? blueprint.categoryKey;
       return {
         template: resolveContinuationSettingOutlineTemplate(),
-        openingBookCore: compileOpeningBookCore(blueprint),
+        openingBookCore: compileMacroOpeningBookCore(blueprint),
         positioningSummary: clip([
           '创作方式：已有正文续写',
           `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
           `主分类：${category}`,
           `题材：${(blueprint.auxiliaryTags ?? []).join('、') || '未填写'}`,
           ...((blueprint.mainTags ?? []).length > 0 ? [`主要标签：${(blueprint.mainTags ?? []).join('、')}`] : []),
-          `主角：${(blueprint.protagonists ?? []).map((item) => `${item.name}（${item.age}）`).join('、') || '以正文为准'}`,
           `必须遵守：${(blueprint.mustFollow ?? []).join('；') || '无额外要求'}`,
           `正文分析：已完成 ${baseline.analyzed_chapter_count}/${baseline.total_chapter_count} 章`,
           '事实边界：已导入正文和反向章纲优先；开书简介只提供定位和续写方向，不能覆盖正文事实'
         ].join('\n'), 1_200),
         storyDirectionReference: clip([
-          `开书方向参考：${(blueprint.storyDirection ?? '').trim() || '未填写'}`,
+          '宏观提取范围：只提取正文证据中的世界环境、制度、资源、信息和客观规则，不把人物或事件转成设定。',
           `正文反向分析：${(baseline.summary_text ?? '').trim() || '暂无总览'}`
         ].join('\n'), 1_000)
       };
@@ -249,20 +249,17 @@ export class SettingGuidanceService {
         .filter((tone) => typeof tone === 'string' && tone.trim().length > 0);
       return {
         template: resolveSettingOutlineTemplate(blueprint),
-        openingBookCore: compileOpeningBookCore(blueprint),
+        openingBookCore: compileMacroOpeningBookCore(blueprint),
         positioningSummary: clip([
           `频道：${blueprint.channel === 'male' ? '男频' : '女频'}`,
           `主分类：${category}`,
           `题材：${(blueprint.auxiliaryTags ?? []).join('、') || '未填写'}`,
           ...((blueprint.mainTags ?? []).length > 0 ? [`主要标签：${(blueprint.mainTags ?? []).join('、')}`] : []),
           ...((blueprint.storyTraits ?? []).length > 0 ? [`作品特点：${(blueprint.storyTraits ?? []).join('、')}`] : []),
-          `开局：${(blueprint.openingStart ?? '').trim() || '未填写'}`,
-          `结局：${(blueprint.storyEnding ?? '').trim() || '未填写'}`,
           ...(styleTones.length > 0 ? [`全书基调：${styleTones.join('＋')}`] : []),
-          `主角：${(blueprint.protagonists ?? []).map((item) => `${item.name}（${item.age}）`).join('、') || '未填写'}`,
           `必须遵守：${(blueprint.mustFollow ?? []).join('；') || '无额外要求'}`
         ].join('\n'), 900),
-        storyDirectionReference: clip((blueprint.storyDirection ?? '').trim() || '未填写', 500)
+        storyDirectionReference: '设定阶段不读取具体剧情方向；人物、关系与事件留到分卷、事件和正文中逐层形成。'
       };
     }
     if (baseline === undefined) return null;
@@ -275,7 +272,10 @@ export class SettingGuidanceService {
         `正文分析：已完成 ${baseline.analyzed_chapter_count}/${baseline.total_chapter_count} 章`,
         '事实边界：只依据已导入正文和反向章纲；正文无法证明的内容保持未知'
       ].join('\n'), 900),
-      storyDirectionReference: clip((baseline.summary_text ?? '').trim(), 800)
+      storyDirectionReference: clip([
+        '宏观提取范围：只提取正文证据中的世界环境、制度、资源、信息和客观规则，不把人物或事件转成设定。',
+        (baseline.summary_text ?? '').trim()
+      ].join('\n'), 800)
     };
   }
 }
@@ -295,7 +295,7 @@ export function compileTemporarySettingContextPack(
 ): TemporarySettingContextPack {
   const confirmed = rows
     .filter((item): item is SettingOutlineWorkspaceItem & { content: string } =>
-      item.itemKey !== targetItemKey && item.status === '已确认' && item.content !== null)
+      item.itemKey !== targetItemKey && isMacroSettingItem(item) && item.status === '已确认' && item.content !== null)
     .sort((left, right) => left.sortOrder - right.sortOrder || left.itemKey.localeCompare(right.itemKey));
   const perItemBudget = confirmed.length === 0
     ? 0
@@ -318,7 +318,7 @@ function compressConfirmedSetting(content: string, maximum: number): string {
   const normalized = content.replace(/\s+/gu, ' ').trim();
   if (normalized.length <= maximum) return normalized;
   const sentences = normalized.match(/[^。！？；]+[。！？；]?/gu) ?? [normalized];
-  const priority = /(?:必须|不得|不能|边界|规则|代价|主角|世界|关系|目标|冲突)/u;
+  const priority = /(?:必须|不得|不能|边界|规则|代价|制度|资源|信息|环境|世界)/u;
   const selected: string[] = [];
   const candidates = [sentences[0], ...sentences.filter((sentence, index) => index > 0 && priority.test(sentence))]
     .filter((sentence): sentence is string => sentence !== undefined);
@@ -332,8 +332,21 @@ function compressConfirmedSetting(content: string, maximum: number): string {
   if (summary.length > 0) return summary + '…';
   return normalized.slice(0, maximum - 1) + '…';
 }
-function compileOpeningBookCore(blueprint: OpeningBlueprintInput): string {
-  // 设定是开书信息的第一次正式推演，必须收到作者填写的全部开书字段。
-  // 排除其他书和未摘录灵感，但不以“节省上下文”为由裁掉作者已填写的内容。
-  return JSON.stringify(blueprint);
+export function compileMacroOpeningBookCore(blueprint: OpeningBlueprintInput): string {
+  // 设定团队只接收宏观世界资料、题材风格和作者硬边界；具体人物与剧情方向留给后续规划。
+  return JSON.stringify({
+    creationMode: blueprint.creationMode,
+    channel: blueprint.channel,
+    categoryKey: blueprint.categoryKey,
+    auxiliaryCategoryKeys: blueprint.auxiliaryCategoryKeys,
+    auxiliaryTags: blueprint.auxiliaryTags,
+    mainTags: blueprint.mainTags,
+    worldBackground: blueprint.worldBackground,
+    initialMap: blueprint.initialMap,
+    storyTraits: blueprint.storyTraits,
+    styleIntent: blueprint.styleIntent,
+    stylePrimary: blueprint.stylePrimary,
+    styleSecondary: blueprint.styleSecondary,
+    mustFollow: blueprint.mustFollow
+  });
 }

@@ -30,3 +30,4 @@ shots-skin/
 shots-create/
 scripts/debug/
 .tmp-test/
+.tmp/

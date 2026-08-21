@@ -209,8 +209,8 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
 
       // 未开通会员：手动召集 AI 被会员门禁拦截。
       const blockedPanel = await app.inject({
-        method: 'POST', url: `/api/v1/books/${bookId}/setting-outline-workspace/story-kernel/collaboration/start`,
-        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-blocked-panel' }
+        method: 'POST', url: `/api/v1/books/${bookId}/setting-outline-workspace/world-stage/collaboration/start`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'membership-blocked-panel' }
       });
       expect(blockedPanel.statusCode).toBe(403);
       expect((blockedPanel.json() as { error: { code: string } }).error.code).toBe('MEMBERSHIP_REQUIRED');
@@ -225,8 +225,8 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const memberTaskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
       expect(memberTaskCount).toBe(0);
       const startPanel = await app.inject({
-        method: 'POST', url: `/api/v1/books/${memberBookId}/setting-outline-workspace/story-kernel/collaboration/start`,
-        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-first-panel' }
+        method: 'POST', url: `/api/v1/books/${memberBookId}/setting-outline-workspace/world-stage/collaboration/start`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'membership-first-panel' }
       });
       expect(startPanel.statusCode).toBe(200);
       const taskCountAfterStart = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;

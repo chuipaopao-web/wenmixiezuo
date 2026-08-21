@@ -14,6 +14,7 @@ export interface RuntimeConfig {
   releaseId: string;
   ownerId: string;
   webOrigin: string;
+  adminOrigin: string | null;
   workerToken: string;
   promptViewPassword: string | null;
   modelRuntime: ModelRuntimeConfig;
@@ -33,13 +34,15 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   const projectRoot = findProjectRoot(env.WENMI_PROJECT_ROOT ?? process.cwd());
   const apiHost = env.WENMI_API_HOST ?? '127.0.0.1';
   const publicOrigin = env.WENMI_PUBLIC_ORIGIN?.trim() || null;
-  if (publicOrigin !== null) {
+  const adminOrigin = env.WENMI_ADMIN_ORIGIN?.trim() || null;
+  for (const [name, origin] of [['WENMI_PUBLIC_ORIGIN', publicOrigin], ['WENMI_ADMIN_ORIGIN', adminOrigin]] as const) {
+    if (origin === null) continue;
     let parsed: URL;
-    try { parsed = new URL(publicOrigin); } catch {
-      throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是完整的 URL（如 https://wenmixiezuo.com）');
+    try { parsed = new URL(origin); } catch {
+      throw new DomainError(errorCodes.validation, `${name} 必须是完整的 URL`);
     }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new DomainError(errorCodes.validation, 'WENMI_PUBLIC_ORIGIN 必须是 http/https 协议的 URL');
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.origin !== origin) {
+      throw new DomainError(errorCodes.validation, `${name} 必须是无路径的 http/https Origin`);
     }
   }
   const dataDir = resolve(env.WENMI_DATA_DIR ?? resolve(projectRoot, 'data'));
@@ -57,6 +60,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     releaseId: readReleaseId(projectRoot),
     ownerId: env.WENMI_OWNER_ID ?? 'owner-local-boss',
     webOrigin: env.WENMI_WEB_ORIGIN ?? 'http://127.0.0.1:43110',
+    adminOrigin,
     workerToken: env.WENMI_WORKER_TOKEN?.trim() || randomBytes(32).toString('base64url'),
     promptViewPassword: env.WENMI_PROMPT_VIEW_PASSWORD?.trim() || null,
     publicOrigin,

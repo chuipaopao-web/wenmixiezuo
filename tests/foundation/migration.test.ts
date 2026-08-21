@@ -67,7 +67,9 @@ describe('向前迁移器', () => {
         '0058_layered_volume_and_event_chain.sql',
         '0059_layered_constraints_and_context.sql',
         '0060_first_volume_launch_progress.sql', '0061_story_thread_keys.sql',
-        '0062_setting_gap_status.sql'
+        '0062_setting_gap_status.sql',
+        '0063_independent_admin_console.sql',
+        '0064_setting_member_resilience.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -92,6 +94,10 @@ describe('向前迁移器', () => {
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'volume_direction_versions', 'book_story_spine_versions', 'event_chain_versions',
         'story_thread_records', 'setting_clauses', 'setting_gap_decisions', 'context_pack_components'
+      ]));
+      expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'membership_transactions', 'user_feedback', 'admin_issue_records',
+        'platform_prompt_overrides', 'model_call_prompt_snapshots', 'narrative_method_overrides'
       ]));
       const settingOutlineColumns = database.prepare('PRAGMA table_info(setting_outline_workspace)').all() as Array<{ name: string }>;
       expect(settingOutlineColumns.map((row) => row.name)).toEqual(expect.arrayContaining([

@@ -104,8 +104,9 @@ export class DiscussionService {
           model_snapshot_id, content_json, phase, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(opinionId, discussionId, scope.ownerId, scope.bookId, input.agentId, input.modelSnapshotId, JSON.stringify(input.content), input.phase, now);
-      this.database.prepare(`UPDATE discussion_participants SET responded = 1 WHERE discussion_id = ? AND agent_id = ?`)
-        .run(discussionId, input.agentId);
+      this.database.prepare(`UPDATE discussion_participants SET responded = 1, run_status = 'completed',
+        error_summary = NULL, last_attempted_at = ? WHERE discussion_id = ? AND agent_id = ?`)
+        .run(now, discussionId, input.agentId);
       this.database.prepare(`UPDATE discussions SET calls_used = calls_used + 1, tokens_used = tokens_used + ?, updated_at = ? WHERE discussion_id = ?`)
         .run(input.tokens, now, discussionId);
       this.database.exec('COMMIT');
@@ -114,6 +115,24 @@ export class DiscussionService {
       throw error;
     }
     return opinionId;
+  }
+
+  public setParticipantRunStatus(
+    scope: BookScope,
+    discussionId: string,
+    agentId: string,
+    status: 'preparing' | 'working' | 'completed' | 'failed' | 'unavailable' | 'paused',
+    errorSummary: string | null = null
+  ): void {
+    assertBookScope(scope);
+    const now = this.clock.now().toISOString();
+    const updated = this.database.prepare(`
+      UPDATE discussion_participants
+      SET run_status = ?, error_summary = ?, last_attempted_at = ?
+      WHERE discussion_id = ? AND owner_id = ? AND book_id = ? AND agent_id = ?
+    `).run(status, errorSummary?.trim().slice(0, 1000) ?? null, now,
+      discussionId, scope.ownerId, scope.bookId, agentId);
+    if (updated.changes !== 1) throw new Error('讨论席位不存在或不属于当前书籍');
   }
 
   public setStage(scope: BookScope, discussionId: string, expected: DiscussionStatus, next: DiscussionStatus): DiscussionRecord {

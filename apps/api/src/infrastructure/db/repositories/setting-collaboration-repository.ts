@@ -30,6 +30,9 @@ export interface SettingPanelMemberRow {
   model_provider: string;
   model_id: string;
   responded: number;
+  run_status: 'preparing' | 'working' | 'completed' | 'failed' | 'unavailable' | 'paused';
+  error_summary: string | null;
+  last_attempted_at: string | null;
 }
 
 export interface SettingRevisionTaskRow {
@@ -81,6 +84,14 @@ export interface SettingFusionDraftRow {
 
 export class SettingCollaborationRepository {
   public constructor(private readonly database: DatabaseSync) {}
+  public discussionScopeText(scope: BookScope, discussionId: string): string | undefined {
+    assertBookScope(scope);
+    const row = this.database.prepare(
+      'SELECT scope_text FROM discussions WHERE owner_id = ? AND book_id = ? AND discussion_id = ?'
+    ).get(scope.ownerId, scope.bookId, discussionId) as { scope_text: string } | undefined;
+    return row?.scope_text;
+  }
+
 
   public latestPanel(scope: BookScope, itemKey: string): SettingPanelTaskRow | undefined {
     assertBookScope(scope);
@@ -96,10 +107,17 @@ export class SettingCollaborationRepository {
     ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingProposalRow[];
   }
 
+  public latestProposalsByRole(scope: BookScope, itemKey: string): SettingProposalRow[] {
+    assertBookScope(scope);
+    return this.database.prepare(
+      "WITH ranked AS (SELECT o.opinion_id AS proposal_id, o.agent_id AS sender_agent_id, a.display_name AS member_name, r.role_key, m.provider AS model_provider, m.model_id, CAST(json_extract(o.content_json, '$.recommendation') AS TEXT) AS content, (SELECT d.decision_id FROM discussion_decisions d WHERE d.owner_id = o.owner_id AND d.book_id = o.book_id AND d.discussion_id = o.discussion_id ORDER BY d.created_at DESC, d.decision_id DESC LIMIT 1) AS decision_id, o.created_at, ROW_NUMBER() OVER (PARTITION BY r.role_key ORDER BY o.created_at DESC, o.opinion_id DESC) AS proposal_rank, MIN(o.created_at) OVER (PARTITION BY r.role_key) AS first_created_at, MIN(o.opinion_id) OVER (PARTITION BY r.role_key) AS first_proposal_id FROM tasks t JOIN discussion_opinions o ON o.discussion_id = json_extract(t.task_brief_json, '$.discussionId') AND o.owner_id = t.owner_id AND o.book_id = t.book_id JOIN agent_instances a ON a.agent_id = o.agent_id AND a.owner_id = o.owner_id AND a.book_id = o.book_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = o.model_snapshot_id WHERE t.owner_id = ? AND t.book_id = ? AND t.task_type = 'discussion' AND json_extract(t.task_brief_json, '$.purpose') = 'setting_proposal_panel' AND json_extract(t.task_brief_json, '$.settingItemKey') = ? AND o.phase = 'independent') SELECT proposal_id, sender_agent_id, member_name, role_key, model_provider, model_id, content, decision_id, created_at FROM ranked WHERE proposal_rank = 1 ORDER BY first_created_at, first_proposal_id"
+    ).all(scope.ownerId, scope.bookId, itemKey) as unknown as SettingProposalRow[];
+  }
+
   public panelMembers(scope: BookScope, discussionId: string): SettingPanelMemberRow[] {
     assertBookScope(scope);
     return this.database.prepare(
-      "SELECT p.agent_id, a.display_name AS member_name, r.role_key, m.provider AS model_provider, m.model_id, p.responded FROM discussion_participants p JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id) WHERE p.owner_id = ? AND p.book_id = ? AND p.discussion_id = ? ORDER BY CASE r.role_key WHEN 'chief_editor' THEN 0 WHEN 'lead_screenwriter' THEN 1 WHEN 'second_screenwriter' THEN 2 ELSE 9 END, p.agent_id"
+      "SELECT p.agent_id, a.display_name AS member_name, r.role_key, m.provider AS model_provider, m.model_id, p.responded, p.run_status, p.error_summary, p.last_attempted_at FROM discussion_participants p JOIN agent_instances a ON a.agent_id = p.agent_id AND a.owner_id = p.owner_id AND a.book_id = p.book_id JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = COALESCE(p.model_snapshot_id, a.model_snapshot_id) WHERE p.owner_id = ? AND p.book_id = ? AND p.discussion_id = ? ORDER BY CASE r.role_key WHEN 'chief_editor' THEN 0 WHEN 'lead_screenwriter' THEN 1 WHEN 'second_screenwriter' THEN 2 WHEN 'third_screenwriter' THEN 3 WHEN 'senior_screenwriter' THEN 4 ELSE 9 END, p.agent_id"
     ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingPanelMemberRow[];
   }
 
@@ -179,12 +197,30 @@ export class SettingCollaborationRepository {
     return row?.agent_id;
   }
 
-  public proposalPanelAgentIds(scope: BookScope): Array<{ agentId: string; roleKey: string }> {
+  public proposalPanelAgentIds(scope: BookScope, roleKeys: string[] = [
+    'lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'
+  ]): Array<{ agentId: string; roleKey: string }> {
     assertBookScope(scope);
     const rows = this.database.prepare(
-      "SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'third_screenwriter') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 ELSE 2 END, a.agent_id"
+      "SELECT a.agent_id, r.role_key FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version WHERE a.owner_id = ? AND a.book_id = ? AND a.enabled = 1 AND a.activation_state IN ('idle','standby') AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 WHEN 'third_screenwriter' THEN 2 ELSE 3 END, a.agent_id"
     ).all(scope.ownerId, scope.bookId) as unknown as Array<{ agent_id: string; role_key: string }>;
-    return rows.map((row) => ({ agentId: row.agent_id, roleKey: row.role_key }));
+    const selected = new Set(roleKeys);
+    return rows.filter((row) => selected.has(row.role_key))
+      .map((row) => ({ agentId: row.agent_id, roleKey: row.role_key }));
+  }
+
+  public screenwriterOptions(scope: BookScope): SettingScreenwriterOptionRow[] {
+    assertBookScope(scope);
+    return this.database.prepare(
+      "SELECT a.agent_id, a.display_name AS member_name, r.role_key, m.provider, m.model_id, json_extract(m.parameters_json, '$.plan') AS plan_type, a.enabled, a.activation_state FROM agent_instances a JOIN role_templates r ON r.role_template_id = a.role_template_id AND r.version = a.role_template_version JOIN model_config_snapshots m ON m.model_snapshot_id = a.model_snapshot_id WHERE a.owner_id = ? AND a.book_id = ? AND r.role_key IN ('lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter') ORDER BY CASE r.role_key WHEN 'lead_screenwriter' THEN 0 WHEN 'second_screenwriter' THEN 1 WHEN 'third_screenwriter' THEN 2 ELSE 3 END, a.agent_id"
+    ).all(scope.ownerId, scope.bookId) as unknown as SettingScreenwriterOptionRow[];
+  }
+
+  public resetPanelMemberForRetry(scope: BookScope, discussionId: string, agentId: string, now: string): boolean {
+    assertBookScope(scope);
+    return this.database.prepare(
+      "UPDATE discussion_participants SET run_status = 'preparing', error_summary = NULL, last_attempted_at = ? WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND agent_id = ? AND run_status IN ('failed','unavailable')"
+    ).run(now, scope.ownerId, scope.bookId, discussionId, agentId).changes === 1;
   }
 
   public saveProposalFragments(scope: BookScope, rows: Array<{
@@ -207,6 +243,15 @@ export class SettingCollaborationRepository {
     return this.database.prepare(
       'SELECT fragment_id, item_key, discussion_id, proposal_id, member_name, role_key, fragment_no, fragment_text, implicit, created_at FROM setting_proposal_fragments WHERE owner_id = ? AND book_id = ? AND discussion_id = ? ORDER BY proposal_id, fragment_no'
     ).all(scope.ownerId, scope.bookId, discussionId) as unknown as SettingProposalFragmentRow[];
+  }
+
+  public fragmentsByProposalIds(scope: BookScope, proposalIds: string[]): SettingProposalFragmentRow[] {
+    assertBookScope(scope);
+    if (proposalIds.length === 0) return [];
+    const marks = proposalIds.map(() => '?').join(',');
+    return this.database.prepare(
+      'SELECT fragment_id, item_key, discussion_id, proposal_id, member_name, role_key, fragment_no, fragment_text, implicit, created_at FROM setting_proposal_fragments WHERE owner_id = ? AND book_id = ? AND proposal_id IN (' + marks + ') ORDER BY proposal_id, fragment_no'
+    ).all(scope.ownerId, scope.bookId, ...proposalIds) as unknown as SettingProposalFragmentRow[];
   }
 
   public fragmentsByIds(scope: BookScope, fragmentIds: string[]): SettingProposalFragmentRow[] {
@@ -243,4 +288,15 @@ export class SettingCollaborationRepository {
     ).get(scope.ownerId, scope.bookId, 'chief_editor') as { agent_id: string } | undefined;
     return row?.agent_id;
   }
+}
+
+export interface SettingScreenwriterOptionRow {
+  agent_id: string;
+  member_name: string;
+  role_key: string;
+  provider: string;
+  model_id: string;
+  plan_type: string | null;
+  enabled: number;
+  activation_state: string;
 }

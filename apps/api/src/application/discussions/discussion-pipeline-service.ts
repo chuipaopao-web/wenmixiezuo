@@ -30,7 +30,8 @@ import {
   parseSettingOutlineDeposit,
   SettingOutlineWorkspaceService
 } from '../knowledge/setting-outline-workspace-service.js';
-import { SettingQualityReportRepository } from '../../infrastructure/db/repositories/setting-quality-report-repository.js';
+import { SettingQualityReportRepository, type SettingQualityIssue } from '../../infrastructure/db/repositories/setting-quality-report-repository.js';
+import { hashSettingItemContent } from '../knowledge/setting-quality-shared.js';
 import { SettingCollaborationRepository } from '../../infrastructure/db/repositories/setting-collaboration-repository.js';
 import { parseFusionSegments, parseSettingProposalStructure } from '@wenmi/contracts';
 import {
@@ -46,6 +47,21 @@ import {
   stageBoundaryContractLine
 } from '../../domain/chapter-outline-stage-boundary.js';
 const groupedSettingMarkers = ['【设定成组讨论资料包】', '【设定' + '大纲成组讨论资料包】'] as const;
+const MACRO_SETTING_AUTHOR_LANGUAGE_RULES = [
+  '面向作者时，用作者平时会说的话，不写咨询报告、产品说明或内部工作术语。',
+  '只描述世界环境、制度、资源、信息和客观规则如何运行；不得用具体人物、人物关系或剧情事件举例来代替规则本身。',
+  '提到规则、边界或风险时，紧接着说清适用对象、触发条件、实际后果和例外，不让概念代替可执行设定。',
+  '不要用“结构边界”“可验证目标”“有界收敛”“落库”“资料包”“正史修订”等内部说法直接回复作者。',
+  '通俗不等于幼稚或啰嗦；保留因果、代价、分歧和真正未知的内容，也不补造资料里没有的事实。'
+].join('\n');
+const MACRO_SETTING_OUTPUT_CONTRACT = {
+  ...EFFECTIVE_OUTPUT_CONTRACT,
+  fields: {
+    ...EFFECTIVE_OUTPUT_CONTRACT.fields,
+    answer: '直接回答作者，使用作者平时会说的话；说清世界规则、运行条件、边界、代价和可见影响'
+  },
+  rules: EFFECTIVE_OUTPUT_CONTRACT.rules.map((rule) => rule === AUTHOR_PLAIN_LANGUAGE_RULES ? MACRO_SETTING_AUTHOR_LANGUAGE_RULES : rule)
+};
 
 function isGroupedSettingScope(value: string): boolean {
   return groupedSettingMarkers.some((marker) => value.includes(marker));
@@ -111,6 +127,7 @@ export class DiscussionPipelineService {
       scopeText: string;
       purpose?: DiscussionPurpose;
       settingItemKey?: string;
+      targetAgentIds?: string[];
       selectedFragmentIds?: string[];
       requestedChapterCount?: 1 | 3 | 4 | 5 | null;
     };
@@ -140,7 +157,7 @@ export class DiscussionPipelineService {
           new SettingQualityReportRepository(this.database).save(scope, {
             reportId: this.ids.next(), taskId,
             contentHash: extractSettingQualityFingerprint(brief.scopeText),
-            verdict: recovered.verdict, summary: recovered.summary, issues: recovered.issues,
+            verdict: recovered.verdict, summary: recovered.summary, issues: attachSettingIssueBaseHashes(this.database, this.clock, scope, recovered.issues),
             now: this.clock.now().toISOString()
           });
         }
@@ -285,6 +302,10 @@ export class DiscussionPipelineService {
             }
           }
           if (existing !== undefined) return existing;
+        if (brief.purpose === 'setting_proposal_panel' && phase === 'independent') {
+          discussions.setParticipantRunStatus(
+            scope, brief.discussionId, participant.agent_id, 'working');
+        }
         }
         const cancellation = this.database.prepare(`SELECT cancel_requested FROM tasks WHERE task_id = ?`).get(taskId) as { cancel_requested: number };
         if (cancellation.cancel_requested === 1) throw new DOMException('讨论任务已取消', 'AbortError');
@@ -575,12 +596,13 @@ export class DiscussionPipelineService {
 
       const editor = participants.find((participant) => participant.agent_id === task.assigned_agent_id);
       if (editor === undefined && brief.purpose !== 'setting_proposal_panel') throw new Error('讨论缺少当前活动主编');
-      const specialists = participants.filter((participant) => participant.agent_id !== task.assigned_agent_id);
-      // 以目标为导向：本轮必须集齐所有席位的方案。各席并行召集；有席位失败时，
-      // 成功席的已落库检查点自动复用，只给缺席席位补发资料包继续写（自动补 2 轮，轮间稍等），
-      // 不让作者干等、也不让已完成的席位陪跑重复消耗。自动补全仍失败的点名成员与原因，
-      // 任务可按断点继续（同样只补缺席席位）。
-      const MAKEUP_ROUNDS = 2;
+      const targetAgentIds = new Set(brief.targetAgentIds ?? []);
+      const specialists = participants.filter((participant) => participant.agent_id !== task.assigned_agent_id
+        && (targetAgentIds.size === 0 || targetAgentIds.has(participant.agent_id)));
+      // 新版设定任务带 targetAgentIds：单席失败后保留成功方案并交给作者单独补写，
+      // 不额外等待30秒。历史在途任务没有该字段，继续沿用两轮自动补位，保证部署
+      // 切换时旧任务可以按原合同恢复，不因版本升级少交方案。
+      const MAKEUP_ROUNDS = brief.purpose === 'setting_proposal_panel' && targetAgentIds.size > 0 ? 0 : 2;
       const MAKEUP_WAIT_MS = 15_000;
       const sleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
       const collectGoalOriented = async (
@@ -599,20 +621,29 @@ export class DiscussionPipelineService {
           pending = pending.filter((specialist, index) => {
             const outcome = settled[index];
             if (outcome?.status === 'fulfilled') { done.set(specialist.agent_id, outcome.value); return false; }
+            const reason = outcome?.reason instanceof Error ? outcome.reason.message : String(outcome?.reason);
+            if (brief.purpose === 'setting_proposal_panel') {
+              const unavailable = /(?:不可用|未配置|停用|disabled|unavailable|not found|unsupported)/iu.test(reason);
+              discussions.setParticipantRunStatus(scope, brief.discussionId, specialist.agent_id,
+                unavailable ? 'unavailable' : 'failed', reason);
+            }
             failures.push({
               name: specialist.display_name,
-              reason: outcome?.reason instanceof Error ? outcome.reason.message : String(outcome?.reason)
+              reason
             });
             return true;
           });
         }
-        if (pending.length > 0) {
+        if (pending.length > 0 && brief.purpose !== 'setting_proposal_panel') {
           const summary = failures.map((failure) => `${failure.name}（${failure.reason}）`).join('；');
           throw new Error(`系统已自动为缺席成员补发资料 ${MAKEUP_ROUNDS} 轮，仍有成员没有交出方案：${summary}。其余成员的方案已保留，继续完成时只让缺席成员补写，不重复消耗。`);
         }
-        return specialists.map((specialist) => done.get(specialist.agent_id)!);
+        return specialists.flatMap((specialist) => done.has(specialist.agent_id) ? [done.get(specialist.agent_id)!] : []);
       };
       const independent: CollectedOpinion[] = await collectGoalOriented('independent');
+      if (brief.purpose === 'setting_proposal_panel' && independent.length === 0) {
+        throw new Error('本轮所选编剧都没有成功返回方案；失败席状态和原因已保存，可逐席补写。');
+      }
 
       if (brief.purpose === 'stage_outline_synthesis') {
         if (specialists.length !== 0) throw new Error('阶段剧情整理只能由活动主编执行');
@@ -633,21 +664,35 @@ export class DiscussionPipelineService {
       }
 
       if (brief.purpose === 'creative_concept_panel' || brief.purpose === 'setting_proposal_panel' || brief.purpose === 'stage_outline_panel') {
-        // 设定提案三席是三名编剧；活动主编不提交提案，只在作者勾选后融合。
+        // 设定提案只包含作者选中的通用编剧；活动主编不提交提案，只在作者选择后融合。
         const editorOpinion = brief.purpose === 'setting_proposal_panel'
           ? null
           : await collectOpinion(editor!, 'independent', []);
-        const proposals = editorOpinion === null ? [...independent] : [editorOpinion, ...independent];
-        if (brief.purpose === 'setting_proposal_panel' && proposals.length !== 3) {
-          throw new Error('设定提案必须由三名编剧各提交一份独立方案，不能伪装成已完成');
-        }
+        const settingOpinions = opinions.filter((opinion) => opinion.phase === 'independent'
+          && participants.some((participant) => participant.agent_id === opinion.agentId));
+        const proposals = editorOpinion === null ? settingOpinions : [editorOpinion, ...independent];
+        if (proposals.length === 0) throw new Error('没有成员成功提交独立方案');
         const preparedProposals = proposals.map((opinion) => ({
           opinion,
           output: prepareEffectiveOutput(opinion.output)
         }));
         const unusable = preparedProposals.find((proposal) => proposal.output.rejectedMachinePayload);
         if (unusable !== undefined) {
-          throw new Error(`${unusable.opinion.role}的独立方案无法安全展示，三席讨论不能伪装成已完成`);
+          throw new Error(`${unusable.opinion.role}的独立方案无法安全展示`);
+        }
+        if (brief.purpose === 'setting_proposal_panel') {
+          this.persistSettingProposalFragments(scope, brief, preparedProposals);
+          const incomplete = this.database.prepare(`
+            SELECT COUNT(*) AS count FROM discussion_participants
+            WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND run_status <> 'completed'
+          `).get(scope.ownerId, scope.bookId, brief.discussionId) as { count: number };
+          if (incomplete.count > 0) {
+            new TaskService(this.database, this.releaseId, this.clock)
+              .complete(scope, taskId, workerId, leaseFence);
+            return {
+              discussionId: brief.discussionId, decisionId: '', opinionCount: proposals.length
+            };
+          }
         }
         const stage = discussions.require(scope, brief.discussionId).status;
         if (stage === 'collecting') discussions.setStage(scope, brief.discussionId, 'collecting', 'synthesizing');
@@ -659,18 +704,15 @@ export class DiscussionPipelineService {
         }
         const decisionId = discussions.synthesize(scope, brief.discussionId, {
           recommendation: {
-            summary: '三席设定方案均为独立候选，等待老板选择、组合或改写；未自动形成共识。',
+            summary: `${proposals.length}份设定方案均为独立候选，等待作者选择、组合或改写；未自动形成共识。`,
             evidence: proposals.map((opinion) => ({ opinionId: opinion.opinionId, role: opinion.role }))
           },
           alternatives: brief.purpose === 'stage_outline_panel'
             ? stageCandidates.map(({ opinion, candidate }, index) => ({ number: index + 1, role: opinion.role, proposal: candidate }))
             : proposals.map((opinion) => ({ role: opinion.role, proposal: opinion.output })),
-          disagreements: [{ status: '保留三个独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
+          disagreements: [{ status: '保留各份独立判断，不交叉讨论，不投票，不自动合并', roles: proposals.map((opinion) => opinion.role) }],
           impacts: [{ scope: brief.purpose === 'stage_outline_panel' ? 'stage_outline_candidate_only' : 'setting_candidate_only', cashCostCny: 0, requiresBossConfirmation: true }]
         });
-        if (brief.purpose === 'setting_proposal_panel') {
-          this.persistSettingProposalFragments(scope, brief, preparedProposals);
-        }
         new TaskService(this.database, this.releaseId, this.clock).complete(scope, taskId, workerId, leaseFence);
         return { discussionId: brief.discussionId, decisionId, opinionCount: proposals.length };
       }
@@ -726,7 +768,7 @@ export class DiscussionPipelineService {
         new SettingQualityReportRepository(this.database).save(scope, {
           reportId: this.ids.next(), taskId,
           contentHash: extractSettingQualityFingerprint(brief.scopeText),
-          verdict: audit.verdict, summary: audit.summary, issues: audit.issues,
+          verdict: audit.verdict, summary: audit.summary, issues: attachSettingIssueBaseHashes(this.database, this.clock, scope, audit.issues),
           now: this.clock.now().toISOString()
         });
       }
@@ -784,7 +826,7 @@ export class DiscussionPipelineService {
   }
 
   /**
-   * 把三席提案的结构化碎片入库；解析失败的提案以整份方案作为单条兜底碎片
+   * 把作者所选编剧提案的结构化碎片入库；解析失败的提案以整份方案作为单条兜底碎片
    * 并标记 implicit，绝不把解析失败伪装成结构化成功。
    */
   private persistSettingProposalFragments(
@@ -801,6 +843,12 @@ export class DiscussionPipelineService {
       implicit: boolean; now: string;
     }> = [];
     for (const { opinion, output } of preparedProposals) {
+      const alreadySaved = this.database.prepare(
+        'SELECT 1 FROM setting_proposal_fragments WHERE owner_id = ? AND book_id = ? AND proposal_id = ? LIMIT 1'
+      ).get(scope.ownerId, scope.bookId, opinion.opinionId);
+      if (alreadySaved !== undefined) {
+        continue;
+      }
       const fields = parseModelJsonFields(opinion.output);
       const structure = fields === null ? null : parseSettingProposalStructure(fields);
       if (structure !== null) {
@@ -844,7 +892,7 @@ export class DiscussionPipelineService {
 export function parseSettingQualityAudit(fields: Record<string, unknown> | null): {
   verdict: 'pass' | 'warn' | 'fail';
   summary: string;
-  issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string }>;
+  issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string; replacement: string }>;
 } | null {
   if (fields === null) return null;
   const verdict = fields.verdict;
@@ -852,19 +900,23 @@ export function parseSettingQualityAudit(fields: Record<string, unknown> | null)
   const summary = typeof fields.summary === 'string' ? fields.summary.trim() : '';
   if (summary.length === 0) return null;
   const rawIssues = Array.isArray(fields.issues) ? fields.issues : [];
-  const issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string }> = [];
+  const issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string; replacement: string }> = [];
   for (const [index, raw] of rawIssues.entries()) {
     if (typeof raw !== 'object' || raw === null) return null;
     const record = raw as Record<string, unknown>;
     const severity = record.severity === 'hard' ? 'hard' : record.severity === 'soft' ? 'soft' : null;
     const problem = typeof record.problem === 'string' ? record.problem.trim() : '';
-    if (severity === null || problem.length === 0) return null;
+    const itemKey = typeof record.itemKey === 'string' ? record.itemKey.trim() : 'whole';
+    const replacement = typeof record.replacement === 'string' ? record.replacement.trim() : '';
+    if (severity === null || problem.length === 0 || itemKey.length === 0) return null;
+    if ((itemKey === 'whole' && replacement.length > 0) || (itemKey !== 'whole' && replacement.length === 0)) return null;
     issues.push({
       id: typeof record.id === 'string' && record.id.trim().length > 0 ? record.id.trim() : `i${index + 1}`,
       severity,
-      itemKey: typeof record.itemKey === 'string' ? record.itemKey : 'whole',
+      itemKey,
       problem,
-      suggestion: typeof record.suggestion === 'string' ? record.suggestion.trim() : ''
+      suggestion: typeof record.suggestion === 'string' ? record.suggestion.trim() : '',
+      replacement
     });
   }
   if (verdict === 'fail' && !issues.some((issue) => issue.severity === 'hard')) return null;
@@ -874,6 +926,24 @@ export function parseSettingQualityAudit(fields: Record<string, unknown> | null)
 function extractSettingQualityFingerprint(scopeText: string): string {
   return scopeText.match(/【质检内容指纹】([0-9a-f]{64})/)?.[1] ?? '__unknown__';
 }
+function attachSettingIssueBaseHashes(
+  database: DatabaseSync,
+  clock: Clock,
+  scope: BookScope,
+  issues: Array<{ id: string; severity: 'hard' | 'soft'; itemKey: string; problem: string; suggestion: string; replacement: string }>
+): SettingQualityIssue[] {
+  const currentByKey = new Map(new SettingOutlineWorkspaceService(database, clock).list(scope)
+    .map((item) => [item.itemKey, item]));
+  return issues.map((issue) => {
+    if (issue.itemKey === 'whole') return { ...issue, replacement: '', baseContentHash: '' };
+    const current = currentByKey.get(issue.itemKey);
+    if (current?.status !== '已确认' || current.content === null) {
+      throw new Error(`主编质检引用了不存在或未确认的设定项：${issue.itemKey}`);
+    }
+    return { ...issue, baseContentHash: hashSettingItemContent(current.content) };
+  });
+}
+
 
 /** 从模型JSON输出中取出fields对象；解析失败返回null，不做任何猜测。 */
 export function parseModelJsonFields(raw: string): Record<string, unknown> | null {
@@ -1180,7 +1250,7 @@ function buildStructuredArtifactRecoveryPrompt(
       prompt,
       `The previous setting quality audit was invalid${validationFailure === null ? '' : `: ${validationFailure}`}.`,
       invalidOutput === null ? '' : `Invalid previous output for structure repair only:\n${boundedHeadAndTail(invalidOutput, 3_500)}`,
-      'Return exactly one JSON object shaped as {"version":1,"fields":{"verdict":"pass|warn|fail","summary":"...","issues":[{"id":"i1","severity":"hard|soft","itemKey":"whole","problem":"...","suggestion":"..."}]}}.',
+      'Return exactly one JSON object shaped as {"version":1,"fields":{"verdict":"pass|warn|fail","summary":"...","issues":[{"id":"i1","severity":"hard|soft","itemKey":"setting-key-or-whole","problem":"...","suggestion":"...","replacement":"complete revised item content, or empty only for whole"}]}}.',
       'Do not use the generic answer field, markdown fences, analysis, or any text outside the JSON object.'
     ].filter(Boolean).join('\n');
   }
@@ -1430,7 +1500,7 @@ function buildDiscussionPrompt(input: {
       scopeText,
       `与本次质检直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
       '这是质检专用机器合同，不使用普通讨论的answer字段。',
-      '只输出一个JSON对象：{"version":1,"fields":{"verdict":"pass或warn或fail","summary":"一段总评","issues":[{"id":"i1","severity":"hard或soft","itemKey":"设定项键或whole","problem":"具体问题","suggestion":"具体建议"}]}}。',
+      '只输出一个JSON对象：{"version":1,"fields":{"verdict":"pass或warn或fail","summary":"一段总评","issues":[{"id":"i1","severity":"hard或soft","itemKey":"设定项键或whole","problem":"具体问题","suggestion":"修改思路","replacement":"该条目修改后的完整内容；whole时为空字符串"}]}}。',
       '不得输出Markdown围栏、分析过程、前后说明、answer字段或第二份JSON。'
     ].join('\n');
   }
@@ -1473,25 +1543,17 @@ function buildDiscussionPrompt(input: {
       `你是${participant.display_name}，正在参加本书“${itemLabel}”独立提案。`,
       `统一命题与开书资料：${scopeText}`,
       `与你的判断直接相关的检索依据：${JSON.stringify(evidenceContext)}`,
-      '你看不到另外两名成员的答案，也不得猜测、评价、汇总或迎合她们。只提交一个你自己真正推荐、可供作者选择的方案。',
+      '你看不到其他成员的答案，也不得猜测、评价、汇总或迎合她们。只提交一个你自己真正推荐、可供作者选择的完整方案。',
       creativeConcept
         ? '策划理念必须用小白作者也能读懂的自然中文，明确回答：一、这本书为什么值得写；二、主要想探讨什么；三、准备给读者什么独特体验。三者要形成同一个创作机制，不能只是标签、广告语或剧情梗概。'
-        : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的设定，不提前规定具体剧情结果，也不扩写剧情总纲、章纲或正文。方案必须说清三件事：核心主张是什么；它靠什么让读者一直追下去（爽感、悬念、情感还是成长，靠什么持续兑现）；它和同类书拉开差距的点在哪里。`,
-      '只回答本项的当前问题，不越界：具体玩法规则、升级机制和代价细则归"规矩与代价"，对手和冲突对象归"对立面"，剧情走向和节奏安排归后续大纲，这些都不写进本项方案。你的侧重只是看问题的角度，不是把别项的内容搬进来。',
+        : `本项要解决的问题是：${itemPrompt}。给出清楚、具体且可修改的宏观设定，不依赖任何具体人物或剧情也能成立。方案必须说清：这套世界机制是什么；在什么条件下运行；边界、代价与失效条件是什么；哪些部分应保持未知。`,
+      '只回答本项的当前问题，不越界：主角、配角、反派、人物关系、关系进展、剧情对手、事件目标和节奏安排全部归后续分卷、事件、章纲与正文，不写进设定方案。',
       '方案必须在开书信息、作者原话和已确认的前置设定之上推演：已有信息里定了的，顺着它设计；已有信息里没有的，才由你专业创造。不得抛开已有信息另起炉灶。',
-      participant.role_key === 'lead_screenwriter'
-        ? '侧重爽点、强冲突和持续追读张力：这项设定怎么让读者看得爽、冲突更硬、更想追下去。'
-        : participant.role_key === 'second_screenwriter'
-          ? '侧重因果链与逻辑闭环：这项设定的前因后果、代价和边界是否前后一致、能不能被剧情稳定执行。'
-          : participant.role_key === 'third_screenwriter'
-            ? '侧重脑洞、新鲜感与可玩性：这项设定有没有让人眼前一亮的玩法和记忆点，同时能落地、不破坏因果。'
-            : participant.role_key === 'setting'
-              ? '侧重规则严谨与可核验：定义是否清楚、能不能被后文稳定执行、和已确认设定是否冲突。'
-              : '侧重作品定位、读者承诺和后续创作空间，给出编辑判断而不是问卷。',
+      '你是可以设计完整世界机制的编剧：同时检查制度、因果、资源、信息、规则边界、代价和长期一致性；不得用具体人物或剧情案例替代规则本身。',
       '只写一个候选，正文建议200至400字，具体到能直接落地；最后用一句话告诉作者：这项设定以后写故事时要抓住什么。不列A/B/C，不提问题，不要求作者立即确认，不写内部资料、JSON键名、模型信息或工作过程。',
-      '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成4至8条可以独立勾选的具体设定主张；每条是一句能独立成立、互不重复、直接回答本项当前问题的话，合起来要覆盖你的完整方案，不拆空话套话；作者会逐条勾选或全选后交给主编融合）。',
-      AUTHOR_PLAIN_LANGUAGE_RULES,
-      `输出合同：${JSON.stringify(EFFECTIVE_OUTPUT_CONTRACT)}`
+      '在输出JSON的fields中额外给出：benefits（这条方案给本书带来的好处，1至3条）、costs（要付出的代价或限制，1至3条）、fragments（把方案拆成4至8条可以独立勾选的具体设定主张；每条是一句能独立成立、互不重复、直接回答本项当前问题的话，合起来要覆盖你的完整方案，不拆空话套话；作者会逐条勾选或全选后在页面组合成可编辑稿）。',
+      creativeConcept ? AUTHOR_PLAIN_LANGUAGE_RULES : MACRO_SETTING_AUTHOR_LANGUAGE_RULES,
+      `输出合同：${JSON.stringify(creativeConcept ? EFFECTIVE_OUTPUT_CONTRACT : MACRO_SETTING_OUTPUT_CONTRACT)}`
     ].join('\n');
   }
   if (isEditor) {
@@ -1509,7 +1571,7 @@ function buildDiscussionPrompt(input: {
         : isGroupedSettingWorkshop
             ? scopeText.includes('"fragmentId"')
               ? '这是设定碎片融合。作者已经逐条勾选碎片；每条勾选碎片的原意必须保留，只能做最小必要衔接，不得混入未勾选内容。融合稿整体要读作一段精炼定稿，衔接段只为通顺服务，不新增设定主张。'
-              : '这是设定成组讨论。只讨论资料包列出的非剧情设定项；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得生成剧情总纲、章纲或正文。'
+              : '这是设定成组讨论。只讨论资料包列出的宏观世界规则；先解决项目间依赖和冲突，再给每一项形成可直接保存、互不重复的明确结论。不得设计具体人物、人物关系或剧情，不得生成剧情总纲、章纲或正文。'
             : purpose === 'creative_exploration'
               ? '现在只做方向推演：综合编剧意见后先给一个明确主推荐，写清收益、代价、因果风险和人物影响；只有确有重大取舍时保留一个结构不同的备选。最多提出1个会改变重大方向的必要问题；其余未知项用可逆假设推进。不得估算章节数，不得生成章纲，不得安排主笔开写。'
               : purpose === 'locked_planning'
@@ -1570,16 +1632,18 @@ function buildDiscussionPrompt(input: {
   return [
     `你是${participant.display_name}。请在看不到另一位编剧答案的前提下，独立分析这个小说创作问题：${scopeText}。`,
     `按当前问题检索到的正史与规划证据：${JSON.stringify(evidenceContext)}`,
-    '先从人物此刻想要什么、知道什么、害怕失去什么开始推演，再形成行动—阻力—选择—代价—后果的事件链。分类、题材和标签只说明作品承诺与可用方向，不得把标签名称机械拼成剧情，也不得为了填模板让人物做不合动机的事。',
+    isGroupedSettingWorkshop
+      ? '先检查制度—资源—信息—边界—代价是否能形成自洽闭环；不得举具体主角、配角、关系或剧情事件来代替宏观规则。'
+      : '先从人物此刻想要什么、知道什么、害怕失去什么开始推演，再形成行动—阻力—选择—代价—后果的事件链。分类、题材和标签只说明作品承诺与可用方向，不得把标签名称机械拼成剧情，也不得为了填模板让人物做不合动机的事。',
     participant.role_key === 'lead_screenwriter'
-      ? '你的侧重点是找出最自然、因果最稳而仍有惊喜的主路径，明确它为什么能持续推进，以及成功必须付出的代价。'
+      ? '本轮请独立完成一条自然、因果成立且有惊喜的完整路径；这是当前任务分工，不是你的固定专长。'
       : participant.role_key === 'second_screenwriter'
-        ? '你的侧重点是提出因果成立但结构确实不同的路径，并压力测试最容易被默认接受的前提；不要为了显得不同而追求无根据的反转。'
+        ? '本轮请独立完成另一条因果成立且结构实质不同的完整路径；这是当前任务分工，不是你的固定专长，不要为不同而制造无根据反转。'
         : '',
     isMasterOutlineWorkshop
       ? '独立提出当前唯一剧情阶段的完整方案：围绕一个主事件形成起承转合和明确结算，预计不超过50章；只保留全书核心前提、冲突、成长与结局方向作为远期锚点，不提前规划后续阶段或逐章事件。'
       : isGroupedSettingWorkshop
-          ? '独立为资料包中的全部非剧情设定项提出一套相互兼容的设定方案。逐项给出明确规则、边界和代价，优先服从书名、开书资料、主角身份和必须遵守项；不得把标签当成主角性别或虚构已确认资料。'
+          ? '独立为资料包中的全部宏观设定项提出一套相互兼容的世界规则。逐项给出明确机制、条件、边界、代价和留白，优先服从宏观开书资料与作者必须遵守项；不得设计或推断具体人物、人物关系和剧情。'
         : '给出结构清楚但保留创造性的方案，至少说明因果链、人物动机与代价、合理惊喜、失败风险、未知项和一项可执行建议；不要客套、自我介绍或重复结论。',
     isMasterOutlineWorkshop
       ? '这是剧情总纲落库任务。你必须提交一个完整、可执行、可验收的当前阶段剧情约束契约，不是全书流水账，也不是逐章章纲。workflowArtifact.payload必须使用stage_master_v2，并在阶段内写明：剧情主模式和最多两个辅助模式及采用理由；戏剧问题；阶段目标；开场状态；表层冲突、深层冲突、利害关系和失败代价；章节范围（最多50章）；主线遭遇、解决和结果；阶段级起承转合；结束验收条件；防偏移硬约束；创作自由区；阶段总结、待回收线索和后续方向。剧情模式是软参考，可以组合或弃用，不得公式化照搬。反向拆解时只总结正文中真实存在的结构，不得倒推不存在的模式。当前阶段完成并结算前不得设计下一阶段。'

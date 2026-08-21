@@ -55,7 +55,15 @@ export class PlatformModelSchemeService {
   }
 
   public currentProfiles(fallback: Record<CreativeRoleKey, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
-    return this.storedProfiles() ?? fallback;
+    const stored = this.storedProfiles();
+    if (stored === null) return fallback;
+    const followsCurrentCredentialRouting = creativeRoleKeys.every((role) => {
+      const profile = stored[role];
+      return role === 'senior_screenwriter'
+        ? profile.provider === 'volcengine-ark-agent-plan' && profile.plan === 'agent' && /kimi-k3/iu.test(profile.modelId)
+        : profile.provider === 'volcengine-ark-coding-plan' && profile.plan === 'coding';
+    });
+    return followsCurrentCredentialRouting ? stored : fallback;
   }
 
   public allowedModels(roleProfiles: Record<NovelRoleKey, RoleModelProfile>): AllowedModelProfile[] {

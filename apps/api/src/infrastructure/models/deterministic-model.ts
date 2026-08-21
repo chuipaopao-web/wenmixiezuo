@@ -775,21 +775,9 @@ function deterministicDiscussion(prompt: string): string | null {
   if (settingProposalMatch !== null) {
     const base = deterministicDiscussionReply();
     const itemLabel = settingProposalMatch[1] ?? '当前设定项';
-    if (prompt.includes('人物欲望、关系变化') || prompt.includes('侧重爽点、强冲突')) {
-      base.fields.answer = itemLabel === '策划理念'
-        ? '让人物在互相拯救与互相利用之间不断重新选择，借关系变化讨论爱能否承受真相，并给读者兼具心疼、悬念和主动成长的体验。'
-        : `${itemLabel}从冲突最硬的角度来定：先让人物立刻被阻力咬住，再让每次推进都付出看得见的代价，让读者一路有爽点和追读张力。`;
-    } else if (prompt.includes('打破最直觉的同类套路') || prompt.includes('侧重因果链')) {
-      base.fields.answer = itemLabel === '策划理念'
-        ? '把看似被拯救的一方写成更早看清真相的人，借认知错位讨论善意是否也会成为控制，并让读者在反转后重新理解两个人的每次靠近。'
-        : `${itemLabel}先把因果链说清：为什么会这样、能做到什么、不能做到什么、代价是什么，保证后文每一步都有前因支撑。`;
-    } else if (prompt.includes('侧重规则严谨')) {
-      base.fields.answer = `${itemLabel}按可核验的规则来写：定义清楚、边界清楚、和已确认设定不冲突，后文任何时候回查都能对得上。`;
-    } else {
-      base.fields.answer = itemLabel === '策划理念'
-        ? '用一段必须付出真实代价的双向救赎，讨论人在被欺骗后是否仍能自主选择信任，让读者既获得现实共鸣，也持续期待关系真相被逐层揭开。'
-        : `${itemLabel}先写清读者会看到什么、人物会怎么受影响；现在只定必要内容，不把后面的剧情提前写死。`;
-    }
+    base.fields.answer = itemLabel === '策划理念'
+      ? '用一段必须付出真实代价的双向救赎，讨论人在被欺骗后是否仍能自主选择信任，让读者既获得现实共鸣，也持续期待关系真相被逐层揭开。'
+      : `${itemLabel}先写清读者会看到什么、人物会怎么受影响；现在只定必要内容，不把后面的剧情提前写死。`;
     base.fields.keyPoints = [];
     base.fields.alternatives = [];
     base.fields.risks = [];

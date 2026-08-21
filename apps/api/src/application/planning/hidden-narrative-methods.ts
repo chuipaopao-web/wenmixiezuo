@@ -10,6 +10,7 @@ interface HiddenNarrativeMethod {
   category: MethodCategory;
   signals: readonly string[];
   scaffold: string;
+  versionId?: string;
 }
 
 export interface HiddenVolumeRouteRecipe {
@@ -19,6 +20,13 @@ export interface HiddenVolumeRouteRecipe {
   methodVersionIds: string[];
   selectionReason: string;
   scaffold: string[];
+}
+
+export interface HiddenNarrativeMethodOverride {
+  methodKey: string;
+  version: number;
+  enabled: boolean;
+  content: HiddenNarrativeMethodVersion['content'];
 }
 
 const METHODS: readonly HiddenNarrativeMethod[] = [
@@ -48,16 +56,21 @@ const METHODS: readonly HiddenNarrativeMethod[] = [
 
 export const HIDDEN_NARRATIVE_METHOD_COUNT = METHODS.length;
 
-export function selectHiddenVolumeRouteRecipes(signalText: string, firstVolume: boolean): [HiddenVolumeRouteRecipe, HiddenVolumeRouteRecipe] {
+export function selectHiddenVolumeRouteRecipes(
+  signalText: string,
+  firstVolume: boolean,
+  overrides: HiddenNarrativeMethodOverride[] = []
+): [HiddenVolumeRouteRecipe, HiddenVolumeRouteRecipe] {
   const normalized = signalText.toLocaleLowerCase('zh-CN');
-  const macros = ranked('macro', normalized);
+  const methods = runtimeMethods(overrides);
+  const macros = ranked(methods, 'macro', normalized);
   const primaryA = macros[0] ?? requireMethod('three-act');
   const primaryB = macros.find((candidate) => candidate.methodKey !== primaryA.methodKey) ?? requireMethod('four-act');
-  const character = ranked('character', normalized)[0] ?? requireMethod('story-circle');
-  const serial = ranked('serial', normalized)[0] ?? requireMethod('continuation-hook');
-  const presentation = ranked('presentation', normalized)[0];
-  const causality = ranked('causality', normalized)[0] ?? requireMethod('mckee-causality');
-  const firstVolumeMethod = firstVolume ? requireMethod('golden-three') : null;
+  const character = ranked(methods, 'character', normalized)[0] ?? methods.find((item) => item.methodKey === 'story-circle');
+  const serial = ranked(methods, 'serial', normalized)[0] ?? methods.find((item) => item.methodKey === 'continuation-hook');
+  const presentation = ranked(methods, 'presentation', normalized)[0];
+  const causality = ranked(methods, 'causality', normalized)[0] ?? methods.find((item) => item.methodKey === 'mckee-causality');
+  const firstVolumeMethod = firstVolume ? methods.find((item) => item.methodKey === 'golden-three') : null;
 
   return [
     recipe('route-a', [primaryA, causality, character, firstVolumeMethod].filter(isMethod)),
@@ -65,8 +78,8 @@ export function selectHiddenVolumeRouteRecipes(signalText: string, firstVolume: 
   ];
 }
 
-function ranked(category: MethodCategory, normalized: string): HiddenNarrativeMethod[] {
-  return METHODS.filter((candidate) => candidate.category === category)
+function ranked(methods: readonly HiddenNarrativeMethod[], category: MethodCategory, normalized: string): HiddenNarrativeMethod[] {
+  return methods.filter((candidate) => candidate.category === category)
     .map((candidate, index) => ({
       candidate,
       index,
@@ -82,7 +95,7 @@ function recipe(prefix: string, selected: HiddenNarrativeMethod[]): HiddenVolume
     recipeKey: `${prefix}-v${HIDDEN_NARRATIVE_REGISTRY_VERSION}-${unique.map((candidate) => candidate.methodKey).join('.')}`,
     registryVersion: HIDDEN_NARRATIVE_REGISTRY_VERSION,
     methodKeys: unique.map((candidate) => candidate.methodKey),
-    methodVersionIds: unique.map((candidate) => methodVersionId(candidate.methodKey)),
+    methodVersionIds: unique.map((candidate) => candidate.versionId ?? methodVersionId(candidate.methodKey)),
     selectionReason: `根据本卷题材、长度、当前任务与${prefix === 'route-a' ? '人物主动推进' : '压力变化和连载期待'}选择互补工具；只使用职责映射，不照搬节拍。`,
     scaffold: [
       ...unique.map((candidate) => candidate.scaffold),
@@ -122,9 +135,11 @@ export interface HiddenNarrativeMethodVersion {
   };
 }
 
-export function hiddenNarrativeMethodVersions(): HiddenNarrativeMethodVersion[] {
-  return METHODS.map((item) => {
-    const content: HiddenNarrativeMethodVersion['content'] = {
+export function hiddenNarrativeMethodVersions(overrides: HiddenNarrativeMethodOverride[] = []): HiddenNarrativeMethodVersion[] {
+  const overrideMap = new Map(overrides.map((item) => [item.methodKey, item]));
+  return runtimeMethods(overrides).map((item) => {
+    const override = overrideMap.get(item.methodKey);
+    const content: HiddenNarrativeMethodVersion['content'] = override?.content ?? {
       internalLabel: item.internalLabel,
       suitableProblems: [item.scaffold],
       organization: [item.scaffold],
@@ -139,13 +154,30 @@ export function hiddenNarrativeMethodVersions(): HiddenNarrativeMethodVersion[] 
       }
     };
     return {
-      id: methodVersionId(item.methodKey),
+      id: item.versionId ?? methodVersionId(item.methodKey),
       methodKey: item.methodKey,
-      version: '1.0.0',
+      version: override === undefined ? '1.0.0' : `admin.${override.version}`,
       category: databaseCategory(item.category),
       contentFingerprint: hashStableContractContent(content).slice('sha256:'.length),
       content
     };
+  });
+}
+
+function runtimeMethods(overrides: HiddenNarrativeMethodOverride[]): HiddenNarrativeMethod[] {
+  const overrideMap = new Map(overrides.map((item) => [item.methodKey, item]));
+  return METHODS.flatMap((item) => {
+    const override = overrideMap.get(item.methodKey);
+    if (override?.enabled === false) return [];
+    if (override === undefined) return [item];
+    const organization = override.content.organization.filter((entry) => entry.trim().length > 0);
+    return [{
+      ...item,
+      internalLabel: override.content.internalLabel,
+      signals: override.content.fitGenres,
+      scaffold: organization.join('；') || item.scaffold,
+      versionId: `structure-method:${item.methodKey}:admin.${override.version}`
+    }];
   });
 }
 

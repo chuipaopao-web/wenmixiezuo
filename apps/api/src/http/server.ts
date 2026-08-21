@@ -93,7 +93,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     // 正常翻页就会集体触发 RATE_LIMITED。
     trustProxy: true
   });
-  await app.register(cors, { origin: config.webOrigin, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
+  const corsOrigins = config.adminOrigin === null ? config.webOrigin : [config.webOrigin, config.adminOrigin];
+  await app.register(cors, { origin: corsOrigins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
   await app.register(multipart, {
     limits: { files: 1, fileSize: 20 * 1024 * 1024, fields: 0, parts: 1 }
   });

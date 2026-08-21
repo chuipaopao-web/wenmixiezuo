@@ -7,6 +7,43 @@ interface InternalResponse {
   body: string;
 }
 
+interface InternalErrorBody {
+  error?: {
+    code?: unknown;
+    retryable?: unknown;
+  };
+}
+
+export class WorkerExecutionError extends Error {
+  public constructor(
+    public readonly code: string,
+    public readonly retryable: boolean,
+    public readonly statusCode: number,
+    detail: string
+  ) {
+    super(`章节执行API失败：${statusCode} ${detail}`);
+    this.name = 'WorkerExecutionError';
+  }
+}
+
+function executionError(response: InternalResponse): WorkerExecutionError {
+  let parsed: InternalErrorBody | undefined;
+  try {
+    parsed = JSON.parse(response.body) as InternalErrorBody;
+  } catch {
+    parsed = undefined;
+  }
+  const rawCode = parsed?.error?.code;
+  const code = typeof rawCode === 'string' && /^[A-Z][A-Z0-9_]{1,80}$/u.test(rawCode)
+    ? rawCode
+    : 'WORKER_API_HTTP_ERROR';
+  const explicitRetryable = parsed?.error?.retryable;
+  const retryable = typeof explicitRetryable === 'boolean'
+    ? explicitRetryable
+    : response.statusCode >= 500;
+  return new WorkerExecutionError(code, retryable, response.statusCode, response.body.slice(0, 300));
+}
+
 function postJson(url: URL, headers: Record<string, string>, body: string, signal?: AbortSignal): Promise<InternalResponse> {
   return new Promise<InternalResponse>((resolve, reject) => {
     const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
@@ -49,7 +86,7 @@ export class ChapterTaskExecutor {
       attemptNo: task.attemptNo
     }), signal);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw new Error(`章节执行API失败：${response.statusCode} ${response.body.slice(0, 300)}`);
+      throw executionError(response);
     }
   }
 }

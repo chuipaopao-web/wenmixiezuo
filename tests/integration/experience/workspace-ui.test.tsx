@@ -39,7 +39,9 @@ const agentRoles = [
   ['experience_reviewer', '体验', '昭君'],
   ['experience_challenger', '体验', '妙玉'],
   ['researcher', '研究员', '道韫'],
-  ['copyright', '版权', '弄玉']
+  ['copyright', '版权', '弄玉'],
+  ['senior_screenwriter', '高级编剧', '清照']
+
 ] as const;
 
 const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, displayName], index) => ({
@@ -123,13 +125,13 @@ describe('完整创作工作台', () => {
     expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('顶部团队入口显示当前书14名真实成员状态', async () => {
+  it('顶部团队入口显示当前书15名真实成员状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('14 名成员')).toBeInTheDocument();
+    expect(screen.getByText('15 名成员')).toBeInTheDocument();
     expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/local-deterministic|wenmi-fixture/u)).not.toBeInTheDocument();
   });
@@ -154,7 +156,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('14 名成员')).toBeInTheDocument();
+    expect(screen.getByText('15 名成员')).toBeInTheDocument();
     expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
   });
 
@@ -257,7 +259,7 @@ describe('完整创作工作台', () => {
     await screen.findAllByText('雾钟档案');
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
     const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
-    expect(within(team).getByText('14 名成员')).toBeInTheDocument();
+    expect(within(team).getByText('15 名成员')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
     expect(within(team).getByText('岗位职责')).toBeInTheDocument();
     expect(within(team).getByText('负责什么')).toBeInTheDocument();
@@ -720,7 +722,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       missing: ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow', 'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'history-baseline', 'divergence'],
       unresolved: [],
       required: ['creative-concept', 'reader-promise', 'era', 'protagonist', 'motivation', 'must-follow', 'game-entry', 'player-npc', 'game-panel', 'class-skill', 'loot', 'history-baseline', 'divergence'],
-      recommended: ['theme-intent', 'differentiator', 'tone-boundary', 'geography', 'strength-flaw', 'supporting', 'relations', 'open', 'intentional-unknown', 'levels', 'costs', 'abilities', 'equipment', 'quest-instance', 'ranking', 'governance', 'history', 'class', 'culture', 'politics-military', 'technology-spread', 'historical-names'],
+      recommended: ['geography', 'governance', 'information', 'levels', 'costs', 'abilities', 'equipment', 'quest-instance', 'ranking', 'history', 'class', 'culture', 'politics-military', 'technology-spread', 'historical-names'],
       profileKey: 'game+history',
       profileLabel: '游戏竞技＋历史古代'
     });

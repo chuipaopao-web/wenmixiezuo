@@ -1,6 +1,6 @@
 import type { WorkerHeartbeat } from '../health/heartbeat.js';
 import type { TaskClaimer, ClaimedTask } from '../scheduler/task-claimer.js';
-import type { ChapterTaskExecutor } from '../executors/chapter-task-executor.js';
+import { WorkerExecutionError, type ChapterTaskExecutor } from '../executors/chapter-task-executor.js';
 
 const WORKER_EXECUTION_LEASE_MS = 120_000;
 const DEFAULT_MAX_CONCURRENCY = 8;
@@ -88,6 +88,13 @@ export class WorkerLoop {
         this.claimer.block(task, 'EXECUTOR_NOT_REGISTERED');
       }
     } catch (error) {
+      if (error instanceof WorkerExecutionError && !error.retryable) {
+        try {
+          this.claimer.fail(task, error.code);
+        } catch (commitError) {
+          console.error(JSON.stringify({ service: 'wenmi-worker', error: commitError instanceof Error ? commitError.message : String(commitError) }));
+        }
+      }
       console.error(JSON.stringify({ service: 'wenmi-worker', error: error instanceof Error ? error.message : String(error) }));
     } finally {
       this.#inFlight.delete(task.taskId);

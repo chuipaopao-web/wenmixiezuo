@@ -56,6 +56,41 @@ describe('统一账号HTTP请求策略', () => {
     }
   });
 
+  it('独立后台子域通过Host、CORS和写入Origin校验，仿冒子域仍被拒绝', async () => {
+    context = createTestContext('wenmi-policy-admin-origin-');
+    context.config.adminOrigin = 'https://admin.wenmixiezuo.com';
+    const app = await createServer(context.config, context.database);
+    try {
+      const register = await app.inject({
+        method: 'POST', url: '/api/v1/auth/register',
+        payload: { email: 'admin-origin@example.com', password: 'policy-pass-123', displayName: '后台管理员' },
+        headers: {
+          host: 'admin.wenmixiezuo.com', origin: 'https://admin.wenmixiezuo.com',
+          'sec-fetch-site': 'same-site', 'content-type': 'application/json'
+        }
+      });
+      expect(register.statusCode).toBe(200);
+      expect(register.headers['access-control-allow-origin']).toBe('https://admin.wenmixiezuo.com');
+      const rawCookie = register.headers['set-cookie'];
+      const cookie = (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
+      expect((await app.inject({
+        method: 'POST', url: '/api/v1/books/drafts', payload: { title: '后台来源', text: '测试' },
+        headers: {
+          host: 'admin.wenmixiezuo.com', cookie, origin: 'https://admin.wenmixiezuo.com',
+          'sec-fetch-site': 'same-site', 'content-type': 'application/json'
+        }
+      })).statusCode).toBe(200);
+      expect((await app.inject({
+        method: 'POST', url: '/api/v1/auth/login', payload: { email: 'admin-origin@example.com', password: 'policy-pass-123' },
+        headers: {
+          host: 'admin.wenmixiezuo.com', origin: 'https://admin.wenmixiezuo.com.evil.invalid',
+          'sec-fetch-site': 'same-site', 'content-type': 'application/json'
+        }
+      })).statusCode).toBe(403);
+    } finally {
+      await app.close();
+    }
+  });
   it('浏览器可以预检设定工作台使用的PUT写入', async () => {
     context = createTestContext('wenmi-policy-put-cors-');
     const app = await createServer(context.config, context.database);

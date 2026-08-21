@@ -209,6 +209,26 @@ export class SettingOutlineWorkspaceRepository {
     `).run(now, scope.ownerId, scope.bookId, itemKey);
   }
 
+  /** 从活动工作区移除单项内容；版本历史不动，相关活动检索片段只做归档。 */
+  public removeCurrent(scope: BookScope, itemKey: string, now: string): void {
+    this.database.prepare(`
+      UPDATE setting_outline_workspace
+      SET item_status = '待讨论', content_text = NULL,
+        source_discussion_id = NULL, source_decision_id = NULL,
+        candidate_at = NULL, confirmed_at = NULL,
+        pending_candidate_text = NULL, pending_candidate_at = NULL,
+        pending_source_discussion_id = NULL, pending_source_decision_id = NULL,
+        updated_at = ?
+      WHERE owner_id = ? AND book_id = ? AND item_key = ?
+    `).run(now, scope.ownerId, scope.bookId, itemKey);
+    const sourcePrefix = `setting-item:${itemKey}:v`;
+    this.database.prepare(`
+      UPDATE setting_clauses SET status = 'archived', updated_at = ?
+      WHERE owner_id = ? AND book_id = ?
+        AND substr(source_version_id, 1, length(?)) = ? AND status = 'active'
+    `).run(now, scope.ownerId, scope.bookId, sourcePrefix, sourcePrefix);
+  }
+
   public listByPendingDiscussion(scope: BookScope, discussionId: string): SettingOutlineWorkspaceRow[] {
     return this.database.prepare(`
       SELECT item_key, group_title, label, prompt, source_label, item_status,
@@ -307,6 +327,6 @@ function classifySettingClause(itemKey:string,statement:string):{kind:'fact'|'di
   if(/留白|未知|未定|暂不|以后再|后文再|谜团|不解释/u.test(statement))return{kind:'blank',strength:'open_space'};
   if(itemKey==='boundaries-blanks'||itemKey==='rules-costs'||/禁止|不能|不可|绝不|必须|代价|限制|边界/u.test(statement))
     return{kind:'boundary',strength:'hard_fact'};
-  if(['world-stage','protagonist-situation'].includes(itemKey))return{kind:'fact',strength:'hard_fact'};
+  if(['world-stage','social-order'].includes(itemKey))return{kind:'fact',strength:'hard_fact'};
   return{kind:'direction',strength:'soft_reference'};
 }

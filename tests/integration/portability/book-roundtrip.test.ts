@@ -31,7 +31,7 @@ describe('书籍可移植包复制导入', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM books WHERE owner_id = ?`)
       .get(context.config.ownerId)).toEqual({ count: 2 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?`)
-      .get(context.config.ownerId, imported.bookId)).toEqual({ count: 14 });
+      .get(context.config.ownerId, imported.bookId)).toEqual({ count: 15 });
     expect(context.database.prepare(`PRAGMA foreign_key_check`).all()).toEqual([]);
   });
 
