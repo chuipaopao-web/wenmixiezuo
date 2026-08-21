@@ -1187,7 +1187,8 @@ async function prepareAndWriteEventChapters(bookId, event) {
       }
       continue;
     }
-    const targets = unsettled.slice(0, 3);
+    const detailWindow = unsettled[0]?.chapterNumber === 1 ? 1 : 3;
+    const targets = unsettled.slice(0, detailWindow);
     const start = targets[0].chapterNumber;
     const end = targets.at(-1).chapterNumber;
     const lackingDetails = targets.some((item) => currentOutlineCandidate(item) === null);
