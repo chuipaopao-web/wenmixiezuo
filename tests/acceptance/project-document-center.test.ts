@@ -23,7 +23,7 @@ describe('桌面项目文档中心', () => {
     const bundleButton = document.querySelector<HTMLButtonElement>("[data-open-document='project-reference-bundle']");
     const copyButton = document.querySelector<HTMLButtonElement>('#copy-reader');
 
-    expect(cards).toHaveLength(38);
+    expect(cards).toHaveLength(39);
     expect(templates).toHaveLength(cards.length + 1);
     expect(html).not.toContain('openai.yaml');
     expect(cards.every((card) => card.textContent?.includes('阅读全文'))).toBe(true);
@@ -36,8 +36,11 @@ describe('桌面项目文档中心', () => {
     expect(bundle).toContain('# 文秘写作当前项目完整合订版');
     expect(bundle).not.toContain('\r');
     expect(bundle).toContain('## 一、产品定位与完整工作流');
-    expect(bundle).toContain('## 六、长篇质量审查 Skill');
-    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(38);
+    expect(bundle).toContain('## 六、项目 Skills');
+    expect(bundle).toContain('.agents/skills/wenmi-longform-quality/SKILL.md');
+    expect(bundle).toContain('.agents/skills/wenmi-ui-ux/SKILL.md');
+    expect(bundle).not.toContain('> 当前源文件：docs/history/');
+    expect((bundle.match(/^> 当前源文件：/gmu) ?? [])).toHaveLength(39);
 
     Object.defineProperty(reader!, 'showModal', {
       configurable: true,

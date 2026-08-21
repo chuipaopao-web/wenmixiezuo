@@ -24,10 +24,10 @@
 - `PATCH /api/v1/admin/users/:userId/status`：管理员暂停或恢复账号。
 - `GET /api/v1/membership/me`：当前账号会员状态（套餐、算力值配额/已用/剩余、到期时间）；管理员返回 `isAdmin: true` 不限额。
 - `GET /api/v1/admin/memberships`：管理员查看全部账号的会员与算力值消耗（周期内消耗与累计消耗）。
-- `POST /api/v1/admin/memberships/:userId`：管理员开通或续费会员，套餐 `monthly`（包月3亿）/`quarterly`（包季10亿）/`yearly`（包年百亿），算力值即token。
+- `POST /api/v1/admin/memberships/:userId`：管理员开通或续费会员，Body使用 `plan`：`bronze`（青铜20万算力值，长期体验）/`silver`（白银2000万）/`gold`（黄金5000万）/`diamond`（钻石2亿）；付费档当前周期12个月。算力值=真实token×2，普通作者页面不出现token口径。
 - `POST /api/v1/admin/memberships/:userId/revoke`：管理员撤销会员。
-- 生成门禁：账号体系内的非管理员用户必须持有生效会员且周期内算力值未用完，否则任务创建返回 `MEMBERSHIP_REQUIRED` 或 `MEMBERSHIP_QUOTA_EXHAUSTED`（403，附管理员联系方式）。
-- `GET /api/v1/capabilities`：当前模型、检索和运行能力。
+- 生成门禁：账号体系内的非管理员用户必须持有生效会员且周期内算力值未用完，否则任务创建返回 `MEMBERSHIP_REQUIRED`、`MEMBERSHIP_EXPIRED` 或 `MEMBERSHIP_QUOTA_EXHAUSTED`（403，附管理员联系方式）。
+- `GET /api/v1/capabilities`：当前检索和运行能力；普通作者投影不返回模型配置，管理员通过独立管理接口查看。
 
 ## 3. 书架与开书
 

@@ -1,4 +1,4 @@
 interface:
-  display_name: "文秘写作长篇质量审查"
-  short_description: "审查分层故事设计、首卷启动、上下文与长篇质量"
-  default_prompt: "使用 $wenmi-longform-quality 审查当前分层创作流程、首卷启动、任务上下文、生成审校与结算，在守住事实和版本底线的同时保护AI创造性。"
+  display_name: "文秘写作长篇质量"
+  short_description: "按需审查分层创作、上下文、生成审校与长期连续性"
+  default_prompt: "使用 $wenmi-longform-quality 定位当前对象和正式来源，只读取相关参考，修复分层、上下文或长篇质量问题。"

@@ -12,7 +12,7 @@ const checkOnly = process.argv.includes('--check');
 
 const currentPaths = [
   'HANDOFF.md', 'PROJECT_HANDBOOK.md', 'AGENTS.md', 'README.md', 'KNOWLEDGE.md', 'TASKS.md',
-  'docs/PROJECT_CHARTER.md', 'docs/DECISIONS.md', 'docs/PRODUCT.md',
+  'docs/PROJECT_CHARTER.md', 'docs/DECISIONS.md', 'docs/PRODUCT.md', 'docs/UI_UX_REDESIGN_DIRECTION.md',
   'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/ARCHITECTURE.md', 'docs/DATA_MODEL.md',
   'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md',
   'docs/AGENT_SYSTEM.md', 'docs/MEMORY.md', 'docs/LONGFORM_QUALITY.md',
@@ -56,7 +56,7 @@ function extractMetadata(content, fallbackName) {
 }
 
 function category(path) {
-  if (path.startsWith('.agents/skills/')) return '长篇质量 Skill';
+  if (path.startsWith('.agents/skills/')) return '项目 Skills';
   if (['AGENTS.md', 'KNOWLEDGE.md', 'TASKS.md'].includes(path)) return 'Codex 工作规则';
   return '当前正式文档';
 }
@@ -71,9 +71,10 @@ function htmlEscape(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
+const skillDirectories = ['wenmi-longform-quality', 'wenmi-ui-ux'];
 const discovered = [
   ...currentPaths.map((path) => join(rootDir, path)).filter(existsSync),
-  ...collectSkillDocuments(join(rootDir, '.agents', 'skills', 'wenmi-longform-quality'))
+  ...skillDirectories.flatMap((name) => collectSkillDocuments(join(rootDir, '.agents', 'skills', name)))
 ];
 const documents = [...new Set(discovered.map((path) => resolve(path)))]
   .filter((fullPath) => !generatedPaths.has(normalizePath(relative(rootDir, fullPath))))
@@ -97,7 +98,7 @@ const documentIds = new Map(documents.map((document) => [document.path, document
 const documentByPath = new Map(documents.map((document) => [document.path, document]));
 const bundleGroups = [
   { title: '一、产品定位与完整工作流', paths: [
-    'README.md', 'docs/PROJECT_CHARTER.md', 'docs/PRODUCT.md',
+    'README.md', 'docs/PROJECT_CHARTER.md', 'docs/PRODUCT.md', 'docs/UI_UX_REDESIGN_DIRECTION.md',
     'docs/CREATION_WORKFLOW_V2_DESIGN.md', 'docs/FEATURE_IMPLEMENTATION_GUIDE.md', 'docs/USER_GUIDE.md',
     'docs/LAYERED_CREATION_IMPLEMENTATION_AND_ACCEPTANCE.md',
   ] },
@@ -117,8 +118,8 @@ const bundleGroups = [
   { title: '五、Codex开发协作与当前状态', paths: [
     'HANDOFF.md', 'PROJECT_HANDBOOK.md', 'AGENTS.md', 'KNOWLEDGE.md', 'TASKS.md'
   ] },
-  { title: '六、长篇质量审查 Skill', paths: documents
-    .filter((document) => document.path.startsWith('.agents/skills/wenmi-longform-quality/'))
+  { title: '六、项目 Skills', paths: documents
+    .filter((document) => document.path.startsWith('.agents/skills/'))
     .map((document) => document.path) }
 ];
 const assignedBundlePaths = bundleGroups.flatMap((group) => group.paths);
@@ -143,7 +144,7 @@ const bundleBody = bundleGroups.map((group) => {
 }).join('\n\n---\n\n');
 const referenceBundle = '# 文秘写作当前项目完整合订版\n\n'
   + '本文件由当前文档白名单自动合并，只包含现版本生效的产品、流程、架构、数据、AI成员、上下文、检索、质量、开发与验收规则。'
-  + '适合整页复制给 DeepSeek 评审；原始短文档仍保留用于精确维护。\n\n'
+  + '仅在专项外部评审需要完整上下文时使用；日常开发读取短入口和相关小节。\n\n'
   + '共 **' + documents.length + '** 份源文档，按以下六个目录合并：\n\n' + bundleToc
   + '\n\n> 权威说明：老板最新明确决定优先；本合订版由源文档自动生成，不单独手工维护。\n\n'
   + bundleBody + '\n';
@@ -275,7 +276,7 @@ function markdownToHtml(markdown, currentPath) {
   return blocks.join('');
 }
 
-const groups = ['当前正式文档', 'Codex 工作规则', '长篇质量 Skill'];
+const groups = ['当前正式文档', 'Codex 工作规则', '项目 Skills'];
 const markdownSections = groups.map((name) => {
   const items = documents.filter((item) => item.category === name);
   if (items.length === 0) return '';
