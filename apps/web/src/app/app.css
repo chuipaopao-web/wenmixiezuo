@@ -5735,6 +5735,11 @@ svg {
 .volume-planning-panel { display: grid; gap: 18px; }
 .volume-planning-toolbar { display: flex; align-items: center; justify-content: flex-end; }
 .volume-planning-toolbar select { min-width: 190px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 12px; color: var(--ink); background: var(--panel-raised); }
+.volume-prerequisite-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line)); border-radius: 15px; padding: 16px 18px; background: color-mix(in srgb, var(--danger) 5%, var(--panel-raised)); }
+.volume-prerequisite-card small { color: var(--danger); font-weight: 750; }
+.volume-prerequisite-card h4 { margin: 4px 0 5px; }
+.volume-prerequisite-card p { margin: 0; color: var(--ink-soft); line-height: 1.65; }
+.volume-prerequisite-card button { min-height: 44px; }
 .volume-workflow-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
 .volume-workflow-strip li { position: relative; display: flex; align-items: center; gap: 9px; color: var(--ink-soft); }
 .volume-workflow-strip li:not(:last-child)::after { content: ''; position: absolute; z-index: 0; left: 32px; right: 8px; top: 15px; height: 2px; background: var(--line); }
@@ -7374,6 +7379,8 @@ button.sidebar-account-avatar:hover { filter: brightness(1.12); }
 
 @media (max-width: 650px) {
   .volume-planning-panel { gap: 14px; }
+  .volume-prerequisite-card { grid-template-columns: 1fr; gap: 13px; padding: 14px; }
+  .volume-prerequisite-card button { width: 100%; }
   .volume-template-section, .volume-version-section, .volume-plan-editor, .volume-generation-card { padding: 13px; }
   .volume-plan-editor > header .primary-button, .volume-generation-card > header .primary-button, .volume-version-card > button { width: 100%; min-height: 44px; }
   .volume-concrete-route dl > div, .volume-version-card dl > div { grid-template-columns: 1fr; gap: 2px; }

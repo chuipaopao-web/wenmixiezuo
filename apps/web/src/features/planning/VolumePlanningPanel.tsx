@@ -15,6 +15,7 @@ import {
   fetchAuthorPlanningInputs,
   fetchCreationWorkflow,
   fetchOpeningTaxonomy,
+  fetchSettingQualityReport,
   fetchVolumeDirections,
   fetchVolumePlanGeneration,
   fetchVolumePlans,
@@ -27,7 +28,8 @@ import {
   type VolumeDirectionVersionData,
   type VolumePlanGenerationData,
   type VolumePlanImpactData,
-  type VolumePlanVersionData
+  type VolumePlanVersionData,
+  type SettingQualityReportView
 } from '../../lib/api/client';
 import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { SettlementFollowUpCard } from './SettlementFollowUpCard';
@@ -40,7 +42,16 @@ interface VolumePlanningSnapshot {
   plans: VolumePlanData[];
 }
 
-export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.Element {
+const settingPrerequisiteStages = new Set([
+  'book_profile_draft',
+  'book_profile_confirmed',
+  'setting_in_progress'
+]);
+
+export function VolumePlanningPanel({ bookId, onOpenSettings }: {
+  bookId: string;
+  onOpenSettings?: () => void;
+}): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<VolumePlanningSnapshot | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [versions, setVersions] = useState<VolumePlanVersionData[]>([]);
@@ -53,6 +64,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<VolumePlanImpactData | null>(null);
   const [styleTones, setStyleTones] = useState<string[]>([]);
+  const [settingQuality, setSettingQuality] = useState<SettingQualityReportView | null>(null);
   const { guardAi } = useMembershipGate();
 
   useEffect(() => {
@@ -88,6 +100,23 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     () => snapshot?.plans.find((plan) => plan.volumePlanId === selectedPlanId) ?? null,
     [selectedPlanId, snapshot]
   );
+
+  const settingPrerequisiteBlocked = snapshot !== null
+    && snapshot.plans.length === 0
+    && settingPrerequisiteStages.has(snapshot.workflow.stage);
+
+  useEffect(() => {
+    if (!settingPrerequisiteBlocked) {
+      setSettingQuality(null);
+      return;
+    }
+    const controller = new AbortController();
+    setSettingQuality(null);
+    void fetchSettingQualityReport(bookId, controller.signal).then((next) => {
+      if (!controller.signal.aborted) setSettingQuality(next);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [bookId, settingPrerequisiteBlocked]);
 
   useEffect(() => {
     if (selectedPlan === null) {
@@ -314,7 +343,7 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     <div className="volume-planning-toolbar">
       <h3 id="volume-planning-title" className="sr-only">分卷</h3>
       {snapshot.plans.length === 0
-        ? <button className="primary-button" type="button" disabled={busy} onClick={createCurrentVolume}>开始规划第一卷</button>
+        ? !settingPrerequisiteBlocked && <button className="primary-button" type="button" disabled={busy} onClick={createCurrentVolume}>开始规划第一卷</button>
         : <select aria-label="选择卷规划" value={selectedPlanId ?? ''} onChange={(event) => setSelectedPlanId(event.target.value)}>
           {snapshot.plans.map((plan) => <option key={plan.volumePlanId} value={plan.volumePlanId}>第{plan.planNumber}卷 · {plan.activeVersion?.content.title ?? '规划中'}</option>)}
         </select>}
@@ -328,6 +357,10 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
     </ol>
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
+    {settingPrerequisiteBlocked && <SettingPrerequisiteCard
+      quality={settingQuality}
+      onOpenSettings={onOpenSettings}
+    />}
     <SettingGapPanel bookId={bookId}/>
 {snapshot.workflow.stage === 'volume_settlement_in_progress' && selectedPlan !== null && <section className="writing-launch-card volume-settlement-card">
       <div><small>本卷事件已全部完成</small><h4>核对实际后果，完成本卷</h4><p>卷结算只汇总已结算事件和已确认内容；原卷规划单独用于差异对照。完成后才会解锁下一卷规划。</p></div>
@@ -411,6 +444,27 @@ export function VolumePlanningPanel({ bookId }: { bookId: string }): React.JSX.E
   </section>;
 }
 
+function SettingPrerequisiteCard({ quality, onOpenSettings }: {
+  quality: SettingQualityReportView | null;
+  onOpenSettings: (() => void) | undefined;
+}): React.JSX.Element {
+  const hardIssueCount = quality?.fresh === true
+    ? quality.report?.issues.filter((issue) => issue.severity === 'hard').length ?? 0
+    : 0;
+  const detail = hardIssueCount > 0
+    ? `主编已经完成检查，还有 ${hardIssueCount} 个问题需要你决定怎么处理。回到设定页逐条修改，或确认保留后再完成设定定稿。`
+    : quality?.taskStatus === 'working' || quality?.taskStatus === 'queued'
+      ? '设定检查正在进行。回到设定页可以查看进度，检查完成并确认定稿后会立即解锁第一卷。'
+      : '请先回到设定页确认整份设定。系统会在确认前完成检查，设定定稿后会立即解锁第一卷。';
+  return <section className="volume-prerequisite-card" aria-label="第一卷规划前置条件">
+    <div>
+      <small>规划第一卷前</small>
+      <h4>设定还差最后确认</h4>
+      <p>{detail}</p>
+    </div>
+    <button className="primary-button" type="button" onClick={onOpenSettings}>回到设定处理</button>
+  </section>;
+}
 
 const directionChoiceFields: ReadonlyArray<{
   key: Exclude<VolumeDirectionFragmentKey, 'firstVolumeLaunch'>;

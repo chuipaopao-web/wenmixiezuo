@@ -10,6 +10,45 @@ afterEach(() => {
   localStorage.clear();
 });
 
+it('设定存在作者必须决定的问题时不发起无效建卷，并可直接返回设定处理', async () => {
+  const onOpenSettings = vi.fn();
+  const requests: Array<{ path: string; method: string }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://127.0.0.1');
+    const path = url.pathname;
+    const method = init?.method ?? 'GET';
+    requests.push({ path, method });
+    if (path.endsWith('/workflow')) return apiResponse(workflowView('setting_in_progress', 1, null));
+    if (path.endsWith('/volume-plans')) return apiResponse([]);
+    if (path.endsWith('/quality-report')) return apiResponse({
+      fresh: true,
+      taskStatus: 'succeeded',
+      report: {
+        reportId: 'setting-report-1', verdict: 'fail', summary: '有三处需要作者决定。',
+        issues: [1, 2, 3].map((number) => ({
+          id: `hard-${number}`, severity: 'hard', itemKey: `item-${number}`,
+          problem: `冲突 ${number}`, suggestion: `处理建议 ${number}`
+        })),
+        createdAt: '2026-08-21T02:03:48.679Z'
+      }
+    });
+    if (path.endsWith('/setting-outline/readiness')) return apiResponse({
+      ready: true, missing: [], unresolved: [], required: [], recommended: [],
+      profileKey: 'general', profileLabel: '通用', hasCanonChapters: false
+    });
+    if (path.endsWith('/planning-templates')) return apiResponse(templateCatalog());
+    return new Response(JSON.stringify({ error: { message: `未配置测试接口 ${method} ${path}` } }), { status: 404 });
+  }));
+
+  render(<VolumePlanningPanel bookId="book-volume-ui" onOpenSettings={onOpenSettings} />);
+  expect(await screen.findByRole('heading', { name: '设定还差最后确认' })).toBeInTheDocument();
+  expect(await screen.findByText(/还有 3 个问题需要你决定怎么处理/u)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '开始规划第一卷' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '回到设定处理' }));
+  expect(onOpenSettings).toHaveBeenCalledOnce();
+  expect(requests.some((request) => request.method === 'POST' && request.path.endsWith('/volume-plans'))).toBe(false);
+});
+
 it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖历史版本', async () => {
   let workflow = workflowView('setting_confirmed', 2, null);
   const plans: Array<Record<string, unknown>> = [];
