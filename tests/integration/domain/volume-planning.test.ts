@@ -5,7 +5,7 @@ import { BudgetService } from '../../../apps/api/src/application/budget/budget-s
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
-import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
+import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, settleEventChainCandidates, shouldAcceptEventChainCandidateCoverageGap, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
 import { eventChainCandidateModelPriority, EventChainGenerationService, selectEventChainSecondDesigner } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
@@ -33,7 +33,7 @@ describe('版本化卷规划', () => {
 
   afterEach(() => context?.close());
 
-  it('事件链结构纠错只允许稳定首卷责任键，不放宽硬合同', () => {
+  it('事件链结构纠错只允许稳定首卷责任键，不放宽硬合同', async () => {
     const instruction = eventChainValidationRetryInstruction('首卷责任无效。');
     expect(instruction).toContain('opening_launch');
     expect(instruction).toContain('major_climax_before_100k');
@@ -60,6 +60,22 @@ describe('版本化卷规划', () => {
     expect(shouldRetryKnownEmptyEventChainOutput(
       new ModelAdapterError('供应商结果状态未知', 'technical_failure', false, undefined, true), 1
     )).toBe(false);
+    const coverageGap = new Error('事件链没有覆盖卷方向责任：escalation_5');
+    expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'candidate_a', 2)).toBe(true);
+    expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'candidate_a', 1)).toBe(false);
+    expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'fusion', 2)).toBe(false);
+    let finishSecond!: (value: string) => void;
+    const collected = settleEventChainCandidates(
+      Promise.reject(new Error('第一席失败')),
+      new Promise<string>((resolve) => { finishSecond = resolve; })
+    );
+    let collectionSettled = false;
+    const observed = collected.catch((error: unknown) => { collectionSettled = true; return error; });
+    await Promise.resolve();
+    expect(collectionSettled).toBe(false);
+    finishSecond('第二席完成');
+    await expect(observed).resolves.toMatchObject({ message: '第一席失败' });
+    expect(collectionSettled).toBe(true);
   });
 
   it('要求已确认设定，并让两个独立候选并存后以CAS确认和切回', async () => {

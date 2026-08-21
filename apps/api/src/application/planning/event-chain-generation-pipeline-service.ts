@@ -95,10 +95,10 @@ export class EventChainGenerationPipelineService {
       if (brief.secondDesigner === undefined) {
         content = await generate(brief.designer, 'fusion', sources);
       } else {
-        const [candidateA, candidateB] = await Promise.all([
+        const [candidateA, candidateB] = await settleEventChainCandidates(
           generate(brief.designer, 'candidate_a', sources),
           generate(brief.secondDesigner, 'candidate_b', sources)
-        ]);
+        );
         this.tasks.checkpoint(scope, taskId, workerId, 'event_chain_candidates', {
           candidateAHash: digest(candidateA),
           candidateBHash: digest(candidateB),
@@ -197,7 +197,9 @@ export class EventChainGenerationPipelineService {
       });
       if (reusable !== undefined) {
         try {
-          return parseEventChainModelOutput(reusable.output_text, brief.planNumber, brief.direction);
+          return parseEventChainPhaseOutput(
+            reusable.output_text, brief.planNumber, brief.direction, phase, technicalTry
+          );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
           lastError = error;
@@ -241,7 +243,9 @@ export class EventChainGenerationPipelineService {
           maxOutputTokens
         });
         try {
-          return parseEventChainModelOutput(result.output, brief.planNumber, brief.direction);
+          return parseEventChainPhaseOutput(
+            result.output, brief.planNumber, brief.direction, phase, technicalTry
+          );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
           lastError = error;
@@ -258,6 +262,27 @@ export class EventChainGenerationPipelineService {
     }
     throw lastError instanceof Error ? lastError : new Error('模型没有返回完整、合法的事件链。');
   }
+}
+
+export async function settleEventChainCandidates<T>(
+  first: Promise<T>,
+  second: Promise<T>
+): Promise<[T, T]> {
+  const [firstResult, secondResult] = await Promise.allSettled([first, second]);
+  if (firstResult.status === 'rejected') throw firstResult.reason;
+  if (secondResult.status === 'rejected') throw secondResult.reason;
+  return [firstResult.value, secondResult.value];
+}
+
+export function shouldAcceptEventChainCandidateCoverageGap(
+  error: unknown,
+  phase: 'candidate_a' | 'candidate_b' | 'fusion',
+  technicalTry: number
+): boolean {
+  return phase !== 'fusion'
+    && technicalTry === 2
+    && error instanceof Error
+    && error.message.startsWith('事件链没有覆盖卷方向责任：');
 }
 
 export function eventChainOutputTokenLimit(modelId: string, expandedAfterKnownEmpty = false): number {
@@ -288,10 +313,28 @@ export function eventChainValidationRetryInstruction(
   return lines.join('\n');
 }
 
+function parseEventChainPhaseOutput(
+  output: string,
+  planNumber: number,
+  direction: VolumeDirectionContent,
+  phase: 'candidate_a' | 'candidate_b' | 'fusion',
+  technicalTry: number
+): EventChainContent {
+  try {
+    return parseEventChainModelOutput(output, planNumber, direction);
+  } catch (error) {
+    if (!shouldAcceptEventChainCandidateCoverageGap(error, phase, technicalTry)) throw error;
+    return parseEventChainModelOutput(output, planNumber, direction, {
+      allowIncompleteDirectionCoverage: true
+    });
+  }
+}
+
 export function parseEventChainModelOutput(
   output: string,
   planNumber: number,
-  direction: VolumeDirectionContent
+  direction: VolumeDirectionContent,
+  options: { allowIncompleteDirectionCoverage?: boolean } = {}
 ): EventChainContent {
   const candidates: unknown[] = [];
   try { candidates.push(JSON.parse(output) as unknown); } catch { /* scan complete objects */ }
@@ -303,7 +346,7 @@ export function parseEventChainModelOutput(
     try {
       const value = record(candidate);
       const content = parseEventChainContent(value.eventChain ?? value, planNumber === 1);
-      assertDirectionCoverage(content, direction);
+      assertDirectionCoverage(content, direction, options.allowIncompleteDirectionCoverage === true);
       return content;
     } catch (error) {
       lastError = error;
@@ -312,11 +355,17 @@ export function parseEventChainModelOutput(
   throw lastError instanceof Error ? lastError : new Error('模型没有返回完整、合法的事件链。');
 }
 
-function assertDirectionCoverage(content: EventChainContent, direction: VolumeDirectionContent): void {
+function assertDirectionCoverage(
+  content: EventChainContent,
+  direction: VolumeDirectionContent,
+  allowIncompleteDirectionCoverage: boolean
+): void {
   const required = directionCoverageKeys(direction);
   const actual = new Set(content.coverage.filter((item) => item.status === 'covered').map((item) => item.responsibility));
   const missing = required.filter((item) => !actual.has(item));
-  if (missing.length > 0) throw new Error('事件链没有覆盖卷方向责任：' + missing.join('、'));
+  if (!allowIncompleteDirectionCoverage && missing.length > 0) {
+    throw new Error('事件链没有覆盖卷方向责任：' + missing.join('、'));
+  }
   for (const [index, event] of content.events.entries()) {
     const last = index === content.events.length - 1;
     if (!last && (event.leadsToNext === null || event.leadsToNext.trim().length === 0)) {
