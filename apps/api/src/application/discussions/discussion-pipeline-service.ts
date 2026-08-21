@@ -451,7 +451,7 @@ export class DiscussionPipelineService {
           const requestId = this.ids.next();
           const reservationId = budgets.reserve(
             scope, budget.budget_id, requestId,
-            adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000 + thinkingTokenAllowance(participant.model_id), 0
+            adapter.provider === 'openai-codex-subscription' ? 30_000 : 8_000 + thinkingTokenAllowance(participant.model_id, 'discussion', maxOutputTokens), 0
           );
           try {
             result = await calls.execute(scope, {

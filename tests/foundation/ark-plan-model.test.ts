@@ -342,11 +342,16 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('GLM 5.3 带着预算思考（disabled 会被端点 400 拒绝）', async () => {
-    for (const purpose of ['discussion', 'novel_reviewer'] as const) {
+  it('GLM 5.3 的短设定方案用 8000 思考额度提速，审查与复杂任务仍保留 16000', async () => {
+    for (const [purpose, maxOutputTokens, expectedBudget] of [
+      ['discussion', 100, 8_000],
+      ['discussion', 4_000, 16_000],
+      ['novel_reviewer', 100, 16_000]
+    ] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
-        const body = JSON.parse(String(init?.body)) as { thinking?: { type?: string; budget_tokens?: number } };
-        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 16_000 });
+        const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
+        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: expectedBudget });
+        expect(body.max_tokens).toBe(maxOutputTokens + expectedBudget);
         return Response.json({
           content: [{ type: 'text', text: '{"chapterGoal":"visible output"}' }],
           usage: { input_tokens: 5, output_tokens: 8 }
@@ -357,11 +362,10 @@ describe('火山方舟严格套餐适配器', () => {
         baseUrl: 'https://ark.cn-beijing.volces.com/api/plan', apiKey: 'agent-test-key', purpose
       }, fetchImpl);
 
-      await adapter.generate(request);
+      await adapter.generate({ ...request, maxOutputTokens });
       expect(fetchImpl).toHaveBeenCalledOnce();
     }
   });
-
   it('MiniMax M3 全用途关闭思考（生产实测预算不生效，思考烧光 24000 输出 Token 零可见文字）', async () => {
     for (const purpose of ['discussion', 'structured_planning', 'novel_reviewer'] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
@@ -382,7 +386,7 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('所有套餐模型的 max_tokens 都在可见输出限额上追加同一份思考预算', async () => {
+  it('套餐模型按用途追加思考预算，只有 GLM 5.3 短讨论走提速额度', async () => {
     const seen: Array<{ model: string; maxTokens: number }> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
@@ -400,7 +404,7 @@ describe('火山方舟严格套餐适配器', () => {
       await adapter.generate(request);
     }
     expect(seen).toEqual([
-      { model: 'glm-5.3', maxTokens: 100 + 16_000 },
+      { model: 'glm-5.3', maxTokens: 100 + 8_000 },
       { model: 'glm-5.2', maxTokens: 100 + 16_000 },
       { model: 'kimi-k2.7-code', maxTokens: 100 + 16_000 },
       { model: 'deepseek-v4-flash', maxTokens: 100 + 16_000 }

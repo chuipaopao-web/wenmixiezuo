@@ -12,7 +12,9 @@ const api = vi.hoisted(() => ({
   saveSettingOutlineItem: vi.fn(),
   startSettingCollaboration: vi.fn(),
   restartSettingCollaboration: vi.fn(),
-  retrySettingCollaborationMember: vi.fn()
+  retrySettingCollaborationMember: vi.fn(),
+  reviseSettingCollaboration: vi.fn(),
+  synthesizeSettingCollaboration: vi.fn()
 }));
 
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
@@ -42,6 +44,7 @@ const screenwriters = [
 ];
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   api.createAuthorPlanningInput.mockResolvedValue({ authorInputId: 'idea-1' });
   api.resumeTask.mockResolvedValue({});
   api.redesignSettingCollaborationMember.mockResolvedValue({ taskId: 'task-member-redesign', discussionId: 'discussion-member-redesign', status: 'queued' });
@@ -49,6 +52,8 @@ beforeEach(() => {
   api.startSettingCollaboration.mockResolvedValue({ taskId: 'task-1', discussionId: 'discussion-1', status: 'queued' });
   api.restartSettingCollaboration.mockResolvedValue({ taskId: 'task-9', discussionId: 'discussion-9', status: 'queued' });
   api.retrySettingCollaborationMember.mockResolvedValue({ taskId: 'task-r', discussionId: 'discussion-1', status: 'queued' });
+  api.reviseSettingCollaboration.mockResolvedValue({ taskId: 'task-revise', discussionId: 'discussion-revise', status: 'queued' });
+  api.synthesizeSettingCollaboration.mockResolvedValue({ taskId: 'task-fusion', discussionId: 'discussion-fusion', status: 'queued' });
   api.fetchSettingCollaboration.mockResolvedValue({
     item: workspaceItem,
     screenwriters,
@@ -79,8 +84,10 @@ describe('设定页内协作', () => {
   it('每份方案下方可让原编剧按最新资料重新设计，不需要重新选席', async () => {
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
 
-    const firstCard = (await screen.findByText('方案一强调人物选择与可持续代价。')).closest('article');
+    const firstCard = (await screen.findByText('方案一强调人物选择与可持续代价。')).closest('details');
     if (firstCard === null) throw new Error('没有找到第一份方案卡片');
+    expect(firstCard).not.toHaveAttribute('open');
+    fireEvent.click(within(firstCard).getByText('查看方案'));
     fireEvent.click(within(firstCard).getByRole('button', { name: '重新设计' }));
 
     await waitFor(() => expect(api.redesignSettingCollaborationMember).toHaveBeenCalledWith(
@@ -103,6 +110,8 @@ describe('设定页内协作', () => {
     const writer = screen.getByRole('button', { name: /婉儿/u });
     expect(screen.getByRole('img', { name: '婉儿头像' })).toBeInTheDocument();
     expect(writer).toHaveTextContent('待命');
+    expect(writer).toHaveTextContent('婉儿（编剧）');
+    expect(screen.getByRole('button', { name: /清照/u })).toHaveTextContent('清照（高级编剧·高消耗）');
     expect(screen.queryByText(/Kimi K3|全能编剧/u)).not.toBeInTheDocument();
     fireEvent.click(writer);
     fireEvent.change(screen.getByRole('textbox', { name: '已有设定原文' }), {
@@ -139,17 +148,41 @@ describe('设定页内协作', () => {
     await waitFor(() => expect(api.resumeTask).toHaveBeenCalledWith('book-1', 'task-paused'));
   });
 
-  it('在当前页选择多份独立方案后直接组合成作者可编辑稿，不提前调用主编', async () => {
+  it('只把作者勾选的整案与片段交由主编融合，不在浏览器本地拼接', async () => {
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
 
-    fireEvent.click((await screen.findAllByRole('button', { name: '整份选用' }))[0]!);
-    fireEvent.click(screen.getAllByRole('button', { name: '整份选用' })[0]!);
-    fireEvent.click(screen.getByRole('button', { name: '整理成可编辑稿' }));
+    const firstCard = (await screen.findByText('方案一强调人物选择与可持续代价。')).closest('details');
+    const secondCard = screen.getByText('方案二强调世界规则与身份错位。').closest('details');
+    if (firstCard === null || secondCard === null) throw new Error('没有找到方案卡片');
+    expect(firstCard).not.toHaveAttribute('open');
+    fireEvent.click(within(firstCard).getByText('查看方案'));
+    fireEvent.click(within(firstCard).getByRole('button', { name: '整份选用' }));
+    fireEvent.click(within(secondCard).getByText('查看方案'));
+    fireEvent.click(within(secondCard).getByRole('button', { name: '整份选用' }));
+    fireEvent.click(screen.getByRole('button', { name: '交由主编融合' }));
 
-    const editor = screen.getByRole('textbox', { name: '待确认设定内容' });
-    expect(editor).toHaveValue('方案一强调人物选择与可持续代价。\n\n方案二强调世界规则与身份错位。');
-    expect(screen.getByText(/这里不调用主编/u)).toBeInTheDocument();
+    await waitFor(() => expect(api.synthesizeSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
+      proposalIds: ['proposal-1', 'proposal-2'],
+      wholeProposalIds: ['proposal-1', 'proposal-2'],
+      fragmentIds: [], authorInputId: null, idempotencyKey: expect.any(String)
+    }));
+    expect(screen.queryByRole('textbox', { name: '待确认设定内容' })).not.toBeInTheDocument();
     expect(api.createAuthorPlanningInput).not.toHaveBeenCalled();
+  });
+  it('作者已勾选的整案在同一标签刷新后恢复，提交前不丢选择', async () => {
+    const firstRender = render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
+    const firstCard = (await screen.findByText('方案一强调人物选择与可持续代价。')).closest('details');
+    if (firstCard === null) throw new Error('没有找到第一份方案卡片');
+    fireEvent.click(within(firstCard).getByText('查看方案'));
+    fireEvent.click(within(firstCard).getByRole('button', { name: '整份选用' }));
+    expect(within(firstCard).getByRole('button', { name: '取消整份' })).toBeInTheDocument();
+    firstRender.unmount();
+
+    render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
+    const restoredCard = (await screen.findByText('方案一强调人物选择与可持续代价。')).closest('details');
+    if (restoredCard === null) throw new Error('刷新后没有恢复方案卡片');
+    fireEvent.click(within(restoredCard).getByText('查看方案'));
+    expect(within(restoredCard).getByRole('button', { name: '取消整份' })).toBeInTheDocument();
   });
   it('接口未返回新版编剧数组时，兼容席位仍可正常选择并启动', async () => {
     api.fetchSettingCollaboration.mockResolvedValue({
@@ -244,6 +277,57 @@ describe('设定页内协作', () => {
     ));
   });
 
+  it('开始后按成员真实结果显示工作中、已完成和已失败，并用显眼进度条汇总', async () => {
+    api.fetchSettingCollaboration.mockResolvedValue({
+      item: workspaceItem, screenwriters,
+      panel: {
+        taskId: 'task-working', discussionId: 'discussion-working', taskStatus: 'working', discussionStatus: 'collecting', errorCode: null,
+        createdAt: '2026-08-08T00:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z', proposals: [],
+        members: [
+          { agentId: 'agent-1', memberName: '婉儿', roleKey: 'lead_screenwriter', status: 'working', contextSummary: '资料', outputSummary: null, errorSummary: null, retryable: false, lastAttemptedAt: null },
+          { agentId: 'agent-2', memberName: '红玉', roleKey: 'second_screenwriter', status: 'completed', contextSummary: '资料', outputSummary: '完成', errorSummary: null, retryable: false, lastAttemptedAt: null },
+          { agentId: 'agent-4', memberName: '清照', roleKey: 'senior_screenwriter', status: 'failed', contextSummary: '资料', outputSummary: null, errorSummary: '生成失败', retryable: true, lastAttemptedAt: null }
+        ]
+      },
+      revisionTask: null, historyCount: 1, fusionDraft: null,
+      impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
+    });
+    render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
+
+    expect(await screen.findByText('工作中')).toBeInTheDocument();
+    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(screen.getByText('已失败')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '清照头像' }).closest('.setting-member-chip')).toHaveTextContent('清照（高级编剧·高消耗）');
+    expect(screen.getByRole('progressbar', { name: '成员方案进度' })).toHaveAttribute('aria-valuenow', '67');
+  });
+
+  it('作者修改主编编辑稿后可按此整理，主编只以完整修改稿为底稿', async () => {
+    const candidate = {
+      ...workspaceItem, status: '候选待确认' as const,
+      content: '城市公开运行高等级技术，但医疗分配仍受身份和信用限制。',
+      candidateAt: '2026-08-08T00:02:00.000Z'
+    };
+    api.fetchSettingCollaboration.mockResolvedValue({
+      screenwriters, item: candidate, panel: null,
+      revisionTask: { taskId: 'task-2', status: 'succeeded', errorCode: null, updatedAt: '2026-08-08T00:02:00.000Z' },
+      fusionDraft: null, historyCount: 1,
+      impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
+    });
+    render(<SettingCollaborationPanel bookId="book-1" item={{ ...item, status: '候选待确认', content: candidate.content }} onSnapshot={vi.fn()} />);
+
+    const edited = '城市技术高度公开，但医疗分配受信用限制；申诉必须在三日内完成。';
+    fireEvent.change(await screen.findByRole('textbox', { name: '待确认设定内容' }), { target: { value: edited } });
+    fireEvent.click(screen.getByRole('button', { name: '按此整理' }));
+
+    await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
+      subjectType: 'setting_module', subjectId: 'creative-concept', intentStrength: 'must', originalText: edited,
+      scopeNotes: expect.stringContaining('完整底稿'), idempotencyKey: expect.any(String)
+    })));
+    expect(api.reviseSettingCollaboration).toHaveBeenCalledWith('book-1', 'creative-concept', {
+      authorInputId: 'idea-1', idempotencyKey: expect.any(String)
+    });
+    expect(api.saveSettingOutlineItem).not.toHaveBeenCalled();
+  });
   it('允许作者直接编辑候选稿并在当前页确认', async () => {
     const candidate = {
       ...workspaceItem,
@@ -266,7 +350,8 @@ describe('设定页内协作', () => {
 
     const editor = await screen.findByRole('textbox', { name: '待确认设定内容' });
     fireEvent.change(editor, { target: { value: '城市技术高度公开，但医疗分配仍受信用限制，并允许申诉。' } });
-    fireEvent.click(screen.getByRole('button', { name: '确认这一项' }));
+    expect(screen.getByRole('button', { name: '按此整理' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '直接确认' }));
 
     await waitFor(() => expect(api.saveSettingOutlineItem).toHaveBeenCalledWith('book-1', expect.objectContaining({
       itemKey: 'creative-concept', status: '已确认',

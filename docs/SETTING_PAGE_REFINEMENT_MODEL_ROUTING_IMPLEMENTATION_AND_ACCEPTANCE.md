@@ -1,5 +1,7 @@
 # 设定页精简交互、重新设计与模型路线：开发及验收清单
 
+> 历史验收记录：本文记录当时上线批次，不再作为当前设定页规格。推荐项默认选择、逐项融合与方案展开方式已由 SETTING_COLLABORATION_FLOW_OPTIMIZATION_IMPLEMENTATION_AND_ACCEPTANCE.md 和当前 PRODUCT.md 替代。
+
 更新时间：2026-08-22
 
 ## 一、用户可见目标

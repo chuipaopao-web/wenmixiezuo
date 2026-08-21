@@ -1,5 +1,7 @@
 # 功能开发与验收流程
 
+> Codex 调用入口：.agents/skills/wenmi-development-workflow/SKILL.md。本文件是开发规则的唯一源文档；Skill 负责触发和执行本闭环，不复制另一套规则。
+
 ## 1. 唯一开发顺序
 
 每个新功能或重构任务都按同一闭环推进：

@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 describe('折叠设定资料库与逐项设计', () => {
-  it('初始只显示完整设定库入口，打开后核心与推荐默认勾选，确认范围前不能开始', async () => {
+  it('初始只显示完整设定库入口，打开后仅核心默认勾选，推荐项由作者选择', async () => {
     renderCatalog();
 
     const libraryButton = screen.getByRole('button', { name: /完整设定库/u });
@@ -102,7 +102,8 @@ describe('折叠设定资料库与逐项设计', () => {
     const recommended = screen.getByRole('region', { name: '推荐设定' });
     const recommendedChecks = within(recommended).getAllByRole('checkbox');
     expect(recommendedChecks).toHaveLength(1);
-    expect(recommendedChecks[0]).toBeChecked();
+    expect(recommendedChecks[0]).not.toBeChecked();
+    expect(within(recommended).getByText(/仅供参考，请按本书实际需要勾选/u)).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: '请先确认勾选' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /我已确认勾选完毕/u }));

@@ -2164,6 +2164,26 @@ export function retrySettingCollaborationMember(
   });
 }
 
+export function synthesizeSettingCollaboration(bookId: string, itemKey: string, input: {
+  proposalIds: string[];
+  wholeProposalIds?: string[];
+  fragmentIds?: string[];
+  authorInputId?: string | null;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/synthesize`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function reviseSettingCollaboration(bookId: string, itemKey: string, input: {
+  authorInputId: string;
+  idempotencyKey: string;
+}): Promise<SettingCollaborationCommandData> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/setting-outline-workspace/${encodeURIComponent(itemKey)}/collaboration/revise`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
 export function fetchBookProfile(bookId: string, signal?: AbortSignal): Promise<BookProfileViewData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/book-profile`, signal === undefined ? {} : { signal });
 }

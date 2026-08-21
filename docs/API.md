@@ -60,7 +60,7 @@
 - `POST .../collaboration/restart`：重新设计当前项，仍必须重新明确选择编剧。
 - `POST .../collaboration/members/:roleKey/redesign`：Body提交当前 `proposalId` 与 `idempotencyKey`，只为该方案所属编剧创建新任务。任务携带旧方案摘要与SHA-256指纹作为排除依据，要求在机制、代价和可写性后果上实质不同；读取接口按席位保留其他成员最近成功方案，并以该席新结果替换其当前候选。
 - `POST .../collaboration/members/:roleKey/retry`：只重试失败席，保留其他成功候选。
-- 已废弃的逐项主编融合、逐项主编修订写接口已经删除；历史任务和历史融合稿只通过协作读取接口只读恢复，不能再触发旧流程。
+- `POST .../collaboration/synthesize`：作者提交当前项所选 `proposalIds`、`wholeProposalIds`、`fragmentIds` 和独立幂等键；服务端校验来源属于当前项最新席位方案，只把明确选中的整案与片段交给活动主编，生成待确认编辑稿。`POST .../collaboration/revise`：作者先把完整修改稿保存为 `authorInputId`，再用独立幂等键让主编只基于该修改稿做专业化整理，不恢复已删内容或混入未选方案。历史任务和融合稿仍可通过协作读取接口恢复。
 - 整篇设定质检和 `issues/:issueId/apply` 分别生成主编建议与采纳单条完整替换稿；采纳时校验基线哈希并创建新版本。
 - 设定项确认、稍后补充/留白和整份设定基线确认使用独立命令。
 

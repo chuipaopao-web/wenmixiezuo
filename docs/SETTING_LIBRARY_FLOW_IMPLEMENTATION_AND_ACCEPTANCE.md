@@ -1,5 +1,7 @@
 # 设定资料库与逐项设计开发验收清单
 
+> 历史验收记录：本文记录当时上线批次，不再作为当前设定页规格。推荐项默认选择、逐项融合与方案展开方式已由 SETTING_COLLABORATION_FLOW_OPTIMIZATION_IMPLEMENTATION_AND_ACCEPTANCE.md 和当前 PRODUCT.md 替代。
+
 > 生效需求：2026-08-21 老板最新决定。旧设定页布局、旧选择门禁和旧资料包行为与本文冲突时，以本文为准。
 
 ## 一、用户可见目标

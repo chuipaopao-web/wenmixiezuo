@@ -1,6 +1,6 @@
 import { Agent, type Dispatcher } from 'undici';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, SUBSCRIPTION_THINKING_BUDGET_TOKENS, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
   plan: ModelPlan;
@@ -78,8 +78,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           model: this.modelId,
           // 所有套餐模型都带着预算思考：max_tokens 在可见输出限额之上追加
           // 思考预算，模型思考完必须留下可见文字。
-          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId),
-          ...thinkingField(this.options.plan, this.modelId, this.options.purpose),
+          max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens),
+          ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
             request.supplementalInstructions
@@ -194,7 +194,8 @@ function appendSupplement(systemPrompt: string, supplement: string | undefined):
 function thinkingField(
   plan: ModelPlan,
   modelId: string,
-  purpose: ModelPurpose
+  purpose: ModelPurpose,
+  maxOutputTokens: number
 ): { thinking?: { type: 'enabled' | 'disabled'; budget_tokens?: number } } {
   // 火山方舟套餐端点：glm-5.3 与 kimi-k2.7-code 拒绝 disabled（400 InvalidParameter），
   // 统一启用有预算的思考。2026-08-18 实测。
@@ -203,7 +204,7 @@ function thinkingField(
   // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
   if (plan === 'coding' || plan === 'agent') {
     if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
-    return { thinking: { type: 'enabled', budget_tokens: SUBSCRIPTION_THINKING_BUDGET_TOKENS } };
+    return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
   }
   // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。
   return requiresVisibleOutput(modelId, purpose) ? { thinking: { type: 'disabled' } } : {};

@@ -13,6 +13,7 @@ import { SettingOutlineWorkspaceService } from './setting-outline-workspace-serv
 import { PlanningWorkflowRepository } from '../../infrastructure/db/repositories/planning-workflow-repository.js';
 import { hashConfirmedSettings, SETTING_QUALITY_AUDIT_INSTRUCTION } from './setting-quality-shared.js';
 import { isMacroSettingItem } from './setting-outline-profile.js';
+import { prepareEffectiveOutput } from '../presentation/author-output-service.js';
 
 interface CommandResult {
   taskId: string;
@@ -203,6 +204,117 @@ export class SettingCollaborationCommandService {
     return { taskId: queued.taskId, discussionId: panel.discussion_id, status: queued.status, reused: false };
   }
   /**
+   * 作者选完整份方案或具体片段后，由当前活动主编融合成一份待确认编辑稿。
+   * 这里只读取作者明确选中的来源；其他方案继续保留，但不会进入主编资料包。
+   */
+  public synthesize(
+    scope: BookScope,
+    itemKey: string,
+    input: {
+      proposalIds: string[];
+      wholeProposalIds?: string[];
+      fragmentIds?: string[];
+      authorInputId?: string | null;
+      idempotencyKey: string;
+    }
+  ): CommandResult {
+    assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    const guidance = this.requireGuidance(scope, itemKey, true);
+    const panel = this.repository.latestPanel(scope, itemKey);
+    if (panel === undefined || panel.task_status !== 'succeeded') {
+      throw new DomainError(errorCodes.operationIncomplete, '编剧方案还没有完成，暂时不能交给主编融合', {}, false, 409);
+    }
+
+    const proposalIds = [...new Set(input.proposalIds)];
+    if (proposalIds.length === 0 || proposalIds.length !== input.proposalIds.length) {
+      throw new DomainError(errorCodes.validation, '请至少选择一份方案或一个方案片段，并且不要重复选择');
+    }
+    const availableProposals = this.repository.latestProposalsByRole(scope, itemKey);
+    const selectedSources = proposalIds.map((proposalId) => {
+      const proposal = availableProposals.find((candidate) => candidate.proposal_id === proposalId);
+      if (proposal === undefined) {
+        throw new DomainError(errorCodes.validation, '所选方案不存在、已过期或不属于当前设定项');
+      }
+      return proposal;
+    });
+    const localDeterministic = selectedSources.every((source) => source.model_provider?.startsWith('local-deterministic') === true);
+    const distinctModels = new Set(selectedSources.map((source) => `${source.model_provider}/${source.model_id}`));
+    if (!localDeterministic && distinctModels.size !== selectedSources.length) {
+      throw new DomainError(errorCodes.agentCapabilityUnavailable,
+        '所选方案没有形成独立模型意见，请减少重复来源或重新选择编剧。', {
+          selectedCount: selectedSources.length,
+          distinctModelCount: distinctModels.size
+        }, false, 409);
+    }
+
+    const fragmentIds = [...new Set(input.fragmentIds ?? [])];
+    if (fragmentIds.length !== (input.fragmentIds ?? []).length) {
+      throw new DomainError(errorCodes.validation, '勾选的方案片段不能重复');
+    }
+    const wholeProposalIds = input.wholeProposalIds === undefined
+      ? (fragmentIds.length === 0 ? proposalIds : [])
+      : [...new Set(input.wholeProposalIds)];
+    if (wholeProposalIds.some((proposalId) => !proposalIds.includes(proposalId))) {
+      throw new DomainError(errorCodes.validation, '整份选用的方案不在本次选择中');
+    }
+    const selected = selectedSources
+      .filter((proposal) => wholeProposalIds.includes(proposal.proposal_id))
+      .map((proposal) => ({
+        proposalId: proposal.proposal_id,
+        memberName: proposal.member_name ?? '成员',
+        content: compactProposalForSynthesis(proposal.content)
+      }));
+    const selectedFragments = fragmentIds.length === 0
+      ? []
+      : this.repository.fragmentsByIds(scope, fragmentIds).map((fragment) => {
+        if (fragment.item_key !== itemKey || !proposalIds.includes(fragment.proposal_id)) {
+          throw new DomainError(errorCodes.validation, '勾选的方案片段不存在、已过期或不属于本次选择');
+        }
+        return {
+          fragmentId: fragment.fragment_id,
+          memberName: fragment.member_name,
+          text: fragment.fragment_text
+        };
+      });
+    if (selectedFragments.length !== fragmentIds.length || (selected.length === 0 && selectedFragments.length === 0)) {
+      throw new DomainError(errorCodes.validation, '请至少选择一份完整方案或一个有效片段');
+    }
+
+    return this.scheduleSynthesis(scope, guidance, {
+      authorInputId: input.authorInputId ?? null,
+      idempotencyKey: input.idempotencyKey,
+      selected,
+      selectedFragments,
+      instruction: selectedFragments.length > 0 && selected.length > 0
+        ? '同时保留作者整份选用的方案和逐段勾选的内容；不得因为进入片段模式丢掉整案。冲突处做最小必要取舍，只补保证通顺所需的衔接。'
+        : selectedFragments.length > 0
+          ? '只依据作者勾选的片段融合；每条片段原意必须保留，缺少衔接时只补最短衔接，不得混入未选内容。'
+          : '只依据作者明确整份选用的方案融合；有冲突时做最小必要取舍，不得引入未选方案。'
+    });
+  }
+
+  /** 作者修改主编编辑稿后，再由主编只做专业化整理。 */
+  public revise(
+    scope: BookScope,
+    itemKey: string,
+    input: { authorInputId: string; idempotencyKey: string }
+  ): CommandResult {
+    assertBookScope(scope);
+    this.preferChiefWhenSafe(scope);
+    const guidance = this.requireGuidance(scope, itemKey, true);
+    if (guidance.previousCandidate === null) {
+      throw new DomainError(errorCodes.operationIncomplete, '当前没有可以继续整理的主编编辑稿', {}, false, 409);
+    }
+    return this.scheduleSynthesis(scope, guidance, {
+      authorInputId: input.authorInputId,
+      idempotencyKey: input.idempotencyKey,
+      selected: [],
+      selectedFragments: [],
+      instruction: '作者本轮原话是她在编辑稿上修改后的完整底稿。必须以这份修改稿为唯一底稿，只做专业化表达、逻辑衔接和必要压缩；不得恢复作者已经删掉的内容，不得混入未选方案，不得改变事实主张。'
+    });
+  }
+  /**
    * 整份设定质检：活动主编独立苛刻检查全部已确认设定。
    * 幂等键带内容指纹：内容没变时重复点击复用同一任务，不产生双倍调用。
    */
@@ -242,11 +354,60 @@ export class SettingCollaborationCommandService {
     });
   }
 
+  private scheduleSynthesis(
+    scope: BookScope,
+    guidance: SettingGuidanceSnapshot,
+    input: {
+      authorInputId: string | null;
+      idempotencyKey: string;
+      selected: Array<{ proposalId: string; memberName: string; content: string }>;
+      selectedFragments: Array<{ fragmentId: string; memberName: string; text: string }>;
+      instruction: string;
+    }
+  ): CommandResult {
+    const authorText = this.authorInputText(scope, guidance.itemKey, input.authorInputId);
+    const itemJson = JSON.stringify([{
+      itemKey: guidance.itemKey,
+      label: guidance.label,
+      prompt: guidance.prompt
+    }]);
+    const scopeText = [
+      '【设定成组讨论资料包】',
+      '本批设定项JSON：' + itemJson,
+      '本书宏观开书信息（只含世界背景、初始地图、题材风格和作者硬边界）：' + guidance.openingBookCore,
+      '作品定位摘要：' + guidance.positioningSummary,
+      '宏观证据参考：' + guidance.storyDirectionReference,
+      temporaryPackScopeBlock(guidance.temporaryContextPack),
+      '作者整份选用的独立方案：' + JSON.stringify(input.selected),
+      '作者勾选的方案片段：' + JSON.stringify(input.selectedFragments),
+      authorIdeaLine(authorText),
+      input.instruction,
+      '只生成当前设定项的一份待确认编辑稿；不得生成具体人物、人物关系、剧情、卷纲、事件、章纲或正文。'
+    ].join('\n');
+    const selectionFingerprint = createHash('sha256').update(JSON.stringify({
+      selected: input.selected.map((item) => item.proposalId),
+      fragments: input.selectedFragments.map((item) => item.fragmentId),
+      authorInputId: input.authorInputId,
+      candidate: guidance.previousCandidate
+    })).digest('hex').slice(0, 16);
+    return this.schedule(scope, {
+      type: 'quick',
+      purpose: 'setting_synthesis',
+      itemKey: guidance.itemKey,
+      scopeText,
+      authorInputIds: input.authorInputId === null ? [] : [input.authorInputId],
+      idempotencyKey: 'setting-synthesis:' + guidance.itemKey + ':'
+        + guidance.temporaryContextPack.contentHash.slice(0, 16) + ':' + selectionFingerprint + ':'
+        + normalizeKey(input.idempotencyKey),
+      includeScreenwriters: false,
+      selectedFragmentIds: input.selectedFragments.map((fragment) => fragment.fragmentId)
+    });
+  }
   private schedule(
     scope: BookScope,
     input: {
       type: 'quick' | 'collaborative';
-      purpose: 'setting_proposal_panel' | 'setting_quality_audit';
+      purpose: 'setting_proposal_panel' | 'setting_synthesis' | 'setting_quality_audit';
       itemKey: string;
       scopeText: string;
       authorInputIds: string[];
@@ -276,7 +437,9 @@ export class SettingCollaborationCommandService {
       }))
       : [{
         agentId: lease.agentId,
-        reason: '活动主编执行整份设定审查'
+        reason: input.purpose === 'setting_quality_audit'
+          ? '活动主编执行整份设定审查'
+          : '活动主编按作者选择融合待确认编辑稿'
       }];
     if (input.includeScreenwriters && participants.length !== (input.selectedRoleKeys?.length ?? 0)) {
       throw new DomainError(errorCodes.agentCapabilityUnavailable,
@@ -390,6 +553,9 @@ export class SettingCollaborationCommandService {
   }
 }
 
+export function compactProposalForSynthesis(raw: string): string {
+  return prepareEffectiveOutput(raw).visibleContent.trim();
+}
 function buildProposalScope(guidance: SettingGuidanceSnapshot, authorLine: string, selectedCount: number): string {
   return [
     '【设定项目作者选席独立提案】',

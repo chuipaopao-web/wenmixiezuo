@@ -10,6 +10,8 @@ import {
   startSettingCollaboration,
   restartSettingCollaboration,
   retrySettingCollaborationMember,
+  reviseSettingCollaboration,
+  synthesizeSettingCollaboration,
   type SettingCollaborationData,
   type SettingOutlineWorkspaceData
 } from '../../lib/api/client';
@@ -43,6 +45,7 @@ export function SettingCollaborationPanel({
   const [source, setSource] = useState('');
   const [sourceStrength, setSourceStrength] = useState<'must' | 'preference'>('preference');
   const [draft, setDraft] = useState(item.pendingCandidate ?? item.content ?? '');
+  const [draftEdited, setDraftEdited] = useState(false);
   const [selfWriting, setSelfWriting] = useState(false);
   const [blankOpen, setBlankOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -50,11 +53,22 @@ export function SettingCollaborationPanel({
   const proposalAnchor = useRef<HTMLDivElement | null>(null);
   const sourceKey = useRef<string | null>(null);
   const startKey = useRef<string | null>(null);
+  const fusionKey = useRef<string | null>(null);
+  const organizeInputKey = useRef<string | null>(null);
+  const organizeTaskKey = useRef<string | null>(null);
   const { guardAi } = useMembershipGate();
 
   const refresh = useCallback(async (signal?: AbortSignal): Promise<void> => {
     const next = await fetchSettingCollaboration(bookId, item.itemKey, signal);
     setData(next);
+    const storedSelection = readStoredSettingSelection(bookId, item.itemKey);
+    const validProposalIds = new Set(next.panel?.proposals.map((proposal) => proposal.proposalId) ?? []);
+    const validFragmentIds = new Set(next.panel?.proposals.flatMap((proposal) => proposal.fragments.map((fragment) => fragment.fragmentId)) ?? []);
+    const restoredSelected = storedSelection.selected.filter((proposalId) => validProposalIds.has(proposalId));
+    const restoredFragments = storedSelection.pickedFragments.filter((fragmentId) => validFragmentIds.has(fragmentId));
+    storeSettingSelection(bookId, item.itemKey, restoredSelected, restoredFragments);
+    setSelected(restoredSelected);
+    setPickedFragments(restoredFragments);
     setDraft((current) => {
       const nextDraft = next.item.pendingCandidate ?? next.item.content;
       return nextDraft === null ? current : nextDraft;
@@ -65,13 +79,15 @@ export function SettingCollaborationPanel({
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
-    setSelected([]);
-    setPickedFragments([]);
+    const restoredSelection = readStoredSettingSelection(bookId, item.itemKey);
+    setSelected(restoredSelection.selected);
+    setPickedFragments(restoredSelection.pickedFragments);
     setSource('');
     setSelfWriting(false);
     setBlankOpen(false);
     setSelectedRoleKeys([]);
     setDraft(item.pendingCandidate ?? item.content ?? '');
+    setDraftEdited(false);
     void refresh(controller.signal).catch((reason: unknown) => {
       if (!controller.signal.aborted) setNotice(authorErrorFromUnknown(reason, '协作状态读取失败'));
     });
@@ -142,9 +158,13 @@ export function SettingCollaborationPanel({
         screenwriterRoleKeys: selectedRoleKeys
       });
       setSource('');
+      clearStoredSettingSelection(bookId, item.itemKey);
+      setSelected([]);
+      setPickedFragments([]);
       sourceKey.current = null;
       startKey.current = null;
       setNotice(`已请 ${selectedRoleKeys.length} 位成员独立设计，完成的方案会逐份保留。`);
+      setDraftEdited(false);
       await refresh();
     } catch (reason) {
       setNotice(authorErrorFromUnknown(reason, '启动协作失败'));
@@ -163,9 +183,11 @@ export function SettingCollaborationPanel({
         screenwriterRoleKeys: selectedRoleKeys
       });
       startKey.current = null;
+      clearStoredSettingSelection(bookId, item.itemKey);
       setSelected([]);
       setPickedFragments([]);
       setNotice(`已请 ${selectedRoleKeys.length} 位成员重新设计，旧定稿仍然有效。`);
+      setDraftEdited(false);
       await refresh();
     } catch (reason) {
       setNotice(authorErrorFromUnknown(reason, '重新设计失败'));
@@ -183,6 +205,7 @@ export function SettingCollaborationPanel({
         proposalId: proposal.proposalId,
         idempotencyKey: createClientKey()
       });
+      clearStoredSettingSelection(bookId, item.itemKey);
       setSelected([]);
       setPickedFragments([]);
       setNotice('已根据最新资料重新设计；新方案会与上一份实质不同，其他成功方案仍会保留。');
@@ -194,24 +217,74 @@ export function SettingCollaborationPanel({
     }
   };
 
-  const composeSelection = (): void => {
+  const synthesizeSelection = async (): Promise<void> => {
     if (busy !== null) return;
-    const parts: string[] = [];
-    for (const proposal of proposals) {
-      if (selected.includes(proposal.proposalId)) {
-        parts.push(proposal.content.trim());
-        continue;
-      }
-      for (const fragment of proposal.fragments) {
-        if (pickedFragments.includes(fragment.fragmentId)) parts.push(fragment.text.trim());
-      }
+    if (!guardAi()) return;
+    const proposalIds = proposals
+      .filter((proposal) => selected.includes(proposal.proposalId)
+        || proposal.fragments.some((fragment) => pickedFragments.includes(fragment.fragmentId)))
+      .map((proposal) => proposal.proposalId);
+    if (proposalIds.length === 0) return;
+    setBusy('fusion');
+    setNotice(null);
+    try {
+      fusionKey.current ??= createClientKey();
+      await synthesizeSettingCollaboration(bookId, item.itemKey, {
+        proposalIds,
+        wholeProposalIds: selected,
+        fragmentIds: pickedFragments,
+        authorInputId: null,
+        idempotencyKey: fusionKey.current
+      });
+      fusionKey.current = null;
+      clearStoredSettingSelection(bookId, item.itemKey);
+      setSelected([]);
+      setPickedFragments([]);
+      setDraftEdited(false);
+      setNotice('已交由主编融合。主编只会使用你选中的整案和片段，完成后形成可编辑稿。');
+      await refresh();
+    } catch (reason) {
+      setNotice(authorErrorFromUnknown(reason, '交由主编融合失败'));
+    } finally {
+      setBusy(null);
     }
-    const content = [...new Set(parts.filter((value) => value.length > 0))].join('\n\n');
-    if (content.length === 0) return;
-    setDraft(content);
-    setSelfWriting(true);
-    setNotice('已把你选中的内容放进可编辑稿。你可以直接删改，确认前不会写入正式设定。');
   };
+
+  const organizeDraft = async (): Promise<void> => {
+    if (busy !== null || draft.trim().length === 0 || !candidateReady) return;
+    if (!guardAi()) return;
+    setBusy('organize');
+    setNotice(null);
+    try {
+      organizeInputKey.current ??= createClientKey();
+      const saved = await createAuthorPlanningInput(bookId, {
+        surface: 'setting',
+        subjectType: 'setting_module',
+        subjectId: item.itemKey,
+        intentStrength: 'must',
+        originalText: draft.trim(),
+        attachmentRefs: [],
+        mentionedAgentIds: [],
+        scopeNotes: `作者在“${item.label}”主编编辑稿上修改后的完整底稿；按此整理时必须保留作者修改。`,
+        idempotencyKey: organizeInputKey.current
+      });
+      organizeTaskKey.current ??= createClientKey();
+      await reviseSettingCollaboration(bookId, item.itemKey, {
+        authorInputId: saved.authorInputId,
+        idempotencyKey: organizeTaskKey.current
+      });
+      organizeInputKey.current = null;
+      organizeTaskKey.current = null;
+      setDraftEdited(false);
+      setNotice('主编正在按你修改后的编辑稿专业化整理，不会恢复已删除内容或混入未选方案。');
+      await refresh();
+    } catch (reason) {
+      setNotice(authorErrorFromUnknown(reason, '按此整理失败'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const saveCandidate = async (status: '候选待确认' | '已确认', explicitContent?: string): Promise<void> => {
     const content = explicitContent ?? draft;
     if (busy !== null || content.trim().length === 0) return;
@@ -334,17 +407,22 @@ export function SettingCollaborationPanel({
   };
 
   const toggleFragment = (fragmentId: string): void => {
-    setPickedFragments((current) => current.includes(fragmentId)
-      ? current.filter((id) => id !== fragmentId)
-      : [...current, fragmentId]);
+    setPickedFragments((current) => {
+      const next = current.includes(fragmentId) ? current.filter((id) => id !== fragmentId) : [...current, fragmentId];
+      storeSettingSelection(bookId, item.itemKey, selected, next);
+      return next;
+    });
   };
 
   const pickWholeProposal = (proposal: Proposal): void => {
-    setSelected((current) => current.includes(proposal.proposalId)
-      ? current.filter((proposalId) => proposalId !== proposal.proposalId)
-      : [...current, proposal.proposalId]);
+    setSelected((current) => {
+      const next = current.includes(proposal.proposalId)
+        ? current.filter((proposalId) => proposalId !== proposal.proposalId)
+        : [...current, proposal.proposalId];
+      storeSettingSelection(bookId, item.itemKey, next, pickedFragments);
+      return next;
+    });
   };
-
   const proposals = data?.panel?.proposals ?? [];
   const panelMembers = data?.panel?.members ?? [];
   const panelFailed = data?.panel != null && ['failed', 'interrupted'].includes(data.panel.taskStatus);
@@ -364,6 +442,11 @@ export function SettingCollaborationPanel({
   const proposalsStale = roundIsStale(data?.panel?.createdAt);
   const fusionStale = roundIsStale(fusionDraft?.createdAt);
   const selectionCount = pickedFragments.length + selected.length;
+  const completedMemberCount = panelMembers.filter((member) => member.status === 'completed').length;
+  const failedMemberCount = panelMembers.filter((member) => ['failed', 'unavailable'].includes(member.status)).length;
+  const settledMemberCount = completedMemberCount + failedMemberCount;
+  const memberProgress = panelMembers.length === 0 ? 0 : Math.round((settledMemberCount / panelMembers.length) * 100);
+  const draftChanged = candidateReady && draftEdited;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
   const screenwriterSelector = data === null ? null : <div className="setting-writer-picker" aria-label="选择成员">
     <div className="setting-writer-picker-head">
@@ -384,7 +467,7 @@ export function SettingCollaborationPanel({
           aria-pressed={picked}
           onClick={() => toggleScreenwriter(member.roleKey)}>
           <AgentAvatar roleKey={member.roleKey} roleName={member.memberName} />
-          <span><b>{member.memberName}</b><small>{workStatus}</small></span>
+          <span><b>{member.memberName}<i>（{screenwriterRoleLabel(member.roleKey)}{member.highCompute ? '·高消耗' : ''}）</i></b><small>{workStatus}</small></span>
           <em>{unavailable ? '不可用' : picked ? '已选择' : '选择'}</em>
           {unavailable && member.availabilityReason !== null && <mark>{member.availabilityReason}</mark>}
         </button>;
@@ -425,7 +508,7 @@ export function SettingCollaborationPanel({
         {panelMembers.map((member) => <div key={member.agentId} className={`setting-member-chip status-${member.status}`}>
           <span>
             <AgentAvatar roleKey={member.roleKey} roleName={member.memberName} />
-            <b>{member.memberName}</b>
+            <b>{member.memberName}<i>（{screenwriterRoleLabel(member.roleKey)}{member.roleKey === 'senior_screenwriter' ? '·高消耗' : ''}）</i></b>
             <em className={`setting-dot dot-${member.status === 'completed' ? 'done' : ['failed', 'unavailable'].includes(member.status) ? 'failed' : 'work'}`} />
             <small>{memberStatusLabel(member.status)}</small>
           </span>
@@ -454,8 +537,10 @@ export function SettingCollaborationPanel({
         {manualOptions}
       </div>}
       {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <div className="setting-design-progress" role="status">
-        <strong>团队正在设计「{item.label}」</strong>
-        <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
+        <strong>团队正在设计「{item.label}」<span>已完成 {completedMemberCount}/{panelMembers.length} 份{failedMemberCount > 0 ? ` · 已失败 ${failedMemberCount}` : ''}</span></strong>
+        <div className="setting-progress-track" role="progressbar" aria-label="成员方案进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={memberProgress}>
+          <i className="setting-progress-bar" style={{ width: `${memberProgress}%` }} />
+        </div>
       </div>}
       {(panelFailed || revisionFailed) && <div className="setting-collaboration-error">
         <p>本轮有成员没有成功返回方案。失败状态已经保存，已有结果不会被清空。</p>
@@ -471,75 +556,82 @@ export function SettingCollaborationPanel({
           const costs = proposal.costs ?? [];
           const wholePicked = selected.includes(proposal.proposalId);
           const picked = fragmentCount > 0 || wholePicked;
-          return <article className={`setting-proposal-card${picked ? ' picked' : ''}`} key={proposal.proposalId}>
-            <div className="setting-proposal-who">
-              <b><AgentAvatar roleKey={proposal.roleKey ?? ''} roleName={proposal.memberName} />{proposal.memberName}方案</b>
+          return <details className={`setting-proposal-card${picked ? ' picked' : ''}`} key={proposal.proposalId}>
+            <summary>
+              <span className="setting-proposal-who">
+                <AgentAvatar roleKey={proposal.roleKey ?? ''} roleName={proposal.memberName} />
+                <b>{proposal.memberName}<i>（{screenwriterRoleLabel(proposal.roleKey)}{proposal.roleKey === 'senior_screenwriter' ? '·高消耗' : ''}）</i></b>
+                <small>{wholePicked ? '已整份选用' : fragmentCount > 0 ? `已选 ${fragmentCount} 段` : '方案已完成'}</small>
+              </span>
+              <span className="setting-proposal-toggle"><em className="open-label">查看方案</em><em className="close-label">收起方案</em></span>
+            </summary>
+            <div className="setting-proposal-body">
+              <p>{proposal.content}</p>
+              {(benefits.length > 0 || costs.length > 0) && <details className="setting-proposal-tradeoffs">
+                <summary>这份方案的好处与取舍</summary>
+                {benefits.length > 0 && <div><b>可能带来</b><ul>{benefits.map((value) => <li key={value}>{value}</li>)}</ul></div>}
+                {costs.length > 0 && <div><b>需要接受</b><ul>{costs.map((value) => <li key={value}>{value}</li>)}</ul></div>}
+              </details>}
+              <div className="setting-fragment-list">
+                {proposal.fragments.map((fragment) => <label className="setting-frag" key={fragment.fragmentId}>
+                  <input type="checkbox" checked={pickedFragments.includes(fragment.fragmentId)} onChange={() => toggleFragment(fragment.fragmentId)} />
+                  <span>{fragment.text}</span>
+                </label>)}
+              </div>
+              <div className="setting-proposal-actions">
+                <button type="button" className="setting-card-button primary" onClick={() => pickWholeProposal(proposal)}>
+                  {wholePicked ? '取消整份' : '整份选用'}
+                </button>
+                <button
+                  type="button"
+                  className="setting-card-button ghost setting-proposal-redesign"
+                  disabled={busy !== null || proposal.roleKey === null}
+                  onClick={() => void redesignProposal(proposal)}
+                >{busy === 'redesign-proposal-' + proposal.proposalId ? '正在重新设计…' : '重新设计'}</button>
+              </div>
             </div>
-            <p>{proposal.content}</p>
-            {(benefits.length > 0 || costs.length > 0) && <details className="setting-proposal-tradeoffs">
-              <summary>这份方案的好处与取舍</summary>
-              {benefits.length > 0 && <div><b>可能带来</b><ul>{benefits.map((value) => <li key={value}>{value}</li>)}</ul></div>}
-              {costs.length > 0 && <div><b>需要接受</b><ul>{costs.map((value) => <li key={value}>{value}</li>)}</ul></div>}
-            </details>}
-            {proposal.fragments.map((fragment) => <label className="setting-frag" key={fragment.fragmentId}>
-              <input type="checkbox" checked={pickedFragments.includes(fragment.fragmentId)} onChange={() => toggleFragment(fragment.fragmentId)} />
-              <span>{fragment.text}</span>
-            </label>)}
-            <button type="button" className="setting-card-button primary" onClick={() => pickWholeProposal(proposal)}>
-              {wholePicked ? '取消整份' : '整份选用'}
-            </button>
-            <button
-              type="button"
-              className="setting-card-button ghost setting-proposal-redesign"
-              disabled={busy !== null || proposal.roleKey === null}
-              onClick={() => void redesignProposal(proposal)}
-            >{busy === 'redesign-proposal-' + proposal.proposalId ? '正在重新设计…' : '重新设计'}</button>
-            {fragmentCount > 0 && <div className="setting-picked-label">✓ 您勾选了这份里的 {fragmentCount} 段</div>}
-          </article>;
+          </details>;
         })}
       </div>}
       {proposals.length > 0 && !candidateReady && !proposalsStale && !revisionRunning && <section className="setting-author-choice">
-        <footer><span>{selectionCount === 0 ? '可选整份，也可只勾喜欢的段落' : `已选 ${selected.length} 份整案、${pickedFragments.length} 段内容`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={composeSelection}>整理成可编辑稿</button></footer>
-        <small>这里不调用主编。系统只把你选中的原文放进编辑稿，由你直接删改和确认；主编会在全部设定完成后统一审查。</small>
+        <footer><span>{selectionCount === 0 ? '展开方案后，可选整份，也可只勾喜欢的段落' : `已选 ${selected.length} 份整案、${pickedFragments.length} 段内容`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesizeSelection()}>{busy === 'fusion' ? '主编正在融合…' : '交由主编融合'}</button></footer>
+        <small>主编只融合你明确选中的整案和片段，形成一份可编辑稿；未选内容不会混入。</small>
         <details className="setting-redesign-box"><summary>都不满意，重新选择成员</summary>
           {screenwriterSelector}
           <button className="primary-button setting-redesign-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : '重新设计'}</button>
         </details>
         {manualOptions}
-      </section>}      {revisionRunning && <div className="setting-design-progress" role="status">
-        <strong>正在恢复旧版整理任务</strong>
+      </section>}
+      {revisionRunning && <div className="setting-design-progress" role="status">
+        <strong>主编正在整理「{item.label}」</strong>
         <div className="setting-progress-track" aria-hidden="true"><i className="setting-progress-bar indeterminate" /></div>
-        <small>这是升级前已经开始的旧任务，完成前不会覆盖当前编辑稿。</small>
+        <small>可以离开本页，已选方案和作者修改稿都会保留；完成后会生成新的可编辑稿。</small>
       </div>}
 
-      {fusionDraft !== null && !revisionRunning && !fusionStale && <section className="setting-fusion" aria-label="历史整理稿">
-        <div className="setting-proposal-who"><b>历史整理稿</b><span className="setting-style-tag tag-fusion">按您的勾选整理</span></div>
-        <div className="setting-fusion-note">您勾了 {fusionDraft.selectedFragmentIds.length} 段，旧版流程曾把它们整理成一份设定；绿色部分是主编补的衔接。</div>
+      {fusionDraft !== null && !candidateReady && !revisionRunning && !fusionStale && <details className="setting-fusion" aria-label="上次主编编辑稿">
+        <summary><span><b>上次主编编辑稿</b><small>按您勾选的 {fusionDraft.selectedFragmentIds.length} 段融合</small></span><em>查看</em></summary>
         <div className="setting-fusion-body">{fusionDraft.segments.map((segment, index) => segment.source === 'stitch'
           ? <mark key={index}>{segment.text}</mark>
           : <span key={index}>{segment.text}</span>)}</div>
         <div className="setting-fusion-actions">
           <button className="primary-button" type="button" disabled={busy !== null} onClick={() => void saveCandidate('已确认', fusionDraft.content)}>{busy === '已确认' ? '正在确认…' : '确认这份'}</button>
-          <button type="button" disabled={busy !== null} onClick={() => setSelfWriting(true)}>我再改改</button>
+          <button type="button" disabled={busy !== null} onClick={() => { setDraft(fusionDraft.content); setDraftEdited(true); setSelfWriting(true); }}>我再改改</button>
           <button type="button" disabled={busy !== null} onClick={() => {
             setPickedFragments([]);
+            storeSettingSelection(bookId, item.itemKey, selected, []);
             proposalAnchor.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }}>退回重融</button>
+          }}>返回重新选择</button>
         </div>
-        <details className="setting-redesign-box"><summary>都不满意，重新设计</summary>
-          {screenwriterSelector}
-          <button className="primary-button setting-redesign-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : '重新设计'}</button>
-        </details>
-        {proposals.length === 0 && manualOptions}
-      </section>}
+      </details>}
 
       {(candidateReady || selfWriting) && !revisionRunning && <section className="setting-candidate-editor">
-        <header><div><small>{candidateReady ? '待确认稿' : '可编辑稿'}</small><strong>{candidateReady ? '方案已放入编辑稿，可直接修改' : '直接修改后保存或确认'}</strong></div><span>{hasPendingCandidate ? '确认后才替换现有定稿，旧稿留在历史版本里' : '确认后仍不会直接改动已确认内容'}</span></header>
-        <ImeTextarea aria-label="待确认设定内容" rows={10} maxChars={20_000} value={draft} disabled={revisionRunning} onChange={setDraft} />
+        <header><div><small>{candidateReady ? '主编编辑稿' : '自己写一份'}</small><strong>{candidateReady ? '可直接修改，也可以让主编按修改稿再整理一次' : '直接写出本项设定'}</strong></div><span>{hasPendingCandidate ? '确认后才替换现有定稿，旧稿留在历史版本里' : '确认前只属于本项临时编辑稿'}</span></header>
+        <ImeTextarea aria-label="待确认设定内容" rows={10} maxChars={20_000} value={draft} disabled={revisionRunning} onChange={(value) => { setDraft(value); setDraftEdited(true); }} />
         <div className="setting-candidate-actions">
           {selfWriting && !candidateReady && <button type="button" disabled={busy !== null} onClick={() => setSelfWriting(false)}>收起</button>}
-          <button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存我的修改'}</button>
-          <button className="primary-button" type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('已确认')}>{busy === '已确认' ? '正在确认…' : '确认这一项'}</button>
+          <button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存修改'}</button>
+          {draftChanged && <button className="primary-button" type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void organizeDraft()}>{busy === 'organize' ? '主编正在整理…' : '按此整理'}</button>}
+          <button className={draftChanged ? '' : 'primary-button'} type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('已确认')}>{busy === '已确认' ? '正在确认…' : draftChanged ? '直接确认' : '确认这一项'}</button>
         </div>
       </section>}
     </>}
@@ -547,14 +639,46 @@ export function SettingCollaborationPanel({
   </section>;
 }
 
+type StoredSettingSelection = { selected: string[]; pickedFragments: string[] };
+
+function settingSelectionStorageKey(bookId: string, itemKey: string): string {
+  return `wenmi-setting-proposal-selection-v1-${bookId}-${itemKey}`;
+}
+
+function readStoredSettingSelection(bookId: string, itemKey: string): StoredSettingSelection {
+  try {
+    const raw = window.sessionStorage.getItem(settingSelectionStorageKey(bookId, itemKey));
+    if (raw === null) return { selected: [], pickedFragments: [] };
+    const parsed = JSON.parse(raw) as Partial<StoredSettingSelection>;
+    return {
+      selected: Array.isArray(parsed.selected) ? parsed.selected.filter((value): value is string => typeof value === 'string') : [],
+      pickedFragments: Array.isArray(parsed.pickedFragments) ? parsed.pickedFragments.filter((value): value is string => typeof value === 'string') : []
+    };
+  } catch {
+    return { selected: [], pickedFragments: [] };
+  }
+}
+
+function storeSettingSelection(bookId: string, itemKey: string, selected: string[], pickedFragments: string[]): void {
+  try {
+    window.sessionStorage.setItem(settingSelectionStorageKey(bookId, itemKey), JSON.stringify({ selected, pickedFragments }));
+  } catch { /* 私密模式或存储满时不阻断当前选择 */ }
+}
+
+function clearStoredSettingSelection(bookId: string, itemKey: string): void {
+  try { window.sessionStorage.removeItem(settingSelectionStorageKey(bookId, itemKey)); } catch { /* 无持久存储时忽略 */ }
+}
 function createClientKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `setting-idea-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 
+function screenwriterRoleLabel(roleKey: string | null): string {
+  return roleKey === 'senior_screenwriter' ? '高级编剧' : '编剧';
+}
 function memberStatusLabel(status: NonNullable<SettingCollaborationData['panel']>['members'][number]['status']): string {
-  return ({ preparing: '等待开始', working: '设计中', completed: '方案已完成', failed: '设计失败', unavailable: '当前不可用', paused: '已暂停' } as const)[status];
+  return ({ preparing: '工作中', working: '工作中', completed: '已完成', failed: '已失败', unavailable: '已失败', paused: '已暂停' } as const)[status];
 }
 
 function recoveryKeyOf(value: { recoveryKey?: string } | null | undefined): string | null {

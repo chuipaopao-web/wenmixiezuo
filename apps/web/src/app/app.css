@@ -3753,14 +3753,6 @@ svg {
 .setting-collaboration-start footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .setting-collaboration-start footer span { color: var(--ink-faint); font-size: calc(8px * var(--font-scale)); }
 .setting-collaboration-error { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
-.setting-proposal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.setting-proposal-grid > button { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; min-height: 210px; border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 14px; color: var(--ink); background: var(--panel); font: inherit; text-align: left; cursor: pointer; }
-.setting-proposal-grid > button:hover, .setting-proposal-grid > button.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.setting-proposal-grid > button.selected { background: color-mix(in srgb, var(--accent-soft) 55%, var(--panel)); }
-.setting-proposal-grid span { color: var(--accent); font-size: calc(8px * var(--font-scale)); font-weight: 700; }
-.setting-proposal-grid strong { margin-top: 5px; font-size: calc(12px * var(--font-scale)); }
-.setting-proposal-grid p { flex: 1; margin: 11px 0; color: var(--ink-soft); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.setting-proposal-grid small { color: var(--ink-faint); }
 .setting-author-choice, .setting-candidate-editor { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: var(--panel-radius); padding: 15px; background: var(--panel); }
 .setting-author-choice label, .setting-candidate-editor label { display: grid; gap: 7px; color: var(--ink-soft); font-weight: 700; }
 .setting-author-choice textarea, .setting-candidate-editor textarea { width: 100%; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--control-radius); padding: 10px; color: var(--ink); background: var(--panel-raised); font: inherit; line-height: 1.7; }
@@ -3778,8 +3770,6 @@ svg {
   .setting-outline-progress { min-width: 0; text-align: left; }
   .setting-outline-row { grid-template-columns: minmax(0, 1fr); }
   .setting-outline-row select, .setting-row-position { grid-column: 1; text-align: left; }
-  .setting-proposal-grid { grid-template-columns: 1fr; }
-  .setting-proposal-grid > button { min-height: 0; }
   .setting-collaboration > header, .setting-collaboration-error, .setting-author-choice footer, .setting-candidate-editor > header { align-items: stretch; flex-direction: column; }
   .setting-collaboration-start footer { align-items: stretch; flex-direction: column; }
 }
@@ -7079,9 +7069,10 @@ svg {
 .setting-writer-option:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .setting-writer-option.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent-soft) 52%, var(--panel-raised)); }
 .setting-writer-option .agent-avatar { width: 36px; height: 36px; grid-row: auto; }
-.setting-writer-option > span { min-width: 0; display: inline-flex; align-items: baseline; gap: 7px; overflow: hidden; }
-.setting-writer-option > span b { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.setting-writer-option > span small { flex: 0 0 auto; color: var(--ink-faint); font-size: 10.5px; white-space: nowrap; }
+.setting-writer-option > span { min-width: 0; display: grid; gap: 2px; overflow: hidden; }
+.setting-writer-option > span b { display: flex; align-items: baseline; gap: 4px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.setting-writer-option > span b i,.setting-member-chip b i,.setting-proposal-who b i { color: var(--ink-faint); font-size: .86em; font-style: normal; font-weight: 500; white-space: nowrap; }
+.setting-writer-option > span small { color: var(--ink-faint); font-size: 10.5px; white-space: nowrap; }
 .setting-writer-option > em { color: var(--accent-hover); font-size: 11px; font-style: normal; font-weight: 700; white-space: nowrap; }
 .setting-writer-option > mark { grid-column: 2 / -1; padding: 0; color: #b4483e; background: none; font-size: 10px; line-height: 1.4; }
 .setting-writer-option.unavailable { opacity: .72; cursor: not-allowed; background: color-mix(in srgb, var(--panel-muted) 84%, transparent); }
@@ -7092,32 +7083,28 @@ svg {
 .setting-redesign-box > .setting-redesign-button { min-height: 42px; }
 .setting-redesign-box:not([open]) > summary { color: var(--accent-hover); }
 
-.setting-proposal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; margin-top: 4px; }
-.setting-proposal-card {
-  background: color-mix(in srgb, var(--panel-raised) 97%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 16px; padding: 15px 16px;
-  display: flex; flex-direction: column; gap: 9px;
-}
-.setting-proposal-card.picked { border: 1.5px solid var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 18%, transparent); }
-.setting-proposal-who { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.setting-proposal-who b { font-size: 13px; color: var(--ink); display: inline-flex; align-items: center; gap: 7px; }
-.setting-proposal-who .agent-avatar { width: 30px; height: 30px; grid-row: auto; flex: 0 0 auto; }
-.setting-style-tag { font-size: 10.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-.setting-style-tag.tag-lead_screenwriter { color: #c0392b; background: rgb(220 80 60 / 10%); }
-.setting-style-tag.tag-second_screenwriter { color: #1e7e46; background: rgb(46 160 90 / 12%); }
-.setting-style-tag.tag-setting { color: #6c4fd0; background: rgb(108 79 208 / 10%); }
-.setting-style-tag.tag-fusion { color: var(--accent-hover); background: var(--accent-soft); }
-.setting-proposal-card > p { margin: 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.8; white-space: pre-wrap; }
-.setting-frag {
-  display: flex; gap: 8px; align-items: flex-start; cursor: pointer;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 38%, transparent);
-  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
-  border-radius: 0 8px 8px 0; padding: 8px 10px;
-  font-size: 12px; color: var(--ink-soft); line-height: 1.7;
-}
-.setting-frag input { margin-top: 3px; accent-color: var(--accent); flex: 0 0 auto; }
-.setting-picked-label { text-align: center; font-size: 11px; color: var(--accent-hover); font-weight: 650; }
+.setting-proposal-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; margin-top: 4px; }
+.setting-proposal-card { min-width: 0; overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 82%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--panel-raised) 97%, transparent); }
+.setting-proposal-card.picked { border: 1.5px solid var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 14%, transparent); }
+.setting-proposal-card[open] { grid-column: 1 / -1; }
+.setting-proposal-card > summary { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; list-style: none; cursor: pointer; }
+.setting-proposal-card > summary::-webkit-details-marker { display: none; }
+.setting-proposal-who { min-width: 0; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 2px 8px; }
+.setting-proposal-who .agent-avatar { width: 32px; height: 32px; grid-row: 1 / span 2; flex: 0 0 auto; }
+.setting-proposal-who b { min-width: 0; display: flex; align-items: baseline; gap: 4px; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.setting-proposal-who small { grid-column: 2; color: var(--ink-faint); font-size: 10.5px; }
+.setting-proposal-toggle { flex: 0 0 auto; color: var(--accent-hover); font-size: 11px; font-weight: 700; }
+.setting-proposal-toggle em { font-style: normal; }
+.setting-proposal-toggle .close-label { display: none; }
+.setting-proposal-card[open] .setting-proposal-toggle .open-label { display: none; }
+.setting-proposal-card[open] .setting-proposal-toggle .close-label { display: inline; }
+.setting-proposal-body { display: grid; gap: 11px; border-top: 1px solid var(--line); padding: 14px 16px 16px; }
+.setting-proposal-body > p { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.8; white-space: pre-wrap; }
+.setting-fragment-list { display: grid; gap: 8px; }
+.setting-frag { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; border-left: 3px solid color-mix(in srgb, var(--accent) 38%, transparent); border-radius: 0 8px 8px 0; padding: 8px 10px; background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.setting-frag input { margin: 3px 0 0; accent-color: var(--accent); flex: 0 0 auto; }
+.setting-frag span { color: var(--ink); font-size: 11.5px; line-height: 1.65; }
+.setting-proposal-actions { display: flex; gap: 9px; flex-wrap: wrap; }
 .setting-proposal-tradeoffs { border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 10px; padding: 0 10px; background: color-mix(in srgb, var(--panel-muted) 70%, transparent); }
 .setting-proposal-tradeoffs summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
 .setting-proposal-tradeoffs > div { padding: 0 0 8px; }
@@ -7125,7 +7112,11 @@ svg {
 .setting-proposal-tradeoffs ul { margin: 4px 0 0; padding-left: 18px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.65; }
 .setting-proposal-card .setting-card-button { min-height: 44px; }
 .setting-proposal-card, .setting-proposal-card * { min-width: 0; overflow-wrap: anywhere; }
-
+.setting-fusion > summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; cursor: pointer; }
+.setting-fusion > summary::-webkit-details-marker { display: none; }
+.setting-fusion > summary span { display: grid; gap: 3px; }
+.setting-fusion > summary small { color: var(--ink-faint); font-weight: 400; }
+.setting-fusion > summary em { color: var(--accent-hover); font-style: normal; font-weight: 700; }
 .setting-fusion {
   margin-top: 16px; border-radius: 16px;
   border: 1.5px solid color-mix(in srgb, var(--accent) 42%, transparent);
@@ -7217,15 +7208,23 @@ svg {
 .setting-queue-progress { flex: 1 1 100%; display: grid; gap: 6px; }
 .setting-queue-progress strong { font-size: 14px; }
 .setting-queue-progress small { color: var(--ink-soft); font-size: 12px; }
-.setting-design-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, 220px); align-items: center; gap: 12px; margin: 0; border-radius: var(--control-radius); padding: 11px 13px; background: color-mix(in srgb, var(--accent-soft, #e8f0ec) 70%, var(--panel, #fff)); border: 1px solid color-mix(in srgb, var(--accent, #3f6f5e) 24%, var(--line, #e6e2d8)); }
-.setting-design-progress strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.setting-design-progress .setting-progress-track { height: 5px; }
+.setting-design-progress { display: grid; gap: 10px; margin: 0; border: 1px solid color-mix(in srgb, var(--accent, #3f6f5e) 28%, var(--line, #e6e2d8)); border-radius: var(--control-radius); padding: 14px 16px; background: color-mix(in srgb, var(--accent-soft, #e8f0ec) 78%, var(--panel, #fff)); }
+.setting-design-progress strong { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 14px; }
+.setting-design-progress strong span { color: var(--ink-soft); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.setting-design-progress > small { color: var(--ink-soft); font-size: 11.5px; line-height: 1.6; }
+.setting-design-progress .setting-progress-track { width: 100%; height: 10px; }
 .setting-progress-track { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #3f6f5e) 12%, var(--panel, #fff)); overflow: hidden; }
 .setting-progress-bar { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent, #3f6f5e), color-mix(in srgb, var(--accent, #3f6f5e) 70%, #7fb069)); transition: width .5s ease; }
 .setting-progress-bar.indeterminate { width: 38%; animation: setting-progress-slide 1.4s ease-in-out infinite; }
 @keyframes setting-progress-slide {
   0% { margin-left: -38%; }
   100% { margin-left: 100%; }
+}
+@media (max-width: 640px) {
+  .setting-design-progress strong { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .setting-proposal-actions { display: grid; grid-template-columns: 1fr; }
+  .setting-proposal-actions button { width: 100%; }
+  .setting-candidate-editor textarea,.setting-collaboration-start textarea { font-size: 16px; }
 }
 .setting-clear-confirm { max-width: 520px; margin: 0 auto; text-align: left; border: 1px solid color-mix(in srgb, #c0392b 35%, transparent); border-radius: 12px; padding: 16px; background: color-mix(in srgb, #c0392b 5%, transparent); }
 .setting-clear-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.7; }

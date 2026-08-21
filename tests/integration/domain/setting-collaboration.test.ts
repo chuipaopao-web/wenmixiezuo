@@ -10,6 +10,9 @@ import {
 } from '../../../apps/api/src/application/knowledge/setting-guidance-service.js';
 import { EditorLeaseService } from '../../../apps/api/src/application/editors/editor-lease-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
+import { UnitOfWork } from '../../../apps/api/src/infrastructure/db/unit-of-work.js';
+import { AuthorPlanningInputRepository } from '../../../apps/api/src/infrastructure/db/repositories/author-planning-input-repository.js';
 import { SettingCollaborationRepository } from '../../../apps/api/src/infrastructure/db/repositories/setting-collaboration-repository.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -447,7 +450,7 @@ describe('设定页内协作读模型', () => {
     expect(clearedBrief.scopeText).not.toContain('世界舞台已经修改');
   });
 
-  it('作者所选编剧独立产出可勾选碎片，主编只执行全部设定完成后的整体审查', async () => {
+  it('作者所选编剧独立产出可勾选方案，主编按选择融合编辑稿，全部完成后再整体审查', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -496,7 +499,44 @@ describe('设定页内协作读模型', () => {
     expect(view.panel?.proposals.every((proposal) => proposal.fragments.length >= 1)).toBe(true);
     expect(view.revisionTask).toBeNull();
     expect(view.fusionDraft).toBeNull();
-
+    const selectedProposal = view.panel?.proposals[0];
+    if (selectedProposal === undefined) throw new Error('缺少可交给主编的编剧方案');
+    const synthesis = commands.synthesize(scope, itemKey, {
+      proposalIds: [selectedProposal.proposalId],
+      wholeProposalIds: [selectedProposal.proposalId],
+      fragmentIds: [],
+      idempotencyKey: 'selected-setting-synthesis'
+    });
+    expect(tasks.claimNext('worker-selected-setting-synthesis')?.taskId).toBe(synthesis.taskId);
+    await expect(pipeline.executeClaimed(scope, synthesis.taskId, 'worker-selected-setting-synthesis'))
+      .resolves.toMatchObject({ opinionCount: 1 });
+    const synthesized = new SettingCollaborationService(
+      new SettingCollaborationRepository(context.database),
+      new SettingOutlineWorkspaceService(context.database, clock)
+    ).inspect(scope, itemKey);
+    expect(synthesized.revisionTask?.status).toBe('succeeded');
+    expect(synthesized.item.status).toBe('候选待确认');
+    expect(synthesized.item.content).toBeTruthy();
+    const modifiedDraft = '作者删除了旧稿中的身份门槛，改为所有居民都能申诉，但必须在三日内提交证据。';
+    const authorInput = new AuthorCollaborationService(
+      new AuthorPlanningInputRepository(context.database), new UnitOfWork(context.database), ids, clock
+    ).create(scope, {
+      surface: 'setting', subjectType: 'setting_module', subjectId: itemKey, intentStrength: 'must',
+      originalText: modifiedDraft, attachmentRefs: [], mentionedAgentIds: [],
+      scopeNotes: '作者修改后的完整主编编辑稿', idempotencyKey: 'setting-author-modified-draft'
+    });
+    const revision = commands.revise(scope, itemKey, {
+      authorInputId: authorInput.authorInputId, idempotencyKey: 'organize-author-modified-draft'
+    });
+    const revisionBrief = JSON.parse((context.database.prepare('SELECT task_brief_json FROM tasks WHERE task_id = ?')
+      .get(revision.taskId) as { task_brief_json: string }).task_brief_json) as { scopeText: string; authorInputIds: string[] };
+    expect(revisionBrief.authorInputIds).toEqual([authorInput.authorInputId]);
+    expect(revisionBrief.scopeText).toContain(modifiedDraft);
+    expect(revisionBrief.scopeText).toContain('唯一底稿');
+    expect(revisionBrief.scopeText).not.toContain(synthesized.item.content ?? '');
+    expect(tasks.claimNext('worker-organize-setting-draft')?.taskId).toBe(revision.taskId);
+    await expect(pipeline.executeClaimed(scope, revision.taskId, 'worker-organize-setting-draft'))
+      .resolves.toMatchObject({ opinionCount: 1 });
     const auditWorkspace = new SettingOutlineWorkspaceService(context.database, clock);
     const auditItem = auditWorkspace.list(scope).find((candidate) => candidate.itemKey === itemKey);
     expect(auditItem).toBeDefined();

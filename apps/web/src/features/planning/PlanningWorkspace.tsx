@@ -474,13 +474,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
         profileLabel: readiness.profileLabel ?? '通用故事'
       };
       setProfile(normalizedReadiness);
-      setCheckedKeys((current) => {
-        const next = { ...current };
-        for (const key of normalizedReadiness.recommended) {
-          if (!(key in next)) next[key] = true;
-        }
-        return next;
-      });
       const initialKeys = new Set([...normalizedReadiness.required, ...normalizedReadiness.recommended]);
       const templateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items
         .filter((item) => initialKeys.has(item.key))
@@ -526,7 +519,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   useEffect(() => {
     if (bookId === null) { setCheckedKeys({}); setLocalStateBookId(null); return; }
     try {
-      const raw = window.localStorage.getItem(`wenmi-setting-checked-v2-${bookId}`);
+      const raw = window.localStorage.getItem(`wenmi-setting-checked-v3-${bookId}`);
       setCheckedKeys(raw === null ? {} : JSON.parse(raw) as Record<string, boolean>);
       setLibraryReviewed(window.localStorage.getItem(`wenmi-setting-library-reviewed-v3-${bookId}`) === 'true');
       const sessionRaw = window.localStorage.getItem(`wenmi-setting-design-session-v3-${bookId}`);
@@ -548,7 +541,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   useEffect(() => {
     if (bookId === null || localStateBookId !== bookId) return;
     try {
-      window.localStorage.setItem(`wenmi-setting-checked-v2-${bookId}`, JSON.stringify(checkedKeys));
+      window.localStorage.setItem(`wenmi-setting-checked-v3-${bookId}`, JSON.stringify(checkedKeys));
       window.localStorage.setItem(`wenmi-setting-library-reviewed-v3-${bookId}`, String(libraryReviewed));
       window.localStorage.setItem(`wenmi-setting-design-session-v3-${bookId}`, JSON.stringify({
         started: designStarted,
@@ -749,7 +742,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   const startDesignQueue = (): void => {
     const queue = buildQueue();
     if (!libraryReviewed) {
-      setNotice('请先打开完整设定库，确认核心、推荐和其他设定的选择范围。');
+      setNotice('请先打开完整设定库，确认核心设定，并按需勾选推荐和其他设定。');
       return;
     }
     if (queue.length === 0) {
@@ -835,7 +828,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
             </section>
 
             <section className="setting-library-block recommended" aria-label="推荐设定">
-              <header><div><small>02</small><span><strong>推荐设定</strong><em>{profile?.profileLabel ?? '按本书题材推荐'}，默认加入，可在开始前取消</em></span></div><b>{packGroups.flatMap((group) => group.items).filter((item) => recommendedKeys.has(item.key)).length} 项</b></header>
+              <header><div><small>02</small><span><strong>推荐设定</strong><em>{profile?.profileLabel ?? '按本书题材推荐'}，仅供参考，请按本书实际需要勾选</em></span></div><b>{packGroups.flatMap((group) => group.items).filter((item) => recommendedKeys.has(item.key)).length} 项</b></header>
               <div className="setting-library-list">
                 {packGroups.length === 0
                   ? <p className="setting-empty-state">这本书暂时没有额外推荐项。</p>

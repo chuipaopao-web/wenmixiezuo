@@ -1774,6 +1774,26 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
         scope, request.params.itemKey, { roleKey: request.params.roleKey, idempotencyKey: request.body.idempotencyKey }), request.id);
     }
   );
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: {
+    proposalIds: string[];
+    wholeProposalIds?: string[];
+    fragmentIds?: string[];
+    authorInputId?: string | null;
+    idempotencyKey: string;
+  } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/synthesize', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(settingCollaborationCommands.synthesize(scope, request.params.itemKey, request.body), request.id);
+    }
+  );
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: { authorInputId: string; idempotencyKey: string } }>(
+    '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/collaboration/revise', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);
+      assertCreativeModelReady(config.modelRuntime);
+      return success(settingCollaborationCommands.revise(scope, request.params.itemKey, request.body), request.id);
+    }
+  );
   app.delete<{ Params: { bookId: string; itemKey: string } }>(
     '/api/v1/books/:bookId/setting-outline-workspace/:itemKey/current', async (request) => {
       const scope = { ...owner(request), bookId: request.params.bookId }; books.require(scope);

@@ -174,13 +174,24 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
  * 否则结算端会以"实际用量超过冻结上限"拒绝。
  */
 export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
+export const FAST_GLM_DISCUSSION_THINKING_BUDGET_TOKENS = 8_000;
 
-export function thinkingTokenAllowance(modelId: string): number {
+export function thinkingTokenAllowance(
+  modelId: string,
+  purpose?: ModelPurpose,
+  maxOutputTokens?: number
+): number {
   // 本地确定性夹具不经过真实模型，没有思考开销。
   if (modelId === 'wenmi-fixture-v1') return 0;
   // MiniMax M3 在任何用途下都关闭思考（预算对它不生效，会把全部额度烧进思考块），
   // max_tokens 与预算冻结都不追加思考余量。
   if (modelId.startsWith('minimax-')) return 0;
+  // GLM-5.3 在短讨论里通常会大量消耗完整16k思考额度，设定单席因此明显拖慢。
+  // 对可见输出不超过3k的讨论使用8k有界思考；复杂规划、审校和正文仍保留16k。
+  if (modelId.startsWith('glm-5.3') && purpose === 'discussion'
+    && maxOutputTokens !== undefined && maxOutputTokens <= 3_000) {
+    return FAST_GLM_DISCUSSION_THINKING_BUDGET_TOKENS;
+  }
   return SUBSCRIPTION_THINKING_BUDGET_TOKENS;
 }
 
