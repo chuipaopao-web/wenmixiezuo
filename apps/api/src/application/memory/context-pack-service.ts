@@ -38,6 +38,8 @@ export interface ContextPackInput {
   writingContractVersionId?: string | null;
   tokenBudget: number;
   characterBudget?: number;
+  hardSourceTokenReserve?: number;
+  hardSourceCharacterReserve?: number;
   policyVersion?: string;
   hardSources: ContextSource[];
   optionalSources: ContextSource[];
@@ -67,7 +69,10 @@ export class ContextPackService {
     const automaticSettingSources=loadSettingClauseSources(this.database,scope,input);
     const requestedHardSources=[...input.hardSources,...automaticSettingSources.hard];
     const requestedOptionalSources=[...input.optionalSources,...automaticSettingSources.optional,...automaticStoryThreadSources];
-    const characterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
+    const baseTokenBudget = input.tokenBudget;
+    const baseCharacterBudget = input.characterBudget ?? Number.MAX_SAFE_INTEGER;
+    const hardSourceTokenReserve = budgetReserve(input.hardSourceTokenReserve);
+    const hardSourceCharacterReserve = budgetReserve(input.hardSourceCharacterReserve);
     const policyVersion = input.policyVersion?.trim() || 'context-pack-v2';
     const excluded: ContextPackRecord['excluded'] = [];
     const seenContent = new Set<string>();
@@ -88,20 +93,27 @@ export class ContextPackService {
     }));
     const hardTokens = hard.reduce((sum, source) => sum + source.tokenCount, 0);
     const hardCharacters = hard.reduce((sum, source) => sum + source.characterCount, 0);
-    if (hardTokens > input.tokenBudget) {
+    const hardTokenLimit = baseTokenBudget + hardSourceTokenReserve;
+    const hardCharacterLimit = baseCharacterBudget === Number.MAX_SAFE_INTEGER
+      ? Number.MAX_SAFE_INTEGER
+      : baseCharacterBudget + hardSourceCharacterReserve;
+    if (hardTokens > hardTokenLimit) {
       throw new DomainError(
         errorCodes.operationIncomplete,
         'Token预算不足以容纳不可截断的硬来源',
-        { tokenBudget: input.tokenBudget, requiredHardTokens: hardTokens, hardSourceIds: hard.map((source) => source.sourceId) },
+        { tokenBudget: hardTokenLimit, baseTokenBudget, hardSourceTokenReserve,
+          requiredHardTokens: hardTokens, hardSourceIds: hard.map((source) => source.sourceId) },
         false, 409
       );
     }
-    if (hardCharacters > characterBudget) {
+    if (hardCharacters > hardCharacterLimit) {
       throw new DomainError(
         errorCodes.operationIncomplete,
         '字符预算不足以容纳不可截断的硬来源',
         {
-          characterBudget,
+          characterBudget: hardCharacterLimit,
+          baseCharacterBudget,
+          hardSourceCharacterReserve,
           requiredHardCharacters: hardCharacters,
           hardSourceIds: hard.map((source) => source.sourceId)
         },
@@ -109,6 +121,10 @@ export class ContextPackService {
         409
       );
     }
+    const tokenBudget = Math.max(baseTokenBudget, hardTokens);
+    const characterBudget = baseCharacterBudget === Number.MAX_SAFE_INTEGER
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(baseCharacterBudget, hardCharacters);
     const included: Array<ContextSource & { tokenCount: number; hard: boolean }> = [...hard];
     let totalTokens = hardTokens;
     let totalCharacters = hardCharacters;
@@ -169,7 +185,7 @@ export class ContextPackService {
     });
     for (const source of dedupedOptional) {
       if (
-        totalTokens + source.tokenCount <= input.tokenBudget
+        totalTokens + source.tokenCount <= tokenBudget
         && totalCharacters + source.characterCount <= characterBudget
       ) {
         included.push(source);
@@ -212,7 +228,7 @@ export class ContextPackService {
       positioningVersion: input.positioningVersion,
       policyVersion,
       characterBudget: characterBudget === Number.MAX_SAFE_INTEGER ? null : characterBudget,
-      tokenBudget: input.tokenBudget,
+      tokenBudget,
       manifest,
       excluded
     });
@@ -241,7 +257,7 @@ export class ContextPackService {
       contextPackId, scope.ownerId, scope.bookId, input.taskId, input.agentId,
       input.chapterId ?? null, input.canonRevision, input.positioningVersion,
       input.outlineVersionId ?? null, input.writingContractVersionId ?? null,
-      input.tokenBudget, totalTokens, stableJson(manifest), stableJson(excluded),
+      tokenBudget, totalTokens, stableJson(manifest), stableJson(excluded),
       contentHash, policyVersion, sourceFingerprint, this.clock.now().toISOString()
     ));
     persistContextPackComponents(this.database,this.ids,scope,contextPackId,manifest,excluded,[...requestedHardSources,...requestedOptionalSources]);
@@ -256,6 +272,9 @@ export class ContextPackService {
       excluded
     };
   }
+}
+function budgetReserve(value: number | undefined): number {
+  return value === undefined || !Number.isFinite(value) ? 0 : Math.max(0, Math.floor(value));
 }
 function loadSettingClauseSources(database:DatabaseSync,scope:BookScope,input:ContextPackInput):{
   hard:ContextSource[];optional:ContextSource[]}{

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading, productionReviewContextBudget } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
+import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading, productionReviewContextBudget, productionReviewHardSourceReserve } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, MutableClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
@@ -34,6 +34,14 @@ describe('单章完整创作流水线', () => {
     expect(productionReviewContextBudget('literary', [source('a', 15_437)])).toEqual({
       tokenBudget: 12_000,
       characterBudget: 12_000
+    });
+    expect(productionReviewHardSourceReserve('fact')).toEqual({
+      tokenReserve: 8_000,
+      characterReserve: 8_000
+    });
+    expect(productionReviewHardSourceReserve('literary')).toEqual({
+      tokenReserve: 0,
+      characterReserve: 0
     });
   });
 
@@ -145,7 +153,7 @@ describe('单章完整创作流水线', () => {
         phase_key: string; policy_version: string; source_manifest_json: string;
       }>;
     const factReview = reviewCalls.find((call) => call.phase_key.includes('-fact-'));
-    expect(factReview?.policy_version).toBe('production-review-fact-context-v7-complete-relevant-sources');
+    expect(factReview?.policy_version).toBe('production-review-fact-context-v8-automatic-hard-reserve');
     const factSources = JSON.parse(factReview?.source_manifest_json ?? '[]') as Array<{ sourceType: string; content: string }>;
     expect(factSources.map((source) => source.sourceType)).toContain('previous_chapter_full');
     expect(factSources.find((source) => source.sourceType === 'previous_chapter_full')?.content.length).toBeGreaterThan(800);

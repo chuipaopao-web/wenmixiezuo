@@ -903,13 +903,16 @@ export class ChapterPipelineService {
         ...(reviewer.role === 'fact' ? planningFactSources : [])
       ];
       const reviewBudget = productionReviewContextBudget(reviewer.role, reviewHardSources);
+      const hardSourceReserve = productionReviewHardSourceReserve(reviewer.role);
       const pack = new ContextPackService(this.database, this.ids, this.clock).build(scope, {
         taskId: run.task_id, agentId: reviewer.agent.agentId, chapterId: run.chapter_id,
         canonRevision: run.expected_canon_revision, positioningVersion: run.expected_positioning_version,
         tokenBudget: reviewBudget.tokenBudget,
         characterBudget: reviewBudget.characterBudget,
+        hardSourceTokenReserve: hardSourceReserve.tokenReserve,
+        hardSourceCharacterReserve: hardSourceReserve.characterReserve,
         policyVersion: reviewer.role === 'fact'
-          ? 'production-review-fact-context-v7-complete-relevant-sources'
+          ? 'production-review-fact-context-v8-automatic-hard-reserve'
           : `production-review-${reviewer.role}-context-v2-8500chars`,
         hardSources: reviewHardSources,
         optionalSources: [
@@ -2536,6 +2539,14 @@ export function productionReviewContextBudget(
     characterBudget: Math.min(48_000, Math.max(16_000, requiredCharacters + 1_000)),
     tokenBudget: Math.min(48_000, Math.max(16_000, requiredTokens + 1_000))
   };
+}
+
+export function productionReviewHardSourceReserve(
+  role: 'fact' | 'literary' | 'experience' | 'challenger'
+): { tokenReserve: number; characterReserve: number } {
+  return role === 'fact'
+    ? { tokenReserve: 8_000, characterReserve: 8_000 }
+    : { tokenReserve: 0, characterReserve: 0 };
 }
 
 export function recollectionContinuityReviewRule(): string {

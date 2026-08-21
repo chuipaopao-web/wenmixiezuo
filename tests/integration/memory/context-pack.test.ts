@@ -52,6 +52,28 @@ describe('不可变上下文包', () => {
     })).toThrowError(expect.objectContaining<Partial<DomainError>>({ code: errorCodes.operationIncomplete }));
   });
 
+  it('硬来源专用余量只扩到实际硬资料，不允许软资料占用未使用余量', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId, agentId: fixture.agentId, chapterId: fixture.chapterId,
+      canonRevision: 0, positioningVersion: 1, tokenBudget: 10, characterBudget: 10,
+      hardSourceTokenReserve: 10, hardSourceCharacterReserve: 10,
+      hardSources: [{ sourceType: 'current_manuscript', sourceId: 'hard-12', content: '甲'.repeat(12), reason: '必须完整保留', priority: 100 }],
+      optionalSources: [{ sourceType: 'retrieval:fact', sourceId: 'optional-1', content: '乙', reason: '低优先级补充', priority: 99 }]
+    });
+    expect(pack.totalTokens).toBe(12);
+    expect(pack.totalCharacters).toBe(12);
+    expect(pack.sources.map((source) => source.sourceId)).toEqual(['hard-12']);
+    expect(pack.excluded).toContainEqual(expect.objectContaining({
+      sourceId: 'optional-1', reason: 'character_budget_lower_priority'
+    }));
+    expect(context.database.prepare('SELECT token_budget FROM context_packs WHERE context_pack_id = ?')
+      .get(pack.contextPackId)).toEqual({ token_budget: 12 });
+  });
+
   it('按字符预算构建可追溯资料包并保存策略版本与来源指纹', () => {
     context = createTestContext();
     const ids = new SequenceIds();
