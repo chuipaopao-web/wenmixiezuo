@@ -15,6 +15,7 @@ import {
   type WorkspacePrimaryFunctionKey
 } from '@wenmi/contracts';
 import { useMembershipGate } from '../shared/membership-gate';
+import { AgentAvatar } from '../shared/AgentAvatar';
 
 type CreationLocation = WorkspacePrimaryFunctionKey;
 
@@ -124,7 +125,7 @@ export function IdeationWorkspace({
           const selected = selectedIds.includes(member.agentId);
           return <button type="button" key={member.agentId} className={selected ? 'selected' : ''}
             onClick={() => toggleMember(member)} aria-pressed={selected}>
-            <span className="member-monogram">{member.displayName.slice(0, 1)}</span>
+            <AgentAvatar roleKey={member.roleKey} roleName={member.displayName} />
             <span><strong>{member.displayName}{member.host ? ' · 主持' : ''}</strong><small>{member.roleName}</small></span>
             <i>{selected ? '已选' : '选择'}</i>
           </button>;
@@ -141,7 +142,7 @@ export function IdeationWorkspace({
                 : <div className="ideation-responses">{round.responses.map((response) => {
                     const promoted = promotedOpinionIds.includes(response.opinionId);
                     return <section className="idea-response-card" key={response.opinionId}>
-                      <header><span className="member-monogram">{response.memberName.slice(0, 1)}</span><strong>{response.memberName}</strong></header>
+                      <header><AgentAvatar roleKey={response.roleKey} roleName={response.memberName} /><strong>{response.memberName}</strong></header>
                       <p>{response.content}</p>
                       <button type="button" disabled={busy || promoted} onClick={() => void promote(round.roundId, response.opinionId)}>
                         {promoted ? <><CheckCircleIcon />已转为作者意见</> : `选中这段，挂到${locationLabel(currentLocation)}`}
@@ -150,7 +151,11 @@ export function IdeationWorkspace({
                   })}</div>}
             </article>)}</div>
         <footer className="ideation-composer">
-          <div className="selected-member-summary">本轮：{selectedMembers.map((member) => member.displayName).join('、') || '尚未选择成员'}</div>
+          <div className="selected-member-summary"><span>本轮：</span>{selectedMembers.length === 0
+            ? <em>尚未选择成员</em>
+            : selectedMembers.map((member) => <span className="selected-member-identity" key={member.agentId}>
+              <AgentAvatar roleKey={member.roleKey} roleName={member.displayName} /><b>{member.displayName}</b>
+            </span>)}</div>
           <div><textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={6000}
             placeholder="输入你的剧情疑问或灵感……只讨论，不会自动改书。" />
             <button className="primary-button" type="button" disabled={busy || message.trim().length === 0 || selectedIds.length < 2} onClick={() => void send()}>

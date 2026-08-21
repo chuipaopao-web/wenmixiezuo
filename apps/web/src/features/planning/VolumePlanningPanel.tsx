@@ -35,6 +35,7 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
 import { SettingGapPanel } from './SettingGapPanel';
+import { AgentAvatar } from '../shared/AgentAvatar';
 import { ImeInput } from '../shared/ImeSafeField';
 
 interface VolumePlanningSnapshot {
@@ -551,7 +552,7 @@ function VolumeGenerationCard({ generation, busy, onStart, onCancel, onRetry, on
       <p className="volume-generation-progress" role="status">{generation.stateText} · {generation.phaseText}</p>
       <div className="volume-generation-members">
         {generation.members.map((member) => <article key={member.roleKey}>
-          <div><strong>{generationRoleLabel(member.roleKey)}</strong><span>{member.displayName}</span></div>
+          <div><AgentAvatar roleKey={member.roleKey} roleName={member.displayName} /><strong>{member.displayName}</strong></div>
           <p>{generationMemberState(generation, member.roleKey)}</p>
         </article>)}
       </div>
@@ -744,12 +745,6 @@ function key(prefix: string): string {
 }
 
 
-function generationRoleLabel(roleKey: string): string {
-  return ({
-    lead_screenwriter: '编剧A', second_screenwriter: '编剧B',
-    main_editor: '主编', deputy_editor: '代理主编'
-  } as Record<string, string>)[roleKey] ?? '创作成员';
-}
 
 function generationMemberState(generation: VolumePlanGenerationData, roleKey: string): string {
   const storedId = roleKey === 'lead_screenwriter'

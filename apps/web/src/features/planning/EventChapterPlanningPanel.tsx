@@ -13,6 +13,7 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { SettlementFollowUpCard } from './SettlementFollowUpCard';
 import { useMembershipGate } from '../shared/membership-gate';
 import { SettingGapPanel } from './SettingGapPanel';
+import { AgentAvatar } from '../shared/AgentAvatar';
 
 export function EventChapterPlanningPanel({bookId,onOpenManuscript,onChanged}:{bookId:string;onOpenManuscript?:()=>void;onChanged?:()=>Promise<void>|void}):React.JSX.Element{
   const[workflow,setWorkflow]=useState<Awaited<ReturnType<typeof fetchCreationWorkflow>>|null>(null);
@@ -270,7 +271,7 @@ function launchStatusLabel(status:NonNullable<Awaited<ReturnType<typeof fetchFir
     completed_late:'高潮已兑现但发生偏晚',overdue:'已超过10万字且高潮未结算'}as const)[status];
 }
 function SequenceCandidate({version,busy,challengers,challenge,challengeBusy,onChallenge,onConfirm}:{version:EventChapterSequenceVersionData;busy:boolean;
-  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string}|null;challengeBusy:boolean;
+  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string;roleKey:string}|null;challengeBusy:boolean;
   onChallenge:(challengerRoleKey:string)=>void;onConfirm:()=>void}){
   return <article><header><div><small>候选稿 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
     <strong>{version.content.chapters.length}章</strong></header>
@@ -284,9 +285,9 @@ function SequenceCandidate({version,busy,challengers,challenge,challengeBusy,onC
       <span>{chapter.eventResponsibility}</span><small>{chapter.openingState} → {chapter.endingState}</small></li>)}</ol>
     <div className="closure-list"><b>事件闭环</b>{version.content.closureCoverage.map(item=>
       <span key={item.endingCondition}>第{item.evidenceChapterNumber}章：{item.endingCondition}</span>)}</div>
-    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by}/>}<div className="chapter-candidate-actions">
+    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by} roleKey={challenge.roleKey}/>}<div className="chapter-candidate-actions">
       {challengers.map(person=><button key={person.roleKey} className="secondary-button" disabled={busy||challengeBusy} type="button"
-        onClick={()=>onChallenge(person.roleKey)}>{challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}
+        onClick={()=>onChallenge(person.roleKey)}><AgentAvatar roleKey={person.roleKey} roleName={person.name} />{challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}
       <button className="primary-button" disabled={busy} type="button" onClick={onConfirm}>确认这条完整章链</button>
     </div></article>;
 }
@@ -297,7 +298,7 @@ function CoarseChapterCard({item,last}:{item:EventChapterOutlineData;last:boolea
     {last&&<em>本章负责事件收束</em>}</article>;
 }
 function DetailedOutlineCard({item,readOnly,challengers,challenge,challengeBusy,onChallenge}:{item:EventChapterOutlineData;readOnly:boolean;
-  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string}|null;challengeBusy:boolean;
+  challengers:Array<{roleKey:string;name:string}>;challenge:{advice:EventChapterChallengeContent;by:string;roleKey:string}|null;challengeBusy:boolean;
   onChallenge:(challengerRoleKey:string)=>void}){
   const version=item.activeVersion??item.versions[0]??null;
   if(version===null)return <article className="detailed-outline empty"><small>第{item.chapterNumber}章</small><h5>{item.planned.title}</h5>
@@ -317,13 +318,13 @@ function DetailedOutlineCard({item,readOnly,challengers,challenge,challengeBusy,
     <details><summary>人物、边界与自由发挥</summary>
       <p>{content.cast.map(person=>person.name+'：'+person.objective).join('；')}</p>
       <p>不能违反：{content.mustNotViolate.join('；')}</p><p>自由发挥：{content.creativeFreedom.join('；')}</p></details>
-    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by}/>} {!readOnly&&<div className="chapter-challenge-row">
+    {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by} roleKey={challenge.roleKey}/>} {!readOnly&&<div className="chapter-challenge-row">
       {challengers.map(person=><button key={person.roleKey} className="secondary-button chapter-challenge-button"
         disabled={challengeBusy} type="button" aria-label={`请${person.name}看看第${item.chapterNumber}章`} onClick={()=>onChallenge(person.roleKey)}>
-        {challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}</div>}</article>;
+        <AgentAvatar roleKey={person.roleKey} roleName={person.name} />{challengeBusy?'编剧正在看…':`请${person.name}看看`}</button>)}</div>}</article>;
 }
-function ChallengeAdvice({challenge,by}:{challenge:EventChapterChallengeContent;by:string}){
-  return <aside className="chapter-challenge-advice"><small>{by}的参考意见</small><p>{challenge.summary}</p>
+function ChallengeAdvice({challenge,by,roleKey}:{challenge:EventChapterChallengeContent;by:string;roleKey:string}){
+  return <aside className="chapter-challenge-advice"><small><AgentAvatar roleKey={roleKey} roleName={by} />{by}的参考意见</small><p>{challenge.summary}</p>
     <div>{challenge.suggestions.map(item=><article key={item.focus}><h6>{focusLabel(item.focus)}</h6>
       <p><b>另一种走法：</b>{item.alternative}</p><p><b>可能更好之处：</b>{item.benefit}</p>
       <p><b>需要承担的代价：</b>{item.tradeoff}</p><p><b>会影响后面什么：</b>{item.downstreamImpact}</p></article>)}</div>
@@ -332,13 +333,13 @@ function ChallengeAdvice({challenge,by}:{challenge:EventChapterChallengeContent;
 function challengeFor(task:EventChapterGenerationData|null,targetKind:'sequence'|'detail',targetId:string,targetVersionId:string){
   const challenge=task?.challenge;if(challenge===undefined||challenge.targetKind!==targetKind
     ||challenge.targetId!==targetId||challenge.targetVersionId!==targetVersionId)return null;
-  return {advice:challenge,by:task?.members[0]?.displayName??'挑战编剧'};
+  return {advice:challenge,by:task?.members[0]?.displayName??'挑战编剧',roleKey:task?.members[0]?.roleKey??'second_screenwriter'};
 }
 function focusLabel(value:EventChapterChallengeContent['suggestions'][number]['focus']){return({chapter_structure:'章节安排',opening_pressure:'开场压力',
   core_conflict:'核心冲突',choice_and_cost:'人物选择与代价',turning_point:'关键转折',ending_hook:'结尾钩子',
   next_chapter_interface:'下一章承接'}as const)[value];}
 function TaskStrip({task,onCancel,onRetry}:{task:EventChapterGenerationData;onCancel:()=>void;onRetry:()=>void}){
-  return <aside className={"chapter-task-strip "+(task.isRunning?'working':'settled')}><div><span>{task.members[0]?.displayName??'创作成员'}</span>
+  return <aside className={"chapter-task-strip "+(task.isRunning?'working':'settled')}><div><span className="chapter-task-member"><AgentAvatar roleKey={task.members[0]?.roleKey??'writer'} roleName={task.members[0]?.displayName??'创作成员'} />{task.members[0]?.displayName??'创作成员'}</span>
     <b>{task.stateText} · {task.phaseText}</b>
     </div>
     {task.canCancel&&<button className="text-button" type="button" onClick={onCancel}>取消</button>}

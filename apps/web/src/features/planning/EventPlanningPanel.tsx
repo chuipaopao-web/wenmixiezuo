@@ -20,6 +20,7 @@ import {
 } from './StoryEventCard';
 import { useMembershipGate } from '../shared/membership-gate';
 import { SettingGapPanel } from './SettingGapPanel';
+import { AgentAvatar } from '../shared/AgentAvatar';
 
 interface EventWorkspaceSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
@@ -304,7 +305,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
           {generation!==null&&<><div className="event-generation-summary" role="status"><strong>{generation.stateText}</strong>
             <span>{generation.phaseText}</span></div>
             <div className="event-generation-members">{generation.members.map(member=><article key={member.roleKey}>
-              <strong>{roleLabel(member.roleKey)} · {member.displayName}</strong></article>)}</div>
+              <AgentAvatar roleKey={member.roleKey} roleName={member.displayName} /><strong>{member.displayName}</strong></article>)}</div>
             <div className="button-row">{generation.canCancel&&<button onClick={()=>taskAction('cancel')}>停止本轮</button>}
               {generation.canResume&&<button onClick={()=>taskAction('resume')}>继续本轮</button>}
               {generation.canRetry&&<button onClick={()=>taskAction('retry')}>继续完成</button>}</div></>}
@@ -384,7 +385,7 @@ function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,
     {generation!==null&&<section className="event-chain-generation-status" role="status">
       <div><strong>{working?'团队正在拆分事件':generation.isCompleted?'事件链候选已准备好':'本轮事件链未完成'}</strong>
         <span>{generation.phaseText}</span></div>
-      <div>{generation.members.map(member=><span key={member.roleKey}>{member.roleKey.includes('screenwriter')?'编剧':'主编'} · {member.displayName}</span>)}</div>
+      <div>{generation.members.map(member=><span key={member.roleKey}><AgentAvatar roleKey={member.roleKey} roleName={member.displayName} />{member.displayName}</span>)}</div>
       <footer>
         {generation.canCancel&&<button type="button" disabled={busy} onClick={()=>onTaskAction('cancel')}>停止本轮</button>}
         {generation.canResume&&<button type="button" disabled={busy} onClick={()=>onTaskAction('resume')}>继续本轮</button>}
@@ -564,7 +565,7 @@ export function eventEmotionGuide(template:PublicNarrativeTemplate){
   if(/反转|假胜|代价|false.win|cost/u.test(text))return{emoji:'🤯',label:'意外反转',explanation:'眼前的赢法带来更大代价，让结果意外，却能从前面的因果中找到依据。'};
   return{emoji:'✨',label:template.publicTitle,explanation:template.publicExplanation};
 }
-function roleLabel(role:string){return({lead_screenwriter:'编剧A',second_screenwriter:'编剧B',main_editor:'主编',deputy_editor:'代理主编'}as Record<string,string>)[role]??'创作成员';}
+
 function candidateLabel(kind:StoryEventVersionData['candidateKind']){return({candidate_a:'方案一',candidate_b:'方案二',
   author_edit:'我的修改',fusion:'主编整理版',volume_seed:'卷纲分配的初始任务'})[kind];}
 function versionStatus(status:StoryEventVersionData['status']){return({candidate:'待确认',active:'已确认',superseded:'历史确认版',archived:'已归档'})[status];}

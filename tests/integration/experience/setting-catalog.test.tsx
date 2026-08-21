@@ -85,7 +85,8 @@ describe('折叠设定资料库与逐项设计', () => {
     expect(screen.queryByRole('region', { name: '核心设定' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('setting-collaboration-panel')).not.toBeInTheDocument();
 
-    expect(screen.getByText('设定骨架—勾选所需条目，请勿乱选')).toBeInTheDocument();
+    expect(screen.getAllByText('设定骨架—勾选所需条目，请勿乱选')).toHaveLength(1);
+    expect(screen.queryByText('这里只设计世界如何运行，不设计谁和谁发生什么。其他类目只在本书确实需要时勾选。')).not.toBeInTheDocument();
     expect(screen.queryByText('本轮设计范围')).not.toBeInTheDocument();
     fireEvent.click(libraryButton);
     expect(libraryButton).toHaveAttribute('aria-expanded', 'true');
@@ -133,6 +134,8 @@ describe('折叠设定资料库与逐项设计', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     const panel = await screen.findByTestId('setting-collaboration-panel');
     expect(panel).toHaveAttribute('data-item-key', 'world-stage');
+    expect(screen.queryByLabelText('当前创作成员')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /完整设定库/u })).toHaveTextContent('已进入逐项设计');
     expect(screen.getAllByTestId('setting-collaboration-panel')).toHaveLength(1);
     expect(libraryButton).toHaveAttribute('aria-expanded', 'false');
   });

@@ -42,9 +42,7 @@ import { AuthorIdeaComposer } from '../creation-desk/AuthorIdeaComposer';
 import { CompleteCreateBookDialog } from '../onboarding/CompleteCreateBookDialog';
 import { BrandingDesignDialog } from './BrandingDesignDialog';
 import { SettingCollaborationPanel } from './SettingCollaborationPanel';
-import { AgentAvatar } from '../shared/AgentAvatar';
 import { ImeInput } from '../shared/ImeSafeField';
-import { memberIdentity } from '../shared/agent-presentation';
 import { VolumePlanningPanel } from './VolumePlanningPanel';
 import { EventPlanningPanel } from './EventPlanningPanel';
 import { EventChapterPlanningPanel } from './EventChapterPlanningPanel';
@@ -278,7 +276,7 @@ export function PlanningWorkspace({ tab, onTabChange, data, workspace, manuscrip
         subjectId={tab === 'framework' ? bookId : null}
         title={currentIdeaContext.title}
         agents={(workspace?.agents ?? []).map((agent) => ({
-          agentId: agent.agentId, displayName: agent.displayName, roleName: agent.roleName
+          agentId: agent.agentId, displayName: agent.displayName, roleName: agent.roleName, roleKey: agent.roleKey
         }))}
       />}
       </div>
@@ -338,46 +336,6 @@ function BookProfilePanel({ profile, workspace, onEdit, onBrandingDesign }: { pr
     })}</div>
     <h4>必须遵守</h4><ul>{profile.mustFollow.map((item) => <li key={item}>{item}</li>)}</ul>
   </section>;
-}
-
-/**
- * 设定页顶部成员栏：显示四位可选全能编剧与最终审查主编。
- * 编剧状态来自作者实际启动的单项任务；主编只在全篇设定审查时工作。
- */
-function SettingMemberBar({ workspace }: { workspace: WorkspaceData | null }): React.JSX.Element | null {
-  if (workspace === null) return null;
-  const crewKeys = ['chief_editor', 'lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'];
-  const members = crewKeys
-    .map((key) => workspace.agents.find((agent) => agent.roleKey === key))
-    .filter((agent): agent is WorkspaceData['agents'][number] => agent !== undefined);
-  if (members.length === 0) return null;
-  const activeSettingTasks = workspace.tasks.filter((task) => (
-    ['pending', 'queued', 'working'].includes(task.status)
-    && task.taskType === 'discussion'
-    && typeof task.brief.purpose === 'string'
-    && (task.brief.purpose as string).startsWith('setting_')
-  ));
-  const workingAgentIds = new Set(activeSettingTasks.flatMap((task) => {
-    const targets = Array.isArray(task.brief.targetAgentIds)
-      ? task.brief.targetAgentIds.filter((id): id is string => typeof id === 'string')
-      : [];
-    return task.assignedAgentId === null ? targets : [...targets, task.assignedAgentId];
-  }));
-  const shortTitle = (roleKey: string): string => (
-    { chief_editor: '主编', lead_screenwriter: '编剧', second_screenwriter: '编剧', third_screenwriter: '编剧', senior_screenwriter: '高级编剧' } as Record<string, string>
-  )[roleKey] ?? '成员';
-  return <div className="setting-member-bar" aria-label="当前创作成员">
-    {members.map((member) => {
-      const unavailable = member.availability === 'unavailable' || member.activationState === 'disabled';
-      const working = !unavailable && workingAgentIds.has(member.agentId);
-      return <span key={member.agentId} title={member.availabilityReason ?? undefined} className={`setting-member${working ? ' working' : ''}${unavailable ? ' unavailable' : ''}`}>
-        <AgentAvatar roleKey={member.roleKey} roleName={memberIdentity(member)} />
-        <b>{memberIdentity(member)}</b>
-        <small>{shortTitle(member.roleKey)}</small>
-        <em>{unavailable ? '不可用' : working ? '工作中' : '待命'}</em>
-      </span>;
-    })}
-  </div>;
 }
 
 export function SettingCatalog({ bookId, workspace, planningState, onPlanningStateChanged, onOpenVolumes }: {
@@ -831,7 +789,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   ];
   const unfinishedSelectedCount = selectedDesignKeys.filter((key) =>
     statuses[key] !== '已确认' || pendingCandidates[key] !== undefined).length;
-  const completedSelectedCount = selectedDesignKeys.length - unfinishedSelectedCount;
+
   const canOrganizeSettings = designStarted && selectedDesignKeys.length > 0 && unfinishedSelectedCount === 0;
   const chiefEditor = workspace?.agents.find((agent) => agent.roleKey === 'chief_editor');
   const chiefEditorUnavailable = chiefEditor !== undefined
@@ -851,28 +809,14 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
             aria-controls="complete-setting-library"
             onClick={() => setLibraryOpen((open) => !open)}
           >
-            <span>
-              <small>{designStarted ? '设定骨架 · 已进入逐项设计' : '设定骨架—勾选所需条目，请勿乱选'}</small>
+            <span className="setting-library-trigger-title">
               <strong>完整设定库</strong>
-              <em>{profile === null
-                ? '正在整理本书的核心、推荐和可选设定'
-                : designStarted
-                  ? '已选 ' + selectedDesignKeys.length + ' 项 · 已确认 ' + completedSelectedCount + ' 项'
-                  : '核心宏观规则与题材机制已默认选中，其他世界规则由你决定'}</em>
+              <small>{designStarted ? '已进入逐项设计' : '设定骨架—勾选所需条目，请勿乱选'}</small>
             </span>
             <b>{libraryOpen ? '收起' : '查看'}</b>
           </button>
 
           {libraryOpen && <div id="complete-setting-library" className={'setting-library-body' + (designStarted ? ' locked' : '')}>
-            <header className="setting-library-intro">
-              <div>
-                <h4>{designStarted ? '查看已锁定的完整设定库' : '设定骨架—勾选所需条目，请勿乱选'}</h4>
-              </div>
-              <p>{designStarted
-                ? '设计已经开始，范围暂时锁定。这里仍只记录跨人物、跨剧情成立的世界规则。人物与关系会在分卷、事件和正文中逐层形成。'
-                : '这里只设计世界如何运行，不设计谁和谁发生什么。其他类目只在本书确实需要时勾选。'}</p>
-            </header>
-
             <section className="setting-library-block" aria-label="核心设定">
               <header><div><small>01</small><span><strong>核心设定</strong><em>不依赖具体人物和剧情也成立，默认全部加入</em></span></div><b>{coreItems.length} 项</b></header>
               <div className="setting-library-list">
@@ -1031,7 +975,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
         </section>
 
         {designStarted && <>
-          <SettingMemberBar workspace={workspace} />
           {designQueue !== null && (() => {
             const total = designQueue.length;
             const remaining = designQueue.filter((key) => statuses[key] !== '已确认' || pendingCandidates[key] !== undefined);
@@ -1039,7 +982,6 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
             const currentKey = remaining[0];
             return <section className="setting-session-progress" aria-label="逐项设计进度">
               <div role="status">
-                <small>逐项设计</small>
                 <strong>{currentKey === undefined ? '本轮设定已经完成' : '正在设计「' + queueLabel(currentKey) + '」'}</strong>
                 <span>已确认 {doneCount}/{total} 项</span>
               </div>

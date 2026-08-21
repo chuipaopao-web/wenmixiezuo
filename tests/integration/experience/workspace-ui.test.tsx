@@ -111,6 +111,25 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
+  it('移动书籍栏能查看完整书名并从整行入口打开个人资料', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+
+    const openBooks = await screen.findByRole('button', { name: '打开书籍栏' });
+    fireEvent.click(openBooks);
+    const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
+    expect(bookRail).toHaveClass('drawer-open');
+    expect(bookRail.querySelector('.book-cover-status > strong')).toHaveTextContent('雾钟档案');
+
+    fireEvent.click(within(bookRail).getByRole('button', { name: '打开《雾钟档案》' }));
+    expect(bookRail).not.toHaveClass('drawer-open');
+    fireEvent.click(openBooks);
+
+    fireEvent.click(within(bookRail).getByRole('button', { name: '打开个人资料' }));
+    expect(bookRail).not.toHaveClass('drawer-open');
+    expect(await screen.findByRole('dialog', { name: '个人中心' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭个人中心' }));
+  });
   it('没有书时直接显示统一创作台的新建引导', async () => {
     window.history.replaceState(null, '', '/');
     const baseRouter = createFetchRouter();

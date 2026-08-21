@@ -604,7 +604,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
               <span className={`book-rail-cover cover-tone-${bookCoverTone(book.bookId)}`} aria-hidden="true">
                 <small>文秘</small><b className={`book-cover-title title-${coverTitle.size}`} title={coverTitle.truncated ? coverTitle.fullTitle : undefined}>{coverTitle.text}</b><i>小说</i>
               </span>
-              <span className="book-cover-status">{display.qualifier ?? (selected ? '当前书籍' : bookStatusLabel(book.status))}</span>
+              <span className="book-cover-status"><strong>{display.title}</strong><small>{display.qualifier ?? (selected ? '当前书籍' : bookStatusLabel(book.status))}</small></span>
             </button>;
           })}</nav>
           <div className="sidebar-book-actions">
@@ -620,8 +620,11 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           </div>
         </div>
         <div className="sidebar-account">
-          <button className="sidebar-account-avatar" type="button" aria-label="打开个人中心" title="个人中心" onClick={() => setProfileOpen(true)}>{account.displayName.slice(0, 1).toUpperCase()}</button>
-          <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></div>
+          <button className="sidebar-account-profile" type="button" aria-label="打开个人资料" onClick={() => { setProfileOpen(true); setLeftOpen(false); }}>
+            <span className="sidebar-account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</span>
+            <span className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></span>
+            <span className="sidebar-account-profile-label">个人资料</span>
+          </button>
           <div className="sidebar-account-actions">
             <button type="button" onClick={() => setFeedbackOpen(true)}>反馈</button>
             <button type="button" onClick={() => void onSignOut()}>退出</button>

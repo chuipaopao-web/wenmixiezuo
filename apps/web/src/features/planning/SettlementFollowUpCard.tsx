@@ -5,6 +5,7 @@ import {
   startSettlementFollowUp,
   type SettlementFollowUpData
 } from '../../lib/api/client';
+import { AgentAvatar } from '../shared/AgentAvatar';
 
 function followUpActive(status: string): boolean {
   return ['pending', 'queued', 'working', 'paused'].includes(status);
@@ -80,11 +81,11 @@ export function SettlementFollowUpCard({ bookId, stageKind, stageObjectId }: {
     <header><small>结算后续</small><h4>节奏体检与大白话摘要</h4>
       <span className={`follow-up-status ${followUpActive(data.status) ? 'working' : ''}`}>{followUpStatusLabel(data)}</span></header>
     {data.summary !== null && <div className="follow-up-summary">
-      <strong>{data.summaryBy === null ? '副编' : data.summaryBy.displayName} · 大白话摘要</strong>
+      <strong><AgentAvatar roleKey="deputy_editor" roleName={data.summaryBy === null ? '副编' : data.summaryBy.displayName} />{data.summaryBy === null ? '副编' : data.summaryBy.displayName} · 大白话摘要</strong>
       <p>{data.summary}</p>
     </div>}
     {report !== null && <div className="follow-up-pacing">
-      <strong>{data.pacingBy === null ? '主编' : data.pacingBy.displayName} · 节奏体检</strong>
+      <strong><AgentAvatar roleKey="chief_editor" roleName={data.pacingBy === null ? '主编' : data.pacingBy.displayName} />{data.pacingBy === null ? '主编' : data.pacingBy.displayName} · 节奏体检</strong>
       <dl>
         <div><dt>总评</dt><dd>{report.overallAssessment}</dd></div>
         <div><dt>爽点与付费点</dt><dd>{report.payoffPlacement}</dd></div>

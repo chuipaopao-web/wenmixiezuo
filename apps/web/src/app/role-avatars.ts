@@ -1,9 +1,11 @@
 const ROLE_AVATAR_POSITION: Record<string, string> = {
   chief_editor: '0% 0%',
+  main_editor: '0% 0%',
   deputy_editor: '50% 100%',
   lead_screenwriter: '50% 0%',
   second_screenwriter: '100% 50%',
   third_screenwriter: '0% 100%',
+  senior_screenwriter: '50% 100%',
   setting: '100% 0%',
   lead_writer: '0% 50%',
   backup_writer: '0% 100%',

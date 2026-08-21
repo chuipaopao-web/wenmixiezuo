@@ -12,6 +12,7 @@ import {
 } from '../../lib/api/client';
 import { toAuthorFacingText } from '../../app/author-presentation';
 import { ImeInput, ImeTextarea } from '../shared/ImeSafeField';
+import { AgentAvatar } from '../shared/AgentAvatar';
 
 const intentOptions: Array<{ value: AuthorIntentStrength; label: string; help: string }> = [
   { value: 'must', label: '必须遵守', help: '作为当前对象的明确目标；如与已确认事实冲突，先提示你决定。' },
@@ -29,6 +30,7 @@ export interface AuthorIdeaAgentOption {
   agentId: string;
   displayName: string;
   roleName: string;
+  roleKey: string;
 }
 
 export function AuthorIdeaComposer({
@@ -187,7 +189,8 @@ export function AuthorIdeaComposer({
             : [...current, agent.agentId]);
           retryIdempotencyKey.current = null;
         }} />
-        <span>{agent.displayName} · {agent.roleName}</span>
+        <AgentAvatar roleKey={agent.roleKey} roleName={agent.displayName} />
+        <span>{agent.displayName}</span>
       </label>)}</div>
     </details>}
     {attachments.length > 0 && <div className="author-idea-attachments">{attachments.map((attachment) => <span key={attachment.attachmentId}>

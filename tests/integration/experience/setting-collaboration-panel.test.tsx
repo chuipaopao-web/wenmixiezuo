@@ -100,11 +100,15 @@ describe('设定页内协作', () => {
     render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
 
     fireEvent.click(await screen.findByText('我已有现成内容（参考建议）'));
-    fireEvent.click(screen.getByRole('button', { name: /婉儿/u }));
+    const writer = screen.getByRole('button', { name: /婉儿/u });
+    expect(screen.getByRole('img', { name: '婉儿头像' })).toBeInTheDocument();
+    expect(writer).toHaveTextContent('待命');
+    expect(screen.queryByText(/Kimi K3|全能编剧/u)).not.toBeInTheDocument();
+    fireEvent.click(writer);
     fireEvent.change(screen.getByRole('textbox', { name: '已有设定原文' }), {
       target: { value: '雾钟只能展示未来一天，而且每次使用都会遗忘一段私人记忆。' }
     });
-    fireEvent.click(screen.getByRole('button', { name: '请 1 位编剧出方案' }));
+    fireEvent.click(screen.getByRole('button', { name: '请 1 位成员出方案' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledWith('book-1', expect.objectContaining({
       surface: 'setting', subjectType: 'setting_module', subjectId: 'creative-concept',
@@ -158,7 +162,7 @@ describe('设定页内协作', () => {
     const writer = await screen.findByRole('button', { name: /婉儿/u });
     fireEvent.click(writer);
     expect(writer).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(screen.getByRole('button', { name: '请 1 位编剧出方案' }));
+    fireEvent.click(screen.getByRole('button', { name: '请 1 位成员出方案' }));
 
     await waitFor(() => expect(api.startSettingCollaboration).toHaveBeenCalledWith(
       'book-1', 'creative-concept', expect.objectContaining({ screenwriterRoleKeys: ['lead_screenwriter'] })

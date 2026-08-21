@@ -55,7 +55,7 @@ describe('作者想法输入', () => {
       surface="event"
       subjectType="story_event"
       subjectId="event-1"
-      agents={[{ agentId: 'agent-1', displayName: '编剧甲', roleName: '编剧' }]}
+      agents={[{ agentId: 'agent-1', displayName: '编剧甲', roleName: '编剧', roleKey: 'lead_screenwriter' }]}
     />);
 
     await waitFor(() => expect(api.fetchAuthorPlanningInputs).toHaveBeenCalledWith(
@@ -69,7 +69,8 @@ describe('作者想法输入', () => {
       target: { value: '只影响当前事件。' }
     });
     fireEvent.click(screen.getByText('点名成员（可不选）'));
-    fireEvent.click(screen.getByRole('checkbox', { name: '编剧甲 · 编剧' }));
+    expect(screen.getByRole('img', { name: '编剧甲头像' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /编剧甲/u }));
     fireEvent.click(screen.getByRole('button', { name: '保存给AI参考' }));
 
     await waitFor(() => expect(api.createAuthorPlanningInput).toHaveBeenCalledTimes(1));

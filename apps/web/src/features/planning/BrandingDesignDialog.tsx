@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { XIcon } from '@phosphor-icons/react';
+import { AgentAvatar } from '../shared/AgentAvatar';
 import {
   fetchLatestBrandingDesign,
   startBrandingDesign,
@@ -76,7 +77,7 @@ export function BrandingDesignDialog({ bookId, kind, profile, onClose, onApplied
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="dialog branding-design-dialog" role="dialog" aria-modal="true" aria-labelledby="branding-design-title">
       <div className="dialog-heading">
-        <div><span className="dialog-eyebrow">主编 · {design?.member?.displayName ?? '貂蝉'}</span><h2 id="branding-design-title">{title}</h2></div>
+        <div><span className="dialog-eyebrow"><AgentAvatar roleKey={design?.member?.roleKey ?? 'chief_editor'} roleName={design?.member?.displayName ?? '貂蝉'} />{design?.member?.displayName ?? '貂蝉'}</span><h2 id="branding-design-title">{title}</h2></div>
         <button className="icon-button" type="button" aria-label="关闭主编设计" onClick={onClose}><XIcon /></button>
       </div>
       {startError !== null && <div className="branding-design-notice" role="alert">

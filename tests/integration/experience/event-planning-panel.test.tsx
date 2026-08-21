@@ -72,9 +72,9 @@ it('在创作台展示事件因果链、真实团队来源，并让结构调整�
   fireEvent.click(screen.getByRole('button',{name:'开始设计事件'}));
   expect(await screen.findByText('本轮方案已经准备好')).toBeInTheDocument();
   expect(screen.queryByText(/本地验收模型|local-deterministic|fixture-/u)).not.toBeInTheDocument();
-  expect(screen.getByText(/编剧A · 婉儿/u)).toBeInTheDocument();
-  expect(screen.getByText(/编剧B · 红玉/u)).toBeInTheDocument();
-  expect(screen.getByText(/主编 · 昭昭/u)).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: '婉儿头像' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: '红玉头像' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: '昭昭头像' })).toBeInTheDocument();
   const generated=requests.find(item=>item.path.endsWith('/generate')&&item.method==='POST');
   expect(generated?.body).toMatchObject({expectedEventRevision:1,expectedActiveVersionId:null,
     expectedWorkflowVersion:5,authorInputRefs:[],template:{selectionMode:'none',scope:'event'}});
