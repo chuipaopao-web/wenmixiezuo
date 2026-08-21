@@ -5,7 +5,7 @@ import { BudgetService } from '../../../apps/api/src/application/budget/budget-s
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { ContextPackService } from '../../../apps/api/src/application/memory/context-pack-service.js';
 import { CreationWorkflowProgressService } from '../../../apps/api/src/application/creation/creation-workflow-progress-service.js';
-import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, settleEventChainCandidates, shouldAcceptEventChainCandidateCoverageGap, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
+import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidationRetryInstruction, EventChainGenerationPipelineService, parseEventChainModelOutput, settleEventChainCandidates, shouldAcceptEventChainCandidateCoverageGap, shouldNormalizeMisplacedFirstVolumeResponsibilities, shouldRetryKnownEmptyEventChainOutput } from '../../../apps/api/src/application/planning/event-chain-generation-pipeline-service.js';
 import { eventChainCandidateModelPriority, EventChainGenerationService, selectEventChainSecondDesigner } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
@@ -64,6 +64,34 @@ describe('版本化卷规划', () => {
     expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'candidate_a', 2)).toBe(true);
     expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'candidate_a', 1)).toBe(false);
     expect(shouldAcceptEventChainCandidateCoverageGap(coverageGap, 'fusion', 2)).toBe(false);
+    const invalidFirstVolumeMapping = new Error('首卷责任无效。');
+    expect(shouldNormalizeMisplacedFirstVolumeResponsibilities(
+      invalidFirstVolumeMapping, 'candidate_b', 2
+    )).toBe(true);
+    expect(shouldNormalizeMisplacedFirstVolumeResponsibilities(
+      invalidFirstVolumeMapping, 'candidate_b', 1
+    )).toBe(false);
+    expect(shouldNormalizeMisplacedFirstVolumeResponsibilities(
+      invalidFirstVolumeMapping, 'fusion', 2
+    )).toBe(false);
+    expect(shouldNormalizeMisplacedFirstVolumeResponsibilities(
+      invalidFirstVolumeMapping, 'candidate_b', 2, false
+    )).toBe(false);
+    const direction = directionContent();
+    const candidate = eventChainContent('model-supplied-stale-id', directionCoverageKeys(direction));
+    (candidate.events[0]!.firstVolumeResponsibilities as string[]).push('major_choice');
+    const candidateOutput = JSON.stringify({ eventChain: candidate });
+    expect(() => parseEventChainModelOutput(candidateOutput, 1, direction)).toThrow('首卷责任无效');
+    const normalized = parseEventChainModelOutput(candidateOutput, 1, direction, {
+      normalizeMisplacedFirstVolumeResponsibilities: true,
+      directionVersionId: 'active-direction-version'
+    });
+    expect(normalized.volumeDirectionVersionId).toBe('active-direction-version');
+    expect(normalized.events[0]?.firstVolumeResponsibilities).not.toContain('major_choice');
+    (candidate.events[0]!.firstVolumeResponsibilities as string[]).push('invented-responsibility');
+    expect(() => parseEventChainModelOutput(JSON.stringify({ eventChain: candidate }), 1, direction, {
+      normalizeMisplacedFirstVolumeResponsibilities: true
+    })).toThrow('首卷责任无效');
     let finishSecond!: (value: string) => void;
     const collected = settleEventChainCandidates(
       Promise.reject(new Error('第一席失败')),
@@ -489,6 +517,18 @@ function noTemplate() {
   return {
     selectionMode: 'none', templateKey: null, templateVersion: null, templateHash: null,
     scope: 'volume', beats: [], customDirection: null
+  };
+}
+
+function directionContent() {
+  return {
+    title: '测试卷方向', openingSituation: '主角失去旧退路', protagonistDrive: '主动寻找证据',
+    volumeGoal: '取得公开调查资格', centralOpposition: '旧规则维护者阻止调查',
+    escalationPath: ['线索争夺从个人冲突升级为势力压制'], majorChoices: ['救人还是保全证据'],
+    relationshipMovement: ['临时队伍从利用走向有限信任'], expressionFocus: ['选择与代价'],
+    climaxResponsibility: '公开证据并承担不可逆后果', costAndConsequence: '主角暴露并付出身体代价',
+    closingState: '主角进入更危险的新局面', benefits: ['因果链清楚'], risks: ['避免重复同类冲突'],
+    openSpaces: ['具体场景由后续事件设计']
   };
 }
 

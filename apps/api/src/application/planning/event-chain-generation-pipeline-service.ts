@@ -198,7 +198,8 @@ export class EventChainGenerationPipelineService {
       if (reusable !== undefined) {
         try {
           return parseEventChainPhaseOutput(
-            reusable.output_text, brief.planNumber, brief.direction, phase, technicalTry
+            reusable.output_text, brief.planNumber, brief.direction, brief.directionVersionId,
+            phase, technicalTry
           );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
@@ -244,7 +245,8 @@ export class EventChainGenerationPipelineService {
         });
         try {
           return parseEventChainPhaseOutput(
-            result.output, brief.planNumber, brief.direction, phase, technicalTry
+            result.output, brief.planNumber, brief.direction, brief.directionVersionId,
+            phase, technicalTry
           );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
@@ -285,6 +287,19 @@ export function shouldAcceptEventChainCandidateCoverageGap(
     && error.message.startsWith('事件链没有覆盖卷方向责任：');
 }
 
+export function shouldNormalizeMisplacedFirstVolumeResponsibilities(
+  error: unknown,
+  phase: 'candidate_a' | 'candidate_b' | 'fusion',
+  technicalTry: number,
+  firstVolume = true
+): boolean {
+  return firstVolume
+    && phase !== 'fusion'
+    && technicalTry === 2
+    && error instanceof Error
+    && error.message === '首卷责任无效。';
+}
+
 export function eventChainOutputTokenLimit(modelId: string, expandedAfterKnownEmpty = false): number {
   if (modelId.toLowerCase().startsWith('glm-5.3')) return expandedAfterKnownEmpty ? 32_000 : 24_000;
   return expandedAfterKnownEmpty ? 18_000 : 9_000;
@@ -317,15 +332,24 @@ function parseEventChainPhaseOutput(
   output: string,
   planNumber: number,
   direction: VolumeDirectionContent,
+  directionVersionId: string,
   phase: 'candidate_a' | 'candidate_b' | 'fusion',
   technicalTry: number
 ): EventChainContent {
   try {
-    return parseEventChainModelOutput(output, planNumber, direction);
+    return parseEventChainModelOutput(output, planNumber, direction, { directionVersionId });
   } catch (error) {
-    if (!shouldAcceptEventChainCandidateCoverageGap(error, phase, technicalTry)) throw error;
+    const allowIncompleteDirectionCoverage = shouldAcceptEventChainCandidateCoverageGap(
+      error, phase, technicalTry
+    );
+    const normalizeMisplacedFirstVolumeResponsibilities = shouldNormalizeMisplacedFirstVolumeResponsibilities(
+      error, phase, technicalTry, planNumber === 1
+    );
+    if (!allowIncompleteDirectionCoverage && !normalizeMisplacedFirstVolumeResponsibilities) throw error;
     return parseEventChainModelOutput(output, planNumber, direction, {
-      allowIncompleteDirectionCoverage: true
+      allowIncompleteDirectionCoverage,
+      normalizeMisplacedFirstVolumeResponsibilities,
+      directionVersionId
     });
   }
 }
@@ -334,7 +358,11 @@ export function parseEventChainModelOutput(
   output: string,
   planNumber: number,
   direction: VolumeDirectionContent,
-  options: { allowIncompleteDirectionCoverage?: boolean } = {}
+  options: {
+    allowIncompleteDirectionCoverage?: boolean;
+    normalizeMisplacedFirstVolumeResponsibilities?: boolean;
+    directionVersionId?: string;
+  } = {}
 ): EventChainContent {
   const candidates: unknown[] = [];
   try { candidates.push(JSON.parse(output) as unknown); } catch { /* scan complete objects */ }
@@ -345,14 +373,55 @@ export function parseEventChainModelOutput(
   for (const candidate of candidates) {
     try {
       const value = record(candidate);
-      const content = parseEventChainContent(value.eventChain ?? value, planNumber === 1);
-      assertDirectionCoverage(content, direction, options.allowIncompleteDirectionCoverage === true);
-      return content;
+      const rawContent = value.eventChain ?? value;
+      const content = parseEventChainContent(
+        options.normalizeMisplacedFirstVolumeResponsibilities
+          ? normalizeMisplacedFirstVolumeResponsibilities(rawContent, direction)
+          : rawContent,
+        planNumber === 1
+      );
+      const boundContent = options.directionVersionId === undefined
+        ? content
+        : { ...content, volumeDirectionVersionId: options.directionVersionId };
+      assertDirectionCoverage(boundContent, direction, options.allowIncompleteDirectionCoverage === true);
+      return boundContent;
     } catch (error) {
       lastError = error;
     }
   }
   throw lastError instanceof Error ? lastError : new Error('模型没有返回完整、合法的事件链。');
+}
+
+function normalizeMisplacedFirstVolumeResponsibilities(
+  input: unknown,
+  direction: VolumeDirectionContent
+): unknown {
+  const value = record(input);
+  if (!Array.isArray(value.events)) return input;
+  const allowed = new Set<string>(firstVolumeCoverageResponsibilityValues);
+  const directionKeys = new Set(directionCoverageKeys(direction));
+  let normalized = false;
+  const events = value.events.map((event) => {
+    const item = record(event);
+    if (!Array.isArray(item.firstVolumeResponsibilities)) return item;
+    const invalid = item.firstVolumeResponsibilities.filter(
+      (responsibility) => typeof responsibility !== 'string' || !allowed.has(responsibility)
+    );
+    if (invalid.length === 0) return item;
+    if (invalid.some((responsibility) => typeof responsibility !== 'string'
+      || !directionKeys.has(responsibility))) {
+      throw new Error('首卷责任无效。');
+    }
+    normalized = true;
+    return {
+      ...item,
+      firstVolumeResponsibilities: item.firstVolumeResponsibilities.filter(
+        (responsibility) => typeof responsibility === 'string' && allowed.has(responsibility)
+      )
+    };
+  });
+  if (!normalized) throw new Error('首卷责任无效。');
+  return { ...value, events };
 }
 
 function assertDirectionCoverage(
