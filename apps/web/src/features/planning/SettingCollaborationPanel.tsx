@@ -445,6 +445,7 @@ export function SettingCollaborationPanel({
   const completedMemberCount = panelMembers.filter((member) => member.status === 'completed').length;
   const failedMemberCount = panelMembers.filter((member) => ['failed', 'unavailable'].includes(member.status)).length;
   const settledMemberCount = completedMemberCount + failedMemberCount;
+  const processingMemberCount = Math.max(0, panelMembers.length - settledMemberCount);
   const memberProgress = panelMembers.length === 0 ? 0 : Math.round((settledMemberCount / panelMembers.length) * 100);
   const completedMemberProgress = panelMembers.length === 0 ? 0 : (completedMemberCount / panelMembers.length) * 100;
   const failedMemberProgress = panelMembers.length === 0 ? 0 : (failedMemberCount / panelMembers.length) * 100;
@@ -548,9 +549,10 @@ export function SettingCollaborationPanel({
       {showPanelProgress && <div className="setting-design-progress" role="status">
         <strong>{panelProgressTitle}<span>已完成 {completedMemberCount}/{panelMembers.length} 份{failedMemberCount > 0 ? ` · 已失败 ${failedMemberCount}` : ''}</span></strong>
         <div className="setting-progress-track" role="progressbar" aria-label="成员方案进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={memberProgress}
-          aria-valuetext={`已完成 ${completedMemberCount} 份，已失败 ${failedMemberCount} 份，处理中 ${Math.max(0, panelMembers.length - settledMemberCount)} 份`}>
+          aria-valuetext={`已完成 ${completedMemberCount} 份，已失败 ${failedMemberCount} 份，处理中 ${processingMemberCount} 份`}>
           <i className="setting-progress-bar" style={{ width: `${completedMemberProgress}%` }} />
           {failedMemberProgress > 0 && <i className="setting-progress-failed" style={{ width: `${failedMemberProgress}%` }} />}
+          {panelActive && processingMemberCount > 0 && <i className="setting-progress-active" aria-hidden="true" />}
         </div>
       </div>}
       {(panelFailed || revisionFailed) && <div className="setting-collaboration-error">
