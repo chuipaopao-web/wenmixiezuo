@@ -186,7 +186,8 @@ export function SettingCollaborationPanel({
       clearStoredSettingSelection(bookId, item.itemKey);
       setSelected([]);
       setPickedFragments([]);
-      setNotice(`已请 ${selectedRoleKeys.length} 位成员重新设计，旧定稿仍然有效。`);
+      setSelectedRoleKeys([]);
+      setNotice(`已请 ${selectedRoleKeys.length} 位成员重新设计，上一轮记录会保留。`);
       setDraftEdited(false);
       await refresh();
     } catch (reason) {
@@ -451,6 +452,11 @@ export function SettingCollaborationPanel({
   const failedMemberProgress = panelMembers.length === 0 ? 0 : (failedMemberCount / panelMembers.length) * 100;
   const panelActive = data?.panel !== null && data?.panel !== undefined && activeTaskStatuses.has(data.panel.taskStatus);
   const showPanelProgress = data?.panel !== null && data?.panel !== undefined && panelMembers.length > 0 && !candidateReady && !proposalsStale;
+  const priorRoleKeys = new Set(panelMembers.map((member) => member.roleKey));
+  const replacementScreenwriters = visibleScreenwriters.filter((member) => !priorRoleKeys.has(member.roleKey));
+  const canChooseReplacement = !panelActive && proposals.length === 0 && failedMemberCount > 0
+    && !candidateReady && !proposalsStale
+    && replacementScreenwriters.some((member) => member.availability === 'available');
   const panelProgressTitle = panelActive
     ? `团队正在设计「${item.label}」`
     : completedMemberCount === panelMembers.length && panelMembers.length > 0
@@ -458,13 +464,13 @@ export function SettingCollaborationPanel({
       : `团队设计进度「${item.label}」`;
   const draftChanged = candidateReady && draftEdited;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
-  const screenwriterSelector = data === null ? null : <div className="setting-writer-picker" aria-label="选择成员">
+  const screenwriterSelector = (members = visibleScreenwriters, title = '选择成员'): React.JSX.Element | null => data === null ? null : <div className="setting-writer-picker" aria-label={title}>
     <div className="setting-writer-picker-head">
-      <strong>选择成员</strong>
+      <strong>{title}</strong>
       <span>{selectedRoleKeys.length === 0 ? '至少选择 1 位' : `已选 ${selectedRoleKeys.length} 位，每人独立出一份方案`}</span>
     </div>
     <div className="setting-writer-options">
-      {visibleScreenwriters.map((member) => {
+      {members.map((member) => {
         const picked = selectedRoleKeys.includes(member.roleKey);
         const unavailable = member.availability === 'unavailable';
         const runningMember = panelMembers.find((candidate) => candidate.roleKey === member.roleKey);
@@ -522,21 +528,21 @@ export function SettingCollaborationPanel({
             <em className={`setting-dot dot-${member.status === 'completed' ? 'done' : ['failed', 'unavailable'].includes(member.status) ? 'failed' : 'work'}`} />
             <small>{memberStatusLabel(member.status)}</small>
           </span>
-          {member.errorSummary !== null && <p>{member.errorSummary}</p>}
+          {member.errorSummary !== null && <p>{memberRecoveryMessage(member.errorSummary)}</p>}
           {member.retryable && <button type="button" disabled={busy !== null} onClick={() => void retryMember(member.roleKey)}>
-            {busy === `retry-${member.roleKey}` ? '正在补写…' : '只重试这位'}
+            {busy === `retry-${member.roleKey}` ? '正在补写…' : '重试这位'}
           </button>}
         </div>)}
       </div>}
       {(data.panel === null || proposalsStale) && !candidateReady && (data?.item.status ?? item.status) === '已确认' && <div className="setting-collaboration-start">
         <p className="setting-collaboration-state">这一项已定稿。需要换方向时，先选择编剧再重新设计；确认新方案前旧定稿一直有效。</p>
-        {screenwriterSelector}
+        {screenwriterSelector()}
         <footer><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : '重新设计'}</button></footer>
         {manualOptions}
       </div>}
       {data.panel === null && !candidateReady && (data?.item.status ?? item.status) !== '已确认' && <div className="setting-collaboration-start">
         <p className="setting-collaboration-state">选择一位或多位成员，每位都会独立完成这一项。</p>
-        {screenwriterSelector}
+        {screenwriterSelector()}
         <details className="setting-collapsible-input"><summary>我已有现成内容（参考建议）</summary><label>已有设定原文<ImeTextarea aria-label="已有设定原文" rows={4} maxChars={800} value={source} onChange={setSource} placeholder="可以粘贴以前写过的设定、零散想法或硬性边界；在下面选择这段话怎么用。" /></label>
           <div className="setting-idea-strength" role="radiogroup" aria-label="这段内容怎么用">
             <label className={sourceStrength === 'preference' ? 'selected' : ''}><input type="radio" name={`source-strength-${item.itemKey}`} checked={sourceStrength === 'preference'} onChange={() => setSourceStrength('preference')} /> <b>仅供参考</b><small>团队以专业设计为主，你的想法占两到五成</small></label>
@@ -554,6 +560,13 @@ export function SettingCollaborationPanel({
           {failedMemberProgress > 0 && <i className="setting-progress-failed" style={{ width: `${failedMemberProgress}%` }} />}
           {panelActive && processingMemberCount > 0 && <i className="setting-progress-active" aria-hidden="true" />}
         </div>
+      </div>}
+      {canChooseReplacement && <div className="setting-collaboration-start setting-member-replacement">
+        <p className="setting-collaboration-state">原成员没有生成可用方案。可以改选其他成员继续，本轮失败记录会保留。</p>
+        {screenwriterSelector(replacementScreenwriters, '改选其他成员')}
+        <footer><button className="primary-button setting-redesign-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void redesign()}>
+          {busy === 'redesign' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : `请 ${selectedRoleKeys.length} 位其他成员出方案`}
+        </button></footer>
       </div>}
       {(panelFailed || revisionFailed) && <div className="setting-collaboration-error">
         <p>本轮有成员没有成功返回方案。失败状态已经保存，已有结果不会被清空。</p>
@@ -610,7 +623,7 @@ export function SettingCollaborationPanel({
         <footer><span>{selectionCount === 0 ? '展开方案后，可选整份，也可只勾喜欢的段落' : `已选 ${selected.length} 份整案、${pickedFragments.length} 段内容`}</span><button className="primary-button" type="button" disabled={busy !== null || selectionCount === 0} onClick={() => void synthesizeSelection()}>{busy === 'fusion' ? '主编正在融合…' : '交由主编融合'}</button></footer>
         <small>主编只融合你明确选中的整案和片段，形成一份可编辑稿；未选内容不会混入。</small>
         <details className="setting-redesign-box"><summary>都不满意，重新选择成员</summary>
-          {screenwriterSelector}
+          {screenwriterSelector()}
           <button className="primary-button setting-redesign-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void redesign()}>{busy === 'redesign' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : '重新设计'}</button>
         </details>
         {manualOptions}
@@ -686,6 +699,10 @@ function createClientKey(): string {
   return `setting-idea-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+
+function memberRecoveryMessage(errorSummary: string): string {
+  return errorSummary.replace('请只重试这位。', '可重试这位，也可改选其他成员。');
+}
 
 function screenwriterRoleLabel(roleKey: string | null): string {
   return roleKey === 'senior_screenwriter' ? '高级编剧' : '编剧';
