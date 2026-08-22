@@ -161,7 +161,9 @@ export class SettingCollaborationService {
             status: member.run_status ?? memberStatus(panel.task_status, member.responded === 1),
             contextSummary: '本书完整开书资料 · 当前设定项 · 已确认的直接依赖设定 · 作者本项原话',
             outputSummary: proposal === undefined ? null : proposalContent(proposal.content).slice(0, 160),
-            errorSummary: member.error_summary,
+            // 原始模型诊断保留在discussion_participants供独立后台追溯；作者页面只看
+            // 业务影响和恢复动作，不能暴露供应商、模型、Token或思考块协议。
+            errorSummary: authorFacingMemberError(member.error_summary, member.run_status),
             retryable: member.run_status === 'failed' || member.run_status === 'unavailable',
             lastAttemptedAt: member.last_attempted_at
           };
@@ -221,6 +223,15 @@ function proposalStructure(value: string): SettingProposalStructure | null {
   return null;
 
 }
+
+function authorFacingMemberError(errorSummary: string | null, status: string | null): string | null {
+  if (errorSummary === null) return null;
+  if (status === 'unavailable' || /(?:未配置|已停用|已暂停|当前不可用)/u.test(errorSummary)) {
+    return '这位成员当前不可用，请选择其他成员或稍后只重试这位。';
+  }
+  return '这位成员本次没有形成可用方案，请只重试这位。';
+}
+
 function memberStatus(taskStatus: string, responded: boolean): MemberStatus {
   if (responded) return 'completed';
   if (['failed', 'interrupted', 'cancelled', 'blocked'].includes(taskStatus)) return 'failed';

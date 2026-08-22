@@ -1,6 +1,6 @@
 import { Agent, type Dispatcher } from 'undici';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, isFastGlmDiscussion, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
   plan: ModelPlan;
@@ -76,8 +76,8 @@ export class ArkPlanModelAdapter implements ModelAdapter {
         },
         body: JSON.stringify({
           model: this.modelId,
-          // 所有套餐模型都带着预算思考：max_tokens 在可见输出限额之上追加
-          // 思考预算，模型思考完必须留下可见文字。
+          // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
+          // thinking字段是否发送由模型和用途能力决定。
           max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens),
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(
@@ -204,6 +204,9 @@ function thinkingField(
   // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
   if (plan === 'coding' || plan === 'agent') {
     if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
+    // GLM-5.3 的短讨论省略字段，让模型使用自身的短路由；显式 disabled 会被
+    // Coding Plan 以400拒绝，显式 enabled+8k又会在真实设定任务中长思考后空输出。
+    if (isFastGlmDiscussion(modelId, purpose, maxOutputTokens)) return {};
     return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
   }
   // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。

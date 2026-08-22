@@ -301,6 +301,31 @@ describe('设定页内协作', () => {
     expect(screen.getByRole('progressbar', { name: '成员方案进度' })).toHaveAttribute('aria-valuenow', '67');
   });
 
+  it('总任务结束但有成员失败时仍保留醒目团队进度和失败分段', async () => {
+    api.fetchSettingCollaboration.mockResolvedValue({
+      item: workspaceItem, screenwriters,
+      panel: {
+        taskId: 'task-partial-finished', discussionId: 'discussion-partial-finished', taskStatus: 'succeeded',
+        discussionStatus: 'collecting', errorCode: null,
+        createdAt: '2026-08-08T00:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z', proposals: [],
+        members: [
+          { agentId: 'agent-1', memberName: '婉儿', roleKey: 'lead_screenwriter', status: 'completed', contextSummary: '资料', outputSummary: '完成', errorSummary: null, retryable: false, lastAttemptedAt: null },
+          { agentId: 'agent-2', memberName: '红玉', roleKey: 'second_screenwriter', status: 'failed', contextSummary: '资料', outputSummary: null, errorSummary: '这位成员本次没有形成可用方案，请只重试这位。', retryable: true, lastAttemptedAt: null }
+        ]
+      },
+      revisionTask: null, historyCount: 1, fusionDraft: null,
+      impact: { changesCanon: false, changesManuscript: false, formalVersionTiming: 'setting_baseline_confirmation' }
+    });
+    render(<SettingCollaborationPanel bookId="book-1" item={item} onSnapshot={vi.fn()} />);
+
+    expect(await screen.findByText('团队设计进度「核心看点」')).toBeInTheDocument();
+    const progress = screen.getByRole('progressbar', { name: '成员方案进度' });
+    expect(progress).toHaveAttribute('aria-valuenow', '100');
+    expect(progress).toHaveAttribute('aria-valuetext', '已完成 1 份，已失败 1 份，处理中 0 份');
+    expect(progress.querySelector('.setting-progress-bar')).toHaveStyle({ width: '50%' });
+    expect(progress.querySelector('.setting-progress-failed')).toHaveStyle({ width: '50%' });
+    expect(screen.getByRole('button', { name: '只重试这位' })).toBeInTheDocument();
+  });
   it('作者修改主编编辑稿后可按此整理，主编只以完整修改稿为底稿', async () => {
     const candidate = {
       ...workspaceItem, status: '候选待确认' as const,

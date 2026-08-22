@@ -342,15 +342,16 @@ describe('火山方舟严格套餐适配器', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it('GLM 5.3 的短设定方案用 8000 思考额度提速，审查与复杂任务仍保留 16000', async () => {
-    for (const [purpose, maxOutputTokens, expectedBudget] of [
-      ['discussion', 100, 8_000],
-      ['discussion', 4_000, 16_000],
-      ['novel_reviewer', 100, 16_000]
+  it('GLM 5.3 的短设定方案省略显式思考并只留 1000 Token 余量，复杂任务仍保留 16000', async () => {
+    for (const [purpose, maxOutputTokens, expectedBudget, omitThinking] of [
+      ['discussion', 100, 1_000, true],
+      ['discussion', 4_000, 16_000, false],
+      ['novel_reviewer', 100, 16_000, false]
     ] as const) {
       const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { max_tokens?: number; thinking?: { type?: string; budget_tokens?: number } };
-        expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: expectedBudget });
+        if (omitThinking) expect(body.thinking).toBeUndefined();
+        else expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: expectedBudget });
         expect(body.max_tokens).toBe(maxOutputTokens + expectedBudget);
         return Response.json({
           content: [{ type: 'text', text: '{"chapterGoal":"visible output"}' }],
@@ -386,7 +387,7 @@ describe('火山方舟严格套餐适配器', () => {
     }
   });
 
-  it('套餐模型按用途追加思考预算，只有 GLM 5.3 短讨论走提速额度', async () => {
+  it('套餐模型按用途追加推理余量，只有 GLM 5.3 短讨论省略显式思考并使用 1000 Token', async () => {
     const seen: Array<{ model: string; maxTokens: number }> = [];
     const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string; max_tokens: number };
@@ -404,7 +405,7 @@ describe('火山方舟严格套餐适配器', () => {
       await adapter.generate(request);
     }
     expect(seen).toEqual([
-      { model: 'glm-5.3', maxTokens: 100 + 8_000 },
+      { model: 'glm-5.3', maxTokens: 100 + 1_000 },
       { model: 'glm-5.2', maxTokens: 100 + 16_000 },
       { model: 'kimi-k2.7-code', maxTokens: 100 + 16_000 },
       { model: 'deepseek-v4-flash', maxTokens: 100 + 16_000 }

@@ -155,26 +155,25 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
 }
 
 /**
- * 方舟套餐模型统一启用"有预算的思考"：请求携带
- * thinking={type:'enabled',budget_tokens:16000}，模型在预算内思考后必须产出
- * 可见文字。关闭思考（disabled）被 glm-5.3 与 kimi-k2.7-code 直接拒绝（400），
- * 而不设预算时 minimax/deepseek 等会把全部输出额度烧进思考块（2026-08-18
- * 生产实测六个模型均接受 enabled+budget 且预算生效）。
+ * 方舟套餐模型按模型和用途配置思考：复杂规划、审校与正文使用显式16k预算；
+ * MiniMax关闭思考；GLM-5.3短讨论省略thinking字段并只追加1k默认推理余量。
+ * GLM的disabled会被当前Coding Plan端点拒绝，不能用“关闭思考”实现提速。
  *
- * 预算取值原则（老板 2026-08-18 定调"相对宽松，不能限制太死导致任务中断"）：
- * 预算和 max_tokens 都是上限而非目标，模型写够即停（end_turn），宽松上限不会
- * 拉长输出或分散注意力——注意力保护在输入侧的资料包预算；上限过紧才会截断、
- * 校验失败、重试、双倍计费并中断任务。思考是"必然要花"的额度（基本用满），
- * 8000 一度覆盖讨论/规划/审校推演，老板复核后翻倍到 16000：预算是上限，
- * 用多少算多少，翻倍不强制多思考，只保证复杂任务不被思考额度截断。
- * 可见输出另按各管线合同尺寸封顶。
- *
- * 思考 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
- * max_tokens 与各管线预算冻结都必须在可见输出限额之上追加同一份预算，
- * 否则结算端会以"实际用量超过冻结上限"拒绝。
+ * 思考或默认推理 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
+ * max_tokens 与各管线预算冻结必须追加相同余量；可见输出仍由各管线合同封顶。
+ * 复杂任务保持宽松上限，短任务只使用生产实测能快速形成可见文字的最小余量。
  */
 export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
-export const FAST_GLM_DISCUSSION_THINKING_BUDGET_TOKENS = 8_000;
+export const FAST_GLM_DISCUSSION_REASONING_HEADROOM_TOKENS = 1_000;
+
+export function isFastGlmDiscussion(
+  modelId: string,
+  purpose?: ModelPurpose,
+  maxOutputTokens?: number
+): boolean {
+  return modelId.startsWith('glm-5.3') && purpose === 'discussion'
+    && maxOutputTokens !== undefined && maxOutputTokens <= 3_000;
+}
 
 export function thinkingTokenAllowance(
   modelId: string,
@@ -186,11 +185,12 @@ export function thinkingTokenAllowance(
   // MiniMax M3 在任何用途下都关闭思考（预算对它不生效，会把全部额度烧进思考块），
   // max_tokens 与预算冻结都不追加思考余量。
   if (modelId.startsWith('minimax-')) return 0;
-  // GLM-5.3 在短讨论里通常会大量消耗完整16k思考额度，设定单席因此明显拖慢。
-  // 对可见输出不超过3k的讨论使用8k有界思考；复杂规划、审校和正文仍保留16k。
-  if (modelId.startsWith('glm-5.3') && purpose === 'discussion'
-    && maxOutputTokens !== undefined && maxOutputTokens <= 3_000) {
-    return FAST_GLM_DISCUSSION_THINKING_BUDGET_TOKENS;
+  // 2026-08-22 生产证据：GLM-5.3 的短设定方案显式开启8k思考后连续三次
+  // 把总共11k输出额度全部烧进thinking并返回空text，单次约四分钟；同端点省略
+  // thinking字段时17秒内以799 Token正常结束。短讨论因此只保留1k默认推理余量，
+  // 复杂规划、审校和正文仍使用显式16k思考预算。
+  if (isFastGlmDiscussion(modelId, purpose, maxOutputTokens)) {
+    return FAST_GLM_DISCUSSION_REASONING_HEADROOM_TOKENS;
   }
   return SUBSCRIPTION_THINKING_BUDGET_TOKENS;
 }

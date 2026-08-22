@@ -689,7 +689,7 @@ describe('设定页内协作读模型', () => {
     expect(calls.find((row) => row.role_key === 'lead_screenwriter')?.count).toBe(1);
     expect(calls.find((row) => row.role_key === 'second_screenwriter')?.count).toBe(2);
 });
-  it('所有所选编剧都失败时保存失败原因、任务进入可恢复失败，并允许逐席补写', async () => {
+  it('所有所选编剧都失败时后台保留诊断、作者视图脱敏，并允许逐席补写', async () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -719,7 +719,7 @@ describe('设定页内协作读模型', () => {
       return {
         provider: adapter.provider,
         modelId: adapter.modelId,
-        generate: async () => { throw new ModelAdapterError('所选编剧当前不可用', 'request_failure', false, 503); }
+        generate: async () => { throw new ModelAdapterError('火山方舟Coding Plan已执行但没有形成可提交文字（停止原因=max_tokens，思考字符=29705，输出Token=11000）', 'technical_failure', true, 200); }
       };
     };
     const pipeline = new DiscussionPipelineService(context.database, context.config.releaseId, ids, clock, factory);
@@ -731,6 +731,13 @@ describe('设定页内协作读模型', () => {
     await expect(pipeline.executeClaimed(scope, scheduled.taskId, 'worker-all-failed'))
       .rejects.toThrow('都没有成功返回方案');
     expect(tasks.require(scope, scheduled.taskId).status).toBe('failed');
+    const rawFailure = context.database.prepare(`SELECT run_status, error_summary FROM discussion_participants
+      WHERE owner_id = ? AND book_id = ? AND discussion_id = ?`).get(
+        scope.ownerId, scope.bookId, scheduled.discussionId
+      ) as { run_status: string; error_summary: string };
+    expect(rawFailure).toMatchObject({ run_status: 'failed' });
+    expect(rawFailure.error_summary).toContain('停止原因=max_tokens');
+    expect(rawFailure.error_summary).toContain('输出Token=11000');
 
     const collaboration = new SettingCollaborationService(
       new SettingCollaborationRepository(context.database),
@@ -739,7 +746,7 @@ describe('设定页内协作读模型', () => {
     let view = collaboration.inspect(scope, itemKey);
     expect(view.panel?.proposals).toHaveLength(0);
     expect(view.panel?.members).toEqual([
-      expect.objectContaining({ roleKey: 'lead_screenwriter', status: 'unavailable', retryable: true, errorSummary: '所选编剧当前不可用' })
+      expect.objectContaining({ roleKey: 'lead_screenwriter', status: 'failed', retryable: true, errorSummary: '这位成员本次没有形成可用方案，请只重试这位。' })
     ]);
 
     const retry = commands.retryMember(scope, itemKey, { roleKey: 'lead_screenwriter', idempotencyKey: 'recover-all-failed-seat' });

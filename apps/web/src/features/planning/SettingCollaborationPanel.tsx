@@ -446,6 +446,15 @@ export function SettingCollaborationPanel({
   const failedMemberCount = panelMembers.filter((member) => ['failed', 'unavailable'].includes(member.status)).length;
   const settledMemberCount = completedMemberCount + failedMemberCount;
   const memberProgress = panelMembers.length === 0 ? 0 : Math.round((settledMemberCount / panelMembers.length) * 100);
+  const completedMemberProgress = panelMembers.length === 0 ? 0 : (completedMemberCount / panelMembers.length) * 100;
+  const failedMemberProgress = panelMembers.length === 0 ? 0 : (failedMemberCount / panelMembers.length) * 100;
+  const panelActive = data?.panel !== null && data?.panel !== undefined && activeTaskStatuses.has(data.panel.taskStatus);
+  const showPanelProgress = data?.panel !== null && data?.panel !== undefined && panelMembers.length > 0 && !candidateReady && !proposalsStale;
+  const panelProgressTitle = panelActive
+    ? `团队正在设计「${item.label}」`
+    : completedMemberCount === panelMembers.length && panelMembers.length > 0
+      ? `团队方案已完成「${item.label}」`
+      : `团队设计进度「${item.label}」`;
   const draftChanged = candidateReady && draftEdited;
   const proposalPickedCount = (proposal: Proposal): number => proposal.fragments.filter((fragment) => pickedFragments.includes(fragment.fragmentId)).length;
   const screenwriterSelector = data === null ? null : <div className="setting-writer-picker" aria-label="选择成员">
@@ -536,10 +545,12 @@ export function SettingCollaborationPanel({
         <footer><span>{source.length}/800</span><button className="primary-button" type="button" disabled={busy !== null || selectedRoleKeys.length === 0} onClick={() => void start()}>{busy === 'start' ? '正在召集…' : selectedRoleKeys.length === 0 ? '请先选择成员' : `请 ${selectedRoleKeys.length} 位成员出方案`}</button></footer>
         {manualOptions}
       </div>}
-      {data.panel !== null && activeTaskStatuses.has(data.panel.taskStatus) && <div className="setting-design-progress" role="status">
-        <strong>团队正在设计「{item.label}」<span>已完成 {completedMemberCount}/{panelMembers.length} 份{failedMemberCount > 0 ? ` · 已失败 ${failedMemberCount}` : ''}</span></strong>
-        <div className="setting-progress-track" role="progressbar" aria-label="成员方案进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={memberProgress}>
-          <i className="setting-progress-bar" style={{ width: `${memberProgress}%` }} />
+      {showPanelProgress && <div className="setting-design-progress" role="status">
+        <strong>{panelProgressTitle}<span>已完成 {completedMemberCount}/{panelMembers.length} 份{failedMemberCount > 0 ? ` · 已失败 ${failedMemberCount}` : ''}</span></strong>
+        <div className="setting-progress-track" role="progressbar" aria-label="成员方案进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={memberProgress}
+          aria-valuetext={`已完成 ${completedMemberCount} 份，已失败 ${failedMemberCount} 份，处理中 ${Math.max(0, panelMembers.length - settledMemberCount)} 份`}>
+          <i className="setting-progress-bar" style={{ width: `${completedMemberProgress}%` }} />
+          {failedMemberProgress > 0 && <i className="setting-progress-failed" style={{ width: `${failedMemberProgress}%` }} />}
         </div>
       </div>}
       {(panelFailed || revisionFailed) && <div className="setting-collaboration-error">

@@ -7212,9 +7212,10 @@ svg {
 .setting-design-progress strong { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 14px; }
 .setting-design-progress strong span { color: var(--ink-soft); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .setting-design-progress > small { color: var(--ink-soft); font-size: 11.5px; line-height: 1.6; }
-.setting-design-progress .setting-progress-track { width: 100%; height: 10px; }
+.setting-design-progress .setting-progress-track { display: flex; width: 100%; height: 10px; }
 .setting-progress-track { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #3f6f5e) 12%, var(--panel, #fff)); overflow: hidden; }
 .setting-progress-bar { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent, #3f6f5e), color-mix(in srgb, var(--accent, #3f6f5e) 70%, #7fb069)); transition: width .5s ease; }
+.setting-progress-failed { display: block; height: 100%; background: color-mix(in srgb, var(--danger, #c94949) 82%, #fff); transition: width .5s ease; }
 .setting-progress-bar.indeterminate { width: 38%; animation: setting-progress-slide 1.4s ease-in-out infinite; }
 @keyframes setting-progress-slide {
   0% { margin-left: -38%; }
