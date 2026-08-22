@@ -7,8 +7,8 @@
 - 项目：`D:\wenmixiezuo`，分支 `codex/desktop-entry`，生产站点 `https://wenmixiezuo.com`。
 - 产品仍处于初始完善期，工作流已具备工程闭环，但 UI/交互尚不满意，后续以手机端逐页重设计为主，不受旧卡片布局和旧视觉细节约束。
 - 当前主流程：开书 → 非剧情设定 → 卷方向 → 事件链 → 事件大纲 → 完整章链/近期细纲 → 正文 → 三级结算。
-- 当前生产版本：`wm-setting-progress-glm-r1-20260822-115522-5f8a19b0`（代码提交 `5f8a19b0`），已上线设定团队持续进度条、失败席恢复、GLM-5.3 短设定快速输出策略、普通作者错误洁净投影，以及此前的宏观设定折叠流程、临时资料包和 Coding Plan/Agent Plan 路线；主站保持 `https://wenmixiezuo.com` 不变。
-- 当前 Web 入口：`wm-setting-progress-ui-r2-20260822-121912-5b2ddbd3`（代码提交 `5b2ddbd3`），工作中且完成数为 0 时显示动态活动进度段；API/Worker 继续运行上述 API 发布版本。
+- 当前生产 API 版本：`wm-model-rebind-r1-20260822-155800-b658d38a`（代码提交 `b658d38a`）。GLM-5.2/5.3 已从默认绑定、平台可选方案和执行入口下架；红玉改用 Coding Plan 豆包，西施改用 DeepSeek Flash，班昭改用 MiniMax M2.7；17 本测试书当前绑定已统一收敛，GLM 当前有效绑定为 0。主站保持 `https://wenmixiezuo.com` 不变。
+- 当前 Web 入口：`wm-setting-progress-ui-r2-20260822-121912-5b2ddbd3`（代码提交 `5b2ddbd3`），工作中且完成数为 0 时显示动态活动进度段；API/Worker 运行上述最新 API 发布版本。
 - 独立后台地址为 `https://admin.wenmixiezuo.com`，作者创作台不再挂载管理入口；包含用户、算力、真实API成本、模型、问题、模板、提示词和会员经营数据。服务器已就绪，阿里云 DNS 仍需添加 `admin` A 记录指向 `47.243.152.159` 后才能公网访问并自动签发证书。
 - 最新迁移 `0064_setting_member_resilience.sql`：记录设定编剧逐席运行状态、失败原因和最近尝试时间；历史迁移不改写。全量回归数字以最近一次 `npm run verify:full` 的最终结果为准。
 
@@ -29,7 +29,7 @@
 - 第一卷包含前500字兴趣职责、黄金三章、持续追读变化、防疲劳和约10万字内或卷末重大高潮。
 - 普通作者接口使用自然语言洁净投影；管理员审计与普通页面隔离。
 - 当前创作团队15名；除高级编剧外的活动AI岗位统一走火山方舟 Coding Plan，高级编剧清照单独走 Agent Plan Kimi K3；具体岗位与模型绑定以运行配置和 `apps/api/src/contracts/agent-team-v2.ts` 为准。
-- 最新设定进度与 GLM 修复已通过3个直接测试文件共42项、各包类型检查和 Contracts/API/Worker/Web 构建；此前额外全量回归为182个测试文件、780项用例。`wm-setting-progress-glm-r1-20260822-115522-5f8a19b0` 已于 2026-08-22 发布：无迁移，切换前任务连续30秒为零；API/Worker/Caddy active、Worker ready，公网首页/健康/新资源200、未登录书籍401、在线产物与暂存构建一致。登录态多尺寸视觉仍未验证。
+- 最新 GLM 下架与模型换绑已通过9个直接测试文件共35项、API类型检查和API/Worker生产构建；未运行全量测试。`wm-model-rebind-r1-20260822-155800-b658d38a` 已于 2026-08-22 发布：发布前备份成功，无迁移，任务连续30秒和切换前立即复核均为零；MiniMax M2.7最小真实探针成功；API/Worker/Caddy active、Worker ready，公网首页/健康200、未登录书籍401、7个关键线上产物与暂存构建一致，新启动日志无错误。
 
 ## 基础安全与部署
 
