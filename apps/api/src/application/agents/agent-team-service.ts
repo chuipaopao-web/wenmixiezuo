@@ -199,7 +199,7 @@ export class AgentTeamService {
 
   public assertIndependentReview(executor: AgentRecord, reviewer: AgentRecord): void {
     if (executor.provider === reviewer.provider && executor.modelId === reviewer.modelId) {
-      throw new DomainError(errorCodes.independentReviewRequired, '执行者与复核者必须使用真实不同模型', {
+      throw new DomainError(errorCodes.independentReviewRequired, '执行者与复核者必须使用真实不同模型，不能用同一模型伪装独立成员', {
         executorModel: `${executor.provider}/${executor.modelId}`,
         reviewerModel: `${reviewer.provider}/${reviewer.modelId}`
       }, false, 409);

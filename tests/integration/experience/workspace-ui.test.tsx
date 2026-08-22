@@ -54,6 +54,35 @@ const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, disp
   publicSummary: `${roleName}公开职责`, responsibilities: ['完成岗位任务'], boundaries: ['不越权修改正史'], retrievalFocus: ['当前任务证据'], outputKinds: ['结构化结果']
 }));
 
+const v6EditorialPools = [
+  ['chief_editor', '主编', 2, ['貂蝉', '清照']],
+  ['deputy_editor', '副编', 2, ['西施', '婉儿']],
+  ['screenwriter', '编剧', 3, ['红玉', '幼薇', '文姬']],
+  ['writer', '主笔', 2, ['秋香', '湘君']],
+  ['fact_reviewer', '事实审查', 2, ['班昭', '道韫']],
+  ['literary_reviewer', '文学审查', 2, ['妲己', '弄玉']],
+  ['experience_reviewer', '体验审查', 2, ['昭君', '妙玉']]
+] as const;
+
+const v6EditorialTeam = {
+  pools: v6EditorialPools.map(([roleKey, roleLabel, desiredCount, names]) => ({
+    roleKey,
+    roleLabel,
+    desiredCount,
+    members: names.map((displayName, index) => ({
+      memberId: `${roleKey}-${index + 1}`,
+      displayName,
+      roleKey,
+      roleLabel,
+      supplierCompany: index % 2 === 0 ? 'OpenAI' : '火山引擎',
+      baseCostTier: index === 0 ? 'low' : 'medium',
+      status: index === names.length - 1 && roleKey === 'screenwriter' ? 'working' : 'available',
+      avatarKey: roleKey,
+      enabled: true
+    }))
+  }))
+};
+
 const workspace: WorkspaceData = {
   book, chapters: [{ ...chapter, volumeId: 'volume-ui-1' }], volumes: [{ volumeId: 'volume-ui-1', volumeNumber: 1, title: '雾城卷', status: 'active', chapterCount: 1, settledCount: 1 }], agents,
   tasks: [{
@@ -103,13 +132,23 @@ describe('完整创作工作台', () => {
     render(<App />);
 
     expect(await screen.findByRole('complementary', { name: '书籍栏' })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: '创作台' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '选择本书真正需要的设定', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: '功能栏' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/books/book-ui-1/conversation-entry'))).toBe(false);
     expect(screen.queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
+  });
+  it('把旧 view 深链接映射到五个新阶段并规范化为 stage 参数', async () => {
+    window.history.replaceState(null, '', '/?book=book-ui-1&view=master');
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+
+    const functionBar = await screen.findByRole('navigation', { name: '功能栏' });
+    await waitFor(() => expect(within(functionBar).getByRole('button', { name: '分卷' })).toHaveAttribute('aria-current', 'page'));
+    expect(new URL(window.location.href).searchParams.get('stage')).toBe('volume');
+    expect(new URL(window.location.href).searchParams.has('view')).toBe(false);
   });
   it('移动书籍栏能查看完整书名并从整行入口打开个人资料', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
@@ -144,39 +183,28 @@ describe('完整创作工作台', () => {
     expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('顶部团队入口显示当前书15名真实成员状态', async () => {
+  it('顶部团队入口显示当前书七岗位15名公开成员状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
-    expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('15 名成员')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'AI 编辑部' })).toBeInTheDocument();
+    expect(within(document.querySelector('.v6-team-summary') as HTMLElement).getByText('15')).toBeInTheDocument();
+    expect(screen.getByText('当前成员')).toBeInTheDocument();
     expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/local-deterministic|wenmi-fixture/u)).not.toBeInTheDocument();
   });
 
-  it('前后端短暂版本不一致时团队页仍能打开', async () => {
+  it('编辑部只依赖V6公开成员合同，不再读取旧团队提示词合同', async () => {
     window.history.replaceState(null, '', '/');
-    const baseRouter = createFetchRouter();
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const response = await baseRouter(input, init);
-      const path = new URL(String(input)).pathname;
-      if (path !== '/api/v1/team-template' && !path.endsWith('/team-config')) return response;
-      const payload = await response.json() as { data: Record<string, unknown> };
-      if (path === '/api/v1/team-template') {
-        const { fullPromptAccess: _legacyMissingField, ...legacyData } = payload.data;
-        return apiResponse(legacyData);
-      }
-      const promptPolicy = payload.data.promptPolicy as Record<string, unknown>;
-      const { fullPromptAccess: _legacyMissingField, ...legacyPromptPolicy } = promptPolicy;
-      return apiResponse({ ...payload.data, promptPolicy: legacyPromptPolicy });
-    }));
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
-    expect(await screen.findByRole('heading', { name: '团队配置' })).toBeInTheDocument();
-    expect(screen.getByText('15 名成员')).toBeInTheDocument();
-    expect(screen.getByText(/管理员尚未设置查看密码/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'AI 编辑部' })).toBeInTheDocument();
+    expect(screen.queryByText(/提示词|查看密码|模型|model/iu)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => /team-template|team-config/u.test(String(input)))).toBe(false);
   });
 
   it('使用纯书籍左栏、顶部完整功能栏和中央内容区并通过自动无障碍检查', async () => {
@@ -196,7 +224,7 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
 
     const functionBar = screen.getByRole('navigation', { name: '功能栏' });
-    for (const name of ['信息', '设定', '分卷', '规划', '章纲', '正文', '资料库', '取名']) {
+    for (const name of ['设定', '故事线', '分卷', '事件', '章节', '资料库', '取名']) {
       expect(within(functionBar).getByRole('button', { name })).toBeInTheDocument();
       expect(within(bookRail).queryByRole('button', { name })).not.toBeInTheDocument();
     }
@@ -205,7 +233,7 @@ describe('完整创作工作台', () => {
     }
     fireEvent.click(within(functionBar).getByRole('button', { name: '设定' }));
     expect(within(functionBar).getByRole('button', { name: '设定' })).toHaveAttribute('aria-current', 'page');
-    expect(await screen.findByRole('heading', { name: '设定' })).toHaveClass('sr-only');
+    expect(await screen.findByRole('heading', { name: '选择本书真正需要的设定', level: 2 })).not.toHaveClass('sr-only');
     expect(screen.queryByText(/只要求当前故事真正需要的内容/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/本书必谈设定已经逐项确认/u)).not.toBeInTheDocument();
     expect(screen.queryByText('当前必须确定')).not.toBeInTheDocument();
@@ -247,7 +275,7 @@ describe('完整创作工作台', () => {
     expect(within(bookRail).getByText('20章流程测试', { exact: false })).toBeInTheDocument();
     expect(within(bookRail).getByText('20章验收测试', { exact: false })).toBeInTheDocument();
     expect(within(bookRail).queryByText(/xianxia|acceptance|final/iu)).not.toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: '烬骨问天' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '选择本书真正需要的设定', level: 2 })).toBeInTheDocument();
     expect(screen.queryByText(/xianxia-20-final|xianxia-20-acceptance/iu)).not.toBeInTheDocument();
     expect(bookRail.querySelectorAll('.book-rail-cover')).toHaveLength(2);
     expect(bookRail.querySelectorAll('.book-cover-title')).toHaveLength(2);
@@ -260,7 +288,7 @@ describe('完整创作工作台', () => {
       return baseRouter(input, init);
     }));
     render(<App />);
-    const chapterOutlineButton = await screen.findByRole('button', { name: '章纲' });
+    const chapterOutlineButton = await screen.findByRole('button', { name: '章节' });
     const functionBar = screen.getByRole('navigation', { name: '功能栏' });
     fireEvent.click(chapterOutlineButton);
     expect(chapterOutlineButton).toHaveAttribute('aria-current', 'page');
@@ -268,36 +296,23 @@ describe('完整创作工作台', () => {
     const bookRail = screen.getByRole('complementary', { name: '书籍栏' });
     fireEvent.click(within(bookRail).getByRole('button', { name: /北境军报/ }));
     await waitFor(() => expect(within(bookRail).getByRole('button', { name: /北境军报/ })).toHaveAttribute('aria-current', 'page'));
-    expect(within(functionBar).getByRole('button', { name: '章纲' })).toHaveAttribute('aria-current', 'page');
+    expect(within(functionBar).getByRole('button', { name: '章节' })).toHaveAttribute('aria-current', 'page');
     expect(within(bookRail).getByRole('button', { name: /北境军报/ })).toHaveAttribute('aria-current', 'page');
   });
-  it('团队页展示公开岗位配置并保存书籍级补充提示词', async () => {
+  it('团队页按岗位切换且始终只展示公开成员字段', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     await screen.findAllByText('雾钟档案');
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
-    const team = (await screen.findByRole('heading', { name: '团队配置' })).closest('section') as HTMLElement;
-    expect(within(team).getByText('15 名成员')).toBeInTheDocument();
-    fireEvent.click(within(team).getByRole('button', { name: /貂蝉（主编）/ }));
-    expect(within(team).getByText('岗位职责')).toBeInTheDocument();
-    expect(within(team).getByText('负责什么')).toBeInTheDocument();
-    expect(team).not.toHaveTextContent('边界');
-    expect(within(team).getByText('岗位表达')).toBeInTheDocument();
-    expect(within(team).getByText(/貂蝉是团队中的主编/)).toBeInTheDocument();
-    expect(within(team).queryByText('受保护的完整运行提示词')).not.toBeInTheDocument();
-    fireEvent.change(within(team).getByLabelText('完整提示词查看密码'), { target: { value: 'test-prompt-view-password' } });
-    fireEvent.click(within(team).getByRole('button', { name: '解锁查看' }));
-    expect(await within(team).findByText('受保护的完整运行提示词')).toBeInTheDocument();
-    const editor = within(team).getByRole('textbox', { name: '貂蝉（主编）的本书岗位补充要求' });
-    fireEvent.change(editor, { target: { value: '讨论时先指出最大风险，再给推荐方向。' } });
-    fireEvent.click(within(team).getByRole('button', { name: '保存提示词' }));
-    await within(team).findByText('已保存，新任务开始生效。');
-    expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith('/agents/agent-1/prompt-preference')
-      && (init as RequestInit | undefined)?.method === 'PUT'
-      && String((init as RequestInit).body).includes('讨论时先指出最大风险')
-    )).toBe(true);
+    const team = (await screen.findByRole('heading', { name: 'AI 编辑部' })).closest('section') as HTMLElement;
+    expect(within(team).getByText('15')).toBeInTheDocument();
+    expect(within(team).getByText('貂蝉')).toBeInTheDocument();
+    fireEvent.click(within(team).getByRole('button', { name: /文学审查/ }));
+    expect(within(team).getByText('妲己')).toBeInTheDocument();
+    expect(within(team).getByText('文学审查 · OpenAI')).toBeInTheDocument();
+    expect(team).not.toHaveTextContent(/provider|model|提示词|密钥/iu);
+    expect(fetchMock.mock.calls.some(([input]) => /team-template|team-config|prompt-preference/u.test(String(input)))).toBe(false);
   });
 
   it('把应用壳固定在动态视口并只让内容区独立滚动', () => {
@@ -354,11 +369,10 @@ describe('完整创作工作台', () => {
     expect(screen.getByText('平')).toBeInTheDocument();
     expect(screen.queryByText(/projection-internal|source-internal|content_json|projection_type/u)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '信息' }));
-    expect(await screen.findByText('作品定位与全书框架')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '设定' }));
+    expect(await screen.findByRole('heading', { name: '选择本书真正需要的设定', level: 2 })).toBeInTheDocument();
     expect(screen.queryByText('sourceStatus')).not.toBeInTheDocument();
     expect(screen.queryByText('explicit')).not.toBeInTheDocument();
-    expect(screen.getAllByText('明确确认').length).toBeGreaterThan(0);
 
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
   });
@@ -434,7 +448,8 @@ describe('完整创作工作台', () => {
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
+    fireEvent.click(await screen.findByRole('button', { name: '章节' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /正文/ }));
     expect(await screen.findByRole('button', { name: /第1章/ })).toBeInTheDocument();
     expect(screen.queryByLabelText('已有正文')).not.toBeInTheDocument();
 
@@ -457,7 +472,8 @@ describe('完整创作工作台', () => {
     const fetchMock = vi.fn(createFetchRouter('', plannedWorkspace));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: '正文' }));
+    fireEvent.click(await screen.findByRole('button', { name: '章节' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /正文/ }));
 
     expect(await screen.findByRole('button', { name: /1\. 雾城初响/ })).toHaveClass('active');
     const editor = await screen.findByRole('textbox', { name: '正文编辑器' });
@@ -481,10 +497,27 @@ describe('完整创作工作台', () => {
     expect(screen.getByRole('button', { name: 'AI点评' })).toBeEnabled();
   });
 
+  it('正文页常驻确认章纲，三席内用成员子标签一次查看一份报告', async () => {
+    vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '章节' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /正文/ }));
+    expect(await screen.findByLabelText('当前确认章纲')).toHaveTextContent('让钟声第一次改变主角选择');
+    expect(screen.getByRole('tab', { name: '成员 1' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('事实与前文一致')).toBeInTheDocument();
+    expect(screen.queryByText('事实席第二份独立意见')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: '成员 2' }));
+    expect(screen.getByText('事实席第二份独立意见')).toBeInTheDocument();
+    expect(screen.queryByText('事实与前文一致')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /体验席/ }));
+    expect(screen.getByText('追读动力清晰')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '交给主编汇总' })).toBeEnabled();
+  });
+
   it('独立版权页已经移除，但创作台不再暴露受保护原文', async () => {
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
-    await screen.findByRole('heading', { name: '创作台' });
+    await screen.findByRole('heading', { name: '选择本书真正需要的设定', level: 2 });
     expect(screen.queryByRole('button', { name: '版权与研究' })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('隔离原文正文不得显示');
   });
@@ -516,6 +549,43 @@ describe('完整创作工作台', () => {
     fireEvent.click(screen.getByRole('button', { name: '明确接受' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
       String(input).includes('/confirmations/confirmation-ui-1/accept') && (init as RequestInit | undefined)?.method === 'POST')).toBe(true));
+  });
+  it('正文确认结算后选中下一未结算章并提示开始下一章', async () => {
+    const nextChapter = {
+      ...chapter,
+      chapterId: 'chapter-ui-2',
+      chapterNumber: 2,
+      title: '雾钟余波',
+      generationStatus: 'pending',
+      settlementStatus: 'pending',
+      currentManuscriptVersionId: null,
+      canonManuscriptVersionId: null
+    };
+    const settlementWorkspace: WorkspaceData = {
+      ...workspace,
+      chapters: [{ ...chapter, volumeId: 'volume-ui-1' }, { ...nextChapter, volumeId: 'volume-ui-1' }],
+      confirmations: { count: 1, items: [{
+        confirmationId: 'confirmation-manuscript-ui', targetType: 'manuscript', targetId: 'manuscript-1',
+        expectedCanonRevision: 3, scope: { chapterNumber: 1 }, impact: { settlesChapter: true },
+        createdAt: '2026-07-16T12:00:00.000Z'
+      }] }
+    };
+    const baseRouter = createFetchRouter('正文内容', settlementWorkspace);
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/confirmations/confirmation-manuscript-ui/accept')) return Promise.resolve(apiResponse({
+        confirmationId: 'confirmation-manuscript-ui', status: 'settled', canonRevision: 4,
+        settledChapterId: chapter.chapterId, nextOutlineTaskId: 'task-outline-ui-2'
+      }));
+      return baseRouter(input, init);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '任务' }));
+    fireEvent.click(await screen.findByRole('button', { name: '明确接受' }));
+    expect(await screen.findByText(/第 2 章章纲正在按真实结算重新生成/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '章节' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: '开始下一章' })).toBeInTheDocument();
   });
 
 });
@@ -638,6 +708,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       }]
     });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
+    if (path.endsWith('/core-workflow/editorial-team') || path.endsWith('/editorial-team')) return apiResponse(v6EditorialTeam);
     if (path === '/api/v1/team-template') return apiResponse({
       fullPromptAccess: { configured: true, passwordProtected: true },
       members: agents.map((agent, index) => ({
@@ -804,12 +875,14 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
     }
     if (/\/chapters\/chapter-ui-1$/u.test(path)) return apiResponse({
       chapter, manuscripts: [], facts: [], reviews: [], production: {
-        writingOrders: [{ objective: '让钟声第一次改变主角选择', version: 1, canon_revision: 2, status: 'active' }], reviewPanels: [], approvalGates: [],
+        writingOrders: [{ objective: '让钟声第一次改变主角选择', version: 1, canon_revision: 2, status: 'active', outline_content_json: JSON.stringify({ chapterFunction: '让钟声第一次改变主角选择', openingState: '主角听见异响', requiredEndingState: '主角开始追查', storylineResponsibilities: ['主导故事线：失踪案推进'], mustImplement: ['找到第一条证据'], mustNotViolate: ['不能提前揭示幕后人'] }) }], reviewPanels: [], approvalGates: [],
         reviewReports: [
-          { review_report_id: 'report-fact', reviewer_role: 'fact', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'glm-5-2', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '事实与前文一致', issues: [], scores: { continuity: 95 } }) },
-          { review_report_id: 'report-literary', reviewer_role: 'literary', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'kimi-k2.6', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'rewrite', summary: '一处表达过于模板化', issues: [{ location: '第3段', issueType: 'ai_style', severity: 'minor', evidence: '连续同句式', requiredAction: '定点调整句式' }], scores: { literary: 88 }, aiStyle: { riskScore: 18, flaggedParagraphCount: 1, totalParagraphCount: 10, flaggedParagraphRatio: 0.1, isAuthorshipProbability: false, evidence: ['第3段'] } }) },
-          { review_report_id: 'report-experience', reviewer_role: 'experience', status: 'completed', provider: 'volcengine-ark-agent-plan', model_id: 'doubao', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '追读动力清晰', issues: [], scores: { engagement: 91 }, politicalRisk: { level: 'none' }, sexualContentRisk: { level: 'none' } }) }
-        ]
+          { review_report_id: 'report-fact', manuscript_version_id: 'manuscript-1', reviewer_role: 'fact', status: 'submitted', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '事实与前文一致', issues: [], scores: { continuity: 95 } }) },
+          { review_report_id: 'report-fact-2', manuscript_version_id: 'manuscript-1', reviewer_role: 'fact', status: 'submitted', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '事实席第二份独立意见', issues: [], scores: { continuity: 93 } }) },
+          { review_report_id: 'report-literary', manuscript_version_id: 'manuscript-1', reviewer_role: 'literary', status: 'submitted', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'rewrite', summary: '一处表达过于模板化', issues: [{ location: '第3段', issueType: 'ai_style', severity: 'minor', evidence: '连续同句式', requiredAction: '定点调整句式' }], scores: { literary: 88 }, aiStyle: { riskScore: 18, flaggedParagraphCount: 1, totalParagraphCount: 10, flaggedParagraphRatio: 0.1, isAuthorshipProbability: false, evidence: ['第3段'] } }) },
+          { review_report_id: 'report-experience', manuscript_version_id: 'manuscript-1', reviewer_role: 'experience', status: 'submitted', input_tokens: 3200, report_json: JSON.stringify({ verdict: 'pass', summary: '追读动力清晰', issues: [], scores: { engagement: 91 }, politicalRisk: { level: 'none' }, sexualContentRisk: { level: 'none' } }) }
+        ],
+        editorSyntheses: [], synthesisRequests: []
       }
     });
     if (path.endsWith('/copyright/summary')) return apiResponse({

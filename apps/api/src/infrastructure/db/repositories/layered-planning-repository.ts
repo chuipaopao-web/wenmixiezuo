@@ -29,6 +29,12 @@ export interface EventChainGenerationTaskRow {
   task_id:string;status:string;current_phase:string;error_code:string|null;
   checkpoint_json:string;task_brief_json:string;created_at:string;updated_at:string;
 }
+export interface EventChainStorylineContextRow {
+  storyline_id:string;content_json:string;participation_status:string;responsibility:string|null;
+}
+export interface EventRoleCharacterRow {
+  role_function_key:string;role_function_label:string;character_id:string;character_name:string;
+}
 
 export class LayeredPlanningRepository {
   public constructor(private readonly database:DatabaseSync){}
@@ -156,6 +162,14 @@ export class LayeredPlanningRepository {
   public listEventChains(scope:BookScope,volumePlanId:string):EventChainVersionRow[] {
     return this.database.prepare("SELECT * FROM event_chain_versions WHERE owner_id=? AND book_id=? AND volume_plan_id=? ORDER BY version")
       .all(scope.ownerId,scope.bookId,volumePlanId) as unknown as EventChainVersionRow[];
+  }
+  public eventChainStorylines(scope:BookScope,volumePlanId:string):EventChainStorylineContextRow[] {
+    return this.database.prepare("SELECT s.storyline_id,v.content_json,p.participation_status,p.responsibility FROM storyline_volume_participations p JOIN storylines s ON s.owner_id=p.owner_id AND s.book_id=p.book_id AND s.storyline_id=p.storyline_id JOIN storyline_versions v ON v.owner_id=s.owner_id AND v.book_id=s.book_id AND v.storyline_version_id=s.active_version_id WHERE p.owner_id=? AND p.book_id=? AND p.volume_plan_id=? AND p.status='active' AND p.participation_status IN ('leading','important','foreshadow') ORDER BY CASE p.participation_status WHEN 'leading' THEN 1 WHEN 'important' THEN 2 ELSE 3 END,s.sort_order")
+      .all(scope.ownerId,scope.bookId,volumePlanId) as unknown as EventChainStorylineContextRow[];
+  }
+  public eventRoleCharacters(scope:BookScope,eventChainVersionId:string,eventNodeId:string):EventRoleCharacterRow[] {
+    return this.database.prepare("SELECT a.role_function_key,a.role_function_label,c.character_id,json_extract(v.content_json,'$.name') AS character_name FROM event_role_assignments a JOIN character_cards c ON c.owner_id=a.owner_id AND c.book_id=a.book_id AND c.character_id=a.assigned_character_id JOIN character_card_versions v ON v.owner_id=c.owner_id AND v.book_id=c.book_id AND v.character_card_version_id=c.active_version_id WHERE a.owner_id=? AND a.book_id=? AND a.event_chain_version_id=? AND a.event_node_id=? AND a.assignment_status='assigned' ORDER BY a.created_at,a.event_role_assignment_id")
+      .all(scope.ownerId,scope.bookId,eventChainVersionId,eventNodeId) as unknown as EventRoleCharacterRow[];
   }
   public latestEventChainGenerationTask(scope:BookScope,volumePlanId:string):EventChainGenerationTaskRow|undefined {
     return this.database.prepare("SELECT task_id,status,current_phase,error_code,checkpoint_json,task_brief_json,created_at,updated_at FROM tasks WHERE owner_id=? AND book_id=? AND task_type='event_chain_generation' AND json_extract(task_brief_json,'$.volumePlanId')=? ORDER BY created_at DESC,task_id DESC LIMIT 1")

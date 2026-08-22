@@ -37,7 +37,7 @@ vi.mock('../../../apps/web/src/features/planning/SettingCollaborationPanel', () 
 }));
 
 
-import { SettingCatalog } from '../../../apps/web/src/features/planning/PlanningWorkspace';
+import { SettingCatalog } from '../../../apps/web/src/features/planning/SettingCatalog';
 import type { WorkspaceData } from '../../../apps/web/src/lib/api/client';
 
 const coreKeys = ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'] as const;

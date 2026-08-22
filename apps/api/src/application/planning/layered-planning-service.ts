@@ -106,6 +106,15 @@ export class LayeredPlanningService {
     return row===undefined?null:eventChainView(scope.bookId,row);
   }
 
+  public eventRoleCharacters(scope:BookScope,eventChainVersionId:string,eventNodeId:string):Array<{
+    roleFunctionKey:string;roleFunctionLabel:string;characterId:string;characterName:string;
+  }>{
+    return this.repository.eventRoleCharacters(scope,eventChainVersionId,eventNodeId).map((row)=>({
+      roleFunctionKey:row.role_function_key,roleFunctionLabel:row.role_function_label,
+      characterId:row.character_id,characterName:row.character_name
+    }));
+  }
+
   public confirmDirectionForLegacy(scope:BookScope,legacyVersionId:string):void {
     const row=this.repository.directionByLegacy(scope,legacyVersionId);
     if(row===undefined)return;
@@ -312,7 +321,7 @@ function directionView(row:VolumeDirectionVersionRow):VolumeDirectionVersionView
 function eventChainView(bookId:string,row:EventChainVersionRow):EventChainVersion {
   return {id:row.event_chain_version_id,bookId,volumePlanId:row.volume_plan_id,version:row.version,
     status:row.status,sourceVersionIds:JSON.parse(row.source_version_ids_json) as string[],
-    content:JSON.parse(row.content_json) as EventChainContent,contentHash:row.content_hash,
+    content:parseEventChainContent(JSON.parse(row.content_json) as unknown),contentHash:row.content_hash,
     createdAt:row.created_at,confirmedAt:row.confirmed_at};
 }
 function selectionFromRow(row:{selection_mode:'whole'|'fragments';selected_proposal_id:string|null;

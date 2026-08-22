@@ -47,7 +47,7 @@ describe('分层叙事设计门禁', () => {
     expect(labels.join(' ')).not.toMatch(/三幕式|五幕式|拯救猫咪|英雄之旅|七点式|故事圈/iu);
   });
 
-  it('第一卷合同强制黄金三章和十万有效字内重大高潮，同时兼容旧卷数据', () => {
+  it('第一卷合同强制首卷前三章责任和十万有效字内重大高潮，同时兼容旧卷数据', () => {
     const parsed = parseVolumePlanContent(baseVolume());
     expect(parsed.firstVolumeLaunch?.goldenThree.map((chapter) => chapter.chapterNumber)).toEqual([1, 2, 3]);
     expect(parsed.firstVolumeLaunch?.majorClimax.latestEffectiveCharacters).toBe(100000);

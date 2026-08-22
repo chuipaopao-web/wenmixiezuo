@@ -282,6 +282,57 @@ function testChapterOutlineV2(
   };
 }
 
+export function requestPendingEditorSynthesis(
+  context: TestContext,
+  scope: BookScope,
+  ids: IdGenerator,
+  clock: Clock
+): string {
+  const run = context.database.prepare(`SELECT r.chapter_id, r.task_id, r.review_panel_id, r.current_manuscript_version_id
+    FROM chapter_pipeline_runs r JOIN tasks t
+      ON t.task_id = r.task_id AND t.owner_id = r.owner_id AND t.book_id = r.book_id
+    WHERE r.owner_id = ? AND r.book_id = ? AND r.phase = 'review' AND r.review_panel_id IS NOT NULL
+      AND t.status = 'paused' ORDER BY r.updated_at DESC LIMIT 1`)
+    .get(scope.ownerId, scope.bookId) as {
+      chapter_id: string; task_id: string; review_panel_id: string; current_manuscript_version_id: string;
+    } | undefined;
+  if (run === undefined) throw new Error('测试未找到等待作者触发主编汇总的章节');
+  const completedSeats = (context.database.prepare(`SELECT COUNT(DISTINCT reviewer_role) AS count FROM review_reports
+    WHERE owner_id = ? AND book_id = ? AND review_panel_id = ? AND status = 'submitted'
+      AND reviewer_role IN ('fact', 'literary', 'experience')`)
+    .get(scope.ownerId, scope.bookId, run.review_panel_id) as { count: number }).count;
+  if (completedSeats !== 3) throw new Error(`三席成功报告不足：${completedSeats}/3`);
+  context.database.prepare(`INSERT INTO chapter_editor_synthesis_requests (
+    chapter_editor_synthesis_request_id, owner_id, book_id, chapter_id, task_id,
+    review_panel_id, manuscript_version_id, requested_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(owner_id, book_id, review_panel_id) DO NOTHING`).run(
+    ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.task_id,
+    run.review_panel_id, run.current_manuscript_version_id, clock.now().toISOString()
+  );
+  new TaskService(context.database, context.config.releaseId, clock).queue(scope, run.task_id);
+  return run.task_id;
+}
+
+export async function requestEditorSynthesisUntilConfirmation(
+  context: TestContext,
+  scope: BookScope,
+  ids: IdGenerator,
+  clock: Clock,
+  run: () => Promise<unknown>,
+  maxRounds = 3
+): Promise<void> {
+  for (let round = 0; round < maxRounds; round += 1) {
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    await run();
+    const pending = context.database.prepare(`SELECT confirmation_id FROM confirmations
+      WHERE owner_id = ? AND book_id = ? AND target_type = 'manuscript' AND status = 'pending'
+      ORDER BY created_at, confirmation_id LIMIT 1`).get(scope.ownerId, scope.bookId);
+    if (pending !== undefined) return;
+  }
+  throw new Error(`作者已显式触发主编综合 ${maxRounds} 轮，仍未生成待确认正文`);
+}
+
 export function approvePendingManuscript(
   context: TestContext,
   scope: BookScope,

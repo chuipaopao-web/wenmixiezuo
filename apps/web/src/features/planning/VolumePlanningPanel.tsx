@@ -61,6 +61,7 @@ export function VolumePlanningPanel({ bookId, onOpenSettings }: {
   const [generation, setGeneration] = useState<VolumePlanGenerationData | null>(null);
   const [draft, setDraft] = useState<VolumePlanContent>(() => emptyVolumePlan(1));
   const [editing, setEditing] = useState(false);
+  const [authorPath, setAuthorPath] = useState<'zero' | 'direction' | 'complete'>('direction');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<VolumePlanImpactData | null>(null);
@@ -354,7 +355,8 @@ export function VolumePlanningPanel({ bookId, onOpenSettings }: {
       <li className={selectedPlan !== null ? 'done' : 'current'}><b>1</b><span>建立当前卷</span></li>
       <li className={versions.length > 0 ? 'done' : selectedPlan !== null ? 'current' : ''}><b>2</b><span>比较方案</span></li>
       <li className={selectedPlan?.activeVersion ? 'done' : versions.length > 0 ? 'current' : ''}><b>3</b><span>确认卷规划</span></li>
-      <li className={selectedPlan?.activeVersion ? 'current' : ''}><b>4</b><span>继续拆事件</span></li>
+      <li className={selectedPlan?.activeVersion?.content.expressionPlan ? 'done' : selectedPlan?.activeVersion ? 'current' : ''}><b>4</b><span>确认表达方案</span></li>
+      <li className={selectedPlan?.activeVersion?.content.expressionPlan ? 'current' : ''}><b>5</b><span>继续拆事件</span></li>
     </ol>
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
@@ -369,6 +371,11 @@ export function VolumePlanningPanel({ bookId, onOpenSettings }: {
     </section>}
 
     {selectedPlan !== null && <>
+      <section className="volume-author-paths" aria-label="选择分卷起点">
+        <button type="button" className={authorPath === 'zero' ? 'active' : ''} onClick={() => { setAuthorPath('zero'); setEditing(false); }}><strong>AI 帮我从零想</strong><span>先生成启动提案，再形成两条不同路线</span></button>
+        <button type="button" className={authorPath === 'direction' ? 'active' : ''} onClick={() => { setAuthorPath('direction'); setEditing(false); }}><strong>我有一些方向</strong><span>补充原话后让两位编剧独立设计</span></button>
+        <button type="button" className={authorPath === 'complete' ? 'active' : ''} onClick={() => { setAuthorPath('complete'); setDraft(selectedPlan.activeVersion?.content ?? emptyVolumePlan(selectedPlan.planNumber)); setEditing(true); }}><strong>我有完整卷纲</strong><span>直接进入结构优化，不强制重做两条路线</span></button>
+      </section>
       <section className="volume-plan-status-card">
         <div><small>第{selectedPlan.planNumber}卷</small><strong>{selectedPlan.activeVersion?.content.title ?? '尚未确认卷规划'}</strong></div>
         <div><small>当前状态</small><strong>{selectedPlan.activeVersion === null ? '比较方案中' : `已确认第${selectedPlan.activeVersion.version}稿`}</strong></div>
@@ -391,24 +398,24 @@ export function VolumePlanningPanel({ bookId, onOpenSettings }: {
       />}
 
 
-      <AuthorIdeaComposer
+      {authorPath !== 'complete' && <AuthorIdeaComposer
         bookId={bookId}
         surface="volume_plan"
         subjectType="volume_plan"
         subjectId={selectedPlan.volumePlanId}
         title="补充你对这一卷的想法"
-      />
+      />}
 
-      <VolumeGenerationCard
+      {authorPath !== 'complete' && <VolumeGenerationCard
         generation={generation}
         busy={busy}
         onStart={startTeamGeneration}
         onCancel={cancelGeneration}
         onRetry={retryGeneration}
         onResume={resumeGeneration}
-      />
+      />}
 
-      {directions.some((item) => ['candidate_a', 'candidate_b'].includes(item.candidateKind)) &&
+      {authorPath !== 'complete' && directions.some((item) => ['candidate_a', 'candidate_b'].includes(item.candidateKind)) &&
         <VolumeDirectionChoicePanel
           directions={directions.filter((item) => ['candidate_a', 'candidate_b'].includes(item.candidateKind))}
           choices={fragmentChoices}
@@ -703,7 +710,7 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
       <ol>{version.content.routeCard.escalationPath.map((step) => <li key={step}>{step}</li>)}</ol>
       <details><summary>这条路线的好处与风险</summary><div><b>好处</b><ul>{version.content.routeCard.benefits.map((item) => <li key={item}>{item}</li>)}</ul><b>风险</b><ul>{version.content.routeCard.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></details>
     </section>}
-    {(version.content.storySpine != null || version.content.firstVolumeLaunch != null) && <details className="first-volume-design"><summary>第一卷开局与全书故事总线</summary><div>{version.content.storySpine != null && <><b>全书长期承诺</b><p>{version.content.storySpine.longTermPromise}</p><b>主角长期变化</b><p>{version.content.storySpine.protagonistLongArc}</p><b>中心问题</b><p>{version.content.storySpine.centralQuestion}</p></>}{version.content.firstVolumeLaunch != null && <><b>前500字</b><p>{version.content.firstVolumeLaunch.first500.immediateSituation}；{version.content.firstVolumeLaunch.first500.emotionalGrip}；{version.content.firstVolumeLaunch.first500.readerQuestion}</p><b>黄金三章</b><ol>{version.content.firstVolumeLaunch.goldenThree.map((chapter) => <li key={chapter.chapterNumber}>第{chapter.chapterNumber}章：{chapter.responsibility}；回报：{chapter.payoff}</li>)}</ol><b>重大高潮</b><p>最晚在累计 {version.content.firstVolumeLaunch.majorClimax.latestEffectiveCharacters.toLocaleString('zh-CN')} 有效字前：{version.content.firstVolumeLaunch.majorClimax.choice}；代价：{version.content.firstVolumeLaunch.majorClimax.cost}；变化：{version.content.firstVolumeLaunch.majorClimax.irreversibleChange}</p></>}</div></details>}
+    {(version.content.storySpine != null || version.content.firstVolumeLaunch != null) && <details className="first-volume-design"><summary>第一卷开局与全书故事总线</summary><div>{version.content.storySpine != null && <><b>全书长期承诺</b><p>{version.content.storySpine.longTermPromise}</p><b>主角长期变化</b><p>{version.content.storySpine.protagonistLongArc}</p><b>中心问题</b><p>{version.content.storySpine.centralQuestion}</p></>}{version.content.firstVolumeLaunch != null && <><b>前500字</b><p>{version.content.firstVolumeLaunch.first500.immediateSituation}；{version.content.firstVolumeLaunch.first500.emotionalGrip}；{version.content.firstVolumeLaunch.first500.readerQuestion}</p><b>首卷前三章责任</b><ol>{version.content.firstVolumeLaunch.goldenThree.map((chapter) => <li key={chapter.chapterNumber}>第{chapter.chapterNumber}章：{chapter.responsibility}；回报：{chapter.payoff}</li>)}</ol><b>重大高潮</b><p>最晚在累计 {version.content.firstVolumeLaunch.majorClimax.latestEffectiveCharacters.toLocaleString('zh-CN')} 有效字前：{version.content.firstVolumeLaunch.majorClimax.choice}；代价：{version.content.firstVolumeLaunch.majorClimax.cost}；变化：{version.content.firstVolumeLaunch.majorClimax.irreversibleChange}</p></>}</div></details>}
     {version.content.fusionNotes != null && <div className="fusion-notes">
       <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
       <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>

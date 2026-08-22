@@ -35,7 +35,7 @@ const previousPatternIds = [
 describe('创作工作流共享合同', () => {
   it('统一功能名称并保持数据库surface键稳定', () => {
     expect(workspacePrimaryFunctionKeys.map(workspaceFunctionLabel)).toEqual([
-      '信息', '设定', '分卷', '规划', '章纲', '正文', '资料库', '取名'
+      '故事线', '设定', '分卷', '事件', '章节', '章节', '资料库', '取名'
     ]);
     expect(workspaceUtilityFunctionKeys.map(workspaceFunctionLabel)).toEqual(['团队', '任务', '灵感', '设置']);
     expect(workspaceFunctionAuthorInputSurfaces).toEqual({

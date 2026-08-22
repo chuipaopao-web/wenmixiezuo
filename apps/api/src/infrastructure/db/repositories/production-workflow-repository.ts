@@ -569,6 +569,41 @@ export class ProductionWorkflowRepository {
       input.subjectEntityId, input.relationKey) !== undefined;
   }
 
+  public recordChapterSettlementLedger(scope: BookScope, input: {
+    ledgerEntryId: string;
+    chapterId: string;
+    manuscriptVersionId: string;
+    chapterNumber: number;
+    endingExcerpt: string;
+    continuityAnchors: unknown;
+    now: string;
+  }): void {
+    assertBookScope(scope);
+    const settlement = this.database.prepare(`SELECT stage_settlement_id FROM stage_settlements
+      WHERE owner_id=? AND book_id=? AND stage_type='chapter' AND stage_key=? AND status='active'`)
+      .get(scope.ownerId, scope.bookId, input.chapterId) as { stage_settlement_id: string } | undefined;
+    if (settlement === undefined) throw new Error('章节实际账本缺少活动结算来源');
+    const chapter = this.database.prepare(`SELECT settlement_status,canon_manuscript_version_id FROM chapters
+      WHERE owner_id=? AND book_id=? AND chapter_id=?`).get(scope.ownerId, scope.bookId, input.chapterId) as {
+        settlement_status: string; canon_manuscript_version_id: string | null;
+      } | undefined;
+    if (chapter?.settlement_status !== 'settled' || chapter.canon_manuscript_version_id !== input.manuscriptVersionId) {
+      throw new Error('章节实际账本只能由已结算正史正文写入');
+    }
+    this.database.prepare(`INSERT INTO creative_ledger_entries (ledger_entry_id,owner_id,book_id,ledger_type,truth_status,
+      scope_type,scope_id,subject_key,entry_status,content_json,source_kind,source_version_id,source_locator_json,created_at)
+      SELECT ?,?,?,'settlement','actual','chapter',?,?,'active',?,'chapter_settlement',?,?,?
+      WHERE NOT EXISTS (SELECT 1 FROM creative_ledger_entries WHERE owner_id=? AND book_id=? AND ledger_type='settlement'
+        AND truth_status='actual' AND scope_type='chapter' AND scope_id=? AND source_kind='chapter_settlement'
+        AND source_version_id=?)`).run(
+      input.ledgerEntryId, scope.ownerId, scope.bookId, input.chapterId, input.chapterId,
+      JSON.stringify({ chapterNumber: input.chapterNumber, manuscriptVersionId: input.manuscriptVersionId,
+        endingExcerpt: input.endingExcerpt, continuityAnchors: input.continuityAnchors }),
+      settlement.stage_settlement_id, JSON.stringify({ chapterId: input.chapterId, chapterNumber: input.chapterNumber,
+        manuscriptVersionId: input.manuscriptVersionId }), input.now,
+      scope.ownerId, scope.bookId, input.chapterId, settlement.stage_settlement_id
+    );
+  }
   public hasChapterFact(scope: BookScope, chapterId: string, manuscriptVersionId: string): boolean {
     return this.database.prepare(`SELECT 1 FROM fact_assertions WHERE owner_id = ? AND book_id = ?
       AND source_chapter_id = ? AND source_manuscript_version_id = ? AND relation_key = 'event'

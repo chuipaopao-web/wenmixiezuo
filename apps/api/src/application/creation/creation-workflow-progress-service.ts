@@ -62,7 +62,8 @@ export class CreationWorkflowProgressService {
     return this.repository.runInTransaction(() => {
       const workflow = this.repository.workflow(scope);
       if (workflow === undefined) {
-        throw new DomainError(errorCodes.bookNotFound, '书籍创作进度不存在。', {}, false, 404);
+        // 历史书可能没有新创作进度投影；投影缺失不能反向阻断作者最终正文结算。
+        return { managed: false, stage: null, eventId: null };
       }
       if (workflow.activeEventId === null || !managedStages.has(workflow.stage)) {
         return { managed: false, stage: null, eventId: workflow.activeEventId };

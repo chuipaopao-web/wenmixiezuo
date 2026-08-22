@@ -176,7 +176,7 @@ export class VolumePlanGenerationService {
       if (!distinctBindings && !deterministicFixture) {
         throw new DomainError(
           errorCodes.operationIncomplete,
-          '两位编剧当前绑定了同一个模型，不能冒充异模型独立方案。请先调整模型绑定。',
+          '两位编剧当前的后台配置不满足独立方案条件，请联系管理员调整后重试。',
           { leadModel: routeLead.provider + '/' + routeLead.modelId, secondModel: routeSecond.provider + '/' + routeSecond.modelId },
           false, 409
         );

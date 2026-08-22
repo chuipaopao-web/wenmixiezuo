@@ -28,7 +28,7 @@ export function taskGoal(task: TaskData, chapter: string): string {
     const scopeText = typeof task.brief.scopeText === 'string' ? task.brief.scopeText : '当前创作问题';
     return `围绕“${scopeText}”收集相关岗位真实意见，由主编汇总后等待老板明确确认。`;
   }
-  return `完成${chapter}的${taskLabel(task.taskType)}，经过三位不同模型点评后等待老板确认，接受后才成为正式正文。`;
+  return `完成${chapter}的${taskLabel(task.taskType)}，经过事实、文学、体验三席独立点评后等待老板确认，接受后才成为正式正文。`;
 }
 
 export function statusLabel(status: string): string {

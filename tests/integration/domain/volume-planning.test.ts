@@ -9,6 +9,7 @@ import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidation
 import { eventChainCandidateModelPriority, EventChainGenerationService, selectEventChainSecondDesigner } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
+import { CoreWorkflowV6Service } from '../../../apps/api/src/application/planning/core-workflow-v6-service.js';
 import { StoryThreadService } from '../../../apps/api/src/application/planning/story-thread-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { StageSettlementService } from '../../../apps/api/src/application/continuity/stage-settlement-service.js';
@@ -288,7 +289,8 @@ describe('版本化卷规划', () => {
       planNumber: 1,
       content: {...chain.content,events:chain.content.events.map((event,index)=>index===0
         ?{...event,protagonistAction:'主角先核对线索来源，再主动追查',plantThreadIds:['失踪王冠真相'],
-          consequenceThreadIds:['公开追查造成的债务']}:index===1?{...event,payoffThreadIds:['失踪王冠真相']}:event)},
+          consequenceThreadIds:['公开追查造成的债务'],roleFunctions:[{roleFunctionKey:'witness',roleFunctionLabel:'关键证人',
+            requirement:'提供可验证证据并承担公开风险',importance:'core'}]}:index===1?{...event,payoffThreadIds:['失踪王冠真相']}:event)},
       parentVersionId: chain.id,
       sourceVersionIds: [chain.id, chain.content.volumeDirectionVersionId],
       idempotencyKey: 'author-edited-independent-event-chain'
@@ -305,6 +307,20 @@ describe('版本化卷规划', () => {
     const eventService = new StoryEventService(
       new StoryEventRepository(context.database), new UnitOfWork(context.database), ids, clock, layered
     );
+    expect(() => eventService.initialize(scope, plan.volumePlanId, {
+      expectedWorkflowVersion: service.workflow(scope).planningVersion,
+      idempotencyKey: 'blocked-before-event-role-assignment'
+    })).toThrow(/未绑定角色功能/u);
+    const core = new CoreWorkflowV6Service(context.database, ids, clock);
+    const witness = core.createCharacter(scope, { characterKind: 'volume_new', content: {
+      name: '林岚', roleSummary: '关键证人', desire: '让真相公开', currentState: '被对手追查', boundaries: [], storylineInfluences: []
+    } });
+    expect(() => core.upsertEventRole(scope, { eventChainVersionId: authorChain.id, eventNodeId: 'not-in-this-chain',
+      roleFunctionKey: 'witness', roleFunctionLabel: '关键证人', requirement: { description: '非法事件引用' },
+      assignedCharacterId: witness.characterId })).toThrow(/不存在的事件节点/u);
+    core.upsertEventRole(scope, { eventChainVersionId: authorChain.id, eventNodeId: authorChain.content.events[0]!.nodeId,
+      roleFunctionKey: 'witness', roleFunctionLabel: '关键证人', requirement: { description: '提供可验证证据并承担公开风险' },
+      assignedCharacterId: witness.characterId });
     const sequence = eventService.initialize(scope, plan.volumePlanId, {
       expectedWorkflowVersion: service.workflow(scope).planningVersion,
       idempotencyKey: 'initialize-from-confirmed-event-chain'
@@ -312,6 +328,7 @@ describe('版本化卷规划', () => {
     expect(sequence.events).toHaveLength(5);
     expect(sequence.events[0]?.latestVersion?.content.title).toBe(authorChain.content.events[0]?.title);
     expect(sequence.events[0]?.latestVersion?.content.localProgression).toContain('主角先核对线索来源，再主动追查');
+    expect(sequence.events[0]?.latestVersion?.content.participants).toContain('林岚');
     threadService.applyEventSettlement(scope,sequence.events[0]!.eventId,'settlement-before-canon');
     expect(threadService.list(scope).find(item=>item.threadKey==='失踪王冠真相')?.status).toBe('planned');
     context.database.prepare(`UPDATE story_events SET status='settled' WHERE owner_id=? AND book_id=? AND event_id=?`)

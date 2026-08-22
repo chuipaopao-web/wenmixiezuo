@@ -180,7 +180,7 @@ it('手机端先由AI设计并确认事件链，再进入逐事件设计，不�
   const confirmButton=screen.getByRole('button',{name:'确认这条事件链'});
   await waitFor(()=>expect(confirmButton).not.toBeDisabled());
   fireEvent.click(confirmButton);
-  expect(await screen.findByText('已经确认的事件链')).toBeInTheDocument();
+  expect(await screen.findByText('已经确认的事件骨架')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'按这条链进入逐事件设计'}));
   expect(await screen.findByRole('button',{name:/事件 1.*胜利留下的缺口/u})).toBeInTheDocument();
   const generatedAt=requests.findIndex(item=>item.path.endsWith('/event-chains/generate'));

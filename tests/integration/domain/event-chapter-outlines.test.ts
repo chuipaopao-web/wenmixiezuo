@@ -91,6 +91,10 @@ describe('事件章纲序列与近期冻结',()=>{
       expectedOutlineRevision:outline.revision,content:detailedContent(outline.chapterNumber,index===2),
       idempotencyKey:'detailed-'+outline.chapterNumber
     }));
+    expect(detailed.map(item=>item.content.openingChapterResponsibility?.responsibility)).toEqual([
+      '让读者进入主角处境并看见独特规则','让主角行动并升级阻力','兑现首次明确回报并打开大目标'
+    ]);
+    expect(detailed.every(item=>item.content.storylineResponsibilities?.includes('主导故事线：公开选择必须推动证据线'))).toBe(true);
     const revisedSequence=service.addSequenceVersion(scope,event.eventId,{expectedSequenceRevision:confirmed.revision,
       parentVersionId:confirmed.activeVersionId,content:{...sequenceContent(),flexibilityNotes:['候选章纲尚未冻结时允许作者修订序列']},
       idempotencyKey:'chapter-sequence-author-revision'});
@@ -141,7 +145,7 @@ describe('事件章纲序列与近期冻结',()=>{
     expect(()=>planningContext.validate(scope,secondFrozenArtifactVersionId)).toThrow();
   });
 
-  it('通过真实任务保存黄金三章总体包，首轮只细化第一章且保留挑战审计',async()=>{
+  it('通过真实任务保存首卷前三章责任总体包，首轮只细化第一章且保留挑战审计',async()=>{
     context=createTestContext('wenmi-event-chapter-generation-');
     const ids=new SequenceIds(),clock=new FixedClock(),uow=new UnitOfWork(context.database);
     const book=initializeDomainBook(context,context.config.ownerId,ids,clock,{title:'章纲生成测试书'});
@@ -322,7 +326,8 @@ function eventContent(){return{title:'公开选择',volumeResponsibility:'把卷
   requiredResult:'主角取得有限资格并留下可追查证据',flexibleExecution:['场景、对白和局部解法自由'],
   endingConditions:['主角取得能被下一事件承接的证据'],nextEventImpact:'对手开始追查主角',
   characterArcImpact:'主角开始承担后果',volumeClimaxImpact:'积累卷末证据',
-  estimatedChapterRange:{minimum:3,likely:3,maximum:5},uncertaintyNotes:['幕后人的身份仍未知']};}
+  estimatedChapterRange:{minimum:3,likely:3,maximum:5},uncertaintyNotes:['幕后人的身份仍未知'],
+  storylineResponsibilities:['主导故事线：公开选择必须推动证据线']};}
 function sequenceContent(){return{eventTitle:'公开选择',startChapterNumber:1,eventEndingConditions:['主角取得能被下一事件承接的证据'],
   closureCoverage:[{endingCondition:'主角取得能被下一事件承接的证据',evidenceChapterNumber:3}],
   flexibilityNotes:['对白、场景、局部误判和描写重心可在详细章纲与正文阶段调整'],chapters:[

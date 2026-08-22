@@ -99,6 +99,17 @@ it('在原页面完成建卷、作者候选、影响预览和确认，不覆盖�
   expect(screen.queryByText(/卷规划只约束目标/u)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '开始规划第一卷' }));
   expect(await screen.findByRole('heading', { name: '我的卷规划草案' })).toBeInTheDocument();
+  const zeroPath = screen.getByRole('button', { name: /AI 帮我从零想/u });
+  const directionPath = screen.getByRole('button', { name: /我有一些方向/u });
+  const completePath = screen.getByRole('button', { name: /我有完整卷纲/u });
+  expect(directionPath).toHaveClass('active');
+  fireEvent.click(zeroPath);
+  expect(zeroPath).toHaveClass('active');
+  expect(screen.getByText('补充你对这一卷的想法')).toBeInTheDocument();
+  fireEvent.click(completePath);
+  expect(completePath).toHaveClass('active');
+  expect(screen.queryByText('补充你对这一卷的想法')).not.toBeInTheDocument();
+  expect(screen.queryByText('生成两条卷路线')).not.toBeInTheDocument();
   change('卷标题', '雾城守夜卷');
   change('开卷时人物与局面', '张三仍是边军小卒，只掌握一条未经证实的预见线索。');
   change('这一卷必须完成什么', '让张三证明预见并非幻觉，同时决定是否承担守城责任。');

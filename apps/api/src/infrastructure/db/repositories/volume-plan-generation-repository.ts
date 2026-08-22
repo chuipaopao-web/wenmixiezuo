@@ -8,6 +8,9 @@ export interface InternalStructureMethodVersionRecord {
   category: 'macro' | 'character_arc' | 'causal_principle' | 'serial_rhythm' | 'narration';
   contentFingerprint: string;
   content: Record<string, unknown>;
+  primaryScope: string;
+  applicableScopes: string[];
+  publicMapping: Record<string, string>;
 }
 export interface VolumePlanGenerationSeat {
   roleKey: string;
@@ -391,12 +394,26 @@ export class VolumePlanGenerationRepository {
     ) VALUES (?,?,?,?,?,?,'active',?)`);
     const find = this.database.prepare(`SELECT content_fingerprint FROM internal_structure_method_versions
       WHERE internal_structure_method_version_id=?`);
+    const insertScope = this.database.prepare(`INSERT OR IGNORE INTO internal_structure_method_scopes (
+      internal_structure_method_version_id,primary_scope,applicable_scopes_json,public_mapping_json,created_at
+    ) VALUES (?,?,?,?,?)`);
+    const findScope = this.database.prepare(`SELECT primary_scope,applicable_scopes_json,public_mapping_json
+      FROM internal_structure_method_scopes WHERE internal_structure_method_version_id=?`);
     for (const method of methods) {
       insert.run(method.id, method.methodKey, method.version, method.category, method.contentFingerprint,
         JSON.stringify(method.content), now);
       const stored = find.get(method.id) as { content_fingerprint: string } | undefined;
       if (stored?.content_fingerprint !== method.contentFingerprint) {
         throw new Error(`内部结构方法 ${method.methodKey} 内容已变化，必须提升方法版本。`);
+      }
+      insertScope.run(method.id, method.primaryScope, JSON.stringify(method.applicableScopes), JSON.stringify(method.publicMapping), now);
+      const storedScope = findScope.get(method.id) as {
+        primary_scope: string; applicable_scopes_json: string; public_mapping_json: string;
+      } | undefined;
+      if (storedScope === undefined || storedScope.primary_scope !== method.primaryScope
+        || storedScope.applicable_scopes_json !== JSON.stringify(method.applicableScopes)
+        || storedScope.public_mapping_json !== JSON.stringify(method.publicMapping)) {
+        throw new Error(`内部结构方法 ${method.methodKey} 适用层已变化，必须提升方法版本。`);
       }
     }
   }

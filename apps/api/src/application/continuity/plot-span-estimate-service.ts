@@ -10,7 +10,7 @@ export class PlotSpanEstimateService {
     const inputHash = createHash('sha256').update(JSON.stringify(input.sharedBrief)).digest('hex');
     const submitted = this.repository.spanEstimates(scope, input.discussionId, input.round);
     if (submitted.some((item) => item.agentId === input.agentId)) throw new Error('同一编剧本轮只能独立提交一次');
-    if (submitted.some((item) => this.repository.modelSignature(item.modelSnapshotId) === this.repository.modelSignature(input.modelSnapshotId))) throw new Error('双编剧跨度估算必须使用异模型');
+    if (submitted.some((item) => this.repository.modelSignature(item.modelSnapshotId) === this.repository.modelSignature(input.modelSnapshotId))) throw new Error('两位编剧的跨度估算必须保持独立');
     if (submitted.some((item) => item.inputHash !== inputHash)) throw new Error('双编剧必须接收相同的共享简报');
     const id = this.ids.next();
     this.repository.insertSpanEstimate(scope, { id, ...input, inputHash, now: this.clock.now().toISOString() });

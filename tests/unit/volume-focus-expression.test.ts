@@ -32,4 +32,15 @@ describe('本卷重点表达（focusExpression）', () => {
     expect(withoutFocus).not.toContain('重点表达');
     expect(composeStyleToneText(null, null, null)).toBe('');
   });
+
+  it('六维表达方案严格解析、示例强制标注且兼容旧卷版本', () => {
+    const parsed = parseVolumePlanContent({ ...volumeContent(), expressionPlan: {
+      narrativeOrder: '先结果后追因', pointOfView: '主角限知视角', emotionalTone: '压抑中逐步转燃',
+      proseStyle: '短句动作推进，关键选择处放慢', informationRelease: '每次只揭示足够改变选择的一层',
+      transitions: '以动作结果切换场景', coordinatedBy: 'deputy_editor', sampleText: '钟声落下，他先看见了门外的影子。'
+    } });
+    expect(parsed.expressionPlan).toMatchObject({ coordinatedBy: 'deputy_editor', sampleDisclaimer: '示意，非正式正文' });
+    expect(parseVolumePlanContent(volumeContent()).expressionPlan).toBeUndefined();
+    expect(() => parseVolumePlanContent({ ...volumeContent(), expressionPlan: { narrativeOrder: '只有一项' } })).toThrow(/叙事视角/u);
+  });
 });

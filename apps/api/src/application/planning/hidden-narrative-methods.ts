@@ -1,4 +1,4 @@
-import { hashStableContractContent } from '@wenmi/contracts';
+import { hashStableContractContent, type InternalMethodScope } from '@wenmi/contracts';
 
 export const HIDDEN_NARRATIVE_REGISTRY_VERSION = 1;
 
@@ -42,7 +42,7 @@ const METHODS: readonly HiddenNarrativeMethod[] = [
   method('truby-22', '特鲁比22步', 'character', ['心理', '复杂人物', '道德'], '把欲望、弱点、对手、计划、关键抉择与自我揭示绑定，让外部胜负同时逼出人物真实变化。'),
   method('mckee-causality', '麦基故事结构', 'causality', ['因果', '电影感'], '每次行动都改变价值与局势，使下一次选择成为前一结果的必然后果；危机必须迫使人物二选一。'),
   method('field-paradigm', '悉德·菲尔德范式', 'causality', ['商业', '节奏'], '在前段尽快进入本卷任务，中段用明确转折改变策略，后段集中解决，不把节点换算成固定页码。'),
-  method('golden-three', '黄金三章', 'serial', ['网文', '开局', '第一卷'], '前三章连续完成抓住读者、让主角行动并承受压力、给出首次回报并打开更大目标。'),
+  method('golden-three', '首卷前三章责任', 'serial', ['网文', '开局', '第一卷'], '前三章连续完成抓住读者、让主角行动并承受压力、给出首次回报并打开更大目标。'),
   method('upgrade-loop', '升级打怪节奏', 'serial', ['玄幻', '修仙', '游戏', '无限流'], '新环境带来新门槛，人物以行动获取能力或资源并承担代价，胜利后进入更高层问题。'),
   method('payoff-loop', '爽点/打脸节奏', 'serial', ['都市', '重生', '系统', '爽'], '让压制、准备、反证、结果与收获形成有因果的回报，不把轻视和打脸当成每次必用动作。'),
   method('continuation-hook', '悬念钩子节奏', 'serial', ['悬疑', '连载', '追更'], '每个阶段留下自然的下一期待，可来自未解问题、人物决定、情绪余波或新危机，不强制悬崖式断章。'),
@@ -133,6 +133,9 @@ export interface HiddenNarrativeMethodVersion {
     routineRisks: string[];
     adaptability: { movable: boolean; mergeable: boolean; deletable: boolean; note: string };
   };
+  primaryScope: InternalMethodScope;
+  applicableScopes: InternalMethodScope[];
+  publicMapping: Record<string, string>;
 }
 
 export function hiddenNarrativeMethodVersions(overrides: HiddenNarrativeMethodOverride[] = []): HiddenNarrativeMethodVersion[] {
@@ -159,11 +162,39 @@ export function hiddenNarrativeMethodVersions(overrides: HiddenNarrativeMethodOv
       version: override === undefined ? '1.0.0' : `admin.${override.version}`,
       category: databaseCategory(item.category),
       contentFingerprint: hashStableContractContent(content).slice('sha256:'.length),
-      content
+      content,
+      ...methodScope(item.methodKey)
     };
   });
 }
 
+function methodScope(methodKey: string): {
+  primaryScope: InternalMethodScope;
+  applicableScopes: InternalMethodScope[];
+  publicMapping: Record<string, string>;
+} {
+  if (['three-act', 'four-act', 'five-act'].includes(methodKey)) {
+    const label = methodKey === 'three-act' ? '简洁推进' : methodKey === 'four-act' ? '转折推进' : '完整推进';
+    return {
+      primaryScope: 'storyline_rhythm',
+      applicableScopes: ['storyline_rhythm', 'volume_rhythm', 'event_rhythm'],
+      publicMapping: { eventRhythm: label }
+    };
+  }
+  if (['six-act', 'save-the-cat', 'eight-sequence', 'seven-point', 'field-paradigm'].includes(methodKey)) {
+    return { primaryScope: 'volume_rhythm', applicableScopes: ['volume_rhythm'], publicMapping: {} };
+  }
+  if (['hero-journey', 'story-circle', 'truby-22', 'mckee-causality'].includes(methodKey)) {
+    return { primaryScope: 'storyline_rhythm', applicableScopes: ['storyline_rhythm'], publicMapping: {} };
+  }
+  if (methodKey === 'unit-story') {
+    return { primaryScope: 'book_topology', applicableScopes: ['book_topology'], publicMapping: { topology: '单元故事' } };
+  }
+  if (methodKey === 'multi-line') {
+    return { primaryScope: 'book_topology', applicableScopes: ['book_topology'], publicMapping: { topology: '多核心线' } };
+  }
+  return { primaryScope: 'content_type', applicableScopes: ['content_type'], publicMapping: {} };
+}
 function runtimeMethods(overrides: HiddenNarrativeMethodOverride[]): HiddenNarrativeMethod[] {
   const overrideMap = new Map(overrides.map((item) => [item.methodKey, item]));
   return METHODS.flatMap((item) => {

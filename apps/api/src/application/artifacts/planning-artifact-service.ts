@@ -467,7 +467,7 @@ export class PlanningArtifactService {
         AND status = 'submitted' AND independence_attested = 1
       ORDER BY plot_span_estimate_id
     `).all(scope.ownerId, scope.bookId, discussionId, scope.ownerId, scope.bookId, discussionId) as unknown as Array<{ recommended_chapters: number }>;
-    if (rows.length < 2) throw new Error('创作方案缺少双异模型编剧的独立章节跨度估算');
+    if (rows.length < 2) throw new Error('创作方案缺少两位编剧各自独立完成的章节跨度估算');
     const decision = this.database.prepare(`
       SELECT recommendation_json FROM discussion_decisions
       WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND boss_confirmed = 1

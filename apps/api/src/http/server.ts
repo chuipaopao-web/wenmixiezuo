@@ -8,6 +8,9 @@ import { DomainError } from '../domain/errors.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { EventStore } from '../application/events/event-store.js';
 import { registerDomainRoutes } from './domain-routes.js';
+import { registerCoreWorkflowV6Routes } from './core-workflow-v6-routes.js';
+import { registerAiNodeV6Routes } from './ai-node-v6-routes.js';
+import { AiNodePipelineService } from '../application/agents/ai-node-pipeline-service.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
 import { DiscussionPipelineService } from '../application/discussions/discussion-pipeline-service.js';
@@ -141,6 +144,11 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     new RetrievalContextSourceService(productionRetrieval),
     runtimeSettingGaps
   );
+  const aiNodePipeline = new AiNodePipelineService(
+    database, config.releaseId, runtimeTaskService, volumePlanBudgets,
+    new ModelCallService(database, volumePlanClock, volumePlanBudgets),
+    volumePlanIds, volumePlanClock, modelAdapters
+  );
   const eventChainGenerationPipeline = new EventChainGenerationPipelineService(
     runtimeTeamRepository, runtimeLayeredPlanning, runtimeTaskService, volumePlanBudgets,
     new ModelCallService(database, volumePlanClock, volumePlanBudgets),
@@ -222,6 +230,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerRuntimeRoutes(app, capabilities);
   await registerDomainRoutes(app, database, config);
+  await registerCoreWorkflowV6Routes(app, database);
+  await registerAiNodeV6Routes(app, database, config.releaseId);
 
   app.get('/health', async (request) => {
     const databaseProbe = database.prepare('SELECT 1 AS ok').get() as { ok: number };
@@ -301,6 +311,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
                 ? await settlementFollowUpPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : ['event_chapter_sequence_generation', 'event_chapter_detail_generation', 'event_chapter_sequence_challenge', 'event_chapter_detail_challenge'].includes(task.task_type)
                 ? await eventChapterGenerationPipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
+              : task.task_type.startsWith('ai_node:')
+                ? await aiNodePipeline.executeClaimed(scope, request.params.taskId, workerId, { leaseToken: request.body.leaseToken, attemptNo: request.body.attemptNo })
               : (() => { throw new DomainError('VALIDATION_ERROR', `未注册的Worker任务类型：${task.task_type}`); })();
     return success(result, request.id);
   });

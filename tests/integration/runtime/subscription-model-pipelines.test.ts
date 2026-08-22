@@ -8,7 +8,7 @@ import { countNovelCharacters } from '../../../apps/api/src/infrastructure/model
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import type { CodexProcessRunner } from '../../../apps/api/src/infrastructure/models/codex-subscription-model.js';
 import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
-import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting, requestPendingEditorSynthesis } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 function runtimeChapterOutline(chapterNumber: number): Record<string, unknown> {
@@ -254,6 +254,8 @@ describe('订阅与套餐模型真实流水线接线', () => {
     const batch = batchService.scheduleNewChapters(scope, 1, { firstChapterTitle: '雾中的选择' });
     const chapterResult = await batchService.run(scope, batch.batchId);
     expect(chapterResult.batch.status).toBe('paused');
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    await batchService.run(scope, batch.batchId);
     approvePendingManuscript(context, scope, ids, clock);
     expect((await batchService.run(scope, batch.batchId)).batch.status).toBe('completed');
 

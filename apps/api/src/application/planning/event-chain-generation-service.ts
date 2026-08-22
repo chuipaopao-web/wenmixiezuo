@@ -18,6 +18,10 @@ import { TaskService, type TaskRecord } from '../tasks/task-service.js';
 import { LayeredPlanningService } from './layered-planning-service.js';
 import { VolumePlanService } from './volume-plan-service.js';
 
+export interface EventChainStorylineBrief {
+  storylineId: string; title: string; coreQuestion: string; participationStatus: string; responsibility: string | null;
+}
+
 export interface EventChainGenerationBrief {
   schema: 'event-chain-generation-v1';
   volumePlanId: string;
@@ -26,6 +30,7 @@ export interface EventChainGenerationBrief {
   directionContentHash: string;
   direction: VolumeDirectionContent;
   storySpine: BookStorySpineContent | null;
+  storylines: EventChainStorylineBrief[];
   sourceSnapshot: VolumePlanGenerationSourceSnapshot;
   expectedWorkflowVersion: number;
   authorInputRefs: string[];
@@ -123,6 +128,12 @@ export class EventChainGenerationService {
       ...explicitAuthorInputRefs.map((id) => explicitIdeas.find((idea) => idea.id === id)!)
     ]);
     const authorInputRefs = authorIdeas.map((idea) => idea.id);
+    const storylines = this.repository.eventChainStorylines(scope, volumePlanId).map((row) => {
+      const content = JSON.parse(row.content_json) as { title?: unknown; coreQuestion?: unknown };
+      return { storylineId: row.storyline_id, title: typeof content.title === 'string' ? content.title : '未命名故事线',
+        coreQuestion: typeof content.coreQuestion === 'string' ? content.coreQuestion : '',
+        participationStatus: row.participation_status, responsibility: row.responsibility };
+    });
     const budgetId = this.teamRepository.activeBudgetId(scope);
     if (budgetId === undefined) {
       throw new DomainError(errorCodes.operationIncomplete, '当前书籍没有可用预算。', {}, false, 409);
@@ -135,6 +146,7 @@ export class EventChainGenerationService {
       directionContentHash: direction.contentHash,
       direction: direction.content,
       storySpine: this.layered.activeStorySpine(scope),
+      storylines,
       sourceSnapshot,
       expectedWorkflowVersion,
       authorInputRefs,
@@ -245,7 +257,8 @@ function parseBrief(value: Record<string, unknown>): EventChainGenerationBrief {
   return {
     ...brief,
     authorInputRefs: Array.isArray(brief.authorInputRefs) ? brief.authorInputRefs : [],
-    authorIdeas: Array.isArray(brief.authorIdeas) ? brief.authorIdeas : []
+    authorIdeas: Array.isArray(brief.authorIdeas) ? brief.authorIdeas : [],
+    storylines: Array.isArray(brief.storylines) ? brief.storylines : []
   };
 }
 function digest(value: unknown): string {

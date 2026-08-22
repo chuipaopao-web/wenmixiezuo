@@ -210,7 +210,7 @@ const confirmExpression=()=>void run(async()=>{
     </section>
     <section className="recent-detail-section">
       <div className="planning-section-heading"><div><small>{readOnly?'已完成事件 · 只读记录':'第二步'}</small><h4>{readOnly?'详细章纲完整保留':'只细化最近要写的章节'}</h4>
-        <p>{readOnly?'这里展示正文生成时实际绑定的冻结章纲；进入下一卷后也不会隐藏。':firstChapterOnly?'黄金三章的总体承诺已经保留；现在只详细设计第一章，定稿后再按实际结果回校第二、三章。':'一次选择1—3章。后面的章暂不锁死，会根据正文实际结果继续滚动设计。'}</p></div>
+        <p>{readOnly?'这里展示正文生成时实际绑定的冻结章纲；进入下一卷后也不会隐藏。':firstChapterOnly?'首卷前三章的动态责任已经从分卷确认版带入；现在只详细设计第一章，定稿后再按实际结果回校第二、三章。':'一次选择1—3章。后面的章暂不锁死，会根据正文实际结果继续滚动设计。'}</p></div>
         {!readOnly&&<div className="chapter-count-actions"><label>本轮细化<select value={detailCount} onChange={e=>setDetailCount(Number(e.target.value))}>
           {Array.from({length:available},(_,index)=><option key={index+1} value={index+1}>{index+1}章</option>)}</select></label>
           <button className="primary-button" disabled={busy||available===0||detailTask?.isRunning===true} type="button" onClick={generateDetails}>
@@ -275,7 +275,7 @@ function SequenceCandidate({version,busy,challengers,challenge,challengeBusy,onC
   onChallenge:(challengerRoleKey:string)=>void;onConfirm:()=>void}){
   return <article><header><div><small>候选稿 {version.version}</small><h5>{version.content.eventTitle}</h5></div>
     <strong>{version.content.chapters.length}章</strong></header>
-    {version.content.goldenThreeLaunch!==undefined&&<section className="golden-three-launch" aria-label="黄金三章总体启动包">
+    {version.content.goldenThreeLaunch!==undefined&&<section className="golden-three-launch" aria-label="首卷前三章总体责任">
       <strong>前三章怎样让读者追下去</strong><p>{version.content.goldenThreeLaunch.overallPromise}</p>
       <ol>{version.content.goldenThreeLaunch.chapters.map(chapter=><li key={chapter.chapterNumber}><b>第{chapter.chapterNumber}章</b>
         <span>{chapter.responsibility}</span><small>{chapter.protagonistAction} → {chapter.deliveredPayoff} → {chapter.nextExpectation}</small></li>)}</ol>
@@ -306,6 +306,12 @@ function DetailedOutlineCard({item,readOnly,challengers,challenge,challengeBusy,
   const content=version.content;
   return <article className="detailed-outline"><header><div><small>第{item.chapterNumber}章 · 候选{version.version}</small><h5>{content.title}</h5></div>
     <span>{statusLabel(item.status)}</span></header><p><b>本章作用：</b>{content.chapterFunction}</p>
+    <p><b>开场：</b>{content.openingState}</p>
+    {content.storylineResponsibilities?.map((responsibility)=><p key={responsibility}><b>故事线责任：</b>{responsibility}</p>)}
+    {content.openingChapterResponsibility!==undefined&&<section className="opening-chapter-responsibility"><strong>本章开局责任</strong><dl>
+      <div><dt>责任</dt><dd>{content.openingChapterResponsibility.responsibility}</dd></div><div><dt>主角行动</dt><dd>{content.openingChapterResponsibility.protagonistAction}</dd></div>
+      <div><dt>压力或拉力</dt><dd>{content.openingChapterResponsibility.pressureOrPull}</dd></div><div><dt>有效回报</dt><dd>{content.openingChapterResponsibility.deliveredPayoff}</dd></div>
+      <div><dt>下一期待</dt><dd>{content.openingChapterResponsibility.nextExpectation}</dd></div></dl></section>}
     <p><b>核心冲突：</b>{content.conflict.surface}</p><ol>{content.plotBeats.map(beat=><li key={beat.order}>{beat.action} → {beat.result}</li>)}</ol>
     <p><b>必须到达：</b>{content.requiredEndingState}</p>
     {content.firstChapterLaunch!==undefined&&<section className="first-chapter-launch" aria-label="第一章强启动合同">
@@ -315,8 +321,11 @@ function DetailedOutlineCard({item,readOnly,challengers,challenge,challengeBusy,
         <div><dt>第一次小回报</dt><dd>{content.firstChapterLaunch.firstPayoff}</dd></div>
         <div><dt>章末下一期待</dt><dd>{content.firstChapterLaunch.nextExpectation}</dd></div></dl>
       <em>{content.firstChapterLaunch.writerFreedom.join('；')}</em></section>}
-    <details><summary>人物、边界与自由发挥</summary>
-      <p>{content.cast.map(person=>person.name+'：'+person.objective).join('；')}</p>
+    <details><summary>人物变化、伏笔、章尾与边界</summary>
+      <p>{content.cast.map(person=>person.name+'：'+person.objective+(person.stateChange?` → ${person.stateChange}`:'')).join('；')}</p>
+      <p>伏笔：{content.threadActions.length===0?'本章无新增伏笔动作':content.threadActions.map(thread=>thread.summary).join('；')}</p>
+      <p>章尾责任：{content.ending.result}；{content.ending.nextChapterInterface}</p>
+      <p>禁止提前揭示：{content.informationControl?.concealed.join('；')||content.mustNotViolate.join('；')}</p>
       <p>不能违反：{content.mustNotViolate.join('；')}</p><p>自由发挥：{content.creativeFreedom.join('；')}</p></details>
     {challenge!==null&&<ChallengeAdvice challenge={challenge.advice} by={challenge.by} roleKey={challenge.roleKey}/>} {!readOnly&&<div className="chapter-challenge-row">
       {challengers.map(person=><button key={person.roleKey} className="secondary-button chapter-challenge-button"

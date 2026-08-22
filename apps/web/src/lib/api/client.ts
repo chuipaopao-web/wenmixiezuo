@@ -484,10 +484,14 @@ export interface StoryEventGenerationData extends AuthorGenerationStateData {
 }
 export interface ChapterOutlineV2Data {
   outlineSchema:'chapter_outline_v2';chapterNumber:number;title:string;chapterFunction:string;openingState:string;requiredEndingState:string;
+  storylineResponsibilities?:string[];
+  openingChapterResponsibility?:{chapterNumber:1|2|3;responsibility:string;protagonistAction:string;pressureOrPull:string;deliveredPayoff:string;nextExpectation:string};
   cast:Array<{name:string;objective:string;knowledgeBoundary:string;chapterRole:string;stateChange?:string}>;
   conflict:{surface:string;underlying?:string;oppositionGoal?:string;failureCost:string;successCost?:string};
   plotBeats:Array<{order:number;trigger:string;action:string;resistance?:string;turn?:string;result:string}>;
   experience?:{primaryTone?:string;emotionalCurve:string[];payoffPoints:string[];pressurePoints:string[];readerEffect?:string};
+  informationControl?:{reveals:string[];concealed:string[];gaps:string[]};
+  threadActions:Array<{action:'plant'|'advance'|'payoff';threadId?:string;summary:string}>;
   ending:{result:string;stateChanges:string[];hook:string;nextChapterInterface:string};
   mustImplement:string[];mustNotViolate:string[];allowedCandidates:string[];creativeFreedom:string[];
   firstChapterLaunch?:FirstChapterLaunchContract;
@@ -709,38 +713,6 @@ export interface TeamConfigData {
   };
 }
 
-export interface TeamTemplateData {
-  fullPromptAccess?: {
-    configured: boolean;
-    passwordProtected: true;
-  };
-  members: Array<{
-    roleTemplateId: string;
-    roleKey: string;
-    memberName: string;
-    shortTitle: string;
-    category: 'core' | 'specialist';
-    publicSummary: string;
-    responsibilities: string[];
-    boundaries: string[];
-    retrievalFocus: string[];
-    outputKinds: string[];
-    defaultActivation: 'resident' | 'standby';
-    defaultModel: { provider: string; modelId: string; plan: string };
-    roleStatement: string;
-  }>;
-}
-
-export interface ProtectedRolePromptData {
-  roleKey: string;
-  identity: string;
-  note: string;
-  variants: Array<{
-    purpose: 'discussion' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
-    label: string;
-    prompt: string;
-  }>;
-}
 
 export interface TaskData {
   taskId: string;
@@ -1081,7 +1053,7 @@ function restoreAuthorClientAliases(value: unknown, depth = 0): unknown {
   return restored;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     const response = await performRequest(path, init);
     const body = await response.json() as ApiResponse<T> | { error?: { message?: string; code?: string; action?: string } };
@@ -1325,9 +1297,6 @@ export function fetchCapabilities(signal?: AbortSignal): Promise<CapabilityData>
   return request('/api/v1/capabilities', signal === undefined ? {} : { signal });
 }
 
-export function fetchTeamTemplate(signal?: AbortSignal): Promise<TeamTemplateData> {
-  return request('/api/v1/team-template', signal === undefined ? {} : { signal });
-}
 
 export function fetchBooks(signal?: AbortSignal): Promise<BookData[]> {
   return request('/api/v1/books', signal === undefined ? {} : { signal });
@@ -1797,29 +1766,6 @@ export function fetchTeamConfig(bookId: string, signal?: AbortSignal): Promise<T
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/team-config`, signal === undefined ? {} : { signal });
 }
 
-export function fetchProtectedRolePrompt(input: {
-  password: string;
-  roleKey: string;
-  bookId?: string;
-  agentId?: string;
-}): Promise<ProtectedRolePromptData> {
-  return request('/api/v1/prompt-view', {
-    method: 'POST',
-    body: JSON.stringify(input)
-  });
-}
-
-export function saveAgentPromptPreference(
-  bookId: string,
-  agentId: string,
-  expectedVersion: number,
-  content: string
-): Promise<AgentPromptPreferenceData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/agents/${encodeURIComponent(agentId)}/prompt-preference`, {
-    method: 'PUT',
-    body: JSON.stringify({ expectedVersion, content })
-  });
-}
 
 
 export function fetchWorker(signal?: AbortSignal): Promise<WorkerData> {
@@ -1907,7 +1853,15 @@ export function fetchTaskDetail(bookId: string, taskId: string, signal?: AbortSi
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/tasks/${encodeURIComponent(taskId)}`, signal === undefined ? {} : { signal });
 }
 
-export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<unknown> {
+export interface ConfirmationResolutionData {
+  confirmationId: string;
+  status: 'accepted' | 'rejected' | 'settled';
+  canonRevision?: number;
+  settledChapterId?: string | null;
+  nextOutlineTaskId?: string | null;
+}
+
+export function resolveConfirmation(bookId: string, confirmationId: string, expectedCanonRevision: number, accept: boolean): Promise<ConfirmationResolutionData> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/confirmations/${encodeURIComponent(confirmationId)}/${accept ? 'accept' : 'reject'}`, {
     method: 'POST', body: JSON.stringify({ expectedCanonRevision })
   });
@@ -1983,6 +1937,8 @@ export function fetchChapterDetail(bookId: string, chapterId: string, signal?: A
     reviewPanels: Array<Record<string, unknown>>;
     reviewReports: Array<Record<string, unknown>>;
     approvalGates: Array<Record<string, unknown>>;
+    editorSyntheses: Array<Record<string, unknown>>;
+    synthesisRequests: Array<Record<string, unknown>>;
   };
 }> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}`, signal === undefined ? {} : { signal });
@@ -2022,6 +1978,28 @@ export function finalizeChapter(bookId: string, chapterId: string, manuscriptVer
   });
 }
 
+export function requestChapterReviewSynthesis(
+  bookId: string,
+  chapterId: string,
+  manuscriptVersionId: string
+): Promise<{ taskId: string; reviewPanelId: string; status: 'queued' }> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/review-synthesis`, {
+    method: 'POST', body: JSON.stringify({ manuscriptVersionId })
+  });
+}
+export function alignChapterOutlineToManuscript(
+  bookId: string,
+  chapterId: string,
+  manuscriptVersionId: string,
+  adjustmentNote: string
+): Promise<{
+  outlineArtifactId: string; previousOutlineVersionId: string; outlineVersionId: string;
+  reason: '根据正文实际调整'; impactPreview: string[];
+}> {
+  return request(`/api/v1/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(chapterId)}/outline-alignment`, {
+    method: 'POST', body: JSON.stringify({ manuscriptVersionId, adjustmentNote })
+  });
+}
 export function fetchArtifacts(bookId: string, signal?: AbortSignal): Promise<unknown[]> {
   return request(`/api/v1/books/${encodeURIComponent(bookId)}/artifacts`, signal === undefined ? {} : { signal });
 }
@@ -2199,40 +2177,6 @@ export function updateBookProfile(bookId: string, input: {
   });
 }
 
-export type BookBrandingDesignKind = 'title' | 'synopsis';
-
-export interface BookBrandingDesignData {
-  designId: string;
-  kind: BookBrandingDesignKind;
-  status: 'working' | 'succeeded' | 'failed' | 'cancelled';
-  taskId: string;
-  taskStatus: string;
-  currentPhase: string;
-  errorCode: string | null;
-  options: Array<{ text: string; note: string }>;
-  member: { roleKey: string; agentId: string; displayName: string; provider: string; modelId: string } | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export function startBrandingDesign(bookId: string, kind: BookBrandingDesignKind): Promise<BookBrandingDesignData> {
-  return request(`/api/v1/books/${encodeURIComponent(bookId)}/branding-designs`, {
-    method: 'POST',
-    body: JSON.stringify({ kind, idempotencyKey: crypto.randomUUID() })
-  });
-}
-
-export function fetchLatestBrandingDesign(
-  bookId: string,
-  kind: BookBrandingDesignKind,
-  signal?: AbortSignal
-): Promise<BookBrandingDesignData | null> {
-  const query = `?kind=${encodeURIComponent(kind)}`;
-  return request(
-    `/api/v1/books/${encodeURIComponent(bookId)}/branding-designs/latest${query}`,
-    signal === undefined ? {} : { signal }
-  );
-}
 
 export interface ChallengerReviewData {
   reviewId: string;

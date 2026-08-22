@@ -135,6 +135,7 @@ function outline(chapterNumber:number,planned:ReturnType<typeof coarse>):EventCh
     conflict:{surface:'现实阻力',failureCost:'失去机会'},plotBeats:[
       {order:1,trigger:'后果出现',action:'核验',result:'确认问题'},{order:2,trigger:'受阻',action:'修正',result:'被迫选择'},
       {order:3,trigger:'退路消失',action:'承担代价',result:planned.endingState}],
+    threadActions:[{action:'advance',threadId:'line-1',summary:'主线证据向前推进'}],
     ending:{result:planned.endingState,stateChanges:[planned.endingState],hook:'下一步',nextChapterInterface:planned.nextChapterInterface},
     mustImplement:['完成本章责任'],mustNotViolate:['不能凭空加能力'],allowedCandidates:[],creativeFreedom:['对话、动作、意象与节奏']},
   contentHash:'outline-hash',artifactVersionId:null,sourceTaskId:'detail-task',createdAt:'2026-08-09T00:02:00.000Z',frozenAt:null}:null;

@@ -50,7 +50,7 @@ export class EventChapterGenerationService {
       expectedWorkflowVersion=positive(input.expectedWorkflowVersion,'工作流版本');
     if(sequence.revision!==expectedSequenceRevision||!sequence.valid)throw conflict('事件章纲序列已经变化。');
     const targets=sequence.outlines.filter(item=>!['frozen','settled'].includes(item.status)).slice(0,count);
-    if(targets[0]?.chapterNumber===1&&count!==1)throw validation('黄金三章先保留总体承诺，第一轮只详细设计并冻结第一章。');
+    if(targets[0]?.chapterNumber===1&&count!==1)throw validation('首卷前三章先保留总体承诺，第一轮只详细设计并冻结第一章。');
     if(targets.length!==count)throw incomplete('没有足够的未冻结章纲可供本轮设计。');
     const refs=unique(input.authorInputRefs??[],'作者想法引用'),allIdeas=targets.flatMap(target=>this.repo.authorInputs(scope,{
       subjectType:'event_chapter_outline',subjectId:target.outlineId,ids:refs}));

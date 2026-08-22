@@ -75,7 +75,7 @@ export class EventChapterGenerationPipelineService {
     const skeletonPrompt=JSON.stringify({operation:'event_chapter_sequence_generation_v1',generationPhase:'sequence_skeleton',language:'zh-CN',
       seat:{roleKey:brief.member.roleKey,displayName:brief.member.displayName},startChapterNumber:view.nextChapterNumber,
       instructions:['已结算章节资料是已经发生的正史；若旧规划与正史冲突，必须以最新结算为准，禁止把已经发生的发现、选择或代价再次写成新剧情。',AUTHOR_IDEA_POLICY_EXECUTION,SETTING_GAP_OUTPUT_INSTRUCTION,'先为整个当前事件设计连续章节骨架，不在这一轮展开每章的场景细节。','章数按事件实际需要决定，不固定六章或十章。',
-        '若卷纲带有firstVolumeLaunch：第1至3章必须分别承接对应黄金三章职责；第1章另须把前500有效字的读者问题、即时处境、情绪抓力和变化承诺写进章节职责；承担卷高潮的事件必须落实重大高潮的选择、代价和不可逆变化。',
+        '若卷纲带有firstVolumeLaunch：第1至3章必须分别承接对应首卷前三章责任职责；第1章另须把前500有效字的读者问题、即时处境、情绪抓力和变化承诺写进章节职责；承担卷高潮的事件必须落实重大高潮的选择、代价和不可逆变化。',
         '相邻章必须严格承接：后一章openingState与前一章endingState逐字相同。','每项已确认事件结束条件都要原样复制，并标明在哪一章闭环。',
         '字段内容简洁，每项一到两句话；只输出JSON。'],sources:sourcePayload,
       outputContract:{settingGaps:[{question:'章序列缺少什么必要设定',whyNeeded:'为什么现在无法继续',affectedObjects:['当前事件或章节']}],eventTitle:'当前事件原名',startChapterNumber:view.nextChapterNumber,chapters:[{chapterNumber:1,title:'章名',
@@ -163,9 +163,9 @@ export class EventChapterGenerationPipelineService {
         instructions:['已结算章节资料是已经发生的正史；若事件章链的开场描述与最新正史冲突，必须以最新正史为准，禁止重复发现、重复选择或让已经付出的代价复原。',AUTHOR_IDEA_POLICY_EXECUTION,SETTING_GAP_OUTPUT_INSTRUCTION,
           ...(previousGeneratedEndingState===null?[]:[`本章openingState必须逐字等于上一份详细章纲的requiredEndingState：${previousGeneratedEndingState}`]),
           ...(target.chapterNumber===1?[
-            '这是全书第一章：mustImplement必须写入前500有效字内的读者问题、即时处境、情绪抓力和变化承诺，并承接卷纲goldenThree第1章职责；手段由人物和题材决定，不机械打脸。',
+            '这是全书第一章：mustImplement必须写入前500有效字内的读者问题、即时处境、情绪抓力和变化承诺，并承接分卷确认版中第1章的动态责任；手段由人物和题材决定，不机械打脸。',
           ]:target.chapterNumber<=3?[
-            `这是黄金三章中的第${target.chapterNumber}章：必须承接卷纲goldenThree中同章的职责、行动、压力、有效回报和下一章期待。`]:[]),
+            `这是首卷开局第${target.chapterNumber}章：必须承接分卷确认版中同章的动态责任、行动、压力、有效回报和下一章期待。`]:[]),
           '只细化给定的一章，不重复其他章节，也不提前锁死后续章节。','硬要求、软体验提示和自由创作区必须分开。',
           '保留非空自由创作区，正文不是逐字段扩写。','设计三至五个剧情节点，人物行为从目标、阻力、选择和代价推出。',
           '保持自然、具体、简洁，不写正文，不解释系统规则；只输出JSON。'],sources:sourcePayload,

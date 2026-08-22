@@ -73,10 +73,14 @@ export const firstVolumeCoverageResponsibilityValues=[
   'major_climax_before_100k','climax_setup','climax_consequence'
 ] as const;
 export type FirstVolumeCoverageResponsibility=typeof firstVolumeCoverageResponsibilityValues[number];
+export interface EventRoleFunctionRequirement {
+  roleFunctionKey:string;roleFunctionLabel:string;requirement:string;importance:'core'|'supporting';
+}
 export interface EventChainNode {
   nodeId:string;order:number;title:string;volumeResponsibility:string;entryState:string;
   protagonistAction:string;oppositionEscalation:string;stagePayoffOrCost:string;exitState:string;
-  leadsToNext:string|null;plantThreadIds:string[];payoffThreadIds:string[];
+  leadsToNext:string|null;leadingStorylineId:string|null;supportingStorylineIds:string[];intersectionNote:string|null;
+  roleFunctions:EventRoleFunctionRequirement[];plantThreadIds:string[];payoffThreadIds:string[];
   consequenceThreadIds:string[];firstVolumeResponsibilities:FirstVolumeCoverageResponsibility[];
 }
 export interface VolumeResponsibilityCoverage {
@@ -139,14 +143,14 @@ export function parseVolumeDirectionContent(input:unknown,firstVolume=false):Vol
 export function parseFirstVolumeLaunchPlan(input:unknown):FirstVolumeLaunchPlan {
   const value=record(input,'首卷强启动'),first500=record(value.first500Interest,'前500字兴趣锚点');
   const climax=record(value.majorClimax,'十万字内重大高潮');
-  const goldenThree=records(value.goldenThree,'黄金三章').map(item=>({
-    chapterNumber:integer(item.chapterNumber,'黄金三章章号') as 1|2|3,
+  const goldenThree=records(value.goldenThree,'首卷前三章责任').map(item=>({
+    chapterNumber:integer(item.chapterNumber,'首卷前三章章号') as 1|2|3,
     responsibility:text(item.responsibility,'章节职责'),protagonistAction:text(item.protagonistAction,'主角行动'),
     pressureOrPull:text(item.pressureOrPull,'压力或吸引力'),deliveredPayoff:text(item.deliveredPayoff,'阶段回报'),
     nextExpectation:text(item.nextExpectation,'下一步期待')
   }));
   if(goldenThree.length!==3||goldenThree.some((item,index)=>item.chapterNumber!==index+1))
-    throw new Error('黄金三章必须按第1、2、3章各设计一次。');
+    throw new Error('首卷前三章责任必须按第1、2、3章各设计一次。');
   if(integer(climax.noLaterThanEffectiveChars,'高潮最晚有效字符')!==100000)
     throw new Error('第一卷重大高潮最晚必须固定为100000有效正文字符。');
   return {
@@ -181,12 +185,24 @@ export function parseEventChainContent(input:unknown,firstVolume=false):EventCha
     volumeResponsibility:text(item.volumeResponsibility,'卷责任'),entryState:text(item.entryState,'进入状态'),
     protagonistAction:text(item.protagonistAction,'人物主要行动'),oppositionEscalation:text(item.oppositionEscalation,'阻力升级'),
     stagePayoffOrCost:text(item.stagePayoffOrCost,'阶段回报或代价'),exitState:text(item.exitState,'移交状态'),
-    leadsToNext:nullableText(item.leadsToNext,'下一事件接口'),plantThreadIds:textArray(item.plantThreadIds,'铺垫线程'),
+    leadsToNext:nullableText(item.leadsToNext,'下一事件接口'),
+    leadingStorylineId:nullableText(item.leadingStorylineId,'主导故事线'),
+    supportingStorylineIds:textArray(item.supportingStorylineIds??[],'辅助故事线'),
+    intersectionNote:nullableText(item.intersectionNote,'故事线交汇说明'),
+    roleFunctions:(item.roleFunctions===undefined?[]:records(item.roleFunctions,'角色功能占位')).map(role=>({
+      roleFunctionKey:text(role.roleFunctionKey,'角色功能标识'),roleFunctionLabel:text(role.roleFunctionLabel,'角色功能名称'),
+      requirement:text(role.requirement,'角色功能要求'),importance:enumValue(role.importance,['core','supporting'] as const,'角色功能重要度')
+    })),
+    plantThreadIds:textArray(item.plantThreadIds,'铺垫线程'),
     payoffThreadIds:textArray(item.payoffThreadIds,'兑现线程'),consequenceThreadIds:textArray(item.consequenceThreadIds,'后果线程'),
     firstVolumeResponsibilities:enumArray(item.firstVolumeResponsibilities,firstVolumeCoverageResponsibilityValues,'首卷责任')
   }));
   if(events.length===0)throw new Error('事件链至少需要一个事件。');
   if(new Set(events.map(item=>item.nodeId)).size!==events.length)throw new Error('事件节点标识不能重复。');
+  if(events.some(item=>new Set(item.roleFunctions.map(role=>role.roleFunctionKey)).size!==item.roleFunctions.length))
+    throw new Error('同一事件的角色功能标识不能重复。');
+  if(events.some(item=>item.leadingStorylineId!==null&&item.supportingStorylineIds.includes(item.leadingStorylineId)))
+    throw new Error('主导故事线不能同时列为辅助故事线。');
   if(events.some((item,index)=>item.order!==index+1))throw new Error('事件顺序必须从1开始连续排列。');
   const ids=new Set(events.map(item=>item.nodeId));
   const coverage=records(value.coverage,'卷责任覆盖').map(item=>{

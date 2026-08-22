@@ -178,19 +178,22 @@ export class EventChapterOutlineService {
 
   private bindDetailed(outline:EventChapterOutlineRow,all:EventChapterOutlineRow[],snapshot:ActiveEventChapterSnapshot,
     input:Record<string,unknown>,contextOpeningState:string|null):ChapterOutlineV2{
-    const planned=JSON.parse(outline.planned_content_json) as ChapterOutlineContent,first=all[0]!,last=all.at(-1)!;
+    const planned=JSON.parse(outline.planned_content_json) as ChapterOutlineContent,first=all[0]!,last=all.at(-1)!,event=parseEvent(snapshot);
     const isLast=outline.event_chapter_outline_id===last.event_chapter_outline_id;
     const firstChapterLaunch=outline.chapter_number===1?firstChapterLaunchFromVolume(snapshot.volumeContent):null;
+    const openingChapterResponsibility=openingChapterResponsibilityFromVolume(snapshot.volumeContent,outline.chapter_number);
     const candidate={...input,outlineSchema:'chapter_outline_v2',chapterNumber:outline.chapter_number,
       ...(firstChapterLaunch===null?{firstChapterLaunch:undefined}:{firstChapterLaunch}),
+      ...(openingChapterResponsibility===null?{openingChapterResponsibility:undefined}:{openingChapterResponsibility}),
+      ...(event.storylineResponsibilities.length===0?{storylineResponsibilities:undefined}:{storylineResponsibilities:event.storylineResponsibilities}),
       title:typeof input.title==='string'&&input.title.trim().length>0?input.title:planned.title,
-      sourceStage:{stageNumber:snapshot.eventOrder,title:parseEvent(snapshot).title,
+      sourceStage:{stageNumber:snapshot.eventOrder,title:event.title,
         chapterRange:{start:first.chapter_number,end:last.chapter_number}},
       chapterFunction:planned.eventResponsibility,openingState:contextOpeningState??planned.openingState,
       requiredEndingState:planned.endingState,
       ending:{...(record(input.ending)?input.ending:{}),nextChapterInterface:planned.nextChapterInterface},
-      ...(isLast?{stageBoundary:{mustCloseStage:true,resolution:parseEvent(snapshot).requiredResult,
-        result:planned.endingState,pendingThreads:parseEvent(snapshot).uncertaintyNotes}}:{stageBoundary:undefined})};
+      ...(isLast?{stageBoundary:{mustCloseStage:true,resolution:event.requiredResult,
+        result:planned.endingState,pendingThreads:event.uncertaintyNotes}}:{stageBoundary:undefined})};
     try{return parseChapterOutlineV2(candidate as Record<string,unknown>);}
     catch(error){throw validation(error instanceof Error?error.message:'详细章纲格式无效。');}
   }
@@ -262,7 +265,14 @@ function firstChapterLaunchFromVolume(volumeContent:string):FirstChapterLaunchCo
     firstRevealOfUniqueAppeal:first.responsibility,firstPayoff:first.payoff,nextExpectation:first.nextExpectation,
     writerFreedom:['具体对白、动作、场景调度和意象由主笔自由设计','只要求达到兴趣与变化效果，不限定打斗、打脸或反转手段']};
 }
-function parseEvent(s:ActiveEventChapterSnapshot){return JSON.parse(s.eventContent) as{title:string;requiredResult:string;endingConditions:string[];uncertaintyNotes:string[]};}
+function openingChapterResponsibilityFromVolume(volumeContent:string,chapterNumber:number){
+  if(chapterNumber<1||chapterNumber>3)return null;const launch=launchPlanFromVolume(volumeContent);if(launch===null)return null;
+  const item=launch.goldenThree.find(chapter=>chapter.chapterNumber===chapterNumber);if(item===undefined)return null;
+  return{chapterNumber:item.chapterNumber as 1|2|3,responsibility:item.responsibility,protagonistAction:item.action,
+    pressureOrPull:item.pressure,deliveredPayoff:item.payoff,nextExpectation:item.nextExpectation};
+}
+function parseEvent(s:ActiveEventChapterSnapshot){const value=JSON.parse(s.eventContent) as{title:string;requiredResult:string;endingConditions:string[];
+  uncertaintyNotes:string[];storylineResponsibilities?:string[]};return{...value,storylineResponsibilities:value.storylineResponsibilities??[]};}
 function baseDependencies(s:ActiveEventChapterSnapshot):VersionReference[]{return[
   {kind:'volume_plan',id:s.volumePlanId,version:s.volumeVersion,contentHash:s.volumeHash,required:true},
   {kind:'story_event',id:s.eventId,version:s.eventVersion,contentHash:s.eventHash,required:true}

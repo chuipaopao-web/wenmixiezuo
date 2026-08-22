@@ -138,6 +138,14 @@ export class ChapterPipelineService {
         const completedPhase = run.phase;
         run = await this.executePhase(scope, run);
         tasks.checkpoint(scope, taskId, workerId, run.phase, { completedPhase, pipelineRunId: run.pipeline_run_id, manuscriptVersionId: run.current_manuscript_version_id, rewriteCount: run.rewrite_count }, leaseFence);
+        if (completedPhase === 'review' && run.phase === 'review' && run.review_panel_id !== null
+          && !this.editorSynthesisWasRequested(scope, run.review_panel_id)) {
+          this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'paused', updated_at = ? WHERE pipeline_run_id = ?`)
+            .run(this.clock.now().toISOString(), run.pipeline_run_id);
+          tasks.requestPause(scope, taskId);
+          tasks.pauseAtCheckpoint(scope, taskId, workerId, leaseFence);
+          return this.mapResult(run, 'paused');
+        }
         if (pauseAfterPhase === completedPhase) {
           this.database.prepare(`UPDATE chapter_pipeline_runs SET status = 'paused', updated_at = ? WHERE pipeline_run_id = ?`)
             .run(this.clock.now().toISOString(), run.pipeline_run_id);
@@ -622,7 +630,7 @@ export class ChapterPipelineService {
       launchExecution: chapter.chapter_number === 1
         ? '第一章前500有效字内必须同时形成：读者想追问的问题、正在发生的具体处境、贴着主角感受与行动的情绪抓力、故事即将变化的承诺。服从冻结章纲给出的具体内容，不机械套打脸或打斗。'
         : chapter.chapter_number <= 3
-          ? `这是黄金三章中的第${chapter.chapter_number}章；必须执行冻结章纲中该章的职责、有效回报和下一章期待。` : null,
+          ? `这是首卷前三章责任中的第${chapter.chapter_number}章；必须执行冻结章纲中该章的职责、有效回报和下一章期待。` : null,
       ...(rewriteBase === null ? {} : {
         content: this.loadManuscript(scope, rewriteBase),
         requiredActions: [typeof taskBrief.instruction === 'string' && taskBrief.instruction.trim().length > 0
@@ -1055,6 +1063,9 @@ export class ChapterPipelineService {
         : new ModelTechnicalFailureError(`点评席未完成：${String(first)}`);
     }
     const reports = settledReviews.map((item) => (item as PromiseFulfilledResult<ProductionReview>).value);
+    if (!this.editorSynthesisWasRequested(scope, panel.panelId)) {
+      return this.reload(run.pipeline_run_id);
+    }
     const synthesisReports = reportsForEditorSynthesis(reports);
     const activeEditor = this.database.prepare(`SELECT active_editor_agent_id FROM books
       WHERE owner_id = ? AND book_id = ?`)
@@ -1201,7 +1212,7 @@ export class ChapterPipelineService {
         pipelineRunId: run.pipeline_run_id
       });
       if (quality.hardBlocked) {
-        throw new QualityBlockedError('异模型点评席发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
+        throw new QualityBlockedError('独立点评席发现硬阻断问题；已保留问题证据并恢复上一最佳稿');
       }
       const bestPanel = this.database.prepare(`
         SELECT review_panel_id FROM manuscript_quality_snapshots
@@ -1227,7 +1238,7 @@ export class ChapterPipelineService {
     }
     if (merged.verdict === 'blocked') {
       if (quality.hardBlocked) {
-        throw new QualityBlockedError('异模型点评席发现事实、连续性或合规硬阻断问题，已保留稿件和证据');
+        throw new QualityBlockedError('独立点评席发现事实、连续性或合规硬阻断问题，已保留稿件和证据');
       }
       // Literary and experience disagreements must remain visible to the owner,
       // but they must not create a dead end after the bounded automatic rewrite.
@@ -1240,6 +1251,12 @@ export class ChapterPipelineService {
       return this.advance(run, 'rewrite');
     }
     return this.advance(run, 'facts');
+  }
+
+  private editorSynthesisWasRequested(scope: BookScope, reviewPanelId: string): boolean {
+    return this.database.prepare(`SELECT 1 FROM chapter_editor_synthesis_requests
+      WHERE owner_id = ? AND book_id = ? AND review_panel_id = ?`)
+      .get(scope.ownerId, scope.bookId, reviewPanelId) !== undefined;
   }
 
   private async rewrite(scope: BookScope, run: PipelineRow): Promise<PipelineRow> {

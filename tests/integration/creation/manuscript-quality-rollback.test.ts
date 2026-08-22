@@ -3,7 +3,7 @@ import type { ProductionReview, ReviewerRole } from '../../../apps/api/src/contr
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { hasHardProblem, ManuscriptQualitySnapshotService } from '../../../apps/api/src/application/creation/manuscript-quality-snapshot-service.js';
 import { shouldRestorePreviousBest } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting, requestPendingEditorSynthesis } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('稿件纵向质量退化保护', () => {
@@ -24,7 +24,12 @@ describe('稿件纵向质量退化保护', () => {
       context.database, context.dataDir, context.config.releaseId, ids, clock
     );
     const batch = batches.scheduleNewChapters(scope, 1);
-    expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    let generated = await batches.run(scope, batch.batchId);
+    for (let round = 0; generated.results[0]?.status === 'paused' && round < 3; round += 1) {
+      requestPendingEditorSynthesis(context, scope, ids, clock);
+      generated = await batches.run(scope, batch.batchId);
+    }
+    expect(generated.results[0]?.status).toBe('awaiting_confirmation');
 
     const chapterId = batch.chapterIds[0]!;
     const pipeline = context.database.prepare(`

@@ -9,7 +9,7 @@ import { TaskService } from '../../../apps/api/src/application/tasks/task-servic
 import { countNovelCharacters, extractFirstEffectiveNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
 import { resolveInside } from '../../../apps/api/src/infrastructure/files/file-utils.js';
 import { createKnowledgeFixture } from '../../helpers/knowledge-fixture.js';
-import { initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { initializeDomainBook, prepareBookForWriting, requestPendingEditorSynthesis } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds } from '../../helpers/test-context.js';
 
 describe('owner manuscript withdrawal', () => {
@@ -275,7 +275,11 @@ describe('作者正文修订', () => {
       prepareBookForWriting(context, scope, ids, clock, 1);
       const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
       const initial = batches.scheduleNewChapters(scope, 1, { firstChapterTitle: '雨夜北塔' });
-      const generated = await batches.run(scope, initial.batchId);
+      let generated = await batches.run(scope, initial.batchId);
+      for (let round = 0; generated.results[0]?.status === 'paused' && round < 3; round += 1) {
+        requestPendingEditorSynthesis(context, scope, ids, clock);
+        generated = await batches.run(scope, initial.batchId);
+      }
       expect(generated.results[0]?.status).toBe('awaiting_confirmation');
       const chapterId = initial.chapterIds[0]!;
       const generatedVersionId = generated.results[0]!.manuscriptVersionId!;
@@ -295,16 +299,50 @@ describe('作者正文修订', () => {
       expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)
         .get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 0 });
 
+      const outlineBefore = context.database.prepare(`SELECT w.chapter_outline_version_id FROM writing_orders w
+        WHERE w.owner_id = ? AND w.book_id = ? AND w.chapter_id = ? ORDER BY w.version DESC LIMIT 1`)
+        .get(scope.ownerId, scope.bookId, chapterId) as { chapter_outline_version_id: string };
+      const outlineVersionCountBefore = (context.database.prepare(`SELECT COUNT(*) AS count FROM artifact_versions v
+        JOIN artifact_versions source ON source.artifact_id = v.artifact_id
+        WHERE source.artifact_version_id = ?`).get(outlineBefore.chapter_outline_version_id) as { count: number }).count;
+      const api = await createServer(context.config, context.database, { trustedTest: true });
+      try {
+        const aligned = await api.inject({ method: 'POST',
+          url: `/api/v1/books/${scope.bookId}/chapters/${chapterId}/outline-alignment`,
+          payload: { manuscriptVersionId: ownerVersion.manuscriptVersionId,
+            adjustmentNote: '保留人物选择，但冲突实际发生在码头，后续按正文地点承接。' } });
+        expect(aligned.statusCode).toBe(200);
+        expect(aligned.json().data).toMatchObject({
+          previousOutlineVersionId: outlineBefore.chapter_outline_version_id,
+          reason: '根据正文实际调整',
+          impactPreview: ['旧章纲永久保留', '新章纲成为后续规划基准', '当前正文必须重新提交三席审查']
+        });
+        expect(aligned.json().data.outlineVersionId).not.toBe(outlineBefore.chapter_outline_version_id);
+        expect(context.database.prepare(`SELECT COUNT(*) AS count FROM artifact_versions
+          WHERE owner_id = ? AND book_id = ? AND artifact_id = ?`).get(
+            scope.ownerId, scope.bookId, aligned.json().data.outlineArtifactId
+          )).toEqual({ count: outlineVersionCountBefore + 1 });
+      } finally { await api.close(); }
+
       const scheduled = batches.scheduleExistingRevision(scope, chapterId, ownerVersion.manuscriptVersionId, 'review_existing');
       const tasks = new TaskService(context.database, context.config.releaseId, clock);
       const workerId = 'owner-review-worker';
       const claimed = tasks.claimNext(workerId, 120_000);
       expect(claimed?.taskId).toBe(scheduled.taskId);
-      const result = await new ChapterPipelineService(
+      let result = await new ChapterPipelineService(
         context.database, context.dataDir, context.config.releaseId, ids, clock
       ).executeClaimed(scope, scheduled.taskId, workerId, undefined, {
         leaseToken: claimed!.leaseToken!, attemptNo: claimed!.currentAttemptNo
       });
+      for (let round = 0; result.status === 'paused' && round < 3; round += 1) {
+        requestPendingEditorSynthesis(context, scope, ids, clock);
+        const synthesisClaim = tasks.claimNext(workerId, 120_000)!;
+        result = await new ChapterPipelineService(
+          context.database, context.dataDir, context.config.releaseId, ids, clock
+        ).executeClaimed(scope, scheduled.taskId, workerId, undefined, {
+          leaseToken: synthesisClaim.leaseToken!, attemptNo: synthesisClaim.currentAttemptNo
+        });
+      }
 
       expect(result.status).toBe('awaiting_confirmation');
       expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`)

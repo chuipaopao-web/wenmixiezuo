@@ -49,10 +49,10 @@ describe('按需补设定三选一',()=>{
     const output='模型说明：```json\n'+JSON.stringify({settingGaps:[{
       question:'古代引擎首次启动会失去哪段记忆？',
       whyNeeded:'当前事件的核心选择取决于主角是否愿意承担这次具体代价。',
-      affectedObjects:['当前事件','黄金三章']
+      affectedObjects:['当前事件','首卷前三章责任']
     }]})+'\n```';
     expect(parseDetectedSettingGaps(output)).toEqual([expect.objectContaining({
-      question:'古代引擎首次启动会失去哪段记忆？',affectedObjects:['当前事件','黄金三章']
+      question:'古代引擎首次启动会失去哪段记忆？',affectedObjects:['当前事件','首卷前三章责任']
     })]);
     const stop=()=>stopForDetectedSettingGaps({output,service,scope,scopeType:'event',scopeId:'event-1'});
     expect(stop).toThrow(/请先选择/);

@@ -1,31 +1,30 @@
 import { createHash } from 'node:crypto';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
-import type { CreativeRoleKey } from '../../apps/api/src/contracts/agent-team-v2.js';
+import { editorialRoleKeys, type EditorialRoleKey } from '@wenmi/contracts';
 
 const releaseId = process.env.WENMI_RELEASE_ID ?? 'wm-longform-r1-20260719-003435-e4d7b8b7';
 const config = loadModelRuntimeConfig(process.env, { codexWorkingDirectory: process.cwd() });
+const transport = process.env.WENMI_CONNECTIVITY_TRANSPORT ?? 'bound-plan';
+if (transport !== 'bound-plan' && transport !== 'codex') throw new Error('WENMI_CONNECTIVITY_TRANSPORT只允许bound-plan或codex');
+const useCodex = transport === 'codex';
+const runtimeConfig = useCodex
+  ? { ...config, requestedMode: 'subscription-plan' as const, activeMode: 'subscription-plan' as const }
+  : config;
 
-if (config.requestedMode !== 'subscription-plan' || config.activeMode !== 'subscription-plan') {
+if (!useCodex && (config.requestedMode !== 'subscription-plan' || config.activeMode !== 'subscription-plan')) {
   throw new Error(`真实连通验证要求subscription-plan；当前requested=${config.requestedMode}, active=${config.activeMode}, missing=${config.missingCredentials.join(',') || 'none'}`);
 }
 if (config.strictPlanOnly !== true || config.cashFallbackAllowed !== false) {
   throw new Error('真实连通验证拒绝非严格套餐模式或任何现金回退');
 }
 
-const allProbes: Array<{ roleKey: CreativeRoleKey }> = [
-  { roleKey: 'chief_editor' },
-  { roleKey: 'lead_screenwriter' },
-  { roleKey: 'second_screenwriter' },
-  { roleKey: 'literary_reviewer' },
-  { roleKey: 'experience_reviewer' },
-  { roleKey: 'researcher' }
-];
+const allProbes: Array<{ roleKey: EditorialRoleKey }> = editorialRoleKeys.map((roleKey) => ({ roleKey }));
 const requestedRoles = new Set((process.env.WENMI_CONNECTIVITY_ROLES ?? '').split(',').map((value) => value.trim()).filter(Boolean));
 const probes = requestedRoles.size === 0 ? allProbes : allProbes.filter((probe) => requestedRoles.has(probe.roleKey));
 if (probes.length === 0) throw new Error('WENMI_CONNECTIVITY_ROLES没有匹配任何允许的探针岗位');
 
-const factory = new ModelAdapterFactory(config);
+const factory = new ModelAdapterFactory(runtimeConfig);
 const maxOutputTokens = Number(process.env.WENMI_CONNECTIVITY_MAX_OUTPUT_TOKENS ?? '256');
 if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 64 || maxOutputTokens > 1024) {
   throw new Error('WENMI_CONNECTIVITY_MAX_OUTPUT_TOKENS必须是64至1024之间的整数');
@@ -34,8 +33,10 @@ const evidence: Array<Record<string, unknown>> = [];
 for (const [index, probe] of probes.entries()) {
   const legacyRole = legacyRoleFor(probe.roleKey);
   const profile = config.roleProfiles[legacyRole];
-  const label = `${probe.roleKey} · ${profile.modelId}`;
-  const adapter = factory.resolve(profile.provider, profile.modelId, 'discussion', probe.roleKey);
+  const provider = useCodex ? runtimeConfig.codex.provider : profile.provider;
+  const modelId = useCodex ? runtimeConfig.codex.modelId : profile.modelId;
+  const label = `${probe.roleKey} · ${modelId}`;
+  const adapter = factory.resolve(provider, modelId, 'discussion', legacyRole);
   const startedAt = new Date();
   const result = await adapter.generate({
     requestId: `connectivity-${index + 1}`,
@@ -70,25 +71,23 @@ for (const [index, probe] of probes.entries()) {
 
 process.stdout.write(`${JSON.stringify({
   releaseId,
+  transport,
+  boundPlanMissingCredentials: config.missingCredentials,
   strictPlanOnly: config.strictPlanOnly,
   cashFallbackAllowed: config.cashFallbackAllowed,
   passed: evidence.length === probes.length,
   probeCount: evidence.length
 })}\n`);
 
-function legacyRoleFor(roleKey: CreativeRoleKey): keyof typeof config.roleProfiles {
-  const roles: Record<CreativeRoleKey, keyof typeof config.roleProfiles> = {
+function legacyRoleFor(roleKey: EditorialRoleKey): keyof typeof config.roleProfiles {
+  const roles: Record<EditorialRoleKey, keyof typeof config.roleProfiles> = {
     chief_editor: 'chief_editor',
     deputy_editor: 'chief_editor',
-    lead_screenwriter: 'plot_architect',
-    second_screenwriter: 'continuity',
-    setting: 'continuity',
-    lead_writer: 'writer',
-    backup_writer: 'writer',
+    screenwriter: 'plot_architect',
+    writer: 'writer',
+    fact_reviewer: 'continuity',
     literary_reviewer: 'reviewer',
-    experience_reviewer: 'reader_experience',
-    researcher: 'researcher',
-    copyright: 'copyright'
+    experience_reviewer: 'reader_experience'
   };
   return roles[roleKey];
 }

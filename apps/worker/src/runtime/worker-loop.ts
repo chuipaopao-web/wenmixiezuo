@@ -67,7 +67,7 @@ export class WorkerLoop {
       this.heartbeat.setCurrentTask(task.taskId);
       if (task.taskType === 'runtime_probe') {
         this.claimer.complete(task, { workerExecuted: true, deterministic: true });
-      } else if (EXECUTABLE_TASK_TYPES.has(task.taskType) && this.chapterTasks !== undefined) {
+      } else if ((EXECUTABLE_TASK_TYPES.has(task.taskType) || task.taskType.startsWith('ai_node:')) && this.chapterTasks !== undefined) {
         const controller = new AbortController();
         let leaseError: Error | null = null;
         const renewal = setInterval(() => {

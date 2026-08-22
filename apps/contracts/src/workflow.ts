@@ -10,12 +10,12 @@ export type AuthorInputSurface = typeof authorInputSurfaces[number];
  * 这份共享合同由 Web 和 API 共同使用，禁止在各端再维护第二套名称表。
  */
 export const workspaceFunctionLabels = {
-  framework: '信息',
+  framework: '故事线',
   basic: '设定',
   master: '分卷',
-  event: '规划',
-  chapter: '章纲',
-  manuscript: '正文',
+  event: '事件',
+  chapter: '章节',
+  manuscript: '章节',
   library: '资料库',
   naming: '取名',
   team: '团队',
@@ -267,6 +267,17 @@ export interface LegacyFirstVolumeLaunchPlan {
   immersionPriorities: string[];
 }
 
+export interface VolumeExpressionPlan {
+  narrativeOrder: string;
+  pointOfView: string;
+  emotionalTone: string;
+  proseStyle: string;
+  informationRelease: string;
+  transitions: string;
+  coordinatedBy: 'writer' | 'deputy_editor';
+  sampleText?: string | null;
+  sampleDisclaimer?: '示意，非正式正文' | null;
+}
 export interface VolumePlanContent {
   title: string;
   openingState: string;
@@ -287,6 +298,8 @@ export interface VolumePlanContent {
   styleSecondary?: string | null;
   /** 本卷重点表达（主编提炼的一句短语，如"权谋智斗＋智商在线＋热血爽"）；null 表示沿用全书基调。 */
   focusExpression?: string | null;
+  /** 本卷确认后的完整表达方案；旧版本可缺省。 */
+  expressionPlan?: VolumeExpressionPlan | null;
   /** 作者直接比较的具体故事路线；旧版本可缺省。 */
   routeCard?: VolumeRouteCard | null;
   /** 全书软北极星，只在第一卷首次形成，后续卷继承而不重做。 */
@@ -333,6 +346,7 @@ export interface StoryEventContent {
   volumeClimaxImpact: string;
   estimatedChapterRange: { minimum: number | null; likely: number | null; maximum: number | null };
   uncertaintyNotes: string[];
+  storylineResponsibilities?: string[];
   /** 主编融合稿的三合一说明；独立候选为 null。 */
   fusionNotes?: FusionNotes | null;
 }
@@ -546,6 +560,7 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
     stylePrimary: optionalText(value.stylePrimary, '本卷主基调'),
     styleSecondary: optionalText(value.styleSecondary, '本卷副基调'),
     focusExpression: optionalText(value.focusExpression, '本卷重点表达'),
+    ...parseOptionalVolumeExpressionPlan(value.expressionPlan),
     ...parseOptionalVolumeRouteCard(value.routeCard),
     ...parseOptionalStorySpine(value.storySpine),
     ...parseOptionalFirstVolumeLaunch(value.firstVolumeLaunch),
@@ -553,6 +568,22 @@ export function parseVolumePlanContent(input: unknown): VolumePlanContent {
   };
 }
 
+function parseOptionalVolumeExpressionPlan(value: unknown): { expressionPlan?: VolumeExpressionPlan } {
+  if (value === null || value === undefined) return {};
+  const record = requireRecord(value, '本卷表达方案');
+  const sampleText = optionalText(record.sampleText, '表达方案示例文字');
+  return { expressionPlan: {
+    narrativeOrder: requireText(record.narrativeOrder, '叙事顺序'),
+    pointOfView: requireText(record.pointOfView, '叙事视角'),
+    emotionalTone: requireText(record.emotionalTone, '情绪基调'),
+    proseStyle: requireText(record.proseStyle, '文字表达'),
+    informationRelease: requireText(record.informationRelease, '信息释放'),
+    transitions: requireText(record.transitions, '转场方式'),
+    coordinatedBy: record.coordinatedBy === 'deputy_editor' ? 'deputy_editor' : 'writer',
+    sampleText,
+    sampleDisclaimer: sampleText === null ? null : '示意，非正式正文'
+  } };
+}
 function parseOptionalVolumeRouteCard(value: unknown): { routeCard?: VolumeRouteCard } {
   if (value === null || value === undefined) return {};
   const record = requireRecord(value, '具体故事路线');
@@ -591,16 +622,16 @@ function parseOptionalFirstVolumeLaunch(value: unknown): { firstVolumeLaunch?: L
   if (value === null || value === undefined) return {};
   const record = requireRecord(value, '第一卷开局计划');
   const first500 = requireRecord(record.first500, '前500字计划');
-  const goldenThree = requireRecordArray(record.goldenThree, '黄金三章计划').map((chapter) => ({
-    chapterNumber: requirePositiveInteger(chapter.chapterNumber, '黄金三章章号'),
-    responsibility: requireText(chapter.responsibility, '黄金三章职责'),
-    action: requireText(chapter.action, '黄金三章行动'),
-    pressure: requireText(chapter.pressure, '黄金三章压力'),
-    payoff: requireText(chapter.payoff, '黄金三章回报'),
-    nextExpectation: requireText(chapter.nextExpectation, '黄金三章后续期待')
+  const goldenThree = requireRecordArray(record.goldenThree, '首卷前三章计划').map((chapter) => ({
+    chapterNumber: requirePositiveInteger(chapter.chapterNumber, '首卷前三章章号'),
+    responsibility: requireText(chapter.responsibility, '首卷前三章章节责任'),
+    action: requireText(chapter.action, '首卷前三章主角行动'),
+    pressure: requireText(chapter.pressure, '首卷前三章压力'),
+    payoff: requireText(chapter.payoff, '首卷前三章有效回报'),
+    nextExpectation: requireText(chapter.nextExpectation, '首卷前三章后续期待')
   }));
   if (goldenThree.length !== 3 || goldenThree.some((chapter, index) => chapter.chapterNumber !== index + 1)) {
-    throw new Error('黄金三章计划必须按第1、2、3章各写一项。');
+    throw new Error('首卷前三章计划必须按第1、2、3章各写一项。');
   }
   const majorClimax = requireRecord(record.majorClimax, '第一卷重大高潮');
   const latestEffectiveCharacters = requirePositiveInteger(majorClimax.latestEffectiveCharacters, '重大高潮最晚有效字数');
@@ -648,6 +679,9 @@ export function parseStoryEventContent(input: unknown): StoryEventContent {
     volumeClimaxImpact: requireText(value.volumeClimaxImpact, '卷高潮作用'),
     estimatedChapterRange: parseEstimatedChapterRange(value.estimatedChapterRange),
     uncertaintyNotes: requireUniqueTextArray(value.uncertaintyNotes, '未知与待确认'),
+    ...(value.storylineResponsibilities === undefined ? {} : {
+      storylineResponsibilities: requireUniqueTextArray(value.storylineResponsibilities, '故事线责任')
+    }),
     ...omitNullFusionNotes(value.fusionNotes)
   };
 }
@@ -706,7 +740,7 @@ export function parseEventChapterSequenceContent(input: unknown): EventChapterSe
     ? undefined
     : parseGoldenThreeLaunchPackage(value.goldenThreeLaunch);
   if (goldenThreeLaunch !== undefined && startChapterNumber !== 1) {
-    throw new Error('黄金三章启动包只能附着在从第一章开始的首个事件章链。');
+    throw new Error('首卷前三章责任包只能附着在从第一章开始的首个事件章链。');
   }
   return {
     eventTitle: requireText(value.eventTitle, '事件名称'),
@@ -720,23 +754,23 @@ export function parseEventChapterSequenceContent(input: unknown): EventChapterSe
 }
 
 function parseGoldenThreeLaunchPackage(input: unknown): GoldenThreeLaunchPackage {
-  const value = requireRecord(input, '黄金三章总体启动包');
+  const value = requireRecord(input, '首卷前三章总体责任包');
   if (!Array.isArray(value.chapters) || value.chapters.length !== 3) {
-    throw new Error('黄金三章总体启动包必须包含第一、二、三章。');
+    throw new Error('首卷前三章总体责任包必须包含第一、二、三章。');
   }
   const chapters = value.chapters.map((item, index) => {
-    const chapter = requireRecord(item, '黄金三章职责');
-    const chapterNumber = requirePositiveInteger(chapter.chapterNumber, '黄金三章章号');
-    if (chapterNumber !== index + 1) throw new Error('黄金三章必须按第一、二、三章连续排列。');
+    const chapter = requireRecord(item, '首卷前三章章节责任');
+    const chapterNumber = requirePositiveInteger(chapter.chapterNumber, '首卷前三章章号');
+    if (chapterNumber !== index + 1) throw new Error('首卷前三章责任必须按第一、二、三章连续排列。');
     return {chapterNumber:chapterNumber as 1|2|3,
-      responsibility:requireText(chapter.responsibility,'黄金三章职责'),
-      protagonistAction:requireText(chapter.protagonistAction,'黄金三章主角行动'),
-      pressureOrPull:requireText(chapter.pressureOrPull,'黄金三章压力或吸引力'),
-      deliveredPayoff:requireText(chapter.deliveredPayoff,'黄金三章有效回报'),
-      nextExpectation:requireText(chapter.nextExpectation,'黄金三章下一期待')};
+      responsibility:requireText(chapter.responsibility,'首卷前三章章节责任'),
+      protagonistAction:requireText(chapter.protagonistAction,'首卷前三章主角行动'),
+      pressureOrPull:requireText(chapter.pressureOrPull,'首卷前三章压力或吸引力'),
+      deliveredPayoff:requireText(chapter.deliveredPayoff,'首卷前三章责任有效回报'),
+      nextExpectation:requireText(chapter.nextExpectation,'首卷前三章责任下一期待')};
   });
-  if (value.recalibrateAfterChapterOne !== true) throw new Error('黄金三章启动包必须允许第一章结算后回校第二、三章。');
-  return {overallPromise:requireText(value.overallPromise,'黄金三章总体承诺'),chapters,recalibrateAfterChapterOne:true};
+  if (value.recalibrateAfterChapterOne !== true) throw new Error('首卷前三章责任包必须允许第一章结算后回校第二、三章。');
+  return {overallPromise:requireText(value.overallPromise,'首卷前三章总体承诺'),chapters,recalibrateAfterChapterOne:true};
 }
 export function parseEventChapterChallengeContent(input: unknown): EventChapterChallengeContent {
   const value = requireRecord(input, '章纲挑战意见');

@@ -51,6 +51,10 @@ function compileEssentialSections(outline: ChapterOutlineV2): string[] {
     `第${outline.chapterNumber}章《${outline.title}》`,
     `对应总纲：第${stage.stageNumber}阶段《${stage.title}》（第${stage.chapterRange.start}—${stage.chapterRange.end}章）`,
     `本章功能：${outline.chapterFunction}`,
+    ...(outline.storylineResponsibilities === undefined ? [] : [`故事线责任：${outline.storylineResponsibilities.join('；')}`]),
+    ...(outline.openingChapterResponsibility === undefined ? [] : [
+      `本章开局责任：${outline.openingChapterResponsibility.responsibility}；主角行动：${outline.openingChapterResponsibility.protagonistAction}；压力或拉力：${outline.openingChapterResponsibility.pressureOrPull}；有效回报：${outline.openingChapterResponsibility.deliveredPayoff}；下一期待：${outline.openingChapterResponsibility.nextExpectation}`
+    ]),
     `开场状态：${outline.openingState}`,
     `必须结束状态：${outline.requiredEndingState}`,
     `人物与当下状态：\n${cast}`,

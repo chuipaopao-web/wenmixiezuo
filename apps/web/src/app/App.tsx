@@ -16,13 +16,12 @@ import {
   UsersThreeIcon,
   XIcon
 } from '@phosphor-icons/react';
-import { workspaceFunctionLabel, type WorkspacePrimaryFunctionKey } from '@wenmi/contracts';
+import type { CoreWorkflowStage } from '@wenmi/contracts';
 
 import {
   archiveBook,
   cancelTask,
   createBook,
-  fetchArtifacts,
   fetchBooks,
   fetchChapterContent,
   fetchChapterDetail,
@@ -30,7 +29,6 @@ import {
   fetchCurrentAccount,
   fetchMyMembership,
   logoutAccount,
-  fetchLibrary,
   fetchOperationsStatus,
   fetchTaskCenter,
   fetchWorkspace,
@@ -53,12 +51,12 @@ import { NamingWorkspace } from '../features/naming/NamingWorkspace';
 import { ArchiveBookDialog, PurgeBookDialog } from '../features/bookshelf/BookLifecycleDialogs';
 import { bookCoverTitle, bookCoverTone, bookDisplayInfo, bookDisplayTitle, bookStatusLabel } from './display-labels';
 import { CompleteCreateBookDialog } from '../features/onboarding/CompleteCreateBookDialog';
-import { PlanningWorkspace } from '../features/planning/PlanningWorkspace';
+import { CoreWorkflowWorkspace } from '../features/core-workflow/CoreWorkflowWorkspace';
 import { StoryKnowledgeWorkspace } from '../features/library/StoryKnowledgeWorkspace';
 import { WorkspaceSkeleton } from '../features/shared/WorkspaceSkeleton';
 import { GlobalTaskWorkspace, TaskDetailsDialog } from '../features/tasks/TaskWorkspace';
 import { loadTaskSeen, taskNeedsAttention } from '../features/shared/task-presentation';
-import { TeamWorkspace } from '../features/team/TeamWorkspace';
+import { EditorialTeamWorkspace } from '../features/core-workflow/EditorialTeamWorkspace';
 import { SettingsDialog } from '../features/settings/SettingsDialog';
 import { ManuscriptWorkspace } from '../features/manuscript/ManuscriptWorkspace';
 import { IdeationWorkspace } from '../features/ideation/IdeationWorkspace';
@@ -78,15 +76,33 @@ import {
   type WorkspacePreferences
 } from './workspace-preferences';
 import './app.css';
+import '../features/core-workflow/core-workflow-v6.css';
 import { installMobileViewportBridge } from './mobile-viewport';
 
-type UtilityView = 'tasks' | 'team' | 'ideas' | null;
-type PlanningTab = WorkspacePrimaryFunctionKey;
+type UtilityView = 'library' | 'naming' | 'tasks' | 'team' | 'ideas' | null;
+type PlanningTab = CoreWorkflowStage;
 
 interface TaskSelection {
   bookId: string;
   taskId: string;
 }
+
+const V6_PRIMARY_NAV = [
+  ['setting', '设定', TreeStructureIcon],
+  ['storyline', '故事线', BookOpenTextIcon],
+  ['volume', '分卷', MapTrifoldIcon],
+  ['event', '事件', CaretRightIcon],
+  ['chapter', '章节', FileTextIcon]
+] as const;
+
+const V6_UTILITY_NAV = [
+  ['library', '资料库', BooksIcon],
+  ['naming', '取名', TagIcon],
+  ['team', '团队', UsersThreeIcon],
+  ['tasks', '任务', FileTextIcon],
+  ['ideas', '灵感', LightbulbIcon],
+  ['settings', '设置', GearSixIcon]
+] as const;
 
 export function App(): React.JSX.Element {
   const [account, setAccount] = useState<AuthAccountData | null | undefined>(undefined);
@@ -123,7 +139,8 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [books, setBooks] = useState<BookData[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => readSelectedBook());
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
-  const [creationTab, setCreationTab] = useState<PlanningTab>('framework');
+  const [creationTab, setCreationTab] = useState<PlanningTab>(() => readCoreWorkflowStage());
+  const [unlockedStage, setUnlockedStage] = useState<CoreWorkflowStage | null>(null);
   const [utilityView, setUtilityView] = useState<UtilityView>(null);
   const [homeTaskEntries, setHomeTaskEntries] = useState<TaskCenterBookData[]>([]);
   const [homeTasksLoading, setHomeTasksLoading] = useState(false);
@@ -133,9 +150,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [selectedChapter, setSelectedChapter] = useState<ChapterData | null>(null);
   const [reader, setReader] = useState<{ content: string; offline: boolean; manuscriptVersionId: string | null } | null>(null);
   const [chapterDetail, setChapterDetail] = useState<Awaited<ReturnType<typeof fetchChapterDetail>> | null>(null);
-  const [referenceData, setReferenceData] = useState<unknown>([]);
   const [operationsStatus, setOperationsStatus] = useState<OperationsStatusData | null>(null);
   const [leftOpen, setLeftOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(() => new URLSearchParams(window.location.search).get('newBook') === '1');
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveCandidate, setArchiveCandidate] = useState<BookData | null>(null);
@@ -146,6 +163,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chapterAdvanceNotice, setChapterAdvanceNotice] = useState<{ message: string; actionLabel: string } | null>(null);
   const [membershipStatus, setMembershipStatus] = useState<MembershipStatusData | null>(null);
   const [membershipChecking, setMembershipChecking] = useState(false);
   const [membershipBlock, setMembershipBlock] = useState<MembershipBlockReason | null>(null);
@@ -154,6 +172,8 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const [noticeDismissed, setNoticeDismissedState] = useState(() => {
     try { return window.localStorage.getItem('wenmi-notice-dismissed') === '1'; } catch { return false; }
   });
+  useEffect(() => persistCoreWorkflowStage(creationTab), [creationTab]);
+
   const setNoticeDismissed = (dismissed: boolean) => {
     setNoticeDismissedState(dismissed);
     try { if (dismissed) window.localStorage.setItem('wenmi-notice-dismissed', '1'); } catch { /* 忽略隐私模式写入失败 */ }
@@ -247,6 +267,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   const refreshWorkspace = useCallback(async (bookId: string, signal?: AbortSignal) => {
     const nextWorkspace = await fetchWorkspace(bookId, signal);
     setWorkspace(nextWorkspace);
+    return nextWorkspace;
   }, []);
 
   const refreshHomeTasks = useCallback(async (signal?: AbortSignal) => {
@@ -382,37 +403,13 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
   }, [selectedBookId, selectedChapterId, selectedWorkspaceChapter?.currentManuscriptVersionId, selectedWorkspaceChapter?.canonManuscriptVersionId, selectedChapter?.currentManuscriptVersionId, selectedChapter?.canonManuscriptVersionId, workspace?.book.canonRevision]);
 
   useEffect(() => {
-    if (creationTab !== 'manuscript' || workspace === null || workspace.chapters.length === 0) return;
+    if (creationTab !== 'chapter' || workspace === null || workspace.chapters.length === 0) return;
     if (selectedChapterId !== null && selectedChapter?.chapterId === selectedChapterId) return;
     const firstChapter = [...workspace.chapters].sort((left, right) => left.chapterNumber - right.chapterNumber)[0];
     if (firstChapter === undefined) return;
     setSelectedChapterId(firstChapter.chapterId);
     setSelectedChapter(firstChapter);
   }, [creationTab, selectedChapterId, selectedChapter?.chapterId, workspace]);
-
-  useEffect(() => {
-    if (selectedBookId === null || workspace === null) return;
-    if (creationTab === 'naming') { setReferenceData([]); return; }
-    const cacheKey = `${creationTab}:${selectedBookId}`;
-    const controller = new AbortController();
-    const refreshReferenceData = async (useCacheFallback: boolean): Promise<void> => {
-      const request = creationTab === 'library'
-        ? fetchLibrary(selectedBookId, controller.signal)
-        : fetchArtifacts(selectedBookId, controller.signal);
-      try {
-        const data = await request;
-        if (controller.signal.aborted) return;
-        setReferenceData(data);
-        await cacheSnapshot(cacheKey, selectedBookId, workspace.book.canonRevision, data);
-      } catch {
-        if (!useCacheFallback || controller.signal.aborted) return;
-        setReferenceData(await loadSnapshot<unknown>(cacheKey, workspace.book.canonRevision) ?? []);
-      }
-    };
-    void refreshReferenceData(true);
-    const poll = window.setInterval(() => void refreshReferenceData(false), 30_000);
-    return () => { controller.abort(); window.clearInterval(poll); };
-  }, [creationTab, selectedBookId, workspace?.book.canonRevision]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -430,6 +427,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
 
   const selectBook = (bookId: string): void => {
     setSelectedBookId(bookId);
+    setUnlockedStage(null);
     persistSelectedBook(bookId);
     setSelectedChapterId(null);
     setSelectedChapter(null);
@@ -445,9 +443,9 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       await loadBooks();
       selectBook(created.bookId);
       if (input.openingBlueprint?.creationMode === 'continuation') {
-        setCreationTab('manuscript');
+        setCreationTab('chapter');
           } else {
-        setCreationTab('basic');
+        setCreationTab('setting');
           }
       setCreateOpen(false);
       setError(null);
@@ -464,7 +462,39 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
     if (busy) return;
     setBusy(true);
     try {
-      await resolveConfirmation(bookId, confirmationId, expectedCanonRevision, accept);
+      const resolution = await resolveConfirmation(bookId, confirmationId, expectedCanonRevision, accept);
+      if (accept && resolution.status === 'settled') {
+        if (bookId !== selectedBookId) selectBook(bookId);
+        const nextWorkspace = await refreshWorkspace(bookId);
+        const settledChapter = nextWorkspace.chapters.find((chapter) => chapter.chapterId === resolution.settledChapterId) ?? null;
+        const ordered = [...nextWorkspace.chapters].sort((left, right) => left.chapterNumber - right.chapterNumber);
+        const nextChapter = ordered.find((chapter) => chapter.settlementStatus !== 'settled'
+          && (settledChapter === null || chapter.chapterNumber > settledChapter.chapterNumber))
+          ?? ordered.find((chapter) => chapter.settlementStatus !== 'settled')
+          ?? null;
+        if (nextChapter !== null) {
+          setSelectedChapterId(nextChapter.chapterId);
+          setSelectedChapter(nextChapter);
+          setCreationTab('chapter');
+          setUtilityView(null);
+          setChapterAdvanceNotice({
+            message: resolution.nextOutlineTaskId === null || resolution.nextOutlineTaskId === undefined
+              ? `上一章已定稿并结算。第 ${nextChapter.chapterNumber} 章已经就位，是否开始下一章？`
+              : `上一章已定稿并结算。第 ${nextChapter.chapterNumber} 章章纲正在按真实结算重新生成，是否开始下一章？`,
+            actionLabel: '开始下一章'
+          });
+          window.setTimeout(() => {
+            const stageTrack = document.querySelector('[aria-label="章节阶段"]');
+            if (stageTrack instanceof HTMLElement && typeof stageTrack.scrollIntoView === 'function') {
+              stageTrack.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 0);
+        } else {
+          setCreationTab('event');
+          setUtilityView(null);
+          setChapterAdvanceNotice({ message: '当前事件的章节已经全部结算，请查看事件结算并继续后续事件。', actionLabel: '查看事件' });
+        }
+      }
       await refreshHomeTasks();
       setError(null);
     } catch (reason) {
@@ -635,30 +665,35 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
       <nav className="ios-function-bar" aria-label="功能栏">
         <button className="icon-button mobile-only function-book-toggle" type="button" aria-label="打开书籍栏" onClick={() => setLeftOpen(true)}><ListIcon /></button>
         <div className="function-nav-primary" hidden={loading}>
-          {([
-            ['framework', BookOpenTextIcon],
-            ['basic', TreeStructureIcon],
-            ['master', MapTrifoldIcon],
-            ['event', CaretRightIcon],
-            ['chapter', ListIcon],
-            ['manuscript', FileTextIcon],
-            ['library', BooksIcon],
-            ['naming', TagIcon]
-          ] as const).map(([key, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''}
-            aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={workspaceFunctionLabel(key)} disabled={selectedBook === null}
-            key={key} onClick={() => { setCreationTab(key); setUtilityView(null); }}><Icon /><span>{workspaceFunctionLabel(key)}</span></button>)}
+          {V6_PRIMARY_NAV.map(([key, label, Icon]) => <button type="button" className={utilityView === null && creationTab === key ? 'active' : ''}
+            aria-current={utilityView === null && creationTab === key ? 'page' : undefined} aria-label={label} disabled={selectedBook === null || (unlockedStage !== null && V6_PRIMARY_NAV.findIndex(([stageKey]) => stageKey === key) > V6_PRIMARY_NAV.findIndex(([stageKey]) => stageKey === unlockedStage))}
+            key={key} onClick={() => { setCreationTab(key); setUtilityView(null); setToolsOpen(false); }}><Icon /><span>{label}</span></button>)}
         </div>
         <div className="function-nav-utilities" hidden={loading}>
-          <button className={utilityView === 'team' ? 'active' : ''} type="button" aria-current={utilityView === 'team' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('team')}><UsersThreeIcon /><span>{workspaceFunctionLabel('team')}</span></button>
-          <button className={utilityView === 'tasks' ? 'active' : ''} type="button" aria-current={utilityView === 'tasks' ? 'page' : undefined} onClick={() => setUtilityView('tasks')}><FileTextIcon /><span>{workspaceFunctionLabel('tasks')}</span>{tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>
-          <button className={utilityView === 'ideas' ? 'active' : ''} type="button" aria-current={utilityView === 'ideas' ? 'page' : undefined} disabled={selectedBook === null} onClick={() => setUtilityView('ideas')}><LightbulbIcon /><span>{workspaceFunctionLabel('ideas')}</span></button>
-          <button type="button" onClick={() => setSettingsOpen(true)}><GearSixIcon /><span>{workspaceFunctionLabel('settings')}</span></button>
+          {V6_UTILITY_NAV.map(([key, label, Icon]) => <button className={key !== 'settings' && utilityView === key ? 'active' : ''} type="button"
+            aria-current={key !== 'settings' && utilityView === key ? 'page' : undefined} disabled={key !== 'tasks' && key !== 'settings' && selectedBook === null}
+            key={key} onClick={() => { if (key === 'settings') setSettingsOpen(true); else setUtilityView(key); setToolsOpen(false); }}><Icon /><span>{label}</span>
+            {key === 'tasks' && tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>)}
         </div>
+        <button type="button" className={`v6-tools-trigger ${utilityView !== null ? 'active' : ''}`} aria-expanded={toolsOpen} onClick={() => setToolsOpen((value) => !value)}><GearSixIcon /><span>工具</span></button>
+        {toolsOpen && <div className="function-nav-utilities v6-tools-popover" role="menu">
+          {V6_UTILITY_NAV.map(([key, label, Icon]) => <button className={key !== 'settings' && utilityView === key ? 'active' : ''} type="button" role="menuitem"
+            disabled={key !== 'tasks' && key !== 'settings' && selectedBook === null} key={key}
+            onClick={() => { if (key === 'settings') setSettingsOpen(true); else setUtilityView(key); setToolsOpen(false); }}><Icon /><span>{label}</span>
+            {key === 'tasks' && tasksAttention && <i className="nav-task-dot" aria-hidden="true" />}</button>)}
+        </div>}
       </nav>
-
       <main className="workspace-main">
+        {chapterAdvanceNotice !== null && <div className="flow-notice" role="status"><span><strong>章节已推进</strong>{chapterAdvanceNotice.message}</span><div><button type="button" onClick={() => setChapterAdvanceNotice(null)}>稍后</button><button className="primary-button" type="button" onClick={() => { setChapterAdvanceNotice(null); setUtilityView(null); }}>{chapterAdvanceNotice.actionLabel}</button></div></div>}
         {error !== null && <div className="error-banner" role="alert"><span><strong>小文秘书：</strong>{error}</span><button type="button" onClick={() => setError(null)} aria-label="关闭错误"><XIcon /></button></div>}
-        {loading ? <WorkspaceSkeleton /> : utilityView === 'tasks' ? <GlobalTaskWorkspace
+        {loading ? <WorkspaceSkeleton />
+        : utilityView === 'library' ? (selectedBook === null
+          ? <UnifiedEmptyState title="先创建一本书" description="资料库只读取当前书籍的正式资料与来源。" onCreate={() => setCreateOpen(true)} />
+          : <StoryKnowledgeWorkspace bookId={selectedBook.bookId} />)
+        : utilityView === 'naming' ? (selectedBook === null
+          ? <UnifiedEmptyState title="先创建一本书" description="取名工具会结合当前书籍信息提供建议。" onCreate={() => setCreateOpen(true)} />
+          : <NamingWorkspace book={selectedBook} />)
+        : utilityView === 'tasks' ? <GlobalTaskWorkspace
           entries={homeTaskEntries}
           loading={homeTasksLoading}
           loadError={homeTasksError}
@@ -666,37 +701,32 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           onSelect={(bookId, task) => setSelectedTask({ bookId, taskId: task.taskId })}
           onDecide={decideConfirmation}
         /> : utilityView === 'team' ? (selectedBook === null
-          ? <UnifiedEmptyState title="先创建一本书" description="团队会随书创建，并固定显示全部15名创作成员。" onCreate={() => setCreateOpen(true)} />
-          : <TeamWorkspace bookId={selectedBook.bookId} workspace={workspace} onError={setError} />)
+          ? <UnifiedEmptyState title="先创建一本书" description="编辑部成员会随书建立，并按任务动态分配。" onCreate={() => setCreateOpen(true)} />
+          : <EditorialTeamWorkspace bookId={selectedBook.bookId} />)
         : utilityView === 'ideas' ? (selectedBook === null
           ? <UnifiedEmptyState title="先创建一本书" description="灵感只读取当前书籍信息，不会混入其他书。" onCreate={() => setCreateOpen(true)} />
-          : <IdeationWorkspace bookId={selectedBook.bookId} currentLocation={creationTab} onError={setError} />)
+          : <IdeationWorkspace bookId={selectedBook.bookId}
+              currentLocation={creationTab === 'setting' ? 'basic' : creationTab === 'storyline' ? 'framework' : creationTab === 'volume' ? 'master' : creationTab}
+              onError={setError} />)
         : selectedBook === null ? <UnifiedEmptyState title="创建您的第一本书" description="专业网文剧本设计平台：AI 团队帮您设计骨架、大纲、剧情，书写正文，订制化设计原创作品。" hint="未开通会员也可以先建书、填资料；开通后 AI 团队立刻开始干活。" onCreate={() => setCreateOpen(true)} />
-        : (
-          <>
-            <PlanningWorkspace
-              tab={creationTab}
-              onTabChange={setCreationTab}
-              data={referenceData}
+        : <CoreWorkflowWorkspace
+            stage={creationTab}
+            onStageChange={(stage) => { setCreationTab(stage); setUtilityView(null); }}
+            onAvailabilityChange={setUnlockedStage}
+            workspace={workspace}
+            onChanged={async () => { await refreshWorkspace(selectedBook.bookId); }}
+            manuscript={<ManuscriptWorkspace
+              key={selectedBook.bookId}
               workspace={workspace}
-              onBookProfileChanged={() => refreshWorkspace(selectedBook.bookId)}
-              library={<StoryKnowledgeWorkspace bookId={selectedBook.bookId} />}
-              naming={<NamingWorkspace book={selectedBook} />}
-              manuscript={<ManuscriptWorkspace
-                key={selectedBook.bookId}
-                workspace={workspace}
-                selectedChapterId={selectedChapterId}
-                chapter={selectedWorkspaceChapter ?? selectedChapter}
-                reader={reader}
-                detail={chapterDetail}
-                onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
-                onChanged={() => void refreshWorkspace(selectedBook.bookId)}
-                onOpenPlanning={() => setCreationTab('basic')}
-              />}
-            />
-          </>
-        )}
-      </main>
+              selectedChapterId={selectedChapterId}
+              chapter={selectedWorkspaceChapter ?? selectedChapter}
+              reader={reader}
+              detail={chapterDetail}
+              onSelectChapter={(chapter) => { setSelectedChapterId(chapter.chapterId); setSelectedChapter(chapter); }}
+              onChanged={() => void refreshWorkspace(selectedBook.bookId)}
+              onOpenPlanning={() => setCreationTab('setting')}
+            />}
+          />}      </main>
 
       {leftOpen && <button className="drawer-scrim mobile-only" type="button" aria-label="关闭抽屉" onClick={() => setLeftOpen(false)} />}
       {profileOpen && <PersonalCenterDialog account={account} membership={membershipStatus} onClose={() => setProfileOpen(false)} onSignOut={() => { setProfileOpen(false); void onSignOut(); }} />}
@@ -782,6 +812,34 @@ function readSelectedBook(): string | null {
     return new URLSearchParams(window.location.search).get('book');
   } catch {
     return null;
+  }
+}
+
+function readCoreWorkflowStage(): PlanningTab {
+  try {
+    if (typeof window === 'undefined') return 'setting';
+    const query = new URLSearchParams(window.location.search);
+    const value = query.get('stage') ?? query.get('view');
+    return ({
+      setting: 'setting', basic: 'setting',
+      storyline: 'storyline', framework: 'storyline',
+      volume: 'volume', master: 'volume',
+      event: 'event', chapter: 'chapter', manuscript: 'chapter'
+    } as const)[value ?? ''] ?? 'setting';
+  } catch {
+    return 'setting';
+  }
+}
+
+function persistCoreWorkflowStage(stage: PlanningTab): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('view');
+    url.searchParams.set('stage', stage);
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // 受限 WebView 可能禁用 history；当前会话中的 React 状态仍可使用。
   }
 }
 

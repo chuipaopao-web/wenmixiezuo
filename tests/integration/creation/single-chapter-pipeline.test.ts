@@ -3,11 +3,9 @@ import { ChapterBatchService } from '../../../apps/api/src/application/creation/
 import { ChapterPipelineService, containsExplicitPlaceholder, containsInternalWorkflowPayload, containsMarkdownChapterHeading, productionReviewContextBudget, productionReviewHardSourceReserve } from '../../../apps/api/src/application/creation/chapter-pipeline-service.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, MutableClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
-import { ChapterApprovalService } from '../../../apps/api/src/application/creation/chapter-approval-service.js';
 import { ProductionWorkflowRepository } from '../../../apps/api/src/infrastructure/db/repositories/production-workflow-repository.js';
-import { ChapterCatalogService } from '../../../apps/api/src/application/chapters/chapter-catalog-service.js';
-import { CanonService } from '../../../apps/api/src/application/knowledge/canon-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
+import { createServer } from '../../../apps/api/src/http/server.js';
 import { ModelAdapterFactory } from '../../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { ModelAdapterError, type ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { countNovelCharacters } from '../../../apps/api/src/infrastructure/models/deterministic-novel-models.js';
@@ -129,6 +127,7 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, anchorFactory);
     const batch = batches.scheduleNewChapters(scope, 3);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     approvePendingManuscript(context, scope, ids, clock);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
 
@@ -172,9 +171,14 @@ describe('单章完整创作流水线', () => {
     prepareBookForWriting(context, scope, ids, clock, 1);
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1, { firstChapterTitle: '雨夜北塔' });
-    const result = await batches.run(scope, batch.batchId);
+    const reviewOnly = await batches.run(scope, batch.batchId);
+    expect(reviewOnly.batch.status).toBe('paused');
+    expect(reviewOnly.results).toHaveLength(1);
+    expect(reviewOnly.results[0]).toEqual(expect.objectContaining({ status: 'paused', phase: 'review', rewriteCount: 0 }));
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM editor_review_syntheses WHERE owner_id = ? AND book_id = ?`)
+      .get(scope.ownerId, scope.bookId)).toEqual({ count: 0 });
+    const result = await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId);
     expect(result.batch.status).toBe('paused');
-    expect(result.results).toHaveLength(1);
     expect(result.results[0]).toEqual(expect.objectContaining({ status: 'awaiting_confirmation', phase: 'completed', rewriteCount: 1 }));
     const rewriteCall = context.database.prepare(`SELECT context_pack_id FROM model_calls
       WHERE owner_id = ? AND book_id = ? AND task_id = ? AND phase_key LIKE 'rewrite-%' AND state = 'succeeded'
@@ -262,14 +266,29 @@ describe('单章完整创作流水线', () => {
       WHERE confirmation_id = ?`).get(confirmation.confirmation_id) as { manuscript_version_id: string }).manuscript_version_id;
     context.database.prepare(`UPDATE review_reports SET manuscript_version_id = ? WHERE review_report_id = ?`)
       .run(gateManuscriptId, unrelatedOlderReport.review_report_id);
-    const approval = new ChapterApprovalService(
-      new ProductionWorkflowRepository(context.database), context.dataDir, context.config.releaseId, ids, clock,
-      new ChapterCatalogService(context.database, ids, clock), new CanonService(context.database, ids, clock),
-      new TaskService(context.database, context.config.releaseId, clock)
-    );
-    expect(approval.resolve(scope, confirmation.confirmation_id, confirmation.expected_canon_revision, true)).toEqual({ status: 'settled', canonRevision: 1 });
+    const app = await createServer(context.config, context.database, { trustedTest: true });
+    try {
+      const accepted = await app.inject({
+        method: 'POST', url: `/api/v1/books/${scope.bookId}/confirmations/${confirmation.confirmation_id}/accept`,
+        payload: { expectedCanonRevision: confirmation.expected_canon_revision }
+      });
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      expect(accepted.json().data).toMatchObject({
+        confirmationId: confirmation.confirmation_id, status: 'settled', canonRevision: 1,
+        settledChapterId: chapterId, nextOutlineTaskId: null
+      });
+    } finally {
+      await app.close();
+    }
     expect(context.database.prepare(`SELECT settlement_status, generation_status FROM chapters WHERE chapter_id = ?`).get(chapterId))
       .toEqual({ settlement_status: 'settled', generation_status: 'completed' });
+    const actualLedger = context.database.prepare(`SELECT l.truth_status,l.source_kind,l.source_version_id,l.content_json
+      FROM creative_ledger_entries l JOIN stage_settlements s ON s.stage_settlement_id=l.source_version_id
+      WHERE l.owner_id=? AND l.book_id=? AND l.scope_type='chapter' AND l.scope_id=?`).get(
+        scope.ownerId, scope.bookId, chapterId
+      ) as { truth_status: string; source_kind: string; source_version_id: string; content_json: string };
+    expect(actualLedger).toMatchObject({ truth_status: 'actual', source_kind: 'chapter_settlement' });
+    expect(JSON.parse(actualLedger.content_json)).toMatchObject({ manuscriptVersionId: gateManuscriptId });
     context.database.prepare(`UPDATE review_reports SET manuscript_version_id = ? WHERE review_report_id = ?`)
       .run(unrelatedOlderReport.manuscript_version_id, unrelatedOlderReport.review_report_id);
     const completed = await batches.run(scope, batch.batchId);
@@ -470,10 +489,12 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     expect(approvePendingManuscript(context, scope, ids, clock, false)).toEqual({ status: 'rejected' });
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 0 });
     expect(context.database.prepare(`SELECT status, current_phase FROM tasks WHERE task_id = ?`).get(batch.taskIds[0]!)).toEqual({ status: 'paused', current_phase: 'rewrite' });
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     approvePendingManuscript(context, scope, ids, clock);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
     expect(context.database.prepare(`SELECT canon_revision FROM books WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId)).toEqual({ canon_revision: 1 });
@@ -490,6 +511,7 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     clock.advance(16 * 60_000);
     expect(approvePendingManuscript(context, scope, ids, clock, false)).toEqual({ status: 'rejected' });
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
@@ -524,6 +546,7 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     expect(approvePendingManuscript(context, scope, ids, clock)).toEqual({ status: 'settled', canonRevision: 1 });
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
 
@@ -541,10 +564,18 @@ describe('单章完整创作流水线', () => {
     const tasks = new TaskService(context.database, context.config.releaseId, clock);
     const claimed = tasks.claimNext('settled-revision-worker', 120_000)!;
     expect(claimed.taskId).toBe(scheduled.taskId);
-    const revised = await new ChapterPipelineService(
+    const revisedReviewOnly = await new ChapterPipelineService(
       context.database, context.dataDir, context.config.releaseId, ids, clock
     ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
       leaseToken: claimed.leaseToken!, attemptNo: claimed.currentAttemptNo
+    });
+    expect(revisedReviewOnly.status).toBe('paused');
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    const synthesisClaim = tasks.claimNext('settled-revision-worker', 120_000)!;
+    const revised = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
+      leaseToken: synthesisClaim.leaseToken!, attemptNo: synthesisClaim.currentAttemptNo
     });
     expect(revised.status).toBe('awaiting_confirmation');
     expect(revised.manuscriptVersionId).not.toBe(before.canon_manuscript_version_id);
@@ -558,10 +589,18 @@ describe('单章完整创作流水线', () => {
       .get(chapterId)).toEqual({ canon_manuscript_version_id: before.canon_manuscript_version_id, settlement_status: 'settled' });
     tasks.queue(scope, scheduled.taskId);
     const retryClaim = tasks.claimNext('settled-revision-worker', 120_000)!;
-    const revisedAfterRejection = await new ChapterPipelineService(
+    const revisedAfterRejectionReviewOnly = await new ChapterPipelineService(
       context.database, context.dataDir, context.config.releaseId, ids, clock
     ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
       leaseToken: retryClaim.leaseToken!, attemptNo: retryClaim.currentAttemptNo
+    });
+    expect(revisedAfterRejectionReviewOnly.status).toBe('paused');
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    const retrySynthesisClaim = tasks.claimNext('settled-revision-worker', 120_000)!;
+    const revisedAfterRejection = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock
+    ).executeClaimed(scope, scheduled.taskId, 'settled-revision-worker', undefined, {
+      leaseToken: retrySynthesisClaim.leaseToken!, attemptNo: retrySynthesisClaim.currentAttemptNo
     });
     expect(revisedAfterRejection.status).toBe('awaiting_confirmation');
 
@@ -617,6 +656,7 @@ describe('单章完整创作流水线', () => {
     const result = await batches.run(scope, batch.batchId);
 
     expect(result.batch.status).toBe('paused');
+    expect((await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId)).batch.status).toBe('paused');
     const run = context.database.prepare(`SELECT writer_agent_id, writer_takeover_count, writer_takeover_reason
       FROM chapter_pipeline_runs WHERE owner_id = ? AND book_id = ? AND chapter_id = ?`)
       .get(scope.ownerId, scope.bookId, batch.chapterIds[0]!) as { writer_agent_id: string; writer_takeover_count: number; writer_takeover_reason: string | null };
@@ -643,10 +683,18 @@ describe('单章完整创作流水线', () => {
     const scheduled = batches.scheduleExistingRevision(scope, chapterId, manuscript.manuscript_version_id, 'review_existing');
     const claimed = tasks.claimNext('review-existing-worker', 120_000)!;
     expect(claimed.taskId).toBe(scheduled.taskId);
-    const reviewed = await new ChapterPipelineService(
+    const reviewedOnly = await new ChapterPipelineService(
       context.database, context.dataDir, context.config.releaseId, ids, clock, takeoverFactory
     ).executeClaimed(scope, scheduled.taskId, 'review-existing-worker', undefined, {
       leaseToken: claimed.leaseToken!, attemptNo: claimed.currentAttemptNo
+    });
+    expect(reviewedOnly.status).toBe('paused');
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    const synthesisClaim = tasks.claimNext('review-existing-worker', 120_000)!;
+    const reviewed = await new ChapterPipelineService(
+      context.database, context.dataDir, context.config.releaseId, ids, clock, takeoverFactory
+    ).executeClaimed(scope, scheduled.taskId, 'review-existing-worker', undefined, {
+      leaseToken: synthesisClaim.leaseToken!, attemptNo: synthesisClaim.currentAttemptNo
     });
     expect(reviewed.status).toBe('awaiting_confirmation');
     const frozen = context.database.prepare(`SELECT writer_model_snapshot_id, fact_model_snapshot_id
@@ -736,7 +784,9 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, repairFactory);
     const batch = batches.scheduleNewChapters(scope, 1);
 
-    const result = await batches.run(scope, batch.batchId);
+    const reviewOnly = await batches.run(scope, batch.batchId);
+    expect(reviewOnly.results[0]).toEqual(expect.objectContaining({ status: 'paused', phase: 'review', rewriteCount: 1 }));
+    const result = await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId);
     expect(result.results[0]).toEqual(expect.objectContaining({ status: 'awaiting_confirmation', rewriteCount: 1 }));
     expect(context.database.prepare(`SELECT passed FROM hard_check_results WHERE owner_id = ? AND book_id = ? ORDER BY created_at, hard_check_id`)
       .all(scope.ownerId, scope.bookId)).toEqual([{ passed: 0 }, { passed: 1 }]);
@@ -775,7 +825,9 @@ describe('单章完整创作流水线', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock, toleranceFactory);
     const batch = batches.scheduleNewChapters(scope, 1);
 
-    const result = await batches.run(scope, batch.batchId);
+    const reviewOnly = await batches.run(scope, batch.batchId);
+    expect(reviewOnly.results[0]).toEqual(expect.objectContaining({ phase: 'review', status: 'paused', rewriteCount: 0 }));
+    const result = await finishPendingEditorSyntheses(context, scope, ids, clock, batches, batch.batchId);
     expect(result.results[0]).toEqual(expect.objectContaining({ phase: 'completed', status: 'awaiting_confirmation', rewriteCount: 0 }));
     const row = context.database.prepare(`SELECT passed, checks_json FROM hard_check_results
       WHERE owner_id = ? AND book_id = ? ORDER BY created_at DESC LIMIT 1`).get(scope.ownerId, scope.bookId) as { passed: number; checks_json: string };
@@ -809,6 +861,50 @@ describe('单章完整创作流水线', () => {
   });
 });
 
+async function finishPendingEditorSyntheses(
+  context: TestContext,
+  scope: { ownerId: string; bookId: string },
+  ids: SequenceIds,
+  clock: FixedClock | MutableClock,
+  batches: ChapterBatchService,
+  batchId: string
+): Promise<Awaited<ReturnType<ChapterBatchService['run']>>> {
+  let result: Awaited<ReturnType<ChapterBatchService['run']>> | undefined;
+  for (let round = 0; round < 3; round += 1) {
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    result = await batches.run(scope, batchId);
+    if (!result.results.some((item) => item.status === 'paused' && item.phase === 'review')) return result;
+  }
+  throw new Error(`三次作者主动主编汇总后仍停在审查阶段：${JSON.stringify(result)}`);
+}
+function requestPendingEditorSynthesis(
+  context: TestContext,
+  scope: { ownerId: string; bookId: string },
+  ids: SequenceIds,
+  clock: FixedClock | MutableClock
+): string {
+  const run = context.database.prepare(`SELECT r.chapter_id, r.task_id, r.review_panel_id, r.current_manuscript_version_id
+    FROM chapter_pipeline_runs r JOIN tasks t ON t.task_id = r.task_id
+    WHERE r.owner_id = ? AND r.book_id = ? AND r.phase = 'review' AND r.review_panel_id IS NOT NULL
+      AND t.status = 'paused' ORDER BY r.updated_at DESC LIMIT 1`)
+    .get(scope.ownerId, scope.bookId) as {
+      chapter_id: string; task_id: string; review_panel_id: string; current_manuscript_version_id: string;
+    } | undefined;
+  if (run === undefined) throw new Error('测试未找到等待作者触发主编汇总的章节');
+  const seats = (context.database.prepare(`SELECT COUNT(DISTINCT reviewer_role) AS count FROM review_reports
+    WHERE owner_id = ? AND book_id = ? AND review_panel_id = ? AND status = 'submitted'
+      AND reviewer_role IN ('fact', 'literary', 'experience')`)
+    .get(scope.ownerId, scope.bookId, run.review_panel_id) as { count: number }).count;
+  if (seats !== 3) throw new Error(`三席成功报告不足：${seats}/3`);
+  context.database.prepare(`INSERT INTO chapter_editor_synthesis_requests (
+    chapter_editor_synthesis_request_id, owner_id, book_id, chapter_id, task_id,
+    review_panel_id, manuscript_version_id, requested_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(ids.next(), scope.ownerId, scope.bookId, run.chapter_id, run.task_id,
+      run.review_panel_id, run.current_manuscript_version_id, clock.now().toISOString());
+  new TaskService(context.database, context.config.releaseId, clock).queue(scope, run.task_id);
+  return run.task_id;
+}
 function buildDistinctAnchorNovel(chapterNumber: number): string {
   const scenes = [
     ['冰窖失火后，林澈沿着熏黑砖缝寻找被移走的账册。', '守窖人抱着烫伤的手臂挡住门口，坚持先把困在暗格里的孩子救出来。', '梁上的冰柱忽然断裂，逼两人放弃最近的出口，从积水漫过的运盐道撤离。'],

@@ -95,6 +95,15 @@ export interface ChapterOutlineV2 {
     pendingThreads: string[];
   };
   chapterFunction: string;
+  storylineResponsibilities?: string[];
+  openingChapterResponsibility?: {
+    chapterNumber: 1 | 2 | 3;
+    responsibility: string;
+    protagonistAction: string;
+    pressureOrPull: string;
+    deliveredPayoff: string;
+    nextExpectation: string;
+  };
   openingState: string;
   requiredEndingState: string;
   cast: ChapterOutlineV2CastMember[];
@@ -253,6 +262,10 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
   const mustImplement = requiredTextList(content.mustImplement, '章纲必须实现', 1);
   const mustNotViolate = requiredTextList(content.mustNotViolate, '章纲不得违反', 1);
   const creativeFreedom = requiredTextList(content.creativeFreedom, '章纲自由创作区', 1);
+  const storylineResponsibilities = optionalTextList(content.storylineResponsibilities, '章纲故事线责任', 8);
+  const openingChapterResponsibility = content.openingChapterResponsibility === undefined
+    ? undefined
+    : parseOpeningChapterResponsibility(content.openingChapterResponsibility, chapterNumber);
 
   return {
     outlineSchema: 'chapter_outline_v2',
@@ -265,6 +278,8 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
     },
     ...(stageBoundary === undefined ? {} : { stageBoundary }),
     chapterFunction: requiredChapterText(content.chapterFunction, '本章功能'),
+    ...(storylineResponsibilities.length === 0 ? {} : { storylineResponsibilities }),
+    ...(openingChapterResponsibility === undefined ? {} : { openingChapterResponsibility }),
     openingState: requiredChapterText(content.openingState, '开场状态'),
     requiredEndingState: requiredChapterText(content.requiredEndingState, '必须结束状态'),
     cast,
@@ -291,6 +306,21 @@ export function parseChapterOutlineV2(content: Record<string, unknown>): Chapter
     allowedCandidates: optionalTextList(content.allowedCandidates, '允许新增候选', 8),
     creativeFreedom,
     ...(firstChapterLaunch === undefined ? {} : { firstChapterLaunch })
+  };
+}
+
+function parseOpeningChapterResponsibility(value: unknown, chapterNumber: number): NonNullable<ChapterOutlineV2['openingChapterResponsibility']> {
+  const item = requiredRecord(value, '首卷前三章动态责任格式无效');
+  if (!Number.isInteger(item.chapterNumber) || Number(item.chapterNumber) !== chapterNumber || chapterNumber > 3) {
+    throw new Error('首卷前三章动态责任必须绑定到对应的第一至第三章');
+  }
+  return {
+    chapterNumber: chapterNumber as 1 | 2 | 3,
+    responsibility: requiredChapterText(item.responsibility, '本章开局责任'),
+    protagonistAction: requiredChapterText(item.protagonistAction, '本章主角行动'),
+    pressureOrPull: requiredChapterText(item.pressureOrPull, '本章压力或拉力'),
+    deliveredPayoff: requiredChapterText(item.deliveredPayoff, '本章有效回报'),
+    nextExpectation: requiredChapterText(item.nextExpectation, '本章下一期待')
   };
 }
 

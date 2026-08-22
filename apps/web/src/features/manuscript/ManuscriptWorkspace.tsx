@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { inspectAuthorStoryText, toAuthorFacingText } from '../../app/author-presentation';
 import {
@@ -15,6 +15,7 @@ import {
   XIcon
 } from '@phosphor-icons/react';
 import {
+  alignChapterOutlineToManuscript,
   analyzeContinuationImport,
   confirmContinuationImport,
   createManuscriptChapter,
@@ -26,6 +27,7 @@ import {
   fetchVolumeChapters,
   finalizeChapter,
   previewContinuationImport,
+  requestChapterReviewSynthesis,
   rewriteChapter,
   saveOwnerManuscript,
   startChallengerReview,
@@ -39,6 +41,7 @@ import {
 } from '../../lib/api/client';
 import { StructuredContent, authorityLabel, isRecord } from '../shared/StructuredContent';
 import { ImeInput } from '../shared/ImeSafeField';
+import { AiNodePanel } from '../core-workflow/V6Shared';
 
 export function ManuscriptWorkspace({ workspace, selectedChapterId, chapter, reader, detail, onSelectChapter, onChanged, onOpenPlanning }: {
   workspace: WorkspaceData | null;
@@ -365,6 +368,9 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
   const [rewriteInstruction, setRewriteInstruction] = useState('保留已确认事实和人物声音，重新组织本章正文。');
   const [busyAction, setBusyAction] = useState<'save' | 'rewrite' | 'review' | 'reading' | 'delete' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [alignmentOpen, setAlignmentOpen] = useState(false);
+  const [alignmentNote, setAlignmentNote] = useState('');
+  const [alignmentBusy, setAlignmentBusy] = useState(false);
   const singleChapterFileRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     setDraft(reader?.content ?? '');
@@ -454,6 +460,41 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
     ? genericChapterTitle
     : `${genericChapterTitle} · ${chapter.title.trim()}`;
   const storyPresentation = reader === null ? null : inspectAuthorStoryText(reader.content);
+  const writingOrder = detail?.production.writingOrders[0];
+  const confirmedOutline = parseRecordJson(writingOrder?.outline_content_json);
+  const writingSource = useMemo(() => ({
+    sourceType: 'chapter_work_order', sourceId: String(writingOrder?.writing_order_id ?? chapter.chapterId),
+    content: JSON.stringify(writingOrder ?? { chapterNumber: chapter.chapterNumber, title: chapter.title }),
+    reason: '本章已确认章纲和冻结写作责任；所有主笔候选使用同一资料包', priority: 100,
+    ...(typeof writingOrder?.version === 'number' ? { version: writingOrder.version } : {})
+  }), [chapter.chapterId, chapter.chapterNumber, chapter.title, writingOrder]);
+  const useWriterCandidate = (content: Record<string, unknown>): void => {
+    const manuscript = [content.manuscript, content.text, content.content].find((value) => typeof value === 'string');
+    if (typeof manuscript !== 'string' || manuscript.trim().length === 0) {
+      setNotice('这份候选没有可采用的完整正文，已保留供查看，可换成员或重新设计。');
+      return;
+    }
+    setDraft(manuscript);
+    setNotice('已把这份完整候选放入正文编辑器；其他主笔候选仍保留，保存前可以自由修改。');
+  };
+  const alignmentReports = detail?.production.reviewReports.filter((row) => baseVersionId !== null
+    && String(row.manuscript_version_id) === baseVersionId).map((row) => parseRecordJson(row.report_json)).filter(isRecord) ?? [];
+  const alignmentIssues = alignmentReports.flatMap((report) => Array.isArray(report.issues) ? report.issues.filter(isRecord) : []);
+  const hasOutlineConflict = alignmentIssues.some((issue) => /冲突|矛盾|违反|提前揭示/u.test(String(issue.issueType ?? '') + String(issue.requiredAction ?? '')));
+  const needsSupplement = alignmentIssues.some((issue) => /补充|补写|交代|说明/u.test(String(issue.requiredAction ?? '')));
+  const hasReasonableDeviation = !hasOutlineConflict && alignmentIssues.length > 0;
+  const alignmentReady = alignmentReports.length > 0 && !hasOutlineConflict && !needsSupplement && !hasReasonableDeviation;
+  const updateOutlineFromActual = async (): Promise<void> => {
+    if (baseVersionId === null || alignmentBusy) return;
+    setAlignmentBusy(true); setNotice(null);
+    try {
+      const result = await alignChapterOutlineToManuscript(bookId, chapter.chapterId, baseVersionId, alignmentNote);
+      setAlignmentOpen(false); setAlignmentNote('');
+      setNotice(`${result.reason}：${result.impactPreview.join('；')}。`);
+      onChanged();
+    } catch (reason) { setNotice(authorErrorFromUnknown(reason, '章纲新版本没有创建成功')); }
+    finally { setAlignmentBusy(false); }
+  };
   return (
     <article className="manuscript-view">
       {!settled && <input ref={singleChapterFileRef} className="visually-hidden" type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file !== undefined) void readSingleChapter(file); }} />}
@@ -468,6 +509,27 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
         </div>}
       </header>
       {reader === null ? <div className="text-skeleton" aria-label="正在加载正文" /> : <>
+        {confirmedOutline !== null && <aside className="confirmed-outline-reference" aria-label="当前确认章纲">
+          <header><small>写作与审查共同基准</small><strong>当前确认章纲</strong></header>
+          <dl><div><dt>本章目标</dt><dd>{String(confirmedOutline.chapterFunction ?? '按确认章纲完成本章责任')}</dd></div>
+            <div><dt>开场</dt><dd>{String(confirmedOutline.openingState ?? '承接上一章实际结算')}</dd></div>
+            <div><dt>必须到达</dt><dd>{String(confirmedOutline.requiredEndingState ?? '形成可验证的新状态')}</dd></div>
+            {Array.isArray(confirmedOutline.storylineResponsibilities) && <div><dt>故事线责任</dt><dd><StructuredContent value={confirmedOutline.storylineResponsibilities} /></dd></div>}
+            <div><dt>必须实现</dt><dd><StructuredContent value={confirmedOutline.mustImplement ?? []} /></dd></div>
+            <div><dt>禁止提前或违反</dt><dd><StructuredContent value={confirmedOutline.mustNotViolate ?? []} /></dd></div></dl>
+        </aside>}
+        {!settled && <AiNodePanel bookId={bookId} nodeKind="chapter_draft" objectId={chapter.chapterId} roleKey="writer"
+          title="主笔完成本章正文" taskDescription="按照已确认章纲和本卷表达方案，独立写出一份完整正文候选；不得自动拼接其他候选，也不得写入结算。"
+          source={writingSource} templateVersion="chapter-draft-v6" onUseCandidate={useWriterCandidate} />}        {!settled && hasVersion && <section className="chapter-outline-alignment" aria-label="章纲执行对照">
+          <header><div><small>正文 × 已确认章纲</small><h3>章纲执行对照</h3></div><button type="button" className="secondary-button" disabled={changed || alignmentBusy} title={changed ? '先保存当前正文修改' : '创建章纲新版本并要求正文重新审查'} onClick={() => setAlignmentOpen((value) => !value)}>保留正文并更新章纲</button></header>
+          <div>{[
+            ['已覆盖', alignmentReady, alignmentReports.length === 0 ? '三席审查后显示覆盖证据' : '未发现缺项或冲突'],
+            ['需补充', needsSupplement, needsSupplement ? '报告指出正文还需补写章纲责任' : '当前没有补写要求'],
+            ['合理偏离', hasReasonableDeviation, hasReasonableDeviation ? '存在非硬冲突差异，交由作者决定' : '当前没有待确认的合理偏离'],
+            ['冲突', hasOutlineConflict, hasOutlineConflict ? '事实或硬边界报告指出冲突，必须处理' : '当前没有硬冲突证据']
+          ].map(([label, active, description]) => <article key={String(label)} className={active ? 'active' : ''}><strong>{String(label)}</strong><span>{String(description)}</span></article>)}</div>
+          {alignmentOpen && <div className="chapter-outline-adjustment"><label>正文实际如何改变了章纲<textarea rows={3} value={alignmentNote} onChange={(event) => setAlignmentNote(event.target.value)} placeholder="例如：保留人物选择，但冲突发生地点改到码头；后续按正文实际地点继续。" /></label><p>将创建新章纲版本，原因固定标记为“根据正文实际调整”；旧章纲永久保留，当前正文需重新三席审查。</p><div><button type="button" className="secondary-button" onClick={() => setAlignmentOpen(false)}>取消</button><button type="button" className="primary-button" disabled={alignmentNote.trim().length < 4 || alignmentBusy} onClick={() => void updateOutlineFromActual()}>{alignmentBusy ? '创建中…' : '创建章纲新版本'}</button></div></div>}
+        </section>}
         {settled ? storyPresentation?.safeToPresent === true
           ? <div className="novel-text">{storyPresentation.content}</div>
           : <section className="manuscript-quality-warning" role="status">
@@ -481,7 +543,7 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '生成一份待确认的优化稿，不覆盖原文'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', expressionInstruction)}><MagicWandIcon />优化表达</button>
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '减少模板化AI腔，不故意制造错误'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('rewrite', naturalInstruction)}>自然化（去AI腔）</button>
           <button className="secondary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '填写本章专属优化要求'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setRewriteOpen((value) => !value)}>自定义优化</button>
-          <button className="primary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '交给三位不同模型点评；是否定稿仍由作者确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('review')}>{busyAction === 'review' ? '提交中…' : 'AI点评'}</button>
+          <button className="primary-button" type="button" title={!hasVersion ? '先保存作者原文' : changed ? '请先保存当前修改' : '交给事实、文学、体验三席独立点评；是否定稿仍由作者确认'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => void perform('review')}>{busyAction === 'review' ? '提交中…' : 'AI点评'}</button>
           <button className="danger-text-button" type="button" title={!hasVersion ? '本章还没有已保存正文' : changed ? '请先保存或撤销当前未保存修改' : '从当前章节撤下正文，历史稿仍保留'} disabled={!editable || !hasVersion || changed || busyAction !== null} onClick={() => setDeleteOpen(true)}><TrashIcon />删除正文</button>
         </div>}
         {rewriteOpen && <div className="rewrite-panel"><label>想怎么改<textarea rows={3} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label><p>AI只会另写一份待确认稿，你的原文和以前的稿件都会保留。</p><div><button className="secondary-button" type="button" onClick={() => setRewriteOpen(false)}>取消</button><button className="primary-button" type="button" disabled={!rewriteInstruction.trim() || busyAction !== null} onClick={() => void perform('rewrite')}>{busyAction === 'rewrite' ? '已提交…' : '生成修改版'}</button></div></div>}
@@ -493,27 +555,91 @@ function ManuscriptView({ bookId, chapter, reader, detail, onChanged }: {
             : '你的原文已经保存。AI修改会另存一份稿件，不会覆盖原文；你看过以后再决定是否定稿。'}</p>}
         {notice !== null && <p className="binding-status" role="status">{notice}</p>}
       </>}
-      {detail !== null && <ChapterProductionEvidence detail={detail} bookId={bookId} chapterId={chapter.chapterId} />}
+      {detail !== null && <ChapterProductionEvidence detail={detail} bookId={bookId} chapterId={chapter.chapterId} manuscriptVersionId={baseVersionId} manuscriptContent={reader?.content ?? draft} onChanged={onChanged} />}
     </article>
   );
 }
 
-function ChapterProductionEvidence({ detail, bookId, chapterId }: { detail: Awaited<ReturnType<typeof fetchChapterDetail>>; bookId: string; chapterId: string }): React.JSX.Element {
+function ChapterProductionEvidence({ detail, bookId, chapterId, manuscriptVersionId, manuscriptContent, onChanged }: {
+  detail: Awaited<ReturnType<typeof fetchChapterDetail>>;
+  bookId: string;
+  chapterId: string;
+  manuscriptVersionId: string | null;
+  manuscriptContent: string;
+  onChanged: () => void;
+}): React.JSX.Element {
+  type ReviewSeat = 'fact' | 'literary' | 'experience';
+  const seats: Array<{ key: ReviewSeat; label: string; roleKey: 'fact_reviewer' | 'literary_reviewer' | 'experience_reviewer' }> = [
+    { key: 'fact', label: '事实席', roleKey: 'fact_reviewer' },
+    { key: 'literary', label: '文学席', roleKey: 'literary_reviewer' },
+    { key: 'experience', label: '体验席', roleKey: 'experience_reviewer' }
+  ];
+  const [activeSeat, setActiveSeat] = useState<ReviewSeat>('fact');
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [synthesisBusy, setSynthesisBusy] = useState(false);
+  const [synthesisNotice, setSynthesisNotice] = useState<string | null>(null);
   const order = detail.production.writingOrders[0];
-  const reports = detail.production.reviewReports.map((row) => ({ row, report: parseRecordJson(row.report_json) })).filter((item) => item.report !== null) as Array<{ row: Record<string, unknown>; report: Record<string, unknown> }>;
-  if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>本章写作记录</h3><p>本章还没有正式写作要求和三位模型的点评。</p><ChallengerReviewCard bookId={bookId} chapterId={chapterId} /></section>;
-  return <section className="production-evidence"><header><h3>写作要求与AI点评</h3><p>三位模型点评的是同一份正文。AI腔检查会指出具体段落，不是在判断作者是不是AI；内容风险提示也不能代替法律或平台结论。</p></header>
+  const reports = detail.production.reviewReports
+    .filter((row) => manuscriptVersionId === null || String(row.manuscript_version_id) === manuscriptVersionId)
+    .map((row) => ({ row, report: parseRecordJson(row.report_json) }))
+    .filter((item) => item.report !== null) as Array<{ row: Record<string, unknown>; report: Record<string, unknown> }>;
+  const activeReports = reports.filter(({ row }) => String(row.reviewer_role) === activeSeat);
+  const activeReport = activeReports.find(({ row }) => String(row.review_report_id) === activeReportId) ?? activeReports[0] ?? null;
+  const completedSeats = new Set(reports.filter(({ row }) => String(row.status) === 'submitted')
+    .map(({ row }) => String(row.reviewer_role)).filter((role) => ['fact', 'literary', 'experience'].includes(role))).size;
+  const editorSynthesis = (detail.production.editorSyntheses ?? [])
+    .find((row) => manuscriptVersionId !== null && String(row.manuscript_version_id) === manuscriptVersionId);
+  const synthesisRequest = (detail.production.synthesisRequests ?? [])
+    .find((row) => manuscriptVersionId !== null && String(row.manuscript_version_id) === manuscriptVersionId);
+  const activeSeatDefinition = seats.find((seat) => seat.key === activeSeat)!;
+  const reviewSource = useMemo(() => ({
+    sourceType: 'current_manuscript', sourceId: manuscriptVersionId ?? chapterId, content: manuscriptContent,
+    reason: '作者当前选择的完整正文候选；本席成员必须独立审查同一版本', priority: 100
+  }), [chapterId, manuscriptContent, manuscriptVersionId]);
+  const requestSynthesis = async (): Promise<void> => {
+    if (manuscriptVersionId === null || synthesisBusy) return;
+    setSynthesisBusy(true); setSynthesisNotice(null);
+    try {
+      await requestChapterReviewSynthesis(bookId, chapterId, manuscriptVersionId);
+      setSynthesisNotice('已由作者交给主编汇总；三席原报告会完整保留。');
+      onChanged();
+    } catch (reason) { setSynthesisNotice(authorErrorFromUnknown(reason, '主编汇总没有启动成功')); }
+    finally { setSynthesisBusy(false); }
+  };
+  if (order === undefined && reports.length === 0) return <section className="production-evidence empty"><h3>本章写作记录</h3><p>本章还没有正式写作要求和三席报告。</p><ChallengerReviewCard bookId={bookId} chapterId={chapterId} /></section>;
+  return <section className="production-evidence chapter-review-workbench"><header><h3>写作要求与三席审查</h3><p>每位成员独立阅读同一完整正文。报告不会自动合并，也不会写入章节事实；只有你主动点击后，主编才会开始汇总。</p></header>
     {order !== undefined && <article className="writing-order-card"><span>本章写作要求</span><strong>{String(order.objective ?? '本章要完成什么')}</strong><small>写作要求已确认</small></article>}
-    <div className="review-evidence-grid">{reports.map(({ row, report }) => {
-      const aiStyle = isRecord(report.aiStyle) ? report.aiStyle : null;
-      const political = isRecord(report.politicalRisk) ? report.politicalRisk : null;
-      const sexual = isRecord(report.sexualContentRisk) ? report.sexualContentRisk : null;
-      return <article key={String(row.review_report_id)}><header><span>{reviewerRoleLabel(String(row.reviewer_role))}</span><em>{authorityLabel(String(row.status ?? 'completed'))}</em></header><h4>{String(report.summary ?? '已完成结构化点评')}</h4><dl><div><dt>结论</dt><dd>{reviewVerdictLabel(String(report.verdict ?? 'pass'))}</dd></div>{aiStyle !== null && <><div><dt>AI腔风险</dt><dd>{String(aiStyle.riskScore ?? 0)}/100</dd></div><div><dt>证据段落</dt><dd>{String(aiStyle.flaggedParagraphCount ?? 0)}/{String(aiStyle.totalParagraphCount ?? 0)}（{formatPercent(Number(aiStyle.flaggedParagraphRatio ?? 0))}）</dd></div></>}{political !== null && <div><dt>政治风险</dt><dd>{riskLevelLabel(String(political.level ?? 'none'))}</dd></div>}{sexual !== null && <div><dt>情色风险</dt><dd>{riskLevelLabel(String(sexual.level ?? 'none'))}</dd></div>}</dl>{Array.isArray(report.issues) && report.issues.length > 0 && <details><summary>查看定位问题 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}</article>;
-    })}</div>
+    <div className="chapter-review-layout">
+      <div className="chapter-review-manuscript"><strong>当前正文</strong><div className="novel-text">{manuscriptContent || '正文尚未载入'}</div></div>
+      <div className="chapter-review-reports">
+        <div className="review-seat-tabs" role="tablist" aria-label="三席审查报告">{seats.map((seat) => <button key={seat.key} type="button" role="tab" aria-selected={activeSeat === seat.key} onClick={() => { setActiveSeat(seat.key); setActiveReportId(null); }}>{seat.label}<small>{reports.filter(({ row }) => String(row.reviewer_role) === seat.key).length}</small></button>)}</div>
+        <div className="review-member-tabs" aria-live="polite">{activeReports.length === 0 ? <p>本席还没有成功报告，可启动一名或多名成员独立审查。</p> : <>
+          <div className="review-member-tablist" role="tablist" aria-label={`${activeSeatDefinition.label}成员报告`}>{activeReports.map(({ row }, index) => {
+            const reportId = String(row.review_report_id); const selected = activeReport !== null && String(activeReport.row.review_report_id) === reportId;
+            return <button key={reportId} type="button" role="tab" aria-selected={selected} onClick={() => setActiveReportId(reportId)}>成员 {index + 1}</button>;
+          })}</div>
+          {activeReport !== null && (({ row, report }) => {
+          const aiStyle = isRecord(report.aiStyle) ? report.aiStyle : null;
+          const political = isRecord(report.politicalRisk) ? report.politicalRisk : null;
+          const sexual = isRecord(report.sexualContentRisk) ? report.sexualContentRisk : null;
+          return <article key={String(row.review_report_id)}><header><span>{reviewerRoleLabel(String(row.reviewer_role))}</span><em>{authorityLabel(String(row.status ?? 'submitted'))}</em></header><h4>{String(report.summary ?? '已完成结构化点评')}</h4><dl><div><dt>结论</dt><dd>{reviewVerdictLabel(String(report.verdict ?? 'pass'))}</dd></div>{aiStyle !== null && <><div><dt>AI腔风险</dt><dd>{String(aiStyle.riskScore ?? 0)}/100</dd></div><div><dt>证据段落</dt><dd>{String(aiStyle.flaggedParagraphCount ?? 0)}/{String(aiStyle.totalParagraphCount ?? 0)}（{formatPercent(Number(aiStyle.flaggedParagraphRatio ?? 0))}）</dd></div></>}{political !== null && <div><dt>政治风险</dt><dd>{riskLevelLabel(String(political.level ?? 'none'))}</dd></div>}{sexual !== null && <div><dt>情色风险</dt><dd>{riskLevelLabel(String(sexual.level ?? 'none'))}</dd></div>}</dl>{Array.isArray(report.issues) && report.issues.length > 0 && <details><summary>查看定位问题 {report.issues.length}</summary><StructuredContent value={report.issues} /></details>}</article>;
+        })(activeReport)}</>}</div>
+        {manuscriptVersionId !== null && manuscriptContent.trim().length > 0 && <AiNodePanel bookId={bookId}
+          nodeKind={`chapter_review_${activeSeat}`} objectId={`${chapterId}:${manuscriptVersionId}:${activeSeat}`}
+          roleKey={activeSeatDefinition.roleKey} title={`增加${activeSeatDefinition.label}成员`}
+          taskDescription={`独立审查当前完整正文，先给结论与摘要，细节定位默认折叠；不得输出思维链或写入正史。`}
+          source={reviewSource} templateVersion="chapter-review-v6" />}
+      </div>
+    </div>
+    <footer className="chapter-review-synthesis"><span>三席成功 {completedSeats}/3</span>{editorSynthesis !== undefined
+      ? <strong><CheckCircleIcon weight="fill" />主编汇总已完成，三席原报告仍保留</strong>
+      : synthesisRequest !== undefined
+        ? <strong><ClockCountdownIcon />主编正在汇总</strong>
+        : <button type="button" className="primary-button" disabled={completedSeats < 3 || manuscriptVersionId === null || synthesisBusy} title={completedSeats < 3 ? '每席至少需要一份成功报告' : '只在你主动点击后调用主编'} onClick={() => void requestSynthesis()}>{synthesisBusy ? '提交中…' : '交给主编汇总'}</button>}</footer>
+    {synthesisNotice !== null && <p className="binding-status" role="status">{synthesisNotice}</p>}
     <ChallengerReviewCard bookId={bookId} chapterId={chapterId} />
   </section>;
 }
-
 /** 挑剔读者妙玉的按需找茬卡（DEC-CURRENT-067）：不进入固定审校，结果只供参考，不影响定稿。 */
 function ChallengerReviewCard({ bookId, chapterId }: { bookId: string; chapterId: string }): React.JSX.Element {
   const [review, setReview] = useState<ChallengerReviewData | null>(null);

@@ -2079,18 +2079,30 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     const facts = canon.listFacts(scope, request.params.chapterId);
     const reviews = database.prepare(`SELECT * FROM review_rounds WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY round_number`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
-    const writingOrders = database.prepare(`SELECT * FROM writing_orders WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY version DESC`)
+    const writingOrders = database.prepare(`SELECT w.*, v.content_json AS outline_content_json
+      FROM writing_orders w LEFT JOIN artifact_versions v
+        ON v.artifact_version_id = w.chapter_outline_version_id AND v.owner_id = w.owner_id AND v.book_id = w.book_id
+      WHERE w.owner_id = ? AND w.book_id = ? AND w.chapter_id = ? ORDER BY w.version DESC`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
     const reviewPanels = database.prepare(`SELECT * FROM review_panels WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY review_round`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
-    const reviewReports = database.prepare(`SELECT r.*, m.provider, m.model_id FROM review_reports r
+    const reviewReports = database.prepare(`SELECT r.* FROM review_reports r
       JOIN review_panels p ON p.review_panel_id = r.review_panel_id
-      JOIN model_config_snapshots m ON m.model_snapshot_id = r.model_snapshot_id
       WHERE r.owner_id = ? AND r.book_id = ? AND p.chapter_id = ? ORDER BY p.review_round, r.reviewer_role`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
     const approvalGates = database.prepare(`SELECT * FROM chapter_approval_gates WHERE owner_id = ? AND book_id = ? AND chapter_id = ? ORDER BY created_at DESC`)
       .all(scope.ownerId, scope.bookId, request.params.chapterId);
-    return success({ chapter, manuscripts, facts, reviews, production: { writingOrders, reviewPanels, reviewReports, approvalGates } }, request.id);
+    const editorSyntheses = database.prepare(`SELECT s.* FROM editor_review_syntheses s
+      JOIN review_panels p ON p.review_panel_id = s.review_panel_id
+      WHERE s.owner_id = ? AND s.book_id = ? AND p.chapter_id = ? ORDER BY s.created_at`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    const synthesisRequests = database.prepare(`SELECT r.*, t.status AS task_status FROM chapter_editor_synthesis_requests r
+      JOIN tasks t ON t.task_id = r.task_id AND t.owner_id = r.owner_id AND t.book_id = r.book_id
+      WHERE r.owner_id = ? AND r.book_id = ? AND r.chapter_id = ? ORDER BY r.requested_at`)
+      .all(scope.ownerId, scope.bookId, request.params.chapterId);
+    return success({ chapter, manuscripts, facts, reviews, production: {
+      writingOrders, reviewPanels, reviewReports, approvalGates, editorSyntheses, synthesisRequests
+    } }, request.id);
   });
 
   app.get<{ Params: { bookId: string; writingOrderId: string } }>('/api/v1/books/:bookId/writing-orders/:writingOrderId', async (request) => {
@@ -2228,6 +2240,78 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
     }
   );
 
+  app.post<{ Params: { bookId: string; chapterId: string }; Body: { manuscriptVersionId: string } }>(
+    '/api/v1/books/:bookId/chapters/:chapterId/review-synthesis', async (request) => {
+      const scope = { ...owner(request), bookId: request.params.bookId };
+      const run = database.prepare(`SELECT r.task_id, r.review_panel_id, t.status AS task_status
+        FROM chapter_pipeline_runs r JOIN tasks t
+          ON t.task_id = r.task_id AND t.owner_id = r.owner_id AND t.book_id = r.book_id
+        WHERE r.owner_id = ? AND r.book_id = ? AND r.chapter_id = ?
+          AND r.current_manuscript_version_id = ? AND r.phase = 'review' AND r.review_panel_id IS NOT NULL
+        ORDER BY r.updated_at DESC LIMIT 1`).get(
+          scope.ownerId, scope.bookId, request.params.chapterId, request.body.manuscriptVersionId
+        ) as { task_id: string; review_panel_id: string; task_status: string } | undefined;
+      if (run === undefined) throw new DomainError(errorCodes.operationIncomplete,
+        '三席报告尚未全部完成，暂时不能交给主编汇总', {}, false, 409);
+      const completedSeats = (database.prepare(`SELECT COUNT(DISTINCT reviewer_role) AS count FROM review_reports
+        WHERE owner_id = ? AND book_id = ? AND review_panel_id = ?
+          AND reviewer_role IN ('fact', 'literary', 'experience') AND status = 'submitted'`)
+        .get(scope.ownerId, scope.bookId, run.review_panel_id) as { count: number }).count;
+      if (completedSeats !== 3) throw new DomainError(errorCodes.operationIncomplete,
+        '事实、文学、体验三席都至少需要一份成功报告', { completedSeats }, false, 409);
+      const result = new UnitOfWork(database).run(() => {
+        database.prepare(`INSERT INTO chapter_editor_synthesis_requests (
+          chapter_editor_synthesis_request_id, owner_id, book_id, chapter_id, task_id,
+          review_panel_id, manuscript_version_id, requested_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(owner_id, book_id, review_panel_id) DO NOTHING`).run(
+          ids.next(), scope.ownerId, scope.bookId, request.params.chapterId, run.task_id,
+          run.review_panel_id, request.body.manuscriptVersionId, clock.now().toISOString()
+        );
+        if (run.task_status === 'paused') tasks.queue(scope, run.task_id);
+        return { taskId: run.task_id, reviewPanelId: run.review_panel_id, status: 'queued' as const };
+      });
+      return success(result, request.id);
+    }
+  );  app.post<{ Params: { bookId: string; chapterId: string }; Body: {
+    manuscriptVersionId: string; adjustmentNote: string;
+  } }>('/api/v1/books/:bookId/chapters/:chapterId/outline-alignment', async (request) => {
+    const scope = { ...owner(request), bookId: request.params.bookId };
+    const note = request.body.adjustmentNote?.trim();
+    if (note.length < 4 || note.length > 2_000) throw new DomainError('VALIDATION_ERROR', '请用4至2000字说明正文实际如何调整了章纲', {}, false, 400);
+    const source = database.prepare(`SELECT v.artifact_id, v.artifact_version_id, v.content_json, a.active_version_id
+      FROM writing_orders w JOIN artifact_versions v ON v.artifact_version_id = w.chapter_outline_version_id
+      JOIN artifacts a ON a.artifact_id = v.artifact_id AND a.owner_id = w.owner_id AND a.book_id = w.book_id
+      JOIN manuscript_versions m ON m.manuscript_version_id = ? AND m.owner_id = w.owner_id
+        AND m.book_id = w.book_id AND m.chapter_id = w.chapter_id
+      WHERE w.owner_id = ? AND w.book_id = ? AND w.chapter_id = ?
+      ORDER BY w.version DESC LIMIT 1`).get(
+        request.body.manuscriptVersionId, scope.ownerId, scope.bookId, request.params.chapterId
+      ) as { artifact_id: string; artifact_version_id: string; content_json: string; active_version_id: string | null } | undefined;
+    if (source === undefined) throw new DomainError(errorCodes.operationIncomplete,
+      '当前正文缺少可追溯的冻结章纲，不能更新章纲', {}, false, 409);
+    const now = clock.now().toISOString();
+    const result = new UnitOfWork(database).run(() => {
+      const previous = JSON.parse(source.content_json) as Record<string, unknown>;
+      const version = artifacts.addVersion(scope, source.artifact_id, {
+        ...previous,
+        adjustmentReason: '根据正文实际调整',
+        actualAdjustment: { manuscriptVersionId: request.body.manuscriptVersionId, note, adjustedAt: now }
+      }, source.active_version_id ?? source.artifact_version_id);
+      const active = artifacts.select(scope, version.artifactId, version.artifactVersionId);
+      database.prepare(`UPDATE confirmations SET status = 'superseded', resolved_at = ?
+        WHERE owner_id = ? AND book_id = ? AND target_type = 'manuscript' AND target_id = ? AND status = 'pending'`)
+        .run(now, scope.ownerId, scope.bookId, request.body.manuscriptVersionId);
+      return {
+        outlineArtifactId: active.artifactId,
+        previousOutlineVersionId: source.artifact_version_id,
+        outlineVersionId: active.artifactVersionId,
+        reason: '根据正文实际调整' as const,
+        impactPreview: ['旧章纲永久保留', '新章纲成为后续规划基准', '当前正文必须重新提交三席审查']
+      };
+    });
+    return success(result, request.id);
+  });
   app.post<{ Params: { bookId: string }; Body: { entityType: string; canonicalName: string; aliases?: string[] } }>('/api/v1/books/:bookId/entities', async (request) => {
     return success({ entityId: canon.createEntity({ ...owner(request), bookId: request.params.bookId }, request.body) }, request.id);
   });
@@ -2253,10 +2337,34 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number } }>('/api/v1/books/:bookId/confirmations/:confirmationId/accept', async (request) => {
     const scope = { ...owner(request), bookId: request.params.bookId };
-    const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
-      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
+    const target = database.prepare(`SELECT c.target_type, g.chapter_id
+      FROM confirmations c LEFT JOIN chapter_approval_gates g
+        ON g.confirmation_id = c.confirmation_id AND g.owner_id = c.owner_id AND g.book_id = c.book_id
+      WHERE c.confirmation_id = ? AND c.owner_id = ? AND c.book_id = ?`)
+      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string; chapter_id: string | null } | undefined;
     if (target?.target_type === 'manuscript') {
-      return success({ confirmationId: request.params.confirmationId, ...chapterApprovals.resolve(scope, request.params.confirmationId, request.body.expectedCanonRevision, true) }, request.id);
+      const resolution = chapterApprovals.resolve(scope, request.params.confirmationId, request.body.expectedCanonRevision, true);
+      let nextOutlineTaskId: string | null = null;
+      if (resolution.status === 'settled') {
+        // 历史书可能早于新分卷流程表；正文照常结算，只有存在新流程时才自动续编下一章纲。
+        const hasPlanningWorkflow = database.prepare(`SELECT 1 FROM creation_workflow_states
+          WHERE owner_id = ? AND book_id = ?`).get(scope.ownerId, scope.bookId) !== undefined;
+        if (hasPlanningWorkflow) {
+          const workflow = volumePlans.workflow(scope);
+          if (workflow.stage === 'chapter_outlines_in_progress' && workflow.activeEventRef !== null) {
+            const sequence = eventChapterOutlines.get(scope, workflow.activeEventRef.id);
+            const nextOutline = sequence?.outlines.find((item) => !['frozen','settled'].includes(item.status)) ?? null;
+            if (sequence !== null && nextOutline !== null && nextOutline.versions.length === 0) {
+              nextOutlineTaskId = eventChapterGenerations.startDetails(scope, workflow.activeEventRef.id, {
+                count: 1, expectedSequenceRevision: sequence.revision, expectedWorkflowVersion: workflow.planningVersion,
+                idempotencyKey: `auto-next-outline:${request.params.confirmationId}:${nextOutline.outlineId}`
+              }).taskId;
+            }
+          }
+        }
+      }
+      return success({ confirmationId: request.params.confirmationId, ...resolution,
+        settledChapterId: resolution.status === 'settled' ? target.chapter_id : null, nextOutlineTaskId }, request.id);
     }
     canon.resolveConfirmation(scope, request.params.confirmationId, request.body.expectedCanonRevision, true);
     return success({ confirmationId: request.params.confirmationId, status: 'accepted' }, request.id);
@@ -2264,8 +2372,11 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
 
   app.post<{ Params: { bookId: string; confirmationId: string }; Body: { expectedCanonRevision: number; note?: string } }>('/api/v1/books/:bookId/confirmations/:confirmationId/reject', async (request) => {
     const scope = { ...owner(request), bookId: request.params.bookId };
-    const target = database.prepare(`SELECT target_type FROM confirmations WHERE confirmation_id = ? AND owner_id = ? AND book_id = ?`)
-      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string } | undefined;
+    const target = database.prepare(`SELECT c.target_type, g.chapter_id
+      FROM confirmations c LEFT JOIN chapter_approval_gates g
+        ON g.confirmation_id = c.confirmation_id AND g.owner_id = c.owner_id AND g.book_id = c.book_id
+      WHERE c.confirmation_id = ? AND c.owner_id = ? AND c.book_id = ?`)
+      .get(request.params.confirmationId, scope.ownerId, scope.bookId) as { target_type: string; chapter_id: string | null } | undefined;
     if (target?.target_type === 'manuscript') {
       return success({ confirmationId: request.params.confirmationId, ...chapterApprovals.resolve(scope, request.params.confirmationId, request.body.expectedCanonRevision, false, request.body.note ?? null) }, request.id);
     }

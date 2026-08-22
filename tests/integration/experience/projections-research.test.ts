@@ -4,7 +4,7 @@ import { NarrativeProjectionService } from '../../../apps/api/src/application/pr
 import { ResearchService } from '../../../apps/api/src/application/research/research-service.js';
 import { ArtifactService } from '../../../apps/api/src/application/artifacts/artifact-service.js';
 import { LongformContinuityRepository } from '../../../apps/api/src/infrastructure/db/repositories/longform-continuity-repository.js';
-import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting, requestEditorSynthesisUntilConfirmation } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('叙事投影与研究候选边界', () => {
@@ -96,6 +96,7 @@ describe('叙事投影与研究候选边界', () => {
     const batches = new ChapterBatchService(context.database, context.dataDir, context.config.releaseId, ids, clock);
     const batch = batches.scheduleNewChapters(scope, 1);
     await batches.run(scope, batch.batchId);
+    await requestEditorSynthesisUntilConfirmation(context, scope, ids, clock, () => batches.run(scope, batch.batchId));
     approvePendingManuscript(context, scope, ids, clock);
     const chapter = context.database.prepare(`
       SELECT chapter_id FROM chapters WHERE owner_id = ? AND book_id = ? AND chapter_number = 1

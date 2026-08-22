@@ -21,14 +21,18 @@ import {
 import { useMembershipGate } from '../shared/membership-gate';
 import { SettingGapPanel } from './SettingGapPanel';
 import { AgentAvatar } from '../shared/AgentAvatar';
+import { fetchCoreWorkflow } from '../core-workflow/v6-api';
 
 interface EventWorkspaceSnapshot {
   workflow: Awaited<ReturnType<typeof fetchCreationWorkflow>>;
   plan: VolumePlanData | null;
   templates: Awaited<ReturnType<typeof fetchPlanningTemplates>>;
+  core: Awaited<ReturnType<typeof fetchCoreWorkflow>> | null;
 }
 
-export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.Element {
+export function EventPlanningPanel({ bookId, rolesRevision = 0, onChainChanged, onEventConfirmed }: {
+  bookId: string; rolesRevision?: number; onChainChanged?: () => void; onEventConfirmed?: () => void;
+}): React.JSX.Element {
   const [snapshot,setSnapshot]=useState<EventWorkspaceSnapshot|null>(null);
   const [sequence,setSequence]=useState<EventSequenceData|null>(null);
   const [chainVersions,setChainVersions]=useState<EventChainVersion[]>([]);
@@ -52,9 +56,9 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const {guardAi}=useMembershipGate();
 
   const load=useCallback(async(signal?:AbortSignal)=>{
-    const[workflow,plans,templates,threads]=await Promise.all([
+    const[workflow,plans,templates,threads,core]=await Promise.all([
       fetchCreationWorkflow(bookId,signal),fetchVolumePlans(bookId,signal),fetchPlanningTemplates(bookId,'event',signal),
-      fetchStoryThreads(bookId,signal).catch(()=>[])
+      fetchStoryThreads(bookId,signal).catch(()=>[]),fetchCoreWorkflow(bookId,signal).catch(()=>null)
     ]);
     const plan=[...plans].reverse().find(item=>['active','completed'].includes(item.status)&&item.activeVersionId!==null)??null;
     const [loadedSequence,nextChains,nextChainGeneration]:[
@@ -67,7 +71,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
         fetchEventChainGeneration(bookId,plan.volumePlanId,signal)
       ]);
     const nextSequence=loadedSequence!==null&&loadedSequence.volumePlanVersionId===plan?.activeVersionId?loadedSequence:null;
-    setSnapshot({workflow,plan,templates});setSequence(nextSequence);setStoryThreads(threads);
+    setSnapshot({workflow,plan,templates,core});setSequence(nextSequence);setStoryThreads(threads);
     setChainVersions(nextChains);setChainGeneration(nextChainGeneration);
     setSelectedId(current=>current!==null&&nextSequence?.events.some(item=>item.eventId===current)
       ?current:nextSequence?.events[0]?.eventId??null);
@@ -75,7 +79,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
 
   useEffect(()=>{const controller=new AbortController();setError(null);
     void load(controller.signal).catch(reason=>{if(!controller.signal.aborted)setError(messageOf(reason));});
-    return()=>controller.abort();},[load]);
+    return()=>controller.abort();},[load,rolesRevision]);
 
   useEffect(()=>{const plan=snapshot?.plan;
     if(plan===null||plan===undefined||chainGeneration===null||!chainGeneration.isRunning||sequence!==null)return;
@@ -130,7 +134,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   });};
 
   const confirmChain=(eventChainVersionId:string)=>{if(snapshot?.plan===null||snapshot===null)return;void run(async()=>{
-    await confirmEventChain(bookId,snapshot.plan!.volumePlanId,eventChainVersionId);await load();
+    await confirmEventChain(bookId,snapshot.plan!.volumePlanId,eventChainVersionId);await load();onChainChanged?.();
   });};
 
   const chainTaskAction=(action:'cancel'|'retry'|'resume')=>{if(snapshot?.plan===null||snapshot===null||chainGeneration===null)return;void run(async()=>{
@@ -171,7 +175,7 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   const confirmVersion=()=>{if(selected===null||snapshot===null||impact===null)return;void run(async()=>{
     await confirmStoryEventVersion(bookId,selected.eventId,{versionId:impact.candidateVersionId,
       expectedEventRevision:selected.revision,expectedWorkflowVersion:snapshot.workflow.planningVersion});
-    setImpact(null);await load();
+    setImpact(null);await load();onEventConfirmed?.();
   });};
 
   const abandonThread=()=>{if(abandoningThreadId===null)return;void run(async()=>{
@@ -227,6 +231,8 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
       generation={chainGeneration}
       busy={busy}
       error={error}
+      storylines={snapshot.core?.storylines.map((item)=>({id:item.storylineId,title:item.activeVersion?.content.title??'未命名故事线'}))??[]}
+      rolesReady={activeChain===null||chainRolesReady(activeChain,snapshot.core?.eventRoleAssignments??[])}
       onGenerate={generateChain}
       onSave={saveChain}
       onConfirm={()=>{if(candidateChain!==null)confirmChain(candidateChain.id);}}
@@ -363,17 +369,23 @@ export function EventPlanningPanel({ bookId }: { bookId: string }): React.JSX.El
   </section>;
 }
 
-function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,error,onGenerate,onSave,onConfirm,onInitialize,onTaskAction}:{
+function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,error,storylines,rolesReady,onGenerate,onSave,onConfirm,onInitialize,onTaskAction}:{
   bookId:string;volumePlanId:string;chain:EventChainVersion|null;active:boolean;generation:EventChainGenerationData|null;busy:boolean;error:string|null;
+  storylines:Array<{id:string;title:string}>;rolesReady:boolean;
   onGenerate:()=>void;onSave:(chain:EventChainVersion,content:EventChainContent)=>void;onConfirm:()=>void;
   onInitialize:()=>void;onTaskAction:(action:'cancel'|'retry'|'resume')=>void;
 }):React.JSX.Element{
   const working=generation?.isRunning===true;
   const[editing,setEditing]=useState(false);
+  const[lineFilter,setLineFilter]=useState('all');
   const[draft,setDraft]=useState<EventChainContent|null>(chain?.content??null);
-  useEffect(()=>{setDraft(chain?.content??null);setEditing(false);},[chain?.id]);
+  useEffect(()=>{setDraft(chain?.content??null);setEditing(false);setLineFilter('all');},[chain?.id]);
+  const label=(id:string|null)=>id===null?'待确认':storylines.find((item)=>item.id===id)?.title??'已确认故事线';
+  const visibleEvents=chain?.content.events.filter((event)=>lineFilter==='all'||event.leadingStorylineId===lineFilter
+    ||(event.supportingStorylineIds??[]).includes(lineFilter))??[];
+  const showFilter=(chain?.content.events.length??0)>1&&storylines.length>1;
   return <section className="event-planning-panel event-chain-design-card" aria-label="当前卷事件链设计">
-    <header><div><span className="eyebrow">卷方向已经确认</span><h3>把大故事方向拆成连续的小故事</h3><p>团队只设计事件之间的进入状态、人物行动、阻力、回报或代价和因果交接；章数、场景和对白留到后面。</p></div>
+    <header><div><span className="eyebrow">卷方向已经确认</span><h3>把大故事方向拆成连续的小故事</h3><p>团队只设计因果、故事线责任和角色功能占位；角色姓名、章数、场景和对白留给后续步骤。</p></div>
       {chain===null&&!working&&<button className="primary-button" type="button" disabled={busy} onClick={onGenerate}>让团队设计事件链</button>}
     </header>
     {error!==null&&<p className="inline-error" role="alert">{error}</p>}
@@ -393,10 +405,16 @@ function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,
       </footer>
     </section>}
     {chain!==null&&<section className="event-chain-candidate">
-      <header><div><strong>{active?'已经确认的事件链':'团队给出的事件链候选'}</strong><small>{chain.content.events.length} 个连续事件</small></div><span>{active?'已确认':'待你确认'}</span></header>
-      <ol>{chain.content.events.map(event=><li key={event.nodeId}>
+      <header><div><strong>{active?'已经确认的事件骨架':'团队给出的事件骨架候选'}</strong><small>{chain.content.events.length} 个因果连续事件</small></div><span>{active?'结构已确认':'待你确认'}</span></header>
+      {showFilter&&<label className="event-line-filter"><span>按故事线查看</span><select aria-label="按故事线过滤事件" value={lineFilter} onChange={(event)=>setLineFilter(event.target.value)}>
+        <option value="all">全部故事线 · 保持因果顺序</option>{storylines.map((line)=><option value={line.id} key={line.id}>{line.title}</option>)}</select></label>}
+      <ol>{visibleEvents.map(event=><li key={event.nodeId}>
         <div><small>事件 {event.order}</small><strong>{event.title}</strong></div>
-        <dl><div><dt>人物行动</dt><dd>{event.protagonistAction}</dd></div><div><dt>阻力怎样升级</dt><dd>{event.oppositionEscalation}</dd></div><div><dt>回报或代价</dt><dd>{event.stagePayoffOrCost}</dd></div><div><dt>结束后变成什么局面</dt><dd>{event.exitState}</dd></div></dl>
+        <div className="event-line-meta"><span><b>主导故事线</b>{label(event.leadingStorylineId??null)}</span>
+          {(event.supportingStorylineIds??[]).map((id)=><span key={id}><b>辅助故事线</b>{label(id)}</span>)}
+          {event.intersectionNote!=null&&<em>交汇点 · {event.intersectionNote}</em>}</div>
+        <dl><div><dt>卷责任</dt><dd>{event.volumeResponsibility}</dd></div><div><dt>人物行动</dt><dd>{event.protagonistAction}</dd></div><div><dt>阻力怎样升级</dt><dd>{event.oppositionEscalation}</dd></div><div><dt>回报或代价</dt><dd>{event.stagePayoffOrCost}</dd></div><div><dt>结束后变成什么局面</dt><dd>{event.exitState}</dd></div></dl>
+        {(event.roleFunctions??[]).length>0&&<div className="event-role-requirements"><strong>角色需求清单</strong>{(event.roleFunctions??[]).map((role)=><span key={role.roleFunctionKey}><b>{role.roleFunctionLabel}</b>{role.requirement}</span>)}</div>}
         {event.leadsToNext!==null&&<p><b>接到下一个事件：</b>{event.leadsToNext}</p>}
         {(event.plantThreadIds.length>0||event.payoffThreadIds.length>0||event.consequenceThreadIds.length>0)&&<div className="event-thread-responsibilities">
           {event.plantThreadIds.length>0&&<span><b>本事件埋下</b>{event.plantThreadIds.join('、')}</span>}
@@ -408,13 +426,20 @@ function EventChainDesignCard({bookId,volumePlanId,chain,active,generation,busy,
       <footer><button type="button" disabled={busy||working} onClick={()=>setEditing(value=>!value)}>{editing?'收起修改':'修改这条链'}</button>
         {editing&&draft!==null&&<button type="button" disabled={busy} onClick={()=>onSave(chain,draft)}>保存为我的版本</button>}
         {active
-          ?<button className="primary-button" type="button" disabled={busy||editing} onClick={onInitialize}>按这条链进入逐事件设计</button>
-          :<><button type="button" disabled={busy||working} onClick={onGenerate}>重新设计</button><button className="primary-button" type="button" disabled={busy||working||editing} onClick={onConfirm}>确认这条事件链</button></>}
+          ?<span className="event-role-gate">{!rolesReady&&<small>先在下方为全部角色功能选择承担者，单事件按钮暂不开放。</small>}<button className="primary-button" type="button" aria-label="按这条链进入逐事件设计" disabled={busy||editing||!rolesReady} onClick={onInitialize}>角色安排完成，进入当前事件</button></span>
+          :<><button type="button" disabled={busy||working} onClick={onGenerate}>重新设计</button><button className="primary-button" type="button" aria-label="确认这条事件链" disabled={busy||working||editing} onClick={onConfirm}>确认事件骨架，安排角色</button></>}
       </footer>
     </section>}
   </section>;
 }
 
+function chainRolesReady(chain:EventChainVersion,assignments:Array<{eventChainVersionId:string;eventNodeId:string;roleFunctionKey:string;assignmentStatus:string}>):boolean{
+  const required=chain.content.events.flatMap((event)=>(event.roleFunctions??[]).map((role)=>event.nodeId+':'+role.roleFunctionKey));
+  if(required.length===0)return true;
+  const assigned=new Set(assignments.filter((item)=>item.eventChainVersionId===chain.id&&item.assignmentStatus==='assigned')
+    .map((item)=>item.eventNodeId+':'+item.roleFunctionKey));
+  return required.every((key)=>assigned.has(key));
+}
 function EventChainEditor({value,onChange}:{value:EventChainContent;onChange:(value:EventChainContent)=>void}):React.JSX.Element{
   const update=(index:number,field:'title'|'protagonistAction'|'oppositionEscalation'|'stagePayoffOrCost'|'exitState'|'leadsToNext',next:string)=>{
     const events=value.events.map((event,eventIndex)=>eventIndex===index?{...event,[field]:field==='leadsToNext'&&next.trim()===''?null:next}:event);

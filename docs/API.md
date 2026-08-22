@@ -50,6 +50,8 @@
 
 确认开书会原子创建书籍、定位版本、团队、模型绑定、预算和设定工作区；不会自动创建或排队AI设定任务。
 
+五阶段核心接口：`GET /api/v1/books/:bookId/core-workflow` 返回设定→故事线→分卷→事件→章节的活动状态、故事线拓扑/版本、关系、逐卷参与、角色卡、事件角色绑定、总账、草稿和失效记录。`/core-workflow/storyline-topology`、`storylines`、`storyline-relations`、`volume-participations`、`characters`、`event-role-assignments`、`drafts`、`ledgers`、`invalidations` 与 `state` 分别执行版本化写入、确认、重开、影响处理和阶段推进；所有写入同时校验当前 `owner_id + book_id`、期望版本与上游依赖。
+
 ## 4. 设定对象协作
 
 - `GET /api/v1/books/:bookId/setting-outline-workspace`：当前宏观设定工作区、条目选择和逐项状态。
@@ -104,6 +106,10 @@
 
 ## 12. 团队、任务与模型
 
+- `GET /api/v1/books/:bookId/editorial-team` 返回七岗位公开成员池；岗位池人数和成员启停的 PATCH 路由只允许管理员。
+- `/api/v1/books/:bookId/ai-nodes` 提供作者本轮想法保存、动态消耗估算、批次创建/查询、增加成员、失败成员单独重试和换人；同批成员冻结同一资料包、Skill、模板和绑定版本。
+- 作者端只显示成员公开身份、任务状态、结果和消耗档位；模型绑定详情只进入受权审计。
+
 - 团队模板、逐书成员、岗位公开说明、真实状态和模型绑定。
 - 普通AI岗位使用 `volcengine-ark-coding-plan` / `coding`；高级编剧使用 `volcengine-ark-agent-plan` / `agent` / `kimi-k3`。两条路线分别校验环境变量凭证，缺少 Agent Plan 只令高级编剧不可用。
 - GLM-5.2/5.3 已从当前模型方案下架且执行前强制拒绝；红玉使用 `doubao-seed-2.1-turbo`，西施使用 `deepseek-v4-flash`，班昭使用 `minimax-m2.7`，三席普通岗位均走 Coding Plan。
@@ -122,17 +128,17 @@
 
 ## 作者可见功能名合同
 
-接口向作者返回的功能名称统一为：信息、设定、分卷、规划、章纲、正文、资料库、取名、团队、任务、灵感、设置。公开显示名来自 Contracts 共享合同。
+接口向作者返回的五个核心页面统一为：设定、故事线、分卷、事件、章节；辅助工具统一为：资料库、取名、团队、任务、灵感、设置。公开显示名来自 Contracts 共享合同，手机端固定为两排导航。
 
-API路由、请求字段和数据库surface继续使用稳定英文键，不随显示名改动：book_profile、setting、volume_plan、event、chapter_outline、manuscript。这样已有书籍、幂等键、任务恢复、上下文包和来源引用不需要迁移。接口返回历史自由文本前必须经过作者展示清洗，把旧称转换为当前名称，但不回写历史记录。
+API 路由、请求字段和数据库 surface 继续保留 `book_profile`、`setting`、`volume_plan`、`event`、`chapter_outline`、`manuscript` 等历史稳定键；V6 页面阶段使用 `setting/storyline/volume/event/chapter`。入口解析只做 `framework→setting`、`manuscript→chapter` 等兼容重定向，不迁移已有书籍、幂等键、任务恢复、上下文包或来源引用。接口返回历史自由文本前必须经过作者展示清洗，把旧称转换为当前名称，但不回写历史记录。
 
-## 13. 认证与错误语义
+## 15. 认证与错误语义
 
 `/health` 与注册/登录是公开入口；Worker内部执行使用独立Worker令牌；其他 `/api/v1` 接口都要求有效账号会话。写请求继续校验精确 Origin、Host、`Sec-Fetch-Site` 和 JSON 内容类型。登录失败统一返回“邮箱或密码不正确”，不泄露邮箱是否存在；暂停账号返回明确联系管理员提示；无效或空 JSON 返回自然中文格式错误，不向前端暴露堆栈、SQL或内部路径。
 
 当前作者端错误合同按业务动作恢复，不按机器错误码分支：会员问题返回开通/续费/补充算力动作，设定质检问题返回查看问题动作，登录失效返回刷新登录动作，其余失败返回安全重试或返回修改动作。旧缓存前端未发送洁净投影头时继续收到向后兼容的旧结构，但其中供应商、模型和原始错误详情也必须使用安全占位，不能泄漏真实内部值。
 
-## 14. 分层设计的作者投影
+## 16. 分层设计的作者投影
 
 设定协作接口使用稳定proposalId接收整份方案与片段选择，融合请求可同时提交wholeProposalIds、selectedFragments和作者文字。作者响应只返回方案正文、理由、收益、代价、成员显示名和可恢复任务键；供应商、模型内部ID、讨论任务ID和决策ID只在审计接口保留。
 

@@ -69,7 +69,9 @@ describe('向前迁移器', () => {
         '0060_first_volume_launch_progress.sql', '0061_story_thread_keys.sql',
         '0062_setting_gap_status.sql',
         '0063_independent_admin_console.sql',
-        '0064_setting_member_resilience.sql'
+        '0064_setting_member_resilience.sql',
+        '0065_v6_core_workflow.sql',
+        '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toContain('worker_health');
@@ -94,6 +96,15 @@ describe('向前迁移器', () => {
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'volume_direction_versions', 'book_story_spine_versions', 'event_chain_versions',
         'story_thread_records', 'setting_clauses', 'setting_gap_decisions', 'context_pack_components'
+      ]));
+      expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'book_storyline_topology_versions', 'storylines', 'storyline_versions', 'storyline_relations',
+        'storyline_volume_participations', 'character_cards', 'event_role_assignments',
+        'creative_ledger_entries', 'author_object_drafts', 'workflow_invalidations_v6'
+      ]));
+      expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'agent_role_pools_v6', 'agent_member_settings_v6', 'agent_skill_versions_v6',
+        'ai_node_author_inputs_v6', 'ai_node_batches_v6', 'ai_node_batch_members_v6', 'ai_node_results_v6'
       ]));
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'membership_transactions', 'user_feedback', 'admin_issue_records',

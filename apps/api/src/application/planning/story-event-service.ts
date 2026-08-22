@@ -71,8 +71,16 @@ export class StoryEventService {
       if(this.layered!==undefined&&activeChain===null)throw conflict('请先让团队设计并确认当前卷事件链。');
       const plan=activeChain===null?parseVolumePlanContent(JSON.parse(volume.content_json) as unknown):null;
       const seeds:Array<{order:number;source:unknown;content:StoryEventContent}>=activeChain!==null
-        ?activeChain.content.events.map((node,index,nodes)=>({order:node.order,source:node,content:chainNodeContent(node,
-          index===0?'卷方向确认后的开场局面触发事件。':nodes[index-1]?.leadsToNext??'上一事件的实际结果形成新的进入状态。')}))
+        ?activeChain.content.events.map((node,index,nodes)=>{
+          const assigned=this.layered?.eventRoleCharacters(scope,activeChain.id,node.nodeId)??[];
+          const required=node.roleFunctions??[];
+          const assignedKeys=new Set(assigned.map((item)=>item.roleFunctionKey));
+          const missing=required.filter((item)=>!assignedKeys.has(item.roleFunctionKey));
+          if(missing.length>0)throw conflict(`事件“${node.title}”仍有未绑定角色功能：${missing.map((item)=>item.roleFunctionLabel).join('、')}`);
+          return {order:node.order,source:{node,assigned},content:chainNodeContent(node,
+            index===0?'卷方向确认后的开场局面触发事件。':nodes[index-1]?.leadsToNext??'上一事件的实际结果形成新的进入状态。',
+            assigned.map((item)=>item.characterName))};
+        })
         :(plan?.eventSequence??[]).map(seed=>({order:seed.order,source:seed,content:seedContent(seed)}));
       if(seeds.length===0)throw conflict('当前卷还没有已确认的事件链。');
       this.repo.insertSequence(scope,{volumePlanId:volumeId,volumePlanVersionId:volume.active_version_id,now});
@@ -293,17 +301,21 @@ export class StoryEventService {
 }
 
 function volumeRef(v:{volume_plan_id:string;version:number;content_hash:string}):VersionReference{return{kind:'volume_plan',id:v.volume_plan_id,version:v.version,contentHash:v.content_hash,required:true};}
-function chainNodeContent(node:EventChainNode,trigger:string):StoryEventContent{return{
+function chainNodeContent(node:EventChainNode,trigger:string,participants:string[]):StoryEventContent{return{
   title:node.title,volumeResponsibility:node.volumeResponsibility,startingState:node.entryState,
   trigger,
-  participants:[],characterGoals:[node.protagonistAction],obstacles:[node.oppositionEscalation],
+  participants:[...new Set(participants)],characterGoals:[node.protagonistAction],obstacles:[node.oppositionEscalation],
   choicesAndCosts:[node.stagePayoffOrCost],informationMoves:[...node.plantThreadIds,...node.payoffThreadIds],
   localProgression:[node.protagonistAction,node.oppositionEscalation],requiredResult:node.exitState,
   flexibleExecution:['具体场景、对白、局部转折和意象由后续事件大纲与章纲自由设计。'],
   endingConditions:[node.exitState],nextEventImpact:node.leadsToNext??'完成本卷高潮责任并进入卷末新状态。',
   characterArcImpact:node.exitState,volumeClimaxImpact:node.volumeResponsibility,
   estimatedChapterRange:{minimum:null,likely:null,maximum:null},
-  uncertaintyNotes:node.consequenceThreadIds.map(id=>'后续需要继续追踪：'+id)
+  uncertaintyNotes:node.consequenceThreadIds.map(id=>'后续需要继续追踪：'+id),
+  storylineResponsibilities:[
+    ...(node.leadingStorylineId===null?[]:[`主导故事线：${node.volumeResponsibility}`]),
+    ...(node.supportingStorylineIds.length===0?[]:[`辅助故事线交汇：${node.intersectionNote??node.volumeResponsibility}`])
+  ]
 };}
 function seedContent(s:EventSequenceItem):StoryEventContent{return{title:s.title,volumeResponsibility:s.responsibility,
   startingState:s.entryState,trigger:s.trigger,participants:[],characterGoals:[],obstacles:[],choicesAndCosts:[],

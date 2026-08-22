@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
-import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting } from '../../helpers/domain-fixture.js';
+import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting, requestEditorSynthesisUntilConfirmation, requestPendingEditorSynthesis } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 import { createDistinctNovelModelFactory } from '../../helpers/distinct-novel-model-factory.js';
 
@@ -21,9 +21,13 @@ describe('连续多章串行与断点续跑', () => {
     expect(firstRun.batch.status).toBe('paused');
     expect(firstRun.batch.nextIndex).toBe(0);
     expect(firstRun.results).toHaveLength(1);
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    await batches.run(scope, batch.batchId);
     approvePendingManuscript(context, scope, ids, clock);
     const secondChapter = await batches.run(scope, batch.batchId);
     expect(secondChapter.batch.nextIndex).toBe(1);
+    requestPendingEditorSynthesis(context, scope, ids, clock);
+    await batches.run(scope, batch.batchId);
     approvePendingManuscript(context, scope, ids, clock);
     const checkpoint = await batches.run(scope, batch.batchId);
     expect(checkpoint.batch.nextIndex).toBe(2);
@@ -33,6 +37,8 @@ describe('连续多章串行与断点续跑', () => {
     `).all(scope.ownerId, scope.bookId);
 
     for (let chapter = 3; chapter <= 5; chapter += 1) {
+      requestPendingEditorSynthesis(context, scope, ids, clock);
+      await batches.run(scope, batch.batchId);
       approvePendingManuscript(context, scope, ids, clock);
       await batches.run(scope, batch.batchId);
     }
@@ -61,12 +67,13 @@ describe('连续多章串行与断点续跑', () => {
     const batch = batches.scheduleNewChapters(scope, 1);
     const paused = await batches.run(scope, batch.batchId, { pauseAfterPhase: 'review' });
     expect(paused.batch.status).toBe('paused');
-    expect(paused.results[0]).toEqual(expect.objectContaining({ status: 'paused', phase: 'rewrite' }));
+    expect(paused.results[0]).toEqual(expect.objectContaining({ status: 'paused', phase: 'review' }));
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ count: 1 });
     const resumed = await batches.run(scope, batch.batchId);
     expect(resumed.batch.status).toBe('paused');
-    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ count: 2 });
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM manuscript_versions WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ count: 1 });
     expect(context.database.prepare(`SELECT attempt_count FROM tasks WHERE task_id = ?`).get(batch.taskIds[0]!)).toEqual({ attempt_count: 2 });
+    await requestEditorSynthesisUntilConfirmation(context, scope, ids, clock, () => batches.run(scope, batch.batchId));
     approvePendingManuscript(context, scope, ids, clock);
     expect((await batches.run(scope, batch.batchId)).batch.status).toBe('completed');
   });

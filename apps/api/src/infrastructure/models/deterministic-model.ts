@@ -298,6 +298,24 @@ function deterministicEventChain(prompt: string): string | null {
     ? root.requiredCoverage.filter((item): item is string => typeof item === 'string') : [];
   const firstResponsibilities = Array.isArray(root.firstVolumeResponsibilities)
     ? root.firstVolumeResponsibilities.filter((item): item is string => typeof item === 'string') : [];
+  const availableStorylines = Array.isArray(root.availableStorylines)
+    ? root.availableStorylines.filter(isRecord).map((item) => ({
+      storylineId: typeof item.storylineId === 'string' ? item.storylineId : '',
+      title: typeof item.title === 'string' ? item.title : '已确认故事线'
+    })).filter((item) => item.storylineId.length > 0)
+    : [];
+  const skeletonFields = (index: number) => {
+    const leading = availableStorylines.length === 0 ? null : availableStorylines[index % availableStorylines.length]!;
+    const supporting = availableStorylines.length > 1 && index % 2 === 1
+      ? [availableStorylines[(index + 1) % availableStorylines.length]!] : [];
+    return {
+      leadingStorylineId: leading?.storylineId ?? null,
+      supportingStorylineIds: supporting.map((item) => item.storylineId),
+      intersectionNote: supporting.length === 0 ? null : (leading?.title ?? '主导线') + '的选择改变' + supporting[0]!.title + '的推进条件。',
+      roleFunctions: leading === null ? [] : [{ roleFunctionKey: 'event-' + (index + 1) + '-opposition', roleFunctionLabel: '对立功能承担者',
+        requirement: '制造与本事件卷责任直接相关、可由人物行动回应的阻力。', importance: 'core' as const }]
+    };
+  };
   const nodes = [
     {
       nodeId: 'event-chain-1', order: 1, title: '异常迫使主角公开行动',
@@ -308,6 +326,7 @@ function deterministicEventChain(prompt: string): string | null {
       stagePayoffOrCost: '主角证实异常并救下一个人，同时暴露自己。',
       exitState: '异常被证实，主角失去退路并获得一名有条件的盟友。',
       leadsToNext: '对手利用主角暴露的身份反向追查盟友和证据。',
+      ...skeletonFields(0),
       plantThreadIds: ['thread-core-secret'], payoffThreadIds: [],
       consequenceThreadIds: ['thread-exposed-identity'],
       firstVolumeResponsibilities: firstResponsibilities.filter((item) => ['opening_launch','golden_three'].includes(item))
@@ -321,6 +340,7 @@ function deterministicEventChain(prompt: string): string | null {
       stagePayoffOrCost: '主角拆穿一层假象，却伤害了关键关系。',
       exitState: '主角保住证据，但盟友不再无条件信任他。',
       leadsToNext: '关系裂痕让对手有机会切断证据链，主角必须改变路径。',
+      ...skeletonFields(1),
       plantThreadIds: ['thread-relationship-debt'], payoffThreadIds: [],
       consequenceThreadIds: ['thread-trust-fracture'],
       firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'early_payoff')
@@ -334,6 +354,7 @@ function deterministicEventChain(prompt: string): string | null {
       stagePayoffOrCost: '多人保住关键证据，但主角付出资源和信任代价。',
       exitState: '证据由多人掌握，冲突从个人追捕升级为公开规则之争。',
       leadsToNext: '公开证据迫使真正执行者提前发动最后封锁。',
+      ...skeletonFields(2),
       plantThreadIds: ['thread-public-proof'], payoffThreadIds: ['thread-trust-fracture'],
       consequenceThreadIds: ['thread-open-conflict'],
       firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'conflict_and_emotion_escalation')
@@ -347,6 +368,7 @@ function deterministicEventChain(prompt: string): string | null {
       stagePayoffOrCost: '盟友重新选择同行，但主角必须放弃一段珍贵记忆。',
       exitState: '证据、关系与代价全部到位，主角拥有发动最后行动的条件。',
       leadsToNext: '交换期限到来，主角只能在保全私人记忆和公开真相之间选择。',
+      ...skeletonFields(3),
       plantThreadIds: [], payoffThreadIds: ['thread-relationship-debt'],
       consequenceThreadIds: ['thread-memory-cost'],
       firstVolumeResponsibilities: firstResponsibilities.filter((item) => item === 'climax_setup')
@@ -360,6 +382,7 @@ function deterministicEventChain(prompt: string): string | null {
       stagePayoffOrCost: '核心问题得到可验证解决，主角身份、关系和资源发生不可逆变化。',
       exitState: '本卷问题已解决，新势力因力量平衡改变而进入局面。',
       leadsToNext: null,
+      ...skeletonFields(4),
       plantThreadIds: ['thread-next-stage'], payoffThreadIds: ['thread-core-secret','thread-public-proof'],
       consequenceThreadIds: ['thread-irreversible-status'],
       firstVolumeResponsibilities: firstResponsibilities.filter((item) => ['major_climax_before_100k','climax_consequence'].includes(item))

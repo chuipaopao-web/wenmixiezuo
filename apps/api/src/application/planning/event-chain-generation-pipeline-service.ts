@@ -23,7 +23,8 @@ import { TaskService, type TaskLeaseFence } from '../tasks/task-service.js';
 import { authorIdeaContextSources } from './author-idea-context-sources.js';
 import {
   parseEventChainGenerationBrief,
-  type EventChainGenerationBrief
+  type EventChainGenerationBrief,
+  type EventChainStorylineBrief
 } from './event-chain-generation-service.js';
 import { LayeredPlanningService } from './layered-planning-service.js';
 
@@ -199,7 +200,7 @@ export class EventChainGenerationPipelineService {
         try {
           return parseEventChainPhaseOutput(
             reusable.output_text, brief.planNumber, brief.direction, brief.directionVersionId,
-            phase, technicalTry
+            phase, technicalTry, brief.storylines
           );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
@@ -246,7 +247,7 @@ export class EventChainGenerationPipelineService {
         try {
           return parseEventChainPhaseOutput(
             result.output, brief.planNumber, brief.direction, brief.directionVersionId,
-            phase, technicalTry
+            phase, technicalTry, brief.storylines
           );
         } catch (error) {
           validationFailure = error instanceof Error ? error.message : '事件链JSON无效';
@@ -334,10 +335,13 @@ function parseEventChainPhaseOutput(
   direction: VolumeDirectionContent,
   directionVersionId: string,
   phase: 'candidate_a' | 'candidate_b' | 'fusion',
-  technicalTry: number
+  technicalTry: number,
+  storylines: EventChainStorylineBrief[]
 ): EventChainContent {
   try {
-    return parseEventChainModelOutput(output, planNumber, direction, { directionVersionId });
+    const content = parseEventChainModelOutput(output, planNumber, direction, { directionVersionId });
+    assertEventSkeleton(content, storylines);
+    return content;
   } catch (error) {
     const allowIncompleteDirectionCoverage = shouldAcceptEventChainCandidateCoverageGap(
       error, phase, technicalTry
@@ -346,14 +350,32 @@ function parseEventChainPhaseOutput(
       error, phase, technicalTry, planNumber === 1
     );
     if (!allowIncompleteDirectionCoverage && !normalizeMisplacedFirstVolumeResponsibilities) throw error;
-    return parseEventChainModelOutput(output, planNumber, direction, {
+    const content = parseEventChainModelOutput(output, planNumber, direction, {
       allowIncompleteDirectionCoverage,
       normalizeMisplacedFirstVolumeResponsibilities,
       directionVersionId
     });
+    assertEventSkeleton(content, storylines);
+    return content;
   }
 }
 
+function assertEventSkeleton(content: EventChainContent, storylines: EventChainStorylineBrief[]): void {
+  if (storylines.length === 0) return;
+  const allowed = new Set(storylines.map((item) => item.storylineId));
+  for (const event of content.events) {
+    if (event.leadingStorylineId === null || !allowed.has(event.leadingStorylineId)) {
+      throw new Error('每个事件必须标记当前卷内有效的主导故事线。');
+    }
+    if (event.supportingStorylineIds.some((id) => !allowed.has(id))) {
+      throw new Error('事件引用了不属于当前卷的辅助故事线。');
+    }
+    if (event.roleFunctions.length === 0) throw new Error('每个事件至少需要一个不含具体人名的角色功能占位。');
+    if (event.supportingStorylineIds.length > 0 && event.intersectionNote === null) {
+      throw new Error('多线事件必须写清故事线交汇点。');
+    }
+  }
+}
 export function parseEventChainModelOutput(
   output: string,
   planNumber: number,
@@ -480,6 +502,12 @@ function eventChainSources(brief: EventChainGenerationBrief): ContextSource[] {
       content: brief.sourceSnapshot.previousSettlement.content,
       reason: '上一卷正文实际结算，当前事件链必须从真实状态出发', priority: 100 });
   }
+  if (brief.storylines.length > 0) {
+    result.push({ sourceType: 'planning:volume_storylines', sourceId: brief.volumePlanId + ':storylines',
+      content: JSON.stringify(brief.storylines), reason: '本卷已确认的故事线参与和责任；事件只能从这些线路中选择主导、辅助与交汇',
+      priority: 100, constraintStrength: 'hard_fact', truthStatus: 'confirmed',
+      scopeType: 'volume', scopeId: brief.volumePlanId });
+  }
   if (brief.storySpine !== null) {
     result.push({ sourceType: 'planning:book_story_spine', sourceId: 'active-story-spine',
       content: JSON.stringify(brief.storySpine),
@@ -510,14 +538,17 @@ function buildEventChainPrompt(
       '每个事件必须由上一事件结果和人物新状态触发；除最后一项外leadsToNext不能为空，最后一项必须为null。',
       'coverage必须逐项覆盖requiredCoverage中的稳定责任键；不能用同一个空泛事件假装覆盖全部责任。',
       'event节点只写事件级责任，不设计章节、场景、对白、具体意象或固定章数。',
+      '每个事件必须从availableStorylines选择一条主导故事线，可有辅助故事线；多线同时推进时必须写intersectionNote。过滤和展示不得改变因果顺序。',
+      '角色阶段只输出roleFunctions功能占位。除开书资料里已存在的主角外，不得在事件骨架中创造或填写任何具体人名。',
       '线索使用plantThreadIds、payoffThreadIds、consequenceThreadIds做跨事件串联；标识要稳定且语义清楚。',
       brief.planNumber === 1
-        ? '第一卷必须把开篇启动、黄金三章、早期回报、冲突与情绪升级、10万字前大高潮、高潮铺垫和高潮后果七项责任分配给具体事件。'
+        ? '第一卷必须把开篇启动、首卷前三章责任、早期回报、冲突与情绪升级、10万字前大高潮、高潮铺垫和高潮后果七项责任分配给具体事件。'
         : '后续卷根据上一卷实际结算重新组织事件，不复制第一卷开局骨架。',
       '不要输出三幕式、五幕式、猫咪、英雄之旅、节拍等专业结构名称。',
       '只输出一个JSON对象，不要Markdown、解释或内部思考。'
     ],
     requiredCoverage: coverage,
+    availableStorylines: brief.storylines,
     firstVolumeResponsibilities: brief.planNumber === 1 ? firstVolumeCoverageResponsibilityValues : [],
     collaborationPhase: phase,
     sources,
@@ -535,6 +566,11 @@ function buildEventChainPrompt(
           stagePayoffOrCost: '这个事件兑现什么或付出什么代价',
           exitState: '事件结束后人物、关系和局面的新状态',
           leadsToNext: '新状态怎样自然触发下一事件；最后一个为null',
+          leadingStorylineId: 'availableStorylines中的主导故事线标识',
+          supportingStorylineIds: ['availableStorylines中的辅助故事线标识；没有则空数组'],
+          intersectionNote: '多线交汇时说明怎样相互影响；单线时为null',
+          roleFunctions: [{ roleFunctionKey: '链内稳定功能标识', roleFunctionLabel: '只写功能，不写人名',
+            requirement: '这个功能必须在事件中做到什么', importance: 'core或supporting' }],
           plantThreadIds: ['本事件新种下的线程标识'],
           payoffThreadIds: ['本事件兑现的既有线程标识'],
           consequenceThreadIds: ['本事件产生并移交后续的后果线程'],

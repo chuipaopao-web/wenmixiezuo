@@ -27,6 +27,7 @@
 - `platform_prompt_overrides`：平台补充提示词的版本链和活动指针语义；按真实任务类型、岗位和阶段匹配，只作用于未来调用。
 - `model_call_prompt_snapshots`：每次新模型调用的最终任务提示词、补充要求和命中的平台覆盖快照；不保存思维链。
 - `narrative_method_overrides`：后台叙事方法的版本化内容与启停状态；基础方法仍由代码版本提供，作者公开投影不返回专业来源。
+- gent_role_pools_v6、gent_member_settings_v6、gent_skill_versions_v6：七类岗位池、逐书成员启停与不可变岗位 Skill 版本；作者投影只公开头像、姓名、岗位、供应公司、消耗档位和状态。
 
 ## 3. 作者输入与附件
 
@@ -51,6 +52,11 @@
 - 叙事模板注册表由后端统一版本化发布；活动规划只保存不可变模板引用与节拍快照，不依赖前端硬编码，也不允许规则更新原地改变旧规划。
 - 模板推荐信号是按当前 `owner_id + book_id` 即时编译的非权威排序输入，来源限于开书资料、活动卷和最近真实卷结算，不写入正史。
 - `event_chapter_outlines`及版本表：当前事件章链、章节详细章纲、预计字数和上游版本引用。
+- ook_storyline_topology_versions、storylines/storyline_versions、storyline_relations、storyline_volume_participations：全书故事线拓扑、各线不可变版本、线间关系及逐卷参与责任。
+- character_cards/character_card_versions、character_storyline_links、vent_role_assignments：正式角色卡版本、角色与故事线关联及事件功能到角色的可追溯绑定。
+- creative_ledger_entries：故事线、关系/势力、时空资源、因果、伏笔和三级结算统一总账；	ruth_status=planned|actual 强制区分规划与真实发生。
+- uthor_object_drafts、workflow_invalidations_v6、object_reopen_records、core_workflow_states_v6：作者草稿、上游变化影响、重开版本记录和五阶段状态。
+- internal_structure_method_scopes：内部结构方法到书/线/卷/事件/内容类型作用域的版本化映射；作者公开页面只接收白话标签。
 - 章纲挑战意见不是正式规划对象，不新增真相表；它随任务检查点、上下文包和模型调用保存，并冻结目标候选版本。作者主动修改或重新生成后，新的章纲版本才成为正式候选。
 - `planning_settlement_assessments`：事件/卷计划与实际差异及下一层承接。
 
@@ -62,6 +68,7 @@
 - `manuscript_versions`：完整不可变正文版本。
 - `writer_selections`、`chapter_work_orders`：活动写手与冻结写作工单。
 - `review_reports`、`editor_review_syntheses`：事实、文学、体验独立报告和可执行修订清单。
+- chapter_editor_synthesis_requests：仅在作者主动要求时保存主编汇总请求、精确正文版本和三席报告集合；不会自动触发，也不写入章节事实。
 - `chapter_settlements`及派生表：定稿后实际发生内容、人物状态、伏笔和投影更新。
 
 ## 7. 正史、知识和检索
@@ -86,6 +93,7 @@
 - `tasks`、`task_attempts`、`task_phases`、`task_dependencies`：持久任务、尝试、检查点和依赖。
 - `context_packs`：每次正式模型调用冻结的来源清单、预算、哈希和排除项。逐项设定另从活动 `setting_outline_workspace` 即时派生非正史临时摘要包并写入任务快照；它可删除重建，不是正式设定基线。条目修改或全部清空后，新任务按最新内容重新编译，旧快照只留审计。
 - `model_calls`、`model_call_results`、`model_call_reconciliations`：模型调用、结果与中断调和。
+- i_node_author_inputs_v6、i_node_batches_v6、i_node_batch_members_v6、i_node_results_v6：节点作者输入版本、统一资料包批次、逐成员独立执行与结果；同批成员共享 ContextPack/hash，失败成员可单独重试或换人。
 - `projection_outbox`、`projection_jobs`：正式事务到可重建投影的可靠交接。
 - 操作、备份、恢复、永久删除墓碑和安全审计表记录不可逆或高风险动作。
 
@@ -109,19 +117,17 @@
 
 功能显示名与持久化关联分离：
 
-| 作者看到的名称 | 稳定功能键 | 作者输入 surface | 主要正式对象 |
+| 作者页面 | V6 阶段键 | 保留的历史/关联键 | 主要正式对象 |
 |---|---|---|---|
-| 信息 | framework | book_profile | 开书信息与书籍档案 |
-| 设定 | basic | setting | 设定活动版本、候选与基线 |
-| 分卷 | master | volume_plan | volume_plans及版本 |
-| 规划 | event | event | story_events、事件链与事件大纲版本 |
-| 章纲 | chapter | chapter_outline | event_chapter_outlines及版本 |
-| 正文 | manuscript | manuscript | manuscript_versions |
+| 设定 | setting | basic / setting / book_profile | 开书资料、设定活动版本、候选与基线 |
+| 故事线 | storyline | topology / storyline | 故事线拓扑、故事线版本、关系与逐卷参与 |
+| 分卷 | volume | master / volume_plan | volume_plans及版本、表达方案与线路编排 |
+| 事件 | event | event | story_events、事件链、角色安排与事件大纲版本 |
+| 章节 | chapter | chapter_outline / manuscript | 章链、章纲、manuscript_versions、三席审查与结算 |
 | 资料库 | library | 无直接作者输入面 | 可重建资料、图谱与来源投影 |
 | 取名 | naming | 无固定surface | 命名候选与占用记录 |
 
-团队、任务、灵感和设置是工具域，不改变上述创作对象的数据库身份。显示名称改动不得修改已合并迁移、表名、枚举、对象ID或历史来源文字。已有历史文字通过作者展示层只读转换，新数据继续使用稳定键建立关联。
-
+团队、任务、灵感和设置是工具域，不改变上述创作对象的数据库身份。`framework→setting`、`manuscript→chapter` 等旧键只在入口解析层重定向；已合并迁移、表名、枚举、对象ID和历史来源文字不改名，也不保留第二套业务页面。已有历史文字通过作者展示层只读转换，新数据按 V6 阶段键与稳定业务对象建立关联。
 ## 11. 账号数据不变量
 
 - 规范化邮箱全局唯一；一个账号只绑定一个 `owner_id`，一个 `owner_id` 只绑定一个账号。

@@ -123,7 +123,11 @@ export class ChapterApprovalService {
         continuityAnchors: buildChapterContinuityAnchors(content),
         source: 'owner_confirmed_manuscript'
       }, undefined, expectedCanonRevision);
-      this.protagonists?.projectCanonFacts(scope, gate.chapterId);
+      this.repository.recordChapterSettlementLedger(scope, {
+        ledgerEntryId: this.ids.next(), chapterId: gate.chapterId, manuscriptVersionId: gate.manuscriptVersionId,
+        chapterNumber: chapter.chapterNumber, endingExcerpt: endingExcerpt(content),
+        continuityAnchors: buildChapterContinuityAnchors(content), now
+      });      this.protagonists?.projectCanonFacts(scope, gate.chapterId);
       this.repository.recordQualityMetric(scope, {
         id: this.ids.next(), chapterId: gate.chapterId, manuscriptVersionId: gate.manuscriptVersionId,
         reviewPanelId: liveGate.reviewPanelId,
