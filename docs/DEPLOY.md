@@ -251,7 +251,7 @@ sudo systemctl start wenmi-worker
 
 #### API / Worker / 数据迁移
 
-1. 本机按风险运行完整 `npm run verify:full` 及受影响迁移/恢复测试；使用 `git -c core.autocrlf=false -c core.eol=lf archive` 生成发布包。
+1. 本机按 `docs/DEVELOPMENT_WORKFLOW.md` 的风险门槛运行受影响测试、类型检查和构建；只有数据库迁移、权限或账号隔离、跨服务恢复、核心创作工作流结构变化，或老板明确要求时才运行完整 `npm run verify:full`。使用 `git -c core.autocrlf=false -c core.eol=lf archive` 生成发布包。
 2. 在唯一暂存目录完成受影响服务构建和迁移预检；迁移只向后兼容，已合并迁移字节变化立即停止。
 3. 正式迁移前备份数据库。查询 `tasks`，`working`、`queued`、`pending`、`waiting_confirmation` 连续30秒为0，并在每次重启前立即复核；只等待，不取消/暂停/改写作者任务。
 4. 逐个原子切换并重启受影响服务，每一步检查active、日志、健康和任务恢复；失败立即回滚，不继续扩大。
