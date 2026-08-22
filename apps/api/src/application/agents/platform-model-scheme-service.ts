@@ -5,7 +5,7 @@ import {
   creativeMemberContracts, creativeRoleKeys, roleModelProfiles,
   type CreativeRoleKey, type TeamModelProfile
 } from '../../contracts/agent-team-v2.js';
-import type { NovelRoleKey, RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import { isRetiredPlanModel, type NovelRoleKey, type RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { ModelBindingV2Service, validateTeamModelProfiles } from './model-binding-v2-service.js';
@@ -57,6 +57,7 @@ export class PlatformModelSchemeService {
   public currentProfiles(fallback: Record<CreativeRoleKey, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
     const stored = this.storedProfiles();
     if (stored === null) return fallback;
+    if (Object.values(stored).some((profile) => isRetiredPlanModel(profile.modelId))) return fallback;
     const followsCurrentCredentialRouting = creativeRoleKeys.every((role) => {
       const profile = stored[role];
       return role === 'senior_screenwriter'
@@ -70,6 +71,7 @@ export class PlatformModelSchemeService {
     const seen = new Map<string, AllowedModelProfile>();
     for (const profile of [...Object.values(roleModelProfiles), ...Object.values(roleProfiles)]) {
       if (!profile.provider.startsWith('volcengine-ark')) continue;
+      if (isRetiredPlanModel(profile.modelId)) continue;
       seen.set(`${profile.provider}/${profile.modelId}`, { provider: profile.provider, modelId: profile.modelId, plan: profile.plan });
     }
     return [...seen.values()];

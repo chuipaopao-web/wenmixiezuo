@@ -30,13 +30,13 @@ describe('讨论席位以目标为导向自动补全', () => {
       async run() { throw new Error('本测试不应触发 Codex 运行器'); }
     };
     const discussionCalls: Array<{ model: string }> = [];
-    let glmFailuresLeft = 1;
+    let doubaoFailuresLeft = 1;
     const fetchImpl: typeof fetch = async (input, init) => {
       const body = JSON.parse(String(init?.body)) as { model: string };
       discussionCalls.push({ model: body.model });
-      // 模拟 GLM 第一次调用网络中断（供应商结果未知），自动补全轮恢复
-      if (body.model === 'glm-5.3' && glmFailuresLeft > 0) {
-        glmFailuresLeft -= 1;
+      // 模拟豆包第一次调用网络中断（供应商结果未知），自动补全轮恢复
+      if (body.model === 'doubao-seed-2.1-turbo' && doubaoFailuresLeft > 0) {
+        doubaoFailuresLeft -= 1;
         throw new TypeError('fetch failed');
       }
       return new Response(JSON.stringify({
@@ -84,8 +84,8 @@ describe('讨论席位以目标为导向自动补全', () => {
       WHERE owner_id = ? AND book_id = ? AND discussion_id = ? AND phase = 'independent'`)
       .all(scope.ownerId, scope.bookId, discussion.discussionId) as unknown as Array<{ agent_id: string }>;
     expect(opinions).toHaveLength(3);
-    // 缺席的 GLM 席位被补发资料重发了一次；其余两席各只调用一次，没有陪跑
-    expect(discussionCalls.filter((call) => call.model === 'glm-5.3')).toHaveLength(2);
+    // 缺席的豆包席位被补发资料重发了一次；其余两席各只调用一次，没有陪跑
+    expect(discussionCalls.filter((call) => call.model === 'doubao-seed-2.1-turbo')).toHaveLength(2);
     expect(discussionCalls.filter((call) => call.model === 'deepseek-v4-pro')).toHaveLength(1);
     expect(discussionCalls.filter((call) => call.model === 'kimi-k2.7-code')).toHaveLength(1);
     // 中断的那次调用留有真实失败记录（后台可核查原因）

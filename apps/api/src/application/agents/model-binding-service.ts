@@ -4,7 +4,7 @@ import type { RoleKey } from '../../domain/roles.js';
 import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
-import { creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
+import { creativeRoleKeys, roleModelProfiles, type CreativeRoleKey, type TeamModelProfile } from '../../contracts/agent-team-v2.js';
 import { ModelBindingV2Service } from './model-binding-v2-service.js';
 
 interface AgentBindingRow {
@@ -207,7 +207,9 @@ export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>):
       }),
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.reviewer),
-    fact_reviewer: profile('fact_reviewer', profiles.style_editor),
+    fact_reviewer: profiles.style_editor.plan === 'deterministic'
+      ? profile('fact_reviewer', profiles.style_editor)
+      : profile('fact_reviewer', roleModelProfiles.fact_reviewer),
     literary_reviewer: profile('literary_reviewer', profiles.researcher),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
     experience_challenger: profile('experience_challenger', profiles.researcher),

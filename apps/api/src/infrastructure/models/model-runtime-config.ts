@@ -107,6 +107,10 @@ function currentPlanModelId(value: string | undefined, fallback: string): string
   return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
 }
 
+export function isRetiredPlanModel(modelId: string): boolean {
+  return /^glm-5\.(?:2|3)(?:$|[-.])/iu.test(modelId.trim());
+}
+
 export const OPENCODEGO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go';
 
 export function assertOpencodegoBaseUrl(raw: string): string {
@@ -216,14 +220,17 @@ function defaultCodexExecutable(env: NodeJS.ProcessEnv): string {
 }
 
 function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
-  const codingProfile = (envKey: string, fallback: string): RoleModelProfile => ({
-    provider: 'volcengine-ark-coding-plan',
-    modelId: currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback),
-    plan: 'coding'
-  });
+  const codingProfile = (envKey: string, fallback: string): RoleModelProfile => {
+    const modelId = currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback);
+    if (isRetiredPlanModel(modelId)) throw new Error(`模型已下架：${modelId}`);
+    return {
+      provider: 'volcengine-ark-coding-plan',
+      modelId,
+      plan: 'coding'
+    };
+  };
   const deepSeekPro = codingProfile('DEEPSEEK', 'deepseek-v4-pro');
   const deepSeekFlash = codingProfile('DEEPSEEK_FLASH', 'deepseek-v4-flash');
-  const glm = codingProfile('GLM', 'glm-5.3');
   const doubao = codingProfile('DOUBAO', 'doubao-seed-2.1-turbo');
   const kimiK27: RoleModelProfile = {
     provider: 'volcengine-ark-coding-plan',
@@ -236,11 +243,11 @@ function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleMo
   return {
     chief_editor: { ...deepSeekPro },
     plot_architect: { ...deepSeekPro },
-    continuity: { ...glm },
+    continuity: { ...doubao },
     writer: { ...deepSeekPro },
     reviewer: { ...kimiK27 },
     reader_experience: { ...doubao },
-    style_editor: { ...glm },
+    style_editor: { ...deepSeekFlash },
     researcher: { ...deepSeekFlash },
     copyright: { ...kimiK27 }
   };

@@ -37,13 +37,15 @@ describe('现有书籍模型快照绑定', () => {
     expect(team.find((agent) => agent.roleKey === 'chief_editor')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_writer')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' });
     expect(team.find((agent) => agent.roleKey as string === 'lead_screenwriter')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro' });
-    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3' });
+    expect(team.find((agent) => agent.roleKey as string === 'deputy_editor')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash' });
+    expect(team.find((agent) => agent.roleKey as string === 'second_screenwriter')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo' });
     expect(team.find((agent) => agent.roleKey as string === 'senior_screenwriter')).toMatchObject({ provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3' });
     expect(new Set(['lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'].map((roleKey) => {
       const agent = team.find((member) => member.roleKey as string === roleKey);
       return `${agent?.provider}/${agent?.modelId}`;
     })).size).toBe(4);
     expect(team.find((agent) => agent.roleKey as string === 'setting')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash' });
+    expect(team.find((agent) => agent.roleKey as string === 'fact_reviewer')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'minimax-m2.7' });
     expect(team.find((agent) => agent.roleKey as string === 'literary_reviewer')).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash' });
     expect(team.find((agent) => agent.roleKey as string === 'experience_reviewer')).toMatchObject({ modelId: 'doubao-seed-2.1-turbo' });
 

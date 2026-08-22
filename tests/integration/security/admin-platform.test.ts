@@ -160,6 +160,8 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       expect(describe0.json().data.source).toBe('default');
       expect(describe0.json().data.members.length).toBe(15);
       expect(describe0.json().data.allowedModels.length).toBeGreaterThan(0);
+      expect(describe0.json().data.allowedModels.some((model: { modelId: string }) => /glm-5\\.[23]/iu.test(model.modelId))).toBe(false);
+      expect(describe0.json().data.allowedModels.some((model: { modelId: string }) => model.modelId === 'minimax-m2.7')).toBe(true);
 
       const sameModel = Object.fromEntries(Object.keys(roleModelProfiles).map((role) => [role, roleModelProfiles.chief_editor]));
       const rejected1 = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: sameModel } });
@@ -167,11 +169,32 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       const outside = { ...roleModelProfiles, chief_editor: { provider: 'unknown-provider', modelId: 'unknown-model', plan: 'agent' } };
       const rejected2 = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: outside } });
       expect(rejected2.statusCode).toBe(400);
+      const retired = { ...roleModelProfiles, fact_reviewer: { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' } };
+      const rejected3 = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: retired } });
+      expect(rejected3.statusCode).toBe(400);
     } finally {
       await app.close();
     }
   });
 
+  it('旧平台方案含下架 GLM 时自动回退最新默认方案', () => {
+    context = createTestContext('wenmi-admin-platform-retired-glm-');
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const service = new PlatformModelSchemeService(context.database, ids, clock);
+    const retired = {
+      ...roleModelProfiles,
+      second_screenwriter: { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' }
+    };
+    context.database.prepare(`INSERT INTO platform_model_scheme (
+      scheme_id, profiles_json, updated_by_user_id, updated_at
+    ) VALUES ('current', ?, 'user-admin', ?)`).run(JSON.stringify(retired), clock.now().toISOString());
+
+    expect(service.storedProfiles()?.second_screenwriter.modelId).toBe('glm-5.3');
+    expect(service.currentProfiles(roleModelProfiles)).toEqual(roleModelProfiles);
+    expect(service.allowedModels(context.config.modelRuntime.roleProfiles)
+      .some((model) => /glm-5\.[23]/iu.test(model.modelId))).toBe(false);
+  });
   it('平台方案服务：保存后存量书未来任务收敛，重复保存不再修订', () => {
     context = createTestContext('wenmi-admin-platform-converge-');
     const ids = new SequenceIds();

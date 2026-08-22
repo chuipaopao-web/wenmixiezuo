@@ -7,7 +7,7 @@ import {
   DeterministicNovelWriterAdapter
 } from './deterministic-novel-models.js';
 import type { ModelAdapter } from './model-adapter.js';
-import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js';
+import { isRetiredPlanModel, type ModelPurpose, type ModelRuntimeConfig } from './model-runtime-config.js';
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
@@ -28,6 +28,7 @@ export class ModelAdapterFactory {
     if (provider === 'local-deterministic-writer' && modelId === 'wenmi-novel-writer-v1') return new DeterministicNovelWriterAdapter();
     if (provider === 'local-deterministic-candidate-b' && modelId === 'wenmi-novel-candidate-b-v1') return new DeterministicNovelCandidateBAdapter();
     if (provider === 'local-deterministic-reviewer' && modelId === 'wenmi-novel-reviewer-v1') return new DeterministicNovelReviewerAdapter();
+    if (isRetiredPlanModel(modelId)) throw new Error(`模型已下架：${modelId}`);
 
     if (provider === this.config.codex.provider) {
       if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起Codex真实调用');

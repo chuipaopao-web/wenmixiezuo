@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { toCreativeProfiles } from '../../apps/api/src/application/agents/model-binding-service.js';
+import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 
 describe('模型运行配置', () => {
   it('没有套餐凭证时诚实回到确定性开发模式', () => {
@@ -34,10 +35,11 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.writer).toMatchObject({
       provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding'
     });
-    expect(config.roleProfiles.continuity).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' });
+    expect(config.roleProfiles.continuity).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' });
     expect(config.roleProfiles.reviewer).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2.7-code', plan: 'coding' });
     expect(config.roleProfiles.reader_experience).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' });
     expect(config.roleProfiles.researcher).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
+    expect(config.roleProfiles.style_editor).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
     const creative = toCreativeProfiles(config.roleProfiles);
     expect(creative.senior_screenwriter).toEqual({
       provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent'
@@ -58,20 +60,43 @@ describe('模型运行配置', () => {
     expect(config.endpoints.agent.apiKey).toBeUndefined();
   });
 
-  it('Coding Plan旧模型别名只迁移普通Kimi岗位，不会占用高级编剧K3', () => {
+  it('Coding Plan旧模型别名只迁移仍在使用的Kimi和豆包岗位，不会占用高级编剧K3', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
       WENMI_ARK_CODING_PLAN_KIMI_MODEL: 'kimi-k2-6-modelhub',
-      WENMI_ARK_CODING_PLAN_GLM_MODEL: 'glm-5-2-260617',
+
       WENMI_ARK_CODING_PLAN_DOUBAO_MODEL: 'doubao-seed-2-0-pro-260215'
     });
 
     expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
-    expect(config.roleProfiles.continuity.modelId).toBe('glm-5.2');
+    expect(config.roleProfiles.continuity.modelId).toBe('doubao-seed-2.1-turbo');
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
     expect(toCreativeProfiles(config.roleProfiles).senior_screenwriter.modelId).toBe('kimi-k3');
+  });
+  it('GLM-5.2/5.3从配置和执行入口下架', () => {
+    const config = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    const creative = toCreativeProfiles(config.roleProfiles);
+    expect(creative.second_screenwriter.modelId).toBe('doubao-seed-2.1-turbo');
+    expect(creative.deputy_editor.modelId).toBe('deepseek-v4-flash');
+    expect(creative.fact_reviewer.modelId).toBe('minimax-m2.7');
+    expect(JSON.stringify(config.publicProfiles)).not.toMatch(/glm-5\.[23]/iu);
+    expect(() => new ModelAdapterFactory(config).resolve(
+      'volcengine-ark-coding-plan', 'glm-5.3', 'discussion', 'second_screenwriter'
+    )).toThrow('模型已下架');
+    expect(() => new ModelAdapterFactory(config).resolve(
+      'volcengine-ark-coding-plan', 'glm-5.2', 'novel_reviewer', 'fact_reviewer'
+    )).toThrow('模型已下架');
+    expect(() => loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_CODING_PLAN_DOUBAO_MODEL: 'glm-5.3'
+    })).toThrow('模型已下架');
   });
   it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
     const config = loadModelRuntimeConfig({

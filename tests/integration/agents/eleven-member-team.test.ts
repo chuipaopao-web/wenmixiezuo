@@ -22,12 +22,17 @@ describe('十五人创作团队', () => {
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_model_bindings WHERE owner_id = ? AND book_id = ?`).get('owner-one', book.bookId)).toEqual({ count: 15 });
   });
 
-  it('模型绑定拒绝同模型双编剧、豆包编剧和不允许的写手', () => {
+  it('模型绑定允许豆包担任独立编剧，并拒绝同模型双编剧和不允许的写手', () => {
     const service = Object.create(ModelBindingV2Service.prototype) as ModelBindingV2Service;
     const base = Object.fromEntries(creativeMemberContracts.map((member) => [member.roleKey, { ...member.defaultModel }])) as Parameters<ModelBindingV2Service['validate']>[0];
     expect(base.deputy_editor).toEqual({
       provider: 'volcengine-ark-coding-plan',
-      modelId: 'glm-5.3',
+      modelId: 'deepseek-v4-flash',
+      plan: 'coding'
+    });
+    expect(base.second_screenwriter).toEqual({
+      provider: 'volcengine-ark-coding-plan',
+      modelId: 'doubao-seed-2.1-turbo',
       plan: 'coding'
     });
     expect(base.literary_reviewer).toEqual({
@@ -37,8 +42,8 @@ describe('十五人创作团队', () => {
     });
     expect(() => service.validate({ ...base, second_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
     expect(() => service.validate({ ...base, third_screenwriter: base.lead_screenwriter })).toThrow('互不相同');
-    expect(() => service.validate({ ...base, lead_screenwriter: base.experience_reviewer })).toThrow('豆包');
-    expect(() => service.validate({ ...base, third_screenwriter: base.experience_reviewer })).toThrow('豆包');
+
+
     expect(() => service.validate({ ...base, lead_writer: base.literary_reviewer })).toThrow('写手');
     expect(() => service.validate({ ...base, backup_writer: base.lead_writer })).toThrow('主笔与副笔必须使用不同模型');
   });
@@ -57,7 +62,7 @@ describe('十五人创作团队', () => {
     const backupWriter = rows.find((row) => row.roleKey === 'backup_writer')!;
     const backupPanel = new ReviewModelCompatibilityService().select(backupWriter, rows);
     expect(backupPanel.fact.roleKey).toBe('fact_reviewer');
-    expect(backupPanel.fact.modelId).toBe('glm-5.3');
+    expect(backupPanel.fact.modelId).toBe('minimax-m2.7');
     const legacyRows = rows.filter((row) => row.roleKey !== 'experience_challenger');
     const legacyPanel = new ReviewModelCompatibilityService().select(writer, legacyRows);
     expect(legacyPanel.challenger).toBeNull();

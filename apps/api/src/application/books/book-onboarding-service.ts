@@ -4,6 +4,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningField, PositioningTag } from '../../domain/positioning.js';
 import type { OwnerScope } from '../../domain/scope.js';
 import { TeamTemplateService } from '../agents/team-template-service.js';
+import { toCreativeProfiles } from '../agents/model-binding-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
@@ -371,25 +372,6 @@ export class BookOnboardingService {
     const fallback = toCreativeProfiles(this.roleProfiles!) as Record<CreativeRoleKey, TeamModelProfile>;
     return this.platformSchemes?.currentProfiles(fallback) ?? fallback;
   }
-}
-
-function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
-  return {
-    chief_editor: profiles.chief_editor,
-    deputy_editor: profiles.style_editor,
-    lead_screenwriter: profiles.plot_architect,
-    second_screenwriter: profiles.continuity,
-    third_screenwriter: profiles.reviewer,
-    setting: profiles.researcher,
-    lead_writer: profiles.writer,
-    backup_writer: profiles.reviewer,
-    fact_reviewer: profiles.style_editor,
-    literary_reviewer: profiles.researcher,
-    experience_reviewer: profiles.reader_experience,
-    experience_challenger: profiles.researcher,
-    researcher: profiles.researcher,
-    copyright: profiles.copyright
-  };
 }
 
 function fieldValue(fields: PositioningField[], key: string): unknown {

@@ -131,7 +131,7 @@ describe('历史九人书终局升级', () => {
       AND role_key IN ('third_screenwriter', 'senior_screenwriter', 'fact_reviewer', 'experience_challenger')`).run(scope.ownerId, scope.bookId);
     context.database.prepare(`DELETE FROM agent_instances WHERE owner_id = ? AND book_id = ?
       AND role_template_id IN ('role-v2-third-screenwriter', 'role-v2-senior-screenwriter', 'role-v2-fact-reviewer', 'role-v2-experience-challenger')`).run(scope.ownerId, scope.bookId);
-    // 模拟生产真实套餐模型：主编与编剧C同为 K2.7、编剧B与事实审查同为 GLM，属于允许的设计
+    // 模拟历史套餐模型：编剧B仍留有旧 GLM 绑定；补齐的新岗位必须使用最新默认模型
     context.database.prepare(`UPDATE model_config_snapshots
       SET parameters_json = json_set(parameters_json, '$.plan', 'agent')
       WHERE owner_id = ? AND book_id = ?`).run(scope.ownerId, scope.bookId);
@@ -161,7 +161,7 @@ describe('历史九人书终局升级', () => {
     expect(toppedUp.team).toHaveLength(15);
     const byRole = new Map(toppedUp.team.map((member) => [member.roleKey, `${member.provider}/${member.modelId}`]));
     expect(byRole.get('third_screenwriter')).toBe('volcengine-ark-coding-plan/kimi-k2.7-code');
-    expect(byRole.get('fact_reviewer')).toBe('volcengine-ark-coding-plan/glm-5.3');
+    expect(byRole.get('fact_reviewer')).toBe('volcengine-ark-coding-plan/minimax-m2.7');
     expect(new AgentTeamService(context.database, ids, clock).list(scope)).toHaveLength(15);
   });
 

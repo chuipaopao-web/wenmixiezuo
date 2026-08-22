@@ -66,9 +66,6 @@ export function validateTeamModelProfiles(
     const signature = (role: CreativeRoleKey): string => `${profiles[role].provider}/${profiles[role].modelId}`;
     const screenwriterSignatures = (['lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'] as const).map(signature);
     if (new Set(screenwriterSignatures).size !== screenwriterSignatures.length) throw new Error('四名编剧必须使用互不相同的模型');
-    for (const role of ['lead_screenwriter', 'second_screenwriter', 'third_screenwriter', 'senior_screenwriter'] as const) {
-      if (/doubao/iu.test(profiles[role].modelId)) throw new Error('豆包不能进入剧情讨论席');
-    }
     if (profiles.lead_writer.plan !== 'deterministic'
       && profiles.backup_writer.plan !== 'deterministic'
       && signature('lead_writer') === signature('backup_writer')) {
