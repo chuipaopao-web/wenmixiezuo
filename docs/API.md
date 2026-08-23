@@ -113,7 +113,7 @@
 
 - 团队模板、逐书成员、岗位公开说明、真实状态和模型绑定。
 - 普通AI岗位使用 `volcengine-ark-coding-plan` / `coding`；高级编剧使用 `volcengine-ark-agent-plan` / `agent` / `kimi-k3`。两条路线分别校验环境变量凭证，缺少 Agent Plan 只令高级编剧不可用。
-- GLM-5.2/5.3 已从当前模型方案下架且执行前强制拒绝；红玉使用 `doubao-seed-2.1-turbo`，西施使用 `deepseek-v4-flash`，班昭使用 `minimax-m2.7`，三席普通岗位均走 Coding Plan。
+- GLM-5.2/5.3 登记为 Coding Plan 可配置但未绑定的模型，可在管理员以后明确保存新方案时分配给合规 Agent 岗位；当前岗位方案保持零 GLM，历史无目录版本的 GLM 方案不会自动恢复。红玉使用 `doubao-seed-2.1-turbo`，西施使用 `deepseek-v4-flash`，班昭使用 `minimax-m2.7`，三席普通岗位均走 Coding Plan。
 - 存量书创建新的活动模型绑定版本；运行中任务、历史调用快照和用量记录不可改写。
 - 任务中心、任务详情、暂停、取消、失败重试和结果未知调和。
 - 模型调用、预算和用量只显示可审计元数据，不返回密钥或思维链。

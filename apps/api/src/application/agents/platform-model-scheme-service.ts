@@ -5,12 +5,23 @@ import {
   creativeMemberContracts, creativeRoleKeys, roleModelProfiles,
   type CreativeRoleKey, type TeamModelProfile
 } from '../../contracts/agent-team-v2.js';
-import { isRetiredPlanModel, type NovelRoleKey, type RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
+import {
+  additionalConfigurablePlanProfiles,
+  type NovelRoleKey,
+  type RoleModelProfile
+} from '../../infrastructure/models/model-runtime-config.js';
 import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
 import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
 import { ModelBindingV2Service, validateTeamModelProfiles } from './model-binding-v2-service.js';
 
 const SCHEME_ROW_ID = 'current';
+const MODEL_CATALOG_VERSION_KEY = '__modelCatalogVersion';
+const CURRENT_MODEL_CATALOG_VERSION = 2;
+
+interface StoredScheme {
+  profiles: Record<CreativeRoleKey, TeamModelProfile>;
+  modelCatalogVersion: number;
+}
 
 export interface AllowedModelProfile {
   provider: string;
@@ -46,18 +57,31 @@ export class PlatformModelSchemeService {
   ) {}
 
   public storedProfiles(): Record<CreativeRoleKey, TeamModelProfile> | null {
+    return this.storedScheme()?.profiles ?? null;
+  }
+
+  private storedScheme(): StoredScheme | null {
     const row = this.database.prepare(`
       SELECT profiles_json FROM platform_model_scheme WHERE scheme_id = ?
     `).get(SCHEME_ROW_ID) as { profiles_json: string } | undefined;
     if (row === undefined) return null;
-    const parsed = JSON.parse(row.profiles_json) as Record<CreativeRoleKey, TeamModelProfile>;
-    return creativeRoleKeys.every((role) => parsed[role] !== undefined) ? parsed : null;
+    const parsed = JSON.parse(row.profiles_json) as Record<string, unknown>;
+    if (!creativeRoleKeys.every((role) => parsed[role] !== undefined)) return null;
+    const profiles = Object.fromEntries(creativeRoleKeys.map((role) => [role, parsed[role]])) as
+      Record<CreativeRoleKey, TeamModelProfile>;
+    const modelCatalogVersion = parsed[MODEL_CATALOG_VERSION_KEY];
+    return {
+      profiles,
+      modelCatalogVersion: typeof modelCatalogVersion === 'number' ? modelCatalogVersion : 1
+    };
   }
 
   public currentProfiles(fallback: Record<CreativeRoleKey, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> {
-    const stored = this.storedProfiles();
-    if (stored === null) return fallback;
-    if (Object.values(stored).some((profile) => isRetiredPlanModel(profile.modelId))) return fallback;
+    const storedScheme = this.storedScheme();
+    if (storedScheme === null) return fallback;
+    const stored = storedScheme.profiles;
+    if (storedScheme.modelCatalogVersion < CURRENT_MODEL_CATALOG_VERSION
+      && Object.values(stored).some((profile) => isRestoredGlmModel(profile.modelId))) return fallback;
     const followsCurrentCredentialRouting = creativeRoleKeys.every((role) => {
       const profile = stored[role];
       return role === 'senior_screenwriter'
@@ -69,9 +93,12 @@ export class PlatformModelSchemeService {
 
   public allowedModels(roleProfiles: Record<NovelRoleKey, RoleModelProfile>): AllowedModelProfile[] {
     const seen = new Map<string, AllowedModelProfile>();
-    for (const profile of [...Object.values(roleModelProfiles), ...Object.values(roleProfiles)]) {
+    for (const profile of [
+      ...Object.values(roleModelProfiles),
+      ...Object.values(roleProfiles),
+      ...additionalConfigurablePlanProfiles
+    ]) {
       if (!profile.provider.startsWith('volcengine-ark')) continue;
-      if (isRetiredPlanModel(profile.modelId)) continue;
       seen.set(`${profile.provider}/${profile.modelId}`, { provider: profile.provider, modelId: profile.modelId, plan: profile.plan });
     }
     return [...seen.values()];
@@ -111,7 +138,10 @@ export class PlatformModelSchemeService {
       VALUES (?, ?, ?, ?)
       ON CONFLICT (scheme_id) DO UPDATE SET profiles_json = excluded.profiles_json,
         updated_by_user_id = excluded.updated_by_user_id, updated_at = excluded.updated_at
-    `).run(SCHEME_ROW_ID, JSON.stringify(profiles), actorUserId, now);
+    `).run(SCHEME_ROW_ID, JSON.stringify({
+      ...profiles,
+      [MODEL_CATALOG_VERSION_KEY]: CURRENT_MODEL_CATALOG_VERSION
+    }), actorUserId, now);
     const convergence = this.convergeAllBooks(
       profiles,
       reason?.trim() || '管理后台调整全员模型方案；保留历史快照，只影响未来任务'
@@ -169,4 +199,8 @@ export class PlatformModelSchemeService {
     }
     return profiles;
   }
+}
+
+function isRestoredGlmModel(modelId: string): boolean {
+  return /^glm-5\.(?:2|3)(?:$|[-.])/iu.test(modelId.trim());
 }

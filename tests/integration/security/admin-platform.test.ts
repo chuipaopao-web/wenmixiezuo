@@ -8,6 +8,7 @@ import { PlatformModelSchemeService } from '../../../apps/api/src/application/ag
 import { AgentGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/agent-governance-repository.js';
 import { roleModelProfiles } from '../../../apps/api/src/contracts/agent-team-v2.js';
 import { MembershipService } from '../../../apps/api/src/infrastructure/security/membership-service.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 const BROWSER_HEADERS = {
   host: '127.0.0.1:43111',
@@ -180,6 +181,11 @@ describe('管理后台：算力消耗与平台模型方案', () => {
 
   it('管理员保存平台方案：同模型与名单外模型被拒绝，合法方案落库并收敛全部书籍', async () => {
     context = createTestContext('wenmi-admin-platform-scheme-');
+    context.config.modelRuntime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
     const app = await createServer(context.config, context.database);
     try {
       const { adminCookie } = await registerAdminAndUser(app);
@@ -188,7 +194,9 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       expect(describe0.json().data.source).toBe('default');
       expect(describe0.json().data.members.length).toBe(25);
       expect(describe0.json().data.allowedModels.length).toBeGreaterThan(0);
-      expect(describe0.json().data.allowedModels.some((model: { modelId: string }) => /glm-5\\.[23]/iu.test(model.modelId))).toBe(false);
+      expect(describe0.json().data.allowedModels
+        .filter((model: { modelId: string }) => /glm-5\.[23]/iu.test(model.modelId))
+        .map((model: { modelId: string }) => model.modelId)).toEqual(['glm-5.2', 'glm-5.3']);
       expect(describe0.json().data.allowedModels.some((model: { modelId: string }) => model.modelId === 'minimax-m2.7')).toBe(true);
 
       const sameModel = Object.fromEntries(Object.keys(roleModelProfiles).map((role) => [role, roleModelProfiles.chief_editor]));
@@ -197,15 +205,17 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       const outside = { ...roleModelProfiles, chief_editor: { provider: 'unknown-provider', modelId: 'unknown-model', plan: 'agent' } };
       const rejected2 = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: outside } });
       expect(rejected2.statusCode).toBe(400);
-      const retired = { ...roleModelProfiles, fact_reviewer: { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' } };
-      const rejected3 = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: retired } });
-      expect(rejected3.statusCode).toBe(400);
+      const assignable = { ...roleModelProfiles, fact_reviewer: { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' } };
+      const accepted = await app.inject({ method: 'POST', url: '/api/v1/admin/model-scheme', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { profiles: assignable } });
+      expect(accepted.statusCode).toBe(200);
+      const describe1 = await app.inject({ method: 'GET', url: '/api/v1/admin/model-scheme', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
+      expect(describe1.json().data.profiles.fact_reviewer.modelId).toBe('glm-5.3');
     } finally {
       await app.close();
     }
   });
 
-  it('旧平台方案含下架 GLM 时自动回退最新默认方案', () => {
+  it('历史无目录版本的 GLM 方案继续安全回退，新保存方案才可明确启用', () => {
     context = createTestContext('wenmi-admin-platform-retired-glm-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -221,7 +231,12 @@ describe('管理后台：算力消耗与平台模型方案', () => {
     expect(service.storedProfiles()?.second_screenwriter.modelId).toBe('glm-5.3');
     expect(service.currentProfiles(roleModelProfiles)).toEqual(roleModelProfiles);
     expect(service.allowedModels(context.config.modelRuntime.roleProfiles)
-      .some((model) => /glm-5\.[23]/iu.test(model.modelId))).toBe(false);
+      .filter((model) => /glm-5\.[23]/iu.test(model.modelId)).map((model) => model.modelId))
+      .toEqual(['glm-5.2', 'glm-5.3']);
+
+    const explicitlySaved = service.save('user-admin', retired, context.config.modelRuntime.roleProfiles);
+    expect(explicitlySaved.updatedAt).toBe(clock.now().toISOString());
+    expect(service.currentProfiles(roleModelProfiles).second_screenwriter.modelId).toBe('glm-5.3');
   });
   it('平台方案服务：保存后存量书未来任务收敛，重复保存不再修订', () => {
     context = createTestContext('wenmi-admin-platform-converge-');

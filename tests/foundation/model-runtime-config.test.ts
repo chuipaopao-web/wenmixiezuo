@@ -75,7 +75,7 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
     expect(toCreativeProfiles(config.roleProfiles).senior_screenwriter.modelId).toBe('kimi-k3');
   });
-  it('GLM-5.2/5.3从配置和执行入口下架', () => {
+  it('GLM-5.2/5.3保持可配置和可执行，但当前岗位方案不绑定', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
@@ -85,18 +85,23 @@ describe('模型运行配置', () => {
     expect(creative.second_screenwriter.modelId).toBe('doubao-seed-2.1-turbo');
     expect(creative.deputy_editor.modelId).toBe('deepseek-v4-flash');
     expect(creative.fact_reviewer.modelId).toBe('minimax-m2.7');
-    expect(JSON.stringify(config.publicProfiles)).not.toMatch(/glm-5\.[23]/iu);
+    expect(Object.values(creative).every((profile) => !/glm-5\.[23]/iu.test(profile.modelId))).toBe(true);
+    expect(config.publicProfiles.filter((profile) => /glm-5\.[23]/iu.test(profile.modelId))).toEqual([
+      {
+        provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding',
+        roles: [], credentialConfigured: true
+      },
+      {
+        provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding',
+        roles: [], credentialConfigured: true
+      }
+    ]);
     expect(() => new ModelAdapterFactory(config).resolve(
       'volcengine-ark-coding-plan', 'glm-5.3', 'discussion', 'second_screenwriter'
-    )).toThrow('模型已下架');
+    )).not.toThrow();
     expect(() => new ModelAdapterFactory(config).resolve(
       'volcengine-ark-coding-plan', 'glm-5.2', 'novel_reviewer', 'fact_reviewer'
-    )).toThrow('模型已下架');
-    expect(() => loadModelRuntimeConfig({
-      WENMI_MODEL_MODE: 'subscription-plan',
-      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
-      WENMI_ARK_CODING_PLAN_DOUBAO_MODEL: 'glm-5.3'
-    })).toThrow('模型已下架');
+    )).not.toThrow();
   });
   it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
     const config = loadModelRuntimeConfig({

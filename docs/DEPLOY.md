@@ -125,6 +125,8 @@ sudo -u wenmi nano deploy/.env.production
 
 > 常规创作岗位统一使用 Coding Plan。高级编剧清照固定使用 Agent Plan 的 `kimi-k3`，只有作者主动选择时才调用；未配置 Agent Plan 时仅该席位不可用。两类 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
 
+GLM-5.2 与 GLM-5.3 使用 Coding Plan 共用凭证并登记在后台可配置模型目录，当前不默认绑定任何岗位；无需新增独立密钥。
+
 ### 第五步：运行数据库迁移
 
 ```bash

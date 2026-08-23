@@ -73,6 +73,15 @@ const DETERMINISTIC_PROFILE: RoleModelProfile = {
   plan: 'deterministic'
 };
 
+/**
+ * 可由后台分配、但不默认绑定任何岗位的套餐模型。
+ * 目录必须独立于 roleProfiles，否则“暂时不使用”会被误实现成“无法配置”。
+ */
+export const additionalConfigurablePlanProfiles = [
+  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding' },
+  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' }
+] as const satisfies readonly RoleModelProfile[];
+
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   return values.find((value) => value !== undefined && value.trim().length > 0)?.trim();
 }
@@ -105,10 +114,6 @@ function currentPlanModelId(value: string | undefined, fallback: string): string
   const configured = firstNonEmpty(value);
   if (configured === undefined) return fallback;
   return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
-}
-
-export function isRetiredPlanModel(modelId: string): boolean {
-  return /^glm-5\.(?:2|3)(?:$|[-.])/iu.test(modelId.trim());
 }
 
 export const OPENCODEGO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go';
@@ -222,7 +227,6 @@ function defaultCodexExecutable(env: NodeJS.ProcessEnv): string {
 function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
   const codingProfile = (envKey: string, fallback: string): RoleModelProfile => {
     const modelId = currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback);
-    if (isRetiredPlanModel(modelId)) throw new Error(`模型已下架：${modelId}`);
     return {
       provider: 'volcengine-ark-coding-plan',
       modelId,
@@ -257,20 +261,22 @@ function toPublicProfiles(
   endpoints: ModelRuntimeConfig['endpoints']
 ): PublicModelProfile[] {
   const grouped = new Map<string, PublicModelProfile>();
-  for (const role of novelRoleKeys) {
-    const profile = profiles[role];
+  const register = (profile: RoleModelProfile, role?: NovelRoleKey): void => {
     const key = `${profile.plan}\n${profile.provider}\n${profile.modelId}`;
     const existing = grouped.get(key);
     if (existing !== undefined) {
-      existing.roles.push(role);
-      continue;
+      if (role !== undefined && !existing.roles.includes(role)) existing.roles.push(role);
+      return;
     }
     grouped.set(key, {
       ...profile,
-      roles: [role],
-      credentialConfigured: profile.plan === 'deterministic' || profile.plan === 'codex' || endpoints[profile.plan].apiKey !== undefined
+      roles: role === undefined ? [] : [role],
+      credentialConfigured: profile.plan === 'deterministic' || profile.plan === 'codex'
+        || endpoints[profile.plan].apiKey !== undefined
     });
-  }
+  };
+  for (const role of novelRoleKeys) register(profiles[role], role);
+  for (const profile of additionalConfigurablePlanProfiles) register(profile);
   return [...grouped.values()];
 }
 

@@ -7,7 +7,7 @@ import {
   DeterministicNovelWriterAdapter
 } from './deterministic-novel-models.js';
 import type { ModelAdapter } from './model-adapter.js';
-import { isRetiredPlanModel, type ModelPurpose, type ModelRuntimeConfig } from './model-runtime-config.js';
+import type { ModelPurpose, ModelRuntimeConfig } from './model-runtime-config.js';
 import type { RoleKey } from '../../domain/roles.js';
 import { buildRoleSystemPrompt } from '../../domain/role-prompts.js';
 import { CodexSubscriptionModelAdapter, type CodexProcessRunner } from './codex-subscription-model.js';
@@ -28,8 +28,6 @@ export class ModelAdapterFactory {
     if (provider === 'local-deterministic-writer' && modelId === 'wenmi-novel-writer-v1') return new DeterministicNovelWriterAdapter();
     if (provider === 'local-deterministic-candidate-b' && modelId === 'wenmi-novel-candidate-b-v1') return new DeterministicNovelCandidateBAdapter();
     if (provider === 'local-deterministic-reviewer' && modelId === 'wenmi-novel-reviewer-v1') return new DeterministicNovelReviewerAdapter();
-    if (isRetiredPlanModel(modelId)) throw new Error(`模型已下架：${modelId}`);
-
     if (provider === this.config.codex.provider) {
       if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起Codex真实调用');
       if (modelId !== this.config.codex.modelId) throw new Error(`未批准的Codex订阅模型：${modelId}`);
@@ -55,9 +53,11 @@ export class ModelAdapterFactory {
     if (endpoint === undefined) throw new Error(`未注册的模型来源：${provider}/${modelId}`);
     if (this.config.activeMode !== 'subscription-plan') throw new Error('订阅模型模式未激活，禁止发起真实模型调用');
     if (endpoint.apiKey === undefined) throw new Error(`${endpoint.plan} plan凭证未配置`);
-    const allowed = new Set([...Object.values(this.config.roleProfiles), ...Object.values(roleModelProfiles)]
-      .filter((profile) => profile.provider === provider)
-      .map((profile) => profile.modelId));
+    const allowed = new Set([
+      ...Object.values(this.config.roleProfiles),
+      ...Object.values(roleModelProfiles),
+      ...this.config.publicProfiles
+    ].filter((profile) => profile.provider === provider).map((profile) => profile.modelId));
     if (!allowed.has(modelId)) throw new Error(`模型不在已批准的套餐角色配置中：${provider}/${modelId}`);
     return new ArkPlanModelAdapter({
       plan: endpoint.plan,
