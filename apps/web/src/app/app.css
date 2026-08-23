@@ -4106,7 +4106,7 @@ svg {
   color: var(--ink);
   background: var(--panel);
   font: inherit;
-  font-size: calc(10px * var(--font-scale));
+  font-size: max(14px, calc(10px * var(--font-scale)));
 }
 
 .opening-form-section select {
@@ -5439,6 +5439,9 @@ svg {
   .create-book-footer > div:last-child { width: 100%; }
   .create-book-footer button { flex: 1; }
   .opening-idea-section { padding: 16px; }
+  .complete-create-book-dialog .opening-form-section input,
+  .complete-create-book-dialog .opening-form-section textarea,
+  .complete-create-book-dialog .opening-form-section select { font-size: 16px; }
   .opening-design-actions { grid-template-columns: 1fr; }
   .opening-ai-wait { grid-template-columns: 1fr; padding: 17px; }
   .opening-ai-wait > svg { width: 28px; height: 28px; }

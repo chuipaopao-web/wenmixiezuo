@@ -366,6 +366,8 @@ describe('完整创作工作台', () => {
     expect(css).toMatch(/\.app-shell\.unified-desk\s*\{[^}]*grid-template-columns:\s*144px\s+minmax\(0,\s*1fr\)/su);
     expect(css).toMatch(/\.unified-book-switcher > nav\[aria-label="选择书籍"\]\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*84px[^}]*overflow-y:\s*scroll/su);
     expect(css).toMatch(/\.book-rail-cover\s*\{[^}]*width:\s*84px[^}]*height:\s*118px/su);
+    expect(css).toMatch(/\.opening-form-section input,[\s\S]*?\.opening-form-section select\s*\{[^}]*font-size:\s*max\(14px,\s*calc\(10px \* var\(--font-scale\)\)\)/u);
+    expect(css).toMatch(/\.complete-create-book-dialog \.opening-form-section input,[\s\S]*?\.complete-create-book-dialog \.opening-form-section select\s*\{\s*font-size:\s*16px;/u);
     expect(css).toContain('#2c4a42');
   });
 
