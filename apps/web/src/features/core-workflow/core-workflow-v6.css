@@ -967,8 +967,8 @@
     background: color-mix(in srgb, var(--panel-raised) 74%, transparent);
     backdrop-filter: saturate(170%) blur(28px);
   }
-  .app-shell.unified-desk .function-nav-primary { flex: 2 1 0; grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .app-shell.unified-desk .function-nav-utilities { flex: 1 1 0; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .app-shell.unified-desk .function-nav-primary { flex: 5 1 0; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .app-shell.unified-desk .function-nav-utilities { flex: 6 1 0; grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .app-shell.unified-desk .ios-function-bar button {
     min-height: 44px;
     gap: 6px;
