@@ -6205,8 +6205,8 @@ svg {
 }
 
 .sidebar-book-actions .archive-current-book {
-  min-height: 38px;
-  color: var(--ink-faint);
+  min-height: 44px;
+  color: var(--ink-soft);
   background: transparent;
 }
 
@@ -6386,6 +6386,7 @@ svg {
     transition: transform .22s cubic-bezier(.2,.8,.2,1);
     box-shadow: 18px 0 60px rgb(28 38 56 / 18%);
   }
+  .app-shell.unified-desk .ios-book-sidebar { z-index: 70; }
   .sidebar-brand .brand-lockup h1 { display: block; }
   .ios-book-sidebar.drawer-open { transform: translateX(0); visibility: visible; pointer-events: auto; }
   .ios-book-sidebar .unified-book-switcher { min-height: 0; padding-inline: 14px; }

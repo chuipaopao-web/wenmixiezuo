@@ -927,6 +927,11 @@
   .app-shell.unified-desk .book-list-heading strong,
   .app-shell.unified-desk .book-cover-status { color: var(--ink-faint); }
   .app-shell.unified-desk .book-list-heading strong { background: var(--panel-muted); }
+  .app-shell.unified-desk .sidebar-book-actions { border-top-color: color-mix(in srgb, var(--line) 70%, transparent); }
+  .app-shell.unified-desk .sidebar-book-actions .archive-current-book,
+  .app-shell.unified-desk .rail-archived-books summary { color: var(--ink-soft); }
+  .app-shell.unified-desk .sidebar-book-actions .archive-current-book:hover { color: var(--danger); background: var(--danger-soft); }
+  .app-shell.unified-desk .rail-archived-books summary:hover { color: var(--ink); background: var(--panel-muted); }
   .app-shell.unified-desk .unified-book-switcher > nav[aria-label="选择书籍"] {
     grid-template-columns: 84px;
     justify-content: center;
