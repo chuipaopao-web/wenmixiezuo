@@ -43,6 +43,7 @@ import { DomainError, errorCodes } from '../domain/errors.js';
 import { creativeMemberContracts, creativeRoleKeys, type CreativeRoleKey, type TeamModelProfile } from '../contracts/agent-team-v2.js';
 import { AgentGovernanceRepository } from '../infrastructure/db/repositories/agent-governance-repository.js';
 import { ModelBindingV2Service } from '../application/agents/model-binding-v2-service.js';
+import { toCreativeProfiles } from '../application/agents/model-binding-service.js';
 import { BookPortabilityService } from '../application/portability/book-portability-service.js';
 import { TaxonomyService } from '../application/knowledge/taxonomy-service.js';
 import { TaxonomyRepository } from '../infrastructure/db/repositories/taxonomy-repository.js';
@@ -79,6 +80,7 @@ import { ChapterChallengerReviewRepository } from '../infrastructure/db/reposito
 import { OpeningBlueprintService } from '../application/books/opening-blueprint-service.js';
 import { OpeningBlueprintRepository } from '../infrastructure/db/repositories/opening-blueprint-repository.js';
 import { OpeningDraftRepository } from '../infrastructure/db/repositories/opening-draft-repository.js';
+import { PrebookOpeningDesignService } from '../application/books/prebook-opening-design-service.js';
 import { PlanningStateService } from '../application/books/planning-state-service.js';
 import { StyleBaselineService } from '../application/books/style-baseline-service.js';
 import type { StyleBaselineInput } from '../contracts/style-baseline.js';
@@ -298,6 +300,13 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   const owner = (request: FastifyRequest) => requireAuthenticatedOwner(request);
   const positioning = new PositioningService(database, ids, clock);
   const platformSchemes = new PlatformModelSchemeService(database, ids, clock, config.modelRuntime.activeMode);
+  const openingDesigns = new PrebookOpeningDesignService(
+    database,
+    ids,
+    clock,
+    modelAdapters,
+    platformSchemes.currentProfiles(toCreativeProfiles(config.modelRuntime.roleProfiles)).chief_editor
+  );
   const onboarding = new BookOnboardingService(database, ids, clock, config.modelRuntime.roleProfiles, config.releaseId, platformSchemes);
   const lifecycle = new BookLifecycleService(database, config.dataDir, ids, clock);
   const books = new BookRepository(database);
@@ -538,6 +547,26 @@ export async function registerDomainRoutes(app: FastifyInstance, database: Datab
   app.delete('/api/v1/opening-draft', async (request) => {
     openingDrafts.clear(owner(request).ownerId);
     return success({ cleared: true }, request.id);
+  });
+
+  app.post<{ Body: { idea?: string; idempotencyKey?: string } }>('/api/v1/opening-designs', async (request) => {
+    assertCreativeModelReady(config.modelRuntime);
+    const scope = owner(request);
+    const input = {
+      idea: request.body?.idea ?? '',
+      idempotencyKey: request.body?.idempotencyKey ?? ''
+    };
+    const started = openingDesigns.start(scope, input);
+    if (started.started) {
+      void openingDesigns.execute(scope, input).catch((error: unknown) => {
+        app.log.error({ err: error, requestId: request.id }, '建书前开书设计执行失败');
+      });
+    }
+    return success(started.view, request.id);
+  });
+
+  app.get<{ Params: { idempotencyKey: string } }>('/api/v1/opening-designs/:idempotencyKey', async (request) => {
+    return success(openingDesigns.inspect(owner(request), request.params.idempotencyKey), request.id);
   });
 
   app.get<{ Params: { bookId: string } }>('/api/v1/books/:bookId/workflow', async (request) => {

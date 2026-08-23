@@ -247,6 +247,7 @@ export interface OpeningTaxonomyData {
 
 export interface OpeningBlueprintData {
   creationMode: BookCreationMode;
+  openingIdea?: string;
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
@@ -284,6 +285,33 @@ export interface OpeningBlueprintData {
   customTags: string[];
   initialMap: string;
   mustFollow: string[];
+}
+
+export interface PrebookOpeningDesignData {
+  title: string;
+  channel: OpeningChannel;
+  categoryKey: string;
+  auxiliaryTags: string[];
+  mainTags: string[];
+  storyTraits: string[];
+  customTags: string[];
+  targetAudience: string;
+  protagonists: OpeningBlueprintData['protagonists'];
+  worldBackground: string;
+  openingBackground: string;
+  openingStart: string;
+  storyDirection: string;
+  storyEnding: string;
+  mustFollow: string[];
+}
+
+export interface PrebookOpeningDesignView {
+  idempotencyKey: string;
+  status: 'working' | 'succeeded' | 'failed';
+  member: { roleKey: 'chief_editor'; displayName: '貂蝉' };
+  design: PrebookOpeningDesignData | null;
+  errorMessage: string | null;
+  updatedAt: string;
 }
 
 export interface BookProfileViewData {
@@ -1325,6 +1353,23 @@ export function saveOpeningDraftToServer(draft: Record<string, unknown>): Promis
 
 export function clearOpeningDraftOnServer(): Promise<{ cleared: boolean }> {
   return request('/api/v1/opening-draft', { method: 'DELETE' });
+}
+
+export function startPrebookOpeningDesign(input: {
+  idea: string;
+  idempotencyKey: string;
+}): Promise<PrebookOpeningDesignView> {
+  return request('/api/v1/opening-designs', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function fetchPrebookOpeningDesign(
+  idempotencyKey: string,
+  signal?: AbortSignal
+): Promise<PrebookOpeningDesignView> {
+  return request(
+    `/api/v1/opening-designs/${encodeURIComponent(idempotencyKey)}`,
+    signal === undefined ? {} : { signal }
+  );
 }
 
 export function fetchPlanningTemplates(bookId: string, scope: PlanningScope, signal?: AbortSignal): Promise<NarrativeTemplateCatalogView> {

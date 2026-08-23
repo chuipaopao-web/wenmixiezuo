@@ -72,6 +72,8 @@ export interface OpeningStyleIntent {
 
 export interface OpeningBlueprintInput {
   creationMode?: BookCreationMode;
+  /** 作者最初输入的一句话开书思路；保留原话，不能被 AI 生成内容覆盖。 */
+  openingIdea?: string;
   taxonomyVersion: string;
   channel: OpeningChannel;
   categoryKey: string;
@@ -365,6 +367,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
+  const openingIdea = optionalText(input.openingIdea, '开书思路', 1_000);
   const storyDirection = optionalText(input.storyDirection, '故事方向补充', 300);
   const openingStart = optionalText(input.openingStart, '开局', 300);
   const storyEnding = optionalText(input.storyEnding, '结局', 300);
@@ -402,6 +405,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   };
   const validated: OpeningBlueprintInput = {
     creationMode,
+    ...(openingIdea.length > 0 ? { openingIdea } : {}),
     taxonomyVersion: input.taxonomyVersion,
     channel: input.channel,
     categoryKey: input.categoryKey,

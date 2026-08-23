@@ -113,12 +113,35 @@ function findAccountById(database: DatabaseSync, userId: string): AccountRow | u
   return database.prepare('SELECT user_id, owner_id, role FROM user_accounts WHERE user_id = ?').get(userId) as AccountRow | undefined;
 }
 
-function tokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
+function bookTokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
   const row = database.prepare(`
     SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
     FROM usage_ledger WHERE owner_id = ? AND recorded_at >= ?
   `).get(ownerId, sinceIso) as { tokens: number };
   return Number(row.tokens);
+}
+
+function prebookTokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
+  const row = database.prepare(`
+    SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens
+    FROM prebook_opening_design_calls
+    WHERE owner_id = ? AND state = 'succeeded' AND completed_at >= ?
+  `).get(ownerId, sinceIso) as { tokens: number };
+  return Number(row.tokens);
+}
+
+function prebookTokensReservedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
+  const row = database.prepare(`
+    SELECT COALESCE(SUM(reserved_tokens), 0) AS tokens
+    FROM prebook_opening_design_calls
+    WHERE owner_id = ? AND state IN ('working', 'interrupted') AND created_at >= ?
+  `).get(ownerId, sinceIso) as { tokens: number };
+  return Number(row.tokens);
+}
+
+function tokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
+  return bookTokensConsumedSince(database, ownerId, sinceIso)
+    + prebookTokensConsumedSince(database, ownerId, sinceIso);
 }
 
 function addMonths(iso: string, months: number): string {
@@ -135,7 +158,8 @@ function addMonths(iso: string, months: number): string {
 export function membershipGenerationBlockReason(
   database: DatabaseSync,
   ownerId: string,
-  nowIso: string
+  nowIso: string,
+  additionalRealTokens = 0
 ): null | 'membership-required' | 'membership-expired' | 'quota-exhausted' {
   const account = findAccountByOwner(database, ownerId);
   if (account === undefined) return null;
@@ -147,16 +171,27 @@ export function membershipGenerationBlockReason(
   // 已有生效会员记录但周期已过：不是"从未开通"，应提示续费而非开通。
   if (row.period_end <= nowIso) return 'membership-expired';
   // 配额是算力值（双倍口径），真实消耗换算成算力值后再比较。
-  const consumed = tokensConsumedSince(database, ownerId, row.period_start);
-  return consumed * COMPUTE_VALUE_MULTIPLIER >= row.token_quota ? 'quota-exhausted' : null;
+  const committed = tokensConsumedSince(database, ownerId, row.period_start)
+    + prebookTokensReservedSince(database, ownerId, row.period_start)
+    + Math.max(0, additionalRealTokens);
+  const projectedCompute = committed * COMPUTE_VALUE_MULTIPLIER;
+  const quotaReached = additionalRealTokens > 0
+    ? projectedCompute > row.token_quota
+    : projectedCompute >= row.token_quota;
+  return quotaReached ? 'quota-exhausted' : null;
 }
 
 /**
  * 生成门禁：账号体系内的非管理员用户必须持有生效会员且周期内算力值未耗尽。
  * 未关联账号的所有者（本机遗留工作区、测试合成所有者）不受门禁限制。
  */
-export function assertMembershipAllowsGeneration(database: DatabaseSync, ownerId: string, nowIso: string): void {
-  const reason = membershipGenerationBlockReason(database, ownerId, nowIso);
+export function assertMembershipAllowsGeneration(
+  database: DatabaseSync,
+  ownerId: string,
+  nowIso: string,
+  additionalRealTokens = 0
+): void {
+  const reason = membershipGenerationBlockReason(database, ownerId, nowIso, additionalRealTokens);
   if (reason === 'membership-required') {
     throw new DomainError(errorCodes.membershipRequired,
       '召集AI团队需使用算力，请联系管理员微信595341366开通会员。', { ...MEMBERSHIP_CONTACT }, false, 403);
@@ -348,10 +383,17 @@ export class MembershipService {
     const rows = this.database.prepare(`
       SELECT a.user_id, a.owner_id, a.display_name, a.email_normalized, a.role, a.status AS account_status,
         m.plan, m.token_quota, m.period_start, m.period_end, m.status AS membership_status,
-        (SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
-          WHERE l.owner_id = a.owner_id AND m.user_id IS NOT NULL AND l.recorded_at >= m.period_start) AS period_tokens,
-        (SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
-          WHERE l.owner_id = a.owner_id) AS total_tokens
+        ((SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
+          WHERE l.owner_id = a.owner_id AND m.user_id IS NOT NULL AND l.recorded_at >= m.period_start)
+         + (SELECT COALESCE(SUM(COALESCE(p.input_tokens, 0) + COALESCE(p.output_tokens, 0)), 0)
+            FROM prebook_opening_design_calls p
+            WHERE p.owner_id = a.owner_id AND p.state = 'succeeded'
+              AND m.user_id IS NOT NULL AND p.completed_at >= m.period_start)) AS period_tokens,
+        ((SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
+          WHERE l.owner_id = a.owner_id)
+         + (SELECT COALESCE(SUM(COALESCE(p.input_tokens, 0) + COALESCE(p.output_tokens, 0)), 0)
+            FROM prebook_opening_design_calls p
+            WHERE p.owner_id = a.owner_id AND p.state = 'succeeded')) AS total_tokens
       FROM user_accounts a
       LEFT JOIN user_memberships m ON m.user_id = a.user_id
       ${where}

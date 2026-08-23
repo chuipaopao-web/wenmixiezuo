@@ -73,13 +73,14 @@ describe('向前迁移器', () => {
         '0064_setting_member_resilience.sql',
         '0065_v6_core_workflow.sql',
         '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql',
-        '0068_rolling_storyline_growth.sql'
+        '0068_rolling_storyline_growth.sql',
+        '0069_prebook_opening_design_calls.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'storyline_frontier_versions', 'storyline_open_questions_v6', 'storyline_growth_rounds_v6',
         'storyline_growth_candidates_v6', 'storyline_growth_decisions_v6', 'creative_template_versions_v6',
-        'storyline_settlement_projection_receipts_v6'
+        'storyline_settlement_projection_receipts_v6', 'prebook_opening_design_calls'
       ]));
       const batchColumns = database.prepare("PRAGMA table_info('ai_node_batches_v6')").all() as Array<{ name: string }>;
       expect(batchColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['template_version_id', 'template_hash']));

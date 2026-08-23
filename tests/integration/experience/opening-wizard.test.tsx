@@ -7,8 +7,10 @@ const api = vi.hoisted(() => ({
   createBook: vi.fn(),
   fetchOpeningTaxonomy: vi.fn(),
   fetchOpeningDraft: vi.fn(),
+  fetchPrebookOpeningDesign: vi.fn(),
   saveOpeningDraftToServer: vi.fn(),
-  clearOpeningDraftOnServer: vi.fn()
+  clearOpeningDraftOnServer: vi.fn(),
+  startPrebookOpeningDesign: vi.fn()
 }));
 vi.mock('../../../apps/web/src/lib/api/client', () => api);
 
@@ -33,11 +35,14 @@ const taxonomy = {
 
 beforeEach(() => {
   localStorage.clear();
+  api.startPrebookOpeningDesign.mockReset();
+  api.fetchPrebookOpeningDesign.mockReset();
   api.fetchOpeningTaxonomy.mockResolvedValue(taxonomy);
   api.createBook.mockResolvedValue({ bookId: 'unused' });
   api.fetchOpeningDraft.mockResolvedValue({ draft: null });
   api.saveOpeningDraftToServer.mockResolvedValue({ saved: true });
   api.clearOpeningDraftOnServer.mockResolvedValue({ cleared: true });
+  api.fetchPrebookOpeningDesign.mockResolvedValue({ status: 'working' });
 });
 
 afterEach(() => {
@@ -46,7 +51,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('四步开书', () => {
+describe('三步开书', () => {
   it('旧书修改沿用四步表单，保留高级资料并只保存一个不可变新版本', async () => {
     const onUpdate = vi.fn().mockResolvedValue(true);
     const openingBlueprint = {
@@ -110,9 +115,9 @@ describe('四步开书', () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
 
     expect(screen.getByRole('navigation', { name: '开书步骤' })).toBeInTheDocument();
-    expect(screen.getByText('从零创作')).toBeInTheDocument();
+    expect(screen.getByLabelText('开书思路')).toBeInTheDocument();
     expect(screen.queryByLabelText('书名')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
 
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
@@ -150,9 +155,65 @@ describe('四步开书', () => {
     }));
   });
 
+  it('输入开书思路后由貂蝉真实等待并回填现有字段，背景和故事方向可直接修改', async () => {
+    let finishDesign: ((value: unknown) => void) | undefined;
+    api.startPrebookOpeningDesign.mockImplementation(() => new Promise((resolve) => { finishDesign = resolve; }));
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn().mockResolvedValue(true)} />);
+
+    fireEvent.change(screen.getByLabelText('开书思路'), {
+      target: { value: '张丞穿越到平行世界，靠重新创作经典故事进入文娱行业。' }
+    });
+    const aiDesign = screen.getByRole('button', { name: 'AI团队设计' });
+    await waitFor(() => expect(aiDesign).toBeEnabled());
+    fireEvent.click(aiDesign);
+    expect(await screen.findByText('主编貂蝉正在设计开书信息')).toBeInTheDocument();
+    expect(screen.queryByLabelText('书名')).not.toBeInTheDocument();
+
+    finishDesign?.({
+      idempotencyKey: 'opening-test-ai', status: 'succeeded',
+      member: { roleKey: 'chief_editor', displayName: '貂蝉' }, errorMessage: null, updatedAt: '2026-08-23T00:00:00.000Z',
+      design: {
+        title: '旧梦新声', channel: 'female', categoryKey: 'female-suspense',
+        auxiliaryTags: ['现代言情'], mainTags: ['悬疑', '成长'], storyTraits: [], customTags: [],
+        targetAudience: '喜欢现代悬疑与成长的读者',
+        protagonists: [{
+          role: 'female_lead', name: '林舟', age: '22', background: '从原世界穿越而来的内容编辑。',
+          familyBackground: '普通工薪家庭。', careerBackground: '新人编剧。', goldenFinger: '记得原世界经典故事。',
+          personalities: ['冷静']
+        }],
+        worldBackground: '近现代平行都市，大众文化产业出现断层。',
+        openingBackground: '主角失业当天发现经典作品从未出现。',
+        openingStart: '主角被公司辞退，并在三天内面临抄袭指控。',
+        storyDirection: '从网络连载起步，以作品兑现推动事业成长。',
+        storyEnding: '建立尊重创作者的新平台。', mustFollow: ['无额外限制']
+      }
+    });
+
+    expect(await screen.findByLabelText('书名')).toHaveValue('旧梦新声');
+    fireEvent.click(screen.getByRole('button', { name: '第3步：边界与角色' }));
+    expect(screen.getByLabelText('时代背景')).toHaveValue('近现代平行都市，大众文化产业出现断层。');
+    expect(screen.getByLabelText('角色背景')).toHaveValue('从原世界穿越而来的内容编辑。');
+    expect(screen.getByLabelText('故事方向')).toHaveValue('从网络连载起步，以作品兑现推动事业成长。');
+    expect(screen.queryByLabelText('自定义补充')).not.toBeInTheDocument();
+  });
+
+  it('AI设计失败时保留开书思路，并允许改为自己设计', async () => {
+    api.startPrebookOpeningDesign.mockRejectedValue(new Error('模型暂时不可用'));
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    const idea = '张丞穿越到大秦，三天后将因军粮案问斩。';
+    fireEvent.change(screen.getByLabelText('开书思路'), { target: { value: idea } });
+    const aiDesign = screen.getByRole('button', { name: 'AI团队设计' });
+    await waitFor(() => expect(aiDesign).toBeEnabled());
+    fireEvent.click(aiDesign);
+    expect(await screen.findByRole('alert')).toHaveTextContent('模型暂时不可用');
+    expect(screen.getByLabelText('开书思路')).toHaveValue(idea);
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
+    expect(await screen.findByLabelText('书名')).toBeInTheDocument();
+  });
+
   it('第2步标签库展示全部泳道词条，已选标签带出同组搭配推荐', async () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn().mockResolvedValue(true)} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
@@ -173,7 +234,7 @@ describe('四步开书', () => {
   it('第2步按题材推荐本书标签：可加入、删除、不再推荐，也能从标签库搜索添加', async () => {
     const onCreate = vi.fn().mockResolvedValue(true);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
@@ -205,10 +266,10 @@ describe('四步开书', () => {
     }));
   });
 
-  it('第3步只填开局也可完成，自定义补充随资料一起提交', async () => {
+  it('第3步只填开局也可完成，故事方向沿用原字段随资料一起提交', async () => {
     const onCreate = vi.fn().mockResolvedValue(true);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '旧城来信' } });
     fireEvent.click(screen.getByRole('radio', { name: '女频' }));
     fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
@@ -220,7 +281,7 @@ describe('四步开书', () => {
     fireEvent.change(within(first).getByLabelText('家庭背景'), { target: { value: '旧城档案员家庭' } });
     fireEvent.click(within(first).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.change(screen.getByLabelText('开局'), { target: { value: '档案员收到一封迟到十年的信' } });
-    fireEvent.change(screen.getByLabelText('自定义补充'), { target: { value: '想看重逢与和解的桥段' } });
+    fireEvent.change(screen.getByLabelText('故事方向'), { target: { value: '想看重逢与和解的桥段' } });
     fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -234,7 +295,7 @@ describe('四步开书', () => {
 
   it('关闭前自动保存，重新打开后从原步骤恢复；清空操作可重新开始', async () => {
     const firstRender = render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '未完成的新书' } });
     await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('未完成的新书'));
     firstRender.unmount();
@@ -243,23 +304,22 @@ describe('四步开书', () => {
     expect(await screen.findByText('已恢复上次没填完的资料')).toBeInTheDocument();
     expect(screen.getByLabelText('书名')).toHaveValue('未完成的新书');
     fireEvent.click(screen.getByRole('button', { name: '清空重填' }));
-    expect(screen.getByText('从零创作')).toBeInTheDocument();
+    expect(screen.getByLabelText('开书思路')).toBeInTheDocument();
     expect(localStorage.getItem(draftKey)).toBeNull();
   });
 
   it('续写路线保持独立，失败后不清除草稿并允许重试', async () => {
     const onCreate = vi.fn().mockResolvedValue(false);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
-    fireEvent.click(screen.getByRole('button', { name: /^已有正文续写/u }));
-    fireEvent.click(screen.getByRole('button', { name: '第3步：边界与角色' }));
-    expect(screen.getByRole('button', { name: '创建书籍' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
+    fireEvent.click(screen.getByRole('button', { name: '我已经有正文，按续写方式创建' }));
+    expect(await screen.findByLabelText('书名')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('书名');
     await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('continuation'));
   });
   it('书名输入固定为15字并实时显示字数', async () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     const input = await screen.findByLabelText('书名');
     fireEvent.change(input, { target: { value: '一二三四五六七八九十一二三四五六' } });
     expect(input).toHaveValue('一二三四五六七八九十一二三四五');
@@ -287,7 +347,7 @@ describe('四步开书', () => {
 
   it('本地草稿比服务器新鲜时保留本地内容', async () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '本地新书' } });
     await waitFor(() => expect(localStorage.getItem(draftKey)).toContain('本地新书'));
     cleanup();

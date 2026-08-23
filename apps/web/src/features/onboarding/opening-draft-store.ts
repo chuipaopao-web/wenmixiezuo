@@ -2,7 +2,7 @@ import { BOOK_TITLE_MAX_CHARACTERS, limitBookTitle } from '@wenmi/contracts';
 import type { BookCreationMode, OpeningChannel, ProtagonistRole } from '../../lib/api/client';
 
 export const OPENING_DRAFT_STORAGE_KEY = 'wenmi.opening-draft.v2';
-const OPENING_DRAFT_SCHEMA_VERSION = 4 as const;
+const OPENING_DRAFT_SCHEMA_VERSION = 5 as const;
 
 /** 草稿按账号隔离存储，同一浏览器切换账号不会看到彼此的开书信息。 */
 export function openingDraftStorageKey(accountId: string): string {
@@ -24,6 +24,10 @@ export interface OpeningWizardDraft {
   schemaVersion: typeof OPENING_DRAFT_SCHEMA_VERSION;
   step: 1 | 2 | 3;
   creationMode: BookCreationMode;
+  openingIdea: string;
+  designMethod: 'ai' | 'self' | null;
+  openingDesignIdempotencyKey: string | null;
+  openingDesignStatus: 'idle' | 'working' | 'failed' | 'succeeded';
   title: string;
   channel: OpeningChannel | null;
   categoryKey: string | null;
@@ -52,6 +56,10 @@ export function emptyOpeningWizardDraft(): OpeningWizardDraft {
     schemaVersion: OPENING_DRAFT_SCHEMA_VERSION,
     step: 1,
     creationMode: 'new',
+    openingIdea: '',
+    designMethod: null,
+    openingDesignIdempotencyKey: null,
+    openingDesignStatus: 'idle',
     title: '',
     channel: null,
     categoryKey: null,
@@ -107,6 +115,8 @@ export function clearOpeningWizardDraft(accountId: string, storage: Pick<Storage
 
 export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'>): boolean {
   return draft.creationMode === 'continuation'
+    || draft.openingIdea.trim().length > 0
+    || draft.designMethod !== null
     || draft.title.trim().length > 0
     || draft.channel !== null
     || draft.categoryKey !== null
@@ -131,8 +141,8 @@ export function hasMeaningfulOpeningDraft(draft: Omit<OpeningWizardDraft, 'schem
 }
 
 export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | null {
-  // v2 是更早的三步向导草稿；v3 是四步向导草稿（第3步“故事怎么讲”已删除，回落到第2步，旧第4步落到新第3步）；v4 是当前三步向导草稿，步骤原样恢复。
-  if (!isRecord(value) || (value.schemaVersion !== 2 && value.schemaVersion !== 3 && value.schemaVersion !== OPENING_DRAFT_SCHEMA_VERSION)) return null;
+  // v2 是早期三步向导；v3 是已删除中间步骤的四步向导；v4 是未加入开书思路分流的三步向导；v5 是当前版本。
+  if (!isRecord(value) || ![2, 3, 4, OPENING_DRAFT_SCHEMA_VERSION].includes(Number(value.schemaVersion))) return null;
   const empty = emptyOpeningWizardDraft();
   const protagonists = Array.isArray(value.protagonists)
     ? value.protagonists.slice(0, 8).map(parseProtagonist).filter((item): item is OpeningProtagonistDraft => item !== null)
@@ -146,6 +156,16 @@ export function parseOpeningWizardDraft(value: unknown): OpeningWizardDraft | nu
         ? rawStep === 2 ? 2 : rawStep === 3 ? 2 : rawStep === 4 ? 3 : 1
         : rawStep === 2 ? 2 : rawStep === 3 ? 3 : 1,
     creationMode: value.creationMode === 'continuation' ? 'continuation' : 'new',
+    openingIdea: limitedText(value.openingIdea, 1_000),
+    designMethod: value.designMethod === 'ai' || value.designMethod === 'self'
+      ? value.designMethod
+      : rawStep === 2 || rawStep === 3 || rawStep === 4 ? 'self' : null,
+    openingDesignIdempotencyKey: nullableLimitedText(value.openingDesignIdempotencyKey, 128),
+    openingDesignStatus: value.openingDesignStatus === 'working'
+      || value.openingDesignStatus === 'failed'
+      || value.openingDesignStatus === 'succeeded'
+      ? value.openingDesignStatus
+      : 'idle',
     title: limitBookTitle(limitedText(value.title, BOOK_TITLE_MAX_CHARACTERS * 2)),
     channel: value.channel === 'male' || value.channel === 'female' ? value.channel : null,
     categoryKey: nullableLimitedText(value.categoryKey, 120),

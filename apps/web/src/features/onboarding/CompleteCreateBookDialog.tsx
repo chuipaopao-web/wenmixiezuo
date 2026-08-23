@@ -13,12 +13,15 @@ import {
   clearOpeningDraftOnServer,
   createBook,
   fetchOpeningDraft,
+  fetchPrebookOpeningDesign,
   fetchOpeningTaxonomy,
   saveOpeningDraftToServer,
+  startPrebookOpeningDesign,
   type BookProfileViewData,
   type OpeningBlueprintData,
   type OpeningChannel,
   type OpeningTaxonomyData,
+  type PrebookOpeningDesignData,
   type ProtagonistRole
 } from '../../lib/api/client';
 import { NamingAssistantPanel } from '../../app/NamingAssistantPanel';
@@ -55,6 +58,11 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   // 中文输入法拼写期间不按字母计数截断，等字真正落进输入框再限制长度
   const titleComposing = useRef(false);
   const [creationMode, setCreationMode] = useState<'new' | 'continuation'>(initialDraft.creationMode);
+  const [openingIdea, setOpeningIdea] = useState(initialDraft.openingIdea);
+  const [designMethod, setDesignMethod] = useState<'ai' | 'self' | null>(initialDraft.designMethod);
+  const [openingDesignIdempotencyKey, setOpeningDesignIdempotencyKey] = useState<string | null>(initialDraft.openingDesignIdempotencyKey);
+  const [openingDesignStatus, setOpeningDesignStatus] = useState<'idle' | 'working' | 'failed' | 'succeeded'>(initialDraft.openingDesignStatus);
+  const [openingDesignError, setOpeningDesignError] = useState<string | null>(null);
   const [channel, setChannel] = useState<OpeningChannel | null>(initialDraft.channel);
   const [categoryKey, setCategoryKey] = useState<string | null>(initialDraft.categoryKey);
   const [mainTags, setMainTags] = useState<string[]>(initialDraft.mainTags);
@@ -100,6 +108,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const applyDraft = (draft: OpeningWizardDraft): void => {
     setStep(draft.step);
     setCreationMode(draft.creationMode);
+    setOpeningIdea(draft.openingIdea);
+    setDesignMethod(draft.designMethod);
+    setOpeningDesignIdempotencyKey(draft.openingDesignIdempotencyKey);
+    setOpeningDesignStatus(draft.openingDesignStatus);
     setTitle(draft.title);
     setChannel(draft.channel);
     setCategoryKey(draft.categoryKey);
@@ -144,7 +156,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   useEffect(() => {
     if (editing) return;
     const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
-      step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+      step, creationMode, openingIdea, designMethod, openingDesignIdempotencyKey, openingDesignStatus,
+      title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
       protagonists,
       storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
       fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
@@ -167,7 +180,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [accountId, step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+  }, [accountId, step, creationMode, openingIdea, designMethod, openingDesignIdempotencyKey, openingDesignStatus,
+    title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
     protagonists,
     storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
     fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
@@ -301,6 +315,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     });
   };
   const moveToStep = (nextStep: 1 | 2 | 3): void => {
+    if (!editing && nextStep > 1 && (designMethod === null || openingDesignStatus === 'working')) {
+      setOpeningDesignError(openingDesignStatus === 'working' ? '主编正在设计，请等待完成。' : '请先选择“AI团队设计”或“自己设计”。');
+      return;
+    }
     if (nextStep > step && missingByStep[step].length > 0) {
       setSubmitAttempted(true);
       if (step > 1) focusMissingStep(step as 2 | 3);
@@ -312,10 +330,126 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     if (typeof bodyRef.current?.scrollTo === 'function') bodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     else if (bodyRef.current !== null) bodyRef.current.scrollTop = 0;
   };
+
+  const enterSelfDesign = (mode: 'new' | 'continuation' = 'new'): void => {
+    setCreationMode(mode);
+    setDesignMethod('self');
+    setOpeningDesignStatus('idle');
+    setOpeningDesignIdempotencyKey(null);
+    setOpeningDesignError(null);
+    setSubmitError(null);
+    setStep(2);
+    if (typeof bodyRef.current?.scrollTo === 'function') bodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    else if (bodyRef.current !== null) bodyRef.current.scrollTop = 0;
+  };
+
+  const applyOpeningDesign = (design: PrebookOpeningDesignData): void => {
+    setCreationMode('new');
+    setDesignMethod('ai');
+    setTitle(design.title);
+    setChannel(design.channel);
+    setCategoryKey(design.categoryKey);
+    setAuxiliaryTags(design.auxiliaryTags);
+    setMainTags(design.mainTags);
+    setStoryTraits(design.storyTraits);
+    setCustomTags(design.customTags);
+    setTargetAudience(design.targetAudience);
+    setProtagonists(design.protagonists.map((item) => ({
+      role: item.role,
+      name: item.name,
+      age: item.age,
+      background: item.background ?? '',
+      familyBackground: item.familyBackground ?? item.background ?? '',
+      careerBackground: item.careerBackground ?? '',
+      goldenFinger: item.goldenFinger ?? '',
+      personalities: [...item.personalities]
+    })));
+    setWorldBackground(design.worldBackground);
+    setOpeningBackground(design.openingBackground);
+    setOpeningStart(design.openingStart);
+    setStoryDirection(design.storyDirection);
+    setStoryEnding(design.storyEnding);
+    const noExtraLimit = design.mustFollow.includes('无额外限制');
+    setSelectedMustFollow(noExtraLimit ? ['无额外限制'] : []);
+    setMustFollowText(design.mustFollow.filter((item) => item !== '无额外限制').join('\n'));
+    setOpeningDesignStatus('succeeded');
+    setOpeningDesignError(null);
+    setSubmitError(null);
+    setSubmitAttempted(false);
+    setStep(2);
+    if (typeof bodyRef.current?.scrollTo === 'function') bodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    else if (bodyRef.current !== null) bodyRef.current.scrollTop = 0;
+  };
+
+  const applyOpeningDesignView = (view: Awaited<ReturnType<typeof fetchPrebookOpeningDesign>>): void => {
+    if (view.status === 'succeeded' && view.design !== null) {
+      applyOpeningDesign(view.design);
+      return;
+    }
+    if (view.status === 'failed') {
+      setOpeningDesignStatus('failed');
+      setOpeningDesignError(authorErrorFromUnknown(view.errorMessage, '主编这次没有完成设计，开书思路已经保留。'));
+    }
+  };
+
+  const beginAiDesign = async (): Promise<void> => {
+    if (openingDesignStatus === 'working') return;
+    if (openingIdea.trim().length < 4) {
+      setOpeningDesignError('请至少用4个字说清开书思路。');
+      return;
+    }
+    if (taxonomy === null) {
+      setOpeningDesignError(taxonomyError ?? '分类目录正在准备，请稍后再试。');
+      return;
+    }
+    const key = createOpeningDesignKey();
+    setCreationMode('new');
+    setDesignMethod('ai');
+    setOpeningDesignIdempotencyKey(key);
+    setOpeningDesignStatus('working');
+    setOpeningDesignError(null);
+    setSubmitError(null);
+    try {
+      applyOpeningDesignView(await startPrebookOpeningDesign({ idea: openingIdea.trim(), idempotencyKey: key }));
+    } catch (reason) {
+      setOpeningDesignStatus('failed');
+      setOpeningDesignError(authorErrorFromUnknown(reason, '主编这次没有完成设计，开书思路已经保留。'));
+    }
+  };
+
+  useEffect(() => {
+    if (editing || openingDesignStatus !== 'working' || openingDesignIdempotencyKey === null) return;
+    const controller = new AbortController();
+    let timer: number | null = null;
+    const poll = (): void => {
+      void fetchPrebookOpeningDesign(openingDesignIdempotencyKey, controller.signal).then((view) => {
+        if (controller.signal.aborted) return;
+        applyOpeningDesignView(view);
+        if (view.status === 'working') timer = window.setTimeout(poll, 1_200);
+      }).catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setOpeningDesignStatus('failed');
+        setOpeningDesignError(authorErrorFromUnknown(reason, '暂时无法读取主编进度，开书思路已经保留。'));
+      });
+    };
+    timer = window.setTimeout(poll, 600);
+    return () => {
+      controller.abort();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+    // 只在当前设计编号或状态变化时重建轮询；表单字段变化不应中断任务。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, openingDesignIdempotencyKey, openingDesignStatus]);
+
   const resetDraft = (): void => {
     const empty = emptyOpeningWizardDraft();
     setStep(empty.step);
     setCreationMode(empty.creationMode);
+    setOpeningIdea(empty.openingIdea);
+    setDesignMethod(empty.designMethod);
+    setOpeningDesignIdempotencyKey(empty.openingDesignIdempotencyKey);
+    setOpeningDesignStatus(empty.openingDesignStatus);
+    setOpeningDesignError(null);
     setTitle(empty.title);
     setChannel(empty.channel);
     setCategoryKey(empty.categoryKey);
@@ -354,6 +488,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     }
     const openingBlueprint: OpeningBlueprintData = {
       creationMode,
+      ...(openingIdea.trim().length > 0 ? { openingIdea: openingIdea.trim() } : {}),
       taxonomyVersion: taxonomy.version,
       channel,
       categoryKey: category.key,
@@ -396,7 +531,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
       } else {
         if (onCreate === undefined) throw new Error('缺少创建新书处理程序。');
         saved = await onCreate({
-          title: title.trim(), text: storyDirection.trim(), category: category.name,
+          title: title.trim(), text: openingIdea.trim() || storyDirection.trim(), category: category.name,
           classification: channel === 'male' ? '男频' : '女频',
           targetAudience: targetAudience.trim(),
           tags: [category.name, ...mainTags, ...auxiliaryTags, ...storyTraits, ...customTags, ...mustFollow.map((item) => `必须遵守：${item}`)],
@@ -419,7 +554,8 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
   const handleCancel = (): void => {
     if (!editing) {
       const snapshot: Omit<OpeningWizardDraft, 'schemaVersion' | 'updatedAt'> = {
-        step, creationMode, title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
+        step, creationMode, openingIdea, designMethod, openingDesignIdempotencyKey, openingDesignStatus,
+        title, channel, categoryKey, mainTags, auxiliaryTags, storyTraits,
         protagonists,
         storyDirection, openingStart, storyEnding, targetAudience, worldBackground, openingBackground, stageOne,
         fullBookOutline, initialMap, customTags, selectedMustFollow, mustFollowText,
@@ -441,11 +577,12 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
     { number: 3 as const, title: '边界与角色' }
   ];
   const currentStep = wizardSteps[step - 1]!;
+  const canEnterOpeningDetails = editing || designMethod === 'self' || openingDesignStatus === 'succeeded';
 
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) handleCancel(); }}>
     <section className="dialog create-book-dialog complete-create-book-dialog" role="dialog" aria-modal="true" aria-labelledby="complete-create-book-title">
       <div className="dialog-heading create-book-header"><div><span className="dialog-eyebrow">第{step}步 · {currentStep.title}</span><h2 id="complete-create-book-title">{editing ? '修改开书资料' : '创建一本新书'}</h2></div><button className="icon-button" type="button" aria-label={editing ? '关闭开书资料修改' : '关闭创建新书'} onClick={handleCancel}><XIcon /></button></div>
-      <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong></button>)}</nav>
+      <nav className="opening-wizard-steps" aria-label="开书步骤">{wizardSteps.map((item) => <button key={item.number} type="button" aria-label={`第${item.number}步：${item.title}`} aria-current={step === item.number ? 'step' : undefined} className={step === item.number ? 'active' : item.number < step ? 'complete' : ''} disabled={item.number > 1 && !canEnterOpeningDetails} onClick={() => moveToStep(item.number)}><span>{item.number}</span><strong>{item.title}</strong></button>)}</nav>
       <div className="complete-create-book-body" ref={bodyRef}>
         {restoredNotice && <aside className="opening-draft-notice" role="status"><div><strong>已恢复上次没填完的资料</strong></div><button type="button" className="text-button" onClick={resetDraft}>清空重填</button></aside>}
         {draftSaveMessage !== null && !restoredNotice && <p className="opening-draft-save-state" role="status">{draftSaveMessage}</p>}
@@ -454,17 +591,34 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           <strong>请先补充以下内容</strong>
           <span>{missingByStep[step].join('、')}</span>
         </div>}
-        {step === 1 && <section className="opening-form-section creation-mode-section">
+        {step === 1 && editing && <section className="opening-form-section creation-mode-section">
           <div className="section-heading"><div><span>00</span><h3>创作方式</h3></div></div>
           <div className="creation-mode-options">
-            <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'new'} onClick={() => setCreationMode('new')}>
-              <strong>从零创作</strong>
-            </button>
-            <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled={editing} aria-pressed={creationMode === 'continuation'} onClick={() => setCreationMode('continuation')}>
-              <strong>已有正文续写</strong>
-            </button>
+            <button className={creationMode === 'new' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled aria-pressed={creationMode === 'new'}><strong>从零创作</strong></button>
+            <button className={creationMode === 'continuation' ? 'creation-mode-option selected' : 'creation-mode-option'} type="button" disabled aria-pressed={creationMode === 'continuation'}><strong>已有正文续写</strong></button>
           </div>
-          {editing && <p className="opening-edit-scope-note">创作方式不可修改。</p>}
+          <p className="opening-edit-scope-note">创作方式不可修改。</p>
+        </section>}
+        {step === 1 && !editing && <section className="opening-form-section opening-idea-section">
+          <div className="section-heading"><div><span>00</span><h3>开书思路</h3></div><small>先说想法，细节交给主编</small></div>
+          {openingDesignStatus === 'working' ? <div className="opening-ai-wait" role="status" aria-live="polite" aria-busy="true">
+            <MagicWandIcon aria-hidden="true" />
+            <div><strong>主编貂蝉正在设计开书信息</strong><p>正在把您的想法整理成书名、题材、标签、时代与角色背景、开局、故事方向和结局。</p></div>
+            <div className="opening-ai-progress" aria-hidden="true"><span /></div>
+            <small>可以关闭页面，开书思路和本次设计编号都会保留；重新打开后会继续读取结果。</small>
+            <blockquote>{openingIdea}</blockquote>
+          </div> : <>
+            <label htmlFor="opening-idea">一句话说说您想写什么
+              <ImeTextarea id="opening-idea" aria-label="开书思路" maxChars={1_000} rows={6} value={openingIdea} onChange={(next) => { setOpeningIdea(next); setOpeningDesignError(null); }} placeholder="例如：张丞穿越到了大秦帝国，醒来就成了被诬陷盗取军粮账册的小吏，三天后问斩……" autoFocus />
+            </label>
+            <p className="opening-idea-help">不用写专业设定。人物、时代、核心脑洞或想看的冲突，说清其中一两项就能开始。</p>
+            {openingDesignError !== null && <div className="create-book-validation-summary" role="alert"><strong>主编设计没有完成</strong><span>{openingDesignError}</span></div>}
+            <div className="opening-design-actions">
+              <button className="primary-button opening-ai-design-button" type="button" disabled={openingIdea.trim().length < 4 || taxonomy === null} onClick={() => void beginAiDesign()}><MagicWandIcon aria-hidden="true" />AI团队设计</button>
+              <button className="secondary-button" type="button" onClick={() => enterSelfDesign('new')}>自己设计</button>
+            </div>
+            <button className="text-button opening-continuation-entry" type="button" onClick={() => enterSelfDesign('continuation')}>我已经有正文，按续写方式创建</button>
+          </>}
         </section>}
         <div className="opening-primary-stack">
           {step === 2 && <section className="opening-form-section" id="opening-category-section" tabIndex={-1}>
@@ -526,6 +680,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           </section>}
           {step === 3 && <section className="opening-form-section" id="opening-protagonist-section" tabIndex={-1}>
             <div className="section-heading"><div><span>02</span><h3>初始角色</h3></div><button className="text-button" type="button" disabled={protagonists.length >= 2} onClick={() => setProtagonists([...protagonists, { role: 'co_lead', name: '', age: '', background: '', familyBackground: '', careerBackground: '', goldenFinger: '', personalities: [] }])}>+ 增加角色（{protagonists.length}/2）</button></div>
+            <label htmlFor="opening-world-background">时代背景<ImeTextarea id="opening-world-background" aria-label="时代背景" value={worldBackground} onChange={setWorldBackground} placeholder="例如：秦始皇统一六国后的咸阳，制度正在重建；尊重历史框架、允许合理架空的低武世界" rows={3} maxChars={2000} /></label>
             {protagonists.map((protagonist, index) => <article className="protagonist-form-card" key={index}>
               <header><strong>角色 {index + 1}</strong>{protagonists.length > 1 && <button type="button" aria-label={`删除角色${index + 1}`} onClick={() => setProtagonists(protagonists.filter((_, itemIndex) => itemIndex !== index))}>删除</button>}</header>
               <div className="form-row two">
@@ -536,6 +691,7 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
                 </div>
               </div>
               <label htmlFor={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`}>年龄<input id={index === 0 ? 'opening-protagonist-age' : `protagonist-age-${index}`} type="number" min={0} max={99999} inputMode="numeric" value={protagonist.age} onChange={(event) => updateProtagonist(index, { age: event.target.value })} placeholder="例如：18" /></label>
+              <label htmlFor={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`}>角色背景<ImeTextarea id={index === 0 ? 'opening-protagonist-background' : `protagonist-background-${index}`} value={protagonist.background} onChange={(next) => updateProtagonist(index, { background: next })} placeholder="例如：现代青年穿越到秦朝，醒来后成为咸阳县衙一名没有根基的小吏" rows={2} maxChars={2000} /></label>
               <label htmlFor={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`}>家庭背景<ImeTextarea id={index === 0 ? 'opening-protagonist-family-background' : `protagonist-family-background-${index}`} value={protagonist.familyBackground} onChange={(next) => updateProtagonist(index, { familyBackground: next })} placeholder="例如：出身边城小吏之家，父母早亡，与妹妹相依为命" rows={2} maxChars={2000} /></label>
               <label htmlFor={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`}>职业背景<ImeTextarea id={index === 0 ? 'opening-protagonist-career-background' : `protagonist-career-background-${index}`} value={protagonist.careerBackground} onChange={(next) => updateProtagonist(index, { careerBackground: next })} placeholder="例如：县衙书吏，管户籍档案；修仙文可写宗门身份" rows={2} maxChars={2000} /></label>
               <label htmlFor={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`}>金手指<ImeTextarea id={index === 0 ? 'opening-protagonist-golden-finger' : `protagonist-golden-finger-${index}`} value={protagonist.goldenFinger} onChange={(next) => updateProtagonist(index, { goldenFinger: next })} placeholder="主角独有的依仗或优势，没有可留空" rows={2} maxChars={2000} /></label>
@@ -566,10 +722,10 @@ export function CompleteCreateBookDialog({ accountId = '', busy, onCancel, onCre
           <p className="story-direction-note">只想到开局就写开局，只想到某个阶段或结局也可以单独写；不知道的部分留空，之后跟着正文继续长。</p>
           <label htmlFor="opening-start">开局（说清主角的处境、卷入的冲突、眼前的危机，最多300字）<ImeTextarea id="opening-start" aria-label="开局" maxChars={300} rows={3} value={openingStart} onChange={setOpeningStart} placeholder="例如：小职员重生回到被裁员当天，发现上司正拿着他的方案邀功，而三天后项目暴雷，他将替人背锅、被行业除名" /></label>
           <label htmlFor="story-ending">结局（选填；只写目前想到的阶段终点也可以，最多300字）<ImeTextarea id="story-ending" aria-label="结局" maxChars={300} rows={3} value={storyEnding} onChange={setStoryEnding} placeholder="例如：主角查清十年悬案为父翻案、扳倒幕后财团，从人人唾弃的罪人之子成为行业传奇，与并肩作战的爱人终成眷属" /></label>
-          <label htmlFor="story-direction-custom">自定义补充（选填，最多300字）<ImeTextarea id="story-direction-custom" aria-label="自定义补充" maxChars={300} rows={3} value={storyDirection} onChange={setStoryDirection} placeholder="任何想补充的方向：想看的桥段、喜欢的风格、不想要的情节……" /></label>
+          <label htmlFor="story-direction-custom">故事方向（选填，最多300字）<ImeTextarea id="story-direction-custom" aria-label="故事方向" maxChars={300} rows={3} value={storyDirection} onChange={setStoryDirection} placeholder="例如：主角从县衙小吏起步，以文书能力和现代常识解决真实危机，逐步进入帝国决策层" /></label>
         </section>}
       </div>
-      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/3步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 3 ? <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3)}>下一步</button> : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
+      <footer className="create-book-footer"><div><strong>{title.trim() || '未命名新书'}</strong><span>第{step}/3步 · {currentStep.title}</span>{missingByStep[step].length > 0 && <small className="create-book-requirements">{submitAttempted ? '请先补充' : '本步还需填写'}：{missingByStep[step].join('、')}</small>}</div><div><button className="secondary-button" type="button" onClick={handleCancel}>取消</button>{step > 1 && <button className="secondary-button" type="button" onClick={() => moveToStep((step - 1) as 1 | 2 | 3)}>上一步</button>}{step < 3 ? (step === 1 && !editing ? null : <button className="primary-button" type="button" onClick={() => moveToStep((step + 1) as 2 | 3)}>下一步</button>) : <button className="primary-button" type="button" disabled={busy || submitting} onClick={() => void submit()}>{busy || submitting ? (editing ? '正在保存' : '正在创建') : editing ? '保存修改' : '创建书籍'}</button>}</div></footer>
       {namingProtagonistIndex !== null && namingProtagonist !== null && <div className="naming-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNamingProtagonistIndex(null); }}>
         <section className="naming-dialog" role="dialog" aria-modal="true" aria-label={`角色${namingProtagonistIndex + 1}取名助手`}>
           <button className="icon-button naming-dialog-close" type="button" aria-label="关闭取名助手" onClick={() => setNamingProtagonistIndex(null)}><XIcon /></button>
@@ -594,6 +750,8 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
     ...emptyOpeningWizardDraft(),
     step: 2,
     creationMode: blueprint.creationMode,
+    openingIdea: blueprint.openingIdea ?? '',
+    designMethod: 'self',
     title: profile.title,
     channel: blueprint.channel,
     categoryKey: blueprint.categoryKey,
@@ -604,7 +762,7 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
       role: item.role,
       name: item.name,
       age: item.age,
-      background: '',
+      background: item.background ?? '',
       familyBackground: item.familyBackground ?? item.background ?? '',
       careerBackground: item.careerBackground ?? '',
       goldenFinger: item.goldenFinger ?? '',
@@ -623,6 +781,13 @@ function openingProfileDraft(profile: BookProfileViewData): OpeningWizardDraft {
     selectedMustFollow: blueprint.mustFollow.includes('无额外限制') ? ['无额外限制'] : [],
     mustFollowText: blueprint.mustFollow.filter((item) => item !== '无额外限制').join('\n')
   };
+}
+
+function createOpeningDesignKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID().replaceAll('-', '');
+  }
+  return `opening_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function StringTagPicker({ title, hint, kind, options, selected, onToggle, blocked }: {

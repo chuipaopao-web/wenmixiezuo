@@ -422,7 +422,7 @@ describe('完整创作工作台', () => {
     const dialog = screen.getByRole('dialog', { name: '创建一本新书' });
     expect(within(dialog).getByRole('navigation', { name: '开书步骤' })).toBeInTheDocument();
     expect(within(dialog).queryByText('主要选择 + 其他自由发挥')).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: '下一步' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '自己设计' }));
 
     fireEvent.change(within(dialog).getByLabelText('书名'), { target: { value: '长安簪影' } });
     fireEvent.click(within(dialog).getByRole('radio', { name: '女频' }));

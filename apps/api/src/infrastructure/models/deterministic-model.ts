@@ -33,10 +33,11 @@ export class DeterministicModelAdapter implements ModelAdapter {
     const synthesis = reviewSynthesis(request.prompt);
     const stageOutlineWorkflow = deterministicStageOutlineWorkflow(request.prompt);
     const settingGuidance = deterministicSettingGuidance(request.prompt);
+    const prebookOpening = deterministicPrebookOpeningDesign(request.prompt);
     const bookBranding = deterministicBookBranding(request.prompt);
     const settlementFollowUp = deterministicSettlementFollowUp(request.prompt);
     const discussion = deterministicDiscussion(request.prompt);
-    const output = volumePlan ?? eventChain ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? bookBranding ?? settlementFollowUp ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
+    const output = volumePlan ?? eventChain ?? storyEvent ?? eventChapterSequence ?? eventChapterDetails ?? eventChapterChallenge ?? continuationAnalysis ?? synthesis ?? stageOutlineWorkflow ?? settingGuidance ?? prebookOpening ?? bookBranding ?? settlementFollowUp ?? discussion ?? `【确定性假模型 ${digest.slice(0, 12)}】已根据任务 ${request.taskId} 生成可复现结果。`;
     return {
       provider: this.provider,
       modelId: this.modelId,
@@ -47,6 +48,61 @@ export class DeterministicModelAdapter implements ModelAdapter {
       state: 'succeeded'
     };
   }
+}
+
+function deterministicPrebookOpeningDesign(prompt: string): string | null {
+  let root: unknown;
+  try { root = JSON.parse(prompt) as unknown; } catch { return null; }
+  if (!isRecord(root) || root.operation !== 'prebook_opening_design_v1') return null;
+  const taxonomy = isRecord(root.taxonomy) ? root.taxonomy : {};
+  const categories = Array.isArray(taxonomy.categories) ? taxonomy.categories.filter(isRecord) : [];
+  const idea = typeof root.authorIdea === 'string' ? root.authorIdea : '';
+  const wantsHistory = /大秦|秦朝|历史|朝代|古代/u.test(idea);
+  const channel = /女主|女频|她/u.test(idea) ? 'female' : 'male';
+  const channelCategories = categories.filter((item) => item.channel === channel);
+  const category = (wantsHistory
+    ? channelCategories.find((item) => /历史|古代|架空/u.test(String(item.name)))
+    : channelCategories.find((item) => /都市|脑洞|现代/u.test(String(item.name)))) ?? channelCategories[0];
+  if (category === undefined || typeof category.key !== 'string') return null;
+  const recommended = Array.isArray(category.recommendedMainTags)
+    ? category.recommendedMainTags.filter((item): item is string => typeof item === 'string')
+    : [];
+  const subjects = Array.isArray(taxonomy.subjects)
+    ? taxonomy.subjects.filter((item): item is string => typeof item === 'string')
+    : [];
+  return JSON.stringify({
+    title: wantsHistory ? '大秦谏臣' : '平行世界文抄公',
+    channel,
+    categoryKey: category.key,
+    auxiliaryTags: subjects.filter((item) => wantsHistory ? /历史|穿越|架空/u.test(item) : /都市|娱乐|文娱/u.test(item)).slice(0, 3),
+    mainTags: [...recommended, '穿越', '成长', '权谋', '热血', '智斗'].slice(0, 8),
+    storyTraits: [],
+    targetAudience: wantsHistory ? '喜欢历史穿越、朝堂博弈与成长逆袭的读者' : '喜欢都市脑洞、事业成长与轻松爽感的读者',
+    protagonists: [{
+      role: channel === 'male' ? 'male_lead' : 'female_lead',
+      name: channel === 'male' ? '张丞' : '张澄',
+      age: '22',
+      background: wantsHistory ? '现代青年意外穿越到秦朝，醒来后成为咸阳一名没有根基的小吏。' : '普通青年穿越到文化作品缺失的平行世界，从底层新人重新开始。',
+      familyBackground: wantsHistory ? '秦地寒门，家中只有年迈母亲与幼妹，无法提供权势庇护。' : '普通工薪家庭，亲人关系稳定但没有行业资源。',
+      careerBackground: wantsHistory ? '咸阳县衙新任书吏，熟悉文书却没有朝堂话语权。' : '刚被辞退的内容编辑，熟悉大众作品与传播规律。',
+      goldenFinger: wantsHistory ? '保留现代常识与对秦代关键制度的有限记忆。' : '记得原世界大量优秀文娱作品，但需要重新创作和本地化。',
+      personalities: ['冷静', '果断', '有底线']
+    }],
+    worldBackground: wantsHistory
+      ? '秦始皇统一六国后的咸阳，制度正在重建，朝堂与地方都处于高压整合期；这是尊重历史框架、允许合理架空的低武世界。'
+      : '近现代平行都市，科技与现实相近，但大众文化产业断层严重，平台和资本正在争夺新内容。',
+    openingBackground: wantsHistory ? '主角刚穿越便被卷入一宗会牵连全家的粮册失窃案。' : '主角失业当天发现原世界的经典作品在这里从未出现。',
+    openingStart: wantsHistory
+      ? '张丞在咸阳县狱中醒来，被指认盗走军粮账册；三日后就要问斩，而真正的账册藏着一条通往咸阳权贵的证据链。'
+      : '张丞被公司当众辞退后，用一篇旧题材新写法意外冲上热榜，却被前公司指控抄袭，必须在三天内拿出完整新作证明自己。',
+    storyDirection: wantsHistory
+      ? '主角以文书能力和现代制度常识从小吏起步，在一次次真实案件与权力选择中积累信用，逐渐进入帝国决策层，同时面对改变历史与尊重时代代价的矛盾。'
+      : '主角从网络连载起步，持续用原创作品改变行业规则，在事业升级、同行竞争和真实关系中成长，核心看点是作品兑现与每次成功带来的新代价。',
+    storyEnding: wantsHistory
+      ? '主角完成一套能真正落地的新政，在保住家人与同伴后成为能够公开进谏的重臣；具体历史走向仍由后续正文决定。'
+      : '主角建立尊重创作者的新平台并完成代表作，从被行业抛弃的新人变成能够制定规则的人。',
+    mustFollow: ['无额外限制']
+  });
 }
 
 function deterministicSettlementFollowUp(prompt: string): string | null {
