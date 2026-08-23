@@ -821,6 +821,7 @@
 .v6-opening-profile dd { line-height: 1.7; }
 .v6-opening-profile dd .v6-inline-text-button { margin-left: 10px; }
 .v6-profile-authority-note { margin: 16px 0 0; color: #6c756f; font-size: 12px; }
+.v6-profile-card-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; }
 
 
 .v6-storyline-growth-panel { border-top: 1px solid var(--v6-line); padding: 18px; background: #fbfaf5; }

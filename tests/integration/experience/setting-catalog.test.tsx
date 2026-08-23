@@ -187,6 +187,67 @@ describe('折叠设定资料库与逐项设计', () => {
     expect(screen.getByRole('button', { name: '确认移除' })).toBeEnabled();
   });
 
+  it('完成已有条目后可补充新条目，只把新增项接入原逐项设计', async () => {
+    api.fetchSettingOutlineWorkspace.mockResolvedValue([
+      ...coreKeys.map((key, index) => outline(key, '已确认', index, labels[key] + '已经确认。')),
+      outline('geography', '待讨论', 4)
+    ]);
+
+    renderCatalog();
+    fireEvent.click(screen.getByRole('button', { name: /完整设定库/u }));
+    const recommended = await screen.findByRole('region', { name: '推荐设定' });
+    fireEvent.click(within(recommended).getByRole('checkbox', { name: /地理地图与交通边界/u }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已确认勾选完毕/u }));
+    fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
+    fireEvent.click(await screen.findByRole('button', { name: '模拟确认当前项' }));
+
+    expect(await screen.findByRole('button', { name: '补充设计' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '补充设计' }));
+    expect(screen.getByText('补充设计—只增加新条目')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /地理地图与交通边界/u })).toBeDisabled();
+
+    const other = screen.getByRole('region', { name: '其他设定' });
+    const firstCategory = within(other).getAllByRole('group')[0];
+    expect(firstCategory).toBeDefined();
+    fireEvent.click(within(firstCategory!).getByText(/项$/u));
+    const newItemCheck = within(other).getAllByRole('checkbox')[0];
+    expect(newItemCheck).toBeDefined();
+    fireEvent.click(newItemCheck!);
+
+    expect(screen.getByText('新增 1 项')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /我已确认补充条目/u }));
+    fireEvent.click(screen.getByRole('button', { name: '继续设计' }));
+
+    const panel = await screen.findByTestId('setting-collaboration-panel');
+    const newItemKey = panel.getAttribute('data-item-key');
+    expect(newItemKey).not.toBeNull();
+    expect([...coreKeys, 'geography']).not.toContain(newItemKey);
+    expect(screen.getByText(/已补充 1 个新条目/u)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟确认当前项' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '请主编审查' })).toBeEnabled());
+  });
+
+  it('刷新后恢复补充设计队列，不重复已确认条目', async () => {
+    api.fetchSettingOutlineWorkspace.mockResolvedValue([
+      ...coreKeys.map((key, index) => outline(key, '已确认', index, labels[key] + '已经确认。')),
+      outline('geography', '待讨论', 4)
+    ]);
+    window.localStorage.setItem('wenmi-setting-checked-v3-book-setting-catalog', JSON.stringify({ geography: true }));
+    window.localStorage.setItem('wenmi-setting-design-session-v3-book-setting-catalog', JSON.stringify({
+      started: true,
+      queue: ['geography'],
+      supplementBaseKeys: null
+    }));
+
+    renderCatalog();
+
+    const panel = await screen.findByTestId('setting-collaboration-panel');
+    expect(panel).toHaveAttribute('data-item-key', 'geography');
+    expect(screen.getByRole('button', { name: '补充设计' })).toBeEnabled();
+    expect(screen.queryByText('世界舞台已经确认。')).not.toBeInTheDocument();
+  });
+
   it('逐项设计未完成时主编审查禁用，最后一项确认后才开放', async () => {
     api.fetchSettingOutlineWorkspace.mockResolvedValue([
       ...coreKeys.map((key, index) => outline(

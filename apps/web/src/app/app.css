@@ -7220,6 +7220,21 @@ svg {
   outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
   outline-offset: -3px;
 }
+.setting-supplement-entry {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid var(--line);
+  padding: 12px 22px;
+  background: color-mix(in srgb, var(--accent-soft) 46%, var(--panel-raised));
+}
+.setting-supplement-entry > span { min-width: 0; display: grid; gap: 3px; }
+.setting-supplement-entry strong { font-size: 13px; }
+.setting-supplement-entry small { color: var(--ink-faint); font-size: 11px; line-height: 1.5; }
+.setting-supplement-entry > button { flex: 0 0 auto; }
+.setting-library-shell.supplementing { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
 .setting-library-body {
   display: grid;
   gap: 0;
@@ -7511,6 +7526,8 @@ svg {
   .setting-library-trigger strong { font-size: 21px; }
   .setting-library-trigger small { font-size: 11px; letter-spacing: .04em; }
   .setting-library-trigger > b { min-width: 54px; }
+  .setting-supplement-entry { align-items: stretch; flex-direction: column; gap: 10px; padding: 13px; }
+  .setting-supplement-entry > button { width: 100%; }
   .setting-library-body { padding: 0 15px 18px; }
 
   .setting-library-block { padding-top: 17px; }

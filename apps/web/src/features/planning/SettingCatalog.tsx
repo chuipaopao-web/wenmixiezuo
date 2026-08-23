@@ -177,6 +177,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   const [libraryReviewed, setLibraryReviewed] = useState(false);
 
   const [designStarted, setDesignStarted] = useState(false);
+  const [supplementBaseKeys, setSupplementBaseKeys] = useState<string[] | null>(null);
   const [localStateBookId, setLocalStateBookId] = useState<string | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const allTemplateItems = ALL_SETTING_TEMPLATE_GROUPS.flatMap((group) => group.items);
@@ -263,6 +264,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setLibraryOpen(false);
       setLibraryReviewed(false);
       setDesignStarted(false);
+      setSupplementBaseKeys(null);
       setDesignQueue(null);
       setLocalStateBookId(null);
       return;
@@ -329,17 +331,22 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setCheckedKeys(raw === null ? {} : JSON.parse(raw) as Record<string, boolean>);
       setLibraryReviewed(window.localStorage.getItem(`wenmi-setting-library-reviewed-v3-${bookId}`) === 'true');
       const sessionRaw = window.localStorage.getItem(`wenmi-setting-design-session-v3-${bookId}`);
-      const session = sessionRaw === null ? null : JSON.parse(sessionRaw) as { started?: boolean; queue?: unknown };
+      const session = sessionRaw === null ? null : JSON.parse(sessionRaw) as { started?: boolean; queue?: unknown; supplementBaseKeys?: unknown };
       const restoredQueue = Array.isArray(session?.queue)
         ? session.queue.filter((key): key is string => typeof key === 'string')
         : null;
+      const restoredSupplementBase = Array.isArray(session?.supplementBaseKeys)
+        ? session.supplementBaseKeys.filter((key): key is string => typeof key === 'string')
+        : null;
       setDesignStarted(session?.started === true);
       setDesignQueue(restoredQueue !== null && restoredQueue.length > 0 ? restoredQueue : null);
-      setLibraryOpen(false);
+      setSupplementBaseKeys(restoredSupplementBase !== null && restoredSupplementBase.length > 0 ? restoredSupplementBase : null);
+      setLibraryOpen(restoredSupplementBase !== null && restoredSupplementBase.length > 0);
     } catch {
       setCheckedKeys({});
       setLibraryReviewed(false);
       setDesignStarted(false);
+      setSupplementBaseKeys(null);
       setDesignQueue(null);
     }
     setLocalStateBookId(bookId);
@@ -351,10 +358,11 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       window.localStorage.setItem(`wenmi-setting-library-reviewed-v3-${bookId}`, String(libraryReviewed));
       window.localStorage.setItem(`wenmi-setting-design-session-v3-${bookId}`, JSON.stringify({
         started: designStarted,
-        queue: designQueue
+        queue: designQueue,
+        supplementBaseKeys
       }));
     } catch { /* 存储满时静默 */ }
-  }, [checkedKeys, libraryReviewed, designStarted, designQueue, bookId, localStateBookId]);
+  }, [checkedKeys, libraryReviewed, designStarted, designQueue, supplementBaseKeys, bookId, localStateBookId]);
 
   // 主编质检轮询：检查完成或失败后把结果摆上页面。
   useEffect(() => {
@@ -492,6 +500,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       setCheckedKeys({});
       setLibraryReviewed(false);
       setDesignStarted(false);
+      setSupplementBaseKeys(null);
       setDesignQueue(null);
       setQueueListOpen(false);
       setLibraryOpen(false);
@@ -514,7 +523,8 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
   };
 
   const toggleChecked = (key: string): void => {
-    if (designStarted) return;
+    if (designStarted && supplementBaseKeys === null) return;
+    if (supplementBaseKeys?.includes(key) === true) return;
     setCheckedKeys((current) => ({ ...current, [key]: current[key] !== true }));
     setLibraryReviewed(false);
   };
@@ -549,6 +559,27 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
     const queue = buildQueue();
     if (!libraryReviewed) {
       setNotice('请先打开完整设定库，确认核心设定，并按需勾选推荐和其他设定。');
+      return;
+    }
+    if (supplementBaseKeys !== null) {
+      const base = new Set(supplementBaseKeys);
+      const additions = queue.filter((key) => !base.has(key));
+      if (additions.length === 0) {
+        setNotice('请至少勾选一个还没有进入本书设计范围的新条目。');
+        return;
+      }
+      const currentUnfinished = (designQueue ?? []).filter((key) => statuses[key] !== '已确认' || pendingCandidates[key] !== undefined);
+      const nextQueue = [...new Set([...currentUnfinished, ...additions])];
+      setDesignStarted(true);
+      setSupplementBaseKeys(null);
+      setLibraryOpen(false);
+      setLibraryReviewed(false);
+      setQueueListOpen(false);
+      setDesignQueue(nextQueue);
+      setAuditReport(null);
+      setAcknowledgedIssues([]);
+      setNotice(`已补充 ${additions.length} 个新条目，继续按原顺序逐项设计。`);
+      advanceQueue(nextQueue, statuses);
       return;
     }
     if (queue.length === 0) {
@@ -586,6 +617,27 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
       .filter((item) => checkedKeys[item.key] === true)
       .map((item) => item.key)
   ];
+  const supplementing = supplementBaseKeys !== null;
+  const supplementBaseSet = new Set(supplementBaseKeys ?? []);
+  const supplementSelectedCount = supplementing
+    ? selectedDesignKeys.filter((key) => !supplementBaseSet.has(key)).length
+    : 0;
+  const beginSupplementDesign = (): void => {
+    setSupplementBaseKeys(selectedDesignKeys);
+    setLibraryReviewed(false);
+    setLibraryOpen(true);
+    setAuditReport(null);
+    setAcknowledgedIssues([]);
+    setNotice('只勾选这次想新增的条目；已设计内容会保留，不会重新生成。');
+  };
+  const cancelSupplementDesign = (): void => {
+    const base = new Set(supplementBaseKeys ?? []);
+    setCheckedKeys((current) => Object.fromEntries(Object.entries(current).map(([key, selected]) => [key, base.has(key) ? selected : false])));
+    setSupplementBaseKeys(null);
+    setLibraryReviewed(false);
+    setLibraryOpen(false);
+    setNotice('已取消本次补充选择，原有设定和设计进度没有变化。');
+  };
   const unfinishedSelectedCount = selectedDesignKeys.filter((key) =>
     statuses[key] !== '已确认' || pendingCandidates[key] !== undefined).length;
 
@@ -600,7 +652,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
     {bookId === null
       ? <p className="setting-empty-state">请先选择一本书。</p>
       : <>
-        <section className={'setting-library-shell' + (designStarted ? ' session-active' : '')}>
+        <section className={'setting-library-shell' + (designStarted ? ' session-active' : '') + (supplementing ? ' supplementing' : '')}>
           <button
             type="button"
             className="setting-library-trigger"
@@ -610,12 +662,17 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
           >
             <span className="setting-library-trigger-title">
               <strong>完整设定库</strong>
-              <small>{designStarted ? '已进入逐项设计' : '设定骨架—勾选所需条目，请勿乱选'}</small>
+              <small>{supplementing ? '补充设计—只增加新条目' : designStarted ? '已进入逐项设计' : '设定骨架—勾选所需条目，请勿乱选'}</small>
             </span>
             <b>{libraryOpen ? '收起' : '查看'}</b>
           </button>
 
-          {libraryOpen && <div id="complete-setting-library" className={'setting-library-body' + (designStarted ? ' locked' : '')}>
+          {designStarted && !supplementing && <div className="setting-supplement-entry">
+            <span><strong>有了新灵感？</strong><small>增加条目后继续逐项设计，已有内容不会重做。</small></span>
+            <button type="button" className="secondary-button" disabled={busyKey !== null || auditWaiting} onClick={beginSupplementDesign}>补充设计</button>
+          </div>}
+
+          {libraryOpen && <div id="complete-setting-library" className={'setting-library-body' + (designStarted && !supplementing ? ' locked' : '')}>
             <section className="setting-library-block" aria-label="核心设定">
               <header><div><small>01</small><span><strong>核心设定</strong><em>不依赖具体人物和剧情也成立，默认全部加入</em></span></div><b>{coreItems.length} 项</b></header>
               <div className="setting-library-list">
@@ -648,7 +705,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
                           <input
                             type="checkbox"
                             checked={checkedKeys[item.key] === true}
-                            disabled={designStarted || status === '已确认'}
+                            disabled={(designStarted && !supplementing) || status === '已确认' || supplementBaseSet.has(item.key)}
                             onChange={() => toggleChecked(item.key)}
                           />
                           <span><strong>{item.label}</strong><small>{item.prompt}</small></span>
@@ -674,7 +731,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
                     <label>
                       <input
                         type="checkbox"
-                        disabled={designStarted || busyKey !== null}
+                        disabled={(designStarted && !supplementing) || supplementBaseSet.has(item.key) || busyKey !== null}
                         checked={checkedKeys[item.key] === true}
                         onChange={() => {
                           if (checkedKeys[item.key] !== true) addOptionalItem(group, item);
@@ -689,7 +746,7 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
               </div>
             </section>
 
-            {!designStarted && <details className="setting-library-custom">
+            {(!designStarted || supplementing) && <details className="setting-library-custom">
               <summary><strong>本书专属设定</strong><span>资料库没有时再添加</span></summary>
               <form onSubmit={(event) => {
                 event.preventDefault();
@@ -739,20 +796,21 @@ export function SettingCatalog({ bookId, workspace, planningState, onPlanningSta
               </article>)}</div>
             </details>}
 
-            {!designStarted && <footer className="setting-library-commit">
+            {(!designStarted || supplementing) && <footer className="setting-library-commit">
               <label className={libraryReviewed ? 'reviewed' : ''}>
                 <input type="checkbox" checked={libraryReviewed} onChange={(event) => setLibraryReviewed(event.target.checked)} />
-                <span><strong>我已确认勾选完毕</strong></span>
+                <span><strong>{supplementing ? '我已确认补充条目' : '我已确认勾选完毕'}</strong>{supplementing && <small>只会继续设计本次新增内容，不会覆盖已有设定。</small>}</span>
               </label>
               <div>
-                <span>本轮共 {selectedDesignKeys.length} 项</span>
+                <span>{supplementing ? `新增 ${supplementSelectedCount} 项` : `本轮共 ${selectedDesignKeys.length} 项`}</span>
+                {supplementing && <button className="secondary-button" type="button" disabled={busyKey !== null} onClick={cancelSupplementDesign}>取消补充</button>}
                 <button
                   className="primary-button"
                   type="button"
-                  disabled={busyKey !== null || profile === null || !libraryReviewed}
+                  disabled={busyKey !== null || profile === null || !libraryReviewed || (supplementing && supplementSelectedCount === 0)}
                   onClick={startDesignQueue}
                 >
-                  {libraryReviewed ? '开始设计' : '请先确认勾选'}
+                  {libraryReviewed ? (supplementing ? '继续设计' : '开始设计') : (supplementing ? '请先确认补充' : '请先确认勾选')}
                 </button>
               </div>
             </footer>}

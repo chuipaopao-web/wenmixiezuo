@@ -146,17 +146,23 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
-  it('设定页保留原开书资料块，并在原摘要中显示人物卡权威性格', async () => {
+  it('设定页开书资料只显示开书信息，不混入人物卡内容或内部元信息', async () => {
     const fetchMock = vi.fn(createFetchRouter());
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
 
-    expect(await screen.findByText(/主角性格：冷静、敏锐/u)).toBeInTheDocument();
+    expect(await screen.findByText(/男频 · 历史脑洞 · 架空历史 · 成长 · 守城/u)).toBeInTheDocument();
+    expect(screen.queryByText(/主角性格：冷静、敏锐/u)).not.toBeInTheDocument();
     const details = document.querySelector('.v6-opening-profile') as HTMLDetailsElement;
     expect(details).toBeInTheDocument();
     fireEvent.click(within(details).getByText('开书资料'));
-    expect(within(details).getByText(/张三：冷静、敏锐/u)).toBeInTheDocument();
-    fireEvent.click(within(details).getByRole('button', { name: '编辑张三' }));
+    expect(within(details).getByText('时代背景')).toBeInTheDocument();
+    expect(within(details).getByText(/秦代雾城/u)).toBeInTheDocument();
+    expect(within(details).getByText(/张三：雾城边军；性格：坚韧/u)).toBeInTheDocument();
+    expect(within(details).queryByText(/冷静、敏锐/u)).not.toBeInTheDocument();
+    expect(within(details).queryByText(/核心目标|当前处境|核心驱动力|作者已有方向/u)).not.toBeInTheDocument();
+    expect(within(details).queryByText(/老板确认的开书资料|character-protagonist-1|版本/u)).not.toBeInTheDocument();
+    fireEvent.click(within(details).getByRole('button', { name: '编辑张三卡' }));
     expect(await screen.findByRole('dialog', { name: '编辑张三的人物卡' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保存人物卡新版本' }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
@@ -735,7 +741,11 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       protagonists: [{ role: 'male_lead', name: '张三', age: '二十岁', background: '雾城边军', personalities: ['坚韧'] }],
       storyDirection: '守住雾城并查明钟声来源', openingStart: '第一次钟响后被迫守城', mustFollow: ['钟声规则不得无代价改写'],
       style: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
-      source: '作者确认的开书资料', version: 1, openingBlueprint: { openingBackground: '第一次钟响后被迫守城' }
+      source: '作者确认的开书资料', version: 1, openingBlueprint: {
+        worldBackground: '秦代雾城，低武边军体系。', openingBackground: '第一次钟响后被迫守城',
+        protagonists: [{ role: 'male_lead', name: '张三', age: '二十岁', background: '雾城边军', personalities: ['坚韧'] }],
+        openingStart: '第一次钟响后被迫守城', storyDirection: '守住雾城并查明钟声来源', mustFollow: ['钟声规则不得无代价改写']
+      }
     });
     if (path.endsWith('/core-workflow') && (init?.method ?? 'GET') === 'GET') return apiResponse(v6CoreWorkflow);
     if (path.endsWith('/core-workflow/characters/character-protagonist-1/versions') && init?.method === 'POST') return apiResponse({ versionId: 'character-version-2', version: 2 });

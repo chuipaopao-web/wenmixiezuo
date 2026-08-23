@@ -116,29 +116,15 @@ function SettingStage({ bookId, workspace, onChanged, onNext }: {
     return () => controller.abort();
   }, [loadCore, loadPlanningState, loadProfile]);
   const protagonistCards = core?.characters.filter((item) => item.characterKind === 'protagonist' && item.content !== null) ?? [];
-  const visiblePersonality = protagonistCards[0]?.content?.personalityTraits?.slice(0, 3).join('、')
-    ?? profile?.protagonists[0]?.personalities.slice(0, 3).join('、') ?? '';
+  const openingSummary = profile === null ? '' : openingProfileSummary(profile);
+  const openingRows = profile === null ? [] : openingProfileRows(profile);
   return <section className="v6-page v6-setting-page">
     {profile !== null && <details className="v6-opening-profile">
-      <summary><span><CheckCircleIcon weight="fill" /><strong>开书资料</strong><small>{profile.channel} · {profile.category} · {profile.subjects.join('、') || '未填写题材'}{visiblePersonality ? ` · 主角性格：${visiblePersonality}` : ''}</small></span><em>展开 / 收起</em></summary>
-      <div><header><div><h3>{bookDisplayTitle(profile.title)}</h3><p>{profile.synopsis || '尚未填写书籍简介。'}</p></div><button type="button" className="v6-quiet-button" onClick={() => setProfileOpen(true)}><PencilLineIcon />修改开书资料</button></header>
-        <dl><div><dt>题材</dt><dd>{[...profile.subjects, ...profile.mainTags].join('、') || '待补充'}</dd></div>
-          <div><dt>主角信息</dt><dd>{protagonistCards.length > 0
-            ? protagonistCards.map((item) => `${item.content!.name}${item.content!.roleSummary ? `（${item.content!.roleSummary}）` : ''}`).join('、')
-            : profile.protagonists.map((item) => `${item.name}${item.background ? `（${item.background}）` : ''}`).join('、') || '待补充'}</dd></div>
-          <div><dt>主角性格</dt><dd><span>{protagonistCards.length > 0
-            ? protagonistCards.map((item) => `${item.content!.name}：${item.content!.personalityTraits?.join('、') || '待补充'}`).join('；')
-            : profile.protagonists.map((item) => `${item.name}：${item.personalities.join('、') || '待补充'}`).join('；') || '待补充'}</span>
-            {protagonistCards.map((item) => <button type="button" className="v6-inline-text-button" key={item.characterId}
-              onClick={() => setCharacterEditor(item)}>编辑{item.content?.name ?? '主角'}</button>)}</dd></div>
-          <div><dt>核心目标</dt><dd>{protagonistCards.map((item) => `${item.content!.name}：${item.content!.desire}`).join('；') || profile.storyDirection || '跟随正文逐步确认'}</dd></div>
-          <div><dt>当前处境</dt><dd>{protagonistCards.map((item) => `${item.content!.name}：${item.content!.currentState}`).join('；') || profile.openingStart || profile.openingBlueprint.openingBackground || '待补充'}</dd></div>
-          <div><dt>核心驱动力</dt><dd>{profile.storyDirection || profile.openingBlueprint.fullBookOutline || '待补充'}</dd></div>
-          <div><dt>开局状态</dt><dd>{profile.openingStart || profile.openingBlueprint.openingBackground || '待补充'}</dd></div>
-          <div><dt>特殊机制</dt><dd>{profile.protagonists.map((item) => item.goldenFinger).filter(Boolean).join('、') || '待补充'}</dd></div>
-          <div><dt>作者已有方向</dt><dd>{profile.openingBlueprint.fullBookOutline || profile.storyDirection || '尚未决定，可以边写边整理'}</dd></div>
-          <div><dt>禁区</dt><dd>{profile.mustFollow.join('、') || '无额外禁区'}</dd></div></dl>
-        {protagonistCards.length > 0 && <p className="v6-profile-authority-note">当前创作以版本化人物卡为准；修改开书资料不会静默覆盖已确认人物卡。</p>}
+      <summary><span><CheckCircleIcon weight="fill" /><strong>开书资料</strong><small>{openingSummary}</small></span><em>展开 / 收起</em></summary>
+      <div><header><div><h3>{bookDisplayTitle(profile.title)}</h3>{profile.openingBlueprint.openingIdea?.trim() && <p>{profile.openingBlueprint.openingIdea.trim()}</p>}</div><button type="button" className="v6-quiet-button" onClick={() => setProfileOpen(true)}><PencilLineIcon />修改开书资料</button></header>
+        {openingRows.length > 0 && <dl>{openingRows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>}
+        {protagonistCards.length > 0 && <div className="v6-profile-card-actions" aria-label="人物卡编辑">{protagonistCards.map((item, index) => <button type="button" className="v6-inline-text-button" key={item.characterId}
+          onClick={() => setCharacterEditor(item)}>编辑{profile.protagonists[index]?.name || '人物'}卡</button>)}</div>}
       </div>
     </details>}
     <section className="v6-setting-library-heading"><div><span>完整设定库</span><h2>选择本书真正需要的设定</h2><p>推荐项不会替您勾选；核心必要项与可选宏观项分开呈现。</p></div><span><LockKeyIcon />确认前只进入临时资料包，不写入正史</span></section>
@@ -160,6 +146,53 @@ function SettingStage({ bookId, workspace, onChanged, onNext }: {
         finally { setProfileSaving(false); }
       }} />}
   </section>;
+}
+
+function openingProfileSummary(profile: BookProfileViewData): string {
+  return uniqueNonEmpty([profile.channel, profile.category, ...profile.subjects, ...profile.mainTags]).join(' · ');
+}
+
+function openingProfileRows(profile: BookProfileViewData): Array<{ label: string; value: string }> {
+  const blueprint = profile.openingBlueprint;
+  const protagonists = blueprint.protagonists ?? profile.protagonists;
+  const rows: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: string | undefined): void => {
+    const normalized = value?.trim() ?? '';
+    if (normalized.length > 0) rows.push({ label, value: normalized });
+  };
+  push('题材标签', uniqueNonEmpty([...profile.subjects, ...profile.mainTags]).join('、'));
+  push('时代背景', blueprint.worldBackground);
+  push('初始角色', protagonists.map((item) => uniqueNonEmpty([
+    item.name,
+    protagonistRoleLabel(item.role),
+    item.age
+  ]).join(' · ')).filter(Boolean).join('；'));
+  push('角色背景', protagonists.map((item) => {
+    const details = uniqueNonEmpty([
+      item.background,
+      item.familyBackground ? `家庭：${item.familyBackground}` : '',
+      item.careerBackground ? `职业：${item.careerBackground}` : '',
+      item.goldenFinger ? `特殊依仗：${item.goldenFinger}` : '',
+      item.personalities.length > 0 ? `性格：${item.personalities.join('、')}` : ''
+    ]);
+    return details.length > 0 ? `${item.name || '角色'}：${details.join('；')}` : '';
+  }).filter(Boolean).join('；'));
+  push('开局', blueprint.openingStart ?? profile.openingStart);
+  push('故事方向', blueprint.storyDirection ?? profile.storyDirection);
+  push('结局', blueprint.storyEnding ?? profile.storyEnding);
+  push('必须遵守', blueprint.mustFollow?.join('、') || profile.mustFollow.join('、'));
+  return rows;
+}
+
+function protagonistRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    male_lead: '男主', female_lead: '女主', dual_lead: '双主角', ensemble_lead: '群像主角', co_lead: '联合主角'
+  };
+  return labels[role] ?? '';
+}
+
+function uniqueNonEmpty(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim() ?? '').filter(Boolean))];
 }
 
 function ProtagonistCardEditor({ card, busy, onClose, onSave }: {
