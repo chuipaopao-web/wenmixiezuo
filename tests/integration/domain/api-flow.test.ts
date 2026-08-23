@@ -278,7 +278,7 @@ describe('建书REST流程', () => {
     }
   });
 
-  it('从自然语言定位草稿到确认建书并查询15人团队', async () => {
+  it('从自然语言定位草稿到确认建书并查询25人团队', async () => {
     context = createTestContext();
     const app = await createServer(context.config, context.database, { trustedTest: true });
     try {
@@ -313,7 +313,7 @@ describe('建书REST流程', () => {
       expect(startPanel.statusCode).toBe(200);
       const panelTaskId = (startPanel.json().data as { taskId: string }).taskId;
       const agents = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/agents` });
-      expect((agents.json().data as unknown[])).toHaveLength(15);
+      expect((agents.json().data as unknown[])).toHaveLength(25);
       const books = await app.inject({ method: 'GET', url: '/api/v1/books' });
       expect(books.json().data).toHaveLength(1);
       const clock = new FixedClock();

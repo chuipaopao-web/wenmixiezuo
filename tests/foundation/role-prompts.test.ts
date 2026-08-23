@@ -41,7 +41,7 @@ describe('九岗位定位提示词', () => {
     expect(prompt).toContain('如果满意再继续');
   });
 
-  it('当前十五人团队使用各自真实身份而不是继承主岗位姓名', () => {
+  it('当前二十五人团队使用各自真实身份而不是继承主岗位姓名', () => {
     const deputyEditor = buildRuntimeRoleSystemPrompt('deputy_editor', 'discussion');
     const secondScreenwriter = buildRuntimeRoleSystemPrompt('second_screenwriter', 'discussion');
     const thirdScreenwriter = buildRuntimeRoleSystemPrompt('third_screenwriter', 'discussion');
@@ -66,7 +66,7 @@ describe('九岗位定位提示词', () => {
     expect(experienceChallenger).not.toContain('昭君（体验）');
   });
 
-  it('十五名成员都使用具体专业身份、核心专长和明确工作方法', () => {
+  it('二十五名成员都使用具体专业身份、核心专长和明确工作方法', () => {
     const prompts = [
       ['chief_editor', '长篇网文主编', '只推进当前最需要确认的一步'],
       ['deputy_editor', '资料档案官', '只准备可追溯资料'],

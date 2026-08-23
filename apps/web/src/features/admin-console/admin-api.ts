@@ -5,6 +5,12 @@ export interface AdminDashboardData {
     failedTasksToday: number; apiCashMicrosToday: number; activeMembers: number; computeToday: number;
     openIssues: number; revenueCashMicros: number; monthRevenueCashMicros: number;
   };
+  business: {
+    registeredUsers: number; cumulativePaidUsers: number; cumulativePaidRate: number | null;
+    newUsers30d: number; firstPaidUsers30d: number; firstPaidRate30d: number | null; activePaidUsers: number;
+    recordedMembershipRevenueCashMicros: number;
+    definitions: { cumulativePaidRate: string; firstPaidRate30d: string; revenue: string };
+  };
   trend: Array<{ day: string; cashMicros: number; compute: number; calls: number; revenueCashMicros: number }>;
   topUsers: Array<{ userId: string; displayName: string; email: string; compute: number; cashMicros: number; calls: number }>;
   expiring: Array<{ userId: string; displayName: string; email: string; plan: string; periodEnd: string; daysRemaining: number }>;
@@ -15,6 +21,43 @@ export interface AdminUser {
   createdAt?: string; lastLoginAt?: string | null;
 }
 
+export interface AdminUserOperation {
+  userId: string; email: string; displayName: string; status: string; createdAt: string; lastLoginAt: string | null; lastActivityAt: string | null;
+  membership: { plan?: string; status?: string; periodEnd?: string } | null;
+  bookCount: number; activeBookCount: number; archivedBookCount: number;
+  today: { day: string; taskCount: number; failed: boolean; failureCount: number };
+  books: Array<{ bookId: string; title: string; status: string; workflowStage: string; currentVolume: number | null;
+    currentEvent: number | null; currentChapter: number | null; latestManuscriptAt: string | null;
+    latestSettlementAt: string | null; latestTaskId: string | null; latestTaskStatus: string | null; latestTaskAt: string | null }>;
+  failures: Array<{ taskId: string; bookId: string; bookTitle: string; taskType: string; workflowNode: string;
+    status: string; errorCode: string | null; occurredAt: string; memberName?: string | null; memberRole?: string | null;
+    frontEndPage: string; errorSummary: string; recoveryKey: string; retainedResults: number;
+    failedSeats: Array<{ memberName: string; roleKey: string; error: string }> }>;
+}
+
+export interface AdminUserOperationsData { timezone: 'Asia/Shanghai'; day: string; items: AdminUserOperation[] }
+
+export interface AdminAiGovernanceData {
+  initialMemberCount: number; roleCategoryCount: number; books?: Array<{ bookId: string; title: string }>;
+  storylineQuality?: { candidateCount: number; acceptedCount: number; rejectedCount: number; observingCount: number;
+    duplicateCount: number; noEvidenceCount: number; incorrectFactMixCount: number; adoptionRate: number | null;
+    continueObservingRate: number | null; duplicateRate: number | null; noEvidenceRate: number | null;
+    definitions: { adoption: string; duplicate: string; noEvidence: string; incorrectFactMix: string } };
+  actualMembers: Array<{ bookId: string; bookTitle: string; agentId: string; displayName: string; roleKey: string;
+    enabled: number; activationState: string; supplierCompany: string; costTier: string; provider: string; modelId: string;
+    latestTaskStatus: string | null; updatedAt: string }>;
+  codeSkills: Array<{ skillVersionId: string; layer: string; roleKey: string | null; nodeKind: string | null;
+    version: number; content: Record<string, unknown>; contentHash: string }>;
+  storedSkills: Array<{ skillVersionId: string; layer: string; roleKey: string | null; nodeKind: string | null;
+    version: number; contentJson: string; contentHash: string; status: string; createdAt: string }>;
+  templates: Array<{ templateVersionId: string; templateKey: string; targetObject: string; version: number;
+    schemaJson: string; promptContractJson: string; contentHash: string; status: string; rolloutPercent: number; createdAt: string }>;
+  batches: Array<{ batchId: string; bookId: string; bookTitle: string; nodeKind: string; roleKey: string; status: string;
+    contextPackId: string; contextPackHash: string; coreSkillVersionId: string; roleSkillVersionId: string;
+    nodeSkillVersionId: string; templateVersion: string; templateVersionId: string | null; templateHash: string | null;
+    members: number; distinctContextHashes: number; distinctModelSignatures: number; createdAt: string }>;
+  calls: PromptCall[];
+}
 export interface AdminMembershipRecord {
   plan: 'bronze' | 'silver' | 'gold' | 'diamond'; planLabel: string; status: 'active' | 'revoked';
   tokenQuota: number; periodTokens: number; totalTokens: number; periodStart: string; periodEnd: string; expired: boolean;
@@ -97,7 +140,31 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}): Pro
 }
 
 export const fetchDashboard = (signal?: AbortSignal) => adminRequest<AdminDashboardData>('/api/v1/admin/dashboard', signal === undefined ? {} : { signal });
-export const fetchAdminUsersPage = (query = '', status = '', signal?: AbortSignal) => {
+export const fetchUserOperations = (day = '', signal?: AbortSignal) => {
+  const query = day ? `?day=${encodeURIComponent(day)}` : '';
+  return adminRequest<AdminUserOperationsData>(`/api/v1/admin/user-operations${query}`, signal === undefined ? {} : { signal });
+};
+export const fetchAiGovernance = (signal?: AbortSignal) => adminRequest<AdminAiGovernanceData>('/api/v1/admin/ai-governance', signal === undefined ? {} : { signal });
+export const addAdminAiMember = (bookId: string, input: { roleKey: string; displayName: string; provider: string; modelId: string;
+  supplierCompany: string; costTier: string }) => adminRequest(`/api/v1/admin/books/${encodeURIComponent(bookId)}/ai-members`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+export const updateAdminAiMember = (bookId: string, agentId: string, input: { enabled?: boolean; provider?: string; modelId?: string;
+  supplierCompany?: string; costTier?: string }) => adminRequest(`/api/v1/admin/books/${encodeURIComponent(bookId)}/ai-members/${encodeURIComponent(agentId)}`, {
+    method: 'PATCH', body: JSON.stringify(input)
+  });
+export const createCreativeTemplateVersion = (templateKey: string, input: { targetObject: string; schema: Record<string, unknown>;
+  promptContract: Record<string, unknown>; rolloutPercent: number }) => adminRequest(`/api/v1/admin/creative-templates/${encodeURIComponent(templateKey)}/versions`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+export const activateCreativeTemplateVersion = (templateVersionId: string, rolloutPercent: number) =>
+  adminRequest(`/api/v1/admin/creative-templates/${encodeURIComponent(templateVersionId)}/activate`, {
+    method: 'POST', body: JSON.stringify({ rolloutPercent })
+  });
+export const setCreativeTemplateRollout = (templateVersionId: string, rolloutPercent: number) =>
+  adminRequest(`/api/v1/admin/creative-templates/${encodeURIComponent(templateVersionId)}/rollout`, {
+    method: 'PATCH', body: JSON.stringify({ rolloutPercent })
+  });export const fetchAdminUsersPage = (query = '', status = '', signal?: AbortSignal) => {
   const params = new URLSearchParams({ limit: '100' });
   if (query) params.set('query', query);
   if (status) params.set('status', status);

@@ -49,6 +49,7 @@ export class AiNodePipelineService {
       throw new Error('AI节点冻结资料包不存在或哈希不一致');
     }
     const skills = this.loadSkills(batch);
+    const template = this.loadTemplate(batch);
     const members = this.rows(`SELECT bm.batch_member_id,bm.agent_id,bm.model_snapshot_id,bm.context_pack_id,
       bm.context_pack_hash,m.provider,m.model_id,a.display_name,r.role_key
       FROM ai_node_batch_members_v6 bm
@@ -71,7 +72,7 @@ export class AiNodePipelineService {
         WHERE owner_id=? AND book_id=? AND batch_id=? AND batch_member_id=? AND status='queued'`).run(
           this.now(), this.now(), scope.ownerId, scope.bookId, batchId, batchMemberId);
       try {
-        const candidate = await this.generateCandidate(scope, task, batch, pack, skills, member, fence);
+        const candidate = await this.generateCandidate(scope, task, batch, pack, skills, template, member, fence);
         batchService.recordMemberResult(scope, batchId, batchMemberId, candidate);
         completed += 1;
       } catch (error) {
@@ -89,7 +90,8 @@ export class AiNodePipelineService {
   }
 
   private async generateCandidate(scope: BookScope, task: ReturnType<TaskService['require']>, batch: Stored,
-    pack: Stored, skills: Record<string, unknown>, member: Stored, fence?: TaskLeaseFence): Promise<Candidate> {
+    pack: Stored, skills: Record<string, unknown>, template: Record<string, unknown>, member: Stored,
+    fence?: TaskLeaseFence): Promise<Candidate> {
     if (task.budgetId === null) throw new Error('AI节点任务缺少冻结预算');
     const adapter = this.modelAdapters.resolve(str(member.provider), str(member.model_id), 'discussion', str(member.role_key) as never);
     const manifest = parseArray(str(pack.source_manifest_json));
@@ -108,6 +110,7 @@ export class AiNodePipelineService {
         contextPackHash: str(batch.context_pack_hash),
         policyVersion: str(pack.policy_version),
         templateVersion: str(batch.template_version),
+        templateSnapshot: template,
         skills
       },
       instructions: [
@@ -140,7 +143,11 @@ export class AiNodePipelineService {
           requestId, taskId: task.taskId, ownerId: scope.ownerId, bookId: scope.bookId,
           agentId: str(member.agent_id), prompt, maxOutputTokens: OUTPUT_TOKEN_LIMIT
         });
-        try { return parseCandidate(result.output, str(batch.node_kind)); }
+        try {
+          const candidate = parseCandidate(result.output, str(batch.node_kind));
+          validateTemplateContent(candidate.content, template.schema);
+          return candidate;
+        }
         catch (error) { validationIssue = error instanceof Error ? error.message : '输出JSON无效'; lastError = error; }
       } catch (error) {
         lastError = error;
@@ -160,6 +167,19 @@ export class AiNodePipelineService {
     }]));
   }
 
+  private loadTemplate(batch: Stored): Record<string, unknown> {
+    if (batch.template_version_id === null || batch.template_version_id === undefined) {
+      return { versionId: null, hash: null, legacyTemplateVersion: str(batch.template_version), schema: {},
+        promptContract: { legacyCompatibility: true } };
+    }
+    const row = this.one(`SELECT template_version_id,schema_json,prompt_contract_json,content_hash,status
+      FROM creative_template_versions_v6 WHERE template_version_id=?`, str(batch.template_version_id));
+    if (row === undefined || str(row.content_hash) !== str(batch.template_hash)) {
+      throw new Error('AI节点冻结模板不存在或哈希不一致');
+    }
+    return { versionId: str(row.template_version_id), hash: str(row.content_hash), status: str(row.status),
+      schema: parseObject(str(row.schema_json)), promptContract: parseObject(str(row.prompt_contract_json)) };
+  }
   private hasUnresolvedCall(scope: BookScope, requestId: string): boolean {
     return this.one(`SELECT 1 AS ok FROM model_calls WHERE owner_id=? AND book_id=? AND request_id=? AND state='interrupted'`,
       scope.ownerId, scope.bookId, requestId) !== undefined;
@@ -200,6 +220,35 @@ export function parseCandidate(output: string, nodeKind: string): Candidate {
   throw new Error('输出缺少合法的候选内容与作者处理说明');
 }
 
+export function validateTemplateContent(content: Record<string, unknown>, schemaValue: unknown): void {
+  if (!record(schemaValue)) return;
+  const required = Array.isArray(schemaValue.required)
+    ? schemaValue.required.filter((item): item is string => typeof item === 'string') : [];
+  for (const key of required) {
+    const value = content[key];
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+      throw new Error(`模板要求字段缺失：${key}`);
+    }
+  }
+  const properties = record(schemaValue.properties) ? schemaValue.properties : {};
+  for (const [key, ruleValue] of Object.entries(properties)) {
+    if (!record(ruleValue) || content[key] === undefined) continue;
+    const value = content[key];
+    if (ruleValue.type === 'array' && (!Array.isArray(value)
+      || (typeof ruleValue.minItems === 'number' && value.length < ruleValue.minItems))) {
+      throw new Error(`模板数组字段无效：${key}`);
+    }
+    if (ruleValue.type === 'integer' && (!Number.isInteger(value)
+      || (typeof ruleValue.minimum === 'number' && Number(value) < ruleValue.minimum)
+      || (typeof ruleValue.maximum === 'number' && Number(value) > ruleValue.maximum))) {
+      throw new Error(`模板整数字段无效：${key}`);
+    }
+    if (ruleValue.type === 'string' && (typeof value !== 'string'
+      || (typeof ruleValue.minLength === 'number' && value.trim().length < ruleValue.minLength))) {
+      throw new Error(`模板文本字段无效：${key}`);
+    }
+  }
+}
 function containsHiddenReasoning(value: unknown, depth = 0): boolean {
   if (depth > 12 || value === null || typeof value !== 'object') return false;
   if (Array.isArray(value)) return value.some((item) => containsHiddenReasoning(item, depth + 1));

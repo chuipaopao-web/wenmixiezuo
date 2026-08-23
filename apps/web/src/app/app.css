@@ -5388,13 +5388,6 @@ svg {
 .volume-prerequisite-card h4 { margin: 4px 0 5px; }
 .volume-prerequisite-card p { margin: 0; color: var(--ink-soft); line-height: 1.65; }
 .volume-prerequisite-card button { min-height: 44px; }
-.volume-workflow-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
-.volume-workflow-strip li { position: relative; display: flex; align-items: center; gap: 9px; color: var(--ink-soft); }
-.volume-workflow-strip li:not(:last-child)::after { content: ''; position: absolute; z-index: 0; left: 32px; right: 8px; top: 15px; height: 2px; background: var(--line); }
-.volume-workflow-strip b { z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--panel-raised); }
-.volume-workflow-strip .done b { border-color: var(--accent); color: white; background: var(--accent); }
-.volume-workflow-strip .current { color: var(--ink); font-weight: 750; }
-.volume-workflow-strip .current b { border-color: var(--accent); color: var(--accent-strong); box-shadow: 0 0 0 4px var(--accent-soft); }
 .volume-plan-status-card { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--panel-raised); }
 .volume-plan-status-card > div { display: grid; gap: 3px; min-width: 0; }
 .volume-plan-status-card small { color: var(--ink-soft); }
@@ -5544,8 +5537,6 @@ svg {
   .volume-direction-notes { grid-template-columns: 1fr; }
   .volume-planning-toolbar { justify-content: stretch; }
   .volume-planning-toolbar select, .volume-planning-toolbar button { width: 100%; }
-  .volume-workflow-strip { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .volume-workflow-strip li::after { display: none; }
   .volume-template-grid, .volume-editor-grid, .volume-editor-grid.compact, .volume-version-grid, .volume-plan-status-card, .volume-generation-members { grid-template-columns: 1fr; }
 }
 /* Event planning workspace: the chain remains visible while the current event is designed. */

@@ -24,12 +24,12 @@ export function EditorialTeamWorkspace({ bookId }: { bookId: string }): React.JS
   if (pools === null) return <V6ErrorState message={error ?? '编辑部暂时无法打开'} onRetry={() => void load()} />;
 
   return <section className="v6-page v6-team-page">
-    <V6PageHeader eyebrow="本书协作成员" title="AI 编辑部" description="成员由后台按可用性、负载与本轮消耗自动分配。" />
+    <V6PageHeader eyebrow="本书协作成员" title="AI 编辑部" description="7 类岗位、初始 25 名成员。每个节点默认一人，作者可以更换或追加同岗位成员独立出方案。" />
     <section className="v6-team-summary">
       <div><UsersThreeIcon /><span><strong>{members.length}</strong><small>当前成员</small></span></div>
       <div><CheckCircleIcon /><span><strong>{members.filter((member) => member.status === 'available').length}</strong><small>现在可用</small></span></div>
       <div><ClockIcon /><span><strong>{members.filter((member) => member.status === 'working').length}</strong><small>工作中</small></span></div>
-      <div><GaugeIcon /><span><strong>按任务</strong><small>动态计算消耗</small></span></div>
+      <div><GaugeIcon /><span><strong>7 类</strong><small>岗位均可选择</small></span></div>
     </section>
     <div className="v6-team-layout">
       <aside className="v6-role-list" aria-label="岗位列表">{pools.map((pool) => <button type="button" key={pool.roleKey}
@@ -42,7 +42,7 @@ export function EditorialTeamWorkspace({ bookId }: { bookId: string }): React.JS
         <div className="v6-team-member-grid">{activePool?.members.map((member) => <TeamMemberCard key={member.memberId} member={member} />)}</div>
       </section>
     </div>
-    <p className="v6-team-footnote">成员不会保存私人全书记忆；每次任务只读取冻结的本轮资料包。任务分配与运行配置由后台维护，作者端只显示岗位公开信息。</p>
+    <p className="v6-team-footnote">同岗位、同批次成员收到完全相同的作者输入、资料包、Skill 与模板；各自独立出方案。闲置成员不会调用模型，也不会产生消耗。25 名只是初始配置，后台可继续增加。</p>
   </section>;
 }
 
@@ -74,6 +74,6 @@ function roleNumber(role: string): string {
 }
 
 function statusLabel(status: EditorialMemberView['status']): string {
-  return ({ available: '可用', working: '工作中', completed: '已完成', failed: '已失败', unavailable: '不可用' } as const)[status];
+  return ({ available: '空闲', working: '工作中', completed: '等待下次任务', failed: '失败 · 可恢复', unavailable: '停用 · 不可选' } as const)[status];
 }
 function costLabel(tier: EditorialMemberView['baseCostTier']): string { return tier === 'low' ? '低' : tier === 'medium' ? '中' : '高'; }

@@ -50,7 +50,7 @@
 
 确认开书会原子创建书籍、定位版本、团队、模型绑定、预算和设定工作区；不会自动创建或排队AI设定任务。
 
-五阶段核心接口：`GET /api/v1/books/:bookId/core-workflow` 返回设定→故事线→分卷→事件→章节的活动状态、故事线拓扑/版本、关系、逐卷参与、角色卡、事件角色绑定、总账、草稿和失效记录。`/core-workflow/storyline-topology`、`storylines`、`storyline-relations`、`volume-participations`、`characters`、`event-role-assignments`、`drafts`、`ledgers`、`invalidations` 与 `state` 分别执行版本化写入、确认、重开、影响处理和阶段推进；所有写入同时校验当前 `owner_id + book_id`、期望版本与上游依赖。
+五阶段核心接口：`GET /api/v1/books/:bookId/core-workflow` 返回设定→故事线→分卷→事件→章节的活动状态、滚动故事线版本与关系、逐卷参与、角色卡、事件角色绑定、规划/实际总账、作者最远节点、开放问题、增长候选、草稿和失效记录。`storylines`、`storyline-relations`、`volume-participations`、`storyline-frontier`、`storyline-open-questions`、`storyline-growth-rounds`、`storyline-growth-candidates`、`characters`、`event-role-assignments`、`drafts`、`ledgers`、`invalidations` 与 `state` 分别执行版本化写入、候选决策、确认、重开、影响处理和阶段推进；历史 `storyline_topology` 仅作为旧数据只读兼容对象，不再提供作者端写入入口。所有写入同时校验当前 `owner_id + book_id`、期望版本、幂等键与上游依赖。
 
 ## 4. 设定对象协作
 

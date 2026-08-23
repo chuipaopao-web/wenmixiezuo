@@ -269,3 +269,30 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .admin-sidebar, .admin-chart-track i { transition: none; }
   .admin-spinner { animation-duration: 1.6s; }
 }
+.admin-business-metrics { margin-top: -4px; }
+.admin-definition-note { margin: -8px 0 20px; border-left: 3px solid #9a7b43; padding: 8px 12px; color: #657069; background: #faf8f1; font-size: 12px; line-height: 1.7; }
+.admin-inline-detail { margin-top: 5px; }
+.admin-inline-detail summary { color: #46685d; font-size: 12px; cursor: pointer; }
+.admin-inline-detail pre { max-height: 240px; overflow: auto; margin: 8px 0 0; border: 1px solid #e1e6e3; padding: 10px; color: #26332e; background: #f7f9f8; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.admin-detail-drawer .admin-data-section { margin-top: 18px; }
+@media (max-width: 720px) {
+  .admin-business-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.admin-governance-create { border-top: 1px solid var(--admin-line); padding: 14px 18px 18px; }
+.admin-governance-create > summary { min-height: 36px; display: flex; align-items: center; color: var(--admin-green-700); font-size: 13px; font-weight: 650; cursor: pointer; }
+.admin-inline-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 12px; }
+.admin-inline-form-grid label { min-width: 0; display: grid; gap: 6px; color: #34443d; font-size: 12px; font-weight: 600; }
+.admin-inline-form-grid input,
+.admin-inline-form-grid select { width: 100%; min-height: 42px; border: 1px solid #ccd6d1; border-radius: 5px; padding: 0 11px; color: var(--admin-text); background: #fff; }
+.admin-inline-save { min-height: 40px; margin-top: 14px; padding: 0 18px; }
+@media (max-width: 760px) {
+  .admin-governance-create { padding: 12px 14px 16px; }
+  .admin-inline-form-grid { grid-template-columns: 1fr; }
+  .admin-inline-form-grid input,
+  .admin-inline-form-grid select { min-height: 44px; font-size: 16px; }
+  .admin-inline-save { width: 100%; min-height: 44px; }
+}
+.admin-audit-day { display: inline-flex; align-items: center; gap: 8px; color: var(--admin-muted); font-size: 13px; }
+.admin-audit-day input { min-height: 42px; border: 1px solid var(--admin-line); border-radius: 6px; padding: 0 10px; color: var(--admin-ink); background: var(--admin-paper); font: inherit; }
+@media (max-width: 640px) { .admin-audit-day { width: 100%; justify-content: space-between; } .admin-audit-day input { min-height: 44px; font-size: 16px; } }

@@ -135,7 +135,7 @@ describe('完整开书分类与资料合同', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), fullBookOutline: '长'.repeat(18_000) })).toThrow('资料总量');
   });
 
-  it('开局结局可以替代长故事方向，主副基调取自基调目录且不能重复', () => {
+  it('开局与结局可以独立替代长故事方向，主副基调取自基调目录且不能重复', () => {
     const blueprint = validBlueprint();
     blueprint.storyDirection = '';
     const accepted = validateOpeningBlueprint({
@@ -153,7 +153,9 @@ describe('完整开书分类与资料合同', () => {
     });
     expect(OPENING_TAXONOMY.styleTones).toEqual(['爽', '乐', '癫', '暖', '甜', '虐', '烧脑', '诡异', '厚重', '黑']);
     expect(() => validateOpeningBlueprint({ ...blueprint, openingStart: '短' })).toThrow('开局至少需要4个字符');
-    expect(() => validateOpeningBlueprint({ ...blueprint, openingStart: '主角穿越异界成为平民' })).toThrow('结局至少需要2个字符');
+    const openingOnly = validateOpeningBlueprint({ ...blueprint, openingStart: '主角穿越异界成为平民' });
+    expect(openingOnly.openingStart).toBe('主角穿越异界成为平民');
+    expect(openingOnly.storyEnding).toBeUndefined();
     const withArc = { ...blueprint, openingStart: '主角穿越异界成为平民', storyEnding: '登基称帝' };
     expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '不存在' })).toThrow('主基调不在当前目录');
     expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '爽', styleSecondary: '爽' })).toThrow('副基调不能与主基调相同');

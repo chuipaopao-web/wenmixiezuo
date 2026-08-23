@@ -9,6 +9,7 @@ import { compileWriterSettingContext,type WriterSettingItem } from '../creation/
 
 export type ContextConstraintStrength = 'hard_fact' | 'current_task' | 'soft_reference' | 'open_space';
 export type ContextTruthStatus = 'planned' | 'confirmed' | 'actual';
+export type ContextKnowledgeZone = 'hard_fact' | 'author_plan' | 'open_question' | 'ai_candidate';
 export const contextComponentKinds=['BookCorePack','SettingConstraintPack','BookStorySpinePack','VolumeResponsibilityPack',
   'EventResponsibilityPack','ChapterTaskPack','RecentActualStatePack','StoryThreadPack'] as const;
 export type ContextComponentKind=typeof contextComponentKinds[number];
@@ -22,6 +23,7 @@ export interface ContextSource {
   version?: number | string;
   constraintStrength?: ContextConstraintStrength;
   truthStatus?: ContextTruthStatus;
+  knowledgeZone?: ContextKnowledgeZone;
   scopeType?: 'book' | 'volume' | 'event' | 'chapter' | 'scene' | 'task';
   scopeId?: string;
   dependencies?: string[];
@@ -80,17 +82,7 @@ export class ContextPackService {
       deduplicateExactSources(requestedHardSources, seenContent, excluded, 'duplicate_of_hard_source'),
       excluded
     );
-    const hard = hardSources.map((source) => ({
-      ...source,
-      tokenCount: estimateTokens(source.content),
-      characterCount: source.content.length,
-      hard: true as const,
-      constraintStrength: source.constraintStrength ?? inferConstraintStrength(source.sourceType, true),
-      truthStatus: source.truthStatus ?? inferTruthStatus(source.sourceType),
-      scopeType: source.scopeType ?? inferScopeType(source.sourceType),
-      scopeId: source.scopeId ?? source.sourceId,
-      dependencies: source.dependencies ?? [],
-    }));
+    const hard = hardSources.map((source) => annotateSource(source, true));
     const hardTokens = hard.reduce((sum, source) => sum + source.tokenCount, 0);
     const hardCharacters = hard.reduce((sum, source) => sum + source.characterCount, 0);
     const hardTokenLimit = baseTokenBudget + hardSourceTokenReserve;
@@ -135,17 +127,7 @@ export class ContextPackService {
       'duplicate_of_included_source'
     );
     const optional = optionalSources
-      .map((source) => ({
-        ...source,
-        tokenCount: estimateTokens(source.content),
-        characterCount: source.content.length,
-        hard: false as const,
-        constraintStrength: source.constraintStrength ?? inferConstraintStrength(source.sourceType, false),
-        truthStatus: source.truthStatus ?? inferTruthStatus(source.sourceType),
-        scopeType: source.scopeType ?? inferScopeType(source.sourceType),
-        scopeId: source.scopeId ?? source.sourceId,
-        dependencies: source.dependencies ?? [],
-      }))
+      .map((source) => annotateSource(source, false))
       .sort((left, right) => right.priority - left.priority || left.sourceId.localeCompare(right.sourceId));
     // P0-6: 同源去重。完整不可变版本已作为硬来源注入时，排除同版本/同一物理正文的派生检索块，
     // 记录 duplicate_of_hard_source。不同版本、不同故事时间的来源不按相似文本误删，仅按版本血缘
@@ -215,6 +197,7 @@ export class ContextPackService {
       hard: source.hard,
       constraintStrength: source.constraintStrength,
       truthStatus: source.truthStatus,
+      knowledgeZone: source.knowledgeZone,
       scopeType: source.scopeType,
       scopeId: source.scopeId,
       dependencies: source.dependencies,
@@ -239,6 +222,7 @@ export class ContextPackService {
       version: source.version,
       constraintStrength: source.constraintStrength,
       truthStatus: source.truthStatus,
+      knowledgeZone: source.knowledgeZone,
       scopeType: source.scopeType,
       scopeId: source.scopeId,
       dependencies: source.dependencies,
@@ -347,7 +331,8 @@ function persistContextPackComponents(database:DatabaseSync,ids:IdGenerator,scop
       (sourceKinds.get(source.sourceType+'\u0000'+source.sourceId)??inferComponentKind(source.sourceType))===kind);
     const sourceVersionIds=[...new Set(included.map(source=>String(source.version??source.sourceId)))];
     const includedReasons=included.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,
-      reason:source.reason,hard:source.hard,constraintStrength:source.constraintStrength,truthStatus:source.truthStatus}));
+      reason:source.reason,hard:source.hard,constraintStrength:source.constraintStrength,truthStatus:source.truthStatus,
+      knowledgeZone:source.knowledgeZone}));
     const excludedReasons=omitted.map(source=>({sourceType:source.sourceType,sourceId:source.sourceId,reason:source.reason}));
     const tokenBudget=included.reduce((sum,source)=>sum+Number(source.tokenCount??0),0);
     const characterBudget=included.reduce((sum,source)=>sum+Number(source.originalLength??0),0);
@@ -369,6 +354,26 @@ function inferComponentKind(sourceType:string):ContextComponentKind{
   if(/event|story_arc/u.test(sourceType))return'EventResponsibilityPack';
   if(/volume/u.test(sourceType))return'VolumeResponsibilityPack';
   return'BookCorePack';
+}
+function annotateSource(source: ContextSource, hard: boolean): ContextSource & {
+  tokenCount: number; characterCount: number; hard: boolean; knowledgeZone: ContextKnowledgeZone;
+} {
+  const truthStatus = source.truthStatus ?? inferTruthStatus(source.sourceType);
+  const knowledgeZone = source.knowledgeZone ?? inferKnowledgeZone(source.sourceType, truthStatus);
+  let constraintStrength = source.constraintStrength ?? inferConstraintStrength(source.sourceType, hard);
+  if (knowledgeZone === 'ai_candidate' && constraintStrength === 'hard_fact') constraintStrength = 'current_task';
+  if (knowledgeZone === 'open_question') constraintStrength = 'open_space';
+  return { ...source, tokenCount: estimateTokens(source.content), characterCount: source.content.length, hard,
+    constraintStrength, truthStatus, knowledgeZone, scopeType: source.scopeType ?? inferScopeType(source.sourceType),
+    scopeId: source.scopeId ?? source.sourceId, dependencies: source.dependencies ?? [] };
+}
+
+function inferKnowledgeZone(sourceType: string, truthStatus: ContextTruthStatus): ContextKnowledgeZone {
+  if (/(open[_:-]?question|unknown|unresolved_question)/iu.test(sourceType)) return 'open_question';
+  if (/(candidate|proposal|recommendation|suggestion|independent_.*candidate)/iu.test(sourceType)) return 'ai_candidate';
+  if (truthStatus === 'actual') return 'hard_fact';
+  if (truthStatus === 'planned' || /(author[_:-]?(?:input|boundary|frontier)|plan|outline|contract|work_order)/iu.test(sourceType)) return 'author_plan';
+  return 'hard_fact';
 }
 function inferConstraintStrength(sourceType: string, hard: boolean): ContextConstraintStrength {
   if (!hard) return 'soft_reference';

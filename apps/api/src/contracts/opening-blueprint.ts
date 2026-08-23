@@ -368,10 +368,8 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   const storyDirection = optionalText(input.storyDirection, '故事方向补充', 300);
   const openingStart = optionalText(input.openingStart, '开局', 300);
   const storyEnding = optionalText(input.storyEnding, '结局', 300);
-  if (openingStart.length > 0 || storyEnding.length > 0) {
-    if (openingStart.length < 4) throw new Error('开局至少需要4个字符，一句话说清主角的起点处境');
-    if (storyEnding.length < 2) throw new Error('结局至少需要2个字符，一句话说清故事的终点');
-  }
+  if (openingStart.length > 0 && openingStart.length < 4) throw new Error('开局至少需要4个字符，一句话说清主角的起点处境');
+  if (storyEnding.length > 0 && storyEnding.length < 2) throw new Error('结局至少需要2个字符；不知道结局可以留空');
   const stylePrimary = optionalText(input.stylePrimary, '主基调', 20);
   const styleSecondary = optionalText(input.styleSecondary, '副基调', 20);
   if (stylePrimary.length > 0 && !STYLE_TONES.includes(stylePrimary)) throw new Error(`主基调不在当前目录：${stylePrimary}`);

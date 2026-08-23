@@ -10,7 +10,7 @@ import {
   WarningCircleIcon,
   XIcon
 } from '@phosphor-icons/react';
-import type { AiNodeBatchMemberView, AiNodeBatchView, AiNodeCostEstimate, CoreWorkflowStage, EditorialMemberView, EditorialRoleKey } from '@wenmi/contracts';
+import type { AiNodeBatchMemberView, AiNodeBatchView, AiNodeCostEstimate, EditorialMemberView, EditorialRoleKey } from '@wenmi/contracts';
 import { authorErrorFromUnknown } from '../../lib/api/author-error';
 import { AgentAvatar } from '../shared/AgentAvatar';
 import { useMembershipGate } from '../shared/membership-gate';
@@ -25,35 +25,7 @@ import {
   type ContextSourceInput
 } from './v6-api';
 
-export const V6_STAGES: Array<{ key: CoreWorkflowStage; label: string; description: string }> = [
-  { key: 'setting', label: '设定', description: '建立创作边界' },
-  { key: 'storyline', label: '故事线', description: '确认全书脉络' },
-  { key: 'volume', label: '分卷', description: '安排本卷方向' },
-  { key: 'event', label: '事件', description: '推进因果单元' },
-  { key: 'chapter', label: '章节', description: '章纲、正文与结算' }
-];
-
-export function StageTrack({ active, available = V6_STAGES.map((stage) => stage.key), onSelect }: {
-  active: CoreWorkflowStage;
-  available?: CoreWorkflowStage[];
-  onSelect: (stage: CoreWorkflowStage) => void;
-}): React.JSX.Element {
-  const activeIndex = V6_STAGES.findIndex((stage) => stage.key === active);
-  return <ol className="v6-stage-track" aria-label="创作阶段">
-    {V6_STAGES.map((stage, index) => {
-      const enabled = available.includes(stage.key);
-      const state = index < activeIndex ? 'completed' : index === activeIndex ? 'active' : 'future';
-      return <li key={stage.key} data-state={state}>
-        <button type="button" disabled={!enabled} aria-current={state === 'active' ? 'step' : undefined}
-          title={enabled ? stage.description : `${stage.label}尚未开放`}
-          onClick={() => onSelect(stage.key)}>
-          <span>{index < activeIndex ? <CheckCircleIcon weight="fill" /> : index + 1}</span>
-          <strong>{stage.label}</strong>
-        </button>
-      </li>;
-    })}
-  </ol>;
-}
+const EMPTY_CONTEXT_SOURCES: ContextSourceInput[] = [];
 
 export function V6PageHeader({ eyebrow, title, description, actions, mapAction }: {
   eyebrow: string;
@@ -161,7 +133,7 @@ export function VersionedDraftPanel({ title, value, versionLabel, impactPreview,
       <button type="button" className="v6-primary-button" disabled={busy || value.trim().length === 0} onClick={onConfirm}>确认此版本</button></footer>
   </section>;
 }
-export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDescription, source, templateVersion,
+export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDescription, source, additionalHardSources = EMPTY_CONTEXT_SOURCES, optionalSources = EMPTY_CONTEXT_SOURCES, templateVersion,
   onUseCandidate, initialExpanded = false, defaultMemberCount = 1 }: {
   bookId: string;
   nodeKind: string;
@@ -170,6 +142,8 @@ export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDe
   title: string;
   taskDescription: string;
   source: ContextSourceInput;
+  additionalHardSources?: ContextSourceInput[];
+  optionalSources?: ContextSourceInput[];
   templateVersion: string;
   onUseCandidate?: (content: Record<string, unknown>) => void;
   initialExpanded?: boolean;
@@ -206,11 +180,11 @@ export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDe
     if (!expanded || batch !== null) return;
     const controller = new AbortController();
     void estimateAiNodeCost(bookId, {
-      roleKey, hardSources: [source], optionalSources: [], outputTokenBudget: 4_000, reasoningLevel: 'standard', roundCount: 1, exampleCount: 0,
+      roleKey, hardSources: [source, ...additionalHardSources], optionalSources, outputTokenBudget: 4_000, reasoningLevel: 'standard', roundCount: 1, exampleCount: 0,
       ...(selectedMemberIds.length === 0 ? {} : { preferredMemberIds: selectedMemberIds })
     }).then((value) => { if (!controller.signal.aborted) setEstimate(value); }).catch(() => undefined);
     return () => controller.abort();
-  }, [batch, bookId, expanded, roleKey, selectedMemberIds, source]);
+  }, [additionalHardSources, batch, bookId, expanded, optionalSources, roleKey, selectedMemberIds, source]);
 
   useEffect(() => {
     if (!expanded || batch !== null) return;
@@ -240,8 +214,8 @@ export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDe
       await saveAiNodeAuthorInput(bookId, nodeKind, objectId, authorInput);
       const next = await createAiNodeBatch(bookId, {
         nodeKind, objectId, roleKey, taskDescription, templateVersion,
-        sourceVersionIds: source.version === undefined ? [] : [String(source.version)],
-        hardSources: [source], optionalSources: [], outputTokenBudget: 4_000, reasoningLevel: 'standard', roundCount: 1, exampleCount: 0,
+        sourceVersionIds: [source, ...additionalHardSources, ...optionalSources].flatMap((item) => item.version === undefined ? [] : [String(item.version)]),
+        hardSources: [source, ...additionalHardSources], optionalSources, outputTokenBudget: 4_000, reasoningLevel: 'standard', roundCount: 1, exampleCount: 0,
         ...(selectedMemberIds.length === 0 ? {} : { preferredMemberIds: selectedMemberIds }),
         confirmHighCost: confirmed,
         idempotencyKey: `${nodeKind}:${objectId}:${Date.now()}:${crypto.randomUUID()}`
@@ -250,7 +224,7 @@ export function AiNodePanel({ bookId, nodeKind, objectId, roleKey, title, taskDe
     } catch (reason) {
       setError(authorErrorFromUnknown(reason, '团队任务启动失败'));
     } finally { setBusy(false); }
-  }, [authorInput, bookId, estimate?.requiresConfirmation, guardAi, nodeKind, objectId, roleKey, selectedMemberIds, source, taskDescription, templateVersion]);
+  }, [authorInput, bookId, estimate?.requiresConfirmation, guardAi, nodeKind, objectId, roleKey, selectedMemberIds, source, additionalHardSources, optionalSources, taskDescription, templateVersion]);
 
   const recover = async (member: AiNodeBatchMemberView, replacementId?: string): Promise<void> => {
     if (batch === null) return;

@@ -84,7 +84,7 @@ describe('启动时保留书籍模型方案', () => {
 
     expect(result).toMatchObject({
       booksVisited: 1,
-      updatedAgents: 15,
+      updatedAgents: 25,
       supersededWriterSelections: 0
     });
     const team = new AgentTeamService(context.database, ids, clock).list(scope);
@@ -102,12 +102,12 @@ describe('启动时保留书籍模型方案', () => {
       });
   });
 
-  it('把十五名成员的未来任务统一迁移到方舟双套餐并保留旧修订快照', () => {
+  it('把二十五名成员的未来任务统一迁移到方舟双套餐并保留旧修订快照', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const book = initializeDomainBook(context, context.config.ownerId, ids, clock, {
-      title: '十五人模型迁移测试书'
+      title: '二十五人模型迁移测试书'
     });
     const scope = { ownerId: context.config.ownerId, bookId: book.bookId };
     const runtime = loadModelRuntimeConfig({
@@ -137,22 +137,32 @@ describe('启动时保留书籍模型方案', () => {
       migrateAllMembersToCurrentPlan: true
     });
 
-    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 15 });
+    expect(result).toMatchObject({ booksVisited: 1, updatedAgents: 25 });
     expect(Object.fromEntries(new AgentTeamService(context.database, ids, clock).list(scope)
       .map((agent) => [agent.roleKey, `${agent.provider}/${agent.modelId}`]))).toEqual({
       chief_editor: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      chief_editor_second: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      chief_editor_third: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       deputy_editor: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      deputy_editor_second: 'volcengine-ark-coding-plan/kimi-k2.7-code',
+      deputy_editor_third: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       lead_screenwriter: 'volcengine-ark-coding-plan/deepseek-v4-pro',
       second_screenwriter: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       third_screenwriter: 'volcengine-ark-coding-plan/kimi-k2.7-code',
       senior_screenwriter: 'volcengine-ark-agent-plan/kimi-k3',
       setting: 'volcengine-ark-coding-plan/deepseek-v4-flash',
       lead_writer: 'volcengine-ark-coding-plan/deepseek-v4-pro',
+      writer_third: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      writer_fourth: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
+      writer_fifth: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       fact_reviewer: 'volcengine-ark-coding-plan/minimax-m2.7',
       backup_writer: 'volcengine-ark-coding-plan/kimi-k2.7-code',
       literary_reviewer: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      literary_reviewer_second: 'volcengine-ark-coding-plan/kimi-k2.7-code',
+      literary_reviewer_third: 'volcengine-ark-coding-plan/deepseek-v4-flash',
       experience_reviewer: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       experience_challenger: 'volcengine-ark-coding-plan/deepseek-v4-flash',
+      experience_reviewer_third: 'volcengine-ark-coding-plan/doubao-seed-2.1-turbo',
       researcher: 'volcengine-ark-coding-plan/deepseek-v4-flash',
       copyright: 'volcengine-ark-coding-plan/kimi-k2.7-code'
     });

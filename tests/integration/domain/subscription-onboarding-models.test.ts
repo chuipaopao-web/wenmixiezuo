@@ -41,7 +41,7 @@ describe('subscription onboarding model allocation', () => {
         .map((member) => [String(member.roleKey), member.modelId])
     );
 
-    expect(byRole.size).toBe(15);
+    expect(byRole.size).toBe(25);
     expect(Object.fromEntries(byRole)).toMatchObject({
       chief_editor: 'deepseek-v4-pro',
       deputy_editor: 'deepseek-v4-flash',

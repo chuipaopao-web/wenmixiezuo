@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +8,9 @@ import { AdminApp } from '../../../apps/web/src/features/admin-console/AdminApp'
 
 const mocks = vi.hoisted(() => ({
   fetchCurrentAccount: vi.fn(), loginAccount: vi.fn(), logoutAccount: vi.fn(),
-  fetchDashboard: vi.fn(), fetchIssues: vi.fn()
+  fetchDashboard: vi.fn(), fetchIssues: vi.fn(), fetchAiGovernance: vi.fn()
 }));
-const { fetchCurrentAccount, loginAccount, logoutAccount, fetchDashboard, fetchIssues } = mocks;
+const { fetchCurrentAccount, loginAccount, logoutAccount, fetchDashboard, fetchIssues, fetchAiGovernance } = mocks;
 
 vi.mock('../../../apps/web/src/lib/api/client', () => ({
   fetchCurrentAccount: mocks.fetchCurrentAccount,
@@ -21,6 +21,8 @@ vi.mock('../../../apps/web/src/lib/api/client', () => ({
 vi.mock('../../../apps/web/src/features/admin-console/admin-api', () => ({
   fetchDashboard: mocks.fetchDashboard,
   fetchIssues: mocks.fetchIssues,
+  fetchAiGovernance: mocks.fetchAiGovernance,
+  fetchUserOperations: vi.fn().mockResolvedValue({ timezone: 'Asia/Shanghai', day: '2026-08-23', items: [] }),
   fetchAdminUsersPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   fetchMembershipUsers: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   fetchMembershipStats: vi.fn().mockResolvedValue({ summary: { activeMembers: 0, totalRevenueCashMicros: 0, monthRevenueCashMicros: 0, renewals: 0, expiringIn30Days: 0 }, byPlan: [], transactions: [] }),
@@ -30,6 +32,8 @@ vi.mock('../../../apps/web/src/features/admin-console/admin-api', () => ({
   fetchPromptCalls: vi.fn().mockResolvedValue({ items: [] }),
   fetchUsage: vi.fn().mockResolvedValue({ totalTokens: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCashMicros: 0, totalCalls: 0, perUser: [], perModel: [], daily: [] }),
   setAdminUserStatus: vi.fn(), grantMembership: vi.fn(), revokeMembership: vi.fn(), saveModelScheme: vi.fn(),
+  addAdminAiMember: vi.fn(), updateAdminAiMember: vi.fn(), createCreativeTemplateVersion: vi.fn(),
+  activateCreativeTemplateVersion: vi.fn(), setCreativeTemplateRollout: vi.fn(),
   saveNarrativeMethod: vi.fn(), fetchRuntimeSystemPrompt: vi.fn(), savePromptOverride: vi.fn(),
   archivePromptOverride: vi.fn(), fetchPromptCall: vi.fn(), updateIssue: vi.fn()
 }));
@@ -46,9 +50,19 @@ beforeEach(() => {
     overview: { failedTasksToday: 2, apiCashMicrosToday: 1_500_000, activeMembers: 8, computeToday: 42_000,
       openIssues: 3, revenueCashMicros: 20_000_000, monthRevenueCashMicros: 10_000_000 },
     trend: [{ day: '2026-08-21', cashMicros: 1_500_000, compute: 42_000, calls: 4, revenueCashMicros: 0 }],
+    business: { registeredUsers: 20, cumulativePaidUsers: 5, cumulativePaidRate: 0.25, newUsers30d: 4,
+      firstPaidUsers30d: 1, firstPaidRate30d: 0.25, activePaidUsers: 4, recordedMembershipRevenueCashMicros: 20_000_000,
+      definitions: { cumulativePaidRate: '累计曾付费普通用户 / 累计注册普通用户', firstPaidRate30d: '近30天首次付费普通用户 / 近30天新注册普通用户', revenue: '当前未接支付平台回调，不代表渠道实收。' } },
     topUsers: [], expiring: []
   });
   fetchIssues.mockResolvedValue({ items: [], total: 0 });
+  fetchAiGovernance.mockResolvedValue({
+    initialMemberCount: 25, roleCategoryCount: 7, books: [{ bookId: 'book-1', title: '测试书' }], actualMembers: [], storedSkills: [], templates: [], batches: [], calls: [],
+    storylineQuality: { candidateCount: 0, acceptedCount: 0, rejectedCount: 0, observingCount: 0, duplicateCount: 0, noEvidenceCount: 0,
+      incorrectFactMixCount: 0, adoptionRate: null, continueObservingRate: null, duplicateRate: null, noEvidenceRate: null,
+      definitions: { adoption: '采纳率', duplicate: '重复率', noEvidence: '无证据率', incorrectFactMix: '事实混入率' } },
+    codeSkills: [{ skillVersionId: 'skill-v6-core-2', layer: 'core', roleKey: null, nodeKind: null, version: 2, content: { name: '长篇创作核心' }, contentHash: 'a'.repeat(64) }]
+  });
 });
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -66,6 +80,10 @@ describe('独立管理后台前端', () => {
     expect(await screen.findByRole('heading', { name: '运营总览' })).toBeInTheDocument();
     expect(screen.getByText('今日真实API支出')).toBeInTheDocument();
     expect(screen.getAllByText('¥1.50').length).toBeGreaterThan(0);
+    expect(screen.getByText('累计付费率')).toBeInTheDocument();
+    expect(screen.getAllByText('25.0%').length).toBeGreaterThan(0);
+    expect(screen.getByText('已记录会员收入')).toBeInTheDocument();
+    expect(screen.getByText('当前未接支付平台回调，不代表渠道实收。')).toBeInTheDocument();
     for (const label of ['用户', '算力', 'API消耗', '模型', '问题记录', '创作模板', '提示词', '会员']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
@@ -75,6 +93,31 @@ describe('独立管理后台前端', () => {
     expect((await screen.findAllByRole('heading', { name: '问题记录' })).length).toBeGreaterThan(0);
     expect(window.location.pathname).toBe('/');
     expect(new URL(window.location.href).searchParams.get('section')).toBe('issues');
+  });
+
+  it('转化率分母为零时在原经营指标区显示破折号', async () => {
+    const baseline = await fetchDashboard();
+    fetchDashboard.mockResolvedValueOnce({ ...baseline, business: {
+      registeredUsers: 0, cumulativePaidUsers: 0, cumulativePaidRate: null, newUsers30d: 0, firstPaidUsers30d: 0,
+      firstPaidRate30d: null, activePaidUsers: 0, recordedMembershipRevenueCashMicros: 0,
+      definitions: { cumulativePaidRate: '定义', firstPaidRate30d: '定义', revenue: '当前未接支付平台回调。' }
+    } });
+    render(<AdminApp />);
+    const business = await screen.findByRole('region', { name: '经营转化指标' });
+    expect(within(business).getAllByText('—')).toHaveLength(2);
+  });
+
+  it('创作模板保留原叙事方法板块，并在其后显示25名成员、Skill与版本治理', async () => {
+    render(<AdminApp />);
+    await screen.findByRole('heading', { name: '运营总览' });
+    fireEvent.click(screen.getAllByRole('button', { name: '创作模板' })[0]!);
+    expect(await screen.findByRole('heading', { name: '创作模板与叙事方法' })).toBeInTheDocument();
+    const sectionHeadings = screen.getAllByRole('heading', { level: 2 });
+    expect(sectionHeadings[0]).toHaveTextContent('0 种内部方法');
+    expect(screen.getByText('skill-v6-core-2')).toBeInTheDocument();
+    expect(screen.getByText('新增第 26 名及更多成员')).toBeInTheDocument();
+    expect(screen.getByText('故事线候选采纳率')).toBeInTheDocument();
+    expect(fetchAiGovernance).toHaveBeenCalled();
   });
 
   it('普通作者即使直接打开后台子域也只看到拒绝页，不能渲染后台数据', async () => {

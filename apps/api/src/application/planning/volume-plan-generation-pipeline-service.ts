@@ -577,7 +577,7 @@ export function parseVolumeDirectionModelOutput(output: string, planNumber: numb
           value.direction ?? value.volumeDirection ?? value,
           planNumber === 1
         );
-        const storySpine = planNumber === 1
+        const storySpine = planNumber === 1 && value.storySpine !== undefined && value.storySpine !== null
           ? parseBookStorySpineContent(value.storySpine)
           : null;
         return { direction, storySpine };
@@ -586,7 +586,7 @@ export function parseVolumeDirectionModelOutput(output: string, planNumber: numb
   }
   const detail = lastError instanceof Error ? `：${lastError.message}` : '';
   throw new Error((planNumber === 1
-    ? '输出缺少完整卷方向、首卷强启动或全书故事总线'
+    ? '输出缺少完整卷方向或首卷强启动'
     : '输出缺少完整、合法的卷方向JSON') + detail + '。');
 }
 
@@ -890,7 +890,7 @@ function buildPrompt(input: {
       '前三章作为一组设计：第一章出场与困境，第二章行动与压力并给首次回报，第三章完成阶段结果并打开更大目标。',
       '第一卷维持有效冲突、情绪拉扯和代入，但不按固定间隔机械安排爽点或反转。',
       '累计10万有效字以内或本卷结束前（取更早）安排重大高潮，必须包含选择、代价、不可逆变化和下一阶段。',
-      'storySpine是独立于卷方向的全书软北极星，不得展开成全书逐章大纲；protectedOpenSpaces必须保留未来创造空间。'
+      'storySpine是可选的当前长期方向；作者没有想到时允许完全不输出。若输出，只整理当前能看见的跨卷承诺与阶段，不得强补全书路线或结局；protectedOpenSpaces必须保留未来创造空间。'
     ] : [],
     sources: input.sources,
     outputContract: {
@@ -946,10 +946,11 @@ function buildPrompt(input: {
       },
       ...(input.snapshot.planNumber === 1 ? {
         storySpine: {
-          longTermReaderPromises: ['整本书长期持续兑现给读者的核心满足'],
-          protagonistLongArc: '主角跨卷的长期变化方向',
-          centralQuestion: '贯穿全书、可逐卷推进的中心问题',
-          escalationLadder: ['只写跨卷升级阶梯，不展开全书详细剧情'],
+          optional: true,
+          longTermReaderPromises: ['当前可见阶段持续兑现给读者的核心满足；不知道更远处可以不写'],
+          protagonistLongArc: '目前已经想到的主角跨卷变化方向',
+          centralQuestion: '目前可见阶段持续推进的问题；全书中心问题未知时可不输出storySpine',
+          escalationLadder: ['只写作者当前能看见的跨卷阶段，不推断更远剧情'],
           optionalEndingDirections: ['可选结局方向；尚未决定可留空数组'],
           protectedOpenSpaces: ['哪些未来内容必须保持开放，不能提前解释']
         }

@@ -11,6 +11,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService } from '../tasks/task-service.js';
+import { creativeTemplate, type CreativeTemplateSnapshot } from './creative-templates-v6.js';
 import { allRoleSkills, coreAgentSkill, nodeProtocolSkill, roleAgentSkill, type AgentSkillSnapshot } from './agent-skills-v6.js';
 
 type Stored = Record<string, unknown>;
@@ -135,7 +136,9 @@ export class AiNodeBatchService {
       input.nodeKind, input.objectId);
     const coreSkill = coreAgentSkill(); const roleSkill = roleAgentSkill(input.roleKey);
     const nodeSkill = nodeProtocolSkill(input.nodeKind, input.roleKey);
-    this.ensureSkills([coreSkill, ...allRoleSkills(), nodeSkill]);
+    const codeTemplate = creativeTemplate(input.nodeKind, input.templateVersion);
+    const template = this.selectReleasedTemplate(scope, input, codeTemplate);
+    this.ensureSkills([coreSkill, ...allRoleSkills(), nodeSkill]); this.ensureTemplate(template);
     const taskId = this.ids.next(); const batchId = this.ids.next(); const now = this.now();
     const batchVersion = num(this.one(`SELECT COALESCE(MAX(batch_version),0)+1 AS value FROM ai_node_batches_v6
       WHERE owner_id=? AND book_id=? AND node_kind=? AND object_id=?`, scope.ownerId, scope.bookId, input.nodeKind,
@@ -168,12 +171,14 @@ export class AiNodeBatchService {
       });
       this.persistence.statement(`INSERT INTO ai_node_batches_v6 (batch_id,owner_id,book_id,node_kind,object_id,batch_version,
         role_key,task_id,context_pack_id,context_pack_hash,author_input_id,author_input_version,core_skill_version_id,
-        role_skill_version_id,node_protocol_version_id,template_version,source_version_ids_json,estimated_cost_tier,
-        estimated_cost_units,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'queued',?,?)`).run(
+        role_skill_version_id,node_protocol_version_id,template_version,template_version_id,template_hash,
+        source_version_ids_json,estimated_cost_tier,estimated_cost_units,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'queued',?,?)`).run(
           batchId, scope.ownerId, scope.bookId, input.nodeKind, input.objectId, batchVersion, input.roleKey, taskId,
           context.contextPackId, context.contentHash, authorInput === undefined ? null : str(authorInput.author_input_id),
           authorInput === undefined ? 0 : num(authorInput.version), coreSkill.skillVersionId, roleSkill.skillVersionId,
-          nodeSkill.skillVersionId, input.templateVersion, JSON.stringify(input.sourceVersionIds), cost.tier, cost.units, now, now
+          nodeSkill.skillVersionId, input.templateVersion, template.templateVersionId, template.contentHash,
+          JSON.stringify(input.sourceVersionIds), cost.tier, cost.units, now, now
         );
       for (const member of members) this.insertBatchMember(scope, batchId, member, context.contextPackId, context.contentHash, now);
       tasks.queue(scope, taskId);
@@ -286,7 +291,8 @@ export class AiNodeBatchService {
       contextPackId: str(batch.context_pack_id), contextPackHash: str(batch.context_pack_hash),
       authorInputVersion: num(batch.author_input_version), authorInputIncluded: batch.author_input_id !== null,
       skillVersions: { core: str(batch.core_skill_version_id), role: str(batch.role_skill_version_id),
-        nodeProtocol: str(batch.node_protocol_version_id), template: str(batch.template_version) },
+        nodeProtocol: str(batch.node_protocol_version_id), template: str(batch.template_version),
+        templateVersionId: nullable(batch.template_version_id), templateHash: nullable(batch.template_hash) },
       sourceVersionIds: parseArray(str(batch.source_version_ids_json)),
       cost: { tier: str(batch.estimated_cost_tier) as CostTier, units, memberCount: total,
         incrementalUnits: total <= 1 ? 0 : Math.max(0, units - Math.ceil(units / total)), multiplier: total,
@@ -347,7 +353,7 @@ export class AiNodeBatchService {
   private selectMembers(scope: BookScope, roleKey: EditorialRoleKey, preferred: string[]): SelectableMember[] {
     const candidates = this.selectableMembers(scope, roleKey);
     if (preferred.length > 0) return preferred.map((id) => {
-      const member = candidates.find((item) => item.agentId === id);
+      const member = candidates.find((item) => item.agentId === id && item.available);
       if (member === undefined) throw conflict('选择的成员不可用或不属于当前岗位');
       return member;
     });
@@ -403,6 +409,30 @@ export class AiNodeBatchService {
     }
   }
 
+  private selectReleasedTemplate(scope: BookScope, input: CreateAiNodeBatchInput,
+    fallback: CreativeTemplateSnapshot): CreativeTemplateSnapshot {
+    const active = this.one(`SELECT template_version_id,template_key,target_object,version,schema_json,
+      prompt_contract_json,content_hash,rollout_percent FROM creative_template_versions_v6
+      WHERE template_key=? AND status='active' ORDER BY version DESC LIMIT 1`, fallback.templateKey);
+    if (active === undefined || str(active.target_object) !== input.nodeKind) return fallback;
+    const rollout = Math.min(100, Math.max(0, num(active.rollout_percent)));
+    const cohort = Number.parseInt(sha256(`${scope.ownerId}:${scope.bookId}:${input.idempotencyKey}`).slice(0, 8), 16) % 100;
+    if (rollout <= cohort) return fallback;
+    return { templateVersionId: str(active.template_version_id), templateKey: str(active.template_key),
+      targetObject: str(active.target_object), version: num(active.version), schema: parseObject(str(active.schema_json)),
+      promptContract: parseObject(str(active.prompt_contract_json)), contentHash: str(active.content_hash) };
+  }
+  private ensureTemplate(template: CreativeTemplateSnapshot): void {
+    const active = this.one(`SELECT template_version_id FROM creative_template_versions_v6 WHERE template_key=? AND status='active'`,
+      template.templateKey);
+    const initialStatus = active === undefined || str(active.template_version_id) === template.templateVersionId ? 'active' : 'superseded';
+    this.persistence.statement(`INSERT OR IGNORE INTO creative_template_versions_v6 (template_version_id,template_key,
+      target_object,version,schema_json,prompt_contract_json,content_hash,status,rollout_percent,created_at)
+      VALUES (?,?,?,?,?,?,?,?,100,?)`).run(template.templateVersionId, template.templateKey, template.targetObject,
+        template.version, stableJson(template.schema), stableJson(template.promptContract), template.contentHash, initialStatus, this.now());
+    const stored = this.one(`SELECT content_hash FROM creative_template_versions_v6 WHERE template_version_id=?`, template.templateVersionId);
+    if (str(stored?.content_hash) !== template.contentHash) throw new Error(`创作模板 ${template.templateVersionId} 已变化，必须提升版本`);
+  }
   private refreshBatchStatus(scope: BookScope, batchId: string): void {
     const counts = this.one(`SELECT SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN status IN ('failed','unavailable') THEN 1 ELSE 0 END) AS failed,
@@ -478,11 +508,20 @@ function estimateCost(members: SelectableMember[], input: Pick<CreateAiNodeBatch
     incrementalUnits: members.length <= 1 ? 0 : units - perMember * costUnits(members[0]!.costTier),
     multiplier: members.length, requiresConfirmation: tier === 'high' || members.length > 2 };
 }function normalizeRole(role: string): EditorialRoleKey | null {
-  if (role === 'chief_editor') return 'chief_editor'; if (role === 'deputy_editor') return 'deputy_editor';
+  if (role.startsWith('custom_chief_editor_')) return 'chief_editor';
+  if (role.startsWith('custom_deputy_editor_')) return 'deputy_editor';
+  if (role.startsWith('custom_screenwriter_')) return 'screenwriter';
+  if (role.startsWith('custom_writer_')) return 'writer';
+  if (role.startsWith('custom_fact_reviewer_')) return 'fact_reviewer';
+  if (role.startsWith('custom_literary_reviewer_')) return 'literary_reviewer';
+  if (role.startsWith('custom_experience_reviewer_')) return 'experience_reviewer';
+  if (['chief_editor','chief_editor_second','chief_editor_third'].includes(role)) return 'chief_editor';
+  if (['deputy_editor','deputy_editor_second','deputy_editor_third'].includes(role)) return 'deputy_editor';
   if (['lead_screenwriter','second_screenwriter','third_screenwriter','senior_screenwriter','setting','plot_architect','continuity'].includes(role)) return 'screenwriter';
-  if (['lead_writer','backup_writer','writer'].includes(role)) return 'writer';
-  if (role === 'fact_reviewer') return 'fact_reviewer'; if (['literary_reviewer','reviewer','style_editor'].includes(role)) return 'literary_reviewer';
-  if (['experience_reviewer','experience_challenger','reader_experience'].includes(role)) return 'experience_reviewer'; return null;
+  if (['lead_writer','backup_writer','writer','writer_third','writer_fourth','writer_fifth'].includes(role)) return 'writer';
+  if (['fact_reviewer','researcher','copyright'].includes(role)) return 'fact_reviewer';
+  if (['literary_reviewer','literary_reviewer_second','literary_reviewer_third','reviewer','style_editor'].includes(role)) return 'literary_reviewer';
+  if (['experience_reviewer','experience_challenger','experience_reviewer_third','reader_experience'].includes(role)) return 'experience_reviewer'; return null;
 }
 function supplier(provider: string): string {
   if (/volcengine|ark/iu.test(provider)) return '火山方舟'; if (/openai/iu.test(provider)) return 'OpenAI';

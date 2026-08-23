@@ -2,7 +2,8 @@ import { coreWorkflowStages, hashStableContractContent, parseEventChainContent }
 import type {
   AuthorObjectDraftView, CharacterCardContent, CharacterCardView, CoreWorkflowStage, CoreWorkflowV6View,
   CreativeLedgerEntryView, CreativeLedgerType, EventRoleAssignmentView, StorylineContent,
-  StorylineLifecycleStatus, StorylineRelationView, StorylineTopologyContent, StorylineVersionView,
+  StorylineFrontierView, StorylineGrowthCandidateContent, StorylineGrowthCandidateView,
+  StorylineLifecycleStatus, StorylineOpenQuestionView, StorylineRelationView, StorylineVersionView,
   StorylineVolumeParticipationStatus, WorkflowInvalidationView
 } from '@wenmi/contracts';
 import type { DatabaseSync } from 'node:sqlite';
@@ -34,8 +35,7 @@ export class CoreWorkflowV6Service {
 
   public view(scope: BookScope): CoreWorkflowV6View {
     this.requireBook(scope);
-    const topologyRows = this.rows(`SELECT topology_version_id,version,topology_type,status,content_json,content_hash
-      FROM book_storyline_topology_versions WHERE owner_id=? AND book_id=? ORDER BY version DESC`, scope.ownerId, scope.bookId);
+    this.ensureOpeningProtagonistCards(scope);
     const storylineRows = this.rows(`SELECT storyline_id,sort_order,lifecycle_status,active_version_id FROM storylines
       WHERE owner_id=? AND book_id=? ORDER BY sort_order,storyline_id`, scope.ownerId, scope.bookId);
     const storylines = storylineRows.map((row) => {
@@ -88,48 +88,178 @@ export class CoreWorkflowV6Service {
     for (const entry of this.ledgerEntries(scope)) ledgers[entry.ledgerType][entry.truthStatus].push(entry);
     const state = this.one(`SELECT active_stage,state_version,blocking_reason FROM core_workflow_states_v6
       WHERE owner_id=? AND book_id=?`, scope.ownerId, scope.bookId);
-    const activeTopology = topologyRows.find((row) => row.status === 'active');
     return {
-      contractVersion: 1, stage: (state === undefined ? 'setting' : text(state.active_stage)) as CoreWorkflowStage,
+      contractVersion: 2, stage: (state === undefined ? 'setting' : text(state.active_stage)) as CoreWorkflowStage,
       stateVersion: state === undefined ? 0 : number(state.state_version), blockingReason: state === undefined ? null : nullableText(state.blocking_reason),
-      topology: {
-        active: activeTopology === undefined ? null : topologyView(activeTopology),
-        candidates: topologyRows.filter((row) => row.status === 'candidate').map(topologyView)
-      },
-      storylines, relations, volumeParticipations, characters, eventRoleAssignments, ledgers,
+      storylines, growth: this.storylineGrowth(scope), relations, volumeParticipations, characters, eventRoleAssignments, ledgers,
       drafts: this.drafts(scope), invalidations: this.invalidations(scope)
     };
   }
 
-  public saveTopology(scope: BookScope, input: SaveCoreVersionInput<StorylineTopologyContent>): string {
-    this.requireBook(scope); validateTopology(input.content);
-    const id = this.ids.next(); const now = this.now(); const version = this.next(scope, 'book_storyline_topology_versions', 'version');
-    this.persistence.statement(`INSERT INTO book_storyline_topology_versions (topology_version_id,owner_id,book_id,version,
-      topology_type,status,parent_version_id,source_task_id,source_version_ids_json,author_input_refs_json,content_json,content_hash,created_at)
-      VALUES (?,?,?,?,?,'candidate',?,?,?,?,?,?,?)`).run(id, scope.ownerId, scope.bookId, version, input.content.topologyType,
-        input.parentVersionId ?? null, input.sourceTaskId ?? null, stableJson(input.sourceVersionIds ?? []),
-        stableJson(input.authorInputRefs ?? []), stableJson(input.content), hash(input.content), now);
+  public saveStorylineFrontier(scope: BookScope, input: {
+    storylineId?: string | null; summary: string; targetVolumeNumber?: number | null; stageEnding?: string | null;
+    fullBookEndingKnown?: boolean; expectedActiveVersionId?: string | null; sourceKind?: StorylineFrontierView['sourceKind'];
+    sourceVersionIds?: string[];
+  }): StorylineFrontierView {
+    this.requireBook(scope); requireNonEmpty(input.summary, '作者目前想到的位置');
+    if (input.storylineId !== undefined && input.storylineId !== null) this.requireStoryline(scope, input.storylineId);
+    if (input.targetVolumeNumber !== undefined && input.targetVolumeNumber !== null
+      && (!Number.isInteger(input.targetVolumeNumber) || input.targetVolumeNumber < 1)) throw validation('目标卷数必须是正整数');
+    const storylineId = input.storylineId ?? null;
+    const active = this.one(`SELECT frontier_version_id,version FROM storyline_frontier_versions
+      WHERE owner_id=? AND book_id=? AND storyline_id IS ? AND status='active'`, scope.ownerId, scope.bookId, storylineId);
+    const expected = input.expectedActiveVersionId ?? null;
+    if ((active === undefined ? null : text(active.frontier_version_id)) !== expected) throw conflict('作者边界基线已经变化，请刷新后重试');
+    const id = this.ids.next(); const now = this.now(); const version = active === undefined ? 1 : number(active.version) + 1;
+    const payload = { summary: input.summary.trim(), targetVolumeNumber: input.targetVolumeNumber ?? null,
+      stageEnding: nullableTrim(input.stageEnding), fullBookEndingKnown: input.fullBookEndingKnown === true };
+    this.tx(() => {
+      this.persistence.statement(`UPDATE storyline_frontier_versions SET status='superseded' WHERE owner_id=? AND book_id=?
+        AND storyline_id IS ? AND status='active'`).run(scope.ownerId, scope.bookId, storylineId);
+      this.persistence.statement(`INSERT INTO storyline_frontier_versions (frontier_version_id,owner_id,book_id,storyline_id,
+        version,status,summary,target_volume_number,stage_ending,full_book_ending_known,parent_version_id,source_kind,
+        source_version_ids_json,content_hash,created_at,confirmed_at) VALUES (?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?)`).run(
+          id, scope.ownerId, scope.bookId, storylineId, version, payload.summary, payload.targetVolumeNumber, payload.stageEnding,
+          payload.fullBookEndingKnown ? 1 : 0, active === undefined ? null : text(active.frontier_version_id),
+          input.sourceKind ?? 'author', stableJson(input.sourceVersionIds ?? []), hash(payload), now, now);
+    });
+    return this.storylineGrowth(scope).frontiers.find((item) => item.frontierVersionId === id)!;
+  }
+
+  public addStorylineOpenQuestion(scope: BookScope, input: { storylineId?: string | null; question: string;
+    sourceKind?: StorylineOpenQuestionView['sourceKind']; sourceVersionId?: string | null }): StorylineOpenQuestionView {
+    this.requireBook(scope); requireNonEmpty(input.question, '开放问题');
+    if (input.storylineId !== undefined && input.storylineId !== null) this.requireStoryline(scope, input.storylineId);
+    const id = this.ids.next(); const now = this.now();
+    this.persistence.statement(`INSERT INTO storyline_open_questions_v6 (open_question_id,owner_id,book_id,storyline_id,
+      question,source_kind,source_version_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'open',?,?)`).run(id,
+        scope.ownerId, scope.bookId, input.storylineId ?? null, input.question.trim(), input.sourceKind ?? 'author',
+        input.sourceVersionId ?? null, now, now);
+    return this.storylineGrowth(scope).openQuestions.find((item) => item.openQuestionId === id)!;
+  }
+
+  public resolveStorylineOpenQuestion(scope: BookScope, openQuestionId: string, resolution: string): void {
+    this.requireBook(scope); requireNonEmpty(resolution, '问题结论');
+    const changed = this.persistence.statement(`UPDATE storyline_open_questions_v6 SET status='resolved',resolution=?,
+      resolved_at=?,updated_at=? WHERE owner_id=? AND book_id=? AND open_question_id=? AND status='open'`).run(
+        resolution.trim(), this.now(), this.now(), scope.ownerId, scope.bookId, openQuestionId).changes;
+    if (changed !== 1) throw conflict('开放问题不存在、已处理或不属于当前书籍');
+  }
+
+  public createStorylineGrowthRound(scope: BookScope, input: { triggerKind: 'author_request' | 'event_settlement' | 'volume_settlement';
+    triggerObjectId: string; triggerVersionId: string; evidenceRefs: Array<{ sourceKind: string; sourceVersionId: string; locator?: string }>;
+    idempotencyKey: string }): string {
+    this.requireBook(scope); requireNonEmpty(input.triggerObjectId, '触发对象'); requireNonEmpty(input.triggerVersionId, '触发版本');
+    requireNonEmpty(input.idempotencyKey, '幂等键');
+    if (input.triggerKind !== 'author_request') {
+      const stageType = input.triggerKind === 'volume_settlement' ? 'volume' : 'story_arc';
+      if (this.one(`SELECT 1 AS ok FROM stage_settlements WHERE owner_id=? AND book_id=? AND stage_settlement_id=?
+        AND stage_type=? AND status='active'`, scope.ownerId, scope.bookId, input.triggerVersionId, stageType) === undefined) {
+        throw validation('故事线提炼只能引用当前书籍的有效结算');
+      }
+    }
+    const existing = this.one(`SELECT growth_round_id FROM storyline_growth_rounds_v6 WHERE owner_id=? AND book_id=?
+      AND idempotency_key=?`, scope.ownerId, scope.bookId, input.idempotencyKey);
+    if (existing !== undefined) return text(existing.growth_round_id);
+    if (input.triggerKind !== 'author_request'
+      && !input.evidenceRefs.some((item) => item.sourceVersionId === input.triggerVersionId)) {
+      throw validation('故事线提炼证据必须引用本次有效结算版本');
+    }
+    const id = this.ids.next(); const now = this.now();
+    this.tx(() => {
+      this.persistence.statement(`UPDATE storyline_growth_candidates_v6 SET status='stale',stale_reason=?
+        WHERE owner_id=? AND book_id=? AND status IN ('candidate','observing') AND growth_round_id IN (
+          SELECT growth_round_id FROM storyline_growth_rounds_v6 WHERE owner_id=? AND book_id=?
+          AND trigger_kind=? AND trigger_object_id=? AND trigger_version_id<>?
+        )`).run('上游结算已生成新版本，请按新结算重新提炼', scope.ownerId, scope.bookId,
+          scope.ownerId, scope.bookId, input.triggerKind, input.triggerObjectId, input.triggerVersionId);
+      this.persistence.statement(`UPDATE storyline_growth_rounds_v6 SET status='stale',updated_at=?
+        WHERE owner_id=? AND book_id=? AND trigger_kind=? AND trigger_object_id=? AND trigger_version_id<>?
+        AND status<>'stale'`).run(now, scope.ownerId, scope.bookId, input.triggerKind, input.triggerObjectId, input.triggerVersionId);
+      this.persistence.statement(`INSERT INTO storyline_growth_rounds_v6 (growth_round_id,owner_id,book_id,trigger_kind,
+        trigger_object_id,trigger_version_id,idempotency_key,evidence_hash,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,'pending',?,?)`).run(id, scope.ownerId, scope.bookId, input.triggerKind,
+          input.triggerObjectId, input.triggerVersionId, input.idempotencyKey, hash(input.evidenceRefs), now, now);
+    });
     return id;
   }
 
-  public confirmTopology(scope: BookScope, topologyVersionId: string, expectedActiveVersionId: string | null): void {
-    this.requireBook(scope);
+  public addStorylineGrowthCandidate(scope: BookScope, input: { growthRoundId: string;
+    candidateKind: StorylineGrowthCandidateView['candidateKind']; storylineId?: string | null; title: string;
+    content: StorylineGrowthCandidateContent; evidenceRefs: StorylineGrowthCandidateView['evidenceRefs'];
+    sourceBatchId?: string | null; sourceBatchMemberId?: string | null; basedOnVersionIds?: string[] }): StorylineGrowthCandidateView {
+    this.requireBook(scope); requireNonEmpty(input.title, '候选标题'); validateGrowthCandidate(input.content);
+    const round = this.one(`SELECT trigger_version_id FROM storyline_growth_rounds_v6 WHERE owner_id=? AND book_id=?
+      AND growth_round_id=?`, scope.ownerId, scope.bookId, input.growthRoundId);
+    if (round === undefined) throw notFound('故事线提炼轮次不存在或不属于当前书籍');
+    if (input.storylineId !== undefined && input.storylineId !== null) this.requireStoryline(scope, input.storylineId);
+    for (const storylineId of input.content.pushesStorylineIds) this.requireStoryline(scope, storylineId);
+    if (input.evidenceRefs.length === 0) throw validation('候选必须包含至少一条正文或结算证据');
+    if (!input.evidenceRefs.some((item) => item.sourceVersionId === text(round.trigger_version_id))) {
+      throw validation('候选证据必须包含本次提炼的触发版本');
+    }
+    const evidenceHash = hash(input.evidenceRefs); const now = this.now();
+    const existing = this.one(`SELECT candidate_id FROM storyline_growth_candidates_v6 WHERE owner_id=? AND book_id=?
+      AND growth_round_id=? AND candidate_kind=? AND evidence_hash=? AND title=?`, scope.ownerId, scope.bookId,
+        input.growthRoundId, input.candidateKind, evidenceHash, input.title.trim());
+    if (existing !== undefined) return this.storylineGrowth(scope).candidates.find((item) => item.candidateId === text(existing.candidate_id))!;
+    const id = this.ids.next();
     this.tx(() => {
-      const candidate = this.one(`SELECT status FROM book_storyline_topology_versions WHERE owner_id=? AND book_id=?
-        AND topology_version_id=?`, scope.ownerId, scope.bookId, topologyVersionId);
-      if (candidate?.status !== 'candidate') throw conflict('故事线结构候选不存在或已经处理');
-      const current = this.one(`SELECT topology_version_id FROM book_storyline_topology_versions WHERE owner_id=? AND book_id=?
-        AND status='active'`, scope.ownerId, scope.bookId);
-      if ((current === undefined ? null : text(current.topology_version_id)) !== expectedActiveVersionId) throw conflict('故事线结构基线已经变化，请刷新后重试');
-      const now = this.now();
-      this.persistence.statement(`UPDATE book_storyline_topology_versions SET status='superseded' WHERE owner_id=? AND book_id=? AND status='active'`)
-        .run(scope.ownerId, scope.bookId);
-      this.persistence.statement(`UPDATE book_storyline_topology_versions SET status='active',confirmed_at=? WHERE owner_id=? AND book_id=?
-        AND topology_version_id=? AND status='candidate'`).run(now, scope.ownerId, scope.bookId, topologyVersionId);
-      if (current !== undefined) this.invalidateAllStorylines(scope, topologyVersionId, now);
+      this.persistence.statement(`INSERT INTO storyline_growth_candidates_v6 (candidate_id,owner_id,book_id,growth_round_id,
+        candidate_kind,storyline_id,status,title,content_json,evidence_refs_json,evidence_hash,source_batch_id,
+        source_batch_member_id,based_on_version_ids_json,created_at) VALUES (?,?,?,?,?,?,'candidate',?,?,?,?,?,?,?,?)`).run(
+          id, scope.ownerId, scope.bookId, input.growthRoundId, input.candidateKind, input.storylineId ?? null,
+          input.title.trim(), stableJson(input.content), stableJson(input.evidenceRefs), evidenceHash,
+          input.sourceBatchId ?? null, input.sourceBatchMemberId ?? null, stableJson(input.basedOnVersionIds ?? []), now);
+      this.persistence.statement(`UPDATE storyline_growth_rounds_v6 SET status='completed',updated_at=? WHERE owner_id=?
+        AND book_id=? AND growth_round_id=?`).run(now, scope.ownerId, scope.bookId, input.growthRoundId);
     });
+    return this.storylineGrowth(scope).candidates.find((item) => item.candidateId === id)!;
   }
 
+  public decideStorylineGrowthCandidate(scope: BookScope, candidateId: string, input: {
+    decision: 'accepted' | 'rejected' | 'observing'; editedContent?: StorylineGrowthCandidateContent | null;
+    idempotencyKey: string; expectedStatus: 'candidate'
+  }): { decisionId: string; createdStorylineId: string | null; createdFrontierVersionId: string | null } {
+    this.requireBook(scope); requireNonEmpty(input.idempotencyKey, '幂等键');
+    const replay = this.one(`SELECT decision_id,created_storyline_id,created_frontier_version_id FROM storyline_growth_decisions_v6
+      WHERE owner_id=? AND book_id=? AND idempotency_key=?`, scope.ownerId, scope.bookId, input.idempotencyKey);
+    if (replay !== undefined) return { decisionId: text(replay.decision_id), createdStorylineId: nullableText(replay.created_storyline_id),
+      createdFrontierVersionId: nullableText(replay.created_frontier_version_id) };
+    const candidate = this.one(`SELECT * FROM storyline_growth_candidates_v6 WHERE owner_id=? AND book_id=? AND candidate_id=?`,
+      scope.ownerId, scope.bookId, candidateId);
+    if (candidate === undefined) throw notFound('故事线候选不存在或不属于当前书籍');
+    if (text(candidate.status) !== input.expectedStatus) throw conflict('故事线候选已经处理或失效');
+    const content = input.editedContent ?? parseObject(text(candidate.content_json)) as unknown as StorylineGrowthCandidateContent;
+    validateGrowthCandidate(content); const now = this.now(); const decisionId = this.ids.next();
+    let createdStorylineId: string | null = null; let createdFrontierVersionId: string | null = null;
+    this.tx(() => {
+      if (input.decision === 'accepted' && text(candidate.candidate_kind) === 'emerging_line') {
+        const created = this.createStoryline(scope, { content: { title: text(candidate.title), lineKind: 'branch',
+          coreQuestion: content.coreQuestion, stageGoal: content.summary, expectedStages: [], associatedCharacterIds: [],
+          foreshadowingKeys: [], rhythmMethodVersionId: null }, sourceVersionIds: parseArray(text(candidate.based_on_version_ids_json)) });
+        this.confirmStoryline(scope, created.storylineId, created.versionId, null); createdStorylineId = created.storylineId;
+      }
+      if (input.decision === 'accepted' && text(candidate.candidate_kind) === 'next_direction') {
+        const active = this.one(`SELECT frontier_version_id FROM storyline_frontier_versions WHERE owner_id=? AND book_id=?
+          AND storyline_id IS ? AND status='active'`, scope.ownerId, scope.bookId, nullableText(candidate.storyline_id));
+        const frontier = this.saveStorylineFrontier(scope, { storylineId: nullableText(candidate.storyline_id), summary: content.summary,
+          stageEnding: content.unknowns.join('；') || null, fullBookEndingKnown: false,
+          expectedActiveVersionId: active === undefined ? null : text(active.frontier_version_id),
+          sourceKind: 'accepted_recommendation', sourceVersionIds: parseArray(text(candidate.based_on_version_ids_json)) });
+        createdFrontierVersionId = frontier.frontierVersionId;
+      }
+      const changed = this.persistence.statement(`UPDATE storyline_growth_candidates_v6 SET status=?,decided_at=? WHERE owner_id=?
+        AND book_id=? AND candidate_id=? AND status='candidate'`).run(input.decision, now, scope.ownerId, scope.bookId, candidateId).changes;
+      if (changed !== 1) throw conflict('故事线候选已经处理或失效');
+      this.persistence.statement(`INSERT INTO storyline_growth_decisions_v6 (decision_id,owner_id,book_id,candidate_id,decision,
+        edited_content_json,created_storyline_id,created_frontier_version_id,expected_candidate_status,idempotency_key,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(decisionId, scope.ownerId, scope.bookId, candidateId, input.decision,
+          input.editedContent === undefined || input.editedContent === null ? null : stableJson(input.editedContent),
+          createdStorylineId, createdFrontierVersionId, input.expectedStatus, input.idempotencyKey, now);
+    });
+    return { decisionId, createdStorylineId, createdFrontierVersionId };
+  }
   public createStoryline(scope: BookScope, input: SaveCoreVersionInput<StorylineContent> & { sortOrder?: number }): { storylineId: string; versionId: string } {
     this.requireBook(scope); validateStoryline(input.content);
     const storylineId = this.ids.next(); const versionId = this.ids.next(); const now = this.now();
@@ -251,6 +381,38 @@ export class CoreWorkflowV6Service {
     return { characterId, versionId };
   }
 
+  public updateCharacter(scope: BookScope, characterId: string, input: { content: CharacterCardContent;
+    expectedActiveVersionId: string; sourceOpeningVersion?: number | null }): { versionId: string; version: number } {
+    this.requireBook(scope); requireNonEmpty(input.content.name, '角色姓名');
+    const character = this.one(`SELECT active_version_id FROM character_cards WHERE owner_id=? AND book_id=? AND character_id=?`,
+      scope.ownerId, scope.bookId, characterId);
+    if (character === undefined) throw notFound('人物卡不存在或不属于当前书籍');
+    if (nullableText(character.active_version_id) !== input.expectedActiveVersionId) throw conflict('人物卡基线已经变化，请刷新后重试');
+    for (const influence of input.content.storylineInfluences) this.requireStoryline(scope, influence.storylineId);
+    const version = number(this.one(`SELECT COALESCE(MAX(version),0)+1 AS value FROM character_card_versions
+      WHERE owner_id=? AND book_id=? AND character_id=?`, scope.ownerId, scope.bookId, characterId)?.value);
+    const versionId = this.ids.next(); const now = this.now();
+    const content = { ...input.content, sourceOpeningVersion: input.sourceOpeningVersion ?? input.content.sourceOpeningVersion ?? null };
+    this.tx(() => {
+      this.persistence.statement(`UPDATE character_card_versions SET status='superseded' WHERE owner_id=? AND book_id=?
+        AND character_id=? AND status='active'`).run(scope.ownerId, scope.bookId, characterId);
+      this.persistence.statement(`INSERT INTO character_card_versions (character_card_version_id,owner_id,book_id,character_id,
+        version,status,base_version,parent_version_id,content_json,content_hash,created_at,confirmed_at)
+        VALUES (?,?,?,?,?,'active',?,?,?,?,?,?)`).run(versionId, scope.ownerId, scope.bookId, characterId, version,
+          version - 1, input.expectedActiveVersionId, stableJson(content), hash(content), now, now);
+      this.persistence.statement(`UPDATE character_cards SET active_version_id=?,updated_at=? WHERE owner_id=? AND book_id=?
+        AND character_id=? AND active_version_id=?`).run(versionId, now, scope.ownerId, scope.bookId, characterId, input.expectedActiveVersionId);
+      this.persistence.statement(`UPDATE character_storyline_links SET status='archived',updated_at=? WHERE owner_id=? AND book_id=?
+        AND character_id=? AND status='active'`).run(now, scope.ownerId, scope.bookId, characterId);
+      for (const influence of content.storylineInfluences) this.persistence.statement(`INSERT INTO character_storyline_links
+        (character_storyline_link_id,owner_id,book_id,character_id,storyline_id,influence,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,'active',?,?) ON CONFLICT(owner_id,book_id,character_id,storyline_id) DO UPDATE SET
+        influence=excluded.influence,status='active',updated_at=excluded.updated_at`).run(this.ids.next(), scope.ownerId, scope.bookId,
+          characterId, influence.storylineId, influence.influence, now, now);
+      this.insertInvalidation(scope, 'character', characterId, versionId, 'character_consumers', characterId, now);
+    });
+    return { versionId, version };
+  }
   public upsertEventRole(scope: BookScope, input: { eventChainVersionId: string; eventNodeId: string; roleFunctionKey: string;
     roleFunctionLabel: string; requirement: JsonObject; assignedCharacterId?: string | null }): string {
     if (input.roleFunctionKey.trim().length === 0 || input.roleFunctionLabel.trim().length === 0) throw validation('角色功能标识和名称不能为空');
@@ -331,6 +493,57 @@ export class CoreWorkflowV6Service {
     return { draft, impactPreview };
   }
 
+  public projectSettlementToStorylines(scope: BookScope, input: {
+    stageKind: 'event' | 'volume';
+    stageObjectId: string;
+    settlementId: string;
+    actual: unknown;
+  }): string[] {
+    this.requireBook(scope);
+    const sourceKind = input.stageKind === 'event' ? 'event_settlement' : 'volume_settlement';
+    this.requireActualAuthority(scope, sourceKind, input.settlementId);
+    const volumePlanId = input.stageKind === 'volume'
+      ? input.stageObjectId
+      : nullableText(this.one(`SELECT volume_plan_id FROM story_events WHERE owner_id=? AND book_id=? AND event_id=?`,
+        scope.ownerId, scope.bookId, input.stageObjectId)?.volume_plan_id);
+    if (volumePlanId === null) return [];
+    const participations = this.rows(`SELECT p.storyline_id FROM storyline_volume_participations p
+      JOIN storylines s ON s.owner_id=p.owner_id AND s.book_id=p.book_id AND s.storyline_id=p.storyline_id
+      WHERE p.owner_id=? AND p.book_id=? AND p.volume_plan_id=? AND p.status='active'
+        AND p.participation_status IN ('leading','important','foreshadow') AND s.lifecycle_status<>'abandoned'
+        AND s.active_version_id IS NOT NULL ORDER BY p.storyline_id`, scope.ownerId, scope.bookId, volumePlanId);
+    const actual = settlementActualRecord(input.actual);
+    const actualProgress = settlementActualSummary(actual);
+    return this.tx(() => {
+      const ids: string[] = [];
+      for (const row of participations) {
+        const storylineId = text(row.storyline_id);
+        const receipt = this.one(`SELECT ledger_entry_id FROM storyline_settlement_projection_receipts_v6
+          WHERE owner_id=? AND book_id=? AND storyline_id=? AND source_kind=? AND source_version_id=?`,
+          scope.ownerId, scope.bookId, storylineId, sourceKind, input.settlementId);
+        if (receipt !== undefined) { ids.push(text(receipt.ledger_entry_id)); continue; }
+        const historical = this.one(`SELECT ledger_entry_id FROM creative_ledger_entries WHERE owner_id=? AND book_id=?
+          AND ledger_type='storyline' AND truth_status='actual' AND subject_key=? AND source_kind=? AND source_version_id=?
+          ORDER BY created_at,ledger_entry_id LIMIT 1`, scope.ownerId, scope.bookId, storylineId, sourceKind, input.settlementId);
+        const ledgerEntryId = historical === undefined ? this.ids.next() : text(historical.ledger_entry_id);
+        if (historical === undefined) {
+          this.persistence.statement(`INSERT INTO creative_ledger_entries (ledger_entry_id,owner_id,book_id,ledger_type,
+            truth_status,scope_type,scope_id,subject_key,entry_status,content_json,source_kind,source_version_id,
+            source_locator_json,supersedes_entry_id,created_at) VALUES (?,?,?,'storyline','actual',?,?,?,?,?,?,?,?,NULL,?)`)
+            .run(ledgerEntryId, scope.ownerId, scope.bookId, input.stageKind, input.stageObjectId, storylineId, 'advanced',
+              stableJson({ actualProgress, actual }), sourceKind, input.settlementId,
+              stableJson({ stageKind: input.stageKind, stageObjectId: input.stageObjectId }), this.now());
+        }
+        this.persistence.statement(`INSERT INTO storyline_settlement_projection_receipts_v6
+          (projection_receipt_id,owner_id,book_id,storyline_id,source_kind,source_version_id,ledger_entry_id,created_at)
+          VALUES (?,?,?,?,?,?,?,?)`).run(this.ids.next(), scope.ownerId, scope.bookId, storylineId, sourceKind,
+            input.settlementId, ledgerEntryId, this.now());
+        ids.push(ledgerEntryId);
+      }
+      return ids;
+    });
+  }
+
   public writeLedger(scope: BookScope, input: CoreLedgerInput): string {
     this.requireBook(scope);
     if (input.subjectKey.trim().length === 0) throw validation('账本主题不能为空');
@@ -376,6 +589,46 @@ export class CoreWorkflowV6Service {
         input.expectedStateVersion).changes;
     if (changed !== 1) throw conflict('工作台状态更新冲突');
     return next;
+  }
+  private ensureOpeningProtagonistCards(scope: BookScope): void {
+    const opening = this.one(`SELECT version,blueprint_json FROM book_opening_blueprints
+      WHERE owner_id=? AND book_id=? AND status='active' ORDER BY version DESC LIMIT 1`, scope.ownerId, scope.bookId);
+    if (opening === undefined) return;
+    const blueprint = parseObject(text(opening.blueprint_json));
+    const protagonists = Array.isArray(blueprint.protagonists) ? blueprint.protagonists : [];
+    if (protagonists.length === 0) return;
+    const existingNames = new Set(this.rows(`SELECT v.content_json FROM character_cards c JOIN character_card_versions v
+      ON v.owner_id=c.owner_id AND v.book_id=c.book_id AND v.character_card_version_id=c.active_version_id
+      WHERE c.owner_id=? AND c.book_id=? AND c.lifecycle_status<>'archived'`, scope.ownerId, scope.bookId)
+      .map((row) => String(parseObject(text(row.content_json)).name ?? '').trim()).filter(Boolean));
+    const storyDirection = String(blueprint.storyDirection ?? blueprint.storyEnding ?? blueprint.openingStart ?? '').trim();
+    const openingState = String(blueprint.openingStart ?? blueprint.openingBackground ?? '').trim();
+    const boundaries = Array.isArray(blueprint.mustFollow)
+      ? blueprint.mustFollow.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    for (const candidate of protagonists) {
+      if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+      const protagonist = candidate as Record<string, unknown>;
+      const name = String(protagonist.name ?? '').trim();
+      if (!name || existingNames.has(name)) continue;
+      const role = String(protagonist.role ?? '主角').trim();
+      const age = String(protagonist.age ?? '').trim();
+      const background = String(protagonist.background ?? protagonist.familyBackground ?? '').trim();
+      const personalityTraits = Array.isArray(protagonist.personalities)
+        ? protagonist.personalities.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : [];
+      this.createCharacter(scope, { characterKind: 'protagonist', content: {
+        name,
+        roleSummary: [role, age, background].filter(Boolean).join(' · ') || '主角',
+        desire: storyDirection || '跟随正文逐步确认核心目标',
+        currentState: openingState || background || '开局处境待作者随正文确认',
+        personalityTraits,
+        sourceOpeningVersion: number(opening.version),
+        boundaries,
+        storylineInfluences: []
+      } });
+      existingNames.add(name);
+    }
   }
   private storylineVersions(scope: BookScope, storylineId: string): StorylineVersionView[] {
     return this.rows(`SELECT storyline_version_id,version,status,base_version,parent_version_id,source_version_ids_json,
@@ -436,6 +689,50 @@ export class CoreWorkflowV6Service {
       }));
   }
 
+  private storylineGrowth(scope: BookScope): CoreWorkflowV6View['growth'] {
+    const frontiers = this.rows(`SELECT frontier_version_id,storyline_id,version,summary,target_volume_number,stage_ending,
+      full_book_ending_known,source_kind,source_version_ids_json,content_hash,created_at,confirmed_at
+      FROM storyline_frontier_versions WHERE owner_id=? AND book_id=? AND status='active'
+      ORDER BY created_at DESC,frontier_version_id`, scope.ownerId, scope.bookId).map((row): StorylineFrontierView => ({
+        frontierVersionId: text(row.frontier_version_id), storylineId: nullableText(row.storyline_id), version: number(row.version),
+        summary: text(row.summary), targetVolumeNumber: row.target_volume_number === null ? null : number(row.target_volume_number),
+        stageEnding: nullableText(row.stage_ending), fullBookEndingKnown: number(row.full_book_ending_known) === 1,
+        sourceKind: text(row.source_kind) as StorylineFrontierView['sourceKind'],
+        sourceVersionIds: parseArray(text(row.source_version_ids_json)), contentHash: text(row.content_hash),
+        createdAt: text(row.created_at), confirmedAt: nullableText(row.confirmed_at)
+      }));
+    const openQuestions = this.rows(`SELECT open_question_id,storyline_id,question,source_kind,source_version_id,status,
+      resolution,created_at,updated_at,resolved_at FROM storyline_open_questions_v6 WHERE owner_id=? AND book_id=?
+      AND status<>'archived' ORDER BY updated_at DESC,open_question_id`, scope.ownerId, scope.bookId)
+      .map((row): StorylineOpenQuestionView => ({ openQuestionId: text(row.open_question_id),
+        storylineId: nullableText(row.storyline_id), question: text(row.question),
+        sourceKind: text(row.source_kind) as StorylineOpenQuestionView['sourceKind'], sourceVersionId: nullableText(row.source_version_id),
+        status: text(row.status) as StorylineOpenQuestionView['status'], resolution: nullableText(row.resolution),
+        createdAt: text(row.created_at), updatedAt: text(row.updated_at), resolvedAt: nullableText(row.resolved_at) }));
+    const candidates = this.rows(`SELECT candidate_id,growth_round_id,candidate_kind,storyline_id,status,title,content_json,
+      evidence_refs_json,evidence_hash,source_batch_id,source_batch_member_id,based_on_version_ids_json,stale_reason,
+      created_at,decided_at FROM storyline_growth_candidates_v6 WHERE owner_id=? AND book_id=?
+      ORDER BY created_at DESC,candidate_id`, scope.ownerId, scope.bookId).map((row): StorylineGrowthCandidateView => ({
+        candidateId: text(row.candidate_id), growthRoundId: text(row.growth_round_id),
+        candidateKind: text(row.candidate_kind) as StorylineGrowthCandidateView['candidateKind'],
+        storylineId: nullableText(row.storyline_id), status: text(row.status) as StorylineGrowthCandidateView['status'],
+        title: text(row.title), content: parseObject(text(row.content_json)) as unknown as StorylineGrowthCandidateContent,
+        evidenceRefs: parseEvidenceRefs(text(row.evidence_refs_json)), evidenceHash: text(row.evidence_hash),
+        sourceBatchId: nullableText(row.source_batch_id), sourceBatchMemberId: nullableText(row.source_batch_member_id),
+        basedOnVersionIds: parseArray(text(row.based_on_version_ids_json)), staleReason: nullableText(row.stale_reason),
+        createdAt: text(row.created_at), decidedAt: nullableText(row.decided_at)
+      }));
+    const decisions = this.rows(`SELECT decision_id,candidate_id,decision,edited_content_json,created_storyline_id,
+      created_frontier_version_id,created_at FROM storyline_growth_decisions_v6 WHERE owner_id=? AND book_id=?
+      ORDER BY created_at DESC,decision_id`, scope.ownerId, scope.bookId).map((row) => ({
+        decisionId: text(row.decision_id), candidateId: text(row.candidate_id),
+        decision: text(row.decision) as 'accepted' | 'rejected' | 'observing',
+        editedContent: row.edited_content_json === null ? null : parseObject(text(row.edited_content_json)) as unknown as StorylineGrowthCandidateContent,
+        createdStorylineId: nullableText(row.created_storyline_id), createdFrontierVersionId: nullableText(row.created_frontier_version_id),
+        createdAt: text(row.created_at)
+      }));
+    return { frontiers, openQuestions, candidates, decisions };
+  }
   private requireActualAuthority(scope: BookScope, sourceKind: CreativeLedgerEntryView['sourceKind'], sourceVersionId: string): void {
     if (sourceKind === 'manuscript') {
       const row = this.one(`SELECT 1 AS ok FROM manuscript_versions m JOIN chapters c ON c.owner_id=m.owner_id AND c.book_id=m.book_id
@@ -451,12 +748,6 @@ export class CoreWorkflowV6Service {
     const row = this.one(`SELECT 1 AS ok FROM stage_settlements WHERE owner_id=? AND book_id=? AND stage_settlement_id=?
       AND stage_type=? AND status='active'`, scope.ownerId, scope.bookId, sourceVersionId, stageType);
     if (row === undefined) throw validation('实际账本来源不是当前书籍的有效结算');
-  }
-
-  private invalidateAllStorylines(scope: BookScope, topologyVersionId: string, now: string): void {
-    for (const row of this.rows(`SELECT storyline_id FROM storylines WHERE owner_id=? AND book_id=? AND active_version_id IS NOT NULL`,
-      scope.ownerId, scope.bookId)) this.insertInvalidation(scope, 'topology', scope.bookId, topologyVersionId,
-        'storyline', text(row.storyline_id), now);
   }
 
   private invalidateStorylineConsumers(scope: BookScope, storylineId: string, versionId: string, now: string): void {
@@ -502,7 +793,7 @@ export class CoreWorkflowV6Service {
     }
   }
 
-  private next(scope: BookScope, table: 'book_storyline_topology_versions' | 'storylines', column: 'version' | 'sort_order'): number {
+  private next(scope: BookScope, table: 'storylines', column: 'sort_order'): number {
     return number(this.one(`SELECT COALESCE(MAX(${column}),0)+1 AS value FROM ${table} WHERE owner_id=? AND book_id=?`,
       scope.ownerId, scope.bookId)?.value);
   }
@@ -516,23 +807,59 @@ export class CoreWorkflowV6Service {
   private tx<T>(work: () => T): T { return this.persistence.transaction(work); }
 }
 
-function topologyView(row: Stored): NonNullable<CoreWorkflowV6View['topology']['active']> {
-  return { topologyVersionId: text(row.topology_version_id), version: number(row.version),
-    topologyType: text(row.topology_type) as StorylineTopologyContent['topologyType'],
-    content: parseObject(text(row.content_json)) as unknown as StorylineTopologyContent, contentHash: text(row.content_hash) };
+function settlementActualRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : { summary: String(value ?? '') };
 }
-function validateTopology(content: StorylineTopologyContent): void {
-  if (content.plainLanguageReason.trim().length === 0) throw validation('故事线结构说明不能为空');
-  if (content.lineResponsibilities.length === 0 || content.lineResponsibilities.some((item) => item.trim().length === 0)) {
-    throw validation('至少需要一条明确的故事线职责');
+function settlementActualSummary(actual: Record<string, unknown>): string {
+  for (const key of ['actualProgress','summary','result']) {
+    const value = actual[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
   }
+  const irreversible = Array.isArray(actual.irreversibleResults)
+    ? actual.irreversibleResults.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+  if (irreversible.length > 0) return irreversible.join('；');
+  const closed = Array.isArray(actual.closedThreads)
+    ? actual.closedThreads.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : [];
+  return closed.length > 0 ? closed.join('；') : '本阶段已完成结算，实际结果可追溯到结算版本。';
 }
+
 function validateStoryline(content: StorylineContent): void {
   if (content.title.trim().length === 0 || content.coreQuestion.trim().length === 0 || content.stageGoal.trim().length === 0) {
     throw validation('故事线名称、核心问题与阶段目标不能为空');
   }
 }
-function validation(message: string): DomainError { return new DomainError(errorCodes.validation, message, {}, false, 400); }
+function validateGrowthCandidate(content: StorylineGrowthCandidateContent): void {
+  requireNonEmpty(content.summary, '候选摘要');
+  requireNonEmpty(content.continuationReason, '自然延伸理由');
+  requireNonEmpty(content.protagonistInvolvement, '主角继续卷入的原因');
+  requireNonEmpty(content.coreQuestion, '下一段核心问题');
+  requireNonEmpty(content.misreadRisk, '候选误判风险');
+  if (!Array.isArray(content.pushesStorylineIds) || !Array.isArray(content.inferences) || !Array.isArray(content.unknowns)
+    || [...content.pushesStorylineIds, ...content.inferences, ...content.unknowns].some((item) => typeof item !== 'string')) {
+    throw validation('故事线候选的线路、推断和未知项格式无效');
+  }
+  if (!Number.isInteger(content.recommendedHorizonVolumes) || content.recommendedHorizonVolumes < 1
+    || content.recommendedHorizonVolumes > 2) throw validation('主编推荐范围只能是下一卷至未来两卷');
+}
+function requireNonEmpty(value: string, label: string): void {
+  if (typeof value !== 'string' || value.trim().length === 0) throw validation(`${label}不能为空`);
+}
+function nullableTrim(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? '';
+  return normalized.length === 0 ? null : normalized;
+}
+function parseEvidenceRefs(value: string): StorylineGrowthCandidateView['evidenceRefs'] {
+  const parsed = JSON.parse(value) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((item) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.sourceKind !== 'string' || typeof row.sourceVersionId !== 'string') return [];
+    return [{ sourceKind: row.sourceKind, sourceVersionId: row.sourceVersionId,
+      ...(typeof row.locator === 'string' ? { locator: row.locator } : {}) }];
+  });
+}function validation(message: string): DomainError { return new DomainError(errorCodes.validation, message, {}, false, 400); }
 function conflict(message: string): DomainError { return new DomainError(errorCodes.operationIncomplete, message, {}, true, 409); }
 function notFound(message: string): DomainError { return new DomainError(errorCodes.bookScopeViolation, message, {}, false, 404); }
 function stableJson(value: unknown): string { return JSON.stringify(sortValue(value)); }

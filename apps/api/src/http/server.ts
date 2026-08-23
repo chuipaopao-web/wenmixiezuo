@@ -17,6 +17,7 @@ import { DiscussionPipelineService } from '../application/discussions/discussion
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
 import { SettlementFollowUpPipelineService } from '../application/planning/settlement-follow-up-pipeline-service.js';
+import { CoreWorkflowV6Service } from '../application/planning/core-workflow-v6-service.js';
 import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
 import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
@@ -200,7 +201,8 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     new ContextPackService(database, volumePlanIds, volumePlanClock),
     volumePlanIds,
     volumePlanClock,
-    modelAdapters
+    modelAdapters,
+    new CoreWorkflowV6Service(database, volumePlanIds, volumePlanClock)
   );
   const eventChapterOutlineRepository = new EventChapterOutlineRepository(database);
   const eventChapterTaskService = new TaskService(database, config.releaseId, volumePlanClock);

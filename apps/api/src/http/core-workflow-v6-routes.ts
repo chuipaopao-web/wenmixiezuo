@@ -6,9 +6,10 @@ import type {
   CreativeLedgerEntryView,
   CreativeLedgerType,
   StorylineContent,
+  StorylineGrowthCandidateContent,
+  StorylineGrowthCandidateView,
   StorylineLifecycleStatus,
   StorylineRelationView,
-  StorylineTopologyContent,
   StorylineVolumeParticipationStatus
 } from '@wenmi/contracts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -35,15 +36,6 @@ export async function registerCoreWorkflowV6Routes(app: FastifyInstance, databas
   app.get<{ Params: BookParams }>('/api/v1/books/:bookId/core-workflow', async (request) =>
     success(service.view(scope(request, request.params.bookId)), request.id));
 
-  app.post<{ Params: BookParams; Body: VersionSource & { content: StorylineTopologyContent } }>(
-    '/api/v1/books/:bookId/core-workflow/storyline-topology/versions', async (request) =>
-      success({ topologyVersionId: service.saveTopology(scope(request, request.params.bookId), request.body) }, request.id));
-
-  app.post<{ Params: BookParams & { topologyVersionId: string }; Body: { expectedActiveVersionId: string | null } }>(
-    '/api/v1/books/:bookId/core-workflow/storyline-topology/versions/:topologyVersionId/confirm', async (request) => {
-      service.confirmTopology(scope(request, request.params.bookId), request.params.topologyVersionId, request.body.expectedActiveVersionId);
-      return success({ confirmed: true }, request.id);
-    });
 
   app.post<{ Params: BookParams; Body: VersionSource & { content: StorylineContent; sortOrder?: number } }>(
     '/api/v1/books/:bookId/core-workflow/storylines', async (request) =>
@@ -86,6 +78,10 @@ export async function registerCoreWorkflowV6Routes(app: FastifyInstance, databas
     promotedFromCharacterId?: string | null } }>('/api/v1/books/:bookId/core-workflow/characters', async (request) =>
       success(service.createCharacter(scope(request, request.params.bookId), request.body), request.id));
 
+  app.post<{ Params: BookParams & { characterId: string }; Body: { content: CharacterCardContent;
+    expectedActiveVersionId: string; sourceOpeningVersion?: number | null } }>(
+    '/api/v1/books/:bookId/core-workflow/characters/:characterId/versions', async (request) =>
+      success(service.updateCharacter(scope(request, request.params.bookId), request.params.characterId, request.body), request.id));
   app.put<{ Params: BookParams; Body: { eventChainVersionId: string; eventNodeId: string; roleFunctionKey: string;
     roleFunctionLabel: string; requirement: JsonObject; assignedCharacterId?: string | null } }>(
     '/api/v1/books/:bookId/core-workflow/event-role-assignments', async (request) =>
@@ -114,6 +110,40 @@ export async function registerCoreWorkflowV6Routes(app: FastifyInstance, databas
       return success({ resolved: true }, request.id);
     });
 
+  app.put<{ Params: BookParams; Body: { storylineId?: string | null; summary: string; targetVolumeNumber?: number | null;
+    stageEnding?: string | null; fullBookEndingKnown?: boolean; expectedActiveVersionId?: string | null;
+    sourceVersionIds?: string[] } }>('/api/v1/books/:bookId/core-workflow/storyline-frontier', async (request) =>
+      success(service.saveStorylineFrontier(scope(request, request.params.bookId), request.body), request.id));
+
+  app.post<{ Params: BookParams; Body: { storylineId?: string | null; question: string; sourceVersionId?: string | null } }>(
+    '/api/v1/books/:bookId/core-workflow/storyline-open-questions', async (request) =>
+      success(service.addStorylineOpenQuestion(scope(request, request.params.bookId), request.body), request.id));
+
+  app.post<{ Params: BookParams & { openQuestionId: string }; Body: { resolution: string } }>(
+    '/api/v1/books/:bookId/core-workflow/storyline-open-questions/:openQuestionId/resolve', async (request) => {
+      service.resolveStorylineOpenQuestion(scope(request, request.params.bookId), request.params.openQuestionId, request.body.resolution);
+      return success({ resolved: true }, request.id);
+    });
+
+  app.post<{ Params: BookParams; Body: { triggerKind: 'author_request' | 'event_settlement' | 'volume_settlement';
+    triggerObjectId: string; triggerVersionId: string; evidenceRefs: StorylineGrowthCandidateView['evidenceRefs'];
+    idempotencyKey: string } }>('/api/v1/books/:bookId/core-workflow/storyline-growth-rounds', async (request) =>
+      success({ growthRoundId: service.createStorylineGrowthRound(scope(request, request.params.bookId), request.body) }, request.id));
+
+  app.post<{ Params: BookParams & { growthRoundId: string }; Body: { candidateKind: StorylineGrowthCandidateView['candidateKind'];
+    storylineId?: string | null; title: string; content: StorylineGrowthCandidateContent;
+    evidenceRefs: StorylineGrowthCandidateView['evidenceRefs']; sourceBatchId?: string | null;
+    sourceBatchMemberId?: string | null; basedOnVersionIds?: string[] } }>(
+    '/api/v1/books/:bookId/core-workflow/storyline-growth-rounds/:growthRoundId/candidates', async (request) =>
+      success(service.addStorylineGrowthCandidate(scope(request, request.params.bookId), {
+        ...request.body, growthRoundId: request.params.growthRoundId
+      }), request.id));
+
+  app.post<{ Params: BookParams & { candidateId: string }; Body: { decision: 'accepted' | 'rejected' | 'observing';
+    editedContent?: StorylineGrowthCandidateContent | null; idempotencyKey: string; expectedStatus: 'candidate' } }>(
+    '/api/v1/books/:bookId/core-workflow/storyline-growth-candidates/:candidateId/decision', async (request) =>
+      success(service.decideStorylineGrowthCandidate(scope(request, request.params.bookId), request.params.candidateId,
+        request.body), request.id));
   app.put<{ Params: BookParams; Body: { stage: CoreWorkflowStage; activeObjectId?: string | null;
     expectedStateVersion: number; blockingReason?: string | null } }>(
     '/api/v1/books/:bookId/core-workflow/state', async (request) =>

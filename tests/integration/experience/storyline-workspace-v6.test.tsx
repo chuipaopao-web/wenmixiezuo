@@ -13,13 +13,8 @@ const emptyLedgers: CoreWorkflowV6View['ledgers'] = {
 
 function view(active = false): CoreWorkflowV6View {
   return {
-    contractVersion: 1, stage: 'storyline', stateVersion: 1, blockingReason: null,
-    topology: { active: active ? {
-      topologyVersionId: 'topology-1', version: 1, topologyType: 'core_with_branches', content: {
-        topologyType: 'core_with_branches', plainLanguageReason: '核心问题牵引，支线服务核心线。',
-        lineResponsibilities: ['核心线回答全书问题', '支线检验选择'], authorNotes: null
-      }, contentHash: 'topology-hash'
-    } : null, candidates: [] },
+    contractVersion: 2, stage: 'storyline', stateVersion: 1, blockingReason: null,
+    growth: { frontiers: [], openQuestions: [], candidates: [], decisions: [] },
     storylines: active ? [{
       storylineId: 'line-1', sortOrder: 1, lifecycleStatus: 'active', activeVersionId: 'line-version-1',
       activeVersion: { storylineVersionId: 'line-version-1', version: 1, status: 'active', baseVersion: 0, parentVersionId: null,
@@ -44,31 +39,24 @@ function response(data: unknown): Response {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('V6故事线工作台', () => {
-  it('默认只显示一个白话推荐，可展开四种拓扑并直接确认选择', async () => {
-    let confirmed = false;
+  it('零故事线时不再要求拓扑或全书结局，并可直接进入第一卷', async () => {
+    const onNext = vi.fn();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
-      if (path.endsWith('/core-workflow') && (init?.method ?? 'GET') === 'GET') return response(view(confirmed));
-      if (path.endsWith('/storyline-topology/versions')) return response({ topologyVersionId: 'topology-1' });
-      if (path.endsWith('/storyline-topology/versions/topology-1/confirm')) { confirmed = true; return response({ confirmed: true }); }
+      if (path.endsWith('/core-workflow') && (init?.method ?? 'GET') === 'GET') return response(view(false));
       if (path.endsWith('/editorial-team')) return response({ pools: [] });
       return new Response(JSON.stringify({ error: { message: `未配置 ${path}` } }), { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
-    render(<StorylineWorkspace bookId="book-1" bookTitle="雾钟档案" onNext={() => undefined} />);
+    render(<StorylineWorkspace bookId="book-1" bookTitle="雾钟档案" onNext={onNext} />);
 
-    expect(await screen.findByText('一条核心线 + 支线')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /双核心线/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '自己选择其他结构' }));
-    expect(screen.getByRole('button', { name: /双核心线/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /双核心线/ }));
-    fireEvent.click(screen.getByRole('button', { name: /直接接受/ }));
-    expect(await screen.findByText(/全书结构已确认/)).toBeInTheDocument();
-    const saved = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/storyline-topology/versions'));
-    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({ content: { topologyType: 'dual_core' } });
-    expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith('/topology-1/confirm'))).toBe(true);
+    expect(await screen.findByText('有完整想法就建立故事线，只有开局灵感也可以直接写第一卷')).toBeInTheDocument();
+    expect(screen.queryByText(/拓扑|双核心线|完整全书/u)).not.toBeInTheDocument();
+    expect(document.querySelector('.v6-storyline-board-body')?.children).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /只有开局灵感，进入第一卷/ }));
+    expect(onNext).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('storyline-topology'))).toBe(false);
   });
-
   it('可编辑线路字段和关联角色，地图默认线路轨并显式确认后进入分卷', async () => {
     const onNext = vi.fn();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -94,7 +82,49 @@ describe('V6故事线工作台', () => {
     expect(screen.getByRole('tab', { name: '伏笔轨道' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
-    fireEvent.click(screen.getByRole('button', { name: /确认故事线并进入分卷/ }));
+    fireEvent.click(screen.getByRole('button', { name: '进入分卷' }));
     expect(onNext).toHaveBeenCalledOnce();
   });
-});
+  it('保留原线路板块并在其后显示滚动状态，可编辑后采用主编建议', async () => {
+    const workflow = view(true);
+    workflow.growth.candidates = [{
+      candidateId: 'candidate-1', growthRoundId: 'round-1', candidateKind: 'next_direction', storylineId: 'line-1', status: 'candidate',
+      title: '追查第二份档案', content: { summary: '沿着伪造记录追查经手人', continuationReason: '第一份记录留下同批纸张',
+        protagonistInvolvement: '林岚必须证明第一份证据不是孤证', coreQuestion: '谁在持续改写档案？', pushesStorylineIds: ['line-1'],
+        mayCreateStoryline: false, inferences: ['同一人可能参与两次'], unknowns: ['经手人身份'], misreadRisk: '纸张也可能来自库存', recommendedHorizonVolumes: 1 },
+      evidenceRefs: [{ sourceKind: 'volume_settlement', sourceVersionId: 'settlement-1', locator: '第一卷结算' }], evidenceHash: 'evidence-1',
+      sourceBatchId: 'batch-1', sourceBatchMemberId: 'member-1', basedOnVersionIds: ['settlement-1'], staleReason: null,
+      createdAt: '2026-08-22T00:02:00.000Z', decidedAt: null
+    }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/core-workflow') && (init?.method ?? 'GET') === 'GET') return response(workflow);
+      if (path.endsWith('/storyline-growth-candidates/candidate-1/decision')) return response({ accepted: true });
+      if (path.endsWith('/editorial-team')) return response({ pools: [] });
+      return new Response(JSON.stringify({ error: { message: `未配置 ${path}` } }), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<StorylineWorkspace bookId="book-1" bookTitle="雾钟档案" onNext={vi.fn()} />);
+
+    expect((await screen.findAllByText('寻找真相')).length).toBeGreaterThan(0);
+    const originalHead = document.querySelector('.v6-storyline-board-head');
+    expect(originalHead?.textContent).toContain('起点');
+    expect(originalHead?.textContent).toContain('发展');
+    expect(originalHead?.textContent).toContain('转折');
+    expect(originalHead?.textContent).toContain('收束');
+    expect(screen.getByText('已经发生')).toBeInTheDocument();
+    expect(screen.getByText('正在推进')).toBeInTheDocument();
+    expect(screen.getAllByText('我目前想到这里').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('还没决定').length).toBeGreaterThan(0);
+    expect(screen.getByText('主编推荐下一段')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑后采用' }));
+    const direction = screen.getByRole('textbox', { name: '下一段方向' });
+    fireEvent.change(direction, { target: { value: '作者调整后的追查方向' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存为作者计划' }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/storyline-growth-candidates/candidate-1/decision'));
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ decision: 'accepted', editedContent: { summary: '作者调整后的追查方向' } });
+    });
+  });});

@@ -184,7 +184,7 @@ export class ModelBindingService {
 
 function subscriptionMigrationReason(profiles: Record<CreativeRoleKey, TeamModelProfile>): string {
   if (profiles.chief_editor.provider === 'opencodego') {
-    return 'DEC-100：十五名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
+    return 'DEC-100：二十五名创作成员统一迁移至 opencodego；保留历史调用快照，只影响未来任务';
   }
   return 'DEC-20260822：常规创作岗位切换火山方舟 Coding Plan，高级编剧单独使用 Agent Plan Kimi K3；保留历史调用快照，只影响未来任务';
 }
@@ -195,7 +195,11 @@ export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>):
     : value;
   return {
     chief_editor: profile('chief_editor', profiles.chief_editor),
+    chief_editor_second: profile('chief_editor_second', profiles.plot_architect),
+    chief_editor_third: profile('chief_editor_third', profiles.reader_experience),
     deputy_editor: profile('deputy_editor', profiles.style_editor),
+    deputy_editor_second: profile('deputy_editor_second', profiles.reviewer),
+    deputy_editor_third: profile('deputy_editor_third', profiles.continuity),
     lead_screenwriter: profile('lead_screenwriter', profiles.plot_architect),
     second_screenwriter: profile('second_screenwriter', profiles.continuity),
     third_screenwriter: profile('third_screenwriter', profiles.reviewer),
@@ -207,12 +211,18 @@ export function toCreativeProfiles(profiles: Record<RoleKey, RoleModelProfile>):
       }),
     lead_writer: profile('lead_writer', profiles.writer),
     backup_writer: profile('backup_writer', profiles.reviewer),
+    writer_third: profile('writer_third', profiles.style_editor),
+    writer_fourth: profile('writer_fourth', profiles.continuity),
+    writer_fifth: profile('writer_fifth', profiles.reader_experience),
     fact_reviewer: profiles.style_editor.plan === 'deterministic'
       ? profile('fact_reviewer', profiles.style_editor)
       : profile('fact_reviewer', roleModelProfiles.fact_reviewer),
     literary_reviewer: profile('literary_reviewer', profiles.researcher),
+    literary_reviewer_second: profile('literary_reviewer_second', profiles.reviewer),
+    literary_reviewer_third: profile('literary_reviewer_third', profiles.style_editor),
     experience_reviewer: profile('experience_reviewer', profiles.reader_experience),
     experience_challenger: profile('experience_challenger', profiles.researcher),
+    experience_reviewer_third: profile('experience_reviewer_third', profiles.continuity),
     researcher: profile('researcher', profiles.researcher),
     copyright: profile('copyright', profiles.copyright)
   };
@@ -227,9 +237,7 @@ function preserveCurrentProfilesWithDeputyMigration(
     modelId: agent.modelId,
     plan: agent.plan ?? 'deterministic'
   }])) as Partial<Record<CreativeRoleKey, TeamModelProfile>>;
-  if (creativeRoleKeys.some((role) => profiles[role] === undefined)) {
-    throw new Error('副编模型迁移前发现十五人团队配置不完整');
-  }
+  for (const role of creativeRoleKeys) profiles[role] ??= roleModelProfiles[role];
   profiles.deputy_editor = deputyEditor;
   return profiles as Record<CreativeRoleKey, TeamModelProfile>;
 }

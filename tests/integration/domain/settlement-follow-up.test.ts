@@ -10,10 +10,12 @@ import { CreationSettlementService } from '../../../apps/api/src/application/pla
 import { EventChapterOutlineService } from '../../../apps/api/src/application/planning/event-chapter-outline-service.js';
 import {
   parsePacingOutput,
+  parseStorylineGrowthOutput,
   parseSummaryOutput,
   SettlementFollowUpPipelineService
 } from '../../../apps/api/src/application/planning/settlement-follow-up-pipeline-service.js';
 import { SettlementFollowUpService } from '../../../apps/api/src/application/planning/settlement-follow-up-service.js';
+import { CoreWorkflowV6Service } from '../../../apps/api/src/application/planning/core-workflow-v6-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
 import { VolumePlanService } from '../../../apps/api/src/application/planning/volume-plan-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -75,7 +77,8 @@ describe('结算后续：主编节奏体检与副编摘要', () => {
       new ContextPackService(context.database, ids, clock),
       ids,
       clock,
-      new ModelAdapterFactory(context.config.modelRuntime)
+      new ModelAdapterFactory(context.config.modelRuntime),
+      new CoreWorkflowV6Service(context.database, ids, clock)
     );
     const result = await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-settlement-follow-up', {
       leaseToken: claim!.leaseToken!,
@@ -93,6 +96,11 @@ describe('结算后续：主编节奏体检与副编摘要', () => {
       recoveryBeats: expect.any(String)
     });
     expect((view?.pacingReport as { risks: string[] }).risks.length).toBeGreaterThan(0);
+    const growth = new CoreWorkflowV6Service(context.database, ids, clock).view(scope).growth;
+    expect(growth.candidates).toHaveLength(3);
+    expect(growth.candidates.every((item) => item.evidenceRefs[0]?.sourceVersionId === scheduled.settlementId)).toBe(true);
+    expect(growth.candidates.map((item) => item.title)).toContain('继续观察一段');
+
     expect(typeof view?.summary).toBe('string');
     expect(view?.summary).toContain('公开选择');
     expect(view?.pacingBy?.displayName).toContain('貂蝉');
@@ -147,6 +155,12 @@ describe('结算后续：主编节奏体检与副编摘要', () => {
     expect(pacing.risks).toEqual(['风险']);
     expect(() => parseSummaryOutput(JSON.stringify({ note: '没有摘要字段' }))).toThrow();
     expect(parseSummaryOutput(JSON.stringify({ summary: ' 大白话摘要 ' })).summary).toBe('大白话摘要');
+    expect(parseStorylineGrowthOutput(JSON.stringify({ candidates: [{
+      candidateKind: 'next_direction', storylineId: null, title: '继续观察',
+      content: { summary: '先观察', continuationReason: '证据仍少', protagonistInvolvement: '主角仍在局中',
+        coreQuestion: '哪条压力会持续？', pushesStorylineIds: [], mayCreateStoryline: false,
+        inferences: ['尚未发生'], unknowns: ['后续未知'], misreadRisk: '可能没有形成长期线', recommendedHorizonVolumes: 1 }
+    }] })).candidates).toHaveLength(1);
   });
 });
 

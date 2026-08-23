@@ -1,21 +1,12 @@
-export const CORE_WORKFLOW_V6_CONTRACT_VERSION = 1 as const;
+export const CORE_WORKFLOW_V6_CONTRACT_VERSION = 2 as const;
 
 export const coreWorkflowStages = ['setting', 'storyline', 'volume', 'event', 'chapter'] as const;
 export type CoreWorkflowStage = typeof coreWorkflowStages[number];
 
-export const storylineTopologyTypes = ['core_with_branches', 'dual_core', 'multi_core', 'unit_stories'] as const;
-export type StorylineTopologyType = typeof storylineTopologyTypes[number];
 export const storylineLifecycleStatuses = ['ideation', 'active', 'paused', 'completed', 'abandoned'] as const;
 export type StorylineLifecycleStatus = typeof storylineLifecycleStatuses[number];
 export const storylineVolumeParticipationStatuses = ['leading', 'important', 'foreshadow', 'paused', 'unrelated'] as const;
 export type StorylineVolumeParticipationStatus = typeof storylineVolumeParticipationStatuses[number];
-
-export interface StorylineTopologyContent {
-  topologyType: StorylineTopologyType;
-  plainLanguageReason: string;
-  lineResponsibilities: string[];
-  authorNotes: string | null;
-}
 
 export interface StorylineContent {
   title: string;
@@ -51,6 +42,74 @@ export interface StorylineView {
   versions: StorylineVersionView[];
 }
 
+export interface StorylineFrontierView {
+  frontierVersionId: string;
+  storylineId: string | null;
+  version: number;
+  summary: string;
+  targetVolumeNumber: number | null;
+  stageEnding: string | null;
+  fullBookEndingKnown: boolean;
+  sourceKind: 'author' | 'legacy_migration' | 'accepted_recommendation';
+  sourceVersionIds: string[];
+  contentHash: string;
+  createdAt: string;
+  confirmedAt: string | null;
+}
+
+export interface StorylineOpenQuestionView {
+  openQuestionId: string;
+  storylineId: string | null;
+  question: string;
+  sourceKind: 'author' | 'settlement' | 'accepted_candidate';
+  sourceVersionId: string | null;
+  status: 'open' | 'resolved' | 'archived';
+  resolution: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface StorylineGrowthCandidateContent {
+  summary: string;
+  continuationReason: string;
+  protagonistInvolvement: string;
+  coreQuestion: string;
+  pushesStorylineIds: string[];
+  mayCreateStoryline: boolean;
+  inferences: string[];
+  unknowns: string[];
+  misreadRisk: string;
+  recommendedHorizonVolumes: number;
+}
+
+export interface StorylineGrowthCandidateView {
+  candidateId: string;
+  growthRoundId: string;
+  candidateKind: 'emerging_line' | 'next_direction';
+  storylineId: string | null;
+  status: 'candidate' | 'accepted' | 'rejected' | 'observing' | 'stale';
+  title: string;
+  content: StorylineGrowthCandidateContent;
+  evidenceRefs: Array<{ sourceKind: string; sourceVersionId: string; locator?: string }>;
+  evidenceHash: string;
+  sourceBatchId: string | null;
+  sourceBatchMemberId: string | null;
+  basedOnVersionIds: string[];
+  staleReason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export interface StorylineGrowthDecisionView {
+  decisionId: string;
+  candidateId: string;
+  decision: 'accepted' | 'rejected' | 'observing';
+  editedContent: StorylineGrowthCandidateContent | null;
+  createdStorylineId: string | null;
+  createdFrontierVersionId: string | null;
+  createdAt: string;
+}
 export interface StorylineRelationView {
   storylineRelationId: string;
   fromStorylineId: string;
@@ -75,6 +134,8 @@ export interface CharacterCardContent {
   roleSummary: string;
   desire: string;
   currentState: string;
+  personalityTraits?: string[];
+  sourceOpeningVersion?: number | null;
   boundaries: string[];
   storylineInfluences: Array<{ storylineId: string; influence: string }>;
 }
@@ -148,11 +209,13 @@ export interface CoreWorkflowV6View {
   stage: CoreWorkflowStage;
   stateVersion: number;
   blockingReason: string | null;
-  topology: {
-    active: { topologyVersionId: string; version: number; topologyType: StorylineTopologyType; content: StorylineTopologyContent; contentHash: string } | null;
-    candidates: Array<{ topologyVersionId: string; version: number; topologyType: StorylineTopologyType; content: StorylineTopologyContent; contentHash: string }>;
-  };
   storylines: StorylineView[];
+  growth: {
+    frontiers: StorylineFrontierView[];
+    openQuestions: StorylineOpenQuestionView[];
+    candidates: StorylineGrowthCandidateView[];
+    decisions: StorylineGrowthDecisionView[];
+  };
   relations: StorylineRelationView[];
   volumeParticipations: StorylineVolumeParticipationView[];
   characters: CharacterCardView[];

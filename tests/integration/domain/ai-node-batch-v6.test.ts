@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { AiNodeBatchService } from '../../../apps/api/src/application/agents/ai-node-batch-service.js';
-import { AiNodePipelineService } from '../../../apps/api/src/application/agents/ai-node-pipeline-service.js';
+import { AiNodePipelineService, validateTemplateContent } from '../../../apps/api/src/application/agents/ai-node-pipeline-service.js';
+import { allRoleSkills, coreAgentSkill, nodeProtocolSkill } from '../../../apps/api/src/application/agents/agent-skills-v6.js';
+import { creativeTemplate } from '../../../apps/api/src/application/agents/creative-templates-v6.js';
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { ModelCallService } from '../../../apps/api/src/application/calls/model-call-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -13,6 +15,29 @@ describe('V6 AI 编辑部与公平节点批次', () => {
   let context: TestContext | undefined;
   afterEach(() => context?.close());
 
+  it('核心、七岗位和节点 Skill 与创作模板形成可冻结的三层合同', () => {
+    const roles = allRoleSkills();
+    expect(roles).toHaveLength(7);
+    expect(new Set(roles.map((skill) => skill.roleKey))).toEqual(new Set([
+      'chief_editor', 'deputy_editor', 'screenwriter', 'writer',
+      'fact_reviewer', 'literary_reviewer', 'experience_reviewer'
+    ]));
+    expect(coreAgentSkill().content).toMatchObject({ truthZones: ['actual', 'author_confirmed_plan', 'open_question', 'ai_candidate'] });
+    const chief = nodeProtocolSkill('storyline_next_direction', 'chief_editor');
+    expect(chief.content).toMatchObject({ horizonVolumes: [1, 2] });
+    expect(JSON.stringify(chief.content)).toContain('继续观察');
+    const template = creativeTemplate('storyline_next_direction', 'storyline-next-direction-v2');
+    expect(template.contentHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(() => validateTemplateContent({ title: '方向A' }, template.schema)).toThrow(/模板要求字段缺失/u);
+    expect(() => validateTemplateContent({
+      title: '方向A', summary: '只推进下一卷', continuationReason: '来自卷结算', protagonistInvolvement: '主角必须承担选择后果',
+      coreQuestion: '是否公开证据', inferences: [], unknowns: [], misreadRisk: '证据仍少', recommendedHorizonVolumes: 3
+    }, template.schema)).toThrow(/模板整数字段无效/u);
+    expect(() => validateTemplateContent({
+      title: '继续观察', summary: '证据不足时不强推', continuationReason: '正文没有形成稳定矛盾', protagonistInvolvement: '暂不新增卷目标',
+      coreQuestion: '等待下一事件', inferences: [], unknowns: ['更远结局'], misreadRisk: '避免误建线', recommendedHorizonVolumes: 1
+    }, template.schema)).not.toThrow();
+  });
   it('岗位池只投影作者可见字段，后台配置有版本冲突门禁', () => {
     context = createTestContext('wenmi-ai-node-pool-');
     const ids = new SequenceIds(); const clock = new FixedClock();
@@ -21,6 +46,11 @@ describe('V6 AI 编辑部与公平节点批次', () => {
     const service = new AiNodeBatchService(context.database, context.config.releaseId, ids, clock);
     const pools = service.listPools(scope);
     expect(pools.map((pool) => pool.roleLabel)).toEqual(['主编','副编','编剧','主笔','事实席','文学席','体验席']);
+    expect(pools.reduce((total, pool) => total + pool.members.length, 0)).toBe(25);
+    expect(Object.fromEntries(pools.map((pool) => [pool.roleKey, pool.members.length]))).toEqual({
+      chief_editor: 3, deputy_editor: 3, screenwriter: 5, writer: 5,
+      fact_reviewer: 3, literary_reviewer: 3, experience_reviewer: 3
+    });
     expect(pools.find((pool) => pool.roleKey === 'screenwriter')?.members.length).toBeGreaterThanOrEqual(3);
     const projected = JSON.stringify(pools);
     expect(projected).not.toMatch(/modelId|model_id|provider|擅长|成功率|速度/iu);
@@ -58,11 +88,14 @@ describe('V6 AI 编辑部与公平节点批次', () => {
     expect(new Set(frozenRows.map((row) => row.context_pack_hash))).toEqual(new Set([batch.contextPackHash]));
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM context_packs WHERE context_pack_id=?`).get(batch.contextPackId))
       .toEqual({ count: 1 });
-    expect(context.database.prepare(`SELECT core_skill_version_id,role_skill_version_id,node_protocol_version_id,template_version
-      FROM ai_node_batches_v6 WHERE batch_id=?`).get(batch.batchId)).toEqual({
-        core_skill_version_id: 'skill-v6-core-1', role_skill_version_id: 'skill-v6-role-screenwriter-1',
-        node_protocol_version_id: 'skill-v6-node-storyline_design-screenwriter-1', template_version: 'storyline-node-v1'
+    expect(context.database.prepare(`SELECT core_skill_version_id,role_skill_version_id,node_protocol_version_id,template_version,
+      template_version_id,template_hash FROM ai_node_batches_v6 WHERE batch_id=?`).get(batch.batchId)).toEqual({
+        core_skill_version_id: 'skill-v6-core-2', role_skill_version_id: 'skill-v6-role-screenwriter-2',
+        node_protocol_version_id: 'skill-v6-node-storyline_design-screenwriter-2', template_version: 'storyline-node-v1',
+        template_version_id: 'template:storyline_design:storyline-node-v1', template_hash: batch.skillVersions.templateHash
       });
+    expect(batch.skillVersions.templateVersionId).toBe('template:storyline_design:storyline-node-v1');
+    expect(batch.skillVersions.templateHash).toMatch(/^[a-f0-9]{64}$/u);
 
     const authorV2 = service.saveAuthorInput(scope, 'storyline_design', 'storyline-root', '新一轮允许主角先欺骗对手，但仍不伤害无辜。');
     const next = service.createBatch(scope, {

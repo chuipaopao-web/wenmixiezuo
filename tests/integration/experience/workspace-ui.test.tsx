@@ -26,22 +26,15 @@ const chapter = {
 };
 
 const agentRoles = [
-  ['chief_editor', '主编', '貂蝉'],
-  ['deputy_editor', '副编', '西施'],
-  ['lead_screenwriter', '编剧', '婉儿'],
-  ['second_screenwriter', '编剧', '红玉'],
-  ['third_screenwriter', '编剧', '幼薇'],
-  ['setting', '设定', '文姬'],
-  ['lead_writer', '主笔', '秋香'],
-  ['backup_writer', '副笔', '湘君'],
-  ['fact_reviewer', '事实', '班昭'],
-  ['literary_reviewer', '审校', '妲己'],
-  ['experience_reviewer', '体验', '昭君'],
-  ['experience_challenger', '体验', '妙玉'],
-  ['researcher', '研究员', '道韫'],
-  ['copyright', '版权', '弄玉'],
-  ['senior_screenwriter', '高级编剧', '清照']
-
+  ['chief_editor', '主编', '貂蝉'], ['chief_editor_second', '主编', '顾承砚'], ['chief_editor_third', '主编', '沈知微'],
+  ['deputy_editor', '副编', '西施'], ['deputy_editor_second', '副编', '傅明远'], ['deputy_editor_third', '副编', '谢清越'],
+  ['lead_screenwriter', '编剧', '婉儿'], ['second_screenwriter', '编剧', '红玉'], ['third_screenwriter', '编剧', '幼薇'],
+  ['senior_screenwriter', '编剧', '清照'], ['setting', '编剧', '文姬'],
+  ['lead_writer', '主笔', '秋香'], ['backup_writer', '主笔', '湘君'], ['writer_third', '主笔', '温言'],
+  ['writer_fourth', '主笔', '周既明'], ['writer_fifth', '主笔', '苏映棠'],
+  ['fact_reviewer', '事实审查', '班昭'], ['researcher', '事实审查', '道韫'], ['copyright', '事实审查', '弄玉'],
+  ['literary_reviewer', '文学审查', '妲己'], ['literary_reviewer_second', '文学审查', '林砚秋'], ['literary_reviewer_third', '文学审查', '叶临川'],
+  ['experience_reviewer', '体验审查', '昭君'], ['experience_challenger', '体验审查', '妙玉'], ['experience_reviewer_third', '体验审查', '许如晦']
 ] as const;
 
 const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, displayName], index) => ({
@@ -55,13 +48,13 @@ const agents: WorkspaceData['agents'] = agentRoles.map(([roleKey, roleName, disp
 }));
 
 const v6EditorialPools = [
-  ['chief_editor', '主编', 2, ['貂蝉', '清照']],
-  ['deputy_editor', '副编', 2, ['西施', '婉儿']],
-  ['screenwriter', '编剧', 3, ['红玉', '幼薇', '文姬']],
-  ['writer', '主笔', 2, ['秋香', '湘君']],
-  ['fact_reviewer', '事实审查', 2, ['班昭', '道韫']],
-  ['literary_reviewer', '文学审查', 2, ['妲己', '弄玉']],
-  ['experience_reviewer', '体验审查', 2, ['昭君', '妙玉']]
+  ['chief_editor', '主编', 3, ['貂蝉', '顾承砚', '沈知微']],
+  ['deputy_editor', '副编', 3, ['西施', '傅明远', '谢清越']],
+  ['screenwriter', '编剧', 5, ['婉儿', '红玉', '幼薇', '清照', '文姬']],
+  ['writer', '主笔', 5, ['秋香', '湘君', '温言', '周既明', '苏映棠']],
+  ['fact_reviewer', '事实审查', 3, ['班昭', '道韫', '弄玉']],
+  ['literary_reviewer', '文学审查', 3, ['妲己', '林砚秋', '叶临川']],
+  ['experience_reviewer', '体验审查', 3, ['昭君', '妙玉', '许如晦']]
 ] as const;
 
 const v6EditorialTeam = {
@@ -81,6 +74,19 @@ const v6EditorialTeam = {
       enabled: true
     }))
   }))
+};
+
+const v6CoreWorkflow = {
+  contractVersion: 2, stage: 'chapter', stateVersion: 4, blockingReason: null, growth: { frontiers: [], openQuestions: [], candidates: [], decisions: [] },
+  storylines: [], relations: [], volumeParticipations: [], eventRoleAssignments: [],
+  characters: [{ characterId: 'character-protagonist-1', characterKind: 'protagonist', lifecycleStatus: 'active',
+    activeVersionId: 'character-version-1', promotedFromCharacterId: null, version: 1, content: {
+      name: '张三', roleSummary: '雾城边军', desire: '守住雾城并查明钟声来源', currentState: '第一次钟响后被迫守城',
+      personalityTraits: ['冷静', '敏锐'], sourceOpeningVersion: 1, boundaries: ['钟声规则不得无代价改写'], storylineInfluences: []
+    } }],
+  ledgers: { storyline: { planned: [], actual: [] }, relationship: { planned: [], actual: [] }, world_state: { planned: [], actual: [] },
+    causality: { planned: [], actual: [] }, foreshadow: { planned: [], actual: [] }, settlement: { planned: [], actual: [] } },
+  drafts: [], invalidations: []
 };
 
 const workspace: WorkspaceData = {
@@ -140,6 +146,23 @@ describe('完整创作工作台', () => {
     expect(screen.queryByRole('button', { name: '返回书架' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/tasks/') && (init as RequestInit | undefined)?.method !== 'GET')).toBe(false);
   });
+  it('设定页保留原开书资料块，并在原摘要中显示人物卡权威性格', async () => {
+    const fetchMock = vi.fn(createFetchRouter());
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText(/主角性格：冷静、敏锐/u)).toBeInTheDocument();
+    const details = document.querySelector('.v6-opening-profile') as HTMLDetailsElement;
+    expect(details).toBeInTheDocument();
+    fireEvent.click(within(details).getByText('开书资料'));
+    expect(within(details).getByText(/张三：冷静、敏锐/u)).toBeInTheDocument();
+    fireEvent.click(within(details).getByRole('button', { name: '编辑张三' }));
+    expect(await screen.findByRole('dialog', { name: '编辑张三的人物卡' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存人物卡新版本' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/core-workflow/characters/character-protagonist-1/versions') && init?.method === 'POST')).toBe(true));
+  });
+
   it('把旧 view 深链接映射到五个新阶段并规范化为 stage 参数', async () => {
     window.history.replaceState(null, '', '/?book=book-ui-1&view=master');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
@@ -183,13 +206,13 @@ describe('完整创作工作台', () => {
     expect(screen.getAllByRole('button', { name: '新建书籍' }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('顶部团队入口显示当前书七岗位15名公开成员状态', async () => {
+  it('顶部团队入口显示当前书7类岗位25名公开成员状态', async () => {
     window.history.replaceState(null, '', '/');
     vi.stubGlobal('fetch', vi.fn(createFetchRouter()));
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: 'AI 编辑部' })).toBeInTheDocument();
-    expect(within(document.querySelector('.v6-team-summary') as HTMLElement).getByText('15')).toBeInTheDocument();
+    expect(within(document.querySelector('.v6-team-summary') as HTMLElement).getByText('25')).toBeInTheDocument();
     expect(screen.getByText('当前成员')).toBeInTheDocument();
     expect(screen.getAllByText(/貂蝉/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/local-deterministic|wenmi-fixture/u)).not.toBeInTheDocument();
@@ -203,7 +226,7 @@ describe('完整创作工作台', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '团队' }));
     expect(await screen.findByRole('heading', { name: 'AI 编辑部' })).toBeInTheDocument();
-    expect(screen.queryByText(/提示词|查看密码|模型|model/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/提示词|查看密码|model_id|modelId/iu)).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => /team-template|team-config/u.test(String(input)))).toBe(false);
   });
 
@@ -306,11 +329,11 @@ describe('完整创作工作台', () => {
     await screen.findAllByText('雾钟档案');
     fireEvent.click(screen.getByRole('button', { name: '团队' }));
     const team = (await screen.findByRole('heading', { name: 'AI 编辑部' })).closest('section') as HTMLElement;
-    expect(within(team).getByText('15')).toBeInTheDocument();
+    expect(within(team).getByText('25')).toBeInTheDocument();
     expect(within(team).getByText('貂蝉')).toBeInTheDocument();
     fireEvent.click(within(team).getByRole('button', { name: /文学审查/ }));
     expect(within(team).getByText('妲己')).toBeInTheDocument();
-    expect(within(team).getByText('文学审查 · OpenAI')).toBeInTheDocument();
+    expect(within(team).getAllByText('文学审查 · OpenAI')).toHaveLength(2);
     expect(team).not.toHaveTextContent(/provider|model|提示词|密钥/iu);
     expect(fetchMock.mock.calls.some(([input]) => /team-template|team-config|prompt-preference/u.test(String(input)))).toBe(false);
   });
@@ -707,6 +730,15 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
         confirmations: workspaceData.confirmations
       }]
     });
+    if (path.endsWith('/book-profile')) return apiResponse({
+      title: '雾钟档案', channel: '男频', category: '历史脑洞', subjects: ['架空历史'], mainTags: ['成长', '守城'], customTags: [],
+      protagonists: [{ role: 'male_lead', name: '张三', age: '二十岁', background: '雾城边军', personalities: ['坚韧'] }],
+      storyDirection: '守住雾城并查明钟声来源', openingStart: '第一次钟响后被迫守城', mustFollow: ['钟声规则不得无代价改写'],
+      style: { languageTones: [], emotionalTones: [], pacingAndPayoff: [], atmospheres: [], custom: [] },
+      source: '作者确认的开书资料', version: 1, openingBlueprint: { openingBackground: '第一次钟响后被迫守城' }
+    });
+    if (path.endsWith('/core-workflow') && (init?.method ?? 'GET') === 'GET') return apiResponse(v6CoreWorkflow);
+    if (path.endsWith('/core-workflow/characters/character-protagonist-1/versions') && init?.method === 'POST') return apiResponse({ versionId: 'character-version-2', version: 2 });
     if (path.endsWith('/workspace')) return apiResponse(workspaceData);
     if (path.endsWith('/core-workflow/editorial-team') || path.endsWith('/editorial-team')) return apiResponse(v6EditorialTeam);
     if (path === '/api/v1/team-template') return apiResponse({
@@ -970,7 +1002,7 @@ function createFetchRouter(chapterContent = '正文内容', workspaceData = work
       { projection_id: 'projection-actual', projection_type: 'emotion', track: 'actual', chapter_number: 1, canon_revision: 3, content_json: JSON.stringify({ scopeLabel: '第1章', emotionFlow: ['惊讶', '平静'], baseline: '平' }) }
     ]);
     if (path.endsWith('/memory')) return apiResponse([]);
-    if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建十四人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
+    if (path.endsWith('/model-bindings')) return apiResponse({ active: agents.map((agent) => ({ agentId: agent.agentId, roleKey: agent.roleKey, memberName: agent.displayName, shortTitle: agent.roleName, provider: agent.provider, modelId: agent.modelId, modelSnapshotId: `snapshot-${agent.agentId}`, plan: 'deterministic' })), revisions: [{ revisionId: 'revision-1', version: 1, effectiveFrom: '2026-07-16T12:00:00.000Z', reason: '创建二十五人团队', status: 'active', createdAt: '2026-07-16T12:00:00.000Z' }], contracts: [] });
     if (path.endsWith('/model-bindings/preview') || path.endsWith('/model-bindings/activate')) return apiResponse({ valid: true, futureTasksOnly: true });
     if (path.includes('/model-bindings/') && path.endsWith('/restore')) return apiResponse({ version: 2, futureTasksOnly: true });
     if (path.includes('/confirmations/') && path.endsWith('/accept')) return apiResponse({ status: 'accepted' });

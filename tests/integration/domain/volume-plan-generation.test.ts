@@ -336,6 +336,28 @@ describe('卷规划团队生成', () => {
     expect(parsed.direction).not.toHaveProperty('eventSequence');
     expect(parsed.storySpine).toBeNull();
   });
+  it('第一卷只有开局方向时允许不提供全书故事总线', () => {
+    const direction = {
+      title: '先活过第一卷', openingSituation: '主角刚失去旧退路。', protagonistDrive: '为了保护眼前同伴而行动。',
+      volumeGoal: '解决当前城镇危机。', centralOpposition: '封锁消息的地方势力持续施压。',
+      escalationPath: ['找到第一条可验证线索', '公开行动并承担代价'], majorChoices: ['救人还是保全证据'],
+      relationshipMovement: ['主角与同伴建立有限信任'], expressionFocus: ['紧迫感与选择代价'],
+      climaxResponsibility: '解决本卷危机并打开新状态。', costAndConsequence: '主角失去安全身份。',
+      closingState: '眼前危机结束，但更远方向仍未知。', benefits: ['只规划当前看得见的部分'], risks: ['不替作者编造全书结局'],
+      openSpaces: ['第二卷之后保持开放'],
+      firstVolumeLaunch: {
+        primaryDrivers: ['眼前生存压力'], immersionAnchor: '主角必须保住同伴',
+        first500Interest: { readerQuestion: '主角能否逃出封锁', immediateSituation: '追捕已经开始', emotionalGrip: '失去同伴的恐惧', promisedMovement: '主角立刻作出选择' },
+        goldenThree: [1, 2, 3].map((chapterNumber) => ({ chapterNumber, responsibility: '完成第' + chapterNumber + '章职责', protagonistAction: '主动寻找出口', pressureOrPull: '追兵继续逼近', deliveredPayoff: '获得一条有效线索', nextExpectation: '新的阻力出现' })),
+        earlyMomentum: ['每章都有可验证变化'],
+        majorClimax: { promiseToFulfill: '解决封锁危机', centralChoice: '公开证据', cost: '失去身份', centralConflictChange: '封锁被打破', irreversibleChange: '主角无法回到旧生活', nextStageTrigger: '进入未知的新阶段', noLaterThanEffectiveChars: 100000 },
+        variationAndRecovery: ['行动与关系交替推进'], forbiddenShortcuts: ['不靠临时外挂收尾']
+      }
+    };
+    const parsed = parseVolumeDirectionModelOutput(JSON.stringify({ direction }), 1);
+    expect(parsed.storySpine).toBeNull();
+    expect(parsed.direction.closingState).toContain('更远方向仍未知');
+  });
 
   it('主编结果未知时由独立研究席优先接管融合，而不盲目重试原模型', () => {
     const seat = (roleKey: string, editor = false) => ({

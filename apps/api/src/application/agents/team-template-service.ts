@@ -23,7 +23,7 @@ export class TeamTemplateService {
     return this.unitOfWork.run(() => {
       const contractsJson = JSON.stringify(creativeMemberContracts);
       const revisionId = this.ids.next();
-      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '创建十五人创作团队', now });
+      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '创建二十五人创作团队', now });
       creativeMemberContracts.forEach((contract, index) => {
         this.repository.seedRole({ roleTemplateId: contract.roleTemplateId, roleKey: contract.roleKey, shortTitle: contract.shortTitle,
           category: contract.category, responsibilities: contract.responsibilities, capabilities: ['text'], activation: contract.defaultActivation, now });
@@ -86,7 +86,7 @@ export class TeamTemplateService {
     }
     const team = this.unitOfWork.run(() => {
       const revisionId = this.ids.next();
-      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '补齐十五人创作团队', now });
+      this.repository.insertBindingRevision(scope, { id: revisionId, version: this.repository.nextBindingVersion(scope), effectiveFrom: now, reason: '补齐二十五人创作团队', now });
       for (const contract of missing) {
         this.repository.seedRole({ roleTemplateId: contract.roleTemplateId, roleKey: contract.roleKey, shortTitle: contract.shortTitle,
           category: contract.category, responsibilities: contract.responsibilities, capabilities: ['text'], activation: contract.defaultActivation, now });

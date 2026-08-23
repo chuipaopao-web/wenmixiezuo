@@ -26,8 +26,9 @@ export class ModelBindingV2Service {
       const revisionId = this.ids.next();
       this.repository.insertBindingRevision(scope, { id: revisionId, version, effectiveFrom: now, reason, now });
       for (const agent of agents) {
+        if (!creativeRoleKeys.includes(agent.roleKey as CreativeRoleKey)) continue;
         const role = agent.roleKey as CreativeRoleKey;
-        const profile = profiles[role] ?? deterministicTeamProfile;
+        const profile = profiles[role];
         const snapshotId = this.ids.next();
         this.repository.insertModelSnapshot(scope, { id: snapshotId, ...profile, capabilities: ['text'], now });
         this.repository.insertBinding(scope, { id: this.ids.next(), revisionId, roleKey: role, agentId: agent.agentId, snapshotId,

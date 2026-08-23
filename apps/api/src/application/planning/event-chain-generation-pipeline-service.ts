@@ -538,7 +538,9 @@ function buildEventChainPrompt(
       '每个事件必须由上一事件结果和人物新状态触发；除最后一项外leadsToNext不能为空，最后一项必须为null。',
       'coverage必须逐项覆盖requiredCoverage中的稳定责任键；不能用同一个空泛事件假装覆盖全部责任。',
       'event节点只写事件级责任，不设计章节、场景、对白、具体意象或固定章数。',
-      '每个事件必须从availableStorylines选择一条主导故事线，可有辅助故事线；多线同时推进时必须写intersectionNote。过滤和展示不得改变因果顺序。',
+      brief.storylines.length === 0
+        ? '当前卷没有正式故事线：leadingStorylineId必须为null、supportingStorylineIds必须为空；事件可只承担本卷因果、人物关系或节奏责任，不得临时虚构故事线。'
+        : '每个事件必须从availableStorylines选择一条主导故事线，可有辅助故事线；多线同时推进时必须写intersectionNote。过滤和展示不得改变因果顺序。',
       '角色阶段只输出roleFunctions功能占位。除开书资料里已存在的主角外，不得在事件骨架中创造或填写任何具体人名。',
       '线索使用plantThreadIds、payoffThreadIds、consequenceThreadIds做跨事件串联；标识要稳定且语义清楚。',
       brief.planNumber === 1
@@ -566,7 +568,7 @@ function buildEventChainPrompt(
           stagePayoffOrCost: '这个事件兑现什么或付出什么代价',
           exitState: '事件结束后人物、关系和局面的新状态',
           leadsToNext: '新状态怎样自然触发下一事件；最后一个为null',
-          leadingStorylineId: 'availableStorylines中的主导故事线标识',
+          leadingStorylineId: brief.storylines.length === 0 ? '当前卷无故事线时必须为null' : 'availableStorylines中的主导故事线标识',
           supportingStorylineIds: ['availableStorylines中的辅助故事线标识；没有则空数组'],
           intersectionNote: '多线交汇时说明怎样相互影响；单线时为null',
           roleFunctions: [{ roleFunctionKey: '链内稳定功能标识', roleFunctionLabel: '只写功能，不写人名',

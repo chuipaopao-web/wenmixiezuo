@@ -351,13 +351,6 @@ export function VolumePlanningPanel({ bookId, onOpenSettings }: {
         </select>}
     </div>
 
-    <ol className="volume-workflow-strip" aria-label="当前卷流程">
-      <li className={selectedPlan !== null ? 'done' : 'current'}><b>1</b><span>建立当前卷</span></li>
-      <li className={versions.length > 0 ? 'done' : selectedPlan !== null ? 'current' : ''}><b>2</b><span>比较方案</span></li>
-      <li className={selectedPlan?.activeVersion ? 'done' : versions.length > 0 ? 'current' : ''}><b>3</b><span>确认卷规划</span></li>
-      <li className={selectedPlan?.activeVersion?.content.expressionPlan ? 'done' : selectedPlan?.activeVersion ? 'current' : ''}><b>4</b><span>确认表达方案</span></li>
-      <li className={selectedPlan?.activeVersion?.content.expressionPlan ? 'current' : ''}><b>5</b><span>继续拆事件</span></li>
-    </ol>
 
     {error !== null && <p className="inline-error" role="alert">{error}</p>}
     {settingPrerequisiteBlocked && <SettingPrerequisiteCard
@@ -634,13 +627,13 @@ function VolumePlanEditor({ value, onChange, onSave, busy, styleTones }: {
       </div>
     </details>}
     {(storySpine !== null || firstVolumeLaunch !== null) && <details className="volume-layer-editor first-volume-editor">
-      <summary><span>第一卷开局与全书故事总线</span><small>默认收起；只有需要调整时再展开。</small></summary>
+      <summary><span>第一卷开局与可选长期方向</span><small>默认收起；只有需要调整时再展开。</small></summary>
       <div className="volume-first-editor-body">
-        {storySpine !== null && <section><h5>全书软方向</h5><div className="volume-editor-grid">
+        {storySpine !== null && <section><h5>当前能看见的长期方向（可留空）</h5><div className="volume-editor-grid">
           <label><span>长期给读者什么满足</span><textarea rows={2} value={storySpine.longTermPromise} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, longTermPromise: event.target.value } })} /></label>
           <label><span>主角跨卷怎样变化</span><textarea rows={2} value={storySpine.protagonistLongArc} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, protagonistLongArc: event.target.value } })} /></label>
-          <label><span>贯穿全书的中心问题</span><textarea rows={2} value={storySpine.centralQuestion} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, centralQuestion: event.target.value } })} /></label>
-          <label><span>跨卷升级阶梯（每行一层）</span><textarea rows={3} value={storySpine.escalationLadder.join('\n')} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, escalationLadder: lines(event.target.value) } })} /></label>
+          <label><span>目前可见阶段的中心问题</span><textarea rows={2} value={storySpine.centralQuestion} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, centralQuestion: event.target.value } })} /></label>
+          <label><span>已想到的跨卷阶段（每行一层）</span><textarea rows={3} value={storySpine.escalationLadder.join('\n')} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, escalationLadder: lines(event.target.value) } })} /></label>
           <label><span>可选结局方向</span><textarea rows={2} value={storySpine.endingDirection ?? ''} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, endingDirection: event.target.value.trim() || null } })} /></label>
           <label><span>暂时保留的未知空间（每行一条）</span><textarea rows={3} value={storySpine.protectedOpenSpace.join('\n')} onChange={(event) => onChange({ ...value, storySpine: { ...storySpine, protectedOpenSpace: lines(event.target.value) } })} /></label>
         </div></section>}
@@ -710,7 +703,7 @@ function VolumeVersionCard({ version, active, busy, onPreview }: {
       <ol>{version.content.routeCard.escalationPath.map((step) => <li key={step}>{step}</li>)}</ol>
       <details><summary>这条路线的好处与风险</summary><div><b>好处</b><ul>{version.content.routeCard.benefits.map((item) => <li key={item}>{item}</li>)}</ul><b>风险</b><ul>{version.content.routeCard.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></details>
     </section>}
-    {(version.content.storySpine != null || version.content.firstVolumeLaunch != null) && <details className="first-volume-design"><summary>第一卷开局与全书故事总线</summary><div>{version.content.storySpine != null && <><b>全书长期承诺</b><p>{version.content.storySpine.longTermPromise}</p><b>主角长期变化</b><p>{version.content.storySpine.protagonistLongArc}</p><b>中心问题</b><p>{version.content.storySpine.centralQuestion}</p></>}{version.content.firstVolumeLaunch != null && <><b>前500字</b><p>{version.content.firstVolumeLaunch.first500.immediateSituation}；{version.content.firstVolumeLaunch.first500.emotionalGrip}；{version.content.firstVolumeLaunch.first500.readerQuestion}</p><b>首卷前三章责任</b><ol>{version.content.firstVolumeLaunch.goldenThree.map((chapter) => <li key={chapter.chapterNumber}>第{chapter.chapterNumber}章：{chapter.responsibility}；回报：{chapter.payoff}</li>)}</ol><b>重大高潮</b><p>最晚在累计 {version.content.firstVolumeLaunch.majorClimax.latestEffectiveCharacters.toLocaleString('zh-CN')} 有效字前：{version.content.firstVolumeLaunch.majorClimax.choice}；代价：{version.content.firstVolumeLaunch.majorClimax.cost}；变化：{version.content.firstVolumeLaunch.majorClimax.irreversibleChange}</p></>}</div></details>}
+    {(version.content.storySpine != null || version.content.firstVolumeLaunch != null) && <details className="first-volume-design"><summary>第一卷开局与可选长期方向</summary><div>{version.content.storySpine != null && <><b>当前长期承诺</b><p>{version.content.storySpine.longTermPromise}</p><b>目前想到的主角变化</b><p>{version.content.storySpine.protagonistLongArc}</p><b>中心问题</b><p>{version.content.storySpine.centralQuestion}</p></>}{version.content.firstVolumeLaunch != null && <><b>前500字</b><p>{version.content.firstVolumeLaunch.first500.immediateSituation}；{version.content.firstVolumeLaunch.first500.emotionalGrip}；{version.content.firstVolumeLaunch.first500.readerQuestion}</p><b>首卷前三章责任</b><ol>{version.content.firstVolumeLaunch.goldenThree.map((chapter) => <li key={chapter.chapterNumber}>第{chapter.chapterNumber}章：{chapter.responsibility}；回报：{chapter.payoff}</li>)}</ol><b>重大高潮</b><p>最晚在累计 {version.content.firstVolumeLaunch.majorClimax.latestEffectiveCharacters.toLocaleString('zh-CN')} 有效字前：{version.content.firstVolumeLaunch.majorClimax.choice}；代价：{version.content.firstVolumeLaunch.majorClimax.cost}；变化：{version.content.firstVolumeLaunch.majorClimax.irreversibleChange}</p></>}</div></details>}
     {version.content.fusionNotes != null && <div className="fusion-notes">
       <p><strong>爽点怎么兑现</strong>{version.content.fusionNotes.payoffDesign}</p>
       <p><strong>逻辑链怎么闭环</strong>{version.content.fusionNotes.logicChain}</p>

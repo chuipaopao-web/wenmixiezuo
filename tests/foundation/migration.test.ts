@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -71,9 +72,17 @@ describe('向前迁移器', () => {
         '0063_independent_admin_console.sql',
         '0064_setting_member_resilience.sql',
         '0065_v6_core_workflow.sql',
-        '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql'
+        '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql',
+        '0068_rolling_storyline_growth.sql'
       ]);
       expect(second.applied).toEqual([]);
+      expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'storyline_frontier_versions', 'storyline_open_questions_v6', 'storyline_growth_rounds_v6',
+        'storyline_growth_candidates_v6', 'storyline_growth_decisions_v6', 'creative_template_versions_v6',
+        'storyline_settlement_projection_receipts_v6'
+      ]));
+      const batchColumns = database.prepare("PRAGMA table_info('ai_node_batches_v6')").all() as Array<{ name: string }>;
+      expect(batchColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['template_version_id', 'template_hash']));
       expect(tables.map((row) => row.name)).toContain('worker_health');
       expect(tables.map((row) => row.name)).toContain('author_attachments');
       expect(tables.map((row) => row.name)).not.toContain('chat_attachments');
@@ -121,6 +130,55 @@ describe('向前迁移器', () => {
     } finally {
       database.close();
     }
+  });
+
+  it('0068保留正文、结算、调用审计哈希，并容忍历史账本重复记录', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0068_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    const digest = (table: string): string => createHash('sha256')
+      .update(JSON.stringify(database.prepare(`SELECT * FROM ${table} ORDER BY 1`).all())).digest('hex');
+    try {
+      runMigrations(database, migrationsDir);
+      database.exec('PRAGMA foreign_keys=OFF');
+      const now = '2026-08-23T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-hash', '迁移哈希作者', now, now);
+      database.prepare("INSERT INTO books (book_id,owner_id,title,status,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+        .run('book-hash', 'owner-hash', '迁移哈希书', now, now);
+      database.prepare(`INSERT INTO manuscript_versions (manuscript_version_id,owner_id,book_id,chapter_id,parent_version_id,
+        author_agent_id,model_provider,model_id,source_task_id,file_id,content_hash,word_count,status,created_at)
+        VALUES ('manuscript-hash','owner-hash','book-hash','chapter-hash',NULL,'agent-hash','manual','owner-edit',
+          'task-hash','file-hash',?,321,'canon',?)`).run('a'.repeat(64), now);
+      database.prepare(`INSERT INTO stage_settlements (stage_settlement_id,owner_id,book_id,stage_type,stage_key,version,
+        chapter_start,chapter_end,canon_revision,irreversible_results_json,entity_states_json,closed_threads_json,
+        open_threads_json,relationship_changes_json,knowledge_changes_json,resource_changes_json,rule_changes_json,
+        exclusions_json,status,created_at,activated_at) VALUES ('settlement-hash','owner-hash','book-hash','volume','volume-hash',
+          1,1,10,1,'["结果"]','{}','[]','[]','[]','[]','[]','[]','[]','active',?,?)`).run(now, now);
+      database.prepare(`INSERT INTO model_calls (request_id,owner_id,book_id,task_id,phase_key,agent_id,provider,model_id,
+        model_snapshot_id,input_hash,parameters_hash,context_pack_id,reservation_id,state,input_tokens,output_tokens,
+        cash_micros,duration_ms,result_reference,created_at) VALUES ('call-hash','owner-hash','book-hash','task-hash','draft',
+          'agent-hash','provider-hash','model-hash','snapshot-hash',?,?,'pack-hash','reservation-hash','succeeded',100,200,0,10,'result-hash',?)`)
+        .run('b'.repeat(64), 'c'.repeat(64), now);
+      const insertLedger = database.prepare(`INSERT INTO creative_ledger_entries (ledger_entry_id,owner_id,book_id,ledger_type,
+        truth_status,scope_type,scope_id,subject_key,entry_status,content_json,source_kind,source_version_id,created_at)
+        VALUES (?,'owner-hash','book-hash','storyline','actual','volume','volume-hash','line-hash','advanced','{"actual":"结果"}',
+          'volume_settlement','settlement-hash',?)`);
+      insertLedger.run('ledger-duplicate-a', now); insertLedger.run('ledger-duplicate-b', now);
+      const before = { manuscript: digest('manuscript_versions'), settlement: digest('stage_settlements'), calls: digest('model_calls') };
+
+      copyFileSync(resolve(sourceDir, '0068_rolling_storyline_growth.sql'), resolve(migrationsDir, '0068_rolling_storyline_growth.sql'));
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0068_rolling_storyline_growth.sql']);
+      expect({ manuscript: digest('manuscript_versions'), settlement: digest('stage_settlements'), calls: digest('model_calls') }).toEqual(before);
+      expect(database.prepare("SELECT COUNT(*) AS count FROM creative_ledger_entries WHERE subject_key='line-hash'").get()).toEqual({ count: 2 });
+      expect(database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='storyline_settlement_projection_receipts_v6'").get())
+        .toEqual({ name: 'storyline_settlement_projection_receipts_v6' });
+    } finally { database.close(); }
   });
 
   it('失败迁移完整回滚且不登记版本', () => {

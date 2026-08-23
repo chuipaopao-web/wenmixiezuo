@@ -59,7 +59,31 @@ function deterministicSettlementFollowUp(prompt: string): string | null {
   const range = isRecord(subject.chapterRange) ? subject.chapterRange : {};
   const start = typeof range.start === 'number' ? range.start : 1;
   const end = typeof range.end === 'number' ? range.end : start;
-  if (seat.mode === 'deputy_editor_summary') {
+  if (seat.mode === 'chief_editor_storyline_growth') {
+    const make = (summary: string, reason: string, question: string, risk: string, horizon: number) => ({
+      summary,
+      continuationReason: reason,
+      protagonistInvolvement: '主角刚刚公开承担责任，新获得的行动资格和关系代价都会逼他继续处理后果。',
+      coreQuestion: question,
+      pushesStorylineIds: [],
+      mayCreateStoryline: false,
+      inferences: ['以下是依据结算事实作出的下一段推断，尚未在正文发生。'],
+      unknowns: ['对手下一步的具体手段仍未确定', '盟友条件是否会升级仍需观察'],
+      misreadRisk: risk,
+      recommendedHorizonVolumes: horizon
+    });
+    return JSON.stringify({ candidates: [
+      { candidateKind: 'next_direction', storylineId: null, title: '追查反制来源',
+        content: make('下一卷先追查旧秩序维护者的反制来源，把本阶段获得的证据转化为主动调查。',
+          '结算确认对手已经开始正面反制，且仍有悬而未决的行动线索。', '主角能否在反制成形前锁定幕后推动者？', '如果反制只是局部善后，这个方向可能高估了幕后组织性。', 1) },
+      { candidateKind: 'next_direction', storylineId: null, title: '兑现盟友条件',
+        content: make('下一段从盟友提出的新条件切入，让阶段胜利的关系代价先兑现，再决定是否扩大冲突。',
+          '结算确认关键关系因公开担责而变化，未解决条件会直接影响行动资格。', '主角愿意用什么代价换取盟友继续同行？', '如果正文没有持续强化盟友条件，关系冲突可能显得突兀。', 2) },
+      { candidateKind: 'next_direction', storylineId: null, title: '继续观察一段',
+        content: make('暂不固定新故事线，先用下一事件观察反制与盟友条件哪一项真正形成持续压力。',
+          '当前只有一次阶段结算，证据足以提出方向但不足以确认长期线路。', '哪一个未解决压力会被人物行动连续推进？', '观察过久可能减弱下一卷目标感，需要保留一个短期可验证任务。', 1) }
+    ] });
+  }  if (seat.mode === 'deputy_editor_summary') {
     return JSON.stringify({
       summary: `《${title}》这段时间（第${start}到${end}章）里，主角把上一阶段的后果变成了新的行动资格，关键关系因为公开担责变得更牢，旧秩序的维护者开始正面反制；本阶段核心问题已经解决，但对手的新动作和盟友提出的条件还悬着，会直接影响下一阶段。（确定性假模型摘要，供本地与测试环境走通流程。）`
     });

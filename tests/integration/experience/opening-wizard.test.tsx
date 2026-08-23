@@ -205,7 +205,7 @@ describe('四步开书', () => {
     }));
   });
 
-  it('第3步可填开局、结局和自定义补充，随完整资料一起提交', async () => {
+  it('第3步只填开局也可完成，自定义补充随资料一起提交', async () => {
     const onCreate = vi.fn().mockResolvedValue(true);
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
@@ -220,17 +220,13 @@ describe('四步开书', () => {
     fireEvent.change(within(first).getByLabelText('家庭背景'), { target: { value: '旧城档案员家庭' } });
     fireEvent.click(within(first).getByRole('button', { name: '选择角色性格：冷静' }));
     fireEvent.change(screen.getByLabelText('开局'), { target: { value: '档案员收到一封迟到十年的信' } });
-    fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('开局和结局需要一起填写');
-    expect(onCreate).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('结局'), { target: { value: '找回城市真正的历史' } });
     fireEvent.change(screen.getByLabelText('自定义补充'), { target: { value: '想看重逢与和解的桥段' } });
     fireEvent.click(screen.getByRole('button', { name: '创建书籍' }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       openingBlueprint: expect.objectContaining({
         openingStart: '档案员收到一封迟到十年的信',
-        storyEnding: '找回城市真正的历史',
+        storyEnding: '',
         storyDirection: '想看重逢与和解的桥段'
       })
     }));

@@ -53,8 +53,8 @@
 - 模板推荐信号是按当前 `owner_id + book_id` 即时编译的非权威排序输入，来源限于开书资料、活动卷和最近真实卷结算，不写入正史。
 - `event_chapter_outlines`及版本表：当前事件章链、章节详细章纲、预计字数和上游版本引用。
 - ook_storyline_topology_versions、storylines/storyline_versions、storyline_relations、storyline_volume_participations：全书故事线拓扑、各线不可变版本、线间关系及逐卷参与责任。
-- character_cards/character_card_versions、character_storyline_links、vent_role_assignments：正式角色卡版本、角色与故事线关联及事件功能到角色的可追溯绑定。
-- creative_ledger_entries：故事线、关系/势力、时空资源、因果、伏笔和三级结算统一总账；	ruth_status=planned|actual 强制区分规划与真实发生。
+- `character_cards`/`character_card_versions`、`character_storyline_links`、`event_role_assignments`：正式角色卡版本、角色与故事线关联及事件功能到角色的可追溯绑定。
+- `creative_ledger_entries`：故事线、关系/势力、时空资源、因果、伏笔和三级结算统一总账；`truth_status=planned|actual` 强制区分规划与真实发生。`n- `storyline_frontier_versions`、`storyline_open_questions_v6`、`storyline_growth_rounds_v6`、`storyline_growth_candidates_v6`、`storyline_growth_decisions_v6`：作者最远节点、开放问题、提炼轮次、AI候选和作者决策的版本化增长记录。`n- `storyline_settlement_projection_receipts_v6`：卷/事件/章节结算投影的幂等收据；历史总账即使存在重复记录也不删除。
 - uthor_object_drafts、workflow_invalidations_v6、object_reopen_records、core_workflow_states_v6：作者草稿、上游变化影响、重开版本记录和五阶段状态。
 - internal_structure_method_scopes：内部结构方法到书/线/卷/事件/内容类型作用域的版本化映射；作者公开页面只接收白话标签。
 - 章纲挑战意见不是正式规划对象，不新增真相表；它随任务检查点、上下文包和模型调用保存，并冻结目标候选版本。作者主动修改或重新生成后，新的章纲版本才成为正式候选。
@@ -120,7 +120,7 @@
 | 作者页面 | V6 阶段键 | 保留的历史/关联键 | 主要正式对象 |
 |---|---|---|---|
 | 设定 | setting | basic / setting / book_profile | 开书资料、设定活动版本、候选与基线 |
-| 故事线 | storyline | topology / storyline | 故事线拓扑、故事线版本、关系与逐卷参与 |
+| 故事线 | storyline | topology（历史只读）/ storyline | 滚动故事线版本、事实推进、作者最远节点、开放问题、候选决策、关系与逐卷参与 |
 | 分卷 | volume | master / volume_plan | volume_plans及版本、表达方案与线路编排 |
 | 事件 | event | event | story_events、事件链、角色安排与事件大纲版本 |
 | 章节 | chapter | chapter_outline / manuscript | 章链、章纲、manuscript_versions、三席审查与结算 |

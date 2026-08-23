@@ -44,9 +44,7 @@ export class LegacyBookUpgradeService {
     for (const scope of books) {
       this.unitOfWork.run(() => {
         const existingCount = this.repository.currentTeamCount(scope);
-        if (existingCount !== 0 && existingCount > creativeRoleKeys.length) {
-          throw new Error(`书籍${scope.bookId}的创作团队人数超出当前编制：${existingCount}/${creativeRoleKeys.length}`);
-        }
+
         profilesCreated += this.ensureProfiles(scope);
         const legacyEnabled = this.repository.legacyEnabledCount(scope);
         const needsTopUp = existingCount > 0 && existingCount < creativeRoleKeys.length;
@@ -59,7 +57,7 @@ export class LegacyBookUpgradeService {
           const editor = team.find((member) => member.roleKey === 'chief_editor');
           const writer = team.find((member) => member.roleKey === 'lead_writer');
           if (editor === undefined || writer === undefined || team.length !== creativeRoleKeys.length) {
-            throw new Error(`书籍${scope.bookId}的十五人团队创建不完整`);
+            throw new Error(`书籍${scope.bookId}的二十五人团队创建不完整`);
           }
           const now = this.clock.now();
           legacyAgentsRetired += this.repository.finalizeTeamUpgrade(scope, {

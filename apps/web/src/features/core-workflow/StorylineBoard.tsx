@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, LinkSimpleIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react';
 import type { StorylineContent, StorylineView } from '@wenmi/contracts';
 
-export function StorylineBoard({ lines, busy, onAdd, onRelations, onView, onMove, onEdit, onAbandon }: {
+export function StorylineBoard({ lines, growthPanel, busy, onAdd, onRelations, onView, onMove, onEdit, onAbandon }: {
   lines: StorylineView[];
+  growthPanel?: ReactNode;
   busy: boolean;
   onAdd: () => void;
   onRelations: () => void;
@@ -52,6 +54,7 @@ export function StorylineBoard({ lines, busy, onAdd, onRelations, onView, onMove
         </article>;
       })}
     </div>
+    {growthPanel}
     <footer><span><i data-state="active" />推进中</span><span><i data-state="planned" />计划中</span><span><i data-state="pending" />待确认</span><span><b>交汇</b>两条故事线在这里互相影响</span></footer>
   </section>;
 }

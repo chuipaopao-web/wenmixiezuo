@@ -38,6 +38,34 @@ describe('不可变上下文包', () => {
       constraintStrength: 'hard_fact', truthStatus: 'confirmed', scopeType: 'book', dependencies: [] });
   });
 
+  it('把正文事实、作者规划、开放问题和AI候选分区，候选不能冒充硬事实', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const fixture = createKnowledgeFixture(context, ids, clock);
+    const pack = new ContextPackService(context.database, ids, clock).build(fixture.scope, {
+      taskId: fixture.taskId, agentId: fixture.agentId, chapterId: fixture.chapterId,
+      canonRevision: 0, positioningVersion: 1, tokenBudget: 500,
+      hardSources: [
+        { sourceType: 'volume_settlement', sourceId: 'settlement-v1', content: '主角公开承担了代价。', reason: '卷结算事实', priority: 100, truthStatus: 'actual' },
+        { sourceType: 'author_frontier', sourceId: 'frontier-v2', content: '作者目前只想到第十卷完成复仇。', reason: '作者确认边界', priority: 99, truthStatus: 'planned' },
+        { sourceType: 'storyline_growth_candidate', sourceId: 'candidate-v3', content: 'AI猜测下一卷转向朝堂。', reason: '尚未确认的候选', priority: 70, truthStatus: 'confirmed', constraintStrength: 'hard_fact' }
+      ],
+      optionalSources: [
+        { sourceType: 'storyline_open_question', sourceId: 'question-v1', content: '最终敌人是谁仍未知。', reason: '保留开放问题', priority: 80, truthStatus: 'confirmed' }
+      ]
+    });
+    const byId = new Map(pack.sources.map((source) => [source.sourceId, source]));
+    expect(byId.get('settlement-v1')).toMatchObject({ knowledgeZone: 'hard_fact', truthStatus: 'actual' });
+    expect(byId.get('frontier-v2')).toMatchObject({ knowledgeZone: 'author_plan', truthStatus: 'planned' });
+    expect(byId.get('question-v1')).toMatchObject({ knowledgeZone: 'open_question', constraintStrength: 'open_space' });
+    expect(byId.get('candidate-v3')).toMatchObject({ knowledgeZone: 'ai_candidate', constraintStrength: 'current_task' });
+    expect(byId.get('candidate-v3')?.constraintStrength).not.toBe('hard_fact');
+    const stored = context.database.prepare('SELECT source_manifest_json FROM context_packs WHERE context_pack_id=?')
+      .get(pack.contextPackId) as { source_manifest_json: string };
+    expect(new Set((JSON.parse(stored.source_manifest_json) as Array<{ knowledgeZone: string }>).map((item) => item.knowledgeZone)))
+      .toEqual(new Set(['hard_fact', 'author_plan', 'open_question', 'ai_candidate']));
+  });
   it('硬来源超预算时暂停而不是截断', () => {
     context = createTestContext();
     const ids = new SequenceIds();

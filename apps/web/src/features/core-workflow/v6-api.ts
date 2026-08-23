@@ -8,10 +8,13 @@ import type {
   EditorialRoleKey,
   EditorialRolePoolView,
   StorylineContent,
+  StorylineGrowthCandidateContent,
+  StorylineGrowthCandidateView,
+  StorylineFrontierView,
+  StorylineOpenQuestionView,
   StorylineLifecycleStatus,
   StorylineRelationView,
-  StorylineVolumeParticipationStatus,
-  StorylineTopologyContent
+  StorylineVolumeParticipationStatus
 } from '@wenmi/contracts';
 import { request } from '../../lib/api/client';
 
@@ -24,6 +27,7 @@ export interface ContextSourceInput {
   version?: number | string;
   constraintStrength?: 'hard_fact' | 'current_task' | 'soft_reference' | 'open_space';
   truthStatus?: 'planned' | 'confirmed' | 'actual';
+  knowledgeZone?: 'hard_fact' | 'author_plan' | 'open_question' | 'ai_candidate';
   scopeType?: 'book' | 'volume' | 'event' | 'chapter' | 'scene' | 'task';
   scopeId?: string;
   dependencies?: string[];
@@ -58,17 +62,6 @@ export function fetchCoreWorkflow(bookId: string, signal?: AbortSignal): Promise
 }
 
 
-export function saveTopology(bookId: string, content: StorylineTopologyContent): Promise<{ topologyVersionId: string }> {
-  return request(`${bookPath(bookId)}/core-workflow/storyline-topology/versions`, {
-    method: 'POST', body: JSON.stringify({ content })
-  });
-}
-
-export function confirmTopology(bookId: string, topologyVersionId: string, expectedActiveVersionId: string | null): Promise<{ confirmed: true }> {
-  return request(`${bookPath(bookId)}/core-workflow/storyline-topology/versions/${encodeURIComponent(topologyVersionId)}/confirm`, {
-    method: 'POST', body: JSON.stringify({ expectedActiveVersionId })
-  });
-}
 
 export function createStoryline(bookId: string, content: StorylineContent, sortOrder?: number): Promise<{ storylineId: string; versionId: string }> {
   return request(`${bookPath(bookId)}/core-workflow/storylines`, {
@@ -88,6 +81,47 @@ export function confirmStoryline(bookId: string, storylineId: string, versionId:
   });
 }
 
+export function saveStorylineFrontier(bookId: string, input: { storylineId?: string | null; summary: string;
+  targetVolumeNumber?: number | null; stageEnding?: string | null; fullBookEndingKnown?: boolean;
+  expectedActiveVersionId?: string | null; sourceVersionIds?: string[] }): Promise<StorylineFrontierView> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-frontier`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function addStorylineOpenQuestion(bookId: string, input: { storylineId?: string | null; question: string;
+  sourceVersionId?: string | null }): Promise<StorylineOpenQuestionView> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-open-questions`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function resolveStorylineOpenQuestion(bookId: string, openQuestionId: string, resolution: string): Promise<{ resolved: true }> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-open-questions/${encodeURIComponent(openQuestionId)}/resolve`, {
+    method: 'POST', body: JSON.stringify({ resolution })
+  });
+}
+
+export function createStorylineGrowthRound(bookId: string, input: { triggerKind: 'author_request' | 'event_settlement' | 'volume_settlement';
+  triggerObjectId: string; triggerVersionId: string; evidenceRefs: StorylineGrowthCandidateView['evidenceRefs'];
+  idempotencyKey: string }): Promise<{ growthRoundId: string }> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-growth-rounds`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function addStorylineGrowthCandidate(bookId: string, growthRoundId: string, input: {
+  candidateKind: StorylineGrowthCandidateView['candidateKind']; storylineId?: string | null; title: string;
+  content: StorylineGrowthCandidateContent; evidenceRefs: StorylineGrowthCandidateView['evidenceRefs'];
+  sourceBatchId?: string | null; sourceBatchMemberId?: string | null; basedOnVersionIds?: string[]
+}): Promise<StorylineGrowthCandidateView> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-growth-rounds/${encodeURIComponent(growthRoundId)}/candidates`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function decideStorylineGrowthCandidate(bookId: string, candidateId: string, input: {
+  decision: 'accepted' | 'rejected' | 'observing'; editedContent?: StorylineGrowthCandidateContent | null;
+  idempotencyKey: string; expectedStatus: 'candidate'
+}): Promise<{ decisionId: string; createdStorylineId: string | null; createdFrontierVersionId: string | null }> {
+  return request(`${bookPath(bookId)}/core-workflow/storyline-growth-candidates/${encodeURIComponent(candidateId)}/decision`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
 export function reorderStorylines(bookId: string, storylineIds: string[]): Promise<{ reordered: true }> {
   return request(`${bookPath(bookId)}/core-workflow/storylines/order`, {
     method: 'PUT', body: JSON.stringify({ storylineIds })
@@ -109,6 +143,12 @@ export function createCharacterCard(bookId: string, input: { characterKind: Char
   return request(`${bookPath(bookId)}/core-workflow/characters`, { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function updateCharacterCard(bookId: string, characterId: string, input: { content: CharacterCardContent;
+  expectedActiveVersionId: string; sourceOpeningVersion?: number | null }): Promise<{ versionId: string; version: number }> {
+  return request(`${bookPath(bookId)}/core-workflow/characters/${encodeURIComponent(characterId)}/versions`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
 export function upsertEventRoleAssignment(bookId: string, input: { eventChainVersionId: string; eventNodeId: string;
   roleFunctionKey: string; roleFunctionLabel: string; requirement: Record<string, unknown>;
   assignedCharacterId?: string | null }): Promise<{ assignmentId: string }> {

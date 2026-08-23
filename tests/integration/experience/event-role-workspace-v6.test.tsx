@@ -65,8 +65,7 @@ it('按事件功能绑定已有角色，并把作者输入的新名字创建为�
 
 function coreView(characters: Array<Record<string, unknown>>, assignments: Array<Record<string, unknown>>): Record<string, unknown> {
   return {
-    contractVersion: 1, stage: 'event', stateVersion: 4, blockingReason: null,
-    topology: { active: null, candidates: [] }, relations: [], volumeParticipations: [],
+    contractVersion: 1, stage: 'event', stateVersion: 4, blockingReason: null, relations: [], volumeParticipations: [],
     storylines: [{ storylineId: 'line-main', sortOrder: 1, lifecycleStatus: 'active', activeVersionId: 'line-main-v1',
       activeVersion: { storylineVersionId: 'line-main-v1', version: 1, status: 'active', baseVersion: 0,
         parentVersionId: null, sourceVersionIds: [], authorInputRefs: [],

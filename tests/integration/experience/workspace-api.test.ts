@@ -24,7 +24,7 @@ describe('工作台API', () => {
     app = await createServer(context.config, context.database, { trustedTest: true });
     const teamTemplateResponse = await app.inject({ method: 'GET', url: '/api/v1/team-template' });
     expect(teamTemplateResponse.statusCode).toBe(200);
-    expect(teamTemplateResponse.json().data.members).toHaveLength(15);
+    expect(teamTemplateResponse.json().data.members).toHaveLength(25);
     expect(teamTemplateResponse.json().data.members[0]).toEqual(expect.objectContaining({
       memberName: '貂蝉',
       shortTitle: '主编',
@@ -41,7 +41,7 @@ describe('工作台API', () => {
       book: { bookId: book.bookId, title: '工作台接口书' },
       confirmations: { count: 0 }
     });
-    expect(workspaceResponse.json().data.agents).toHaveLength(15);
+    expect(workspaceResponse.json().data.agents).toHaveLength(25);
     expect(workspaceResponse.json().data).toMatchObject({
       volumes: [],
       localAssistant: expect.objectContaining({ displayName: '小文秘书', status: 'ready' })
@@ -125,13 +125,13 @@ describe('工作台API', () => {
     ]));
     const bindingsResponse = await app.inject({ method: 'GET', url: `/api/v1/books/${book.bookId}/model-bindings` });
     expect(bindingsResponse.statusCode).toBe(200);
-    expect(bindingsResponse.json().data.active).toHaveLength(15);
+    expect(bindingsResponse.json().data.active).toHaveLength(25);
     const profiles = Object.fromEntries(bindingsResponse.json().data.active.map((binding: Record<string, unknown>) => [binding.roleKey, {
       provider: binding.provider, modelId: binding.modelId, plan: binding.plan
     }]));
     const previewResponse = await app.inject({ method: 'POST', url: `/api/v1/books/${book.bookId}/model-bindings/preview`, payload: { profiles } });
     expect(previewResponse.statusCode).toBe(200);
-    expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 15 });
+    expect(previewResponse.json().data).toMatchObject({ valid: true, futureTasksOnly: true, roleCount: 25 });
 
     const retiredMessageEndpoint = await app.inject({
       method: 'POST', url: `/api/v1/books/${book.bookId}/messages`, payload: { content: '写1章' }

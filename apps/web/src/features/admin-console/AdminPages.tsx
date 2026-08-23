@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowClockwise, Check, FloppyDisk, MagnifyingGlass, X } from '@phosphor-icons/react';
 import type { AuthAccountData } from '../../lib/api/client';
 import {
-  archivePromptOverride, fetchAdminUsersPage, fetchDashboard, fetchIssues, fetchMembershipStats,
+  activateCreativeTemplateVersion, addAdminAiMember, archivePromptOverride, createCreativeTemplateVersion, fetchAdminUsersPage, fetchAiGovernance, fetchDashboard, fetchIssues, fetchMembershipStats,
   fetchMembershipUsers, fetchModelScheme, fetchNarrativeMethods, fetchPromptCall, fetchPromptCalls,
-  fetchPromptCatalog, fetchRuntimeSystemPrompt, fetchUsage, grantMembership, revokeMembership,
-  saveModelScheme, saveNarrativeMethod, savePromptOverride, setAdminUserStatus, updateIssue,
-  type AdminDashboardData, type AdminIssue, type AdminMembershipUser, type AdminModelScheme,
-  type AdminSection, type AdminUsageData, type AdminUser, type MembershipStats, type NarrativeMethod,
+  fetchPromptCatalog, fetchRuntimeSystemPrompt, fetchUsage, fetchUserOperations, grantMembership, revokeMembership,
+  saveModelScheme, saveNarrativeMethod, savePromptOverride, setAdminUserStatus, setCreativeTemplateRollout, updateAdminAiMember, updateIssue,
+  type AdminAiGovernanceData, type AdminDashboardData, type AdminIssue, type AdminMembershipUser, type AdminModelScheme,
+  type AdminSection, type AdminUsageData, type AdminUser, type AdminUserOperationsData, type MembershipStats, type NarrativeMethod,
   type NarrativeMethodContent, type PromptCall, type PromptCatalogData
 } from './admin-api';
 
@@ -46,6 +46,7 @@ function DashboardPage({ onError }: PageProps): React.JSX.Element {
       <Metric label="活跃会员" value={formatInteger(data.overview.activeMembers)} />
       <Metric label="今日算力消耗" value={formatCompute(data.overview.computeToday)} />
     </section>
+
     <div className="admin-dashboard-grid">
       <section className="admin-panel admin-trend-panel">
         <header><div><h2>近7日成本与算力</h2><p>深色柱为算力，绿色线点为真实API现金成本。</p></div><span>{formatCny(data.trend.reduce((sum, item) => sum + item.cashMicros, 0))}</span></header>
@@ -79,41 +80,77 @@ function DashboardPage({ onError }: PageProps): React.JSX.Element {
         </ResponsiveTable>
       </DataSection>
     </div>
+    {data.business !== undefined && <>
+      <section className="admin-metrics compact admin-business-metrics" aria-label="经营转化指标">
+        <Metric label="累计注册普通用户" value={formatInteger(data.business.registeredUsers)} />
+        <Metric label="累计付费普通用户" value={formatInteger(data.business.cumulativePaidUsers)} />
+        <Metric label="累计付费率" value={formatRate(data.business.cumulativePaidRate)} />
+        <Metric label="近30天首付费率" value={formatRate(data.business.firstPaidRate30d)} />
+        <Metric label="活跃付费用户" value={formatInteger(data.business.activePaidUsers)} />
+        <Metric label="已记录会员收入" value={formatCny(data.business.recordedMembershipRevenueCashMicros)} />
+      </section>
+      <p className="admin-definition-note">{data.business.definitions.revenue}</p>
+    </>}
   </div>;
 }
 
 function UsersPage({ currentUser, searchSeed, onError }: PageProps & { currentUser: AuthAccountData; searchSeed: string }): React.JSX.Element {
   const [query, setQuery] = useState(searchSeed);
   const [status, setStatus] = useState('');
+  const [auditDay, setAuditDay] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date()));
   const [data, setData] = useState<{ items: AdminUser[]; total: number } | null>(null);
+  const [operations, setOperations] = useState<AdminUserOperationsData | null>(null);
   const [selected, setSelected] = useState<AdminUser | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (searchSeed) setQuery(searchSeed); }, [searchSeed]);
   const load = useCallback(async (signal?: AbortSignal) => {
-    try { setData(await fetchAdminUsersPage(query, status, signal)); onError(null); } catch (reason) { if (!signal?.aborted) onError(errorText(reason)); }
-  }, [query, status, onError]);
+    try {
+      const [users, nextOperations] = await Promise.all([fetchAdminUsersPage(query, status, signal), fetchUserOperations(auditDay, signal)]);
+      setData(users); setOperations(nextOperations); onError(null);
+    } catch (reason) { if (!signal?.aborted) onError(errorText(reason)); }
+  }, [query, status, auditDay, onError]);
   useEffect(() => { const controller = new AbortController(); const timer = window.setTimeout(() => void load(controller.signal), 180); return () => { window.clearTimeout(timer); controller.abort(); }; }, [load]);
   const toggle = async (user: AdminUser): Promise<void> => {
     setBusy(true);
     try { await setAdminUserStatus(user.userId, user.status === 'active' ? 'suspended' : 'active'); await load(); setSelected(null); }
     catch (reason) { onError(errorText(reason)); } finally { setBusy(false); }
   };
+  const selectedOperation = selected === null ? null : operations?.items.find((item) => item.userId === selected.userId) ?? null;
   return <div className="admin-page">
-    <PageHeading title="用户管理" description="搜索账号、查看注册与登录时间，暂停账号会立即撤销旧会话。" />
-    <FilterBar query={query} onQuery={setQuery} queryLabel="搜索昵称或邮箱" status={status} onStatus={setStatus} options={[['', '全部状态'], ['active', '正常使用'], ['suspended', '已暂停']]} />
+    <PageHeading title="用户管理" description="搜索账号、查看注册与最后活动，暂停账号会立即撤销旧会话。" />
+    <FilterBar query={query} onQuery={setQuery} queryLabel="搜索昵称或邮箱" status={status} onStatus={setStatus} options={[['', '全部状态'], ['active', '正常使用'], ['suspended', '已暂停']]} extra={<label className="admin-audit-day">任务日期<input aria-label="任务审计日期" type="date" value={auditDay} onChange={(event) => setAuditDay(event.target.value)} /></label>} />
     <DataSection title={`${data?.total ?? 0} 个账号`} description="密码、盐值和会话令牌永远不在后台接口中返回。">
-      <ResponsiveTable columns={['用户', '角色', '状态', '注册时间', '最后登录', '']} empty="没有找到符合条件的用户">
+      <ResponsiveTable columns={['用户', '角色', '状态', '注册时间', '最后活动', '']} empty="没有找到符合条件的用户">
         {data?.items.map((user) => <tr key={user.userId} onClick={() => setSelected(user)} className="clickable">
-          <td data-label="用户"><strong>{user.displayName}</strong><small>{user.email}</small></td>
+          <td data-label="用户"><strong>{user.displayName}</strong><small>{user.email}</small>{operations?.items.find((item) => item.userId === user.userId) !== undefined && <small>{operations.items.find((item) => item.userId === user.userId)!.bookCount} 本书 · 今日 {operations.items.find((item) => item.userId === user.userId)!.today.taskCount} 个任务{operations.items.find((item) => item.userId === user.userId)!.today.failed ? ` · ${operations.items.find((item) => item.userId === user.userId)!.today.failureCount} 个失败` : ''}</small>}</td>
           <td data-label="角色">{user.role === 'admin' ? '管理员' : '普通用户'}</td>
           <td data-label="状态"><StatusText value={user.status === 'active' ? '正常' : '已暂停'} tone={user.status === 'active' ? 'success' : 'danger'} /></td>
-          <td data-label="注册时间">{formatDateTime(user.createdAt)}</td><td data-label="最后登录">{formatDateTime(user.lastLoginAt)}</td>
+          <td data-label="注册时间">{formatDateTime(user.createdAt)}</td><td data-label="最后活动">{formatDateTime(operations?.items.find((item) => item.userId === user.userId)?.lastActivityAt ?? user.lastLoginAt)}</td>
           <td><button type="button" className="row-action" onClick={(event) => { event.stopPropagation(); setSelected(user); }}>管理</button></td>
         </tr>)}
       </ResponsiveTable>
     </DataSection>
     {selected !== null && <DetailDrawer title="用户详情" onClose={() => setSelected(null)}>
-      <DetailList items={[['昵称', selected.displayName], ['邮箱', selected.email], ['身份', selected.role === 'admin' ? '管理员' : '普通用户'], ['当前状态', selected.status === 'active' ? '正常使用' : '已暂停'], ['注册时间', formatDateTime(selected.createdAt)], ['最后登录', formatDateTime(selected.lastLoginAt)]]} />
+      <DetailList items={[['昵称', selected.displayName], ['邮箱', selected.email], ['身份', selected.role === 'admin' ? '管理员' : '普通用户'], ['当前状态', selected.status === 'active' ? '正常使用' : '已暂停'], ['注册时间', formatDateTime(selected.createdAt)], ['最后活动', formatDateTime(selectedOperation?.lastActivityAt ?? selected.lastLoginAt)]]} />
+      {selectedOperation !== null && <>
+        <DetailList items={[['书籍总数', String(selectedOperation.bookCount)], ['活跃 / 归档', `${selectedOperation.activeBookCount} / ${selectedOperation.archivedBookCount}`],
+          ['今日任务', String(selectedOperation.today.taskCount)], ['今日失败', selectedOperation.today.failed ? `${selectedOperation.today.failureCount} 个` : '没有失败'], ['统计时区', operations?.timezone ?? 'Asia/Shanghai']]} />
+        <section className="drawer-copy"><h3>用户书籍</h3>
+          <ResponsiveTable columns={['书籍', '阶段', '当前位置', '最近任务']} empty="这个用户还没有创建书籍">
+            {selectedOperation.books.map((book) => <tr key={book.bookId}><td data-label="书籍"><strong>{book.title}</strong><small>{book.status}</small></td>
+              <td data-label="阶段">{book.workflowStage}</td><td data-label="当前位置">卷 {book.currentVolume ?? '—'} · 事件 {book.currentEvent ?? '—'} · 章 {book.currentChapter ?? '—'}</td>
+              <td data-label="最近任务"><strong>{book.latestTaskStatus ?? '无'}</strong><small>{formatDateTime(book.latestManuscriptAt ?? book.latestSettlementAt)}</small></td></tr>)}
+          </ResponsiveTable>
+        </section>
+        <section className="drawer-copy"><h3>今日失败位置</h3>
+          <ResponsiveTable columns={['书籍 / 页面', '任务 / 节点', '失败席', '错误 / 恢复键']} empty="今天没有任务失败">
+            {selectedOperation.failures.map((failure) => <tr key={failure.taskId}><td data-label="书籍 / 页面"><strong>{failure.bookTitle}</strong><small>{failure.frontEndPage}</small></td>
+              <td data-label="任务 / 节点"><strong>{failure.taskType}</strong><small>{failure.workflowNode}</small></td>
+              <td data-label="失败席">{failure.failedSeats.map((seat) => `${seat.memberName}（${seat.roleKey}）`).join('、') || failure.memberName || '任务级失败'}<small>已保留 {failure.retainedResults} 份结果</small></td>
+              <td data-label="错误 / 恢复键"><strong>{failure.errorSummary}</strong><small>{failure.recoveryKey}</small></td></tr>)}
+          </ResponsiveTable>
+        </section>
+      </>}
       <div className="drawer-actions"><button type="button" className={selected.status === 'active' ? 'danger-button' : 'primary'} disabled={busy || selected.userId === currentUser.userId} onClick={() => void toggle(selected)}>{selected.userId === currentUser.userId ? '当前账号不可暂停' : selected.status === 'active' ? '暂停账号并撤销会话' : '恢复账号'}</button></div>
     </DetailDrawer>}
   </div>;
@@ -222,14 +259,54 @@ function IssuesPage({ searchSeed, onError }: PageProps & { searchSeed: string })
 
 function TemplatesPage({ onError }: PageProps): React.JSX.Element {
   const [items, setItems] = useState<NarrativeMethod[]>([]);
+  const [governance, setGovernance] = useState<AdminAiGovernanceData | null>(null);
   const [selected, setSelected] = useState<NarrativeMethod | null>(null);
   const [draft, setDraft] = useState<NarrativeMethodContent | null>(null);
   const [enabled, setEnabled] = useState(true);
+  const [memberEditor, setMemberEditor] = useState<AdminAiGovernanceData['actualMembers'][number] | null>(null);
+  const [memberDraft, setMemberDraft] = useState({ enabled: true, supplierCompany: '', provider: '', modelId: '', costTier: 'medium' });
+  const [newMember, setNewMember] = useState({ bookId: '', roleKey: 'screenwriter', displayName: '', supplierCompany: '', provider: '', modelId: '', costTier: 'medium' });
+  const [templateEditor, setTemplateEditor] = useState<AdminAiGovernanceData['templates'][number] | null>(null);
+  const [templateDraft, setTemplateDraft] = useState({ targetObject: '', schema: '{}', promptContract: '{}', rolloutPercent: 100 });
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async (signal?: AbortSignal) => { try { setItems((await fetchNarrativeMethods(signal)).items); onError(null); } catch (reason) { if (!signal?.aborted) onError(errorText(reason)); } }, [onError]);
+  const governanceBooks = governance?.books ?? [];
+  const load = useCallback(async (signal?: AbortSignal) => { try {
+    const [methods, nextGovernance] = await Promise.all([fetchNarrativeMethods(signal), fetchAiGovernance(signal)]);
+    setItems(methods.items); setGovernance(nextGovernance); onError(null);
+  } catch (reason) { if (!signal?.aborted) onError(errorText(reason)); } }, [onError]);
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
   const open = (method: NarrativeMethod): void => { setSelected(method); setDraft(structuredClone(method.content)); setEnabled(method.enabled); };
   const save = async (): Promise<void> => { if (selected === null || draft === null) return; setBusy(true); try { await saveNarrativeMethod(selected.methodKey, draft, enabled); await load(); setSelected(null); } catch (reason) { onError(errorText(reason)); } finally { setBusy(false); } };
+  const openMember = (member: AdminAiGovernanceData['actualMembers'][number]): void => {
+    setMemberEditor(member); setMemberDraft({ enabled: member.enabled === 1, supplierCompany: member.supplierCompany,
+      provider: member.provider, modelId: member.modelId, costTier: member.costTier });
+  };
+  const saveMember = async (): Promise<void> => { if (memberEditor === null) return; setBusy(true); try {
+    await updateAdminAiMember(memberEditor.bookId, memberEditor.agentId, memberDraft); await load(); setMemberEditor(null);
+  } catch (reason) { onError(errorText(reason)); } finally { setBusy(false); } };
+  const addMember = async (): Promise<void> => {
+    const bookId = newMember.bookId || governanceBooks[0]?.bookId || ''; if (!bookId) return;
+    setBusy(true); try { await addAdminAiMember(bookId, { roleKey: newMember.roleKey, displayName: newMember.displayName, provider: newMember.provider,
+      modelId: newMember.modelId, supplierCompany: newMember.supplierCompany, costTier: newMember.costTier }); await load();
+      setNewMember((current) => ({ ...current, displayName: '', supplierCompany: '', provider: '', modelId: '' }));
+    } catch (reason) { onError(errorText(reason)); } finally { setBusy(false); }
+  };
+  const openTemplate = (template: AdminAiGovernanceData['templates'][number]): void => {
+    setTemplateEditor(template); setTemplateDraft({ targetObject: template.targetObject,
+      schema: JSON.stringify(JSON.parse(template.schemaJson), null, 2),
+      promptContract: JSON.stringify(JSON.parse(template.promptContractJson), null, 2), rolloutPercent: template.rolloutPercent });
+  };
+  const saveTemplateVersion = async (): Promise<void> => { if (templateEditor === null) return; setBusy(true); try {
+    const schema = JSON.parse(templateDraft.schema) as unknown; const promptContract = JSON.parse(templateDraft.promptContract) as unknown;
+    if (!isPlainRecord(schema) || !isPlainRecord(promptContract)) throw new Error('Schema 和提示合同必须是 JSON 对象');
+    await createCreativeTemplateVersion(templateEditor.templateKey, { targetObject: templateDraft.targetObject, schema, promptContract,
+      rolloutPercent: templateDraft.rolloutPercent }); await load(); setTemplateEditor(null);
+  } catch (reason) { onError(errorText(reason)); } finally { setBusy(false); } };
+  const applyTemplate = async (mode: 'activate' | 'rollout'): Promise<void> => { if (templateEditor === null) return; setBusy(true); try {
+    if (mode === 'activate') await activateCreativeTemplateVersion(templateEditor.templateVersionId, templateDraft.rolloutPercent);
+    else await setCreativeTemplateRollout(templateEditor.templateVersionId, templateDraft.rolloutPercent);
+    await load(); setTemplateEditor(null);
+  } catch (reason) { onError(errorText(reason)); } finally { setBusy(false); } };
   return <div className="admin-page">
     <PageHeading title="创作模板与叙事方法" description="专业方法只在后台作为AI软工具；作者端仍只看到代入本书的具体故事路线。" />
     <DataSection title={`${items.length} 种内部方法`} description="修改会创建新版本并只影响未来卷方案，历史方案保留原方法版本。">
@@ -237,6 +314,56 @@ function TemplatesPage({ onError }: PageProps): React.JSX.Element {
         {items.map((method) => <tr key={method.methodKey}><td data-label="方法"><strong>{method.content.internalLabel}</strong><small>{method.methodKey}</small></td><td data-label="类别">{methodCategoryLabel(method.category)}</td><td data-label="适合题材">{method.content.fitGenres.slice(0, 4).join('、')}</td><td data-label="版本">{method.activeOverrideVersion === null ? method.builtInVersion : `管理版 ${method.activeOverrideVersion}`}</td><td data-label="状态"><StatusText value={method.enabled ? '启用' : '停用'} tone={method.enabled ? 'success' : 'normal'} /></td><td><button type="button" className="row-action" onClick={() => open(method)}>编辑</button></td></tr>)}
       </ResponsiveTable>
     </DataSection>
+    {governance !== null && <>
+      <section className="admin-metrics compact"><Metric label="岗位类别" value={`${governance.roleCategoryCount} 类`} /><Metric label="初始成员" value={`${governance.initialMemberCount} 名`} />
+        <Metric label="已登记 Skill" value={String(governance.codeSkills.length)} /><Metric label="模板版本" value={String(governance.templates.length)} />
+        {governance.storylineQuality !== undefined && <><Metric label="故事线候选采纳率" value={formatRate(governance.storylineQuality.adoptionRate)} />
+          <Metric label="继续观察选择率" value={formatRate(governance.storylineQuality.continueObservingRate)} />
+          <Metric label="重复候选率" value={formatRate(governance.storylineQuality.duplicateRate)} />
+          <Metric label="无证据候选率" value={formatRate(governance.storylineQuality.noEvidenceRate)} /></>}</section>
+      <DataSection title="核心、岗位与节点 Skill" description="25 名成员共享 7 类岗位 Skill；任务冻结具体版本和哈希，后台只展示安全可读内容。">
+        <ResponsiveTable columns={['Skill', '层级 / 适用范围', '版本 / 哈希', '状态与内容']} empty="尚未登记 Skill">
+          {governance.codeSkills.map((skill) => <tr key={skill.skillVersionId}><td data-label="Skill"><strong>{skill.skillVersionId}</strong></td>
+            <td data-label="层级 / 适用范围">{skill.layer}<small>{skill.roleKey ?? skill.nodeKind ?? '全局'}</small></td>
+            <td data-label="版本 / 哈希">v{skill.version}<small>{skill.contentHash.slice(0, 16)}…</small></td>
+            <td data-label="状态与内容"><StatusText value="代码当前版" tone="success" /><details className="admin-inline-detail"><summary>查看安全内容</summary><pre>{JSON.stringify(skill.content, null, 2)}</pre></details></td></tr>)}
+        </ResponsiveTable>
+      </DataSection>
+      <DataSection title="结构化创作模板" description="模板 schema、提示合同、灰度比例和哈希按版本保存；只影响以后启动的任务。">
+        <ResponsiveTable columns={['模板', '目标节点', '版本 / 灰度', '状态 / 哈希', '']} empty="模板会在对应节点首次使用时登记">
+          {governance.templates.map((template) => <tr key={template.templateVersionId}><td data-label="模板"><strong>{template.templateKey}</strong><small>{template.templateVersionId}</small></td>
+            <td data-label="目标节点">{template.targetObject}</td><td data-label="版本 / 灰度">v{template.version} · {template.rolloutPercent}%</td>
+            <td data-label="状态 / 哈希"><StatusText value={template.status} tone={template.status === 'active' ? 'success' : 'normal'} /><small>{template.contentHash.slice(0, 16)}…</small></td>
+            <td><button type="button" className="row-action" onClick={() => openTemplate(template)}>管理</button></td></tr>)}
+        </ResponsiveTable>
+      </DataSection>
+      <DataSection title="AI 成员与内部绑定" description="作者端不显示模型；后台可核对并管理每本书的成员、供应商、模型、消耗等级和最近任务状态。">
+        <ResponsiveTable columns={['书籍 / 成员', '岗位', '供应公司 / 模型', '消耗 / 状态', '']} empty="还没有实际书籍成员">
+          {governance.actualMembers.slice(0, 100).map((member) => <tr key={`${member.bookId}:${member.agentId}`}><td data-label="书籍 / 成员"><strong>{member.displayName}</strong><small>{member.bookTitle}</small></td>
+            <td data-label="岗位">{member.roleKey}</td><td data-label="供应公司 / 模型"><strong>{member.supplierCompany}</strong><small>{member.provider} / {member.modelId}</small></td>
+            <td data-label="消耗 / 状态">{member.costTier}<small>{member.enabled === 1 ? member.latestTaskStatus ?? '空闲' : '停用'}</small></td>
+            <td><button type="button" className="row-action" onClick={() => openMember(member)}>管理</button></td></tr>)}
+        </ResponsiveTable>
+        <details className="admin-governance-create"><summary>新增第 26 名及更多成员</summary>
+          <div className="admin-inline-form-grid">
+            <label>书籍<select value={newMember.bookId || governanceBooks[0]?.bookId || ''} onChange={(event) => setNewMember({ ...newMember, bookId: event.target.value })}>{governanceBooks.map((book) => <option value={book.bookId} key={book.bookId}>{book.title}</option>)}</select></label>
+            <label>岗位<select value={newMember.roleKey} onChange={(event) => setNewMember({ ...newMember, roleKey: event.target.value })}>{[['chief_editor','主编'],['deputy_editor','副编'],['screenwriter','编剧'],['writer','主笔'],['fact_reviewer','事实审查席'],['literary_reviewer','文学审查席'],['experience_reviewer','体验审查席']].map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+            <label>成员姓名<input value={newMember.displayName} onChange={(event) => setNewMember({ ...newMember, displayName: event.target.value })} /></label>
+            <label>供应公司<input value={newMember.supplierCompany} onChange={(event) => setNewMember({ ...newMember, supplierCompany: event.target.value })} /></label>
+            <label>内部供应商<input value={newMember.provider} onChange={(event) => setNewMember({ ...newMember, provider: event.target.value })} /></label>
+            <label>内部模型<input value={newMember.modelId} onChange={(event) => setNewMember({ ...newMember, modelId: event.target.value })} /></label>
+            <label>消耗等级<select value={newMember.costTier} onChange={(event) => setNewMember({ ...newMember, costTier: event.target.value })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+          </div><button type="button" className="primary admin-inline-save" disabled={busy || !newMember.displayName || !newMember.supplierCompany || !newMember.provider || !newMember.modelId || governanceBooks.length === 0} onClick={() => void addMember()}>{busy ? '正在新增…' : '新增成员'}</button>
+        </details>
+      </DataSection>
+      <DataSection title="近期批次公平性" description="同批次 ContextPack 哈希必须唯一；成员模型签名必须相互独立，Skill 与模板快照固定。">
+        <ResponsiveTable columns={['书籍 / 节点', '成员', '同包', '模板 / 状态']} empty="还没有 AI 节点批次">
+          {governance.batches.map((batch) => <tr key={batch.batchId}><td data-label="书籍 / 节点"><strong>{batch.bookTitle}</strong><small>{batch.nodeKind}</small></td>
+            <td data-label="成员">{batch.members}</td><td data-label="同包"><StatusText value={batch.distinctContextHashes <= 1 ? '通过' : '异常'} tone={batch.distinctContextHashes <= 1 ? 'success' : 'danger'} /><small>{batch.contextPackHash.slice(0, 12)}…</small></td>
+            <td data-label="模板 / 状态"><strong>{batch.templateVersionId ?? batch.templateVersion}</strong><small>{batch.status}</small></td></tr>)}
+        </ResponsiveTable>
+      </DataSection>
+    </>}
     {selected !== null && draft !== null && <DetailDrawer title="编辑叙事方法" wide onClose={() => setSelected(null)}>
       <label className="drawer-field">内部名称<input value={draft.internalLabel} onChange={(event) => setDraft({ ...draft, internalLabel: event.target.value })} /></label>
       <ArrayTextarea label="适合解决的问题" value={draft.suitableProblems} onChange={(value) => setDraft({ ...draft, suitableProblems: value })} />
@@ -248,9 +375,28 @@ function TemplatesPage({ onError }: PageProps): React.JSX.Element {
       <label className="admin-check"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />允许未来卷方案使用这个方法</label>
       <div className="drawer-actions"><button type="button" className="primary" disabled={busy} onClick={() => void save()}>{busy ? '正在保存…' : '保存为新版本'}</button></div>
     </DetailDrawer>}
+    {memberEditor !== null && <DetailDrawer title={`管理 ${memberEditor.displayName}`} onClose={() => setMemberEditor(null)}>
+      <DetailList items={[['书籍', memberEditor.bookTitle], ['岗位', memberEditor.roleKey], ['最近任务', memberEditor.latestTaskStatus ?? '空闲'], ['生效边界', '只影响以后启动的任务']]} />
+      <label className="admin-check"><input type="checkbox" checked={memberDraft.enabled} onChange={(event) => setMemberDraft({ ...memberDraft, enabled: event.target.checked })} />允许新任务选择这名成员</label>
+      <label className="drawer-field">供应公司<input value={memberDraft.supplierCompany} onChange={(event) => setMemberDraft({ ...memberDraft, supplierCompany: event.target.value })} /></label>
+      <label className="drawer-field">内部供应商<input value={memberDraft.provider} onChange={(event) => setMemberDraft({ ...memberDraft, provider: event.target.value })} /></label>
+      <label className="drawer-field">内部模型<input value={memberDraft.modelId} onChange={(event) => setMemberDraft({ ...memberDraft, modelId: event.target.value })} /></label>
+      <label className="drawer-field">消耗等级<select value={memberDraft.costTier} onChange={(event) => setMemberDraft({ ...memberDraft, costTier: event.target.value })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+      <p className="drawer-hint">改绑不会修改在途任务和历史调用；它们继续使用任务开始时冻结的成员、模型、Skill、模板和资料包。</p>
+      <div className="drawer-actions"><button type="button" className="primary" disabled={busy} onClick={() => void saveMember()}>{busy ? '正在保存…' : '保存成员配置'}</button></div>
+    </DetailDrawer>}
+    {templateEditor !== null && <DetailDrawer title={`管理模板 ${templateEditor.templateKey}`} wide onClose={() => setTemplateEditor(null)}>
+      <DetailList items={[['当前版本', `v${templateEditor.version}`], ['状态', templateEditor.status], ['内容哈希', templateEditor.contentHash], ['生效边界', '只影响以后启动的新任务']]} />
+      <label className="drawer-field">目标节点<input value={templateDraft.targetObject} onChange={(event) => setTemplateDraft({ ...templateDraft, targetObject: event.target.value })} /></label>
+      <label className="drawer-field">Schema JSON<textarea className="prompt-editor" value={templateDraft.schema} onChange={(event) => setTemplateDraft({ ...templateDraft, schema: event.target.value })} /></label>
+      <label className="drawer-field">提示合同 JSON<textarea className="prompt-editor" value={templateDraft.promptContract} onChange={(event) => setTemplateDraft({ ...templateDraft, promptContract: event.target.value })} /></label>
+      <label className="drawer-field">新任务灰度比例（0—100）<input type="number" min="0" max="100" step="1" value={templateDraft.rolloutPercent} onChange={(event) => setTemplateDraft({ ...templateDraft, rolloutPercent: Number(event.target.value) })} /></label>
+      <div className="drawer-actions split"><button type="button" className="primary" disabled={busy} onClick={() => void saveTemplateVersion()}>{busy ? '正在保存…' : '保存为新版本'}</button>
+        {templateEditor.status === 'active' ? <button type="button" disabled={busy} onClick={() => void applyTemplate('rollout')}>只调整灰度</button>
+          : <button type="button" disabled={busy} onClick={() => void applyTemplate('activate')}>回滚启用此版</button>}</div>
+    </DetailDrawer>}
   </div>;
 }
-
 function PromptsPage({ onError }: PageProps): React.JSX.Element {
   const [catalog, setCatalog] = useState<PromptCatalogData | null>(null);
   const [calls, setCalls] = useState<PromptCall[]>([]);
@@ -365,11 +511,12 @@ function DetailList({ items }: { items: Array<[string, string]> }): React.JSX.El
 function PageLoading({ label }: { label: string }): React.JSX.Element { return <div className="admin-page-state"><span className="admin-spinner" />{label}</div>; }
 function PageEmpty({ title, action, onAction }: { title: string; action: string; onAction: () => void }): React.JSX.Element { return <div className="admin-page-state"><strong>{title}</strong><button type="button" onClick={onAction}>{action}</button></div>; }
 function SearchInput({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }): React.JSX.Element { return <label className="admin-search"><MagnifyingGlass /><input aria-label={placeholder} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>; }
-function FilterBar({ query, onQuery, queryLabel, status, onStatus, options }: { query: string; onQuery: (value: string) => void; queryLabel: string; status: string; onStatus: (value: string) => void; options: Array<[string, string]> }): React.JSX.Element { return <div className="admin-filter-bar"><SearchInput value={query} onChange={onQuery} placeholder={queryLabel} /><select aria-label="筛选状态" value={status} onChange={(event) => onStatus(event.target.value)}>{options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>; }
+function FilterBar({ query, onQuery, queryLabel, status, onStatus, options, extra }: { query: string; onQuery: (value: string) => void; queryLabel: string; status: string; onStatus: (value: string) => void; options: Array<[string, string]>; extra?: React.ReactNode }): React.JSX.Element { return <div className="admin-filter-bar"><SearchInput value={query} onChange={onQuery} placeholder={queryLabel} /><select aria-label="筛选状态" value={status} onChange={(event) => onStatus(event.target.value)}>{options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{extra}</div>; }
 function StatusText({ value, tone }: { value: string; tone: 'success' | 'danger' | 'normal' }): React.JSX.Element { return <span className={`admin-status-text ${tone}`}>{value}</span>; }
 function ArrayTextarea({ label, value, onChange }: { label: string; value: string[]; onChange: (value: string[]) => void }): React.JSX.Element { return <label className="drawer-field">{label}<textarea value={value.join('\n')} onChange={(event) => onChange(event.target.value.split('\n').map((item) => item.trim()).filter(Boolean))} /></label>; }
 function UsageBars({ rows, mode }: { rows: AdminUsageData['daily']; mode: 'compute' | 'api' }): React.JSX.Element { const ordered = [...rows].reverse(); const values = ordered.map((row) => mode === 'compute' ? row.tokens * 2 : row.cashMicros ?? 0); const peak = Math.max(...values, 1); return <div className="admin-usage-bars">{ordered.map((row, index) => <div key={row.day}><span>{row.day.slice(5)}</span><i><b style={{ width: `${Math.max(1, values[index]! / peak * 100)}%` }} /></i><strong>{mode === 'compute' ? formatCompute(values[index]!) : formatCny(values[index]!)}</strong></div>)}</div>; }
 
+function formatRate(value: number | null): string { return value === null ? '—' : `${(value * 100).toFixed(1)}%`; }
 function formatCny(micros: number): string { return `¥${(Number(micros || 0) / 1_000_000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
 function formatCompute(value: number): string { if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(2)}亿`; if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`; return formatInteger(value); }
 function formatToken(value: number): string { if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`; if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`; return formatInteger(value); }
@@ -381,6 +528,7 @@ function issueStatusLabel(value: string): string { return ({ open: '待处理', 
 function severityLabel(value: string): string { return ({ low: '低', medium: '中', high: '高', critical: '紧急' } as Record<string, string>)[value] ?? value; }
 function methodCategoryLabel(value: string): string { return ({ macro: '宏观结构', character_arc: '人物成长', causal_principle: '因果推进', serial_rhythm: '连载节奏', narration: '叙述方式' } as Record<string, string>)[value] ?? value; }
 function memberName(catalog: PromptCatalogData, roleKey: string): string { const member = catalog.members.find((item) => item.roleKey === roleKey); return member === undefined ? roleKey : `${member.memberName}（${member.shortTitle}）`; }
+function isPlainRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function objectPath(value: Record<string, unknown>, path: string): string { return path.split('.').reduce<unknown>((current, key) => current !== null && typeof current === 'object' ? (current as Record<string, unknown>)[key] : '', value) as string || ''; }
 function errorText(reason: unknown): string {
   if (reason === null || typeof reason !== 'object') return '后台请求没有成功';

@@ -738,7 +738,7 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
             <button className="membership-close" type="button" aria-label="关闭欢迎说明" onClick={() => setNoticeDismissed(true)}><XIcon /></button>
             <div className="brand-mark" aria-hidden="true">文</div>
             <h2>欢迎来到文秘写作（内测版）</h2>
-            <p>这是一个 AI 团队陪您写长篇小说的工具：您出想法、做取舍，11 位 AI 成员分工完成设定、大纲、正文，每一步都由您拍板。</p>
+            <p>这是一个 AI 团队陪您写长篇小说的工具：您出想法、做取舍，7 类岗位、初始 25 名 AI 成员分工完成设定、大纲、正文，每一步都由您拍板。</p>
             <p>当前为内测阶段，使用中遇到问题欢迎反馈，我们会持续优化。</p>
             <p className="membership-contact">使用需要算力：添加管理员微信 <strong>595341366</strong> 开通会员即可开始创作。</p>
             <p className="membership-gate-hint">管理员开通后会自动解除限制；如已开通，点击下方刷新立即生效。</p>

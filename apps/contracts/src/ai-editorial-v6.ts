@@ -61,7 +61,7 @@ export interface AiNodeBatchView {
   contextPackHash: string;
   authorInputVersion: number;
   authorInputIncluded: boolean;
-  skillVersions: { core: string; role: string; nodeProtocol: string; template: string };
+  skillVersions: { core: string; role: string; nodeProtocol: string; template: string; templateVersionId: string | null; templateHash: string | null };
   sourceVersionIds: string[];
   cost: AiNodeCostEstimate;
   progress: { completed: number; failed: number; total: number; percent: number };

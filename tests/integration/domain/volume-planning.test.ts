@@ -89,6 +89,8 @@ describe('版本化卷规划', () => {
     });
     expect(normalized.volumeDirectionVersionId).toBe('active-direction-version');
     expect(normalized.events[0]?.firstVolumeResponsibilities).not.toContain('major_choice');
+    const zeroStorylineChain = parseEventChainModelOutput(JSON.stringify({ eventChain: eventChainContent('active-direction-version', directionCoverageKeys(direction)) }), 1, direction, { directionVersionId: 'active-direction-version' });
+    expect(zeroStorylineChain.events[0]).toMatchObject({ leadingStorylineId: null, supportingStorylineIds: [], intersectionNote: null }); // 零故事线卷的事件链保持线路字段为空
     (candidate.events[0]!.firstVolumeResponsibilities as string[]).push('invented-responsibility');
     expect(() => parseEventChainModelOutput(JSON.stringify({ eventChain: candidate }), 1, direction, {
       normalizeMisplacedFirstVolumeResponsibilities: true
