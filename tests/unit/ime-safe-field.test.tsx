@@ -18,6 +18,11 @@ function TextareaHarness({ maxChars }: { maxChars: number }): React.JSX.Element 
 }
 
 describe('输入法安全限长（拼音落定前不占字数）', () => {
+  it('向页面暴露实际字数上限，便于表单与验收读取', () => {
+    render(<TextareaHarness maxChars={800} />);
+    expect(screen.getByLabelText('测试文本')).toHaveAttribute('data-max-chars', '800');
+  });
+
   it('输入拼音字母过程中不截断，选词落定后才按字数截断', () => {
     render(<InputHarness maxChars={4} />);
     const input = screen.getByLabelText('测试输入');

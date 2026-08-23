@@ -38,7 +38,7 @@ type ImeTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value
 
 export function ImeTextarea({ maxChars, value, onChange, ...rest }: ImeTextareaProps): React.JSX.Element {
   const handlers = useImeLimit(maxChars, onChange);
-  return <textarea {...rest} value={value} {...handlers} />;
+  return <textarea {...rest} data-max-chars={maxChars} value={value} {...handlers} />;
 }
 
 type ImeInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'maxLength'> & {
@@ -49,5 +49,5 @@ type ImeInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onCh
 
 export function ImeInput({ maxChars, value, onChange, ...rest }: ImeInputProps): React.JSX.Element {
   const handlers = useImeLimit(maxChars, onChange);
-  return <input {...rest} value={value} {...handlers} />;
+  return <input {...rest} data-max-chars={maxChars} value={value} {...handlers} />;
 }
