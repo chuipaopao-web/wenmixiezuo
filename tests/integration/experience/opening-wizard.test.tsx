@@ -52,6 +52,31 @@ afterEach(() => {
 });
 
 describe('三步开书', () => {
+  it('新建书籍首步不展示草稿书名，并用长示例引导但允许短想法提交', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({
+      schemaVersion: 5,
+      step: 1,
+      creationMode: 'new',
+      openingIdea: '宗门杂役逆袭',
+      designMethod: null,
+      openingDesignIdempotencyKey: null,
+      openingDesignStatus: 'idle',
+      title: '不该出现在首步底栏的草稿书名',
+      updatedAt: '2026-08-24T00:00:00.000Z'
+    }));
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+
+    const idea = screen.getByLabelText('开书思路');
+    const example = idea.getAttribute('placeholder')?.replace(/^例如：/u, '') ?? '';
+    expect(Array.from(example).length).toBeGreaterThanOrEqual(100);
+    expect(screen.getByText(/短想法也可以提交/u)).toBeInTheDocument();
+    expect(screen.queryByText('不该出现在首步底栏的草稿书名')).not.toBeInTheDocument();
+    expect(screen.getByText('第1/3步 · 创作方式')).toBeInTheDocument();
+
+    const aiDesign = screen.getByRole('button', { name: 'AI团队设计' });
+    await waitFor(() => expect(aiDesign).toBeEnabled());
+  });
+
   it('旧书修改沿用四步表单，保留高级资料并只保存一个不可变新版本', async () => {
     const onUpdate = vi.fn().mockResolvedValue(true);
     const openingBlueprint = {
@@ -115,7 +140,10 @@ describe('三步开书', () => {
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={onCreate} />);
 
     expect(screen.getByRole('navigation', { name: '开书步骤' })).toBeInTheDocument();
-    expect(screen.getByLabelText('开书思路')).toBeInTheDocument();
+    const openingIdea = screen.getByLabelText('开书思路');
+    expect(openingIdea).toBeInTheDocument();
+    fireEvent.change(openingIdea, { target: { value: '想'.repeat(801) } });
+    expect(openingIdea).toHaveValue('想'.repeat(800));
     expect(screen.queryByLabelText('书名')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
 
@@ -160,13 +188,14 @@ describe('三步开书', () => {
     api.startPrebookOpeningDesign.mockImplementation(() => new Promise((resolve) => { finishDesign = resolve; }));
     render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn().mockResolvedValue(true)} />);
 
-    fireEvent.change(screen.getByLabelText('开书思路'), {
-      target: { value: '张丞穿越到平行世界，靠重新创作经典故事进入文娱行业。' }
-    });
+    const shortIdea = '宗门杂役逆袭';
+    expect(Array.from(shortIdea).length).toBeLessThan(100);
+    fireEvent.change(screen.getByLabelText('开书思路'), { target: { value: shortIdea } });
     const aiDesign = screen.getByRole('button', { name: 'AI团队设计' });
     await waitFor(() => expect(aiDesign).toBeEnabled());
     fireEvent.click(aiDesign);
     expect(await screen.findByText('主编貂蝉正在设计开书信息')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '第2步：写什么题材' })).toBeDisabled();
     expect(screen.queryByLabelText('书名')).not.toBeInTheDocument();
 
     finishDesign?.({
@@ -190,6 +219,7 @@ describe('三步开书', () => {
     });
 
     expect(await screen.findByLabelText('书名')).toHaveValue('旧梦新声');
+    expect(screen.getByRole('button', { name: '第2步：写什么题材' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: '第3步：边界与角色' }));
     expect(screen.getByLabelText('时代背景')).toHaveValue('近现代平行都市，大众文化产业出现断层。');
     expect(screen.getByLabelText('角色背景')).toHaveValue('从原世界穿越而来的内容编辑。');
@@ -209,6 +239,22 @@ describe('三步开书', () => {
     expect(screen.getByLabelText('开书思路')).toHaveValue(idea);
     fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
     expect(await screen.findByLabelText('书名')).toBeInTheDocument();
+  });
+
+  it('开书信息中的长文本输入统一限制为800字', async () => {
+    render(<CompleteCreateBookDialog busy={false} onCancel={() => undefined} onCreate={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '自己设计' }));
+    fireEvent.change(await screen.findByLabelText('书名'), { target: { value: '八百字边界' } });
+    fireEvent.click(screen.getByRole('radio', { name: '女频' }));
+    fireEvent.click(await screen.findByRole('button', { name: '选择作品分类：悬疑恋爱' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+
+    const longText = '长'.repeat(801);
+    for (const label of ['时代背景', '角色背景', '家庭背景', '职业背景', '金手指', '自定义必须遵守', '开局', '结局', '故事方向']) {
+      const field = screen.getByLabelText(label);
+      fireEvent.change(field, { target: { value: longText } });
+      expect(field).toHaveValue('长'.repeat(800));
+    }
   });
 
   it('第2步标签库展示全部泳道词条，已选标签带出同组搭配推荐', async () => {

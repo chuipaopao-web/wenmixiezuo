@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { CheckCircleIcon, LockKeyIcon, MapTrifoldIcon, PencilLineIcon } from '@phosphor-icons/react';
-import type { CharacterCardContent, CharacterCardView, CoreWorkflowStage, CoreWorkflowV6View } from '@wenmi/contracts';
+import type { CoreWorkflowStage } from '@wenmi/contracts';
 import { bookDisplayTitle } from '../../app/display-labels';
 import {
   fetchBookProfile,
@@ -15,8 +15,8 @@ import { SettingCatalog } from '../planning/SettingCatalog';
 import { VolumePlanningPanel } from '../planning/VolumePlanningPanel';
 import { EventPlanningPanel } from '../planning/EventPlanningPanel';
 import { EventChapterPlanningPanel } from '../planning/EventChapterPlanningPanel';
-import { V6Dialog, V6Drawer, V6EmptyState, V6PageHeader } from './V6Shared';
-import { fetchCoreWorkflow, setCoreWorkflowStage, updateCharacterCard } from './v6-api';
+import { V6Drawer, V6EmptyState, V6PageHeader } from './V6Shared';
+import { fetchCoreWorkflow, setCoreWorkflowStage } from './v6-api';
 import { StorylineWorkspace } from './StorylineWorkspace';
 import { VolumeLineOrchestration } from './VolumeLineOrchestration';
 import { EventRoleWorkspace } from './EventRoleWorkspace';
@@ -102,20 +102,15 @@ function SettingStage({ bookId, workspace, onChanged, onNext }: {
 }): React.JSX.Element {
   const [profile, setProfile] = useState<BookProfileViewData | null>(null);
   const [planningState, setPlanningState] = useState<PlanningStateData | null>(null);
-  const [core, setCore] = useState<CoreWorkflowV6View | null>(null);
-  const [characterEditor, setCharacterEditor] = useState<CharacterCardView | null>(null);
-  const [characterSaving, setCharacterSaving] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const loadProfile = useCallback(async (signal?: AbortSignal) => setProfile(await fetchBookProfile(bookId, signal)), [bookId]);
   const loadPlanningState = useCallback(async (signal?: AbortSignal) => setPlanningState(await fetchPlanningState(bookId, signal)), [bookId]);
-  const loadCore = useCallback(async (signal?: AbortSignal) => setCore(await fetchCoreWorkflow(bookId, signal)), [bookId]);
   useEffect(() => {
     const controller = new AbortController();
-    void Promise.all([loadProfile(controller.signal), loadPlanningState(controller.signal), loadCore(controller.signal)]).catch(() => undefined);
+    void Promise.all([loadProfile(controller.signal), loadPlanningState(controller.signal)]).catch(() => undefined);
     return () => controller.abort();
-  }, [loadCore, loadPlanningState, loadProfile]);
-  const protagonistCards = core?.characters.filter((item) => item.characterKind === 'protagonist' && item.content !== null) ?? [];
+  }, [loadPlanningState, loadProfile]);
   const openingSummary = profile === null ? '' : openingProfileSummary(profile);
   const openingRows = profile === null ? [] : openingProfileRows(profile);
   return <section className="v6-page v6-setting-page">
@@ -123,23 +118,12 @@ function SettingStage({ bookId, workspace, onChanged, onNext }: {
       <summary><span><CheckCircleIcon weight="fill" /><strong>开书资料</strong><small>{openingSummary}</small></span><em>展开 / 收起</em></summary>
       <div><header><div><h3>{bookDisplayTitle(profile.title)}</h3>{profile.openingBlueprint.openingIdea?.trim() && <p>{profile.openingBlueprint.openingIdea.trim()}</p>}</div><button type="button" className="v6-quiet-button" onClick={() => setProfileOpen(true)}><PencilLineIcon />修改开书资料</button></header>
         {openingRows.length > 0 && <dl>{openingRows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>}
-        {protagonistCards.length > 0 && <div className="v6-profile-card-actions" aria-label="人物卡编辑">{protagonistCards.map((item, index) => <button type="button" className="v6-inline-text-button" key={item.characterId}
-          onClick={() => setCharacterEditor(item)}>编辑{profile.protagonists[index]?.name || '人物'}卡</button>)}</div>}
       </div>
     </details>}
     <section className="v6-setting-library-heading"><div><span>完整设定库</span><h2>选择本书真正需要的设定</h2><p>推荐项不会替您勾选；核心必要项与可选宏观项分开呈现。</p></div><span><LockKeyIcon />确认前只进入临时资料包，不写入正史</span></section>
     <div className="v6-embedded-panel"><SettingCatalog bookId={bookId} workspace={workspace} planningState={planningState}
       onPlanningStateChanged={async () => { await loadPlanningState(); await onChanged(); }} onOpenVolumes={onNext} /></div>
-    {characterEditor !== null && characterEditor.content !== null && <ProtagonistCardEditor card={characterEditor} busy={characterSaving}
-      onClose={() => setCharacterEditor(null)} onSave={async (content) => {
-        if (characterEditor.activeVersionId === null) return;
-        setCharacterSaving(true);
-        try {
-          await updateCharacterCard(bookId, characterEditor.characterId, { content,
-            expectedActiveVersionId: characterEditor.activeVersionId, sourceOpeningVersion: characterEditor.content?.sourceOpeningVersion ?? null });
-          await loadCore(); setCharacterEditor(null); await onChanged();
-        } finally { setCharacterSaving(false); }
-      }} />}    {profileOpen && profile !== null && <CompleteCreateBookDialog initialProfile={profile} busy={profileSaving} onCancel={() => setProfileOpen(false)}
+    {profileOpen && profile !== null && <CompleteCreateBookDialog initialProfile={profile} busy={profileSaving} onCancel={() => setProfileOpen(false)}
       onUpdate={async (input) => {
         setProfileSaving(true);
         try { const updated = await updateBookProfile(bookId, input); setProfile(updated); setProfileOpen(false); await onChanged(); return true; }
@@ -193,26 +177,4 @@ function protagonistRoleLabel(role: string): string {
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim() ?? '').filter(Boolean))];
-}
-
-function ProtagonistCardEditor({ card, busy, onClose, onSave }: {
-  card: CharacterCardView; busy: boolean; onClose: () => void; onSave: (content: CharacterCardContent) => Promise<void>;
-}): React.JSX.Element {
-  const [content, setContent] = useState(card.content!);
-  const [traits, setTraits] = useState((card.content?.personalityTraits ?? []).join('、'));
-  const [boundaries, setBoundaries] = useState(card.content?.boundaries.join('\n') ?? '');
-  const split = (value: string): string[] => value.split(/[、,，;；\n\r]+/u).map((item) => item.trim()).filter(Boolean);
-  return <V6Dialog title={`编辑${content.name}的人物卡`} onClose={onClose}>
-    <div className="v6-field-grid v6-protagonist-card-form">
-      <label><span>姓名</span><input value={content.name} onChange={(event) => setContent({ ...content, name: event.target.value })} /></label>
-      <label><span>身份</span><input value={content.roleSummary} onChange={(event) => setContent({ ...content, roleSummary: event.target.value })} /></label>
-      <label className="wide"><span>核心目标</span><textarea rows={2} value={content.desire} onChange={(event) => setContent({ ...content, desire: event.target.value })} /></label>
-      <label className="wide"><span>当前处境</span><textarea rows={2} value={content.currentState} onChange={(event) => setContent({ ...content, currentState: event.target.value })} /></label>
-      <label className="wide"><span>主角性格（用顿号分隔）</span><textarea rows={2} value={traits} onChange={(event) => setTraits(event.target.value)} /></label>
-      <label className="wide"><span>人物边界（每行一条）</span><textarea rows={3} value={boundaries} onChange={(event) => setBoundaries(event.target.value)} /></label>
-    </div>
-    <footer><button type="button" className="v6-quiet-button" onClick={onClose}>取消</button><button type="button" className="v6-primary-button"
-      disabled={busy || content.name.trim() === '' || content.roleSummary.trim() === '' || content.desire.trim() === '' || content.currentState.trim() === ''}
-      onClick={() => void onSave({ ...content, personalityTraits: split(traits), boundaries: split(boundaries) })}>{busy ? '正在保存…' : '保存人物卡新版本'}</button></footer>
-  </V6Dialog>;
 }

@@ -651,8 +651,8 @@ export function SettingCollaborationPanel({
       </details>}
 
       {(candidateReady || selfWriting) && !revisionRunning && <section className="setting-candidate-editor">
-        <header><div><small>{candidateReady ? '主编编辑稿' : '自己写一份'}</small><strong>{candidateReady ? '可直接修改，也可以让主编按修改稿再整理一次' : '直接写出本项设定'}</strong></div><span>{hasPendingCandidate ? '确认后才替换现有定稿，旧稿留在历史版本里' : '确认前只属于本项临时编辑稿'}</span></header>
-        <ImeTextarea aria-label="待确认设定内容" rows={10} maxChars={20_000} value={draft} disabled={revisionRunning} onChange={(value) => { setDraft(value); setDraftEdited(true); }} />
+        <header><div><small>{candidateReady ? '主编编辑稿' : '自己写一份'}</small><strong>{candidateReady ? '可直接修改，也可以让主编按修改稿再整理一次' : '直接写出本项设定'}</strong></div><span>{hasPendingCandidate ? '确认后才替换现有定稿，旧稿留在历史版本里' : '确认前只属于本项临时编辑稿'} · {draft.length}/800</span></header>
+        <ImeTextarea aria-label="待确认设定内容" rows={10} maxChars={800} value={draft} disabled={revisionRunning} onChange={(value) => { setDraft(value); setDraftEdited(true); }} />
         <div className="setting-candidate-actions">
           {selfWriting && !candidateReady && <button type="button" disabled={busy !== null} onClick={() => setSelfWriting(false)}>收起</button>}
           <button type="button" disabled={busy !== null || revisionRunning || draft.trim().length === 0} onClick={() => void saveCandidate('候选待确认')}>{busy === '候选待确认' ? '正在保存…' : '保存修改'}</button>

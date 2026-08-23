@@ -121,7 +121,7 @@ describe('完整开书分类与资料合同', () => {
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), auxiliaryTags: ['不存在的题材'] })).toThrow('自定义标签');
     expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyTraits: ['不存在的特点'] })).toThrow('自定义标签');
     expect(validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '' }).storyDirection).toBe('');
-    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '长'.repeat(301) })).toThrow('不能超过300');
+    expect(() => validateOpeningBlueprint({ ...validBlueprint(), storyDirection: '长'.repeat(801) })).toThrow('不能超过800');
     expect(validateOpeningBlueprint({ ...validBlueprint(), targetAudience: ' ' }).targetAudience).toBe('');
     expect(() => validateOpeningBlueprint({
       ...validBlueprint(),
@@ -159,8 +159,8 @@ describe('完整开书分类与资料合同', () => {
     const withArc = { ...blueprint, openingStart: '主角穿越异界成为平民', storyEnding: '登基称帝' };
     expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '不存在' })).toThrow('主基调不在当前目录');
     expect(() => validateOpeningBlueprint({ ...withArc, stylePrimary: '爽', styleSecondary: '爽' })).toThrow('副基调不能与主基调相同');
-    expect(() => validateOpeningBlueprint({ ...withArc, openingStart: '长'.repeat(301) })).toThrow('不能超过300');
-    expect(() => validateOpeningBlueprint({ ...withArc, storyEnding: '长'.repeat(301) })).toThrow('不能超过300');
+    expect(() => validateOpeningBlueprint({ ...withArc, openingStart: '长'.repeat(801) })).toThrow('不能超过800');
+    expect(() => validateOpeningBlueprint({ ...withArc, storyEnding: '长'.repeat(801) })).toThrow('不能超过800');
   });
 
   it('新合同只保留一个分类，题材可跨包组合且最多5个', () => {

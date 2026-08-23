@@ -212,12 +212,14 @@ describe('设定页内协作', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '自己写一份' }));
     const editor = screen.getByRole('textbox', { name: '待确认设定内容' });
-    fireEvent.change(editor, { target: { value: '作者暂存的自写内容。' } });
+    fireEvent.change(editor, { target: { value: '设'.repeat(801) } });
+    expect(editor).toHaveValue('设'.repeat(800));
+    expect(screen.getByText(/800\/800/u)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '收起自己写一份' }));
     expect(screen.queryByRole('textbox', { name: '待确认设定内容' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '自己写一份' }));
-    expect(screen.getByRole('textbox', { name: '待确认设定内容' })).toHaveValue('作者暂存的自写内容。');
+    expect(screen.getByRole('textbox', { name: '待确认设定内容' })).toHaveValue('设'.repeat(800));
     fireEvent.click(screen.getByRole('button', { name: '先留白，以后再定' }));
     expect(screen.queryByRole('textbox', { name: '待确认设定内容' })).not.toBeInTheDocument();
     const blankPanel = screen.getByRole('group', { name: '先留白，以后再定' });

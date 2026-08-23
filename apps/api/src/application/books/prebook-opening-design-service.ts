@@ -297,6 +297,7 @@ export function buildPrebookOpeningPrompt(idea: string): string {
       `书名不超过${BOOK_TITLE_MAX_CHARACTERS}个汉字，要有题材信号和辨识度，不直接模仿已知作品名。`,
       '时代背景要说清年代或朝代、社会环境，以及历史、架空、高武或现代等性质。角色背景要说清原来身份、来源、到达地点与当前身份。',
       '开局必须同时包含主角处境、触发事件和眼前危机，足以支持前三章；故事方向要说明持续看点、成长线和主要矛盾，但不要提前设计完整设定、第一卷事件或章节。',
+      '开局、故事方向和结局分别不超过800字，优先写清有效信息，不用凑字数。',
       '结局只是可修改方向，不是不可变正史。作者没有提出禁区时，mustFollow返回["无额外限制"]，不得替作者创造限制。',
       '字段之间必须一致。不要输出备选方案、讨论过程、解释、Markdown、模型术语或内部思考。',
       '只输出一个JSON对象，严格使用outputSchema里的字段。'
@@ -371,11 +372,11 @@ function normalizeDesign(value: unknown): PrebookOpeningDesignData {
   const allowedTraits = new Set(OPENING_TAXONOMY.storyTraits);
   const storyTraits = uniqueTexts(value.storyTraits, 8, 40).filter((item) => allowedTraits.has(item));
   const protagonists = normalizeProtagonists(value.protagonists, channel);
-  const worldBackground = requiredText(value.worldBackground, '时代背景', 2_000, 8);
-  const openingStart = requiredText(value.openingStart, '开局', 300, 4);
-  const storyDirection = requiredText(value.storyDirection, '故事方向', 300, 8);
-  const storyEnding = requiredText(value.storyEnding, '结局', 300, 2);
-  const openingBackground = text(value.openingBackground, 2_000) || openingStart;
+  const worldBackground = requiredText(value.worldBackground, '时代背景', 800, 8);
+  const openingStart = requiredText(value.openingStart, '开局', 800, 4);
+  const storyDirection = requiredText(value.storyDirection, '故事方向', 800, 8);
+  const storyEnding = requiredText(value.storyEnding, '结局', 800, 2);
+  const openingBackground = text(value.openingBackground, 800) || openingStart;
   const mustFollow = uniqueTexts(value.mustFollow, 15, 500);
   return {
     title,
@@ -408,8 +409,8 @@ function normalizeProtagonists(value: unknown, channel: OpeningChannel): Opening
     const role = validRoles.has(requestedRole)
       ? requestedRole
       : channel === 'male' ? 'male_lead' : 'female_lead';
-    const background = requiredText(raw.background, `第${index + 1}位主角背景`, 2_000, 4);
-    const familyBackground = text(raw.familyBackground, 2_000) || background;
+    const background = requiredText(raw.background, `第${index + 1}位主角背景`, 800, 4);
+    const familyBackground = text(raw.familyBackground, 800) || background;
     const age = text(raw.age, 20).replace(/[^0-9]/gu, '').slice(0, 5);
     if (age.length === 0) throw new Error(`第${index + 1}位主角年龄必须是数字`);
     const personalities = uniqueTexts(raw.personalities, 6, 40);
@@ -420,8 +421,8 @@ function normalizeProtagonists(value: unknown, channel: OpeningChannel): Opening
       age,
       background,
       familyBackground,
-      careerBackground: text(raw.careerBackground, 2_000),
-      goldenFinger: text(raw.goldenFinger, 2_000),
+      careerBackground: text(raw.careerBackground, 800),
+      goldenFinger: text(raw.goldenFinger, 800),
       personalities
     };
   });
@@ -430,7 +431,7 @@ function normalizeProtagonists(value: unknown, channel: OpeningChannel): Opening
 function normalizeIdea(value: unknown): string {
   const idea = typeof value === 'string' ? value.trim() : '';
   if (idea.length < 4) throw new DomainError(errorCodes.validation, '请至少用4个字说清开书思路。');
-  if (idea.length > 1_000) throw new DomainError(errorCodes.validation, '开书思路最多1000字，请先保留最核心的想法。');
+  if (idea.length > 800) throw new DomainError(errorCodes.validation, '开书思路最多800字，请先保留最核心的想法。');
   return idea;
 }
 

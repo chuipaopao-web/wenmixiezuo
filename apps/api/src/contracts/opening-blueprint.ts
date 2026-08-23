@@ -368,9 +368,9 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
   const openingIdea = optionalText(input.openingIdea, '开书思路', 1_000);
-  const storyDirection = optionalText(input.storyDirection, '故事方向补充', 300);
-  const openingStart = optionalText(input.openingStart, '开局', 300);
-  const storyEnding = optionalText(input.storyEnding, '结局', 300);
+  const storyDirection = optionalText(input.storyDirection, '故事方向补充', 800);
+  const openingStart = optionalText(input.openingStart, '开局', 800);
+  const storyEnding = optionalText(input.storyEnding, '结局', 800);
   if (openingStart.length > 0 && openingStart.length < 4) throw new Error('开局至少需要4个字符，一句话说清主角的起点处境');
   if (storyEnding.length > 0 && storyEnding.length < 2) throw new Error('结局至少需要2个字符；不知道结局可以留空');
   const stylePrimary = optionalText(input.stylePrimary, '主基调', 20);

@@ -162,11 +162,11 @@ describe('完整创作工作台', () => {
     expect(within(details).queryByText(/冷静、敏锐/u)).not.toBeInTheDocument();
     expect(within(details).queryByText(/核心目标|当前处境|核心驱动力|作者已有方向/u)).not.toBeInTheDocument();
     expect(within(details).queryByText(/老板确认的开书资料|character-protagonist-1|版本/u)).not.toBeInTheDocument();
-    fireEvent.click(within(details).getByRole('button', { name: '编辑张三卡' }));
-    expect(await screen.findByRole('dialog', { name: '编辑张三的人物卡' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '保存人物卡新版本' }));
-    await waitFor(() => expect(fetchMock.mock.calls.some(([input, init]) =>
-      String(input).endsWith('/core-workflow/characters/character-protagonist-1/versions') && init?.method === 'POST')).toBe(true));
+    expect(within(details).queryByRole('button', { name: '编辑张三卡' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '编辑张三的人物卡' })).not.toBeInTheDocument();
+    expect(within(details).getByRole('button', { name: '修改开书资料' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).endsWith('/core-workflow/characters/character-protagonist-1/versions') && init?.method === 'POST')).toBe(false);
   });
 
   it('把旧 view 深链接映射到五个新阶段并规范化为 stage 参数', async () => {

@@ -40,6 +40,15 @@ describe('建书前 AI 开书设计', () => {
         idea: '张丞穿越到了大秦帝国，醒来便被诬陷盗取军粮账册，三天后问斩。',
         idempotencyKey: 'opening-design-test-0001'
       };
+      expect(Array.from(input.idea).length).toBeLessThan(100);
+      const tooLong = await app.inject({
+        method: 'POST', url: '/api/v1/opening-designs',
+        headers: { ...BROWSER_HEADERS, cookie: firstCookie },
+        payload: { idea: '长'.repeat(801), idempotencyKey: 'opening-design-too-long' }
+      });
+      expect(tooLong.statusCode).toBe(400);
+      expect(tooLong.json().error.message).toContain('最多800字');
+
       const started = await app.inject({
         method: 'POST', url: '/api/v1/opening-designs',
         headers: { ...BROWSER_HEADERS, cookie: firstCookie }, payload: input
