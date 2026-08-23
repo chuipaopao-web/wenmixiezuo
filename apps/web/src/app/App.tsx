@@ -650,11 +650,8 @@ function WorkspaceApp({ account, onSignOut }: { account: AuthAccountData; onSign
           </div>
         </div>
         <div className="sidebar-account">
-          <button className="sidebar-account-profile" type="button" aria-label="打开个人资料" onClick={() => { setProfileOpen(true); setLeftOpen(false); }}>
-            <span className="sidebar-account-avatar" aria-hidden="true">{account.displayName.slice(0, 1).toUpperCase()}</span>
-            <span className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></span>
-            <span className="sidebar-account-profile-label">个人资料</span>
-          </button>
+          <button className="sidebar-account-avatar" type="button" aria-label="打开个人资料" title="个人资料" onClick={() => { setProfileOpen(true); setLeftOpen(false); }}>{account.displayName.slice(0, 1).toUpperCase()}</button>
+          <div className="sidebar-account-copy"><strong>{account.displayName}</strong><span>{account.role === 'admin' ? '管理员 · 算力值不限' : formatMembershipBadge(membershipStatus)}</span></div>
           <div className="sidebar-account-actions">
             <button type="button" onClick={() => setFeedbackOpen(true)}>反馈</button>
             <button type="button" onClick={() => void onSignOut()}>退出</button>

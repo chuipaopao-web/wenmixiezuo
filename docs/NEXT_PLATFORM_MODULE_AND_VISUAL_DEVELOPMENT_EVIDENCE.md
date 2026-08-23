@@ -273,7 +273,7 @@
 
 ## 当前清单状态
 
-- 已完成并有证据勾选：204/260；待官方浏览器视觉、生产真实模型与部署验收：56/260。
+- 本地开发、清理、真实模型、视觉与 `verify:full` 已完成；仅生产发布与生产域名复核项在发布执行前保持未勾选。
 
 ## 实现与清理证据
 
@@ -293,14 +293,21 @@
 
 - 旧版基线：`shots/baseline-61cb87b/`，共 91 张截图，覆盖 1366/1440/1536/1672/1920 桌面与 360/390/430 手机视口；计算样式见 `computed-styles-1440.json`。
 - 内容状态参考：`docs/design/next-platform/*.png` 与 `README.md`；参考图只约束新增语义，不改变旧布局。
-- 新版同视口截图、95% 差异与人工评分：待官方浏览器通道恢复并实际完成后填写，未完成前相关清单不得勾选。
+- 官方浏览器沙箱持续返回 `helper_unknown_error`，按 Browser Skill 的失败回退规则使用本机已安装 Edge CDP，无下载、无安装。新版同视口截图位于 `artifacts/next-platform-20260823/visual-current/`；80 张旧版/新版/差异三联图位于 `visual-comparison/`。
+- 桌面 50 个稳定区域组合最低相似度 `96.35%`、平均 `97.04%`，通过 `95%` 门槛；首轮错误候选仅 `78.50%`，已据此恢复 144px 书架、浅色外壳、原导航字体/图标/选中态和工作区留白后复测。
+- `360/390/430px` 页面断言均确认两排导航、0 个页面流程栏；Windows/macOS/iOS/Android 字体栈回退模拟均无横向溢出。人工七项评分见 `docs/design/next-platform/VISUAL_REVIEW.md`，无维度低于旧版。
 
 ## 真实模型记录
 
-- 既有七岗位订阅探针成功记录：`docs/NEXT_CORE_WORKFLOW_DEVELOPMENT_CHECKLIST.md`（7/7、`cashCostCny=0`、无回答正文落盘）。
-- 本批次重跑：严格订阅、现金回退关闭；当前 Windows 沙箱拒绝访问 Microsoft Store Codex CLI，首席调用在生成前中断，日志 `artifacts/next-platform-20260823/real-model-connectivity.log`。未恢复前 13.4 不勾选。
+- 最终候选发布目录在生产同机隔离暂存区运行严格订阅探针：7/7 岗位成功、`cashCostCny=0`、现金回退关闭、输出正文不落盘；日志 `real-model-connectivity.log`。
+- 滚动故事线真实质量探针 5/5 通过：零故事线开书、跨事件证据长出候选、主编给出两条 1–2 卷差异方向、证据不足继续观察、结算实际与未发生计划分离；日志 `rolling-storyline-quality-probe.log`。
+- 同岗位公平性同时校验 ContextPack、Skill、模板哈希一致，成员输出独立；推荐包含正文证据、因果接口且不强造全书结局。
+
+## 最终本地门禁
+
+- UI 修正后的最终 `npm run verify:full`：189/189 测试文件、814/814 用例、全部类型检查和 Contracts/API/Worker/Web 生产构建通过；日志 `artifacts/next-platform-20260823/verify-full-post-shell-restore.log`。
+- 最终 Web 资源：`App-BwqDBaAV.css`、`App-Bwj1K7Ne.js`；流程栏生产选择器数量为 0，初始团队为 7 类/25 名。
 
 ## 生产发布记录
-
 - 发布前只读盘点：`47.243.152.159`；API/Worker/Caddy 均 active；线上 release `wm-v6-core-r1-20260823-035846-d98dc814`；数据库最新迁移 0067；无 working/queued/pending/waiting_confirmation 活动任务。
 - 新发布、备份、迁移、原子切换、生产冒烟、回滚版本：待最终部署后填写。

@@ -896,3 +896,92 @@
   .v6-growth-status-strip > div + div { border-left: 0; border-top: 1px solid #e5e2d8; padding-left: 0; }
   .v6-growth-status-strip p { min-height: 0; }
 }
+
+/* Desktop shell is an existing product surface. New workflow modules may fill the
+   content area, but must not resize or restyle the original shelf/navigation. */
+@media (min-width: 981px) {
+  .app-shell.unified-desk {
+    grid-template-columns: 144px minmax(0, 1fr);
+    background:
+      radial-gradient(circle at 82% -8%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 30%),
+      linear-gradient(150deg, color-mix(in srgb, var(--canvas) 96%, white), var(--canvas));
+  }
+  .app-shell.unified-desk .ios-book-sidebar {
+    border-right-color: color-mix(in srgb, var(--line) 82%, transparent) !important;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--panel-raised) 76%, transparent) !important;
+    box-shadow: 1px 0 22px rgb(52 63 85 / 4%);
+    backdrop-filter: saturate(170%) blur(28px);
+  }
+  .app-shell.unified-desk .sidebar-brand { border-bottom-color: color-mix(in srgb, var(--line) 76%, transparent); }
+  .app-shell.unified-desk .sidebar-brand .brand-lockup h1 { color: var(--ink); }
+  .app-shell.unified-desk .sidebar-brand .brand-mark { color: #f7f3e8; background: linear-gradient(145deg, #3a6154, #2c4a42 58%, #223b34); box-shadow: 0 10px 24px rgb(44 74 66 / 24%); }
+  .app-shell.unified-desk .unified-book-switcher { padding: 13px 10px 12px; }
+  .app-shell.unified-desk .unified-book-switcher .rail-new-book {
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-raised));
+    box-shadow: 0 8px 20px rgb(44 74 66 / 9%);
+  }
+  .app-shell.unified-desk .book-list-heading,
+  .app-shell.unified-desk .book-list-heading strong,
+  .app-shell.unified-desk .book-cover-status { color: var(--ink-faint); }
+  .app-shell.unified-desk .book-list-heading strong { background: var(--panel-muted); }
+  .app-shell.unified-desk .unified-book-switcher > nav[aria-label="选择书籍"] {
+    grid-template-columns: 84px;
+    justify-content: center;
+    gap: 16px 10px;
+    padding: 2px 8px 12px 0;
+  }
+  .app-shell.unified-desk .unified-book-switcher > nav[aria-label="选择书籍"] > button {
+    width: 84px;
+    min-height: 151px;
+    grid-template-columns: none;
+    grid-template-rows: 118px minmax(26px, auto);
+    justify-items: center;
+    align-items: start;
+    gap: 7px;
+    padding: 0;
+    text-align: center;
+  }
+  .app-shell.unified-desk .unified-book-switcher > nav[aria-label="选择书籍"] > button.active { background: transparent; }
+  .app-shell.unified-desk .unified-book-switcher > nav[aria-label="选择书籍"] > button.active::before { top: 23px; left: -7px; height: 72px; }
+  .app-shell.unified-desk .book-rail-cover { width: 84px; height: 118px; border-radius: 10px 15px 15px 10px; padding: 10px 9px 9px 13px; }
+  .app-shell.unified-desk .book-cover-title.title-short { max-height: none; font-size: 20px; line-height: 1.28; }
+  .app-shell.unified-desk .book-cover-title.title-medium { max-height: none; font-size: 17px; line-height: 1.28; }
+  .app-shell.unified-desk .book-cover-title.title-long { max-height: none; font-size: 14px; line-height: 1.28; }
+  .app-shell.unified-desk .book-cover-title.title-extra-long { max-height: none; font-size: 12px; line-height: 1.22; }
+  .app-shell.unified-desk .book-cover-status { width: 84px; min-height: 26px; place-items: start center; gap: 0; color: var(--ink-faint); text-align: center; }
+  .app-shell.unified-desk .book-cover-status > strong { display: none; }
+  .app-shell.unified-desk .book-cover-status > small { color: inherit; font-size: 9px; }
+  .app-shell.unified-desk .ios-function-bar {
+    min-height: 62px;
+    gap: 4px;
+    border-bottom-color: color-mix(in srgb, var(--line) 78%, transparent);
+    padding: 7px 16px 9px 18px;
+    background: color-mix(in srgb, var(--panel-raised) 74%, transparent);
+    backdrop-filter: saturate(170%) blur(28px);
+  }
+  .app-shell.unified-desk .function-nav-primary { flex: 2 1 0; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .app-shell.unified-desk .function-nav-utilities { flex: 1 1 0; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .app-shell.unified-desk .ios-function-bar button {
+    min-height: 44px;
+    gap: 6px;
+    border-radius: 13px;
+    padding: 7px 9px;
+    color: var(--ink-soft);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .app-shell.unified-desk .function-nav-primary button svg { display: block; }
+  .app-shell.unified-desk .ios-function-bar button.active {
+    border-color: color-mix(in srgb, var(--accent) 18%, var(--line));
+    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--accent-soft) 82%, var(--panel-raised));
+    box-shadow: 0 7px 18px rgb(44 74 66 / 11%);
+  }
+  .app-shell.unified-desk .ios-function-bar button:hover:not(:disabled) { color: var(--ink); background: var(--panel-muted); transform: translateY(-1px); }
+  .app-shell.unified-desk .workspace-main { padding: 22px 24px 34px; background: transparent; }
+  .app-shell.unified-desk .v6-workspace { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 84%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--panel-raised) 86%, transparent); box-shadow: var(--shadow-sm); }
+}
