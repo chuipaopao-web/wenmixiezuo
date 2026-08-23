@@ -4,6 +4,8 @@ import { BookLifecycleService } from '../../../apps/api/src/application/books/bo
 import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { BookRepository } from '../../../apps/api/src/infrastructure/db/repositories/book-repository.js';
 import { openDatabase } from '../../../apps/api/src/infrastructure/db/database.js';
+import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
+import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeDomainBook } from '../../helpers/domain-fixture.js';
 
@@ -135,6 +137,37 @@ describe('书籍生命周期与删除墓碑', () => {
         package_schema_version, affected_json, status, created_at
       ) VALUES (?, ?, ?, 19, 19, '{}', 'preview', ?)
     `).run('portable-report-target', 'portable-operation-target', scope.bookId, clock.now().toISOString());
+    const agent = context.database.prepare(`
+      SELECT a.agent_id, s.provider, s.model_id, a.model_snapshot_id
+      FROM agent_instances a
+      JOIN model_config_snapshots s ON s.model_snapshot_id = a.model_snapshot_id
+      WHERE a.owner_id = ? AND a.book_id = ? ORDER BY a.agent_id LIMIT 1
+    `).get(scope.ownerId, scope.bookId) as {
+      agent_id: string; provider: string; model_id: string; model_snapshot_id: string;
+    };
+    const budgets = new BudgetService(context.database, ids, clock);
+    const budget = budgets.create(scope, 'standard', 1_000, 0);
+    new TaskService(context.database, context.config.releaseId, clock).create(scope, {
+      taskId: 'purge-prompt-task', taskType: 'model_probe', assignedAgentId: agent.agent_id,
+      idempotencyKey: 'purge-prompt-task', budgetId: budget.budgetId, initialPhase: 'draft', brief: {}
+    });
+    const reservationId = budgets.reserve(scope, budget.budgetId, 'purge-prompt-request', 10, 0);
+    context.database.prepare(`
+      INSERT INTO model_calls (
+        request_id, owner_id, book_id, task_id, phase_key, agent_id, provider, model_id,
+        model_snapshot_id, input_hash, parameters_hash, reservation_id, state, created_at
+      ) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 'failed', ?)
+    `).run(
+      'purge-prompt-request', scope.ownerId, scope.bookId, 'purge-prompt-task', agent.agent_id,
+      agent.provider, agent.model_id, agent.model_snapshot_id, 'd'.repeat(64), 'e'.repeat(64),
+      reservationId, clock.now().toISOString()
+    );
+    context.database.prepare(`
+      INSERT INTO model_call_prompt_snapshots (
+        request_id, task_type, role_key, phase_key, task_prompt,
+        supplemental_instructions, prompt_override_id, created_at
+      ) VALUES (?, 'model_probe', 'chief_editor', 'draft', '测试提示词', '', NULL, ?)
+    `).run('purge-prompt-request', clock.now().toISOString());
 
     lifecycle.permanentlyDelete(scope, requiredPermanentDeleteText('完整测试书', scope.bookId));
 
@@ -172,6 +205,9 @@ describe('书籍生命周期与删除墓碑', () => {
     `).get()).toEqual({ count: 0 });
     expect(context.database.prepare(`
       SELECT COUNT(*) AS count FROM portable_files WHERE portable_file_id = 'portable-file-target'
+    `).get()).toEqual({ count: 0 });
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM model_call_prompt_snapshots WHERE request_id = 'purge-prompt-request'
     `).get()).toEqual({ count: 0 });
     expect(context.database.prepare(`PRAGMA foreign_key_check`).all()).toEqual([]);
   });
@@ -212,5 +248,44 @@ describe('书籍生命周期与删除墓碑', () => {
     expect(() => service.createDraft(scope, '一二三四五六七八九十一二三四五六')).toThrow('1至15字');
     expect(service.createDraft(scope, '一二三四五六七八九十一二三四五').title)
       .toBe('一二三四五六七八九十一二三四五');
+  });
+
+  it('同一作者不能创建含归档书在内的同名书，不同作者仍可同名', () => {
+    context = createTestContext();
+    const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
+    const first = { ownerId: 'owner-one', bookId: 'book-same-title-one' };
+    service.ensureOwner(first);
+    const created = service.createDraft(first, 'Ａ 计划');
+    service.archive(first, created.version);
+
+    expect(() => service.createDraft(
+      { ownerId: 'owner-one', bookId: 'book-same-title-two' },
+      ' a   计划 '
+    )).toThrow('同名书籍');
+
+    const otherOwner = { ownerId: 'owner-two', bookId: 'book-same-title-other-owner' };
+    service.ensureOwner(otherOwner);
+    expect(service.createDraft(otherOwner, 'A 计划').title).toBe('A 计划');
+
+    service.permanentlyDelete(first, 'YES');
+    expect(service.createDraft(
+      { ownerId: 'owner-one', bookId: 'book-same-title-reused' },
+      'A 计划'
+    ).title).toBe('A 计划');
+  });
+
+  it('改名不能制造同一作者重名，未改变书名时仍可保存', () => {
+    context = createTestContext();
+    const service = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
+    service.ensureOwner({ ownerId: 'owner-one' });
+    const first = service.createDraft({ ownerId: 'owner-one', bookId: 'book-title-first' }, '甲书');
+    const secondScope = { ownerId: 'owner-one', bookId: 'book-title-second' };
+    const second = service.createDraft(secondScope, '乙书');
+    const books = new BookRepository(context.database);
+
+    expect(() => books.updateTitle(secondScope, second.version, first.title, new FixedClock().now().toISOString()))
+      .toThrow('同名书籍');
+    expect(books.updateTitle(secondScope, second.version, second.title, new FixedClock().now().toISOString()).title)
+      .toBe('乙书');
   });
 });

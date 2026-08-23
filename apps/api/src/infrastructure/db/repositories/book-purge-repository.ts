@@ -66,6 +66,12 @@ export class BookPurgeRepository {
         DELETE FROM positioning_drafts
         WHERE owner_id = ? AND (proposed_book_id = ? OR confirmed_book_id = ?)
       `).run(scope.ownerId, scope.bookId, scope.bookId);
+      this.database.prepare(`
+        DELETE FROM model_call_prompt_snapshots
+        WHERE request_id IN (
+          SELECT request_id FROM model_calls WHERE owner_id = ? AND book_id = ?
+        )
+      `).run(scope.ownerId, scope.bookId);
       this.#deleteScopedRows(scope);
       this.database.prepare('DELETE FROM books WHERE owner_id = ? AND book_id = ?')
         .run(scope.ownerId, scope.bookId);

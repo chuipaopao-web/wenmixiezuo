@@ -137,6 +137,26 @@ describe('建书REST流程', () => {
       const created = confirmResponse.json().data as { bookId: string; kickoffTaskId: string | null };
       // DEC-CURRENT-062：建书不再自动召集，作者点“团队设计”才建首个提案任务
       expect(created.kickoffTaskId).toBeNull();
+      const sameTitleDraftResponse = await app.inject({
+        method: 'POST', url: '/api/v1/books/drafts',
+        payload: { title: ' 天安城军报 ', text: openingBlueprint.storyDirection, openingBlueprint }
+      });
+      expect(sameTitleDraftResponse.statusCode).toBe(200);
+      const sameTitleDraft = sameTitleDraftResponse.json().data as { draftId: string; version: number; proposedBookId: string };
+      const sameTitleConfirmResponse = await app.inject({
+        method: 'POST', url: `/api/v1/book-drafts/${sameTitleDraft.draftId}/confirm`,
+        payload: { expectedVersion: sameTitleDraft.version }
+      });
+      expect(sameTitleConfirmResponse.statusCode).toBe(409);
+      expect(sameTitleConfirmResponse.json().error).toMatchObject({
+        code: 'BOOK_TITLE_CONFLICT',
+        message: expect.stringContaining('同名书籍'),
+        retryable: false
+      });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM books WHERE owner_id = ?')
+        .get(context.config.ownerId)).toEqual({ count: 1 });
+      expect(context.database.prepare('SELECT status FROM positioning_drafts WHERE draft_id = ?')
+        .get(sameTitleDraft.draftId)).toEqual({ status: 'editing' });
       context.database.prepare(`UPDATE model_config_snapshots SET provider='volcengine-ark-agent-plan', model_id='kimi-k3', parameters_json='{"plan":"agent"}'
         WHERE model_snapshot_id=(SELECT a.model_snapshot_id FROM agent_instances a JOIN role_templates r
           ON r.role_template_id=a.role_template_id AND r.version=a.role_template_version

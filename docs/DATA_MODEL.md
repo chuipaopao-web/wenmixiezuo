@@ -17,7 +17,7 @@
 - `user_feedback`、`admin_issue_records`：作者反馈原件及管理员对失败任务/反馈的处理状态、严重程度和备注；反馈绑定书籍或任务时必须校验作者所有权。
 - `auth_audit_events`：注册、成功/失败登录、退出、暂停和恢复审计；不进入模型上下文或作者导出。
 - `owners`：每个注册账号对应的创作数据所有者；首位管理员复用历史本机老板所有者，后续账号各自新建所有者。
-- `books`：书籍、状态、版本、正史修订和活动主编epoch。
+- `books`：书籍、状态、版本、正史修订和活动主编epoch；同一 `owner_id` 的未永久删除书籍在应用写事务内执行标准化书名唯一检查，归档书也占用名称，不同所有者互不影响。历史同名书保持原样，永久删除后名称可复用。
 - `book_onboarding_profiles`、`positioning_versions`、`book_expression_profiles`：开书原始资料、定位与表达基线版本。
 - `book_branding_designs`：主编设计书名或书籍简介的任务记录、候选方案和来源指纹；采用结果写回开书蓝图的不可变新版本，不原地覆盖。
 - `role_templates`、`agent_instances`：岗位模板和逐书Agent实例。

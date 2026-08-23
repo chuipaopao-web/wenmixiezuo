@@ -227,6 +227,33 @@ describe('定位草稿与原子建书', () => {
     }
     expect(positioning.require({ ownerId: 'owner-one' }, completeDraft.draftId).status).toBe('editing');
   });
+
+  it('同名书确认失败时不留下半本书且草稿保持可编辑', () => {
+    context = createTestContext();
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const positioning = new PositioningService(context.database, ids, clock);
+    const onboarding = new BookOnboardingService(context.database, ids, clock);
+    const firstDraft = positioning.createDraft(
+      { ownerId: 'owner-one' }, { title: '同名建书', text: '第一本都市成长故事' }
+    );
+    onboarding.confirmDraft({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
+    const duplicateDraft = positioning.createDraft(
+      { ownerId: 'owner-one' }, { title: ' 同名建书 ', text: '第二本都市成长故事' }
+    );
+
+    expect(() => onboarding.confirmDraft(
+      { ownerId: 'owner-one' }, duplicateDraft.draftId, duplicateDraft.version
+    )).toThrow('同名书籍');
+    expect(new BookRepository(context.database).find({
+      ownerId: 'owner-one', bookId: duplicateDraft.proposedBookId
+    })).toBeNull();
+    expect(positioning.require({ ownerId: 'owner-one' }, duplicateDraft.draftId).status).toBe('editing');
+    expect(context.database.prepare(`
+      SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?
+    `).get('owner-one', duplicateDraft.proposedBookId)).toEqual({ count: 0 });
+  });
+
   it('统一拒绝超过15字的创建和草稿改名', () => {
     context = createTestContext();
     const service = new PositioningService(context.database, new SequenceIds(), new FixedClock());

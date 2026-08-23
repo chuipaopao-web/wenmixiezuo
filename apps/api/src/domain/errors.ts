@@ -17,6 +17,7 @@ export const errorCodes = {
   bookNotFound: 'BOOK_NOT_FOUND',
   bookScopeViolation: 'BOOK_SCOPE_VIOLATION',
   bookStatusConflict: 'BOOK_STATUS_CONFLICT',
+  bookTitleConflict: 'BOOK_TITLE_CONFLICT',
   bookVersionConflict: 'BOOK_VERSION_CONFLICT',
   budgetExhausted: 'BUDGET_EXHAUSTED',
   canonRevisionConflict: 'CANON_REVISION_CONFLICT',

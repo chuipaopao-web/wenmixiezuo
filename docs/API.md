@@ -50,6 +50,7 @@
 - `GET /api/v1/books/:bookId/workflow`：当前卷—事件工作流状态。
 
 确认开书会原子创建书籍、定位版本、团队、模型绑定、预算和设定工作区；不会自动创建或排队AI设定任务。
+同一作者不能创建标准化后同名的书籍，检查范围包含归档书；不同作者仍可使用相同书名。冲突返回 `BOOK_TITLE_CONFLICT`（409），且确认草稿保持可编辑，不创建任何下游数据。
 
 五阶段核心接口：`GET /api/v1/books/:bookId/core-workflow` 返回设定→故事线→分卷→事件→章节的活动状态、滚动故事线版本与关系、逐卷参与、角色卡、事件角色绑定、规划/实际总账、作者最远节点、开放问题、增长候选、草稿和失效记录。`storylines`、`storyline-relations`、`volume-participations`、`storyline-frontier`、`storyline-open-questions`、`storyline-growth-rounds`、`storyline-growth-candidates`、`characters`、`event-role-assignments`、`drafts`、`ledgers`、`invalidations` 与 `state` 分别执行版本化写入、候选决策、确认、重开、影响处理和阶段推进；历史 `storyline_topology` 仅作为旧数据只读兼容对象，不再提供作者端写入入口。所有写入同时校验当前 `owner_id + book_id`、期望版本、幂等键与上游依赖。
 
@@ -121,7 +122,7 @@
 
 ## 13. 备份、恢复和删除
 
-备份、导出、导入和恢复操作均有操作ID、状态和校验结果。普通删除为归档。彻底删除只允许已归档书，先查看影响，再输入大小写不敏感的 `YES` 并二次提交；服务端原子清理并写墓碑。
+备份、导出、导入和恢复操作均有操作ID、状态和校验结果。普通删除为归档。彻底删除只允许已归档书，先查看影响，再输入大小写不敏感的 `YES` 并二次提交；服务端原子清理书内记录及其已登记间接子记录并写墓碑，未知外键仍会令整笔事务回滚。
 
 ## 14. SSE事件
 
