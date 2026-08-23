@@ -7,6 +7,7 @@
 - 项目：`D:\wenmixiezuo`，分支 `codex/desktop-entry`。
 - V6 核心创作工作台、滚动故事线/平台治理和功能资产守恒批次均已完成开发、验收和生产发布；功能台账批次的唯一执行记录为 `docs/FEATURE_CAPABILITY_GOVERNANCE_DEVELOPMENT_CHECKLIST.md`，未勾选项为 0。
 - 生产站点 https://wenmixiezuo.com 与独立后台 https://admin.wenmixiezuo.com 已上线发布 `wm-feature-registry-r1-20260823-142555-fa301aca`；上一回滚版本为 `wm-rolling-storyline-r2-20260823-114755-f324dfeb`。本批无数据库迁移，生产数据库仍为 `0068_rolling_storyline_growth.sql`，API、Worker、Caddy 与新版 Web 入口均已验证健康。
+- 最新 Web-only 修复版本为 `wm-archive-visibility-r1-20260823-151339-388e94a`：修复浅色书架“已归档书籍/归档当前书籍”白字白底，以及手机书籍抽屉被遮罩覆盖的问题；真实浏览器验证桌面/手机均可见、可点，对比度 5.35:1。该修复只原子切换 Web 入口，API/Worker 未重启。
 - 主流程继续保持原功能板块与顺序：设定 → 故事线 → 分卷 → 事件 → 章节；滚动故事线支持零线开写、阶段终点、卷末提炼、主编下一至两卷推荐、作者决定与继续观察。
 - UI 只统一视觉效果，不改原功能板块、顺序、壳层和交互骨架；桌面恢复 144px 浅色书架与原导航质感，页面流程栏全部删除，手机保持顶部两排导航。
 - 本地和生产最新迁移为 0068_rolling_storyline_growth.sql；它只向前新增滚动故事线、作者边界、候选/决策和创作模板版本对象，不改写历史正文、结算或旧迁移。
