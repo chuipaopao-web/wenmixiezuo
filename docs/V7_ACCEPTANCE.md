@@ -11,7 +11,7 @@
 - [ ] 0.1 读取 `HANDOFF.md`、本清单、`docs/V7_PRODUCT_SPEC.md` 和 `docs/V7_ASSET_INVENTORY.md`。
 - [ ] 0.2 读取 `.agents/skills/wenmi-development-workflow/SKILL.md`、`wenmi-ui-ux` 和 `wenmi-longform-quality`，只按路由读取必要参考。
 - [ ] 0.3 检查 Git 工作区、当前分支、未提交和未跟踪内容，记录并保护老板现有文件。
-- [ ] 0.4 从当前 HEAD 创建独立分支 `codex/light-coauthoring-v7`；不移动到第二个项目根目录。
+- [ ] 0.4 核对当前独立分支 `codex/light-coauthoring-v7`；不移动到第二个项目根目录。
 - [ ] 0.5 建立本次变更合同，明确允许修改、禁止修改、必须保留、测试和部署范围。
 - [ ] 0.6 因核心创作工作流结构变化，建立 `design_review_id`；若同时改变数据库语义或 ContextCompiler 权威来源，增加对应审查。
 - [ ] 0.7 核对资产清单中的直接保留、适配、重做、禁止删除和待实证项，不复制旧项目。

@@ -183,7 +183,7 @@ apps/contracts/src/coauthoring-v7.ts
 只有老板明确发出“开始开发”指令后，才激活 `docs/V7_ACCEPTANCE.md`。进入 V7 功能编码前必须完成：
 
 1. 按 `docs/V7_ASSET_INVENTORY.md` 核对保留、适配、重做和待删除资产。
-2. 创建独立分支 `codex/light-coauthoring-v7`，保护当前未跟踪和未提交内容。
+2. 确认在独立分支 `codex/light-coauthoring-v7` 开发，并保护当前未跟踪和未提交内容。
 3. 给出 V7 信息架构、关键状态流和桌面/手机逐页原型。
 4. 老板确认原型；未确认区域不得由开发者自行发挥。
 5. 建立第一条纵向闭环的变更合同和逐项验收清单。
