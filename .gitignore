@@ -31,3 +31,6 @@ shots-create/
 scripts/debug/
 .tmp-test/
 .tmp/
+
+# 本地生产部署密钥（仅限当前机器，不进仓库）
+artifacts/deployment-keys/
