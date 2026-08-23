@@ -8,9 +8,9 @@ import { AdminApp } from '../../../apps/web/src/features/admin-console/AdminApp'
 
 const mocks = vi.hoisted(() => ({
   fetchCurrentAccount: vi.fn(), loginAccount: vi.fn(), logoutAccount: vi.fn(),
-  fetchDashboard: vi.fn(), fetchIssues: vi.fn(), fetchAiGovernance: vi.fn()
+  fetchDashboard: vi.fn(), fetchIssues: vi.fn(), fetchAiGovernance: vi.fn(), fetchFeatureCapabilities: vi.fn()
 }));
-const { fetchCurrentAccount, loginAccount, logoutAccount, fetchDashboard, fetchIssues, fetchAiGovernance } = mocks;
+const { fetchCurrentAccount, loginAccount, logoutAccount, fetchDashboard, fetchIssues, fetchAiGovernance, fetchFeatureCapabilities } = mocks;
 
 vi.mock('../../../apps/web/src/lib/api/client', () => ({
   fetchCurrentAccount: mocks.fetchCurrentAccount,
@@ -22,6 +22,7 @@ vi.mock('../../../apps/web/src/features/admin-console/admin-api', () => ({
   fetchDashboard: mocks.fetchDashboard,
   fetchIssues: mocks.fetchIssues,
   fetchAiGovernance: mocks.fetchAiGovernance,
+  fetchFeatureCapabilities: mocks.fetchFeatureCapabilities,
   fetchUserOperations: vi.fn().mockResolvedValue({ timezone: 'Asia/Shanghai', day: '2026-08-23', items: [] }),
   fetchAdminUsersPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   fetchMembershipUsers: vi.fn().mockResolvedValue({ items: [], total: 0 }),
@@ -63,6 +64,31 @@ beforeEach(() => {
       definitions: { adoption: '采纳率', duplicate: '重复率', noEvidence: '无证据率', incorrectFactMix: '事实混入率' } },
     codeSkills: [{ skillVersionId: 'skill-v6-core-2', layer: 'core', roleKey: null, nodeKind: null, version: 2, content: { name: '长篇创作核心' }, contentHash: 'a'.repeat(64) }]
   });
+  const losses = [
+    { id: 'book-branding-title-design', moduleId: 'opening-profile', moduleName: '开书资料与接续', surface: 'author',
+      name: '主编设计书名', description: '生成书名候选', status: 'suspected_missing', currentAvailable: false, currentEntry: null,
+      previousEntry: '信息页 → 书名 → 主编设计', decision: '后端仍在，前端入口缺失。', impact: '作者无法使用已有闭环。',
+      recommendation: '恢复到修改开书资料。', evidence: ['apps/api/src/application/books/book-branding-design-service.ts'] },
+    { id: 'book-branding-synopsis-design', moduleId: 'opening-profile', moduleName: '开书资料与接续', surface: 'author',
+      name: '主编设计书籍简介', description: '生成简介候选', status: 'suspected_missing', currentAvailable: false, currentEntry: null,
+      previousEntry: '信息页 → 简介 → 主编设计', decision: '后端仍在，前端入口缺失。', impact: '作者无法使用已有闭环。',
+      recommendation: '恢复到修改开书资料。', evidence: ['apps/api/src/application/books/book-branding-pipeline-service.ts'] }
+  ];
+  fetchFeatureCapabilities.mockResolvedValue({
+    registry: { version: 'feature-capability-registry-v1', updatedAt: '2026-08-23', current: { label: '当前代码', revision: 'current' },
+      baseline: { key: 'stable-baseline', label: '早期稳定版本', revision: '61cb87b', purpose: '追查遗失' },
+      availableBaselines: [
+        { key: 'previous-production', label: '上一生产版本', revision: 'd98dc81', purpose: '检查升级' },
+        { key: 'stable-baseline', label: '早期稳定版本', revision: '61cb87b', purpose: '追查遗失' }
+      ],
+      statusLabels: { added: '新增', retained: '保留', relocated: '迁移', replaced: '替代', retired: '明确下线', suspected_missing: '疑似遗失' },
+      surfaceLabels: { author: '作者端', admin: '独立后台', system: '系统能力' } },
+    summary: { modules: 33, capabilities: 130, currentAvailable: 122, filteredCapabilities: 2,
+      statuses: { added: 30, retained: 92, relocated: 2, replaced: 3, retired: 1, suspected_missing: 2 } },
+    moduleOptions: [{ id: 'opening-profile', name: '开书资料与接续', surface: 'author' }],
+    modules: [{ id: 'opening-profile', name: '开书资料与接续', surface: 'author', capabilities: losses }],
+    losses
+  });
 });
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -75,7 +101,7 @@ describe('独立管理后台前端', () => {
     expect(source).toContain('isLocalAdminPath');
     expect(source).toContain('isAdminHost || isLocalAdminPath');
   });
-  it('管理员在独立壳层中看到九个模块和真实运营总览，并能切换问题中心', async () => {
+  it('管理员在独立壳层中看到十个模块和真实运营总览，并能切换问题中心', async () => {
     render(<AdminApp />);
     expect(await screen.findByRole('heading', { name: '运营总览' })).toBeInTheDocument();
     expect(screen.getByText('今日真实API支出')).toBeInTheDocument();
@@ -84,7 +110,7 @@ describe('独立管理后台前端', () => {
     expect(screen.getAllByText('25.0%').length).toBeGreaterThan(0);
     expect(screen.getByText('已记录会员收入')).toBeInTheDocument();
     expect(screen.getByText('当前未接支付平台回调，不代表渠道实收。')).toBeInTheDocument();
-    for (const label of ['用户', '算力', 'API消耗', '模型', '问题记录', '创作模板', '提示词', '会员']) {
+    for (const label of ['用户', '算力', 'API消耗', '模型', '问题记录', '创作模板', '提示词', '会员', '功能台账']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
     expect(screen.getByRole('navigation', { name: '手机后台导航' })).toBeInTheDocument();
@@ -93,6 +119,53 @@ describe('独立管理后台前端', () => {
     expect((await screen.findAllByRole('heading', { name: '问题记录' })).length).toBeGreaterThan(0);
     expect(window.location.pathname).toBe('/');
     expect(new URL(window.location.href).searchParams.get('section')).toBe('issues');
+  });
+
+  it('功能台账显示所有模块统计、历史基线和可核查的疑似遗失清单', async () => {
+    render(<AdminApp />);
+    await screen.findByRole('heading', { name: '运营总览' });
+    fireEvent.click(screen.getAllByRole('button', { name: '功能台账' })[0]!);
+    expect(await screen.findByRole('heading', { name: '功能台账' })).toBeInTheDocument();
+    expect(screen.getByText('33')).toBeInTheDocument();
+    expect(screen.getByText('130')).toBeInTheDocument();
+    const lossesRegion = screen.getByRole('region', { name: '疑似遗失功能' });
+    expect(within(lossesRegion).getByText('主编设计书名')).toBeInTheDocument();
+    expect(within(lossesRegion).getByText('主编设计书籍简介')).toBeInTheDocument();
+    expect(screen.getByLabelText('对照版本')).toBeInTheDocument();
+    expect(fetchFeatureCapabilities).toHaveBeenCalled();
+    expect(new URL(window.location.href).searchParams.get('section')).toBe('capabilities');
+  });
+
+  it('功能台账在慢请求时显示加载状态，并在返回后展示完整页面', async () => {
+    const fixture = await fetchFeatureCapabilities();
+    let release: ((value: unknown) => void) | undefined;
+    fetchFeatureCapabilities.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+    window.history.replaceState({}, '', '/?section=capabilities');
+    render(<AdminApp />);
+    expect(await screen.findByText('正在核对功能资产…')).toBeInTheDocument();
+    release?.(fixture);
+    expect(await screen.findByRole('heading', { name: '功能台账' })).toBeInTheDocument();
+  });
+
+  it('功能台账失败时可重试，筛选为空时有明确空状态', async () => {
+    const fixture = await fetchFeatureCapabilities();
+    fetchFeatureCapabilities.mockRejectedValueOnce(new Error('台账暂时不可用'));
+    window.history.replaceState({}, '', '/?section=capabilities');
+    render(<AdminApp />);
+    expect(await screen.findByText('功能台账暂时不可用')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /重新加载/u }));
+    expect(await screen.findByRole('heading', { name: '功能台账' })).toBeInTheDocument();
+    cleanup();
+
+    fetchFeatureCapabilities.mockResolvedValueOnce({
+      ...fixture,
+      summary: { ...fixture.summary, filteredCapabilities: 0 },
+      modules: []
+    });
+    window.history.replaceState({}, '', '/?section=capabilities');
+    render(<AdminApp />);
+    expect(await screen.findByText('没有符合条件的功能')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '清除筛选' })).toBeInTheDocument();
   });
 
   it('转化率分母为零时在原经营指标区显示破折号', async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowClockwise, Check, FloppyDisk, MagnifyingGlass, X } from '@phosphor-icons/react';
 import type { AuthAccountData } from '../../lib/api/client';
+import { FeatureCapabilitiesPage } from './FeatureCapabilitiesPage';
 import {
   activateCreativeTemplateVersion, addAdminAiMember, archivePromptOverride, createCreativeTemplateVersion, fetchAdminUsersPage, fetchAiGovernance, fetchDashboard, fetchIssues, fetchMembershipStats,
   fetchMembershipUsers, fetchModelScheme, fetchNarrativeMethods, fetchPromptCall, fetchPromptCalls,
@@ -24,7 +25,8 @@ export function AdminPages({ section, searchSeed, currentUser, onError }: {
   if (section === 'issues') return <IssuesPage searchSeed={searchSeed} onError={onError} />;
   if (section === 'templates') return <TemplatesPage onError={onError} />;
   if (section === 'prompts') return <PromptsPage onError={onError} />;
-  return <MembershipsPage onError={onError} />;
+  if (section === 'memberships') return <MembershipsPage onError={onError} />;
+  return <FeatureCapabilitiesPage onError={onError} />;
 }
 
 function DashboardPage({ onError }: PageProps): React.JSX.Element {

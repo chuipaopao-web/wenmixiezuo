@@ -41,12 +41,17 @@ describe('管理后台：算力消耗与平台模型方案', () => {
     const app = await createServer(context.config, context.database);
     try {
       const { adminCookie, userCookie } = await registerAdminAndUser(app);
+      const unauthenticatedRegistry = await app.inject({
+        method: 'GET', url: '/api/v1/admin/feature-capabilities', headers: { host: BROWSER_HEADERS.host }
+      });
+      expect(unauthenticatedRegistry.statusCode).toBe(401);
       const ids = new SequenceIds();
       const clock = new FixedClock();
       const book = initializeDomainBook(context, ownerIdOf('writer@example.com'), ids, clock, { title: '门禁测试书' });
 
       const deniedUrls = [
         { method: 'GET' as const, url: '/api/v1/admin/usage' },
+        { method: 'GET' as const, url: '/api/v1/admin/feature-capabilities' },
         { method: 'GET' as const, url: '/api/v1/admin/model-scheme' },
         { method: 'POST' as const, url: '/api/v1/admin/model-scheme' },
         { method: 'GET' as const, url: `/api/v1/books/${book.bookId}/model-bindings` },
@@ -68,6 +73,25 @@ describe('管理后台：算力消耗与平台模型方案', () => {
       const adminUsage = await app.inject({ method: 'GET', url: '/api/v1/admin/usage', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(adminUsage.statusCode).toBe(200);
       expect(adminUsage.json().data.perUser.length).toBe(2);
+
+      const registry = await app.inject({
+        method: 'GET',
+        url: '/api/v1/admin/feature-capabilities?baseline=stable-baseline&status=suspected_missing&moduleId=opening-profile&query=%E4%B8%BB%E7%BC%96',
+        headers: { host: BROWSER_HEADERS.host, cookie: adminCookie }
+      });
+      expect(registry.statusCode).toBe(200);
+      expect(registry.json().data.summary.modules).toBe(33);
+      expect(registry.json().data.summary.filteredCapabilities).toBe(2);
+      expect(registry.json().data.losses.map((item: { id: string }) => item.id)).toEqual([
+        'book-branding-title-design',
+        'book-branding-synopsis-design'
+      ]);
+      expect(JSON.stringify(registry.json().data)).not.toMatch(/apiKey|chainOfThought|secretKey/iu);
+      const invalidRegistry = await app.inject({
+        method: 'GET', url: '/api/v1/admin/feature-capabilities?baseline=unknown&status=gone',
+        headers: { host: BROWSER_HEADERS.host, cookie: adminCookie }
+      });
+      expect(invalidRegistry.statusCode).toBe(400);
     } finally {
       await app.close();
     }
@@ -78,6 +102,10 @@ describe('管理后台：算力消耗与平台模型方案', () => {
     const app = await createServer(context.config, context.database);
     try {
       const { adminCookie, userCookie } = await registerAdminAndUser(app);
+      const unauthenticatedRegistry = await app.inject({
+        method: 'GET', url: '/api/v1/admin/feature-capabilities', headers: { host: BROWSER_HEADERS.host }
+      });
+      expect(unauthenticatedRegistry.statusCode).toBe(401);
       const ids = new SequenceIds();
       const clock = new FixedClock();
       const ownerId = ownerIdOf('writer@example.com');

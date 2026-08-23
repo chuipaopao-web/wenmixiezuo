@@ -34,8 +34,9 @@
     "test:full": "npm run build -w @wenmi/contracts && vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "npm run build -w @wenmi/contracts && npm run typecheck -w @wenmi/api && npm run typecheck -w @wenmi/worker && npm run typecheck -w @wenmi/web && tsc -p tsconfig.tests.json --noEmit",
-    "verify": "npm run typecheck && npm run test:fast && npm run build",
-    "verify:full": "npm run typecheck && npm run test:full && npm run build"
+    "verify:capabilities": "tsx scripts/quality/verify-feature-capability-registry.ts",
+    "verify": "npm run verify:capabilities && npm run typecheck && npm run test:fast && npm run build",
+    "verify:full": "npm run verify:capabilities && npm run typecheck && npm run test:full && npm run build"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",

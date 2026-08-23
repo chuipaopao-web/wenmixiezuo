@@ -17,7 +17,8 @@ const NAVIGATION: Array<{ key: AdminSection; label: string; icon: typeof House }
   { key: 'issues', label: '问题记录', icon: Bug },
   { key: 'templates', label: '创作模板', icon: BookOpen },
   { key: 'prompts', label: '提示词', icon: TextT },
-  { key: 'memberships', label: '会员', icon: Crown }
+  { key: 'memberships', label: '会员', icon: Crown },
+  { key: 'capabilities', label: '功能台账', icon: List }
 ];
 
 const MOBILE_PRIMARY: AdminSection[] = ['dashboard', 'users', 'issues', 'models'];

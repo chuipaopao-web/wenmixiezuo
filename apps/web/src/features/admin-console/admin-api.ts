@@ -1,4 +1,4 @@
-export type AdminSection = 'dashboard' | 'users' | 'compute' | 'api' | 'models' | 'issues' | 'templates' | 'prompts' | 'memberships';
+export type AdminSection = 'dashboard' | 'users' | 'compute' | 'api' | 'models' | 'issues' | 'templates' | 'prompts' | 'memberships' | 'capabilities';
 
 export interface AdminDashboardData {
   overview: {
@@ -118,6 +118,30 @@ export interface MembershipStats {
   transactions: Array<{ transactionId: string; eventType: string; plan: string; amountCashMicros: number; periodStart: string; periodEnd: string; note: string; createdAt: string; userId: string; displayName: string; email: string }>;
 }
 
+export type AdminFeatureBaseline = 'previous-production' | 'stable-baseline';
+export type AdminFeatureStatus = 'added' | 'retained' | 'relocated' | 'replaced' | 'retired' | 'suspected_missing';
+export type AdminFeatureSurface = 'author' | 'admin' | 'system';
+export interface AdminFeatureCapability {
+  id: string; moduleId: string; moduleName: string; surface: AdminFeatureSurface; name: string; description: string;
+  status: AdminFeatureStatus; currentAvailable: boolean; currentEntry: string | null; evidence: string[];
+  previousEntry?: string; replacement?: string; decision?: string; impact?: string; recommendation?: string;
+}
+export interface AdminFeatureCapabilitiesData {
+  registry: {
+    version: string; updatedAt: string; current: { label: string; revision: string };
+    baseline: { key: AdminFeatureBaseline; label: string; revision: string; purpose: string };
+    availableBaselines: Array<{ key: AdminFeatureBaseline; label: string; revision: string; purpose: string }>;
+    statusLabels: Record<AdminFeatureStatus, string>; surfaceLabels: Record<AdminFeatureSurface, string>;
+  };
+  summary: {
+    modules: number; capabilities: number; currentAvailable: number; filteredCapabilities: number;
+    statuses: Record<AdminFeatureStatus, number>;
+  };
+  moduleOptions: Array<{ id: string; name: string; surface: AdminFeatureSurface }>;
+  modules: Array<{ id: string; name: string; surface: AdminFeatureSurface; capabilities: AdminFeatureCapability[] }>;
+  losses: AdminFeatureCapability[];
+}
+
 interface ApiEnvelope<T> { data?: T; error?: { message?: string } }
 
 const ADMIN_API_ORIGIN = import.meta.env.VITE_API_ORIGIN
@@ -140,6 +164,15 @@ export async function adminRequest<T>(path: string, init: RequestInit = {}): Pro
 }
 
 export const fetchDashboard = (signal?: AbortSignal) => adminRequest<AdminDashboardData>('/api/v1/admin/dashboard', signal === undefined ? {} : { signal });
+export const fetchFeatureCapabilities = (
+  filters: { baseline?: AdminFeatureBaseline; status?: AdminFeatureStatus; moduleId?: string; query?: string } = {},
+  signal?: AbortSignal
+) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
+  const query = params.size === 0 ? '' : '?' + params.toString();
+  return adminRequest<AdminFeatureCapabilitiesData>('/api/v1/admin/feature-capabilities' + query, signal === undefined ? {} : { signal });
+};
 export const fetchUserOperations = (day = '', signal?: AbortSignal) => {
   const query = day ? `?day=${encodeURIComponent(day)}` : '';
   return adminRequest<AdminUserOperationsData>(`/api/v1/admin/user-operations${query}`, signal === undefined ? {} : { signal });

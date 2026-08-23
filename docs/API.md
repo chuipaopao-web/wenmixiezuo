@@ -20,6 +20,7 @@
 - `GET /api/v1/auth/me`：读取当前账号公开资料与角色。
 - `GET /api/v1/admin/overview`：管理员查看用户与书籍总览。
 - `GET /api/v1/admin/dashboard`：独立后台运营总览，返回今日失败、真实API成本、算力、活跃会员、收入、七日趋势、高消耗用户与临期会员。
+- `GET /api/v1/admin/feature-capabilities`：仅管理员可读的全功能台账。可用 `baseline=previous-production|stable-baseline` 切换 `d98dc81` / `61cb87b` 基线，并用 `status`、`moduleId`、`query` 筛选；返回版本信息、全局/状态统计、模块选项、功能明细、代码证据和疑似遗失清单。接口不读取运行时 Git，不返回密钥、思维链、作者正文或模型私密配置。
 - `GET /api/v1/admin/usage`：按用户、模型和日期汇总真实输入/输出用量、调用次数和 `cash_micros`，算力值仅在展示时按真实用量×2换算。
 - `POST /api/v1/feedback`：登录作者提交BUG/体验/建议，可安全绑定本人书籍和任务；不能绑定其他用户对象。
 - `GET /api/v1/admin/issues`、`PATCH /api/v1/admin/issues/:sourceType/:sourceId`：汇总失败任务与作者反馈，并维护严重程度、处理状态和备注。

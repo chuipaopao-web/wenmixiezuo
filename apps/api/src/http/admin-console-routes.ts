@@ -11,6 +11,9 @@ import { allRoleSkills, coreAgentSkill, nodeSkillCatalog } from '../application/
 import { creativeMemberContracts, roleModelProfiles } from '../contracts/agent-team-v2.js';
 import { adminAiMembers, adminAiTriggerCatalog } from '../application/agents/admin-ai-trigger-catalog.js';
 import { hiddenNarrativeMethodVersions } from '../application/planning/hidden-narrative-methods.js';
+import {
+  buildFeatureCapabilityView, isFeatureBaselineKey, isFeatureCapabilityStatus
+} from '../application/admin/feature-capability-registry.js';
 
 const PROMPT_PURPOSES: readonly ModelPurpose[] = [
   'discussion', 'structured_planning', 'novel_writer', 'novel_reviewer', 'review_synthesis'
@@ -19,6 +22,24 @@ const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'ignored'] as const;
 const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 export async function registerAdminConsoleRoutes(app: FastifyInstance, database: DatabaseSync): Promise<void> {
+  app.get<{ Querystring: { baseline?: string; status?: string; moduleId?: string; query?: string } }>(
+    '/api/v1/admin/feature-capabilities', async (request) => {
+      requireAdministrator(request);
+      const baselineValue = request.query.baseline ?? 'stable-baseline';
+      if (!isFeatureBaselineKey(baselineValue)) throw validation('请选择有效的功能对照版本');
+      const statusValue = request.query.status;
+      if (statusValue !== undefined && !isFeatureCapabilityStatus(statusValue)) throw validation('请选择有效的功能状态');
+      const moduleId = request.query.moduleId?.trim().slice(0, 100);
+      const query = request.query.query?.trim().slice(0, 160);
+      return success(buildFeatureCapabilityView({
+        baseline: baselineValue,
+        ...(statusValue === undefined ? {} : { status: statusValue }),
+        ...(moduleId === undefined ? {} : { moduleId }),
+        ...(query === undefined ? {} : { query })
+      }), request.id);
+    }
+  );
+
   app.get('/api/v1/admin/dashboard', async (request) => {
     requireAdministrator(request);
     const now = new Date();
