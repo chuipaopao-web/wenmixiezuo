@@ -34,7 +34,7 @@ const probes: Array<{ key: string; roleKey: EditorialRoleKey; nodeKind: string; 
   },
   {
     key: 'chief-editor-next-directions', roleKey: 'chief_editor', nodeKind: 'storyline_next_direction', templateVersion: 'storyline-next-direction-v2',
-    prompt: `只输出一个JSON对象。已确认事实：vol1:settlement“沈砚保住七号库房，但父亲冤案仍无直接证据”；开放问题：无名印章是谁在使用；作者目前只想到第十卷完成父亲翻案，不知道全书结局。请给2个真正不同的下一段方向，只覆盖下一卷至未来两卷。顶层字段directions,continueObservingAllowed；每个方向字段title,summary,continuationReason,protagonistInvolvement,coreQuestion,evidenceRefs,inferences,unknowns,misreadRisk,recommendedHorizonVolumes。evidenceRefs只能是vol1:settlement，recommendedHorizonVolumes只能为1或2，不得生成全书大结局。`,
+    prompt: `只输出一个JSON对象。已确认事实：vol1:settlement“沈砚保住七号库房，但父亲冤案仍无直接证据”；开放问题：无名印章是谁在使用；作者目前只想到第十卷完成父亲翻案，不知道全书结局。请给2个真正不同的下一段方向，只覆盖下一卷至未来两卷。顶层字段directions；每个方向字段title,summary,continuationReason,protagonistInvolvement,coreQuestion,evidenceRefs,inferences,unknowns,misreadRisk,recommendedHorizonVolumes。evidenceRefs只能是vol1:settlement，recommendedHorizonVolumes只能为1或2，不得生成全书大结局。`,
     validate: (value) => {
       const directions = value.directions;
       if (!Array.isArray(directions) || directions.length < 2 || directions.length > 3) throw new Error('主编没有给出2—3个方向');
@@ -47,7 +47,15 @@ const probes: Array<{ key: string; roleKey: EditorialRoleKey; nodeKind: string; 
         for (const banned of ['fullBookEnding', 'storyEnding', 'finalEnding']) if (banned in item) throw new Error(`推荐擅自输出${banned}`);
       }
       if (titles.size !== directions.length) throw new Error('主编方向同名同义');
-      if (value.continueObservingAllowed !== true) throw new Error('主编没有允许继续观察');
+    }
+  },
+  {
+    key: 'insufficient-evidence-observe', roleKey: 'chief_editor', nodeKind: 'storyline_next_direction', templateVersion: 'storyline-next-direction-v2',
+    prompt: `只输出一个JSON对象。当前唯一证据是vol2:ch1“陌生人在章末看了主角一眼”，没有跨事件重复、没有动机、没有后续行为。证据不足，不应建立新故事线或强推下一卷方向。字段必须为decision,reason,evidenceRefs,unknowns；decision必须为observe，evidenceRefs只能是vol2:ch1，unknowns至少一项。`,
+    validate: (value) => {
+      if (value.decision !== 'observe') throw new Error('证据不足时主编没有建议继续观察');
+      requireString(value, 'reason'); requireEvidence(value, ['vol2:ch1'], 1);
+      if (!Array.isArray(value.unknowns) || value.unknowns.length === 0) throw new Error('继续观察没有说明未知点');
     }
   },
   {
