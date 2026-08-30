@@ -28,6 +28,11 @@
 - `GET /api/v1/admin/prompt-catalog`、`GET /api/v1/admin/runtime-system-prompt`：查看真实触发点、按钮/时机、AI成员、资料包、任务职责和运行时岗位提示词。
 - `POST /api/v1/admin/prompt-overrides`、`POST /api/v1/admin/prompt-overrides/:promptOverrideId/archive`：新增或归档平台补充提示词；只影响未来匹配调用。
 - `GET /api/v1/admin/prompt-calls`、`GET /api/v1/admin/prompt-calls/:requestId`：查看上线后保存的最终任务提示词、补充要求、调用结果与ContextPack清单；密钥和思维链不返回。
+- `GET /api/v1/admin/v7/prompt-context/summary`：V7提示资产、书级题材档案、任务合同、ContextPack与PromptManifest数量概览。
+- `GET /api/v1/admin/v7/prompt-context/assets`、`GET /api/v1/admin/v7/prompt-context/assets/:assetKey/versions`：按岗位提示、工位提示、题材人设或Skill读取当前版本与不可变历史。
+- `POST /api/v1/admin/v7/prompt-context/assets/:assetKey/drafts|preview|publish|restore-draft`：创建草稿、用模拟或历史资料预览、发布新版本、从历史版本创建恢复草稿。发布与恢复都不原地改写历史任务。
+- `GET /api/v1/admin/v7/prompt-context/manifests`、`GET /api/v1/admin/v7/prompt-context/manifests/:manifestId`：按书或任务查看一次调用冻结的岗位、工位、题材档案、Skill、任务合同、资料采用/排除、模型参数和最终提示摘要；密钥和思维链不返回。
+- `POST /api/v1/admin/v7/prompt-context/manifests/:manifestId/verify-rebuild`：只读重建冻结提示并核对哈希，不重新调用模型、不修改作者数据。
 - `GET /api/v1/admin/membership-stats`：统计活跃会员、实收收入、续费次数、临期人数、套餐分布和不可变会员流水。
 - `GET /api/v1/admin/audit/books/:bookId/tasks/:taskId`：管理员按书籍和任务读取完整任务、阶段、模型调用、工具调用与内部方法审计；普通作者路由没有该投影。
 - `GET /api/v1/admin/users`：管理员按关键字和状态查看账号。
@@ -53,6 +58,81 @@
 同一作者不能创建标准化后同名的书籍，检查范围包含归档书；不同作者仍可使用相同书名。冲突返回 `BOOK_TITLE_CONFLICT`（409），且确认草稿保持可编辑，不创建任何下游数据。
 
 五阶段核心接口：`GET /api/v1/books/:bookId/core-workflow` 返回设定→故事线→分卷→事件→章节的活动状态、滚动故事线版本与关系、逐卷参与、角色卡、事件角色绑定、规划/实际总账、作者最远节点、开放问题、增长候选、草稿和失效记录。`storylines`、`storyline-relations`、`volume-participations`、`storyline-frontier`、`storyline-open-questions`、`storyline-growth-rounds`、`storyline-growth-candidates`、`characters`、`event-role-assignments`、`drafts`、`ledgers`、`invalidations` 与 `state` 分别执行版本化写入、候选决策、确认、重开、影响处理和阶段推进；历史 `storyline_topology` 仅作为旧数据只读兼容对象，不再提供作者端写入入口。所有写入同时校验当前 `owner_id + book_id`、期望版本、幂等键与上游依赖。
+
+### 3.1 V7 建书前开书 Agent
+
+- `POST /api/v1/v7/opening-agent/tasks`：登录作者提交 `idea`、`idempotencyKey`，可选 `selectedChiefMemberKey` 与 `selectedScreenwriterMemberKey`。接口先保存账号级任务壳，再由主编建立任务书、编剧设计开书资料包、主编审查；不会创建正式书籍。
+- `GET /api/v1/v7/opening-agent/tasks/:taskId`：只按当前会话的 `owner_id + task_id` 返回作者可见状态、成员显示名和追加候选版本。刷新会尝试取得短租约继续未完成任务；结果未知只对账，不重复发送模型请求。
+- 同一账号和幂等键重复提交相同内容返回原任务；内容或成员选择变化返回409并要求使用新编号。不同账号即使知道任务ID也返回404。
+- 主编与编剧默认使用火山方舟 Coding Plan；成员模型为 `kimi-k3` 时强制使用 Agent Plan。套餐绑定在调用前校验，缺少凭据时不使用现金API或其他未授权通道兜底。
+- 候选只是作者可修改、可确认的规划资料。响应不返回供应商、模型ID、请求ID、密钥、原始错误或思维链。
+
+V7 成员治理（仅管理员）：
+
+- `GET /api/v1/admin/v7/agent-governance`：返回当前七个固定岗位、25名唯一成员、19类任务温度策略和治理版本。一个成员只能属于一个固定岗位；题材能力由任务运行时的题材档案提供，不永久绑定成员。
+- `PATCH /api/v1/admin/v7/agent-governance/members/:memberKey`：按治理版本调整成员上岗、默认顺序、备用顺序、批准的模型档案和任务温度偏移；旧版本返回409。豆包文本模型只能担任主笔，Seedream只承担封面出图。
+- `PATCH /api/v1/admin/v7/agent-governance/task-policies/:taskKind`：在该任务类型登记的安全区间内调整默认温度；不能用统一温度覆盖所有创作、审查和结算任务。
+- `GET/PATCH /api/v1/admin/v7/opening-agent/members...`：只保留早期开书成员治理与历史任务恢复兼容。V7新任务不得从该两岗位旧名册建立默认成员。
+- 每个固定岗位始终至少一人上岗且恰好一名默认成员。新任务冻结当时的成员、模型、岗位、工位、Skill、TaskContract、ContextPack与PromptManifest；后台后续调整只影响未来任务，技术重试继续使用首次冻结快照。
+
+### 3.2 V7 设定清单与编辑部
+
+- `GET /api/v1/v7/books/:bookId/setting-department`：返回当前书的完整设定目录、已经确认/候选的设定、编辑部成员、最近实际设定批次，以及本书主编设定清单任务。读取接口只恢复已存在任务，不会暗中创建模型调用。
+- `POST /api/v1/v7/books/:bookId/setting-recommendations`：由作者明确点击后，为本书创建一次主编整理任务。主编读取作者已确认的完整开书规划和完整设定目录，把每个目录键恰好归入“现在需要、以后可补、暂时不用”之一；系统只校验所有权、开书版本/哈希、目录完整性、核心项和结果格式，不再用关键词替主编判断题材。
+- 每本书最多发送一次上述主编模型请求。重复点击、刷新、离开重进或开书资料后来形成新版本，都只返回已有记录，不会自动换人、重试或再次调用；资料变化后旧清单显示过期。模型失败如实保存为失败，不用旧关键词推荐冒充成功结果。
+- `GET /api/v1/v7/books/:bookId/setting-recommendations/:taskId`：按当前 `owner_id + book_id + task_id` 恢复主编头像、公开阶段、进度和三类结果；不返回模型名、内部错误、提示词、哈希或思维链。
+- `PUT /api/v1/v7/books/:bookId/setting-selection` 校验作者选择；`POST .../setting-batches` 只为尚无有效结果的新增条目创建编剧任务，已有条目不会因补充设计被重做。后续批次读取、单项修改、复审、重做、融合和确认接口保持原有不可变版本语义。
+- `POST .../setting-items/:itemKey/redesigns` 由作者为当前单项选择1—3名强模型编剧，缺省交互选中1名。每份输出独立保存；响应返回成功`candidates`与`failedMemberKeys`，单人失败不撤销其他成功方案。作者可采用一份交主编复审，或选择多份由主编融合；不会把整批设定乘以三套重复生成。
+
+### 3.3 V7 三棵竖向综合规划树
+
+- `POST /api/v1/v7/books/:bookId/planning-recipes/runs`：服务端冻结当前正式开书资料、已确认设定和作者本次目标。`candidateCount`为1—3，缺省1；作者可为每案选择不同强模型主编。每位主编读取同一硬事实与独立轻量方法包，直接完成一套兼顾结构、商业、人物与创意的全书方向，不再把完整资料重复转交给另一层编剧；客户端不能提交或改写来源清单。
+- `GET /api/v1/v7/books/:bookId/planning-recipes/runs/:runId`：恢复本轮请求席位、各案真实进度和已成功方案。一案完成即可选择；两案以上才执行一次非阻断比较点评。单席失败保留其他方案并只补失败席，不得整批清空重做。成员、模型、调用和提示词内部信息只在管理员审计接口中可见。
+- `POST /api/v1/v7/books/:bookId/planning-recipes/runs/:runId/confirm`：作者确认某席原案或主编整理案，产生不可变确认配方版本；方法只作为软参考，不会自动创建或确认规划树。
+- `POST /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId/generation-runs`：按确认配方、当前正式来源和精确父树版本创建规划成员任务。结果只保存为候选树，必须由作者另行确认；任务期间来源变化则停止写入。
+- `GET /api/v1/v7/books/:bookId/planning-tree-generation-runs/:runId`：恢复规划树任务状态和候选入口；失败按同岗位备用成员交接，结果未知时暂停以避免重复消耗。
+- `GET /api/v1/v7/books/:bookId/planning-trees/:treeKind/:scopeId`：读取当前全书树（`book`）、单卷树（`volume`）或单元链树（`chain`）。返回可直接竖向渲染的综合节点、当前修订、候选/确认状态和来自正式结算的实际进度；不返回来源清单、哈希、模型、方法编号或结算证据内部键。
+- `GET .../history`：读取不可变版本的修订、状态和时间摘要，不回传内部版本ID或完整审计资料。
+- `POST .../candidates`：保存一份完整候选树。Body包含`expectedRevision`、`tree`、带版本的`sourceRefs`和`idempotencyKey`；树层级和URL范围必须一致。
+- `PATCH .../candidate`：对当前候选或已确认树执行节点修改、直接子节点增删或同父重排，并生成新的完整候选快照，不原地覆盖旧版本。
+- `POST .../confirm`：确认当前候选。确认后旧确认版本转为历史，正文和结算不被修改。
+- `GET /api/v1/v7/books/:bookId/planning-maintenance-runs/:runId`：读取一次正式结算后的规划维护任务。维护成员只能追加节点实际和未来调整建议，不能改写确认树或正文。
+- `GET /api/v1/v7/books/:bookId/planning-adjustment-suggestions`：读取尚待作者决定的未来调整建议。
+- `POST /api/v1/v7/books/:bookId/planning-adjustment-suggestions/:suggestionId/decision`：作者选择`accept`或`dismiss`。采纳项只会作为下一版候选规划的目标来源，不会直接修改当前确认规划或实际记录。
+- `POST /api/v1/internal/worker/v7/books/:bookId/planning-maintenance`：登记过的内部Worker在正式章、事件或卷结算生效后触发增量维护；服务端核对`ownerId`、结算版本、证据和当前确认树，重复结算幂等。
+- `GET /api/v1/admin/v7/planning-runtime/:runKind/:runId?ownerId=&bookId=`：管理员只读审计配方、树生成或维护任务的来源快照、成员交接、调用、作者决定和写入结果。
+- 正文实际进度没有作者直写HTTP入口；只有可信结算服务可以触发内部维护能力，并且必须提交已生效结算版本。规划调整与实际回写均按`owner_id + book_id`隔离。
+
+### 3.4 V7人物角色管理
+
+- `POST /api/v1/v7/books/:bookId/characters/sync`：把同书正史人物和开书主角确定性对齐到V7人物目录；不调用模型，不凭名字推断人物关系。
+- `GET /api/v1/v7/books/:bookId/characters`、`GET .../characters/:profileId`：读取人物总览或单人详情，明确分开稳定档案、当前正史状态、关系、角色知情边界和历史来源。
+- `POST /api/v1/v7/books/:bookId/characters`：作者新增正式人物身份及首个确认档案版本。`POST .../characters/:profileId/versions`追加候选或作者确认版本，`POST .../versions/:versionId/activate`显式切换活动版本；`POST .../aliases`同步更新同书人物身份和档案别名并阻止与其他人物重名，`PATCH .../organization`只调整核心、重要、配角等组织层级，归档和恢复不永久删除历史。以上写操作均要求幂等操作编号并保留操作者记录。
+- `POST /api/v1/v7/books/:bookId/character-context-packs`：上游提交当前任务、同书结构化人物候选、关系读取深度和Token预算；人物资料成员只从候选中选择真正相关的人物与字段。`GET .../character-context-packs?taskKind=&taskId=`读取历史，`GET .../character-context-packs/:packId`恢复单次状态和完成后的最小资料；作者响应不返回模型、提示词、哈希或内部失败详情。
+- `POST /api/v1/internal/worker/v7/books/:bookId/character-maintenance`：登记Worker在正式章、事件或卷结算生效后触发人物增量维护；同一结算幂等。维护只生成有证据的档案/正史缺口候选与分级问题，不直接修改正文或正史投影。
+- `GET /api/v1/v7/books/:bookId/character-maintenance-runs/:runId`、`character-change-candidates`、`character-review-issues`：分别恢复维护进度、待处理人物变化和审查问题。明确失败的资料包或维护任务可调用其`/retry`重新交接并使用新尝试编号；结果未知时禁止重试，避免重复扣量。
+- `POST .../character-change-candidates/:candidateId/decision`：作者采纳或忽略人物变化建议。采纳档案建议后仍需创建并激活新档案版本；采纳正史缺口后仍需进入正史审核，不会直接改写人物实际。`POST .../character-review-issues/:issueId/decision`只记录问题已处理或忽略。
+- `GET /api/v1/admin/v7/character-memory/runs/audit?ownerId=&bookId=&runId=`：管理员查看冻结成员、调用状态、用量和结构化结果；接口再次校验管理员身份，不返回密钥或思维链。
+- 所有人物接口按会话`owner_id + book_id`隔离。人物资料包在正史修订变化后失效；结果未知不重调，普通失败按冻结备用成员顺序交接。
+
+### 3.5 V7第一卷创作闭环
+
+- `POST /api/v1/v7/books/:bookId/creation-workflows`：从本书已确认全书路线和全书树启动一个可恢复的卷创作任务。`candidateCount`为1—3，缺省1；作者可按席位选择不同规划成员。服务端冻结正式开书资料、确认设定、当前父树、最近实际、相关人物与少量方法配方；客户端只能提交本卷目标、候选数量、成员偏好和幂等编号，不能自报正式来源。
+- `GET /api/v1/v7/books/:bookId/creation-workflows/:workflowId`：恢复当前检查点、请求案数、各席成功方案、非阻断比较点评、作者决定、章纲候选、正文候选与下一步。部分成员失败时保留其余成功方案；作者只看到真实大白话状态，不返回模型、提示词、哈希、内部键或堆栈。
+- `POST .../options/choose`：作者选择卷方案或链方案。每类决定只能确认一次，重复幂等请求返回原决定，不能从旧页面改选另一个方案覆盖已经确认的方向。
+- `POST .../continue-to-chain`：在卷方案确定后继续当前单元链；同样接受1—3案和成员偏好，缺省1。两案以上才比较；链内容仍是候选，作者确认前不进入正式规划。
+- `POST .../outlines`：按已确认链生成1—3份完整章纲候选，缺省1。`memberKeys`可指定不同规划成员，`replaceCandidateId`只重新设计指定候选；每案独立审查和保存，其他成功章纲不受影响。
+- `POST .../outlines/confirm`：采用一份已通过审查的章纲候选，并原子提升为正式章纲序列、保存作者决定、选中候选和工作流检查点；重复请求返回同一正式章纲编号。
+- `POST .../manuscripts`：只读取确认章纲和最小可信资料生成正文候选，再交给独立审校；主笔不读取其他候选过程，审校只绑定本次精确正文版本。
+- `POST .../managed/activate`：作者看见剩余章数和预计写作/复核次数后，明确选择“托管写完本链”。可同时指定主笔与审校成员；任务按章顺序执行，失败可换成员后再次激活，结果未知则冻结，不会重复下单。普通章纲确认不会隐式启动连续模型调用。
+- `POST .../cancel`：停止尚未完成的创作任务并写入幂等控制收据；取消只终止未来工作，保留已完成方案、章纲、正文、审校、结算和调用审计。
+- `POST .../manuscripts/finalize`：作者定稿不可变正文，并在同一事务写入`settle_chapter`正式化事件。重复请求返回原结果，不重写正文或重复入队。
+- `GET .../write-back`：读取结算、人物维护、规划维护和故事状态维护的真实进度。单个消费者明确失败时可独立交接重试；结果未知时停止重发，正文定稿不回滚。
+- `POST /api/v1/internal/worker/v7/creation-formalization/process`：登记Worker从正式化积压中按顺序追赶章结算及独立维护消费者；接口受Worker令牌保护。Worker关闭时事件仍保留在outbox，恢复后幂等追赶。
+- `POST /api/v1/internal/worker/v7/managed-creation/process`：受保护的单次托管追赶入口。默认部署不调度该入口，避免服务重启后未经作者再次确认便继续产生模型调用；当前作者显式激活后由API进程持续完成本链。
+- `GET /api/v1/v7/books/:bookId/story-state`：读取由定稿正文证据产生的故事线、伏笔和开放问题洁净投影；规划、摘要和未确认候选不能冒充实际。
+- `GET /api/v1/v7/admin/books/:bookId/creation-workflows/:workflowId/audit`：管理员只读查看本轮请求候选数、资料包数量与字符量、成员/模型快照、逐次调用用量、卷链方案、章纲草案、决定、正文版本、审校、结算、outbox和维护状态；不返回调用输出正文。该接口要求管理员会话并再次校验`owner_id + book_id`。独立后台兼容旧API响应，前后端滚动更新期间不会因缺少新字段白屏。
+- 全链路按`owner_id + book_id + workflow_id`隔离。只有确认全书方向和确认全书树才能启动；第一卷增加开篇抓力、黄金前三章和首个明确回报责任，普通卷改读上一卷实际，不机械复用首卷公式。
 
 ## 4. 设定对象协作
 

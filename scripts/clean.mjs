@@ -6,7 +6,15 @@ if (!existsSync(resolve(projectRoot, 'RELEASE_ID'))) {
   throw new Error('拒绝在文秘写作项目根目录之外执行清理');
 }
 
-for (const relativePath of ['apps/contracts/dist', 'apps/api/dist', 'apps/worker/dist', 'apps/web/dist', 'coverage']) {
+for (const relativePath of [
+  'apps/contracts/dist',
+  'apps/api/dist',
+  'apps/worker/dist',
+  'coauthoring-v7/backend/dist',
+  'coauthoring-v7/author-app/dist',
+  'coauthoring-v7/admin-console/dist',
+  'coverage'
+]) {
   const target = resolve(projectRoot, relativePath);
   if (!target.startsWith(`${resolve(projectRoot)}\\`) && !target.startsWith(`${resolve(projectRoot)}/`)) {
     throw new Error(`拒绝清理项目外路径：${target}`);
@@ -15,4 +23,3 @@ for (const relativePath of ['apps/contracts/dist', 'apps/api/dist', 'apps/worker
 }
 
 console.log(`已清理 ${readFileSync(resolve(projectRoot, 'RELEASE_ID'), 'utf8').trim()} 的构建产物`);
-

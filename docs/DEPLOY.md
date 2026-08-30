@@ -12,7 +12,7 @@
        │
        ├─ /api/*  ──→  API 服务 (127.0.0.1:43111)
        ├─ /health  ──→  API 健康检查
-       └─ 其他      ──→  静态文件 (apps/web/dist)
+       └─ 其他      ──→  V7组合静态发布 (/opt/wenmi/releases/current)
                               │
                               ▼
                          Worker 服务 (独立进程)
@@ -120,10 +120,12 @@ sudo -u wenmi nano deploy/.env.production
 | `WENMI_ADMIN_ORIGIN` | `https://admin.wenmixiezuo.com` |
 | `WENMI_ARK_CODING_PLAN_API_KEY` | 火山方舟 Coding Plan API Key，供除高级编剧外的全部AI岗位使用 |
 | `WENMI_ARK_CODING_PLAN_*_MODEL` | Coding Plan 各岗位模型 ID |
-| `WENMI_ARK_AGENT_PLAN_API_KEY` | 火山方舟 Agent Plan API Key，只供高级编剧 Kimi K3 使用 |
+| `WENMI_ARK_AGENT_PLAN_API_KEY` | 火山方舟 Agent Plan API Key，供高级编剧 Kimi K3、视觉规划和套餐内 Seedream 封面使用 |
+| `WENMI_ARK_IMAGE_API_KEY` | 可选的图像生成专用 API Key；配置后优先于 Agent Plan 凭据 |
+| `WENMI_ARK_IMAGE_MODEL_ID` | 可选的图像生成模型 ID；未配置时使用当前默认 Seedream 封面模型 |
 | `WENMI_WORKER_TOKEN` | 建议设置固定值（至少 32 字符） |
 
-> 常规创作岗位统一使用 Coding Plan。高级编剧清照固定使用 Agent Plan 的 `kimi-k3`，只有作者主动选择时才调用；未配置 Agent Plan 时仅该席位不可用。两类 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
+> 常规创作岗位统一使用 Coding Plan。高级编剧清照固定使用 Agent Plan 的 `kimi-k3`，只有作者主动选择时才调用。封面默认使用 Agent Plan 套餐已包含的 Seedream 权益；如配置 `WENMI_ARK_IMAGE_API_KEY`，则只对封面优先使用该专用凭据。系统不会把 Coding Plan 凭据用于图片，也不会自动切换到合同外的普通按量地址。所有 Key 都只保存在服务器环境变量中，不能进入数据库、日志、任务上下文、备份、导出或 Git。
 
 GLM-5.2 与 GLM-5.3 使用 Coding Plan 共用凭证并登记在后台可配置模型目录，当前不默认绑定任何岗位；无需新增独立密钥。
 
@@ -177,6 +179,8 @@ sudo systemctl start wenmi-api
 sleep 5
 sudo systemctl start wenmi-worker
 ```
+
+V7写后维护由Worker独立追赶时，需要在Worker环境中显式设置`WENMI_V7_FORMALIZATION_ENABLED=true`。启用前确认API内部Worker令牌一致；关闭或重启Worker不会丢失正式化事件，恢复后从SQLite outbox继续。托管写完本链目前只在作者明确点击后由仍在运行的API进程继续，服务重启后不会自动恢复付费模型调用，作者可在任务页核对状态后再次激活。
 
 ### 第九步：配置自动备份
 
@@ -247,9 +251,10 @@ sudo systemctl start wenmi-worker
 #### Web-only（不改API、Worker、迁移）
 
 1. 本机运行相关Web测试、Web类型检查/构建和文档检查；提交后用LF归档上传暂存目录。
-2. 在暂存目录构建Web，验证入口和哈希资源；不得先覆盖当前在线 `apps/web/dist`。
-3. 把新哈希JS/CSS作为新增资源放入在线静态目录，保留旧哈希资源；备份旧`index.html`后原子替换入口。
-4. 验证首页、新资源、登录、目标页面和旧入口回滚。此流程不重启API/Worker、不改数据库，因此不等待在途任务清零。
+2. 运行 `npm run build:v7:static-release`，再运行 `npm run verify:v7:static-release`；作者端位于组合包根，独立后台位于 `/v7/`。
+3. 把已校验的内容目录上传到 `/opt/wenmi/releases/versions/<release-id>`，不得覆盖当前版本目录。
+4. 在服务器执行 `sudo -u wenmi /opt/wenmi/current/deploy/activate-v7-static.sh <release-id>`。脚本再次核验清单，原子切换 `current`，并保留 `previous` 指针。
+5. 验证主站、后台、深链接、登录和目标页面。失败时用同一命令激活 `previous` 指向的 releaseId。Web-only 不重启API/Worker、不改数据库，因此不等待在途任务清零。
 
 #### API / Worker / 数据迁移
 
@@ -257,7 +262,7 @@ sudo systemctl start wenmi-worker
 2. 在唯一暂存目录完成受影响服务构建和迁移预检；迁移只向后兼容，已合并迁移字节变化立即停止。
 3. 正式迁移前备份数据库。查询 `tasks`，`working`、`queued`、`pending`、`waiting_confirmation` 连续30秒为0，并在每次重启前立即复核；只等待，不取消/暂停/改写作者任务。
 4. 逐个原子切换并重启受影响服务，每一步检查active、日志、健康和任务恢复；失败立即回滚，不继续扩大。
-5. 最后切换需要更新的Web入口，验证旧缓存兼容、登录、书籍隔离和核心链路。旧构建保留到验收结束。
+5. API、Worker 和 V7 静态包必须来自同一冻结源码；重建后再通过版本目录切换Web，验证登录、会员、书籍隔离和核心链路。旧版本目录保留到验收结束。
 
 暂存、备份和切换路径带提交号，不复用未核验旧目录。发布命令逐步执行并逐步看结果。
 

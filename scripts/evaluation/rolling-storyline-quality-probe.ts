@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { EditorialRoleKey } from '@wenmi/contracts';
-import { creativeTemplate } from '../../apps/api/src/application/agents/creative-templates-v6.js';
-import { nodeProtocolSkill, roleAgentSkill } from '../../apps/api/src/application/agents/agent-skills-v6.js';
+import { creativeTemplate } from '../../apps/api/src/application/agents/editorial-node-templates.js';
+import { nodeProtocolSkill, roleAgentSkill } from '../../apps/api/src/application/agents/editorial-agent-skills.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 

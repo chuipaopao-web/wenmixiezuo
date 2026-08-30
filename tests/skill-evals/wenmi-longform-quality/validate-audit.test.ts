@@ -58,18 +58,4 @@ describe('wenmi-longform-quality审计格式门禁', () => {
     expect(result.stdout).toContain('PASS:');
   });
 
-  it('接受计划与事实分离、首卷强启动、手机端和148项证据齐全的分层审计', () => {
-    const result = validate('audit-layered-complete.md');
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('PASS:');
-    expect(result.stderr).toBe('');
-  });
-
-  it('拒绝让作者选择内部叙事方法的分层方案', () => {
-    const result = validate('audit-layered-method-leak.md');
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('作者界面仍要求选择内部叙事方法');
-  });
 });

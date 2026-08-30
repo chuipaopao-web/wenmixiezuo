@@ -1,0 +1,957 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
+import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
+import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
+import { createServer } from '../../../apps/api/src/http/server.js';
+import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
+import { V7SettingEditorialRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.js';
+import { V7_SETTING_CATALOG, V7_SETTING_MEMBERS, validateSettingEditorialRoster } from '@wenmi/v7-backend';
+import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+
+const HEADERS = { host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110', 'sec-fetch-site': 'same-site', 'content-type': 'application/json' };
+let context: TestContext | undefined;
+afterEach(() => { context?.close(); context = undefined; });
+
+describe('V7设定编辑部', () => {
+  it('固定三名强模型主编、三名强模型副编和三名强模型策划，Kimi K3只走Agent Plan', () => {
+    expect(validateSettingEditorialRoster()).toEqual([]);
+    expect(V7_SETTING_MEMBERS.filter((member) => member.roleKey === 'chief_editor')).toHaveLength(3);
+    expect(V7_SETTING_MEMBERS.filter((member) => member.roleKey === 'deputy_editor')).toHaveLength(3);
+    expect(V7_SETTING_MEMBERS.filter((member) => member.roleKey === 'screenwriter')).toHaveLength(3);
+    expect(V7_SETTING_MEMBERS.find((member) => member.model.modelId === 'kimi-k3')?.model.plan).toBe('agent');
+  });
+
+  it('三国书由主编完整理解后推荐，读取页面不暗中调用，同一开书版本只调用一次', async () => {
+    context = createTestContext('wenmi-v7-setting-recommendation-');
+    context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'setting-recommendation@example.com', '推荐测试作者', 'strong-pass-123');
+      const bookId = await createBook(app, cookie, '三国设定测试', 'recommendation-book-0001', '历史脑洞', {
+        tags: ['历史', '古代', '权谋', '爽文', '智商在线', '种田', '热血', '逆袭'],
+        mustFollow: ['不得引入玄幻、修仙、系统等超现实元素']
+      });
+      const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(department.statusCode).toBe(200);
+      expect(department.json().data.recommendation).toBeNull();
+      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history-baseline')).toBe(true);
+      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'game-entry')).toBe(true);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 0 });
+
+      const created = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      expect(created.statusCode).toBe(200);
+      const completed = await pollRecommendation(app, cookie, bookId, created.json().data.taskId as string);
+      const internalFailure = context.database.prepare(`SELECT internal_reason FROM v7_setting_member_events
+        WHERE book_id=? AND event_type='leave' ORDER BY created_at DESC LIMIT 1`).get(bookId);
+      expect(completed.status, `${JSON.stringify(completed)}\n${JSON.stringify(internalFailure)}`).toBe('ready');
+      expect(completed.result.requiredKeys).toContain('history-baseline');
+      expect(completed.result.requiredKeys).not.toContain('game-entry');
+      expect(completed.result.requiredKeys).not.toContain('cultivation');
+      expect(completed.result.excludedKeys).toEqual(expect.arrayContaining(['game-entry', 'cultivation']));
+      expect(completed.retryable).toBe(false);
+      const repeated = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.json().data.taskId).toBe(completed.taskId);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 1 });
+      const refreshed = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(refreshed.json().data.recommendation.taskId).toBe(completed.taskId);
+      expect(refreshed.json().data.recommendedKeys).toEqual(completed.result.requiredKeys);
+      const genreProfile = context.database.prepare(`SELECT primary_genre_key,supporting_genre_keys_json,status,source_book_version
+        FROM v7_book_genre_profiles WHERE book_id=? AND status='active'`).get(bookId) as {
+          primary_genre_key: string;
+          supporting_genre_keys_json: string;
+          status: string;
+          source_book_version: number;
+        };
+      expect(genreProfile).toMatchObject({ primary_genre_key: 'history', status: 'active', source_book_version: 1 });
+      expect(JSON.parse(genreProfile.supporting_genre_keys_json)).not.toEqual(expect.arrayContaining(['game_sports', 'fantasy', 'xianxia']));
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='genre_profile'`).get(bookId)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT member_key FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='genre_profile'`).get(bookId)).toEqual({ member_key: 'deputy-deepseek-v4-pro' });
+
+      // 提示词/解析合同升级后，旧清单必须保留为审计，但作者再次点击
+      // 应创建新任务；不能因为开书版本没变而永远复用过期结果。
+      context.database.prepare(`UPDATE v7_setting_batches SET request_hash=?,idempotency_key=? WHERE batch_id=?`)
+        .run('0'.repeat(64), 'setting-recommendation-legacy-contract', completed.taskId);
+      const stale = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(stale.statusCode).toBe(200);
+      expect(stale.json().data.recommendation).toMatchObject({ taskId: completed.taskId, status: 'failed', retryable: false });
+      const rebuilt = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      expect(rebuilt.statusCode).toBe(200);
+      expect(rebuilt.json().data.taskId).not.toBe(completed.taskId);
+      const rebuiltCompleted = await pollRecommendation(app, cookie, bookId, rebuilt.json().data.taskId as string);
+      expect(rebuiltCompleted.status).toBe('ready');
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 2 });
+    } finally { await app.close(); }
+  });
+
+  it('融合题材不会由系统直接定性，而由副编一次语义整理并形成书级档案', async () => {
+    context = createTestContext('wenmi-v7-setting-genre-semantic-');
+    context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'setting-genre-semantic@example.com', '题材语义作者', 'strong-pass-123');
+      const bookId = await createBook(app, cookie, '古代职场探案', 'genre-semantic-book-0001', '历史脑洞', {
+        tags: ['权谋', '悬疑', '成长'],
+        mustFollow: ['不出现超凡力量和游戏系统']
+      });
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`,
+        headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(created.statusCode).toBe(200);
+      const completed = await pollRecommendation(app, cookie, bookId, created.json().data.taskId as string);
+      expect(completed.status).toBe('ready');
+      expect(context.database.prepare(`SELECT primary_genre_key,status FROM v7_book_genre_profiles
+        WHERE book_id=? AND status='active'`).get(bookId)).toEqual({ primary_genre_key: 'history', status: 'active' });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='genre_profile'`).get(bookId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
+  it('主编整理失败会如实保存，同一本书重复点击不会换人或再次调用', async () => {
+    context = createTestContext('wenmi-v7-setting-recommendation-failed-');
+    context.config.modelRuntime.endpoints.coding.apiKey = 'test-coding-plan-key';
+    const resolver = new SettingResolver(false, true);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-recommendation-failed@example.com', '失败测试作者', 'strong-pass-123');
+      const bookId = await createBook(app, cookie, '三国失败测试', 'recommendation-failed-book-0001', '历史脑洞');
+      const created = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      expect(created.statusCode).toBe(200);
+      const failed = await pollRecommendation(app, cookie, bookId, created.json().data.taskId as string);
+      expect(failed.status).toBe('failed');
+      expect(failed.retryable).toBe(true);
+      expect(failed.result).toBeNull();
+      const currentFailed = await app.inject({
+        method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-recommendations/current`, headers: { host: HEADERS.host, cookie }
+      });
+      expect(currentFailed.statusCode).toBe(200);
+      expect(currentFailed.json().data.taskId).toBe(failed.taskId);
+      expect(currentFailed.json().data.status).toBe('failed');
+      const repeated = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations`, headers: { ...HEADERS, cookie }, payload: {} });
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.json().data.taskId).toBe(failed.taskId);
+      expect(resolver.recommendationAttempts).toBe(1);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key='catalog_recommendation'`).get(bookId)).toEqual({ count: 1 });
+      const resumed = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-recommendations/retry`,
+        headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(resumed.statusCode, resumed.body).toBe(200);
+      expect(['queued', 'working']).toContain(resumed.json().data.status);
+    } finally { await app.close(); }
+  });
+
+  it('按书隔离、失败请假交接、幂等恢复、主编审核和作者确认形成不可变版本', async () => {
+    context = createTestContext('wenmi-v7-setting-');
+    const resolver = new SettingResolver(true);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-author@example.com', '设定作者', 'strong-pass-123');
+      const other = await register(app, 'setting-other@example.com', '另一作者', 'strong-pass-456');
+      const firstBook = await createBook(app, cookie, '三国设定测试', 'history-book-0001', '历史脑洞');
+      const secondBook = await createBook(app, cookie, '星际设定测试', 'scifi-book-0001', '科幻末世');
+
+      const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(department.statusCode).toBe(200);
+      expect(department.json().data.catalog.some((item: { key: string }) => item.key === 'history-baseline')).toBe(true);
+      expect(department.json().data.members).toHaveLength(9);
+      expect(JSON.stringify(department.json().data.members)).not.toMatch(/modelId|provider|凭据|失败|timeout/iu);
+
+      const payload = { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-batch-0001' };
+      const created = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-batches`, headers: { ...HEADERS, cookie }, payload });
+      expect(created.statusCode).toBe(200);
+      const batchId = created.json().data.batchId as string;
+      const completed = await pollBatch(app, cookie, firstBook, batchId);
+      expect(completed.status).toBe('awaiting_author');
+      expect(completed.progress).toEqual({ completed: 2, total: 2, percent: 100 });
+      expect(completed.items.every((item: { content: string | null }) => typeof item.content === 'string')).toBe(true);
+      expect(completed.members.some((member: { statusText: string }) => /请假|交接/u.test(member.statusText))).toBe(true);
+      expect(resolver.prompts.join('\n')).toContain('东汉末年');
+      expect(resolver.prompts.join('\n')).not.toContain('主角处于社会底层');
+      expect(resolver.prompts.join('\n')).not.toContain('危机中醒来');
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_member_events WHERE owner_id=(SELECT owner_id FROM books WHERE book_id=?) AND book_id=? AND event_type='handoff'`).get(firstBook, firstBook)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND context_hash IS NOT NULL`).get(firstBook)).toEqual({ count: 2 });
+      const settingSources = context.database.prepare(`SELECT DISTINCT s.owner_id AS ownerId,s.book_id AS bookId,
+        s.source_type AS sourceType,s.authority,s.decision
+        FROM v7_context_source_traces s
+        JOIN v7_context_pack_traces p ON p.context_pack_id=s.context_pack_id
+        JOIN v7_task_contracts c ON c.task_id=p.task_id AND c.owner_id=p.owner_id AND c.book_id=p.book_id
+        WHERE p.book_id=? AND c.task_kind IN ('planning_context','setting_design','setting_review')`).all(firstBook) as Array<{
+          ownerId: string; bookId: string; sourceType: string; authority: string; decision: string;
+        }>;
+      expect(settingSources.every((source) => source.bookId === firstBook && source.decision === 'included')).toBe(true);
+      expect(settingSources.map((source) => source.sourceType)).toEqual(expect.arrayContaining(['opening_profile', 'catalog_contract']));
+      expect(settingSources.find((source) => source.sourceType === 'opening_profile')).toEqual(expect.objectContaining({ authority: 'confirmed' }));
+
+      const repeated = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-batches`, headers: { ...HEADERS, cookie }, payload });
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.json().data.batchId).toBe(batchId);
+      const callCount = (context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=?`).get(firstBook) as { count: number }).count;
+      expect(callCount).toBeGreaterThanOrEqual(5);
+
+      const firstItem = completed.items.find((item: { itemKey: string }) => item.itemKey === 'world-stage');
+      const confirmed = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/confirm`, headers: { ...HEADERS, cookie }, payload: { expectedRevision: firstItem.revision } });
+      expect(confirmed.statusCode).toBe(200);
+      expect(confirmed.json().data.state).toBe('confirmed');
+      expect(context.database.prepare(`SELECT status,COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage' GROUP BY status ORDER BY status`).all(firstBook)).toEqual([
+        { status: 'candidate', count: 1 }, { status: 'confirmed', count: 1 }
+      ]);
+
+      const sourceBeforeAuthorRevision = context.database.prepare(`SELECT o.request_id AS taskId
+        FROM v7_setting_items i
+        JOIN v7_setting_item_versions v ON v.version_id=i.active_version_id AND v.owner_id=i.owner_id AND v.book_id=i.book_id
+        JOIN v7_setting_outputs o ON o.output_id=v.source_output_id AND o.owner_id=i.owner_id AND o.book_id=i.book_id
+        WHERE i.book_id=? AND i.item_key='world-stage'`).get(firstBook) as { taskId: string };
+      const revised = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/revisions`, headers: { ...HEADERS, cookie }, payload: { content: '这是作者修改后的世界舞台，新版本保留旧版，不原地覆盖。', idempotencyKey: 'setting-author-revision-0001' } });
+      expect(revised.statusCode).toBe(200);
+      expect(context.database.prepare(`SELECT operation_mode AS operationMode,based_on_task_id AS basedOnTaskId,
+        author_instruction_version AS authorInstructionVersion FROM v7_task_contracts
+        WHERE book_id=? AND task_id LIKE '%-author-chief' ORDER BY created_at DESC LIMIT 1`).get(firstBook)).toEqual({
+        operationMode: 'revise', basedOnTaskId: sourceBeforeAuthorRevision.taskId, authorInstructionVersion: 1
+      });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(firstBook)).toEqual({ count: 3 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls WHERE book_id=? AND node_key IN ('chief','chief_repair')`).get(firstBook)).toEqual({ count: 6 });
+      const repeatedRevision = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/revisions`, headers: { ...HEADERS, cookie }, payload: { content: '这是作者修改后的世界舞台，新版本保留旧版，不原地覆盖。', idempotencyKey: 'setting-author-revision-0001' } });
+      expect(repeatedRevision.statusCode).toBe(200);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(firstBook)).toEqual({ count: 3 });
+      const afterRevisionDepartment = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(afterRevisionDepartment.statusCode).toBe(200);
+      expect(afterRevisionDepartment.json().data.activeBatch.batchId).toBe(batchId);
+      expect(afterRevisionDepartment.json().data.activeBatch.progress).toEqual({ completed: 2, total: 2, percent: 100 });
+
+      const tooMany = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/redesigns`, headers: { ...HEADERS, cookie }, payload: { memberKeys: ['planner-deepseek-v4-pro', 'planner-glm-5-3', 'planner-deepseek-v4-flash', 'planner-kimi-k3'], idempotencyKey: 'setting-redesign-too-many' } });
+      expect(tooMany.statusCode).toBe(400);
+      const redesigned = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/redesigns`, headers: { ...HEADERS, cookie }, payload: { memberKeys: ['planner-deepseek-v4-pro', 'planner-glm-5-3', 'planner-kimi-k3'], authorNote: '增强历史质感，但保持大白话。', idempotencyKey: 'setting-redesign-0001' } });
+      expect(redesigned.statusCode).toBe(200);
+      expect(redesigned.json().data.candidates).toHaveLength(3);
+      const sourceBeforeRedesign = context.database.prepare(`SELECT o.request_id AS taskId
+        FROM v7_setting_items i
+        JOIN v7_setting_item_versions v ON v.version_id=i.active_version_id AND v.owner_id=i.owner_id AND v.book_id=i.book_id
+        JOIN v7_setting_outputs o ON o.output_id=v.source_output_id AND o.owner_id=i.owner_id AND o.book_id=i.book_id
+        WHERE i.book_id=? AND i.item_key='world-stage'`).get(firstBook) as { taskId: string };
+      const redesignContracts = context.database.prepare(`SELECT operation_mode AS operationMode,
+        based_on_task_id AS basedOnTaskId,author_instruction_version AS authorInstructionVersion
+        FROM v7_task_contracts WHERE book_id=? AND task_id LIKE '%-redesign-%' ORDER BY task_id`).all(firstBook);
+      expect(redesignContracts).toHaveLength(3);
+      expect(redesignContracts).toEqual(redesignContracts.map(() => ({
+        operationMode: 'revise', basedOnTaskId: sourceBeforeRedesign.taskId, authorInstructionVersion: null
+      })));
+      const fused = await app.inject({ method: 'POST', url: `/api/v1/v7/books/${firstBook}/setting-items/world-stage/fusions`, headers: { ...HEADERS, cookie }, payload: { outputIds: redesigned.json().data.candidates.map((candidate: { outputId: string }) => candidate.outputId), authorNote: '融合三份方案的优点。', idempotencyKey: 'setting-fusion-0001' } });
+      expect(fused.statusCode).toBe(200);
+      expect(fused.json().data.content).toContain('东汉末年');
+
+      const secondDepartment = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${secondBook}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(secondDepartment.statusCode).toBe(200);
+      expect(secondDepartment.json().data.confirmedItems).toEqual([]);
+      expect(secondDepartment.json().data.catalog.some((item: { key: string }) => item.key === 'technology-boundary')).toBe(true);
+
+      const crossOwner = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${firstBook}/setting-department`, headers: { host: HEADERS.host, cookie: other } });
+      expect(crossOwner.statusCode).toBe(404);
+      expect(resolver.temperatures).not.toContain(0.16);
+      expect(resolver.temperatures).toContain(0.62);
+      expect(resolver.temperatures).toContain(0.25);
+    } finally { await app.close(); }
+  });
+
+  it('同类设定按最多六项共享一份轻量资料包，一次设计后再等待全书统一审查', async () => {
+    context = createTestContext('wenmi-v7-setting-grouped-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-grouped@example.com', '分组设定作者', 'strong-pass-907');
+      const bookId = await createBook(app, cookie, '分组设定测试', 'grouped-setting-book-0001', '历史脑洞');
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: {
+          selectedItemKeys: ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks'],
+          customItems: [], authorNotes: {}, idempotencyKey: 'setting-grouped-batch-0001'
+        }
+      });
+      expect(created.statusCode, created.body).toBe(200);
+      const batchId = created.json().data.batchId as string;
+      const completed = await pollBatch(app, cookie, bookId, batchId);
+      expect(completed.status).toBe('awaiting_author');
+      expect(completed.progress).toEqual({ completed: 4, total: 4, percent: 100 });
+      expect(completed.items.every((item: { state: string; content: string | null }) => (
+        item.state === 'needs_author' && typeof item.content === 'string' && item.content.length > 20
+      ))).toBe(true);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND batch_id=? AND node_key='writer_group' AND state='succeeded'`).get(bookId, batchId)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND batch_id=? AND node_key IN ('chief','chief_repair')`).get(bookId, batchId)).toEqual({ count: 0 });
+      const contexts = context.database.prepare(`SELECT DISTINCT context_hash AS contextHash,context_manifest_json AS manifest
+        FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).all(bookId, batchId) as Array<{ contextHash: string; manifest: string }>;
+      expect(contexts).toHaveLength(1);
+      const manifest = JSON.parse(contexts[0]!.manifest) as { characterCount: number; budgetChars: number; itemKeys: string[] };
+      expect(manifest.itemKeys).toHaveLength(4);
+      expect(manifest.characterCount).toBeLessThanOrEqual(manifest.budgetChars);
+      expect(manifest.budgetChars).toBe(12_000);
+    } finally { await app.close(); }
+  });
+
+  it('管理员可以让设定成员请假和返岗，但每个岗位至少保留一名在岗成员', async () => {
+    context = createTestContext('wenmi-v7-setting-admin-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const admin = await register(app, 'setting-admin@example.com', '管理员', 'strong-pass-789');
+      context.database.prepare(`UPDATE user_accounts SET role='admin' WHERE email_normalized='setting-admin@example.com'`).run();
+      const members = await app.inject({ method: 'GET', url: '/api/v1/admin/v7/setting-agent/members', headers: { host: HEADERS.host, cookie: admin } });
+      expect(members.statusCode).toBe(200);
+      const writer = members.json().data.find((member: { memberKey: string }) => member.memberKey === 'planner-glm-5-3');
+      const leave = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-glm-5-3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: writer.revision, enabled: false } });
+      expect(leave.statusCode).toBe(200);
+      expect(leave.json().data.enabled).toBe(false);
+      const back = await app.inject({ method: 'PATCH', url: '/api/v1/admin/v7/setting-agent/members/planner-glm-5-3', headers: { ...HEADERS, cookie: admin }, payload: { expectedRevision: leave.json().data.revision, enabled: true } });
+      expect(back.statusCode).toBe(200);
+      expect(back.json().data.enabled).toBe(true);
+    } finally { await app.close(); }
+  });
+
+  it('全部条目完成后由主编执行一次可恢复的跨条目统一整理，而不是前端拼接提醒', async () => {
+    context = createTestContext('wenmi-v7-setting-final-review-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'setting-final-review@example.com', '统一设定作者', 'strong-pass-901');
+      const bookId = await createBook(app, cookie, '设定统一整理测试', 'final-review-book-0001', '历史脑洞');
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'final-review-items-0001' }
+      });
+      expect(created.statusCode).toBe(200);
+      await pollBatch(app, cookie, bookId, created.json().data.batchId as string);
+
+      const requested = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
+        payload: { idempotencyKey: 'final-review-task-0001' }
+      });
+      expect(requested.statusCode, requested.body).toBe(200);
+      const completed = await pollFinalReview(app, cookie, bookId);
+      expect(completed.status).toBe('ready');
+      expect(completed.result.summary).toContain('跨条目');
+      expect(completed.result.unifiedDecisions).toHaveLength(1);
+      expect(completed.result.patchedItemKeys).toEqual(['world-stage']);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
+      const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(department.statusCode).toBe(200);
+      expect(department.json().data.finalReview.taskId).toBe(completed.taskId);
+      expect(department.json().data.finalReview.status).toBe('ready');
+      for (const item of department.json().data.confirmedItems as Array<{ itemKey: string; revision: number; state: string }>) {
+        if (item.state === 'confirmed') continue;
+        const confirmed = await app.inject({
+          method: 'POST',
+          url: `/api/v1/v7/books/${bookId}/setting-items/${item.itemKey}/confirm`,
+          headers: { ...HEADERS, cookie },
+          payload: { expectedRevision: item.revision }
+        });
+        expect(confirmed.statusCode, confirmed.body).toBe(200);
+      }
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      expect(() => new V7PlanningSourceCompiler(context!.database, new SequenceIds(), new FixedClock()).compile({
+        ownerId,
+        bookId,
+        treeKind: 'book',
+        scopeId: bookId,
+        purpose: 'recipe_design'
+      })).not.toThrow();
+      const repeated = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
+        payload: { idempotencyKey: 'final-review-task-0001' }
+      });
+      expect(repeated.statusCode, repeated.body).toBe(200);
+      expect(repeated.json().data.taskId).toBe(completed.taskId);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
+  it('25项长设定的全书总审只读取分层语义索引，不把全部原文重新塞给主编', async () => {
+    context = createTestContext('wenmi-v7-setting-final-review-layered-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-layered-review@example.com', '分层总审作者', 'strong-pass-908');
+      const bookId = await createBook(app, cookie, '大量设定总审测试', 'layered-final-review-book-0001', '历史脑洞');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      for (let index = 1; index <= 25; index += 1) {
+        const itemKey = `layered-setting-${index}`;
+        const versionId = `layered-setting-version-${index}`;
+        context.database.prepare(`INSERT INTO v7_setting_item_versions
+          (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+          VALUES (?,?,?,?,1,'confirmed',?,'author','2026-01-01T00:00:00.000Z')`).run(
+          versionId,
+          ownerId,
+          bookId,
+          itemKey,
+          JSON.stringify({
+            finalContent: `原文标记${index}：`.padEnd(720, '详'),
+            contextSummary: `第${index}项设定锁定人物身份、时代边界和行动规则。`,
+            factEntries: [`第${index}项的身份与规则已经确认。`]
+          })
+        );
+        context.database.prepare(`INSERT INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,'完成当前设定','confirmed',?,1,'2026-01-01T00:00:00.000Z')`).run(
+          ownerId, bookId, itemKey, `长设定${index}`, `分组${Math.ceil(index / 5)}`, versionId
+        );
+      }
+      const requested = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
+        payload: { idempotencyKey: 'layered-final-review-task-0001' }
+      });
+      expect(requested.statusCode, requested.body).toBe(200);
+      const completed = await pollFinalReview(app, cookie, bookId);
+      expect(completed).toMatchObject({ status: 'ready', result: { verdict: 'pass' } });
+      expect(completed.result.factLedger).toHaveLength(25);
+      const reviewPrompt = resolver.prompts.map(settingStagePrompt)
+        .find((prompt) => prompt.includes('v7_setting_batch_final_review_v1'))!;
+      expect(reviewPrompt).toContain('layered_semantic_index');
+      expect(reviewPrompt).not.toContain('原文标记1');
+      expect(Array.from(reviewPrompt).length).toBeLessThanOrEqual(12_000);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='batch_final_review' AND state='succeeded'`).get(bookId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
+  it('轻量总审发现跨条目冲突后分小包真正改回正文，而不是只在页面口头宣布统一', async () => {
+    context = createTestContext('wenmi-v7-setting-final-review-patches-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-patch-review@example.com', '冲突修订作者', 'strong-pass-909');
+      const bookId = await createBook(app, cookie, '冲突设定总审测试', 'patch-final-review-book-0001', '历史脑洞');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      const oldNames = ['大靖', '大朔', '大宁', '大靖', '大朔', '大宁'];
+      for (let index = 0; index < oldNames.length; index += 1) {
+        const itemKey = `conflict-setting-${index + 1}`;
+        const versionId = `conflict-setting-version-${index + 1}`;
+        context.database.prepare(`INSERT INTO v7_setting_item_versions
+          (version_id,owner_id,book_id,item_key,revision,status,content_json,created_by,created_at)
+          VALUES (?,?,?,?,1,'confirmed',?,'author','2026-01-01T00:00:00.000Z')`).run(
+          versionId,
+          ownerId,
+          bookId,
+          itemKey,
+          JSON.stringify({
+            finalContent: `${oldNames[index]}的具体制度、交通和资源规则：`.padEnd(1_850, String(index + 1)),
+            contextSummary: `冲突长设定${index + 1}当前使用${oldNames[index]}，规则必须保留。`,
+            factEntries: [`冲突长设定${index + 1}当前使用${oldNames[index]}。`]
+          })
+        );
+        context.database.prepare(`INSERT INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,'完成当前设定','confirmed',?,1,'2026-01-01T00:00:00.000Z')`).run(
+          ownerId, bookId, itemKey, `冲突长设定${index + 1}`, '冲突分组', versionId
+        );
+      }
+      const requested = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-final-reviews`, headers: { ...HEADERS, cookie },
+        payload: { idempotencyKey: 'patch-final-review-task-0001' }
+      });
+      expect(requested.statusCode, requested.body).toBe(200);
+      const completed = await pollFinalReview(app, cookie, bookId);
+      expect(completed.status).toBe('ready');
+      expect(completed.result.patchedItemKeys).toHaveLength(oldNames.length);
+      const current = context.database.prepare(`SELECT v.content_json FROM v7_setting_items i
+        JOIN v7_setting_item_versions v ON v.version_id=i.active_version_id
+        WHERE i.owner_id=? AND i.book_id=? ORDER BY i.item_key`).all(ownerId, bookId) as Array<{ content_json: string }>;
+      expect(current).toHaveLength(oldNames.length);
+      for (const row of current) {
+        const content = JSON.parse(row.content_json) as { finalContent: string };
+        expect(content.finalContent).toContain('景朝');
+        expect(content.finalContent).not.toMatch(/大靖|大朔|大宁/u);
+      }
+      const reviewPrompt = resolver.prompts.map(settingStagePrompt)
+        .find((prompt) => prompt.includes('v7_setting_batch_final_review_v1'))!;
+      expect(reviewPrompt).toContain('layered_semantic_index');
+      const patchPrompts = resolver.prompts.map(settingStagePrompt)
+        .filter((prompt) => prompt.includes('v7_setting_batch_final_review_patch_v1'));
+      expect(patchPrompts.length).toBeGreaterThan(1);
+      expect(patchPrompts.every((prompt) => Array.from(prompt).length <= 12_000)).toBe(true);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND node_key='batch_final_review_patch' AND state='succeeded'`).get(bookId)).toEqual({ count: patchPrompts.length });
+    } finally { await app.close(); }
+  });
+
+  it('补充设计只为新增条目建工单，已有结果只作为资料且不会重做', async () => {
+    context = createTestContext('wenmi-v7-setting-incremental-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'setting-incremental@example.com', '补充设定作者', 'strong-pass-902');
+      const bookId = await createBook(app, cookie, '增量设定测试', 'incremental-book-0001', '历史脑洞');
+      const first = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['world-stage'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-first-0001' }
+      });
+      expect(first.statusCode).toBe(200);
+      await pollBatch(app, cookie, bookId, first.json().data.batchId as string);
+      const oldVersionCount = context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(bookId);
+
+      const supplement = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
+      });
+      expect(supplement.statusCode).toBe(200);
+      const completed = await pollBatch(app, cookie, bookId, supplement.json().data.batchId as string);
+      expect(completed.progress).toEqual({ completed: 1, total: 1, percent: 100 });
+      expect(completed.items.map((item: { itemKey: string }) => item.itemKey)).toEqual(['history-baseline']);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, completed.batchId)).toEqual({ count: 1 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(bookId)).toEqual(oldVersionCount);
+
+      const repeated = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['world-stage', 'history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'incremental-second-0001' }
+      });
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.json().data.batchId).toBe(completed.batchId);
+    } finally { await app.close(); }
+  });
+
+  it('主编提醒和作者修改会创建可恢复的单条复审任务，不沿用旧审查', async () => {
+    context = createTestContext('wenmi-v7-setting-review-task-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-review-task@example.com', '复审任务作者', 'strong-pass-903');
+      const bookId = await createBook(app, cookie, '设定复审任务测试', 'review-task-book-0001', '历史脑洞');
+      const initial = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['world-stage'], customItems: [], authorNotes: {}, idempotencyKey: 'review-task-initial-0001' }
+      });
+      expect(initial.statusCode).toBe(200);
+      await pollBatch(app, cookie, bookId, initial.json().data.batchId as string);
+      const versionsBefore = context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(bookId);
+      const sourceBeforeReviewTask = context.database.prepare(`SELECT o.request_id AS taskId
+        FROM v7_setting_items i
+        JOIN v7_setting_item_versions v ON v.version_id=i.active_version_id AND v.owner_id=i.owner_id AND v.book_id=i.book_id
+        JOIN v7_setting_outputs o ON o.output_id=v.source_output_id AND o.owner_id=i.owner_id AND o.book_id=i.book_id
+        WHERE i.book_id=? AND i.item_key='world-stage'`).get(bookId) as { taskId: string };
+
+      const longAuthorDetail = '边城人口、驻军、粮道、存粮和驿传速度均按同一口径执行，不得恢复旧数值。'.repeat(24);
+      const payload = {
+        content: `作者修改后的世界舞台：东汉末年交通困难，主角必须依靠真实粮道推进计划。${longAuthorDetail}`,
+        instruction: '只修正主编提醒的年代问题，其他内容保持不变。',
+        idempotencyKey: 'setting-review-task-0001'
+      };
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-items/world-stage/review-tasks`, headers: { ...HEADERS, cookie }, payload
+      });
+      expect(created.statusCode).toBe(200);
+      expect(['queued', 'working']).toContain(created.json().data.status);
+      const reviewBatchId = created.json().data.batchId as string;
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, reviewBatchId)).toEqual({ count: 1 });
+      expect(String((context.database.prepare(`SELECT author_note FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, reviewBatchId) as { author_note: string }).author_note)).toContain(payload.content);
+      expect(String((context.database.prepare(`SELECT author_note FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, reviewBatchId) as { author_note: string }).author_note).length).toBeGreaterThan(800);
+
+      const completed = await pollBatch(app, cookie, bookId, reviewBatchId);
+      expect(completed.status).toBe('awaiting_author');
+      expect(completed.items).toHaveLength(1);
+      expect(completed.items[0].state).toBe('needs_author');
+      expect(['chief-deepseek-v4-pro', 'chief-glm-5-3', 'chief-kimi-k3']).toContain(completed.items[0].assignedMemberKey);
+      expect(resolver.prompts.join('\n')).toContain(payload.content);
+      expect(resolver.prompts.join('\n')).toContain(payload.instruction);
+      expect(resolver.prompts.join('\n')).toContain('已经在finalContent修正的问题不得继续列入issues');
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND batch_id=? AND node_key IN ('deputy','writer','writer_repair')`).get(bookId, reviewBatchId)).toEqual({ count: 0 });
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE book_id=? AND batch_id=? AND node_key IN ('chief','chief_repair')`).get(
+        bookId,
+        reviewBatchId
+      ) as { count: number }).count).toBeGreaterThanOrEqual(1);
+      const authorRevision = context.database.prepare(`SELECT content_json AS contentJson FROM v7_setting_outputs
+        WHERE book_id=? AND batch_id=? AND item_key='world-stage' AND kind='author_revision'`).get(
+        bookId,
+        reviewBatchId
+      ) as { contentJson: string };
+      expect(JSON.parse(authorRevision.contentJson)).toMatchObject({ content: payload.content, instruction: payload.instruction });
+      const reviewContracts = context.database.prepare(`SELECT task_id AS taskId,operation_mode AS operationMode,
+        based_on_task_id AS basedOnTaskId,author_instruction_version AS authorInstructionVersion
+        FROM v7_task_contracts WHERE book_id=? AND task_id LIKE ? ORDER BY task_id`).all(
+        bookId,
+        `${reviewBatchId}-world-stage-%`
+      ) as Array<{ taskId: string; operationMode: string; basedOnTaskId: string | null; authorInstructionVersion: number | null }>;
+      expect(reviewContracts.length).toBeGreaterThanOrEqual(1);
+      const revisedContracts = reviewContracts.filter((contract) => contract.operationMode === 'revise');
+      expect(revisedContracts.length).toBe(1);
+      expect(revisedContracts).toEqual(revisedContracts.map((contract) => ({
+        taskId: contract.taskId, operationMode: 'revise',
+        basedOnTaskId: sourceBeforeReviewTask.taskId, authorInstructionVersion: 1
+      })));
+      const repairContracts = reviewContracts.filter((contract) => contract.operationMode === 'repair');
+      expect(repairContracts.every((contract) => (
+        contract.taskId === `${contract.basedOnTaskId}-repair` && contract.authorInstructionVersion === 1
+      ))).toBe(true);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_versions WHERE book_id=? AND item_key='world-stage'`).get(bookId)).toEqual({ count: (versionsBefore as { count: number }).count + 1 });
+
+      const department = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-department`, headers: { host: HEADERS.host, cookie } });
+      expect(department.statusCode).toBe(200);
+      expect(department.json().data.activeBatch.batchId).toBe(reviewBatchId);
+      const repeated = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-items/world-stage/review-tasks`, headers: { ...HEADERS, cookie }, payload
+      });
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.json().data.batchId).toBe(reviewBatchId);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_item_jobs WHERE book_id=? AND batch_id=?`).get(bookId, reviewBatchId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
+  it('设定技术重试沿用首次冻结任务，只重跑失败主编并保留副编和编剧成果', async () => {
+    context = createTestContext('wenmi-v7-setting-technical-retry-');
+    const resolver = new RetrySettingResolver('known');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-retry@example.com', '重试作者', 'strong-pass-905');
+      const bookId = await createBook(app, cookie, '设定重试测试', 'setting-retry-book-0001', '历史脑洞');
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-retry-batch-0001' }
+      });
+      expect(created.statusCode).toBe(200);
+      const batchId = created.json().data.batchId as string;
+      expect((await pollBatch(app, cookie, bookId, batchId)).status).toBe('partially_failed');
+      const before = { deputy: resolver.deputyCalls, writer: resolver.writerCalls, chief: resolver.chiefCalls };
+      expect(before).toEqual({ deputy: 0, writer: 1, chief: 1 });
+
+      resolver.allowChief = true;
+      const retried = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches/${batchId}/retry`, headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(retried.statusCode).toBe(200);
+      expect((await pollBatch(app, cookie, bookId, batchId)).status).toBe('awaiting_author');
+      expect(resolver.deputyCalls).toBe(before.deputy);
+      expect(resolver.writerCalls).toBe(before.writer);
+      expect(resolver.chiefCalls).toBe(before.chief + 1);
+      expect(resolver.chiefPrompts[1]).toBe(resolver.chiefPrompts[0]);
+
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
+      const calls = context.database.prepare(`SELECT request_id,prompt_hash,state FROM v7_setting_model_calls
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND node_key='chief' ORDER BY started_at,request_id`).all(
+        ownerId, bookId, batchId
+      ) as Array<{ request_id: string; prompt_hash: string; state: string }>;
+      expect(calls).toHaveLength(2);
+      expect(calls.map((call) => call.state)).toEqual(['failed', 'succeeded']);
+      expect(new Set(calls.map((call) => call.request_id)).size).toBe(2);
+      expect(new Set(calls.map((call) => call.prompt_hash)).size).toBe(1);
+      const manifest = context.database.prepare(`SELECT task_id,COUNT(*) AS count FROM v7_prompt_manifests
+        WHERE owner_id=? AND book_id=? AND compiled_prompt_hash=? GROUP BY task_id`).get(
+        ownerId, bookId, calls[0]!.prompt_hash
+      ) as { task_id: string; count: number };
+      expect(manifest.count).toBe(1);
+      expect(calls.every((call) => call.request_id !== manifest.task_id)).toBe(true);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_outputs
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND kind='writer_proposal'`).get(ownerId, bookId, batchId)).toEqual({ count: 1 });
+    } finally { await app.close(); }
+  });
+
+  it('结果未知的设定调用禁止盲目技术重试', async () => {
+    context = createTestContext('wenmi-v7-setting-unknown-retry-');
+    const resolver = new RetrySettingResolver('unknown');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-unknown@example.com', '未知结果作者', 'strong-pass-906');
+      const bookId = await createBook(app, cookie, '未知结果测试', 'setting-unknown-book-0001', '历史脑洞');
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches`, headers: { ...HEADERS, cookie },
+        payload: { selectedItemKeys: ['history-baseline'], customItems: [], authorNotes: {}, idempotencyKey: 'setting-unknown-batch-0001' }
+      });
+      const batchId = created.json().data.batchId as string;
+      expect((await pollBatch(app, cookie, bookId, batchId)).status).toBe('partially_failed');
+      const callsBefore = resolver.totalCalls;
+      const retried = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches/${batchId}/retry`, headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(retried.statusCode).toBe(409);
+      expect(JSON.stringify(retried.json())).toMatch(/不能盲目重试/u);
+      expect(resolver.totalCalls).toBe(callsBefore);
+    } finally { await app.close(); }
+  });
+
+  it('长批次续约后，旧租约时点不能被页面轮询重复接管', async () => {
+    context = createTestContext('wenmi-v7-setting-lease-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });
+    try {
+      const cookie = await register(app, 'setting-lease@example.com', '租约作者', 'strong-pass-901');
+      const bookId = await createBook(app, cookie, '长批次设定测试', 'lease-book-0001', '历史脑洞');
+      const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
+      context.database.prepare(`INSERT INTO v7_setting_batches
+        (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,opening_version,opening_hash,roster_json,created_at,updated_at)
+        VALUES ('lease-batch',?,?,'lease-key',?,'queued','[]','[]',1,?,'[]',?,?)`)
+        .run(owner.owner_id, bookId, 'a'.repeat(64), 'b'.repeat(64), '2026-08-25T00:00:00.000Z', '2026-08-25T00:00:00.000Z');
+      const repository = new V7SettingEditorialRepository(context.database);
+      expect(repository.claimBatch({
+        ownerId: owner.owner_id, bookId, batchId: 'lease-batch', token: 'worker-a',
+        leaseExpiresAt: '2026-08-25T00:02:00.000Z', now: '2026-08-25T00:00:00.000Z'
+      })).toBe(true);
+      expect(repository.renewBatchLease({
+        ownerId: owner.owner_id, bookId, batchId: 'lease-batch', token: 'worker-a',
+        leaseExpiresAt: '2026-08-25T00:18:00.000Z', now: '2026-08-25T00:03:00.000Z'
+      })).toBe(true);
+      expect(repository.claimBatch({
+        ownerId: owner.owner_id, bookId, batchId: 'lease-batch', token: 'worker-b',
+        leaseExpiresAt: '2026-08-25T00:20:00.000Z', now: '2026-08-25T00:04:00.000Z'
+      })).toBe(false);
+    } finally { await app.close(); }
+  });
+});
+
+class SettingResolver implements V7OpeningModelAdapterResolver {
+  public readonly temperatures: Array<number | undefined> = [];
+  public readonly prompts: string[] = [];
+  public recommendationAttempts = 0;
+  private failedWriterOne = false;
+  public constructor(private readonly failFirstWriter: boolean, private readonly failRecommendation = false) {}
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      this.temperatures.push(request.temperature);
+      this.prompts.push(request.prompt);
+      if (this.failFirstWriter && request.agentId === 'planner-deepseek-v4-pro' && !this.failedWriterOne) { this.failedWriterOne = true; throw new Error('模拟成员临时请假'); }
+      if (request.prompt.includes('只判断后续设定阶段应该准备哪些条目')) {
+        this.recommendationAttempts += 1;
+        if (this.failRecommendation) throw new Error('模拟主编本轮请假');
+      }
+      const stagePrompt = settingStagePrompt(request.prompt);
+      const output = stagePrompt.includes('v7_setting_group_design_v1')
+        ? groupedSettingOutput(stagePrompt)
+        : stagePrompt.includes('v7_setting_batch_final_review_patch_v1')
+        ? batchFinalReviewPatchOutput(stagePrompt)
+        : request.prompt.includes('v7_setting_batch_final_review_v1')
+        ? batchFinalReviewOutput(stagePrompt)
+        : request.prompt.includes('v7_compile_book_genre_profile_v1')
+        ? JSON.stringify({
+            primaryGenreKey: 'history',
+            supportingGenreKeys: [],
+            publicLabel: '历史穿越',
+            workingIdentity: '以历史时代约束为主体，让现代人的选择在真实制度、交通与资源限制下改变局面。',
+            primaryPromise: '主角在可信的历史边界内从底层逐步立足。',
+            supportingFunctions: [{ genreKey: 'history', functions: ['穿越只提供视角差异，不提供万能答案。'] }],
+            writingPriorities: ['人物行动符合时代条件', '成长有持续代价'],
+            authenticityChecks: ['年代、交通、军政与物资必须互相一致'],
+            avoidPatterns: ['现代知识无成本碾压', '真实人物集体降智'],
+            conflictResolutions: []
+          })
+        : request.prompt.includes('只判断后续设定阶段应该准备哪些条目')
+          ? recommendationOutput()
+        : request.prompt.includes('你是副编')
+        ? JSON.stringify({ verifiedFacts: ['东汉末年制度存在地域差异'], uncertainPoints: ['具体年月需要作者确定'], usableBoundaries: ['不伪造史实'], translationForWriter: '把史实作为边界，不照抄百科。' })
+        : request.prompt.includes('你是设计成员')
+          ? JSON.stringify({ content: '东汉末年秩序松动，地方军政力量逐渐上升。主角所在地区交通、粮食和户籍都受战乱限制，历史事实作为边界，允许人物与局部事件合理架空。', designRationale: '保持三国代入感，同时给原创剧情留下空间。', storyConsequences: ['分卷设计必须考虑粮道和身份'], dependencies: ['开书时代背景'], risks: ['具体起始年份需作者确认'] })
+          : request.prompt.includes('候选：') || request.prompt.includes('上次输出存在空字段')
+            ? JSON.stringify({ verdict: 'pass', finalContent: '东汉末年秩序松动，地方军政力量逐渐上升。主角所在地区交通、粮食和户籍都受战乱限制；历史事实作为边界，人物和局部事件可在因果合理的前提下架空。', summary: '与开书资料一致，可供后续蓝图和分卷使用。', issues: [], suggestions: ['确定首卷所在州郡时再补地名细节'] })
+            : JSON.stringify({ verdict: 'pass', finalContent: '', summary: '字段偶发缺失，系统应自动修复。', issues: [], suggestions: [] });
+      return { provider, modelId, output, inputTokens: 80, outputTokens: 160, cashCostCny: 0, state: 'succeeded' };
+    }};
+  }
+}
+
+function batchFinalReviewOutput(prompt: string): string {
+  const payload = JSON.parse(prompt) as {
+    reviewInputMode?: string;
+    currentSettingCandidates?: Array<{ itemKey: string; label: string; groupTitle: string; contextSummary?: string }>;
+  };
+  if (payload.reviewInputMode !== 'layered_semantic_index') {
+    return JSON.stringify({
+      verdict: 'pass',
+      summary: '全部设定已经跨条目核对，机构和时代称呼统一。',
+      unifiedDecisions: [{ topic: '时代称呼', decision: '统一使用东汉末年', reason: '与正式开书资料一致' }],
+      conflicts: [],
+      patches: [{
+        itemKey: 'world-stage',
+        finalContent: '东汉末年的州郡、驿道与粮道互相制约，统一使用同一套时代称呼。',
+        summary: '统一世界舞台中的时代称呼。',
+        issues: [],
+        suggestions: []
+      }]
+    });
+  }
+  const items = payload.currentSettingCandidates ?? [];
+  const groups = new Map<string, string[]>();
+  for (const item of items) groups.set(item.groupTitle, [...(groups.get(item.groupTitle) ?? []), item.itemKey]);
+  if (items.some((item) => item.label.startsWith('冲突长设定'))) {
+    return JSON.stringify({
+      verdict: 'needs_author',
+      summary: '发现国号冲突，正在按统一决定修回受影响条目。',
+      contextSummary: '全书统一使用景朝，其他既有规则保持不变。',
+      factLedger: items.map((item) => ({ itemKey: item.itemKey, label: item.label, facts: [item.contextSummary ?? item.label] })),
+      groupSummaries: [...groups].map(([groupTitle, itemKeys]) => ({ groupTitle, summary: `${groupTitle}需要统一国号。`, itemKeys })),
+      unifiedDecisions: [{ topic: '王朝国号', decision: '全书统一使用景朝', reason: '正式开书资料采用景朝' }],
+      conflicts: [{ itemKeys: items.map((item) => item.itemKey), problem: '同一本书出现多个国号', decision: '全部改为景朝', impact: '不统一会污染后续规划' }],
+      patches: []
+    });
+  }
+  return JSON.stringify({
+    verdict: 'pass',
+    summary: '大量设定已经按分组轻量核对完成。',
+    contextSummary: '人物、时代、规则和禁项已经按分组统一，后续只按任务回查相关条目。',
+    factLedger: items.map((item) => ({
+      itemKey: item.itemKey,
+      label: item.label,
+      facts: [item.contextSummary ?? `${item.label}沿用当前确认版本。`]
+    })),
+    groupSummaries: [...groups].map(([groupTitle, itemKeys]) => ({
+      groupTitle,
+      summary: `${groupTitle}已经统一关键边界。`,
+      itemKeys
+    })),
+    unifiedDecisions: [],
+    conflicts: [],
+    patches: []
+  });
+}
+
+function batchFinalReviewPatchOutput(prompt: string): string {
+  const payload = JSON.parse(prompt) as {
+    affectedItems?: Array<{ itemKey: string; label: string; currentContent: string; existingIssues?: unknown[] }>;
+  };
+  return JSON.stringify({
+    patches: (payload.affectedItems ?? []).map((item) => ({
+      itemKey: item.itemKey,
+      finalContent: `景朝统一设定：${item.currentContent.replaceAll('大靖', '景朝').replaceAll('大朔', '景朝').replaceAll('大宁', '景朝')}`.slice(0, 2_000),
+      summary: `${item.label}已经统一使用景朝。`,
+      contextSummary: `${item.label}统一使用景朝，原有规则保持不变。`,
+      factEntries: [`${item.label}使用景朝国号。`],
+      issues: Array.isArray(item.existingIssues) ? item.existingIssues : [],
+      suggestions: []
+    }))
+  });
+}
+
+function groupedSettingOutput(prompt: string): string {
+  const match = prompt.match(/【本组要完成的设定】(\[[^\n]+\])/u);
+  if (match?.[1] === undefined) throw new Error('测试分组提示缺少条目合同');
+  const items = JSON.parse(match[1]) as Array<{ itemKey: string; label: string }>;
+  return JSON.stringify({
+    items: items.map((item) => ({
+      itemKey: item.itemKey,
+      content: `${item.label}以东汉末年的真实社会条件为边界，人物行动必须服从交通、粮食、身份与制度限制，并给后续剧情保留明确可追溯的因果空间。`,
+      designRationale: `先把${item.label}的硬边界立稳，避免后续规划凭空增加能力或条件。`,
+      contextSummary: `${item.label}遵守东汉末年交通、粮食、身份和制度边界。`,
+      factEntries: [`${item.label}必须服从东汉末年的交通、粮食、身份与制度限制。`],
+      storyConsequences: ['卷和链设计必须检查现实条件'],
+      dependencies: ['正式开书资料'],
+      risks: [],
+      selfReview: { verdict: 'pass', summary: `${item.label}与正式开书资料一致。`, issues: [], suggestions: [] }
+    }))
+  });
+}
+
+class RetrySettingResolver implements V7OpeningModelAdapterResolver {
+  public allowChief = false;
+  public totalCalls = 0;
+  public deputyCalls = 0;
+  public writerCalls = 0;
+  public chiefCalls = 0;
+  public readonly chiefPrompts: string[] = [];
+  public constructor(private readonly failure: 'known' | 'unknown') {}
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      this.totalCalls += 1;
+      const prompt = settingStagePrompt(request.prompt);
+      let output: string;
+      if (prompt.includes('你是副编')) {
+        this.deputyCalls += 1;
+        output = JSON.stringify({ verifiedFacts: ['东汉末年制度存在地域差异'], uncertainPoints: [], usableBoundaries: ['不伪造史实'], translationForWriter: '把史实作为创作边界。' });
+      } else if (prompt.includes('你是设计成员')) {
+        this.writerCalls += 1;
+        output = JSON.stringify({ content: '东汉末年交通、军政和粮道彼此制约，人物只能在可信时代边界内行动。', designRationale: '让后续冲突有真实条件。', storyConsequences: ['行动必须考虑粮道'], dependencies: ['开书时代'], risks: [] });
+      } else {
+        this.chiefCalls += 1;
+        this.chiefPrompts.push(request.prompt);
+        if (!this.allowChief) {
+          if (this.failure === 'unknown') throw new ModelAdapterError('模拟结果未知', 'technical_failure', true, 504, true);
+          throw new Error('模拟主编已知失败');
+        }
+        output = JSON.stringify({ verdict: 'pass', finalContent: '东汉末年交通、军政和粮道彼此制约，人物只能在可信时代边界内行动。', summary: '时代边界完整。', issues: [], suggestions: [] });
+      }
+      return { provider, modelId, output, inputTokens: 80, outputTokens: 160, cashCostCny: 0, state: 'succeeded' };
+    }};
+  }
+}
+
+function settingStagePrompt(compiledPrompt: string): string {
+  try {
+    const value = JSON.parse(compiledPrompt) as { contextPack?: { content?: { stageTaskPayload?: unknown } } };
+    const payload = value.contextPack?.content?.stageTaskPayload;
+    if (typeof payload === 'string') return payload;
+    if (payload !== undefined) return JSON.stringify(payload);
+  } catch { /* 兼容未编译的测试提示。 */ }
+  return compiledPrompt;
+}
+
+function recommendationOutput(): string {
+  const requiredKeys = ['world-stage', 'social-order', 'rules-costs', 'boundaries-blanks', 'history-baseline', 'politics-military'];
+  const suggestedKeys = ['territory'];
+  const used = new Set([...requiredKeys, ...suggestedKeys]);
+  return JSON.stringify({
+    requiredKeys,
+    suggestedKeys,
+    excludedKeys: V7_SETTING_CATALOG.map((item) => item.key).filter((key) => !used.has(key)),
+    summary: '这是写实三国穿越文，先准备时代、社会规则、历史边界和军政关系；游戏与超凡设定暂时不用。'
+  });
+}
+
+async function register(app: Awaited<ReturnType<typeof createServer>>, email: string, displayName: string, password: string): Promise<string> {
+  const response = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: HEADERS, payload: { email, password, displayName } });
+  expect(response.statusCode).toBe(200);
+  const raw = response.headers['set-cookie']; return String(Array.isArray(raw) ? raw[0] : raw).split(';', 1)[0]!;
+}
+
+async function createBook(
+  app: Awaited<ReturnType<typeof createServer>>,
+  cookie: string,
+  title: string,
+  key: string,
+  category: string,
+  options: { tags?: string[]; mustFollow?: string[] } = {}
+): Promise<string> {
+  const openingPackage = {
+    title, positioning: {
+      publishingPlatform: 'fanqie', channel: 'male', category, genres: [category], tags: options.tags ?? ['成长'],
+      coreAppeal: '小人物在复杂世界中稳步成长。', targetReaders: '喜欢长篇成长和持续回报的男频读者',
+      expectedTotalWords: 2_000_000, volumePlan: { minimum: 5, recommended: 6, maximum: 8 },
+      retentionPositioning: '开篇快速建立主角处境，逐卷兑现成长、关系和局势变化。'
+    },
+    backgrounds: { eraAndWorld: category.includes('科幻') ? '星际殖民时代' : '东汉末年', openingSituation: '主角处于社会底层。' },
+    protagonists: [{ name: '张三', age: '23岁', identity: '男主', background: '普通人', familyBackground: '普通家庭出身', careerBackground: '', goldenFinger: '', goal: '活下去并改变处境', dilemma: '资源和身份不足', personality: ['谨慎'], boundary: '不能无代价解决问题' }],
+    opening: { startingSituation: '危机中醒来', incitingIncident: '被卷入冲突', immediateConflict: '必须立即选择', readerPromise: '靠行动逐步成长' },
+    longTermDirection: { centralConflict: '个人与旧秩序冲突', progression: '从底层到能影响局势', relationshipDirection: '逐步建立可信伙伴', storyPotential: '冲突持续升级' },
+    possibleEnding: { direction: '建立新的生活秩序', price: '承担真实损失', openness: '保留调整空间' }, authorNotes: [], mustFollow: options.mustFollow ?? ['不违背已确认设定']
+  };
+  const response = await app.inject({ method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...HEADERS, cookie }, payload: { openingPackage, idempotencyKey: key } });
+  expect(response.statusCode).toBe(200); return response.json().data.bookId as string;
+}
+
+async function pollBatch(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, batchId: string): Promise<any> {
+  for (let index = 0; index < 120; index += 1) {
+    const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-batches/${batchId}`, headers: { host: HEADERS.host, cookie } });
+    expect(response.statusCode).toBe(200); const view = response.json().data;
+    if (!['queued', 'working'].includes(view.status)) return view;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('设定任务未在预期时间完成');
+}
+
+async function pollRecommendation(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, taskId: string): Promise<any> {
+  for (let index = 0; index < 120; index += 1) {
+    const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-recommendations/${taskId}`, headers: { host: HEADERS.host, cookie } });
+    expect(response.statusCode).toBe(200); const view = response.json().data;
+    if (!['queued', 'working'].includes(view.status)) return view;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('主编设定清单未在预期时间完成');
+}
+
+async function pollFinalReview(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string): Promise<any> {
+  for (let index = 0; index < 120; index += 1) {
+    const response = await app.inject({ method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-final-reviews/current`, headers: { host: HEADERS.host, cookie } });
+    expect(response.statusCode).toBe(200); const view = response.json().data;
+    if (!['queued', 'working'].includes(view.status)) return view;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('设定统一整理未在预期时间完成');
+}

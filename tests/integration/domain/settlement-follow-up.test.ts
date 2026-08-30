@@ -15,7 +15,7 @@ import {
   SettlementFollowUpPipelineService
 } from '../../../apps/api/src/application/planning/settlement-follow-up-pipeline-service.js';
 import { SettlementFollowUpService } from '../../../apps/api/src/application/planning/settlement-follow-up-service.js';
-import { CoreWorkflowV6Service } from '../../../apps/api/src/application/planning/core-workflow-v6-service.js';
+import { CoreWorkflowService } from '../../../apps/api/src/application/planning/core-workflow-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
 import { VolumePlanService } from '../../../apps/api/src/application/planning/volume-plan-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
@@ -78,7 +78,7 @@ describe('结算后续：主编节奏体检与副编摘要', () => {
       ids,
       clock,
       new ModelAdapterFactory(context.config.modelRuntime),
-      new CoreWorkflowV6Service(context.database, ids, clock)
+      new CoreWorkflowService(context.database, ids, clock)
     );
     const result = await pipeline.executeClaimed(scope, scheduled.taskId, 'worker-settlement-follow-up', {
       leaseToken: claim!.leaseToken!,
@@ -96,7 +96,7 @@ describe('结算后续：主编节奏体检与副编摘要', () => {
       recoveryBeats: expect.any(String)
     });
     expect((view?.pacingReport as { risks: string[] }).risks.length).toBeGreaterThan(0);
-    const growth = new CoreWorkflowV6Service(context.database, ids, clock).view(scope).growth;
+    const growth = new CoreWorkflowService(context.database, ids, clock).view(scope).growth;
     expect(growth.candidates).toHaveLength(3);
     expect(growth.candidates.every((item) => item.evidenceRefs[0]?.sourceVersionId === scheduled.settlementId)).toBe(true);
     expect(growth.candidates.map((item) => item.title)).toContain('继续观察一段');

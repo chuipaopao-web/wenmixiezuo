@@ -1,4 +1,4 @@
 interface:
   display_name: "文秘写作 UI/UX"
-  short_description: "手机优先重构写作工作台、AI协作状态与逐层交互"
-  default_prompt: "使用 $wenmi-ui-ux 检查当前真实页面和状态，先简化任务路径，再实现手机优先、层级清楚、可恢复的界面。"
+  short_description: "从零设计或局部修复清楚、可达、可恢复的作者界面"
+  default_prompt: "使用 $wenmi-ui-ux 根据当前目标探索或验证界面，不套用旧页面结构与视觉。"

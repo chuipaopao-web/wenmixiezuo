@@ -33,6 +33,7 @@ export const errorCodes = {
   modelCallInterrupted: 'MODEL_CALL_INTERRUPTED',
   modelRequestRejected: 'MODEL_REQUEST_REJECTED',
   operationIncomplete: 'OPERATION_INCOMPLETE',
+  planningTreeVersionConflict: 'PLANNING_TREE_VERSION_CONFLICT',
   permanentDeleteConfirmationInvalid: 'PERMANENT_DELETE_CONFIRMATION_INVALID',
   settingQualityAuditRequired: 'SETTING_QUALITY_AUDIT_REQUIRED',
   settingQualityIssuesUnacknowledged: 'SETTING_QUALITY_ISSUES_UNACKNOWLEDGED',

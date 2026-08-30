@@ -10,6 +10,8 @@ import { ProjectionLoop } from './runtime/projection-loop.js';
 import { loadLocalVectorRuntime } from './adapters/local-vector-runtime.js';
 import { CanonIndexTaskExecutor } from './executors/canon-index-task-executor.js';
 import { CanonIndexLoop } from './runtime/canon-index-loop.js';
+import { V7FormalizationExecutor } from './executors/v7-formalization-executor.js';
+import { V7FormalizationLoop } from './runtime/v7-formalization-loop.js';
 
 const config = loadWorkerConfig();
 const database = new DatabaseSync(config.databasePath);
@@ -44,6 +46,10 @@ const canonIndexLoop = new CanonIndexLoop(new CanonIndexTaskExecutor(
   database, config.apiBaseUrl, config.workerId, config.workerToken
 ));
 canonIndexLoop.start();
+const v7FormalizationLoop = config.v7FormalizationEnabled
+  ? new V7FormalizationLoop(new V7FormalizationExecutor(database, config.apiBaseUrl, config.workerId, config.workerToken))
+  : undefined;
+v7FormalizationLoop?.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId,
   maxConcurrency: config.maxConcurrency ?? 8,
   vectorProjection: vectorRuntime === undefined ? 'degraded' : 'ready' }));
@@ -52,6 +58,7 @@ const shutdown = (): void => {
   loop.stop();
   projectionLoop.stop();
   canonIndexLoop.stop();
+  v7FormalizationLoop?.stop();
   heartbeat.stop();
   database.close();
 };

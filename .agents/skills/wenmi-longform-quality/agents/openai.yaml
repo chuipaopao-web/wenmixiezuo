@@ -1,4 +1,4 @@
 interface:
   display_name: "文秘写作长篇质量"
-  short_description: "按需审查分层创作、上下文、生成审校与长期连续性"
-  default_prompt: "使用 $wenmi-longform-quality 定位当前对象和正式来源，只读取相关参考，修复分层、上下文或长篇质量问题。"
+  short_description: "按需审查正式来源、上下文、生成质量与长期连续性"
+  default_prompt: "使用 $wenmi-longform-quality 按当前产品目标审查来源、上下文或长篇质量，不套用旧创作层级。"

@@ -350,6 +350,7 @@ export class TaskService {
         UPDATE tasks SET status = 'cancelled', cancel_requested = 1, lease_owner = NULL,
           lease_expires_at = NULL, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ?
       `).run(now, taskId, scope.ownerId, scope.bookId);
+      this.finishCancelledModelCalls(scope, taskId, now);
     } else {
       this.database.prepare(`UPDATE tasks SET cancel_requested = 1, updated_at = ? WHERE task_id = ? AND owner_id = ? AND book_id = ?`)
         .run(now, taskId, scope.ownerId, scope.bookId);
@@ -374,6 +375,7 @@ export class TaskService {
       scope.ownerId, scope.bookId);
     if (result.changes !== 1) throw new Error('任务完成被租约门禁拒绝');
     const task = this.require(scope, taskId);
+    if (task.status === 'cancelled') this.finishCancelledModelCalls(scope, taskId, now);
     this.database.prepare(`
       UPDATE task_phases SET status = ?, completed_at = ?, heartbeat_at = ?
       WHERE task_id = ? AND owner_id = ? AND book_id = ? AND status = 'working'
@@ -503,6 +505,32 @@ export class TaskService {
       .get(taskId, scope.ownerId, scope.bookId) as TaskRow | undefined;
     if (row === undefined) throw new Error('任务不存在或越权');
     return mapTask(row);
+  }
+
+  private finishCancelledModelCalls(scope: BookScope, taskId: string, now: string): void {
+    const calls = this.database.prepare(`SELECT request_id,reservation_id FROM model_calls
+      WHERE owner_id=? AND book_id=? AND task_id=? AND state='working'`)
+      .all(scope.ownerId, scope.bookId, taskId) as Array<{ request_id: string; reservation_id: string }>;
+    for (const call of calls) {
+      const reservation = this.database.prepare(`SELECT reservation_id,budget_id,frozen_tokens,frozen_cash_micros,status
+        FROM budget_reservations WHERE reservation_id=? AND owner_id=? AND book_id=?`)
+        .get(call.reservation_id, scope.ownerId, scope.bookId) as {
+          reservation_id: string; budget_id: string; frozen_tokens: number; frozen_cash_micros: number; status: string;
+        } | undefined;
+      if (reservation?.status === 'reserved') {
+        this.database.prepare(`UPDATE budget_reservations SET status='released',settled_at=?
+          WHERE reservation_id=? AND status='reserved'`).run(now, reservation.reservation_id);
+        this.database.prepare(`UPDATE budgets SET reserved_tokens=MAX(0,reserved_tokens-?),
+          reserved_cash_micros=MAX(0,reserved_cash_micros-?),updated_at=?
+          WHERE budget_id=? AND owner_id=? AND book_id=?`).run(
+            reservation.frozen_tokens, reservation.frozen_cash_micros, now,
+            reservation.budget_id, scope.ownerId, scope.bookId
+          );
+      }
+      this.database.prepare(`UPDATE model_calls SET state='interrupted',error_class='cancelled',
+        error_detail='作者已停止任务，迟到的模型结果不再写入。',completed_at=?
+        WHERE request_id=? AND state='working'`).run(now, call.request_id);
+    }
   }
 
   public list(scope: BookScope): TaskRecord[] {

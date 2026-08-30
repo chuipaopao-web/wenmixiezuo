@@ -8,8 +8,6 @@ import { DomainError } from '../domain/errors.js';
 import { SystemClock, UuidGenerator } from '../domain/ids.js';
 import { EventStore } from '../application/events/event-store.js';
 import { registerDomainRoutes } from './domain-routes.js';
-import { registerCoreWorkflowV6Routes } from './core-workflow-v6-routes.js';
-import { registerAiNodeV6Routes } from './ai-node-v6-routes.js';
 import { AiNodePipelineService } from '../application/agents/ai-node-pipeline-service.js';
 import type { RuntimeConfig } from '../infrastructure/runtime-config.js';
 import { ChapterPipelineService } from '../application/creation/chapter-pipeline-service.js';
@@ -17,13 +15,19 @@ import { DiscussionPipelineService } from '../application/discussions/discussion
 import { ModelAdapterFactory } from '../infrastructure/models/model-adapter-factory.js';
 import { ContinuationAnalysisPipelineService } from '../application/continuation/continuation-analysis-pipeline-service.js';
 import { SettlementFollowUpPipelineService } from '../application/planning/settlement-follow-up-pipeline-service.js';
-import { CoreWorkflowV6Service } from '../application/planning/core-workflow-v6-service.js';
+import { CoreWorkflowService } from '../application/planning/core-workflow-service.js';
 import { SettlementFollowUpRepository } from '../infrastructure/db/repositories/settlement-follow-up-repository.js';
 import { AccountAuthService } from '../infrastructure/security/account-auth-service.js';
 import { requireAuthenticatedOwner } from '../infrastructure/security/auth-context.js';
 import { registerRequestPolicy, type RequestPolicyOptions } from '../infrastructure/security/request-policy.js';
 import { registerRuntimeRoutes } from './runtime-routes.js';
 import { registerAccountRoutes } from './account-routes.js';
+import { registerV7OpeningAgentRoutes } from './v7-opening-agent-routes.js';
+import { registerV7SettingEditorialRoutes } from './v7-setting-editorial-routes.js';
+import { registerV7PlanningTreeRoutes } from './v7-planning-tree-routes.js';
+import { registerV7CharacterMemoryRoutes } from './v7-character-memory-routes.js';
+import { registerV7CreationRoutes } from './v7-creation-routes.js';
+import { registerV7PromptGovernanceRoutes } from './v7-prompt-governance-routes.js';
 import { projectAuthorApiValue, projectSerializedAuthorResponse, requestsCleanAuthorProjection, shouldProjectAuthorResponse } from './author-api-projection.js';
 import { MembershipService } from '../infrastructure/security/membership-service.js';
 import { RuntimeCapabilityProbe } from '../infrastructure/capabilities/runtime-capability-probe.js';
@@ -70,6 +74,8 @@ import {
   resolveLayeredCreationWriteMode,
   type LayeredCreationWriteMode
 } from './layered-creation-safety.js';
+import type { V7OpeningModelAdapterResolver } from '../infrastructure/models/v7-opening-agent-model-gateway.js';
+import { VolcengineArkImageGateway, type V7CoverImageGateway } from '../infrastructure/models/volcengine-ark-image-gateway.js';
 
 interface WorkerHealthRow {
   worker_id: string;
@@ -83,6 +89,8 @@ interface WorkerHealthRow {
 
 export interface ServerOptions extends RequestPolicyOptions {
   layeredCreationWrites?: LayeredCreationWriteMode;
+  v7OpeningModelAdapters?: V7OpeningModelAdapterResolver;
+  v7CoverImageGateway?: V7CoverImageGateway;
 }
 
 export async function createServer(config: RuntimeConfig, database: DatabaseSync, options: ServerOptions = {}): Promise<FastifyInstance> {
@@ -96,6 +104,11 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     // 信任代理头让限流按真实访客 IP 分桶；否则全网访客共享 127.0.0.1 一个桶，
     // 正常翻页就会集体触发 RATE_LIMITED。
     trustProxy: true
+  });
+  const liveSseIntervals = new Set<ReturnType<typeof setInterval>>();
+  app.addHook('onClose', async () => {
+    for (const interval of liveSseIntervals) clearInterval(interval);
+    liveSseIntervals.clear();
   });
   const corsOrigins = config.adminOrigin === null ? config.webOrigin : [config.webOrigin, config.adminOrigin];
   await app.register(cors, { origin: corsOrigins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] });
@@ -202,7 +215,7 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     volumePlanIds,
     volumePlanClock,
     modelAdapters,
-    new CoreWorkflowV6Service(database, volumePlanIds, volumePlanClock)
+    new CoreWorkflowService(database, volumePlanIds, volumePlanClock)
   );
   const eventChapterOutlineRepository = new EventChapterOutlineRepository(database);
   const eventChapterTaskService = new TaskService(database, config.releaseId, volumePlanClock);
@@ -232,8 +245,21 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
   await registerAccountRoutes(app, accounts, new MembershipService(database, new SystemClock()));
   await registerRuntimeRoutes(app, capabilities);
   await registerDomainRoutes(app, database, config);
-  await registerCoreWorkflowV6Routes(app, database);
-  await registerAiNodeV6Routes(app, database, config.releaseId);
+  await registerV7OpeningAgentRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
+    codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
+    agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined
+  }, {
+    dataDir: config.dataDir,
+    imageGateway: options.v7CoverImageGateway ?? new VolcengineArkImageGateway()
+  });
+  await registerV7SettingEditorialRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters, {
+    codingPlan: config.modelRuntime.endpoints.coding.apiKey !== undefined,
+    agentPlan: config.modelRuntime.endpoints.agent.apiKey !== undefined
+  });
+  await registerV7PlanningTreeRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
+  await registerV7CharacterMemoryRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
+  await registerV7CreationRoutes(app, database, options.v7OpeningModelAdapters ?? modelAdapters);
+  await registerV7PromptGovernanceRoutes(app, database);
 
   app.get('/health', async (request) => {
     const databaseProbe = database.prepare('SELECT 1 AS ok').get() as { ok: number };
@@ -357,10 +383,16 @@ export async function createServer(config: RuntimeConfig, database: DatabaseSync
     writePending();
     const poll = setInterval(writePending, 1_000);
     const heartbeat = setInterval(() => reply.raw.write(': keepalive\n\n'), 10_000);
-    request.raw.once('close', () => {
+    liveSseIntervals.add(poll);
+    liveSseIntervals.add(heartbeat);
+    const cleanup = (): void => {
       clearInterval(poll);
       clearInterval(heartbeat);
-    });
+      liveSseIntervals.delete(poll);
+      liveSseIntervals.delete(heartbeat);
+    };
+    request.raw.once('close', cleanup);
+    reply.raw.once('close', cleanup);
   });
 
   app.setErrorHandler((error, request, reply) => {

@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { ChapterBatchService } from '../../../apps/api/src/application/creation/chapter-batch-service.js';
 import { createServer } from '../../../apps/api/src/http/server.js';
 import { approvePendingManuscript, initializeDomainBook, prepareBookForWriting, requestPendingEditorSynthesis } from '../../helpers/domain-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
+import { captureChildProcessDiagnostics, workerSourceProcessArgs } from '../../helpers/worker-process.js';
 
 describe('独立Worker章节执行', () => {
   let context: TestContext | undefined;
@@ -36,7 +36,7 @@ describe('独立Worker章节执行', () => {
     await app.listen({ host: '127.0.0.1', port: 0 });
     const address = app.server.address();
     if (address === null || typeof address === 'string') throw new Error('测试API地址不可用');
-    worker = spawn(process.execPath, ['--import', 'tsx', resolve(process.cwd(), 'apps/worker/src/main.ts')], {
+    worker = spawn(process.execPath, workerSourceProcessArgs(), {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -48,18 +48,19 @@ describe('独立Worker章节执行', () => {
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });
+    const diagnostics = captureChildProcessDiagnostics(worker);
     const taskId = batch.taskIds[0]!;
     for (let round = 0; round < 3; round += 1) {
       await waitUntil(() => {
         const row = context!.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId) as { status: string };
         const heartbeat = context!.database.prepare(`SELECT current_task_id FROM worker_health WHERE worker_id = 'creation-worker-test'`).get() as { current_task_id: string | null } | undefined;
         return ['paused', 'waiting_confirmation'].includes(row.status) && heartbeat?.current_task_id === null;
-      }, 20_000);
+      }, 20_000, diagnostics.summary);
       const status = context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId) as { status: string };
       if (status.status === 'waiting_confirmation') break;
       requestPendingEditorSynthesis(context, scope, ids, clock);
     }
-    await waitUntil(() => (context!.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId) as { status: string }).status === 'waiting_confirmation', 20_000);
+    await waitUntil(() => (context!.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId) as { status: string }).status === 'waiting_confirmation', 20_000, diagnostics.summary);
     expect(context.database.prepare(`SELECT settlement_status FROM chapters WHERE chapter_id = ?`).get(batch.chapterIds[0]!)).toEqual({ settlement_status: 'awaiting_confirmation' });
     approvePendingManuscript(context, scope, ids, clock);
     expect(context.database.prepare(`SELECT status FROM tasks WHERE task_id = ?`).get(taskId)).toEqual({ status: 'succeeded' });
@@ -74,11 +75,11 @@ describe('独立Worker章节执行', () => {
   }, 30_000);
 });
 
-async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<void> {
+async function waitUntil(predicate: () => boolean, timeoutMs: number, diagnostics: () => string): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
   }
-  throw new Error('等待Worker完成章节任务超时');
+  throw new Error(`等待Worker完成章节任务超时\n${diagnostics()}`);
 }

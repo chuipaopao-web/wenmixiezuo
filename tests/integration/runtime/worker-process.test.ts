@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
+import { captureChildProcessDiagnostics, workerSourceProcessArgs } from '../../helpers/worker-process.js';
 
 let context: TestContext | undefined;
 let child: ChildProcess | undefined;
@@ -28,7 +28,7 @@ describe('独立Worker进程', () => {
     tasks.create(scope, { taskId: 'task-process', taskType: 'runtime_probe', idempotencyKey: 'process', initialPhase: 'execute', brief: {} });
     tasks.queue(scope, 'task-process');
 
-    child = spawn(process.execPath, ['--import', 'tsx', resolve(process.cwd(), 'apps/worker/src/main.ts')], {
+    child = spawn(process.execPath, workerSourceProcessArgs(), {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -36,8 +36,9 @@ describe('独立Worker进程', () => {
         WENMI_PROJECT_ROOT: process.cwd(),
         WENMI_WORKER_ID: 'worker-process-test'
       },
-      stdio: 'ignore'
+      stdio: ['ignore', 'pipe', 'pipe']
     });
+    const diagnostics = captureChildProcessDiagnostics(child);
 
     const deadline = Date.now() + 8_000;
     let status = tasks.require(scope, 'task-process').status;
@@ -45,7 +46,7 @@ describe('独立Worker进程', () => {
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
       status = tasks.require(scope, 'task-process').status;
     }
-    expect(status).toBe('succeeded');
+    expect(status, diagnostics.summary()).toBe('succeeded');
     expect(context.database.prepare("SELECT current_task_id FROM worker_health WHERE worker_id = 'worker-process-test'").get())
       .toEqual({ current_task_id: null });
   });

@@ -10,9 +10,19 @@ if (-not (Test-Path -LiteralPath $pidPath)) {
 }
 
 try {
-  $record = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8 | ConvertFrom-Json
+  $recordRaw = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8
+  $record = $recordRaw | ConvertFrom-Json
+  # 桌面快捷方式使用Windows PowerShell 5，不能假设System.Text.Json已经加载；
+  # 新版PowerShell会把ISO字符串自动转换为DateTime，旧版则保留字符串。
+  # 两种形态都在后面按UTC归一，避免本地文化设置影响进程身份校验。
+  # Windows PowerShell 5 does not consistently expose PSMemberInfoCollection
+  # through .Item(name). Check the property name explicitly and then read the
+  # value through normal object access so the verified stop path works on the
+  # desktop shortcut's actual shell.
+  if ($record.PSObject.Properties.Name -notcontains 'startedAtUtc') { throw 'missing startedAtUtc' }
+  $recordedStartValue = $record.startedAtUtc
 } catch {
-  throw 'The Wenmi launcher record is invalid. Refusing to stop any process.'
+  throw "The Wenmi launcher record is invalid. Refusing to stop any process. $($_.Exception.Message)"
 }
 if ($record.schemaVersion -ne 1 -or $record.entryPoint -ne 'scripts/start.mjs') {
   throw 'The launcher record does not identify scripts/start.mjs. Refusing to stop any process.'
@@ -33,7 +43,31 @@ if ($null -eq $rootProcess) {
 }
 $recordedExecutable = [System.IO.Path]::GetFullPath([string]$record.executablePath)
 $actualExecutable = [System.IO.Path]::GetFullPath([string]$rootProcess.Path)
-$recordedStart = [DateTimeOffset]::Parse([string]$record.startedAtUtc).UtcDateTime
+if ($recordedStartValue -is [DateTime]) {
+  $recordedStart = ([DateTime]$recordedStartValue).ToUniversalTime()
+  $recordedStartText = $recordedStart.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [System.Globalization.CultureInfo]::InvariantCulture)
+} else {
+  $recordedStartText = [string]$recordedStartValue
+  if ($recordedStartText.Length -ne 24 -or
+    $recordedStartText.Substring(4, 1) -ne '-' -or
+    $recordedStartText.Substring(7, 1) -ne '-' -or
+    $recordedStartText.Substring(10, 1) -ne 'T' -or
+    $recordedStartText.Substring(13, 1) -ne ':' -or
+    $recordedStartText.Substring(16, 1) -ne ':' -or
+    $recordedStartText.Substring(19, 1) -ne '.' -or
+    $recordedStartText.Substring(23, 1) -ne 'Z') {
+    throw 'The launcher start timestamp is invalid. Refusing to stop any process.'
+  }
+  $recordedStart = [DateTimeOffset]::new(
+    [int]$recordedStartText.Substring(0, 4),
+    [int]$recordedStartText.Substring(5, 2),
+    [int]$recordedStartText.Substring(8, 2),
+    [int]$recordedStartText.Substring(11, 2),
+    [int]$recordedStartText.Substring(14, 2),
+    [int]$recordedStartText.Substring(17, 2),
+    [TimeSpan]::Zero
+  ).AddMilliseconds([int]$recordedStartText.Substring(20, 3)).UtcDateTime
+}
 $actualStart = $rootProcess.StartTime.ToUniversalTime()
 $startDeltaSeconds = [Math]::Abs(($recordedStart - $actualStart).TotalSeconds)
 if ($rootProcess.Name -ne 'node' -or
@@ -45,7 +79,7 @@ if ($rootProcess.Name -ne 'node' -or
 $request = [ordered]@{
   schemaVersion = 1
   processId = $rootProcessId
-  startedAtUtc = [string]$record.startedAtUtc
+  startedAtUtc = $recordedStartText
   projectRoot = $expectedRoot
   reason = 'desktop-stop-entry'
 }

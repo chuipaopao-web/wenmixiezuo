@@ -1,27 +1,23 @@
-# 文秘写作
+# 文秘写作 V7
 
-文秘写作是统一账号的长篇小说AI协作平台。作者通过开书、设定、卷、事件、章纲、正文和结算对象逐层创作，AI只在作者主动触发时介入。
+文秘写作是面向长篇网文创作的 AI 协作平台。V7 是当前唯一产品版本，提供作者创作台、独立管理后台、分层规划、Agent任务、正文生成、审查、结算、会员和用量管理。
 
-## 当前工作流
+## 当前入口
 
-```text
-开书 → 非剧情设定 → 卷方向 → 事件链 → 事件大纲
-→ 完整章链与近期章纲 → 正文 → 章节/事件/卷结算 → 下一卷
-```
+- 生产作者端：`https://wenmixiezuo.com/`
+- 生产独立后台：`https://admin.wenmixiezuo.com/`
+- 本地作者端：`http://127.0.0.1:43110/`
+- 本地独立后台：`http://127.0.0.1:43110/v7/`
 
 ## 开发入口
 
-- 当前状态：`HANDOFF.md`
+- 当前状态与最小阅读：`HANDOFF.md`
 - 开发规则：`AGENTS.md`
-- 当前专项清单：`docs/PROJECT_SLIMMING_IMPLEMENTATION_AND_ACCEPTANCE.md`
-- 产品：`docs/PRODUCT.md`
+- V7 工作区：`coauthoring-v7/`
 - 架构、数据与接口：`docs/ARCHITECTURE.md`、`docs/DATA_MODEL.md`、`docs/API.md`
 - 安全与部署：`docs/SECURITY_AND_OPERATIONS.md`、`docs/DEPLOY.md`
-- 验收：`docs/ACCEPTANCE.md`
-- UI任务按需读取 `.agents/skills/wenmi-ui-ux/SKILL.md`
-- 长篇质量任务按需读取 `.agents/skills/wenmi-longform-quality/SKILL.md`
 
-历史决定、旧验收和废弃方案只从Git历史追溯，不保留重复合订版。
+旧版产品页面、工作流和作者数据不属于当前产品。历史迁移、表名和 Git 提交只用于数据库兼容、审计和恢复，不能作为恢复旧功能的依据。
 
 ## 常用命令
 
@@ -31,4 +27,4 @@ npm run verify
 npm run verify:full
 ```
 
-`verify` 是日常快速门禁；`verify:full` 只用于发布、迁移、权限、恢复和核心工作流大改。真实长篇验证只在明确指定时运行，不属于默认工程测试。
+`verify` 用于日常定向门禁；核心工作流、权限、数据删除、迁移和发布变更使用 `verify:full`。

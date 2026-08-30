@@ -11,8 +11,8 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import { assertBookScope, type BookScope } from '../../domain/scope.js';
 import { ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService } from '../tasks/task-service.js';
-import { creativeTemplate, type CreativeTemplateSnapshot } from './creative-templates-v6.js';
-import { allRoleSkills, coreAgentSkill, nodeProtocolSkill, roleAgentSkill, type AgentSkillSnapshot } from './agent-skills-v6.js';
+import { creativeTemplate, type CreativeTemplateSnapshot } from './editorial-node-templates.js';
+import { allRoleSkills, coreAgentSkill, nodeProtocolSkill, roleAgentSkill, type AgentSkillSnapshot } from './editorial-agent-skills.js';
 
 type Stored = Record<string, unknown>;
 type SqlValue = string | number | bigint | Uint8Array | null;

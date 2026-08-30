@@ -79,7 +79,8 @@ const DETERMINISTIC_PROFILE: RoleModelProfile = {
  */
 export const additionalConfigurablePlanProfiles = [
   { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding' },
-  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' }
+  { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3', plan: 'agent' }
 ] as const satisfies readonly RoleModelProfile[];
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
@@ -164,8 +165,8 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
 }
 
 /**
- * 方舟套餐模型按模型和用途配置思考：复杂规划、审校与正文使用显式16k预算；
- * MiniMax关闭思考；GLM-5.3短讨论省略thinking字段并只追加1k默认推理余量。
+ * 方舟套餐模型按模型和用途配置思考：创作性正文保留显式思考；
+ * MiniMax关闭思考；GLM-5.3短讨论、结构化规划和证据型审校省略thinking字段，并只追加1k默认推理余量。
  * GLM的disabled会被当前Coding Plan端点拒绝，不能用“关闭思考”实现提速。
  *
  * 思考或默认推理 Token 同时计入 max_tokens 与 usage.output_tokens，因此适配器的
@@ -173,15 +174,29 @@ export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
  * 复杂任务保持宽松上限，短任务只使用生产实测能快速形成可见文字的最小余量。
  */
 export const SUBSCRIPTION_THINKING_BUDGET_TOKENS = 16_000;
-export const FAST_GLM_DISCUSSION_REASONING_HEADROOM_TOKENS = 1_000;
+export const GLM_VISIBLE_OUTPUT_REASONING_HEADROOM_TOKENS = 1_000;
+// 2026-08-29 real V7 manuscript evidence: Kimi K3 spent 19,786 output tokens
+// and 573 seconds on a 3k-character chapter when given the generic 16k thinking
+// allowance. Earlier accepted chapters completed with roughly 12k total output.
+// Keep substantial creative reasoning, but do not let hidden thought dominate a
+// bounded single-chapter task. Review, planning and other models retain their
+// independently verified budgets.
+export const KIMI_NOVEL_WRITER_THINKING_BUDGET_TOKENS = 8_000;
+// Chapter review is a bounded evidence comparison, not an open-ended creative
+// task. Even a 4k hidden-reasoning allowance consumed the complete 6.4k output
+// window and returned no report. Kimi K3 therefore reviews with thinking off;
+// the bounded evidence contract provides the deliberation scope.
+export const KIMI_NOVEL_REVIEWER_THINKING_BUDGET_TOKENS = 0;
 
-export function isFastGlmDiscussion(
+export function usesGlmVisibleOutputRoute(
   modelId: string,
   purpose?: ModelPurpose,
   maxOutputTokens?: number
 ): boolean {
-  return modelId.startsWith('glm-5.3') && purpose === 'discussion'
-    && maxOutputTokens !== undefined && maxOutputTokens <= 3_000;
+  if (!modelId.startsWith('glm-5.3')) return false;
+  if (purpose === 'structured_planning') return true;
+  if (purpose === 'novel_reviewer' || purpose === 'review_synthesis') return true;
+  return purpose === 'discussion' && maxOutputTokens !== undefined && maxOutputTokens <= 3_000;
 }
 
 export function thinkingTokenAllowance(
@@ -196,10 +211,36 @@ export function thinkingTokenAllowance(
   if (modelId.startsWith('minimax-')) return 0;
   // 2026-08-22 生产证据：GLM-5.3 的短设定方案显式开启8k思考后连续三次
   // 把总共11k输出额度全部烧进thinking并返回空text，单次约四分钟；同端点省略
-  // thinking字段时17秒内以799 Token正常结束。短讨论因此只保留1k默认推理余量，
-  // 复杂规划、审校和正文仍使用显式16k思考预算。
-  if (isFastGlmDiscussion(modelId, purpose, maxOutputTokens)) {
-    return FAST_GLM_DISCUSSION_REASONING_HEADROOM_TOKENS;
+  // thinking字段时17秒内以799 Token正常结束。2026-08-29 的真实卷方案又证明：
+  // structured_planning 显式16k思考会把31k总额度全部耗尽，形成87414字符思考但
+  // 零可见方案。短讨论和结构化规划因此统一走直出路由，只保留1k默认推理余量；
+  // 证据型审校也是有停止条件的结构化任务：2026-08-29 第8章实测
+  // 显式16k思考让GLM为1413字符报告消耐10945输出Token并耗时145秒。
+  // 因此审校同样走直出路由；创作性正文仍保留独立思考预算。
+  if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) {
+    return GLM_VISIBLE_OUTPUT_REASONING_HEADROOM_TOKENS;
+  }
+  // 5k以内的结构化规划用于单元链等有限范围节点。真实 DeepSeek 链方案
+  // 即使声明4k思考仍上报20,939输出Token并耗时249秒，端点未可靠遵守预算。
+  // 这类节点改为直出合同；全书、卷和较大章纲仍保留有限规划思考。
+  if (purpose === 'structured_planning' && maxOutputTokens !== undefined && maxOutputTokens <= 5_000) {
+    return 0;
+  }
+  // 结构修复和证据审校都是有明确停止条件的封闭任务。DeepSeek 在这里
+  // 开启通用 16k 思考，会为补几个 JSON 字段再次推演整份方案；真实链方案
+  // 已出现 9k 以上输出 Token 的无效结构修复。关闭隐藏思考，直接按合同返回。
+  if (modelId.startsWith('deepseek-')
+    && (purpose === 'novel_reviewer' || purpose === 'review_synthesis')) {
+    return 0;
+  }
+  // 规划需要推理，但不是无限推演。4k 足够完成当前一层的因果取舍，避免
+  // 通用 16k 思考吞掉时间和额度；可见方案仍由各节点自己的输出合同封顶。
+  if (purpose === 'structured_planning') return 4_000;
+  if (modelId === 'kimi-k3' && purpose === 'novel_writer') {
+    return KIMI_NOVEL_WRITER_THINKING_BUDGET_TOKENS;
+  }
+  if (modelId === 'kimi-k3' && purpose === 'novel_reviewer') {
+    return KIMI_NOVEL_REVIEWER_THINKING_BUDGET_TOKENS;
   }
   return SUBSCRIPTION_THINKING_BUDGET_TOKENS;
 }

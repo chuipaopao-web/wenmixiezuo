@@ -9,6 +9,7 @@ export interface ModelRequest {
   prompt: string;
   supplementalInstructions?: string;
   maxOutputTokens: number;
+  temperature?: number;
 }
 
 export interface ModelResult {

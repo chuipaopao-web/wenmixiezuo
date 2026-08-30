@@ -69,25 +69,6 @@ for (const level of ['E0', 'E1', 'E2', 'E3', 'E4']) {
   if (!content.includes(level)) failures.push(`缺少证据等级: ${level}`);
 }
 
-const coversLayeredDesign = /分层创作|故事总线|首卷强启动|内部结构路线/u.test(content);
-if (coversLayeredDesign) {
-  const layeredRequirements = [
-    ['计划与已发生分离', /计划.{0,20}已发生|已发生.{0,20}计划/su],
-    ['前500有效字', /前\s*500.{0,12}有效/u],
-    ['黄金三章', /黄金三章/u],
-    ['10万字高潮', /10\s*万.{0,20}高潮/u],
-    ['手机端证据', /360|390|430|手机端/u],
-    ['148项追踪', /148\s*项/u]
-  ];
-  for (const [name, pattern] of layeredRequirements) {
-    if (!pattern.test(content)) failures.push(`缺少分层创作证据: ${name}`);
-  }
-}
-
-if (/作者.{0,16}(?:选择|勾选).{0,24}(?:救猫咪|三幕式|五幕式|英雄之旅)/su.test(content)) {
-  failures.push('作者界面仍要求选择内部叙事方法');
-}
-
 const placeholders = [
   ['TODO', /\bTODO\b/u],
   ['TBD', /\bTBD\b/u],

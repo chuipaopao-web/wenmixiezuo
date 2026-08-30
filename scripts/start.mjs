@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { resolveCurrentV7StaticRelease } from './release/v7-static-release.mjs';
 
 const projectRoot = process.cwd();
 const launcherRecordPath = resolve(projectRoot, 'data', 'control', 'desktop-launcher.pid');
@@ -65,12 +66,13 @@ if (process.platform === 'win32') {
   }
 }
 
-const required = ['apps/contracts/dist/index.js', 'apps/api/dist/main.js', 'apps/worker/dist/main.js', 'apps/web/dist/index.html'];
+const required = ['apps/contracts/dist/index.js', 'apps/api/dist/main.js', 'apps/worker/dist/main.js'];
 for (const relativePath of required) {
   if (!existsSync(resolve(projectRoot, relativePath))) {
     throw new Error(`缺少构建产物 ${relativePath}，请先运行 npm run build`);
   }
 }
+const staticRelease = await resolveCurrentV7StaticRelease(projectRoot);
 
 const workerToken = randomBytes(32).toString('base64url');
 const apiEnvironment = { ...process.env, WENMI_WORKER_TOKEN: workerToken };
@@ -188,12 +190,10 @@ spawnService('API', process.execPath, ['apps/api/dist/main.js'], apiEnvironment)
 await waitForApi();
 spawnService('WORKER', process.execPath, ['apps/worker/dist/main.js']);
 spawnService('WEB', process.execPath, [
-  resolve(projectRoot, 'node_modules/vite/bin/vite.js'),
-  'preview',
-  resolve(projectRoot, 'apps/web'),
-  '--config', resolve(projectRoot, 'apps/web/vite.config.ts')
+  resolve(projectRoot, 'scripts/release/serve-v7-static.mjs'),
+  staticRelease.releaseDirectory
 ]);
-console.log('文秘写作已启动：http://127.0.0.1:43110');
+console.log(`文秘写作 V7 已启动：http://127.0.0.1:43110（${staticRelease.releaseId}）`);
 
 if (process.env.WENMI_RUNTIME_SMOKE === '1') {
   try {

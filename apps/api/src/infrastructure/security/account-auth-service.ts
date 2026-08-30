@@ -9,6 +9,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { DomainError } from '../../domain/errors.js';
 import type { AccountRole, AuthContext } from './auth-context.js';
 import { grantDefaultBronze } from './membership-service.js';
+import { accountUsageTotals } from './account-usage-service.js';
 
 const SESSION_COOKIE = 'wenmi_session';
 const PASSWORD_BYTES = 64;
@@ -188,17 +189,13 @@ export class AccountAuthService {
       INNER JOIN user_accounts a ON a.owner_id = b.owner_id
       WHERE b.status <> 'purged'
     `).get() as { total: number };
-    const usage = this.database.prepare(`
-      SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) AS total
-      FROM usage_ledger l
-      INNER JOIN user_accounts a ON a.owner_id = l.owner_id
-    `).get() as { total: number };
+    const usage = accountUsageTotals(this.database);
     return {
       totalUsers: Number(users.total),
       activeUsers: Number(users.active ?? 0),
       suspendedUsers: Number(users.suspended ?? 0),
       totalBooks: Number(books.total),
-      totalTokens: Number(usage.total)
+      totalTokens: usage.consumedTokens
     };
   }
 

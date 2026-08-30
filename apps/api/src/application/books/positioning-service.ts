@@ -4,6 +4,7 @@ import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningDraft, PositioningField, PositioningTag, SourceStatus } from '../../domain/positioning.js';
 import { assertOwnerScope, type OwnerScope } from '../../domain/scope.js';
 import { OwnerRepository } from '../../infrastructure/db/repositories/owner-repository.js';
+import { DomainError, errorCodes } from '../../domain/errors.js';
 import {
   OPENING_TAXONOMY,
   validateOpeningBlueprint,
@@ -43,7 +44,8 @@ export class PositioningService {
       tags?: string[];
       style?: string;
       openingBlueprint?: OpeningBlueprintInput;
-    }
+    },
+    identity?: { draftId: string; proposedBookId: string }
   ): PositioningDraft {
     assertOwnerScope(scope);
     new OwnerRepository(this.database).ensure(scope, '老板', this.clock.now().toISOString());
@@ -112,10 +114,35 @@ export class PositioningService {
     if (inferredGenre !== null && !tags.some((tag) => tag.name === inferredGenre)) {
       tags.push({ name: inferredGenre, category: 'genre', sourceStatus: explicitGenre === null ? 'inferred' : genreStatus });
     }
-    const draftId = this.ids.next();
-    const proposedBookId = this.ids.next();
+    const draftId = identity?.draftId ?? this.ids.next();
+    const proposedBookId = identity?.proposedBookId ?? this.ids.next();
     const title = requestedTitle || suggestTitle(text);
     const now = this.clock.now().toISOString();
+    if (identity !== undefined) {
+      const existing = this.database.prepare(`
+        SELECT 1 FROM positioning_drafts WHERE draft_id = ?
+      `).get(draftId);
+      if (existing !== undefined) {
+        const draft = this.require(scope, draftId);
+        if (
+          draft.proposedBookId !== proposedBookId
+          || draft.title !== title
+          || draft.inputText !== text
+          || JSON.stringify(draft.fields) !== JSON.stringify(fields)
+          || JSON.stringify(draft.tags) !== JSON.stringify(tags)
+          || JSON.stringify(draft.openingBlueprint) !== JSON.stringify(openingBlueprint)
+        ) {
+          throw new DomainError(
+            errorCodes.validation,
+            '这次确认编号已经用于另一份开书资料，请刷新后重新确认。',
+            {},
+            false,
+            409
+          );
+        }
+        return draft;
+      }
+    }
     this.database.prepare(`
       INSERT INTO positioning_drafts (
         draft_id, owner_id, proposed_book_id, title, input_text, fields_json,

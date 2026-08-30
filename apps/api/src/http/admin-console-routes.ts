@@ -7,13 +7,14 @@ import { DomainError, errorCodes } from '../domain/errors.js';
 import { requireAdministrator, requireAuthenticatedAccount } from '../infrastructure/security/auth-context.js';
 import { buildRuntimeRoleSystemPrompt } from '../infrastructure/models/model-adapter-factory.js';
 import type { ModelPurpose } from '../infrastructure/models/model-runtime-config.js';
-import { allRoleSkills, coreAgentSkill, nodeSkillCatalog } from '../application/agents/agent-skills-v6.js';
+import { allRoleSkills, coreAgentSkill, nodeSkillCatalog } from '../application/agents/editorial-agent-skills.js';
 import { creativeMemberContracts, roleModelProfiles } from '../contracts/agent-team-v2.js';
 import { adminAiMembers, adminAiTriggerCatalog } from '../application/agents/admin-ai-trigger-catalog.js';
 import { hiddenNarrativeMethodVersions } from '../application/planning/hidden-narrative-methods.js';
 import {
   buildFeatureCapabilityView, isFeatureBaselineKey, isFeatureCapabilityStatus
 } from '../application/admin/feature-capability-registry.js';
+import { accountUsageRelation } from '../infrastructure/security/account-usage-service.js';
 
 const PROMPT_PURPOSES: readonly ModelPurpose[] = [
   'discussion', 'structured_planning', 'novel_writer', 'novel_reviewer', 'review_synthesis'
@@ -22,6 +23,99 @@ const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'ignored'] as const;
 const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 export async function registerAdminConsoleRoutes(app: FastifyInstance, database: DatabaseSync): Promise<void> {
+  app.get<{
+    Params: { runKind: string; runId: string };
+    Querystring: { ownerId?: string; bookId?: string };
+  }>('/api/v1/admin/v7/planning-runtime/:runKind/:runId', async (request) => {
+    requireAdministrator(request);
+    const ownerId = requiredAuditValue(request.query.ownerId, '作者范围');
+    const bookId = requiredAuditValue(request.query.bookId, '书籍范围');
+    const runKind = request.params.runKind;
+    const runId = requiredAuditValue(request.params.runId, '任务编号');
+    if (runKind === 'recipe') {
+      const run = auditRow(database, 'v7_planning_recipe_runs', 'run_id', ownerId, bookId, runId);
+      const methodSearches = auditRows(database, `SELECT * FROM v7_planning_method_searches
+        WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at,search_id`, ownerId, bookId, runId)
+        .map((row) => {
+          const expanded = expandJsonColumns(row, ['member_snapshot_json', 'search_request_json', 'candidate_methods_json']);
+          return { ...expanded, request: expanded.search_request_json, candidates: expanded.candidate_methods_json };
+        });
+      const methodProposals = auditRows(database, `SELECT * FROM v7_planning_recipe_proposals
+        WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at,proposal_id`, ownerId, bookId, runId)
+        .map((row) => {
+          const expanded = expandJsonColumns(row, ['member_snapshot_json', 'proposal_json', 'source_proposal_ids_json']);
+          return { ...expanded, proposal: expanded.proposal_json };
+        });
+      const storyRoutes = auditRows(database, `SELECT * FROM v7_planning_route_candidates
+        WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at,route_id`, ownerId, bookId, runId)
+        .map((row) => {
+          const expanded = expandJsonColumns(row, ['member_snapshot_json', 'route_json']);
+          return { ...expanded, route: expanded.route_json };
+        });
+      const routeReviews = auditRows(database, `SELECT * FROM v7_planning_route_reviews
+        WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at`, ownerId, bookId, runId)
+        .map((row) => {
+          const expanded = expandJsonColumns(row, ['member_snapshot_json', 'route_ids_json', 'review_json']);
+          return { ...expanded, review: expanded.review_json };
+        });
+      return success({
+        run: expandJsonColumns(run, ['roster_json', 'checkpoint_json']),
+        snapshot: planningSnapshotAudit(database, ownerId, bookId, String(run.snapshot_id)),
+        proposals: methodProposals,
+        methodProposals,
+        methodSearches,
+        storyRoutes,
+        routeReviews,
+        routeReview: routeReviews[0] ?? null,
+        recipes: auditRows(database, `SELECT * FROM v7_planning_recipe_versions
+          WHERE owner_id=? AND book_id=? AND source_snapshot_id=? ORDER BY revision`, ownerId, bookId, String(run.snapshot_id))
+          .map((row) => expandJsonColumns(row, ['recipe_json', 'source_proposal_ids_json'])),
+        decisions: auditRows(database, `SELECT * FROM v7_planning_recipe_decisions
+          WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at`, ownerId, bookId, runId),
+        confirmedRoutes: auditRows(database, `SELECT * FROM v7_planning_route_versions
+          WHERE owner_id=? AND book_id=? AND source_snapshot_id=? ORDER BY revision`, ownerId, bookId, String(run.snapshot_id))
+          .map((row) => expandJsonColumns(row, ['route_json', 'source_route_ids_json'])),
+        routeDecisions: auditRows(database, `SELECT * FROM v7_planning_route_decisions
+          WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY created_at`, ownerId, bookId, runId)
+          .map((row) => expandJsonColumns(row, ['source_route_ids_json'])),
+        calls: planningCallsAudit(database, ownerId, bookId, runId),
+        modelCalls: planningCallsAudit(database, ownerId, bookId, runId)
+      }, request.id);
+    }
+    if (runKind === 'tree') {
+      const run = auditRow(database, 'v7_planning_generation_runs', 'generation_run_id', ownerId, bookId, runId);
+      const candidate = run.candidate_tree_version_id === null ? null
+        : database.prepare(`SELECT * FROM v7_planning_tree_versions
+            WHERE owner_id=? AND book_id=? AND tree_version_id=?`)
+          .get(ownerId, bookId, String(run.candidate_tree_version_id)) as Record<string, unknown> | undefined;
+      return success({
+        run: expandJsonColumns(run, ['member_snapshot_json']),
+        snapshot: planningSnapshotAudit(database, ownerId, bookId, String(run.source_snapshot_id)),
+        candidate: candidate === null || candidate === undefined ? null
+          : expandJsonColumns(candidate, ['content_json', 'source_refs_json']),
+        calls: planningCallsAudit(database, ownerId, bookId, runId)
+      }, request.id);
+    }
+    if (runKind === 'maintenance') {
+      const run = auditRow(database, 'v7_planning_maintenance_runs', 'maintenance_run_id', ownerId, bookId, runId);
+      return success({
+        run: expandJsonColumns(run, [
+          'source_snapshot_json', 'confirmed_tree_refs_json', 'member_snapshot_json', 'result_json'
+        ]),
+        actuals: auditRows(database, `SELECT * FROM v7_planning_node_actuals
+          WHERE owner_id=? AND book_id=? AND source_kind=? AND source_version_id=? ORDER BY tree_kind,scope_id,node_key`,
+          ownerId, bookId, String(run.source_kind), String(run.source_version_id))
+          .map((row) => expandJsonColumns(row, ['evidence_refs_json'])),
+        suggestions: auditRows(database, `SELECT * FROM v7_planning_adjustment_suggestions
+          WHERE owner_id=? AND book_id=? AND source_kind=? AND source_version_id=? ORDER BY created_at`,
+          ownerId, bookId, String(run.source_kind), String(run.source_version_id))
+          .map((row) => expandJsonColumns(row, ['suggestion_json'])),
+        calls: planningCallsAudit(database, ownerId, bookId, runId)
+      }, request.id);
+    }
+    throw validation('请选择有效的V7规划任务类型');
+  });
+
   app.get<{ Querystring: { baseline?: string; status?: string; moduleId?: string; query?: string } }>(
     '/api/v1/admin/feature-capabilities', async (request) => {
       requireAdministrator(request);
@@ -48,15 +142,22 @@ export async function registerAdminConsoleRoutes(app: FastifyInstance, database:
     const weekStart = shanghaiDayRange(new Date(now.getTime() - 6 * 86_400_000)).start;
     const monthStart = new Date(`${today.slice(0, 7)}-01T00:00:00+08:00`).toISOString();
     const window30Start = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+    const usageRelation = accountUsageRelation(database);
     const activeMembers = numberCell(database, `SELECT COUNT(*) AS value FROM user_memberships
       WHERE status='active' AND period_end > ?`, now.toISOString());
     const overview = {
       failedTasksToday: numberCell(database, `SELECT COUNT(*) AS value FROM tasks t WHERE t.updated_at>=? AND t.updated_at<?
         AND (t.status='failed' OR EXISTS (SELECT 1 FROM discussion_participants p
           WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId') AND p.run_status IN ('failed','unavailable')))`, todayRange.start, todayRange.end),
-      apiCashMicrosToday: numberCell(database, `SELECT COALESCE(SUM(cash_micros),0) AS value FROM usage_ledger WHERE recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
+      apiCashMicrosToday: numberCell(database, `SELECT COALESCE(SUM(cash_micros),0) AS value FROM ${usageRelation}
+        WHERE usage_state='consumed' AND recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
       activeMembers,
-      computeToday: numberCell(database, `SELECT COALESCE(SUM(input_tokens+output_tokens),0)*2 AS value FROM usage_ledger WHERE recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
+      computeToday: numberCell(database, `SELECT COALESCE(SUM(consumed_tokens),0)*2 AS value FROM ${usageRelation}
+        WHERE usage_state='consumed' AND recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
+      imageUnitsToday: numberCell(database, `SELECT COALESCE(SUM(consumed_units),0) AS value FROM ${usageRelation}
+        WHERE usage_state='consumed' AND recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
+      reservedImageUnits: numberCell(database, `SELECT COALESCE(SUM(reserved_units),0) AS value FROM ${usageRelation}
+        WHERE usage_state='reserved'`),
       openIssues: numberCell(database, `SELECT
         (SELECT COUNT(*) FROM tasks t LEFT JOIN admin_issue_records i ON i.source_type='failed_task' AND i.source_id=t.task_id
           WHERE (t.status='failed' OR EXISTS (SELECT 1 FROM discussion_participants p
@@ -95,8 +196,9 @@ export async function registerAdminConsoleRoutes(app: FastifyInstance, database:
     };
     const usageRows = database.prepare(`SELECT date(recorded_at,'+8 hours') AS day,
       COALESCE(SUM(cash_micros),0) AS cashMicros,
-      COALESCE(SUM(input_tokens+output_tokens),0)*2 AS compute,
-      COUNT(*) AS calls FROM usage_ledger WHERE recorded_at>=? GROUP BY day`).all(weekStart) as Array<Record<string, unknown>>;
+      COALESCE(SUM(consumed_tokens),0)*2 AS compute,
+      COALESCE(SUM(consumed_units),0) AS imageUnits,
+      COUNT(*) AS calls FROM ${usageRelation} WHERE usage_state='consumed' AND recorded_at>=? GROUP BY day`).all(weekStart) as Array<Record<string, unknown>>;
     const revenueRows = database.prepare(`SELECT date(created_at,'+8 hours') AS day,
       COALESCE(SUM(amount_cash_micros),0) AS revenueCashMicros FROM membership_transactions
       WHERE event_type IN ('grant','renew') AND created_at>=? GROUP BY day`).all(weekStart) as Array<Record<string, unknown>>;
@@ -110,15 +212,17 @@ export async function registerAdminConsoleRoutes(app: FastifyInstance, database:
         day,
         cashMicros: Number(usage?.cashMicros ?? 0),
         compute: Number(usage?.compute ?? 0),
+        imageUnits: Number(usage?.imageUnits ?? 0),
         calls: Number(usage?.calls ?? 0),
         revenueCashMicros: Number(revenue?.revenueCashMicros ?? 0)
       };
     });
     const topUsers = database.prepare(`SELECT a.user_id AS userId,a.display_name AS displayName,a.email_normalized AS email,
-      COALESCE(SUM(l.input_tokens+l.output_tokens),0)*2 AS compute,
-      COALESCE(SUM(l.cash_micros),0) AS cashMicros,COUNT(l.usage_id) AS calls
-      FROM user_accounts a JOIN usage_ledger l ON l.owner_id=a.owner_id
-      WHERE l.recorded_at>=? GROUP BY a.user_id ORDER BY compute DESC LIMIT 8`).all(weekStart);
+      COALESCE(SUM(l.consumed_tokens),0)*2 AS compute,
+      COALESCE(SUM(l.cash_micros),0) AS cashMicros,
+      COALESCE(SUM(l.consumed_units),0) AS imageUnits,COUNT(*) AS calls
+      FROM user_accounts a JOIN ${usageRelation} l ON l.owner_id=a.owner_id
+      WHERE l.usage_state='consumed' AND l.recorded_at>=? GROUP BY a.user_id ORDER BY compute DESC LIMIT 8`).all(weekStart);
     const expiring = database.prepare(`SELECT a.user_id AS userId,a.display_name AS displayName,a.email_normalized AS email,
       m.plan,m.period_end AS periodEnd,CAST(julianday(m.period_end)-julianday(?) AS INTEGER) AS daysRemaining
       FROM user_memberships m JOIN user_accounts a ON a.user_id=m.user_id
@@ -668,6 +772,62 @@ export async function registerAdminConsoleRoutes(app: FastifyInstance, database:
       contextPack: contextPack === null ? null : normalizeContextPack(contextPack as Record<string, unknown>)
     }, request.id);
   });
+}
+
+function requiredAuditValue(value: string | undefined, label: string): string {
+  const normalized = value?.trim() ?? '';
+  if (normalized.length < 1 || normalized.length > 160) throw validation(`${label}无效`);
+  return normalized;
+}
+
+function auditRow(
+  database: DatabaseSync,
+  table: string,
+  idColumn: string,
+  ownerId: string,
+  bookId: string,
+  runId: string
+): Record<string, unknown> {
+  const allowed = new Set([
+    'v7_planning_recipe_runs:run_id',
+    'v7_planning_generation_runs:generation_run_id',
+    'v7_planning_maintenance_runs:maintenance_run_id'
+  ]);
+  if (!allowed.has(`${table}:${idColumn}`)) throw validation('审计对象无效');
+  const row = database.prepare(`SELECT * FROM ${table} WHERE owner_id=? AND book_id=? AND ${idColumn}=?`)
+    .get(ownerId, bookId, runId) as Record<string, unknown> | undefined;
+  if (row === undefined) throw new DomainError(errorCodes.validation, 'V7规划任务不存在或范围不匹配', {}, false, 404);
+  return row;
+}
+
+function auditRows(database: DatabaseSync, sql: string, ...bindings: string[]): Array<Record<string, unknown>> {
+  return database.prepare(sql).all(...bindings) as Array<Record<string, unknown>>;
+}
+
+function expandJsonColumns(row: Record<string, unknown>, columns: readonly string[]): Record<string, unknown> {
+  const result = { ...row };
+  for (const column of columns) {
+    const value = result[column];
+    if (typeof value === 'string') result[column] = JSON.parse(value) as unknown;
+  }
+  return result;
+}
+
+function planningSnapshotAudit(database: DatabaseSync, ownerId: string, bookId: string, snapshotId: string): unknown {
+  const snapshot = database.prepare(`SELECT * FROM v7_planning_source_snapshots
+    WHERE owner_id=? AND book_id=? AND snapshot_id=?`).get(ownerId, bookId, snapshotId) as Record<string, unknown> | undefined;
+  if (snapshot === undefined) return null;
+  return {
+    ...expandJsonColumns(snapshot, ['compiled_content_json', 'excluded_sources_json']),
+    items: auditRows(database, `SELECT * FROM v7_planning_source_items
+      WHERE owner_id=? AND book_id=? AND snapshot_id=? ORDER BY sequence`, ownerId, bookId, snapshotId)
+      .map((row) => expandJsonColumns(row, ['content_json']))
+  };
+}
+
+function planningCallsAudit(database: DatabaseSync, ownerId: string, bookId: string, runId: string): unknown[] {
+  return auditRows(database, `SELECT * FROM v7_planning_model_calls
+    WHERE owner_id=? AND book_id=? AND run_id=? ORDER BY started_at,request_id`, ownerId, bookId, runId);
 }
 
 function ratio(numerator: number, denominator: number): number | null {

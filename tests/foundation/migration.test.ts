@@ -74,16 +74,99 @@ describe('向前迁移器', () => {
         '0065_v6_core_workflow.sql',
         '0066_ai_editorial_node_batches.sql', '0067_chapter_editor_synthesis_requests.sql',
         '0068_rolling_storyline_growth.sql',
-        '0069_prebook_opening_design_calls.sql'
+        '0069_prebook_opening_design_calls.sql',
+        '0070_v7_opening_agent.sql',
+        '0071_v7_opening_agent_governance.sql',
+        '0072_v7_setting_editorial_department.sql',
+        '0073_v7_book_title_design.sql',
+        '0074_v7_book_cover_design.sql',
+        '0075_v7_opening_prompt_and_platform.sql',
+        '0076_v7_planning_trees.sql',
+        '0077_v7_planning_editorial_runtime.sql',
+        '0078_v7_planning_generation_request_hash.sql',
+        '0079_v7_planning_maintenance_runs.sql',
+        '0080_v7_planning_adjustment_decisions.sql',
+        '0081_v7_planning_route_selection.sql',
+        '0082_v7_character_memory.sql',
+        '0083_v7_character_task_retries.sql',
+        '0084_v7_creation_pipeline.sql',
+        '0085_v7_planning_task_retries.sql',
+        '0086_v7_creation_commercial_closure.sql',
+        '0087_v7_creation_stage_jobs.sql',
+        '0088_v7_managed_creation.sql',
+        '0089_v7_unified_agent_governance.sql',
+        '0090_v7_creation_option_member_preferences.sql',
+        '0091_v7_prompt_context_governance.sql',
+        '0092_v7_creation_fixed_role_preferences.sql',
+        '0093_v7_context_source_scope.sql',
+        '0094_v7_task_contract_skill_selection.sql',
+        '0095_v7_prompt_manifest_execution_binding.sql',
+        '0096_v7_outline_review.sql',
+        '0097_v7_setting_author_revision_capacity.sql',
+        '0098_v7_outline_draft_candidates.sql',
+        '0099_v7_fast_default_manuscript_writer.sql',
+        '0100_v7_fast_default_manuscript_reviewer.sql',
+        '0101_unified_account_usage_projection.sql',
+        '0102_v7_clean_cutover_guard.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'storyline_frontier_versions', 'storyline_open_questions_v6', 'storyline_growth_rounds_v6',
         'storyline_growth_candidates_v6', 'storyline_growth_decisions_v6', 'creative_template_versions_v6',
-        'storyline_settlement_projection_receipts_v6', 'prebook_opening_design_calls'
+        'storyline_settlement_projection_receipts_v6', 'prebook_opening_design_calls',
+        'v7_opening_agent_tasks', 'v7_opening_agent_candidates', 'v7_opening_agent_model_calls',
+        'v7_setting_batches', 'v7_setting_item_jobs', 'v7_setting_items', 'v7_setting_item_versions',
+        'v7_setting_outputs', 'v7_setting_model_calls', 'v7_setting_member_events',
+        'v7_book_title_design_calls', 'v7_book_cover_designs',
+        'clean_cutover_operations', 'clean_cutover_delete_guard',
+        'v7_planning_tree_heads', 'v7_planning_tree_versions', 'v7_planning_tree_actions', 'v7_planning_node_actuals',
+        'v7_planning_source_snapshots', 'v7_planning_source_items', 'v7_planning_recipe_runs',
+        'v7_planning_recipe_proposals', 'v7_planning_recipe_versions', 'v7_planning_recipe_decisions',
+        'v7_planning_generation_runs', 'v7_planning_maintenance_runs', 'v7_planning_model_calls',
+        'v7_planning_adjustment_suggestions', 'v7_planning_adjustment_decisions',
+        'v7_character_profiles', 'v7_character_profile_versions', 'v7_character_profile_actions',
+        'v7_character_context_packs', 'v7_character_maintenance_runs', 'v7_character_change_candidates',
+        'v7_character_review_issues', 'v7_character_model_calls',
+        'v7_creation_workflows', 'v7_creation_context_packs', 'v7_creation_options',
+        'v7_creation_option_reviews', 'v7_creation_decisions', 'v7_chapter_outline_sequences',
+        'v7_chapter_outline_draft_candidates',
+        'v7_manuscript_versions', 'v7_manuscript_reviews', 'v7_chapter_settlements',
+        'v7_story_state_items', 'v7_story_state_versions', 'v7_formalization_outbox',
+        'v7_creation_model_calls', 'v7_creation_stage_jobs', 'v7_managed_creation_runs',
+        'v7_creation_option_member_preferences', 'v7_creation_fixed_member_preferences',
+        'v7_agent_governance_meta', 'v7_agent_governance_member_settings',
+        'v7_agent_governance_task_policies', 'v7_agent_governance_events',
+        'v7_prompt_governance_meta', 'v7_prompt_asset_versions', 'v7_book_genre_profiles',
+        'v7_task_contracts', 'v7_context_pack_traces', 'v7_context_source_traces',
+        'v7_prompt_manifests', 'v7_prompt_governance_events',
+        'account_usage_supplemental_calls'
       ]));
       const batchColumns = database.prepare("PRAGMA table_info('ai_node_batches_v6')").all() as Array<{ name: string }>;
       expect(batchColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['template_version_id', 'template_hash']));
+      const openingTaskColumns = database.prepare("PRAGMA table_info('v7_opening_agent_tasks')").all() as Array<{ name: string }>;
+      expect(openingTaskColumns.map((row) => row.name)).toContain('publishing_platform');
+      const openingCallColumns = database.prepare("PRAGMA table_info('v7_opening_agent_model_calls')").all() as Array<{ name: string }>;
+      expect(openingCallColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'task_contract_json', 'context_pack_json', 'prompt_manifest_json'
+      ]));
+      const openingMemberColumns = database.prepare("PRAGMA table_info('v7_opening_agent_member_settings')").all() as Array<{ name: string }>;
+      expect(openingMemberColumns.map((row) => row.name)).toContain('prompt_instruction');
+      const settingJobSql = database.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='v7_setting_item_jobs'").get() as { sql: string };
+      expect(settingJobSql.sql).toContain('length(author_note) <= 3200');
+      const promptManifestColumns = database.prepare("PRAGMA table_info('v7_prompt_manifests')").all() as Array<{ name: string }>;
+      expect(promptManifestColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'provider', 'model_id', 'plan', 'max_output_tokens'
+      ]));
+      const outlineColumns = database.prepare("PRAGMA table_info('v7_chapter_outline_sequences')").all() as Array<{ name: string }>;
+      expect(outlineColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
+        'review_json', 'review_member_key', 'review_member_snapshot_json', 'review_request_id', 'reviewed_at'
+      ]));
+      const characterPackColumns = database.prepare("PRAGMA table_info('v7_character_context_packs')").all() as Array<{ name: string }>;
+      const characterMaintenanceColumns = database.prepare("PRAGMA table_info('v7_character_maintenance_runs')").all() as Array<{ name: string }>;
+      const planningMaintenanceColumns = database.prepare("PRAGMA table_info('v7_planning_maintenance_runs')").all() as Array<{ name: string }>;
+      expect(characterPackColumns.map((row) => row.name)).toContain('retry_count');
+      expect(characterMaintenanceColumns.map((row) => row.name)).toContain('retry_count');
+      expect(planningMaintenanceColumns.map((row) => row.name)).toContain('retry_count');
       expect(tables.map((row) => row.name)).toContain('worker_health');
       expect(tables.map((row) => row.name)).toContain('author_attachments');
       expect(tables.map((row) => row.name)).not.toContain('chat_attachments');
@@ -128,6 +211,193 @@ describe('向前迁移器', () => {
       expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(database.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0092把旧章纲偏好兼容投影到固定策划岗位且保留历史记录', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0092_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-28T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-role-compat', '岗位兼容作者', now, now);
+      database.prepare("INSERT INTO books (book_id,owner_id,title,status,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+        .run('book-role-compat', 'owner-role-compat', '岗位兼容测试书', now, now);
+      database.prepare(`INSERT INTO v7_creation_workflows(
+        workflow_id,owner_id,book_id,volume_scope_id,chain_scope_id,stage,status,first_volume,author_goal,
+        idempotency_key,request_hash,checkpoint_json,error_message,created_at,updated_at
+      ) VALUES (?,?,?,?,NULL,'context_selection','queued',1,NULL,?,?, '{}',NULL,?,?)`).run(
+        'workflow-role-compat', 'owner-role-compat', 'book-role-compat', 'volume-1',
+        'role-compat-idempotency', 'a'.repeat(64), now, now
+      );
+      const insertLegacy = database.prepare(`INSERT INTO v7_creation_member_preferences(
+        owner_id,book_id,workflow_id,role_key,member_key,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?)`);
+      insertLegacy.run(
+        'owner-role-compat', 'book-role-compat', 'workflow-role-compat',
+        'outline_writer', 'creation-outline-glm-5-3', now, now
+      );
+      insertLegacy.run(
+        'owner-role-compat', 'book-role-compat', 'workflow-role-compat',
+        'structure_writer', 'planner-deepseek-v4-pro', now, now
+      );
+
+      copyFileSync(
+        resolve(sourceDir, '0092_v7_creation_fixed_role_preferences.sql'),
+        resolve(migrationsDir, '0092_v7_creation_fixed_role_preferences.sql')
+      );
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0092_v7_creation_fixed_role_preferences.sql']);
+      expect(database.prepare(`SELECT role_key,member_key FROM v7_creation_fixed_member_preferences
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(
+        'owner-role-compat', 'book-role-compat', 'workflow-role-compat'
+      )).toEqual([{ role_key: 'planning_writer', member_key: 'creation-outline-glm-5-3' }]);
+      expect(database.prepare(`SELECT option_seat_key,member_key FROM v7_creation_option_member_preferences
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(
+        'owner-role-compat', 'book-role-compat', 'workflow-role-compat'
+      )).toEqual([{ option_seat_key: 'option_1', member_key: 'planner-deepseek-v4-pro' }]);
+      expect(database.prepare(`SELECT role_key,member_key FROM v7_creation_member_preferences
+        WHERE owner_id=? AND book_id=? AND workflow_id=? ORDER BY role_key`).all(
+        'owner-role-compat', 'book-role-compat', 'workflow-role-compat'
+      )).toEqual([
+        { role_key: 'outline_writer', member_key: 'creation-outline-glm-5-3' },
+        { role_key: 'structure_writer', member_key: 'planner-deepseek-v4-pro' }
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0093为0091历史资料来源回填书籍范围后重新冻结，不破坏既有快照', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0093_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-28T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-context-upgrade', '资料包升级作者', now, now);
+      database.prepare("INSERT INTO books (book_id,owner_id,title,status,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+        .run('book-context-upgrade', 'owner-context-upgrade', '资料包升级测试书', now, now);
+      database.prepare(`INSERT INTO v7_context_pack_traces(
+        context_pack_id,owner_id,book_id,task_id,policy_version,token_budget,estimated_tokens,
+        content_json,content_hash,lifecycle_status,created_at
+      ) VALUES (?,?,?,?,?,1000,10,'{}',?,'active',?)`).run(
+        'context-upgrade-1', 'owner-context-upgrade', 'book-context-upgrade', 'task-context-upgrade',
+        'test-v1', createHash('sha256').update('{}').digest('hex'), now
+      );
+      database.prepare(`INSERT INTO v7_context_source_traces(
+        trace_id,context_pack_id,sequence,source_key,source_type,source_id,source_version,authority,
+        decision,reason,content_hash,estimated_tokens
+      ) VALUES (?,?,0,'opening','book_profile','opening-1','1','confirmed','included','正式开书资料',?,10)`).run(
+        'trace-upgrade-1', 'context-upgrade-1', 'b'.repeat(64)
+      );
+
+      copyFileSync(resolve(sourceDir, '0093_v7_context_source_scope.sql'), resolve(migrationsDir, '0093_v7_context_source_scope.sql'));
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0093_v7_context_source_scope.sql']);
+      expect(database.prepare(`SELECT owner_id,book_id,source_key FROM v7_context_source_traces WHERE trace_id=?`)
+        .get('trace-upgrade-1')).toEqual({ owner_id: 'owner-context-upgrade', book_id: 'book-context-upgrade', source_key: 'opening' });
+      expect(() => database.prepare(`UPDATE v7_context_source_traces SET reason='改写' WHERE trace_id=?`).run('trace-upgrade-1'))
+        .toThrow('immutable');
+      expect(() => database.prepare(`INSERT INTO v7_context_source_traces(
+        trace_id,context_pack_id,owner_id,book_id,sequence,source_key,source_type,source_id,source_version,
+        authority,decision,reason,content_hash,estimated_tokens
+      ) VALUES (?,?,?,?,1,'bad','book_profile','bad','1','confirmed','included','错书',?,1)`).run(
+        'trace-upgrade-bad', 'context-upgrade-1', 'other-owner', 'other-book', 'c'.repeat(64)
+      )).toThrow('scope mismatch');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0094为历史任务合同补入空Skill选择并重新冻结快照', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0094_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-28T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-skill-upgrade', '合同升级作者', now, now);
+      database.prepare("INSERT INTO books (book_id,owner_id,title,status,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+        .run('book-skill-upgrade', 'owner-skill-upgrade', '合同升级测试书', now, now);
+      database.prepare(`INSERT INTO v7_task_contracts(
+        contract_id,version,owner_id,book_id,task_id,task_kind,workstation_key,operation_mode,objective,
+        must_preserve_json,allowed_changes_json,forbidden_changes_json,success_criteria_json,output_contract_json,
+        author_instruction_version,based_on_task_id,lifecycle_status,content_hash,created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,'[]','[]','[]','[]','{}',NULL,NULL,'active',?,?)`).run(
+        'contract-skill-upgrade', 1, 'owner-skill-upgrade', 'book-skill-upgrade', 'task-skill-upgrade',
+        'opening_design', 'opening', 'fresh', '测试历史任务合同', 'd'.repeat(64), now
+      );
+
+      copyFileSync(resolve(sourceDir, '0094_v7_task_contract_skill_selection.sql'), resolve(migrationsDir, '0094_v7_task_contract_skill_selection.sql'));
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0094_v7_task_contract_skill_selection.sql']);
+      expect(database.prepare(`SELECT selected_skill_keys_json FROM v7_task_contracts WHERE contract_id=?`)
+        .get('contract-skill-upgrade')).toEqual({ selected_skill_keys_json: '[]' });
+      expect(() => database.prepare(`UPDATE v7_task_contracts SET selected_skill_keys_json='["data-boundary"]' WHERE contract_id=?`)
+        .run('contract-skill-upgrade')).toThrow('immutable');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0095为历史PromptManifest补入具体模型绑定并冻结重试依据', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0095_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-28T00:00:00.000Z';
+      database.exec('PRAGMA foreign_keys=OFF');
+      database.prepare(`INSERT INTO v7_prompt_manifests(
+        manifest_id,owner_id,book_id,task_id,member_key,role_key,workstation_key,task_kind,operation_mode,
+        role_prompt_version_id,workstation_prompt_version_id,genre_profile_id,genre_profile_version,
+        skill_version_ids_json,task_contract_id,task_contract_version,context_pack_id,context_pack_hash,
+        model_profile_key,governance_revision,temperature,allowed_tools_json,compiled_blocks_json,
+        compiled_prompt,compiled_prompt_hash,lifecycle_status,created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?)`).run(
+        'manifest-binding-upgrade', 'owner-binding-upgrade', 'book-binding-upgrade', 'task-binding-upgrade',
+        'planner-kimi-k3', 'chief-editor', 'planning-tree', 'planning_tree', 'fresh',
+        'role-binding-upgrade', 'workstation-binding-upgrade', null, null,
+        '[]', 'contract-binding-upgrade', 1, 'context-binding-upgrade', 'a'.repeat(64),
+        'kimi-k3', 1, 0.42, '[]', '{}', 'legacy compiled prompt', 'b'.repeat(64), now
+      );
+
+      copyFileSync(resolve(sourceDir, '0095_v7_prompt_manifest_execution_binding.sql'), resolve(migrationsDir, '0095_v7_prompt_manifest_execution_binding.sql'));
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0095_v7_prompt_manifest_execution_binding.sql']);
+      expect(database.prepare(`SELECT provider,model_id,plan,max_output_tokens FROM v7_prompt_manifests WHERE manifest_id=?`)
+        .get('manifest-binding-upgrade')).toEqual({
+        provider: 'volcengine-ark-agent-plan',
+        model_id: 'kimi-k3',
+        plan: 'agent',
+        max_output_tokens: 12000
+      });
+      expect(() => database.prepare(`UPDATE v7_prompt_manifests SET max_output_tokens=6000 WHERE manifest_id=?`)
+        .run('manifest-binding-upgrade')).toThrow('immutable');
+      expect(runMigrations(database, migrationsDir).applied).toEqual([]);
     } finally {
       database.close();
     }

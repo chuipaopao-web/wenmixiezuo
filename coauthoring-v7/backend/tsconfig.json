@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": [
+    "index.ts",
+    "agents/**/*.ts",
+    "agent-governance/**/*.ts",
+    "character-memory/**/*.ts",
+    "creation-runtime/**/*.ts",
+    "character-memory/**/*.ts",
+    "narrative-methods/**/*.ts",
+    "opening-agent/**/*.ts",
+    "planning-methods/**/*.ts",
+    "plot-patterns/**/*.ts"
+  ]
+}

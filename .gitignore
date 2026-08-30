@@ -1,4 +1,5 @@
 data/
+artifacts/
 node_modules/
 .npm-cache/
 .pnpm-store/
@@ -31,6 +32,14 @@ shots-create/
 scripts/debug/
 .tmp-test/
 .tmp/
+.codex-backups/
+.claude/
+.visual-qa-data-*/
+
+# 历史开发工单只保留在本机审计，不进入当前V7产品基线。
+coauthoring-v7/docs/worklists/*.md
+!coauthoring-v7/docs/worklists/V7-CUTOVER-20260830-66.md
+!coauthoring-v7/docs/worklists/V7-ONLY-CUTOVER-CLEANUP-20260830-67.md
 
 # 本地生产部署密钥（仅限当前机器，不进仓库）
 artifacts/deployment-keys/

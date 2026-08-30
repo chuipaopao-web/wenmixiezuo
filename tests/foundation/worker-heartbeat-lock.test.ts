@@ -26,7 +26,8 @@ describe('Worker心跳写锁容错', () => {
       releaseId: 'test-release',
       workerId: 'busy-heartbeat-worker',
       apiBaseUrl: 'http://127.0.0.1:43111',
-      workerToken: 'test-worker-token'
+      workerToken: 'test-worker-token',
+      v7FormalizationEnabled: false
     });
 
     expect(() => heartbeat.setCurrentTask('book-purge-in-progress')).not.toThrow();
@@ -47,7 +48,8 @@ describe('Worker心跳写锁容错', () => {
       releaseId: 'test-release',
       workerId: 'broken-heartbeat-worker',
       apiBaseUrl: 'http://127.0.0.1:43111',
-      workerToken: 'test-worker-token'
+      workerToken: 'test-worker-token',
+      v7FormalizationEnabled: false
     });
 
     expect(() => heartbeat.setCurrentTask(null)).toThrow('no such table');

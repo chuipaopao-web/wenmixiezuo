@@ -46,7 +46,7 @@ describe('独立管理后台：权限、问题、模板、提示词和经营数�
         initialPhase: 'draft', brief: { source: 'test' }
       });
       context.database.prepare(`UPDATE tasks SET status='failed', current_phase='failed', error_code='MODEL_TIMEOUT',
-        updated_at=datetime('now') WHERE task_id='task-failed-admin-center'`).run();
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE task_id='task-failed-admin-center'`).run();
 
       const member = context.database.prepare(`SELECT agent_id, display_name FROM agent_instances
         WHERE owner_id = ? AND book_id = ? ORDER BY agent_id LIMIT 1`)
@@ -63,7 +63,7 @@ describe('独立管理后台：权限、问题、模板、提示词和经营数�
         taskId: 'task-partial-setting-admin-center', taskType: 'discussion', idempotencyKey: 'partial-setting-admin-center',
         initialPhase: 'complete', brief: { purpose: 'setting_proposal_panel', discussionId: partial.discussionId }
       });
-      context.database.prepare(`UPDATE tasks SET status='succeeded', updated_at=datetime('now')
+      context.database.prepare(`UPDATE tasks SET status='succeeded', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE task_id='task-partial-setting-admin-center'`).run();
 
       for (const url of ['/api/v1/admin/dashboard', '/api/v1/admin/issues', '/api/v1/admin/membership-stats',

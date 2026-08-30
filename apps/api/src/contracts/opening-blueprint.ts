@@ -59,6 +59,12 @@ export interface OpeningProtagonistInput {
   familyBackground?: string;
   careerBackground?: string;
   goldenFinger?: string;
+  /** 只保存稳定、可复用的视觉锚点，不在开书阶段承担完整人物卡职责。 */
+  visualIdentity?: {
+    appearance: string;
+    build: string;
+    signatureFeature: string;
+  };
   personalities: string[];
 }
 
@@ -79,6 +85,17 @@ export interface OpeningBlueprintInput {
   categoryKey: string;
   auxiliaryCategoryKeys?: string[];
   targetAudience: string;
+  /** 旧V7书籍可以暂时缺失；开始全书路线前只要求预计总字数。 */
+  planningProfile?: {
+    publishingPlatform: 'fanqie' | 'qidian' | 'mainstream';
+    expectedTotalWords: number;
+    /** 旧版兼容字段；新的正式卷数由全书路线产生。 */
+    volumePlan?: { minimum: number; recommended: number; maximum: number };
+    /** 旧版兼容字段；新的商业受众由全书路线产生。 */
+    commercialAudience?: string;
+    /** 旧版兼容字段；新的追读定位由全书路线产生。 */
+    retentionPositioning?: string;
+  };
   protagonists: OpeningProtagonistInput[];
   storyDirection: string;
   /** 开局与结局：新版开书用两个短句替代长篇故事方向；storyDirection 变为可选补充。 */
@@ -315,7 +332,12 @@ export const OPENING_TAXONOMY: OpeningTaxonomy = {
     {
       name: '主角体验',
       description: '避免把爽点偏好误当成每章任务。',
-      options: ['不虐主', '不降智', '不圣母', '不洗白恶人', '不靠误会强推剧情', '不使用系统金手指']
+      options: ['不虐主', '不降智', '不圣母', '不洗白恶人', '不靠误会强推剧情', '不要无敌开局']
+    },
+    {
+      name: '设定与常见套路',
+      description: '只排除作者明确不想出现的核心机制或常见套路。',
+      options: ['不要系统', '不要金手指', '不要穿越', '不要重生', '不要签到抽奖', '不要无限流副本', '不要扮猪吃虎', '不要打脸套路']
     },
     {
       name: '内容尺度',
@@ -362,12 +384,22 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     const familyBackground = optionalText(item.familyBackground, `第${index + 1}位主角家庭背景`, 2_000);
     const careerBackground = optionalText(item.careerBackground, `第${index + 1}位主角职业背景`, 2_000);
     const goldenFinger = optionalText(item.goldenFinger, `第${index + 1}位主角金手指`, 2_000);
+    const visualIdentity = item.visualIdentity === undefined ? undefined : {
+      appearance: optionalText(item.visualIdentity.appearance, `第${index + 1}位主角外貌`, 800),
+      build: optionalText(item.visualIdentity.build, `第${index + 1}位主角身形`, 800),
+      signatureFeature: optionalText(item.visualIdentity.signatureFeature, `第${index + 1}位主角醒目标志`, 800)
+    };
     const personalities = uniqueTexts(item.personalities, `第${index + 1}位主角性格`, 1, 12, 40);
-    return { role: item.role, name, age, background, familyBackground, careerBackground, goldenFinger, personalities };
+    return {
+      role: item.role, name, age, background, familyBackground, careerBackground, goldenFinger,
+      ...(visualIdentity === undefined ? {} : { visualIdentity }),
+      personalities
+    };
   });
   if (protagonists.length < 1) throw new Error('请至少填写一位主角的姓名、年龄、家庭背景和性格');
   if (new Set(protagonists.map((item) => item.name)).size !== protagonists.length) throw new Error('初始主角姓名不能重复');
-  const openingIdea = optionalText(input.openingIdea, '开书思路', 1_000);
+  // V7允许作者提供更完整的原始想法；历史版本的800字输入仍完全兼容。
+  const openingIdea = optionalText(input.openingIdea, '开书思路', 2_000);
   const storyDirection = optionalText(input.storyDirection, '故事方向补充', 800);
   const openingStart = optionalText(input.openingStart, '开局', 800);
   const storyEnding = optionalText(input.storyEnding, '结局', 800);
@@ -403,6 +435,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     atmospheres: uniqueTexts(input.styleIntent?.atmospheres ?? [], '叙事氛围', 0, 8, 40),
     custom: uniqueTexts(input.styleIntent?.custom ?? [], '自定义风格', 0, 12, 80)
   };
+  const planningProfile = input.planningProfile === undefined ? undefined : validatePlanningProfile(input.planningProfile);
   const validated: OpeningBlueprintInput = {
     creationMode,
     ...(openingIdea.length > 0 ? { openingIdea } : {}),
@@ -412,6 +445,7 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     ...(auxiliaryCategoryKeys.length > 0 ? { auxiliaryCategoryKeys } : {}),
     // 旧书和旧客户端继续保留该字段；新书入口不再要求作者预判目标读者。
     targetAudience: optionalText(input.targetAudience, '目标读者', 500),
+    ...(planningProfile === undefined ? {} : { planningProfile }),
     protagonists,
     storyDirection,
     ...(openingStart.length > 0 ? { openingStart } : {}),
@@ -432,12 +466,42 @@ export function validateOpeningBlueprint(input: OpeningBlueprintInput): OpeningB
     styleIntent,
     customTags: uniqueTexts(input.customTags, '自定义标签', 0, 5, 40),
     initialMap: optionalText(input.initialMap, '初始地图', 5_000),
-    mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 15, 500)
+    mustFollow: uniqueTexts(input.mustFollow, '必须遵守', 1, 15, 800)
   };
   if (JSON.stringify(validated).length > 18_000) {
     throw new Error('开书资料总量不能超过18,000个字符，请保留确定信息并把细节留到后续讨论');
   }
   return validated;
+}
+
+function validatePlanningProfile(value: NonNullable<OpeningBlueprintInput['planningProfile']>): NonNullable<OpeningBlueprintInput['planningProfile']> {
+  if (!['fanqie', 'qidian', 'mainstream'].includes(value.publishingPlatform)) throw new Error('发布平台选择无效');
+  const expectedTotalWords = boundedInteger(value.expectedTotalWords, '预计总字数', 100_000, 10_000_000);
+  const volumePlan = value.volumePlan === undefined ? undefined : validateLegacyVolumePlan(value.volumePlan);
+  const commercialAudience = optionalText(value.commercialAudience, '商业受众', 500);
+  const retentionPositioning = optionalText(value.retentionPositioning, '追读定位', 800);
+  return {
+    publishingPlatform: value.publishingPlatform,
+    expectedTotalWords,
+    ...(volumePlan === undefined ? {} : { volumePlan }),
+    ...(commercialAudience.length === 0 ? {} : { commercialAudience }),
+    ...(retentionPositioning.length === 0 ? {} : { retentionPositioning })
+  };
+}
+
+function validateLegacyVolumePlan(value: NonNullable<NonNullable<OpeningBlueprintInput['planningProfile']>['volumePlan']>): NonNullable<NonNullable<OpeningBlueprintInput['planningProfile']>['volumePlan']> {
+  const minimum = boundedInteger(value.minimum, '建议最少卷数', 1, 30);
+  const recommended = boundedInteger(value.recommended, '建议卷数', 1, 30);
+  const maximum = boundedInteger(value.maximum, '建议最多卷数', 1, 30);
+  if (!(minimum <= recommended && recommended <= maximum)) throw new Error('建议卷数必须满足最少卷数≤建议卷数≤最多卷数');
+  return { minimum, recommended, maximum };
+}
+
+function boundedInteger(value: unknown, label: string, minimum: number, maximum: number): number {
+  if (!Number.isInteger(value) || Number(value) < minimum || Number(value) > maximum) {
+    throw new Error(`${label}必须是${minimum}至${maximum}之间的整数`);
+  }
+  return Number(value);
 }
 
 function optionalText(value: unknown, label: string, maxLength: number): string {

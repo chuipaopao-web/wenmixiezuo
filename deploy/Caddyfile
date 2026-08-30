@@ -10,7 +10,7 @@
 #
 # 公网域名：wenmixiezuo.com
 # 后端 API：127.0.0.1:43111
-# 前端静态：/opt/wenmi/apps/web/dist
+# V7组合静态发布：/opt/wenmi/releases/current
 
 wenmixiezuo.com {
   # ---- 请求体大小限制 ----
@@ -55,7 +55,7 @@ wenmixiezuo.com {
 
   # ---- 前端静态文件（SPA） ----
   handle {
-    root * /opt/wenmi/apps/web/dist
+    root * /opt/wenmi/releases/current
     encode gzip zstd
     try_files {path} /index.html
     file_server
@@ -103,11 +103,20 @@ admin.wenmixiezuo.com {
     reverse_proxy 127.0.0.1:43111
   }
 
-  handle {
-    root * /opt/wenmi/apps/web/dist
+  # V7 独立管理后台。保留 /v7 前缀，避免旧 SPA 回退到 V6 根入口。
+  handle /v7 {
+    redir * /v7/ 308
+  }
+
+  handle /v7/* {
+    root * /opt/wenmi/releases/current
     encode gzip zstd
-    try_files {path} /index.html
+    try_files {path} /v7/index.html
     file_server
+  }
+
+  handle {
+    redir * /v7/ 308
   }
 
   tls {

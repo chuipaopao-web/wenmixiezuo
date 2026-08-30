@@ -9,7 +9,7 @@ import { directionCoverageKeys, eventChainOutputTokenLimit, eventChainValidation
 import { eventChainCandidateModelPriority, EventChainGenerationService, selectEventChainSecondDesigner } from '../../../apps/api/src/application/planning/event-chain-generation-service.js';
 import { AuthorCollaborationService } from '../../../apps/api/src/application/planning/author-collaboration-service.js';
 import { StoryEventService } from '../../../apps/api/src/application/planning/story-event-service.js';
-import { CoreWorkflowV6Service } from '../../../apps/api/src/application/planning/core-workflow-v6-service.js';
+import { CoreWorkflowService } from '../../../apps/api/src/application/planning/core-workflow-service.js';
 import { StoryThreadService } from '../../../apps/api/src/application/planning/story-thread-service.js';
 import { TaskService } from '../../../apps/api/src/application/tasks/task-service.js';
 import { StageSettlementService } from '../../../apps/api/src/application/continuity/stage-settlement-service.js';
@@ -313,7 +313,7 @@ describe('版本化卷规划', () => {
       expectedWorkflowVersion: service.workflow(scope).planningVersion,
       idempotencyKey: 'blocked-before-event-role-assignment'
     })).toThrow(/未绑定角色功能/u);
-    const core = new CoreWorkflowV6Service(context.database, ids, clock);
+    const core = new CoreWorkflowService(context.database, ids, clock);
     const witness = core.createCharacter(scope, { characterKind: 'volume_new', content: {
       name: '林岚', roleSummary: '关键证人', desire: '让真相公开', currentState: '被对手追查', boundaries: [], storylineInfluences: []
     } });

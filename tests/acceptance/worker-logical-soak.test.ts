@@ -29,7 +29,8 @@ describe('Worker 24小时逻辑稳定性', () => {
       releaseId: context.config.releaseId,
       workerId,
       apiBaseUrl: 'http://127.0.0.1:1',
-      workerToken: context.config.workerToken
+      workerToken: context.config.workerToken,
+      v7FormalizationEnabled: false
     });
     heartbeat.start();
     const loop = new WorkerLoop(new TaskClaimer(context.database, workerId, () => clock.now()), heartbeat);

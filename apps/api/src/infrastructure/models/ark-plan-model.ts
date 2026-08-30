@@ -1,6 +1,6 @@
 import { Agent, type Dispatcher } from 'undici';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from './model-adapter.js';
-import { assertPlanBaseUrl, isFastGlmDiscussion, thinkingTokenAllowance, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
+import { assertPlanBaseUrl, thinkingTokenAllowance, usesGlmVisibleOutputRoute, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
   plan: ModelPlan;
@@ -23,7 +23,7 @@ const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
   discussion: '你是文秘写作中的小说创作成员。只按当前岗位和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
   structured_planning: '你是文秘写作中的正式规划成员。严格执行输入中的operation、instructions和outputContract，只输出一个可直接解析的JSON对象，不用Markdown，不写解释、确认请求或后续承诺。',
   novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文优先达到2700至3200有效字符，且不得少于2350或超过3650，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。正文中禁止出现“前章、上一章、本章、下一章”、章纲、审查、生成或资料包等创作过程说明，承接前文必须直接进入故事。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落；必须逐项落实requiredActions，明确要求删除、后移、合并或避免的表达不得原样复现，也不得仅换近义词保留同一种问题。输出前在内部核对每一项修改要求，但不要输出核对过程。保持人物、时间线和因果连续。',
-  novel_reviewer: '你是文秘写作的独立审校。只输出一个JSON对象，不使用Markdown围栏。字段必须为verdict(pass|rewrite|blocked)、summary、issues数组和scores对象；每个issue包含location、issueType、severity(blocker|major|minor|observation)、evidence、requiredAction；scores包含continuity、character、pacing、style、hook五个0至100整数。',
+  novel_reviewer: '你是文秘写作的独立审校。这是有停止条件的证据核对，不是穷举所有可能问题。只输出当前任务明确要求的JSON对象，不使用Markdown围栏，不输出思考过程，不添加任务没有要求的评分或字段。',
   review_synthesis: '你是文秘写作的主编汇总器。只综合各席结构化报告，不读取正文再做一轮点评。只输出JSON对象，字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。'
 };
 
@@ -58,6 +58,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
       timedOut = true;
       controller.abort(new DOMException(`${planDisplayName(this.options.plan)}模型调用超时`, 'TimeoutError'));
     }, timeoutMs);
+    const temperature = temperatureField(request.temperature);
     let response: Response;
     // opencodego（opencode.ai/zen/go）的 Messages 网关只认 Anthropic 标准
     // x-api-key 认证头（Bearer 会 401 Missing API key），且其 Kimi 上游把
@@ -79,6 +80,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           // max_tokens 在可见输出限额之上追加与当前模型策略一致的推理余量；
           // thinking字段是否发送由模型和用途能力决定。
           max_tokens: request.maxOutputTokens + thinkingTokenAllowance(this.modelId, this.options.purpose, request.maxOutputTokens),
+          ...temperature,
           ...thinkingField(this.options.plan, this.modelId, this.options.purpose, request.maxOutputTokens),
           system: appendSupplement(
             this.options.systemPrompt ?? SYSTEM_PROMPTS[this.options.purpose],
@@ -146,6 +148,14 @@ export class ArkPlanModelAdapter implements ModelAdapter {
   }
 }
 
+function temperatureField(value: number | undefined): { temperature?: number } {
+  if (value === undefined) return {};
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error('Messages模型温度必须在0至1之间');
+  }
+  return { temperature: value };
+}
+
 const longRequestDispatchers = new Map<number, Dispatcher>();
 
 function longRequestDispatcher(timeoutMs: number): Dispatcher {
@@ -204,9 +214,20 @@ function thinkingField(
   // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
   if (plan === 'coding' || plan === 'agent') {
     if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
-    // GLM-5.3 的短讨论省略字段，让模型使用自身的短路由；显式 disabled 会被
-    // Coding Plan 以400拒绝，显式 enabled+8k又会在真实设定任务中长思考后空输出。
-    if (isFastGlmDiscussion(modelId, purpose, maxOutputTokens)) return {};
+    // Kimi K3 审校是封闭的证据对照合同，不是创意推演。2026-08-29实测
+    // 4k显式思考仍把6400总输出全部烧进thinking并耗时210秒，零报告。
+    if (modelId === 'kimi-k3' && purpose === 'novel_reviewer') return { thinking: { type: 'disabled' } };
+    if (modelId.startsWith('deepseek-')
+      && (purpose === 'novel_reviewer' || purpose === 'review_synthesis')) {
+      return { thinking: { type: 'disabled' } };
+    }
+    // GLM-5.3 的短讨论、结构化规划和证据型审校省略字段，让模型使用自身的直出路由；显式
+    // disabled 会被 Coding Plan 以400拒绝，而显式 enabled 在真实设定与卷方案中
+    // 都曾耗尽全部输出额度后返回空文字。
+    if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) return {};
+    if (purpose === 'structured_planning' && maxOutputTokens <= 5_000) {
+      return { thinking: { type: 'disabled' } };
+    }
     return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
   }
   // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。

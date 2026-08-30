@@ -75,6 +75,7 @@ describe('完整开书分类与资料合同', () => {
       boundaryGroups: expect.arrayContaining([
         expect.objectContaining({ name: '感情与关系', options: expect.arrayContaining(['不写后宫', '不写多角恋']) }),
         expect.objectContaining({ name: '主角体验', options: expect.arrayContaining(['不虐主', '不降智']) }),
+        expect.objectContaining({ name: '设定与常见套路', options: expect.arrayContaining(['不要系统', '不要金手指', '不要穿越', '不要重生']) }),
         expect.objectContaining({ name: '内容尺度', options: expect.arrayContaining(['不写露骨情色', '不写血腥猎奇']) }),
         expect.objectContaining({ name: '结构与结局', options: expect.arrayContaining(['不写开放式结局', '不写主角团灭']) })
       ])

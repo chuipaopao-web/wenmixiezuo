@@ -10,6 +10,7 @@
 | `wenmi-api.service` | API systemd 服务单元 | `/etc/systemd/system/` |
 | `wenmi-worker.service` | Worker systemd 服务单元 | `/etc/systemd/system/` |
 | `backup.sh` | SQLite 数据库自动备份脚本 | `/opt/wenmi/deploy/backup.sh` |
+| `activate-v7-static.sh` | 校验并原子激活V7组合静态发布，保留上一版回滚指针 | `/opt/wenmi/current/deploy/activate-v7-static.sh` |
 | `.env.production.example` | 生产环境变量模板 | 复制为 `deploy/.env.production` 并填入真实值 |
 
 ## 部署步骤

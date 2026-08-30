@@ -1,0 +1,487 @@
+import { createHash } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
+import {
+  buildPlanningFallbackChain,
+  buildPlanningLayerReferencePack,
+  compileLayeredPlanningTask,
+  compilePlanningTreeGenerationTask,
+  parsePlanningTreeOutput,
+  planningTreeGenerationPrompt,
+  planningTreeRepairPrompt,
+  type LayeredPlanningRecipe,
+  type LayeredRecipeNode,
+  type PlanningSourceItem,
+  type PlanningTreeKind,
+  type PlanningTreeSourceRef,
+  V7_PLANNING_MEMBERS,
+  validatePlanningEditorialRoster,
+  type V7PlanningMemberDefinition
+} from '@wenmi/v7-backend';
+import { DomainError, errorCodes } from '../../domain/errors.js';
+import type { Clock, IdGenerator } from '../../domain/ids.js';
+import {
+  V7PlanningRuntimeRepository,
+  type V7PlanningGenerationRunRow
+} from '../../infrastructure/db/repositories/v7-planning-runtime-repository.js';
+import { V7PlanningTreeRepository } from '../../infrastructure/db/repositories/v7-planning-tree-repository.js';
+import {
+  V7PlanningModelError,
+  V7PlanningModelGateway,
+  type V7PlanningModelAdapterResolver
+} from '../../infrastructure/models/v7-planning-model-gateway.js';
+import {
+  V7PlanningSourceCompiler,
+  planningSnapshotSourceTraces,
+  type V7PlanningCompiledSnapshot
+} from './v7-planning-source-compiler.js';
+import { V7PlanningTreeService } from './v7-planning-tree-service.js';
+import type { V7PlanningTaskView } from './v7-planning-route-service.js';
+
+export interface V7PlanningTreeGenerationView {
+  runId: string;
+  treeKind: PlanningTreeKind;
+  scopeId: string;
+  status: 'waiting' | 'working' | 'ready' | 'failed' | 'result_unknown';
+  message: string;
+  member: { memberKey: string; name: string };
+  candidateTreeVersionId: string | null;
+  canOpenCandidate: boolean;
+  errorMessage: string | null;
+  timing: {
+    createdAt: string;
+    lastActivityAt: string;
+    elapsedSeconds: number;
+    idleSeconds: number;
+    state: 'normal' | 'slow' | 'overdue';
+  };
+}
+
+type PlanningMemberSource = readonly V7PlanningMemberDefinition[] | (() => readonly V7PlanningMemberDefinition[]);
+
+export class V7PlanningTreeGenerationService {
+  private readonly runtime: V7PlanningRuntimeRepository;
+  private readonly trees: V7PlanningTreeRepository;
+  private readonly treeService: V7PlanningTreeService;
+  private readonly sources: V7PlanningSourceCompiler;
+  private readonly models: V7PlanningModelGateway;
+  private readonly activeRuns = new Set<string>();
+
+  public constructor(
+    database: DatabaseSync,
+    adapters: V7PlanningModelAdapterResolver,
+    private readonly ids: IdGenerator,
+    private readonly clock: Clock,
+    private readonly memberSource: PlanningMemberSource = V7_PLANNING_MEMBERS
+  ) {
+    this.runtime = new V7PlanningRuntimeRepository(database);
+    this.trees = new V7PlanningTreeRepository(database);
+    this.treeService = new V7PlanningTreeService(database, ids, clock);
+    this.sources = new V7PlanningSourceCompiler(database, ids, clock);
+    this.models = new V7PlanningModelGateway(database, adapters, clock);
+    assertRoster(this.members());
+  }
+
+  public create(ownerId: string, bookId: string, treeKindValue: unknown, scopeIdValue: unknown, input: {
+    selectedMemberKey?: unknown;
+    idempotencyKey?: unknown;
+  }): V7PlanningTreeGenerationView {
+    const treeKind = treeKindOf(treeKindValue);
+    const scopeId = text(scopeIdValue, '规划范围', 1, 128, /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/u);
+    const idempotencyKey = text(input.idempotencyKey, '操作编号', 8, 128, /^[A-Za-z0-9][A-Za-z0-9:_-]{7,127}$/u);
+    const selectedMemberKey = optionalText(input.selectedMemberKey, '规划成员', 128);
+    const recipe = this.runtime.activeRecipe(ownerId, bookId, 'confirmed');
+    if (recipe === undefined) throw conflict('请先确认全书方法配方，再开始设计规划树。');
+    const route = this.runtime.activeRoute(ownerId, bookId, 'confirmed');
+    if (treeKind === 'book' && (route === undefined || route.recipe_version_id !== recipe.recipe_version_id)) {
+      throw conflict('请先从三套全书路线中确认一套方向，再开始设计正式全书框架。');
+    }
+    const snapshot = this.sources.compile({ ownerId, bookId, treeKind, scopeId, purpose: 'tree_generation' });
+    const fallback = buildPlanningFallbackChain('planning_writer', {
+      ...(selectedMemberKey === null ? {} : { selectedMemberKey }),
+      members: this.members()
+    });
+    const requestHash = sha256(stableJson({
+      treeKind, scopeId, recipeVersionId: recipe.recipe_version_id,
+      routeVersionId: route?.route_version_id ?? null,
+      snapshotId: snapshot.snapshotId, selectedMemberKey
+    }));
+    const existing = this.runtime.generationByKey(ownerId, bookId, idempotencyKey);
+    if (existing !== undefined) {
+      if (existing.request_hash !== requestHash) throw conflict('本次操作编号已经用于另一棵规划树。');
+      this.start(existing);
+      return this.view(existing);
+    }
+    const run = this.runtime.createGeneration({
+      generationRunId: this.ids.next(), ownerId, bookId, treeKind, scopeId,
+      recipeVersionId: recipe.recipe_version_id, sourceSnapshotId: snapshot.snapshotId,
+      parentTreeVersionId: parentTreeVersion(snapshot), routeVersionId: route?.route_version_id ?? null,
+      assignedMemberKey: fallback[0]!.memberKey,
+      memberSnapshot: { fallback: fallback.map(memberSnapshot) }, idempotencyKey, requestHash,
+      now: this.clock.now().toISOString()
+    });
+    this.start(run);
+    return this.view(run);
+  }
+
+  private members(): readonly V7PlanningMemberDefinition[] {
+    const members = typeof this.memberSource === 'function' ? this.memberSource() : this.memberSource;
+    assertRoster(members);
+    return members;
+  }
+
+  public get(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
+    const run = this.requireRun(ownerId, bookId, runId);
+    this.start(run);
+    return this.view(this.requireRun(ownerId, bookId, runId));
+  }
+
+  public latest(ownerId: string, bookId: string, treeKindValue: unknown, scopeIdValue: unknown): V7PlanningTreeGenerationView | null {
+    const treeKind = treeKindOf(treeKindValue);
+    const scopeId = text(scopeIdValue, '规划范围', 1, 128, /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/u);
+    const run = this.runtime.latestGeneration(ownerId, bookId, treeKind, scopeId);
+    if (run === undefined) return null;
+    this.start(run);
+    return this.view(this.requireRun(ownerId, bookId, run.generation_run_id));
+  }
+
+  public listTasks(ownerId: string, limit = 50): V7PlanningTaskView[] {
+    return this.taskViews(this.runtime.planningGenerationTasks(ownerId, Math.max(1, Math.min(100, limit))));
+  }
+
+  public adminTasks(limit = 100): V7PlanningTaskView[] {
+    return this.taskViews(this.runtime.adminPlanningGenerationTasks(Math.max(1, Math.min(200, limit))));
+  }
+
+  private taskViews(runs: ReturnType<V7PlanningRuntimeRepository['planningGenerationTasks']>): V7PlanningTaskView[] {
+    return runs.map((run) => {
+      const view = this.view(run);
+      return {
+        taskId: run.generation_run_id, taskKind: 'planning_tree', ownerId: run.owner_id, bookId: run.book_id, bookTitle: run.book_title,
+        status: run.status === 'cancelled' ? 'cancelled'
+          : view.status === 'ready' ? 'waiting_for_you'
+            : view.status === 'result_unknown' ? 'failed' : view.status,
+        message: view.message,
+        progress: view.status === 'ready' ? 100 : view.status === 'working' ? 70 : view.status === 'waiting' ? 10 : 0,
+        memberKey: view.member.memberKey, memberName: view.member.name,
+        treeKind: run.tree_kind, scopeId: run.scope_id,
+        canStop: ['queued', 'working'].includes(run.status), updatedAt: run.updated_at
+      };
+    });
+  }
+
+  public cancel(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
+    const run = this.requireRun(ownerId, bookId, runId);
+    return this.view(this.runtime.cancelGeneration(ownerId, bookId, run.generation_run_id, this.clock.now().toISOString()));
+  }
+
+  public adminRun(ownerId: string, bookId: string, runId: string): unknown {
+    const run = this.requireRun(ownerId, bookId, runId);
+    return {
+      run: { ...run, memberSnapshot: JSON.parse(run.member_snapshot_json) },
+      snapshot: this.sources.require(ownerId, bookId, run.source_snapshot_id)
+    };
+  }
+
+  private start(run: V7PlanningGenerationRunRow): void {
+    if (!['queued', 'working'].includes(run.status) || this.activeRuns.has(run.generation_run_id)) return;
+    this.activeRuns.add(run.generation_run_id);
+    void this.execute(run).catch((error) => {
+      const current = this.runtime.generation(run.owner_id, run.book_id, run.generation_run_id);
+      if (current === undefined || current.status === 'succeeded' || current.status === 'cancelled') return;
+      this.runtime.markGeneration({
+        ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
+        status: error instanceof V7PlanningModelError && error.outcomeUnknown ? 'unknown' : 'failed',
+        errorMessage: publicFailure(error), now: this.clock.now().toISOString()
+      });
+    }).finally(() => this.activeRuns.delete(run.generation_run_id));
+  }
+
+  private async execute(run: V7PlanningGenerationRunRow): Promise<void> {
+    this.ensureActive(run);
+    const recipeRow = this.runtime.recipeVersion(run.owner_id, run.book_id, run.recipe_version_id);
+    const activeRecipe = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
+    if (recipeRow === undefined || activeRecipe?.recipe_version_id !== recipeRow.recipe_version_id) {
+      throw conflict('全书方法配方已经更新，请重新设计这棵树。');
+    }
+    const routeRow = run.route_version_id === null ? undefined
+      : this.runtime.routeVersion(run.owner_id, run.book_id, run.route_version_id);
+    const activeRoute = this.runtime.activeRoute(run.owner_id, run.book_id, 'confirmed');
+    if (run.tree_kind === 'book' && (routeRow === undefined
+      || activeRoute?.route_version_id !== routeRow.route_version_id
+      || routeRow.recipe_version_id !== recipeRow.recipe_version_id)) {
+      throw conflict('全书方向已经更新，请重新设计正式全书框架。');
+    }
+    const snapshot = this.sources.require(run.owner_id, run.book_id, run.source_snapshot_id);
+    const latestSnapshot = this.sources.compile({
+      ownerId: run.owner_id, bookId: run.book_id, treeKind: run.tree_kind,
+      scopeId: run.scope_id, purpose: 'tree_generation'
+    });
+    if (latestSnapshot.sourceFingerprint !== snapshot.sourceFingerprint) {
+      throw conflict('开书资料、设定或上层规划已经更新，请重新设计这棵树。');
+    }
+    const recipe = JSON.parse(recipeRow.recipe_json) as LayeredPlanningRecipe;
+    const recipeNodeId = selectRecipeNode(recipe, run.tree_kind, run.scope_id).nodeId;
+    const layeredTask = compileLayeredPlanningTask({
+      recipe, nodeId: recipeNodeId, sources: planningSources(snapshot), mode: 'runtime'
+    });
+    const sourceRefs = treeSourceRefs(snapshot);
+    const generationTask = compilePlanningTreeGenerationTask({
+      treeKind: run.tree_kind, scopeId: run.scope_id, sourceRefs,
+      parentDirection: parentDirection(snapshot)
+    });
+    const referencePack = buildPlanningLayerReferencePack(run.tree_kind);
+    const prompt = planningTreeGenerationPrompt({
+      treeKind: run.tree_kind, scopeId: run.scope_id,
+      sourceSnapshot: {
+        ...publicSnapshot(snapshot),
+        ...(routeRow === undefined ? {} : { confirmedStoryRoute: JSON.parse(routeRow.route_json) })
+      },
+      layeredTask, generationTask, referencePack
+    });
+    const roster = JSON.parse(run.member_snapshot_json) as { fallback: V7PlanningMemberDefinition[] };
+    let lastError: unknown;
+    for (const [index, member] of roster.fallback.entries()) {
+      this.ensureActive(run);
+      this.runtime.markGeneration({
+        ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
+        status: 'working', assignedMemberKey: member.memberKey, memberSnapshot: { fallback: roster.fallback.map(memberSnapshot) },
+        errorMessage: null, now: this.clock.now().toISOString()
+      });
+      const requestId = `${run.generation_run_id}:tree:${index + 1}`;
+      try {
+        const result = await this.models.generate({
+          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+          runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}`, member,
+          taskKind: 'planning_tree',
+          workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
+          operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
+          sourceTraces: planningSnapshotSourceTraces(snapshot),
+          prompt, maxOutputTokens: treeOutputLimit(run.tree_kind), temperature: 0.66
+        });
+        this.ensureActive(run);
+        let acceptedRequestId = requestId;
+        let document: ReturnType<typeof parsePlanningTreeOutput>;
+        try {
+          document = parsePlanningTreeOutput(result.output, run.tree_kind, run.scope_id, referencePack);
+        } catch (contractError) {
+          const repairRequestId = `${requestId}:repair`;
+          const repaired = await this.models.generate({
+            requestId: repairRequestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.generation_run_id,
+            runKind: 'tree', nodeKey: `${run.tree_kind}:${run.scope_id}:repair`, member,
+            taskKind: 'planning_tree',
+            workstationKey: run.tree_kind === 'volume' ? 'volume' : run.tree_kind === 'chain' ? 'chain' : 'full_book_route',
+            operationMode: 'repair', basedOnTaskId: requestId, authorInstructionVersion: null,
+            sourceTraces: planningSnapshotSourceTraces(snapshot),
+            prompt: planningTreeRepairPrompt({
+              treeKind: run.tree_kind,
+              scopeId: run.scope_id,
+              invalidOutput: result.output,
+              validationMessage: errorMessage(contractError)
+            }),
+            maxOutputTokens: treeOutputLimit(run.tree_kind), temperature: 0.22
+          });
+          this.ensureActive(run);
+          document = parsePlanningTreeOutput(repaired.output, run.tree_kind, run.scope_id, referencePack);
+          acceptedRequestId = repairRequestId;
+        }
+        const stillActive = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
+        const stillActiveRoute = this.runtime.activeRoute(run.owner_id, run.book_id, 'confirmed');
+        const currentSnapshot = this.sources.compile({
+          ownerId: run.owner_id, bookId: run.book_id, treeKind: run.tree_kind,
+          scopeId: run.scope_id, purpose: 'tree_generation'
+        });
+        if (stillActive?.recipe_version_id !== run.recipe_version_id
+          || (run.tree_kind === 'book' && stillActiveRoute?.route_version_id !== run.route_version_id)
+          || currentSnapshot.sourceFingerprint !== snapshot.sourceFingerprint) {
+          throw conflict('设计期间上层资料已经变化，本次结果没有写入。');
+        }
+        const expectedRevision = this.trees.head(run.owner_id, run.book_id, run.tree_kind, run.scope_id)?.revision ?? 0;
+        const saved = this.treeService.saveGeneratedCandidate({
+          ownerId: run.owner_id, bookId: run.book_id, treeKind: run.tree_kind, scopeId: run.scope_id,
+          expectedRevision, document, sourceRefs, idempotencyKey: `tree-generation:${run.generation_run_id}`,
+          createdBy: member.memberKey
+        });
+        this.ensureActive(run);
+        this.runtime.markGeneration({
+          ownerId: run.owner_id, bookId: run.book_id, generationRunId: run.generation_run_id,
+          status: 'succeeded', requestId: acceptedRequestId, candidateTreeVersionId: saved.versionId,
+          assignedMemberKey: member.memberKey, errorMessage: null, now: this.clock.now().toISOString()
+        });
+        return;
+      } catch (error) {
+        if (error instanceof V7PlanningModelError && error.outcomeUnknown) throw error;
+        if (error instanceof DomainError) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error('没有规划成员完成这棵树');
+  }
+
+  private requireRun(ownerId: string, bookId: string, runId: string): V7PlanningGenerationRunRow {
+    const run = this.runtime.generation(ownerId, bookId, runId);
+    if (run === undefined) throw new DomainError(errorCodes.validation, '规划树任务不存在或不属于本书。', {}, false, 404);
+    return run;
+  }
+
+  private ensureActive(run: V7PlanningGenerationRunRow): void {
+    if (this.requireRun(run.owner_id, run.book_id, run.generation_run_id).status === 'cancelled') {
+      throw conflict('任务已停止，已经完成的内容仍然保留。');
+    }
+  }
+
+  private view(run: V7PlanningGenerationRunRow): V7PlanningTreeGenerationView {
+    const roster = JSON.parse(run.member_snapshot_json) as { fallback: V7PlanningMemberDefinition[] };
+    const member = roster.fallback.find((candidate) => candidate.memberKey === run.assigned_member_key)
+      ?? roster.fallback[0]!;
+    const status = publicStatus(run.status);
+    return {
+      runId: run.generation_run_id, treeKind: run.tree_kind, scopeId: run.scope_id, status,
+      message: status === 'ready' ? '方案已经设计好，等您查看和确认。'
+        : status === 'failed' ? (run.error_message ?? '对不起，这次没有完成，您可以重新下单。')
+          : status === 'result_unknown' ? '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。'
+            : status === 'working' ? `${member.displayName}正在认真设计，完成后会自动保存。`
+              : '任务已经保存，马上开始设计。',
+      member: { memberKey: member.memberKey, name: member.displayName },
+      candidateTreeVersionId: run.candidate_tree_version_id,
+      canOpenCandidate: run.status === 'succeeded' && run.candidate_tree_version_id !== null,
+      errorMessage: run.error_message,
+      timing: planningGenerationTiming(run, this.clock.now())
+    };
+  }
+}
+
+function planningGenerationTiming(run: V7PlanningGenerationRunRow, now: Date): V7PlanningTreeGenerationView['timing'] {
+  const current = now.getTime();
+  const created = Date.parse(run.created_at);
+  const updated = Date.parse(run.updated_at);
+  const elapsedSeconds = Number.isFinite(created) ? Math.max(0, Math.floor((current - created) / 1_000)) : 0;
+  const idleSeconds = Number.isFinite(updated) ? Math.max(0, Math.floor((current - updated) / 1_000)) : 0;
+  const active = run.status === 'queued' || run.status === 'working';
+  return {
+    createdAt: run.created_at,
+    lastActivityAt: run.updated_at,
+    elapsedSeconds,
+    idleSeconds,
+    state: !active || idleSeconds < 300 ? 'normal' : idleSeconds < 900 ? 'slow' : 'overdue'
+  };
+}
+
+function selectRecipeNode(recipe: LayeredPlanningRecipe, treeKind: PlanningTreeKind, scopeId: string): LayeredRecipeNode {
+  const nodes: LayeredRecipeNode[] = [];
+  const visit = (node: LayeredRecipeNode): void => { nodes.push(node); node.children.forEach(visit); };
+  visit(recipe.root);
+  const exact = nodes.find((node) => node.nodeId === scopeId);
+  if (exact !== undefined) return exact;
+  if (treeKind === 'book') return recipe.root;
+  if (treeKind === 'volume') return nodes.find((node) => node.layer === 'volume')
+    ?? nodes.find((node) => node.layer === 'volume_distribution') ?? recipe.root;
+  return nodes.find((node) => node.layer === 'chain')
+    ?? nodes.find((node) => node.layer === 'volume')
+    ?? nodes.find((node) => node.layer === 'volume_distribution') ?? recipe.root;
+}
+
+function planningSources(snapshot: V7PlanningCompiledSnapshot): PlanningSourceItem[] {
+  return snapshot.sources.map((source) => ({
+    sourceId: source.sourceId,
+    kind: source.authority === 'goal' ? 'goal' : 'formal',
+    label: source.label,
+    content: JSON.stringify(source.content),
+    version: source.sourceVersion
+  }));
+}
+
+function treeSourceRefs(snapshot: V7PlanningCompiledSnapshot): PlanningTreeSourceRef[] {
+  return snapshot.sources.map((source) => ({
+    sourceKind: source.sourceKind,
+    sourceId: source.sourceId,
+    version: source.sourceVersion
+  }));
+}
+
+function parentTreeVersion(snapshot: V7PlanningCompiledSnapshot): string | null {
+  return snapshot.sources.find((source) => source.sourceKind === 'confirmed_tree')?.sourceId ?? null;
+}
+
+function parentDirection(snapshot: V7PlanningCompiledSnapshot): string | null {
+  const parent = snapshot.sources.find((source) => source.sourceKind === 'confirmed_tree');
+  return parent === undefined ? null : JSON.stringify(parent.content);
+}
+
+function publicSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, unknown> {
+  return {
+    treeKind: snapshot.treeKind, scopeId: snapshot.scopeId,
+    sources: snapshot.sources.map((source) => ({
+      authority: source.authority, label: source.label, content: source.content, includedReason: source.includedReason
+    })),
+    excludedSources: snapshot.excludedSources
+  };
+}
+
+function memberSnapshot(member: V7PlanningMemberDefinition): unknown {
+  return {
+    memberKey: member.memberKey, displayName: member.displayName, roleKey: member.roleKey,
+    model: member.model, promptInstruction: member.promptInstruction
+  };
+}
+
+function publicStatus(status: V7PlanningGenerationRunRow['status']): V7PlanningTreeGenerationView['status'] {
+  if (status === 'queued') return 'waiting';
+  if (status === 'working') return 'working';
+  if (status === 'succeeded') return 'ready';
+  if (status === 'unknown') return 'result_unknown';
+  return 'failed';
+}
+
+function treeKindOf(value: unknown): PlanningTreeKind {
+  if (value === 'book' || value === 'volume' || value === 'chain') return value;
+  throw new DomainError(errorCodes.validation, '规划树类型无效。');
+}
+
+function optionalText(value: unknown, label: string, max: number): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  return text(value, label, 1, max);
+}
+
+function text(value: unknown, label: string, min: number, max: number, pattern?: RegExp): string {
+  if (typeof value !== 'string') throw new DomainError(errorCodes.validation, `${label}无效。`);
+  const normalized = value.trim();
+  const length = Array.from(normalized).length;
+  if (length < min || length > max || (pattern !== undefined && !pattern.test(normalized))) {
+    throw new DomainError(errorCodes.validation, `${label}无效。`);
+  }
+  return normalized;
+}
+
+function conflict(message: string): DomainError {
+  return new DomainError(errorCodes.planningTreeVersionConflict, message, {}, false, 409);
+}
+
+function publicFailure(error: unknown): string {
+  return `对不起，这次没有完成。${errorMessage(error).slice(0, 300)}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function treeOutputLimit(treeKind: PlanningTreeKind): number {
+  if (treeKind === 'book') return 18_000;
+  if (treeKind === 'volume') return 14_000;
+  return 10_000;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+
+function assertRoster(members: readonly V7PlanningMemberDefinition[]): void {
+  const errors = validatePlanningEditorialRoster(members);
+  if (errors.length > 0) throw new Error(`V7规划成员名册无效：${errors.join('；')}`);
+}

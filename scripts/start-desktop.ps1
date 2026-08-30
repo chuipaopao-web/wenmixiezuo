@@ -8,7 +8,7 @@ $expectedReleaseId = (Get-Content -LiteralPath (Join-Path $projectRoot 'RELEASE_
 
 # Explorer may not have inherited recently saved user variables.
 # Import only allowlisted Wenmi settings; never print or persist their values.
-$wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL', 'WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'WENMI_PROMPT_VIEW_PASSWORD'
+$wenmiEnvironmentNames = 'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS', 'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL', 'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_MODEL', 'WENMI_ARK_AGENT_PLAN_DEEPSEEK_FLASH_MODEL', 'WENMI_ARK_AGENT_PLAN_MINIMAX_MODEL', 'WENMI_ARK_IMAGE_API_KEY', 'WENMI_ARK_IMAGE_MODEL_ID', 'WENMI_V7_FORMALIZATION_ENABLED', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL', 'WENMI_PROMPT_VIEW_PASSWORD'
 foreach ($name in $wenmiEnvironmentNames) {
   $value = [Environment]::GetEnvironmentVariable($name, 'User')
   if (-not [string]::IsNullOrWhiteSpace($value)) { [Environment]::SetEnvironmentVariable($name, $value, 'Process') }
@@ -47,15 +47,22 @@ function Test-WenmiReady {
 function Test-WenmiBuildStale {
   if (-not (Test-Path -LiteralPath $pidPath)) { return $true }
   try {
-    $record = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $recordRaw = Get-Content -LiteralPath $pidPath -Raw -Encoding utf8
+    $record = $recordRaw | ConvertFrom-Json
     if ($record.schemaVersion -ne 1 -or $record.entryPoint -ne 'scripts/start.mjs') { return $true }
-    $startedAt = [DateTimeOffset]::Parse([string]$record.startedAtUtc).UtcDateTime
+    $recordDocument = [System.Text.Json.JsonDocument]::Parse($recordRaw)
+    $startedAtText = $recordDocument.RootElement.GetProperty('startedAtUtc').GetString()
+    $recordDocument.Dispose()
+    $startedAt = [DateTimeOffset]::Parse($startedAtText).UtcDateTime
     $watchedFiles = @(
       Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\api\src') -Recurse -File
-      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\web\src') -Recurse -File
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'coauthoring-v7\author-app\src') -Recurse -File
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'coauthoring-v7\admin-console\src') -Recurse -File
       Get-ChildItem -LiteralPath (Join-Path $projectRoot 'apps\worker\src') -Recurse -File
+      Get-ChildItem -LiteralPath (Join-Path $projectRoot 'coauthoring-v7\backend') -Recurse -File |
+        Where-Object { $_.FullName -notmatch '[\\/](?:dist|node_modules)[\\/]' }
       Get-Item -LiteralPath (Join-Path $projectRoot 'apps\api\dist\main.js') -ErrorAction SilentlyContinue
-      Get-Item -LiteralPath (Join-Path $projectRoot 'apps\web\dist\index.html') -ErrorAction SilentlyContinue
+      Get-Item -LiteralPath (Join-Path $projectRoot 'artifacts\v7-static-releases\current.json') -ErrorAction SilentlyContinue
       Get-Item -LiteralPath (Join-Path $projectRoot 'apps\worker\dist\main.js') -ErrorAction SilentlyContinue
       Get-Item -LiteralPath (Join-Path $projectRoot 'package.json')
       Get-Item -LiteralPath (Join-Path $projectRoot 'package-lock.json')
@@ -112,6 +119,12 @@ if (-not (Test-Path -LiteralPath $npmPath)) {
   throw "The approved Node.js runtime does not include npm.cmd: $nodeDirectory"
 }
 $env:Path = "$nodeDirectory;$env:Path"
+
+# V7 formalization must continue outside the browser page lifecycle.
+# Enable the reliable consumer before spawning API and Worker.
+if ([string]::IsNullOrWhiteSpace($env:WENMI_V7_FORMALIZATION_ENABLED)) {
+  $env:WENMI_V7_FORMALIZATION_ENABLED = 'true'
+}
 
 & $npmPath run migrate
 if ($LASTEXITCODE -ne 0) { throw 'Database migration failed. Startup stopped.' }

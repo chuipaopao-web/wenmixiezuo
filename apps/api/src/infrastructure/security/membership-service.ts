@@ -2,10 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock } from '../../domain/ids.js';
+import { accountUsageRelation, accountUsageTotals } from './account-usage-service.js';
 
 /**
  * 算力值口径（2026-08-20 老板拍板）：算力值 = 真实 token × 2。
- * usage_ledger、预算冻结与结算永远记真实 token（与火山方舟后台对齐）；
+ * 账号级权威用量投影及其底层来源永远记真实 token（与模型服务后台对齐）；
  * 会员配额、前台展示一律用算力值（双倍），前端不出现 token 字眼。
  */
 export const COMPUTE_VALUE_MULTIPLIER = 2;
@@ -113,37 +114,6 @@ function findAccountById(database: DatabaseSync, userId: string): AccountRow | u
   return database.prepare('SELECT user_id, owner_id, role FROM user_accounts WHERE user_id = ?').get(userId) as AccountRow | undefined;
 }
 
-function bookTokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
-  const row = database.prepare(`
-    SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
-    FROM usage_ledger WHERE owner_id = ? AND recorded_at >= ?
-  `).get(ownerId, sinceIso) as { tokens: number };
-  return Number(row.tokens);
-}
-
-function prebookTokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
-  const row = database.prepare(`
-    SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS tokens
-    FROM prebook_opening_design_calls
-    WHERE owner_id = ? AND state = 'succeeded' AND completed_at >= ?
-  `).get(ownerId, sinceIso) as { tokens: number };
-  return Number(row.tokens);
-}
-
-function prebookTokensReservedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
-  const row = database.prepare(`
-    SELECT COALESCE(SUM(reserved_tokens), 0) AS tokens
-    FROM prebook_opening_design_calls
-    WHERE owner_id = ? AND state IN ('working', 'interrupted') AND created_at >= ?
-  `).get(ownerId, sinceIso) as { tokens: number };
-  return Number(row.tokens);
-}
-
-function tokensConsumedSince(database: DatabaseSync, ownerId: string, sinceIso: string): number {
-  return bookTokensConsumedSince(database, ownerId, sinceIso)
-    + prebookTokensConsumedSince(database, ownerId, sinceIso);
-}
-
 function addMonths(iso: string, months: number): string {
   const date = new Date(iso);
   const day = date.getUTCDate();
@@ -171,9 +141,8 @@ export function membershipGenerationBlockReason(
   // 已有生效会员记录但周期已过：不是"从未开通"，应提示续费而非开通。
   if (row.period_end <= nowIso) return 'membership-expired';
   // 配额是算力值（双倍口径），真实消耗换算成算力值后再比较。
-  const committed = tokensConsumedSince(database, ownerId, row.period_start)
-    + prebookTokensReservedSince(database, ownerId, row.period_start)
-    + Math.max(0, additionalRealTokens);
+  const usage = accountUsageTotals(database, { ownerId, since: row.period_start });
+  const committed = usage.consumedTokens + usage.reservedTokens + Math.max(0, additionalRealTokens);
   const projectedCompute = committed * COMPUTE_VALUE_MULTIPLIER;
   const quotaReached = additionalRealTokens > 0
     ? projectedCompute > row.token_quota
@@ -245,7 +214,7 @@ export class MembershipService {
       "SELECT * FROM user_memberships WHERE owner_id = ? AND status = 'active'"
     ).get(ownerId) as MembershipRow | undefined;
     if (row === undefined) return { isAdmin: false, membership: null };
-    const consumed = tokensConsumedSince(this.database, ownerId, row.period_start);
+    const consumed = accountUsageTotals(this.database, { ownerId, since: row.period_start }).consumedTokens;
     const computeConsumed = consumed * COMPUTE_VALUE_MULTIPLIER;
     const expired = row.period_end <= nowIso;
     return {
@@ -380,20 +349,15 @@ export class MembershipService {
     const total = Number((this.database.prepare(`SELECT COUNT(*) AS total FROM user_accounts a ${where}`).get(...values) as { total: number }).total);
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
     const offset = Math.max(input.offset ?? 0, 0);
+    const usageRelation = accountUsageRelation(this.database);
     const rows = this.database.prepare(`
       SELECT a.user_id, a.owner_id, a.display_name, a.email_normalized, a.role, a.status AS account_status,
         m.plan, m.token_quota, m.period_start, m.period_end, m.status AS membership_status,
-        ((SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
-          WHERE l.owner_id = a.owner_id AND m.user_id IS NOT NULL AND l.recorded_at >= m.period_start)
-         + (SELECT COALESCE(SUM(COALESCE(p.input_tokens, 0) + COALESCE(p.output_tokens, 0)), 0)
-            FROM prebook_opening_design_calls p
-            WHERE p.owner_id = a.owner_id AND p.state = 'succeeded'
-              AND m.user_id IS NOT NULL AND p.completed_at >= m.period_start)) AS period_tokens,
-        ((SELECT COALESCE(SUM(l.input_tokens + l.output_tokens), 0) FROM usage_ledger l
-          WHERE l.owner_id = a.owner_id)
-         + (SELECT COALESCE(SUM(COALESCE(p.input_tokens, 0) + COALESCE(p.output_tokens, 0)), 0)
-            FROM prebook_opening_design_calls p
-            WHERE p.owner_id = a.owner_id AND p.state = 'succeeded')) AS total_tokens
+        (SELECT COALESCE(SUM(u.consumed_tokens), 0) FROM ${usageRelation} u
+          WHERE u.owner_id = a.owner_id AND u.usage_state = 'consumed'
+            AND m.user_id IS NOT NULL AND u.recorded_at >= m.period_start) AS period_tokens,
+        (SELECT COALESCE(SUM(u.consumed_tokens), 0) FROM ${usageRelation} u
+          WHERE u.owner_id = a.owner_id AND u.usage_state = 'consumed') AS total_tokens
       FROM user_accounts a
       LEFT JOIN user_memberships m ON m.user_id = a.user_id
       ${where}

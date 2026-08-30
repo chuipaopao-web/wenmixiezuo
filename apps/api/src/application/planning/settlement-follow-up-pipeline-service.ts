@@ -12,7 +12,7 @@ import type { ModelCallService } from '../calls/model-call-service.js';
 import { estimateTokens, type ContextPackService, type ContextSource } from '../memory/context-pack-service.js';
 import { TaskService, type TaskLeaseFence, type TaskRecord } from '../tasks/task-service.js';
 import type { SettlementFollowUpBrief } from './settlement-follow-up-service.js';
-import type { CoreWorkflowV6Service } from './core-workflow-v6-service.js';
+import type { CoreWorkflowService } from './core-workflow-service.js';
 
 type FollowUpStep = 'pacing_check' | 'plain_summary' | 'storyline_growth';
 
@@ -47,7 +47,7 @@ export class SettlementFollowUpPipelineService {
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
     private readonly modelAdapters: ModelAdapterFactory,
-    private readonly coreWorkflow: CoreWorkflowV6Service
+    private readonly coreWorkflow: CoreWorkflowService
   ) {}
 
   public async executeClaimed(
