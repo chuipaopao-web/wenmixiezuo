@@ -18,13 +18,12 @@
                          Worker 服务 (独立进程)
                               │
                               ▼
-                         SQLite (WAL 模式)
-                         LanceDB (向量检索)
+                         SQLite (WAL 模式) + 不可变文件
 ```
 
 - **Caddy**：反向代理 + TLS（Let's Encrypt 自动证书）+ 静态文件；限流由应用层 `@fastify/rate-limit` 提供（注册 3/5分钟、登录 10/5分钟、全局 100/分钟），Caddy 配置只使用内置模块，无需 xcaddy 编译插件
 - **API**：Fastify 5，监听 `127.0.0.1:43111`，不直接暴露公网
-- **Worker**：独立进程，监听 `127.0.0.1:43111` 内部端点，执行模型任务
+- **Worker**：独立进程，写入运行心跳，并按开关追赶V7正式化outbox；不监听公网端口
 - **数据库**：`node:sqlite` 内置 SQLite，WAL 模式，文件存储于 `data/database/`
 
 ## 前置条件
@@ -32,8 +31,8 @@
 ### 1. 服务器
 
 - **操作系统**：Ubuntu 24.04 LTS（推荐）或 22.04 LTS
-- **CPU**：4 核以上（LanceDB 向量索引需要）
-- **内存**：4 GB 以上（推荐 8 GB，模型推理时 `@huggingface/transformers` 需要）
+- **CPU**：4 核以上
+- **内存**：4 GB 以上（推荐 8 GB）
 - **磁盘**：40 GB 以上（系统 + 项目 + 数据库 + 备份）
 - **网络**：公网 IP，端口 80 和 443 可访问
 
@@ -136,14 +135,7 @@ cd /opt/wenmi
 sudo -u wenmi npm run migrate
 ```
 
-### 第六步：安装本地嵌入模型（可选但推荐）
-
-```bash
-cd /opt/wenmi
-sudo -u wenmi npm run models:install
-```
-
-### 第七步：配置 Caddy
+### 第六步：配置 Caddy
 
 ```bash
 # 安装 Caddy 配置
@@ -161,7 +153,7 @@ sudo systemctl enable caddy
 sudo systemctl restart caddy
 ```
 
-### 第八步：配置 systemd 服务
+### 第七步：配置 systemd 服务
 
 ```bash
 # 安装服务单元文件
@@ -182,7 +174,7 @@ sudo systemctl start wenmi-worker
 
 V7写后维护由Worker独立追赶时，需要在Worker环境中显式设置`WENMI_V7_FORMALIZATION_ENABLED=true`。启用前确认API内部Worker令牌一致；关闭或重启Worker不会丢失正式化事件，恢复后从SQLite outbox继续。托管写完本链目前只在作者明确点击后由仍在运行的API进程继续，服务重启后不会自动恢复付费模型调用，作者可在任务页核对状态后再次激活。
 
-### 第九步：配置自动备份
+### 第八步：配置自动备份
 
 ```bash
 # 确保备份脚本可执行
@@ -194,7 +186,7 @@ sudo -u wenmi crontab -e
 # 0 3 * * * /opt/wenmi/deploy/backup.sh >> /var/log/wenmi-backup.log 2>&1
 ```
 
-### 第十步：验证部署
+### 第九步：验证部署
 
 ```bash
 # 检查 Caddy 状态

@@ -3,7 +3,7 @@ import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResu
 import { assertPlanBaseUrl, thinkingTokenAllowance, usesGlmVisibleOutputRoute, type ModelPlan, type ModelPurpose } from './model-runtime-config.js';
 
 export interface ArkPlanModelOptions {
-  plan: ModelPlan;
+  plan: Extract<ModelPlan, 'coding' | 'agent'>;
   provider: string;
   modelId: string;
   baseUrl: string;
@@ -20,12 +20,16 @@ interface ArkMessagesResponse {
 }
 
 const SYSTEM_PROMPTS: Record<ModelPurpose, string> = {
-  discussion: '你是文秘写作中的小说创作成员。只按当前岗位和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
+  discussion: '你是文秘写作中的小说创作成员。只按当前任务和当前书籍范围给出明确、可执行的中文意见，不冒充其他成员，不声称执行了未执行的操作。',
   structured_planning: '你是文秘写作中的正式规划成员。严格执行输入中的operation、instructions和outputContract，只输出一个可直接解析的JSON对象，不用Markdown，不写解释、确认请求或后续承诺。',
   novel_writer: '你是文秘写作的主笔。根据输入的章节信息或修改要求输出完整中文小说正文。正文优先达到2700至3200有效字符，且不得少于2350或超过3650，只输出正文，不使用Markdown代码围栏，不写TODO、占位符或解释。正文中禁止出现“前章、上一章、本章、下一章”、章纲、审查、生成或资料包等创作过程说明，承接前文必须直接进入故事。重写时必须返回修改后的完整章节，禁止只返回修改片段、摘要或省略未修改段落；必须逐项落实requiredActions，明确要求删除、后移、合并或避免的表达不得原样复现，也不得仅换近义词保留同一种问题。输出前在内部核对每一项修改要求，但不要输出核对过程。保持人物、时间线和因果连续。',
   novel_reviewer: '你是文秘写作的独立审校。这是有停止条件的证据核对，不是穷举所有可能问题。只输出当前任务明确要求的JSON对象，不使用Markdown围栏，不输出思考过程，不添加任务没有要求的评分或字段。',
   review_synthesis: '你是文秘写作的主编汇总器。只综合各席结构化报告，不读取正文再做一轮点评。只输出JSON对象，字段必须且只能为panelId、manuscriptVersionId、recommendedVerdict、priorityIssueIndexes、preservedDisagreements、rationale。'
 };
+
+export function defaultSystemPromptForPurpose(purpose: ModelPurpose): string {
+  return SYSTEM_PROMPTS[purpose];
+}
 
 export class ArkPlanModelAdapter implements ModelAdapter {
   public readonly provider: string;
@@ -60,18 +64,11 @@ export class ArkPlanModelAdapter implements ModelAdapter {
     }, timeoutMs);
     const temperature = temperatureField(request.temperature);
     let response: Response;
-    // opencodego（opencode.ai/zen/go）的 Messages 网关只认 Anthropic 标准
-    // x-api-key 认证头（Bearer 会 401 Missing API key），且其 Kimi 上游把
-    // 字符串 content 误判为空消息（400 messages must not be empty），必须
-    // 使用文本块数组；火山方舟套餐端点维持原有 Bearer + 字符串 content 不变。
-    const opencodegoWire = this.options.plan === 'opencodego';
     try {
       response = await this.fetchImpl(this.#endpoint, {
         method: 'POST',
         headers: {
-          ...(opencodegoWire
-            ? { 'x-api-key': this.options.apiKey }
-            : { authorization: `Bearer ${this.options.apiKey}` }),
+          authorization: `Bearer ${this.options.apiKey}`,
           'anthropic-version': '2023-06-01',
           'content-type': 'application/json; charset=utf-8'
         },
@@ -88,7 +85,7 @@ export class ArkPlanModelAdapter implements ModelAdapter {
           ),
           messages: [{
             role: 'user',
-            content: opencodegoWire ? [{ type: 'text', text: request.prompt }] : request.prompt
+            content: request.prompt
           }]
         }),
         signal: controller.signal,
@@ -186,8 +183,7 @@ function describeEmptyResponse(body: ArkMessagesResponse): string {
   ].join('，');
 }
 
-function planDisplayName(plan: ModelPlan): string {
-  if (plan === 'opencodego') return 'opencodego';
+function planDisplayName(plan: Extract<ModelPlan, 'coding' | 'agent'>): string {
   return plan === 'coding' ? '火山方舟Coding Plan' : '火山方舟Agent Plan';
 }
 
@@ -202,7 +198,7 @@ function appendSupplement(systemPrompt: string, supplement: string | undefined):
 }
 
 function thinkingField(
-  plan: ModelPlan,
+  plan: Extract<ModelPlan, 'coding' | 'agent'>,
   modelId: string,
   purpose: ModelPurpose,
   maxOutputTokens: number
@@ -212,49 +208,22 @@ function thinkingField(
   // 例外：MiniMax M3 的预算并不生效——生产实测 budget_tokens=16000 下它仍把
   // 24000 输出 Token 全部烧进 thinking 块（5 万余字符思考、零可见文字，重试必现），
   // 而它接受 disabled 且直出文字（2026-08-18 实测 200），因此任何用途都关闭它的思考。
-  if (plan === 'coding' || plan === 'agent') {
-    if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
-    // Kimi K3 审校是封闭的证据对照合同，不是创意推演。2026-08-29实测
-    // 4k显式思考仍把6400总输出全部烧进thinking并耗时210秒，零报告。
-    if (modelId === 'kimi-k3' && purpose === 'novel_reviewer') return { thinking: { type: 'disabled' } };
-    if (modelId.startsWith('deepseek-')
-      && (purpose === 'novel_reviewer' || purpose === 'review_synthesis')) {
-      return { thinking: { type: 'disabled' } };
-    }
-    // GLM-5.3 的短讨论、结构化规划和证据型审校省略字段，让模型使用自身的直出路由；显式
-    // disabled 会被 Coding Plan 以400拒绝，而显式 enabled 在真实设定与卷方案中
-    // 都曾耗尽全部输出额度后返回空文字。
-    if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) return {};
-    if (purpose === 'structured_planning' && maxOutputTokens <= 5_000) {
-      return { thinking: { type: 'disabled' } };
-    }
-    return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
+  if (modelId.startsWith('minimax-')) return { thinking: { type: 'disabled' } };
+  // Kimi K3 审校是封闭的证据对照合同，不是创意推演。2026-08-29实测
+  // 4k显式思考仍把6400总输出全部烧进thinking并耗时210秒，零报告。
+  if (modelId === 'kimi-k3' && purpose === 'novel_reviewer') return { thinking: { type: 'disabled' } };
+  if (modelId.startsWith('deepseek-')
+    && (purpose === 'novel_reviewer' || purpose === 'review_synthesis')) {
+    return { thinking: { type: 'disabled' } };
   }
-  // opencodego（已下线）维持旧行为：需要可见结构化输出的用途关闭思考。
-  return requiresVisibleOutput(modelId, purpose) ? { thinking: { type: 'disabled' } } : {};
-}
-
-function requiresVisibleOutput(modelId: string, purpose: ModelPurpose): boolean {
-  // Kimi K2.7 Code rejects the optional Anthropic-compatible `thinking` field
-  // on the Agent Plan endpoint. Keep this capability model-specific.
-  if (modelId === 'kimi-k2.7-code') return false;
-  // GLM 5.3 同样拒绝 thinking 字段（400 InvalidParameter），但它会直接返回可见内容，
-  // 任何用途都不能附加 thinking 参数。2026-08-18 两个方舟套餐端点实测。
-  if (modelId.startsWith('glm-5.3')) return false;
-  // MiniMax M3 接受关闭思考（2026-08-18 实测 200 且直出文字）；不关闭时它会把
-  // 整个有限额度烧进 thinking 块、不产出任何可见文字（生产实测 8000 输出 Token
-  // 全部是 2 万字符思考），因此任何用途都关闭它的思考。
-  if (modelId.startsWith('minimax-')) return true;
-  // Review and other machine-readable contracts need a closed, visible JSON
-  // result. MiniMax can otherwise spend the whole bounded allowance in a
-  // `thinking` block and return no report at all. That is a technical model
-  // failure, not evidence that the manuscript failed quality review.
-  if (purpose === 'novel_reviewer' || purpose === 'review_synthesis' || purpose === 'structured_planning') return true;
-  if (modelId.startsWith('glm-') || modelId.startsWith('kimi-')) return true;
-  // DeepSeek's hidden reasoning can consume the complete review allowance before
-  // the bounded JSON report is closed.  Disable it only for deterministic review
-  // contracts; creative planning keeps the model's normal reasoning behaviour.
-  return modelId.startsWith('deepseek-') && purpose !== 'novel_writer';
+  // GLM-5.3 的短讨论、结构化规划和证据型审校省略字段，让模型使用自身的直出路由；显式
+  // disabled 会被 Coding Plan 以400拒绝，而显式 enabled 在真实设定与卷方案中
+  // 都曾耗尽全部输出额度后返回空文字。
+  if (usesGlmVisibleOutputRoute(modelId, purpose, maxOutputTokens)) return {};
+  if (purpose === 'structured_planning' && maxOutputTokens <= 5_000) {
+    return { thinking: { type: 'disabled' } };
+  }
+  return { thinking: { type: 'enabled', budget_tokens: thinkingTokenAllowance(modelId, purpose, maxOutputTokens) } };
 }
 
 function finiteTokenCount(value: number | undefined): number {

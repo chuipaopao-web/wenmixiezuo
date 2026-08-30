@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CanonService } from '../../apps/api/src/application/knowledge/canon-service.js';
-import { createKnowledgeFixture } from '../helpers/knowledge-fixture.js';
+import { createV7CanonFixture } from '../helpers/v7-canon-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../helpers/test-context.js';
 
 describe('正史结算故障恢复', () => {
@@ -11,7 +11,7 @@ describe('正史结算故障恢复', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const fixture = createKnowledgeFixture(context, ids, clock);
+    const fixture = createV7CanonFixture(context, ids, clock);
     const canon = new CanonService(context.database, ids, clock);
     const entityId = canon.createEntity(fixture.scope, { entityType: 'character', canonicalName: '林澈' });
     const fact = canon.proposeFact(fixture.scope, {
@@ -37,7 +37,7 @@ describe('正史结算故障恢复', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const fixture = createKnowledgeFixture(context, ids, clock);
+    const fixture = createV7CanonFixture(context, ids, clock);
     const canon = new CanonService(context.database, ids, clock);
 
     expect(() => canon.settleChapter(

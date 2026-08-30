@@ -2,16 +2,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const LEGACY_SQL_APPLICATION_FILES = new Set([
-  'agents/agent-team-service.ts', 'agents/model-binding-service.ts', 'agents/platform-model-scheme-service.ts',
-  'artifacts/artifact-service.ts', 'artifacts/planning-artifact-service.ts',
-  'books/book-lifecycle-service.ts', 'books/book-onboarding-service.ts', 'books/positioning-service.ts',
-  'budget/budget-service.ts', 'calls/model-call-service.ts', 'calls/tool-call-service.ts',
-  'chapters/chapter-catalog-service.ts',
-  'copyright/copyright-service.ts', 'creation/chapter-batch-service.ts', 'creation/chapter-pipeline-service.ts',
-  'creation/chapter-state-recovery-service.ts', 'creation/writer-selection-service.ts', 'creation/writing-readiness-service.ts',
-  'discussions/discussion-pipeline-service.ts', 'discussions/discussion-service.ts', 'editors/editor-lease-service.ts',
-  'events/event-store.ts', 'knowledge/canon-service.ts', 'memory/context-pack-service.ts', 'memory/memory-service.ts', 'projections/narrative-projection-service.ts', 'research/research-service.ts', 'tasks/task-service.ts'
+const CURRENT_SQL_APPLICATION_FILES = new Set([
+  'artifacts/artifact-service.ts', 'books/book-onboarding-service.ts', 'books/positioning-service.ts',
+  'budget/budget-service.ts',
+  'events/event-store.ts', 'knowledge/canon-service.ts', 'memory/context-pack-service.ts',
+  'projections/narrative-projection-service.ts', 'tasks/task-service.ts'
 ]);
 
 describe('应用层数据库边界', () => {
@@ -21,7 +16,7 @@ describe('应用层数据库边界', () => {
       .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
       .filter(({ source }) => /\.prepare\s*\(|\.exec\s*\(/u.test(source))
       .map(({ path }) => relative(root, path).replaceAll('\\', '/'))
-      .filter((path) => !LEGACY_SQL_APPLICATION_FILES.has(path));
+      .filter((path) => !CURRENT_SQL_APPLICATION_FILES.has(path));
     expect(violations).toEqual([]);
   });
 });

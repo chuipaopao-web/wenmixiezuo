@@ -26,7 +26,7 @@ const prompt = planningMethodSearchPrompt({
   independentFocus: ['守住作者原意', '三百万字容量', '八卷责任差异', '中段不重复'],
   sourceSnapshot
 });
-const config = loadModelRuntimeConfig(process.env, { codexWorkingDirectory: process.cwd() });
+const config = loadModelRuntimeConfig(process.env);
 const endpoint = config.endpoints.coding;
 if (endpoint.apiKey === undefined) throw new Error('Coding Plan凭证未配置');
 const adapter = new ArkPlanModelAdapter({

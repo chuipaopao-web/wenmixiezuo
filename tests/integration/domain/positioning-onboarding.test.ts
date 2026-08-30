@@ -11,7 +11,7 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('定位草稿与原子建书', () => {
-  it('原子保存完整开书资料、主角候选状态和唯一三席策划理念任务', () => {
+  it('原子保存完整开书资料和主角候选状态，不创建旧团队或旧任务', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
@@ -38,8 +38,8 @@ describe('定位草稿与原子建书', () => {
     const draft = new PositioningService(context.database, ids, clock).createDraft(
       { ownerId: 'owner-one' }, { title: '雾桥改造簿', text: openingBlueprint.fullBookOutline, openingBlueprint }
     );
-    const result = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+    const result = new BookOnboardingService(context.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version);
 
     const stored = context.database.prepare(`SELECT taxonomy_version, channel, category_key, blueprint_json, status
       FROM book_opening_blueprints WHERE owner_id = ? AND book_id = ?`).get('owner-one', result.bookId) as Record<string, unknown>;
@@ -67,8 +67,9 @@ describe('定位草稿与原子建书', () => {
         { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' },
         { label: '角色身份', authority_layer: 'candidate', source_kind: 'owner' }
       ]);
-    expect(result.kickoffTaskId).toBeNull();
-    // 建书后不自动召集 AI：不建讨论任务、不建讨论、不激活设定项
+    // V7 建书不创建旧团队、旧讨论任务或旧设定工作区。
+    expect(context.database.prepare(`SELECT COUNT(*) AS count FROM agent_instances
+      WHERE owner_id = ? AND book_id = ?`).get('owner-one', result.bookId)).toEqual({ count: 0 });
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM tasks
       WHERE owner_id = ? AND book_id = ? AND task_type = 'discussion'`)
       .get('owner-one', result.bookId)).toEqual({ count: 0 });
@@ -79,8 +80,7 @@ describe('定位草稿与原子建书', () => {
       SELECT item_key, label, item_status FROM setting_outline_workspace
       WHERE owner_id = ? AND book_id = ? ORDER BY sort_order, item_key
     `).all('owner-one', result.bookId) as Array<{ item_key: string; label: string; item_status: string }>;
-    expect(settingItems[0]).toEqual({ item_key: 'world-stage', label: '世界舞台', item_status: '待讨论' });
-    expect(settingItems.filter((item) => item.item_status === '讨论中')).toHaveLength(0);
+    expect(settingItems).toEqual([]);
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM positioning_tag_bindings WHERE owner_id = ? AND book_id = ?`)
       .get('owner-one', result.bookId)).toEqual({ count: 11 });
     expect(new BookProfileViewService(context.database).get({ ownerId: 'owner-one', bookId: result.bookId }).storyDirection)
@@ -99,10 +99,9 @@ describe('定位草稿与原子建书', () => {
       { ownerId: 'owner-one' },
       { title: '已有正文续写测试', text: openingBlueprint.storyDirection, openingBlueprint }
     );
-    const result = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+    const result = new BookOnboardingService(context.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version);
 
-    expect(result.kickoffTaskId).toBeNull();
     expect(context.database.prepare(`SELECT COUNT(*) AS count FROM messages
       WHERE owner_id = ? AND book_id = ? AND message_type = 'onboarding_trigger'`)
       .get('owner-one', result.bookId)).toEqual({ count: 0 });
@@ -141,7 +140,7 @@ describe('定位草稿与原子建书', () => {
     const draft = service.createDraft({ ownerId: 'owner-one' }, {
       title: '旧书兼容测试', text: blueprint.fullBookOutline, openingBlueprint: blueprint
     });
-    const result = new BookOnboardingService(context.database, ids, clock).confirmDraft(
+    const result = new BookOnboardingService(context.database, ids, clock).confirmDraftV7(
       { ownerId: 'owner-one' }, draft.draftId, draft.version
     );
     const row = context.database.prepare(`SELECT blueprint_json FROM book_opening_blueprints
@@ -157,22 +156,21 @@ describe('定位草稿与原子建书', () => {
       .toBe(blueprint.fullBookOutline);
   });
 
-  it('确认指定草稿版本后原子创建书、7类岗位25名成员、预算、故事圣经和主编租约', () => {
+  it('确认指定草稿版本后只创建 V7 书籍底座、预算和故事圣经', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const positioning = new PositioningService(context.database, ids, clock);
     const draft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '甲书', text: '历史中的悬疑谜案', category: '历史', tags: ['谜案'] });
     const updated = positioning.updateDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version, { title: '甲书修订名' });
-    expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version))
+    expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version))
       .toThrow('版本已经变化');
-    const result = new BookOnboardingService(context.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, updated.version);
-    expect(result.agentCount).toBe(25);
-    expect(new BookRepository(context.database).require({ ownerId: 'owner-one', bookId: result.bookId })).toMatchObject({ title: '甲书修订名', status: 'active', positioningVersion: 1, editorEpoch: 1 });
-    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 25 });
+    const result = new BookOnboardingService(context.database, ids, clock).confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, updated.version);
+    expect(new BookRepository(context.database).require({ ownerId: 'owner-one', bookId: result.bookId })).toMatchObject({ title: '甲书修订名', status: 'active', positioningVersion: 1 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 0 });
     expect(context.database.prepare('SELECT cash_limit_micros FROM budgets WHERE budget_id = ?').get(result.budgetId)).toEqual({ cash_limit_micros: 0 });
     expect(context.database.prepare('SELECT status FROM artifacts WHERE artifact_id = ?').get(result.storyBibleArtifactId)).toEqual({ status: 'draft' });
-    expect(context.database.prepare('SELECT editor_epoch FROM editor_leases WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ editor_epoch: 1 });
+    expect(context.database.prepare('SELECT COUNT(*) AS count FROM editor_leases WHERE owner_id = ? AND book_id = ?').get('owner-one', result.bookId)).toEqual({ count: 0 });
   });
 
   it('完整开书资料和主角状态按书隔离', () => {
@@ -190,8 +188,8 @@ describe('定位草稿与原子建书', () => {
     const firstDraft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '雁州账簿', text: first.fullBookOutline, openingBlueprint: first });
     const secondDraft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '澜州航路', text: second.fullBookOutline, openingBlueprint: second });
     const onboarding = new BookOnboardingService(context.database, ids, clock);
-    const firstBook = onboarding.confirmDraft({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
-    const secondBook = onboarding.confirmDraft({ ownerId: 'owner-one' }, secondDraft.draftId, secondDraft.version);
+    const firstBook = onboarding.confirmDraftV7({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
+    const secondBook = onboarding.confirmDraftV7({ ownerId: 'owner-one' }, secondDraft.draftId, secondDraft.version);
     const protagonists = new ProtagonistStateRepository(context.database);
     expect(protagonists.listProfiles({ ownerId: 'owner-one', bookId: firstBook.bookId }, false).map((row) => row.display_name)).toEqual(['沈砚']);
     expect(protagonists.listProfiles({ ownerId: 'owner-one', bookId: secondBook.bookId }, false).map((row) => row.display_name)).toEqual(['顾川']);
@@ -201,13 +199,13 @@ describe('定位草稿与原子建书', () => {
       .get('owner-one', secondBook.bookId)).toEqual({ count: 1 });
   });
 
-  it('任一步失败时不留下半本书或Agent', () => {
+  it('任一步失败时不留下半本书或旧团队记录', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const positioning = new PositioningService(context.database, ids, clock);
     const draft = positioning.createDraft({ ownerId: 'owner-one' }, { title: '失败书', text: '一个都市故事' });
-    expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version, 'after_team'))
+    expect(() => new BookOnboardingService(context!.database, ids, clock).confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version, 'after_artifact'))
       .toThrow('simulated-onboarding-failure');
     expect(new BookRepository(context.database).find({ ownerId: 'owner-one', bookId: draft.proposedBookId })).toBeNull();
     expect(context.database.prepare('SELECT COUNT(*) AS count FROM agent_instances WHERE book_id = ?').get(draft.proposedBookId)).toEqual({ count: 0 });
@@ -217,8 +215,8 @@ describe('定位草稿与原子建书', () => {
       { ownerId: 'owner-one' },
       { title: '完整失败书', text: completeOpeningBlueprint().fullBookOutline, openingBlueprint: completeOpeningBlueprint() }
     );
-    expect(() => new BookOnboardingService(context!.database, ids, clock, undefined, context!.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, completeDraft.draftId, completeDraft.version, 'after_kickoff'))
+    expect(() => new BookOnboardingService(context!.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, completeDraft.draftId, completeDraft.version, 'after_kickoff'))
       .toThrow('simulated-onboarding-failure');
     expect(new BookRepository(context.database).find({ ownerId: 'owner-one', bookId: completeDraft.proposedBookId })).toBeNull();
     for (const table of ['book_opening_blueprints', 'protagonist_profiles', 'tasks', 'messages']) {
@@ -237,12 +235,12 @@ describe('定位草稿与原子建书', () => {
     const firstDraft = positioning.createDraft(
       { ownerId: 'owner-one' }, { title: '同名建书', text: '第一本都市成长故事' }
     );
-    onboarding.confirmDraft({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
+    onboarding.confirmDraftV7({ ownerId: 'owner-one' }, firstDraft.draftId, firstDraft.version);
     const duplicateDraft = positioning.createDraft(
       { ownerId: 'owner-one' }, { title: ' 同名建书 ', text: '第二本都市成长故事' }
     );
 
-    expect(() => onboarding.confirmDraft(
+    expect(() => onboarding.confirmDraftV7(
       { ownerId: 'owner-one' }, duplicateDraft.draftId, duplicateDraft.version
     )).toThrow('同名书籍');
     expect(new BookRepository(context.database).find({

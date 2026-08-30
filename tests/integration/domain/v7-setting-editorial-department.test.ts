@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ModelAdapterError, type ModelAdapter, type ModelRequest, type ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningSourceCompiler } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
 import { V7SettingEditorialRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-setting-editorial-repository.js';
 import { V7_SETTING_CATALOG, V7_SETTING_MEMBERS, validateSettingEditorialRoster } from '@wenmi/v7-backend';

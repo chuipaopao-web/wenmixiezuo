@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import {
   accountUsageTotals,
   SupplementalAccountUsageRepository
@@ -9,7 +9,7 @@ import {
   assertMembershipAllowsGeneration,
   MembershipService
 } from '../../../apps/api/src/infrastructure/security/membership-service.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 const BROWSER_HEADERS = {
@@ -111,7 +111,7 @@ describe('统一账号级用量投影', () => {
     const ids = new SequenceIds();
     const clock = new FixedClock();
     const ownerId = context.config.ownerId;
-    const book = initializeDomainBook(context, ownerId, ids, clock, { title: '统一用量测试书' });
+    const book = initializeV7Book(context, ownerId, ids, clock, { title: '统一用量测试书' });
     const at = clock.now().toISOString();
     context.database.exec('PRAGMA foreign_keys = OFF');
     insertTokenCallRows(context.database, ownerId, book.bookId, at);
@@ -219,7 +219,7 @@ describe('统一账号级用量投影', () => {
       const user = context.database.prepare(`SELECT user_id,owner_id FROM user_accounts WHERE email_normalized='writer@example.com'`)
         .get() as { user_id: string; owner_id: string };
       const ids = new SequenceIds();
-      const book = initializeDomainBook(context, user.owner_id, ids, new FixedClock(), { title: '统一会员口径测试书' });
+      const book = initializeV7Book(context, user.owner_id, ids, new FixedClock(), { title: '统一会员口径测试书' });
       const now = new Date().toISOString();
       context.database.prepare(`UPDATE user_memberships SET token_quota=100,period_start=?,period_end='2099-12-31T00:00:00.000Z'
         WHERE user_id=?`).run(new Date(Date.now() - 60_000).toISOString(), user.user_id);

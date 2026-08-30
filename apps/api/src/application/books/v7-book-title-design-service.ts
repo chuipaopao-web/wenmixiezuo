@@ -12,8 +12,7 @@ import {
 } from '../../infrastructure/db/repositories/v7-book-title-design-repository.js';
 import { assertMembershipAllowsGeneration } from '../../infrastructure/security/membership-service.js';
 import { SupplementalAccountUsageRepository } from '../../infrastructure/security/account-usage-service.js';
-import { parseBrandingOptions } from './book-branding-pipeline-service.js';
-import type { BookBrandingOption } from './book-branding-design-service.js';
+import { parseV7BookTitleOptions, type V7BookTitleOption } from './v7-book-title-output.js';
 import { BookProfileViewService, type BookProfileView } from './book-profile-view-service.js';
 import type { V7DesignTaskView } from './v7-design-task-view.js';
 import { resolveV7TaskPolicy } from '../agents/v7-agent-runtime-policy.js';
@@ -25,7 +24,7 @@ export interface V7BookTitleDesignView {
   status: 'working' | 'succeeded' | 'failed';
   statusText: string;
   memberName: string;
-  options: BookBrandingOption[];
+  options: V7BookTitleOption[];
   createdAt: string;
   updatedAt: string;
 }
@@ -133,7 +132,7 @@ export class V7BookTitleDesignService {
         inputTokens: Math.max(0, result.inputTokens), outputTokens: Math.max(0, result.outputTokens),
         cashMicros: Math.max(0, Math.round(result.cashCostCny * 1_000_000)), completedAt: modelCompletedAt
       });
-      const options = parseBrandingOptions(result.output, 'title').filter((option) => Array.from(option.text).length <= 15);
+      const options = parseV7BookTitleOptions(result.output).filter((option) => Array.from(option.text).length <= 15);
       if (options.length < 3) throw new Error('书名候选不足三项');
       const completedAt = this.clock.now().toISOString();
       this.repository.succeed({
@@ -155,6 +154,7 @@ export class V7BookTitleDesignService {
         message: error instanceof Error ? error.message : '书名设计失败',
         failedAt
       });
+      if (error instanceof DomainError) throw error;
       throw new DomainError(errorCodes.operationIncomplete, '对不起，主编这次没有完成书名设计。开书资料没有受到影响，请重新设计。', {}, true, 503);
     }
   }
@@ -170,7 +170,7 @@ export class V7BookTitleDesignService {
 
   private view(row: V7BookTitleDesignRow): V7BookTitleDesignView {
     const member = this.roster().find((entry) => entry.memberKey === row.member_key);
-    const options = row.state === 'succeeded' ? JSON.parse(row.options_json) as BookBrandingOption[] : [];
+    const options = row.state === 'succeeded' ? JSON.parse(row.options_json) as V7BookTitleOption[] : [];
     return {
       designId: row.design_id,
       status: row.state,

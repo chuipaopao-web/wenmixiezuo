@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-describe('最终交付入口', () => {
-  it('提供桌面启动/停止入口和不要求老板执行技术命令的说明', () => {
+describe('V7 本地组合入口', () => {
+  it('提供当前 V7 桌面启动/停止入口和公开入口说明', () => {
     const root = process.cwd();
     const start = readFileSync(resolve(root, '文秘写作-启动.cmd'), 'utf8');
     const stop = readFileSync(resolve(root, '文秘写作-停止.cmd'), 'utf8');
@@ -11,7 +11,7 @@ describe('最终交付入口', () => {
     const shortcutCreator = readFileSync(resolve(root, 'scripts/create-desktop-shortcut.ps1'), 'utf8');
     const processLauncher = readFileSync(resolve(root, 'scripts/start.mjs'), 'utf8');
     const stopper = readFileSync(resolve(root, 'scripts/stop-desktop.ps1'), 'utf8');
-    const guide = readFileSync(resolve(root, 'docs/USER_GUIDE.md'), 'utf8');
+    const readme = readFileSync(resolve(root, 'README.md'), 'utf8');
     expect(start).toContain('start-desktop.ps1');
     expect(start).toContain('set "WENMI_SAVED_PATH=%PATH%"');
     expect(start).toContain('set "Path="');
@@ -52,9 +52,9 @@ describe('最终交付入口', () => {
     expect(shortcutCreator).toContain('$productName = -join');
     expect(shortcutCreator).toContain("$shortcutPath = Join-Path $desktop ($productName + '.lnk')");
     expect(shortcutCreator).toContain('$shortcut.WorkingDirectory = $projectRoot');
-    expect(guide).toContain('双击项目根目录');
-    expect(guide).toContain('桌面的“文秘写作”');
-    expect(guide).toContain('确定性假模型');
-    expect(guide).toContain('第二物理备份');
+    expect(readme).toContain('V7 是当前唯一产品版本');
+    expect(readme).toContain('https://wenmixiezuo.com/');
+    expect(readme).toContain('http://127.0.0.1:43110/');
+    expect(readme).not.toContain('docs/USER_GUIDE.md');
   });
 });

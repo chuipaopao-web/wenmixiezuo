@@ -1,15 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { CREATION_WORKFLOW_CONTRACT_VERSION } from '@wenmi/contracts';
 import { WorkerHeartbeat } from './health/heartbeat.js';
 import { loadWorkerConfig } from './runtime/config.js';
-import { TaskClaimer } from './scheduler/task-claimer.js';
-import { WorkerLoop } from './runtime/worker-loop.js';
-import { ChapterTaskExecutor } from './executors/chapter-task-executor.js';
-import { ProjectionTaskExecutor } from './executors/projection-task-executor.js';
-import { ProjectionLoop } from './runtime/projection-loop.js';
-import { loadLocalVectorRuntime } from './adapters/local-vector-runtime.js';
-import { CanonIndexTaskExecutor } from './executors/canon-index-task-executor.js';
-import { CanonIndexLoop } from './runtime/canon-index-loop.js';
 import { V7FormalizationExecutor } from './executors/v7-formalization-executor.js';
 import { V7FormalizationLoop } from './runtime/v7-formalization-loop.js';
 
@@ -20,44 +11,18 @@ database.exec('PRAGMA journal_mode = WAL');
 database.exec('PRAGMA synchronous = FULL');
 database.exec('PRAGMA busy_timeout = 30000');
 
-const heartbeat = new WorkerHeartbeat(database, config, [`workflow-contract-v${CREATION_WORKFLOW_CONTRACT_VERSION}`, 'vector-projection-starting']);
+const heartbeat = new WorkerHeartbeat(database, config, [
+  config.v7FormalizationEnabled ? 'v7-formalization' : 'v7-formalization-disabled'
+]);
 heartbeat.start();
-let vectorRuntime;
-try {
-  vectorRuntime = await loadLocalVectorRuntime(config.dataDir);
-} catch (error) {
-  vectorRuntime = undefined;
-  console.error(JSON.stringify({ service: 'wenmi-worker', capability: 'vector-projection', status: 'degraded',
-    reason: error instanceof Error ? error.name : 'UnknownError' }));
-}
-heartbeat.setExtraCapabilities(vectorRuntime === undefined
-  ? ['vector-projection-degraded']
-  : ['vector-projection', 'local-semantic']);
-const loop = new WorkerLoop(
-  new TaskClaimer(database, config.workerId),
-  heartbeat,
-  new ChapterTaskExecutor(config.apiBaseUrl, config.workerId, config.workerToken),
-  config.maxConcurrency
-);
-loop.start();
-const projectionLoop = new ProjectionLoop(new ProjectionTaskExecutor(database, config.workerId, vectorRuntime));
-projectionLoop.start();
-const canonIndexLoop = new CanonIndexLoop(new CanonIndexTaskExecutor(
-  database, config.apiBaseUrl, config.workerId, config.workerToken
-));
-canonIndexLoop.start();
 const v7FormalizationLoop = config.v7FormalizationEnabled
   ? new V7FormalizationLoop(new V7FormalizationExecutor(database, config.apiBaseUrl, config.workerId, config.workerToken))
   : undefined;
 v7FormalizationLoop?.start();
 console.log(JSON.stringify({ service: 'wenmi-worker', status: 'ready', workerId: config.workerId,
-  maxConcurrency: config.maxConcurrency ?? 8,
-  vectorProjection: vectorRuntime === undefined ? 'degraded' : 'ready' }));
+  v7Formalization: config.v7FormalizationEnabled ? 'enabled' : 'disabled' }));
 
 const shutdown = (): void => {
-  loop.stop();
-  projectionLoop.stop();
-  canonIndexLoop.stop();
   v7FormalizationLoop?.stop();
   heartbeat.stop();
   database.close();

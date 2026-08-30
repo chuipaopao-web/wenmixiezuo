@@ -3,23 +3,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
 import type { PositioningField, PositioningTag } from '../../domain/positioning.js';
 import type { OwnerScope } from '../../domain/scope.js';
-import { TeamTemplateService } from '../agents/team-template-service.js';
-import { toCreativeProfiles } from '../agents/model-binding-service.js';
 import { buildAdaptationRules, hashJson } from './adaptation-rules.js';
 import { PositioningService } from './positioning-service.js';
 import { BookRepository } from '../../infrastructure/db/repositories/book-repository.js';
-import type { RoleKey } from '../../domain/roles.js';
-import type { RoleModelProfile } from '../../infrastructure/models/model-runtime-config.js';
-import { AgentGovernanceRepository } from '../../infrastructure/db/repositories/agent-governance-repository.js';
-import { UnitOfWork } from '../../infrastructure/db/unit-of-work.js';
-import type { CreativeRoleKey, TeamModelProfile } from '../../contracts/agent-team-v2.js';
-import { creativeRoleKeys } from '../../contracts/agent-team-v2.js';
-import { PromptCompiler } from '../agents/prompt-compiler.js';
-import { PromptTemplateRepository } from '../../infrastructure/db/repositories/prompt-template-repository.js';
 import { OPENING_TAXONOMY, type OpeningBlueprintInput, type ProtagonistRole } from '../../contracts/opening-blueprint.js';
 import { ProtagonistStateRepository } from '../../infrastructure/db/repositories/protagonist-state-repository.js';
 import { DomainError, errorCodes } from '../../domain/errors.js';
-import { SettingGuidanceService } from '../knowledge/setting-guidance-service.js';
 import { bookTokenLimitForOwner } from '../../infrastructure/security/membership-service.js';
 
 export interface OnboardingResult {
@@ -31,10 +20,7 @@ export interface OnboardingResult {
   storyBibleArtifactId: string;
   onboardingProfileId: string;
   expressionProfileId: string;
-  activeEditorAgentId: string | null;
   openingBlueprintId: string | null;
-  kickoffTaskId: string | null;
-  agentCount: number;
 }
 
 /** 作者在开书向导里选的角色身份，给 AI 成员和状态档案展示用的大白话标签。 */
@@ -54,22 +40,14 @@ export class BookOnboardingService {
   public constructor(
     private readonly database: DatabaseSync,
     private readonly ids: IdGenerator,
-    private readonly clock: Clock,
-    private readonly roleProfiles?: Record<RoleKey, RoleModelProfile>,
-    private readonly releaseId?: string,
-    private readonly platformSchemes?: { currentProfiles(fallback: Record<CreativeRoleKey, TeamModelProfile>): Record<CreativeRoleKey, TeamModelProfile> }
+    private readonly clock: Clock
   ) {}
 
-  public confirmDraftV7(scope: OwnerScope, draftId: string, expectedVersion: number): OnboardingResult {
-    return this.confirmDraft(scope, draftId, expectedVersion, undefined, 'v7');
-  }
-
-  public confirmDraft(
+  public confirmDraftV7(
     scope: OwnerScope,
     draftId: string,
     expectedVersion: number,
-    failAt?: 'after_book' | 'after_team' | 'after_artifact' | 'after_kickoff',
-    mode: 'legacy' | 'v7' = 'legacy'
+    failAt?: 'after_book' | 'after_artifact' | 'after_kickoff'
   ): OnboardingResult {
     const positioning = new PositioningService(this.database, this.ids, this.clock);
     const draft = positioning.require(scope, draftId);
@@ -95,11 +73,6 @@ export class BookOnboardingService {
     const tombstone = this.database.prepare('SELECT 1 FROM deletion_tombstones WHERE owner_id = ? AND deleted_book_id = ?')
       .get(scope.ownerId, draft.proposedBookId);
     if (tombstone !== undefined) throw new Error('删除墓碑禁止旧书籍ID复活');
-    const team = mode === 'legacy'
-      ? new TeamTemplateService(
-        new AgentGovernanceRepository(this.database), new UnitOfWork(this.database), this.ids, this.clock
-      )
-      : null;
     const now = this.clock.now().toISOString();
     const positioningVersionId = this.ids.next();
     const onboardingProfileId = this.ids.next();
@@ -110,7 +83,6 @@ export class BookOnboardingService {
     const storyBibleArtifactId = this.ids.next();
     const storyBibleVersionId = this.ids.next();
     const openingBlueprintId = draft.openingBlueprint === null ? null : this.ids.next();
-    const isContinuation = draft.openingBlueprint?.creationMode === 'continuation';
     const openingStyleVersionId = draft.openingBlueprint === null ? null : this.ids.next();
     const rules = buildAdaptationRules(draft.fields, draft.tags);
 
@@ -189,17 +161,6 @@ export class BookOnboardingService {
           rules_json, content_hash, active, created_at
         ) VALUES (?, ?, ?, 1, 1, ?, ?, 1, ?)
       `).run(adaptationSnapshotId, scope.ownerId, draft.proposedBookId, JSON.stringify(rules), hashJson(rules), now);
-      const createdTeam = team === null ? [] : team.createTeam(bookScope, {
-        deterministic: this.roleProfiles === undefined || Object.values(this.roleProfiles).every((profile) => profile.plan === 'deterministic'),
-        profiles: this.roleProfiles === undefined ? undefined : this.resolveCreativeProfiles()
-      });
-      if (mode === 'legacy') {
-        const promptCompiler = new PromptCompiler(new PromptTemplateRepository(this.database), this.ids, this.clock);
-        for (const roleKey of creativeRoleKeys) {
-          promptCompiler.compile(roleKey, { objective: '岗位默认运行合同', mode: 'discussion', contextManifest: [], outputSchema: { type: 'object' } });
-        }
-      }
-      if (failAt === 'after_team') throw new Error('simulated-onboarding-failure');
       // 单书预算上限是防失控保险丝，不是日常消耗刻度：跟随所有者会员等级
       //（算力值配额换算真实 token），会员升级时由 MembershipService.grant 同步刷新，
       // 避免"会员还有额度、书籍预算却提前卡死"的双重限制（2026-08-20 老板指令）。
@@ -230,34 +191,9 @@ export class BookOnboardingService {
       );
       if (failAt === 'after_artifact') throw new Error('simulated-onboarding-failure');
 
-      const editor = mode === 'legacy'
-        ? this.database.prepare(`
-          SELECT agent_id, model_snapshot_id FROM agent_instances
-          WHERE owner_id = ? AND book_id = ? AND role_template_id = 'role-v2-chief-editor'
-        `).get(scope.ownerId, draft.proposedBookId) as { agent_id: string; model_snapshot_id: string }
-        : null;
-      if (editor !== null) {
-        this.database.prepare(`
-          INSERT INTO editor_leases (
-            owner_id, book_id, active_editor_agent_id, editor_epoch,
-            lease_expires_at, takeover_state, updated_at
-          ) VALUES (?, ?, ?, 1, ?, 'stable', ?)
-        `).run(scope.ownerId, draft.proposedBookId, editor.agent_id, new Date(this.clock.now().getTime() + 60_000).toISOString(), now);
-        this.database.prepare(`
-          UPDATE books SET positioning_version = 1, active_editor_agent_id = ?, editor_epoch = 1,
-            updated_at = ? WHERE owner_id = ? AND book_id = ?
-        `).run(editor.agent_id, now, scope.ownerId, draft.proposedBookId);
-      } else {
-        this.database.prepare(`
-          UPDATE books SET positioning_version = 1, updated_at = ? WHERE owner_id = ? AND book_id = ?
-        `).run(now, scope.ownerId, draft.proposedBookId);
-      }
-      // DEC-CURRENT-062：建书不再自动召集 AI 成员、不创建任何任务、不激活首个设定项。
-      // 作者进入设定页勾选好条目、点“开始设计”后才建任务；团队全程待命。
-      if (mode === 'legacy' && draft.openingBlueprint !== null && !isContinuation) {
-        new SettingGuidanceService(this.database, this.ids, this.clock)
-          .ensureInitialized(bookScope, draft.openingBlueprint, false);
-      }
+      this.database.prepare(`
+        UPDATE books SET positioning_version = 1, updated_at = ? WHERE owner_id = ? AND book_id = ?
+      `).run(now, scope.ownerId, draft.proposedBookId);
       if (failAt === 'after_kickoff') throw new Error('simulated-onboarding-failure');
       this.database.prepare(`
         UPDATE positioning_drafts SET status = 'confirmed', confirmed_book_id = ?, updated_at = ?
@@ -273,10 +209,7 @@ export class BookOnboardingService {
         storyBibleArtifactId,
         onboardingProfileId,
         expressionProfileId,
-        activeEditorAgentId: editor?.agent_id ?? null,
-        openingBlueprintId,
-        kickoffTaskId: null,
-        agentCount: createdTeam.length
+        openingBlueprintId
       };
     } catch (error) {
       this.database.exec('ROLLBACK');
@@ -387,11 +320,6 @@ export class BookOnboardingService {
     }
   }
 
-  /** 平台模型方案优先于环境默认槽位；未保存过后台方案时回退到槽位映射。 */
-  private resolveCreativeProfiles(): Partial<Record<CreativeRoleKey, TeamModelProfile>> {
-    const fallback = toCreativeProfiles(this.roleProfiles!) as Record<CreativeRoleKey, TeamModelProfile>;
-    return this.platformSchemes?.currentProfiles(fallback) ?? fallback;
-  }
 }
 
 function fieldValue(fields: PositioningField[], key: string): unknown {

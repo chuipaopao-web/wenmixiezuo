@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BudgetService } from '../../../apps/api/src/application/budget/budget-service.js';
 import { EventStore } from '../../../apps/api/src/application/events/event-store.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
-import { initializeRuntimeBook } from '../../helpers/runtime-fixture.js';
+import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -12,8 +12,8 @@ describe('预算冻结与结算', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
-    initializeRuntimeBook(context, scope, ids, clock);
+    const book = initializeV7Book(context, 'owner-one', ids, clock);
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
     const events = new EventStore(context.database, ids, clock);
     const service = new BudgetService(context.database, ids, clock, events);
     const budget = service.create(scope, 'standard', 100, 0);
@@ -38,8 +38,8 @@ describe('预算冻结与结算', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
-    initializeRuntimeBook(context, scope, ids, clock);
+    const book = initializeV7Book(context, 'owner-one', ids, clock);
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
     const service = new BudgetService(context.database, ids, clock);
     const budget = service.create(scope, 'standard', 100, 0);
     expect(() => service.reserve(scope, budget.budgetId, 'unknown-cost', 10, null)).toThrow('现金费用未知');
@@ -49,8 +49,8 @@ describe('预算冻结与结算', () => {
     context = createTestContext();
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
-    initializeRuntimeBook(context, scope, ids, clock);
+    const book = initializeV7Book(context, 'owner-one', ids, clock);
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
     const service = new BudgetService(context.database, ids, clock);
     const budget = service.create(scope, 'standard', 240_000, 0);
 

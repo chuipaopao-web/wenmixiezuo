@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "node --import tsx --test --test-concurrency=4 agents/agent-foundation.test.ts narrative-methods/narrative-method-library.test.ts opening-agent/opening-agent-engine.test.ts plot-patterns/plot-pattern-library.test.ts",
+    "test": "vitest run --config vitest.config.mjs --configLoader native && node --import tsx --test --test-concurrency=4 agents/agent-foundation.test.ts narrative-methods/narrative-method-library.test.ts opening-agent/opening-agent-engine.test.ts plot-patterns/plot-pattern-library.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

@@ -35,7 +35,7 @@ const prompt = buildOpeningAgentPrompt({
   validationRepair: null,
   memberInstruction: ''
 });
-const config = loadModelRuntimeConfig(process.env, { codexWorkingDirectory: process.cwd() });
+const config = loadModelRuntimeConfig(process.env);
 const endpoint = config.endpoints.coding;
 if (endpoint.apiKey === undefined) throw new Error('Coding Plan凭证未配置');
 const adapter = new ArkPlanModelAdapter({

@@ -7,7 +7,7 @@ import { V7AgentGovernanceRepository } from '../../../apps/api/src/infrastructur
 import { V7BookTitleDesignRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-book-title-design-repository.js';
 import { ModelAdapterError, type ModelAdapter } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('V7随时设计书名', () => {
@@ -18,7 +18,7 @@ describe('V7随时设计书名', () => {
     context = createTestContext('wenmi-v7-title-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '旧书名' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '旧书名' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const generate = vi.fn<ModelAdapter['generate']>(async (request) => ({
       provider: 'volcengine-coding-plan', modelId: 'deepseek-v4-pro',
@@ -67,7 +67,7 @@ describe('V7随时设计书名', () => {
     context = createTestContext('wenmi-v7-title-model-profile-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '模型切换测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '模型切换测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const governance = new V7AgentGovernanceService(
       new V7AgentGovernanceRepository(context.database), ids, clock,
@@ -117,7 +117,7 @@ describe('V7随时设计书名', () => {
     context = createTestContext('wenmi-v7-title-unknown-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '未知结果测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '未知结果测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const generate = vi.fn<ModelAdapter['generate']>(async () => {
       throw new ModelAdapterError('连接在提交后中断', 'technical_failure', true, undefined, true);

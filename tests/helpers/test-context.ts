@@ -51,7 +51,7 @@ export function createTestContext(prefix = 'wenmi-test-'): TestContext {
     adminOrigin: null,
     workerToken: 'test-worker-token-00000000000000000000000000000000',
     promptViewPassword: 'test-prompt-view-password',
-    modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') }),
+    modelRuntime: loadModelRuntimeConfig({}),
     publicOrigin: null
   };
   const database = openDatabase(config.databasePath);

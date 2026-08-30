@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const BROWSER_HEADERS = {
@@ -72,17 +72,17 @@ describe('统一用户账号与登录会话', () => {
     const first = await createServer(context.config, context.database);
     const registration = await first.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456', displayName: '作者' } });
     const cookie = cookieFrom(registration);
-    expect((await first.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
+    expect((await first.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
     await first.close();
 
     const restarted = await createServer(context.config, context.database);
     try {
-      expect((await restarted.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
-      expect((await restarted.inject({ method: 'GET', url: `/api/v1/books?token=${encodeURIComponent(cookie)}`, headers: { host: BROWSER_HEADERS.host } })).statusCode).toBe(401);
+      expect((await restarted.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(200);
+      expect((await restarted.inject({ method: 'GET', url: `/api/v1/v7/books?token=${encodeURIComponent(cookie)}`, headers: { host: BROWSER_HEADERS.host } })).statusCode).toBe(401);
       const logout = await restarted.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { ...BROWSER_HEADERS, cookie }, payload: {} });
       expect(logout.statusCode).toBe(200);
       expect(logout.headers['set-cookie']).toContain('Max-Age=0');
-      expect((await restarted.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(401);
+      expect((await restarted.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie } })).statusCode).toBe(401);
       const login = await restarted.inject({ method: 'POST', url: '/api/v1/auth/login', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456' } });
       expect(login.statusCode).toBe(200);
     } finally {
@@ -94,15 +94,6 @@ describe('统一用户账号与登录会话', () => {
     context = createTestContext('wenmi-account-isolation-');
     const app = await createServer(context.config, context.database);
     try {
-      const legacyNow = new Date().toISOString();
-      context.database.prepare(`
-        INSERT INTO owners (owner_id, display_name, version, created_at, updated_at)
-        VALUES (?, '升级前本机用户', 1, ?, ?)
-      `).run(context.config.ownerId, legacyNow, legacyNow);
-      context.database.prepare(`
-        INSERT INTO books (book_id, owner_id, title, status, version, positioning_version, canon_revision, editor_epoch, created_at, updated_at)
-        VALUES ('legacy-book', ?, '升级前测试书', 'active', 1, 0, 0, 0, ?, ?)
-      `).run(context.config.ownerId, legacyNow, legacyNow);
       const first = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-789', displayName: '管理员' } });
       const second = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'reader@example.com', password: 'strong-pass-987', displayName: '读者' } });
       const adminCookie = cookieFrom(first);
@@ -110,27 +101,39 @@ describe('统一用户账号与登录会话', () => {
       const rows = context.database.prepare('SELECT user_id, owner_id, email_normalized FROM user_accounts ORDER BY created_at').all() as unknown as Array<{ user_id: string; owner_id: string; email_normalized: string }>;
       const admin = rows.find((row) => row.email_normalized === 'admin@example.com')!;
       const user = rows.find((row) => row.email_normalized === 'reader@example.com')!;
-      expect(admin.owner_id).toBe(context.config.ownerId);
-      expect(user.owner_id).not.toBe(context.config.ownerId);
       expect(user.owner_id).not.toBe(admin.owner_id);
-      const now = new Date().toISOString();
-      context.database.prepare(`
-        INSERT INTO books (book_id, owner_id, title, status, version, positioning_version, canon_revision, editor_epoch, created_at, updated_at)
-        VALUES ('admin-book', ?, '管理员的书', 'active', 1, 0, 0, 0, ?, ?)
-      `).run(admin.owner_id, now, now);
+      const packageFor = (title: string) => ({
+        title,
+        positioning: { publishingPlatform: 'fanqie', channel: 'male', category: '历史脑洞', genres: [], tags: [], coreAppeal: '', expectedTotalWords: 1_000_000 },
+        backgrounds: { eraAndWorld: '', openingSituation: '' },
+        protagonists: [{ name: '张三', age: '青年', identity: '男主', background: '普通人。', familyBackground: '', careerBackground: '', goldenFinger: '', goal: '', dilemma: '', personality: ['谨慎'], boundary: '' }],
+        opening: { startingSituation: '', incitingIncident: '', immediateConflict: '', readerPromise: '' },
+        longTermDirection: { centralConflict: '', progression: '', relationshipDirection: '', storyPotential: '' },
+        possibleEnding: { direction: '', price: '', openness: '' }, authorNotes: [], mustFollow: ['保留主角主动选择']
+      });
+      const adminCreated = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie: adminCookie },
+        payload: { openingPackage: packageFor('管理员的书'), idempotencyKey: 'admin-v7-book-0001' }
+      });
+      const userCreated = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie: userCookie },
+        payload: { openingPackage: packageFor('读者的书'), idempotencyKey: 'user-v7-book-0001' }
+      });
+      expect(adminCreated.statusCode).toBe(200);
+      expect(userCreated.statusCode).toBe(200);
 
       const overview = await app.inject({ method: 'GET', url: '/api/v1/admin/overview', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(overview.statusCode).toBe(200);
       expect(overview.json().data.totalBooks).toBe(2);
 
-      const adminBooks = (await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } })).json().data;
-      expect(adminBooks).toHaveLength(2);
-      expect(adminBooks.map((book: { bookId: string }) => book.bookId).sort()).toEqual(['admin-book', 'legacy-book']);
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).json().data).toHaveLength(0);
+      const adminBooks = (await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } })).json().data;
+      expect(adminBooks).toEqual([expect.objectContaining({ title: '管理员的书' })]);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).json().data)
+        .toEqual([expect.objectContaining({ title: '读者的书' })]);
 
       const suspend = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.user_id}/status`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { status: 'suspended' } });
       expect(suspend.statusCode).toBe(200);
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).statusCode).toBe(401);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: BROWSER_HEADERS.host, cookie: userCookie } })).statusCode).toBe(401);
       const reactivate = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.user_id}/status`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { status: 'active' } });
       expect(reactivate.statusCode).toBe(200);
       const loginAgain = await app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: BROWSER_HEADERS, payload: { email: 'reader@example.com', password: 'strong-pass-987' } });

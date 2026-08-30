@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-opening-agent-model-gateway.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PlanningMaintenanceService } from '../../../apps/api/src/application/planning/v7-planning-maintenance-service.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';

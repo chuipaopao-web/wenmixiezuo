@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
-import { toCreativeProfiles } from '../../apps/api/src/application/agents/model-binding-service.js';
 import { ModelAdapterFactory } from '../../apps/api/src/infrastructure/models/model-adapter-factory.js';
+import { V7_TEXT_MODEL_PROFILE_KEYS, modelBindingForProfile } from '@wenmi/v7-backend';
 
 describe('模型运行配置', () => {
   it('没有套餐凭证时诚实回到确定性开发模式', () => {
@@ -40,11 +40,6 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.reader_experience).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' });
     expect(config.roleProfiles.researcher).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
     expect(config.roleProfiles.style_editor).toMatchObject({ provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' });
-    const creative = toCreativeProfiles(config.roleProfiles);
-    expect(creative.senior_screenwriter).toEqual({
-      provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent'
-    });
-    expect(config.codex.timeoutMs).toBe(900_000);
     expect(JSON.stringify(config.publicProfiles)).not.toContain('test-key');
   });
 
@@ -60,6 +55,19 @@ describe('模型运行配置', () => {
     expect(config.endpoints.agent.apiKey).toBeUndefined();
   });
 
+  it('V7 治理登记的全部文本模型都在运行白名单内', () => {
+    const config = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    const factory = new ModelAdapterFactory(config);
+    for (const profileKey of V7_TEXT_MODEL_PROFILE_KEYS) {
+      const binding = modelBindingForProfile(profileKey);
+      expect(() => factory.resolve(binding.provider, binding.modelId, 'discussion'), profileKey).not.toThrow();
+    }
+  });
+
   it('Coding Plan旧模型别名只迁移仍在使用的Kimi和豆包岗位，不会占用高级编剧K3', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
@@ -73,7 +81,6 @@ describe('模型运行配置', () => {
     expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('doubao-seed-2.1-turbo');
     expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
-    expect(toCreativeProfiles(config.roleProfiles).senior_screenwriter.modelId).toBe('kimi-k3');
   });
   it('GLM-5.2/5.3保持可配置和可执行，但当前岗位方案不绑定', () => {
     const config = loadModelRuntimeConfig({
@@ -81,11 +88,6 @@ describe('模型运行配置', () => {
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
     });
-    const creative = toCreativeProfiles(config.roleProfiles);
-    expect(creative.second_screenwriter.modelId).toBe('doubao-seed-2.1-turbo');
-    expect(creative.deputy_editor.modelId).toBe('deepseek-v4-flash');
-    expect(creative.fact_reviewer.modelId).toBe('minimax-m2.7');
-    expect(Object.values(creative).every((profile) => !/glm-5\.[23]/iu.test(profile.modelId))).toBe(true);
     expect(config.publicProfiles.filter((profile) => /glm-5\.[23]/iu.test(profile.modelId))).toEqual([
       {
         provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding',
@@ -101,6 +103,9 @@ describe('模型运行配置', () => {
     )).not.toThrow();
     expect(() => new ModelAdapterFactory(config).resolve(
       'volcengine-ark-coding-plan', 'glm-5.2', 'novel_reviewer', 'fact_reviewer'
+    )).not.toThrow();
+    expect(() => new ModelAdapterFactory(config).resolve(
+      'volcengine-ark-agent-plan', 'kimi-k3', 'novel_writer'
     )).not.toThrow();
   });
   it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
@@ -171,10 +176,4 @@ describe('模型运行配置', () => {
       WENMI_ARK_AGENT_PLAN_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3'
     })).toThrow('只允许火山方舟套餐端点');
   });
-
-  it('旧opencodego凭证不再覆盖最新Coding Plan路线', () => {
-    const config = loadModelRuntimeConfig({ WENMI_OPENCODEGO_API_KEY: 'legacy-opencodego-key' });
-    expect(config.requestedMode).toBe('deterministic');
-    expect(config.activeMode).toBe('deterministic');
-    expect(config.roleProfiles.writer.provider).toBe('local-deterministic');
-  });});
+});

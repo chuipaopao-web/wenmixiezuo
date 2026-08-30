@@ -22,8 +22,8 @@ describe('开书资料不可变修订', () => {
     const draft = positioning.createDraft({ ownerId: 'owner-one' }, {
       title: '旧标题', text: original.storyDirection, openingBlueprint: original
     });
-    const created = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+    const created = new BookOnboardingService(context.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version);
     const service = new OpeningBlueprintService(
       new OpeningBlueprintRepository(context.database),
       new BookRepository(context.database),
@@ -72,8 +72,8 @@ describe('开书资料不可变修订', () => {
     const draft = positioning.createDraft({ ownerId: 'owner-one' }, {
       title: '并发测试', text: original.storyDirection, openingBlueprint: original
     });
-    const created = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+    const created = new BookOnboardingService(context.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version);
     const service = new OpeningBlueprintService(
       new OpeningBlueprintRepository(context.database),
       new BookRepository(context.database),
@@ -107,8 +107,8 @@ describe('开书资料不可变修订', () => {
     const draft = positioning.createDraft({ ownerId: 'owner-one' }, {
       title: '隔离测试', text: original.storyDirection, openingBlueprint: original
     });
-    const created = new BookOnboardingService(context.database, ids, clock, undefined, context.config.releaseId)
-      .confirmDraft({ ownerId: 'owner-one' }, draft.draftId, draft.version);
+    const created = new BookOnboardingService(context.database, ids, clock)
+      .confirmDraftV7({ ownerId: 'owner-one' }, draft.draftId, draft.version);
     const service = new OpeningBlueprintService(
       new OpeningBlueprintRepository(context.database),
       new BookRepository(context.database),

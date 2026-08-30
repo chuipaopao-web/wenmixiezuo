@@ -6,17 +6,21 @@ export class WorkerHeartbeat {
   #timer: NodeJS.Timeout | undefined;
   #currentTaskId: string | null = null;
   #extraCapabilities: string[];
+  #baseCapabilities: string[];
 
   public constructor(
     private readonly database: DatabaseSync,
     private readonly config: WorkerConfig,
-    extraCapabilities: string[] = []
-  ) { this.#extraCapabilities = [...extraCapabilities]; }
+    extraCapabilities: string[] = [],
+    baseCapabilities: string[] = ['task-heartbeat']
+  ) {
+    this.#extraCapabilities = [...extraCapabilities];
+    this.#baseCapabilities = [...baseCapabilities];
+  }
 
   public start(): void {
     this.write();
     this.#timer = setInterval(() => this.write(), 5_000);
-    this.#timer.unref();
   }
 
   public stop(): void {
@@ -56,16 +60,7 @@ export class WorkerHeartbeat {
         this.#startedAt,
         new Date().toISOString(),
         JSON.stringify([
-          'runtime-probe',
-          'object-collaboration',
-          'chapter-creation',
-          'continuation-analysis',
-          'volume-plan-generation',
-          'story-event-generation',
-          'event-chapter-sequence-generation',
-          'event-chapter-detail-generation',
-          'task-heartbeat',
-          'persistent-task-claim',
+          ...this.#baseCapabilities,
           ...this.#extraCapabilities
         ]),
         this.#currentTaskId

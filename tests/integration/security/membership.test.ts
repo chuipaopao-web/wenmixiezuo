@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import {
   assertMembershipAllowsGeneration,
@@ -8,7 +8,7 @@ import {
 } from '../../../apps/api/src/infrastructure/security/membership-service.js';
 import { FixedClock, MutableClock } from '../../helpers/test-context.js';
 import { DomainError } from '../../../apps/api/src/domain/errors.js';
-import { OPENING_TAXONOMY } from '../../../apps/api/src/contracts/opening-blueprint.js';
+import { loadModelRuntimeConfig } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 const BROWSER_HEADERS = {
   host: '127.0.0.1:43111',
@@ -173,9 +173,25 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
     expect(status.membership).toMatchObject({ computeConsumed: MEMBERSHIP_PLANS.silver.tokenQuota, computeRemaining: 0 });
   });
 
-  it('无会员用户可以开书但不会创建首个AI任务，开通会员后恢复', async () => {
+  it('无会员用户不能调用V7模型，开通会员后同一能力恢复', async () => {
     context = createTestContext('wenmi-membership-onboarding-');
-    const app = await createServer(context.config, context.database);
+    context.config.modelRuntime = loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key'
+    });
+    const generate = vi.fn(async () => ({
+      provider: 'test-provider', modelId: 'deepseek-v4-pro',
+      output: JSON.stringify({ options: [
+        { text: '汉末执棋人', note: '权谋成长' },
+        { text: '小卒定山河', note: '身份反差' },
+        { text: '边军起势', note: '底层开局' }
+      ] }),
+      inputTokens: 30, outputTokens: 20, cashCostCny: 0, state: 'succeeded' as const
+    }));
+    const app = await createServer(context.config, context.database, {
+      v7OpeningModelAdapters: { resolve: () => ({ provider: 'test-provider', modelId: 'deepseek-v4-pro', generate }) }
+    });
     try {
       const adminRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'admin@example.com', password: 'strong-pass-123', displayName: '管理员' } });
       const userRegister = await app.inject({ method: 'POST', url: '/api/v1/auth/register', headers: BROWSER_HEADERS, payload: { email: 'writer@example.com', password: 'strong-pass-456', displayName: '作者' } });
@@ -183,55 +199,42 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       const userCookie = cookieFrom(userRegister);
       const rows = accountRows(context.database);
       const user = rows.find((row) => row.email_normalized === 'writer@example.com')!;
-      // 新注册默认发放青铜体验；本用例验证"无会员"路径，先撤销青铜恢复未开通状态。
       const revokeBronze = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: {} });
       expect(revokeBronze.statusCode).toBe(200);
-      const openingBlueprint = {
-        styleIntent: { languageTones: ['自然'], emotionalTones: ['热血'], pacingAndPayoff: ['紧凑'], atmospheres: ['历史'], custom: [] },
-        taxonomyVersion: OPENING_TAXONOMY.version, channel: 'male', categoryKey: 'male-history-brain',
-        targetAudience: '历史题材读者',
-        protagonists: [{ role: 'male_lead', name: '赵四', age: '二十岁', background: '朱仙镇屯兵之子。', personalities: ['果断'] }],
-        storyDirection: '赵四进入南宋副本，从朱仙镇开始改写岳家军的命运。',
-        worldBackground: '', openingBackground: '', stageOne: { start: '', development: '', end: '' },
-        fullBookOutline: '赵四在一个个历史副本里积攒人心与力量。', mainTags: ['历史'], auxiliaryTags: [],
-        storyTraits: [], customTags: ['成长'], initialMap: '', mustFollow: ['不偏离历史主线']
-      };
-
-      // 未开通会员：开书本身必须成功（否则用户进不了设定页看会员提示）。
-      const draft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '无会员开书', text: '验证开书不被会员门禁拦截', openingBlueprint } })).json().data as { draftId: string; version: number };
-      const confirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${draft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: draft.version } });
-      expect(confirm.statusCode).toBe(200);
-      const bookId = (confirm.json().data as { bookId: string }).bookId;
-      const taskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
-      expect(taskCount).toBe(0);
-      const discussionCount = (context.database.prepare('SELECT COUNT(*) AS total FROM discussions WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
-      expect(discussionCount).toBe(0);
-
-      // 未开通会员：手动召集 AI 被会员门禁拦截。
-      const blockedPanel = await app.inject({
-        method: 'POST', url: `/api/v1/books/${bookId}/setting-outline-workspace/world-stage/collaboration/start`,
-        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'membership-blocked-panel' }
+      const manualBook = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie: userCookie },
+        payload: {
+          openingPackage: {
+            title: 'V7会员门禁测试书',
+            positioning: { publishingPlatform: 'fanqie', channel: 'male', category: '历史脑洞', genres: [], tags: [], coreAppeal: '', expectedTotalWords: 1_000_000 },
+            backgrounds: { eraAndWorld: '', openingSituation: '' },
+            protagonists: [{ name: '赵四', age: '青年', identity: '男主', background: '现代青年。', familyBackground: '', careerBackground: '', goldenFinger: '', goal: '', dilemma: '', personality: ['果断'], boundary: '' }],
+            opening: { startingSituation: '', incitingIncident: '', immediateConflict: '', readerPromise: '' },
+            longTermDirection: { centralConflict: '', progression: '', relationshipDirection: '', storyPotential: '' },
+            possibleEnding: { direction: '', price: '', openness: '' }, authorNotes: [], mustFollow: ['不偏离历史主线']
+          },
+          idempotencyKey: 'membership-v7-book-0001'
+        }
       });
-      expect(blockedPanel.statusCode).toBe(403);
-      expect((blockedPanel.json() as { error: { code: string } }).error.code).toBe('MEMBERSHIP_REQUIRED');
+      expect(manualBook.statusCode).toBe(200);
+      const bookId = manualBook.json().data.bookId as string;
 
-      // 开通会员后再次开书：建书不再自动建任务，手动召集照常创建任务。
+      const blocked = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/title-designs`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-blocked-v7' }
+      });
+      expect(blocked.statusCode).toBe(403);
+      expect(blocked.json().error.code).toBe('MEMBERSHIP_REQUIRED');
+      expect(generate).not.toHaveBeenCalled();
+
       const grant = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver' } });
       expect(grant.statusCode).toBe(200);
-      const memberDraft = (await app.inject({ method: 'POST', url: '/api/v1/books/drafts', headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { title: '会员开书', text: '验证会员开书创建首个任务', openingBlueprint } })).json().data as { draftId: string; version: number };
-      const memberConfirm = await app.inject({ method: 'POST', url: `/api/v1/book-drafts/${memberDraft.draftId}/confirm`, headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { expectedVersion: memberDraft.version } });
-      expect(memberConfirm.statusCode).toBe(200);
-      const memberBookId = (memberConfirm.json().data as { bookId: string }).bookId;
-      const memberTaskCount = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
-      expect(memberTaskCount).toBe(0);
-      const startPanel = await app.inject({
-        method: 'POST', url: `/api/v1/books/${memberBookId}/setting-outline-workspace/world-stage/collaboration/start`,
-        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { screenwriterRoleKeys: ['lead_screenwriter'], idempotencyKey: 'membership-first-panel' }
+      const allowed = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/title-designs`,
+        headers: { ...BROWSER_HEADERS, cookie: userCookie }, payload: { idempotencyKey: 'membership-allowed-v7' }
       });
-      expect(startPanel.statusCode).toBe(200);
-      const taskCountAfterStart = (context.database.prepare('SELECT COUNT(*) AS total FROM tasks WHERE owner_id = ?').get(user.owner_id) as { total: number }).total;
-      expect(taskCountAfterStart).toBeGreaterThan(0);
-      expect(bookId).toBeTruthy();
+      expect(allowed.statusCode).toBe(200);
+      expect(generate).toHaveBeenCalledTimes(1);
     } finally {
       await app.close();
     }

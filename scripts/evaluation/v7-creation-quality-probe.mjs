@@ -5,7 +5,7 @@ import { ArkPlanModelAdapter } from '../../apps/api/dist/infrastructure/models/a
 import { loadModelRuntimeConfig } from '../../apps/api/dist/infrastructure/models/model-runtime-config.js';
 import { manuscriptPrompt } from '../../coauthoring-v7/backend/dist/index.js';
 
-const runtime = loadModelRuntimeConfig(process.env, { codexWorkingDirectory: process.cwd() });
+const runtime = loadModelRuntimeConfig(process.env);
 const endpoint = runtime.endpoints.coding;
 if (endpoint.apiKey === undefined) throw new Error('Coding Plan凭证未配置，真实创作验收未执行');
 

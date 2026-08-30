@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HOST = '127.0.0.1:43111';
@@ -42,11 +42,11 @@ describe('统一账号HTTP请求策略', () => {
     context = createTestContext('wenmi-policy-write-');
     const app = await createServer(context.config, context.database);
     try {
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: HOST } })).statusCode).toBe(401);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: HOST } })).statusCode).toBe(401);
       const cookie = await sessionCookie(app);
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: HOST, cookie } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: HOST, cookie } })).statusCode).toBe(200);
 
-      const write = { method: 'POST' as const, url: '/api/v1/books/drafts', payload: { title: '安全测试', text: '测试' } };
+      const write = { method: 'POST' as const, url: '/api/v1/auth/logout', payload: {} };
       expect((await app.inject({ ...write, headers: { host: HOST, cookie, origin: 'http://evil.invalid', 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' } })).statusCode).toBe(403);
       expect((await app.inject({ ...write, headers: { host: HOST, cookie, origin: ORIGIN, 'content-type': 'application/json' } })).statusCode).toBe(403);
       expect((await app.inject({ ...write, headers: { host: HOST, cookie, origin: ORIGIN, 'sec-fetch-site': 'same-site', 'content-type': 'text/plain' } })).statusCode).toBe(415);
@@ -74,7 +74,7 @@ describe('统一账号HTTP请求策略', () => {
       const rawCookie = register.headers['set-cookie'];
       const cookie = (Array.isArray(rawCookie) ? rawCookie[0] : rawCookie)!.split(';', 1)[0]!;
       expect((await app.inject({
-        method: 'POST', url: '/api/v1/books/drafts', payload: { title: '后台来源', text: '测试' },
+        method: 'POST', url: '/api/v1/auth/logout', payload: {},
         headers: {
           host: 'admin.wenmixiezuo.com', cookie, origin: 'https://admin.wenmixiezuo.com',
           'sec-fetch-site': 'same-site', 'content-type': 'application/json'
@@ -97,7 +97,7 @@ describe('统一账号HTTP请求策略', () => {
     try {
       const response = await app.inject({
         method: 'OPTIONS',
-        url: '/api/v1/books/book-1/setting-outline-workspace/world-era',
+        url: '/api/v1/v7/books/book-1/book-profile',
         headers: {
           host: HOST,
           origin: ORIGIN,
@@ -112,7 +112,7 @@ describe('统一账号HTTP请求策略', () => {
     }
   });
 
-  it('Worker独立Token仅能访问Worker入口', async () => {
+  it('Worker令牌不能复活旧入口，也不能替代作者会话', async () => {
     context = createTestContext('wenmi-policy-worker-');
     const app = await createServer(context.config, context.database);
     try {
@@ -120,11 +120,11 @@ describe('统一账号HTTP请求策略', () => {
       const body = { ownerId: context.config.ownerId, bookId: 'missing' };
       expect((await app.inject({ method: 'POST', url, payload: body, headers: { host: HOST, 'content-type': 'application/json', 'x-wenmi-worker-id': 'worker' } })).statusCode).toBe(401);
       const accepted = await app.inject({ method: 'POST', url, payload: body, headers: { host: HOST, 'content-type': 'application/json', 'x-wenmi-worker-id': 'worker', 'x-wenmi-worker-token': context.config.workerToken } });
-      expect(accepted.statusCode).toBe(400);
+      expect(accepted.statusCode).toBe(404);
       expect(accepted.body).not.toContain(context.config.workerToken);
 
       const cookie = await sessionCookie(app);
-      expect((await app.inject({ method: 'GET', url: '/api/v1/books', headers: { host: HOST, cookie: `${cookie}; x=${context.config.workerToken}` } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/v7/books', headers: { host: HOST, cookie: `${cookie}; x=${context.config.workerToken}` } })).statusCode).toBe(200);
     } finally {
       await app.close();
     }

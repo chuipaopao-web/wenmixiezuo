@@ -64,6 +64,6 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     workerToken: env.WENMI_WORKER_TOKEN?.trim() || randomBytes(32).toString('base64url'),
     promptViewPassword: env.WENMI_PROMPT_VIEW_PASSWORD?.trim() || null,
     publicOrigin,
-    modelRuntime: loadModelRuntimeConfig(env, { codexWorkingDirectory: resolve(dataDir, 'cache', 'codex-runtime') })
+    modelRuntime: loadModelRuntimeConfig(env)
   };
 }

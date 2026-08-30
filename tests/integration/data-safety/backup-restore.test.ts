@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BookLifecycleService } from '../../../apps/api/src/application/books/book-lifecycle-service.js';
 import { BackupService } from '../../../apps/api/src/infrastructure/recovery/backup-service.js';
-import { PromotionService } from '../../../apps/api/src/infrastructure/recovery/promotion-service.js';
 import { requiredPermanentDeleteText } from '../../../apps/api/src/domain/permanent-delete.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 
 let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
@@ -11,13 +14,27 @@ afterEach(() => { context?.close(); context = undefined; });
 describe('一致性备份与临时恢复验证', () => {
   it('恢复数据库和不可变文件并逐项核对哈希', () => {
     context = createTestContext();
-    const scope = { ownerId: 'owner-one', bookId: 'book-alpha' };
-    const lifecycle = new BookLifecycleService(context.database, context.dataDir, new SequenceIds(), new FixedClock());
-    lifecycle.ensureOwner(scope);
-    lifecycle.createDraft(scope, '甲书');
-    const promotion = new PromotionService(context.database, context.dataDir, new FixedClock());
-    const staged = promotion.stageText('task-alpha', '可恢复的不可变正文');
-    promotion.promote(scope, { ...staged, operationId: 'operation-alpha', fileId: 'file-alpha', chapterId: 'chapter-001', versionId: 'version-001' });
+    const ids = new SequenceIds();
+    const clock = new FixedClock();
+    const book = initializeV7Book(context, 'owner-one', ids, clock, { title: '甲书' });
+    const scope = { ownerId: 'owner-one', bookId: book.bookId };
+    const content = '可恢复的不可变正文';
+    const relativePath = `books/${scope.ownerId}/${scope.bookId}/manuscripts/version-001.txt`;
+    const filePath = resolve(context.dataDir, relativePath);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, content, 'utf8');
+    const hash = createHash('sha256').update(content, 'utf8').digest('hex');
+    context.database.prepare(`INSERT INTO operations (
+      operation_id,owner_id,book_id,operation_type,status,payload_json,created_at,updated_at
+    ) VALUES (?,?,?,'v7_formalize','succeeded','{}',?,?)`).run(
+      'operation-alpha', scope.ownerId, scope.bookId, clock.now().toISOString(), clock.now().toISOString()
+    );
+    context.database.prepare(`INSERT INTO file_registry (
+      file_id,owner_id,book_id,chapter_id,version_id,relative_path,content_hash,size_bytes,status,operation_id,created_at
+    ) VALUES (?,?,?,NULL,?,?,?,?,'active',?,?)`).run(
+      'file-alpha', scope.ownerId, scope.bookId, 'version-001', relativePath, hash,
+      Buffer.byteLength(content), 'operation-alpha', clock.now().toISOString()
+    );
 
     const backups = new BackupService(context.database, context.config);
     const created = backups.create();

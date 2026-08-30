@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { BookBrandingOption } from '../../../application/books/book-branding-design-service.js';
+import type { V7BookTitleOption } from '../../../application/books/v7-book-title-output.js';
 
 export interface V7BookTitleDesignRow {
   design_id: string;
@@ -83,7 +83,7 @@ export class V7BookTitleDesignRepository {
     inputTokens: number;
     outputTokens: number;
     cashMicros: number;
-    options: readonly BookBrandingOption[];
+    options: readonly V7BookTitleOption[];
     completedAt: string;
   }): void {
     this.database.prepare(`

@@ -43,8 +43,6 @@ wenmixiezuo.com {
   handle /api/* {
     reverse_proxy 127.0.0.1:43111 {
       header_up X-Forwarded-Proto https
-      # 保持 SSE 长连接不缓冲
-      flush_interval -1
     }
   }
 
@@ -95,7 +93,6 @@ admin.wenmixiezuo.com {
   handle /api/* {
     reverse_proxy 127.0.0.1:43111 {
       header_up X-Forwarded-Proto https
-      flush_interval -1
     }
   }
 

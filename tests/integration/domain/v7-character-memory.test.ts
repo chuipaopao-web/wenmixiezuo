@@ -5,7 +5,7 @@ import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/m
 import type { V7CharacterMemoryModelAdapterResolver } from '../../../apps/api/src/infrastructure/models/v7-character-memory-model-gateway.js';
 import { V7CharacterMemoryService } from '../../../apps/api/src/application/characters/v7-character-memory-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HEADERS = {

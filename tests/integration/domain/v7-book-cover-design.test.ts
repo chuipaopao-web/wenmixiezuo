@@ -15,7 +15,7 @@ import {
   V7CoverImageGatewayError,
   type V7CoverImageGateway
 } from '../../../apps/api/src/infrastructure/models/volcengine-ark-image-gateway.js';
-import { initializeDomainBook } from '../../helpers/domain-fixture.js';
+import { initializeV7Book } from '../../helpers/v7-book-fixture.js';
 import { createTestContext, FixedClock, SequenceIds, type TestContext } from '../../helpers/test-context.js';
 
 describe('V7封面编辑部', () => {
@@ -26,7 +26,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-pen-name-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '乱世执灯人' });
+    initializeV7Book(context, context.config.ownerId, ids, clock, { title: '乱世执灯人' });
     context.database.prepare('UPDATE owners SET display_name = ? WHERE owner_id = ?').run('旧作者名', context.config.ownerId);
     context.database.prepare(`INSERT INTO user_accounts (
       user_id, owner_id, email_normalized, display_name, password_salt, password_hash,
@@ -52,7 +52,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '乱世执灯人' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '乱世执灯人' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const workOrder = {
       composition: '竖版半身构图，主角在前，汉末边塞在后。',
@@ -139,7 +139,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-leave-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '无图测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '无图测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const images: V7CoverImageGateway = {
       configured: false, modelId: 'not-configured',
@@ -160,7 +160,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-recovery-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '任务恢复测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '任务恢复测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const images: V7CoverImageGateway = { configured: true, modelId: 'test', generate: async () => { throw new Error('不应调用'); } };
     const resolver: V7OpeningModelAdapterResolver = { resolve: () => { throw new Error('不应调用'); } };
@@ -192,7 +192,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-text-unknown-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '封面文字未知测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '封面文字未知测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const generate = vi.fn<ModelAdapter['generate']>(async () => {
       throw new ModelAdapterError('工单提交后连接中断', 'technical_failure', true, undefined, true);
@@ -225,7 +225,7 @@ describe('V7封面编辑部', () => {
     context = createTestContext('wenmi-v7-cover-image-unknown-');
     const ids = new SequenceIds();
     const clock = new FixedClock();
-    const book = initializeDomainBook(context, context.config.ownerId, ids, clock, { title: '封面图片未知测试' });
+    const book = initializeV7Book(context, context.config.ownerId, ids, clock, { title: '封面图片未知测试' });
     seedProfile(context, context.config.ownerId, book.bookId, ids, clock);
     const workOrder = {
       composition: '竖版人物与场景构图', visualFocus: '乱世中的年轻主角', atmosphere: '紧张而有希望',

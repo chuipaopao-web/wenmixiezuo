@@ -8,7 +8,7 @@ const projectRoot = process.cwd();
 const launcherRecordPath = resolve(projectRoot, 'data', 'control', 'desktop-launcher.pid');
 const stopRequestPath = resolve(projectRoot, 'data', 'control', 'desktop-stop.request.json');
 const userEnvironmentNames = [
-  'WENMI_MODEL_MODE', 'WENMI_CODEX_MODEL', 'WENMI_CODEX_TIMEOUT_MS',
+  'WENMI_MODEL_MODE',
   'WENMI_ARK_CODING_PLAN_API_KEY', 'WENMI_ARK_CODING_PLAN_BASE_URL', 'WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL',
   'WENMI_ARK_AGENT_PLAN_API_KEY', 'WENMI_ARK_AGENT_PLAN_BASE_URL', 'WENMI_ARK_AGENT_PLAN_GLM_MODEL',
   'WENMI_ARK_AGENT_PLAN_DOUBAO_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_MODEL', 'WENMI_ARK_AGENT_PLAN_KIMI_K27_MODEL',

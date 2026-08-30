@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { bootstrapDatabase } from '../../apps/api/src/infrastructure/db/bootstrap.js';
 import { openDatabase } from '../../apps/api/src/infrastructure/db/database.js';
 import type { RuntimeConfig } from '../../apps/api/src/infrastructure/runtime-config.js';
-import { createServer } from '../../apps/api/src/http/server.js';
+import { createServer } from '../../apps/api/src/http/v7-server.js';
 import { loadModelRuntimeConfig } from '../../apps/api/src/infrastructure/models/model-runtime-config.js';
 
 const tempDirectories: string[] = [];
@@ -29,7 +29,7 @@ describe('API健康检查', () => {
       adminOrigin: null,
       workerToken: 'test-worker-token-00000000000000000000000000000000',
       promptViewPassword: 'test-prompt-view-password',
-      modelRuntime: loadModelRuntimeConfig({}, { codexWorkingDirectory: resolve(tempDirectory, 'cache', 'codex-runtime') }),
+      modelRuntime: loadModelRuntimeConfig({}),
       publicOrigin: null
     };
     const database = openDatabase(config.databasePath);

@@ -9,7 +9,7 @@ import {
   type V7TaskContract
 } from '@wenmi/v7-backend';
 import { V7PromptGovernanceService } from '../../../apps/api/src/application/agents/v7-prompt-governance-service.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 

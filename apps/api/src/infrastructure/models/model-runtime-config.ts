@@ -1,5 +1,3 @@
-import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
 import type { RoleKey } from '../../domain/roles.js';
 
 export const novelRoleKeys = [
@@ -16,7 +14,7 @@ export const novelRoleKeys = [
 
 export type NovelRoleKey = RoleKey;
 export type ModelRuntimeMode = 'deterministic' | 'subscription-plan';
-export type ModelPlan = 'deterministic' | 'codex' | 'coding' | 'agent' | 'opencodego';
+export type ModelPlan = 'deterministic' | 'coding' | 'agent';
 export type ModelPurpose = 'discussion' | 'structured_planning' | 'novel_writer' | 'novel_reviewer' | 'review_synthesis';
 
 export interface RoleModelProfile {
@@ -30,14 +28,6 @@ export interface ArkPlanEndpointConfig {
   provider: string;
   baseUrl: string;
   apiKey: string | undefined;
-}
-
-export interface OpencodegoEndpointConfig {
-  plan: Extract<ModelPlan, 'opencodego'>;
-  provider: 'opencodego';
-  baseUrl: string;
-  apiKey: string | undefined;
-  modelId: string;
 }
 
 export interface PublicModelProfile extends RoleModelProfile {
@@ -54,14 +44,6 @@ export interface ModelRuntimeConfig {
   endpoints: {
     coding: ArkPlanEndpointConfig;
     agent: ArkPlanEndpointConfig;
-    opencodego: OpencodegoEndpointConfig;
-  };
-  codex: {
-    provider: 'openai-codex-subscription';
-    modelId: string;
-    executable: string;
-    workingDirectory: string;
-    timeoutMs: number;
   };
   roleProfiles: Record<NovelRoleKey, RoleModelProfile>;
   publicProfiles: PublicModelProfile[];
@@ -78,8 +60,13 @@ const DETERMINISTIC_PROFILE: RoleModelProfile = {
  * 目录必须独立于 roleProfiles，否则“暂时不使用”会被误实现成“无法配置”。
  */
 export const additionalConfigurablePlanProfiles = [
+  { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-pro', plan: 'coding' },
+  { provider: 'volcengine-ark-coding-plan', modelId: 'deepseek-v4-flash', plan: 'coding' },
+  { provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2.7-code', plan: 'coding' },
+  { provider: 'volcengine-ark-coding-plan', modelId: 'doubao-seed-2.1-turbo', plan: 'coding' },
   { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.2', plan: 'coding' },
   { provider: 'volcengine-ark-coding-plan', modelId: 'glm-5.3', plan: 'coding' },
+  { provider: 'volcengine-ark-agent-plan', modelId: 'kimi-k3', plan: 'agent' },
   { provider: 'volcengine-ark-agent-plan', modelId: 'minimax-m3', plan: 'agent' }
 ] as const satisfies readonly RoleModelProfile[];
 
@@ -117,32 +104,7 @@ function currentPlanModelId(value: string | undefined, fallback: string): string
   return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
 }
 
-export const OPENCODEGO_DEFAULT_BASE_URL = 'https://opencode.ai/zen/go';
-
-export function assertOpencodegoBaseUrl(raw: string): string {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error('只允许 opencodego 端点：地址格式无效');
-  }
-  const host = url.hostname.toLowerCase();
-  if (
-    url.protocol !== 'https:' ||
-    url.port !== '' ||
-    url.search !== '' ||
-    url.hash !== '' ||
-    !(host === 'opencode.ai' || host.endsWith('.opencode.ai') || host.includes('opencodego'))
-  ) {
-    throw new Error('只允许 opencodego 端点：必须是 https 且主机为 opencode.ai / *.opencode.ai');
-  }
-  const path = url.pathname.replace(/\/$/u, '');
-  if (path.length === 0) throw new Error('只允许 opencodego 端点：缺少路径');
-  return `${url.origin}${path}`;
-}
-
-export function assertPlanBaseUrl(plan: ModelPlan, raw: string): string {
-  if (plan === 'opencodego') return assertOpencodegoBaseUrl(raw);
+export function assertPlanBaseUrl(plan: Extract<ModelPlan, 'coding' | 'agent'>, raw: string): string {
   let url: URL;
   try {
     url = new URL(raw);
@@ -249,22 +211,6 @@ function deterministicProfiles(): Record<NovelRoleKey, RoleModelProfile> {
   return Object.fromEntries(novelRoleKeys.map((role) => [role, { ...DETERMINISTIC_PROFILE }])) as Record<NovelRoleKey, RoleModelProfile>;
 }
 
-function defaultCodexExecutable(env: NodeJS.ProcessEnv): string {
-  if (process.platform !== 'win32') return 'codex';
-  const appData = firstNonEmpty(env.APPDATA);
-  if (appData !== undefined) {
-    const packageArch = process.arch === 'arm64' ? 'arm64' : 'x64';
-    const targetArch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
-    const candidate = resolve(
-      appData,
-      'npm', 'node_modules', '@openai', 'codex', 'node_modules', `@openai/codex-win32-${packageArch}`,
-      'vendor', `${targetArch}-pc-windows-msvc`, 'bin', 'codex.exe'
-    );
-    if (existsSync(candidate)) return candidate;
-  }
-  return 'codex.cmd';
-}
-
 function codingPlanProfiles(env: NodeJS.ProcessEnv): Record<NovelRoleKey, RoleModelProfile> {
   const codingProfile = (envKey: string, fallback: string): RoleModelProfile => {
     const modelId = currentPlanModelId(env['WENMI_ARK_CODING_PLAN_' + envKey + '_MODEL'], fallback);
@@ -312,7 +258,7 @@ function toPublicProfiles(
     grouped.set(key, {
       ...profile,
       roles: role === undefined ? [] : [role],
-      credentialConfigured: profile.plan === 'deterministic' || profile.plan === 'codex'
+      credentialConfigured: profile.plan === 'deterministic'
         || endpoints[profile.plan].apiKey !== undefined
     });
   };
@@ -322,8 +268,7 @@ function toPublicProfiles(
 }
 
 export function loadModelRuntimeConfig(
-  env: NodeJS.ProcessEnv = process.env,
-  options: { codexWorkingDirectory?: string } = {}
+  env: NodeJS.ProcessEnv = process.env
 ): ModelRuntimeConfig {
   const compatibleEndpoint = compatibleAnthropicPlanEndpoint(env.ANTHROPIC_BASE_URL);
   const compatibleToken = firstNonEmpty(env.ANTHROPIC_AUTH_TOKEN);
@@ -336,7 +281,6 @@ export function loadModelRuntimeConfig(
     env.ARK_AGENTPLAN_KEY,
     compatibleEndpoint?.plan === 'agent' ? compatibleToken : undefined
   );
-  const opencodegoKey = firstNonEmpty(env.WENMI_OPENCODEGO_API_KEY);
   const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE)
     ?? (codingKey === undefined && agentKey === undefined ? 'deterministic' : 'subscription-plan');
   if (rawMode !== 'deterministic' && rawMode !== 'subscription-plan') {
@@ -368,15 +312,6 @@ export function loadModelRuntimeConfig(
         ) ?? 'https://ark.cn-beijing.volces.com/api/plan'
       ),
       apiKey: agentKey
-    },
-    opencodego: {
-      plan: 'opencodego',
-      provider: 'opencodego',
-      baseUrl: assertOpencodegoBaseUrl(
-        firstNonEmpty(env.WENMI_OPENCODEGO_BASE_URL) ?? OPENCODEGO_DEFAULT_BASE_URL
-      ),
-      apiKey: opencodegoKey,
-      modelId: currentPlanModelId(env.WENMI_OPENCODEGO_MODEL, 'deepseek-v4-flash')
     }
   };
   const missingCredentials: ModelRuntimeConfig['missingCredentials'] = [];
@@ -390,17 +325,6 @@ export function loadModelRuntimeConfig(
   const roleProfiles = activeMode === 'subscription-plan'
     ? codingPlanProfiles(env)
     : deterministicProfiles();
-  const codexTimeout = Number(firstNonEmpty(env.WENMI_CODEX_TIMEOUT_MS) ?? '900000');
-  if (!Number.isInteger(codexTimeout) || codexTimeout < 30_000 || codexTimeout > 900_000) {
-    throw new Error('WENMI_CODEX_TIMEOUT_MS必须在30000至900000之间');
-  }
-  const codex = {
-    provider: 'openai-codex-subscription' as const,
-    modelId: firstNonEmpty(env.WENMI_CODEX_MODEL) ?? 'gpt-5.6-sol',
-    executable: firstNonEmpty(env.WENMI_CODEX_EXECUTABLE) ?? defaultCodexExecutable(env),
-    workingDirectory: resolve(options.codexWorkingDirectory ?? process.cwd()),
-    timeoutMs: codexTimeout
-  };
   return {
     requestedMode,
     activeMode,
@@ -408,7 +332,6 @@ export function loadModelRuntimeConfig(
     cashFallbackAllowed: false,
     missingCredentials,
     endpoints,
-    codex,
     roleProfiles,
     publicProfiles: toPublicProfiles(roleProfiles, endpoints)
   };

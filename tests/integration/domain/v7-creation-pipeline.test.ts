@@ -9,7 +9,7 @@ import type { V7OpeningModelAdapterResolver } from '../../../apps/api/src/infras
 import { V7CreationModelGateway } from '../../../apps/api/src/infrastructure/models/v7-creation-model-gateway.js';
 import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-creation-runtime-repository.js';
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
 
 const HEADERS = {

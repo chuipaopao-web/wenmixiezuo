@@ -5,7 +5,7 @@ import {
   V7PlanningSourceCompiler,
   planningSnapshotSourceTraces
 } from '../../../apps/api/src/application/planning/v7-planning-source-compiler.js';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { V7PlanningModelGateway } from '../../../apps/api/src/infrastructure/models/v7-planning-model-gateway.js';

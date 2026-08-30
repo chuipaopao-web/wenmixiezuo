@@ -14,7 +14,7 @@ import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructu
 import { parseMemberRoster } from '../../../apps/api/src/application/books/v7-opening-agent-service.js';
 import { validateV7OpeningPackage } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
 import { V7_OPENING_MEMBERS, type OpeningModelRequest } from '@wenmi/v7-backend';
-import { createServer } from '../../../apps/api/src/http/server.js';
+import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, FixedClock, type TestContext } from '../../helpers/test-context.js';
 
 const BROWSER_HEADERS = {
