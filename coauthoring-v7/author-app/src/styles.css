@@ -1447,7 +1447,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .task-inline-confirm span { flex-basis: 100%; }
   .task-inline-confirm button { flex: 1 1 128px; }
   .task-member-stack { margin-right: auto; }
-  .task-log-card-main strong { white-space: normal; }
+  .task-log-card-main strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
   .task-card-details p { grid-template-columns: 1fr; gap: 2px; }
   .team-overview-strip { grid-template-columns: 38px repeat(4, minmax(0, 1fr)); gap: 6px; padding: 11px 8px; }
   .team-overview-strip > div { min-width: 0; }

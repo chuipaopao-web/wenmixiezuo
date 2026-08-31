@@ -181,7 +181,8 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
       registeredUsers, cumulativePaidUsers, cumulativePaidRate: ratio(cumulativePaidUsers, registeredUsers),
       newUsers30d, firstPaidUsers30d, firstPaidRate30d: ratio(firstPaidUsers30d, newUsers30d),
       activePaidUsers: numberCell(database, `SELECT COUNT(DISTINCT m.user_id) AS value FROM user_memberships m
-        JOIN user_accounts a ON a.user_id=m.user_id WHERE a.role='user' AND m.status='active' AND m.period_end>?
+        JOIN user_accounts a ON a.user_id=m.user_id WHERE a.role='user'
+        AND m.plan IN ('silver','gold','diamond') AND m.status='active' AND m.period_end>?
         AND EXISTS (SELECT 1 FROM membership_transactions t WHERE t.user_id=m.user_id
           AND t.event_type IN ('grant','renew') AND t.amount_cash_micros>0)`, now.toISOString()),
       recordedMembershipRevenueCashMicros: overview.revenueCashMicros,

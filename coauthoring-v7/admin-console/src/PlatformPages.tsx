@@ -281,7 +281,9 @@ function MembershipsPage(): React.JSX.Element {
       setSelected(null);
       return;
     }
-    const nextPlan = user.membership?.plan ?? 'silver';
+    const nextPlan = user.membership === null || user.membership.plan === 'bronze'
+      ? 'silver'
+      : user.membership.plan;
     setSelected(user);
     setPlan(nextPlan);
     setAmountCny(defaultPlanAmount(nextPlan));
@@ -336,6 +338,15 @@ function MembershipsPage(): React.JSX.Element {
 
   if (state.data === null) return <RemoteState label="正在读取会员和收入流水…" error={state.error} onRetry={state.reload} />;
   const data = state.data.stats;
+  const selectedHasActivePaidMembership = selected?.membership?.status === 'active'
+    && !selected.membership.expired
+    && selected.membership.plan !== 'bronze';
+  const selectedHasCurrentMembership = selected?.membership?.status === 'active'
+    && !selected.membership.expired;
+  const selectedIsBronzeUpgrade = selected?.membership?.status === 'active'
+    && !selected.membership.expired
+    && selected.membership.plan === 'bronze'
+    && plan !== 'bronze';
   return <div className="asset-page platform-page">
     <PlatformHeading title="会员与收入" description="办理、续费和撤销都在当前页面完成；历史流水始终保留。" count={`${items.length} / ${state.data.total}`} onRefresh={state.reload} />
     {message !== null && <p className="platform-action-message" role="status">{message}</p>}
@@ -366,13 +377,17 @@ function MembershipsPage(): React.JSX.Element {
       <div className="platform-inline-body">
         <dl className="platform-detail-list"><Fact label="当前会员" value={selected.membership?.planLabel ?? '未开通'} /><Fact label="当前到期" value={selected.membership === null ? '—' : formatDateTime(selected.membership.periodEnd)} /><Fact label="累计算力" value={formatCompute(selected.totalTokens * 2)} /></dl>
         <div className="platform-edit-fields">
-          <label>会员套餐<select value={plan} onChange={(event) => choosePlan(event.target.value as MembershipPlan)}><option value="bronze">青铜 · 20万算力</option><option value="silver">白银 · 2000万算力</option><option value="gold">黄金 · 5000万算力</option><option value="diamond">钻石 · 2亿算力</option></select></label>
+          <label>会员套餐<select value={plan} onChange={(event) => choosePlan(event.target.value as MembershipPlan)}><option value="bronze" disabled={selectedHasCurrentMembership}>青铜 · 20万算力</option><option value="silver">白银 · 2000万算力</option><option value="gold">黄金 · 5000万算力</option><option value="diamond">钻石 · 2亿算力</option></select></label>
           <label>本次实收金额（元）<input type="number" min="0" max="100000" step="0.01" value={amountCny} onChange={(event) => { setAmountCny(Number(event.target.value)); setActionKey(newPlatformActionKey('membership')); }} /></label>
           <label className="wide">备注<input value={note} onChange={(event) => { setNote(event.target.value); setActionKey(newPlatformActionKey('membership')); }} placeholder="优惠、渠道或补发说明（可空）" /></label>
         </div>
-        <p className="platform-action-note">续费会保留剩余有效期，并从当前到期日继续顺延；本次办理会新增一条不可变流水。</p>
+        <p className="platform-action-note">{selectedHasActivePaidMembership
+          ? '有效付费会员续费会保留剩余时间，并从当前到期日继续顺延；本次办理会新增一条不可变流水。'
+          : selectedIsBronzeUpgrade
+            ? '青铜体验升级为付费会员时，从办理当天开始计算12个月，不会把体验档的长期有效期带入付费套餐。'
+            : '本次会员办理从今天开始计算有效期，并新增一条不可变流水。'}</p>
         {actionError !== null && <p className="platform-action-error" role="alert">{actionError}</p>}
-        <div className="platform-inline-actions"><button className="primary" type="button" disabled={busy} onClick={() => void saveMembership()}>{busy ? '正在办理…' : selected.membership?.status === 'active' && !selected.membership.expired ? '续费并记录收入' : '开通并记录收入'}</button></div>
+        <div className="platform-inline-actions"><button className="primary" type="button" disabled={busy} onClick={() => void saveMembership()}>{busy ? '正在办理…' : selectedIsBronzeUpgrade ? '升级并记录收入' : selectedHasActivePaidMembership ? '续费并记录收入' : '开通并记录收入'}</button></div>
         {selected.membership?.status === 'active' && !selected.membership.expired && (confirmingRevoke ? <div className="platform-inline-confirm" role="group" aria-label="确认撤销会员"><p>撤销会立即结束当前会员权益，但不会删除历史办理流水。</p><div><button type="button" disabled={busy} onClick={() => setConfirmingRevoke(false)}>取消</button><button className="danger" type="button" disabled={busy} onClick={() => void removeMembership()}>{busy ? '正在撤销…' : '确认撤销会员'}</button></div></div> : <button className="platform-secondary-danger" type="button" disabled={busy} onClick={() => { setRevokeKey(newPlatformActionKey('membership-revoke')); setConfirmingRevoke(true); }}>撤销会员</button>)}
       </div>
     </section>}

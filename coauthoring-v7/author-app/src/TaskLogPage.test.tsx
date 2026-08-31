@@ -98,6 +98,18 @@ describe('V7统一任务中心', () => {
     expect(screen.getByText(/对不起/u)).toBeVisible();
     expect(screen.getByRole('button', { name: '查看详情' })).toBeEnabled();
   });
+
+  it('长开书想法在任务列表只显示短摘要，不淹没状态和操作', async () => {
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
+    const longIdea = '长'.repeat(160);
+    mockedOpening.fetchOpeningTasks.mockResolvedValue([{ ...failedOpeningTask(), idea: longIdea }]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} />);
+
+    expect(await screen.findByText(`${'长'.repeat(48)}…`)).toBeVisible();
+    expect(screen.queryByText(longIdea)).not.toBeInTheDocument();
+    expect(screen.getByText(/对不起/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: '查看详情' })).toBeEnabled();
+  });
 });
 
 function failedOpeningTask(): opening.OpeningTaskView {

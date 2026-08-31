@@ -3,6 +3,7 @@ import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
 import {
   assertMembershipAllowsGeneration,
+  grantDefaultBronze,
   MembershipService,
   MEMBERSHIP_PLANS
 } from '../../../apps/api/src/infrastructure/security/membership-service.js';
@@ -77,6 +78,7 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(denied.statusCode).toBe(403);
       const badPlan = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'lifetime' } });
       expect(badPlan.statusCode).toBe(400);
+      expect(badPlan.json().error.message).toBe('请选择青铜、白银、黄金或钻石会员');
       const missingUser = await app.inject({ method: 'POST', url: '/api/v1/admin/memberships/no-such-user', headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'silver', idempotencyKey: 'membership-missing-0001' } });
       expect(missingUser.statusCode).toBe(404);
 
@@ -122,6 +124,13 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
       expect(revokeReplay.statusCode).toBe(200);
       const revokeAgain = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}/revoke`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { idempotencyKey: 'membership-revoke-0002' } });
       expect(revokeAgain.statusCode).toBe(409);
+
+      const restoreBronze = await app.inject({ method: 'POST', url: `/api/v1/admin/memberships/${user.user_id}`, headers: { ...BROWSER_HEADERS, cookie: adminCookie }, payload: { plan: 'bronze', idempotencyKey: 'membership-restore-bronze-0001' } });
+      expect(restoreBronze.statusCode).toBe(200);
+      expect(restoreBronze.json().data.membership).toMatchObject({ plan: 'bronze', expired: false });
+      const dashboard = await app.inject({ method: 'GET', url: '/api/v1/admin/dashboard', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
+      expect(dashboard.statusCode).toBe(200);
+      expect(dashboard.json().data.business.activePaidUsers).toBe(0);
 
       const adminStatus = await app.inject({ method: 'GET', url: '/api/v1/membership/me', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       expect(adminStatus.json().data).toEqual({ isAdmin: true, membership: null });
@@ -273,5 +282,77 @@ describe('会员系统：管理端开通、算力值与生成门禁', () => {
     const later = clock.now().toISOString();
     expect(() => assertMembershipAllowsGeneration(database, user.owner_id, later)).toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_EXPIRED' }) as unknown as Error);
     expect(memberships.statusForOwner(user.owner_id).membership).toMatchObject({ expired: true, status: 'active' });
+  });
+
+  it('青铜体验升级付费从办理日计一年，之后付费续费才保留剩余时间', () => {
+    context = createTestContext('wenmi-membership-bronze-upgrade-');
+    const database = context.database;
+    const clock = new MutableClock(new Date('2026-08-15T00:00:00.000Z'));
+    const memberships = new MembershipService(database, clock);
+    const now = clock.now().toISOString();
+    const admin = { user_id: 'user-admin', owner_id: 'owner-admin' };
+    const user = { user_id: 'user-writer', owner_id: 'owner-writer' };
+    for (const account of [admin, user]) {
+      seedOwner(database, account.owner_id, now);
+      database.prepare(`
+        INSERT INTO user_accounts (user_id, owner_id, email_normalized, display_name, password_salt, password_hash, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'salt', 'hash', 'user', 'active', ?, ?)
+      `).run(account.user_id, account.owner_id, `${account.user_id}@example.com`, account.user_id, now, now);
+    }
+    grantDefaultBronze(database, user.user_id, user.owner_id, now);
+
+    expect(() => memberships.grant(admin.user_id, user.user_id, 'bronze')).toThrowError(
+      /已经是青铜体验会员/u
+    );
+    expect(database.prepare('SELECT COUNT(*) AS count FROM membership_transactions WHERE user_id=?')
+      .get(user.user_id)).toEqual({ count: 0 });
+
+    const upgraded = memberships.grant(admin.user_id, user.user_id, 'silver');
+    expect(upgraded.membership).toMatchObject({
+      plan: 'silver', periodStart: '2026-08-15T00:00:00.000Z', periodEnd: '2027-08-15T00:00:00.000Z'
+    });
+    expect(database.prepare('SELECT event_type,plan FROM membership_transactions WHERE user_id=? ORDER BY created_at')
+      .all(user.user_id)).toEqual([{ event_type: 'grant', plan: 'silver' }]);
+    expect(() => memberships.grant(admin.user_id, user.user_id, 'bronze')).toThrowError(
+      /有效付费会员不能直接改为青铜体验/u
+    );
+    expect(database.prepare('SELECT event_type,plan FROM membership_transactions WHERE user_id=? ORDER BY created_at')
+      .all(user.user_id)).toEqual([{ event_type: 'grant', plan: 'silver' }]);
+
+    clock.advance(30 * 24 * 60 * 60 * 1000);
+    const renewed = memberships.grant(admin.user_id, user.user_id, 'gold');
+    expect(renewed.membership).toMatchObject({
+      plan: 'gold', periodStart: '2026-09-14T00:00:00.000Z', periodEnd: '2028-08-15T00:00:00.000Z'
+    });
+    expect(database.prepare('SELECT event_type,plan FROM membership_transactions WHERE user_id=? ORDER BY created_at')
+      .all(user.user_id)).toEqual([
+        { event_type: 'grant', plan: 'silver' },
+        { event_type: 'renew', plan: 'gold' }
+      ]);
+
+    clock.advance(Date.parse('2028-09-01T00:00:00.000Z') - clock.now().getTime());
+    const restarted = memberships.grant(admin.user_id, user.user_id, 'diamond');
+    expect(restarted.membership).toMatchObject({
+      plan: 'diamond', periodStart: '2028-09-01T00:00:00.000Z', periodEnd: '2029-09-01T00:00:00.000Z'
+    });
+    expect(database.prepare('SELECT event_type,plan FROM membership_transactions WHERE user_id=? ORDER BY created_at')
+      .all(user.user_id)).toEqual([
+        { event_type: 'grant', plan: 'silver' },
+        { event_type: 'renew', plan: 'gold' },
+        { event_type: 'grant', plan: 'diamond' }
+      ]);
+
+    clock.advance(Date.parse('2030-01-01T00:00:00.000Z') - clock.now().getTime());
+    const restoredBronze = memberships.grant(admin.user_id, user.user_id, 'bronze');
+    expect(restoredBronze.membership).toMatchObject({
+      plan: 'bronze', periodStart: '2030-01-01T00:00:00.000Z', periodEnd: '2099-12-31T00:00:00.000Z'
+    });
+    expect(database.prepare('SELECT event_type,plan FROM membership_transactions WHERE user_id=? ORDER BY created_at')
+      .all(user.user_id)).toEqual([
+        { event_type: 'grant', plan: 'silver' },
+        { event_type: 'renew', plan: 'gold' },
+        { event_type: 'grant', plan: 'diamond' },
+        { event_type: 'grant', plan: 'bronze' }
+      ]);
   });
 });

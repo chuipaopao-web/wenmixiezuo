@@ -121,6 +121,14 @@ const activeMembershipUser: MembershipUser = {
   }
 };
 
+const bronzeMembershipUser: MembershipUser = {
+  ...membershipUser,
+  membership: {
+    plan: 'bronze', planLabel: '青铜会员', status: 'active', tokenQuota: 200_000, periodTokens: 0,
+    totalTokens: 0, periodStart: '2026-08-01T00:00:00.000Z', periodEnd: '2099-12-31T00:00:00.000Z', expired: false
+  }
+};
+
 describe('V7 独立后台平台页面', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -216,6 +224,19 @@ describe('V7 独立后台平台页面', () => {
     expect(mockedApi.fetchMembershipStats).toHaveBeenCalledTimes(2);
   });
 
+  it('青铜用户办理时默认升级白银，并明确付费周期从当天开始', async () => {
+    mockedApi.fetchMembershipUsers.mockResolvedValue({ items: [bronzeMembershipUser], total: 1 });
+    render(<PlatformPage section="memberships" />);
+    expect(await screen.findByText('会员与收入')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '办理' }));
+    expect(screen.getByLabelText('会员套餐')).toHaveValue('silver');
+    expect(screen.getByLabelText('本次实收金额（元）')).toHaveValue(98);
+    expect(screen.getByRole('button', { name: '升级并记录收入' })).toBeVisible();
+    expect(screen.getByText(/从办理当天开始计算12个月/u)).toBeVisible();
+    expect(screen.getByRole('option', { name: '青铜 · 20万算力' })).toBeDisabled();
+  });
+
   it('会员写入失败时保留原位输入并提供可重试错误', async () => {
     mockedApi.grantMembership.mockRejectedValue(new Error('本次会员办理没有完成'));
     render(<PlatformPage section="memberships" />);
@@ -247,6 +268,7 @@ describe('V7 独立后台平台页面', () => {
       const refreshedEditor = screen.getByRole('region', { name: '为 作者甲 办理会员' });
       expect(within(refreshedEditor).getByText('白银会员')).toBeVisible();
       expect(within(refreshedEditor).getByRole('button', { name: '续费并记录收入' })).toBeVisible();
+      expect(within(refreshedEditor).getByRole('option', { name: '青铜 · 20万算力' })).toBeDisabled();
     });
   });
 

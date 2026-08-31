@@ -315,7 +315,7 @@ function TaskCard({ task, onOpen, onAbandon, abandoning }: { task: OpeningTaskVi
   return <article className={`task-log-card state-${task.status}`}>
     <div className="task-log-card-main">
       <span className={`task-state-dot ${task.isRunning ? 'working' : ''}`} aria-hidden="true" />
-      <div><small>开书设计 · {formatTime(task.updatedAt)}</small><strong>{task.idea}</strong><p>{detail}</p></div>
+      <div><small>开书设计 · {formatTime(task.updatedAt)}</small><strong>{openingIdeaSummary(task.idea)}</strong><p>{detail}</p></div>
     </div>
     <div className="task-log-card-side">
       <div className="task-member-stack" aria-label="参与成员">{visibleMembers.map((member) => <i key={member.memberKey} title={memberDisplayName(member.memberKey, member.displayName)} style={{ backgroundPosition: memberAvatarPosition(member.memberKey) }} />)}</div>
@@ -337,6 +337,11 @@ function openingTaskNeedsAttention(task: OpeningTaskView): boolean {
     || task.status === 'failed'
     || task.status === 'interrupted'
   );
+}
+
+function openingIdeaSummary(value: string): string {
+  const characters = Array.from(value.trim().replace(/\s+/gu, ' '));
+  return characters.length <= 48 ? characters.join('') : `${characters.slice(0, 48).join('')}…`;
 }
 
 function openingTaskCanArchive(task: OpeningTaskView): boolean {

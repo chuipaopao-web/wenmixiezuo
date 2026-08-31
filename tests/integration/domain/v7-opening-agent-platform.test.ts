@@ -985,6 +985,30 @@ describe('V7开书Agent平台接入', () => {
         decisionId: 'decision-1', field: 'positioning.expectedTotalWords', required: true
       })]);
 
+      const candidateCountBeforeInvalid = context.database.prepare(
+        'SELECT COUNT(*) AS count FROM v7_opening_agent_candidates WHERE task_id=?'
+      ).get(taskId);
+      const invalidDraft = await app.inject({
+        method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`, headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          baseCandidateId: base.candidateId,
+          openingPackage: {
+            ...base.content,
+            positioning: { ...base.content.positioning, channel: 'invalid' }
+          },
+          adjustmentNote: '',
+          decisionResolutions: [{ decisionId: 'decision-1', action: 'accept' }],
+          idempotencyKey: 'v7-decision-revision-invalid'
+        }
+      });
+      expect(invalidDraft.statusCode).toBe(400);
+      expect(invalidDraft.json().error).toMatchObject({
+        code: 'VALIDATION_ERROR', message: '频道选择无效', retryable: false
+      });
+      expect(context.database.prepare(
+        'SELECT COUNT(*) AS count FROM v7_opening_agent_candidates WHERE task_id=?'
+      ).get(taskId)).toEqual(candidateCountBeforeInvalid);
+
       const unknown = await app.inject({
         method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`, headers: { ...BROWSER_HEADERS, cookie },
         payload: {
@@ -1114,6 +1138,22 @@ describe('V7开书Agent平台接入', () => {
         }
       });
       expect(tooLong.statusCode).toBe(400);
+      const booksBeforeInvalid = context.database.prepare('SELECT COUNT(*) AS count FROM books').get();
+      const invalidGenre = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          openingPackage: {
+            ...minimal,
+            positioning: { ...minimal.positioning, genres: ['游戏'] }
+          },
+          idempotencyKey: 'v7-manual-invalid-genre-0001'
+        }
+      });
+      expect(invalidGenre.statusCode).toBe(400);
+      expect(invalidGenre.json().error).toMatchObject({
+        code: 'VALIDATION_ERROR', message: '融合题材不在当前目录：游戏', retryable: false
+      });
+      expect(context.database.prepare('SELECT COUNT(*) AS count FROM books').get()).toEqual(booksBeforeInvalid);
     } finally {
       await app.close();
     }

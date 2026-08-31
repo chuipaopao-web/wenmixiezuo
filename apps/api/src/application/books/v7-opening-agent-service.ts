@@ -218,7 +218,7 @@ export class V7OpeningAgentService {
       : await this.repository.readCandidate<OpeningReview>(ownerId, taskId, state.activeReviewCandidateId);
     const adjustmentNote = normalizeAdjustmentNote(input.adjustmentNote);
     const resolutions = normalizeDecisionResolutions(input.decisionResolutions, activeReview?.content ?? null);
-    const authorDraft = validateV7OpeningRevisionDraft(input.openingPackage, base.content, [], []);
+    const authorDraft = validateSubmittedRevisionDraft(input.openingPackage, base.content, [], []);
     const authorChangedFields = changedOpeningFields(base.content, authorDraft);
     const resolvedDraft = applyDecisionResolutions(authorDraft, resolutions);
     const changedFields = changedOpeningFields(base.content, resolvedDraft);
@@ -243,7 +243,7 @@ export class V7OpeningAgentService {
     if (allowedFields.length === 0 && authorMessages.length === 0) {
       throw new DomainError(errorCodes.validation, '请先处理主编决定，或修改一项开书资料后再提交。');
     }
-    const openingPackage = validateV7OpeningRevisionDraft(
+    const openingPackage = validateSubmittedRevisionDraft(
       resolvedDraft,
       base.content,
       authorMessages,
@@ -414,6 +414,23 @@ export class V7OpeningAgentService {
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
+  }
+}
+
+function validateSubmittedRevisionDraft(
+  value: unknown,
+  fallback: OpeningPackage,
+  authorInstructions: string[],
+  allowedFields: string[]
+): OpeningPackage {
+  try {
+    return validateV7OpeningRevisionDraft(value, fallback, authorInstructions, allowedFields);
+  } catch (error) {
+    if (error instanceof DomainError) throw error;
+    throw new DomainError(
+      errorCodes.validation,
+      error instanceof Error ? error.message : '开书调整资料格式无效。'
+    );
   }
 }
 

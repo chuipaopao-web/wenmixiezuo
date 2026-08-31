@@ -85,7 +85,7 @@ export async function registerAccountRoutes(app: FastifyInstance, accounts: Acco
     const administrator = requireAdministrator(request);
     const plan = request.body?.plan;
     if (!isMembershipPlan(plan)) {
-      throw new DomainError('INVALID_MEMBERSHIP_PLAN', '请选择包月、包季或包年套餐', {}, false, 400);
+      throw new DomainError('INVALID_MEMBERSHIP_PLAN', '请选择青铜、白银、黄金或钻石会员', {}, false, 400);
     }
     const amountCny = request.body?.amountCny;
     if (amountCny !== undefined && (!Number.isFinite(amountCny) || amountCny < 0 || amountCny > 100_000)) {

@@ -24,6 +24,8 @@ export const MEMBERSHIP_PLANS = {
   diamond: { months: 12, tokenQuota: 200_000_000 }
 } as const;
 
+const DEFAULT_BRONZE_PERIOD_END = '2099-12-31T00:00:00.000Z';
+
 export type MembershipPlan = keyof typeof MEMBERSHIP_PLANS;
 
 export const MEMBERSHIP_PLAN_LABELS: Record<MembershipPlan, string> = {
@@ -194,9 +196,9 @@ export function grantDefaultBronze(database: DatabaseSync, userId: string, owner
   database.prepare(`
     INSERT INTO user_memberships (
       user_id, owner_id, plan, token_quota, period_start, period_end, status, granted_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, 'bronze', ?, ?, '2099-12-31T00:00:00.000Z', 'active', ?, ?, ?)
+    ) VALUES (?, ?, 'bronze', ?, ?, ?, 'active', ?, ?, ?)
     ON CONFLICT(user_id) DO NOTHING
-  `).run(userId, ownerId, MEMBERSHIP_PLANS.bronze.tokenQuota, nowIso, userId, nowIso, nowIso);
+  `).run(userId, ownerId, MEMBERSHIP_PLANS.bronze.tokenQuota, nowIso, DEFAULT_BRONZE_PERIOD_END, userId, nowIso, nowIso);
 }
 
 export class MembershipService {
@@ -273,16 +275,35 @@ export class MembershipService {
           return this.statusForOwner(target.owner_id);
         }
       }
-      // 续费顺延：已有生效会员的剩余天数保留，新周期从今天开始重新计量算力（配额按新套餐刷新），
-      // 到期日从"剩余到期日或今天"往后加套餐月数，避免提前续费白白丢掉剩余时间。
-      // 在事务内读取 existingActive，避免并发连续 grant 都基于旧 period_end 计算、丢失后一次顺延。
+      // 只有未到期付费档继续办理付费档才顺延剩余时间；青铜升级和过期后重开从今天起算。
+      // 在事务内读取 existingActive，避免并发连续 renew 都基于旧 period_end 计算、丢失后一次顺延。
       const existingActive = this.database.prepare(
         "SELECT plan, period_end FROM user_memberships WHERE user_id = ? AND status = 'active'"
       ).get(target.user_id) as { plan: MembershipPlan; period_end: string } | undefined;
-      const baseEnd = existingActive !== undefined && existingActive.period_end > nowIso
-        ? existingActive.period_end
-        : nowIso;
-      const periodEnd = addMonths(baseEnd, definition.months);
+      const existingIsCurrent = existingActive !== undefined && existingActive.period_end > nowIso;
+      const hasCurrentPaidMembership = existingIsCurrent && existingActive.plan !== 'bronze';
+      const hasCurrentBronzeMembership = existingIsCurrent && existingActive.plan === 'bronze';
+      if (hasCurrentPaidMembership && plan === 'bronze') {
+        throw new DomainError(
+          errorCodes.validation,
+          '有效付费会员不能直接改为青铜体验；如需结束当前权益，请使用撤销会员。',
+          {},
+          false,
+          409
+        );
+      }
+      if (hasCurrentBronzeMembership && plan === 'bronze') {
+        throw new DomainError(
+          errorCodes.validation,
+          '该用户已经是青铜体验会员；请选择付费套餐完成升级。',
+          {},
+          false,
+          409
+        );
+      }
+      const renewingPaidMembership = hasCurrentPaidMembership && plan !== 'bronze';
+      const baseEnd = renewingPaidMembership ? existingActive.period_end : nowIso;
+      const periodEnd = plan === 'bronze' ? DEFAULT_BRONZE_PERIOD_END : addMonths(baseEnd, definition.months);
       this.database.prepare(`
         INSERT INTO user_memberships (
           user_id, owner_id, plan, token_quota, period_start, period_end, status, granted_by_user_id, created_at, updated_at
@@ -296,8 +317,7 @@ export class MembershipService {
           granted_by_user_id = excluded.granted_by_user_id,
           updated_at = excluded.updated_at
       `).run(target.user_id, target.owner_id, plan, definition.tokenQuota, nowIso, periodEnd, actorUserId, nowIso, nowIso);
-      const eventType = existingActive === undefined
-        || (existingActive.plan === 'bronze' && plan !== 'bronze') ? 'grant' : 'renew';
+      const eventType = renewingPaidMembership ? 'renew' : 'grant';
       this.database.prepare(`
         INSERT INTO membership_transactions (
           transaction_id, user_id, owner_id, event_type, plan, amount_cash_micros,

@@ -51,9 +51,7 @@ export class V7OpeningBookService {
   public async confirm(ownerId: string, input: ConfirmV7OpeningBookInput): Promise<ConfirmV7OpeningBookResult> {
     const idempotencyKey = normalizeActionKey(input.idempotencyKey);
     const taskId = optionalIdentifier(input.taskId, '开书任务');
-    const openingPackage = taskId === null
-      ? validateV7ManualOpeningPackage(input.openingPackage)
-      : validateV7OpeningPackage(input.openingPackage);
+    const openingPackage = validateSubmittedOpeningPackage(input.openingPackage, taskId === null);
     const source = taskId === null
       ? { sourceKey: `manual-${idempotencyKey}`, idea: normalizeOptionalIdea(input.openingIdea) }
       : await this.authorizedAgentSource(ownerId, taskId, input.candidateId, openingPackage);
@@ -128,6 +126,18 @@ function normalizeActionKey(value: unknown): string {
     throw new DomainError(errorCodes.validation, '确认编号无效，请重新操作。');
   }
   return key;
+}
+
+function validateSubmittedOpeningPackage(value: unknown, manual: boolean): OpeningPackage {
+  try {
+    return manual ? validateV7ManualOpeningPackage(value) : validateV7OpeningPackage(value);
+  } catch (error) {
+    if (error instanceof DomainError) throw error;
+    throw new DomainError(
+      errorCodes.validation,
+      error instanceof Error ? error.message : '开书资料格式无效。'
+    );
+  }
 }
 
 function normalizeOptionalIdea(value: unknown): string {
