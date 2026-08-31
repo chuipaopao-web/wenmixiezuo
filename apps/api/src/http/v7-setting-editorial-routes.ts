@@ -99,6 +99,15 @@ export async function registerV7SettingEditorialRoutes(
     const resolved = scope(request, request.params.bookId);
     return success(service.retry(resolved.ownerId, resolved.bookId, request.params.batchId), request.id);
   });
+  app.post<{ Params: { bookId: string; batchId: string }; Body: { idempotencyKey?: unknown } }>('/api/v1/v7/books/:bookId/setting-batches/:batchId/restart', async (request) => {
+    const resolved = scope(request, request.params.bookId);
+    return success(service.restartFailed(
+      resolved.ownerId,
+      resolved.bookId,
+      request.params.batchId,
+      request.body ?? {}
+    ), request.id);
+  });
   app.post<{ Params: { bookId: string }; Body: { idempotencyKey?: unknown } }>('/api/v1/v7/books/:bookId/setting-final-reviews', async (request) => {
     const resolved = scope(request, request.params.bookId);
     return success(service.createFinalReview(resolved.ownerId, resolved.bookId, request.body ?? {}), request.id);
@@ -113,7 +122,19 @@ export async function registerV7SettingEditorialRoutes(
   });
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { memberKeys?: unknown; authorNote?: unknown; idempotencyKey?: unknown } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns', async (request) => {
     const resolved = scope(request, request.params.bookId);
-    return success(await service.redesign(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
+    return success(service.redesign(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
+  });
+  app.get<{ Params: { bookId: string; itemKey: string } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/current', async (request) => {
+    const resolved = scope(request, request.params.bookId);
+    return success(service.getCurrentRedesign(resolved.ownerId, resolved.bookId, request.params.itemKey), request.id);
+  });
+  app.get<{ Params: { bookId: string; itemKey: string; taskId: string } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId', async (request) => {
+    const resolved = scope(request, request.params.bookId);
+    return success(service.getRedesign(resolved.ownerId, resolved.bookId, request.params.itemKey, request.params.taskId), request.id);
+  });
+  app.post<{ Params: { bookId: string; itemKey: string; taskId: string } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId/retry', async (request) => {
+    const resolved = scope(request, request.params.bookId);
+    return success(service.retryRedesign(resolved.ownerId, resolved.bookId, request.params.itemKey, request.params.taskId), request.id);
   });
   app.post<{ Params: { bookId: string; itemKey: string }; Body: { outputIds?: unknown; authorNote?: unknown; idempotencyKey?: unknown } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/fusions', async (request) => {
     const resolved = scope(request, request.params.bookId);
@@ -123,7 +144,10 @@ export async function registerV7SettingEditorialRoutes(
     const resolved = scope(request, request.params.bookId);
     return success(await service.reviseItem(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
   });
-  app.post<{ Params: { bookId: string; itemKey: string }; Body: { content?: unknown; instruction?: unknown; idempotencyKey?: unknown } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/review-tasks', async (request) => {
+  app.post<{ Params: { bookId: string; itemKey: string }; Body: {
+    content?: unknown; instruction?: unknown; idempotencyKey?: unknown;
+    sourceRedesignTaskId?: unknown; sourceOutputId?: unknown;
+  } }>('/api/v1/v7/books/:bookId/setting-items/:itemKey/review-tasks', async (request) => {
     const resolved = scope(request, request.params.bookId);
     return success(service.createItemReviewTask(resolved.ownerId, resolved.bookId, request.params.itemKey, request.body ?? {}), request.id);
   });

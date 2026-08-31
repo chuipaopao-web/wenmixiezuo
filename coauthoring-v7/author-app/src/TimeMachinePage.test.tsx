@@ -40,6 +40,9 @@ describe('V7时光机真实规划闭环', () => {
     render(<TimeMachinePage bookId="book-1" />);
     expect(await screen.findByRole('heading', { name: '先准备全书方向' })).toBeVisible();
     expect(screen.getByRole('button', { name: '开始规划全书' })).toBeVisible();
+    const actionDock = screen.getByRole('group', { name: '当前步骤操作' });
+    expect(actionDock).toHaveClass('workflow-action-dock-card');
+    expect(actionDock.closest('.planning-start-card')).not.toBeNull();
     expect(screen.getByRole('button', { name: '1套' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '3套' })).toHaveAttribute('aria-pressed', 'false');
     expect(document.querySelectorAll('.planning-member-faces > span')).toHaveLength(3);
@@ -243,6 +246,9 @@ describe('V7时光机真实规划闭环', () => {
     expect(screen.getByText('选择推动下一卷')).toBeVisible();
     expect(screen.getAllByText('正文定稿后自动整理')).not.toHaveLength(0);
     expect(screen.queryByText(/0%|85%|60%/u)).not.toBeInTheDocument();
+    const dock = screen.getByRole('contentinfo', { name: '当前步骤操作' });
+    expect(dock).toHaveTextContent('正式框架草案已经完成');
+    expect(dock.querySelectorAll('.workflow-action-dock-primary > button')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '确认采用框架' }));
     await waitFor(() => expect(mocked.confirmPlanningTree).toHaveBeenCalledWith('book-1', 'book', 'book-1', 1));
   });

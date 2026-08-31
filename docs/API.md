@@ -70,10 +70,18 @@
 - `POST /api/v1/v7/books/:bookId/setting-batches`
 - `GET /api/v1/v7/books/:bookId/setting-batches/:batchId`
 - `POST /api/v1/v7/books/:bookId/setting-batches/:batchId/retry`
+- `POST /api/v1/v7/books/:bookId/setting-batches/:batchId/restart`
 - `POST /api/v1/v7/books/:bookId/setting-final-reviews`
 - `GET /api/v1/v7/books/:bookId/setting-final-reviews/current`
 - `POST /api/v1/v7/books/:bookId/setting-final-reviews/:taskId/retry`
 - `POST /api/v1/v7/books/:bookId/setting-items/:itemKey/{redesigns|fusions|revisions|review-tasks|confirm}`
+- `GET /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/current`
+- `GET /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId`
+- `POST /api/v1/v7/books/:bookId/setting-items/:itemKey/redesigns/:taskId/retry`
+
+`fusions`、`revisions` 和 `review-tasks` 均返回持久化的设定批次，不在一次 HTTP 请求内等待模型完成；作者端通过 `GET setting-batches/:batchId` 恢复进度和结果。采用重新设计候选时，`review-tasks` 同时提交 `sourceRedesignTaskId + sourceOutputId`，服务端核对来源版本后才允许进入复审。
+
+设定批次在调用模型前校验会员与本书预算。会员未开通、到期、剩余算力不足或本书预算不足返回安全的 `403`，不得投影成成员请假或交接。若批次已有部分成功结果，这些结果保留；条件恢复后，`retry` 续跑持久化为“发送前安全失败”的未完成条目，也允许重新执行已明确失败、可安全复用同一任务合同的技术失败。输出结构已经明确失败、无法沿用原任务安全重试时，作者端可用新的幂等编号调用 `restart`，系统保留旧批次审计并只为仍无活动结果的条目建立新批次。已发送但结果未知的调用始终禁止盲目重试或重新发起，只允许刷新核对当前任务。所有异步任务都持有可续租的短租约，并在写入候选前再次核对租约和来源版本，避免超时任务覆盖作者后来的修改。
 
 ## 全书规划
 

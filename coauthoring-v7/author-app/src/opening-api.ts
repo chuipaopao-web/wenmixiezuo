@@ -370,11 +370,30 @@ export class AuthorApiError extends Error {
 
 const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN as string | undefined)?.replace(/\/$/u, '') ?? '';
 
+function boundedRequestSignal(parent: AbortSignal | null | undefined, timeoutMs: number): {
+  signal: AbortSignal; dispose: () => void;
+} {
+  const controller = new AbortController();
+  const abortFromParent = (): void => controller.abort(parent?.reason);
+  if (parent?.aborted === true) abortFromParent();
+  else parent?.addEventListener('abort', abortFromParent, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(new DOMException('请求超时', 'TimeoutError')), timeoutMs);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      window.clearTimeout(timeout);
+      parent?.removeEventListener('abort', abortFromParent);
+    }
+  };
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const bounded = boundedRequestSignal(init?.signal, 60_000);
   try {
     response = await fetch(`${API_ORIGIN}${path}`, {
       ...init,
+      signal: bounded.signal,
       credentials: 'include',
       headers: {
         'x-wenmi-author-projection': 'clean-v1',
@@ -384,6 +403,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     throw new AuthorApiError('暂时连接不上文秘写作，请检查网络后重试。', true);
+  } finally {
+    bounded.dispose();
   }
   const body = await response.json().catch(() => null) as {
     data?: T;
@@ -624,7 +645,7 @@ export interface SettingItemView {
 export interface SettingBatchView {
   batchId: string; status: 'queued' | 'working' | 'awaiting_author' | 'completed' | 'partially_failed';
   statusText: string; progress: { completed: number; total: number; percent: number };
-  members: SettingMemberView[]; items: SettingItemView[]; createdAt: string; updatedAt: string;
+  members: SettingMemberView[]; items: SettingItemView[]; retryable: boolean; restartable: boolean; createdAt: string; updatedAt: string;
 }
 export interface SettingFinalReviewView {
   taskId: string;
@@ -640,6 +661,7 @@ export interface SettingFinalReviewView {
     patchedItemKeys: string[];
   };
   retryable: boolean;
+  restartable: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -658,6 +680,7 @@ export interface SettingCatalogRecommendationView {
   attemptedMembers: Array<{ memberKey: string; displayName: string }>;
   result: { requiredKeys: string[]; suggestedKeys: string[]; excludedKeys: string[]; summary: string } | null;
   retryable: boolean;
+  restartable: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -676,6 +699,17 @@ interface SettingDepartmentWireView extends Omit<SettingDepartmentView, 'recomme
   finalReview?: SettingFinalReviewWireView | null;
 }
 export interface SettingRedesignCandidate { outputId: string; memberKey: string; proposal: { content: string; designRationale: string; storyConsequences: string[]; dependencies: string[]; risks: string[] }; }
+export interface SettingRedesignTaskView {
+  taskId: string;
+  status: 'queued' | 'working' | 'ready' | 'failed';
+  statusText: string;
+  progress: { completed: number; total: number; percent: number };
+  candidates: SettingRedesignCandidate[];
+  failedMemberKeys: string[];
+  retryable: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 function settingTaskId(value: { taskId?: string; recoveryKey?: string }): string {
   const taskId = typeof value.taskId === 'string' && value.taskId.length > 0
@@ -738,6 +772,11 @@ export function fetchSettingBatch(bookId: string, batchId: string, signal?: Abor
 export function retrySettingBatch(bookId: string, batchId: string): Promise<SettingBatchView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-batches/${encodeURIComponent(batchId)}/retry`, { method: 'POST', body: JSON.stringify({}) });
 }
+export function restartSettingBatch(bookId: string, batchId: string): Promise<SettingBatchView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-batches/${encodeURIComponent(batchId)}/restart`, {
+    method: 'POST', body: JSON.stringify({ idempotencyKey: newActionKey('setting-batch-restart') })
+  });
+}
 export function createSettingFinalReview(bookId: string): Promise<SettingFinalReviewView> {
   return request<SettingFinalReviewWireView>(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-final-reviews`, {
     method: 'POST', body: JSON.stringify({ idempotencyKey: newActionKey('setting-final-review') })
@@ -755,19 +794,35 @@ export function retrySettingFinalReview(bookId: string, taskId: string): Promise
 export function confirmSettingItem(bookId: string, itemKey: string, expectedRevision: number): Promise<SettingItemView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/confirm`, { method: 'POST', body: JSON.stringify({ expectedRevision }) });
 }
-export function reviseSettingItem(bookId: string, itemKey: string, content: string): Promise<SettingItemView> {
-  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/revisions`, { method: 'POST', body: JSON.stringify({ content, idempotencyKey: newActionKey('setting-revision') }) });
-}
-export function createSettingItemReviewTask(bookId: string, itemKey: string, input: { content?: string; instruction?: string }): Promise<SettingBatchView> {
+export function createSettingItemReviewTask(bookId: string, itemKey: string, input: {
+  content?: string; instruction?: string; sourceRedesignTaskId?: string; sourceOutputId?: string;
+}): Promise<SettingBatchView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/review-tasks`, {
     method: 'POST',
     body: JSON.stringify({ ...input, idempotencyKey: newActionKey('setting-review-task') })
   });
 }
-export function redesignSettingItem(bookId: string, itemKey: string, memberKeys: string[], authorNote: string): Promise<{ candidates: SettingRedesignCandidate[]; failedMemberKeys: string[] }> {
+export function reviseSettingItem(bookId: string, itemKey: string, content: string): Promise<SettingBatchView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/revisions`, {
+    method: 'POST',
+    body: JSON.stringify({ content, idempotencyKey: newActionKey('setting-author-revision') })
+  });
+}
+export function redesignSettingItem(bookId: string, itemKey: string, memberKeys: string[], authorNote: string): Promise<SettingRedesignTaskView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/redesigns`, { method: 'POST', body: JSON.stringify({ memberKeys, authorNote, idempotencyKey: newActionKey('setting-redesign') }) });
 }
-export function fuseSettingItem(bookId: string, itemKey: string, outputIds: string[], authorNote: string): Promise<SettingItemView> {
+export function fetchSettingRedesignTask(bookId: string, itemKey: string, taskId: string, signal?: AbortSignal): Promise<SettingRedesignTaskView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/redesigns/${encodeURIComponent(taskId)}`, signal === undefined ? undefined : { signal });
+}
+export function fetchCurrentSettingRedesignTask(bookId: string, itemKey: string, signal?: AbortSignal): Promise<SettingRedesignTaskView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/redesigns/current`, signal === undefined ? undefined : { signal });
+}
+export function retrySettingRedesignTask(bookId: string, itemKey: string, taskId: string): Promise<SettingRedesignTaskView> {
+  return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/redesigns/${encodeURIComponent(taskId)}/retry`, {
+    method: 'POST', body: JSON.stringify({})
+  });
+}
+export function fuseSettingItem(bookId: string, itemKey: string, outputIds: string[], authorNote: string): Promise<SettingBatchView> {
   return request(`/api/v1/v7/books/${encodeURIComponent(bookId)}/setting-items/${encodeURIComponent(itemKey)}/fusions`, { method: 'POST', body: JSON.stringify({ outputIds, authorNote, idempotencyKey: newActionKey('setting-fusion') }) });
 }
 

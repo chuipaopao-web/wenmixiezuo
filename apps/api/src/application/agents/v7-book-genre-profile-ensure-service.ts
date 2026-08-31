@@ -15,6 +15,7 @@ import {
   type V7TaskContract
 } from '@wenmi/v7-backend';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
+import { DomainError } from '../../domain/errors.js';
 import { V7AgentGovernanceRepository } from '../../infrastructure/db/repositories/v7-agent-governance-repository.js';
 import {
   V7SettingEditorialRepository,
@@ -50,7 +51,11 @@ type GenreProfileSources = Readonly<{
 }>;
 
 export class V7BookGenreProfileEnsureError extends Error {
-  public constructor(message: string, public readonly outcomeUnknown = false) {
+  public constructor(
+    message: string,
+    public readonly outcomeUnknown = false,
+    public readonly domainCode: string | null = null
+  ) {
     super(message);
     this.name = 'V7BookGenreProfileEnsureError';
   }
@@ -774,6 +779,9 @@ function runtimeSourcePrompt(content: Readonly<Record<string, unknown>>): string
 
 function ensureError(error: unknown): V7BookGenreProfileEnsureError {
   if (error instanceof V7BookGenreProfileEnsureError) return error;
+  if (error instanceof DomainError) {
+    return new V7BookGenreProfileEnsureError(error.message, false, error.code);
+  }
   if (error instanceof ModelAdapterError) {
     return new V7BookGenreProfileEnsureError(error.message, error.outcomeUnknown);
   }

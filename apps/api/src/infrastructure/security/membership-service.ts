@@ -169,7 +169,7 @@ export function assertMembershipAllowsGeneration(
   }
   if (reason === 'quota-exhausted') {
     throw new DomainError(errorCodes.membershipQuotaExhausted,
-      '召集AI团队需使用算力，会员算力值已用完，请联系管理员微信595341366续费。', { ...MEMBERSHIP_CONTACT }, false, 403);
+      '召集AI团队需使用算力，本期剩余算力值不足以继续这一步，请联系管理员微信595341366续费。', { ...MEMBERSHIP_CONTACT }, false, 403);
   }
   if (reason === 'membership-expired') {
     throw new DomainError(errorCodes.membershipExpired,
@@ -216,8 +216,9 @@ export class MembershipService {
       "SELECT * FROM user_memberships WHERE owner_id = ? AND status = 'active'"
     ).get(ownerId) as MembershipRow | undefined;
     if (row === undefined) return { isAdmin: false, membership: null };
-    const consumed = accountUsageTotals(this.database, { ownerId, since: row.period_start }).consumedTokens;
-    const computeConsumed = consumed * COMPUTE_VALUE_MULTIPLIER;
+    const usage = accountUsageTotals(this.database, { ownerId, since: row.period_start });
+    const computeConsumed = usage.consumedTokens * COMPUTE_VALUE_MULTIPLIER;
+    const computeCommitted = (usage.consumedTokens + usage.reservedTokens) * COMPUTE_VALUE_MULTIPLIER;
     const expired = row.period_end <= nowIso;
     return {
       isAdmin: false,
@@ -228,7 +229,9 @@ export class MembershipService {
         status: row.status,
         computeQuota: Number(row.token_quota),
         computeConsumed,
-        computeRemaining: Math.max(0, Number(row.token_quota) - computeConsumed),
+        // 正在执行的模型调用已经预占本期算力，不能仍显示为“可用”。完成后
+        // 预占会转成实际消耗，失败则释放，前端无需理解内部调用状态。
+        computeRemaining: Math.max(0, Number(row.token_quota) - computeCommitted),
         periodStart: row.period_start,
         periodEnd: row.period_end,
         expired

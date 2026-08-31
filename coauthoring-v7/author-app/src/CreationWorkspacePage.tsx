@@ -46,6 +46,7 @@ import {
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { canonicalMemberIdentityKey, publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
 import type { CreationScopeOverride } from './navigation';
+import { WorkflowActionDock } from './WorkflowActionDock';
 
 type Focus = 'volume' | 'chain' | 'chapter';
 type CreationWriteBack = Awaited<ReturnType<typeof fetchCreationWriteBack>>;
@@ -758,7 +759,17 @@ function TreeConfirmation({ title, tree, content, busy, onConfirm, footer }: {
   title: string; tree: PlanningTreeView | null; content: React.ReactNode; busy: boolean; onConfirm: () => void; footer: React.ReactNode;
 }): React.JSX.Element {
   if (tree === null) return <section className="creation-waiting"><CircleNotchIcon className="spin"/>正在找回{title}…</section>;
-  return <section className="creation-tree-panel"><div className="creation-compact-heading"><span><strong>{title}</strong><small>{tree.status === 'candidate' ? '确认后才会进入下一步。' : '已确认，可以继续。'}</small></span>{tree.status === 'candidate' ? <button className="creation-primary compact" type="button" disabled={busy} onClick={onConfirm}>确认采用</button> : <span className="creation-confirmed"><CheckCircleIcon />已确认</span>}</div>{content}{footer}</section>;
+  return <section className="creation-tree-panel">
+    <div className="creation-compact-heading"><span><strong>{title}</strong><small>{tree.status === 'candidate' ? '确认后才会进入下一步。' : '已确认，可以继续。'}</small></span>{tree.status === 'confirmed' && <span className="creation-confirmed"><CheckCircleIcon />已确认</span>}</div>
+    {content}
+    {footer}
+    {tree.status === 'candidate' && <WorkflowActionDock
+      mode="card"
+      title={`${title}草案已经完成`}
+      detail="确认后才会成为下一层设计的正式依据。"
+      primary={<button className="creation-primary" type="button" disabled={busy} onClick={onConfirm}>{busy ? '正在保存…' : '确认采用'}</button>}
+    />}
+  </section>;
 }
 
 function VolumePlanTree({ root }: { root: PlanningTreeNodeView }): React.JSX.Element {

@@ -14,7 +14,6 @@ import {
   createOpeningTask,
   fetchEditorialDepartment,
   fetchOpeningTask,
-  fetchOpeningTasks,
   fetchOpeningTaxonomy,
   newActionKey,
   reviseOpeningTask,
@@ -29,9 +28,11 @@ import {
 } from './opening-api';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { publicFailureCopy, publicStatusCopy, uniqueByMemberKey } from './author-projection';
+import { clearOpeningDraft, clearOpeningDraftForTask, openingDraftKey } from './opening-draft-storage';
+import { WorkflowActionDock } from './WorkflowActionDock';
 
-const DRAFT_KEY_PREFIX = 'wenmi-v7-opening-draft-v2';
 const DECISION_KEY_PREFIX = 'wenmi-v7-opening-decisions-v2';
+const OPENING_RECOVERY_TIMEOUT_MS = 15_000;
 
 interface OpeningDraftSnapshot {
   idea: string;
@@ -43,10 +44,6 @@ interface OpeningDraftSnapshot {
   adjustmentNote: string;
   selectedDesignerMemberKey: string;
   manualStep: 1 | 2;
-}
-
-function openingDraftKey(userId: string, entryMode: 'ai' | 'manual'): string {
-  return `${DRAFT_KEY_PREFIX}:${encodeURIComponent(userId)}:${entryMode}`;
 }
 
 function openingDecisionKey(userId: string, taskId: string, candidateId: string): string {
@@ -109,6 +106,9 @@ function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftS
         ? { ...restored, taskId: requestedTaskId, mode: 'ai' }
         : { ...emptySnapshot(entryMode), taskId: requestedTaskId, mode: 'ai' };
     }
+    if (parsed?.mode === 'manual') {
+      return { ...restored, taskId: null, mode: 'manual' };
+    }
     if (parsed?.mode === 'ai' && typeof parsed.taskId === 'string' && parsed.taskId.trim().length > 0) {
       return { ...restored, taskId: parsed.taskId, mode: 'ai' };
     }
@@ -149,9 +149,13 @@ function latestCandidate<T>(task: OpeningTaskView | null, kind: OpeningCandidate
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof AuthorApiError && error.status === 401
-    ? '对不起，登录状态已经失效，请重新登录后继续。'
-    : '对不起，这次操作没有完成，请稍后重试。';
+  if (error instanceof AuthorApiError && error.status === 401) {
+    return '对不起，登录状态已经失效，请重新登录后继续。';
+  }
+  if (error instanceof AuthorApiError && error.status >= 400 && error.status < 500) {
+    return publicStatusCopy(error.message, '对不起，这次操作没有完成，请检查当前条件后再试。');
+  }
+  return '对不起，这次操作没有完成，请稍后重试。';
 }
 
 function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
@@ -210,15 +214,12 @@ function reviewDecisions(review: OpeningReview | null): ReviewDecisionView[] {
   }));
 }
 
-function ReviewPanel({ review, memberName, resolutions, onResolve, onAcceptAll, onSubmit, submitDisabled, submitLabel }: {
+function ReviewPanel({ review, memberName, resolutions, onResolve, onAcceptAll }: {
   review: OpeningReview | null;
   memberName: string | null;
   resolutions: Record<string, OpeningDecisionResolution>;
   onResolve: (decisionId: string, resolution: OpeningDecisionResolution | null) => void;
   onAcceptAll: (decisions: ReviewDecisionView[]) => void;
-  onSubmit: () => void;
-  submitDisabled: boolean;
-  submitLabel: string;
 }): React.JSX.Element | null {
   if (review === null) return null;
   const decisions = reviewDecisions(review);
@@ -245,7 +246,7 @@ function ReviewPanel({ review, memberName, resolutions, onResolve, onAcceptAll, 
             {selected?.action === 'custom' && <label className="decision-custom"><span>写下您的方案</span><ImeTextarea rows={3} maxChars={800} value={selected.customValue ?? ''} onChange={(customValue) => onResolve(item.decisionId, { ...selected, customValue })} placeholder="只写这一项希望怎样调整"/><small>{Array.from(selected.customValue ?? '').length}/800</small></label>}
             {selected !== undefined && <p className="decision-action-status" role="status">{selected.action === 'accept' ? '已选择采纳，尚未提交给主编。' : selected.action === 'reject' ? '已选择暂不采纳，尚未提交给主编。' : (selected.customValue?.trim().length ?? 0) > 0 ? '您的修改方案已保存，尚未提交给主编。' : '请写下修改方案，再交给主编更新。'}</p>}
           </article>;
-        })}</div><footer className="review-decision-submit"><span role="status">已处理 {resolvedCount}/{decisions.length} 项</span><button className="primary-action" type="button" disabled={submitDisabled} onClick={onSubmit}>{submitLabel}</button></footer></section>}
+        })}</div><footer className="review-decision-submit"><span role="status"><strong>已处理 {resolvedCount}/{decisions.length} 项</strong><small>请在页面底部提交给主编。</small></span></footer></section>}
         {review.requiredChanges.length > 0 && <div><strong>需要调整</strong><ul>{review.requiredChanges.map((item) => <li key={item}>{authorFacingReviewText(item)}</li>)}</ul></div>}
         {review.issues.length > 0 && <div className="review-issue-list"><strong>具体问题</strong>{review.issues.map((item, index) => <article key={`${item.field}-${index}`}><strong>{reviewFieldLabel(item.field)}</strong><p>{authorFacingReviewText(item.requiredAction)}</p></article>)}</div>}
       </div>
@@ -324,9 +325,14 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manualStep, setManualStep] = useState<1 | 2>(initial.manualStep);
-  const [historyChecked, setHistoryChecked] = useState(entryMode === 'manual' || initial.taskId !== null);
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
   const loadedCandidateRef = useRef<string | null>(initial.baseCandidateId);
   const openingSubmitRef = useRef(false);
+  const onCreatedRef = useRef(onCreated);
+
+  useEffect(() => { onCreatedRef.current = onCreated; }, [onCreated]);
 
   const handleRequestFailure = useCallback((reason: unknown, showError = true): boolean => {
     if (reason instanceof AuthorApiError && reason.status === 401) {
@@ -373,44 +379,68 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     }
   }, [adjustmentNote, baseCandidateId, draftStorageKey, idea, manualStep, mode, openingPackage, publishingPlatform, selectedDesignerMemberKey, taskId]);
 
-  useEffect(() => {
-    if (entryMode !== 'ai' || taskId !== null || historyChecked) return;
-    const controller = new AbortController();
-    void fetchOpeningTasks(controller.signal).then((items) => {
-      if (controller.signal.aborted) return;
-      const recoverable = items.find((item) => item.resultBookId === null && (
-        item.isRunning
-        || item.status === 'awaiting_author_confirmation'
-        || item.status === 'awaiting_author_decision'
-      ));
-      if (recoverable !== undefined) {
-        setIdea(recoverable.idea);
-        setTask(recoverable);
-        setPublishingPlatform(recoverable.publishingPlatform);
-        setTaskId(recoverable.taskId);
-        setMode('ai');
-      }
-      setHistoryChecked(true);
-    }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) {
-        setHistoryChecked(true);
-        handleRequestFailure(reason);
-      }
-    });
-    return () => controller.abort();
-  }, [entryMode, handleRequestFailure, historyChecked, taskId]);
+  const removeTaskFromLocation = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('taskId');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const writeTaskToLocation = useCallback((nextTaskId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'new-novel');
+    url.searchParams.set('entry', 'ai');
+    url.searchParams.set('taskId', nextTaskId);
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const startFreshIdea = useCallback(() => {
+    if (taskId !== null) clearOpeningDraftForTask(account.userId, taskId);
+    else clearOpeningDraft(account.userId, 'ai');
+    removeTaskFromLocation();
+    loadedCandidateRef.current = null;
+    setIdea('');
+    setMode('idea');
+    setTaskId(null);
+    setTask(null);
+    setOpeningPackage(null);
+    setBaseCandidateId(null);
+    setAdjustmentNote('');
+    setSelectedDesignerMemberKey('');
+    setDecisionResolutions({});
+    setManualStep(1);
+    setError(null);
+    setRecoveryError(null);
+    setResetConfirmationOpen(false);
+  }, [account.userId, removeTaskFromLocation, taskId]);
 
   useEffect(() => {
     if (taskId === null || mode !== 'ai') return;
     let stopped = false;
     let timer = 0;
+    const controller = new AbortController();
     const refresh = async () => {
+      const requestController = new AbortController();
+      const abortRequest = () => requestController.abort(controller.signal.reason);
+      controller.signal.addEventListener('abort', abortRequest, { once: true });
+      const requestTimeout = window.setTimeout(() => {
+        requestController.abort(new DOMException('找回工作记录超时', 'TimeoutError'));
+      }, OPENING_RECOVERY_TIMEOUT_MS);
       try {
-        const value = await fetchOpeningTask(taskId);
+        const value = await fetchOpeningTask(taskId, requestController.signal);
         if (stopped) return;
+        if (value.status === 'archived') {
+          startFreshIdea();
+          return;
+        }
+        if (value.resultBookId !== null) {
+          clearOpeningDraftForTask(account.userId, taskId);
+          onCreatedRef.current(value.resultBookId);
+          return;
+        }
+        setIdea(value.idea);
         setTask(value);
         setPublishingPlatform(value.publishingPlatform);
-        setError(null);
+        setRecoveryError(null);
         if (value.isRunning) timer = window.setTimeout(refresh, 1_200);
       } catch (reason) {
         if (stopped) return;
@@ -422,15 +452,21 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
           setBaseCandidateId(null);
           loadedCandidateRef.current = null;
           setError(null);
-          setHistoryChecked(false);
+          setRecoveryError(null);
+          clearOpeningDraftForTask(account.userId, taskId);
+          removeTaskFromLocation();
           return;
         }
-        if (!handleRequestFailure(reason)) timer = window.setTimeout(refresh, 3_000);
+        if (handleRequestFailure(reason, false)) return;
+        setRecoveryError(errorMessage(reason));
+      } finally {
+        window.clearTimeout(requestTimeout);
+        controller.signal.removeEventListener('abort', abortRequest);
       }
     };
     void refresh();
-    return () => { stopped = true; window.clearTimeout(timer); };
-  }, [handleRequestFailure, mode, taskId]);
+    return () => { stopped = true; controller.abort(); window.clearTimeout(timer); };
+  }, [account.userId, handleRequestFailure, mode, recoveryAttempt, removeTaskFromLocation, startFreshIdea, taskId]);
 
   useEffect(() => {
     const candidate = latestCandidate<OpeningPackage>(task, 'opening_package');
@@ -514,9 +550,9 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       setTask(next);
       setIdea(next.idea || idea.trim());
       setTaskId(next.taskId);
+      writeTaskToLocation(next.taskId);
       setMode('ai');
       setPublishingPlatform(next.publishingPlatform);
-      setHistoryChecked(true);
       setOpeningPackage(null);
       setBaseCandidateId(null);
     } catch (reason) {
@@ -532,7 +568,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
     setBusy(true);
     setError(null);
     try {
-      await abandonOpeningTask(taskId);
+      const previousTaskId = taskId;
       const next = await createOpeningTask(
         idea.trim(),
         'fanqie',
@@ -541,11 +577,19 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       );
       loadedCandidateRef.current = null;
       setTask(next);
+      setIdea(next.idea || idea.trim());
       setTaskId(next.taskId);
+      writeTaskToLocation(next.taskId);
       setMode('ai');
       setOpeningPackage(null);
       setBaseCandidateId(null);
       setDecisionResolutions({});
+      setError(null);
+      // 新任务已经成功创建时必须立即切换页面；旧任务归档只是清理动作，
+      // 网络变慢不能再次把作者锁在“正在重新安排”。
+      void abandonOpeningTask(previousTaskId).catch(() => {
+        setError('新方案已经开始，但上一轮任务暂时没有归档；它不会覆盖新方案。');
+      });
     } catch (reason) {
       handleRequestFailure(reason);
     } finally {
@@ -555,6 +599,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
 
   const startManual = () => {
     if (ideaLength < 4 || ideaLength > 2_000) return;
+    removeTaskFromLocation();
     setMode('manual');
     setTaskId(null);
     setTask(null);
@@ -607,52 +652,59 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
   };
 
   const restart = () => {
-    if (!window.confirm('重新开始会清空当前页面草稿；已经保存的历史版本不会被删除。确定继续吗？')) return;
-    localStorage.removeItem(draftStorageKey);
-    loadedCandidateRef.current = null;
-    setIdea('');
-    setMode(entryMode === 'manual' ? 'manual' : 'idea');
-    setTaskId(null);
-    setTask(null);
-    setOpeningPackage(entryMode === 'manual' ? emptyOpeningPackage() : null);
-    setManualStep(1);
-    setBaseCandidateId(null);
-    setAdjustmentNote('');
-    setSelectedDesignerMemberKey('');
-    setDecisionResolutions({});
-    setError(null);
-    setHistoryChecked(true);
+    if (entryMode === 'ai') startFreshIdea();
+    else {
+      clearOpeningDraft(account.userId, 'manual');
+      loadedCandidateRef.current = null;
+      setIdea('');
+      setMode('manual');
+      setTaskId(null);
+      setTask(null);
+      setOpeningPackage(emptyOpeningPackage());
+      setManualStep(1);
+      setBaseCandidateId(null);
+      setAdjustmentNote('');
+      setSelectedDesignerMemberKey('');
+      setDecisionResolutions({});
+      setError(null);
+      setResetConfirmationOpen(false);
+    }
   };
 
-  if (!historyChecked || (mode === 'ai' && task === null)) {
-    return <section className="novel-create-surface" aria-label="恢复开书任务"><div className="inline-task-recovery" role="status">编辑部正在找回您之前的工作记录…</div></section>;
+  if (mode === 'ai' && taskId !== null && recoveryError !== null) {
+    return <section className="novel-create-surface" aria-label="恢复开书任务"><div className="failure-card compact-failure-card" role="alert">
+      <WarningCircleIcon /><p className="eyebrow">恢复没有完成</p><h2>对不起，这次没有找回工作记录</h2><p>{recoveryError}</p>
+    </div><WorkflowActionDock
+      title="选择如何继续"
+      detail="重新连接不会重复创建任务；也可以放弃这份本地草稿，直接写新想法。"
+      primary={<button className="primary-action" type="button" onClick={() => { setTask(null); setRecoveryError(null); setRecoveryAttempt((current) => current + 1); }}>重新连接</button>}
+      secondary={<><button className="secondary-action" type="button" onClick={startFreshIdea}>重新填写想法</button><button className="secondary-action" type="button" onClick={onBack}>返回首页</button></>}
+    /></section>;
+  }
+
+  if (mode === 'ai' && taskId !== null && task === null) {
+    return <section className="novel-create-surface" aria-label="恢复开书任务"><div className="inline-task-recovery" role="status">编辑部正在找回您之前的工作记录…</div><WorkflowActionDock
+      title="找回记录时也能继续"
+      detail="超过15秒会明确提示恢复失败，不再一直白屏等待。"
+      primary={<button className="primary-action" type="button" onClick={startFreshIdea}>直接开始新书</button>}
+      secondary={<button className="secondary-action" type="button" onClick={onBack}>返回首页</button>}
+    /></section>;
   }
 
   if (mode === 'ai' && task?.retired === true) {
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">本轮未完成</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>对不起，这项未完成任务已经停止，请按当前流程重新开始。</p>
-      <div className="design-actions"><button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}</div>
-      <button className="restart-button" type="button" disabled={busy} onClick={restart}>重新填写想法</button>
-    </div></section>;
+    </div><WorkflowActionDock title="继续这本书" detail="历史结果已安全保留。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>} secondary={<>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'ai' && task !== null && task.isRunning) {
     return <section className="novel-create-surface" aria-label="开书设计进度"><WorkStatus task={task} /></section>;
   }
 
-  if (mode === 'ai' && task?.status === 'archived') {
-    return <section className="novel-create-surface" aria-label="已放弃的开书任务"><div className="failure-card compact-failure-card">
-      <p className="eyebrow">这项任务已放弃</p><h2>历史资料已经安全保留</h2><p>它不会再阻塞新建书籍。您可以返回首页重新开始。</p>
-      <button className="primary-action" type="button" onClick={onBack}>返回首页</button>
-    </div></section>;
-  }
-
   if (mode === 'ai' && task !== null && (task.status === 'failed' || task.status === 'interrupted')) {
     return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
       <WarningCircleIcon /><p className="eyebrow">{task.status === 'interrupted' ? '本轮连接结果未知' : '本轮未完成'}</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>{publicFailureCopy(task.errorMessage)}</p>
-      <div className="design-actions"><button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}</div>
-      <button className="restart-button" type="button" disabled={busy} onClick={restart}>重新填写想法</button>
-    </div></section>;
+    </div><WorkflowActionDock title="选择恢复方式" detail="重试只会创建新一轮任务，不会覆盖旧结果。" primary={<button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '重新交给创作团队'}</button>} secondary={<>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}<button className="secondary-action" type="button" disabled={busy} onClick={startFreshIdea}>重新填写想法</button></>} /></section>;
   }
 
   if (mode === 'idea') {
@@ -661,16 +713,15 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       .filter((member) => member.presence !== 'leave') ?? [];
     return (
       <section className="novel-create-surface" aria-label="填写开书想法">
-        <div className="page-utility-row"><button className="back-button" type="button" onClick={onBack}>返回创作类型</button></div>
         <div className="idea-card">
           <div className="idea-card-heading"><div><span className="step-number">01</span><h3>开书想法</h3></div></div>
           <label htmlFor="opening-idea">说说您想写什么</label>
           <ImeTextarea id="opening-idea" maxChars={2_000} value={idea} onChange={(next) => { setIdea(next); setError(null); }} placeholder="例如：张三穿越到三国成为一名小卒，想靠现代知识活下来，并在乱世中建立自己的班底……" rows={8} />
           <div className="idea-meta"><span>4至2000字</span><output>{ideaLength}/2000</output></div>
           {designMembers.length > 0 && <details className="opening-member-choice"><summary>选择开书设计成员（可不选）</summary><label><span>不选择时由编辑部自动安排；完成后会交给另一名强模型主编独立审查。</span><select value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">编辑部自动安排</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select></label></details>}
-          <div className="design-actions single-action"><button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button></div>
           {error !== null && <div className="error-notice" role="alert">{error}</div>}
         </div>
+        <WorkflowActionDock title="让编辑部开始设计" detail="想法至少4字，最多2000字。" primary={<button className="primary-action" type="button" disabled={ideaLength < 4 || busy} onClick={() => void startAi()}><UsersThreeIcon />{busy ? '正在提交…' : '开始设计'}</button>} secondary={<button className="secondary-action" type="button" onClick={onBack}>返回创作类型</button>} />
       </section>
     );
   }
@@ -681,10 +732,10 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
       .filter((member) => member.presence !== 'leave') ?? [];
     const currentErrors = manualStep === 1 ? manualValidation.stepOne : manualValidation.stepTwo;
     const needsReview = mode === 'ai' && (dirty || hasDecisionUpdates || review?.verdict !== 'pass' || task?.needsAuthorDecision === true);
+    const reviewNeedsImmediateAction = needsReview && (review?.verdict !== 'pass' || task?.needsAuthorDecision === true || manualStep === 2);
     const canSubmitRevision = !busy && !invalidCustomDecision && unresolvedRequiredDecisions.length === 0 && (dirty || hasDecisionUpdates);
     return (
       <section className="package-create-surface manual-create-surface" aria-label={mode === 'ai' ? '确认开书资料' : '自己设计开书资料'}>
-        <div className="page-utility-row"><button className="back-button" type="button" onClick={onBack}>返回首页</button><button className="restart-button" type="button" onClick={restart}>清空重填</button></div>
         {mode === 'ai' && <ReviewPanel review={review} memberName={task?.selectedMembers.chiefEditor?.displayName ?? null} resolutions={decisionResolutions} onResolve={(decisionId, resolution) => setDecisionResolutions((current) => {
           if (resolution === null) {
             const next = { ...current };
@@ -695,28 +746,38 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         })} onAcceptAll={(decisions) => setDecisionResolutions((current) => ({
           ...current,
           ...Object.fromEntries(decisions.map((item) => [item.decisionId, { decisionId: item.decisionId, action: 'accept' as const }]))
-        }))} onSubmit={() => void submitRevision()} submitDisabled={!canSubmitRevision} submitLabel={busy ? '主编正在更新…' : unresolvedRequiredDecisions.length > 0 ? `还需决定 ${unresolvedRequiredDecisions.length} 项` : invalidCustomDecision ? '请填写修改方案' : '请主编按选择更新资料'} />}
+        }))} />}
         <ManualOpeningForm value={openingPackage} taxonomy={taxonomy} onChange={setOpeningPackage} step={manualStep} onStepChange={setManualStep} />
-        {mode === 'ai' && designMembers.length > 0 && <details className="opening-redesign-choice"><summary>换成员重新设计整份开书资料</summary><div><select aria-label="重新设计成员" value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">请选择成员</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select><button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button></div><p>当前方案会移入任务记录，不会污染新方案；新方案仍由不同底模的主编审查。</p></details>}
-        <section className="confirmation-dock manual-confirmation-dock" aria-label="开书确认">
-          <div>
-            {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>给主编的开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><output>{Array.from(adjustmentNote).length}/2000</output></label>}
-            {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}
-            {error !== null && <div className="error-notice" role="alert">{error}</div>}
-          </div>
-          <div className="dock-actions">
-            {manualStep === 2 && <button className="secondary-action" type="button" disabled={busy} onClick={() => setManualStep(1)}>上一步</button>}
-            {manualStep === 1
-              ? <button className="primary-action" type="button" disabled={manualValidation.stepOne.length > 0} onClick={() => setManualStep(2)}>下一步</button>
-              : needsReview
-                ? <button className="primary-action" type="button" disabled={!canSubmitRevision} onClick={() => void submitRevision()}>{busy ? '正在提交…' : unresolvedRequiredDecisions.length > 0 ? `还需决定 ${unresolvedRequiredDecisions.length} 项` : invalidCustomDecision ? '请填写您的方案' : '请主编按选择更新资料'}</button>
+        {mode === 'ai' && designMembers.length > 0 && <details className="opening-redesign-choice"><summary>换成员重新设计整份开书资料</summary><div><select aria-label="重新设计成员" value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">请选择成员</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select></div><p>当前方案会移入任务记录，不会污染新方案；新方案仍由不同底模的主编审查。</p><WorkflowActionDock mode="card" ariaLabel="整份开书资料重新设计" title="已选成员后" primary={<button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button>} /></details>}
+        {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>给主编的开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><output>{Array.from(adjustmentNote).length}/2000</output></label>}
+        {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}
+        {error !== null && <div className="error-notice" role="alert">{error}</div>}
+        {resetConfirmationOpen && <div className="error-notice" role="alert">当前页未提交的修改会被清空；已保存的历史版本不会删除。</div>}
+        <WorkflowActionDock
+          title={resetConfirmationOpen ? '确认清空当前草稿' : reviewNeedsImmediateAction ? '把选择交给主编' : manualStep === 1 ? '完成本页后继续' : '创建书籍'}
+          detail={resetConfirmationOpen ? '这里只清空未提交草稿。' : currentErrors.length > 0 ? `还需完成 ${currentErrors.length} 项` : '当前资料已自动保存。'}
+          primary={resetConfirmationOpen
+            ? <button className="primary-action" type="button" disabled={busy} onClick={restart}>确认清空重填</button>
+            : reviewNeedsImmediateAction
+              ? <button className="primary-action" type="button" disabled={!canSubmitRevision} onClick={() => void submitRevision()}>{busy ? '正在提交…' : unresolvedRequiredDecisions.length > 0 ? `还需决定 ${unresolvedRequiredDecisions.length} 项` : invalidCustomDecision ? '请填写修改方案' : '请主编按选择更新资料'}</button>
+              : manualStep === 1
+                ? <button className="primary-action" type="button" disabled={manualValidation.stepOne.length > 0} onClick={() => setManualStep(2)}>下一步</button>
                 : <button className="primary-action" type="button" disabled={!canConfirm} onClick={() => void confirm()}>{busy ? '正在创建…' : '确认开书资料，创建书籍'}</button>}
-            <button className="secondary-action" type="button" disabled={busy} onClick={onBack}>暂存并离开</button>
-          </div>
-        </section>
+          secondary={resetConfirmationOpen
+            ? <button className="secondary-action" type="button" onClick={() => setResetConfirmationOpen(false)}>继续编辑</button>
+            : <>{manualStep === 2 && <button className="secondary-action" type="button" disabled={busy} onClick={() => setManualStep(1)}>上一步</button>}<button className="secondary-action" type="button" disabled={busy} onClick={onBack}>暂存并离开</button><button className="secondary-action" type="button" disabled={busy} onClick={() => setResetConfirmationOpen(true)}>清空重填</button></>}
+          ariaLabel="开书确认"
+        />
       </section>
     );
   }
 
-  return <section className="novel-create-surface" aria-label="开书资料加载"><div className="inline-task-recovery" role="status">正在准备开书资料…</div></section>;
+  return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card" role="alert">
+    <WarningCircleIcon /><p className="eyebrow">本轮没有返回资料</p><h2>对不起，这次开书设计没有完成</h2><p>已保留您的开书想法，可以重新连接核对这轮任务，也可以直接重新开始。</p>
+  </div><WorkflowActionDock
+    title="选择恢复方式"
+    detail="重新连接只会查询原任务，不会重复下单。"
+    primary={<button className="primary-action" type="button" onClick={() => { setTask(null); setRecoveryAttempt((current) => current + 1); }}>重新连接</button>}
+    secondary={<><button className="secondary-action" type="button" onClick={startFreshIdea}>重新填写想法</button><button className="secondary-action" type="button" onClick={onBack}>返回首页</button></>}
+  /></section>;
 }

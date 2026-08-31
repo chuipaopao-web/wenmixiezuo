@@ -5,6 +5,7 @@ import { openingProfileCharacters, openingProfileRows, uniqueNonEmpty } from './
 import { NamingWorkspace } from './NamingWorkspace';
 import { fetchBookProfile, updateBookProfile, type BookProfile } from './opening-api';
 import { SettingPage } from './SettingPage';
+import { WorkflowActionDock } from './WorkflowActionDock';
 
 export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'profile' }: {
   bookId: string;
@@ -49,7 +50,7 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
         <div className="information-profile" aria-labelledby="information-title">
           <header className="information-heading">
             <div><p className="eyebrow">开书信息 · 已确认</p><h2 id="information-title">{profile.title}</h2><p>{profile.channel} · {profile.category}</p></div>
-            <div className="profile-heading-actions"><span className="confirmed-badge"><CheckCircleIcon />作者已确认</span><button type="button" className="title-design-action" onClick={() => setTitleOpen(true)}><MagicWandIcon />设计书名</button><button type="button" className="cover-design-action" onClick={() => setCoverOpen(true)}><MagicWandIcon />设计封面</button><button type="button" className="profile-edit-action" onClick={() => setProfileOpen(true)}><PencilSimpleIcon />修改开书资料</button></div>
+            <div className="profile-heading-actions"><span className="confirmed-badge"><CheckCircleIcon />作者已确认</span></div>
           </header>
           <div className="information-tags"><TagIcon />{uniqueNonEmpty([...profile.subjects, ...profile.mainTags, ...(profile.customTags ?? [])]).map((tag) => <span key={tag}>{tag}</span>)}</div>
           {profile.openingBlueprint.openingIdea?.trim() && <section className="profile-opening-idea"><small>最初的开书想法</small><p>{profile.openingBlueprint.openingIdea.trim()}</p></section>}
@@ -63,7 +64,16 @@ export function InformationPage({ bookId, onOpenTimeMachine, initialSection = 'p
             </article>)}</div>
           </section>
           <dl className="profile-detail-list">{openingProfileRows(profile).filter((row) => row.label !== '时代与世界').map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
-          <div className="next-step-note"><strong>开书资料已经成为正式上游。</strong><span>下一步进入设定，由编辑部按本书资料完成设计。</span></div>
+          <WorkflowActionDock
+            title="开书资料已经成为正式上游"
+            detail="下一步进入设定；书名、封面和资料需要调整时，也可以从这里修改。"
+            secondary={<>
+              <button type="button" className="secondary-action" onClick={() => setTitleOpen(true)}><MagicWandIcon />设计书名</button>
+              <button type="button" className="secondary-action" onClick={() => setCoverOpen(true)}><MagicWandIcon />设计封面</button>
+              <button type="button" className="secondary-action" onClick={() => setProfileOpen(true)}><PencilSimpleIcon />修改开书资料</button>
+            </>}
+            primary={<button type="button" className="primary-action" onClick={() => setSection('setting')}><SlidersHorizontalIcon />进入设定</button>}
+          />
         </div>
       )}
       {profileOpen && profile !== null && <BookProfileEditDialog profile={profile} onClose={() => setProfileOpen(false)} onSave={async (title, openingBlueprint) => {

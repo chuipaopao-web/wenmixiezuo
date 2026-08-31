@@ -35,6 +35,7 @@ import {
 } from './opening-api';
 import { memberAvatarPosition, memberDisplayName } from './member-avatars';
 import { publicFailureCopy, publicRoleLabel, publicStatusCopy, uniqueByMemberKey } from './author-projection';
+import { WorkflowActionDock } from './WorkflowActionDock';
 
 type DecisionMode = 'select' | 'adjust' | 'merge';
 
@@ -391,7 +392,12 @@ function PlanningStart({ members, authorGoal, candidateCount, memberKeys, busy, 
     <div className="planning-route-count" role="group" aria-label="全书路线数量">{([1, 2, 3] as const).map((count) => <button key={count} type="button" aria-pressed={candidateCount === count} onClick={() => onCount(count)}>{count}套</button>)}</div>
     <details className="planning-member-choice"><summary>选择本轮主编（可不选）<CaretDownIcon /></summary>{Array.from({ length: candidateCount }, (_, index) => <label key={index}><span>路线{['一', '二', '三'][index]}主编</span><select value={memberKeys[index] ?? ''} onChange={(event) => onMember(index, event.target.value)}><option value="">编辑部自动安排</option>{chiefs.filter((member) => !memberKeys.some((selected, selectedIndex) => selectedIndex !== index && selected === member.memberKey)).map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole ? '（推荐）' : ''}</option>)}</select></label>)}</details>
     <label><span>还有特别想法可以补充（可不填）</span><textarea value={authorGoal} maxLength={2000} onChange={(event) => onGoal(event.target.value)} placeholder="例如：前期重点写小人物求生，中后期再扩大到天下格局。" /></label>
-    <button type="button" className="planning-primary" disabled={busy} onClick={onStart}>{busy ? '正在建立任务…' : '开始规划全书'}</button>
+    <WorkflowActionDock
+      mode="card"
+      title={`准备生成 ${candidateCount} 套全书方向`}
+      detail="任务创建后会自动保存进度，离开页面也可以继续。"
+      primary={<button type="button" className="planning-primary" disabled={busy} onClick={onStart}>{busy ? '正在建立任务…' : '开始规划全书'}</button>}
+    />
   </section>;
 }
 
@@ -463,7 +469,12 @@ function TreeGenerationStart({ members, selectedMemberKey, busy, onMember, onSta
     <div><strong>全书方向已经确认</strong><p>资料策划会按这一步重新整理所需资料，再把方向展开成可逐卷查看的正式框架。</p></div>
     <PlanningMemberFaces members={writers} />
     {writers.length > 1 && <label><span>选择规划编剧（可不选）</span><select value={selectedMemberKey} onChange={(event) => onMember(event.target.value)}><option value="">编辑部自动安排</option>{writers.map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole ? '（推荐）' : ''}</option>)}</select></label>}
-    <button type="button" className="planning-primary" disabled={busy} onClick={onStart}>{busy ? '正在建立任务…' : '生成正式框架'}</button>
+    <WorkflowActionDock
+      mode="card"
+      title="全书方向已经确认"
+      detail="下一步把方向展开成可逐卷查看的正式框架。"
+      primary={<button type="button" className="planning-primary" disabled={busy} onClick={onStart}>{busy ? '正在建立任务…' : '生成正式框架'}</button>}
+    />
   </section>;
 }
 
@@ -477,9 +488,13 @@ function PlanningRecovery({ message, busy, onRetry, onReturnDirection, onOpenSet
 }): React.JSX.Element {
   return <section className="planning-recovery-card">
     <p>{publicFailureCopy(message)}</p>
-    <button type="button" className="planning-primary" disabled={busy} onClick={onRetry}>{busy ? '正在处理…' : action}</button>
-    <button type="button" className="planning-secondary" disabled={busy} onClick={onReturnDirection}>返回全书方向</button>
-    {onOpenSettings !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onOpenSettings}>返回设定修改</button>}
+    <WorkflowActionDock
+      mode="card"
+      title="已经完成的内容会保留"
+      detail="可以继续当前步骤，也可以返回上游调整后重新开始。"
+      secondary={<><button type="button" className="planning-secondary" disabled={busy} onClick={onReturnDirection}>返回全书方向</button>{onOpenSettings !== undefined && <button type="button" className="planning-secondary" disabled={busy} onClick={onOpenSettings}>返回设定修改</button>}</>}
+      primary={<button type="button" className="planning-primary" disabled={busy} onClick={onRetry}>{busy ? '正在处理…' : action}</button>}
+    />
   </section>;
 }
 
@@ -505,7 +520,12 @@ function RouteChoicePanel({ run, mode, selectedRouteIds, authorNote, members, tr
     />)}</div>
     {mode !== 'select' && <label className="route-author-note"><span>{mode === 'merge' ? '告诉主编，您想分别保留什么' : '告诉主编，您想怎么改'}</span><textarea value={authorNote} maxLength={2000} onChange={(event) => onNote(event.target.value)} placeholder="例如：保留第一套的小人物成长，但结局不要称帝；把第二套的家国情感融进来。" /></label>}
     {writers.length > 1 && <details className="route-tree-member"><summary>选择展开正式框架的编剧（可不选）<CaretDownIcon /></summary><PlanningMemberFaces members={writers}/><select value={treeMemberKey} onChange={(event) => onTreeMember(event.target.value)}><option value="">编辑部自动安排</option>{writers.map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole ? '（推荐）' : ''}</option>)}</select></details>}
-    <div className="route-choice-actions">{run.routes.length < (run.expectedRoutes ?? run.routes.length) && <button type="button" className="planning-secondary" disabled={busy} onClick={onRetryMissing}>只补未完成路线</button>}<button type="button" className="planning-primary route-submit" disabled={busy} onClick={onSubmit}>{busy ? '主编正在整理…' : mode === 'select' ? '采用所选路线' : mode === 'adjust' ? '按我的想法整理' : '融合所选路线'}</button></div>
+    <WorkflowActionDock
+      title={mode === 'select' ? '确认本书采用的全书路线' : mode === 'adjust' ? '把您的想法交给主编整理' : '把所选路线融合成一个方向'}
+      detail="确认后会继续生成正式框架；已经完成的路线会保留。"
+      secondary={run.routes.length < (run.expectedRoutes ?? run.routes.length) ? <button type="button" className="planning-secondary" disabled={busy} onClick={onRetryMissing}>只补未完成路线</button> : undefined}
+      primary={<button type="button" className="planning-primary" disabled={busy} onClick={onSubmit}>{busy ? '主编正在整理…' : mode === 'select' ? '采用所选路线' : mode === 'adjust' ? '按我的想法整理' : '融合所选路线'}</button>}
+    />
   </section>;
 }
 
@@ -566,7 +586,7 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
       summary={editorialSummary}
       open={editorialOpen || tree.status === 'candidate'}
     >
-      {tree.status === 'candidate' && <div className="tree-candidate-bar"><span><strong>正式框架已经生成</strong><small>现在还是草案，确认后才会成为后续分卷的方向依据。</small></span><button type="button" className="planning-primary" disabled={busy} onClick={onConfirm}>{busy ? '正在保存…' : '确认采用框架'}</button></div>}
+      {tree.status === 'candidate' && <div className="tree-candidate-bar"><span><strong>正式框架已经生成</strong><small>现在还是草案，确认后才会成为后续分卷的方向依据。</small></span></div>}
       {editorialContent ?? <div className="time-machine-editorial-summary">
         <div className="time-machine-editorial-person">
           {activeMemberKey === undefined
@@ -624,6 +644,11 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
     >
       <StoryDynamicsPlaceholder volumes={tree.root.children} />
     </TimeMachineGroup>
+    {tree.status === 'candidate' && editorialContent === null && <WorkflowActionDock
+      title="正式框架草案已经完成"
+      detail="确认后才会成为后续分卷的方向依据。"
+      primary={<button type="button" className="planning-primary" disabled={busy} onClick={onConfirm}>{busy ? '正在保存…' : '确认采用框架'}</button>}
+    />}
   </section>;
 }
 

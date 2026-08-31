@@ -21,7 +21,7 @@ describe('V7运行源码闭包', () => {
     expect(result.manifest.schema).toBe('v7-runtime-source-closure-v2');
     expect(result.manifest.summary.runtimeSourceFiles).toBeGreaterThan(150);
     expect(result.manifest.summary.operationalResources).toBeGreaterThanOrEqual(10);
-    expect(result.manifest.summary.migrations).toBe(105);
+    expect(result.manifest.summary.migrations).toBe(106);
     expect(result.manifest.summary.buildInputs).toBe(24);
     expect(result.manifest.files.some((file) => file.path.includes('/dist/'))).toBe(false);
     expect(result.manifest.files.some((file) => file.path.endsWith('/.env.production'))).toBe(false);

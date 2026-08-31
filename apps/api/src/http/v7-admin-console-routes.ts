@@ -8,7 +8,9 @@ import {
   buildFeatureCapabilityView, isFeatureBaselineKey, isFeatureCapabilityStatus
 } from '../application/admin/v7-feature-capability-registry.js';
 import { accountUsageRelation } from '../infrastructure/security/account-usage-service.js';
-import { V7TaskAuditRepository, type V7TaskAuditRow } from '../infrastructure/db/repositories/v7-task-audit-repository.js';
+import {
+  V7TaskAuditRepository, type V7AdminIssueAuditRow, type V7TaskAuditRow
+} from '../infrastructure/db/repositories/v7-task-audit-repository.js';
 
 const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'ignored'] as const;
 const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
@@ -155,13 +157,10 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
         WHERE usage_state='consumed' AND recorded_at>=? AND recorded_at<?`, todayRange.start, todayRange.end),
       reservedImageUnits: numberCell(database, `SELECT COALESCE(SUM(reserved_units),0) AS value FROM ${usageRelation}
         WHERE usage_state='reserved'`),
-      openIssues: numberCell(database, `SELECT
-        (SELECT COUNT(*) FROM tasks t LEFT JOIN admin_issue_records i ON i.source_type='failed_task' AND i.source_id=t.task_id
-          WHERE (t.status='failed' OR EXISTS (SELECT 1 FROM discussion_participants p
-            WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId') AND p.run_status IN ('failed','unavailable')))
-            AND COALESCE(i.status,'open') IN ('open','in_progress')) +
-        (SELECT COUNT(*) FROM user_feedback f LEFT JOIN admin_issue_records i ON i.source_type='feedback' AND i.source_id=f.feedback_id
-          WHERE COALESCE(i.status,'open') IN ('open','in_progress')) AS value`),
+      openIssues: taskAudit.countOpenFailures() + numberCell(database, `SELECT COUNT(*) AS value
+        FROM user_feedback f LEFT JOIN admin_issue_records i
+          ON i.source_type='feedback' AND i.source_id=f.feedback_id
+        WHERE COALESCE(i.status,'open') IN ('open','in_progress')`),
       revenueCashMicros: numberCell(database, `SELECT COALESCE(SUM(amount_cash_micros),0) AS value FROM membership_transactions WHERE event_type IN ('grant','renew')`),
       monthRevenueCashMicros: numberCell(database, `SELECT COALESCE(SUM(amount_cash_micros),0) AS value FROM membership_transactions
         WHERE event_type IN ('grant','renew') AND created_at>=?`, monthStart)
@@ -276,40 +275,19 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
   app.get<{ Querystring: { query?: string; status?: string; source?: string; offset?: string; limit?: string } }>(
     '/api/v1/admin/issues', async (request) => {
       requireAdministrator(request);
-      const records = database.prepare(`SELECT source_type,source_id,status,severity,admin_note,updated_at
-        FROM admin_issue_records`).all() as Array<Record<string, unknown>>;
-      const recordMap = new Map(records.map((row) => [`${row.source_type}:${row.source_id}`, row]));
-      const failed = database.prepare(`SELECT t.task_id AS sourceId,
-        CASE WHEN EXISTS (SELECT 1 FROM discussion_participants p WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId') AND p.run_status IN ('failed','unavailable')) THEN 'setting_member_failure' ELSE t.task_type END AS category,t.error_code AS errorCode,
-        t.updated_at AS occurredAt,t.book_id AS bookId,b.title AS bookTitle,a.user_id AS userId,
-        a.display_name AS displayName,a.email_normalized AS email,
-        COALESCE((SELECT group_concat(ai.display_name || '：' || COALESCE(p.error_summary,'成员不可用'),'；')
-          FROM discussion_participants p JOIN agent_instances ai ON ai.owner_id=p.owner_id AND ai.book_id=p.book_id AND ai.agent_id=p.agent_id
-          WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId')
-            AND p.run_status IN ('failed','unavailable')),
-          (SELECT error_detail FROM model_calls m WHERE m.task_id=t.task_id AND m.error_detail IS NOT NULL
-          ORDER BY m.completed_at DESC LIMIT 1),t.error_code,'任务失败') AS detail
-        FROM tasks t JOIN books b ON b.owner_id=t.owner_id AND b.book_id=t.book_id
-        LEFT JOIN user_accounts a ON a.owner_id=t.owner_id WHERE t.status='failed' OR EXISTS (SELECT 1 FROM discussion_participants p WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId') AND p.run_status IN ('failed','unavailable'))
-        ORDER BY t.updated_at DESC LIMIT 500`).all() as Array<Record<string, unknown>>;
-      const feedback = database.prepare(`SELECT f.feedback_id AS sourceId,f.category,f.message AS detail,
-        f.created_at AS occurredAt,f.book_id AS bookId,b.title AS bookTitle,f.task_id AS taskId,
-        f.page_path AS pagePath,a.user_id AS userId,a.display_name AS displayName,a.email_normalized AS email
-        FROM user_feedback f JOIN user_accounts a ON a.user_id=f.user_id
-        LEFT JOIN books b ON b.owner_id=f.owner_id AND b.book_id=f.book_id
-        ORDER BY f.created_at DESC LIMIT 500`).all() as Array<Record<string, unknown>>;
-      const issues = [
-        ...failed.map((row) => issueView('failed_task', row, recordMap)),
-        ...feedback.map((row) => issueView('feedback', row, recordMap))
-      ].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
-      const query = request.query.query?.trim().toLocaleLowerCase('zh-CN') ?? '';
-      const status = ISSUE_STATUSES.includes(request.query.status as typeof ISSUE_STATUSES[number]) ? request.query.status : '';
-      const source = request.query.source === 'failed_task' || request.query.source === 'feedback' ? request.query.source : '';
-      const filtered = issues.filter((issue) => (!status || issue.status === status) && (!source || issue.sourceType === source)
-        && (!query || `${issue.displayName} ${issue.email} ${issue.bookTitle} ${issue.category} ${issue.detail}`.toLocaleLowerCase('zh-CN').includes(query)));
+      const query = request.query.query?.trim().slice(0, 160) ?? '';
+      const status = ISSUE_STATUSES.find((candidate) => candidate === request.query.status);
+      const source = request.query.source === 'failed_task' || request.query.source === 'feedback' ? request.query.source : undefined;
       const offset = boundedInteger(request.query.offset, 0, 10_000, 0);
       const limit = boundedInteger(request.query.limit, 1, 100, 50);
-      return success({ items: filtered.slice(offset, offset + limit), total: filtered.length }, request.id);
+      const page = taskAudit.issuePage({
+        query,
+        ...(status === undefined ? {} : { status }),
+        ...(source === undefined ? {} : { sourceType: source }),
+        offset,
+        limit
+      });
+      return success({ items: page.items.map(issueView), total: page.total }, request.id);
     }
   );
 
@@ -319,10 +297,11 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
       const sourceType = request.params.sourceType;
       if (sourceType !== 'failed_task' && sourceType !== 'feedback') throw validation('问题来源不正确');
       const sourceId = request.params.sourceId.trim();
+      const failedTask = sourceType === 'failed_task' ? taskAudit.bySourceId(sourceId) : null;
       const exists = sourceType === 'failed_task'
-        ? database.prepare("SELECT 1 FROM tasks t WHERE task_id=? AND (status='failed' OR EXISTS (SELECT 1 FROM discussion_participants p WHERE p.owner_id=t.owner_id AND p.book_id=t.book_id AND p.discussion_id=json_extract(t.task_brief_json,'$.discussionId') AND p.run_status IN ('failed','unavailable')))").get(sourceId)
-        : database.prepare('SELECT 1 FROM user_feedback WHERE feedback_id=?').get(sourceId);
-      if (exists === undefined) throw new DomainError(errorCodes.validation, '问题记录不存在', {}, false, 404);
+        ? failedTask !== null && ['failed', 'partially_failed'].includes(failedTask.status)
+        : database.prepare('SELECT 1 FROM user_feedback WHERE feedback_id=?').get(sourceId) !== undefined;
+      if (!exists) throw new DomainError(errorCodes.validation, '问题记录不存在', {}, false, 404);
       const status = request.body?.status;
       const severity = request.body?.severity;
       if (!ISSUE_STATUSES.includes(status as typeof ISSUE_STATUSES[number])) throw validation('请选择正确的问题状态');
@@ -351,7 +330,7 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
       if (bookId !== null && database.prepare('SELECT 1 FROM books WHERE owner_id=? AND book_id=?').get(account.ownerId, bookId) === undefined) {
         throw new DomainError(errorCodes.validation, '反馈关联的书籍不存在', {}, false, 404);
       }
-      if (taskId !== null && database.prepare('SELECT 1 FROM tasks WHERE owner_id=? AND task_id=?').get(account.ownerId, taskId) === undefined) {
+      if (taskId !== null && taskAudit.uniqueForOwnerReference(account.ownerId, taskId) === null) {
         throw new DomainError(errorCodes.validation, '反馈关联的任务不存在', {}, false, 404);
       }
       const feedbackId = randomUUID();
@@ -489,6 +468,8 @@ function taskFailureView(database: DatabaseSync, task: V7TaskAuditRow): Record<s
     workflowNode: task.workflowNode,
     status: task.status,
     errorCode: task.errorCode,
+    failureStage: task.failureStage,
+    retrySafety: task.retrySafety,
     occurredAt: task.occurredAt,
     frontEndPage: taskPage(task.taskType),
     errorSummary: redactSensitive(task.errorSummary ?? '任务失败'),
@@ -500,13 +481,13 @@ function numberCell(database: DatabaseSync, sql: string, ...values: Array<string
   return Number((database.prepare(sql).get(...values) as { value: number }).value);
 }
 
-function issueView(sourceType: 'failed_task' | 'feedback', row: Record<string, unknown>, records: Map<string, Record<string, unknown>>) {
+function issueView(row: V7AdminIssueAuditRow) {
+  const sourceType = row.sourceType;
   const sourceId = String(row.sourceId);
-  const record = records.get(`${sourceType}:${sourceId}`);
   return {
     sourceType,
     sourceId,
-    taskId: sourceType === 'failed_task' ? sourceId : nullableString(row.taskId),
+    taskId: nullableString(row.taskId),
     bookId: nullableString(row.bookId),
     bookTitle: String(row.bookTitle ?? ''),
     userId: nullableString(row.userId),
@@ -515,11 +496,13 @@ function issueView(sourceType: 'failed_task' | 'feedback', row: Record<string, u
     category: String(row.category ?? 'unknown'),
     detail: redactSensitive(String(row.detail ?? '')),
     errorCode: nullableString(row.errorCode),
+    failureStage: nullableString(row.failureStage),
+    retrySafety: nullableString(row.retrySafety),
     pagePath: String(row.pagePath ?? ''),
     occurredAt: String(row.occurredAt),
-    status: String(record?.status ?? 'open'),
-    severity: String(record?.severity ?? (sourceType === 'failed_task' ? 'high' : 'medium')),
-    note: String(record?.admin_note ?? '')
+    status: row.status,
+    severity: row.severity,
+    note: row.note
   };
 }
 

@@ -19,7 +19,7 @@ vi.mock('./creation-api', async (importOriginal) => {
 });
 vi.mock('./opening-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opening-api')>();
-  return { ...actual, fetchPlanningTree: vi.fn() };
+  return { ...actual, fetchPlanningTree: vi.fn(), confirmPlanningTree: vi.fn() };
 });
 
 const mockedCreation = vi.mocked(creation);
@@ -90,6 +90,19 @@ describe('V7卷链章创作工作台', () => {
     expect(screen.queryByText('下一章：第2章')).not.toBeInTheDocument();
     expect(screen.queryByText('本链章纲')).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: '创作步骤' })).not.toBeInTheDocument();
+  });
+
+  it('卷骨架的阶段确认只出现在内容底部操作区', async () => {
+    const candidate = { ...volumeTree(), status: 'candidate' as const };
+    mockedOpening.fetchPlanningTree.mockImplementation(async (_bookId, treeKind) => treeKind === 'book' ? bookTree() : candidate);
+    mockedOpening.confirmPlanningTree.mockResolvedValue({ ...candidate, status: 'confirmed' });
+    mockedCreation.fetchLatestCreationWorkflow.mockResolvedValue(workflow({ stage: 'volume_tree_confirmation', status: 'waiting' }));
+    render(<CreationWorkspacePage bookId="book-1" focus="volume" onNavigate={vi.fn()} />);
+    const dock = await screen.findByRole('group', { name: '当前步骤操作' });
+    expect(dock).toHaveTextContent('本卷方向与粗单元链草案已经完成');
+    expect(dock.querySelectorAll('.workflow-action-dock-primary > button')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '确认采用' }));
+    await waitFor(() => expect(mockedOpening.confirmPlanningTree).toHaveBeenCalledWith('book-1', 'volume', 'volume-1', 1));
   });
 
   it('链页显示全卷单元链和已确认章纲，不显示正文操作', async () => {

@@ -5,8 +5,6 @@ import { describe, expect, it } from 'vitest';
 const CURRENT_SQL_APPLICATION_FILES = new Set([
   'books/book-onboarding-service.ts',
   'books/positioning-service.ts',
-  'knowledge/canon-service.ts',
-  'projections/narrative-projection-service.ts'
 ]);
 
 describe('应用层数据库边界', () => {

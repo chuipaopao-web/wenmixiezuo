@@ -110,7 +110,8 @@ describe('向前迁移器', () => {
         '0102_v7_clean_cutover_guard.sql',
         '0103_membership_action_idempotency.sql',
         '0104_v7_opening_idea_capacity.sql',
-        '0105_v7_planning_generation_retries.sql'
+        '0105_v7_planning_generation_retries.sql',
+        '0106_v7_setting_failure_recovery.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(database.prepare(`SELECT name,"notnull" AS required,dflt_value AS defaultValue
@@ -121,6 +122,10 @@ describe('向前迁移器', () => {
         FROM pragma_table_info('v7_planning_generation_runs') WHERE name='retry_count'`).get()).toEqual({
         name: 'retry_count', required: 1, defaultValue: '0'
       });
+      expect(database.prepare(`SELECT name FROM pragma_table_info('v7_setting_batches')
+        WHERE name IN ('error_code','failure_stage','retry_safety') ORDER BY name`).all()).toEqual([
+        { name: 'error_code' }, { name: 'failure_stage' }, { name: 'retry_safety' }
+      ]);
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
         'storyline_frontier_versions', 'storyline_open_questions_v6', 'storyline_growth_rounds_v6',
         'storyline_growth_candidates_v6', 'storyline_growth_decisions_v6', 'creative_template_versions_v6',
@@ -224,6 +229,113 @@ describe('向前迁移器', () => {
       expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(database.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0106只增加失败恢复结构，不根据旧文案批量改写历史任务', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0106_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-31T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-setting-recovery', '设定恢复作者', now, now);
+      database.prepare(`INSERT INTO user_accounts(
+        user_id,owner_id,email_normalized,display_name,password_salt,password_hash,role,status,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,'user','active',?,?)`).run(
+        'user-setting-recovery', 'owner-setting-recovery', 'setting-recovery@example.com', '设定恢复作者',
+        'salt', 'hash', now, now
+      );
+      database.prepare("INSERT INTO books (book_id,owner_id,title,status,created_at,updated_at) VALUES (?,?,?,'active',?,?)")
+        .run('book-setting-recovery', 'owner-setting-recovery', '设定恢复测试书', now, now);
+      const insertBatch = database.prepare(`INSERT INTO v7_setting_batches(
+        batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,
+        opening_version,opening_hash,roster_json,lease_token,lease_expires_at,error_message,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,1,?,'[]',NULL,NULL,?,?,?)`);
+      insertBatch.run(
+        'batch-membership-old', 'owner-setting-recovery', 'book-setting-recovery', 'setting-membership-old',
+        'a'.repeat(64), 'partially_failed', '["world-stage","rules-costs"]', '[]', 'b'.repeat(64),
+        '召集AI团队需使用算力，本期剩余算力值不足以继续这一步，请联系管理员微信595341366续费。', now, now
+      );
+      insertBatch.run(
+        'batch-unrelated-old', 'owner-setting-recovery', 'book-setting-recovery', 'setting-unrelated-old',
+        'c'.repeat(64), 'partially_failed', '["social-order"]', '[]', 'd'.repeat(64),
+        '旧模型返回内容无法解析', now, now
+      );
+      insertBatch.run(
+        'batch-redesign-orphan', 'owner-setting-recovery', 'book-setting-recovery', 'redesign-old-orphan',
+        'e'.repeat(64), 'working', '["world-stage"]', '[]', 'f'.repeat(64), null, now, now
+      );
+      insertBatch.run(
+        'batch-recommendation-live', 'owner-setting-recovery', 'book-setting-recovery', 'setting-recommendation-live',
+        '1'.repeat(64), 'working', '[]', '{"taskKind":"catalog_recommendation"}', '2'.repeat(64), null, now, now
+      );
+      const insertJob = database.prepare(`INSERT INTO v7_setting_item_jobs(
+        job_id,owner_id,book_id,batch_id,item_key,item_label,group_title,item_prompt,state,
+        attempted_members_json,attempt_count,author_note,revision,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,'[]',0,'',0,?,?)`);
+      insertJob.run(
+        'job-membership-old', 'owner-setting-recovery', 'book-setting-recovery', 'batch-membership-old',
+        'world-stage', '世界舞台', '世界设定', '设计世界舞台', 'failed', now, now
+      );
+      insertJob.run(
+        'job-membership-completed', 'owner-setting-recovery', 'book-setting-recovery', 'batch-membership-old',
+        'rules-costs', '规则代价', '世界设定', '设计规则代价', 'needs_author', now, now
+      );
+      insertJob.run(
+        'job-unrelated-old', 'owner-setting-recovery', 'book-setting-recovery', 'batch-unrelated-old',
+        'social-order', '社会秩序', '世界设定', '设计社会秩序', 'failed', now, now
+      );
+      database.prepare(`INSERT INTO v7_setting_model_calls(
+        request_id,owner_id,book_id,batch_id,item_key,node_key,member_key,provider,model_id,plan,state,
+        prompt_hash,reserved_tokens,started_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,'coding','working',?,8000,?,?)`).run(
+        'call-redesign-orphan', 'owner-setting-recovery', 'book-setting-recovery', 'batch-redesign-orphan',
+        'world-stage', 'redesign', 'planner-test', 'provider-test', 'model-test', '3'.repeat(64), now, now
+      );
+
+      copyFileSync(
+        resolve(sourceDir, '0106_v7_setting_failure_recovery.sql'),
+        resolve(migrationsDir, '0106_v7_setting_failure_recovery.sql')
+      );
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0106_v7_setting_failure_recovery.sql']);
+      expect(database.prepare(`SELECT status,error_message,error_code,failure_stage,retry_safety FROM v7_setting_batches
+        WHERE batch_id='batch-membership-old'`).get()).toEqual({
+        status: 'partially_failed',
+        error_message: '召集AI团队需使用算力，本期剩余算力值不足以继续这一步，请联系管理员微信595341366续费。',
+        error_code: null,
+        failure_stage: null,
+        retry_safety: null
+      });
+      expect(database.prepare(`SELECT item_key AS itemKey,state FROM v7_setting_item_jobs
+        WHERE batch_id='batch-membership-old' ORDER BY item_key`).all()).toEqual([
+        { itemKey: 'rules-costs', state: 'needs_author' },
+        { itemKey: 'world-stage', state: 'failed' }
+      ]);
+      expect(database.prepare(`SELECT error_code,failure_stage,retry_safety FROM v7_setting_batches
+        WHERE batch_id='batch-unrelated-old'`).get()).toEqual({
+        error_code: null, failure_stage: null, retry_safety: null
+      });
+      expect(database.prepare(`SELECT status,error_code,failure_stage,retry_safety FROM v7_setting_batches
+        WHERE batch_id='batch-redesign-orphan'`).get()).toEqual({
+        status: 'working', error_code: null, failure_stage: null, retry_safety: null
+      });
+      expect(database.prepare(`SELECT state,completed_at AS completedAt FROM v7_setting_model_calls
+        WHERE request_id='call-redesign-orphan'`).get()).toEqual({
+        state: 'working', completedAt: null
+      });
+      expect(database.prepare(`SELECT status,error_code FROM v7_setting_batches
+        WHERE batch_id='batch-recommendation-live'`).get()).toEqual({ status: 'working', error_code: null });
+      expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(runMigrations(database, migrationsDir).applied).toEqual([]);
     } finally {
       database.close();
     }

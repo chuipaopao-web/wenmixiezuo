@@ -1,4 +1,4 @@
-import { fireEvent, render as testingRender, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render as testingRender, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthorApp } from './AuthorApp';
@@ -647,6 +647,261 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(localStorage.getItem(AI_DRAFT_KEY)).not.toContain('missing-task-0001'));
   });
 
+  it('releases an archived saved task instead of trapping every new opening attempt', async () => {
+    const archived = {
+      ...COMPLETE_TASK,
+      status: 'archived',
+      statusText: '这项任务已经放弃',
+      isRunning: false,
+      candidates: [],
+      errorMessage: null
+    };
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: archived.idea, taskId: archived.taskId, mode: 'ai' }));
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${archived.taskId}`) ? response(archived) : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
+    expect(screen.queryByText('这项任务已放弃')).not.toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem(AI_DRAFT_KEY)).not.toContain(archived.taskId));
+  });
+
+  it('opens a fresh idea immediately without scanning and hijacking unrelated account tasks', async () => {
+    const unrelated = {
+      ...COMPLETE_TASK,
+      taskId: 'unrelated-opening-task',
+      status: 'working',
+      isRunning: true,
+      candidates: []
+    };
+    const fetchMock = installFetch((url) => url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')
+      ? response([unrelated])
+      : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/v1/v7/opening-agent/tasks?limit=50'))).toBe(false);
+    expect(screen.queryByLabelText('编辑部工作进度')).not.toBeInTheDocument();
+  });
+
+  it('ends a failed task recovery with retry and fresh-start actions instead of an endless loader', async () => {
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: COMPLETE_TASK.idea, taskId: COMPLETE_TASK.taskId, mode: 'ai' }));
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`)
+      ? response(null, 503)
+      : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByText('对不起，这次没有找回工作记录')).toBeVisible();
+    expect(screen.getByRole('button', { name: '重新连接' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '重新填写想法' })).toBeEnabled();
+    expect(screen.queryByText('编辑部正在找回您之前的工作记录…')).not.toBeInTheDocument();
+  });
+
+  it('restores the server idea for an explicit task link before retrying from another browser', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'cross-device-failed-task',
+      idea: '跨设备找回的完整开书想法。',
+      status: 'failed',
+      isRunning: false,
+      candidates: [],
+      errorMessage: '本轮没有完成'
+    };
+    let retryBody: Record<string, unknown> | null = null;
+    installFetch((url, init) => {
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)) return response(failed);
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') {
+        retryBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return response({ ...failed, taskId: 'cross-device-retry-task', status: 'working', isRunning: true });
+      }
+      return null;
+    });
+    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
+
+    render(<AuthorApp />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重新交给创作团队' }));
+    await waitFor(() => expect(retryBody).not.toBeNull());
+    expect(retryBody).toMatchObject({ idea: failed.idea });
+  });
+
+  it('keeps the recovered package in manual mode after leaving a failed AI task and refreshing', async () => {
+    const failed: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      status: 'failed',
+      isRunning: false,
+      errorMessage: '本轮没有完成'
+    };
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({
+      idea: failed.idea,
+      taskId: failed.taskId,
+      mode: 'ai'
+    }));
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${failed.taskId}`)
+      ? response(failed)
+      : null);
+    window.history.replaceState({}, '', `/?view=new-novel&entry=ai&taskId=${failed.taskId}`);
+
+    const mounted = render(<AuthorApp />);
+    fireEvent.click(await screen.findByRole('button', { name: '保留现有资料，自己完成' }));
+
+    expect(new URLSearchParams(window.location.search).get('taskId')).toBeNull();
+    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(AI_DRAFT_KEY) ?? 'null') as {
+        mode?: string;
+        taskId?: string | null;
+        openingPackage?: OpeningPackage | null;
+      } | null;
+      expect(saved).toMatchObject({ mode: 'manual', taskId: null });
+      expect(saved?.openingPackage?.title).toBe(PACKAGE.title);
+    });
+
+    mounted.unmount();
+    render(<AuthorApp />);
+    expect(await screen.findByLabelText('自己设计开书资料')).toBeVisible();
+    expect(screen.getByText(PACKAGE.title)).toBeVisible();
+  });
+
+  it('ends an unresponsive task recovery after the 15-second upper bound', async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: COMPLETE_TASK.idea, taskId: COMPLETE_TASK.taskId, mode: 'ai' }));
+      const fetchMock = installFetch((url, init) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`)
+        ? new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true }))
+        : null);
+      window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+      render(<AuthorApp />);
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith(`/tasks/${COMPLETE_TASK.taskId}`))).toBe(true);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_001); });
+
+      expect(screen.getByText('对不起，这次没有找回工作记录')).toBeVisible();
+      expect(screen.getByRole('button', { name: '重新连接' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops a previously visible running task when its next poll cannot reconnect', async () => {
+    const working: OpeningTaskView = { ...COMPLETE_TASK, status: 'working', phase: 'package_design', statusText: '开书资料正在设计', phaseText: '编剧正在设计开书资料', isRunning: true, candidates: [] };
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: working.idea, taskId: working.taskId, mode: 'ai' }));
+    let calls = 0;
+    installFetch((url) => {
+      if (!url.endsWith(`/api/v1/v7/opening-agent/tasks/${working.taskId}`)) return null;
+      calls += 1;
+      return calls === 1 ? response(working) : response(null, 503);
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+    expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
+    expect(await screen.findByText('对不起，这次没有找回工作记录', {}, { timeout: 3_000 })).toBeVisible();
+    expect(screen.queryByLabelText('编辑部工作进度')).not.toBeInTheDocument();
+  });
+
+  it('offers recovery when a terminal task contains no opening package', async () => {
+    const terminal: OpeningTaskView = { ...COMPLETE_TASK, candidates: [], isRunning: false, statusText: '任务已结束，但资料未返回' };
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: terminal.idea, taskId: terminal.taskId, mode: 'ai' }));
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${terminal.taskId}`) ? response(terminal) : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByText('对不起，这次开书设计没有完成')).toBeVisible();
+    expect(screen.getByRole('button', { name: '重新连接' })).toBeEnabled();
+    expect(screen.queryByText('正在准备开书资料…')).not.toBeInTheDocument();
+  });
+
+  it('keeps the current opening package when creating its replacement fails', async () => {
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: COMPLETE_TASK.idea, taskId: COMPLETE_TASK.taskId, mode: 'ai' }));
+    const fetchMock = installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/editorial-department')) return response({
+        summary: { memberCount: 1, readyCount: 1, workingCount: 0, leaveCount: 0, completedCount: 0 },
+        departments: [{ departmentKey: 'planning_writer', name: '策划编剧组', members: [
+          { memberKey: 'planner-glm-5-3', displayName: '幼薇', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
+        ] }]
+      });
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`)) return response(COMPLETE_TASK);
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') return response(null, 503);
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}/abandon`)) return response({ ...COMPLETE_TASK, status: 'archived' });
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    render(<AuthorApp />);
+    expect(await screen.findByText('资料已经审查通过')).toBeVisible();
+
+    fireEvent.click(screen.getByText('换成员重新设计整份开书资料'));
+    fireEvent.change(screen.getByLabelText('重新设计成员'), { target: { value: 'planner-glm-5-3' } });
+    fireEvent.click(screen.getByRole('button', { name: '重新设计' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('对不起，这次操作没有完成');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith(`/${COMPLETE_TASK.taskId}/abandon`))).toBe(false);
+    expect(screen.getByLabelText(/书名/)).toHaveValue(PACKAGE.title);
+  });
+
+  it('switches to a successfully created replacement without waiting for the old task to archive', async () => {
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: COMPLETE_TASK.idea, taskId: COMPLETE_TASK.taskId, mode: 'ai' }));
+    const replacement: OpeningTaskView = {
+      ...COMPLETE_TASK,
+      taskId: 'task-opening-replacement',
+      status: 'working',
+      phase: 'package_design',
+      statusText: '新编剧正在重新设计开书资料',
+      phaseText: '编剧正在设计新的开书资料包',
+      isRunning: true,
+      candidates: []
+    };
+    let resolveAbandon!: (value: Response) => void;
+    const pendingAbandon = new Promise<Response>((resolve) => { resolveAbandon = resolve; });
+    installFetch((url, init) => {
+      if (url.endsWith('/api/v1/v7/editorial-department')) return response({
+        summary: { memberCount: 1, readyCount: 1, workingCount: 0, leaveCount: 0, completedCount: 0 },
+        departments: [{ departmentKey: 'planning_writer', name: '策划编剧组', members: [
+          { memberKey: 'planner-glm-5-3', displayName: '幼薇', role: '策划编剧', responsibility: '设计开书资料', capabilities: ['开书设计'], presence: 'ready', statusText: '当前空闲，可以接单。', currentWork: null, completedCount: 0 }
+        ] }]
+      });
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`)) return response(COMPLETE_TASK);
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks') && init?.method === 'POST') return response(replacement);
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}/abandon`)) return pendingAbandon;
+      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${replacement.taskId}`)) return response(replacement);
+      return null;
+    });
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    render(<AuthorApp />);
+    expect(await screen.findByText('资料已经审查通过')).toBeVisible();
+
+    fireEvent.click(screen.getByText('换成员重新设计整份开书资料'));
+    fireEvent.change(screen.getByLabelText('重新设计成员'), { target: { value: 'planner-glm-5-3' } });
+    fireEvent.click(screen.getByRole('button', { name: '重新设计' }));
+
+    expect(await screen.findByText('编剧正在设计新的开书资料包')).toBeVisible();
+    expect(window.location.search).toContain(`taskId=${replacement.taskId}`);
+    expect(screen.queryByText('正在重新安排…')).not.toBeInTheDocument();
+    resolveAbandon(response({ ...COMPLETE_TASK, status: 'archived' }));
+  });
+
+  it('treats the rail new-book action as a fresh start while keeping the old server task', async () => {
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: COMPLETE_TASK.idea, taskId: COMPLETE_TASK.taskId, mode: 'ai' }));
+    const fetchMock = installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`)
+      ? response(COMPLETE_TASK)
+      : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+    render(<AuthorApp />);
+    expect(await screen.findByText('资料已经审查通过')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '新建书籍' }));
+    fireEvent.click(await screen.findByRole('button', { name: /团队设计/ }));
+
+    expect(await screen.findByLabelText('说说您想写什么')).toHaveValue('');
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith(`/api/v1/v7/opening-agent/tasks/${COMPLETE_TASK.taskId}`))).toHaveLength(1);
+  });
+
   it('shows truthful team stages and persists the task for refresh recovery', async () => {
     const working: OpeningTaskView = { ...COMPLETE_TASK, status: 'working', phase: 'package_design', statusText: 'AI团队正在设计', phaseText: '编剧正在设计开书资料包', isRunning: true, candidates: [] };
     const projectedWorking = {
@@ -673,6 +928,7 @@ describe('V7 author opening flow', () => {
     expect(screen.queryByText('编剧设计')).not.toBeInTheDocument();
     expect(screen.queryByText('主编审查')).not.toBeInTheDocument();
     expect(localStorage.getItem(AI_DRAFT_KEY)).toContain('task-opening-0001');
+    expect(window.location.search).toContain('taskId=task-opening-0001');
   });
 
   it('历史未完成开书任务只显示当前流程的失败恢复', async () => {
@@ -876,25 +1132,6 @@ describe('V7 author opening flow', () => {
     await waitFor(() => expect(testSession.requireSignIn).toHaveBeenCalledTimes(1));
     expect(document.body.textContent).not.toContain('打开登录页面');
     expect(document.body.textContent).not.toContain('43110');
-  });
-
-  it('recovers the newest account task even when the local task number is missing', async () => {
-    const working: OpeningTaskView = {
-      ...COMPLETE_TASK,
-      status: 'working', phase: 'package_design', isRunning: true, candidates: [],
-      phaseText: '编剧正在设计开书资料包', progress: { currentStep: 2, totalSteps: 3, percent: 50 }
-    };
-    installFetch((url) => {
-      if (url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')) return response([working]);
-      if (url.endsWith(`/api/v1/v7/opening-agent/tasks/${working.taskId}`)) return response(working);
-      return null;
-    });
-    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
-    render(<AuthorApp />);
-    expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
-    fireEvent.click(screen.getByText('看看本轮开书想法'));
-    expect(screen.getByText(working.idea)).toBeVisible();
-    expect(localStorage.getItem(AI_DRAFT_KEY)).toContain(working.taskId);
   });
 
   it('opens a real task log and returns to the selected task', async () => {

@@ -33,6 +33,7 @@ import {
 import { archiveBook, fetchBooks, restoreBook, type BookRecord } from './opening-api';
 import { bookCoverTitle, bookCoverTone, bookStatusLabel } from './book-shelf-presentation';
 import { AuthorAccountCenter, useAuthorAccount } from './AuthorAccountBoundary';
+import { clearOpeningDraft } from './opening-draft-storage';
 
 const NAV_ICONS = [
   TreeStructureIcon,
@@ -161,6 +162,11 @@ export function AuthorApp(): React.JSX.Element {
     setLeftOpen(false);
   };
 
+  const beginNewNovel = (entry: OpeningEntry) => {
+    clearOpeningDraft(accountSession.account.userId, entry);
+    navigate('new-novel', null, entry);
+  };
+
   const activeBooks = books.filter((book) => book.status === 'active');
   const archivedBooks = books.filter((book) => book.status === 'archived');
   const selectedBook = activeBooks.find((book) => book.bookId === bookId) ?? null;
@@ -257,19 +263,19 @@ export function AuthorApp(): React.JSX.Element {
       </nav>
 
       <main className="workspace-main">
-        {view === 'home' && <HomePage onCreateNovel={(entry) => navigate('new-novel', null, entry)} />}
+        {view === 'home' && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'new-novel' && <NewNovelPage key={`${accountSession.account.userId}-${openingEntry}-${openingTaskId ?? 'new'}`} entryMode={openingEntry} onBack={() => navigate('home')} onCreated={(createdBookId) => navigate('information', createdBookId)} onAuthenticationRequired={accountSession.requireSignIn} />}
         {view === 'information' && bookId !== null && <InformationPage key={`${bookId}-${informationSection}`} bookId={bookId} initialSection={informationSection} onOpenTimeMachine={() => navigate('time-machine', bookId)} />}
-        {view === 'information' && bookId === null && <HomePage onCreateNovel={(entry) => navigate('new-novel', null, entry)} />}
+        {view === 'information' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'time-machine' && bookId !== null && <TimeMachinePage bookId={bookId} onOpenSettings={() => {
           navigate('information', bookId);
           setInformationSection('setting');
         }} />}
-        {view === 'time-machine' && bookId === null && <HomePage onCreateNovel={(entry) => navigate('new-novel', null, entry)} />}
+        {view === 'time-machine' && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'volume' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="volume" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'chain' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chain" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
         {view === 'chapter' && bookId !== null && <CreationWorkspacePage bookId={bookId} focus="chapter" onNavigate={(next, scope) => navigate(next, bookId, openingEntry, null, scope)} />}
-        {['volume', 'chain', 'chapter'].includes(view) && bookId === null && <HomePage onCreateNovel={(entry) => navigate('new-novel', null, entry)} />}
+        {['volume', 'chain', 'chapter'].includes(view) && bookId === null && <HomePage onCreateNovel={beginNewNovel} />}
         {view === 'library' && bookId !== null && <LibraryPage bookId={bookId} />}
         {view === 'tasks' && <TaskLogPage onOpenTask={(taskId) => navigate('new-novel', null, 'ai', taskId)} onOpenBook={(nextBookId) => navigate('information', nextBookId)} onOpenPlanning={(nextBookId) => navigate('time-machine', nextBookId)} onOpenCreation={(nextBookId, focus) => navigate(focus, nextBookId)} />}
         {view === 'team' && <TeamPage />}

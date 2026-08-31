@@ -4,6 +4,10 @@ import { TaskLogPage } from './TaskLogPage';
 import * as opening from './opening-api';
 import * as creation from './creation-api';
 
+vi.mock('./AuthorAccountBoundary', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./AuthorAccountBoundary')>();
+  return { ...actual, useAuthorAccount: () => ({ account: { userId: 'task-log-test-user' } }) };
+});
 vi.mock('./opening-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./opening-api')>();
   return {

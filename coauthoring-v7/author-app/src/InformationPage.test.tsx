@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InformationPage } from './InformationPage';
 
@@ -91,6 +91,16 @@ describe('V7开书资料页', () => {
     expect(await screen.findByRole('dialog', { name: '修改当前资料' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /写什么题材/ })).toBeInTheDocument();
     expect(screen.getByDisplayValue('边军起势')).toBeInTheDocument();
+  });
+
+  it('把资料调整和进入设定统一放在内容底部，并只保留一个阶段主按钮', async () => {
+    render(<InformationPage bookId="book-1" />);
+    await screen.findByRole('heading', { name: '边军起势' });
+    const dock = screen.getByRole('contentinfo', { name: '当前步骤操作' });
+    expect(within(dock).getAllByRole('button').map((button) => button.textContent)).toEqual(['设计书名', '设计封面', '修改开书资料', '进入设定']);
+    expect(dock.querySelectorAll('.workflow-action-dock-primary > button')).toHaveLength(1);
+    fireEvent.click(within(dock).getByRole('button', { name: '进入设定' }));
+    expect(screen.getByRole('button', { name: '设定' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('主编可以随时设计书名，作者采用后走版本化开书资料接口', async () => {

@@ -112,6 +112,8 @@ export interface V7SettingBatchView {
   progress: { completed: number; total: number; percent: number };
   members: V7SettingMemberPublicView[];
   items: V7SettingItemView[];
+  retryable: boolean;
+  restartable: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +137,7 @@ export interface V7SettingFinalReviewView {
   member: { memberKey: string; displayName: string } | null;
   result: V7SettingFinalReviewResult | null;
   retryable: boolean;
+  restartable: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -157,6 +160,7 @@ export interface V7SettingCatalogRecommendationView {
   attemptedMembers: Array<{ memberKey: string; displayName: string }>;
   result: V7SettingCatalogRecommendation | null;
   retryable: boolean;
+  restartable: boolean;
   createdAt: string;
   updatedAt: string;
 }

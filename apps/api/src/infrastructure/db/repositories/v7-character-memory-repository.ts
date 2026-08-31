@@ -132,6 +132,16 @@ export class V7CharacterMemoryRepository {
       .all(ownerId, bookId, name) as Array<{ entity_id: string }>;
   }
 
+  public insertCharacterEntity(input: {
+    entityId: string; ownerId: string; bookId: string; canonicalName: string; aliases: string[]; now: string;
+  }): void {
+    this.database.prepare(`INSERT INTO entities (
+      entity_id,owner_id,book_id,entity_type,canonical_name,aliases_json,status,created_at,updated_at
+    ) VALUES (?,?,?,'character',?,?,'active',?,?)`).run(
+      input.entityId, input.ownerId, input.bookId, input.canonicalName, JSON.stringify(input.aliases), input.now, input.now
+    );
+  }
+
   public unlinkedProtagonists(ownerId: string, bookId: string): Array<{
     protagonist_profile_id: string;
     display_name: string;

@@ -15,7 +15,6 @@ import {
 } from '@wenmi/v7-backend';
 import { DomainError, errorCodes } from '../../domain/errors.js';
 import type { Clock, IdGenerator } from '../../domain/ids.js';
-import { CanonService } from '../knowledge/canon-service.js';
 import {
   V7CharacterMemoryRepository,
   type V7CharacterContextPackRow,
@@ -48,7 +47,6 @@ interface CharacterMaintenanceTaskSnapshot {
 
 export class V7CharacterMemoryService {
   private readonly repository: V7CharacterMemoryRepository;
-  private readonly canon: CanonService;
   private readonly models: V7CharacterMemoryModelGateway;
   private readonly activeContextPacks = new Set<string>();
   private readonly activeMaintenanceRuns = new Set<string>();
@@ -61,7 +59,6 @@ export class V7CharacterMemoryService {
     private readonly memberSource: CharacterMemberSource = V7_CHARACTER_MEMBERS
   ) {
     this.repository = new V7CharacterMemoryRepository(database);
-    this.canon = new CanonService(database, ids, clock);
     this.models = new V7CharacterMemoryModelGateway(database, adapters, clock);
     const errors = validateCharacterRoster(this.members());
     if (errors.length > 0) throw new Error(errors.join('；'));
@@ -76,9 +73,7 @@ export class V7CharacterMemoryService {
       for (const protagonist of this.repository.unlinkedProtagonists(ownerId, bookId)) {
         const matches = this.repository.characterEntityByName(ownerId, bookId, protagonist.display_name);
         if (matches.length > 1) throw conflict(`人物“${protagonist.display_name}”存在多个同名正史身份，请先合并身份。`);
-        const entityId = matches[0]?.entity_id ?? this.canon.createEntity(
-          { ownerId, bookId }, { entityType: 'character', canonicalName: protagonist.display_name }
-        );
+        const entityId = matches[0]?.entity_id ?? this.createCharacterEntity(ownerId, bookId, protagonist.display_name, []);
         this.repository.linkProtagonist(ownerId, bookId, protagonist.protagonist_profile_id, entityId, this.now());
         linkedProtagonists += 1;
       }
@@ -112,6 +107,12 @@ export class V7CharacterMemoryService {
         canonRevision: book.canon_revision, updatedAt: profile.updated_at
       };
     });
+  }
+
+  private createCharacterEntity(ownerId: string, bookId: string, canonicalName: string, aliases: string[]): string {
+    const entityId = this.ids.next();
+    this.repository.insertCharacterEntity({ entityId, ownerId, bookId, canonicalName, aliases, now: this.now() });
+    return entityId;
   }
 
   public getProfile(ownerId: string, bookId: string, profileId: string, includeHistory = false): unknown {
@@ -157,10 +158,7 @@ export class V7CharacterMemoryService {
       if (this.repository.characterEntityByName(ownerId, bookId, document.displayName).length > 0) {
         throw conflict('本书已经存在同名人物，请在现有人物上新增版本。');
       }
-      const entityId = this.canon.createEntity(
-        { ownerId, bookId },
-        { entityType: 'character', canonicalName: document.displayName, aliases: document.aliases }
-      );
+      const entityId = this.createCharacterEntity(ownerId, bookId, document.displayName, document.aliases);
       profileId = this.ids.next();
       const versionId = this.ids.next();
       const now = this.now();

@@ -56,7 +56,7 @@ function publicErrorMessage(code: string, raw: unknown): string {
   const fixed: Readonly<Record<string, string>> = {
     AUTHENTICATION_REQUIRED: '请先登录文秘写作，再继续刚才的操作。',
     MEMBERSHIP_REQUIRED: '当前会员暂不包含这项创作服务，已有内容都已保存。',
-    MEMBERSHIP_QUOTA_EXHAUSTED: '本期创作额度已经用完，已有内容都已保存。',
+    MEMBERSHIP_QUOTA_EXHAUSTED: '本期剩余创作额度不足以继续这一步，已有内容都已保存。',
     MEMBERSHIP_EXPIRED: '会员已经到期，已有内容都已保存。',
     SETTING_QUALITY_AUDIT_REQUIRED: '确认前需要先检查整份设定；现有设定已经保存。',
     SETTING_QUALITY_ISSUES_UNACKNOWLEDGED: '设定检查发现需要过目的问题；现有设定已经保存。',

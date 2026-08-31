@@ -6,6 +6,9 @@ export interface V7SettingBatchRow {
   status: V7SettingBatchView['status']; selected_items_json: string; custom_items_json: string;
   opening_version: number; opening_hash: string; roster_json: string; created_at: string; updated_at: string;
   lease_token: string | null; lease_expires_at: string | null; error_message: string | null;
+  error_code: string | null;
+  failure_stage: 'pre_dispatch' | 'in_dispatch' | 'post_dispatch' | null;
+  retry_safety: 'safe_after_precondition' | 'technical_retry' | 'manual_redesign' | 'result_unknown' | null;
 }
 
 export interface V7SettingRecommendationStateRow {
@@ -44,7 +47,7 @@ export interface V7SettingJobRow {
 }
 
 export interface V7SettingOutputRow {
-  output_id: string; item_key: string; kind: string; content_json: string; member_key: string; version: number;
+  output_id: string; batch_id: string; item_key: string; kind: string; content_json: string; member_key: string; version: number;
   request_id: string;
 }
 
@@ -70,7 +73,7 @@ export interface V7SettingCurrentItemRow {
 }
 
 export interface V7SettingMemberEventRow {
-  member_key: string; event_type: string; handoff_to_member_key: string | null;
+  member_key: string; event_type: string; handoff_to_member_key: string | null; internal_reason: string | null;
 }
 
 export class V7SettingEditorialRepository {
@@ -289,6 +292,7 @@ export class V7SettingEditorialRepository {
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
       SET status='awaiting_author',selected_items_json=?,custom_items_json=?,error_message=NULL,
+          error_code=NULL,failure_stage=NULL,retry_safety=NULL,
           lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='working' AND lease_token=?`)
       .run(input.resultJson, input.stateJson, input.now, input.ownerId, input.bookId, input.taskId, input.token).changes === 1;
@@ -296,11 +300,18 @@ export class V7SettingEditorialRepository {
 
   public failRecommendation(input: {
     ownerId: string; bookId: string; taskId: string; token: string; stateJson: string; message: string; now: string;
+    errorCode?: string | null;
+    failureStage?: V7SettingBatchRow['failure_stage'];
+    retrySafety?: V7SettingBatchRow['retry_safety'];
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
-      SET status='partially_failed',custom_items_json=?,error_message=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      SET status='partially_failed',custom_items_json=?,error_message=?,error_code=?,failure_stage=?,retry_safety=?,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='working' AND lease_token=?`)
-      .run(input.stateJson, input.message, input.now, input.ownerId, input.bookId, input.taskId, input.token).changes === 1;
+      .run(
+        input.stateJson, input.message, input.errorCode ?? null, input.failureStage ?? null,
+        input.retrySafety ?? null, input.now, input.ownerId, input.bookId, input.taskId, input.token
+      ).changes === 1;
   }
 
   public resetRecommendation(input: {
@@ -308,7 +319,8 @@ export class V7SettingEditorialRepository {
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
       SET status='queued',selected_items_json=json_object('taskKind','catalog_recommendation','result',NULL),
-          custom_items_json=?,error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+          custom_items_json=?,error_message=NULL,error_code=NULL,failure_stage=NULL,retry_safety=NULL,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='partially_failed'
         AND json_extract(custom_items_json,'$.taskKind')='catalog_recommendation'`)
       .run(input.stateJson, input.now, input.ownerId, input.bookId, input.taskId).changes === 1;
@@ -363,6 +375,7 @@ export class V7SettingEditorialRepository {
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
       SET status='awaiting_author',selected_items_json=?,custom_items_json=?,error_message=NULL,
+          error_code=NULL,failure_stage=NULL,retry_safety=NULL,
           lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='working' AND lease_token=?`)
       .run(input.resultJson, input.stateJson, input.now, input.ownerId, input.bookId, input.taskId, input.token).changes === 1;
@@ -370,11 +383,18 @@ export class V7SettingEditorialRepository {
 
   public failFinalReview(input: {
     ownerId: string; bookId: string; taskId: string; token: string; stateJson: string; message: string; now: string;
+    errorCode?: string | null;
+    failureStage?: V7SettingBatchRow['failure_stage'];
+    retrySafety?: V7SettingBatchRow['retry_safety'];
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
-      SET status='partially_failed',custom_items_json=?,error_message=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      SET status='partially_failed',custom_items_json=?,error_message=?,error_code=?,failure_stage=?,retry_safety=?,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='working' AND lease_token=?`)
-      .run(input.stateJson, input.message, input.now, input.ownerId, input.bookId, input.taskId, input.token).changes === 1;
+      .run(
+        input.stateJson, input.message, input.errorCode ?? null, input.failureStage ?? null,
+        input.retrySafety ?? null, input.now, input.ownerId, input.bookId, input.taskId, input.token
+      ).changes === 1;
   }
 
   public resetFinalReview(input: {
@@ -382,7 +402,8 @@ export class V7SettingEditorialRepository {
   }): boolean {
     return this.database.prepare(`UPDATE v7_setting_batches
       SET status='queued',selected_items_json=json_object('taskKind','batch_final_review','result',NULL),
-          custom_items_json=?,error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+          custom_items_json=?,error_message=NULL,error_code=NULL,failure_stage=NULL,retry_safety=NULL,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND status='partially_failed'
         AND json_extract(custom_items_json,'$.taskKind')='batch_final_review'`)
       .run(input.stateJson, input.now, input.ownerId, input.bookId, input.taskId).changes === 1;
@@ -390,42 +411,82 @@ export class V7SettingEditorialRepository {
 
   public createBatchWithJobs(input: {
     batch: { batchId: string; ownerId: string; bookId: string; idempotencyKey: string; requestHash: string; selectedItemsJson: string; customItemsJson: string; openingVersion: number; openingHash: string; rosterJson: string; now: string };
-    jobs: Array<{ jobId: string; item: V7SettingCatalogItem; authorNote: string }>;
-  }): void {
+    jobs: Array<{ jobId: string; item: V7SettingCatalogItem; authorNote: string; sourceRevision?: number | null }>;
+  }): { batch: V7SettingBatchRow; created: boolean } {
     const { batch } = input;
-    this.database.exec('BEGIN IMMEDIATE');
+    this.database.exec('SAVEPOINT v7_create_batch_with_jobs');
     try {
-      this.database.prepare(`INSERT INTO v7_setting_batches
+      const created = this.database.prepare(`INSERT OR IGNORE INTO v7_setting_batches
         (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,opening_version,opening_hash,roster_json,created_at,updated_at)
         VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?)`).run(
         batch.batchId, batch.ownerId, batch.bookId, batch.idempotencyKey, batch.requestHash,
         batch.selectedItemsJson, batch.customItemsJson, batch.openingVersion, batch.openingHash, batch.rosterJson, batch.now, batch.now
-      );
-      const statement = this.database.prepare(`INSERT INTO v7_setting_item_jobs
-        (job_id,owner_id,book_id,batch_id,item_key,item_label,group_title,item_prompt,state,attempted_members_json,author_note,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,'queued','[]',?,?,?)`);
-      for (const job of input.jobs) statement.run(
-        job.jobId, batch.ownerId, batch.bookId, batch.batchId, job.item.key, job.item.label,
-        job.item.groupTitle, job.item.prompt, job.authorNote, batch.now, batch.now
-      );
+      ).changes === 1;
+      if (created) {
+        const statement = this.database.prepare(`INSERT INTO v7_setting_item_jobs
+          (job_id,owner_id,book_id,batch_id,item_key,item_label,group_title,item_prompt,state,attempted_members_json,author_note,context_manifest_json,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,'queued','[]',?,?,?,?)`);
+        for (const job of input.jobs) statement.run(
+          job.jobId, batch.ownerId, batch.bookId, batch.batchId, job.item.key, job.item.label,
+          job.item.groupTitle, job.item.prompt, job.authorNote,
+          job.sourceRevision === undefined ? null : JSON.stringify({ sourceItemRevision: job.sourceRevision }),
+          batch.now, batch.now
+        );
+      }
+      const stored = this.findBatchByIdempotency(batch.ownerId, batch.bookId, batch.idempotencyKey);
+      if (stored === undefined) throw new Error('设定批次创建后无法回读');
+      this.database.exec('RELEASE SAVEPOINT v7_create_batch_with_jobs');
+      return { batch: stored, created };
+    } catch (error) {
+      this.database.exec('ROLLBACK TO SAVEPOINT v7_create_batch_with_jobs');
+      this.database.exec('RELEASE SAVEPOINT v7_create_batch_with_jobs');
+      throw error;
+    }
+  }
+
+  public activeBatchItemConflict(ownerId: string, bookId: string, itemKeys: readonly string[]): string | undefined {
+    if (itemKeys.length === 0) return undefined;
+    const placeholders = itemKeys.map(() => '?').join(',');
+    const row = this.database.prepare(`SELECT job.item_key FROM v7_setting_item_jobs job
+      JOIN v7_setting_batches batch
+        ON batch.owner_id=job.owner_id AND batch.book_id=job.book_id AND batch.batch_id=job.batch_id
+      WHERE job.owner_id=? AND job.book_id=? AND batch.status IN ('queued','working')
+        AND job.item_key IN (${placeholders})
+      ORDER BY batch.created_at,job.created_at,job.item_key LIMIT 1`).get(
+      ownerId, bookId, ...itemKeys
+    ) as { item_key: string } | undefined;
+    return row?.item_key;
+  }
+
+  public resetFailedJobs(ownerId: string, bookId: string, batchId: string, now: string): number {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const reset = this.database.prepare(`UPDATE v7_setting_item_jobs SET state='queued',updated_at=?
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND state='failed'
+          AND EXISTS (SELECT 1 FROM v7_setting_batches batch
+            WHERE batch.owner_id=v7_setting_item_jobs.owner_id
+              AND batch.book_id=v7_setting_item_jobs.book_id
+              AND batch.batch_id=v7_setting_item_jobs.batch_id
+              AND batch.status='partially_failed')`).run(now, ownerId, bookId, batchId);
+      if (reset.changes > 0) {
+        const updated = this.database.prepare(`UPDATE v7_setting_batches SET status='queued',error_message=NULL,error_code=NULL,
+          failure_stage=NULL,retry_safety=NULL,updated_at=?
+          WHERE owner_id=? AND book_id=? AND batch_id=? AND status='partially_failed'`)
+          .run(now, ownerId, bookId, batchId);
+        if (updated.changes !== 1) throw new Error('设定批次状态已经变化');
+      }
       this.database.exec('COMMIT');
+      return Number(reset.changes);
     } catch (error) {
       this.database.exec('ROLLBACK');
       throw error;
     }
   }
 
-  public resetFailedJobs(ownerId: string, bookId: string, batchId: string, now: string): number {
-    const reset = this.database.prepare(`UPDATE v7_setting_item_jobs SET state='queued',updated_at=?
-      WHERE owner_id=? AND book_id=? AND batch_id=? AND state='failed'`).run(now, ownerId, bookId, batchId);
-    if (reset.changes === 0) return 0;
-    this.database.prepare(`UPDATE v7_setting_batches SET status='queued',error_message=NULL,updated_at=?
-      WHERE owner_id=? AND book_id=? AND batch_id=?`).run(now, ownerId, bookId, batchId);
-    return Number(reset.changes);
-  }
-
   public setBatchAwaitingAuthor(ownerId: string, bookId: string, batchId: string, now: string): void {
-    this.database.prepare(`UPDATE v7_setting_batches SET status='awaiting_author',updated_at=? WHERE batch_id=? AND owner_id=? AND book_id=?`)
+    this.database.prepare(`UPDATE v7_setting_batches SET status='awaiting_author',error_message=NULL,error_code=NULL,
+      failure_stage=NULL,retry_safety=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE batch_id=? AND owner_id=? AND book_id=?`)
       .run(now, batchId, ownerId, bookId);
   }
 
@@ -534,15 +595,83 @@ export class V7SettingEditorialRepository {
   }
 
   public finishBatch(input: { ownerId: string; bookId: string; batchId: string; token: string; status: V7SettingBatchRow['status']; now: string }): void {
-    this.database.prepare(`UPDATE v7_setting_batches SET status=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+    this.database.prepare(`UPDATE v7_setting_batches SET status=?,error_message=NULL,error_code=NULL,
+      failure_stage=NULL,retry_safety=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
       WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?`)
       .run(input.status, input.now, input.ownerId, input.bookId, input.batchId, input.token);
   }
 
-  public failBatch(input: { ownerId: string; bookId: string; batchId: string; token: string; message: string; now: string }): void {
-    this.database.prepare(`UPDATE v7_setting_batches SET status='partially_failed',error_message=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?
-      WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?`)
-      .run(input.message, input.now, input.ownerId, input.bookId, input.batchId, input.token);
+  public failBatch(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; message: string; code: string;
+    stage: NonNullable<V7SettingBatchRow['failure_stage']>;
+    retrySafety: NonNullable<V7SettingBatchRow['retry_safety']>;
+    now: string;
+  }): void {
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const batch = this.database.prepare(`UPDATE v7_setting_batches
+        SET status='partially_failed',error_message=?,error_code=?,failure_stage=?,retry_safety=?,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=?
+        WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?`).run(
+        input.message, input.code, input.stage, input.retrySafety, input.now,
+        input.ownerId, input.bookId, input.batchId, input.token
+      );
+      if (batch.changes === 1) {
+        this.database.prepare(`UPDATE v7_setting_item_jobs SET state='failed',updated_at=?
+          WHERE owner_id=? AND book_id=? AND batch_id=? AND state IN ('queued','working','chief_review')`)
+          .run(input.now, input.ownerId, input.bookId, input.batchId);
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  public failSyntheticBatch(input: {
+    ownerId: string; bookId: string; batchId: string; message: string; code: string;
+    stage: NonNullable<V7SettingBatchRow['failure_stage']>;
+    retrySafety: NonNullable<V7SettingBatchRow['retry_safety']>;
+    now: string;
+  }): void {
+    this.database.prepare(`UPDATE v7_setting_batches
+      SET status='partially_failed',error_message=?,error_code=?,failure_stage=?,retry_safety=?,
+        lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND status IN ('queued','working')`).run(
+      input.message, input.code, input.stage, input.retrySafety, input.now,
+      input.ownerId, input.bookId, input.batchId
+    );
+  }
+
+  public failClaimedSyntheticBatch(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; message: string; code: string;
+    stage: NonNullable<V7SettingBatchRow['failure_stage']>;
+    retrySafety: NonNullable<V7SettingBatchRow['retry_safety']>;
+    now: string;
+  }): void {
+    this.database.prepare(`UPDATE v7_setting_batches
+      SET status='partially_failed',error_message=?,error_code=?,failure_stage=?,retry_safety=?,
+        lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?`).run(
+      input.message, input.code, input.stage, input.retrySafety, input.now,
+      input.ownerId, input.bookId, input.batchId, input.token
+    );
+  }
+
+  public resetSyntheticBatch(ownerId: string, bookId: string, batchId: string, now: string): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET status='queued',error_message=NULL,error_code=NULL,failure_stage=NULL,retry_safety=NULL,
+        lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND status='partially_failed'
+        AND json_extract(custom_items_json,'$.taskKind')='item_redesign'
+        AND NOT EXISTS (
+          SELECT 1 FROM v7_setting_model_calls call
+          WHERE call.owner_id=v7_setting_batches.owner_id
+            AND call.book_id=v7_setting_batches.book_id
+            AND call.batch_id=v7_setting_batches.batch_id
+            AND call.state IN ('working','unknown')
+        )`).run(now, ownerId, bookId, batchId);
+    return result.changes === 1;
   }
 
   public updateJobContext(input: { ownerId: string; bookId: string; jobId: string; manifestJson: string; contextHash: string; now: string }): void {
@@ -601,7 +730,7 @@ export class V7SettingEditorialRepository {
     bookId: string,
     batchId: string,
     itemKey: string,
-    states: ReadonlyArray<'failed' | 'unknown'>
+    states: ReadonlyArray<V7SettingModelTaskAttemptRow['state']>
   ): V7SettingModelTaskAttemptRow | undefined {
     if (states.length === 0) return undefined;
     const placeholders = states.map(() => '?').join(',');
@@ -623,7 +752,7 @@ export class V7SettingEditorialRepository {
     ownerId: string,
     bookId: string,
     batchId: string,
-    states: ReadonlyArray<'failed' | 'unknown'>
+    states: ReadonlyArray<V7SettingModelTaskAttemptRow['state']>
   ): V7SettingModelTaskAttemptRow | undefined {
     if (states.length === 0) return undefined;
     const placeholders = states.map(() => '?').join(',');
@@ -639,6 +768,13 @@ export class V7SettingEditorialRepository {
       ORDER BY call.updated_at DESC,call.request_id DESC LIMIT 1`).get(
       ownerId, bookId, batchId, ...states
     ) as V7SettingModelTaskAttemptRow | undefined;
+  }
+
+  public hasUnsettledModelCalls(ownerId: string, bookId: string, batchId: string): boolean {
+    const row = this.database.prepare(`SELECT 1 AS found FROM v7_setting_model_calls
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND state IN ('working','unknown') LIMIT 1`)
+      .get(ownerId, bookId, batchId) as { found: number } | undefined;
+    return row !== undefined;
   }
 
   public startModelCall(input: { requestId: string; ownerId: string; bookId: string; batchId: string; itemKey: string; nodeKey: string; memberKey: string; provider: string; modelId: string; plan: string; promptHash: string; reservedTokens: number; governanceRevision: number; temperature: number; now: string }): void {
@@ -694,9 +830,15 @@ export class V7SettingEditorialRepository {
       V7SettingOutputTaskLineage | undefined;
   }
 
-  public saveCandidate(input: { versionId: string; ownerId: string; bookId: string; item: V7SettingCatalogItem; contentJson: string; outputId: string; batchId: string; createdBy: string; now: string }): number {
+  public saveCandidate(input: { versionId: string; ownerId: string; bookId: string; item: V7SettingCatalogItem; contentJson: string; outputId: string; batchId: string; createdBy: string; now: string; expectedRevision?: number | null }): number | null {
     const current = this.database.prepare('SELECT revision FROM v7_setting_items WHERE owner_id=? AND book_id=? AND item_key=?')
       .get(input.ownerId, input.bookId, input.item.key) as { revision: number } | undefined;
+    if (input.expectedRevision !== undefined) {
+      const sourceStillCurrent = input.expectedRevision === null
+        ? current === undefined
+        : current?.revision === input.expectedRevision;
+      if (!sourceStillCurrent) return null;
+    }
     const revision = (current?.revision ?? 0) + 1;
     // SAVEPOINT works both as a top-level atomic unit and inside the grouped
     // setting transaction. BEGIN IMMEDIATE cannot be nested.
@@ -708,12 +850,38 @@ export class V7SettingEditorialRepository {
         input.versionId, input.ownerId, input.bookId, input.item.key, revision, input.contentJson,
         input.outputId, input.batchId, input.createdBy, input.now
       );
-      this.database.prepare(`INSERT INTO v7_setting_items
-        (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
-        VALUES (?,?,?,?,?,?,'candidate',?,?,?)
-        ON CONFLICT(owner_id,book_id,item_key) DO UPDATE SET item_label=excluded.item_label,group_title=excluded.group_title,
-        item_prompt=excluded.item_prompt,state='candidate',active_version_id=excluded.active_version_id,revision=excluded.revision,updated_at=excluded.updated_at`)
-        .run(input.ownerId, input.bookId, input.item.key, input.item.label, input.item.groupTitle, input.item.prompt, input.versionId, revision, input.now);
+      if (input.expectedRevision === undefined) {
+        this.database.prepare(`INSERT INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,?,'candidate',?,?,?)
+          ON CONFLICT(owner_id,book_id,item_key) DO UPDATE SET item_label=excluded.item_label,group_title=excluded.group_title,
+          item_prompt=excluded.item_prompt,state='candidate',active_version_id=excluded.active_version_id,revision=excluded.revision,updated_at=excluded.updated_at`)
+          .run(input.ownerId, input.bookId, input.item.key, input.item.label, input.item.groupTitle, input.item.prompt, input.versionId, revision, input.now);
+      } else if (input.expectedRevision === null) {
+        const inserted = this.database.prepare(`INSERT OR IGNORE INTO v7_setting_items
+          (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
+          VALUES (?,?,?,?,?,?,'candidate',?,?,?)`).run(
+          input.ownerId, input.bookId, input.item.key, input.item.label, input.item.groupTitle,
+          input.item.prompt, input.versionId, revision, input.now
+        );
+        if (inserted.changes !== 1) {
+          this.database.exec('ROLLBACK TO SAVEPOINT v7_setting_candidate');
+          this.database.exec('RELEASE SAVEPOINT v7_setting_candidate');
+          return null;
+        }
+      } else {
+        const updated = this.database.prepare(`UPDATE v7_setting_items
+          SET item_label=?,group_title=?,item_prompt=?,state='candidate',active_version_id=?,revision=?,updated_at=?
+          WHERE owner_id=? AND book_id=? AND item_key=? AND revision=?`).run(
+          input.item.label, input.item.groupTitle, input.item.prompt, input.versionId, revision, input.now,
+          input.ownerId, input.bookId, input.item.key, input.expectedRevision
+        );
+        if (updated.changes !== 1) {
+          this.database.exec('ROLLBACK TO SAVEPOINT v7_setting_candidate');
+          this.database.exec('RELEASE SAVEPOINT v7_setting_candidate');
+          return null;
+        }
+      }
       this.database.exec('RELEASE SAVEPOINT v7_setting_candidate');
       return revision;
     } catch (error) {
@@ -723,13 +891,14 @@ export class V7SettingEditorialRepository {
     }
   }
 
-  public createSyntheticBatch(input: { batchId: string; ownerId: string; bookId: string; key: string; requestHash: string; itemKey: string; openingVersion: number; openingHash: string; rosterJson: string; now: string }): void {
-    this.database.prepare(`INSERT INTO v7_setting_batches
+  public createSyntheticBatch(input: { batchId: string; ownerId: string; bookId: string; key: string; requestHash: string; itemKey: string; customItemsJson: string; openingVersion: number; openingHash: string; rosterJson: string; now: string }): boolean {
+    const result = this.database.prepare(`INSERT OR IGNORE INTO v7_setting_batches
       (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,opening_version,opening_hash,roster_json,created_at,updated_at)
-      VALUES (?,?,?,?,?,'working',?,?,?,?,?,?,?)`).run(
-      input.batchId, input.ownerId, input.bookId, input.key, input.requestHash, JSON.stringify([input.itemKey]), '[]',
+      VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?)`).run(
+      input.batchId, input.ownerId, input.bookId, input.key, input.requestHash, JSON.stringify([input.itemKey]), input.customItemsJson,
       input.openingVersion, input.openingHash, input.rosterJson, input.now, input.now
     );
+    return result.changes === 1;
   }
 
   public markJobWorking(input: { ownerId: string; bookId: string; jobId: string; memberKey: string; attemptedJson: string; attemptCount: number; manifestJson: string | null; contextHash: string | null; now: string }): void {
@@ -753,9 +922,9 @@ export class V7SettingEditorialRepository {
   }
 
   public memberEvents(ownerId: string, bookId: string, batchId: string | null): V7SettingMemberEventRow[] {
-    if (batchId === null) return this.database.prepare(`SELECT member_key,event_type,handoff_to_member_key FROM v7_setting_member_events
+    if (batchId === null) return this.database.prepare(`SELECT member_key,event_type,handoff_to_member_key,internal_reason FROM v7_setting_member_events
       WHERE owner_id=? AND book_id=? ORDER BY created_at`).all(ownerId, bookId) as unknown as V7SettingMemberEventRow[];
-    return this.database.prepare(`SELECT member_key,event_type,handoff_to_member_key FROM v7_setting_member_events
+    return this.database.prepare(`SELECT member_key,event_type,handoff_to_member_key,internal_reason FROM v7_setting_member_events
       WHERE owner_id=? AND book_id=? AND batch_id=? ORDER BY created_at`).all(ownerId, bookId, batchId) as unknown as V7SettingMemberEventRow[];
   }
 
@@ -799,9 +968,49 @@ export class V7SettingEditorialRepository {
 
   public outputs(ownerId: string, bookId: string, itemKey: string, ids: string[]): V7SettingOutputRow[] {
     if (ids.length === 0) return [];
-    return this.database.prepare(`SELECT output_id,item_key,kind,content_json,member_key,version,request_id FROM v7_setting_outputs
+    return this.database.prepare(`SELECT output_id,batch_id,item_key,kind,content_json,member_key,version,request_id FROM v7_setting_outputs
       WHERE owner_id=? AND book_id=? AND item_key=? AND output_id IN (${ids.map(() => '?').join(',')})`)
       .all(ownerId, bookId, itemKey, ...ids) as unknown as V7SettingOutputRow[];
+  }
+
+  public outputsForBatchItem(
+    ownerId: string,
+    bookId: string,
+    batchId: string,
+    itemKey: string,
+    kind: string
+  ): V7SettingOutputRow[] {
+    return this.database.prepare(`SELECT output_id,batch_id,item_key,kind,content_json,member_key,version,request_id
+      FROM v7_setting_outputs WHERE owner_id=? AND book_id=? AND batch_id=? AND item_key=? AND kind=?
+      ORDER BY version,created_at,output_id`).all(
+      ownerId, bookId, batchId, itemKey, kind
+    ) as unknown as V7SettingOutputRow[];
+  }
+
+  public latestSyntheticTask(
+    ownerId: string,
+    bookId: string,
+    itemKey: string,
+    taskKind: string
+  ): V7SettingBatchRow | undefined {
+    return this.database.prepare(`SELECT batch.* FROM v7_setting_batches batch
+      WHERE batch.owner_id=? AND batch.book_id=?
+        AND json_extract(batch.custom_items_json,'$.taskKind')=?
+        AND json_extract(batch.custom_items_json,'$.itemKey')=?
+        AND NOT EXISTS (
+          SELECT 1 FROM v7_setting_item_jobs job
+          WHERE job.owner_id=batch.owner_id AND job.book_id=batch.book_id AND job.batch_id=batch.batch_id
+        )
+      ORDER BY batch.updated_at DESC,batch.batch_id DESC LIMIT 1`).get(
+      ownerId, bookId, taskKind, itemKey
+    ) as V7SettingBatchRow | undefined;
+  }
+
+  public markRedesignConsumed(ownerId: string, bookId: string, batchId: string, now: string): boolean {
+    return this.database.prepare(`UPDATE v7_setting_batches SET status='completed',updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND status IN ('awaiting_author','partially_failed')
+        AND json_extract(custom_items_json,'$.taskKind')='item_redesign'`)
+      .run(now, ownerId, bookId, batchId).changes === 1;
   }
 
   public latestOutputForJob(

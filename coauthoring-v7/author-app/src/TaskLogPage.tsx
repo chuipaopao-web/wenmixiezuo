@@ -15,6 +15,8 @@ import {
   type OpeningTaskView,
   type PlanningTaskView
 } from './opening-api';
+import { useAuthorAccount } from './AuthorAccountBoundary';
+import { clearOpeningDraftForTask } from './opening-draft-storage';
 
 export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlanning }: {
   onOpenTask: (taskId: string) => void;
@@ -22,6 +24,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
   onOpenCreation?: (bookId: string, focus: 'volume' | 'chain' | 'chapter') => void;
   onOpenPlanning?: (bookId: string) => void;
 }): React.JSX.Element {
+  const { account } = useAuthorAccount();
   const [tasks, setTasks] = useState<OpeningTaskView[]>([]);
   const [designTasks, setDesignTasks] = useState<DesignTaskView[]>([]);
   const [creationTasks, setCreationTasks] = useState<CreationWorkflowView[]>([]);
@@ -97,6 +100,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     setError(null);
     try {
       await abandonOpeningTask(task.taskId);
+      clearOpeningDraftForTask(account.userId, task.taskId);
       setTasks((current) => current.filter((item) => item.taskId !== task.taskId));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '这项任务暂时没有放弃成功，请刷新后重试。');
@@ -108,7 +112,9 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
     setClearingIncompleteTasks(true);
     setError(null);
     try {
+      const abandonedTaskIds = tasks.filter(openingTaskCanArchive).map((task) => task.taskId);
       await abandonAllOpeningTasks();
+      for (const taskId of abandonedTaskIds) clearOpeningDraftForTask(account.userId, taskId);
       setTasks((current) => current.filter((task) => !openingTaskCanArchive(task)));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '未完成任务暂时没有清理成功，请刷新后重试。');

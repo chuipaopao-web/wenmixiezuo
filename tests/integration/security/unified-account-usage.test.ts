@@ -249,7 +249,9 @@ describe('统一账号级用量投影', () => {
       expect(() => assertMembershipAllowsGeneration(context!.database, user.owner_id, now))
         .toThrowError(expect.objectContaining({ code: 'MEMBERSHIP_QUOTA_EXHAUSTED' }) as unknown as Error);
       const status = new MembershipService(context.database, new FixedClock(new Date(now))).statusForOwner(user.owner_id);
-      expect(status.membership).toMatchObject({ computeQuota: 100, computeConsumed: 60, computeRemaining: 40 });
+      // 页面可用算力与生成门禁统一：已经在途预占的模型和图片用量
+      // 不能再显示成可以重复使用的余额。
+      expect(status.membership).toMatchObject({ computeQuota: 100, computeConsumed: 60, computeRemaining: 0 });
 
       const membershipList = await app.inject({ method: 'GET', url: '/api/v1/admin/memberships', headers: { host: BROWSER_HEADERS.host, cookie: adminCookie } });
       const membershipEntry = membershipList.json().data.items.find((item: { userId: string }) => item.userId === user.user_id);
