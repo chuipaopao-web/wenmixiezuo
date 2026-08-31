@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { planningRosterFromGlobal } from '@wenmi/v7-backend';
+import { creationRosterFromGlobal, planningRosterFromGlobal } from '@wenmi/v7-backend';
 import { V7PlanningTreeService } from '../application/planning/v7-planning-tree-service.js';
 import { V7PlanningEditorialService } from '../application/planning/v7-planning-editorial-service.js';
 import { V7PlanningTreeGenerationService } from '../application/planning/v7-planning-tree-generation-service.js';
@@ -26,11 +26,12 @@ export async function registerV7PlanningTreeRoutes(
   const governance = new V7AgentGovernanceRepository(database);
   governance.ensureSeeded(clock.now().toISOString());
   const planningRoster = () => planningRosterFromGlobal(governance.snapshot().members);
+  const contextRoster = () => creationRosterFromGlobal(governance.snapshot().members);
   const service = new V7PlanningTreeService(database, ids, clock);
   const editorial = new V7PlanningEditorialService(database, adapters, ids, clock, planningRoster);
-  const generation = new V7PlanningTreeGenerationService(database, adapters, ids, clock, planningRoster);
+  const generation = new V7PlanningTreeGenerationService(database, adapters, ids, clock, planningRoster, contextRoster);
   const maintenance = new V7PlanningMaintenanceService(database, adapters, ids, clock, planningRoster);
-  const routes = new V7PlanningRouteService(database, adapters, ids, clock, planningRoster);
+  const routes = new V7PlanningRouteService(database, adapters, ids, clock, planningRoster, contextRoster);
   const books = new V7OpeningBookService(database, ids, clock);
   const scope = (request: Parameters<typeof requireAuthenticatedOwner>[0], bookId: string): string => {
     const owner = requireAuthenticatedOwner(request);

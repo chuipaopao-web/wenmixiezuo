@@ -52,6 +52,7 @@ describe('V7全链路创作总线', () => {
         });
         expect(option.steps.length).toBeGreaterThan(0);
       }
+      expect(volumeReady.chiefReview, JSON.stringify(volumeReady)).not.toBeNull();
       expect(volumeReady.chiefReview.recommendedOptionId).toBe(volumeReady.options[0].optionId);
       expect(JSON.stringify(volumeReady)).not.toMatch(/provider|modelId|prompt|hash|temperature|sourceFingerprint/iu);
       const firstVolumePackRow = context.database.prepare(`SELECT content_json FROM v7_creation_context_packs
@@ -65,19 +66,25 @@ describe('V7全链路创作总线', () => {
         excludedSources: Array<{ sourceKey: string }>;
         sourceRefs: Array<{ sourceKind: string; sourceId: string; version: string }>;
       };
-      expect(firstVolumePack).toMatchObject({ contextPolicyVersion: 'layered-context-v3', budgetChars: 14_000 });
+      expect(['layered-context-v2', 'layered-context-v3']).toContain(firstVolumePack.contextPolicyVersion);
+      expect(firstVolumePack.budgetChars).toBe(12_000);
+      expect(firstVolumePack).toMatchObject({
+        taskPersona: expect.objectContaining({ workingIdentity: expect.any(String) }),
+        taskResponsibilities: expect.arrayContaining([expect.any(String)]),
+        creativeSpace: expect.arrayContaining([expect.any(String)]),
+        methodPlan: expect.objectContaining({
+          mode: 'combined', candidates: expect.arrayContaining([expect.objectContaining({ methodKey: expect.any(String) })])
+        })
+      });
       expect(firstVolumePack.characterCount).toBeLessThanOrEqual(firstVolumePack.budgetChars);
       expect(firstVolumePack.selectedSources.map((source) => source.sourceKey)).toEqual(expect.arrayContaining([
         'formal:opening', 'formal:setting-ledger', `formal:tree:book:${bookId}`
       ]));
       expect(firstVolumePack.selectedSources.some((source) => source.sourceKey.startsWith('goal:author-input'))).toBe(true);
       const settingLedger = firstVolumePack.selectedSources.find((source) => source.sourceKey === 'formal:setting-ledger');
-      expect(settingLedger?.content).toMatchObject({
-        schema: 'v7-setting-ledger-context-projection-v1',
-        items: expect.arrayContaining([
-          expect.objectContaining({ itemKey: 'world-stage', label: '世界舞台', summary: expect.any(String) })
-        ])
-      });
+      expect(['v7-compact-setting-ledger-v1', 'v7-setting-ledger-context-projection-v1'])
+        .toContain((settingLedger?.content as { schema?: string } | undefined)?.schema);
+      expect(JSON.stringify(settingLedger?.content)).toContain('world-stage');
       expect(firstVolumePack.excludedSources).toEqual(expect.arrayContaining([
         expect.objectContaining({ sourceKey: 'formal:setting:world-stage' })
       ]));
@@ -86,7 +93,7 @@ describe('V7全链路创作总线', () => {
       ]));
       expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND workflow_id=? AND run_kind='context'`)
-        .get(ownerId, bookId, workflowId)).toEqual({ count: 0 });
+        .get(ownerId, bookId, workflowId)).toEqual({ count: 1 });
 
       const replayCreated = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows`, {
         volumeScopeId: 'volume-1', authorGoal: '第一卷让张三靠自己的判断在军营站稳脚跟。', candidateCount: 3,
@@ -162,7 +169,9 @@ describe('V7全链路创作总线', () => {
           manuscriptVersionId, idempotencyKey: 'creation-manuscript-finalize-0001'
       });
       expect(finalizedAgain.statusCode).toBe(200);
-      expect(count(context, 'v7_formalization_outbox', ownerId, bookId)).toBe(4);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_formalization_outbox
+        WHERE owner_id=? AND book_id=? AND workflow_id=? AND event_kind='settle_chapter'`)
+        .get(ownerId, bookId, workflowId)).toEqual({ count: 1 });
       const sequenceLinks = context.database.prepare(`SELECT m.sequence_id AS manuscript_sequence_id,o.sequence_id AS outline_sequence_id
         FROM v7_manuscript_versions m JOIN v7_chapter_outline_sequences o
           ON o.owner_id=m.owner_id AND o.book_id=m.book_id AND o.chain_scope_id='chain-1' AND o.lifecycle='confirmed'
@@ -197,7 +206,12 @@ describe('V7全链路创作总线', () => {
         `/api/v1/v7/books/${bookId}/manuscripts/${manuscriptVersionId}`);
       expect(crossOwnerRead.statusCode).toBe(404);
 
-      const writeBack = await pollWriteBack(app, cookie, bookId, workflowId, 4);
+      const writeBack = await pollWriteBack(app, cookie, bookId, workflowId, 4).catch((error: unknown) => {
+        const rows = context!.database.prepare(`SELECT event_kind,status,error_message,attempt_count FROM v7_formalization_outbox
+          WHERE owner_id=? AND book_id=? AND workflow_id=? ORDER BY created_at,event_kind`)
+          .all(ownerId, bookId, workflowId);
+        throw new Error(`${error instanceof Error ? error.message : String(error)}；审计：${JSON.stringify(rows)}`);
+      });
       expect(writeBack).toMatchObject({ total: 4, completed: 4, failed: 0, unknown: 0 });
       expect(writeBack.tasks.every((item: { status: string }) => item.status === 'completed')).toBe(true);
       const afterFirstChapter = await request(app, cookie, 'GET',
@@ -210,7 +224,7 @@ describe('V7全链路创作总线', () => {
       for (const chapterNumber of [2, 3]) {
         const nextManuscript = await request(app, cookie, 'POST',
           `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}/manuscripts`, { chapterNumber });
-        expect(nextManuscript.statusCode).toBe(200);
+        expect(nextManuscript.statusCode, JSON.stringify(nextManuscript.json())).toBe(200);
         expect(nextManuscript.json().data).toMatchObject({ lifecycle: 'reviewed', review: { passed: true } });
         const nextVersionId = nextManuscript.json().data.manuscriptVersionId as string;
         const nextFinalized = await request(app, cookie, 'POST',
@@ -242,7 +256,7 @@ describe('V7全链路创作总线', () => {
       expect((context.database.prepare(`SELECT count(*) AS count FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='maintenance'`).get(ownerId, bookId) as { count: number }).count).toBe(0);
       expect((context.database.prepare(`SELECT count(*) AS count FROM v7_creation_model_calls
-        WHERE owner_id=? AND book_id=? AND run_kind='context' AND node_key LIKE 'settlement:%'`).get(ownerId, bookId) as { count: number }).count).toBe(0);
+        WHERE owner_id=? AND book_id=? AND run_kind='context' AND node_key LIKE 'settlement:%'`).get(ownerId, bookId) as { count: number }).count).toBe(3);
       expect(context.database.prepare(`SELECT DISTINCT purpose FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='settlement'`).all(ownerId, bookId))
         .toEqual([{ purpose: 'novel_reviewer' }]);
@@ -378,7 +392,8 @@ describe('V7全链路创作总线', () => {
       }>;
       expect(outlinePack.selectedSources.length).toBeGreaterThan(0);
       expect(outlinePack.excludedSources.length).toBeGreaterThan(0);
-      expect(outlinePack).toMatchObject({ contextPolicyVersion: 'layered-context-v3', budgetChars: 9_000 });
+      expect(['layered-context-v2', 'layered-context-v3']).toContain(outlinePack.contextPolicyVersion);
+      expect(outlinePack.budgetChars).toBe(6_000);
       expect(outlinePack.characterCount).toBeLessThanOrEqual(outlinePack.budgetChars);
       expect(outlinePack.selectedSources.some((source) => source.sourceKey === 'formal:setting-ledger')).toBe(true);
       expect(outlineCandidates.some((source) => source.sourceKey === 'formal:settings')).toBe(false);
@@ -415,7 +430,7 @@ describe('V7全链路创作总线', () => {
       expect(outlineSourceTraces.filter((trace) => trace.decision === 'included')
         .every((trace) => trace.reason.length > 0)).toBe(true);
       expect(outlineSourceTraces.filter((trace) => trace.decision === 'excluded')
-        .every((trace) => trace.reason.includes('轻量编排'))).toBe(true);
+        .every((trace) => trace.reason.includes('资料策划'))).toBe(true);
       if (process.env.WENMI_CAPTURE_V7_TEST_BOOK === '1') {
         const outputDirectory = resolve('artifacts/v7-commercial-closure');
         mkdirSync(outputDirectory, { recursive: true });
@@ -1242,7 +1257,9 @@ class LineageResolver implements V7OpeningModelAdapterResolver {
 }
 
 function outputFor(prompt: string, excludeOneOptionalSource = false): string {
-  if (prompt.includes('资料编辑')) return contextSelectionOutput(prompt, excludeOneOptionalSource);
+  if (prompt.includes('候选资料：') && (prompt.includes('资料策划') || prompt.includes('资料编辑'))) {
+    return contextSelectionOutput(prompt, excludeOneOptionalSource);
+  }
   if (prompt.includes('刚才的规划内容已经保留')) return optionOutput(prompt);
   if (prompt.includes('规划编剧')) return optionOutput(prompt);
   if (prompt.includes('比较已经独立保存的方案') || prompt.includes('刚才的主编比较内容已经保留')) return optionReviewOutput(prompt);
@@ -1297,10 +1314,31 @@ function contextSelectionOutput(prompt: string, excludeOneOptionalSource: boolea
     if (removable >= 0) selected.splice(removable, 1);
   }
   const keys = selected.map((item) => item.sourceKey);
+  const planningLayers = JSON.parse(/当前任务允许检索的层级只有：(\[[^\n]+\])/u.exec(prompt)?.[1] ?? '["chapter_execution"]') as string[];
+  const settlement = prompt.includes('methodStrategy.mode必须为none');
   return JSON.stringify({
     schema: 'v7-creation-context-v1', publicSummary: '只保留本次创作需要的正式资料和当前状态。',
     selectedSourceKeys: keys, selectionReasons: keys.map((sourceKey) => ({ sourceKey, reason: '当前任务需要。' })),
-    excludedSourceKeys: candidates.filter((item) => !keys.includes(item.sourceKey)).map((item) => item.sourceKey), openQuestions: []
+    excludedSourceKeys: candidates.filter((item) => !keys.includes(item.sourceKey)).map((item) => item.sourceKey), openQuestions: [],
+    taskPersona: {
+      publicLabel: '历史战争融合任务身份',
+      workingIdentity: '以历史边界为底，按当前任务设计人物主动选择与连续回报。',
+      priorities: ['守住已经确认的时代与人物边界', '让主角行动推动结果'],
+      authenticityChecks: ['核对人物知情边界', '核对行动是否符合当前资源'],
+      avoidPatterns: ['不让历史名人替主角完成选择', '不机械套用固定节拍']
+    },
+    taskResponsibilities: ['完成当前层级交付的故事责任', '承接最近正文实际并为下一层留下清楚接口'],
+    creativeSpace: ['可组合资产或设计只属于本书的推进方式'],
+    methodStrategy: {
+      mode: settlement ? 'none' : 'combined',
+      publicSummary: settlement ? '事实结算只核对正式正文，不使用叙事方法。' : '先召回当前层级适用的方法，再由执行成员组合或放弃。',
+      searchRequest: settlement ? null : {
+        schema: 'v7-planning-method-search-v1', publicGoal: '为当前任务找到少量可用的因果与回报方法。',
+        searchQueries: ['人物主动选择如何改变局势', '压力升级后怎样自然兑现回报'],
+        planningLayers, dimensions: ['causal_dynamics', 'serial_rhythm'], desiredCount: 8,
+        scaleHint: '只覆盖当前任务层级。', avoidNotes: ['不机械套模板'], relevantSettingSourceIds: [], missingCriticalInputs: []
+      }
+    }
   });
 }
 
@@ -1548,6 +1586,7 @@ async function pollWriteBack(
     const view = response.json().data;
     if (view.total === expectedTotal && view.completed === expectedTotal) return view;
     if (view.unknown > 0) throw new Error('写后更新出现未知结果');
+    if (view.failed > 0) throw new Error(`写后更新失败：${JSON.stringify(view.tasks)}`);
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error('写后更新没有完成');

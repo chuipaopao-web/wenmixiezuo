@@ -33,7 +33,8 @@ export function CreationOperationsPage(): React.JSX.Element {
       + planningTasks.filter((task) => ['waiting', 'working', 'waiting_for_you'].includes(task.status)).length,
     failed: tasks.filter((task) => ['failed', 'partially_failed', 'unknown'].includes(task.status) || task.failedUpdates > 0).length
       + planningTasks.filter((task) => task.status === 'failed').length,
-    calls: tasks.reduce((sum, task) => sum + task.modelCalls, 0),
+    calls: tasks.reduce((sum, task) => sum + task.modelCalls, 0)
+      + planningTasks.reduce((sum, task) => sum + task.modelCalls, 0),
     updates: tasks.reduce((sum, task) => sum + task.pendingUpdates, 0)
   }), [planningTasks, tasks]);
 
@@ -75,7 +76,10 @@ export function CreationOperationsPage(): React.JSX.Element {
 function PlanningAuditDetail({ value }: { value: V7PlanningAdminAudit | undefined }): React.JSX.Element {
   if (value === undefined) return <div className="creation-ops-audit"><CircleNotch className="spin"/>正在整理成员调用记录…</div>;
   const tokens = value.calls.reduce((sum, call) => sum + (call.input_tokens ?? 0) + (call.output_tokens ?? 0), 0);
-  return <section className="creation-ops-audit"><strong>成员调用</strong><span>{value.calls.length} 次 · {tokens.toLocaleString('zh-CN')} Token</span>{value.calls.map((call, index) => <article key={`${call.member_key}-${index}`}><b>{call.member_key}</b><small>{call.state}{call.failure_message === null ? '' : ` · ${call.failure_message}`}</small></article>)}</section>;
+  return <section className="creation-ops-audit">
+    <ContextPlanSummary value={value.contextPlan ?? null} />
+    <strong>成员调用</strong><span>{value.calls.length} 次 · {tokens.toLocaleString('zh-CN')} Token</span>{value.calls.map((call, index) => <article key={`${call.member_key}-${index}`}><b>{call.member_key}</b><small>{call.state}{call.failure_message === null ? '' : ` · ${call.failure_message}`}</small></article>)}
+  </section>;
 }
 
 function AuditDetail({ value }: { value: V7CreationAdminAudit | undefined }): React.JSX.Element {
@@ -93,11 +97,44 @@ function AuditDetail({ value }: { value: V7CreationAdminAudit | undefined }): Re
     <strong>本轮生成</strong>
     <span>请求 {requestedCandidateCount} 套 · 卷链方案 {options.length} 套 · 章纲方案 {activeOutlineCandidates} 套</span>
     <article><b>资料包</b><small>{contextPacks.length} 份 · {contextPacks.reduce((sum, item) => sum + item.content_characters, 0).toLocaleString('zh-CN')} 字符</small></article>
+    {contextPacks.map((pack) => <ContextPackSummary key={pack.context_pack_id} value={pack} />)}
     <article><b>成员调用</b><small>{calls.length} 次 · {tokens.toLocaleString('zh-CN')} Token</small></article>
     {calls.map((call) => <article key={call.request_id}><b>{call.member_key}</b><small>{runKindName(call.run_kind)} · {call.state}{call.failure_message === null ? '' : ` · ${call.failure_message}`}</small></article>)}
     <strong>写后维护</strong><span>{value.writeBack.completed}/{value.writeBack.total} 已完成</span>
     {value.writeBack.tasks.map((task) => <article key={task.taskId}><b>{task.task}</b><small>{task.message} · 尝试 {task.attempts} 次</small></article>)}
   </section>;
+}
+
+function ContextPlanSummary({ value }: { value: V7PlanningAdminAudit['contextPlan'] }): React.JSX.Element {
+  const request = value?.request;
+  if (request === undefined) return <article><b>资料策划</b><small>旧任务没有结构化资料策划记录</small></article>;
+  return <details className="creation-ops-context"><summary><b>资料策划</b><small>{request.taskPersona?.publicLabel ?? '本任务临时题材身份'} · {value?.candidates?.length ?? 0} 个方法候选</small><CaretDown/></summary><dl>
+    <div><dt>任务身份</dt><dd>{request.taskPersona?.workingIdentity ?? request.taskPersona?.publicLabel ?? '未记录'}</dd></div>
+    <div><dt>本轮责任</dt><dd>{request.taskResponsibilities?.join('；') || '未记录'}</dd></div>
+    <div><dt>创意空间</dt><dd>{request.creativeSpace?.join('；') || '未记录'}</dd></div>
+    <div><dt>检索目标</dt><dd>{request.publicGoal ?? '未记录'}</dd></div>
+  </dl></details>;
+}
+
+function ContextPackSummary({ value }: { value: NonNullable<V7CreationAdminAudit['creation']['contextPacks']>[number] }): React.JSX.Element {
+  const summary = value.context_summary;
+  return <details className="creation-ops-context"><summary><b>{contextTaskName(value.task_kind)}资料包</b><small>{summary === undefined ? value.status : `${summary.characterCount}/${summary.budgetChars} 字符 · ${summary.methodPlan.candidateCount} 个方法候选`}</small><CaretDown/></summary>
+    {summary === undefined ? <p>这份旧资料包没有结构化摘要。</p> : <dl>
+      <div><dt>任务身份</dt><dd>{summary.taskPersona.workingIdentity}</dd></div>
+      <div><dt>本轮责任</dt><dd>{summary.taskResponsibilities.join('；')}</dd></div>
+      <div><dt>创意空间</dt><dd>{summary.creativeSpace.join('；')}</dd></div>
+      <div><dt>方法策略</dt><dd>{methodModeName(summary.methodPlan.mode)} · {summary.methodPlan.publicSummary}</dd></div>
+      <div><dt>资料选择</dt><dd>采用 {summary.selectedSources.length} 项 · 排除 {summary.excludedSources.length} 项 · 约 {summary.estimatedTokens.toLocaleString('zh-CN')} 字元</dd></div>
+    </dl>}
+  </details>;
+}
+
+function methodModeName(value: 'asset' | 'combined' | 'original' | 'none'): string {
+  return ({ asset: '采用资产方法', combined: '组合资产与原创', original: '本轮原创', none: '不需要创作方法' } as const)[value];
+}
+
+function contextTaskName(value: string): string {
+  return ({ volume: '本卷', chain: '单元链', outline: '章纲', manuscript: '正文', review: '审查', settlement: '写后结算' } as Record<string, string>)[value] ?? '创作';
 }
 
 function runKindName(value: string): string {

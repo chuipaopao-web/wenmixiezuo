@@ -1,4 +1,12 @@
 import type { PlanningTreeDocument, PlanningTreeSourceRef } from '../planning-trees/planning-tree-contracts.js';
+import type {
+  NarrativeDimension,
+  NarrativeMethodDefinition
+} from '../narrative-methods/narrative-method-library.js';
+import type {
+  PlanningLayerKey,
+  V7PlanningMethodSearchRequest
+} from '../planning-methods/index.js';
 
 export const V7_CREATION_CONTEXT_SCHEMA = 'v7-creation-context-v1' as const;
 export const V7_VOLUME_OPTION_SCHEMA = 'v7-volume-option-v1' as const;
@@ -44,18 +52,18 @@ export type V7CreationTaskKind = 'volume' | 'chain' | 'outline' | 'manuscript' |
  * the provider-specific token budget as a second independent guard.
  */
 export const V7_CREATION_CONTEXT_CHAR_BUDGETS: Readonly<Record<V7CreationTaskKind, number>> = {
-  volume: 14_000,
-  chain: 10_000,
-  outline: 9_000,
-  manuscript: 18_000,
+  volume: 12_000,
+  chain: 8_000,
+  outline: 6_000,
+  manuscript: 6_000,
   // 审校是有边界的裁决，不是重新理解整本书。正文和当前章纲会在
   // ContextPack 之外单独发送；这里仅保留直接相关的正式事实与最近实际。
   // 预算低于写作工位，迫使超长来源使用上游 Agent 已签发的轻量索引，
   // 避免审校模型把无关设定和远期规划当成无限找茬素材。
-  review: 8_000,
+  review: 6_000,
   // 定稿结算只需要当前链责任、活跃人物/线路索引与当前章纲；正文会在
   // ContextPack之外单独发送。禁止把整本开书、设定和所有历史再次搬运。
-  settlement: 8_000
+  settlement: 6_000
 };
 
 export interface V7CreationSourceCandidate {
@@ -84,6 +92,52 @@ export interface V7CreationContextSelection {
   selectionReasons: Array<{ sourceKey: string; reason: string }>;
   excludedSourceKeys: string[];
   openQuestions: string[];
+  taskPersona: V7CreationTaskPersona;
+  taskResponsibilities: string[];
+  creativeSpace: string[];
+  methodStrategy: V7CreationMethodStrategy;
+}
+
+/**
+ * 只属于“当前书 + 当前任务”的临时执行身份。它随资料包冻结，不写入成员、
+ * 岗位或长期偏好，任何接手同一任务的成员都读取同一份身份说明。
+ */
+export interface V7CreationTaskPersona {
+  publicLabel: string;
+  workingIdentity: string;
+  priorities: string[];
+  authenticityChecks: string[];
+  avoidPatterns: string[];
+}
+
+export type V7CreationMethodMode = 'asset' | 'combined' | 'original' | 'none';
+
+export interface V7CreationMethodStrategy {
+  mode: V7CreationMethodMode;
+  publicSummary: string;
+  searchRequest: V7PlanningMethodSearchRequest | null;
+}
+
+export interface V7CreationMethodCandidate {
+  methodKey: string;
+  publicExplanation: string;
+  dimension: NarrativeDimension;
+  kind: NarrativeMethodDefinition['kind'];
+  planningLayers: readonly PlanningLayerKey[];
+  responsibilities: string[];
+  combinationGuidance: string;
+  caution: string[];
+}
+
+export interface V7CreationMethodPlan extends V7CreationMethodStrategy {
+  candidates: V7CreationMethodCandidate[];
+  retrievalVersion: 'v7-method-retrieval-1' | null;
+  policy: {
+    candidateOnly: true;
+    executorMayCombine: true;
+    executorMayIgnore: true;
+    originalDesignAllowed: true;
+  };
 }
 
 export interface V7CreationContextPack {
@@ -95,6 +149,10 @@ export interface V7CreationContextPack {
   selectedSources: V7CreationSourceCandidate[];
   excludedSources: Array<{ sourceKey: string; reason: string }>;
   openQuestions: string[];
+  taskPersona: V7CreationTaskPersona;
+  taskResponsibilities: string[];
+  creativeSpace: string[];
+  methodPlan: V7CreationMethodPlan;
   sourceRefs: PlanningTreeSourceRef[];
   contextPolicyVersion: 'layered-context-v2' | 'layered-context-v3';
   characterCount: number;
@@ -115,6 +173,21 @@ export function creationPromptContext(value: unknown): unknown {
     taskKind: pack.taskKind,
     taskBrief: pack.taskBrief,
     firstVolume: pack.firstVolume,
+    taskPersona: pack.taskPersona,
+    taskResponsibilities: pack.taskResponsibilities ?? [],
+    creativeSpace: pack.creativeSpace ?? [],
+    methodPlan: pack.methodPlan === undefined ? undefined : {
+      mode: pack.methodPlan.mode,
+      publicSummary: pack.methodPlan.publicSummary,
+      candidates: pack.methodPlan.candidates.map((candidate) => ({
+        methodKey: candidate.methodKey,
+        publicExplanation: candidate.publicExplanation,
+        responsibilities: candidate.responsibilities,
+        combinationGuidance: candidate.combinationGuidance,
+        caution: candidate.caution
+      })),
+      policy: pack.methodPlan.policy
+    },
     sources: pack.selectedSources.map((source) => ({
       sourceKey: source.sourceKey,
       sourceKind: source.sourceKind,

@@ -192,8 +192,8 @@ export interface V7PlanningGenerationRunRow {
   updated_at: string;
 }
 
-export type V7PlanningRecipeTaskRow = V7PlanningRecipeRunRow & { book_title: string };
-export type V7PlanningGenerationTaskRow = V7PlanningGenerationRunRow & { book_title: string };
+export type V7PlanningRecipeTaskRow = V7PlanningRecipeRunRow & { book_title: string; model_calls: number };
+export type V7PlanningGenerationTaskRow = V7PlanningGenerationRunRow & { book_title: string; model_calls: number };
 
 export interface V7PlanningModelCallRow {
   request_id: string;
@@ -412,7 +412,9 @@ export class V7PlanningRuntimeRepository {
   }
 
   public planningRouteTasks(ownerId: string, limit: number): V7PlanningRecipeTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+        (SELECT COUNT(*) FROM v7_planning_model_calls c
+          WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.run_id) AS model_calls
       FROM v7_planning_recipe_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
       WHERE r.owner_id=? AND (r.roster_json LIKE '%"routeWriters"%' OR r.roster_json LIKE '%"three-chief-direct-v1"%')
       ORDER BY r.updated_at DESC,r.run_id DESC LIMIT ?`)
@@ -420,7 +422,9 @@ export class V7PlanningRuntimeRepository {
   }
 
   public adminPlanningRouteTasks(limit: number): V7PlanningRecipeTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+        (SELECT COUNT(*) FROM v7_planning_model_calls c
+          WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.run_id) AS model_calls
       FROM v7_planning_recipe_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
       WHERE r.roster_json LIKE '%"routeWriters"%' OR r.roster_json LIKE '%"three-chief-direct-v1"%'
       ORDER BY r.updated_at DESC,r.run_id DESC LIMIT ?`)
@@ -790,14 +794,18 @@ export class V7PlanningRuntimeRepository {
   }
 
   public planningGenerationTasks(ownerId: string, limit: number): V7PlanningGenerationTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+        (SELECT COUNT(*) FROM v7_planning_model_calls c
+          WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.generation_run_id) AS model_calls
       FROM v7_planning_generation_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
       WHERE r.owner_id=? ORDER BY r.updated_at DESC,r.generation_run_id DESC LIMIT ?`)
       .all(ownerId, limit) as unknown as V7PlanningGenerationTaskRow[];
   }
 
   public adminPlanningGenerationTasks(limit: number): V7PlanningGenerationTaskRow[] {
-    return this.database.prepare(`SELECT r.*,b.title AS book_title
+    return this.database.prepare(`SELECT r.*,b.title AS book_title,
+        (SELECT COUNT(*) FROM v7_planning_model_calls c
+          WHERE c.owner_id=r.owner_id AND c.book_id=r.book_id AND c.run_id=r.generation_run_id) AS model_calls
       FROM v7_planning_generation_runs r JOIN books b ON b.owner_id=r.owner_id AND b.book_id=r.book_id
       ORDER BY r.updated_at DESC,r.generation_run_id DESC LIMIT ?`)
       .all(limit) as unknown as V7PlanningGenerationTaskRow[];

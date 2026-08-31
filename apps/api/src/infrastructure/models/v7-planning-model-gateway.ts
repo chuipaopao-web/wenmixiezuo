@@ -3,6 +3,7 @@ import {
   modelProfileKeyForBinding,
   type V7AgentTaskKind,
   type V7ContextSourceTrace,
+  type V7CreationMemberDefinition,
   type V7PlanningMemberDefinition,
   type V7TaskOperationMode,
   type V7WorkstationKey
@@ -25,7 +26,7 @@ export interface V7PlanningModelAdapterResolver {
 export type V7PlanningOperationMode = Exclude<V7TaskOperationMode, 'retry'>;
 export type V7PlanningTaskKind = Extract<
   V7AgentTaskKind,
-  'planning_recipe' | 'planning_review' | 'planning_tree' | 'planning_maintenance'
+  'planning_context' | 'planning_recipe' | 'planning_review' | 'planning_tree' | 'planning_maintenance'
 >;
 export type V7PlanningWorkstationKey = Extract<
   V7WorkstationKey,
@@ -48,7 +49,7 @@ export interface V7PlanningModelRequest {
   basedOnTaskId: string | null;
   authorInstructionVersion: number | null;
   sourceTraces: readonly V7ContextSourceTrace[];
-  member: V7PlanningMemberDefinition;
+  member: V7PlanningMemberDefinition | V7CreationMemberDefinition;
   prompt: string;
   maxOutputTokens: number;
   temperature: number;
@@ -233,14 +234,16 @@ function assertPlanningContractShape(request: V7PlanningModelRequest): void {
   const correct = request.runKind === 'maintenance'
     ? request.taskKind === 'planning_maintenance' && request.workstationKey === 'continuity_record'
     : request.runKind === 'tree'
-      ? request.taskKind === 'planning_tree' && request.workstationKey !== 'continuity_record'
-      : (request.taskKind === 'planning_recipe' || request.taskKind === 'planning_review')
+      ? (request.taskKind === 'planning_context' || request.taskKind === 'planning_tree')
+        && request.workstationKey !== 'continuity_record'
+      : (request.taskKind === 'planning_context' || request.taskKind === 'planning_recipe'
+        || request.taskKind === 'planning_review')
         && request.workstationKey !== 'continuity_record';
   if (!correct) throw new V7PlanningModelError('规划任务类型、工位与工作流不匹配');
 }
 
 function isPlanningTaskKind(value: string): value is V7PlanningTaskKind {
-  return value === 'planning_recipe' || value === 'planning_review'
+  return value === 'planning_context' || value === 'planning_recipe' || value === 'planning_review'
     || value === 'planning_tree' || value === 'planning_maintenance';
 }
 

@@ -73,6 +73,32 @@ describe('V7时光机真实规划闭环', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时连接不上文秘写作服务');
   });
 
+  it('把安全的前置条件原话告诉作者，不用笼统失败掩盖处理办法', async () => {
+    mocked.fetchPlanningTree.mockRejectedValue(new api.AuthorApiError('请先确认至少一项设定，再开始规划全书。', false, 409));
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('请先确认至少一项设定，再开始规划全书。');
+  });
+
+  it('恢复失败的全书任务时明确道歉并提供页内重新规划', async () => {
+    mocked.fetchLatestPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'failed', phase: 'failed', routes: [], chiefReview: null, canDecide: false,
+      message: '对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。',
+      errorMessage: '对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。'
+    });
+    mocked.createPlanningRouteRun.mockResolvedValue({
+      ...routeRun(), status: 'working', phase: 'choosing_methods', routes: [], chiefReview: null, canDecide: false,
+      message: '资料策划正在筛选本次真正需要的资料。', errorMessage: null
+    });
+
+    render(<TimeMachinePage bookId="book-1" />);
+
+    expect(await screen.findByText('对不起，这次没有完成。已经完成的内容会保留，您可以重新开始。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新规划全书' }));
+    await waitFor(() => expect(mocked.createPlanningRouteRun).toHaveBeenCalledWith('book-1', '', 1, []));
+  });
+
   it('恢复三条真实路线，作者选择后才生成正式框架', async () => {
     const run = routeRun();
     mocked.fetchLatestPlanningRouteRun.mockResolvedValue(run);
@@ -131,6 +157,9 @@ describe('V7时光机真实规划闭环', () => {
     expect(screen.getByText('读者会有什么感受')).toBeVisible();
     expect(screen.getByText('为什么会走到这里')).toBeVisible();
     expect(screen.getByText('阶段结果与下一步')).toBeVisible();
+    expect(screen.getByText('这次为什么这样设计')).toBeVisible();
+    expect(screen.getByText('让张三的主动选择持续产生新后果，不靠固定升级模板推进。')).toBeVisible();
+    expect(screen.getByText('选择推动下一卷')).toBeVisible();
     expect(screen.getAllByText('正文定稿后自动整理')).not.toHaveLength(0);
     expect(screen.queryByText(/0%|85%|60%/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认采用框架' }));
@@ -227,6 +256,10 @@ function generation(): api.PlanningTreeGenerationView {
 function treeView(): api.PlanningTreeView {
   return {
     treeKind: 'book', scopeId: 'book-1', status: 'candidate', revision: 1, title: '张三从小卒到改变时代',
+    designSummary: {
+      decisionNote: '让张三的主动选择持续产生新后果，不靠固定升级模板推进。',
+      originalApproaches: [{ title: '选择推动下一卷', applicationNote: '每卷结尾都由张三的决定改变下一卷的问题性质。' }]
+    },
     root: node('book-root', '张三从小卒到改变时代', [node('volume-1', '第一卷·边军立足', [])])
   };
 }

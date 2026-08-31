@@ -216,6 +216,9 @@ export function TimeMachinePage({ bookId, onOpenSettings }: { bookId: string; on
     if (!freshStart && routeRun !== null && ['waiting', 'working'].includes(routeRun.status)) {
       return <PlanningWaiting message={routeRun.message} state={routeRun.status === 'working' ? 'working' : 'waiting'} percent={routeRun.progress.percent} actors={routeRun.actors} timing={routeRun.timing} busy={busy} onStop={stopRoute} />;
     }
+    if (!freshStart && routeRun?.status === 'failed') {
+      return <PlanningRecovery message={routeRun.errorMessage ?? routeRun.message} busy={busy} onRetry={startRoutes} action="重新规划全书" />;
+    }
     if (!freshStart && routeRun?.status === 'completed') {
       return <TreeGenerationStart members={members} selectedMemberKey={treeMemberKey} busy={busy} onMember={setTreeMemberKey} onStart={continueTree} />;
     }
@@ -294,7 +297,7 @@ function PlanningStart({ members, authorGoal, candidateCount, memberKeys, busy, 
   const chiefs = uniqueByMemberKey(members.filter((member) => member.roleKey === 'chief_editor')).slice(0, 3);
   return <section className={`planning-start-card${compact ? ' is-compact' : ''}`}>
     <PathIcon />
-    <div><h2>先准备全书方向</h2><p>默认一位强模型主编直接设计；您需要比较时，再增加到两套或三套。</p></div>
+    <div><h2>先准备全书方向</h2><p>资料策划会先整理本次真正需要的设定和方法，再由主编设计；您需要比较时，可增加到两套或三套。</p></div>
     {chiefs.length > 0 && <PlanningMemberFaces members={chiefs} />}
     {message !== undefined && message !== null && <p className="planning-start-failure">{publicFailureCopy(message)}</p>}
     <div className="planning-route-count" role="group" aria-label="全书路线数量">{([1, 2, 3] as const).map((count) => <button key={count} type="button" aria-pressed={candidateCount === count} onClick={() => onCount(count)}>{count}套</button>)}</div>
@@ -369,7 +372,7 @@ function TreeGenerationStart({ members, selectedMemberKey, busy, onMember, onSta
 }): React.JSX.Element {
   const writers = uniqueByMemberKey(members.filter((member) => member.roleKey === 'planning_writer'));
   return <section className="planning-tree-start">
-    <div><strong>全书方向已经确认</strong><p>下一步把方向展开成可逐卷查看的正式框架。</p></div>
+    <div><strong>全书方向已经确认</strong><p>资料策划会按这一步重新整理所需资料，再把方向展开成可逐卷查看的正式框架。</p></div>
     <PlanningMemberFaces members={writers} />
     {writers.length > 1 && <label><span>选择规划编剧（可不选）</span><select value={selectedMemberKey} onChange={(event) => onMember(event.target.value)}><option value="">编辑部自动安排</option>{writers.map((member) => <option key={member.memberKey} value={member.memberKey}>{memberDisplayName(member.memberKey, member.name)}{member.defaultForRole ? '（推荐）' : ''}</option>)}</select></label>}
     <button type="button" className="planning-primary" disabled={busy} onClick={onStart}>{busy ? '正在建立任务…' : '生成正式框架'}</button>
@@ -486,6 +489,11 @@ function PlanningTreeResult({ tree, busy, members, generation, routeRun, editori
       <article className="planning-tree-root time-machine-direction-card">
         <span>全书</span>
         <div><h2>{tree.root.title}</h2><p>{tree.root.story.summary}</p><small>{tree.root.experience.publicSummary}</small></div>
+        {tree.designSummary !== null && tree.designSummary !== undefined && <details className="planning-tree-design-summary" open={tree.status === 'candidate'}>
+          <summary>这次为什么这样设计 <CaretDownIcon /></summary>
+          <p>{tree.designSummary.decisionNote}</p>
+          {tree.designSummary.originalApproaches.length > 0 && <ul>{tree.designSummary.originalApproaches.map((approach) => <li key={`${approach.title}-${approach.applicationNote}`}><b>{approach.title}</b><span>{approach.applicationNote}</span></li>)}</ul>}
+        </details>}
         <dl>
           <div><dt>核心矛盾</dt><dd>{tree.root.causality.coreConflict}</dd></div>
           <div><dt>主角长期变化</dt><dd>{tree.root.story.protagonistChange}</dd></div>
@@ -580,5 +588,6 @@ function PlanningTreeBranch({ node, index, defaultOpen }: { node: PlanningTreeNo
 function formatWords(value: number): string { return value >= 10_000 ? `${Number((value / 10_000).toFixed(1))}万字` : `${value}字`; }
 function publicError(reason: unknown): string {
   if (reason instanceof AuthorApiError && reason.retryable) return '对不起，暂时连接不上文秘写作服务，请稍后重试。';
+  if (reason instanceof AuthorApiError) return publicStatusCopy(reason.message, '对不起，这次操作没有完成，请稍后重试。');
   return '对不起，这次操作没有完成，请稍后重试。';
 }

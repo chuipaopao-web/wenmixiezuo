@@ -6,9 +6,11 @@ import {
   contextSelectionPrompt,
   creationFallbackChain,
   parseContextSelection,
+  retrievePlanningMethodCandidates,
   V7_CREATION_CONTEXT_SCHEMA,
   type V7ContextSourceTrace,
   type V7CreationContextPack,
+  type V7CreationMethodPlan,
   type V7CreationContextSelection,
   type V7CreationMemberDefinition,
   type V7CreationSourceCandidate
@@ -32,7 +34,7 @@ import {
 import { V7SettingLedgerReader } from '../books/v7-setting-ledger-reader.js';
 
 const MAXIMUM_SELECTED_SOURCES = 12;
-const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v6';
+const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v7';
 
 interface FormalOpeningRow {
   opening_blueprint_id: string;
@@ -77,14 +79,15 @@ export interface V7CompiledCreationContext {
   sourceFingerprint: string;
   selection: V7CreationContextSelection;
   content: V7CreationContextPack;
-  /** 本轮采用/排除决定；v3通常由创作成员在同一次任务中阅读紧凑索引，超限时才单独调用资料编辑。 */
+  /** 本轮采用/排除决定、任务期题材身份与方法检索意图，全部由资料策划 Agent 冻结。 */
   sourceTraces: V7ContextSourceTrace[];
 }
 
 /**
  * 程序只按书籍归属、版本和父子层级召回合法来源，不判断故事语义。
- * 正常资料量下直接发送“必要原文 + Agent 已写好的语义索引”，由本次创作成员在同一次调用中判断；
- * 只有紧凑索引仍超限时才启用独立资料编辑，避免每个节点固定多消耗一次模型调用。
+ * 资料策划 Agent 负责语义取舍、任务期题材身份和方法检索意图；系统只做
+ * 合法候选召回、版本冻结、硬预算与结果校验。同一来源指纹会复用成功结果，
+ * 因此重试与同任务多席不会重复消耗资料策划调用。
  */
 export class V7CreationContextCompiler {
   private readonly creation: V7CreationRuntimeRepository;
@@ -105,6 +108,10 @@ export class V7CreationContextCompiler {
     this.characters = new V7CharacterMemoryRepository(database);
     this.models = new V7CreationModelGateway(database, adapters, clock);
     this.settingLedger = new V7SettingLedgerReader(database);
+  }
+
+  public cancelWorkflow(workflowId: string): void {
+    this.models.cancelWorkflow(workflowId);
   }
 
   public async compile(input: V7CreationContextCompileInput): Promise<V7CompiledCreationContext> {
@@ -142,40 +149,6 @@ export class V7CreationContextCompiler {
       );
     }
 
-    const direct = directContextSelection(input, candidates);
-    if (direct !== null) {
-      const pack = existing ?? this.creation.createContextPack({
-        contextPackId: this.ids.next(),
-        ownerId: input.ownerId,
-        bookId: input.bookId,
-        workflowId: input.workflowId,
-        taskKind: input.taskKind,
-        taskId: input.taskId,
-        taskBrief: taskBrief(input.taskBrief),
-        candidates,
-        sourceFingerprint,
-        assignedMemberKey: 'same-call-context',
-        now: this.now()
-      });
-      const content = compilePack(input, candidates, direct.selection, true);
-      this.creation.activateContext({
-        ownerId: input.ownerId,
-        bookId: input.bookId,
-        contextPackId: pack.context_pack_id,
-        selection: direct.selection,
-        content,
-        contentHash: sha256(stableJson(content)),
-        now: this.now()
-      });
-      return {
-        contextPackId: pack.context_pack_id,
-        sourceFingerprint,
-        selection: direct.selection,
-        content,
-        sourceTraces: contextSourceTraces(input.ownerId, input.bookId, candidates, direct.selection)
-      };
-    }
-
     const firstMember = creationFallbackChain('context_editor', undefined, this.members())[0];
     if (firstMember === undefined) throw new Error('资料编辑部没有可用成员');
     const pack = existing ?? this.creation.createContextPack({
@@ -200,7 +173,7 @@ export class V7CreationContextCompiler {
       && call.output_text !== null);
     if (recovered?.output_text !== null && recovered?.output_text !== undefined) {
       try {
-        const selection = parseContextSelection(recovered.output_text, candidates, maximumSources);
+        const selection = parseContextSelection(recovered.output_text, candidates, maximumSources, input.taskKind);
         const content = compilePack(input, candidates, selection);
         this.creation.activateContext({
           ownerId: input.ownerId,
@@ -253,15 +226,16 @@ export class V7CreationContextCompiler {
           // this call, so only the aggregate candidate payload exists yet.
           sourceTraces: [],
           prompt: contextSelectionPrompt({
+            taskKind: input.taskKind,
             taskBrief: taskBrief(input.taskBrief),
             candidates,
             maximumSources,
             maximumCharacters: V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind]
           }),
-          maxOutputTokens: 4_000,
+          maxOutputTokens: 3_000,
           temperature: 0.18
         });
-        const selection = parseContextSelection(result.output, candidates, maximumSources);
+        const selection = parseContextSelection(result.output, candidates, maximumSources, input.taskKind);
         const content = compilePack(input, candidates, selection);
         const contentHash = sha256(stableJson(content));
         this.creation.activateContext({
@@ -373,7 +347,7 @@ export class V7CreationContextCompiler {
           itemKey: projection.itemKey,
           label: projection.label,
           contextSummary: projection.contextSummary,
-          facts: reviewedFacts.get(projection.itemKey) ?? projection.factEntries,
+          factCount: (reviewedFacts.get(projection.itemKey) ?? projection.factEntries).length,
           projectionSource: projection.projectionSource
         },
         contentHash: sha256(setting.content_json),
@@ -532,7 +506,7 @@ export class V7CreationContextCompiler {
       candidates.push(candidate({
         sourceKey: 'goal:author-input', sourceKind: 'author_input', sourceId: `author-input:${contentHash.slice(0, 24)}`,
         sourceVersion: contentHash, authority: 'goal', label: '作者本次补充想法', content: { text: authorInput },
-        contentHash, required: false, includedReason: '这是作者本次希望优先考虑的方向，不会直接写成正史。'
+        contentHash, required: true, includedReason: '这是作者本次明确交给当前任务的方向，必须保留，但不会直接写成正史。'
       }));
     }
 
@@ -550,7 +524,7 @@ export class V7CreationContextCompiler {
         sourceKey: `goal:${decisionKind}-note`, sourceKind: 'author_input', sourceId: decision.decision_id,
         sourceVersion: contentHash, authority: 'goal',
         label: decisionKind === 'volume_option' ? '作者选定本卷时的补充意见' : '作者选定本链时的补充意见',
-        content: { text: note }, contentHash, required: false,
+        content: { text: note }, contentHash, required: true,
         includedReason: '这是作者选定上一级方案时明确交给下一层的补充方向。'
       }));
     }
@@ -598,7 +572,8 @@ function compilePack(
     reason: reasons.get(item.sourceKey) ?? '本次任务不需要这项资料。'
   }));
   const budgetChars = V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind];
-  let characterCount = packedCharacterCount(input, selected, selection.openQuestions);
+  const methodPlan = compileMethodPlan(selection);
+  let characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   // A context editor chooses semantic sources from compact indexes.  Some
   // exact upstream documents (especially the book-wide setting ledger and a
   // confirmed chain tree) legitimately exceed a chapter workstation's whole
@@ -610,7 +585,7 @@ function compilePack(
   if (characterCount > budgetChars && !compactIndexesUsed) {
     compactIndexesUsed = true;
     selected = selectedCandidates.map(compactPackSource);
-    characterCount = packedCharacterCount(input, selected, selection.openQuestions);
+    characterCount = packedCharacterCount(input, selected, selection, methodPlan);
   }
   if (characterCount > budgetChars) {
     throw new DomainError(
@@ -630,11 +605,33 @@ function compilePack(
     selectedSources: selected,
     excludedSources: excluded,
     openQuestions: selection.openQuestions,
+    taskPersona: selection.taskPersona,
+    taskResponsibilities: selection.taskResponsibilities,
+    creativeSpace: selection.creativeSpace,
+    methodPlan,
     sourceRefs: selectedCandidates.flatMap(sourceRef),
     contextPolicyVersion: compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
     characterCount,
     budgetChars,
-    estimatedTokens: Math.ceil(characterCount / 2)
+    estimatedTokens: estimateV7Tokens(stableJson(creationPromptContext({
+      schema: V7_CREATION_CONTEXT_SCHEMA,
+      taskKind: input.taskKind,
+      taskId: input.taskId,
+      taskBrief: taskBrief(input.taskBrief),
+      firstVolume: input.firstVolume,
+      selectedSources: selected,
+      excludedSources: excluded,
+      openQuestions: selection.openQuestions,
+      taskPersona: selection.taskPersona,
+      taskResponsibilities: selection.taskResponsibilities,
+      creativeSpace: selection.creativeSpace,
+      methodPlan,
+      sourceRefs: [],
+      contextPolicyVersion: compactIndexesUsed ? 'layered-context-v3' : 'layered-context-v2',
+      characterCount,
+      budgetChars,
+      estimatedTokens: 0
+    })))
   };
   return content;
 }
@@ -642,7 +639,8 @@ function compilePack(
 function packedCharacterCount(
   input: V7CreationContextCompileInput,
   selectedSources: readonly V7CreationSourceCandidate[],
-  openQuestions: readonly string[]
+  selection: V7CreationContextSelection,
+  methodPlan: V7CreationMethodPlan
 ): number {
   return Array.from(stableJson(creationPromptContext({
     schema: V7_CREATION_CONTEXT_SCHEMA,
@@ -652,7 +650,11 @@ function packedCharacterCount(
     firstVolume: input.firstVolume,
     selectedSources,
     excludedSources: [],
-    openQuestions,
+    openQuestions: selection.openQuestions,
+    taskPersona: selection.taskPersona,
+    taskResponsibilities: selection.taskResponsibilities,
+    creativeSpace: selection.creativeSpace,
+    methodPlan,
     sourceRefs: [],
     contextPolicyVersion: 'layered-context-v3',
     characterCount: 0,
@@ -661,70 +663,35 @@ function packedCharacterCount(
   }))).length;
 }
 
-function directContextSelection(
-  input: V7CreationContextCompileInput,
-  candidates: readonly V7CreationSourceCandidate[]
-): { selection: V7CreationContextSelection } | null {
-  // Confirmed parent trees already carry the semantic decisions made from the
-  // historical route and method recipe.  Re-sending those references (plus
-  // every setting original) to a separate selector duplicates attention and
-  // can make three option writers each inherit an oversized pack.  Structural
-  // authority is deterministic: always keep required formal sources, current
-  // actual state and the author's goal; keep the remaining formal originals
-  // and references traceable but excluded unless the compact pack itself is
-  // over budget and a context editor must make a semantic choice.
-  const selected = candidates.filter((source) => source.required
-    || (source.authority === 'actual' && includeActualSource(input.taskKind, source.sourceKey))
-    || source.authority === 'goal');
-  const selection: V7CreationContextSelection = {
-    schema: V7_CREATION_CONTEXT_SCHEMA,
-    publicSummary: '本轮直接使用必要正式资料和已整理的轻量索引；具体取舍由当前创作成员在同一次任务中完成。',
-    selectedSourceKeys: selected.map((source) => source.sourceKey),
-    selectionReasons: selected.map((source) => ({
-      sourceKey: source.sourceKey,
-      reason: source.required ? source.includedReason : '作为轻量语义索引交给当前创作成员判断，不另起资料翻译任务。'
+function compileMethodPlan(selection: V7CreationContextSelection): V7CreationMethodPlan {
+  const request = selection.methodStrategy.searchRequest;
+  const retrieval = request === null ? null : retrievePlanningMethodCandidates(request);
+  return {
+    ...selection.methodStrategy,
+    candidates: (retrieval?.candidates ?? []).map((candidate) => ({
+      methodKey: candidate.methodKey,
+      publicExplanation: candidate.publicExplanation,
+      dimension: candidate.dimension,
+      kind: candidate.kind,
+      planningLayers: candidate.planningLayers,
+      responsibilities: candidate.responsibilities.slice(0, 3),
+      combinationGuidance: candidate.combinationGuidance,
+      caution: candidate.cautionSignals.slice(0, 2)
     })),
-    excludedSourceKeys: candidates.filter((source) => !selected.includes(source)).map((source) => source.sourceKey),
-    openQuestions: []
+    retrievalVersion: retrieval?.retrievalVersion ?? null,
+    policy: {
+      candidateOnly: true,
+      executorMayCombine: true,
+      executorMayIgnore: true,
+      originalDesignAllowed: true
+    }
   };
-  const preview = creationPromptContext({
-    schema: V7_CREATION_CONTEXT_SCHEMA,
-    taskKind: input.taskKind,
-    taskId: input.taskId,
-    taskBrief: taskBrief(input.taskBrief),
-    firstVolume: input.firstVolume,
-    selectedSources: selected.map(compactPackSource),
-    excludedSources: [],
-    openQuestions: [],
-    sourceRefs: [],
-    contextPolicyVersion: 'layered-context-v3',
-    characterCount: 0,
-    budgetChars: V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind],
-    estimatedTokens: 0
-  });
-  return Array.from(stableJson(preview)).length <= V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind]
-    ? { selection }
-    : null;
 }
 
-function includeActualSource(taskKind: V7CreationContextPack['taskKind'], sourceKey: string): boolean {
-  // 这是工位级资料合同，不做剧情语义判断。章节工位的必要来源已经包含
-  // 正式开书/设定账本和最近正文结算；当前章纲由调用合同单独精确传入。
-  // 其余人物、线路和规划全量索引会重复结算内容，因此只保留审计引用。
-  if (taskKind === 'manuscript' || taskKind === 'review') return false;
-  // 单元链只承接上一级确认卷树和最近正文结算。规划实际、人物全库与
-  // 故事状态都由最近结算重复表达；同时发送会让一次链方案先消耗近3万
-  // Token做资料筛选，反而削弱方案注意力。
-  if (taskKind === 'chain' || taskKind === 'outline') {
-    return sourceKey === 'actual:recent-chapter-settlements';
-  }
-  // 结算模型已经直接读取当前定稿正文和确认章纲。它只需要现有人物编号
-  // 以及活跃线路/伏笔的稳定键来生成可合并增量；规划实际和历史结算会
-  // 重复同一事实，不得再次搬进本章结算。
-  if (taskKind === 'settlement') {
-    return sourceKey === 'actual:characters' || sourceKey === 'actual:story-state';
-  }
-  return true;
+function estimateV7Tokens(value: string): number {
+  let tokens = 0;
+  for (const character of value) tokens += /[\u3400-\u9fff]/u.test(character) ? 1 : 0.25;
+  return Math.max(1, Math.ceil(tokens));
 }
 
 function compactPackSource(source: V7CreationSourceCandidate): V7CreationSourceCandidate {
@@ -825,10 +792,10 @@ function contextSourceTraces(
         : explicitlyExcluded.has(source.sourceKey)
           ? directSameCall
             ? '轻量编排未发送该条原文：正式设定事实账本已提供其语义事实，需要时仍可追溯原版本。'
-            : '资料编辑明确排除：本次任务不需要这项资料。'
+            : '资料策划明确排除：本次任务不需要这项资料。'
           : directSameCall
             ? '轻量编排没有发送该来源。'
-            : '资料编辑没有将此来源选入本次最小资料包。',
+            : '资料策划没有将此来源选入本次最小资料包。',
       contentHash: source.contentHash,
       estimatedTokens: Math.max(1, Math.ceil(Array.from(stableJson(source.content)).length / 2.5))
     } satisfies V7ContextSourceTrace;

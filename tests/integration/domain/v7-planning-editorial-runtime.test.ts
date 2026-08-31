@@ -181,7 +181,8 @@ describe('V7规划编辑部三席协作', () => {
       const working = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}`);
       expect(working.statusCode).toBe(200);
       expect(working.json().data.actors).toEqual(expect.arrayContaining([
-        expect.objectContaining({ memberKey: 'chief-deepseek-v4-pro', status: 'working' }),
+        expect.objectContaining({ role: '资料策划', status: 'working' }),
+        expect.objectContaining({ memberKey: 'chief-deepseek-v4-pro', status: 'waiting' }),
         expect.objectContaining({ memberKey: 'chief-glm-5-3', status: 'waiting' }),
         expect.objectContaining({ memberKey: 'chief-kimi-k3', status: 'waiting' })
       ]));
@@ -320,7 +321,7 @@ describe('V7规划编辑部三席协作', () => {
         JOIN v7_planning_model_calls call ON call.request_id=manifest.task_id
         WHERE call.owner_id=? AND call.book_id=? AND call.run_id=? ORDER BY manifest.role_key`)
         .all(ownerId, bookId, routeRunId) as Array<{ role_key: string }>;
-      expect(routeManifestRoles.map((row) => row.role_key)).toEqual(['chief_editor']);
+      expect(routeManifestRoles.map((row) => row.role_key)).toEqual(['chief_editor', 'deputy_editor']);
 
       const storedRoster = context.database.prepare(`SELECT roster_json FROM v7_planning_recipe_runs
         WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, routeRunId) as { roster_json: string };
@@ -373,7 +374,7 @@ describe('V7规划编辑部三席协作', () => {
       expect(latestRoute.json().data).toMatchObject({ runId: routeRunId, status: 'completed' });
 
       const methodSearchPrompts = resolver.prompts.filter((prompt) => prompt.includes('v7-planning-method-search-v1'));
-      expect(methodSearchPrompts).toHaveLength(0);
+      expect(methodSearchPrompts).toHaveLength(1);
       const briefPrompts = resolver.prompts.filter((prompt) => prompt.includes('你是文秘写作V7的一名全案规划主编'));
       expect(briefPrompts).toHaveLength(3);
       expect(briefPrompts.every((prompt) => prompt.includes('少量候选方法中选4—6项'))).toBe(true);
@@ -381,7 +382,7 @@ describe('V7规划编辑部三席协作', () => {
         WHERE owner_id=? AND book_id=? AND run_id=?`).all(ownerId, bookId, routeRunId) as Array<{
           search_request_json: string; candidate_methods_json: string;
         }>;
-      expect(searches).toHaveLength(3);
+      expect(searches).toHaveLength(1);
       expect(searches.every((row) => {
         const ids = (JSON.parse(row.search_request_json) as { relevantSettingSourceIds: string[] }).relevantSettingSourceIds;
         return ids.length > 0 && !ids.includes(`setting-ledger:${bookId}`);
@@ -400,9 +401,12 @@ describe('V7规划编辑部三席协作', () => {
         }>;
       expect(settingSourceTraces.length).toBeGreaterThanOrEqual(3);
       expect(settingSourceTraces.every((trace) => trace.ownerId === ownerId && trace.bookId === bookId)).toBe(true);
-      expect(settingSourceTraces.every((trace) => trace.sourceVersion.length > 0 && trace.decision === 'included')).toBe(true);
-      expect(settingSourceTraces.some((trace) => trace.sourceId === `setting-ledger:${bookId}`)).toBe(true);
-      expect(settingSourceTraces.some((trace) => trace.sourceId !== `setting-ledger:${bookId}`)).toBe(true);
+      expect(settingSourceTraces.every((trace) => trace.sourceVersion.length > 0
+        && (trace.decision === 'included' || trace.decision === 'excluded'))).toBe(true);
+      expect(settingSourceTraces.some((trace) => trace.sourceId === `setting-ledger:${bookId}`
+        && trace.decision === 'included')).toBe(true);
+      expect(settingSourceTraces.some((trace) => trace.sourceId !== `setting-ledger:${bookId}`
+        && trace.decision === 'included')).toBe(true);
       const storyPrompts = resolver.prompts.filter((prompt) => prompt.includes('你是长篇小说规划编剧'));
       expect(storyPrompts).toHaveLength(0);
 
@@ -431,13 +435,16 @@ describe('V7规划编辑部三席协作', () => {
       const treeCalls = context.database.prepare(`SELECT node_key,member_key,state FROM v7_planning_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='tree' ORDER BY started_at,request_id`)
         .all(ownerId, bookId) as Array<{ node_key: string; member_key: string; state: string }>;
-      expect(treeCalls.slice(0, 4)).toEqual([
+      expect(treeCalls.filter((call) => call.node_key === 'context_plan')).toHaveLength(3);
+      expect(treeCalls.filter((call) => call.node_key === 'context_plan')
+        .every((call) => call.state === 'succeeded' && call.member_key.startsWith('deputy-'))).toBe(true);
+      expect(treeCalls.filter((call) => call.node_key !== 'context_plan').slice(0, 4)).toEqual([
         { node_key: `book:${bookId}`, member_key: 'planner-deepseek-v4-pro', state: 'succeeded' },
         { node_key: `book:${bookId}:repair`, member_key: 'planner-deepseek-v4-pro', state: 'succeeded' },
         { node_key: 'volume:volume-1', member_key: 'planner-deepseek-v4-pro', state: 'failed' },
         { node_key: 'volume:volume-1', member_key: 'planner-glm-5-3', state: 'succeeded' }
       ]);
-      expect(treeCalls.filter((call) => call.state === 'succeeded')).toHaveLength(4);
+      expect(treeCalls.filter((call) => call.state === 'succeeded')).toHaveLength(7);
       expect(context.database.prepare(`SELECT operation_mode,based_on_task_id FROM v7_task_contracts
         WHERE owner_id=? AND book_id=? AND task_id=?`).get(
         ownerId, bookId, `${bookTree.runId}:tree:1:repair`
@@ -500,7 +507,7 @@ describe('V7规划编辑部三席协作', () => {
         methodProposals: expect.any(Array), storyRoutes: expect.any(Array),
         routeReview: expect.objectContaining({ review: expect.objectContaining({ schema: 'v7-planning-route-review-v1' }) })
       });
-      expect(routeAudit.json().data.methodSearches).toHaveLength(3);
+      expect(routeAudit.json().data.methodSearches).toHaveLength(1);
       expect(routeAudit.json().data.storyRoutes).toHaveLength(3);
       const audit = await app.inject({
         method: 'GET',
@@ -694,7 +701,9 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
       const prompt = stageTaskPrompt(request.prompt);
       this.prompts.push(prompt);
       let output: string;
-      if (prompt.includes('v7-planning-route-review-v1')) {
+      if (prompt.includes('v7-planning-method-search-v1')) {
+        output = methodSearchOutput(prompt);
+      } else if (prompt.includes('v7-planning-route-review-v1')) {
         output = routeReviewOutput(prompt);
       } else if (prompt.includes('你刚才设计的全书方向内容可以保留')) {
         output = routeFusionOutput(prompt);
@@ -741,7 +750,7 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
       let output = stagePrompt.includes('v7-planning-maintenance-v1')
         ? planningMaintenanceOutput()
         : stagePrompt.includes('v7-planning-method-search-v1')
-          ? methodSearchOutput()
+          ? methodSearchOutput(stagePrompt)
         : stagePrompt.includes('v7-planning-route-fusion-v2')
           ? routeFusionOutput(stagePrompt)
         : stagePrompt.includes('v7-planning-route-review-v1')
@@ -874,12 +883,24 @@ function progressiveBriefOutput(prompt: string): string {
   });
 }
 
-function methodSearchOutput(): string {
+function methodSearchOutput(prompt = ''): string {
+  const planningLayers = prompt.includes('单卷树资料策划') ? ['volume']
+    : prompt.includes('单元链树资料策划') ? ['chain']
+      : ['book_backbone', 'volume_distribution'];
   return JSON.stringify({
     schema: 'v7-planning-method-search-v1',
     publicGoal: '为三百万字历史长篇寻找全书递进、因果和追读方法。',
+    taskPersona: {
+      publicLabel: '历史成长与家国线融合策划身份',
+      workingIdentity: '熟悉北宋社会约束、长篇成长递进和连载回报的本任务策划者',
+      priorities: ['张三始终用自己的选择推动局势', '历史约束与成长回报同时成立'],
+      authenticityChecks: ['关键资源和身份变化都有时代条件', '历史人物不替代张三完成核心选择'],
+      avoidPatterns: ['不套固定升级模板', '不把岗位写成固定专业人设']
+    },
+    taskResponsibilities: ['把当前层目标拆成因果相连且有阶段回报的推进', '只使用会改变本轮设计的正式资料'],
+    creativeSpace: ['可忽略全部候选方法并按本书人物原创', '允许在史实边界内设计独特冲突和回报'],
     searchQueries: ['长篇跨卷递进', '历史争霸因果升级', '阶段回报避免拖沓'],
-    planningLayers: ['book_backbone', 'volume_distribution'],
+    planningLayers,
     dimensions: ['macro_architecture', 'causal_dynamics', 'serial_rhythm'],
     desiredCount: 10,
     scaleHint: '三百万字、约八卷的历史长篇。',

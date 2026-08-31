@@ -32,13 +32,13 @@ describe('V7全书路线输出合同', () => {
     expect(parsed.route.schema).toBe('v7-planning-story-route-v1');
     expect(parsed.route.firstVolumeFocus).toEqual(['开篇刑场求生', '雪灾中证明救援价值', '卷末拿到第一条冤案实证']);
     expect(planningDirectStoryRoutePrompt({
-      sourceSnapshot: {}, seatKey: 'chief_editor', routeLabel: '全案一席', explorationOpening: '', candidates: [candidate]
+      sourceSnapshot: {}, contextPlan: taskContextPlan(), seatKey: 'chief_editor', routeLabel: '全案一席', explorationOpening: '', candidates: [candidate]
     })).toContain('firstVolumeFocus必须是2—8条字符串组成的JSON数组');
     expect(planningDirectStoryRoutePrompt({
-      sourceSnapshot: {}, seatKey: 'chief_editor', routeLabel: '全案一席', explorationOpening: '', candidates: [candidate]
+      sourceSnapshot: {}, contextPlan: taskContextPlan(), seatKey: 'chief_editor', routeLabel: '全案一席', explorationOpening: '', candidates: [candidate]
     })).toContain('完整JSON控制在6000个汉字以内');
     expect(planningDirectStoryRouteRepairPrompt({
-      sourceSnapshot: {}, seatKey: 'chief_editor', candidates: [candidate], invalidOutput: '{}', validationMessage: '首卷重点数量无效'
+      sourceSnapshot: {}, contextPlan: taskContextPlan(), seatKey: 'chief_editor', candidates: [candidate], invalidOutput: '{}', validationMessage: '首卷重点数量无效'
     })).toContain('不要改写方案方向');
   });
 
@@ -91,6 +91,21 @@ function methodCandidate(): V7PlanningMethodCandidate {
     dimension: 'causal_dynamics', kind: 'foundation', recommendationTier: 'default', exclusiveGroup: null,
     planningLayers: ['book_backbone'], recommendedScale: ['全书'], fitSignals: ['因果'], cautionSignals: ['不用巧合'],
     responsibilities: ['保持因果连续'], combinationGuidance: '可与人物弧线组合。'
+  };
+}
+
+function taskContextPlan() {
+  return {
+    publicGoal: '为历史求生题材设计可持续的全书路线。',
+    taskPersona: {
+      publicLabel: '历史求生路线设计者',
+      workingIdentity: '熟悉历史环境约束、连载推进和人物主动选择的全书设计者。',
+      priorities: ['人物主动解决问题'],
+      authenticityChecks: ['行动符合当前身份与资源'],
+      avoidPatterns: ['用巧合替代因果']
+    },
+    taskResponsibilities: ['组织全书因果', '给每卷明确变化'],
+    creativeSpace: ['可组合候选方法', '可按本书需要自主设计']
   };
 }
 

@@ -105,6 +105,10 @@ export function buildAuthorPlanningTreeView(input: {
     revision: input.revision,
     status: input.status,
     title: input.document.title,
+    designSummary: input.document.designStrategy === undefined ? null : {
+      decisionNote: input.document.designStrategy.decisionNote,
+      originalApproaches: structuredClone(input.document.designStrategy.originalStrategies)
+    },
     root: projectNode(input.document.root, actualByNode)
   };
 }

@@ -56,6 +56,10 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
         proposals: methodProposals,
         methodProposals,
         methodSearches,
+        contextPlan: methodSearches[0] === undefined ? null : {
+          request: methodSearches[0].request,
+          candidates: methodSearches[0].candidates
+        },
         storyRoutes,
         routeReviews,
         routeReview: routeReviews[0] ?? null,
@@ -76,12 +80,15 @@ export async function registerV7AdminConsoleRoutes(app: FastifyInstance, databas
     }
     if (runKind === 'tree') {
       const run = auditRow(database, 'v7_planning_generation_runs', 'generation_run_id', ownerId, bookId, runId);
+      const expandedRun = expandJsonColumns(run, ['member_snapshot_json']);
+      const frozenRoster = expandedRun.member_snapshot_json as { contextPlan?: unknown } | undefined;
       const candidate = run.candidate_tree_version_id === null ? null
         : database.prepare(`SELECT * FROM v7_planning_tree_versions
             WHERE owner_id=? AND book_id=? AND tree_version_id=?`)
           .get(ownerId, bookId, String(run.candidate_tree_version_id)) as Record<string, unknown> | undefined;
       return success({
-        run: expandJsonColumns(run, ['member_snapshot_json']),
+        run: expandedRun,
+        contextPlan: frozenRoster?.contextPlan ?? null,
         snapshot: planningSnapshotAudit(database, ownerId, bookId, String(run.source_snapshot_id)),
         candidate: candidate === null || candidate === undefined ? null
           : expandJsonColumns(candidate, ['content_json', 'source_refs_json']),

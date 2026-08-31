@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import {
+  V7_CREATION_MEMBERS,
   V7_PLANNING_MEMBERS,
   buildPlanningFallbackChain,
+  creationFallbackChain,
   fullCasePlanningSeat,
   extractPlanningCriticalInputs,
   materializePlanningRecipe,
@@ -23,6 +25,7 @@ import {
   validateProgressivePlanningBriefCandidates,
   validatePlanningEditorialRoster,
   type LayeredPlanningRecipe,
+  type V7CreationMemberDefinition,
   type V7PlanningMemberDefinition,
   type V7PlanningMethodCandidate,
   type V7PlanningMethodSearchRequest,
@@ -124,11 +127,13 @@ export interface V7PlanningTaskView {
   memberName: string | null;
   treeKind: 'book' | 'volume' | 'chain' | null;
   scopeId: string | null;
+  modelCalls: number;
   canStop: boolean;
   updatedAt: string;
 }
 
 type PlanningMemberSource = readonly V7PlanningMemberDefinition[] | (() => readonly V7PlanningMemberDefinition[]);
+type ContextMemberSource = readonly V7CreationMemberDefinition[] | (() => readonly V7CreationMemberDefinition[]);
 type StoredPlanningMember = {
   memberKey: string;
   displayName: string;
@@ -158,12 +163,14 @@ export class V7PlanningRouteService {
     adapters: V7PlanningModelAdapterResolver,
     private readonly ids: IdGenerator,
     private readonly clock: Clock,
-    private readonly memberSource: PlanningMemberSource = V7_PLANNING_MEMBERS
+    private readonly memberSource: PlanningMemberSource = V7_PLANNING_MEMBERS,
+    private readonly contextMemberSource: ContextMemberSource = V7_CREATION_MEMBERS
   ) {
     this.repository = new V7PlanningRuntimeRepository(database);
     this.sources = new V7PlanningSourceCompiler(database, ids, clock);
     this.models = new V7PlanningModelGateway(database, adapters, clock);
     this.members();
+    this.contextMembers();
   }
 
   public create(ownerId: string, bookId: string, input: {
@@ -247,7 +254,7 @@ export class V7PlanningRouteService {
         status: run.status === 'cancelled' ? 'cancelled' : view.status,
         message: view.message, progress: view.progress.percent,
         memberKey: active?.memberKey ?? null, memberName: active?.memberName ?? null,
-        treeKind: null, scopeId: null,
+        treeKind: null, scopeId: null, modelCalls: run.model_calls,
         canStop: ['queued', 'working'].includes(run.status), updatedAt: run.updated_at
       };
     });
@@ -400,17 +407,28 @@ export class V7PlanningRouteService {
     frozenChiefs: readonly StoredPlanningMember[]
   ): Promise<void> {
     this.ensureActive(run);
+    this.mark(run, 'method_search');
+    let sharedContextSearch: V7PlanningMethodSearchRow;
+    try {
+      sharedContextSearch = await this.ensureDirectContextPlan(run, snapshot);
+    } catch (error) {
+      if (error instanceof PlanningSourceIssuesError) {
+        this.pauseForSourceIssues(run, [{ status: 'rejected', reason: error }]);
+        return;
+      }
+      throw error;
+    }
     this.mark(run, 'route_design');
     const seatKeys = (['chief_editor', 'structure_deputy', 'commercial_deputy'] as const).slice(0, frozenChiefs.length);
     const expectedRoutes = seatKeys.length;
     // 先让第一位主编检查并出案；若她发现正式资料相互冲突，立即停下，
     // 不再让另外两位重复消耗。资料无冲突后，余下两案才并行生成。
     const first = await Promise.allSettled([
-      this.runDirectChiefRoute(run, snapshot, seatKeys[0]!, frozenChiefs[0]!, 0)
+      this.runDirectChiefRoute(run, snapshot, sharedContextSearch, seatKeys[0]!, frozenChiefs[0]!, 0)
     ]);
     if (this.pauseForSourceIssues(run, first)) return;
     const rest = await Promise.allSettled(seatKeys.slice(1).map((seatKey, offset) => (
-      this.runDirectChiefRoute(run, snapshot, seatKey, frozenChiefs[offset + 1]!, offset + 1)
+      this.runDirectChiefRoute(run, snapshot, sharedContextSearch, seatKey, frozenChiefs[offset + 1]!, offset + 1)
     )));
     if (this.pauseForSourceIssues(run, rest)) return;
     const results = [...first, ...rest];
@@ -438,6 +456,7 @@ export class V7PlanningRouteService {
   private async runDirectChiefRoute(
     run: V7PlanningRecipeRunRow,
     snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
+    sharedContextSearch: V7PlanningMethodSearchRow,
     seatKey: MethodSeat,
     frozenChief: StoredPlanningMember,
     index: number
@@ -459,19 +478,7 @@ export class V7PlanningRouteService {
       attempted.add(member.memberKey);
       try {
         this.ensureActive(run);
-        let search = this.repository.methodSearchBySeat(run.owner_id, run.book_id, run.run_id, seatKey);
-        if (search === undefined) {
-          const request = broadFullBookMethodRequest(snapshot, seat.routeLabel);
-          const retrieval = retrievePlanningMethodCandidates(request);
-          search = this.repository.saveMethodSearch({
-            searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-            seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
-            searchRequest: request, candidateMethods: retrieval.candidates, searchHash: sha256(stableJson(retrieval)),
-            retrievalVersion: retrieval.retrievalVersion,
-            requestId: `planning-route:${run.run_id}:catalog:${seatKey}`,
-            now: this.clock.now().toISOString()
-          });
-        }
+        const search = sharedContextSearch;
         const request = storedMethodSearchRequest(search);
         const focusedSnapshot = focusedPlanningSnapshot(snapshot, request);
         const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
@@ -484,6 +491,7 @@ export class V7PlanningRouteService {
           sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
           prompt: planningDirectStoryRoutePrompt({
             sourceSnapshot: focusedSnapshot,
+            contextPlan: planningTaskContextPlan(request),
             seatKey,
             routeLabel: seat.routeLabel,
             explorationOpening: seat.explorationOpening,
@@ -515,6 +523,7 @@ export class V7PlanningRouteService {
             sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
             prompt: planningDirectStoryRouteRepairPrompt({
               sourceSnapshot: focusedSnapshot,
+              contextPlan: planningTaskContextPlan(request),
               seatKey,
               candidates,
               invalidOutput: result.output,
@@ -554,6 +563,59 @@ export class V7PlanningRouteService {
       }
     }
     throw new Error(`对不起，${seat.routeLabel}这次没有完成。${failures.join('；')}`);
+  }
+
+  private async ensureDirectContextPlan(
+    run: V7PlanningRecipeRunRow,
+    snapshot: ReturnType<V7PlanningSourceCompiler['require']>
+  ): Promise<V7PlanningMethodSearchRow> {
+    const existing = this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)[0];
+    if (existing !== undefined) return existing;
+    const failures: string[] = [];
+    for (const member of creationFallbackChain('context_editor', undefined, this.contextMembers())) {
+      const requestId = `planning-route:${run.run_id}:context:${member.memberKey}`;
+      try {
+        this.ensureActive(run);
+        const result = await this.models.generate({
+          requestId, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          runKind: 'recipe', nodeKey: 'shared_context_plan', member,
+          taskKind: 'planning_context', workstationKey: 'full_book_route',
+          operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
+          sourceTraces: planningSnapshotSourceTraces(snapshot),
+          prompt: planningMethodSearchPrompt({
+            seatName: '全书路线资料策划',
+            seatResponsibility: '为本书全书路线选择最小充分设定、准确的方法检索范围、任务期题材身份和可自由创新的边界。',
+            independentFocus: [
+              '只保留会改变全书方向的正式资料和作者原话',
+              '通用方法按全书与跨卷层级召回，不预先替主编选答案',
+              '把融合题材身份翻译成当前任务的大白话责任并保留原创空间'
+            ],
+            allowedPlanningLayers: ['book_backbone', 'volume_distribution'],
+            sourceSnapshot: snapshot
+          }),
+          maxOutputTokens: 2_500,
+          temperature: 0.28
+        });
+        this.ensureActive(run);
+        const sourceIssues = extractPlanningCriticalInputs(result.output);
+        if (sourceIssues.length > 0) throw new PlanningSourceIssuesError(sourceIssues);
+        const request = parsePlanningMethodSearchRequest(result.output, { requireTaskProfile: true });
+        focusedPlanningSnapshot(snapshot, request);
+        const retrieval = retrievePlanningMethodCandidates(request);
+        return this.repository.saveMethodSearch({
+          searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
+          seatKey: 'chief_editor', memberKey: member.memberKey, memberSnapshot: memberSnapshot(member),
+          sourceSnapshotId: run.snapshot_id, searchRequest: request, candidateMethods: retrieval.candidates,
+          searchHash: sha256(stableJson(retrieval)), retrievalVersion: retrieval.retrievalVersion,
+          requestId, now: this.clock.now().toISOString()
+        });
+      } catch (error) {
+        if (error instanceof PlanningSourceIssuesError) throw error;
+        failures.push(`${member.displayName}：${message(error)}`);
+        if (error instanceof V7PlanningModelError && error.outcomeUnknown) break;
+      }
+    }
+    throw new Error(`对不起，这次资料策划没有完成。${failures.join('；')}`);
   }
 
   private async executeLegacyRouteWorkflow(
@@ -915,6 +977,12 @@ export class V7PlanningRouteService {
     return members;
   }
 
+  private contextMembers(): readonly V7CreationMemberDefinition[] {
+    const members = typeof this.contextMemberSource === 'function' ? this.contextMemberSource() : this.contextMemberSource;
+    creationFallbackChain('context_editor', undefined, members);
+    return members;
+  }
+
   private requireRun(ownerId: string, bookId: string, runId: string): V7PlanningRecipeRunRow {
     const run = this.repository.recipeRun(ownerId, bookId, runId);
     if (run === undefined) throw new DomainError(errorCodes.validation, '全书路线任务不存在或不属于本书。', {}, false, 404);
@@ -972,13 +1040,14 @@ function planningActors(
     membersByName.set(member.displayName, bindings);
   }
   const members = [...membersByName.values()].map((bindings) => actorBindingForPhase(bindings, phase));
-  return members.map((member) => {
+  const planningActors = members.map((member) => {
     const isDirectChief = roster.workflowStyle === 'three-chief-direct-v1' && member.roleKey === 'chief_editor';
     const isMethod = member.roleKey !== 'planning_writer';
     const callState = latestCallStateByMember.get(member.memberKey);
     const directRuntimePhase = isDirectChief && (phase === 'designing_routes' || phase === 'chief_review');
+    const waitingForSharedContext = roster.workflowStyle === 'three-chief-direct-v1' && phase === 'choosing_methods';
     const failed = phase === 'failed' || (directRuntimePhase && (callState === 'failed' || callState === 'unknown'));
-    const working = !failed && (directRuntimePhase
+    const working = !failed && !waitingForSharedContext && (directRuntimePhase
       ? callState === 'working'
       : (
       (phase === 'choosing_methods' && isMethod)
@@ -1012,6 +1081,28 @@ function planningActors(
       emoji: status === 'failed' ? '🙇' : status === 'working' ? '✍️' : status === 'completed' ? '✅' : '🌿'
     };
   });
+  if (roster.workflowStyle !== 'three-chief-direct-v1') return planningActors;
+  const contextCall = [...modelCalls].reverse().find((call) => call.nodeKey === 'shared_context_plan');
+  if (contextCall === undefined || typeof contextCall.memberKey !== 'string') return planningActors;
+  const contextMember = V7_CREATION_MEMBERS.find((member) => member.memberKey === contextCall.memberKey);
+  const contextState = contextCall.state;
+  const contextStatus = contextState === 'failed' || contextState === 'unknown'
+    ? 'failed' as const
+    : contextState === 'working'
+      ? 'working' as const
+      : 'completed' as const;
+  return [{
+    memberKey: contextCall.memberKey,
+    memberName: contextMember?.displayName ?? '资料策划',
+    role: '资料策划',
+    status: contextStatus,
+    message: contextStatus === 'failed'
+      ? '对不起，这次资料没有整理完成，您可以重新开始。'
+      : contextStatus === 'working'
+        ? '我正在筛选本次真正需要的资料和方法，请稍等一下。'
+        : '本次资料和方法已经整理好，交给主编继续设计。',
+    emoji: contextStatus === 'failed' ? '🙇' : contextStatus === 'working' ? '✍️' : '✅'
+  }, ...planningActors];
 }
 
 function normalizeStoredPlanningMember<T extends { memberKey: string; displayName: string; roleKey: string }>(
@@ -1134,28 +1225,6 @@ function selectedPlanningChiefs(
   return selected;
 }
 
-function broadFullBookMethodRequest(
-  snapshot: V7PlanningCompiledSnapshot,
-  routeLabel: string
-): V7PlanningMethodSearchRequest {
-  return {
-    schema: 'v7-planning-method-search-v1',
-    publicGoal: `${routeLabel}需要从全书结构、人物因果、跨卷递进和连载回报中选择少量真正有用的方法。`,
-    searchQueries: ['长篇全书递进', '人物因果与变化', '跨卷压力和回报', '连载追读与收束'],
-    planningLayers: ['book_backbone', 'volume_distribution'],
-    dimensions: [
-      'story_form', 'macro_architecture', 'causal_dynamics', 'character_arc',
-      'relationship_arc', 'emotional_rhythm', 'serial_rhythm', 'closure_payoff'
-    ],
-    desiredCount: 12,
-    scaleHint: '长篇全书粗路线，只确定全书方向与各卷责任。',
-    avoidNotes: ['不套模板替换人名', '不提前展开卷内事件', '不让方法覆盖人物合理选择'],
-    relevantSettingSourceIds: snapshot.sources
-      .filter((source) => source.sourceKind === 'setting' && !isSettingLedgerSource(source))
-      .map((source) => source.sourceId),
-    missingCriticalInputs: []
-  };
-}
 function storedMethodSearchRequest(row: V7PlanningMethodSearchRow): V7PlanningMethodSearchRequest {
   const value = JSON.parse(row.search_request_json) as Partial<V7PlanningMethodSearchRequest>;
   if (value.schema !== 'v7-planning-method-search-v1') throw new Error('方法检索记录格式不完整');
@@ -1167,6 +1236,19 @@ function storedMethodSearchRequest(row: V7PlanningMethodSearchRow): V7PlanningMe
     missingCriticalInputs: Array.isArray(value.missingCriticalInputs)
       ? value.missingCriticalInputs.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       : []
+  };
+}
+function planningTaskContextPlan(
+  request: V7PlanningMethodSearchRequest
+): Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'> {
+  if (request.taskPersona === undefined || request.taskResponsibilities === undefined || request.creativeSpace === undefined) {
+    throw new Error('资料策划记录缺少任务期题材身份、任务责任或创意空间');
+  }
+  return {
+    publicGoal: request.publicGoal,
+    taskPersona: request.taskPersona,
+    taskResponsibilities: request.taskResponsibilities,
+    creativeSpace: request.creativeSpace
   };
 }
 function focusedPlanningSnapshot(
@@ -1232,7 +1314,7 @@ function validatePlanningRouteScale(route: V7PlanningStoryRoute, profile: V7Plan
     throw new Error(`全书路线目标字数必须使用作者确认的${profile.expectedTotalWords}字`);
   }
 }
-function memberSnapshot(member: V7PlanningMemberDefinition): unknown {
+function memberSnapshot(member: V7PlanningMemberDefinition | V7CreationMemberDefinition): unknown {
   return { memberKey: member.memberKey, displayName: member.displayName, roleKey: member.roleKey, provider: member.model.provider, modelId: member.model.modelId, plan: member.model.plan, fallbackPriority: member.fallbackPriority };
 }
 function memberName(json: string): string {

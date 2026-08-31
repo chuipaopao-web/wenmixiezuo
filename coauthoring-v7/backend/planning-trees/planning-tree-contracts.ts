@@ -125,6 +125,10 @@ export interface AuthorPlanningTreeView {
   revision: number;
   status: PlanningTreeLifecycle;
   title: string;
+  designSummary: null | {
+    decisionNote: string;
+    originalApproaches: Array<{ title: string; applicationNote: string }>;
+  };
   root: AuthorPlanningTreeNode;
 }
 

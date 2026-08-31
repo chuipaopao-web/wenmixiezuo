@@ -1200,10 +1200,11 @@ export class V7CreationRuntimeRepository {
         return 1;
       }
     })();
-    const contextPacks = this.database.prepare(`SELECT context_pack_id,task_kind,task_id,status,assigned_member_key,
-      length(COALESCE(content_json,'')) AS content_characters,error_message,updated_at
+    const contextPacks = (this.database.prepare(`SELECT context_pack_id,task_kind,task_id,status,assigned_member_key,
+      length(COALESCE(content_json,'')) AS content_characters,error_message,updated_at,content_json
       FROM v7_creation_context_packs WHERE owner_id=? AND book_id=? AND workflow_id=? ORDER BY created_at`)
-      .all(ownerId, bookId, workflowId) as unknown[];
+      .all(ownerId, bookId, workflowId) as Array<Record<string, unknown>>)
+      .map(contextPackAuditSummary);
     const options = this.database.prepare(`SELECT option_id,option_kind,scope_id,seat_key,member_key,created_at
       FROM v7_creation_options WHERE owner_id=? AND book_id=? AND workflow_id=?
       ORDER BY CASE seat_key WHEN 'structure' THEN 1 WHEN 'commercial' THEN 2 ELSE 3 END`)
@@ -1235,6 +1236,45 @@ export class V7CreationRuntimeRepository {
         taskControls: count('v7_creation_task_controls')
       }
     };
+  }
+}
+
+function contextPackAuditSummary(row: Record<string, unknown>): Record<string, unknown> {
+  const { content_json: rawContent, ...publicRow } = row;
+  if (typeof rawContent !== 'string' || rawContent.trim().length === 0) return publicRow;
+  try {
+    const pack = JSON.parse(rawContent) as V7CreationContextPack;
+    return {
+      ...publicRow,
+      context_summary: {
+        taskPersona: pack.taskPersona,
+        taskResponsibilities: pack.taskResponsibilities,
+        creativeSpace: pack.creativeSpace,
+        methodPlan: {
+          mode: pack.methodPlan.mode,
+          publicSummary: pack.methodPlan.publicSummary,
+          candidateCount: pack.methodPlan.candidates.length,
+          candidates: pack.methodPlan.candidates.map((candidate) => ({
+            publicExplanation: candidate.publicExplanation,
+            responsibilities: candidate.responsibilities,
+            caution: candidate.caution
+          }))
+        },
+        selectedSources: pack.selectedSources.map((source) => ({
+          sourceKey: source.sourceKey,
+          sourceKind: source.sourceKind,
+          authority: source.authority,
+          label: source.label
+        })),
+        excludedSources: pack.excludedSources,
+        openQuestions: pack.openQuestions,
+        characterCount: pack.characterCount,
+        budgetChars: pack.budgetChars,
+        estimatedTokens: pack.estimatedTokens
+      }
+    };
+  } catch {
+    return publicRow;
   }
 }
 

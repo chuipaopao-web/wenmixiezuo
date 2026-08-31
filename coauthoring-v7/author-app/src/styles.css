@@ -1263,6 +1263,16 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .time-machine-direction-card > dl > div { border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--line)); border-radius: 11px; padding: 10px 12px; background: rgb(255 255 255 / 78%); }
 .time-machine-direction-card dt { color: var(--ink-faint); font-size: 10px; font-weight: 780; }
 .time-machine-direction-card dd { margin: 4px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.6; }
+.planning-tree-design-summary { grid-column: 2; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line)); border-radius: 12px; background: rgb(255 255 255 / 82%); }
+.planning-tree-design-summary > summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; list-style: none; cursor: pointer; padding: 9px 12px; color: var(--ink); font-size: 12px; font-weight: 780; }
+.planning-tree-design-summary > summary::-webkit-details-marker { display: none; }
+.planning-tree-design-summary > summary svg { color: var(--ink-faint); transition: transform .18s ease; }
+.planning-tree-design-summary[open] > summary svg { transform: rotate(180deg); }
+.planning-tree-design-summary > p { margin: 0; border-top: 1px solid var(--line); padding: 11px 12px 7px; color: var(--ink-soft); font-size: 12px; line-height: 1.65; }
+.planning-tree-design-summary > ul { display: grid; gap: 7px; margin: 0; padding: 3px 12px 12px; list-style: none; }
+.planning-tree-design-summary li { display: grid; gap: 2px; border-radius: 9px; padding: 8px 10px; background: var(--panel-muted); }
+.planning-tree-design-summary li b { font-size: 11px; }
+.planning-tree-design-summary li span { color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
 .time-machine-direction-card > .planning-tree-actual { grid-column: 2; }
 .time-machine-route-group .planning-tree-vertical { margin-block: 2px; }
 .planning-tree-branch > summary > div > em { width: max-content; border-radius: 999px; padding: 2px 7px; color: var(--ink-faint); background: var(--panel-muted); font-size: 9px; font-style: normal; font-weight: 760; }
@@ -1520,7 +1530,7 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
   .time-machine-editorial-person > .planning-waiting-avatar, .time-machine-editorial-person > .planning-member-orb { width: 48px; height: 48px; justify-self: start; }
   .planning-start-card.is-compact { min-height: 0; grid-template-columns: 1fr; border-inline: 0; padding: 15px 11px; }
   .planning-start-card.is-compact > svg { justify-self: center; }
-  .time-machine-direction-card > dl, .time-machine-direction-card > .planning-tree-actual { grid-column: 1; }
+  .time-machine-direction-card > dl, .time-machine-direction-card > .planning-tree-design-summary, .time-machine-direction-card > .planning-tree-actual { grid-column: 1; }
   .time-machine-direction-card > dl { grid-template-columns: 1fr; }
   .time-machine-route-group .planning-tree-vertical { margin-left: 2px; }
   .time-machine-story-dynamics > details > summary > span { display: grid; gap: 3px; }

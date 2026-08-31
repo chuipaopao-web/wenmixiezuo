@@ -6,6 +6,7 @@ import {
   type PlanningTreeKind
 } from './planning-tree-contracts.js';
 import type { CompiledLayeredPlanningTask } from '../planning-methods/layered-planning-engine.js';
+import type { V7PlanningMethodSearchRequest } from '../planning-methods/planning-method-retrieval.js';
 import type { V7PlanningLayerReferencePack } from './planning-layer-reference-pack.js';
 
 export function parsePlanningTreeOutput(
@@ -31,6 +32,7 @@ export function planningTreeGenerationPrompt(input: {
   treeKind: PlanningTreeKind;
   scopeId: string;
   sourceSnapshot: unknown;
+  contextPlan: Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'>;
   layeredTask: CompiledLayeredPlanningTask;
   generationTask: PlanningTreeGenerationTask;
   referencePack: V7PlanningLayerReferencePack;
@@ -40,6 +42,7 @@ export function planningTreeGenerationPrompt(input: {
     `本次只设计${treeName(input.treeKind)}，treeKind固定为${input.treeKind}，scopeId固定为${input.scopeId}。`,
     '方法配方是软参考：必须完成当前层责任，但可以改变具体人物行动、阻力、关系、场景和实现方式。',
     '后台资产只是少量候选，不是剧情答案。先从本书人物、实际处境和上层责任创造方案，再决定是否引用；不得把模板替换人名后直接使用。',
+    `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
     '顶层JSON字段必须完整且只按本合同输出：schema="v7-planning-tree-v1",treeKind,scopeId,title,designStrategy,root。不得省略服务端已给出的固定字段。',
     '输出顶层designStrategy：libraryRefs最多使用候选包允许的数量，也可以为0；originalStrategies为1至6项，每项必须是{title,applicationNote}，说明只适合本书当前人物与局势的原创推进办法；decisionNote说明为什么这样取舍。',
     '正式资料与已确认上层方向不可静默改写；正文实际只能来自结算，不得把未来计划写成已经发生。',

@@ -22,6 +22,17 @@ export interface V7PlanningMethodSearchRequest {
   avoidNotes: string[];
   relevantSettingSourceIds: string[];
   missingCriticalInputs: string[];
+  taskPersona?: V7PlanningTaskPersona;
+  taskResponsibilities?: string[];
+  creativeSpace?: string[];
+}
+
+export interface V7PlanningTaskPersona {
+  publicLabel: string;
+  workingIdentity: string;
+  priorities: string[];
+  authenticityChecks: string[];
+  avoidPatterns: string[];
 }
 
 export interface V7PlanningMethodCandidate {
@@ -72,12 +83,26 @@ export function planningMethodSearchContext(): unknown {
   };
 }
 
-export function parsePlanningMethodSearchRequest(output: string): V7PlanningMethodSearchRequest {
+export function parsePlanningMethodSearchRequest(
+  output: string,
+  options: { minimumSettingSources?: 0 | 1; requireTaskProfile?: boolean } = {}
+): V7PlanningMethodSearchRequest {
   const value = parseJsonObject(output);
   if (value.schema !== 'v7-planning-method-search-v1') throw new Error('方法检索请求格式不完整');
   const planningLayers = enumList(value.planningLayers, PLANNING_LAYERS.map((item) => item.key), '规划层级', 1, 3);
   const dimensions = enumList(value.dimensions, NARRATIVE_DIMENSIONS.map((item) => item.key), '方法维度', 2, 8);
   const desiredCount = integer(value.desiredCount, '候选方法数量', 8, 12);
+  const taskPersona = value.taskPersona === undefined ? undefined : parseTaskPersona(value.taskPersona);
+  const taskResponsibilities = value.taskResponsibilities === undefined
+    ? undefined
+    : uniqueTextList(value.taskResponsibilities, '任务责任', 2, 6);
+  const creativeSpace = value.creativeSpace === undefined
+    ? undefined
+    : uniqueTextList(value.creativeSpace, '创意空间', 1, 5);
+  if (options.requireTaskProfile === true
+    && (taskPersona === undefined || taskResponsibilities === undefined || creativeSpace === undefined)) {
+    throw new Error('资料策划缺少任务期题材身份、任务责任或创意空间');
+  }
   return {
     schema: 'v7-planning-method-search-v1',
     publicGoal: requiredText(value.publicGoal, '检索目标'),
@@ -86,9 +111,20 @@ export function parsePlanningMethodSearchRequest(output: string): V7PlanningMeth
     dimensions,
     desiredCount,
     scaleHint: requiredText(value.scaleHint, '篇幅提示'),
-    avoidNotes: textList(value.avoidNotes, '避坑说明', 0, 8),
-    relevantSettingSourceIds: uniqueTextList(value.relevantSettingSourceIds, '相关设定资料', 1, 24),
-    missingCriticalInputs: criticalInputList(value.missingCriticalInputs, 0, 8)
+    // Avoid notes are soft guidance. Normalize an omitted value, one string,
+    // or an over-complete list deterministically instead of paying for a
+    // second model call; source selection and missing hard inputs stay strict.
+    avoidNotes: softTextList(value.avoidNotes, '避坑说明', 8),
+    relevantSettingSourceIds: uniqueTextList(
+      value.relevantSettingSourceIds,
+      '相关设定资料',
+      options.minimumSettingSources ?? 1,
+      24
+    ),
+    missingCriticalInputs: criticalInputList(value.missingCriticalInputs, 0, 8),
+    ...(taskPersona === undefined ? {} : { taskPersona }),
+    ...(taskResponsibilities === undefined ? {} : { taskResponsibilities }),
+    ...(creativeSpace === undefined ? {} : { creativeSpace })
   };
 }
 
@@ -150,17 +186,21 @@ export function planningMethodSearchPrompt(input: {
   seatResponsibility: string;
   independentFocus: readonly string[];
   sourceSnapshot: unknown;
+  allowedPlanningLayers?: readonly PlanningLayerKey[];
 }): string {
   return [
     '你正在为一部长篇小说准备方法检索。只返回一个JSON对象，不要Markdown，不要思维过程。',
     `本次身份：${input.seatName}。责任：${input.seatResponsibility}`,
     `重点检查：${input.independentFocus.join('；')}`,
     '现在只决定“需要检索哪类方法”并筛选本席真正需要的设定资料，不要直接设计故事，也不要猜方法库里有哪些具体方法。',
-    '检索必须覆盖全书顶层与跨卷分配；只选与本书真正相关的维度，避免把所有维度都要一遍。',
+    input.allowedPlanningLayers === undefined
+      ? '检索必须覆盖全书顶层与跨卷分配；只选与本书真正相关的维度，避免把所有维度都要一遍。'
+      : `planningLayers只允许使用${JSON.stringify(input.allowedPlanningLayers)}，不得增加其他层级；只选与本任务真正相关的维度，避免把所有维度都要一遍。`,
     '正式开书资料、作者本次目标、上级确认内容和正文实际必须保留；设定总账只负责导航，不要把总账sourceId填入relevantSettingSourceIds。已确认设定必须从schema="v7-setting-fact-source-v1"的逐项事实源中挑选本席确实需要的资料；relevantSettingSourceIds只能填写这些逐项事实源的sourceId，不得编造。',
     '如果缺少会导致商业全书路线无法可靠设计的硬信息，写入missingCriticalInputs。预计总字数是开书阶段唯一必须提前确定的规划尺度，默认按番茄连载场景工作，不要重复报缺。建议卷数、商业受众和追读定位是每席全书路线自己必须产出的结果，不是上游缺口。普通创作留白不是缺口，能在方案中合理创作的内容不要上报；信息齐全时返回空数组。不得自行脑补作者已经明确但本次资料中缺失的硬事实。',
-    '输出字段：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
-    'searchQueries为2—5条大白话创作需求；desiredCount为8—12；dimensions为2—8项；relevantSettingSourceIds为1—24项。',
+    '输出字段：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs,taskPersona,taskResponsibilities,creativeSpace。missingCriticalInputs每项优先写成一句可直接给作者看的大白话；如需说明影响和待确认内容，也可写成{issue,impact,needed}，系统会合并展示。',
+    'taskPersona必须把本书题材融合档案转成只属于当前任务的临时执行身份，字段为publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns；不得绑定成员姓名或岗位专业人设。taskResponsibilities写2—6条大白话责任，creativeSpace写1—5条可组合、放弃资产或自主设计的空间。',
+    '所有复数字段必须是JSON数组，不能写成单个字符串、编号对象或逗号拼接文本：searchQueries为2—5条，planningLayers为1—3项，dimensions为2—8项，avoidNotes为0—8条，relevantSettingSourceIds为1—24项，missingCriticalInputs为0—8项，taskResponsibilities为2—6条，creativeSpace为1—5条；taskPersona中的priorities、authenticityChecks、avoidPatterns也都必须是1—8条字符串数组。desiredCount为8—12的整数。',
     `可检索的层级和维度：${JSON.stringify(planningMethodSearchContext())}`,
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`
   ].join('\n\n');
@@ -217,6 +257,13 @@ function uniqueTextList(value: unknown, label: string, min: number, max: number)
   return unique;
 }
 
+function softTextList(value: unknown, label: string, max: number): string[] {
+  if (value === undefined || value === null) return [];
+  const items = typeof value === 'string' ? [value] : value;
+  if (!Array.isArray(items)) throw new Error(`${label}格式无效`);
+  return [...new Set(items.map((item) => requiredText(item, label)))].slice(0, max);
+}
+
 function criticalInputList(value: unknown, min: number, max: number): string[] {
   if (!Array.isArray(value) || value.length < min || value.length > max) throw new Error('缺失关键信息数量无效');
   const normalized = value.map((item) => {
@@ -237,6 +284,18 @@ function criticalInputList(value: unknown, min: number, max: number): string[] {
 
 function optionalText(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseTaskPersona(value: unknown): V7PlanningTaskPersona {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('任务期题材身份格式无效');
+  const record = value as Record<string, unknown>;
+  return {
+    publicLabel: requiredText(record.publicLabel, '任务身份名称'),
+    workingIdentity: requiredText(record.workingIdentity, '任务执行身份'),
+    priorities: uniqueTextList(record.priorities, '任务身份优先级', 1, 6),
+    authenticityChecks: uniqueTextList(record.authenticityChecks, '任务身份真实性检查', 1, 6),
+    avoidPatterns: uniqueTextList(record.avoidPatterns, '任务身份避坑', 1, 6)
+  };
 }
 
 function integer(value: unknown, label: string, min: number, max: number): number {

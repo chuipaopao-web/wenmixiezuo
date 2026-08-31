@@ -856,6 +856,10 @@ export interface PlanningTreeView {
   revision: number;
   status: 'candidate' | 'confirmed';
   title: string;
+  designSummary?: null | {
+    decisionNote: string;
+    originalApproaches: Array<{ title: string; applicationNote: string }>;
+  };
   root: PlanningTreeNodeView;
 }
 

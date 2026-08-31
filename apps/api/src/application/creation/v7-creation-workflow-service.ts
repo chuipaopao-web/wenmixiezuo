@@ -3,7 +3,6 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   chapterReviewRepairPrompt,
   chapterSequencePrompt,
-  buildPlanningLayerReferencePack,
   creationFallbackChain,
   manuscriptPrompt,
   outlineReviewPrompt,
@@ -429,6 +428,7 @@ export class V7CreationWorkflowService {
     });
     if (row === undefined) throw missing('创作任务不存在或不属于本书。');
     this.activeRuns.delete(workflowId);
+    this.contexts.cancelWorkflow(workflowId);
     this.models.cancelWorkflow(workflowId);
     this.repository.cancelManagedRun(ownerId, bookId, workflowId, this.now());
     return this.view(row);
@@ -1284,7 +1284,6 @@ export class V7CreationWorkflowService {
             kind,
             scopeId,
             contextPack: context.content,
-            referencePack: planningReferencePack(kind, seat),
             variation: seat,
             firstVolume: run.first_volume === 1
           }),
@@ -2006,22 +2005,6 @@ function preferredManuscripts(rows: readonly V7ManuscriptVersionRow[]): Map<numb
     }
   }
   return chosen;
-}
-
-function planningReferencePack(kind: OptionKind, seat: OptionSeatKey): unknown {
-  const source = buildPlanningLayerReferencePack(kind);
-  const seatIndex = ({ option_1: 0, option_2: 1, option_3: 2 } as const)[seat];
-  const select = <T>(values: readonly T[], count: number): T[] => {
-    if (values.length === 0) return [];
-    return Array.from({ length: Math.min(count, values.length) }, (_, index) => values[(seatIndex * count + index) % values.length]!);
-  };
-  return {
-    schema: source.schema,
-    policy: source.policy,
-    narrativeMethods: select(source.narrativeMethods, 2),
-    plotRecipes: select(source.plotRecipes, 1),
-    plotPatterns: kind === 'chain' ? select(source.plotPatterns, 2) : []
-  };
 }
 
 function optionKind(value: unknown): OptionKind {

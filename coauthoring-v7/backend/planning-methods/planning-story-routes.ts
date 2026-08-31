@@ -1,5 +1,5 @@
 import type { LayeredPlanningRecipe } from './layered-planning-engine.js';
-import type { V7PlanningMethodCandidate } from './planning-method-retrieval.js';
+import type { V7PlanningMethodCandidate, V7PlanningMethodSearchRequest } from './planning-method-retrieval.js';
 import {
   compactPlanningMethodCards,
   parseProgressivePlanningBrief,
@@ -227,6 +227,7 @@ export function planningStoryRoutePrompt(input: {
  */
 export function planningDirectStoryRoutePrompt(input: {
   sourceSnapshot: unknown;
+  contextPlan: Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'>;
   seatKey: V7ProgressivePlanningBrief['seatKey'];
   routeLabel: string;
   explorationOpening: string;
@@ -251,12 +252,14 @@ export function planningDirectStoryRoutePrompt(input: {
     'route.firstVolumeFocus必须是2—8条字符串组成的JSON数组，不能写成一整段字符串。sellingPoints、risks、openQuestions也必须是字符串数组。',
     'volumeRoadmap每项包含order,title,direction,protagonistChange,mainPressure,readerPayoff,targetWords,handoff。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
+    `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
     `本轮精简候选方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidates))}`
   ].join('\n\n');
 }
 
 export function planningDirectStoryRouteRepairPrompt(input: {
   sourceSnapshot: unknown;
+  contextPlan: Pick<V7PlanningMethodSearchRequest, 'publicGoal' | 'taskPersona' | 'taskResponsibilities' | 'creativeSpace'>;
   seatKey: V7ProgressivePlanningBrief['seatKey'];
   candidates: readonly V7PlanningMethodCandidate[];
   invalidOutput: string;
@@ -272,6 +275,7 @@ export function planningDirectStoryRouteRepairPrompt(input: {
     'route.schema必须是v7-planning-story-route-v1；route.firstVolumeFocus必须是2—8条字符串数组；sellingPoints、risks、openQuestions也必须是字符串数组。',
     'route.targetWords和各卷targetWords合计必须继续等于正式资料的预计总字数。adoptedParts保持[]。',
     `正式资料快照：${JSON.stringify(input.sourceSnapshot)}`,
+    `资料策划签发的本任务身份、责任与创意空间：${JSON.stringify(input.contextPlan)}`,
     `本轮允许引用的方法卡：${JSON.stringify(compactPlanningMethodCards(input.candidates))}`,
     `需要修正格式的原方案：${input.invalidOutput}`
   ].join('\n\n');

@@ -13,17 +13,24 @@ import {
   type V7ChapterSettlement,
   type V7StageSettlement,
   type V7CreationContextSelection,
+  type V7CreationMethodMode,
   type V7CreationMemberDefinition,
   type V7CreationSourceCandidate,
+  type V7CreationTaskKind,
   type V7PlanningOptionReview,
   type V7VolumeOption
 } from './creation-runtime-contracts.js';
 import { parsePlanningTreeOutput, type PlanningTreeDocument } from '../planning-trees/index.js';
+import {
+  parsePlanningMethodSearchRequest,
+  planningMethodSearchContext,
+  type PlanningLayerKey
+} from '../planning-methods/index.js';
 
 export const V7_CREATION_MEMBERS: readonly V7CreationMemberDefinition[] = [
-  member('deputy-glm-5-3', '西施', 'context_editor', 1, true, coding('glm-5.3')),
-  member('deputy-deepseek-v4-pro', '妙玉', 'context_editor', 2, false, coding('deepseek-v4-pro')),
-  member('deputy-kimi-k3', '谢临川', 'context_editor', 3, false, agent('kimi-k3')),
+  member('deputy-deepseek-v4-pro', '妙玉', 'context_editor', 1, true, coding('deepseek-v4-pro')),
+  member('deputy-kimi-k3', '谢临川', 'context_editor', 2, false, agent('kimi-k3')),
+  member('deputy-glm-5-3', '西施', 'context_editor', 3, false, coding('glm-5.3')),
   member('chief-deepseek-v4-pro', '貂蝉', 'chief_editor', 1, true, coding('deepseek-v4-pro')),
   member('chief-glm-5-3', '顾承砚', 'chief_editor', 2, false, coding('glm-5.3')),
   member('chief-kimi-k3', '沈知微', 'chief_editor', 3, false, agent('kimi-k3')),
@@ -86,6 +93,7 @@ export function validateCreationRoster(): string[] {
 }
 
 export function contextSelectionPrompt(input: {
+  taskKind: V7CreationTaskKind;
   taskBrief: string;
   candidates: readonly V7CreationSourceCandidate[];
   maximumSources: number;
@@ -100,22 +108,40 @@ export function contextSelectionPrompt(input: {
       exactPackedCharacters: Array.from(JSON.stringify(exactSource)).length
     };
   });
+  const allowedLayers = contextPlanningLayers(input.taskKind);
+  const settlementMethodRule = input.taskKind === 'settlement'
+    ? '本次是定稿事实结算，不做创作设计；methodStrategy.mode必须为none，searchRequest必须为null。'
+    : '';
   return [
-    '你是文秘写作资料编辑。只返回JSON对象，不要Markdown，不要思维过程。',
-    '任务是从候选资料中选择完成当前任务所需的最小充分资料。required=true的正式源必须保留；不得选择其他书、过期候选或无来源推断。',
+    '你是文秘写作资料策划。只返回JSON对象，不要Markdown，不要思维过程。',
+    '你负责理解当前任务、选择最小充分资料、提出方法检索意图，并把本书题材融合档案转成只适合当前任务的临时执行身份。你不写故事方案或正文。',
+    'required=true的正式源必须保留；不得选择其他书、过期候选或无来源推断。任务身份只属于本书本任务，不得给成员或岗位建立长期专业人设。',
     '如果资料不足，请在openQuestions说明，不得自行补事实。',
     `最多选择${input.maximumSources}项；硬事实和当前任务优先，方法参考宁少勿杂。`,
     input.maximumCharacters === undefined
       ? ''
       : `入选精确资料连同任务说明不得超过${input.maximumCharacters}字符；请至少为任务说明、来源说明和结构保留3000字符。设定事实账本已经覆盖全书硬事实，只有需要核对完整措辞时才选择某项设定原文。`,
-    '输出字段：schema="v7-creation-context-v1",publicSummary,selectedSourceKeys,selectionReasons,excludedSourceKeys,openQuestions。selectionReasons必须是数组，每项为{sourceKey,reason}。',
+    '输出字段：schema="v7-creation-context-v1",publicSummary,selectedSourceKeys,selectionReasons,excludedSourceKeys,openQuestions,taskPersona,taskResponsibilities,creativeSpace,methodStrategy。selectionReasons必须是数组，每项为{sourceKey,reason}。',
+    'taskPersona字段：publicLabel,workingIdentity,priorities,authenticityChecks,avoidPatterns。它要把书级题材融合身份具体化为本任务怎么工作，但不能写成员姓名、岗位专长或人格设定。',
+    'taskResponsibilities为2—6条本环节大白话责任；creativeSpace为1—5条可以自由发挥、组合或自行创新的空间。',
+    'methodStrategy字段：mode,publicSummary,searchRequest。mode只能是asset、combined、original、none：asset表示优先从资产中选，combined表示组合改写，original表示当前任务更适合自主设计，none只用于不需要叙事方法的纯核对或结算。',
+    settlementMethodRule,
+    settlementMethodRule,
+    `当前任务允许检索的层级只有：${JSON.stringify(allowedLayers)}。asset或combined必须给出searchRequest；original可以给出用于比较的searchRequest或null；none必须为null。`,
+    'searchRequest字段沿用方法检索合同：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs。只表达检索需求，不能猜测具体资产；desiredCount为8—12。relevantSettingSourceIds填写本轮确实相关的逐项设定sourceId，没有时允许空数组。',
     `当前任务：${input.taskBrief}`,
+    `可检索的方法层级和维度：${JSON.stringify(planningMethodSearchContext())}`,
     '候选阶段只阅读来源的语义索引；最终资料包仍会回查入选来源的精确正式内容，索引不能冒充正史。',
     `候选资料：${JSON.stringify(compactCandidates)}`
   ].filter(Boolean).join('\n\n');
 }
 
-export function parseContextSelection(output: string, candidates: readonly V7CreationSourceCandidate[], maximumSources: number): V7CreationContextSelection {
+export function parseContextSelection(
+  output: string,
+  candidates: readonly V7CreationSourceCandidate[],
+  maximumSources: number,
+  taskKind?: V7CreationTaskKind
+): V7CreationContextSelection {
   const value = jsonObject(output);
   if (value.schema !== V7_CREATION_CONTEXT_SCHEMA) throw new Error('资料编辑返回格式无效');
   const allowed = new Set(candidates.map((item) => item.sourceKey));
@@ -135,19 +161,50 @@ export function parseContextSelection(output: string, candidates: readonly V7Cre
   if (reasons.some((item) => !selectedSourceKeys.includes(item.sourceKey))) throw new Error('选择理由引用了未入选资料');
   const excludedSourceKeys = textList(value.excludedSourceKeys, '排除资料', true);
   if (excludedSourceKeys.some((key) => !allowed.has(key))) throw new Error('排除资料引用无效');
+  const taskPersona = recordValue(value.taskPersona, '任务身份');
+  const methodStrategy = recordValue(value.methodStrategy, '方法策略');
+  const methodMode = enumValue(methodStrategy.mode, ['asset', 'combined', 'original', 'none'] as const, '方法策略模式') as V7CreationMethodMode;
+  const searchRequest = methodStrategy.searchRequest === null || methodStrategy.searchRequest === undefined
+    ? null
+    : parsePlanningMethodSearchRequest(JSON.stringify(methodStrategy.searchRequest), { minimumSettingSources: 0 });
+  if ((methodMode === 'asset' || methodMode === 'combined') && searchRequest === null) throw new Error('方法策略缺少检索请求');
+  if (methodMode === 'none' && searchRequest !== null) throw new Error('无需方法时不能附带检索请求');
+  if (taskKind === 'settlement' && methodMode !== 'none') throw new Error('定稿事实结算不能注入叙事方法');
+  if (taskKind === 'settlement' && methodMode !== 'none') throw new Error('定稿事实结算不能注入叙事方法');
+  if (searchRequest !== null && taskKind !== undefined) {
+    const allowedLayers = new Set(contextPlanningLayers(taskKind));
+    if (searchRequest.planningLayers.some((layer) => !allowedLayers.has(layer))) throw new Error('方法检索越过了当前任务层级');
+    const allowedSettingIds = new Set(candidates.filter((item) => item.sourceKind === 'setting').map((item) => item.sourceId));
+    if (searchRequest.relevantSettingSourceIds.some((sourceId) => !allowedSettingIds.has(sourceId))) {
+      throw new Error('方法检索引用了无效设定来源');
+    }
+  }
   return {
     schema: V7_CREATION_CONTEXT_SCHEMA,
     publicSummary: requiredText(value.publicSummary, '资料说明'),
     selectedSourceKeys: unique(selectedSourceKeys),
     selectionReasons: reasons,
     excludedSourceKeys: unique(excludedSourceKeys),
-    openQuestions: textList(value.openQuestions, '开放问题', true)
+    openQuestions: boundedTextList(value.openQuestions, '开放问题', 0, 8),
+    taskPersona: {
+      publicLabel: requiredText(taskPersona.publicLabel, '任务身份名称'),
+      workingIdentity: requiredText(taskPersona.workingIdentity, '任务执行身份'),
+      priorities: boundedTextList(taskPersona.priorities, '任务身份优先级', 1, 6),
+      authenticityChecks: boundedTextList(taskPersona.authenticityChecks, '任务身份真实性检查', 1, 6),
+      avoidPatterns: boundedTextList(taskPersona.avoidPatterns, '任务身份避坑', 1, 6)
+    },
+    taskResponsibilities: boundedTextList(value.taskResponsibilities, '任务责任', 2, 6),
+    creativeSpace: boundedTextList(value.creativeSpace, '创意空间', 1, 5),
+    methodStrategy: {
+      mode: methodMode,
+      publicSummary: requiredText(methodStrategy.publicSummary, '方法策略说明'),
+      searchRequest
+    }
   };
 }
 
 export function planningOptionPrompt(input: {
   kind: 'volume' | 'chain'; scopeId: string; contextPack: unknown;
-  referencePack?: unknown;
   variation: 'option_1' | 'option_2' | 'option_3'; firstVolume: boolean;
 }): string {
   const treeKind = input.kind;
@@ -165,7 +222,7 @@ export function planningOptionPrompt(input: {
     '你是文秘写作规划编剧。独立设计一套真实故事方案，只返回JSON，不要Markdown，不要思维过程。',
     variation, first,
     '每套方案都必须兼顾因果与容量、商业追读、人物主动选择、创意辨识度和上下层接口。不能把不同方案理解成只分别负责结构、商业或人物。',
-    '参考卡只是本席的小工具箱：最多采用其中三项，也可以不用；必须另外提出至少一种只适合本书的原创推进。不要在结果中背诵方法名称。',
+    '资料包里的方法候选由资料策划按当前任务召回，只是共享工具箱。你可以采用、组合改写、全部忽略或自主设计；必须保留只属于本书人物与局势的创意，不要背诵专业方法名。designRationale用大白话说明这套方案为什么这样安排以及保留了什么创意空间。',
     input.kind === 'volume'
       ? '卷方案只负责把已确认全书方向展开成若干短单元链：交代本卷目标、起点到卷末的可见变化、核心矛盾、每条链的推进与回报、人物变化、卷末接口和容量。详细情绪曲线、伏笔、事件因果和逐章安排留到链层，不在卷层重复设计。每链连续4—8章、通常约1万—2.8万字；整卷链数由实际字数反推并覆盖完整字数责任。'
       : '链方案负责具体设计：触发、目标、阻力、升级、关键选择、代价、兑现、结果、情绪变化、信息揭示、人物与关系变化、伏笔埋设或回收、合理章节容量和下一链接口；只到章纲责任，不写正文。',
@@ -176,7 +233,6 @@ export function planningOptionPrompt(input: {
     input.kind === 'volume'
       ? '单卷树根节点linkedTree=null；每个直接子链节点linkedTree={treeKind:"chain",scopeId:"本方案内唯一且可复用的英文标识"}，children=[]。子链chapterRange使用连续的实际章节区间，从第1章起不能重叠或跳号；各子链wordTarget之和应覆盖根节点的本卷字数。'
       : '单元链树根节点linkedTree=null；每个直接事件节点linkedTree=null，children=[]。',
-    `本席精简参考卡：${JSON.stringify(input.referencePack ?? { policy: '优先原创，不强制使用公共方法' })}`,
     `任务资料包：${JSON.stringify(creationPromptContext(input.contextPack))}`
   ].join('\n\n');
 }
@@ -702,11 +758,22 @@ function objectList(value: unknown, label: string): Record<string, unknown>[] {
   });
 }
 
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${label}必须是对象`);
+  return value as Record<string, unknown>;
+}
+
 function arrayValue(value: unknown): unknown[] { return Array.isArray(value) ? structuredClone(value) : []; }
 
 function textList(value: unknown, label: string, allowEmpty: boolean): string[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) throw new Error(`${label}必须是${allowEmpty ? '' : '非空'}数组`);
   return value.map((item) => requiredText(item, label));
+}
+
+function boundedTextList(value: unknown, label: string, minimum: number, maximum: number): string[] {
+  const values = textList(value, label, minimum === 0);
+  if (values.length < minimum || values.length > maximum) throw new Error(`${label}数量必须是${minimum}至${maximum}项`);
+  return unique(values);
 }
 
 /**
@@ -762,3 +829,9 @@ function localizedEnumValue<T extends readonly string[]>(
 }
 
 function unique(values: string[]): string[] { return [...new Set(values)]; }
+
+function contextPlanningLayers(taskKind: V7CreationTaskKind): PlanningLayerKey[] {
+  if (taskKind === 'volume') return ['volume'];
+  if (taskKind === 'chain') return ['chain'];
+  return ['chapter_execution'];
+}

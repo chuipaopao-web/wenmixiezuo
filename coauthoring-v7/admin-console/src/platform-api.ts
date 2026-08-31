@@ -527,6 +527,19 @@ export interface V7CreationAdminAudit {
     contextPacks?: Array<{
       context_pack_id: string; task_kind: string; task_id: string; status: string;
       assigned_member_key: string; content_characters: number; error_message: string | null; updated_at: string;
+      context_summary?: {
+        taskPersona: { publicLabel: string; workingIdentity: string; priorities: string[]; authenticityChecks: string[]; avoidPatterns: string[] };
+        taskResponsibilities: string[];
+        creativeSpace: string[];
+        methodPlan: {
+          mode: 'asset' | 'combined' | 'original' | 'none'; publicSummary: string; candidateCount: number;
+          candidates: Array<{ publicExplanation: string; responsibilities: string[]; caution: string[] }>;
+        };
+        selectedSources: Array<{ sourceKey: string; sourceKind: string; authority: string; label: string }>;
+        excludedSources: Array<{ sourceKey: string; reason: string }>;
+        openQuestions: string[];
+        characterCount: number; budgetChars: number; estimatedTokens: number;
+      };
     }>;
     options?: Array<{
       option_id: string; option_kind: string; scope_id: string; seat_key: string; member_key: string; created_at: string;
@@ -552,11 +565,20 @@ export interface V7PlanningAdminTask {
   bookId: string; bookTitle: string; status: string; message: string; progress: number;
   memberKey: string | null; memberName: string | null;
   treeKind: 'book' | 'volume' | 'chain' | null; scopeId: string | null;
-  canStop: boolean; updatedAt: string;
+  modelCalls: number; canStop: boolean; updatedAt: string;
 }
 
 export interface V7PlanningAdminAudit {
   run: Record<string, unknown>;
+  contextPlan?: null | {
+    request?: {
+      publicGoal?: string;
+      taskPersona?: { publicLabel?: string; workingIdentity?: string; priorities?: string[]; authenticityChecks?: string[]; avoidPatterns?: string[] };
+      taskResponsibilities?: string[];
+      creativeSpace?: string[];
+    };
+    candidates?: unknown[];
+  };
   calls: Array<{ member_key: string; model_id: string; state: string; input_tokens: number | null; output_tokens: number | null; failure_message: string | null }>;
 }
 
