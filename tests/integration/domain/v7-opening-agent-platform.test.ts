@@ -847,13 +847,14 @@ describe('V7开书Agent平台接入', () => {
         title: '三国：小卒问鼎',
         protagonists: [{ ...base.content.protagonists[0], age: '24岁' }]
       };
+      const longAdjustmentNote = '保留作者明确设定。'.repeat(110);
       const revision = await app.inject({
         method: 'POST', url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`,
         headers: { ...BROWSER_HEADERS, cookie },
         payload: {
           baseCandidateId: base.candidateId,
           openingPackage: authorPackage,
-          adjustmentNote: '保留小卒起点，但让主角更早承担保护同伴的责任。',
+          adjustmentNote: longAdjustmentNote,
           idempotencyKey: 'v7-author-loop-revision-0001'
         }
       });
@@ -866,7 +867,7 @@ describe('V7开书Agent平台接入', () => {
         content: {
           title: '三国：小卒问鼎',
           protagonists: [expect.objectContaining({ age: '24岁' })],
-          authorInstructions: ['保留小卒起点，但让主角更早承担保护同伴的责任。']
+          authorInstructions: [longAdjustmentNote]
         }
       });
       expect(reviewed.candidates.filter((item: { kind: string }) => item.kind === 'opening_package'))
@@ -1004,13 +1005,57 @@ describe('V7开书Agent平台接入', () => {
       });
       expect(revised.statusCode).toBe(200);
       const completed = await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
-      expect(latestCandidate(completed, 'opening_package').content).toMatchObject({
+      const activePackage = latestCandidate(completed, 'opening_package');
+      expect(activePackage.content).toMatchObject({
         positioning: { expectedTotalWords: 2_000_000 }
       });
       expect(resolver.generateCount).toBe(3);
-      expect(JSON.stringify(latestCandidate(completed, 'opening_package').content)).not.toContain('revisionDirective');
+      expect(JSON.stringify(activePackage.content)).not.toContain('revisionDirective');
+      const tampered = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId, candidateId: activePackage.candidateId,
+          openingPackage: { ...activePackage.content, title: '作者未复审的改名' },
+          idempotencyKey: 'v7-decision-confirm-tampered'
+        }
+      });
+      expect(tampered.statusCode).toBe(409);
+      const confirmed = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-books', headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId, candidateId: activePackage.candidateId, openingPackage: activePackage.content,
+          idempotencyKey: 'v7-decision-confirm-valid'
+        }
+      });
+      expect(confirmed.statusCode).toBe(200);
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM v7_setting_batches').get()).toEqual({ count: 0 });
       expect(context.database.prepare('SELECT COUNT(*) AS count FROM canon_revisions').get()).toEqual({ count: 0 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('开书Agent在801至2000字范围内创建任务，超过2000字才拒绝', async () => {
+    context = createTestContext('wenmi-v7-opening-idea-capacity-');
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new ScriptedResolver() });
+    try {
+      const cookie = await register(app, 'v7-opening-capacity@example.com', '长想法作者', 'strong-pass-778');
+      for (const length of [801, 2_000]) {
+        const created = await app.inject({
+          method: 'POST', url: '/api/v1/v7/opening-agent/tasks', headers: { ...BROWSER_HEADERS, cookie },
+          payload: { idea: '张'.repeat(length), idempotencyKey: `v7-opening-capacity-${length}` }
+        });
+        expect(created.statusCode).toBe(200);
+        const taskId = created.json().data.taskId as string;
+        await poll(app, cookie, taskId, ['awaiting_author_confirmation']);
+        expect(context.database.prepare('SELECT length(idea_text) AS length FROM v7_opening_agent_tasks WHERE task_id=?')
+          .get(taskId)).toEqual({ length });
+      }
+      const rejected = await app.inject({
+        method: 'POST', url: '/api/v1/v7/opening-agent/tasks', headers: { ...BROWSER_HEADERS, cookie },
+        payload: { idea: '张'.repeat(2_001), idempotencyKey: 'v7-opening-capacity-2001' }
+      });
+      expect(rejected.statusCode).toBe(400);
     } finally {
       await app.close();
     }

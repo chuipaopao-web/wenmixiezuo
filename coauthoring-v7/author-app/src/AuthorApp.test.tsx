@@ -247,6 +247,7 @@ describe('V7 author opening flow', () => {
   });
 
   it('恢复 AI 候选上的脏编辑、调整意见与当前步骤，不被迟到的候选覆盖', async () => {
+    const longAdjustmentNote = '保留作者明确设定。'.repeat(110);
     const editedPackage: OpeningPackage = {
       ...PACKAGE,
       protagonists: [{ ...PACKAGE.protagonists[0]!, name: '作者改过的主角' }]
@@ -258,7 +259,7 @@ describe('V7 author opening flow', () => {
       publishingPlatform: 'fanqie',
       openingPackage: editedPackage,
       baseCandidateId: 'candidate-package-0001',
-      adjustmentNote: '主角姓名必须保留作者刚才的修改。',
+      adjustmentNote: longAdjustmentNote,
       selectedDesignerMemberKey: 'planner-kimi-k3',
       manualStep: 2
     }));
@@ -269,7 +270,9 @@ describe('V7 author opening flow', () => {
     expect(await screen.findByText('资料已经审查通过')).toBeVisible();
     expect(screen.getByRole('button', { name: /2\s*边界与角色/ })).toHaveClass('active');
     expect(screen.getByLabelText('角色1姓名')).toHaveValue('作者改过的主角');
-    expect(screen.getByLabelText('给主编的开书资料调整意见（可选）')).toHaveValue('主角姓名必须保留作者刚才的修改。');
+    const adjustment = screen.getByLabelText('给主编的开书资料调整意见（可选）');
+    expect(adjustment).toHaveAttribute('data-max-chars', '2000');
+    expect(adjustment).toHaveValue(longAdjustmentNote);
     expect(screen.getByRole('button', { name: '请主编按选择更新资料' })).toBeEnabled();
     expect(localStorage.getItem(AI_DRAFT_KEY)).toContain('planner-kimi-k3');
   });

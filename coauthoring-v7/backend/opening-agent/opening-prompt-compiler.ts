@@ -304,7 +304,7 @@ function outputJsonSchema(
         }
       ),
       mustFollow: textListSchema(1, 15, 800),
-      authorInstructions: textListSchema(0, 8, 800)
+      authorInstructions: textListSchema(0, 8, 2_000)
     }
   );
 }

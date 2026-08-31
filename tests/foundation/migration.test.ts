@@ -108,7 +108,8 @@ describe('向前迁移器', () => {
         '0100_v7_fast_default_manuscript_reviewer.sql',
         '0101_unified_account_usage_projection.sql',
         '0102_v7_clean_cutover_guard.sql',
-        '0103_membership_action_idempotency.sql'
+        '0103_membership_action_idempotency.sql',
+        '0104_v7_opening_idea_capacity.sql'
       ]);
       expect(second.applied).toEqual([]);
       expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
@@ -146,6 +147,8 @@ describe('向前迁移器', () => {
       expect(batchColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['template_version_id', 'template_hash']));
       const openingTaskColumns = database.prepare("PRAGMA table_info('v7_opening_agent_tasks')").all() as Array<{ name: string }>;
       expect(openingTaskColumns.map((row) => row.name)).toContain('publishing_platform');
+      const openingTaskSql = database.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='v7_opening_agent_tasks'").get() as { sql: string };
+      expect(openingTaskSql.sql).toContain('length(idea_text) BETWEEN 4 AND 2000');
       const openingCallColumns = database.prepare("PRAGMA table_info('v7_opening_agent_model_calls')").all() as Array<{ name: string }>;
       expect(openingCallColumns.map((row) => row.name)).toEqual(expect.arrayContaining([
         'task_contract_json', 'context_pack_json', 'prompt_manifest_json'
@@ -212,6 +215,83 @@ describe('向前迁移器', () => {
       expect(manuscriptColumns.map((row) => row.name)).toEqual(expect.arrayContaining(['creator_kind', 'edit_note']));
       expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(database.prepare('PRAGMA synchronous').get()).toEqual({ synchronous: 2 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('0104在保留开书任务子记录和外键的前提下把原始想法容量升级到2000字', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    const sourceDir = resolve(process.cwd(), 'apps/api/src/infrastructure/db/migrations');
+    for (const file of readdirSync(sourceDir).filter((name) => /^\d{4}_.+\.sql$/u.test(name) && name < '0104_')) {
+      copyFileSync(resolve(sourceDir, file), resolve(migrationsDir, file));
+    }
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      runMigrations(database, migrationsDir);
+      const now = '2026-08-31T00:00:00.000Z';
+      database.prepare('INSERT INTO owners (owner_id,display_name,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('owner-opening-capacity', '开书容量作者', now, now);
+      database.prepare(`INSERT INTO user_accounts(
+        user_id,owner_id,email_normalized,display_name,password_salt,password_hash,role,status,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,'user','active',?,?)`).run(
+        'user-opening-capacity', 'owner-opening-capacity', 'opening-capacity@example.com', '开书容量作者',
+        'salt', 'hash', now, now
+      );
+      database.prepare(`INSERT INTO v7_opening_agent_tasks(
+        task_id,owner_id,idempotency_key,request_hash,idea_text,idea_version,idea_hash,
+        selected_chief_member_key,selected_screenwriter_member_key,status,phase,state_json,
+        created_at,updated_at,member_roster_json,publishing_platform
+      ) VALUES (?,?,?,?,?,1,?,NULL,NULL,'awaiting_author_confirmation','complete','{}',?,?,'[]','qidian')`).run(
+        'opening-capacity-existing', 'owner-opening-capacity', 'opening-capacity-existing',
+        'a'.repeat(64), '旧任务想法', 'b'.repeat(64), now, now
+      );
+      database.prepare(`INSERT INTO v7_opening_agent_candidates(
+        candidate_id,owner_id,task_id,kind,version,content_json,created_by_member_key,
+        model_request_id,source_candidate_ids_json,created_at
+      ) VALUES (?,?,?,'opening_package',1,'{}','author',?,'[]',?)`).run(
+        'opening-capacity-candidate', 'owner-opening-capacity', 'opening-capacity-existing',
+        'opening-capacity-candidate-request', now
+      );
+      database.prepare(`INSERT INTO v7_opening_agent_model_calls(
+        request_id,owner_id,task_id,node_key,member_key,provider,model_id,plan,state,prompt_hash,
+        reserved_tokens,input_tokens,output_tokens,cash_micros,output_text,started_at,completed_at,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,'coding','succeeded',?,100,10,20,0,'{}',?,?,?,?)`).run(
+        'opening-capacity-call', 'owner-opening-capacity', 'opening-capacity-existing', 'package_design',
+        'planner-test', 'provider-test', 'model-test', 'c'.repeat(64), now, now, now, now
+      );
+
+      copyFileSync(
+        resolve(sourceDir, '0104_v7_opening_idea_capacity.sql'),
+        resolve(migrationsDir, '0104_v7_opening_idea_capacity.sql')
+      );
+      expect(runMigrations(database, migrationsDir).applied).toEqual(['0104_v7_opening_idea_capacity.sql']);
+      expect(database.prepare(`SELECT idea_text,member_roster_json,publishing_platform FROM v7_opening_agent_tasks
+        WHERE task_id='opening-capacity-existing'`).get()).toEqual({
+        idea_text: '旧任务想法', member_roster_json: '[]', publishing_platform: 'qidian'
+      });
+      expect(database.prepare("SELECT task_id FROM v7_opening_agent_candidates WHERE candidate_id='opening-capacity-candidate'").get())
+        .toEqual({ task_id: 'opening-capacity-existing' });
+      expect(database.prepare("SELECT task_id FROM v7_opening_agent_model_calls WHERE request_id='opening-capacity-call'").get())
+        .toEqual({ task_id: 'opening-capacity-existing' });
+      expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+
+      const insertTask = database.prepare(`INSERT INTO v7_opening_agent_tasks(
+        task_id,owner_id,idempotency_key,request_hash,idea_text,idea_version,idea_hash,
+        status,phase,created_at,updated_at,publishing_platform
+      ) VALUES (?,?,?,?,?,1,?,'queued','package_design',?,?,'fanqie')`);
+      insertTask.run(
+        'opening-capacity-2000', 'owner-opening-capacity', 'opening-capacity-limit-2000',
+        'd'.repeat(64), '张'.repeat(2_000), 'e'.repeat(64), now, now
+      );
+      expect(() => insertTask.run(
+        'opening-capacity-2001', 'owner-opening-capacity', 'opening-capacity-limit-2001',
+        'f'.repeat(64), '张'.repeat(2_001), '0'.repeat(64), now, now
+      )).toThrow();
+      expect(runMigrations(database, migrationsDir).applied).toEqual([]);
     } finally {
       database.close();
     }
@@ -465,6 +545,37 @@ describe('向前迁移器', () => {
       const applied = database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get();
       expect(table).toBeUndefined();
       expect(applied).toEqual({ count: 0 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('需要临时关闭外键的迁移若产生断链会完整回滚并恢复外键门禁', () => {
+    const directory = createTempDirectory();
+    const migrationsDir = resolve(directory, 'migrations');
+    mkdirSync(migrationsDir);
+    writeFileSync(resolve(migrationsDir, '0001_parent_child.sql'), `
+      CREATE TABLE parents(id TEXT PRIMARY KEY) STRICT;
+      CREATE TABLE children(id TEXT PRIMARY KEY,parent_id TEXT NOT NULL REFERENCES parents(id)) STRICT;
+      INSERT INTO parents(id) VALUES ('parent-kept');
+      INSERT INTO children(id,parent_id) VALUES ('child-kept','parent-kept');
+    `, 'utf8');
+    writeFileSync(resolve(migrationsDir, '0002_broken_parent_rebuild.sql'), `-- wenmi-migration: foreign-keys-off
+      CREATE TABLE parents_next(id TEXT PRIMARY KEY) STRICT;
+      INSERT INTO parents_next(id) VALUES ('different-parent');
+      DROP TABLE parents;
+      ALTER TABLE parents_next RENAME TO parents;
+    `, 'utf8');
+    const database = openDatabase(resolve(directory, 'database.sqlite'));
+    try {
+      expect(() => runMigrations(database, migrationsDir)).toThrow('迁移 0002_broken_parent_rebuild.sql 失败');
+      expect(database.prepare('SELECT * FROM parents').all()).toEqual([{ id: 'parent-kept' }]);
+      expect(database.prepare('SELECT * FROM children').all()).toEqual([{ id: 'child-kept', parent_id: 'parent-kept' }]);
+      expect(database.prepare('SELECT name FROM schema_migrations ORDER BY name').all()).toEqual([
+        expect.objectContaining({ name: '0001_parent_child.sql' })
+      ]);
+      expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(database.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     } finally {
       database.close();
     }

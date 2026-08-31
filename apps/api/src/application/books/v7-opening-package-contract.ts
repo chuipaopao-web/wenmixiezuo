@@ -151,7 +151,7 @@ export function validateV7ManualOpeningPackage(value: unknown): OpeningPackage {
     authorNotes: manualTextArray(root.authorNotes, '作者检查项', 0, 8, 500),
     mustFollow: manualTextArray(root.mustFollow ?? [], '必须遵守', 1, 15, 800)
   };
-  const authorInstructions = manualTextArray(root.authorInstructions ?? [], '作者调整要求', 0, 8, 800);
+  const authorInstructions = manualTextArray(root.authorInstructions ?? [], '作者调整要求', 0, 8, 2_000);
   return authorInstructions.length === 0 ? normalized : { ...normalized, authorInstructions };
 }
 
@@ -239,7 +239,17 @@ export function validateV7OpeningRevisionDraft(
 }
 
 export function openingPackageHash(value: OpeningPackage): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return createHash('sha256').update(JSON.stringify(publicV7OpeningPackage(value))).digest('hex');
+}
+
+/**
+ * 作者端只能看到并提交创作资料；编辑部用于约束返修范围的内部执行指令
+ * 必须继续留在候选快照中，但不能参与作者内容一致性校验。
+ */
+export function publicV7OpeningPackage(value: OpeningPackage): OpeningPackage {
+  const content = structuredClone(value);
+  delete content.revisionDirective;
+  return content;
 }
 
 export function toV7OpeningBlueprint(openingPackage: OpeningPackage, openingIdea: string): OpeningBlueprintInput {

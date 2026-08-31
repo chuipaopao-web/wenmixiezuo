@@ -82,7 +82,7 @@ function readSnapshot(entryMode: 'ai' | 'manual', userId: string): OpeningDraftS
       ? parsed.baseCandidateId
       : null;
     const adjustmentNote = typeof parsed?.adjustmentNote === 'string'
-      ? Array.from(parsed.adjustmentNote).slice(0, 800).join('')
+      ? Array.from(parsed.adjustmentNote).slice(0, 2_000).join('')
       : '';
     const selectedDesignerMemberKey = typeof parsed?.selectedDesignerMemberKey === 'string'
       ? parsed.selectedDesignerMemberKey.slice(0, 120)
@@ -693,7 +693,7 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
         {mode === 'ai' && designMembers.length > 0 && <details className="opening-redesign-choice"><summary>换成员重新设计整份开书资料</summary><div><select aria-label="重新设计成员" value={selectedDesignerMemberKey} onChange={(event) => setSelectedDesignerMemberKey(event.target.value)}><option value="">请选择成员</option>{designMembers.map((member) => <option key={member.memberKey} value={member.memberKey}>{member.displayName}</option>)}</select><button className="secondary-action" type="button" disabled={busy || selectedDesignerMemberKey.length === 0} onClick={() => void redesignWithMember()}>{busy ? '正在重新安排…' : '重新设计'}</button></div><p>当前方案会移入任务记录，不会污染新方案；新方案仍由不同底模的主编审查。</p></details>}
         <section className="confirmation-dock manual-confirmation-dock" aria-label="开书确认">
           <div>
-            {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>给主编的开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={800} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><output>{Array.from(adjustmentNote).length}/800</output></label>}
+            {mode === 'ai' && manualStep === 2 && <label className="adjustment-field" htmlFor="adjustment-note"><span>给主编的开书资料调整意见（可选）</span><ImeTextarea id="adjustment-note" rows={3} maxChars={2_000} value={adjustmentNote} onChange={setAdjustmentNote} placeholder="例如：主角必须是张三；年龄改成二十岁；书名更直白吸睛。只调整本页开书资料。" /><output>{Array.from(adjustmentNote).length}/2000</output></label>}
             {currentErrors.length > 0 && <details className="validation-summary"><summary>还需完成 {currentErrors.length} 项</summary><ul>{currentErrors.map((item) => <li key={item}>{item}</li>)}</ul></details>}
             {error !== null && <div className="error-notice" role="alert">{error}</div>}
           </div>

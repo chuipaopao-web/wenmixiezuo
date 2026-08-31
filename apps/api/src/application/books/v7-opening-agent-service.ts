@@ -20,8 +20,9 @@ import {
   type V7OpeningTaskRow
 } from '../../infrastructure/db/repositories/v7-opening-agent-repository.js';
 import { V7OpeningAgentModelGateway } from '../../infrastructure/models/v7-opening-agent-model-gateway.js';
-import { V7_OPENING_TAXONOMY_REFERENCE } from './v7-opening-package-contract.js';
 import {
+  publicV7OpeningPackage,
+  V7_OPENING_TAXONOMY_REFERENCE,
   validateV7OpeningRevisionDraft
 } from './v7-opening-package-contract.js';
 
@@ -420,9 +421,7 @@ function publicCandidateContent(candidate: OpeningSavedCandidate): unknown {
   if (candidate.kind !== 'opening_package' || candidate.content === null || typeof candidate.content !== 'object' || Array.isArray(candidate.content)) {
     return candidate.content;
   }
-  const content = structuredClone(candidate.content) as unknown as Record<string, unknown>;
-  delete content.revisionDirective;
-  return content;
+  return publicV7OpeningPackage(candidate.content as OpeningPackage);
 }
 
 type DecisionAction = 'accept' | 'reject' | 'custom';
@@ -611,7 +610,7 @@ function normalizeAdjustmentNote(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') throw new DomainError(errorCodes.validation, '调整意见格式无效。');
   const note = value.trim();
-  if (Array.from(note).length > 800) throw new DomainError(errorCodes.validation, '调整意见最多800字。');
+  if (Array.from(note).length > 2_000) throw new DomainError(errorCodes.validation, '调整意见最多2000字。');
   return note;
 }
 

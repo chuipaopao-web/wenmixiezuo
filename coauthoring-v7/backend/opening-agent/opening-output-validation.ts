@@ -46,7 +46,7 @@ export function parseOpeningPackage(
   const genres = boundedTextArray(positioning.genres, '融合题材', 1, 5, 50);
   const tags = boundedTextArray(positioning.tags, '内容标签', 3, 12, 50);
   const mustFollow = textArray(value.mustFollow ?? [], '必须遵守', 15, 800, true);
-  const authorInstructions = textArray(value.authorInstructions ?? [], '作者调整要求', 8, 800, true);
+  const authorInstructions = textArray(value.authorInstructions ?? [], '作者调整要求', 8, 2_000, true);
   if (taxonomy !== undefined) validateTaxonomySelection(taxonomy, channel, category, genres, tags);
   return {
     title: boundedText(value.title, '暂定书名', publishingPlatform === 'qidian' ? 4 : 6, 15),
