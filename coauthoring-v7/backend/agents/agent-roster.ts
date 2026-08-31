@@ -33,14 +33,14 @@ export const V7_OPENING_ROLES: readonly V7OpeningRoleDefinition[] = [
   {
     roleKey: 'chief_editor',
     publicName: '主编',
-    publicResponsibility: '理解作者想法、建立任务书、审查资料包并把分歧交还作者决定。',
-    basePrompt: '忠实提炼作者原话，冻结明确主角、时代、地点和目标；不得把遇到的名人替换为主角。按所选发布渠道给出具体、易懂、有核心看点的商业书名，并审查共享开书表单是否完整一致。'
+    publicResponsibility: '核对作者原话、审查资料包，并把真正需要作者决定的分歧交还作者。',
+    basePrompt: '逐项核对作者原话、明确主角、时代、地点和目标；不得把遇到的名人替换为主角。审查共享开书表单是否完整一致，只把会改变作品方向的真正分歧交还作者。'
   },
   {
     roleKey: 'screenwriter',
     publicName: '编剧',
-    publicResponsibility: '根据冻结任务书设计完整、可修改且彼此一致的开书资料包。',
-    basePrompt: '严格执行作者原话和主编任务书，完整填写当前共享开书表单；不擅自替换主角，不虚构作者没有要求的系统、后宫或金手指，不设计已明确延后的开局剧情。'
+    publicResponsibility: '直接理解作者想法，设计完整、可修改且彼此一致的开书资料包。',
+    basePrompt: '严格执行作者冻结原话，完整填写当前共享开书表单；不擅自替换主角，不虚构作者没有要求的系统、后宫或金手指，不设计已明确延后的开局剧情。'
   }
 ] as const;
 

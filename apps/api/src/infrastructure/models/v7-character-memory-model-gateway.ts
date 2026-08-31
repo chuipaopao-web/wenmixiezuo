@@ -71,6 +71,16 @@ export class V7CharacterMemoryModelGateway {
       if (existing.owner_id !== request.ownerId || existing.book_id !== request.bookId) {
         throw new V7CharacterMemoryModelError('人物资料调用不属于当前书籍');
       }
+      if (existing.run_id !== request.runId
+        || existing.run_kind !== request.runKind
+        || existing.member_key !== request.member.memberKey
+        || existing.provider !== request.member.model.provider
+        || existing.model_id !== request.member.model.modelId
+        || existing.plan !== request.member.model.plan) {
+        throw new V7CharacterMemoryModelError(
+          '这次人物任务保存的是历史成员或旧模型调用，已保留原记录，但不能继续恢复。请重新创建当前人物任务。'
+        );
+      }
       if (existing.state === 'succeeded' && existing.output_text !== null) {
         return {
           requestId: existing.request_id,

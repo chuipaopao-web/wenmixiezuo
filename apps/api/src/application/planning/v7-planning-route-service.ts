@@ -9,18 +9,14 @@ import {
   extractPlanningCriticalInputs,
   materializePlanningRecipe,
   parsePlanningMethodSearchRequest,
-  parseProgressivePlanningBrief,
   parsePlanningRouteFusion,
   parsePlanningRouteReview,
   parseStoredProgressivePlanningBrief,
-  parsePlanningStoryRoute,
   planningMethodSearchPrompt,
-  progressivePlanningBriefPrompt,
   planningRouteFusionPrompt,
   planningRouteReviewPrompt,
   planningDirectStoryRoutePrompt,
   planningDirectStoryRouteRepairPrompt,
-  planningStoryRoutePrompt,
   retrievePlanningMethodCandidates,
   validateProgressivePlanningBriefCandidates,
   validatePlanningEditorialRoster,
@@ -54,6 +50,10 @@ import {
   type V7PlanningScaleProfile,
   type V7PlanningCompiledSnapshot
 } from './v7-planning-source-compiler.js';
+import {
+  resolveFrozenCreationMembers,
+  resolveFrozenPlanningMembers
+} from './v7-planning-task-roster-snapshot.js';
 
 type MethodSeat = 'chief_editor' | 'structure_deputy' | 'commercial_deputy';
 type RouteDecisionKind = 'select' | 'adjust' | 'merge';
@@ -145,18 +145,31 @@ type StoredPlanningMember = {
 };
 
 type StoredRouteRoster = {
-  workflowStyle: 'three-chief-direct-v1' | 'legacy-handoff';
+  workflowStyle: 'three-chief-direct-v1' | 'read-only';
   directChiefs: StoredPlanningMember[];
+  directFallbacks: StoredPlanningMember[];
+  routeReviewers: StoredPlanningMember[];
+  routeFusionEditors: StoredPlanningMember[];
+  contextEditors: StoredPlanningMember[];
   methodSeats: Array<{ seatKey: string; fallback: StoredPlanningMember[] }>;
   routeWriters: StoredPlanningMember[];
 };
+
+type ExecutableRouteRoster = {
+  directChiefs: V7PlanningMemberDefinition[];
+  directFallbacks: V7PlanningMemberDefinition[];
+  routeReviewers: V7PlanningMemberDefinition[];
+  routeFusionEditors: V7PlanningMemberDefinition[];
+  contextEditors: V7CreationMemberDefinition[];
+};
+
+const READ_ONLY_ROUTE_MESSAGE = '对不起，这项全书路线不能继续执行。已有结果保留，请按当前流程重新设计。';
 
 export class V7PlanningRouteService {
   private readonly repository: V7PlanningRuntimeRepository;
   private readonly sources: V7PlanningSourceCompiler;
   private readonly models: V7PlanningModelGateway;
   private readonly activeRuns = new Set<string>();
-  private readonly routeMemberReservations = new Map<string, Set<string>>();
 
   public constructor(
     database: DatabaseSync,
@@ -187,6 +200,8 @@ export class V7PlanningRouteService {
       ...(authorGoal === null ? {} : { authorGoal })
     });
     const selectedChiefs = selectedPlanningChiefs(input.memberKeys, candidateCount, this.members());
+    const frozenChiefFallbacks = buildPlanningFallbackChain('chief_editor', { members: this.members() });
+    const frozenContextEditors = creationFallbackChain('context_editor', undefined, this.contextMembers());
     const requestHash = sha256(stableJson({
       workflow: 'story-routes-v3-on-demand', snapshotId: snapshot.snapshotId, authorGoal,
       candidateCount, memberKeys: selectedChiefs.map((member) => member.memberKey)
@@ -202,7 +217,11 @@ export class V7PlanningRouteService {
       idempotencyKey, requestHash,
       roster: {
         workflowStyle: 'three-chief-direct-v1',
-        directChiefs: selectedChiefs.map(memberSnapshot)
+        directChiefs: selectedChiefs.map(memberSnapshot),
+        directFallbacks: frozenChiefFallbacks.map(memberSnapshot),
+        routeReviewers: frozenChiefFallbacks.map(memberSnapshot),
+        routeFusionEditors: frozenChiefFallbacks.map(memberSnapshot),
+        contextEditors: frozenContextEditors.map(memberSnapshot)
       },
       now: this.clock.now().toISOString()
     });
@@ -255,24 +274,25 @@ export class V7PlanningRouteService {
         message: view.message, progress: view.progress.percent,
         memberKey: active?.memberKey ?? null, memberName: active?.memberName ?? null,
         treeKind: null, scopeId: null, modelCalls: run.model_calls,
-        canStop: ['queued', 'working'].includes(run.status), updatedAt: run.updated_at
+        canStop: view.status === 'waiting' || view.status === 'working', updatedAt: run.updated_at
       };
     });
   }
 
   public cancel(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
+    this.requireExecutableRoster(run);
     const cancelled = this.repository.cancelRecipeRun(ownerId, bookId, run.run_id, this.clock.now().toISOString());
     return this.view(cancelled);
   }
 
   public retryMissing(ownerId: string, bookId: string, runId: string): V7PlanningRouteRunView {
     const run = this.requireRun(ownerId, bookId, runId);
+    const frozenRoster = this.requireExecutableRoster(run);
     if (checkpointSourceIssues(run.checkpoint_json).length > 0) {
       throw conflict('请先统一主编指出的正式资料，再重新设计全书路线。');
     }
-    const frozenRoster = storedRouteRoster(run);
-    const expected = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || 3);
+    const expected = frozenRoster.directChiefs.length;
     const completed = this.repository.routeCandidates(ownerId, bookId, runId).length;
     const comparisonReady = expected === 1 || this.repository.routeReview(ownerId, bookId, runId) !== undefined;
     if (completed >= expected && comparisonReady) throw conflict('本轮路线已经可以选择，不需要补做。');
@@ -295,6 +315,8 @@ export class V7PlanningRouteService {
     const authorNote = optionalText(input.authorNote, '作者调整意见', 2_000) ?? '';
     if (mode !== 'select' && authorNote.length === 0) throw validation('请先写下需要调整或融合的方向。');
     const idempotencyKey = actionKey(input.idempotencyKey);
+    const run = this.requireRun(ownerId, bookId, runId);
+    const frozenRoster = this.requireExecutableRoster(run);
     const prior = this.repository.routeDecisionByKey(ownerId, bookId, idempotencyKey);
     if (prior !== undefined) {
       if (prior.run_id !== runId || prior.decision_kind !== mode || prior.author_note !== authorNote
@@ -303,7 +325,6 @@ export class V7PlanningRouteService {
       }
       return { routeVersionId: prior.route_version_id, recipeVersionId: prior.recipe_version_id, status: 'confirmed', nextStep: 'book_tree' };
     }
-    const run = this.requireRun(ownerId, bookId, runId);
     if (run.status !== 'awaiting_author') throw conflict('故事路线还没有准备好。');
     const routeRows = this.repository.routeCandidates(ownerId, bookId, runId);
     const selected = routeIds.map((routeId) => {
@@ -328,7 +349,15 @@ export class V7PlanningRouteService {
       });
       createdBy = route.member_key;
     } else {
-      const fused = await this.fuse(run, selected, proposals, mode, authorNote, idempotencyKey);
+      const fused = await this.fuse(
+        run,
+        selected,
+        proposals,
+        mode,
+        authorNote,
+        idempotencyKey,
+        frozenRoster.routeFusionEditors
+      );
       finalRoute = fused.route;
       finalRecipe = materializePlanningRecipe({
         brief: fused.brief,
@@ -373,12 +402,38 @@ export class V7PlanningRouteService {
     };
   }
 
+  private requireExecutableRoster(run: V7PlanningRecipeRunRow): ExecutableRouteRoster {
+    const roster = storedRouteRoster(run);
+    const executable = executableRouteRoster(roster, this.members(), this.contextMembers());
+    if (executable === null) throw conflict(READ_ONLY_ROUTE_MESSAGE);
+    return executable;
+  }
+
+  private markReadOnlyFailure(run: V7PlanningRecipeRunRow): void {
+    const current = this.requireRun(run.owner_id, run.book_id, run.run_id);
+    if (!['queued', 'working'].includes(current.status)) return;
+    this.repository.markRecipeRun({
+      ownerId: run.owner_id,
+      bookId: run.book_id,
+      runId: run.run_id,
+      status: 'failed',
+      phase: 'failed',
+      checkpoint: this.checkpoint(run),
+      errorMessage: READ_ONLY_ROUTE_MESSAGE,
+      now: this.clock.now().toISOString()
+    });
+  }
+
   private start(run: V7PlanningRecipeRunRow): void {
     // A partially failed run has already exhausted the frozen fallback roster.
     // Re-reading the page must not make a finished failure look active or
     // repeatedly replay the same failed seats. The author can start a new run
     // with a fresh idempotency key after changing the goal or member roster.
     if (!['queued', 'working'].includes(run.status) || this.activeRuns.has(run.run_id)) return;
+    if (executableRouteRoster(storedRouteRoster(run), this.members(), this.contextMembers()) === null) {
+      this.markReadOnlyFailure(run);
+      return;
+    }
     this.activeRuns.add(run.run_id);
     void this.execute(run).catch((error) => {
       const current = this.repository.recipeRun(run.owner_id, run.book_id, run.run_id);
@@ -389,33 +444,31 @@ export class V7PlanningRouteService {
       });
     }).finally(() => {
       this.activeRuns.delete(run.run_id);
-      this.routeMemberReservations.delete(run.run_id);
     });
   }
 
   private async execute(run: V7PlanningRecipeRunRow): Promise<void> {
     if (['awaiting_author', 'completed', 'cancelled'].includes(this.requireRun(run.owner_id, run.book_id, run.run_id).status)) return;
-    const snapshot = this.sources.require(run.owner_id, run.book_id, run.snapshot_id);
-    const roster = storedRouteRoster(run);
-    if (roster.workflowStyle === 'three-chief-direct-v1' && roster.directChiefs.length >= 1) {
-      await this.executeDirectChiefRoutes(run, snapshot, roster.directChiefs.slice(0, 3));
+    const roster = executableRouteRoster(storedRouteRoster(run), this.members(), this.contextMembers());
+    if (roster === null) {
+      this.markReadOnlyFailure(run);
       return;
     }
-    // Compatibility: tasks created before the lightweight workflow keep their
-    // frozen method-search -> proposal -> writer checkpoints and may resume.
-    await this.executeLegacyRouteWorkflow(run, snapshot);
+    const snapshot = this.sources.require(run.owner_id, run.book_id, run.snapshot_id);
+    await this.executeDirectChiefRoutes(run, snapshot, roster);
   }
 
   private async executeDirectChiefRoutes(
     run: V7PlanningRecipeRunRow,
     snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
-    frozenChiefs: readonly StoredPlanningMember[]
+    roster: ExecutableRouteRoster
   ): Promise<void> {
+    const frozenChiefs = roster.directChiefs;
     this.ensureActive(run);
     this.mark(run, 'method_search');
     let sharedContextSearch: V7PlanningMethodSearchRow;
     try {
-      sharedContextSearch = await this.ensureDirectContextPlan(run, snapshot);
+      sharedContextSearch = await this.ensureDirectContextPlan(run, snapshot, roster.contextEditors);
     } catch (error) {
       if (error instanceof PlanningSourceIssuesError) {
         this.pauseForSourceIssues(run, [{ status: 'rejected', reason: error }]);
@@ -429,11 +482,15 @@ export class V7PlanningRouteService {
     // 先让第一位主编检查并出案；若她发现正式资料相互冲突，立即停下，
     // 不再让另外两位重复消耗。资料无冲突后，余下两案才并行生成。
     const first = await Promise.allSettled([
-      this.runDirectChiefRoute(run, snapshot, sharedContextSearch, seatKeys[0]!, frozenChiefs[0]!, 0)
+      this.runDirectChiefRoute(
+        run, snapshot, sharedContextSearch, seatKeys[0]!, frozenChiefs[0]!, roster.directFallbacks, 0
+      )
     ]);
     if (this.pauseForSourceIssues(run, first)) return;
     const rest = await Promise.allSettled(seatKeys.slice(1).map((seatKey, offset) => (
-      this.runDirectChiefRoute(run, snapshot, sharedContextSearch, seatKey, frozenChiefs[offset + 1]!, offset + 1)
+      this.runDirectChiefRoute(
+        run, snapshot, sharedContextSearch, seatKey, frozenChiefs[offset + 1]!, roster.directFallbacks, offset + 1
+      )
     )));
     if (this.pauseForSourceIssues(run, rest)) return;
     const results = [...first, ...rest];
@@ -445,7 +502,7 @@ export class V7PlanningRouteService {
       this.mark(run, 'chief_route_review');
       if (this.repository.routeReview(run.owner_id, run.book_id, run.run_id) === undefined) {
         try {
-          await this.review(run, snapshot, routes);
+          await this.review(run, snapshot, routes, roster.routeReviewers);
         } catch (error) {
           comparisonError = `抱歉，路线都已完成，但这次比较点评没有完成。您仍可直接查看并选择。${publicFailure(error)}`;
         }
@@ -463,7 +520,8 @@ export class V7PlanningRouteService {
     snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
     sharedContextSearch: V7PlanningMethodSearchRow,
     seatKey: MethodSeat,
-    frozenChief: StoredPlanningMember,
+    frozenChief: V7PlanningMemberDefinition,
+    frozenFallbacks: readonly V7PlanningMemberDefinition[],
     index: number
   ): Promise<void> {
     const existingProposal = this.repository.recipeProposals(run.owner_id, run.book_id, run.run_id)
@@ -471,14 +529,9 @@ export class V7PlanningRouteService {
     if (existingProposal !== undefined && this.repository.routeCandidates(run.owner_id, run.book_id, run.run_id)
       .some((route) => route.recipe_proposal_id === existingProposal.proposal_id)) return;
     const seat = fullCasePlanningSeat(seatKey);
-    const selected = this.members().find((member) => member.memberKey === frozenChief.memberKey);
-    if (selected === undefined || selected.roleKey !== 'chief_editor') throw new Error(`${frozenChief.displayName}已不在冻结的主编名册中`);
     const attempted = new Set<string>();
     const failures: string[] = [];
-    for (const member of buildPlanningFallbackChain('chief_editor', {
-      selectedMemberKey: selected.memberKey,
-      members: this.members()
-    })) {
+    for (const member of frozenFallbackChain(frozenFallbacks, frozenChief.memberKey)) {
       if (attempted.has(member.memberKey)) continue;
       attempted.add(member.memberKey);
       try {
@@ -576,12 +629,13 @@ export class V7PlanningRouteService {
 
   private async ensureDirectContextPlan(
     run: V7PlanningRecipeRunRow,
-    snapshot: ReturnType<V7PlanningSourceCompiler['require']>
+    snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
+    frozenContextEditors: readonly V7CreationMemberDefinition[]
   ): Promise<V7PlanningMethodSearchRow> {
     const existing = this.repository.methodSearches(run.owner_id, run.book_id, run.run_id)[0];
     if (existing !== undefined) return existing;
     const failures: string[] = [];
-    for (const member of creationFallbackChain('context_editor', undefined, this.contextMembers())) {
+    for (const member of frozenContextEditors) {
       const logicalTaskId = `planning-route:${run.run_id}:context:${member.memberKey}`;
       const attempt = this.modelAttempt(run, logicalTaskId);
       try {
@@ -628,183 +682,19 @@ export class V7PlanningRouteService {
     throw new Error(`对不起，这次资料策划没有完成。${failures.join('；')}`);
   }
 
-  private async executeLegacyRouteWorkflow(
+  private async review(
     run: V7PlanningRecipeRunRow,
-    snapshot: ReturnType<V7PlanningSourceCompiler['require']>
+    snapshot: ReturnType<V7PlanningSourceCompiler['require']>,
+    routes: V7PlanningRouteCandidateRow[],
+    frozenReviewers: readonly V7PlanningMemberDefinition[]
   ): Promise<void> {
-    this.ensureActive(run);
-    this.mark(run, 'method_search');
-    const chiefResults = await Promise.allSettled([this.runMethodSeat(run, snapshot, 'chief_editor')]);
-    if (this.pauseForSourceIssues(run, chiefResults)) return;
-    const deputyResults = await Promise.allSettled((['structure_deputy', 'commercial_deputy'] as const)
-      .map((seat) => this.runMethodSeat(run, snapshot, seat)));
-    if (this.pauseForSourceIssues(run, deputyResults)) return;
-    const methodResults = [...chiefResults, ...deputyResults];
-    const proposals = this.repository.recipeProposals(run.owner_id, run.book_id, run.run_id);
-    this.ensureActive(run);
-    if (proposals.length < 3) return this.partial(run, 'method_search', methodResults, '还有方法方案没有完成');
-    this.mark(run, 'route_design');
-    const existingRoutes = this.repository.routeCandidates(run.owner_id, run.book_id, run.run_id);
-    const routeResults = await Promise.allSettled(proposals.map((proposal, index) => existingRoutes.some((route) => route.recipe_proposal_id === proposal.proposal_id)
-      ? Promise.resolve()
-      : this.runWriter(run, snapshot, proposal, index)));
-    const routes = this.repository.routeCandidates(run.owner_id, run.book_id, run.run_id);
-    this.ensureActive(run);
-    if (routes.length < 3) return this.partial(run, 'route_design', routeResults, '还有故事路线没有完成');
-    this.mark(run, 'chief_route_review');
-    if (this.repository.routeReview(run.owner_id, run.book_id, run.run_id) === undefined) await this.review(run, snapshot, routes);
-    this.ensureActive(run);
-    this.repository.markRecipeRun({
-      ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id, status: 'awaiting_author',
-      phase: 'route_selection', checkpoint: this.checkpoint(run), errorMessage: null, now: this.clock.now().toISOString()
-    });
-  }
-
-  private async runMethodSeat(run: V7PlanningRecipeRunRow, snapshot: ReturnType<V7PlanningSourceCompiler['require']>, seatKey: MethodSeat): Promise<void> {
-    if (this.repository.recipeProposals(run.owner_id, run.book_id, run.run_id).some((proposal) => proposal.seat_key === seatKey)) return;
-    const seat = fullCasePlanningSeat(seatKey);
-    const failures: string[] = [];
-    for (const member of buildPlanningFallbackChain(seatKey, { members: this.members() })) {
-      try {
-        this.ensureActive(run);
-        let search = this.repository.methodSearchBySeat(run.owner_id, run.book_id, run.run_id, seatKey);
-        let focusedSnapshot: V7PlanningCompiledSnapshot;
-        if (search === undefined) {
-          const searchLogicalTaskId = `planning-route:${run.run_id}:search:${seatKey}:${member.memberKey}`;
-          const searchAttempt = this.modelAttempt(run, searchLogicalTaskId);
-          const result = await this.models.generate({
-            ...searchAttempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-            runKind: 'recipe', nodeKey: `method_search:${seatKey}`, member,
-            taskKind: 'planning_recipe', workstationKey: 'full_book_route',
-            operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
-            sourceTraces: planningSnapshotSourceTraces(snapshot),
-            prompt: planningMethodSearchPrompt({
-              seatName: `${seat.publicName}·${seat.routeLabel}`,
-              seatResponsibility: '独立形成一套兼顾作者原意、人物、因果、长篇容量、商业追读、阶段回报与作品辨识度的全书方向。',
-              independentFocus: [
-                '作者原意和人物主动选择是否被保留',
-                '全书能否长期递进并持续兑现',
-                '方法是否服务本书而不是替换人名套模板'
-              ],
-              sourceSnapshot: snapshot
-            }), maxOutputTokens: 2_000, temperature: 0.35
-          });
-          this.ensureActive(run);
-          const sourceIssues = extractPlanningCriticalInputs(result.output);
-          if (sourceIssues.length > 0) throw new PlanningSourceIssuesError(sourceIssues);
-          const request = parsePlanningMethodSearchRequest(result.output);
-          focusedSnapshot = focusedPlanningSnapshot(snapshot, request);
-          const retrieval = retrievePlanningMethodCandidates(request);
-          search = this.repository.saveMethodSearch({
-            searchId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-            seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
-            searchRequest: request, candidateMethods: retrieval.candidates, searchHash: sha256(stableJson(retrieval)),
-            retrievalVersion: retrieval.retrievalVersion, requestId: result.requestId, now: this.clock.now().toISOString()
-          });
-        } else {
-          focusedSnapshot = focusedPlanningSnapshot(snapshot, storedMethodSearchRequest(search));
-        }
-        const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
-        const logicalTaskId = `planning-route:${run.run_id}:method:${seatKey}:${member.memberKey}`;
-        const attempt = this.modelAttempt(run, logicalTaskId);
-        const result = await this.models.generate({
-          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-          runKind: 'recipe', nodeKey: `method_proposal:${seatKey}`, member,
-          taskKind: 'planning_recipe', workstationKey: 'full_book_route',
-          operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
-          sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
-          prompt: progressivePlanningBriefPrompt({ seatKey, sourceSnapshot: focusedSnapshot, candidates }),
-          maxOutputTokens: 4_500, temperature: 0.62
-        });
-        this.ensureActive(run);
-        const proposal = parseProgressivePlanningBrief(result.output, seatKey, candidates.map((candidate) => candidate.methodKey));
-        validateProgressivePlanningBriefCandidates(proposal, candidates);
-        this.repository.saveRecipeProposal({
-          proposalId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-          seatKey, memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), sourceSnapshotId: run.snapshot_id,
-          proposal, proposalHash: sha256(stableJson(proposal)), sourceProposalIds: [], requestId: result.requestId, now: this.clock.now().toISOString()
-        });
-        return;
-      } catch (error) {
-        if (error instanceof PlanningSourceIssuesError) throw error;
-        failures.push(`${member.displayName}：${message(error)}`);
-        if (error instanceof V7PlanningModelError && error.outcomeUnknown) break;
-      }
-    }
-    throw new Error(`对不起，${seat.publicName}这次没有完成。${failures.join('；')}`);
-  }
-
-  private async runWriter(run: V7PlanningRecipeRunRow, snapshot: ReturnType<V7PlanningSourceCompiler['require']>, proposalRow: V7PlanningRecipeProposalRow, index: number): Promise<void> {
-    const seat = proposalRow.seat_key as MethodSeat;
-    const search = this.repository.methodSearchBySeat(run.owner_id, run.book_id, run.run_id, seat);
-    const preferred = availableWriters(this.members())[index];
-    if (search === undefined || preferred === undefined) throw new Error('故事路线缺少方法检索或独立编剧');
-    const proposal = parseStoredProgressivePlanningBrief(JSON.parse(proposalRow.proposal_json), seat);
-    const focusedSnapshot = focusedPlanningSnapshot(snapshot, storedMethodSearchRequest(search));
-    const candidates = JSON.parse(search.candidate_methods_json) as V7PlanningMethodCandidate[];
-    validateProgressivePlanningBriefCandidates(proposal, candidates);
-    const selectedMethods = methodsUsedByBrief(proposal, candidates);
-    const methodMemberNames = new Set(this.repository.recipeProposals(run.owner_id, run.book_id, run.run_id)
-      .map((row) => memberName(row.member_snapshot_json)));
-    const failures: string[] = [];
-    for (const member of buildPlanningFallbackChain('planning_writer', { selectedMemberKey: preferred.memberKey, members: this.members() })) {
-      if (methodMemberNames.has(member.displayName) || !this.reserveRouteMember(run, member.displayName)) continue;
-      const logicalTaskId = `planning-route:${run.run_id}:story:${proposalRow.proposal_id}:${member.memberKey}`;
-      const attempt = this.modelAttempt(run, logicalTaskId);
-      try {
-        this.ensureActive(run);
-        const result = await this.models.generate({
-          ...attempt, ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-          runKind: 'recipe', nodeKey: `story_route:${seat}`, member,
-          taskKind: 'planning_recipe', workstationKey: 'full_book_route',
-          operationMode: 'fresh', basedOnTaskId: null, authorInstructionVersion: null,
-          sourceTraces: planningSnapshotSourceTraces(focusedSnapshot),
-          prompt: planningStoryRoutePrompt({ sourceSnapshot: focusedSnapshot, planningBrief: proposal, selectedMethods, routeLabel: `第${index + 1}套故事路线` }),
-          maxOutputTokens: 7_000, temperature: 0.72
-        });
-        this.ensureActive(run);
-        const route = parsePlanningStoryRoute(result.output);
-        validatePlanningRouteScale(route, requirePlanningScaleProfile(snapshot));
-        this.repository.saveRouteCandidate({
-          routeId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, runId: run.run_id,
-          recipeProposalId: proposalRow.proposal_id, methodSearchId: search.search_id,
-          memberKey: member.memberKey, memberSnapshot: memberSnapshot(member), route,
-          routeHash: sha256(stableJson(route)), requestId: result.requestId, now: this.clock.now().toISOString()
-        });
-        return;
-      } catch (error) {
-        this.releaseRouteMember(run.run_id, member.displayName);
-        failures.push(`${member.displayName}：${message(error)}`);
-        if (error instanceof V7PlanningModelError && error.outcomeUnknown) break;
-      }
-    }
-    throw new Error(`对不起，第${index + 1}套故事路线没有完成。${failures.join('；')}`);
-  }
-
-  private reserveRouteMember(run: V7PlanningRecipeRunRow, displayName: string): boolean {
-    let reserved = this.routeMemberReservations.get(run.run_id);
-    if (reserved === undefined) {
-      reserved = new Set(this.repository.routeCandidates(run.owner_id, run.book_id, run.run_id)
-        .map((row) => memberName(row.member_snapshot_json)));
-      this.routeMemberReservations.set(run.run_id, reserved);
-    }
-    if (reserved.has(displayName)) return false;
-    reserved.add(displayName);
-    return true;
-  }
-
-  private releaseRouteMember(runId: string, displayName: string): void {
-    this.routeMemberReservations.get(runId)?.delete(displayName);
-  }
-
-  private async review(run: V7PlanningRecipeRunRow, snapshot: ReturnType<V7PlanningSourceCompiler['require']>, routes: V7PlanningRouteCandidateRow[]): Promise<void> {
     const reviewSnapshot = planningRunSnapshot(snapshot, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id));
     const routeInput = routes.map((row) => ({
       routeId: row.route_id, memberName: memberName(row.member_snapshot_json),
       route: JSON.parse(row.route_json) as V7PlanningStoryRoute
     }));
     const failures: string[] = [];
-    for (const member of buildPlanningFallbackChain('chief_editor', { members: this.members() })) {
+    for (const member of frozenReviewers) {
       const logicalTaskId = `planning-route:${run.run_id}:review:${member.memberKey}`;
       const attempt = this.modelAttempt(run, logicalTaskId);
       try {
@@ -840,7 +730,8 @@ export class V7PlanningRouteService {
     proposals: V7PlanningRecipeProposalRow[],
     mode: Exclude<RouteDecisionKind, 'select'>,
     authorNote: string,
-    idempotencyKey: string
+    idempotencyKey: string,
+    frozenFusionEditors: readonly V7PlanningMemberDefinition[]
   ): Promise<{ route: V7PlanningStoryRoute; brief: V7ProgressivePlanningBrief; memberKey: string }> {
     const snapshot = this.sources.require(run.owner_id, run.book_id, run.snapshot_id);
     const focusedSnapshot = planningRunSnapshot(snapshot, this.repository.methodSearches(run.owner_id, run.book_id, run.run_id));
@@ -855,7 +746,7 @@ export class V7PlanningRouteService {
       .flatMap((row) => JSON.parse(row.candidate_methods_json) as V7PlanningMethodCandidate[]));
     const candidates = uniqueCandidates(selected.flatMap((item) => methodsUsedByBrief(item.brief, allCandidates)));
     const failures: string[] = [];
-    for (const member of buildPlanningFallbackChain('chief_editor', { members: this.members() })) {
+    for (const member of frozenFusionEditors) {
       const requestId = `planning-route:${run.run_id}:fusion:${idempotencyKey}:${member.memberKey}`;
       try {
         const result = await this.models.generate({
@@ -979,14 +870,17 @@ export class V7PlanningRouteService {
     const review = reviewRow === undefined ? null : JSON.parse(reviewRow.review_json) as V7PlanningRouteReview;
     const sourceIssues = checkpointSourceIssues(run.checkpoint_json);
     const frozenRoster = storedRouteRoster(run);
-    const expectedRoutes = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || 3);
+    const readOnlyWorkflow = executableRouteRoster(frozenRoster, this.members(), this.contextMembers()) === null;
+    const expectedRoutes = Math.max(1, frozenRoster.directChiefs.length || frozenRoster.routeWriters.length || routes.length || 3);
     const total = expectedRoutes * 2 + (expectedRoutes >= 2 ? 1 : 0);
     const completed = Math.min(total, proposals.length + routes.length + (review === null ? 0 : 1));
     return {
-      runId: run.run_id, status: publicStatus(run.status), phase: publicPhase(run),
-      message: publicMessage(run, completed, sourceIssues, expectedRoutes),
+      runId: run.run_id,
+      status: readOnlyWorkflow ? 'failed' : publicStatus(run.status),
+      phase: readOnlyWorkflow ? 'failed' : publicPhase(run),
+      message: readOnlyWorkflow ? READ_ONLY_ROUTE_MESSAGE : publicMessage(run, completed, sourceIssues, expectedRoutes),
       progress: { completed, total, percent: Math.round(completed / total * 100) },
-      actors: planningActors(run, this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id)),
+      actors: planningActors(run, this.repository.modelCallsForRun(run.owner_id, run.book_id, run.run_id), readOnlyWorkflow),
       routes: routes.map((row) => {
         const route = JSON.parse(row.route_json) as V7PlanningStoryRoute;
         return {
@@ -1007,10 +901,15 @@ export class V7PlanningRouteService {
       },
       sourceIssues,
       expectedRoutes,
-      canDecide: run.status === 'awaiting_author' && sourceIssues.length === 0 && routes.length > 0
+      canDecide: !readOnlyWorkflow && run.status === 'awaiting_author' && sourceIssues.length === 0 && routes.length > 0
         && (routes.length < expectedRoutes || expectedRoutes === 1 || review !== null || run.error_message !== null),
-      errorMessage: run.error_message,
-      timing: planningTaskTiming(run.created_at, run.updated_at, ['queued', 'working'].includes(run.status), this.clock.now())
+      errorMessage: readOnlyWorkflow ? READ_ONLY_ROUTE_MESSAGE : run.error_message,
+      timing: planningTaskTiming(
+        run.created_at,
+        run.updated_at,
+        !readOnlyWorkflow && ['queued', 'working'].includes(run.status),
+        this.clock.now()
+      )
     };
   }
 
@@ -1062,7 +961,8 @@ function planningProposalRationale(value: string): string {
 
 function planningActors(
   run: V7PlanningRecipeRunRow,
-  modelCalls: readonly Record<string, unknown>[] = []
+  modelCalls: readonly Record<string, unknown>[] = [],
+  readOnlyWorkflow = false
 ): V7PlanningRouteRunView['actors'] {
   const roster = storedRouteRoster(run);
   const directChiefs = roster.directChiefs.map(normalizeStoredPlanningMember);
@@ -1070,7 +970,7 @@ function planningActors(
   const methodMembers = roster.methodSeats.flatMap((seat) => seat.fallback.slice(0, 1))
     .map(normalizeStoredPlanningMember);
   const routeWriters = roster.routeWriters.map(normalizeStoredPlanningMember);
-  const phase = publicPhase(run);
+  const phase = readOnlyWorkflow ? 'failed' : publicPhase(run);
   const latestCallStateByMember = new Map<string, string>();
   for (const call of modelCalls) {
     if (typeof call.memberKey === 'string' && typeof call.state === 'string') {
@@ -1156,16 +1056,19 @@ function normalizeStoredPlanningMember<T extends { memberKey: string; displayNam
 }
 
 function storedRouteRoster(run: V7PlanningRecipeRunRow): StoredRouteRoster {
-  const value = JSON.parse(run.roster_json) as {
-    workflowStyle?: unknown;
-    directChiefs?: unknown;
-    methodSeats?: unknown;
-    routeWriters?: unknown;
-  };
+  let value: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(run.roster_json) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return readOnlyRouteRoster();
+    value = parsed as Record<string, unknown>;
+  } catch {
+    return readOnlyRouteRoster();
+  }
   const member = (input: unknown): StoredPlanningMember | null => {
     if (typeof input !== 'object' || input === null || Array.isArray(input)) return null;
     const row = input as Record<string, unknown>;
     if (typeof row.memberKey !== 'string' || typeof row.displayName !== 'string' || typeof row.roleKey !== 'string') return null;
+    if (row.memberKey.trim().length === 0 || row.displayName.trim().length === 0 || !storedPlanningRole(row.roleKey)) return null;
     return {
       memberKey: row.memberKey,
       displayName: row.displayName,
@@ -1176,9 +1079,18 @@ function storedRouteRoster(run: V7PlanningRecipeRunRow): StoredRouteRoster {
       ...(typeof row.fallbackPriority === 'number' ? { fallbackPriority: row.fallbackPriority } : {})
     };
   };
-  const directChiefs = Array.isArray(value.directChiefs)
-    ? value.directChiefs.map(member).filter((item): item is StoredPlanningMember => item !== null)
+  const directChiefInputs = Array.isArray(value.directChiefs) ? value.directChiefs : [];
+  const directChiefs = directChiefInputs.length > 0
+    ? directChiefInputs.map(member).filter((item): item is StoredPlanningMember => item !== null)
     : [];
+  const directFallbackInputs = Array.isArray(value.directFallbacks) ? value.directFallbacks : [];
+  const directFallbacks = directFallbackInputs.map(member).filter((item): item is StoredPlanningMember => item !== null);
+  const routeReviewerInputs = Array.isArray(value.routeReviewers) ? value.routeReviewers : [];
+  const routeReviewers = routeReviewerInputs.map(member).filter((item): item is StoredPlanningMember => item !== null);
+  const routeFusionInputs = Array.isArray(value.routeFusionEditors) ? value.routeFusionEditors : [];
+  const routeFusionEditors = routeFusionInputs.map(member).filter((item): item is StoredPlanningMember => item !== null);
+  const contextEditorInputs = Array.isArray(value.contextEditors) ? value.contextEditors : [];
+  const contextEditors = contextEditorInputs.map(member).filter((item): item is StoredPlanningMember => item !== null);
   const methodSeats = Array.isArray(value.methodSeats) ? value.methodSeats.flatMap((entry) => {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
     const row = entry as Record<string, unknown>;
@@ -1191,12 +1103,88 @@ function storedRouteRoster(run: V7PlanningRecipeRunRow): StoredRouteRoster {
   const routeWriters = Array.isArray(value.routeWriters)
     ? value.routeWriters.map(member).filter((item): item is StoredPlanningMember => item !== null)
     : [];
+  const currentStructure = value.workflowStyle === 'three-chief-direct-v1'
+    && directChiefInputs.length >= 1
+    && directChiefInputs.length <= 3
+    && directChiefs.length === directChiefInputs.length
+    && directChiefs.every((item) => item.roleKey === 'chief_editor'
+      && typeof item.provider === 'string'
+      && typeof item.modelId === 'string'
+      && typeof item.plan === 'string')
+    && new Set(directChiefs.map((item) => item.memberKey)).size === directChiefs.length
+    && frozenRosterInputIsComplete(directFallbackInputs, directFallbacks, 'chief_editor')
+    && frozenRosterInputIsComplete(routeReviewerInputs, routeReviewers, 'chief_editor')
+    && frozenRosterInputIsComplete(routeFusionInputs, routeFusionEditors, 'chief_editor')
+    && frozenRosterInputIsComplete(contextEditorInputs, contextEditors, 'context_editor')
+    && directChiefs.every((chief) => directFallbacks.some((fallback) => fallback.memberKey === chief.memberKey));
   return {
-    workflowStyle: value.workflowStyle === 'three-chief-direct-v1' ? 'three-chief-direct-v1' : 'legacy-handoff',
+    workflowStyle: currentStructure ? 'three-chief-direct-v1' : 'read-only',
     directChiefs,
+    directFallbacks,
+    routeReviewers,
+    routeFusionEditors,
+    contextEditors,
     methodSeats,
     routeWriters
   };
+}
+
+function readOnlyRouteRoster(): StoredRouteRoster {
+  return {
+    workflowStyle: 'read-only',
+    directChiefs: [],
+    directFallbacks: [],
+    routeReviewers: [],
+    routeFusionEditors: [],
+    contextEditors: [],
+    methodSeats: [],
+    routeWriters: []
+  };
+}
+
+function frozenRosterInputIsComplete(
+  inputs: readonly unknown[],
+  members: readonly StoredPlanningMember[],
+  roleKey: string
+): boolean {
+  return inputs.length > 0
+    && members.length === inputs.length
+    && members.every((member) => member.roleKey === roleKey
+      && typeof member.provider === 'string'
+      && typeof member.modelId === 'string'
+      && (member.plan === 'coding' || member.plan === 'agent'))
+    && new Set(members.map((member) => member.memberKey)).size === members.length;
+}
+
+function storedPlanningRole(value: string): boolean {
+  return value === 'context_editor'
+    || value === 'chief_editor'
+    || value === 'structure_deputy'
+    || value === 'commercial_deputy'
+    || value === 'planning_writer'
+    || value === 'continuity_editor'
+    || value === 'planning_maintainer';
+}
+
+function executableRouteRoster(
+  roster: StoredRouteRoster,
+  currentPlanning: readonly V7PlanningMemberDefinition[],
+  currentContext: readonly V7CreationMemberDefinition[]
+): ExecutableRouteRoster | null {
+  if (roster.workflowStyle !== 'three-chief-direct-v1') return null;
+  try {
+    const directChiefs = resolveFrozenPlanningMembers(roster.directChiefs, currentPlanning, ['chief_editor']);
+    const directFallbacks = resolveFrozenPlanningMembers(roster.directFallbacks, currentPlanning, ['chief_editor']);
+    const routeReviewers = resolveFrozenPlanningMembers(roster.routeReviewers, currentPlanning, ['chief_editor']);
+    const routeFusionEditors = resolveFrozenPlanningMembers(roster.routeFusionEditors, currentPlanning, ['chief_editor']);
+    const contextEditors = resolveFrozenCreationMembers(roster.contextEditors, currentContext, ['context_editor']);
+    if (!directChiefs.every((chief) => directFallbacks.some((fallback) => fallback.memberKey === chief.memberKey))) {
+      return null;
+    }
+    return { directChiefs, directFallbacks, routeReviewers, routeFusionEditors, contextEditors };
+  } catch {
+    return null;
+  }
 }
 
 function planningRuntimeRole(roleKey: string): V7PlanningMemberDefinition['roleKey'] {
@@ -1226,14 +1214,19 @@ function actorBindingForPhase<T extends { roleKey: V7PlanningMemberDefinition['r
   return preferred ?? bindings[0]!;
 }
 
-function availableWriters(members: readonly V7PlanningMemberDefinition[]): V7PlanningMemberDefinition[] {
-  return members.filter((member) => member.roleKey === 'planning_writer' && member.enabledByDefault)
-    .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
-}
-
 function availableChiefEditors(members: readonly V7PlanningMemberDefinition[]): V7PlanningMemberDefinition[] {
   return members.filter((member) => member.roleKey === 'chief_editor' && member.enabledByDefault)
     .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
+}
+
+function frozenFallbackChain(
+  members: readonly V7PlanningMemberDefinition[],
+  selectedMemberKey: string
+): V7PlanningMemberDefinition[] {
+  const selected = members.find((member) => member.memberKey === selectedMemberKey);
+  if (selected === undefined) throw new Error('冻结主编不在本任务的direct fallback名册中');
+  return [selected, ...members.filter((member) => member.memberKey !== selectedMemberKey)]
+    .map((member) => ({ ...member, model: { ...member.model } }));
 }
 
 function routeCandidateCount(value: unknown): 1 | 2 | 3 {

@@ -311,8 +311,7 @@ function resolveFixedRoleKey(memberKey: string, runtimeRoleKey: string): V7Fixed
   if (runtimeRoleKey === 'chief_editor' || runtimeRoleKey === 'structure_deputy'
     || runtimeRoleKey === 'commercial_deputy' || runtimeRoleKey === 'chief_comparison') return 'chief_editor';
   if (runtimeRoleKey === 'deputy_editor' || runtimeRoleKey === 'context_editor') return 'deputy_editor';
-  if (runtimeRoleKey === 'screenwriter' || runtimeRoleKey === 'planning_writer'
-    || runtimeRoleKey === 'outline_writer') return 'planning_writer';
+  if (runtimeRoleKey === 'screenwriter' || runtimeRoleKey === 'planning_writer') return 'planning_writer';
   if (runtimeRoleKey === 'lead_writer') return 'lead_writer';
   if (runtimeRoleKey === 'independent_reviewer') return 'independent_reviewer';
   if (runtimeRoleKey === 'continuity_editor' || runtimeRoleKey === 'planning_maintainer' || runtimeRoleKey === 'settlement_editor'

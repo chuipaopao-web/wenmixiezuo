@@ -46,6 +46,10 @@ import {
 } from './v7-planning-source-compiler.js';
 import { V7PlanningTreeService } from './v7-planning-tree-service.js';
 import type { V7PlanningTaskView } from './v7-planning-route-service.js';
+import {
+  resolveFrozenCreationMembers,
+  resolveFrozenPlanningMembers
+} from './v7-planning-task-roster-snapshot.js';
 
 export interface V7PlanningTreeGenerationView {
   runId: string;
@@ -70,6 +74,7 @@ type PlanningMemberSource = readonly V7PlanningMemberDefinition[] | (() => reado
 type ContextMemberSource = readonly V7CreationMemberDefinition[] | (() => readonly V7CreationMemberDefinition[]);
 type StoredGenerationRoster = {
   fallback: V7PlanningMemberDefinition[];
+  contextFallback: V7CreationMemberDefinition[];
   contextMember?: V7CreationMemberDefinition;
   contextPlan?: {
     request: V7PlanningMethodSearchRequest;
@@ -77,6 +82,8 @@ type StoredGenerationRoster = {
   };
   stage?: 'context_planning' | 'tree_design';
 };
+
+const READ_ONLY_TREE_MESSAGE = '对不起，这项规划树任务不能继续执行。已有结果保留，请按当前流程重新设计。';
 
 export class V7PlanningTreeGenerationService {
   private readonly runtime: V7PlanningRuntimeRepository;
@@ -122,6 +129,7 @@ export class V7PlanningTreeGenerationService {
       ...(selectedMemberKey === null ? {} : { selectedMemberKey }),
       members: this.members()
     });
+    const contextFallback = creationFallbackChain('context_editor', undefined, this.contextMembers());
     const requestHash = sha256(stableJson({
       treeKind, scopeId, recipeVersionId: recipe.recipe_version_id,
       routeVersionId: route?.route_version_id ?? null,
@@ -138,7 +146,10 @@ export class V7PlanningTreeGenerationService {
       recipeVersionId: recipe.recipe_version_id, sourceSnapshotId: snapshot.snapshotId,
       parentTreeVersionId: parentTreeVersion(snapshot), routeVersionId: route?.route_version_id ?? null,
       assignedMemberKey: fallback[0]!.memberKey,
-      memberSnapshot: { fallback: fallback.map(memberSnapshot) }, idempotencyKey, requestHash,
+      memberSnapshot: {
+        fallback: fallback.map(memberSnapshot),
+        contextFallback: contextFallback.map(memberSnapshot)
+      }, idempotencyKey, requestHash,
       now: this.clock.now().toISOString()
     });
     this.start(run);
@@ -192,18 +203,20 @@ export class V7PlanningTreeGenerationService {
         progress: view.status === 'ready' ? 100 : view.status === 'working' ? 70 : view.status === 'waiting' ? 10 : 0,
         memberKey: view.member.memberKey, memberName: view.member.name,
         treeKind: run.tree_kind, scopeId: run.scope_id, modelCalls: run.model_calls,
-        canStop: ['queued', 'working'].includes(run.status), updatedAt: run.updated_at
+        canStop: view.status === 'waiting' || view.status === 'working', updatedAt: run.updated_at
       };
     });
   }
 
   public cancel(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
     const run = this.requireRun(ownerId, bookId, runId);
+    this.requireExecutableRoster(run);
     return this.view(this.runtime.cancelGeneration(ownerId, bookId, run.generation_run_id, this.clock.now().toISOString()));
   }
 
   public retry(ownerId: string, bookId: string, runId: string): V7PlanningTreeGenerationView {
     const run = this.requireRun(ownerId, bookId, runId);
+    this.requireExecutableRoster(run);
     if (run.status === 'unknown' || this.runtime.modelCallsForRun(ownerId, bookId, runId)
       .some((call) => call.state === 'unknown' || call.state === 'working')) {
       throw conflict('这次结果还没有确认，为避免重复扣量不能重新发送。请先刷新查看结果。');
@@ -223,8 +236,60 @@ export class V7PlanningTreeGenerationService {
     };
   }
 
+  private executableRoster(run: V7PlanningGenerationRunRow): StoredGenerationRoster | null {
+    const stored = readStoredGenerationRoster(run);
+    if (stored === null) return null;
+    try {
+      const fallback = resolveFrozenPlanningMembers(stored.fallback, this.members(), ['planning_writer']);
+      const contextFallback = resolveFrozenCreationMembers(
+        stored.contextFallback,
+        this.contextMembers(),
+        ['context_editor']
+      );
+      let contextMember: V7CreationMemberDefinition | undefined;
+      if (stored.contextMember !== undefined) {
+        const resolved = resolveFrozenCreationMembers([stored.contextMember], this.contextMembers(), ['context_editor'])[0]!;
+        const frozen = contextFallback.find((member) => member.memberKey === resolved.memberKey);
+        if (frozen === undefined || !sameMemberBinding(frozen, resolved)) return null;
+        contextMember = resolved;
+      }
+      return {
+        fallback,
+        contextFallback,
+        ...(contextMember === undefined ? {} : { contextMember }),
+        ...(stored.contextPlan === undefined ? {} : { contextPlan: stored.contextPlan }),
+        ...(stored.stage === undefined ? {} : { stage: stored.stage })
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private requireExecutableRoster(run: V7PlanningGenerationRunRow): StoredGenerationRoster {
+    const roster = this.executableRoster(run);
+    if (roster === null) throw conflict(READ_ONLY_TREE_MESSAGE);
+    return roster;
+  }
+
+  private markReadOnlyFailure(run: V7PlanningGenerationRunRow): void {
+    const current = this.requireRun(run.owner_id, run.book_id, run.generation_run_id);
+    if (!['queued', 'working'].includes(current.status)) return;
+    this.runtime.markGeneration({
+      ownerId: run.owner_id,
+      bookId: run.book_id,
+      generationRunId: run.generation_run_id,
+      status: 'failed',
+      errorMessage: READ_ONLY_TREE_MESSAGE,
+      now: this.clock.now().toISOString()
+    });
+  }
+
   private start(run: V7PlanningGenerationRunRow): void {
     if (!['queued', 'working'].includes(run.status) || this.activeRuns.has(run.generation_run_id)) return;
+    if (this.executableRoster(run) === null) {
+      this.markReadOnlyFailure(run);
+      return;
+    }
     this.activeRuns.add(run.generation_run_id);
     void this.execute(run).catch((error) => {
       const current = this.runtime.generation(run.owner_id, run.book_id, run.generation_run_id);
@@ -239,6 +304,7 @@ export class V7PlanningTreeGenerationService {
 
   private async execute(run: V7PlanningGenerationRunRow): Promise<void> {
     this.ensureActive(run);
+    const frozenRoster = this.requireExecutableRoster(run);
     const recipeRow = this.runtime.recipeVersion(run.owner_id, run.book_id, run.recipe_version_id);
     const activeRecipe = this.runtime.activeRecipe(run.owner_id, run.book_id, 'confirmed');
     if (recipeRow === undefined || activeRecipe?.recipe_version_id !== recipeRow.recipe_version_id) {
@@ -260,7 +326,7 @@ export class V7PlanningTreeGenerationService {
     if (latestSnapshot.sourceFingerprint !== snapshot.sourceFingerprint) {
       throw conflict('开书资料、设定或上层规划已经更新，请重新设计这棵树。');
     }
-    const contextPlan = await this.ensureContextPlan(run, snapshot);
+    const contextPlan = await this.ensureContextPlan(run, snapshot, frozenRoster);
     const focusedSnapshot = focusedPlanningTreeSnapshot(snapshot, contextPlan.request);
     const recipe = JSON.parse(recipeRow.recipe_json) as LayeredPlanningRecipe;
     const recipeNodeId = selectRecipeNode(recipe, run.tree_kind, run.scope_id).nodeId;
@@ -282,7 +348,7 @@ export class V7PlanningTreeGenerationService {
       contextPlan: planningTaskContextPlan(contextPlan.request),
       layeredTask, generationTask, referencePack
     });
-    const roster = storedGenerationRoster(this.requireRun(run.owner_id, run.book_id, run.generation_run_id));
+    const roster = this.requireExecutableRoster(this.requireRun(run.owner_id, run.book_id, run.generation_run_id));
     let lastError: unknown;
     for (const [index, member] of roster.fallback.entries()) {
       this.ensureActive(run);
@@ -366,12 +432,13 @@ export class V7PlanningTreeGenerationService {
 
   private async ensureContextPlan(
     run: V7PlanningGenerationRunRow,
-    snapshot: V7PlanningCompiledSnapshot
+    snapshot: V7PlanningCompiledSnapshot,
+    frozenRoster: StoredGenerationRoster
   ): Promise<NonNullable<StoredGenerationRoster['contextPlan']>> {
-    let roster = storedGenerationRoster(this.requireRun(run.owner_id, run.book_id, run.generation_run_id));
+    let roster = frozenRoster;
     if (roster.contextPlan !== undefined) return roster.contextPlan;
     const failures: string[] = [];
-    for (const member of creationFallbackChain('context_editor', undefined, this.contextMembers())) {
+    for (const member of roster.contextFallback) {
       const logicalTaskId = `${run.generation_run_id}:context:${member.memberKey}`;
       const attempt = this.modelAttempt(run, logicalTaskId);
       roster = { ...roster, contextMember: member, stage: 'context_planning' };
@@ -469,14 +536,20 @@ export class V7PlanningTreeGenerationService {
   }
 
   private view(run: V7PlanningGenerationRunRow): V7PlanningTreeGenerationView {
-    const roster = storedGenerationRoster(run);
-    const member = roster.contextMember?.memberKey === run.assigned_member_key
-      ? roster.contextMember
-      : roster.fallback.find((candidate) => candidate.memberKey === run.assigned_member_key) ?? roster.fallback[0]!;
-    const status = publicStatus(run.status);
+    const stored = readStoredGenerationRoster(run);
+    const roster = this.executableRoster(run);
+    const displayRoster = roster ?? stored;
+    const member = displayRoster?.contextMember?.memberKey === run.assigned_member_key
+      ? displayRoster.contextMember
+      : displayRoster?.fallback.find((candidate) => candidate.memberKey === run.assigned_member_key)
+        ?? displayRoster?.fallback[0]
+        ?? { memberKey: run.assigned_member_key, displayName: '历史规划成员' };
+    const readOnly = roster === null;
+    const status = readOnly ? 'failed' : publicStatus(run.status);
     return {
       runId: run.generation_run_id, treeKind: run.tree_kind, scopeId: run.scope_id, status,
-      message: status === 'ready' ? '方案已经设计好，等您查看和确认。'
+      message: readOnly ? READ_ONLY_TREE_MESSAGE
+        : status === 'ready' ? '方案已经设计好，等您查看和确认。'
         : status === 'failed' ? (run.error_message ?? '对不起，这次没有完成，您可以重新下单。')
           : status === 'result_unknown' ? '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。'
             : status === 'working' && roster.stage === 'context_planning'
@@ -486,7 +559,7 @@ export class V7PlanningTreeGenerationService {
       member: { memberKey: member.memberKey, name: member.displayName },
       candidateTreeVersionId: run.candidate_tree_version_id,
       canOpenCandidate: run.status === 'succeeded' && run.candidate_tree_version_id !== null,
-      errorMessage: run.error_message,
+      errorMessage: readOnly ? READ_ONLY_TREE_MESSAGE : run.error_message,
       timing: planningGenerationTiming(run, this.clock.now())
     };
   }
@@ -508,10 +581,22 @@ function planningGenerationTiming(run: V7PlanningGenerationRunRow, now: Date): V
   };
 }
 
-function storedGenerationRoster(run: V7PlanningGenerationRunRow): StoredGenerationRoster {
-  const value = JSON.parse(run.member_snapshot_json) as StoredGenerationRoster;
-  if (!Array.isArray(value.fallback) || value.fallback.length === 0) throw new Error('规划树冻结成员名册不完整');
-  return value;
+function readStoredGenerationRoster(run: V7PlanningGenerationRunRow): StoredGenerationRoster | null {
+  try {
+    const parsed = JSON.parse(run.member_snapshot_json) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const value = parsed as Partial<StoredGenerationRoster>;
+    if (!Array.isArray(value.fallback) || !Array.isArray(value.contextFallback)) return null;
+    return {
+      fallback: value.fallback,
+      contextFallback: value.contextFallback,
+      ...(value.contextMember === undefined ? {} : { contextMember: value.contextMember }),
+      ...(value.contextPlan === undefined ? {} : { contextPlan: value.contextPlan }),
+      ...(value.stage === 'context_planning' || value.stage === 'tree_design' ? { stage: value.stage } : {})
+    } as StoredGenerationRoster;
+  } catch {
+    return null;
+  }
 }
 
 function planningTreeName(treeKind: PlanningTreeKind): string {
@@ -645,6 +730,17 @@ function publicSnapshot(snapshot: V7PlanningCompiledSnapshot): Record<string, un
 
 function memberSnapshot<T extends V7PlanningMemberDefinition | V7CreationMemberDefinition>(member: T): T {
   return { ...member, model: { ...member.model } };
+}
+
+function sameMemberBinding(
+  left: V7PlanningMemberDefinition | V7CreationMemberDefinition,
+  right: V7PlanningMemberDefinition | V7CreationMemberDefinition
+): boolean {
+  return left.memberKey === right.memberKey
+    && left.roleKey === right.roleKey
+    && left.model.provider === right.model.provider
+    && left.model.modelId === right.model.modelId
+    && left.model.plan === right.model.plan;
 }
 
 function publicStatus(status: V7PlanningGenerationRunRow['status']): V7PlanningTreeGenerationView['status'] {

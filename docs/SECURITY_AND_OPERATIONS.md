@@ -104,7 +104,7 @@ Worker当前只维护心跳，并可追赶`v7_formalization_outbox`。作者定�
 
 桌面启动器只启动本项目登记的API、Worker和Web进程，先执行迁移，再通过不创建账号会话的轻量 `/health` 探针确认数据库与Worker就绪，最后打开登录页。全库完整性检查属于迁移、备份和正式验收，不放入高频启动轮询。模型套餐地址必须通过严格路径校验；错误时停止启动并显示可处理原因。
 
-兼容环境中的 `ANTHROPIC_AUTH_TOKEN` 只有在同一进程或Windows用户环境同时提供 `ANTHROPIC_BASE_URL`，且该地址严格等于火山方舟HTTPS主机的 `/api/plan` 或 `/api/coding` 时才可按对应套餐使用。地址缺失、普通Anthropic地址、未知主机、端口、查询参数、片段或其他路径均视为无效；专用 `WENMI_ARK_*` 凭证与端点始终优先。兼容令牌不复制到项目文件或另一环境变量，只在启动进程内存中解析，并与其他模型凭证一起从Web和Worker环境移除。
+模型套餐只读取文秘写作专用的 `WENMI_ARK_CODING_PLAN_*`、`WENMI_ARK_AGENT_PLAN_*` 和可选 `WENMI_ARK_IMAGE_*` 变量。旧 Anthropic、AgentPlan 兼容别名不再进入运行环境，不得将其静默映射到当前套餐。所有模型凭证只传给 API 进程，从 Web 与 Worker 环境移除。
 
 停止入口只消费由本项目生成并校验的停止请求和进程登记，不枚举或终止其他应用。启动、停止、重复启动、异常退出和端口占用都要有明确回执。
 

@@ -89,7 +89,7 @@ assert.deepEqual(memberAvailability(defaultChiefChain[0]!, { codingPlan: true, a
 
 assert.equal(V7_AGENT_SKILLS.filter((item) => item.kind === 'core').length, 1);
 assert.equal(V7_AGENT_SKILLS.filter((item) => item.kind === 'role').length, 2);
-assert.equal(V7_AGENT_SKILLS.filter((item) => item.kind === 'node').length, 3);
+assert.equal(V7_AGENT_SKILLS.filter((item) => item.kind === 'node').length, 2);
 assert.doesNotMatch(JSON.stringify(V7_AGENT_SKILLS), /chief-kimi-k3|screenwriter-kimi-k3/u,
   'Skill不能按成员复制或绑定成员私有人设');
 

@@ -64,6 +64,21 @@ describe('V7统一团队编辑部', () => {
     expect(within(screen.getByRole('region', { name: '副编室' })).queryByText('貂蝉')).not.toBeInTheDocument();
     expect(screen.getAllByText('貂蝉')).toHaveLength(1);
   });
+
+  it('首次加载失败时如实道歉并可以原位重试', async () => {
+    mockedOpening.fetchEditorialDepartment
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(teamFixture());
+
+    render(<TeamPage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('对不起，编辑部成员暂时没有加载出来');
+    expect(screen.queryByText('正在召集编辑部成员…')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新加载成员' }));
+
+    expect(await screen.findByText('位成员')).toBeVisible();
+    expect(mockedOpening.fetchEditorialDepartment).toHaveBeenCalledTimes(2);
+  });
 });
 
 function teamFixture(): opening.EditorialDepartmentView {

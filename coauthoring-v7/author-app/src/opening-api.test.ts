@@ -4,6 +4,7 @@ import { AUTHOR_AUTHENTICATION_REQUIRED_EVENT } from './account-api';
 import {
   createSettingFinalReview,
   createSettingRecommendation,
+  fetchOpeningTask,
   fetchPlanningTasks,
   fetchSettingDepartment,
   retryPlanningTreeGeneration
@@ -76,6 +77,54 @@ it('所有作者接口遇到 401 都通知 V7 账号门禁接管', async () => {
   } finally {
     window.removeEventListener(AUTHOR_AUTHENTICATION_REQUIRED_EVENT, listener);
   }
+});
+
+it('网络断开时只告诉作者检查网络，不暴露本地服务', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
+
+  await expect(fetchPlanningTasks()).rejects.toMatchObject({
+    message: '暂时连接不上文秘写作，请检查网络后重试。',
+    retryable: true,
+    status: 0
+  });
+});
+
+it('服务返回非 JSON 错误时不向作者显示 HTTP 状态码', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>bad gateway</html>', {
+    status: 502,
+    headers: { 'content-type': 'text/html' }
+  })));
+
+  const request = fetchPlanningTasks();
+  await expect(request).rejects.toMatchObject({
+    message: '文秘写作暂时没有响应，请稍后重试。',
+    retryable: true,
+    status: 502
+  });
+  await expect(request).rejects.not.toThrow(/502|HTTP|bad gateway/iu);
+});
+
+it('历史开书任务只投影为已停止恢复状态，不把旧候选和流程字段交给页面', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: {
+    taskId: 'retired-opening-1', idea: '张三穿越三国。', publishingPlatform: 'fanqie',
+    status: 'working', phase: 'retired_phase', statusText: '任务正在进行', phaseText: '旧阶段',
+    isRunning: true, needsAuthorDecision: false, workflowStyle: 'retired_workflow',
+    selectedMembers: { chiefEditor: null, screenwriter: null },
+    candidates: [{
+      candidateId: 'retired-candidate-1', kind: 'retired_candidate', version: 1, content: {},
+      createdBy: { memberKey: 'retired-member', displayName: '历史成员' }, sourceCandidateIds: []
+    }],
+    errorMessage: null, resultBookId: null,
+    progress: { currentStep: 1, totalSteps: 3, percent: 20 },
+    createdAt: '2026-08-30T00:00:00.000Z', updatedAt: '2026-08-30T00:00:01.000Z'
+  } }), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+  const task = await fetchOpeningTask('retired-opening-1');
+
+  expect(task.retired).toBe(true);
+  expect(task.isRunning).toBe(false);
+  expect(task.candidates).toEqual([]);
+  expect(task).not.toHaveProperty('workflowStyle');
 });
 
 it('框架失败恢复调用原运行的续跑接口，不创建新的生成任务', async () => {

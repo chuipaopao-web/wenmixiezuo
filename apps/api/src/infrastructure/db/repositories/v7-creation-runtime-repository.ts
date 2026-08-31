@@ -388,31 +388,14 @@ export class V7CreationRuntimeRepository {
       WHERE owner_id=? AND book_id=? AND workflow_id=? AND role_key=?`).get(
       ownerId, bookId, workflowId, roleKey
     ) as unknown as V7CreationMemberPreferenceRow | undefined;
-    if (fixed !== undefined) return fixed;
-    const legacyRoleKey = roleKey === 'planning_writer' ? 'outline_writer' : roleKey;
-    const legacy = this.database.prepare(`SELECT * FROM v7_creation_member_preferences
-      WHERE owner_id=? AND book_id=? AND workflow_id=? AND role_key=?`).get(
-      ownerId, bookId, workflowId, legacyRoleKey
-    ) as unknown as V7CreationMemberPreferenceRow | undefined;
-    return legacy === undefined ? undefined : { ...legacy, role_key: roleKey };
+    return fixed;
   }
 
   public memberPreferences(ownerId: string, bookId: string, workflowId: string): V7CreationMemberPreferenceRow[] {
-    const fixed = this.database.prepare(`SELECT * FROM v7_creation_fixed_member_preferences
+    return this.database.prepare(`SELECT * FROM v7_creation_fixed_member_preferences
       WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(
       ownerId, bookId, workflowId
     ) as unknown as V7CreationMemberPreferenceRow[];
-    const legacy = this.database.prepare(`SELECT * FROM v7_creation_member_preferences
-      WHERE owner_id=? AND book_id=? AND workflow_id=? AND role_key IN (
-        'context_editor','chief_editor','outline_writer','lead_writer','independent_reviewer','settlement_editor'
-      )`).all(ownerId, bookId, workflowId) as unknown as V7CreationMemberPreferenceRow[];
-    const merged = new Map<string, V7CreationMemberPreferenceRow>();
-    for (const row of legacy) {
-      const roleKey = row.role_key === 'outline_writer' ? 'planning_writer' : row.role_key;
-      merged.set(roleKey, { ...row, role_key: roleKey });
-    }
-    for (const row of fixed) merged.set(row.role_key, row);
-    return [...merged.values()].toSorted((left, right) => left.role_key.localeCompare(right.role_key));
   }
 
   public saveOptionMemberPreference(input: {

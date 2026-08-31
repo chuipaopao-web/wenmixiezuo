@@ -15,7 +15,7 @@
 
 ## 新任务最小阅读
 
-1. 当前正在执行的唯一工单：`coauthoring-v7/docs/worklists/V7-RUNTIME-CLOSURE-CLEANUP-20260831-72.md`
+1. 当前正在执行的唯一工单：`coauthoring-v7/docs/worklists/V7-FULL-AUTHOR-RUNTIME-CLOSURE-20260831-73.md`
 2. 开发规则：`AGENTS.md`
 3. V7 代码交接：`coauthoring-v7/HANDOFF.md`
 4. 只有涉及数据、接口或部署时，按需读取 `docs/DATA_MODEL.md`、`docs/API.md`、`docs/DEPLOY.md`

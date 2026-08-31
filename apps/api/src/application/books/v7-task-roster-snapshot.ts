@@ -8,10 +8,10 @@ const plans = new Set(['coding', 'agent']);
 const settingRoles = new Set(['chief_editor', 'deputy_editor', 'screenwriter']);
 
 /**
- * A setting batch owns the roster captured when the batch was created.  Runtime
- * roster changes are intentionally ignored while that batch is being resumed.
- * The current roster is only a corruption fallback for pre-contract rows whose
- * snapshot cannot be read at all.
+ * A setting batch may execute only while its complete frozen roster still
+ * resolves to the current V7 members and concrete model bindings. Historical
+ * or damaged snapshots remain readable from their stored rows, but must never
+ * fall back to today's roster or silently rebind an old task to another model.
  */
 export function resolveSettingTaskRoster(
   snapshotJson: string,
@@ -19,22 +19,42 @@ export function resolveSettingTaskRoster(
 ): V7SettingMemberDefinition[] {
   const snapshot = parseJsonArray(snapshotJson);
   const parsed = snapshot?.map(parseSettingMember).filter(isDefined) ?? [];
-  const complete = snapshot !== null
+  const structurallyComplete = snapshot !== null
     && parsed.length === snapshot.length
     && uniqueMemberKeys(parsed)
-    && parsed.filter((member) => member.roleKey === 'chief_editor').length === 1
-    && parsed.filter((member) => member.roleKey === 'deputy_editor').length === 1
+    && parsed.some((member) => member.roleKey === 'chief_editor')
+    && parsed.some((member) => member.roleKey === 'deputy_editor')
     && parsed.some((member) => member.roleKey === 'screenwriter');
-  return cloneSettingRoster(complete ? parsed : currentRoster);
+  if (!structurallyComplete) throw new Error('设定任务冻结名册不完整');
+  if (!sameCurrentSettingRoster(parsed, currentRoster)) {
+    throw new Error('设定任务冻结名册已退役或模型绑定已经变化');
+  }
+  return cloneSettingRoster(parsed);
 }
 
-/** Read a recommendation task's frozen chief without consulting today's roster. */
-export function openingChiefTaskSnapshot(snapshotJson: string): V7OpeningMemberDefinition[] {
+/** Read a recommendation task's frozen chief for historical display only. */
+export function readOpeningChiefTaskSnapshot(snapshotJson: string): V7OpeningMemberDefinition[] {
   const snapshot = parseJsonArray(snapshotJson);
   if (snapshot === null) throw new Error('设定清单主编快照无效');
   const members = snapshot.map(parseOpeningChief).filter(isDefined);
-  if (members.length !== snapshot.length || members.length === 0 || !uniqueMemberKeys(members)) {
+  if (members.length !== snapshot.length || members.length !== 1 || !uniqueMemberKeys(members)) {
     throw new Error('设定清单主编快照成员无效');
+  }
+  return members;
+}
+
+/** Resolve the frozen chief only when the exact current V7 binding still exists. */
+export function resolveOpeningChiefTaskSnapshot(
+  snapshotJson: string,
+  currentRoster: readonly V7OpeningMemberDefinition[]
+): V7OpeningMemberDefinition[] {
+  const members = readOpeningChiefTaskSnapshot(snapshotJson);
+  const frozen = members[0]!;
+  const current = currentRoster.find((member) => member.memberKey === frozen.memberKey);
+  if (current === undefined
+    || current.roleKey !== frozen.roleKey
+    || modelSignature(current.model) !== modelSignature(frozen.model)) {
+    throw new Error('设定清单主编已经退役或模型绑定已经变化');
   }
   return members;
 }
@@ -93,6 +113,23 @@ function modelBinding(value: unknown): V7SettingMemberDefinition['model'] | unde
 
 function cloneSettingRoster(roster: readonly V7SettingMemberDefinition[]): V7SettingMemberDefinition[] {
   return roster.map((member) => ({ ...member, model: { ...member.model } }));
+}
+
+function sameCurrentSettingRoster(
+  frozen: readonly V7SettingMemberDefinition[],
+  current: readonly V7SettingMemberDefinition[]
+): boolean {
+  if (frozen.length !== current.length || !uniqueMemberKeys(current)) return false;
+  return frozen.every((member) => {
+    const match = current.find((candidate) => candidate.memberKey === member.memberKey);
+    return match !== undefined
+      && match.roleKey === member.roleKey
+      && modelSignature(match.model) === modelSignature(member.model);
+  });
+}
+
+function modelSignature(model: Readonly<{ provider: string; modelId: string; plan: string }>): string {
+  return `${model.provider}:${model.modelId}:${model.plan}`;
 }
 
 function parseJsonArray(value: string): unknown[] | null {

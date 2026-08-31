@@ -7,6 +7,7 @@ import { BookRepository } from '../../infrastructure/db/repositories/book-reposi
 import { V7OpeningAgentRepository } from '../../infrastructure/db/repositories/v7-opening-agent-repository.js';
 import { BookOnboardingService } from './book-onboarding-service.js';
 import { PositioningService } from './positioning-service.js';
+import { isCurrentV7OpeningTask } from './v7-opening-agent-service.js';
 import {
   openingPackageHash,
   toV7OpeningBlueprint,
@@ -97,6 +98,15 @@ export class V7OpeningBookService {
   ): Promise<{ sourceKey: string; idea: string }> {
     const row = this.openings.byTaskId(ownerId, taskId);
     if (row === undefined) throw new DomainError(errorCodes.validation, '开书任务不存在', {}, false, 404);
+    if (!isCurrentV7OpeningTask(row)) {
+      throw new DomainError(
+        errorCodes.validation,
+        '这项历史开书任务只能查看，不能用于创建当前版本书籍。请按当前流程重新提交开书想法。',
+        {},
+        false,
+        409
+      );
+    }
     if (row.status !== 'awaiting_author_confirmation') {
       throw new DomainError(errorCodes.validation, '当前资料还没有通过主编审查，暂时不能正式建书。', {}, false, 409);
     }

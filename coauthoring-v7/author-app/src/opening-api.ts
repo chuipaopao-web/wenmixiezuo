@@ -89,7 +89,7 @@ export interface OpeningDecisionResolution {
 
 export interface OpeningCandidate<T = unknown> {
   candidateId: string;
-  kind: 'work_order' | 'opening_package' | 'opening_review';
+  kind: 'opening_package' | 'opening_review';
   version: number;
   content: T;
   createdBy: { memberKey: string; displayName: string };
@@ -106,7 +106,7 @@ export interface OpeningTaskView {
   phaseText: string;
   isRunning: boolean;
   needsAuthorDecision: boolean;
-  workflowStyle?: 'direct_design_review' | 'legacy_handoff';
+  retired: boolean;
   selectedMembers: {
     chiefEditor: { memberKey: string; displayName: string } | null;
     screenwriter: { memberKey: string; displayName: string } | null;
@@ -147,11 +147,17 @@ export interface EditorialDepartmentView {
   }>;
 }
 
-interface OpeningTaskWireView extends Omit<OpeningTaskView, 'taskId' | 'errorMessage'> {
+interface OpeningTaskWireCandidate extends Omit<OpeningCandidate, 'kind'> {
+  kind: string;
+}
+
+interface OpeningTaskWireView extends Omit<OpeningTaskView, 'taskId' | 'errorMessage' | 'retired' | 'candidates'> {
   taskId?: string;
   recoveryKey?: string;
   errorMessage?: string | null;
   recoveryMessage?: string | null;
+  workflowStyle?: string;
+  candidates: OpeningTaskWireCandidate[];
 }
 
 export interface OpeningTaxonomy {
@@ -377,7 +383,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
     });
   } catch {
-    throw new AuthorApiError('暂时连接不上文秘写作服务，请检查本地服务后重试。', true);
+    throw new AuthorApiError('暂时连接不上文秘写作，请检查网络后重试。', true);
   }
   const body = await response.json().catch(() => null) as {
     data?: T;
@@ -386,7 +392,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok || body?.data === undefined) {
     if (response.status === 401) notifyAuthorAuthenticationRequired();
     throw new AuthorApiError(
-      body?.error?.message ?? `请求没有完成（${response.status}）`,
+      body?.error?.message ?? (response.status >= 500
+        ? '文秘写作暂时没有响应，请稍后重试。'
+        : '这次请求没有完成，请稍后重试。'),
       body?.error?.retryable ?? response.status >= 500,
       response.status
     );
@@ -485,13 +493,27 @@ function normalizeOpeningTaskView(value: OpeningTaskWireView): OpeningTaskView {
     recoveryKey: _recoveryKey,
     errorMessage: internalErrorMessage,
     recoveryMessage,
+    workflowStyle,
+    candidates: wireCandidates,
     ...publicView
   } = value;
+  const candidates = wireCandidates.filter(isCurrentOpeningCandidate);
+  const retired = (
+    (workflowStyle !== undefined && workflowStyle !== 'direct_design_review')
+    || candidates.length !== wireCandidates.length
+  );
   return {
     ...publicView,
     taskId,
+    isRunning: retired ? false : publicView.isRunning,
+    retired,
+    candidates,
     errorMessage: internalErrorMessage ?? recoveryMessage ?? null
   };
+}
+
+function isCurrentOpeningCandidate(candidate: OpeningTaskWireCandidate): candidate is OpeningCandidate {
+  return candidate.kind === 'opening_package' || candidate.kind === 'opening_review';
 }
 
 export function confirmOpeningBook(input: {

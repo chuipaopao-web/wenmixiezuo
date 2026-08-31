@@ -13,31 +13,18 @@ import type {
   OpeningReconciliationRequest,
   OpeningSavedCandidate,
   OpeningPackage,
-  OpeningReview,
-  OpeningWorkOrder
+  OpeningReview
 } from './opening-agent-contracts.js';
 import { OpeningAgentEngine } from './opening-agent-engine.js';
 import { OpeningAgentModelError, OpeningAgentStoppedError } from './opening-agent-contracts.js';
 import { buildOpeningAgentPrompt } from './opening-prompt-compiler.js';
 import { buildOpeningReferencePack, inferGenreFamilies, V7_OPENING_REFERENCE_LIMIT } from './opening-reference-tools.js';
 import {
-  assertOpeningPackageAuthorFidelity,
-  extractExplicitProtagonistName,
   parseOpeningPackage,
-  parseOpeningReview,
-  parseOpeningWorkOrder
+  parseOpeningReview
 } from './opening-output-validation.js';
 
 const IDEA = '张三穿越到三国乱世，从流民开始求生，想靠现代知识改变自己和百姓的命运。';
-const WORK_ORDER: OpeningWorkOrder = {
-  corePremise: '现代青年张三穿越三国乱世，从流民起步改变自己与百姓命运。',
-  mustKeep: ['张三是穿越者', '背景是三国乱世'],
-  preferences: ['从底层起步', '兼顾求生与成长'],
-  openDecisions: ['效力阵营', '核心伙伴'],
-  intendedExperience: '让读者看到小人物依靠判断与行动逐步获得立足之地。',
-  designResponsibilities: ['明确时代处境', '建立持续矛盾', '给出可修改终点'],
-  prohibitions: ['不提前拆分具体分卷', '不把结局写成已发生事实']
-};
 const PACKAGE: OpeningPackage = {
   title: '三国：从流民开始',
   positioning: {
@@ -88,19 +75,7 @@ const PASS_REVIEW: OpeningReview = {
   issues: [], requiredChanges: [], authorDecisions: []
 };
 
-assert.deepEqual(parseOpeningWorkOrder(JSON.stringify(WORK_ORDER)), WORK_ORDER);
 assert.deepEqual(parseOpeningPackage(`说明文字\n${JSON.stringify(PACKAGE)}`), PACKAGE);
-assert.doesNotThrow(() => assertOpeningPackageAuthorFidelity('张三穿越到北宋，遇到了岳飞，统一全国。', PACKAGE));
-assert.equal(extractExplicitProtagonistName('一名现代应急救援队员穿越到架空王朝北境。'), null);
-assert.equal(extractExplicitProtagonistName('一个现代历史研究生穿越到东汉末年。'), null);
-assert.equal(extractExplicitProtagonistName('张三穿越到北宋，遇到了岳飞。'), '张三');
-assert.throws(
-  () => assertOpeningPackageAuthorFidelity('张三穿越到北宋，遇到了岳飞，统一全国。', {
-    ...PACKAGE,
-    protagonists: [{ ...PACKAGE.protagonists[0]!, name: '岳飞' }]
-  }),
-  /作者明确指定主角为“张三”/u
-);
 assert.deepEqual(parseOpeningReview(JSON.stringify(PASS_REVIEW)), PASS_REVIEW);
 assert.deepEqual(parseOpeningReview(JSON.stringify({
   ...PASS_REVIEW,
@@ -154,10 +129,10 @@ const vagueReferences = buildOpeningReferencePack('一个男人意外认识了�
 assert.ok(vagueReferences.references.length > 0, '题材未定时仍应提供通用认知参考');
 assert.equal(vagueReferences.references.some((item) => item.source === 'plot_recipe'), false);
 const prompt = buildOpeningAgentPrompt({
-  taskId: 'prompt-test', nodeKey: 'opening_work_order', authorIdea: IDEA, ideaVersion: 1,
-  roleKey: 'chief_editor', taskKind: 'opening_review', workstationKey: 'opening',
-  operationMode: 'fresh', operation: 'v7_opening_work_order_v1', basedOnTaskId: null,
-  referencePack: references, workOrder: null, openingPackage: null, review: null, taxonomy: null,
+  taskId: 'prompt-test', nodeKey: 'opening_package_design', authorIdea: IDEA, ideaVersion: 1,
+  roleKey: 'screenwriter', taskKind: 'opening_design', workstationKey: 'opening',
+  operationMode: 'fresh', operation: 'v7_opening_package_design_v1', basedOnTaskId: null,
+  referencePack: references, openingPackage: null, review: null, taxonomy: null,
   publishingPlatform: 'fanqie', validationRepair: null, memberInstruction: ''
 });
 assert.match(prompt, /张三穿越到三国乱世/u);
@@ -166,7 +141,7 @@ assert.match(prompt, /save_opening_candidate/u);
 assert.doesNotMatch(prompt, /chief-kimi-k3|screenwriter-kimi-k3|思维链步骤/u);
 assert.ok(JSON.parse(prompt).internalReferences.items.length <= 6);
 assert.deepEqual(JSON.parse(prompt).taskContract, {
-  taskKind: 'opening_review',
+  taskKind: 'opening_design',
   workstationKey: 'opening',
   operationMode: 'fresh',
   objective: '完成当前开书节点的任务。',
@@ -177,7 +152,7 @@ const packagePrompt = JSON.parse(buildOpeningAgentPrompt({
   taskId: 'package-prompt-test', nodeKey: 'opening_package_design', authorIdea: IDEA, ideaVersion: 1,
   roleKey: 'screenwriter', taskKind: 'opening_design', workstationKey: 'opening',
   operationMode: 'fresh', operation: 'v7_opening_package_design_v1', basedOnTaskId: null,
-  referencePack: references, workOrder: WORK_ORDER, openingPackage: null, review: null, taxonomy: null,
+  referencePack: references, openingPackage: null, review: null, taxonomy: null,
   publishingPlatform: 'fanqie', validationRepair: '频道必须是male、female或general',
   memberInstruction: '书名优先突出主角身份差和强冲突。'
 })) as {
@@ -205,7 +180,7 @@ const authorRevisionPrompt = JSON.parse(buildOpeningAgentPrompt({
   roleKey: 'screenwriter', taskKind: 'opening_design', workstationKey: 'opening',
   operationMode: 'revise', operation: 'v7_opening_package_revision_v1',
   basedOnTaskId: 'opening-package-request-1',
-  referencePack: references, workOrder: WORK_ORDER, openingPackage: PACKAGE, review: PASS_REVIEW,
+  referencePack: references, openingPackage: PACKAGE, review: PASS_REVIEW,
   taxonomy: null, publishingPlatform: 'fanqie', validationRepair: null, memberInstruction: '',
   authorInstructionVersion: 2
 })) as { taskContract: {
@@ -228,7 +203,7 @@ const catalogPrompt = JSON.parse(buildOpeningAgentPrompt({
   taskId: 'catalog-prompt-test', nodeKey: 'opening_package_design', authorIdea: IDEA, ideaVersion: 1,
   roleKey: 'screenwriter', taskKind: 'opening_design', workstationKey: 'opening',
   operationMode: 'fresh', operation: 'v7_opening_package_design_v1', basedOnTaskId: null,
-  referencePack: references, workOrder: WORK_ORDER, openingPackage: null, review: null,
+  referencePack: references, openingPackage: null, review: null,
   taxonomy: {
     version: 'test-v1',
     categories: [{ key: 'history', name: '历史脑洞', channel: 'male', description: '历史架空', recommendedTags: ['成长'] }],
@@ -279,6 +254,33 @@ async function normalFlow(): Promise<void> {
   const resumed = await engine.run({ ownerId: 'owner-a', taskId: 'task-normal' });
   assert.equal(resumed.status, 'awaiting_author_confirmation');
   assert.equal(models.generateCalls.length, callsBeforeResume, '已完成检查点不得重复调用模型');
+}
+
+async function freeTextMeaningIsNotGuessedByRegex(): Promise<void> {
+  const tools = new MemoryTools('我想写一部历史穿越题材的长篇，主角是一名普通基层工程师。');
+  const models = new ScriptedModels([output({
+    ...PACKAGE,
+    protagonists: [{ ...PACKAGE.protagonists[0]!, name: '沈延' }]
+  }), output(PASS_REVIEW)]);
+  const state = await new OpeningAgentEngine(models, tools).run({ ownerId: 'owner-a', taskId: 'task-semantic-author-idea' });
+  assert.equal(state.status, 'awaiting_author_confirmation');
+  assert.equal(models.generateCalls.length, 2, '系统不得用正则把“一部历史”误判成主角姓名并触发无效重试');
+}
+
+async function retiredWorkOrderNeverCallsModel(): Promise<void> {
+  const tools = new MemoryTools(IDEA);
+  tools.seedTask({
+    taskId: 'task-retired-work-order', ownerId: 'owner-a', ideaVersion: 1, ideaHash: `hash-${IDEA.length}`,
+    status: 'working', phase: 'work_order', selectedChiefMemberKey: null, selectedScreenwriterMemberKey: null,
+    workOrderCandidateId: null, activePackageCandidateId: null, activeReviewCandidateId: null,
+    editorialRevisionCount: 0, automaticMemberSwitches: 0, structureRepairs: {}, attemptedMemberKeys: {},
+    attempts: [], requestSequence: 0, errorCode: null, errorMessage: null
+  });
+  const models = new ScriptedModels([]);
+  const state = await new OpeningAgentEngine(models, tools).run({ ownerId: 'owner-a', taskId: 'task-retired-work-order' });
+  assert.equal(state.status, 'failed');
+  assert.equal(state.errorCode, 'workflow_retired');
+  assert.equal(models.generateCalls.length, 0);
 }
 
 async function invalidOutputRepairsThenSwitches(): Promise<void> {
@@ -390,6 +392,7 @@ class MemoryTools implements OpeningAgentToolGateway {
     return structuredClone(state);
   }
   public async saveTask(state: OpeningAgentTaskState): Promise<void> { this.state = structuredClone(state); }
+  public seedTask(state: OpeningAgentTaskState): void { this.state = structuredClone(state); }
   public stripAttemptContractSnapshots(): void {
     if (this.state === null) throw new Error('测试任务尚未创建');
     for (const attempt of this.state.attempts) {
@@ -495,6 +498,8 @@ function modelResult(request: OpeningModelRequest, outputValue: string): Opening
 }
 
 await normalFlow();
+await freeTextMeaningIsNotGuessedByRegex();
+await retiredWorkOrderNeverCallsModel();
 await invalidOutputRepairsThenSwitches();
 await unknownOutcomeReconcilesAndResumes();
 await reviewRevisionStopsForAuthor();

@@ -130,7 +130,7 @@ function failedOpeningTask(): opening.OpeningTaskView {
   return {
     taskId: 'opening-failed-1', idea: '北宋小卒求生', publishingPlatform: 'qidian',
     status: 'failed', phase: 'package_design', statusText: '本轮没有完成，已有结果已经保留',
-    phaseText: '编剧正在设计开书资料包', isRunning: false, needsAuthorDecision: false,
+    phaseText: '编剧正在设计开书资料包', isRunning: false, needsAuthorDecision: false, retired: false,
     selectedMembers: {
       chiefEditor: { memberKey: 'chief-deepseek-v4-pro', displayName: '貂蝉' },
       screenwriter: { memberKey: 'writer-glm-5-3', displayName: '幼薇' }

@@ -14,7 +14,7 @@ export interface V7VisualMemberDefinition {
 /** 主编负责封面制作单，真实图片模型只负责执行并交付图片。 */
 export const V7_VISUAL_MEMBERS: readonly V7VisualMemberDefinition[] = [
   {
-    memberKey: 'visual-huizhen',
+    memberKey: 'visual-seedream',
     displayName: '绘真',
     roleKey: 'visual_renderer',
     publicRoleName: '封面画师',

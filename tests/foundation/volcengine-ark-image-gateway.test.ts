@@ -12,16 +12,13 @@ afterEach(() => {
 });
 
 describe('火山方舟封面图片网关', () => {
-  it('专用图片凭据缺失时使用Agent Plan套餐能力返岗', () => {
+  it('专用图片凭据缺失时只使用文秘专用Agent Plan套餐凭据', () => {
     expect(new VolcengineArkImageGateway({ WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-plan-key' }).configured).toBe(true);
     expect(new VolcengineArkImageGateway({
       ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan/',
       ANTHROPIC_AUTH_TOKEN: 'compatible-agent-plan-key'
-    }).configured).toBe(true);
-    expect(new VolcengineArkImageGateway({
-      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
-      ANTHROPIC_AUTH_TOKEN: 'unrelated-key'
     }).configured).toBe(false);
+    expect(new VolcengineArkImageGateway({ ARK_AGENTPLAN_KEY: 'retired-agent-plan-key' }).configured).toBe(false);
     expect(new VolcengineArkImageGateway({}).configured).toBe(false);
   });
 

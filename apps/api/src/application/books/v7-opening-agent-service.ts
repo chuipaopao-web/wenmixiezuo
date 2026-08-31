@@ -2,7 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   OpeningAgentEngine,
   OpeningAgentStoppedError,
+  V7_GLOBAL_MEMBERS,
   V7_OPENING_MEMBERS,
+  allowedModelProfilesForRole,
+  modelProfileKeyForBinding,
   validateEffectiveOpeningAgentRoster,
   type OpeningAgentTaskState,
   type OpeningPackage,
@@ -55,7 +58,7 @@ export interface V7OpeningAgentTaskView {
   phaseText: string;
   isRunning: boolean;
   needsAuthorDecision: boolean;
-  workflowStyle: 'direct_design_review' | 'legacy_handoff';
+  workflowStyle: 'direct_design_review' | 'retired_read_only';
   selectedMembers: {
     chiefEditor: { memberKey: string; displayName: string } | null;
     screenwriter: { memberKey: string; displayName: string } | null;
@@ -139,7 +142,9 @@ export class V7OpeningAgentService {
         409
       );
     }
-    if (result.created || canResume(result.row.status)) this.start(ownerId, result.row.task_id);
+    if ((result.created || canResume(result.row.status)) && isCurrentV7OpeningTask(result.row)) {
+      this.start(ownerId, result.row.task_id);
+    }
     return this.view(result.row, this.repository.listCandidates(ownerId, result.row.task_id));
   }
 
@@ -148,7 +153,7 @@ export class V7OpeningAgentService {
     if (row === undefined) {
       throw new DomainError(errorCodes.validation, '开书任务不存在', {}, false, 404);
     }
-    if (canResume(row.status)) this.start(ownerId, taskId);
+    if (canResume(row.status) && isCurrentV7OpeningTask(row)) this.start(ownerId, taskId);
     return this.view(row, this.repository.listCandidates(ownerId, taskId));
   }
 
@@ -163,6 +168,15 @@ export class V7OpeningAgentService {
   public abandon(ownerId: string, taskId: string): V7OpeningAgentTaskView {
     const row = this.repository.byTaskId(ownerId, taskId);
     if (row === undefined) throw new DomainError(errorCodes.validation, '开书任务不存在', {}, false, 404);
+    if (!isCurrentV7OpeningTask(row)) {
+      throw new DomainError(
+        errorCodes.validation,
+        '这项历史开书任务只能查看，已有结果已经保留。请按当前流程重新提交开书想法。',
+        {},
+        false,
+        409
+      );
+    }
     const resultBookId = this.repository.confirmedBookForDraft(ownerId, openingDraftId(ownerId, taskId));
     if (resultBookId !== null) {
       throw new DomainError(errorCodes.validation, '这项任务已经正式建书，不能再放弃。', {}, false, 409);
@@ -201,6 +215,15 @@ export class V7OpeningAgentService {
   ): Promise<V7OpeningAgentTaskView> {
     const row = this.repository.byTaskId(ownerId, taskId);
     if (row === undefined) throw new DomainError(errorCodes.validation, '开书任务不存在', {}, false, 404);
+    if (!isCurrentV7OpeningTask(row)) {
+      throw new DomainError(
+        errorCodes.validation,
+        '这项历史开书任务只能查看，已有结果已经保留。请按当前流程重新提交开书想法。',
+        {},
+        false,
+        409
+      );
+    }
     if (row.status !== 'awaiting_author_confirmation' && row.status !== 'awaiting_author_decision') {
       throw new DomainError(errorCodes.validation, '创作团队还没有完成本轮资料，暂时不能提交修改。', {}, false, 409);
     }
@@ -264,7 +287,7 @@ export class V7OpeningAgentService {
       ) {
         throw new DomainError(errorCodes.validation, '这次修改编号已经用于另一份内容，请重新提交。', {}, false, 409);
       }
-      if (canResume(row.status)) this.start(ownerId, taskId);
+      if (canResume(row.status) && isCurrentV7OpeningTask(row)) this.start(ownerId, taskId);
       return this.view(row, this.repository.listCandidates(ownerId, taskId));
     }
     const candidateId = `candidate-${modelRequestId}`;
@@ -371,10 +394,10 @@ export class V7OpeningAgentService {
       ?? latestAttemptedMember(state, 'screenwriter', roster)
       ?? roster.find((member) => member.roleKey === 'screenwriter' && member.defaultForRole)?.memberKey
       ?? null;
-    const status = row.error_code === 'archived_by_author' ? 'archived' : row.status;
-    const workflowStyle = candidates.some((candidate) => candidate.kind === 'work_order')
-      ? 'legacy_handoff'
-      : 'direct_design_review';
+    const retiredWorkflow = !isCurrentV7OpeningTask(row);
+    const storedStatus = row.error_code === 'archived_by_author' ? 'archived' : row.status;
+    const status = retiredWorkflow && canResume(storedStatus) ? 'failed' : storedStatus;
+    const workflowStyle = retiredWorkflow ? 'retired_read_only' : 'direct_design_review';
     const chief = publicMember(chiefKey, roster);
     const screenwriter = publicMember(screenwriterKey, roster);
     return {
@@ -384,8 +407,8 @@ export class V7OpeningAgentService {
       status,
       phase: row.phase,
       statusText: statusText(status),
-      phaseText: phaseText(row.phase, status),
-      isRunning: status === 'queued' || status === 'working',
+      phaseText: retiredWorkflow ? '请按当前流程重新开始' : phaseText(row.phase, status),
+      isRunning: !retiredWorkflow && (status === 'queued' || status === 'working'),
       needsAuthorDecision: status === 'awaiting_author_decision',
       workflowStyle,
       selectedMembers: {
@@ -408,9 +431,15 @@ export class V7OpeningAgentService {
         },
         sourceCandidateIds: candidate.sourceCandidateIds
       })),
-      errorMessage: status === 'archived' ? null : row.error_message,
+      errorMessage: status === 'archived'
+        ? null
+        : retiredWorkflow
+          ? '对不起，这项历史开书任务不能继续执行。已有结果已经保留，请按当前流程重新提交开书想法。'
+          : row.error_message,
       resultBookId: this.repository.confirmedBookForDraft(row.owner_id, openingDraftId(row.owner_id, row.task_id)),
-      progress: progressFor(row.phase, status, workflowStyle === 'direct_design_review'),
+      progress: retiredWorkflow
+        ? { currentStep: 0, totalSteps: 2, percent: 0 }
+        : progressFor(row.phase, status),
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -477,7 +506,7 @@ function normalizeDecisionResolutions(value: unknown, review: OpeningReview | nu
     ...(review?.decisions?.length ? [] : (
       (review?.authorDecisions?.length ?? 0) > 0 ? review!.authorDecisions : (review?.requiredChanges ?? [])
     ).map((item, index) => ({
-      decisionId: `legacy-${index + 1}`, field: null, question: item, recommendation: item, required: true
+      decisionId: `saved-${index + 1}`, field: null, question: item, recommendation: item, required: true
     })))
   ];
   const byId = new Map(definitions.map((item) => [item.decisionId, item]));
@@ -571,33 +600,19 @@ function openingDraftId(ownerId: string, taskId: string): string {
   return `v7-opening-draft-${stableHash}`;
 }
 
-function progressFor(phase: string, status: string, direct = false): V7OpeningAgentTaskView['progress'] {
+function progressFor(phase: string, status: string): V7OpeningAgentTaskView['progress'] {
   if (status === 'awaiting_author_confirmation' || status === 'awaiting_author_decision') {
-    return direct
-      ? { currentStep: 2, totalSteps: 2, percent: 100 }
-      : { currentStep: 3, totalSteps: 3, percent: 100 };
-  }
-  if (direct) {
-    const directPhaseStep: Record<string, { currentStep: number; percent: number }> = {
-      package_design: { currentStep: 1, percent: 35 },
-      package_revision: { currentStep: 1, percent: 45 },
-      package_review: { currentStep: 2, percent: 75 },
-      package_re_review: { currentStep: 2, percent: 85 },
-      complete: { currentStep: 2, percent: 100 }
-    };
-    const current = directPhaseStep[phase] ?? { currentStep: 1, percent: 10 };
-    return { ...current, totalSteps: 2 };
+    return { currentStep: 2, totalSteps: 2, percent: 100 };
   }
   const phaseStep: Record<string, { currentStep: number; percent: number }> = {
-    work_order: { currentStep: 1, percent: 20 },
-    package_design: { currentStep: 2, percent: 50 },
-    package_revision: { currentStep: 2, percent: 60 },
-    package_review: { currentStep: 3, percent: 80 },
-    package_re_review: { currentStep: 3, percent: 90 },
-    complete: { currentStep: 3, percent: 100 }
+    package_design: { currentStep: 1, percent: 35 },
+    package_revision: { currentStep: 1, percent: 45 },
+    package_review: { currentStep: 2, percent: 75 },
+    package_re_review: { currentStep: 2, percent: 85 },
+    complete: { currentStep: 2, percent: 100 }
   };
   const current = phaseStep[phase] ?? { currentStep: 1, percent: 10 };
-  return { ...current, totalSteps: 3 };
+  return { ...current, totalSteps: 2 };
 }
 
 function normalizeIdea(value: unknown): string {
@@ -665,13 +680,14 @@ function normalizeMember(
 }
 
 /**
- * Restores the roster frozen with an existing task. A null snapshot only
- * exists on tasks created before full roster snapshots were introduced, so it
- * intentionally uses the historical eight-member opening roster. New tasks
- * are created exclusively from the unified seven-role registry.
+ * 当前任务只能执行创建时冻结的完整成员快照。旧任务的轻量名册仍可
+ * 在只读页面显示，但绝不能借当前成员表或旧模型表重新绑定后恢复调用。
  */
 export function parseMemberRoster(value: string | null, strict = true): V7OpeningMemberDefinition[] {
-  if (value === null) return V7_OPENING_MEMBERS.map(cloneMember);
+  if (value === null) {
+    if (strict) throw new Error('历史开书任务缺少完整成员快照，不能按当前流程继续执行');
+    return [];
+  }
   const parsed = JSON.parse(value) as unknown;
   if (!Array.isArray(parsed)) throw new Error('V7任务成员快照格式无效');
   const hasFullSnapshot = parsed.every((candidate) => candidate !== null && typeof candidate === 'object'
@@ -684,6 +700,7 @@ export function parseMemberRoster(value: string | null, strict = true): V7Openin
     if (errors.length > 0) throw new Error(`V7任务成员快照无效：${errors.join('；')}`);
     return roster;
   }
+  if (strict) throw new Error('历史开书任务使用旧成员快照，不能按当前流程继续执行');
   const parsedMemberKeys = parsed.map((candidate) => (
     candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate)
       && typeof (candidate as { memberKey?: unknown }).memberKey === 'string'
@@ -693,14 +710,9 @@ export function parseMemberRoster(value: string | null, strict = true): V7Openin
   if (parsedMemberKeys.some((memberKey) => memberKey === null)) {
     throw new Error('V7任务成员快照缺少成员编号');
   }
-  const definitions = parsedMemberKeys.includes('screenwriter-doubao-seed-2-1-turbo')
-    ? LEGACY_OPENING_TASK_MEMBERS
-    : V7_OPENING_MEMBERS;
-  const definitionByKey = new Map(definitions.map((definition) => [definition.memberKey, definition]));
-  const roster = parsed.map((item, index) => {
+  const roster: V7OpeningMemberDefinition[] = parsed.map((item, index): V7OpeningMemberDefinition => {
     const memberKey = parsedMemberKeys[index]!;
-    const definition = definitionByKey.get(memberKey);
-    if (definition === undefined) throw new Error(`V7任务成员快照包含未知成员：${memberKey}`);
+    const definition = readOnlyHistoricalOpeningMember(memberKey);
     const governance = item as {
       enabled?: unknown;
       defaultForRole?: unknown;
@@ -714,60 +726,46 @@ export function parseMemberRoster(value: string | null, strict = true): V7Openin
       || !Number.isInteger(governance.fallbackPriority)
       || (governance.promptInstruction !== undefined && typeof governance.promptInstruction !== 'string')
     ) {
-      throw new Error(`V7任务成员快照字段无效：${definition.memberKey}`);
+      throw new Error(`V7任务成员快照字段无效：${memberKey}`);
     }
-    return {
+    return definition === null ? {
+      ...readOnlyHistoricalOpeningMember('unknown-opening-member')!,
+      memberKey,
+      displayName: '历史创作成员',
+      roleKey: memberKey.startsWith('chief-') ? 'chief_editor' as const : 'screenwriter' as const,
+      fallbackPriority: governance.fallbackPriority
+    } : {
       ...definition,
       model: { ...definition.model },
-      enabledByDefault: governance.enabled,
+      enabledByDefault: false,
       defaultForRole: governance.defaultForRole,
       fallbackPriority: governance.fallbackPriority,
-      promptInstruction: typeof governance.promptInstruction === 'string'
-        ? governance.promptInstruction.slice(0, 4_000)
-        : ''
+      promptInstruction: ''
     };
   });
-  const errors = validateEffectiveOpeningAgentRoster(roster);
-  if (errors.length > 0) throw new Error(`V7任务成员快照无效：${errors.join('；')}`);
   return roster;
 }
 
-/**
- * Governance-only snapshots created before the unified roster rollout did not
- * store display names or model bindings. Keep their exact six-member catalogue
- * here so an old task is restored with the people and models frozen when it was
- * created, rather than being silently rewritten to the current roster.
- */
-const LEGACY_OPENING_TASK_MEMBERS: readonly V7OpeningMemberDefinition[] = [
-  legacyOpeningMember('chief-deepseek-v4-pro', '貂蝉', 'chief_editor', true, 1, 'deepseek-v4-pro', 'coding'),
-  legacyOpeningMember('chief-glm-5-3', '顾承砚', 'chief_editor', false, 2, 'glm-5.3', 'coding'),
-  legacyOpeningMember('chief-kimi-k3', '沈知微', 'chief_editor', false, 3, 'kimi-k3', 'agent'),
-  legacyOpeningMember('screenwriter-deepseek-v4-pro', '红玉', 'screenwriter', true, 1, 'deepseek-v4-pro', 'coding'),
-  legacyOpeningMember('screenwriter-doubao-seed-2-1-turbo', '幼薇', 'screenwriter', false, 2, 'doubao-seed-2.1-turbo', 'coding'),
-  legacyOpeningMember('screenwriter-kimi-k3', '清照', 'screenwriter', false, 3, 'kimi-k3', 'agent')
-] as const;
-
-function legacyOpeningMember(
-  memberKey: string,
-  displayName: string,
-  roleKey: V7OpeningRoleKey,
-  defaultForRole: boolean,
-  fallbackPriority: number,
-  modelId: string,
-  plan: 'coding' | 'agent'
-): V7OpeningMemberDefinition {
+function readOnlyHistoricalOpeningMember(memberKey: string): V7OpeningMemberDefinition | null {
+  const identity = ({
+    'screenwriter-deepseek-v4-pro': ['红玉', 'screenwriter'],
+    'screenwriter-doubao-seed-2-1-turbo': ['幼薇', 'screenwriter'],
+    'screenwriter-kimi-k3': ['清照', 'screenwriter'],
+    'unknown-opening-member': ['历史创作成员', 'screenwriter']
+  } as const)[memberKey];
+  const current = V7_OPENING_MEMBERS.find((member) => member.memberKey === memberKey);
+  if (identity === undefined && current !== undefined) return { ...cloneMember(current), enabledByDefault: false };
+  if (identity === undefined) return null;
+  const safeModel = V7_OPENING_MEMBERS.find((member) => member.roleKey === identity[1])?.model
+    ?? V7_OPENING_MEMBERS[0]!.model;
   return {
     memberKey,
-    displayName,
-    roleKey,
-    enabledByDefault: true,
-    defaultForRole,
-    fallbackPriority,
-    model: {
-      provider: plan === 'agent' ? 'volcengine-ark-agent-plan' : 'volcengine-ark-coding-plan',
-      modelId,
-      plan
-    },
+    displayName: identity[0],
+    roleKey: identity[1],
+    enabledByDefault: false,
+    defaultForRole: false,
+    fallbackPriority: 99,
+    model: { ...safeModel },
     promptInstruction: ''
   };
 }
@@ -811,6 +809,30 @@ function canResume(status: string): boolean {
   return status === 'queued' || status === 'working' || status === 'interrupted';
 }
 
+export function isCurrentV7OpeningTask(row: V7OpeningTaskRow): boolean {
+  if (row.phase === 'work_order' || row.member_roster_json === null) return false;
+  try {
+    const roster = parseMemberRoster(row.member_roster_json);
+    if (!roster.every((member) => {
+      const registered = V7_GLOBAL_MEMBERS.find((candidate) => candidate.memberKey === member.memberKey);
+      if (registered === undefined) return false;
+      const expectedRole = registered.fixedRoleKey === 'chief_editor'
+        ? 'chief_editor'
+        : registered.fixedRoleKey === 'planning_writer'
+          ? 'screenwriter'
+          : null;
+      if (expectedRole === null || member.roleKey !== expectedRole) return false;
+      const profileKey = modelProfileKeyForBinding(member.model);
+      return allowedModelProfilesForRole(registered.fixedRoleKey).includes(profileKey);
+    })) return false;
+    if (row.state_json === null) return true;
+    const state = JSON.parse(row.state_json) as OpeningAgentTaskState;
+    return state.phase !== 'work_order' && state.workOrderCandidateId === null;
+  } catch {
+    return false;
+  }
+}
+
 function statusText(status: string): string {
   const labels: Record<string, string> = {
     queued: '创作团队正在准备',
@@ -829,7 +851,6 @@ function phaseText(phase: string, status: string): string {
   if (status === 'awaiting_author_confirmation') return '主编审查通过';
   if (status === 'awaiting_author_decision') return '等待作者决定';
   const labels: Record<string, string> = {
-    work_order: '主编正在理解您的想法',
     package_design: '编剧正在设计开书资料包',
     package_review: '主编正在审查资料包',
     package_revision: '编剧正在按审查意见调整',

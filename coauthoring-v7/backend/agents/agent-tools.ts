@@ -1,6 +1,6 @@
 import type { V7OpeningRoleKey } from './agent-roster.js';
 
-export type V7OpeningNodeKey = 'opening_work_order' | 'opening_package_design' | 'opening_package_review';
+export type V7OpeningNodeKey = 'opening_package_design' | 'opening_package_review';
 export type V7AgentToolKey =
   | 'read_opening_idea'
   | 'search_narrative_methods'
@@ -39,10 +39,6 @@ export const V7_AGENT_TOOLS: readonly V7AgentToolDefinition[] = [
 ] as const;
 
 export const V7_NODE_TOOL_PERMISSIONS: Readonly<Record<V7OpeningNodeKey, readonly V7AgentToolKey[]>> = {
-  opening_work_order: [
-    'read_opening_idea', 'search_narrative_methods', 'search_plot_patterns',
-    'save_opening_candidate', 'update_opening_task_progress'
-  ],
   opening_package_design: [
     'read_opening_idea', 'search_narrative_methods', 'search_plot_patterns',
     'read_opening_candidate', 'save_opening_candidate', 'update_opening_task_progress'
@@ -54,7 +50,6 @@ export const V7_NODE_TOOL_PERMISSIONS: Readonly<Record<V7OpeningNodeKey, readonl
 };
 
 export const V7_NODE_ROLE_PERMISSIONS: Readonly<Record<V7OpeningNodeKey, V7OpeningRoleKey>> = {
-  opening_work_order: 'chief_editor',
   opening_package_design: 'screenwriter',
   opening_package_review: 'chief_editor'
 };

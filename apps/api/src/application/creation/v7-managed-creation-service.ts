@@ -32,6 +32,7 @@ export class V7ManagedCreationService {
     reviewerMemberKey?: unknown;
   }): V7CreationWorkflowView {
     let run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.workflows.assertCurrentRuntimeBindings(ownerId, bookId, workflowId);
     const writerMemberKey = optionalMemberKey(input.writerMemberKey);
     const reviewerMemberKey = optionalMemberKey(input.reviewerMemberKey);
     if (run.status === 'unknown') {
@@ -120,6 +121,7 @@ export class V7ManagedCreationService {
     const now = this.now();
     if (!this.repository.claimManagedRun(row.workflow_id, leaseToken, new Date(Date.parse(now) + LEASE_MILLISECONDS).toISOString(), now)) return false;
     try {
+      this.workflows.assertCurrentRuntimeBindings(row.owner_id, row.book_id, row.workflow_id);
       const run = this.requireWorkflow(row.owner_id, row.book_id, row.workflow_id);
       if (run.status === 'cancelled') {
         this.repository.releaseManagedRun({ workflowId: row.workflow_id, leaseToken, status: 'cancelled', message: '任务已停止，已经完成的正文仍然保留。', now: this.now() });

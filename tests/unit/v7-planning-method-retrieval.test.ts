@@ -56,7 +56,7 @@ describe('V7规划方法最小检索', () => {
       searchQueries: ['长篇跨卷递进', '历史争霸因果升级', '阶段回报避免拖沓'],
       planningLayers: ['book_backbone', 'volume_distribution'],
       dimensions: ['macro_architecture', 'causal_dynamics', 'serial_rhythm'],
-      desiredCount: 12,
+      desiredCount: 6,
       scaleHint: '三百万字，约八卷。',
       avoidNotes: ['不使用系统或超凡力量'],
       relevantSettingSourceIds: ['setting-world-stage'],
@@ -64,13 +64,28 @@ describe('V7规划方法最小检索', () => {
     }));
     const result = retrievePlanningMethodCandidates(request);
 
-    expect(result.candidates).toHaveLength(12);
+    expect(result.candidates).toHaveLength(6);
     expect(result.candidates.length).toBeLessThan(V7_NARRATIVE_METHODS.length);
-    expect(new Set(result.candidates.map((candidate) => candidate.methodKey)).size).toBe(12);
+    expect(new Set(result.candidates.map((candidate) => candidate.methodKey)).size).toBe(6);
     expect(result.candidates.every((candidate) => candidate.planningLayers.some(
       (layer) => request.planningLayers.includes(layer)
     ))).toBe(true);
     expect(result.candidates.every((candidate) => candidate.recommendedScale.length > 0)).toBe(true);
+  });
+
+  it('检索数量超过当前最少充分上限时直接拒绝，不再全量塞入通用方法', () => {
+    expect(() => parsePlanningMethodSearchRequest(JSON.stringify({
+      schema: 'v7-planning-method-search-v1',
+      publicGoal: '只为当前卷寻找合适的推进方法。',
+      searchQueries: ['卷内矛盾升级', '阶段回报'],
+      planningLayers: ['volume_distribution'],
+      dimensions: ['causal_dynamics', 'serial_rhythm'],
+      desiredCount: 12,
+      scaleHint: '当前卷',
+      avoidNotes: [],
+      relevantSettingSourceIds: ['setting-world-stage'],
+      missingCriticalInputs: []
+    }))).toThrow(/候选方法数量无效/u);
   });
 
   it('重复层级或维度不能冒充满足最小数量', () => {

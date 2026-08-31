@@ -8,12 +8,10 @@ import type {
   OpeningPublishingPlatform,
   OpeningReferencePack,
   OpeningReview,
-  OpeningTaxonomyReference,
-  OpeningWorkOrder
+  OpeningTaxonomyReference
 } from './opening-agent-contracts.js';
 
 export type OpeningPromptOperation =
-  | 'v7_opening_work_order_v1'
   | 'v7_opening_package_design_v1'
   | 'v7_opening_package_review_v1'
   | 'v7_opening_package_revision_v1';
@@ -31,7 +29,6 @@ export interface OpeningPromptInput {
   publishingPlatform: OpeningPublishingPlatform;
   ideaVersion: number;
   referencePack: OpeningReferencePack;
-  workOrder: OpeningWorkOrder | null;
   openingPackage: OpeningPackage | null;
   review: OpeningReview | null;
   taxonomy: OpeningTaxonomyReference | null;
@@ -96,7 +93,6 @@ export function buildOpeningAgentPrompt(input: OpeningPromptInput): string {
       instruction: '频道只能输出male或female；作品分类必须逐字从categories中与频道匹配的name选择；融合题材必须从subjects选择1至5项；内容标签只能从tagSuggestions选择3至12项。不必全选，不得创造目录外词。'
     },
     currentCandidates: {
-      workOrder: input.workOrder,
       openingPackage: input.openingPackage,
       review: input.review
     },
@@ -140,11 +136,6 @@ function assertOpeningPromptContract(input: OpeningPromptInput): void {
     taskKind: OpeningAgentTaskKind;
     operations: readonly OpeningPromptOperation[];
   }> = {
-    opening_work_order: {
-      roleKey: 'chief_editor',
-      taskKind: 'opening_review',
-      operations: ['v7_opening_work_order_v1']
-    },
     opening_package_design: {
       roleKey: 'screenwriter',
       taskKind: 'opening_design',
@@ -176,20 +167,6 @@ function outputJsonSchema(
   taxonomy: OpeningTaxonomyReference | null,
   publishingPlatform: OpeningPublishingPlatform
 ): Record<string, unknown> {
-  if (nodeKey === 'opening_work_order') {
-    return objectSchema(
-      ['corePremise', 'mustKeep', 'preferences', 'openDecisions', 'intendedExperience', 'designResponsibilities', 'prohibitions'],
-      {
-        corePremise: textSchema(1, 500),
-        mustKeep: textListSchema(0, 12, 500),
-        preferences: textListSchema(0, 12, 500),
-        openDecisions: textListSchema(0, 12, 500),
-        intendedExperience: textSchema(1, 800),
-        designResponsibilities: textListSchema(1, 12, 500),
-        prohibitions: textListSchema(1, 12, 500)
-      }
-    );
-  }
   if (nodeKey === 'opening_package_review') {
     return objectSchema(
       ['verdict', 'summary', 'issues', 'requiredChanges', 'authorDecisions', 'decisions'],

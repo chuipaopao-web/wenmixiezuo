@@ -8,6 +8,7 @@ export function TeamPage(): React.JSX.Element {
   const [team, setTeam] = useState<EditorialDepartmentView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [reload, setReload] = useState(0);
 
   const projectedTeam = useMemo(() => {
     if (team === null) return null;
@@ -67,10 +68,13 @@ export function TeamPage(): React.JSX.Element {
     };
     void load();
     return () => { stopped = true; window.clearTimeout(timer); };
-  }, []);
+  }, [reload]);
 
   return <section className="team-page-surface" aria-label="团队编辑部">
-    {projectedTeam === null ? <div className="inline-task-recovery" role="status">正在召集编辑部成员…</div> : <>
+    {projectedTeam === null ? error === null
+      ? <div className="inline-task-recovery" role="status">正在召集编辑部成员…</div>
+      : <div className="team-load-failure" role="alert"><strong>对不起，编辑部成员暂时没有加载出来</strong><p>请检查网络后重试，已有任务不会受影响。</p><button type="button" onClick={() => { setError(null); setReload((value) => value + 1); }}>重新加载成员</button></div>
+      : <>
       <div className="team-overview-strip">
         <span><UsersThreeIcon /></span>
         <div><strong>{projectedTeam.summary.memberCount}</strong><small>位成员</small></div>

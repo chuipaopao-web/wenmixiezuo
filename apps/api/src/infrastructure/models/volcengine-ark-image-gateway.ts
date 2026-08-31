@@ -147,12 +147,7 @@ function nonEmpty(value: string | undefined): string | undefined {
 function imageCredential(env: NodeJS.ProcessEnv): { apiKey: string; endpoint: string; kind: 'dedicated' | 'agent-plan' } | undefined {
   const dedicated = nonEmpty(env.WENMI_ARK_IMAGE_API_KEY);
   if (dedicated !== undefined) return { apiKey: dedicated, endpoint: ARK_IMAGE_ENDPOINT, kind: 'dedicated' };
-  const directAgentPlan = nonEmpty(env.WENMI_ARK_AGENT_PLAN_API_KEY) ?? nonEmpty(env.ARK_AGENTPLAN_KEY);
+  const directAgentPlan = nonEmpty(env.WENMI_ARK_AGENT_PLAN_API_KEY);
   if (directAgentPlan !== undefined) return { apiKey: directAgentPlan, endpoint: ARK_AGENT_PLAN_IMAGE_ENDPOINT, kind: 'agent-plan' };
-  const compatibleBaseUrl = nonEmpty(env.ANTHROPIC_BASE_URL)?.replace(/\/+$/u, '');
-  const compatibleKey = compatibleBaseUrl === 'https://ark.cn-beijing.volces.com/api/plan'
-    ? nonEmpty(env.ANTHROPIC_AUTH_TOKEN) : undefined;
-  return compatibleKey === undefined
-    ? undefined
-    : { apiKey: compatibleKey, endpoint: ARK_AGENT_PLAN_IMAGE_ENDPOINT, kind: 'agent-plan' };
+  return undefined;
 }

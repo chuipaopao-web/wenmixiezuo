@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS,
   buildCharacterFallbackChain,
+  characterMaintenancePrompt,
   parseCharacterContextSelection,
   parseCharacterMaintenanceOutput,
   validateCharacterRoster
@@ -10,7 +12,7 @@ describe('V7人物资料领域合同', () => {
   it('人物资料岗位有三名不同模型的可交接成员', () => {
     expect(validateCharacterRoster()).toEqual([]);
     expect(buildCharacterFallbackChain().map((item) => item.memberKey)).toEqual([
-      'character-curator-deepseek-v4-pro', 'character-curator-glm-5-3', 'character-curator-kimi-k3'
+      'continuity-deepseek-v4-pro', 'continuity-glm-5-3', 'continuity-kimi-k3'
     ]);
   });
 
@@ -40,6 +42,46 @@ describe('V7人物资料领域合同', () => {
     });
     expect(parseCharacterMaintenanceOutput(output, ['character-1'], ['settlement-1']).issues).toHaveLength(1);
     expect(() => parseCharacterMaintenanceOutput(output, ['character-1'], ['other-evidence'])).toThrow(/未提供的证据/u);
+  });
+
+  it('人物维护在模型调用前逐项装入资料并严格服从字符硬上限', () => {
+    const characters = Array.from({ length: 80 }, (_, index) => ({
+      entityId: `character-${index + 1}`,
+      displayName: `人物${index + 1}`,
+      profile: {
+        publicSummary: `人物${index + 1}的稳定档案。${'稳定资料'.repeat(120)}`,
+        hardBoundaries: [`不能覆盖正文。${'边界'.repeat(80)}`]
+      },
+      state: { actual: `已发生状态${index + 1}。${'实际'.repeat(80)}` },
+      relationships: Array.from({ length: 8 }, (_, relationIndex) => ({
+        relationIndex, actual: `关系事实${relationIndex + 1}。${'关系'.repeat(60)}`
+      })),
+      knowledge: Array.from({ length: 8 }, (_, knowledgeIndex) => ({
+        knowledgeIndex, actual: `知情事实${knowledgeIndex + 1}。${'知情'.repeat(60)}`
+      }))
+    }));
+    const prompt = characterMaintenancePrompt({
+      settlement: {
+        settlementId: 'settlement-large',
+        entityStates: characters.map((character) => ({ entityId: character.entityId, state: '本章发生了变化' })),
+        relationshipChanges: Array.from({ length: 80 }, (_, index) => ({
+          entityId: `character-${index + 1}`, change: `关系变化${index + 1}。${'证据'.repeat(80)}`
+        })),
+        knowledgeChanges: []
+      },
+      characters,
+      evidenceRefs: ['settlement-large']
+    });
+    const payload = JSON.parse(prompt.split('人物维护输入：')[1]!) as {
+      characterIndex: unknown[];
+      includedSources: unknown[];
+      omittedSummary: { total: number };
+    };
+    expect(prompt.length).toBeLessThanOrEqual(V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS);
+    expect(payload.characterIndex).toHaveLength(80);
+    expect(payload.includedSources.length).toBeGreaterThan(0);
+    expect(payload.omittedSummary.total).toBeGreaterThan(0);
+    expect(prompt).toContain('不得猜测被省略内容');
   });
 
   it('无损兼容模型把人物维护字段换成常见同义键', () => {

@@ -33,21 +33,17 @@ import {
   type OpeningReview,
   type OpeningSavedCandidate,
   type OpeningStructuredGeneration,
-  type OpeningTaxonomyReference,
-  type OpeningWorkOrder
+  type OpeningTaxonomyReference
 } from './opening-agent-contracts.js';
 import {
-  assertOpeningPackageAuthorFidelity,
   parseOpeningPackage,
-  parseOpeningReview,
-  parseOpeningWorkOrder
+  parseOpeningReview
 } from './opening-output-validation.js';
 import {
   buildOpeningAgentPrompt
 } from './opening-prompt-compiler.js';
 import { buildOpeningReferencePack } from './opening-reference-tools.js';
 
-const MAX_EDITORIAL_REVISIONS = 1;
 const DEFAULT_OPENING_ROSTER = openingRosterFromGlobal();
 
 interface OpeningAttemptPromptContext {
@@ -85,40 +81,17 @@ export class OpeningAgentEngine {
       }
     }
     if (state.status !== 'working') return state;
+    if (state.phase === 'work_order' || state.workOrderCandidateId !== null) {
+      return this.stop(
+        state,
+        'failed',
+        'workflow_retired',
+        '这项历史开书任务不能按当前流程继续，已有结果已经保留。请重新提交开书想法。'
+      );
+    }
     const references = buildOpeningReferencePack(idea.text);
 
     while (state.status === 'working') {
-      if (state.phase === 'work_order') {
-        const generated: GeneratedWithState<OpeningWorkOrder> = await this.generateStructured(
-          state,
-          WORK_ORDER_SPEC,
-          input.memberRoster,
-          openingSourceTraces(state, idea, references, [], null),
-          null,
-          (validationRepair, member, contract) => (
-          buildOpeningAgentPrompt({
-            taskId: state!.taskId, nodeKey: 'opening_work_order', authorIdea: idea.text,
-            roleKey: WORK_ORDER_SPEC.roleKey,
-            taskKind: WORK_ORDER_SPEC.taskKind,
-            workstationKey: WORK_ORDER_SPEC.workstationKey,
-            operation: 'v7_opening_work_order_v1',
-            ...contract,
-            publishingPlatform: idea.publishingPlatform,
-            ideaVersion: idea.version, referencePack: references, workOrder: null,
-            openingPackage: null, review: null, taxonomy: null, validationRepair,
-            memberInstruction: member.promptInstruction
-          })
-        ));
-        state = await this.commit(state, generated, 'work_order', 'package_design', []);
-        continue;
-      }
-
-      // Historical tasks may already contain a chief work order.  New tasks
-      // start at package_design and let one strong member design directly from
-      // the author's frozen idea, so there is no AI-to-AI relay candidate.
-      const workOrderCandidate: OpeningSavedCandidate<OpeningWorkOrder> | null = state.workOrderCandidateId === null
-        ? null
-        : await this.requireCandidate<OpeningWorkOrder>(state, state.workOrderCandidateId, '任务书');
       if (state.phase === 'package_design' || state.phase === 'package_revision') {
         const previousPackage: OpeningSavedCandidate<OpeningPackage> | null = state.activePackageCandidateId === null
           ? null
@@ -136,7 +109,7 @@ export class OpeningAgentEngine {
             state,
             idea,
             references,
-            [...savedCandidate(workOrderCandidate), ...savedCandidate(previousPackage), ...savedCandidate(previousReview)],
+            [...savedCandidate(previousPackage), ...savedCandidate(previousReview)],
             this.taxonomy
           ),
           authorInstructionVersion,
@@ -151,7 +124,7 @@ export class OpeningAgentEngine {
               : 'v7_opening_package_design_v1',
             ...contract,
             publishingPlatform: idea.publishingPlatform,
-            ideaVersion: idea.version, referencePack: references, workOrder: workOrderCandidate?.content ?? null,
+            ideaVersion: idea.version, referencePack: references,
             openingPackage: previousPackage?.content ?? null, review: previousReview?.content ?? null,
             taxonomy: this.taxonomy, validationRepair, memberInstruction: member.promptInstruction,
             authorInstructionVersion
@@ -172,7 +145,7 @@ export class OpeningAgentEngine {
           generated,
           'opening_package',
           state.phase === 'package_revision' ? 'package_re_review' : 'package_review',
-          [...candidateId(workOrderCandidate), ...candidateId(previousPackage), ...candidateId(previousReview)]
+          [...candidateId(previousPackage), ...candidateId(previousReview)]
         );
         continue;
       }
@@ -183,7 +156,7 @@ export class OpeningAgentEngine {
           state,
           REVIEW_SPEC,
           input.memberRoster,
-          openingSourceTraces(state, idea, references, [...savedCandidate(workOrderCandidate), packageCandidate], null),
+          openingSourceTraces(state, idea, references, [packageCandidate], null),
           null,
           (validationRepair, member, contract) => (
           buildOpeningAgentPrompt({
@@ -194,40 +167,18 @@ export class OpeningAgentEngine {
             operation: 'v7_opening_package_review_v1',
             ...contract,
             publishingPlatform: idea.publishingPlatform,
-            ideaVersion: idea.version, referencePack: references, workOrder: workOrderCandidate?.content ?? null,
+            ideaVersion: idea.version, referencePack: references,
             openingPackage: packageCandidate.content, review: null, taxonomy: this.taxonomy, validationRepair,
             memberInstruction: member.promptInstruction
           })),
-          lightweightTask(state)
-            ? [modelSignatureForCandidate(packageCandidate, input.memberRoster ?? DEFAULT_OPENING_ROSTER)]
-            : []
+          [modelSignatureForCandidate(packageCandidate, input.memberRoster ?? DEFAULT_OPENING_ROSTER)]
         );
         const review = generated.generation.content;
         if (review.verdict === 'pass') {
-          state = await this.commit(state, generated, 'opening_review', 'complete', [
-            ...candidateId(workOrderCandidate), packageCandidate.candidateId
-          ], 'awaiting_author_confirmation');
+          state = await this.commit(state, generated, 'opening_review', 'complete', [packageCandidate.candidateId], 'awaiting_author_confirmation');
           continue;
         }
-        if (review.verdict === 'author_decision' || state.editorialRevisionCount >= MAX_EDITORIAL_REVISIONS) {
-          state = await this.commit(state, generated, 'opening_review', 'complete', [
-            ...candidateId(workOrderCandidate), packageCandidate.candidateId
-          ], 'awaiting_author_decision');
-          continue;
-        }
-        if (lightweightTask(state)) {
-          state = await this.commit(state, generated, 'opening_review', 'complete', [
-            packageCandidate.candidateId
-          ], 'awaiting_author_decision');
-          continue;
-        }
-        const revisionGenerated: GeneratedWithState<OpeningReview> = {
-          ...generated,
-          state: { ...generated.state, editorialRevisionCount: state.editorialRevisionCount + 1 }
-        };
-        state = await this.commit(state, revisionGenerated, 'opening_review', 'package_revision', [
-          ...candidateId(workOrderCandidate), packageCandidate.candidateId
-        ]);
+        state = await this.commit(state, generated, 'opening_review', 'complete', [packageCandidate.candidateId], 'awaiting_author_decision');
         continue;
       }
 
@@ -424,7 +375,6 @@ export class OpeningAgentEngine {
           this.taxonomy ?? undefined,
           publishingPlatform
         );
-        assertOpeningPackageAuthorFidelity(authorIdea, openingPackage);
         return openingPackage;
       }
     };
@@ -433,7 +383,7 @@ export class OpeningAgentEngine {
   private async commit<T extends OpeningCandidateContent>(
     incomingState: OpeningAgentTaskState,
     generated: { generation: OpeningStructuredGeneration<T>; state: OpeningAgentTaskState },
-    kind: 'work_order' | 'opening_package' | 'opening_review',
+    kind: 'opening_package' | 'opening_review',
     nextPhase: OpeningAgentTaskState['phase'],
     sourceCandidateIds: string[],
     nextStatus: OpeningAgentTaskState['status'] = 'working'
@@ -443,7 +393,7 @@ export class OpeningAgentEngine {
       ...generated.state,
       status: nextStatus,
       phase: nextPhase,
-      workOrderCandidateId: kind === 'work_order' ? candidateId : generated.state.workOrderCandidateId,
+      workOrderCandidateId: generated.state.workOrderCandidateId,
       activePackageCandidateId: kind === 'opening_package' ? candidateId : generated.state.activePackageCandidateId,
       activeReviewCandidateId: kind === 'opening_review' ? candidateId : generated.state.activeReviewCandidateId,
       errorCode: null,
@@ -491,11 +441,6 @@ type GeneratedWithState<T extends OpeningCandidateContent> = {
   state: OpeningAgentTaskState;
 };
 
-const WORK_ORDER_SPEC: OpeningNodeSpecification<OpeningWorkOrder> = {
-  roleKey: 'chief_editor', nodeKey: 'opening_work_order', kind: 'work_order',
-  taskKind: 'opening_review', workstationKey: 'opening',
-  parse: parseOpeningWorkOrder, maxOutputTokens: 3_000
-};
 const PACKAGE_SPEC: OpeningNodeSpecification<OpeningPackage> = {
   roleKey: 'screenwriter', nodeKey: 'opening_package_design', kind: 'opening_package',
   taskKind: 'opening_design', workstationKey: 'opening',
@@ -714,10 +659,6 @@ function candidateId(candidate: OpeningSavedCandidate | null): string[] {
 
 function savedCandidate(candidate: OpeningSavedCandidate | null): OpeningSavedCandidate[] {
   return candidate === null ? [] : [candidate];
-}
-
-function lightweightTask(state: OpeningAgentTaskState): boolean {
-  return state.workOrderCandidateId === null;
 }
 
 function modelSignature(member: V7OpeningMemberDefinition): string {

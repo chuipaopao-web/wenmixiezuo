@@ -4,23 +4,9 @@ import type {
   OpeningProtagonist,
   OpeningReview,
   OpeningReviewIssue,
-  OpeningTaxonomyReference,
-  OpeningWorkOrder
+  OpeningTaxonomyReference
 } from './opening-agent-contracts.js';
 import { OPENING_DECISION_FIELDS, type OpeningReviewDecision } from './opening-agent-contracts.js';
-
-export function parseOpeningWorkOrder(output: string): OpeningWorkOrder {
-  const value = parseStructuredObject(output, '开书任务书');
-  return {
-    corePremise: requiredText(value.corePremise, '核心命题', 500),
-    mustKeep: textArray(value.mustKeep, '必须保留', 12, 500, true),
-    preferences: textArray(value.preferences, '创作倾向', 12, 500, true),
-    openDecisions: textArray(value.openDecisions, '开放项', 12, 500, true),
-    intendedExperience: requiredText(value.intendedExperience, '目标阅读体验', 800),
-    designResponsibilities: textArray(value.designResponsibilities, '设计责任', 12, 500, false),
-    prohibitions: textArray(value.prohibitions, '禁止越界项', 12, 500, false)
-  };
-}
 
 export function parseOpeningPackage(
   output: string,
@@ -86,36 +72,6 @@ export function parseOpeningPackage(
     mustFollow,
     ...(authorInstructions.length === 0 ? {} : { authorInstructions })
   };
-}
-
-/**
- * 只处理作者明确写出的简单主角句式，避免用猜测约束含糊灵感。
- * 命中后必须严格保真；否则交给主编任务书和模型审查。
- */
-export function assertOpeningPackageAuthorFidelity(authorIdea: string, openingPackage: OpeningPackage): void {
-  const explicitName = extractExplicitProtagonistName(authorIdea);
-  if (explicitName === null) return;
-  const first = openingPackage.protagonists[0]?.name.trim() ?? '';
-  if (first !== explicitName) {
-    throw new Error(`作者明确指定主角为“${explicitName}”，资料包却把“${first || '未命名角色'}”放在第一主角位置`);
-  }
-}
-
-export function extractExplicitProtagonistName(authorIdea: string): string | null {
-  const normalized = authorIdea.trim();
-  const match = normalized.match(/^(?:我想写|想写|故事是|讲的是|主角是)?\s*([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·]{0,11}?)(?=穿越|重生|魂穿|来到|误入)/u);
-  const candidate = match?.[1]?.trim() ?? '';
-  if (candidate.length === 0 || ['我', '他', '她', '主角', '一个人', '一个男人', '一个女人', '少年', '少女'].includes(candidate)) {
-    return null;
-  }
-  // 这里只能做“明确姓名”的硬保真，不能把“一名现代救援队员”等角色描述
-  // 当成人名。含糊主体由主编语义理解，确定性校验只接受短中文姓名或英文姓名。
-  if (/^[\p{Script=Han}·]+$/u.test(candidate)) {
-    const length = Array.from(candidate).length;
-    if (length < 2 || length > 4 || /^(?:一个|一名|某个|某名|这名|那名)/u.test(candidate)) return null;
-    return candidate;
-  }
-  return /^[A-Za-z][A-Za-z0-9·]{0,11}$/u.test(candidate) ? candidate : null;
 }
 
 function validateTaxonomySelection(

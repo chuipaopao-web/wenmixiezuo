@@ -492,11 +492,11 @@ svg { width: 1.1em; height: 1.1em; flex: 0 0 auto; }
 .library-head dl div { display: grid; justify-items: center; gap: 4px; border-radius: 14px; padding: 10px 14px; background: var(--panel-muted); }
 .library-head dt { color: var(--ink-faint); font-size: 10px; }
 .library-head dd { margin: 0; color: var(--accent); font-size: 19px; font-weight: 800; }
-.library-loading, .library-empty, .library-error { min-height: 280px; display: grid; place-content: center; justify-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 22px; padding: 30px; color: var(--ink-faint); background: var(--panel-raised); text-align: center; }
+.library-loading, .library-empty, .library-error, .team-load-failure { min-height: 280px; display: grid; place-content: center; justify-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 22px; padding: 30px; color: var(--ink-faint); background: var(--panel-raised); text-align: center; }
 .library-loading svg, .library-empty svg { width: 34px; height: 34px; color: var(--accent); }
-.library-empty strong, .library-error strong { color: var(--ink); font-size: 18px; }
-.library-empty span, .library-error p { margin: 0; line-height: 1.6; }
-.library-error button { min-height: 42px; border: 0; border-radius: 12px; padding: 0 18px; color: #fff; background: var(--accent); cursor: pointer; font-weight: 760; }
+.library-empty strong, .library-error strong, .team-load-failure strong { color: var(--ink); font-size: 18px; }
+.library-empty span, .library-error p, .team-load-failure p { margin: 0; line-height: 1.6; }
+.library-error button, .team-load-failure button { min-height: 42px; border: 0; border-radius: 12px; padding: 0 18px; color: #fff; background: var(--accent); cursor: pointer; font-weight: 760; }
 .library-volume-list { display: grid; gap: 12px; }
 .library-volume, .library-chain { border: 1px solid var(--line); border-radius: 18px; background: var(--panel-raised); }
 .library-volume > summary, .library-chain > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; gap: 12px; align-items: center; cursor: pointer; list-style: none; }

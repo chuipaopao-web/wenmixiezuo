@@ -13,7 +13,7 @@ import { V7OpeningAgentRepository } from '../../../apps/api/src/infrastructure/d
 import { V7PromptGovernanceRepository } from '../../../apps/api/src/infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { parseMemberRoster } from '../../../apps/api/src/application/books/v7-opening-agent-service.js';
 import { validateV7OpeningPackage } from '../../../apps/api/src/application/books/v7-opening-package-contract.js';
-import { V7_OPENING_MEMBERS, type OpeningModelRequest } from '@wenmi/v7-backend';
+import { V7_OPENING_MEMBERS, openingRosterFromGlobal, type OpeningModelRequest } from '@wenmi/v7-backend';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, FixedClock, type TestContext } from '../../helpers/test-context.js';
 
@@ -24,17 +24,13 @@ const BROWSER_HEADERS = {
   'content-type': 'application/json'
 };
 
-describe('V7历史开书任务名册恢复', () => {
-  it('无冻结快照的历史任务继续恢复旧八人成员表', () => {
-    const historical = parseMemberRoster(null);
-    expect(historical).toHaveLength(V7_OPENING_MEMBERS.length);
-    expect(historical.map((member) => member.memberKey)).toEqual(
-      V7_OPENING_MEMBERS.map((member) => member.memberKey)
-    );
-    expect(historical.some((member) => member.memberKey.startsWith('screenwriter-'))).toBe(true);
+describe('V7历史开书任务名册只读边界', () => {
+  it('无完整冻结快照的历史任务不能重新绑定当前成员执行', () => {
+    expect(() => parseMemberRoster(null)).toThrow(/不能按当前流程继续执行/u);
+    expect(parseMemberRoster(null, false)).toEqual([]);
   });
 
-  it('按旧任务冻结的六人成员表恢复，不要求补入后来新增的成员', () => {
+  it('旧六人成员表只用于历史显示，不再恢复旧模型执行', () => {
     const snapshot = [
       ['chief-deepseek-v4-pro', true, 1],
       ['chief-glm-5-3', false, 2],
@@ -50,11 +46,13 @@ describe('V7历史开书任务名册恢复', () => {
       promptInstruction: ''
     }));
 
-    const historical = parseMemberRoster(JSON.stringify(snapshot));
+    expect(() => parseMemberRoster(JSON.stringify(snapshot))).toThrow(/旧成员快照/u);
+    const historical = parseMemberRoster(JSON.stringify(snapshot), false);
 
     expect(historical).toHaveLength(6);
     expect(historical.map((member) => member.memberKey)).toEqual(snapshot.map((member) => member.memberKey));
     expect(historical.find((member) => member.memberKey === 'screenwriter-kimi-k3')?.displayName).toBe('清照');
+    expect(historical.every((member) => member.enabledByDefault === false)).toBe(true);
     expect(historical.some((member) => member.memberKey === 'screenwriter-deepseek-v4-flash')).toBe(false);
   });
 
@@ -74,16 +72,6 @@ describe('V7历史开书任务名册恢复', () => {
     expect(parseMemberRoster(JSON.stringify(snapshot), false)).toHaveLength(snapshot.length);
   });
 });
-
-const WORK_ORDER = {
-  corePremise: '现代青年张三穿越三国乱世，从流民起步改变自己与百姓命运。',
-  mustKeep: ['张三是穿越者', '背景是三国乱世'],
-  preferences: ['从底层起步'],
-  openDecisions: ['最终阵营'],
-  intendedExperience: '让读者看到小人物靠判断与行动逐步立足。',
-  designResponsibilities: ['明确时代处境', '建立持续矛盾'],
-  prohibitions: ['不提前拆分具体分卷']
-};
 
 const PACKAGE = {
   title: '三国：从流民开始',
@@ -169,6 +157,77 @@ let context: TestContext | undefined;
 afterEach(() => { context?.close(); context = undefined; });
 
 describe('V7开书Agent平台接入', () => {
+  it('读取历史任务书流程只返回保留结果，绝不恢复模型调用', async () => {
+    context = createTestContext('wenmi-v7-opening-retired-work-order-');
+    const resolver = new ScriptedResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'v7-retired-opening@example.com', '历史任务作者', 'strong-pass-100');
+      const owner = context.database.prepare(`SELECT owner_id FROM user_accounts WHERE email_normalized=?`)
+        .get('v7-retired-opening@example.com') as { owner_id: string };
+      const taskId = 'retired-opening-work-order-task';
+      new V7OpeningAgentRepository(context.database).createShell({
+        taskId,
+        ownerId: owner.owner_id,
+        idempotencyKey: 'retired-opening-work-order-key',
+        requestHash: 'a'.repeat(64),
+        ideaText: '张三穿越到三国乱世，从流民开始求生。',
+        ideaHash: 'b'.repeat(64),
+        publishingPlatform: 'fanqie',
+        selectedChiefMemberKey: null,
+        selectedScreenwriterMemberKey: null,
+        memberRoster: V7_OPENING_MEMBERS,
+        now: '2026-08-28T00:00:00.000Z'
+      });
+      context.database.prepare(`UPDATE v7_opening_agent_tasks SET status='working', phase='work_order' WHERE task_id=?`)
+        .run(taskId);
+
+      const response = await app.inject({
+        method: 'GET', url: `/api/v1/v7/opening-agent/tasks/${taskId}`,
+        headers: { host: BROWSER_HEADERS.host, cookie }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data).toMatchObject({
+        status: 'failed', isRunning: false, phaseText: '请按当前流程重新开始'
+      });
+      expect(response.json().data.errorMessage).toMatch(/已有结果已经保留/u);
+      const revision = await app.inject({
+        method: 'POST',
+        url: `/api/v1/v7/opening-agent/tasks/${taskId}/revisions`,
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          baseCandidateId: 'candidate-retired-opening-package',
+          openingPackage: PACKAGE,
+          adjustmentNote: '改成当前节奏',
+          idempotencyKey: 'retired-opening-revision-0001'
+        }
+      });
+      expect(revision.statusCode).toBe(409);
+      expect(revision.json().error.message).toMatch(/历史开书任务只能查看/u);
+      const confirmation = await app.inject({
+        method: 'POST',
+        url: '/api/v1/v7/opening-books',
+        headers: { ...BROWSER_HEADERS, cookie },
+        payload: {
+          taskId,
+          candidateId: 'candidate-retired-opening-package',
+          openingPackage: PACKAGE,
+          idempotencyKey: 'retired-opening-confirm-0001'
+        }
+      });
+      expect(confirmation.statusCode).toBe(409);
+      expect(confirmation.json().error.message).toMatch(/历史开书任务只能查看/u);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(resolver.generateCount).toBe(0);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM books WHERE owner_id=?`)
+        .get(owner.owner_id) as { count: number }).count).toBe(0);
+      expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_opening_agent_model_calls WHERE task_id=?`)
+        .get(taskId) as { count: number }).count).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('模型请求复用、对账和返修严格绑定真实账号、开书任务与节点', async () => {
     context = createTestContext('wenmi-v7-opening-request-scope-');
     const resolver = new ScriptedResolver();
@@ -184,6 +243,7 @@ describe('V7开书Agent平台接入', () => {
       const ownerB = owners.find((item) => item.email_normalized === 'v7-scope-b@example.com')!.owner_id;
       const repository = new V7OpeningAgentRepository(context.database);
       const now = '2026-08-28T00:00:00.000Z';
+      const currentOpeningRoster = openingRosterFromGlobal();
       for (const task of [
         { taskId: 'opening-scope-task-a', ownerId: ownerA, suffix: 'a' },
         { taskId: 'opening-scope-task-b', ownerId: ownerB, suffix: 'b' }
@@ -198,18 +258,18 @@ describe('V7开书Agent平台接入', () => {
           publishingPlatform: 'fanqie',
           selectedChiefMemberKey: null,
           selectedScreenwriterMemberKey: null,
-          memberRoster: V7_OPENING_MEMBERS,
+          memberRoster: currentOpeningRoster,
           now
         });
       }
-      const member = V7_OPENING_MEMBERS.find((item) => item.memberKey === 'chief-deepseek-v4-pro')!;
+      const member = currentOpeningRoster.find((item) => item.roleKey === 'screenwriter' && item.defaultForRole)!;
       const gateway = new V7OpeningAgentModelGateway(context.database, resolver, new FixedClock(new Date(now)));
       const request = {
         requestId: 'opening-scope-request-1',
         taskId: 'opening-scope-task-a',
         ownerId: ownerA,
-        nodeKey: 'opening_work_order',
-        taskKind: 'opening_review',
+        nodeKey: 'opening_package_design',
+        taskKind: 'opening_design',
         workstationKey: 'opening',
         operationMode: 'fresh',
         basedOnTaskId: null,
@@ -228,7 +288,7 @@ describe('V7开书Agent平台接入', () => {
           estimatedTokens: 30
         }],
         member,
-        prompt: JSON.stringify({ operation: 'v7_opening_work_order_v1' }),
+        prompt: JSON.stringify({ operation: 'v7_opening_package_design_v1' }),
         maxOutputTokens: 3_000
       } satisfies OpeningModelRequest;
       const first = await gateway.generate(request);
@@ -250,7 +310,7 @@ describe('V7开书Agent平台接入', () => {
         requestId: request.requestId,
         ownerId: ownerB,
         taskId: 'opening-scope-task-b',
-        nodeKey: 'opening_work_order',
+        nodeKey: 'opening_package_design',
         memberKey: member.memberKey
       })).rejects.toThrow(/不属于当前开书任务/u);
       await expect(gateway.generate({
@@ -1192,9 +1252,7 @@ class ScriptedResolver implements V7OpeningModelAdapterResolver {
           currentCandidates?: { openingPackage?: typeof PACKAGE | null };
         };
         const operation = prompt.operation;
-        const output = operation === 'v7_opening_work_order_v1'
-          ? JSON.stringify(WORK_ORDER)
-          : operation === 'v7_opening_package_review_v1'
+        const output = operation === 'v7_opening_package_review_v1'
             ? JSON.stringify(this.mode === 'decision' && (prompt.currentCandidates?.openingPackage?.authorInstructions?.length ?? 0) === 0 ? DECISION_REVIEW : REVIEW)
             : operation === 'v7_opening_package_revision_v1'
               ? JSON.stringify(prompt.currentCandidates?.openingPackage ?? PACKAGE)

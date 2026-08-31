@@ -67,7 +67,7 @@ describe('V7统一成员与模型治理', () => {
       const assignments = roster.map((member) => `${member.roleKey}:${member.memberKey}`);
       expect(new Set(assignments).size).toBe(assignments.length);
     }
-    expect(creationRosterFromGlobal(effective).some((member) => member.roleKey === 'outline_writer')).toBe(false);
+    expect(creationRosterFromGlobal(effective).some((member) => (member.roleKey as string) === 'outline_writer')).toBe(false);
   });
 
   it('新任务省略治理快照时仍只使用七岗位全局成员，不回退旧编剧编号', () => {

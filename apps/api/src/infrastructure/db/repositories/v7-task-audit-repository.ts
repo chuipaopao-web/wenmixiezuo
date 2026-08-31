@@ -24,7 +24,7 @@ export interface V7TaskAuditFilter {
 }
 
 /**
- * V7 后台任务投影。只汇总当前 V7 独立任务表，不读取 V6 tasks、旧团队或旧批次表。
+ * V7 后台任务投影。只汇总当前 V7 独立任务表，不读取历史 tasks、旧团队或旧批次表。
  * 每种来源加前缀形成稳定 sourceId，避免不同表的本地任务编号相撞。
  */
 export class V7TaskAuditRepository {

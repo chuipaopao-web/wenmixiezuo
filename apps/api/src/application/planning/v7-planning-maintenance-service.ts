@@ -25,6 +25,10 @@ import {
   type V7PlanningModelAdapterResolver
 } from '../../infrastructure/models/v7-planning-model-gateway.js';
 import { V7PlanningTreeService } from './v7-planning-tree-service.js';
+import {
+  readFrozenPlanningMembers,
+  resolveFrozenPlanningMembers
+} from './v7-planning-task-roster-snapshot.js';
 
 type SettlementKind = V7PlanningMaintenanceRunRow['source_kind'];
 
@@ -56,6 +60,12 @@ export interface V7PlanningMaintenanceView {
 }
 
 type PlanningMemberSource = readonly V7PlanningMemberDefinition[] | (() => readonly V7PlanningMemberDefinition[]);
+type StoredMaintenanceRoster = {
+  fallback: V7PlanningMemberDefinition[];
+  mode?: 'same_settlement_call';
+};
+
+const READ_ONLY_MAINTENANCE_MESSAGE = '对不起，这项规划维护任务不能继续执行。正式结算和已有结果均已保留。';
 
 export class V7PlanningMaintenanceService {
   private readonly runtime: V7PlanningRuntimeRepository;
@@ -152,11 +162,15 @@ export class V7PlanningMaintenanceService {
         throw conflict('原规划更新任务仍在处理或结果未确认，不能重复落库。');
       }
     }
-    const settlementMemberIsAvailable = this.members().some((member) => member.memberKey === settlementMemberKey);
-    const fallback = buildPlanningFallbackChain('continuity_editor', {
-      ...(settlementMemberIsAvailable ? { selectedMemberKey: settlementMemberKey } : {}),
-      members: this.members()
-    });
+    const fallback = existing === undefined
+      ? buildPlanningFallbackChain('continuity_editor', {
+          ...(this.members().some((member) => member.memberKey === settlementMemberKey
+            && member.roleKey === 'continuity_editor' && member.enabledByDefault)
+            ? { selectedMemberKey: settlementMemberKey }
+            : {}),
+          members: this.members()
+        })
+      : this.requireExecutableRoster(existing).fallback;
     const now = this.clock.now().toISOString();
     const run = existing ?? this.runtime.createMaintenance({
       runId: this.ids.next(), ownerId, bookId, sourceKind: 'chapter_settlement', sourceVersionId,
@@ -212,7 +226,11 @@ export class V7PlanningMaintenanceService {
 
   public retry(ownerId: string, bookId: string, runId: string): V7PlanningMaintenanceView {
     const row = this.requireRun(ownerId, bookId, runId);
-    if (row.status === 'unknown') throw conflict('上次结果还没确认，为避免重复扣量不能重试。');
+    this.requireExecutableRoster(row);
+    if (row.status === 'unknown' || this.runtime.modelCallsForRun(ownerId, bookId, runId)
+      .some((call) => call.state === 'unknown' || call.state === 'working')) {
+      throw conflict('上次结果还没确认，为避免重复扣量不能重试。');
+    }
     if (row.status !== 'failed') throw conflict('只有明确失败的规划维护任务可以重试。');
     if (this.runtime.resetMaintenanceForRetry(ownerId, bookId, runId, this.clock.now().toISOString()) !== 1) {
       throw conflict('规划维护任务状态已经变化。');
@@ -273,8 +291,44 @@ export class V7PlanningMaintenanceService {
     };
   }
 
+  private executableRoster(run: V7PlanningMaintenanceRunRow): StoredMaintenanceRoster | null {
+    const stored = readStoredMaintenanceRoster(run);
+    if (stored === null) return null;
+    try {
+      return {
+        fallback: resolveFrozenPlanningMembers(stored.fallback, this.members(), ['continuity_editor']),
+        ...(stored.mode === undefined ? {} : { mode: stored.mode })
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private requireExecutableRoster(run: V7PlanningMaintenanceRunRow): StoredMaintenanceRoster {
+    const roster = this.executableRoster(run);
+    if (roster === null) throw conflict(READ_ONLY_MAINTENANCE_MESSAGE);
+    return roster;
+  }
+
+  private markReadOnlyFailure(run: V7PlanningMaintenanceRunRow): void {
+    const current = this.requireRun(run.owner_id, run.book_id, run.maintenance_run_id);
+    if (!['queued', 'working'].includes(current.status)) return;
+    this.runtime.markMaintenance({
+      ownerId: run.owner_id,
+      bookId: run.book_id,
+      runId: run.maintenance_run_id,
+      status: 'failed',
+      errorMessage: READ_ONLY_MAINTENANCE_MESSAGE,
+      now: this.clock.now().toISOString()
+    });
+  }
+
   private start(run: V7PlanningMaintenanceRunRow): void {
     if (!['queued', 'working'].includes(run.status) || this.activeRuns.has(run.maintenance_run_id)) return;
+    if (this.executableRoster(run) === null) {
+      this.markReadOnlyFailure(run);
+      return;
+    }
     this.activeRuns.add(run.maintenance_run_id);
     void this.execute(run).catch((error) => {
       const current = this.runtime.maintenance(run.owner_id, run.book_id, run.maintenance_run_id);
@@ -288,6 +342,7 @@ export class V7PlanningMaintenanceService {
   }
 
   private async execute(run: V7PlanningMaintenanceRunRow): Promise<void> {
+    const roster = this.requireExecutableRoster(run);
     const settlement = this.verifiedSettlement(run.owner_id, run.book_id, run.source_kind, run.source_version_id);
     if (settlement.sourceHash !== run.source_hash) throw conflict('正式结算内容已经变化，本次更新已停止。');
     const frozenTrees = JSON.parse(run.confirmed_tree_refs_json) as ConfirmedTreeSnapshot[];
@@ -296,7 +351,6 @@ export class V7PlanningMaintenanceService {
       throw conflict('已确认规划已经更新，请基于新版本重新整理实际进展。');
     }
     const prompt = planningMaintenancePrompt({ settlement: settlement.payload, confirmedTrees: frozenTrees });
-    const roster = JSON.parse(run.member_snapshot_json) as { fallback: V7PlanningMemberDefinition[] };
     let lastError: unknown;
     for (const [index, member] of roster.fallback.entries()) {
       this.runtime.markMaintenance({
@@ -414,14 +468,20 @@ export class V7PlanningMaintenanceService {
   }
 
   private view(run: V7PlanningMaintenanceRunRow): V7PlanningMaintenanceView {
-    const roster = JSON.parse(run.member_snapshot_json) as { fallback: V7PlanningMemberDefinition[] };
-    const member = roster.fallback.find((candidate) => candidate.memberKey === run.assigned_member_key) ?? roster.fallback[0]!;
+    const stored = readStoredMaintenanceRoster(run);
+    const roster = this.executableRoster(run);
+    const member = (roster ?? stored)?.fallback.find((candidate) => candidate.memberKey === run.assigned_member_key)
+      ?? (roster ?? stored)?.fallback[0]
+      ?? { memberKey: run.assigned_member_key, displayName: '历史规划维护员' };
     const result = run.result_json === null ? null : JSON.parse(run.result_json) as V7PlanningMaintenanceOutput;
-    const status = run.status === 'queued' ? 'waiting' : run.status === 'working' ? 'working'
+    const readOnly = roster === null;
+    const status = readOnly ? 'failed'
+      : run.status === 'queued' ? 'waiting' : run.status === 'working' ? 'working'
       : run.status === 'succeeded' ? 'completed' : run.status === 'unknown' ? 'result_unknown' : 'failed';
     return {
       runId: run.maintenance_run_id, status,
-      message: status === 'completed' ? '正文实际已经记录，未来调整建议不会自动改动原规划。'
+      message: readOnly ? READ_ONLY_MAINTENANCE_MESSAGE
+        : status === 'completed' ? '正文实际已经记录，未来调整建议不会自动改动原规划。'
         : status === 'working' ? `${member.displayName}正在核对这次结算和规划进度。`
           : status === 'failed' ? (run.error_message ?? '对不起，这次没有完成，已保留正式结算。')
             : status === 'result_unknown' ? '抱歉，这次结果还没有确认，为避免重复消耗已经暂停。'
@@ -429,8 +489,24 @@ export class V7PlanningMaintenanceService {
       member: { memberKey: member.memberKey, name: member.displayName },
       actualCount: result?.actuals.length ?? 0,
       suggestionCount: result?.suggestions.length ?? 0,
-      errorMessage: run.error_message
+      errorMessage: readOnly ? READ_ONLY_MAINTENANCE_MESSAGE : run.error_message
     };
+  }
+}
+
+function readStoredMaintenanceRoster(run: V7PlanningMaintenanceRunRow): StoredMaintenanceRoster | null {
+  try {
+    const parsed = JSON.parse(run.member_snapshot_json) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const value = parsed as { fallback?: unknown; mode?: unknown };
+    const fallback = readFrozenPlanningMembers(value.fallback, ['continuity_editor']);
+    if (fallback === null) return null;
+    return {
+      fallback,
+      ...(value.mode === 'same_settlement_call' ? { mode: value.mode } : {})
+    };
+  } catch {
+    return null;
   }
 }
 

@@ -31,7 +31,10 @@ export function LibraryPage({ bookId }: { bookId: string }): React.JSX.Element {
     volume.chains.reduce((chainTotal, chain) => chainTotal + (chain.outline?.chapters.filter((entry) => entry.manuscript !== null).length ?? 0), 0), 0) ?? 0, [library]);
 
   const openManuscript = async (manuscriptVersionId: string): Promise<void> => {
-    if (openManuscriptId === manuscriptVersionId) {
+    const retryingFailedManuscript = openManuscriptId === manuscriptVersionId
+      && manuscriptError !== null
+      && manuscripts[manuscriptVersionId] === undefined;
+    if (openManuscriptId === manuscriptVersionId && !retryingFailedManuscript) {
       setOpenManuscriptId(null);
       return;
     }
@@ -56,7 +59,7 @@ export function LibraryPage({ bookId }: { bookId: string }): React.JSX.Element {
       <div className="library-chain-list">{volume.chains.map((chain, chainIndex) => <details className="library-chain" key={chain.chainScopeId} open={volumeIndex === 0 && chainIndex === 0}>
         <summary><span><b>链 {chainIndex + 1}</b><small>{chain.outline?.content.publicSummary ?? '尚未形成章纲'}</small></span><em>{chain.outline?.chapters.length ?? 0}章</em><CaretDownIcon /></summary>
         {chain.outline === null ? <p className="library-chain-empty">这条链还没有确认章纲。</p> : <div className="library-chapter-list">{chain.outline.chapters.map((entry) => <article className="library-chapter" key={`${chain.chainScopeId}-${entry.chapter.chapterNumber}`}>
-          <header><span>{entry.chapter.chapterNumber}</span><div><strong>{entry.chapter.title}</strong><p>{entry.chapter.objective}</p></div>{entry.manuscript === null ? <em>待写正文</em> : <button type="button" onClick={() => void openManuscript(entry.manuscript!.manuscriptVersionId)}>{openManuscriptId === entry.manuscript.manuscriptVersionId ? '收起正文' : '查看正文'}</button>}</header>
+          <header><span>{entry.chapter.chapterNumber}</span><div><strong>{entry.chapter.title}</strong><p>{entry.chapter.objective}</p></div>{entry.manuscript === null ? <em>待写正文</em> : <button type="button" onClick={() => void openManuscript(entry.manuscript!.manuscriptVersionId)}>{openManuscriptId === entry.manuscript.manuscriptVersionId && manuscriptError !== null && manuscripts[entry.manuscript.manuscriptVersionId] === undefined ? '重新打开正文' : openManuscriptId === entry.manuscript.manuscriptVersionId ? '收起正文' : '查看正文'}</button>}</header>
           <details><summary>查看章纲要点</summary><dl><div><dt>开篇</dt><dd>{entry.chapter.openingHook}</dd></div><div><dt>推进</dt><dd>{entry.chapter.protagonistChoice}</dd></div><div><dt>阻力</dt><dd>{entry.chapter.opposition}</dd></div><div><dt>转折</dt><dd>{entry.chapter.turn}</dd></div><div><dt>回报</dt><dd>{entry.chapter.payoff}</dd></div></dl></details>
           {entry.manuscript !== null && openManuscriptId === entry.manuscript.manuscriptVersionId && <div className="library-manuscript">{manuscriptError !== null && manuscripts[entry.manuscript.manuscriptVersionId] === undefined ? <p role="alert">{manuscriptError}</p> : manuscripts[entry.manuscript.manuscriptVersionId] === undefined ? <p><FileTextIcon />正在打开正文…</p> : <><div className="library-manuscript-meta"><span>{manuscripts[entry.manuscript.manuscriptVersionId]!.status === 'final' ? '已定稿' : '创作稿'}</span><span>第 {manuscripts[entry.manuscript.manuscriptVersionId]!.revision} 版</span></div><div className="library-manuscript-content">{manuscripts[entry.manuscript.manuscriptVersionId]!.content}</div></>}</div>}
         </article>)}</div>}

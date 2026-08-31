@@ -62,6 +62,19 @@ interface OptionRevisionFeedback {
   authorDecisions: string[];
 }
 
+interface V7CreationRuntimeBindingSnapshot {
+  schema: 'v7-creation-runtime-bindings-v1';
+  members: Array<{
+    memberKey: string;
+    roleKey: V7CreationMemberDefinition['roleKey'];
+    defaultForRole: boolean;
+    fallbackPriority: number;
+    provider: string;
+    modelId: string;
+    plan: 'coding' | 'agent';
+  }>;
+}
+
 export interface V7CreationWorkflowView {
   workflowId: string;
   bookId: string;
@@ -263,14 +276,16 @@ export class V7CreationWorkflowService {
     const existing = this.repository.workflowByIdempotency(ownerId, bookId, idempotencyKey);
     if (existing !== undefined) {
       if (existing.request_hash !== requestHash) throw conflict('本次操作编号已经用于另一项创作。');
+      this.requireCurrentStoredBindings(existing);
       this.saveMemberPreferences(ownerId, bookId, existing.workflow_id, input.memberPreferences);
       this.start(existing);
       return this.view(existing);
     }
-    const run = this.repository.createWorkflow({
+    const created = this.repository.createWorkflow({
       workflowId: this.ids.next(), ownerId, bookId, volumeScopeId, firstVolume,
       authorGoal, requestedCandidateCount: candidateCount, idempotencyKey, requestHash, now: this.now()
     });
+    const run = this.freezeCurrentRuntimeBindings(created);
     this.saveMemberPreferences(ownerId, bookId, run.workflow_id, input.memberPreferences);
     this.start(run);
     return this.view(run);
@@ -441,6 +456,7 @@ export class V7CreationWorkflowService {
     if (run.status === 'cancelled' || run.status === 'completed') throw conflict('这项任务已经结束。');
     const selectionKey = creationSelectionKey(input.selectionKey ?? input.roleKey);
     const memberKey = key(input.memberKey, '成员编号');
+    this.requireCurrentStoredBindings(run);
     const roleKey = isOptionSeatKey(selectionKey) ? 'planning_writer' : selectionKey;
     const member = this.memberRoster().find((item) => item.memberKey === memberKey && item.roleKey === roleKey && item.enabledByDefault);
     if (member === undefined) throw conflict('这位成员不负责当前岗位或正在请假。');
@@ -458,6 +474,7 @@ export class V7CreationWorkflowService {
 
   public retryOptions(ownerId: string, bookId: string, workflowId: string): V7CreationWorkflowView {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     if (!['volume_options', 'chain_options', 'volume_decision', 'chain_decision'].includes(run.stage)) throw conflict('当前没有需要恢复的方案。');
     const kind: OptionKind = run.stage.startsWith('chain_') ? 'chain' : 'volume';
     const options = this.repository.options(ownerId, bookId, workflowId, kind);
@@ -490,6 +507,7 @@ export class V7CreationWorkflowService {
     idempotencyKey?: unknown;
   }): V7CreationWorkflowView {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     const checkpoint = json(run.checkpoint_json) as { optionRevision?: unknown };
     const optionRevision = optionRevisionFeedback(checkpoint.optionRevision);
     if (optionRevision === null || run.status !== 'failed') throw conflict('当前没有需要按主编意见重做的方案。');
@@ -499,6 +517,7 @@ export class V7CreationWorkflowService {
     const replay = this.repository.workflowByIdempotency(ownerId, bookId, idempotencyKey);
     if (replay !== undefined) {
       if (replay.request_hash !== requestHash) throw conflict('本次操作编号已经用于另一项创作。');
+      this.requireCurrentStoredBindings(replay);
       this.start(replay);
       return this.view(replay);
     }
@@ -521,7 +540,7 @@ export class V7CreationWorkflowService {
       ownerId, bookId, workflowId: next.workflow_id, stage: next.stage, status: 'queued',
       checkpoint: { parentWorkflowId: workflowId, optionRevision }, errorMessage: null, now
     });
-    const prepared = this.requireWorkflow(ownerId, bookId, next.workflow_id);
+    const prepared = this.freezeCurrentRuntimeBindings(this.requireWorkflow(ownerId, bookId, next.workflow_id));
     this.start(prepared);
     return this.view(prepared);
   }
@@ -539,6 +558,7 @@ export class V7CreationWorkflowService {
     idempotencyKey?: unknown;
   }): { treeKind: OptionKind; scopeId: string; treeVersionId: string; nextStep: 'confirm_tree' } {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     const kind = optionKind(input.kind);
     const expectedStage = kind === 'volume' ? 'volume_decision' : 'chain_decision';
     if (run.stage !== expectedStage || run.status !== 'awaiting_author') throw conflict('方案还没有准备好，或已经进入下一步。');
@@ -590,7 +610,11 @@ export class V7CreationWorkflowService {
       ownerId, bookId, workflowId,
       stage: kind === 'volume' ? 'volume_tree_confirmation' : 'chain_tree_confirmation',
       status: 'awaiting_author',
-      checkpoint: { selectedOptionId: optionId, candidateTreeVersionId: saved.versionId },
+      checkpoint: {
+        ...(json(run.checkpoint_json) as Record<string, unknown>),
+        selectedOptionId: optionId,
+        candidateTreeVersionId: saved.versionId
+      },
       now: this.now()
     });
     return { treeKind: kind, scopeId: option.scope_id, treeVersionId: saved.versionId, nextStep: 'confirm_tree' };
@@ -602,6 +626,7 @@ export class V7CreationWorkflowService {
     memberPreferences?: unknown;
   }): V7CreationWorkflowView {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     if (run.stage !== 'volume_tree_confirmation') throw conflict('当前还不能开始设计单元链。');
     const volumeTree = this.requireConfirmedTree(ownerId, bookId, 'volume', run.volume_scope_id);
     const chainScopeId = key(input.chainScopeId, '单元链编号');
@@ -612,6 +637,7 @@ export class V7CreationWorkflowService {
     this.repository.updateWorkflow({
       ownerId, bookId, workflowId, stage: 'chain_options', status: 'queued', chainScopeId,
       checkpoint: {
+        ...(json(run.checkpoint_json) as Record<string, unknown>),
         confirmedVolumeTreeVersionId: volumeTree.tree_version_id,
         requestedCandidateCount: candidateCount
       }, now: this.now()
@@ -628,6 +654,7 @@ export class V7CreationWorkflowService {
     idempotencyKey?: unknown;
   }): { volumeComplete: boolean; workflow: V7CreationWorkflowView | null } {
     const requestedRun = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(requestedRun);
     const cancelledCheckpoint = requestedRun.status === 'cancelled'
       ? json(requestedRun.checkpoint_json) as { parentWorkflowId?: unknown }
       : null;
@@ -639,6 +666,7 @@ export class V7CreationWorkflowService {
     const parent = resumableParentId === null
       ? requestedRun
       : this.requireWorkflow(ownerId, bookId, resumableParentId);
+    this.requireCurrentStoredBindings(parent);
     if (parent.status !== 'completed' || parent.stage !== 'completed') throw conflict('请先完成当前单元链。');
     const volumeTree = this.requireConfirmedTree(ownerId, bookId, 'volume', parent.volume_scope_id);
     const available = linkedTrees(volumeTree, 'chain');
@@ -671,6 +699,7 @@ export class V7CreationWorkflowService {
     const replay = this.repository.workflowByIdempotency(ownerId, bookId, idempotencyKey);
     if (replay !== undefined) {
       if (replay.request_hash !== requestHash) throw conflict('本次操作编号已经用于另一项创作。');
+      this.requireCurrentStoredBindings(replay);
       this.start(replay);
       return { volumeComplete: false, workflow: this.view(replay) };
     }
@@ -682,10 +711,9 @@ export class V7CreationWorkflowService {
       idempotencyKey, requestHash, now: this.now()
     });
     for (const preference of this.repository.memberPreferences(ownerId, bookId, parent.workflow_id)) {
-      const roleKey = preference.role_key === 'outline_writer' ? 'planning_writer' : preference.role_key;
       this.repository.saveMemberPreference({
         ownerId, bookId, workflowId: child.workflow_id,
-        roleKey, memberKey: preference.member_key, now: this.now()
+        roleKey: preference.role_key, memberKey: preference.member_key, now: this.now()
       });
     }
     for (const preference of this.repository.optionMemberPreferences(ownerId, bookId, parent.workflow_id)) {
@@ -695,8 +723,9 @@ export class V7CreationWorkflowService {
       });
     }
     this.saveMemberPreferences(ownerId, bookId, child.workflow_id, input.memberPreferences);
-    this.start(child);
-    return { volumeComplete: false, workflow: this.view(child) };
+    const prepared = this.freezeCurrentRuntimeBindings(child);
+    this.start(prepared);
+    return { volumeComplete: false, workflow: this.view(prepared) };
   }
 
   public async generateOutlines(ownerId: string, bookId: string, workflowId: string, input: {
@@ -709,6 +738,7 @@ export class V7CreationWorkflowService {
     regenerate?: unknown;
   }): Promise<{ candidates: V7CreationWorkflowView['outlines']; expectedOutlines: number }> {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     if (!['chain_tree_confirmation', 'chapter_outline_confirmation'].includes(run.stage) || run.chain_scope_id === null) {
       throw conflict('请先确认当前单元链。');
     }
@@ -866,6 +896,7 @@ export class V7CreationWorkflowService {
     idempotencyKey?: unknown;
   }): { sequenceId: string; status: 'confirmed'; nextStep: 'manuscript' } {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     if (run.stage !== 'chapter_outline_confirmation') throw conflict('当前没有等待确认的章纲。');
     const sequenceId = key(input.sequenceId, '章纲编号');
     const idempotencyKey = actionKey(input.idempotencyKey);
@@ -907,7 +938,7 @@ export class V7CreationWorkflowService {
     if (draft !== undefined) this.repository.selectOutlineDraft({ ownerId, bookId, workflowId, chainScopeId: draft.chain_scope_id, candidateId: draft.candidate_id, now: this.now() });
     this.repository.updateWorkflow({
       ownerId, bookId, workflowId, stage: 'manuscript', status: 'awaiting_author',
-      checkpoint: { sequenceId: row.sequence_id }, now: this.now()
+      checkpoint: { ...(json(run.checkpoint_json) as Record<string, unknown>), sequenceId: row.sequence_id }, now: this.now()
     });
     return { sequenceId: row.sequence_id, status: 'confirmed', nextStep: 'manuscript' };
   }
@@ -919,6 +950,7 @@ export class V7CreationWorkflowService {
     resumeExistingDraft?: unknown;
   }): Promise<{ manuscriptVersionId: string; lifecycle: V7ManuscriptVersionRow['lifecycle']; review: V7ChapterReview }> {
     const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     if (run.chain_scope_id === null || !['manuscript', 'manuscript_confirmation'].includes(run.stage)) throw conflict('请先确认章纲。');
     const sequence = this.repository.confirmedOutline(ownerId, bookId, run.chain_scope_id);
     if (sequence === undefined) throw conflict('没有已确认的章纲。');
@@ -1045,7 +1077,11 @@ export class V7CreationWorkflowService {
     this.repository.updateWorkflow({
       ownerId, bookId, workflowId, stage: 'manuscript_confirmation',
       status: latestReview.passed ? 'awaiting_author' : 'partially_failed',
-      checkpoint: { manuscriptVersionId: finalRow.manuscript_version_id, reviewPassed: latestReview.passed },
+      checkpoint: {
+        ...(json(run.checkpoint_json) as Record<string, unknown>),
+        manuscriptVersionId: finalRow.manuscript_version_id,
+        reviewPassed: latestReview.passed
+      },
       errorMessage: latestReview.passed ? null : '对不起，这一章复核后仍有问题，已保留正文和修改意见。', now: this.now()
     });
     return { manuscriptVersionId: finalRow.manuscript_version_id, lifecycle: finalRow.lifecycle, review: latestReview };
@@ -1079,6 +1115,8 @@ export class V7CreationWorkflowService {
     manuscriptVersionId?: unknown;
     idempotencyKey?: unknown;
   }): { manuscriptVersionId: string; status: 'final'; nextStep: 'settlement' } {
+    const run = this.requireWorkflow(ownerId, bookId, workflowId);
+    this.requireCurrentStoredBindings(run);
     const manuscriptVersionId = key(input.manuscriptVersionId, '正文版本');
     const idempotencyKey = actionKey(input.idempotencyKey);
     const requestHash = sha256(stableJson({ manuscriptVersionId, action: 'finalize' }));
@@ -1092,7 +1130,6 @@ export class V7CreationWorkflowService {
       if (final === undefined) throw conflict('已确认的定稿正文不存在。');
       return { manuscriptVersionId, status: 'final', nextStep: 'settlement' };
     }
-    const run = this.requireWorkflow(ownerId, bookId, workflowId);
     if (run.stage !== 'manuscript_confirmation') throw conflict('当前没有可以定稿的正文。');
     const finalized = this.repository.finalizeManuscript({
       ownerId, bookId, workflowId, manuscriptVersionId, decisionId: this.ids.next(),
@@ -1101,7 +1138,11 @@ export class V7CreationWorkflowService {
     if (finalized?.lifecycle !== 'final') throw conflict('正文必须先通过独立审查，才能定稿。');
     this.repository.updateWorkflow({
       ownerId, bookId, workflowId, stage: 'settlement', status: 'working',
-      checkpoint: { manuscriptVersionId, formalizationQueued: true }, now: this.now()
+      checkpoint: {
+        ...(json(run.checkpoint_json) as Record<string, unknown>),
+        manuscriptVersionId,
+        formalizationQueued: true
+      }, now: this.now()
     });
     return { manuscriptVersionId, status: 'final', nextStep: 'settlement' };
   }
@@ -1111,9 +1152,30 @@ export class V7CreationWorkflowService {
     return this.repository.audit(ownerId, bookId, workflowId);
   }
 
+  /**
+   * 托管创作和写后维护在任何状态写入或模型调用前共用这一门禁。
+   * 旧任务不会被当前名册静默补齐，也不会把旧模型自动重绑到新模型。
+   */
+  public assertCurrentRuntimeBindings(ownerId: string, bookId: string, workflowId: string): void {
+    this.requireCurrentStoredBindings(this.requireWorkflow(ownerId, bookId, workflowId));
+  }
+
   private start(run: V7CreationWorkflowRow): void {
     const canStart = run.status === 'queued';
     if (!canStart || !['context_selection', 'volume_options', 'chain_options'].includes(run.stage)) return;
+    if (!this.hasCurrentStoredBindings(run)) {
+      this.repository.updateWorkflow({
+        ownerId: run.owner_id,
+        bookId: run.book_id,
+        workflowId: run.workflow_id,
+        stage: run.stage,
+        status: 'failed',
+        checkpoint: json(run.checkpoint_json),
+        errorMessage: retiredCreationBindingMessage(),
+        now: this.now()
+      });
+      return;
+    }
     if (this.activeRuns.has(run.workflow_id)) return;
     this.activeRuns.add(run.workflow_id);
     void this.executeOptions(run).catch((error) => {
@@ -1316,7 +1378,7 @@ export class V7CreationWorkflowService {
         if (existing.some((item) => item.option_hash === optionHash)) throw new Error('这份结果与已有方案完全相同，已请其他编剧重做。');
         this.repository.saveOption({
           optionId: this.ids.next(), ownerId: run.owner_id, bookId: run.book_id, workflowId: run.workflow_id,
-          kind, scopeId, seatKey: legacyOptionSeat(seat), memberKey: result.member.memberKey, memberSnapshot: memberSnapshot(result.member),
+          kind, scopeId, seatKey: storedOptionSeat(seat), memberKey: result.member.memberKey, memberSnapshot: memberSnapshot(result.member),
           contextPackId: context.contextPackId, option, optionHash, requestId: result.requestId, now: this.now()
         });
         return;
@@ -1396,6 +1458,9 @@ export class V7CreationWorkflowService {
   }): Promise<{ output: string; requestId: string; member: V7CreationMemberDefinition }> {
     const failures: string[] = [];
     const preferred = this.repository.memberPreference(input.ownerId, input.bookId, input.workflowId, input.role)?.member_key;
+    if (preferred !== undefined && !this.memberRoster().some((member) => member.memberKey === preferred)) {
+      throw conflict(retiredCreationBindingMessage());
+    }
     const eligibleRoster = input.excludeModelSignature === undefined ? this.memberRoster()
       : this.memberRoster().filter((member) => modelSignature(member) !== input.excludeModelSignature);
     const eligiblePreferred = eligibleRoster.some((member) => member.memberKey === preferred) ? preferred : undefined;
@@ -1610,6 +1675,34 @@ export class V7CreationWorkflowService {
       memberKeys.push(member.memberKey);
     }
     if (new Set(memberKeys).size !== memberKeys.length) throw conflict('多套方案需要由不同成员完成，请不要重复选择同一位成员。');
+  }
+
+  private freezeCurrentRuntimeBindings(run: V7CreationWorkflowRow): V7CreationWorkflowRow {
+    const checkpoint = json(run.checkpoint_json) as Record<string, unknown>;
+    this.repository.updateWorkflow({
+      ownerId: run.owner_id,
+      bookId: run.book_id,
+      workflowId: run.workflow_id,
+      stage: run.stage,
+      status: run.status,
+      checkpoint: {
+        ...checkpoint,
+        runtimeBindingRoster: currentCreationRuntimeBindingSnapshot(this.memberRoster())
+      },
+      errorMessage: run.error_message,
+      now: this.now()
+    });
+    return this.requireWorkflow(run.owner_id, run.book_id, run.workflow_id);
+  }
+
+  private requireCurrentStoredBindings(run: V7CreationWorkflowRow): void {
+    if (!creationWorkflowBindingsAreCurrent(this.repository, run, this.memberRoster())) {
+      throw conflict(retiredCreationBindingMessage());
+    }
+  }
+
+  private hasCurrentStoredBindings(run: V7CreationWorkflowRow): boolean {
+    return creationWorkflowBindingsAreCurrent(this.repository, run, this.memberRoster());
   }
 
   private outlineCandidateMembers(raw: unknown, count: 1 | 2 | 3): V7CreationMemberDefinition[] {
@@ -1859,7 +1952,7 @@ function actorViews(calls: V7CreationActorCallRow[], run: V7CreationWorkflowRow,
     }];
   }
   return [...latestByMember.values()].map((call) => {
-    const member = roster.find((item) => item.memberKey === compatibleCreationMemberKey(call.member_key));
+    const member = roster.find((item) => item.memberKey === call.member_key);
     const handedOver = call.state === 'failed' && calls.some((other) => other.node_key === call.node_key && other.started_at > call.started_at);
     const status = call.state === 'working'
       ? 'working'
@@ -1900,19 +1993,10 @@ function roleName(role: V7CreationMemberDefinition['roleKey']): string {
     context_editor: '资料编审',
     chief_editor: '主编',
     planning_writer: '策划编剧',
-    outline_writer: '章纲编剧',
     lead_writer: '主笔',
     independent_reviewer: '审校',
     settlement_editor: '结算编审'
   } as const)[role];
-}
-
-function compatibleCreationMemberKey(memberKey: string): string {
-  return ({
-    'creation-outline-glm-5-3': 'planner-glm-5-3',
-    'creation-outline-deepseek-v4-pro': 'planner-deepseek-v4-pro',
-    'creation-outline-kimi-k3': 'planner-kimi-k3'
-  } as Record<string, string>)[memberKey] ?? memberKey;
 }
 
 function memberModelSignature(snapshotJson: string): string | null {
@@ -1927,8 +2011,6 @@ function memberModelSignature(snapshotJson: string): string | null {
 }
 
 function creationRole(value: unknown): V7CreationMemberDefinition['roleKey'] {
-  // 旧客户端可能仍传 outline_writer，但新选择和新偏好只保存固定岗位。
-  if (value === 'outline_writer') return 'planning_writer';
   const roles: V7CreationMemberDefinition['roleKey'][] = [
     'context_editor', 'chief_editor', 'planning_writer',
     'lead_writer', 'independent_reviewer', 'settlement_editor'
@@ -1947,7 +2029,7 @@ function isOptionSeatKey(value: unknown): value is OptionSeatKey {
   return value === 'option_1' || value === 'option_2' || value === 'option_3';
 }
 
-function legacyOptionSeat(value: OptionSeatKey): V7CreationOptionRow['seat_key'] {
+function storedOptionSeat(value: OptionSeatKey): V7CreationOptionRow['seat_key'] {
   return ({ option_1: 'structure', option_2: 'commercial', option_3: 'character' } as const)[value];
 }
 
@@ -2071,6 +2153,52 @@ function optionRevisionFeedback(value: unknown): OptionRevisionFeedback | null {
   };
 }
 
+function currentCreationRuntimeBindingSnapshot(
+  members: readonly V7CreationMemberDefinition[]
+): V7CreationRuntimeBindingSnapshot {
+  return {
+    schema: 'v7-creation-runtime-bindings-v1',
+    members: members
+      .filter((member) => member.enabledByDefault)
+      .map((member) => ({
+        memberKey: member.memberKey,
+        roleKey: member.roleKey,
+        defaultForRole: member.defaultForRole,
+        fallbackPriority: member.fallbackPriority,
+        provider: member.model.provider,
+        modelId: member.model.modelId,
+        plan: member.model.plan
+      }))
+      .toSorted((left, right) => left.memberKey.localeCompare(right.memberKey))
+  };
+}
+
+export function creationWorkflowBindingsAreCurrent(
+  repository: V7CreationRuntimeRepository,
+  run: V7CreationWorkflowRow,
+  members: readonly V7CreationMemberDefinition[]
+): boolean {
+  const current = currentCreationRuntimeBindingSnapshot(members);
+  const checkpoint = json(run.checkpoint_json) as { runtimeBindingRoster?: unknown };
+  if (stableJson(checkpoint.runtimeBindingRoster) !== stableJson(current)) return false;
+  const currentByKey = new Map(members
+    .filter((member) => member.enabledByDefault)
+    .map((member) => [member.memberKey, member] as const));
+  const fixedAreCurrent = repository.memberPreferences(run.owner_id, run.book_id, run.workflow_id)
+    .every((preference) => currentByKey.get(preference.member_key)?.roleKey === preference.role_key);
+  if (!fixedAreCurrent) return false;
+  const optionsAreCurrent = repository.optionMemberPreferences(run.owner_id, run.book_id, run.workflow_id)
+    .every((preference) => currentByKey.get(preference.member_key)?.roleKey === 'planning_writer');
+  if (!optionsAreCurrent) return false;
+  return repository.modelCallsForWorkflow(run.owner_id, run.book_id, run.workflow_id).every((call) => {
+    const member = currentByKey.get(call.member_key);
+    return member !== undefined
+      && member.model.provider === call.provider
+      && member.model.modelId === call.model_id
+      && member.model.plan === call.plan;
+  });
+}
+
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (typeof value === 'object' && value !== null) {
@@ -2081,6 +2209,10 @@ function stableJson(value: unknown): string {
 }
 
 function sha256(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+
+function retiredCreationBindingMessage(): string {
+  return '对不起，这项未完成任务使用的是已经停止的成员绑定，已有结果全部保留。请按当前流程重新开始。';
+}
 
 function conflict(message: string): DomainError { return new DomainError(errorCodes.validation, message, {}, false, 409); }
 function missing(message: string): DomainError { return new DomainError(errorCodes.validation, message, {}, false, 404); }

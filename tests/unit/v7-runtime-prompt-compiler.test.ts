@@ -8,7 +8,7 @@ const base = {
   bookId: 'book-001',
   taskId: 'task-001',
   memberKey: 'planner-glm-5-3',
-  runtimeRoleKey: 'outline_writer',
+  runtimeRoleKey: 'planning_writer',
   modelProfileKey: 'glm-5.3',
   taskKind: 'chapter_outline' as const,
   workstationKey: 'chapter_outline' as const,

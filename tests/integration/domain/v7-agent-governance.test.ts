@@ -67,6 +67,24 @@ describe('V7统一岗位、模型与任务参数', () => {
       WHERE member_key='planner-deepseek-v4-flash'`).get()).toEqual({ enabled: 0, default_for_role: 0 });
   });
 
+  it('通用任务参数不再把未知旧成员当作零微调成员执行', () => {
+    context = createTestContext();
+    const repository = new V7AgentGovernanceRepository(context.database);
+    expect(repository.resolveTaskPolicy('chief-deepseek-v4-pro', 'setting_review')).toMatchObject({
+      governanceRevision: 1,
+      temperature: 0.25
+    });
+    expect(() => repository.resolveTaskPolicy('chief-retired-v1', 'setting_review'))
+      .toThrow('已经退役或不存在');
+
+    new V7AgentGovernanceService(repository, new SequenceIds(), new FixedClock(),
+      { codingPlan: true, agentPlan: true, image: true });
+    context.database.prepare(`UPDATE v7_agent_governance_member_settings SET enabled=0
+      WHERE member_key='chief-deepseek-v4-pro'`).run();
+    expect(() => repository.resolveTaskPolicy('chief-deepseek-v4-pro', 'setting_review'))
+      .toThrow('当前不可执行');
+  });
+
   it('后台调整会递增版本，任务温度按岗位微调后冻结', () => {
     context = createTestContext();
     const service = new V7AgentGovernanceService(new V7AgentGovernanceRepository(context.database), new SequenceIds(), new FixedClock(),

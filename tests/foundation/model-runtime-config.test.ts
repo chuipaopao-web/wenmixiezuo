@@ -68,19 +68,34 @@ describe('模型运行配置', () => {
     }
   });
 
-  it('Coding Plan旧模型别名只迁移仍在使用的Kimi和豆包岗位，不会占用高级编剧K3', () => {
+  it.each([
+    ['WENMI_ARK_CODING_PLAN_KIMI_MODEL', 'kimi-k3'],
+    ['WENMI_ARK_CODING_PLAN_KIMI_MODEL', 'kimi-k2-6-modelhub'],
+    ['WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL', 'glm-5-2-260617'],
+    ['WENMI_ARK_CODING_PLAN_DOUBAO_MODEL', 'doubao-seed-2-0-pro-260215']
+  ] as const)('明确拒绝退役模型配置 %s=%s，不静默重绑为当前模型', (envKey, modelId) => {
+    expect(() => loadModelRuntimeConfig({
+      WENMI_MODEL_MODE: 'subscription-plan',
+      WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
+      WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
+      [envKey]: modelId
+    })).toThrow(`旧Agent Plan模型配置已退役，禁止自动重绑：${modelId}`);
+  });
+  it('当前Coding Plan模型ID保持原样，不经过历史别名转换', () => {
     const config = loadModelRuntimeConfig({
       WENMI_MODEL_MODE: 'subscription-plan',
       WENMI_ARK_CODING_PLAN_API_KEY: 'coding-test-key',
       WENMI_ARK_AGENT_PLAN_API_KEY: 'agent-test-key',
-      WENMI_ARK_CODING_PLAN_KIMI_MODEL: 'kimi-k2-6-modelhub',
-
-      WENMI_ARK_CODING_PLAN_DOUBAO_MODEL: 'doubao-seed-2-0-pro-260215'
+      WENMI_ARK_CODING_PLAN_DEEPSEEK_MODEL: 'deepseek-v4-pro',
+      WENMI_ARK_CODING_PLAN_DEEPSEEK_FLASH_MODEL: 'deepseek-v4-flash',
+      WENMI_ARK_CODING_PLAN_KIMI_K27_MODEL: 'kimi-k2.7-code',
+      WENMI_ARK_CODING_PLAN_DOUBAO_MODEL: 'doubao-seed-2.1-turbo'
     });
 
+    expect(config.roleProfiles.chief_editor.modelId).toBe('deepseek-v4-pro');
+    expect(config.roleProfiles.style_editor.modelId).toBe('deepseek-v4-flash');
     expect(config.roleProfiles.reviewer.modelId).toBe('kimi-k2.7-code');
     expect(config.roleProfiles.continuity.modelId).toBe('doubao-seed-2.1-turbo');
-    expect(config.roleProfiles.reader_experience.modelId).toBe('doubao-seed-2.1-turbo');
   });
   it('GLM-5.2/5.3保持可配置和可执行，但当前岗位方案不绑定', () => {
     const config = loadModelRuntimeConfig({
@@ -108,58 +123,20 @@ describe('模型运行配置', () => {
       'volcengine-ark-agent-plan', 'kimi-k3', 'novel_writer'
     )).not.toThrow();
   });
-  it('忽略桌面环境中与当前项目无关的旧Anthropic地址', () => {
+  it('旧Anthropic和AgentPlan别名不再配置文秘写作模型通道', () => {
     const config = loadModelRuntimeConfig({
-      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
-      ANTHROPIC_AUTH_TOKEN: 'unrelated-token'
-    });
-
-    expect(config.activeMode).toBe('deterministic');
-    expect(config.endpoints.coding.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/coding');
-    expect(config.endpoints.coding.apiKey).toBeUndefined();
-    expect(config.endpoints.agent.apiKey).toBeUndefined();
-  });
-
-  it('旧兼容变量只有Agent Plan时不让普通岗位误用其密钥', () => {
-    const config = loadModelRuntimeConfig({
-      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan',
-      ANTHROPIC_AUTH_TOKEN: 'agent-compatible-token'
-    });
-
-    expect(config.requestedMode).toBe('subscription-plan');
-    expect(config.activeMode).toBe('deterministic');
-    expect(config.missingCredentials).toContain('coding-plan');
-    expect(config.endpoints.agent).toMatchObject({
-      baseUrl: 'https://ark.cn-beijing.volces.com/api/plan',
-      apiKey: 'agent-compatible-token'
-    });
-    expect(config.endpoints.coding.apiKey).toBeUndefined();
-  });
-  it('显式确定性模式不被兼容套餐凭证覆盖', () => {
-    const config = loadModelRuntimeConfig({
-      WENMI_MODEL_MODE: 'deterministic',
-      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan',
-      ANTHROPIC_AUTH_TOKEN: 'agent-compatible-token'
+      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/coding',
+      ANTHROPIC_AUTH_TOKEN: 'retired-compatible-token',
+      ARK_AGENTPLAN_BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan',
+      ARK_AGENTPLAN_KEY: 'retired-agent-token'
     });
 
     expect(config.requestedMode).toBe('deterministic');
     expect(config.activeMode).toBe('deterministic');
-    expect(config.endpoints.agent.apiKey).toBe('agent-compatible-token');
-    expect(config.roleProfiles.writer.modelId).toBe('wenmi-fixture-v1');
-  });
-
-  it('兼容令牌只有精确Coding Plan路径时才归入Coding套餐并启用普通岗位', () => {
-    const config = loadModelRuntimeConfig({
-      ANTHROPIC_BASE_URL: 'https://ark.cn-beijing.volces.com/api/coding',
-      ANTHROPIC_AUTH_TOKEN: 'coding-compatible-token'
-    });
-
-    expect(config.requestedMode).toBe('subscription-plan');
-    expect(config.activeMode).toBe('subscription-plan');
-    expect(config.missingCredentials).toEqual(['agent-plan']);
-    expect(config.endpoints.coding.apiKey).toBe('coding-compatible-token');
+    expect(config.endpoints.coding.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/coding');
+    expect(config.endpoints.coding.apiKey).toBeUndefined();
     expect(config.endpoints.agent.apiKey).toBeUndefined();
-    expect(config.roleProfiles.writer.provider).toBe('volcengine-ark-coding-plan');
+    expect(config.missingCredentials).toEqual(['coding-plan', 'agent-plan']);
   });
   it('仍然拒绝文秘写作专用Coding Plan变量中的错误套餐路径', () => {
     expect(() => loadModelRuntimeConfig({

@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { creationRosterFromGlobal, planningRosterFromGlobal } from '@wenmi/v7-backend';
 import { V7PlanningTreeService } from '../application/planning/v7-planning-tree-service.js';
-import { V7PlanningEditorialService } from '../application/planning/v7-planning-editorial-service.js';
 import { V7PlanningTreeGenerationService } from '../application/planning/v7-planning-tree-generation-service.js';
 import { V7PlanningMaintenanceService } from '../application/planning/v7-planning-maintenance-service.js';
 import { V7PlanningRouteService } from '../application/planning/v7-planning-route-service.js';
@@ -28,7 +27,6 @@ export async function registerV7PlanningTreeRoutes(
   const planningRoster = () => planningRosterFromGlobal(governance.snapshot().members);
   const contextRoster = () => creationRosterFromGlobal(governance.snapshot().members);
   const service = new V7PlanningTreeService(database, ids, clock);
-  const editorial = new V7PlanningEditorialService(database, adapters, ids, clock, planningRoster);
   const generation = new V7PlanningTreeGenerationService(database, adapters, ids, clock, planningRoster, contextRoster);
   const maintenance = new V7PlanningMaintenanceService(database, adapters, ids, clock, planningRoster);
   const routes = new V7PlanningRouteService(database, adapters, ids, clock, planningRoster, contextRoster);
@@ -92,20 +90,6 @@ export async function registerV7PlanningTreeRoutes(
     }
   );
 
-  app.post<{ Params: { bookId: string }; Body: { authorGoal?: unknown; candidateCount?: unknown; memberKeys?: unknown; idempotencyKey?: unknown } }>(
-    '/api/v1/v7/books/:bookId/planning-recipes/runs',
-    async (request) => {
-      const ownerId = scope(request, request.params.bookId);
-      return success(editorial.createRecipeRun(ownerId, request.params.bookId, request.body ?? {}), request.id);
-    }
-  );
-  app.get<{ Params: { bookId: string; runId: string } }>(
-    '/api/v1/v7/books/:bookId/planning-recipes/runs/:runId',
-    async (request) => {
-      const ownerId = scope(request, request.params.bookId);
-      return success(editorial.getRecipeRun(ownerId, request.params.bookId, request.params.runId), request.id);
-    }
-  );
   app.post<{ Params: { bookId: string; runId: string } }>(
     '/api/v1/v7/books/:bookId/planning-routes/runs/:runId/retry-missing',
     async (request) => {
@@ -125,13 +109,6 @@ export async function registerV7PlanningTreeRoutes(
     async (request) => {
       const ownerId = scope(request, request.params.bookId);
       return success(routes.latest(ownerId, request.params.bookId), request.id);
-    }
-  );
-  app.post<{ Params: { bookId: string; runId: string }; Body: { choice?: unknown; authorNote?: unknown; idempotencyKey?: unknown } }>(
-    '/api/v1/v7/books/:bookId/planning-recipes/runs/:runId/confirm',
-    async (request) => {
-      const ownerId = scope(request, request.params.bookId);
-      return success(editorial.confirmRecipe(ownerId, request.params.bookId, request.params.runId, request.body ?? {}), request.id);
     }
   );
   app.post<{ Params: { bookId: string }; Body: { authorGoal?: unknown; idempotencyKey?: unknown } }>(

@@ -20,9 +20,10 @@ describe('V7 creation runtime contracts', () => {
   it('keeps every role independently recoverable', () => {
     expect(validateCreationRoster()).toEqual([]);
     expect(new Set(V7_CREATION_MEMBERS.map((item) => item.memberKey)).size).toBe(V7_CREATION_MEMBERS.length);
-    expect(V7_CREATION_MEMBERS.some((item) => item.roleKey === 'outline_writer')).toBe(false);
-    expect(creationFallbackChain('outline_writer').every((item) => item.roleKey === 'planning_writer')).toBe(true);
-    expect(creationFallbackChain('outline_writer', 'creation-outline-glm-5-3')[0]?.memberKey).toBe('planner-glm-5-3');
+    expect(V7_CREATION_MEMBERS.some((item) => (item.roleKey as string) === 'outline_writer')).toBe(false);
+    expect(creationFallbackChain('planning_writer').every((item) => item.roleKey === 'planning_writer')).toBe(true);
+    expect(() => creationFallbackChain('planning_writer', 'creation-outline-glm-5-3'))
+      .toThrow('您选择的成员不属于当前岗位或正在请假');
     expect(creationFallbackChain('lead_writer')[0]?.memberKey).toBe('writer-deepseek-v4-pro');
     expect(creationFallbackChain('lead_writer')[0]?.memberKey).toBe('writer-deepseek-v4-pro');
   });

@@ -20,6 +20,7 @@ import {
   V7CharacterMemoryRepository,
   type V7CharacterContextPackRow,
   type V7CharacterMaintenanceRow,
+  type V7CharacterModelCallRow,
   type V7CharacterProfileRow
 } from '../../infrastructure/db/repositories/v7-character-memory-repository.js';
 import {
@@ -30,6 +31,20 @@ import {
 
 type SourceKind = V7CharacterMaintenanceRow['source_kind'];
 type CharacterMemberSource = readonly V7CharacterMemberDefinition[] | (() => readonly V7CharacterMemberDefinition[]);
+
+interface CharacterContextTaskSnapshot {
+  fallback: V7CharacterMemberDefinition[];
+  maxTokens: number;
+  relationshipDepth: 0 | 1;
+  temperature: number;
+  maxOutputTokens: number;
+}
+
+interface CharacterMaintenanceTaskSnapshot {
+  fallback: V7CharacterMemberDefinition[];
+  temperature: number;
+  maxOutputTokens: number;
+}
 
 export class V7CharacterMemoryService {
   private readonly repository: V7CharacterMemoryRepository;
@@ -372,6 +387,7 @@ export class V7CharacterMemoryService {
     if (row.status === 'unknown') throw conflict('上次结果还没确认，为避免重复扣量不能重试。');
     if (row.status === 'invalidated') throw conflict('人物实际状态已经更新，请新建资料任务。');
     if (row.status !== 'failed') throw conflict('只有明确失败的人物资料任务可以重试。');
+    this.executableContextSnapshot(row.member_snapshot_json);
     if (this.repository.resetContextPackForRetry(ownerId, bookId, packId, this.now()) !== 1) {
       throw conflict('人物资料任务状态已经变化。');
     }
@@ -438,6 +454,8 @@ export class V7CharacterMemoryService {
     const row = this.requireMaintenance(ownerId, bookId, runId);
     if (row.status === 'unknown') throw conflict('上次结果还没确认，为避免重复扣量不能重试。');
     if (row.status !== 'failed') throw conflict('只有明确失败的人物维护任务可以重试。');
+    const roster = this.executableMaintenanceSnapshot(row.member_snapshot_json);
+    this.requireRecoveredMaintenanceBindings(row, roster.fallback);
     if (this.repository.resetMaintenanceForRetry(ownerId, bookId, runId, this.now()) !== 1) {
       throw conflict('人物维护任务状态已经变化。');
     }
@@ -549,6 +567,7 @@ export class V7CharacterMemoryService {
   }
 
   private async executeContextPack(row: V7CharacterContextPackRow): Promise<void> {
+    const roster = this.executableContextSnapshot(row.member_snapshot_json);
     const book = this.requireBook(row.owner_id, row.book_id);
     if (book.canon_revision !== row.source_canon_revision) {
       this.repository.markContextPack({
@@ -558,11 +577,7 @@ export class V7CharacterMemoryService {
       return;
     }
     const candidateIds = json(row.candidate_entity_ids_json) as string[];
-    const roster = json(row.member_snapshot_json) as {
-      fallback: V7CharacterMemberDefinition[]; maxTokens: number; relationshipDepth?: number;
-      temperature?: number; maxOutputTokens?: number;
-    };
-    const includeRelationships = (roster.relationshipDepth ?? 1) > 0;
+    const includeRelationships = roster.relationshipDepth > 0;
     const dossiers = candidateIds.map((entityId) => this.characterDossier(
       row.owner_id, row.book_id, entityId, false, includeRelationships
     ));
@@ -580,7 +595,7 @@ export class V7CharacterMemoryService {
           requestId, logicalTaskId, technicalRetry: row.retry_count > 0,
           ownerId: row.owner_id, bookId: row.book_id, runId: row.context_pack_id,
           runKind: 'context_pack', member, prompt,
-          maxOutputTokens: roster.maxOutputTokens ?? 3_000, temperature: roster.temperature ?? 0.12
+          maxOutputTokens: roster.maxOutputTokens, temperature: roster.temperature
         });
         const selection = parseCharacterContextSelection(result.output, candidateIds);
         const content = selection.selected.map((item) => {
@@ -628,14 +643,13 @@ export class V7CharacterMemoryService {
   }
 
   private async executeMaintenance(row: V7CharacterMaintenanceRow): Promise<void> {
+    const roster = this.executableMaintenanceSnapshot(row.member_snapshot_json);
+    this.requireRecoveredMaintenanceBindings(row, roster.fallback);
     const verified = this.verifiedSettlement(row.owner_id, row.book_id, row.source_kind, row.source_version_id);
     if (verified.sourceHash !== row.source_hash) throw conflict('正式结算内容已经变化，本次人物更新已停止。');
     const sourceSnapshot = json(row.source_snapshot_json) as Record<string, unknown> & { candidateEntityIds: string[] };
     const dossiers = sourceSnapshot.candidateEntityIds.map((entityId) => this.characterDossier(row.owner_id, row.book_id, entityId, false));
     const prompt = characterMaintenancePrompt({ settlement: verified.payload, characters: dossiers, evidenceRefs: verified.evidenceRefs });
-    const roster = json(row.member_snapshot_json) as {
-      fallback: V7CharacterMemberDefinition[]; temperature?: number; maxOutputTokens?: number;
-    };
     const persist = (output: ReturnType<typeof parseCharacterMaintenanceOutput>, memberKey: string, requestId: string): void => {
       const now = this.now();
       this.repository.replaceMaintenanceResult({
@@ -679,7 +693,7 @@ export class V7CharacterMemoryService {
           requestId, logicalTaskId, technicalRetry: row.retry_count > 0,
           ownerId: row.owner_id, bookId: row.book_id, runId: row.maintenance_run_id,
           runKind: 'maintenance', member, prompt,
-          maxOutputTokens: roster.maxOutputTokens ?? 4_000, temperature: roster.temperature ?? 0.18
+          maxOutputTokens: roster.maxOutputTokens, temperature: roster.temperature
         });
         const output = parseCharacterMaintenanceOutput(result.output, sourceSnapshot.candidateEntityIds, verified.evidenceRefs);
         persist(output, member.memberKey, requestId);
@@ -690,6 +704,33 @@ export class V7CharacterMemoryService {
       }
     }
     throw lastError ?? new Error('没有人物资料成员完成本次维护');
+  }
+
+  private executableContextSnapshot(snapshotJson: string): CharacterContextTaskSnapshot {
+    try {
+      return characterTaskSnapshot(snapshotJson, this.members(), 'context_pack');
+    } catch {
+      throw historicalCharacterTaskConflict();
+    }
+  }
+
+  private executableMaintenanceSnapshot(snapshotJson: string): CharacterMaintenanceTaskSnapshot {
+    try {
+      return characterTaskSnapshot(snapshotJson, this.members(), 'maintenance');
+    } catch {
+      throw historicalCharacterTaskConflict();
+    }
+  }
+
+  private requireRecoveredMaintenanceBindings(
+    row: V7CharacterMaintenanceRow,
+    members: readonly V7CharacterMemberDefinition[]
+  ): void {
+    for (const recovered of this.repository.succeededMaintenanceCalls(
+      row.owner_id, row.book_id, row.maintenance_run_id
+    )) {
+      if (!recoveredCallUsesFrozenBinding(recovered, members)) throw historicalCharacterTaskConflict();
+    }
   }
 
   private characterDossier(
@@ -876,6 +917,79 @@ export class V7CharacterMemoryService {
 
 function memberSnapshot(member: V7CharacterMemberDefinition): V7CharacterMemberDefinition {
   return JSON.parse(JSON.stringify(member)) as V7CharacterMemberDefinition;
+}
+
+function characterTaskSnapshot(
+  snapshotJson: string,
+  currentMembers: readonly V7CharacterMemberDefinition[],
+  kind: 'context_pack'
+): CharacterContextTaskSnapshot;
+function characterTaskSnapshot(
+  snapshotJson: string,
+  currentMembers: readonly V7CharacterMemberDefinition[],
+  kind: 'maintenance'
+): CharacterMaintenanceTaskSnapshot;
+function characterTaskSnapshot(
+  snapshotJson: string,
+  currentMembers: readonly V7CharacterMemberDefinition[],
+  kind: 'context_pack' | 'maintenance'
+): CharacterContextTaskSnapshot | CharacterMaintenanceTaskSnapshot {
+  const snapshot = JSON.parse(snapshotJson) as unknown;
+  if (!isPlainRecord(snapshot) || !Array.isArray(snapshot.fallback) || snapshot.fallback.length === 0) {
+    throw new Error('人物任务成员快照不完整');
+  }
+  const first = snapshot.fallback[0];
+  if (!isPlainRecord(first) || typeof first.memberKey !== 'string') throw new Error('人物任务首位成员无效');
+  const expectedFallback = buildCharacterFallbackChain(first.memberKey, currentMembers).map(memberSnapshot);
+  if (stableJson(snapshot.fallback) !== stableJson(expectedFallback)) {
+    throw new Error('人物任务冻结成员与当前批准名册不一致');
+  }
+  const fallback = snapshot.fallback.map((member) => memberSnapshot(member as V7CharacterMemberDefinition));
+  if (kind === 'context_pack') {
+    if (!Number.isInteger(snapshot.maxTokens) || Number(snapshot.maxTokens) < 800 || Number(snapshot.maxTokens) > 12_000) {
+      throw new Error('人物资料包预算无效');
+    }
+    if (snapshot.relationshipDepth !== 0 && snapshot.relationshipDepth !== 1) {
+      throw new Error('人物关系读取深度无效');
+    }
+    if (snapshot.temperature !== 0.12 || snapshot.maxOutputTokens !== 3_000) {
+      throw new Error('人物资料任务执行参数已经退役');
+    }
+    return {
+      fallback,
+      maxTokens: Number(snapshot.maxTokens),
+      relationshipDepth: snapshot.relationshipDepth,
+      temperature: snapshot.temperature,
+      maxOutputTokens: snapshot.maxOutputTokens
+    };
+  }
+  if (snapshot.temperature !== 0.18 || snapshot.maxOutputTokens !== 4_000) {
+    throw new Error('人物维护任务执行参数已经退役');
+  }
+  return {
+    fallback,
+    temperature: snapshot.temperature,
+    maxOutputTokens: snapshot.maxOutputTokens
+  };
+}
+
+function recoveredCallUsesFrozenBinding(
+  call: V7CharacterModelCallRow,
+  members: readonly V7CharacterMemberDefinition[]
+): boolean {
+  const member = members.find((candidate) => candidate.memberKey === call.member_key);
+  return member !== undefined
+    && member.model.provider === call.provider
+    && member.model.modelId === call.model_id
+    && member.model.plan === call.plan;
+}
+
+function historicalCharacterTaskConflict(): DomainError {
+  return conflict('这是一轮历史人物任务，已保存的资料和结果仍会保留，但旧成员或旧模型不能继续执行。请重新创建当前人物任务。');
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function authorActionView(row: Record<string, unknown>): Record<string, unknown> {

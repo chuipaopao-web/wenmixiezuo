@@ -100,7 +100,7 @@ admin.wenmixiezuo.com {
     reverse_proxy 127.0.0.1:43111
   }
 
-  # V7 独立管理后台。保留 /v7 前缀，避免旧 SPA 回退到 V6 根入口。
+  # V7 独立管理后台。保留 /v7 前缀，避免历史 SPA 回退到已停止的根入口。
   handle /v7 {
     redir * /v7/ 308
   }

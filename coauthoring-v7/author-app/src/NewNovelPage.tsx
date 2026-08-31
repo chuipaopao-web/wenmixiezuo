@@ -155,7 +155,6 @@ function errorMessage(error: unknown): string {
 }
 
 function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
-  const direct = task.workflowStyle === 'direct_design_review';
   const reviewer = task.selectedMembers.reviewer ?? task.selectedMembers.chiefEditor;
   const designer = task.selectedMembers.designer ?? task.selectedMembers.screenwriter;
   const activeMember = task.phase.includes('review') ? reviewer : designer;
@@ -179,7 +178,7 @@ function WorkStatus({ task }: { task: OpeningTaskView }): React.JSX.Element {
         </span>)}
       </div>
       <div className="phase-track" aria-label={`当前进度：${phaseText}`}>
-        {(direct ? ['直接设计', '审查点评'] : ['主编理解', '编剧设计', '主编审查']).map((label, index) => <div className={index + 1 < task.progress.currentStep ? 'done' : index + 1 === task.progress.currentStep ? 'active' : ''} key={label}><span>{index + 1 < task.progress.currentStep ? '✓' : index + 1}</span><strong>{label}</strong></div>)}
+        {['直接设计', '审查点评'].map((label, index) => <div className={index + 1 < task.progress.currentStep ? 'done' : index + 1 === task.progress.currentStep ? 'active' : ''} key={label}><span>{index + 1 < task.progress.currentStep ? '✓' : index + 1}</span><strong>{label}</strong></div>)}
       </div>
       <div className="honest-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={task.progress.percent}><span style={{ width: `${task.progress.percent}%` }} /></div>
       <details className="editorial-brief"><summary>看看本轮开书想法</summary><p>{task.idea}</p></details>
@@ -202,11 +201,11 @@ interface ReviewDecisionView {
 function reviewDecisions(review: OpeningReview | null): ReviewDecisionView[] {
   if (review === null) return [];
   if ((review.decisions?.length ?? 0) > 0) return review.decisions!;
-  const legacyItems = review.authorDecisions.length > 0 ? review.authorDecisions : review.requiredChanges;
-  return legacyItems.map((item, index) => ({
-    decisionId: `legacy-${index + 1}`, field: '', question: authorFacingReviewText(item),
+  const savedItems = review.authorDecisions.length > 0 ? review.authorDecisions : review.requiredChanges;
+  return savedItems.map((item, index) => ({
+    decisionId: `saved-${index + 1}`, field: '', question: authorFacingReviewText(item),
     currentValue: '保持当前资料', recommendation: authorFacingReviewText(item),
-    reason: '这是旧版主编意见，采纳后主编会只在开书资料内重新整理。',
+    reason: '这是本轮主编留下的审查意见，采纳后只会重新整理开书资料。',
     impact: '只影响本页开书资料，不进入设定、蓝图或正文。', required: true
   }));
 }
@@ -627,6 +626,14 @@ export function NewNovelPage({ entryMode, onBack, onCreated, onAuthenticationReq
 
   if (!historyChecked || (mode === 'ai' && task === null)) {
     return <section className="novel-create-surface" aria-label="恢复开书任务"><div className="inline-task-recovery" role="status">编辑部正在找回您之前的工作记录…</div></section>;
+  }
+
+  if (mode === 'ai' && task?.retired === true) {
+    return <section className="novel-create-surface" aria-label="开书任务恢复"><div className="failure-card compact-failure-card">
+      <WarningCircleIcon /><p className="eyebrow">本轮未完成</p><h2 id="novel-create-title">已有结果和开书思路都已保留</h2><p>对不起，这项未完成任务已经停止，请按当前流程重新开始。</p>
+      <div className="design-actions"><button className="primary-action" type="button" disabled={busy} onClick={() => void startAi()}>{busy ? '正在重新提交…' : '按当前流程重新开始'}</button>{openingPackage !== null && <button className="secondary-action" type="button" disabled={busy} onClick={startManual}>保留现有资料，自己完成</button>}</div>
+      <button className="restart-button" type="button" disabled={busy} onClick={restart}>重新填写想法</button>
+    </div></section>;
   }
 
   if (mode === 'ai' && task !== null && task.isRunning) {

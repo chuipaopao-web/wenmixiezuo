@@ -10,7 +10,7 @@
 - 生产 API、Worker、Caddy 均运行第72批 V7 `wm-v7-20260831-213000-c42451f0`、Worker ready，静态版本为 `4ca84707c13a83435548`
 - 静态发布共9个文件，manifest SHA-256 为 `d99f2a871458537b6f25a0bbb31c56f88d4b83c5e6062c4f8817001d77ac0735`；上一线上服务 `wm-v7-20260831-183000-83eebb2a` 与静态版本 `24717cb9eac7309dd487` 保留为回滚点
 - 当前分支：`codex/light-coauthoring-v7`
-- 当前唯一工单：`docs/worklists/V7-RUNTIME-CLOSURE-CLEANUP-20260831-72.md`
+- 当前唯一工单：`docs/worklists/V7-FULL-AUTHOR-RUNTIME-CLOSURE-20260831-73.md`
 
 ## 已上线能力
 

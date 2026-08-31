@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   V7_CREATION_CONTEXT_CHAR_BUDGETS,
+  V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS,
   creationPromptContext,
   contextSelectionPrompt,
   creationFallbackChain,
@@ -36,7 +37,7 @@ import {
 import { V7SettingLedgerReader } from '../books/v7-setting-ledger-reader.js';
 
 const MAXIMUM_SELECTED_SOURCES = 12;
-const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v8';
+const CONTEXT_PROJECTION_VERSION = 'layered-context-projection-v9';
 
 interface FormalOpeningRow {
   opening_blueprint_id: string;
@@ -198,6 +199,26 @@ export class V7CreationContextCompiler {
         // that case is a fresh context-editor call justified.
       }
     }
+    let selectionPrompt: string;
+    try {
+      selectionPrompt = compileCreationContextPlannerPrompt({
+        taskKind: input.taskKind,
+        taskBrief: taskBrief(input.taskBrief),
+        candidates,
+        maximumSources
+      });
+      assertCreationContextPlannerInputBudget(input.taskKind, selectionPrompt);
+    } catch (error) {
+      this.creation.failContext({
+        ownerId: input.ownerId,
+        bookId: input.bookId,
+        contextPackId: pack.context_pack_id,
+        status: 'failed',
+        message: publicFailure(error),
+        now: this.now()
+      });
+      throw error;
+    }
     const attemptMarker = String(workflowCalls
       .filter((call) => call.run_kind === 'context' && call.node_key === `${input.taskKind}:${input.taskId}`).length);
     for (const member of creationFallbackChain('context_editor', undefined, this.members())) {
@@ -224,16 +245,11 @@ export class V7CreationContextCompiler {
           operationMode: 'fresh',
           basedOnTaskId: null,
           authorInstructionVersion: null,
-          // The selection Agent is producing the fine-grained evidence in
-          // this call, so only the aggregate candidate payload exists yet.
+          // The selection Agent is choosing individual audited source keys
+          // from the bounded directory; exact source traces are attached only
+          // after those keys have been accepted.
           sourceTraces: [],
-          prompt: contextSelectionPrompt({
-            taskKind: input.taskKind,
-            taskBrief: taskBrief(input.taskBrief),
-            candidates,
-            maximumSources,
-            maximumCharacters: V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind]
-          }),
+          prompt: selectionPrompt,
           maxOutputTokens: 3_000,
           temperature: 0.18
         });
@@ -462,49 +478,62 @@ export class V7CreationContextCompiler {
     }
 
     const characterBook = this.characters.book(input.ownerId, input.bookId);
-    const characters = this.characters.listProfiles(input.ownerId, input.bookId, false).map((profile) => {
+    const characterCanonRevision = characterBook?.canon_revision ?? 0;
+    for (const profile of this.characters.listProfiles(input.ownerId, input.bookId, false)) {
       const active = this.characters.activeProfileVersion(input.ownerId, input.bookId, profile.profile_id);
-      return {
+      const content = {
         profileId: profile.profile_id,
         entityId: profile.entity_id,
         displayName: profile.display_name,
         narrativeTier: profile.narrative_tier,
         stableProfile: active === undefined ? null : jsonObject(active.content_json, `人物“${profile.display_name}”`),
-        currentState: this.characters.currentState(input.ownerId, input.bookId, profile.entity_id, characterBook?.canon_revision ?? 0),
-        relationships: this.characters.relationships(input.ownerId, input.bookId, profile.entity_id, characterBook?.canon_revision ?? 0),
+        currentState: this.characters.currentState(input.ownerId, input.bookId, profile.entity_id, characterCanonRevision),
+        relationships: this.characters.relationships(input.ownerId, input.bookId, profile.entity_id, characterCanonRevision),
         knowledge: this.characters.knowledge(input.ownerId, input.bookId, profile.entity_id)
       };
-    });
-    if (characters.length > 0) {
       candidates.push(candidate({
-        sourceKey: 'actual:characters', sourceKind: 'character', sourceId: `characters:${input.bookId}`,
-        sourceVersion: sha256(stableJson(characters.map((item) => [item.profileId, item.currentState]))), authority: 'actual',
-        label: '当前人物资料', content: characters,
-        selectionContent: characterContextProjection(characters),
-        contentHash: sha256(stableJson(characters)), required: false,
-        includedReason: '用于核对人物身份、当前状态、关系和知情边界。'
+        sourceKey: `actual:character:${profile.profile_id}`,
+        sourceKind: 'character',
+        sourceId: active?.profile_version_id ?? profile.profile_id,
+        sourceVersion: `${active?.revision ?? 0}:${characterCanonRevision}`,
+        authority: 'actual',
+        label: `当前人物：${profile.display_name}`,
+        content,
+        selectionContent: characterContextProjection(content),
+        contentHash: sha256(stableJson(content)),
+        required: false,
+        includedReason: `当前任务需要核对${profile.display_name}的身份、状态、关系或知情边界。`
       }));
     }
 
-    const storyState = this.creation.storyState(input.ownerId, input.bookId).map((item) => ({
-      kind: item.item_kind,
-      stableKey: item.stable_key,
-      title: item.title,
-      state: item.state,
-      revision: item.revision,
-      content: parseMaybeJson(item.content_json),
-      evidenceRefs: parseMaybeJson(item.evidence_refs_json),
-      sourceSettlementId: item.source_settlement_id,
-      updatedAt: item.created_at
-    }));
-    if (storyState.length > 0) {
+    for (const item of this.creation.storyState(input.ownerId, input.bookId)) {
+      if (!isActiveStoryState(item.state)) continue;
+      const itemKind = String(item.item_kind);
+      const stableKey = String(item.stable_key);
+      const title = String(item.title);
+      const content = {
+        kind: itemKind,
+        stableKey,
+        title,
+        state: item.state,
+        revision: item.revision,
+        content: parseMaybeJson(item.content_json),
+        evidenceRefs: parseMaybeJson(item.evidence_refs_json),
+        sourceSettlementId: item.source_settlement_id,
+        updatedAt: item.created_at
+      };
       candidates.push(candidate({
-        sourceKey: 'actual:story-state', sourceKind: 'story_state', sourceId: `story-state:${input.bookId}`,
-        sourceVersion: sha256(stableJson(storyState.map((item) => [item.stableKey, item.revision, item.sourceSettlementId]))), authority: 'actual',
-        label: '当前故事线、伏笔和开放问题', content: storyState,
-        selectionContent: storyStateContextProjection(storyState),
-        contentHash: sha256(stableJson(storyState)), required: false,
-        includedReason: '用于承接已经形成的线路、伏笔和未解决问题。'
+        sourceKey: `actual:story-state:${sha256(`${itemKind}:${stableKey}`).slice(0, 24)}`,
+        sourceKind: 'story_state',
+        sourceId: stableKey,
+        sourceVersion: String(item.revision),
+        authority: 'actual',
+        label: `当前${storyStateLabel(itemKind)}：${title}`,
+        content,
+        selectionContent: storyStateContextProjection(content),
+        contentHash: sha256(stableJson(content)),
+        required: false,
+        includedReason: `当前任务需要承接这项仍在进行的${storyStateLabel(itemKind)}。`
       }));
     }
 
@@ -562,6 +591,61 @@ export class V7CreationContextCompiler {
   }
 
   private now(): string { return this.clock.now().toISOString(); }
+}
+
+export function assertCreationContextPlannerInputBudget(
+  taskKind: V7CreationContextPack['taskKind'],
+  prompt: string
+): number {
+  const characterCount = Array.from(prompt).length;
+  const budgetChars = V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS[taskKind];
+  if (characterCount > budgetChars) {
+    throw new DomainError(
+      errorCodes.validation,
+      `对不起，当前资料策划候选仍有${characterCount}字，超过本步骤${budgetChars}字的安全范围。请先缩小本次正式资料范围，再重新开始。`,
+      { characterCount, budgetChars, taskKind },
+      true,
+      409
+    );
+  }
+  return characterCount;
+}
+
+export function compileCreationContextPlannerPrompt(input: {
+  taskKind: V7CreationContextPack['taskKind'];
+  taskBrief: string;
+  candidates: readonly V7CreationSourceCandidate[];
+  maximumSources: number;
+}): string {
+  const budgetChars = V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS[input.taskKind];
+  const promptInput = {
+    taskKind: input.taskKind,
+    taskBrief: taskBrief(input.taskBrief),
+    candidates: input.candidates,
+    maximumSources: input.maximumSources,
+    maximumCharacters: V7_CREATION_CONTEXT_CHAR_BUDGETS[input.taskKind],
+    maximumInputCharacters: budgetChars
+  } as const;
+  const completePrompt = contextSelectionPrompt(promptInput);
+  if (Array.from(completePrompt).length <= budgetChars) return completePrompt;
+
+  // First remove transport-only candidate metadata while preserving every
+  // semantic index.  If that still does not fit, reduce each optional source
+  // to a stable per-source directory entry.  Neither step uses task words,
+  // scores or inferred relevance, and every real sourceKey remains selectable.
+  const compactDirectoryPrompt = contextSelectionPrompt({
+    ...promptInput,
+    minimalCandidateDirectory: true
+  });
+  if (Array.from(compactDirectoryPrompt).length <= budgetChars) return compactDirectoryPrompt;
+
+  const minimumDirectoryPrompt = contextSelectionPrompt({
+    ...promptInput,
+    candidates: input.candidates.map(minimumPlannerDirectoryCandidate),
+    minimalCandidateDirectory: true
+  });
+  assertCreationContextPlannerInputBudget(input.taskKind, minimumDirectoryPrompt);
+  return minimumDirectoryPrompt;
 }
 
 function compilePack(
@@ -959,42 +1043,93 @@ function planningActualContextProjection(actuals: readonly Record<string, unknow
   };
 }
 
-function characterContextProjection(characters: readonly Record<string, unknown>[]): Record<string, unknown> {
+function characterContextProjection(character: Record<string, unknown>): Record<string, unknown> {
+  const profile = recordOrEmpty(character.stableProfile);
   return {
-    schema: 'v7-character-context-projection-v1',
-    characters: characters.map((item) => ({
-      entityId: item.entityId,
-      displayName: item.displayName,
-      narrativeTier: item.narrativeTier,
-      stableProfile: item.stableProfile,
-      currentState: item.currentState,
-      relationships: item.relationships,
-      knowledge: item.knowledge
-    }))
+    schema: 'v7-character-context-index-v2',
+    profileId: character.profileId,
+    entityId: character.entityId,
+    displayName: character.displayName,
+    narrativeTier: character.narrativeTier,
+    aliases: Array.isArray(profile.aliases)
+      ? profile.aliases.filter((value): value is string => typeof value === 'string').slice(0, 6)
+      : [],
+    publicSummary: contextIndexText(profile.publicSummary, 240),
+    dramaticFunction: contextIndexText(profile.dramaticFunction, 180),
+    coreDesire: contextIndexText(profile.coreDesire, 180),
+    longTermGoal: contextIndexText(profile.longTermGoal, 180),
+    hasCurrentState: character.currentState !== null && character.currentState !== undefined,
+    relationshipCount: Array.isArray(character.relationships) ? character.relationships.length : 0,
+    knowledgeCount: Array.isArray(character.knowledge) ? character.knowledge.length : 0
   };
 }
 
-function storyStateContextProjection(items: readonly Record<string, unknown>[]): Record<string, unknown> {
-  const terminalStates = new Set(['answered', 'closed', 'resolved', 'cancelled', 'archived']);
+function storyStateContextProjection(item: Record<string, unknown>): Record<string, unknown> {
+  const content = recordOrEmpty(item.content);
   return {
-    schema: 'v7-story-state-context-projection-v1',
-    // The full ledger, revisions and evidence remain in the audited source.
-    // A workstation only needs active semantic state. Sending already-closed
-    // questions and revision counters on every chapter diluted attention and
-    // made the pack grow forever even though no live story obligation changed.
-    items: items.filter((item) => !terminalStates.has(String(item.state ?? '').toLowerCase())).map((item) => {
-      const content = typeof item.content === 'object' && item.content !== null && !Array.isArray(item.content)
-        ? item.content as Record<string, unknown>
-        : {};
-      return {
-        kind: item.kind,
-        stableKey: item.stableKey,
-        title: item.title,
-        state: item.state,
-        summary: content.summary ?? content.question ?? content.answer ?? item.title
-      };
-    })
+    schema: 'v7-story-state-context-index-v2',
+    kind: item.kind,
+    stableKey: item.stableKey,
+    title: item.title,
+    state: item.state,
+    summary: contextIndexText(content.summary ?? content.question ?? content.answer ?? item.title, 360)
   };
+}
+
+function minimumPlannerDirectoryCandidate(source: V7CreationSourceCandidate): V7CreationSourceCandidate {
+  if (source.required) return source;
+  const index = recordOrEmpty(source.selectionContent ?? source.content);
+  if (source.sourceKind === 'character') {
+    return {
+      ...source,
+      selectionContent: {
+        id: index.entityId ?? index.profileId,
+        name: index.displayName,
+        status: index.hasCurrentState === true ? 'active_with_state' : 'active'
+      }
+    };
+  }
+  if (source.sourceKind === 'story_state') {
+    return {
+      ...source,
+      selectionContent: {
+        kind: index.kind,
+        id: index.stableKey,
+        name: index.title,
+        status: index.state
+      }
+    };
+  }
+  return {
+    ...source,
+    selectionContent: {
+      kind: source.sourceKind,
+      name: source.label
+    }
+  };
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function contextIndexText(value: unknown, maximum: number): string | null {
+  if (typeof value !== 'string') return null;
+  const characters = Array.from(value.trim());
+  if (characters.length === 0) return null;
+  return characters.length <= maximum ? characters.join('') : `${characters.slice(0, maximum - 1).join('')}…`;
+}
+
+function isActiveStoryState(value: unknown): boolean {
+  const terminalStates = new Set(['answered', 'closed', 'resolved', 'cancelled', 'archived']);
+  return !terminalStates.has(String(value ?? '').trim().toLowerCase());
+}
+
+function storyStateLabel(kind: string): string {
+  return ({ story_line: '故事线', foreshadowing: '伏笔', open_question: '开放问题' } as Record<string, string>)[kind]
+    ?? '故事状态';
 }
 
 function chapterTreeProjection(document: Record<string, unknown>): Record<string, unknown> {

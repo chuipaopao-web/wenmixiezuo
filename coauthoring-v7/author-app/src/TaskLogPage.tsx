@@ -29,7 +29,7 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [abandoningTaskId, setAbandoningTaskId] = useState<string | null>(null);
-  const [clearingOldTasks, setClearingOldTasks] = useState(false);
+  const [clearingIncompleteTasks, setClearingIncompleteTasks] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const hasAnyRecord = tasks.length > 0 || designTasks.length > 0 || creationTasks.length > 0 || planningTasks.length > 0;
   const hasRunning = useMemo(
@@ -104,16 +104,16 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
       setAbandoningTaskId(null);
     }
   };
-  const clearOldTasks = async () => {
-    setClearingOldTasks(true);
+  const clearIncompleteTasks = async () => {
+    setClearingIncompleteTasks(true);
     setError(null);
     try {
       await abandonAllOpeningTasks();
       setTasks((current) => current.filter((task) => !openingTaskCanArchive(task)));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '旧任务暂时没有清理成功，请刷新后重试。');
+      setError(reason instanceof Error ? reason.message : '未完成任务暂时没有清理成功，请刷新后重试。');
     } finally {
-      setClearingOldTasks(false);
+      setClearingIncompleteTasks(false);
       setConfirmingClear(false);
     }
   };
@@ -125,8 +125,8 @@ export function TaskLogPage({ onOpenTask, onOpenBook, onOpenCreation, onOpenPlan
         <strong>{error === null ? activeCount : '—'}</strong>
         <p>{error !== null ? '部分工作记录正在重新整理' : activeCount > 0 ? '项工作正在进行或等您确认' : '编辑部当前没有待处理工作'}</p>
         {hasRunning && <i>编辑部会自动更新进度</i>}
-        {hasArchivable && !confirmingClear && <button className="task-clear-button" type="button" disabled={clearingOldTasks} onClick={() => setConfirmingClear(true)}>{clearingOldTasks ? '正在清理…' : '清空旧任务'}</button>}
-        {hasArchivable && confirmingClear && <div className="task-inline-confirm"><span>只移走未建成书籍的旧任务，书籍与历史方案都会保留。</span><button type="button" disabled={clearingOldTasks} onClick={() => void clearOldTasks()}>{clearingOldTasks ? '正在清理…' : '确认清理'}</button><button type="button" disabled={clearingOldTasks} onClick={() => setConfirmingClear(false)}>先不清理</button></div>}
+        {hasArchivable && !confirmingClear && <button className="task-clear-button" type="button" disabled={clearingIncompleteTasks} onClick={() => setConfirmingClear(true)}>{clearingIncompleteTasks ? '正在清理…' : '清理未完成任务'}</button>}
+        {hasArchivable && confirmingClear && <div className="task-inline-confirm"><span>只移走尚未建成书籍的未完成任务，书籍与历史方案都会保留。</span><button type="button" disabled={clearingIncompleteTasks} onClick={() => void clearIncompleteTasks()}>{clearingIncompleteTasks ? '正在清理…' : '确认清理'}</button><button type="button" disabled={clearingIncompleteTasks} onClick={() => setConfirmingClear(false)}>先不清理</button></div>}
       </div>
       {error !== null && <div className="error-notice" role="status">{error}</div>}
       {loading ? <div className="inline-task-recovery" role="status">正在整理编辑部工作记录…</div> : error === null && !hasAnyRecord ? (

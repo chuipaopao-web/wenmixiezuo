@@ -57,58 +57,35 @@ const ROLE_SKILLS: readonly V7AgentSkillDefinition[] = [
     skillKey: 'role-chief-editor', kind: 'role', title: '开书主编',
     roleKey: 'chief_editor', nodeKey: null,
     responsibilities: [
-      '把作者模糊想法整理成编剧可以执行的清楚任务书。',
-      '决定哪些信息是作者硬要求、哪些是软倾向、哪些仍可自由发挥。',
       '审查资料包的原创性、商业方向、字段一致性和后续可设计性。',
+      '核对哪些信息是作者硬要求、哪些是可修改设计，不能用内部模板覆盖作者原话。',
       '发现需要作者决定的真正分歧时停止代替作者做决定。'
     ],
     inputSources: ['共享核心Skill允许的来源', '当前编剧候选及其精确版本'],
     excludedSources: ['成员私有人设', '未绑定当前任务的历史输出'],
     outputContract: {},
     stopConditions: ['存在两个会改变作品根本方向且无法同时成立的选择'],
-    candidateBoundary: '主编只能生成任务书、审查意见或修订候选，不能直接确认作者作品。'
+    candidateBoundary: '主编只能生成审查意见或修订候选，不能直接确认作者作品。'
   }),
   skill({
     skillKey: 'role-screenwriter', kind: 'role', title: '开书编剧',
     roleKey: 'screenwriter', nodeKey: null,
     responsibilities: [
-      '严格执行冻结任务书，在开放区内发挥创意。',
+      '直接理解作者冻结的开书原话，在明确边界内发挥创意。',
       '作者明确写出的主角、时代、地点与目标必须逐字保真，不能被历史名人或常见套路替换。',
       '生成彼此一致、具体可修改且能支撑后续设定与蓝图的开书资料包。',
       '不提前写完整分卷、事件或章节，不用模板名代替真实故事内容。',
-      '需要偏离任务书时明确提出，不静默修改作者硬要求。'
+      '需要偏离作者原话时明确提出，不静默修改作者硬要求。'
     ],
-    inputSources: ['共享核心Skill允许的来源', '主编冻结任务书'],
-    excludedSources: ['其他编剧未采用候选', '旧任务书', '无关方法和剧情模板'],
+    inputSources: ['共享核心Skill允许的来源', '作者冻结的开书原话'],
+    excludedSources: ['其他编剧未采用候选', '历史任务书', '无关方法和剧情模板'],
     outputContract: {},
-    stopConditions: ['任务书缺失或版本不一致', '任务书中的硬要求自相矛盾'],
+    stopConditions: ['作者原话版本不一致', '作者明确要求彼此冲突且会形成两本不同的书'],
     candidateBoundary: '编剧只保存开书资料包候选，不能创建书籍、覆盖作者资料或写入正式事实。'
   })
 ] as const;
 
 const NODE_SKILLS: readonly V7AgentSkillDefinition[] = [
-  skill({
-    skillKey: 'node-opening-work-order', kind: 'node', title: '建立开书任务书',
-    roleKey: 'chief_editor', nodeKey: 'opening_work_order',
-    responsibilities: [
-      '提取作者不能改变的核心创意、明确主角、可调整偏好和未决空间。',
-      '用作者能理解的语言说明作品方向，不向作者展示内部专业模板名。',
-      '为编剧定义本次需要交付的资料范围、质量标准和禁止越界项。'
-    ],
-    inputSources: ['作者原始开书想法', '最多六项按需命中的叙事职责或剧情模式'],
-    excludedSources: ['整套叙事方法库', '整套剧情模式库', '尚不存在的书内事实'],
-    outputContract: {
-      corePremise: '保留作者原意的一句话核心命题',
-      mustKeep: '作者明确不能改变的内容数组',
-      preferences: '可以优化但需要尽量尊重的倾向数组',
-      openDecisions: '编剧可以专业发挥的开放项数组',
-      intendedExperience: '目标读者获得的主要阅读体验',
-      designResponsibilities: '资料包必须完成的设计责任数组',
-      prohibitions: '不得提前设计或不得擅自改变的内容数组'
-    },
-    stopConditions: ['作者输入不足以识别任何核心想法', '作者要求存在根本冲突且会产生两本不同的书'],
-    candidateBoundary: '任务书是冻结给本次编剧任务的候选合同，不是作者已确认的开书资料。'
-  }),
   skill({
     skillKey: 'node-opening-package-design', kind: 'node', title: '设计开书资料包',
     roleKey: 'screenwriter', nodeKey: 'opening_package_design',
@@ -118,8 +95,8 @@ const NODE_SKILLS: readonly V7AgentSkillDefinition[] = [
       '让所有字段互相支持，信息颗粒足以帮助后续设定、蓝图和分卷。',
       '每个关键设计说明创作作用，使作者知道这本书将带来什么体验。'
     ],
-    inputSources: ['作者原始开书想法', '当前冻结任务书', '最多六项按需命中的内部创作参考'],
-    excludedSources: ['未冻结任务书', '其他成员失败输出', '其他书的名字、人物和剧情'],
+    inputSources: ['作者原始开书想法', '当前平台分类目录', '最多六项按需命中的内部创作参考'],
+    excludedSources: ['历史任务书', '其他成员失败输出', '其他书的名字、人物和剧情'],
     outputContract: {
       title: '清楚、有辨识度且与内容一致的暂定书名',
       positioning: '频道、分类、融合题材、核心看点和目标读者',
@@ -142,8 +119,8 @@ const NODE_SKILLS: readonly V7AgentSkillDefinition[] = [
       '只提出会影响作品方向、逻辑或商业辨识度的必要修订。',
       '区分可自动修订的问题与必须交给作者决定的分歧。'
     ],
-    inputSources: ['作者原始开书想法', '精确任务书版本', '精确资料包候选版本'],
-    excludedSources: ['旧版任务书', '其他成员候选', '未保存的模型推断'],
+    inputSources: ['作者原始开书想法', '精确资料包候选版本'],
+    excludedSources: ['历史任务书', '其他成员候选', '未保存的模型推断'],
     outputContract: {
       verdict: 'pass、revise或author_decision',
       summary: '作者能理解的一句话结论',

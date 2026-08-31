@@ -33,6 +33,7 @@ import { StageSettlementService } from '../continuity/stage-settlement-service.j
 import { V7CharacterMemoryService } from '../characters/v7-character-memory-service.js';
 import { V7PlanningMaintenanceService } from '../planning/v7-planning-maintenance-service.js';
 import { V7CreationContextCompiler } from './v7-creation-context-compiler.js';
+import { creationWorkflowBindingsAreCurrent } from './v7-creation-workflow-service.js';
 
 const LEASE_MILLISECONDS = 60_000;
 const CHILD_STATUS_WAIT_MILLISECONDS = 55_000;
@@ -129,6 +130,7 @@ export class V7CreationFormalizationService {
       })) {
         summary.processed += 1;
         try {
+          this.requireCurrentWorkflowBindings(stageJob.owner_id, stageJob.book_id, stageJob.workflow_id);
           this.processStageJob(stageJob);
           this.repository.finishStageJob({ jobId: stageJob.job_id, leaseToken, status: 'completed', message: null, now: this.now() });
           summary.completed += 1;
@@ -152,6 +154,7 @@ export class V7CreationFormalizationService {
       now
     })) return { processed: 0, completed: 0, failed: 0, unknown: 0 };
     try {
+      this.requireCurrentWorkflowBindings(event.owner_id, event.book_id, event.workflow_id);
       await this.processEvent(event);
       this.repository.finishEvent({ eventId: event.event_id, leaseToken, status: 'completed', message: null, now: this.now() });
       return { processed: 1, completed: 1, failed: 0, unknown: 0 };
@@ -189,6 +192,7 @@ export class V7CreationFormalizationService {
   }
 
   public retryFailed(ownerId: string, bookId: string, workflowId: string): number {
+    this.requireCurrentWorkflowBindings(ownerId, bookId, workflowId);
     const retried = this.repository.retryFailedEvents(ownerId, bookId, workflowId, this.now());
     // 任务可能在作者暂停期间已经由晚到的安全写后维护完成。此时没有失败项
     // 可以重新入队，但仍必须重新计算工作流断点，否则页面会永远停在旧的
@@ -215,6 +219,14 @@ export class V7CreationFormalizationService {
     else if (event.event_kind === 'maintain_story_state') this.maintainStoryState(event);
     else if (event.event_kind === 'maintain_characters') await this.maintainCharacters(event);
     else await this.maintainPlanning(event);
+  }
+
+  private requireCurrentWorkflowBindings(ownerId: string, bookId: string, workflowId: string): void {
+    const workflow = this.repository.workflow(ownerId, bookId, workflowId);
+    if (workflow === undefined) throw conflict('创作任务不存在或不属于本书。');
+    if (!creationWorkflowBindingsAreCurrent(this.repository, workflow, this.members())) {
+      throw conflict('这项历史任务使用的成员绑定已经停止；已有正文和结算证据仍然保留，请按当前流程重新开始。');
+    }
   }
 
   private async settleChapter(event: V7FormalizationEventRow): Promise<void> {
@@ -440,6 +452,9 @@ export class V7CreationFormalizationService {
     let lastError: unknown;
     const preferred = this.repository.memberPreference(input.ownerId, input.bookId, input.workflowId, 'settlement_editor')?.member_key;
     const members = this.members();
+    if (preferred !== undefined && !members.some((member) => member.memberKey === preferred)) {
+      throw new Error('这项历史任务使用的成员绑定已经停止；已有正文和结算证据仍然保留，请按当前流程重新开始。');
+    }
     const boundedDefault = preferred ?? members.find((candidate) =>
       candidate.roleKey === 'settlement_editor' && candidate.enabledByDefault && candidate.model.modelId === 'kimi-k3'
     )?.memberKey;
@@ -623,6 +638,7 @@ export class V7CreationFormalizationService {
             : stageFailed || failed.length > 0 ? 'partially_failed'
               : stagePending || allCompleted ? 'working' : 'working',
       checkpoint: {
+        ...(json(workflow.checkpoint_json) as Record<string, unknown>),
         totalMaintenance: events.length,
         completedMaintenance: events.filter((item) => item.status === 'completed').length,
         pendingMaintenance: pending.length,

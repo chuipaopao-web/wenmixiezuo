@@ -708,6 +708,52 @@ describe('V7设定编辑部', () => {
     } finally { await app.close(); }
   });
 
+  it('旧模型或损坏名册的设定任务只保留结果，不回退当前名册继续调用', async () => {
+    context = createTestContext('wenmi-v7-setting-retired-roster-');
+    const resolver = new SettingResolver(false);
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'setting-retired-roster@example.com', '旧任务作者', 'strong-pass-907');
+      const bookId = await createBook(app, cookie, '旧设定任务测试', 'setting-retired-roster-book-0001', '历史脑洞');
+      const owner = context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string };
+      const roster = V7_SETTING_MEMBERS.map((member) => ({ ...member, model: { ...member.model } }));
+      roster[0] = { ...roster[0]!, model: { ...roster[0]!.model, modelId: 'glm-5.2' } };
+      const item = V7_SETTING_CATALOG.find((candidate) => candidate.key === 'history-baseline')!;
+      const repository = new V7SettingEditorialRepository(context.database);
+      repository.createBatchWithJobs({
+        batch: {
+          batchId: 'retired-setting-batch', ownerId: owner.owner_id, bookId,
+          idempotencyKey: 'retired-setting-key', requestHash: 'a'.repeat(64),
+          selectedItemsJson: JSON.stringify([item.key]), customItemsJson: '[]',
+          openingVersion: 1, openingHash: 'b'.repeat(64), rosterJson: JSON.stringify(roster),
+          now: '2026-08-25T00:00:00.000Z'
+        },
+        jobs: [{ jobId: 'retired-setting-job', item, authorNote: '' }]
+      });
+      const callsBefore = resolver.prompts.length;
+
+      const opened = await app.inject({
+        method: 'GET', url: `/api/v1/v7/books/${bookId}/setting-batches/retired-setting-batch`,
+        headers: { ...HEADERS, cookie }
+      });
+      expect(opened.statusCode).toBe(200);
+      const failed = await pollBatch(app, cookie, bookId, 'retired-setting-batch');
+      expect(failed.status).toBe('partially_failed');
+      expect(resolver.prompts).toHaveLength(callsBefore);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_outputs
+        WHERE owner_id=? AND book_id=? AND batch_id='retired-setting-batch'`).get(owner.owner_id, bookId))
+        .toEqual({ count: 0 });
+
+      const retried = await app.inject({
+        method: 'POST', url: `/api/v1/v7/books/${bookId}/setting-batches/retired-setting-batch/retry`,
+        headers: { ...HEADERS, cookie }, payload: {}
+      });
+      expect(retried.statusCode).toBe(409);
+      expect(JSON.stringify(retried.json())).toMatch(/历史设定任务/u);
+      expect(resolver.prompts).toHaveLength(callsBefore);
+    } finally { await app.close(); }
+  });
+
   it('长批次续约后，旧租约时点不能被页面轮询重复接管', async () => {
     context = createTestContext('wenmi-v7-setting-lease-');
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: new SettingResolver(false) });

@@ -94,6 +94,15 @@ export class V7PlanningModelGateway {
       if (existing.owner_id !== request.ownerId || existing.book_id !== request.bookId) {
         throw new V7PlanningModelError('模型调用不属于当前书籍');
       }
+      if (existing.run_id !== request.runId
+        || existing.run_kind !== request.runKind
+        || existing.node_key !== request.nodeKey
+        || existing.member_key !== request.member.memberKey
+        || existing.provider !== request.member.model.provider
+        || existing.model_id !== request.member.model.modelId
+        || existing.plan !== request.member.model.plan) {
+        throw new V7PlanningModelError('历史模型调用的任务成员或模型绑定已经变化，不能恢复执行');
+      }
       if (existing.state === 'succeeded' && existing.output_text !== null) {
         return {
           requestId: existing.request_id, provider: existing.provider, modelId: existing.model_id,

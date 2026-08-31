@@ -81,7 +81,7 @@ const COMPLETE_TASK: OpeningTaskView = {
   idea: '张三穿越三国，从流民开始求生。',
   publishingPlatform: 'fanqie',
   statusText: '开书资料包已经完成，请您确认或修改', phaseText: '主编审查通过',
-  isRunning: false, needsAuthorDecision: false,
+  isRunning: false, needsAuthorDecision: false, retired: false,
   selectedMembers: {
     chiefEditor: { memberKey: 'chief-kimi', displayName: '总编·月衡' },
     screenwriter: { memberKey: 'writer-ark', displayName: '编剧·青岚' }
@@ -90,7 +90,7 @@ const COMPLETE_TASK: OpeningTaskView = {
     { candidateId: 'candidate-package-0001', kind: 'opening_package', version: 1, content: PACKAGE, createdBy: { memberKey: 'writer-ark', displayName: '编剧·青岚' }, sourceCandidateIds: [] },
     { candidateId: 'candidate-review-0001', kind: 'opening_review', version: 1, content: { verdict: 'pass', summary: '定位、人物、开局和长期空间相互支持。', issues: [], requiredChanges: [], authorDecisions: [] }, createdBy: { memberKey: 'chief-kimi', displayName: '总编·月衡' }, sourceCandidateIds: ['candidate-package-0001'] }
   ],
-  errorMessage: null, resultBookId: null, progress: { currentStep: 3, totalSteps: 3, percent: 100 },
+  errorMessage: null, resultBookId: null, progress: { currentStep: 2, totalSteps: 2, percent: 100 },
   createdAt: '2026-08-25T00:00:00Z', updatedAt: '2026-08-25T00:00:01Z'
 };
 
@@ -667,10 +667,36 @@ describe('V7 author opening flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始设计' }));
     expect(await screen.findByLabelText('编辑部工作进度')).toBeVisible();
     expect(screen.getByText('编剧正在设计开书资料包')).toBeVisible();
-    expect(screen.getByText('主编理解')).toBeVisible();
-    expect(screen.getByText('编剧设计')).toBeVisible();
-    expect(screen.getByText('主编审查')).toBeVisible();
+    expect(screen.getByText('直接设计')).toBeVisible();
+    expect(screen.getByText('审查点评')).toBeVisible();
+    expect(screen.queryByText('主编理解')).not.toBeInTheDocument();
+    expect(screen.queryByText('编剧设计')).not.toBeInTheDocument();
+    expect(screen.queryByText('主编审查')).not.toBeInTheDocument();
     expect(localStorage.getItem(AI_DRAFT_KEY)).toContain('task-opening-0001');
+  });
+
+  it('历史未完成开书任务只显示当前流程的失败恢复', async () => {
+    const retiredTask = {
+      ...COMPLETE_TASK,
+      status: 'working', phase: 'retired_phase', isRunning: true,
+      workflowStyle: 'retired_workflow',
+      candidates: [{
+        candidateId: 'retired-candidate-1', kind: 'retired_candidate', version: 1, content: {},
+        createdBy: { memberKey: 'retired-member', displayName: '历史成员' }, sourceCandidateIds: []
+      }]
+    };
+    localStorage.setItem(AI_DRAFT_KEY, JSON.stringify({ idea: retiredTask.idea, taskId: retiredTask.taskId, mode: 'ai' }));
+    installFetch((url) => url.endsWith(`/api/v1/v7/opening-agent/tasks/${retiredTask.taskId}`)
+      ? response(retiredTask)
+      : null);
+    window.history.replaceState({}, '', '/?view=new-novel&entry=ai');
+
+    render(<AuthorApp />);
+
+    expect(await screen.findByText('对不起，这项未完成任务已经停止，请按当前流程重新开始。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '按当前流程重新开始' })).toBeVisible();
+    expect(screen.queryByLabelText('编辑部工作进度')).not.toBeInTheDocument();
+    expect(screen.queryByText('主编理解')).not.toBeInTheDocument();
   });
 
   it('recovers a reviewed package, confirms it once, and opens the persisted information page', async () => {
@@ -938,11 +964,11 @@ describe('V7 author opening flow', () => {
     expect(screen.getByText('编辑部当前没有待处理工作')).toBeVisible();
   });
 
-  it('clears every unbuilt old opening task in one action while preserving created books', async () => {
-    const oldTask = { ...COMPLETE_TASK, status: 'failed', statusText: '本轮没有完成', errorMessage: '旧任务未完成', candidates: [] };
+  it('clears every unbuilt incomplete opening task in one action while preserving created books', async () => {
+    const incompleteTask = { ...COMPLETE_TASK, status: 'failed', statusText: '本轮没有完成', errorMessage: '这项任务未完成', candidates: [] };
     const builtTask = { ...COMPLETE_TASK, taskId: 'built-task-0001', idea: '已经建成书籍的任务', resultBookId: 'v7-book-0001' };
     installFetch((url, init) => {
-      if (url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')) return response([oldTask, builtTask]);
+      if (url.endsWith('/api/v1/v7/opening-agent/tasks?limit=50')) return response([incompleteTask, builtTask]);
       if (url.endsWith('/api/v1/v7/opening-agent/tasks/abandon-all') && init?.method === 'POST') {
         return response({ archivedCount: 1, skippedCreatedCount: 1 });
       }
@@ -950,12 +976,12 @@ describe('V7 author opening flow', () => {
     });
     render(<AuthorApp />);
     fireEvent.click(screen.getByRole('button', { name: '任务' }));
-    expect(await screen.findByRole('button', { name: '清空旧任务' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: '清空旧任务' }));
-    expect(screen.getByText('只移走未建成书籍的旧任务，书籍与历史方案都会保留。')).toBeVisible();
+    expect(await screen.findByRole('button', { name: '清理未完成任务' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '清理未完成任务' }));
+    expect(screen.getByText('只移走尚未建成书籍的未完成任务，书籍与历史方案都会保留。')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '确认清理' }));
     expect(await screen.findByRole('button', { name: '打开书籍' })).toBeVisible();
-    expect(screen.queryByText(oldTask.idea)).not.toBeInTheDocument();
+    expect(screen.queryByText(incompleteTask.idea)).not.toBeInTheDocument();
   });
 
   it('hides recoverably archived tasks returned by an older local API process', async () => {

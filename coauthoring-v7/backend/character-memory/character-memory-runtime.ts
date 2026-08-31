@@ -13,10 +13,12 @@ const CONTEXT_FIELDS = new Set<CharacterContextField>([
 const REVIEW_KINDS = new Set(['hard_conflict', 'continuity_risk', 'creative_quality', 'open_question']);
 const REVIEW_SEVERITIES = new Set(['blocking', 'important', 'advisory']);
 
+export const V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS = 16_000;
+
 export const V7_CHARACTER_MEMBERS: readonly V7CharacterMemberDefinition[] = [
-  member('character-curator-deepseek-v4-pro', '妙玉', true, true, 1, coding('deepseek-v4-pro')),
-  member('character-curator-glm-5-3', '西施', true, false, 2, coding('glm-5.3')),
-  member('character-curator-kimi-k3', '沈知微', true, false, 3, agent('kimi-k3'))
+  member('continuity-deepseek-v4-pro', '裴文心', true, true, 1, coding('deepseek-v4-pro')),
+  member('continuity-glm-5-3', '宋知遥', true, false, 2, coding('glm-5.3')),
+  member('continuity-kimi-k3', '沈墨', true, false, 3, agent('kimi-k3'))
 ] as const;
 
 export function buildCharacterFallbackChain(
@@ -168,19 +170,134 @@ export function characterMaintenancePrompt(input: {
   settlement: unknown;
   characters: unknown;
   evidenceRefs: readonly string[];
+  maxInputCharacters?: number;
 }): string {
-  return [
+  const maxInputCharacters = input.maxInputCharacters ?? V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS;
+  if (!Number.isInteger(maxInputCharacters) || maxInputCharacters < 4_000) {
+    throw new Error('人物维护输入预算必须是不少于4000字的整数');
+  }
+  const sources = maintenanceSourceCandidates(input.settlement, input.characters);
+  const characterIndex = characterIdentityIndex(input.characters);
+  const render = (includedSources: readonly MaintenanceSourceCandidate[]): string => {
+    const omitted = sources.slice(includedSources.length);
+    const omittedByScope = omitted.reduce<Record<string, number>>((counts, source) => {
+      counts[source.scope] = (counts[source.scope] ?? 0) + 1;
+      return counts;
+    }, {});
+    const omittedBySourceKind = omitted.reduce<Record<string, number>>((counts, source) => {
+      counts[source.sourceKind] = (counts[source.sourceKind] ?? 0) + 1;
+      return counts;
+    }, {});
+    const payload = {
+      schema: 'v7-character-maintenance-input-v2',
+      characterIndex,
+      includedSources,
+      omittedSummary: { total: omitted.length, byScope: omittedByScope, bySourceKind: omittedBySourceKind },
+      evidenceRefs: input.evidenceRefs
+    };
+    return [
     '你是文秘写作的人物资料维护员。只返回一个JSON对象，不要Markdown，不要思维过程。',
     '正式结算已经完成，系统会自行保存版本与投影。你负责理解这次实际发生的内容对人物意味着什么，并指出档案建议、正史缺口和连续性问题。',
     '不得把未来规划、角色愿望、谎言、梦境、猜测或作者未确认内容写成客观实际；不得从一时动作或短暂情绪推断永久性格。',
     'profile_update只建议更新稳定人物档案，canon_gap只指出正式结算可能漏记的持久事实；两者都是候选，不能直接改正史。',
     '问题分四类：hard_conflict（与硬事实直接矛盾）、continuity_risk（可能断裂）、creative_quality（人物单薄或选择不够有力）、open_question（资料不足）。',
-    '每条变化和问题必须引用给定evidenceRefs；没有证据就不要输出。只引用本次给出的entityId。',
+    'input中的includedSources是系统按正式来源类别和硬预算逐项装入的候选资料，不代表语义结论；你仍要自行判断哪些与本次变化有关。',
+    'omittedSummary.total大于0表示还有资料因输入上限未装入。不得猜测被省略内容；证据不足时不提变化，或用open_question明确指出需要回查。',
+    '每条变化和问题必须引用给定evidenceRefs；没有证据就不要输出。只引用characterIndex里的entityId。',
     '输出字段：schema="v7-character-maintenance-v1",publicSummary,affectedEntityIds,changes,issues。changes每项字段必须是kind（只用profile_update/canon_gap）、entityId、fieldPath、proposedValue、publicSummary、reason、evidenceRefs；issues每项字段必须是kind、severity、entityId、publicSummary、evidenceRefs、suggestedAction。不得改成changeType、field、summary或category。',
-    `正式结算：${JSON.stringify(input.settlement)}`,
-    `当前人物资料：${JSON.stringify(input.characters)}`,
-    `允许的证据引用：${JSON.stringify(input.evidenceRefs)}`
-  ].join('\n\n');
+      `人物维护输入：${JSON.stringify(payload)}`
+    ].join('\n\n');
+  };
+  const included: MaintenanceSourceCandidate[] = [];
+  let prompt = render(included);
+  if (prompt.length > maxInputCharacters) {
+    throw new Error('人物维护的任务身份和证据目录已经超过输入预算，请缩小本次人物候选范围');
+  }
+  for (const source of sources) {
+    const candidate = render([...included, source]);
+    if (candidate.length > maxInputCharacters) break;
+    included.push(source);
+    prompt = candidate;
+  }
+  if (prompt.length > maxInputCharacters) throw new Error('人物维护输入超过硬上限');
+  return prompt;
+}
+
+interface MaintenanceSourceCandidate {
+  scope: 'settlement' | 'character';
+  sourceKind: string;
+  path: string;
+  entityId?: string;
+  value: unknown;
+}
+
+function maintenanceSourceCandidates(settlement: unknown, characters: unknown): MaintenanceSourceCandidate[] {
+  const settlementRecord = isRecord(settlement) ? settlement : { value: settlement };
+  const characterRecords = Array.isArray(characters) ? characters.filter(isRecord) : [];
+  const sources: MaintenanceSourceCandidate[] = [];
+  const addSettlement = (keys: readonly string[]): void => {
+    for (const key of keys) addValueCandidates(sources, 'settlement', key, `/${key}`, settlementRecord[key]);
+  };
+  const addCharacter = (sourceKind: string): void => {
+    for (const character of characterRecords) {
+      const entityId = typeof character.entityId === 'string' ? character.entityId : undefined;
+      addValueCandidates(sources, 'character', sourceKind, `/${sourceKind}`, character[sourceKind], entityId);
+    }
+  };
+
+  addCharacter('displayName');
+  addSettlement(['entityStates', 'relationshipChanges', 'knowledgeChanges']);
+  addCharacter('state');
+  addSettlement(['irreversibleResults', 'closedThreads', 'openThreads', 'exclusions']);
+  addCharacter('relationships');
+  addCharacter('knowledge');
+  addCharacter('profile');
+  addCharacter('openQuestions');
+  addCharacter('history');
+  addSettlement(Object.keys(settlementRecord).filter((key) => ![
+    'entityStates', 'relationshipChanges', 'knowledgeChanges', 'irreversibleResults',
+    'closedThreads', 'openThreads', 'exclusions'
+  ].includes(key)).toSorted());
+  return sources;
+}
+
+function characterIdentityIndex(characters: unknown): Array<{ entityId: string }> {
+  if (!Array.isArray(characters)) return [];
+  return characters.filter(isRecord).flatMap((character) =>
+    typeof character.entityId === 'string' ? [{ entityId: character.entityId }] : []
+  );
+}
+
+function addValueCandidates(
+  target: MaintenanceSourceCandidate[],
+  scope: MaintenanceSourceCandidate['scope'],
+  sourceKind: string,
+  path: string,
+  value: unknown,
+  entityId?: string
+): void {
+  if (value === undefined) return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => target.push({
+      scope, sourceKind, path: `${path}/${index}`, value: item,
+      ...(entityId === undefined ? {} : { entityId })
+    }));
+    return;
+  }
+  if (isRecord(value) && (sourceKind === 'profile' || sourceKind === 'state')) {
+    Object.keys(value).toSorted().forEach((key) => {
+      target.push({
+        scope, sourceKind, path: `${path}/${key}`, value: value[key],
+        ...(entityId === undefined ? {} : { entityId })
+      });
+    });
+    return;
+  }
+  target.push({ scope, sourceKind, path, value, ...(entityId === undefined ? {} : { entityId }) });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseIssue(value: unknown, entities: Set<string>, evidence: Set<string>): CharacterReviewIssue {

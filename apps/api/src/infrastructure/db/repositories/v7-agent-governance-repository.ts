@@ -144,25 +144,35 @@ export class V7AgentGovernanceRepository {
   }
 
   public resolveTaskPolicy(memberKey: string, taskKind: V7AgentTaskKind): V7ResolvedTaskPolicy {
+    const definition = V7_GLOBAL_MEMBERS.find((candidate) => candidate.memberKey === memberKey);
+    if (definition === undefined) throw new Error(`V7任务成员已经退役或不存在：${memberKey}`);
     const meta = this.database.prepare('SELECT revision FROM v7_agent_governance_meta WHERE singleton=1').get() as
       { revision: number } | undefined;
     const policy = this.database.prepare(`SELECT default_temperature,minimum_temperature,maximum_temperature
       FROM v7_agent_governance_task_policies WHERE task_kind=?`).get(taskKind) as
       { default_temperature: number; minimum_temperature: number; maximum_temperature: number } | undefined;
-    const member = this.database.prepare(`SELECT temperature_adjustment FROM v7_agent_governance_member_settings
-      WHERE member_key=?`).get(memberKey) as { temperature_adjustment: number } | undefined;
+    const member = this.database.prepare(`SELECT fixed_role_key,model_profile_key,enabled,temperature_adjustment
+      FROM v7_agent_governance_member_settings WHERE member_key=?`).get(memberKey) as {
+        fixed_role_key: V7FixedRoleKey;
+        model_profile_key: string;
+        enabled: number;
+        temperature_adjustment: number;
+      } | undefined;
     const settingCount = this.database.prepare('SELECT count(*) AS count FROM v7_agent_governance_member_settings').get() as
       { count: number };
     if (settingCount.count === 0) {
       const fallback = taskTemperaturePolicy(taskKind);
       return { governanceRevision: meta?.revision ?? 1, temperature: fallback.defaultTemperature };
     }
-    if (meta === undefined || policy === undefined) {
+    if (meta === undefined || policy === undefined || member === undefined) {
       throw new Error(`V7成员运行参数尚未就绪：${memberKey}/${taskKind}`);
     }
-    // 已建立的任务可能冻结了统一成员治理上线前的旧成员编号。它们仍要按
-    // 创建时的模型快照完成，不能因为后台换了名册就丢失或被重复下单。
-    const temperatureAdjustment = member?.temperature_adjustment ?? 0;
+    if (member.enabled !== 1
+      || member.fixed_role_key !== definition.fixedRoleKey
+      || !allowedModelProfilesForRole(definition.fixedRoleKey).includes(member.model_profile_key)) {
+      throw new Error(`V7任务成员当前不可执行：${memberKey}`);
+    }
+    const temperatureAdjustment = member.temperature_adjustment;
     const temperature = Math.round(Math.min(policy.maximum_temperature,
       Math.max(policy.minimum_temperature, policy.default_temperature + temperatureAdjustment)) * 100) / 100;
     return { governanceRevision: meta.revision, temperature };

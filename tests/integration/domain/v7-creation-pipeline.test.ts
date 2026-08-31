@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { creationFallbackChain, parseVolumeOption, type PlanningTreeDocument, type PlanningTreeNode } from '@wenmi/v7-backend';
+import {
+  creationRosterFromGlobal,
+  creationFallbackChain,
+  parseVolumeOption,
+  type PlanningTreeDocument,
+  type PlanningTreeNode
+} from '@wenmi/v7-backend';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -277,6 +283,52 @@ describe('V7全链路创作总线', () => {
       const successfulContextCalls = Number((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='context' AND state='succeeded'`).get(ownerId, bookId) as { count: number }).count);
       expect(successfulContextCalls).toBe(activeContextPacks);
+      const contextCandidates = (context.database.prepare(`SELECT candidate_sources_json FROM v7_creation_context_packs
+        WHERE owner_id=? AND book_id=? ORDER BY created_at,context_pack_id`).all(ownerId, bookId) as Array<{
+          candidate_sources_json: string;
+        }>).flatMap((row) => JSON.parse(row.candidate_sources_json) as Array<{
+          sourceKey: string;
+          sourceKind: string;
+          content: Record<string, unknown>;
+          selectionContent?: Record<string, unknown>;
+        }>);
+      const characterCandidates = contextCandidates.filter((candidate) => candidate.sourceKind === 'character');
+      expect(characterCandidates.length).toBeGreaterThan(0);
+      expect(characterCandidates.every((candidate) => candidate.sourceKey.startsWith('actual:character:'))).toBe(true);
+      expect(contextCandidates.some((candidate) => candidate.sourceKey === 'actual:characters')).toBe(false);
+      expect(characterCandidates[0]).toMatchObject({
+        content: expect.objectContaining({ entityId: expect.any(String) }),
+        selectionContent: expect.objectContaining({
+          schema: 'v7-character-context-index-v2', entityId: expect.any(String), displayName: expect.any(String)
+        })
+      });
+      expect(characterCandidates[0]!.content).toHaveProperty('stableProfile');
+      expect(characterCandidates[0]!.selectionContent).not.toHaveProperty('stableProfile');
+      expect(characterCandidates[0]!.selectionContent).not.toHaveProperty('relationships');
+      expect(characterCandidates[0]!.selectionContent).not.toHaveProperty('knowledge');
+      const activeStoryCandidates = contextCandidates.filter((candidate) => candidate.sourceKind === 'story_state');
+      expect(activeStoryCandidates.length).toBeGreaterThan(0);
+      expect(activeStoryCandidates.every((candidate) => candidate.sourceKey.startsWith('actual:story-state:'))).toBe(true);
+      expect(contextCandidates.some((candidate) => candidate.sourceKey === 'actual:story-state')).toBe(false);
+      expect(activeStoryCandidates[0]).toMatchObject({
+        content: expect.objectContaining({ stableKey: expect.any(String), evidenceRefs: expect.anything() }),
+        selectionContent: expect.objectContaining({
+          schema: 'v7-story-state-context-index-v2', stableKey: expect.any(String), title: expect.any(String)
+        })
+      });
+      expect(activeStoryCandidates[0]!.selectionContent).not.toHaveProperty('evidenceRefs');
+      const contextPlannerPrompts = resolver.prompts.filter((prompt) => prompt.includes('本次资料策划完整输入硬限为'));
+      expect(contextPlannerPrompts).toHaveLength(successfulContextCalls);
+      for (const prompt of contextPlannerPrompts) {
+        const budgetChars = Number(/本次资料策划完整输入硬限为(\d+)字符/u.exec(prompt)?.[1] ?? '0');
+        expect(budgetChars).toBeGreaterThan(0);
+        expect(Array.from(prompt).length).toBeLessThanOrEqual(budgetChars);
+      }
+      const plannerCandidates = contextPlannerPrompts.flatMap(contextPromptCandidates);
+      expect(plannerCandidates.find((candidate) => candidate.sourceKey.startsWith('actual:character:'))?.content)
+        .toMatchObject({ schema: 'v7-character-context-index-v2' });
+      expect(plannerCandidates.find((candidate) => candidate.sourceKey.startsWith('actual:story-state:'))?.content)
+        .toMatchObject({ schema: 'v7-story-state-context-index-v2' });
       expect(context.database.prepare(`SELECT DISTINCT purpose FROM v7_creation_model_calls
         WHERE owner_id=? AND book_id=? AND run_kind='settlement'`).all(ownerId, bookId))
         .toEqual([{ purpose: 'novel_reviewer' }]);
@@ -736,7 +788,7 @@ describe('V7全链路创作总线', () => {
       const requestInput = {
         requestId: 'creation-unknown-request-0001', ownerId, bookId, workflowId,
         runKind: 'outline' as const, nodeKey: 'chain-1', workstationKey: 'chapter_outline' as const,
-        member: creationFallbackChain('outline_writer')[0]!,
+        member: creationFallbackChain('planning_writer')[0]!,
         purpose: 'structured_planning' as const, operationMode: 'fresh' as const,
         basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [],
         prompt: '测试未知结果不得重复下单', maxOutputTokens: 1_000, temperature: 0.2
@@ -855,9 +907,10 @@ describe('V7全链路创作总线', () => {
     }
   });
 
-  it('旧章纲岗位选择会转成固定策划编剧岗位', async () => {
-    context = createTestContext('wenmi-v7-creation-outline-role-alias-');
-    const app = await createServer(context.config, context.database);
+  it('旧章纲岗位和旧成员绑定只读保留，不再重绑当前模型执行', async () => {
+    context = createTestContext('wenmi-v7-creation-retired-role-');
+    const resolver = new CreationResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
     try {
       const cookie = await register(app, 'creation-outline-alias@example.com', '章纲岗位作者');
       const bookId = await createBook(app, cookie, '章纲岗位测试书', 'creation-book-outline-alias-0001');
@@ -874,23 +927,13 @@ describe('V7全链路创作总线', () => {
       const selected = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}/member`, {
         roleKey: 'outline_writer', memberKey: planner!.memberKey
       });
-      expect(selected.statusCode).toBe(200);
+      expect(selected.statusCode).toBe(400);
+      expect(selected.json().error.message).toContain('岗位无效');
       expect(context.database.prepare(`SELECT role_key,member_key FROM v7_creation_fixed_member_preferences
-        WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(ownerId, bookId, workflowId)).toEqual([
-        { role_key: 'planning_writer', member_key: planner!.memberKey }
-      ]);
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(ownerId, bookId, workflowId)).toEqual([]);
 
       const now = new FixedClock().now().toISOString();
       const repository = new V7CreationRuntimeRepository(context.database);
-      context.database.prepare(`INSERT INTO v7_creation_member_preferences(
-        owner_id,book_id,workflow_id,role_key,member_key,created_at,updated_at
-      ) VALUES(?,?,?,?,?,?,?)`).run(
-        ownerId, bookId, workflowId, 'outline_writer', 'creation-outline-glm-5-3', now, now
-      );
-      expect(repository.memberPreference(ownerId, bookId, workflowId, 'planning_writer')).toMatchObject({
-        role_key: 'planning_writer', member_key: planner!.memberKey
-      });
-
       const legacyWorkflowId = 'creation-workflow-outline-legacy-0001';
       repository.createWorkflow({
         workflowId: legacyWorkflowId, ownerId, bookId, volumeScopeId: 'volume-1', firstVolume: true, authorGoal: null,
@@ -901,9 +944,83 @@ describe('V7全链路创作总线', () => {
       ) VALUES(?,?,?,?,?,?,?)`).run(
         ownerId, bookId, legacyWorkflowId, 'outline_writer', 'creation-outline-glm-5-3', now, now
       );
+      context.database.prepare(`INSERT INTO v7_creation_fixed_member_preferences(
+        owner_id,book_id,workflow_id,role_key,member_key,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?)`).run(
+        ownerId, bookId, legacyWorkflowId, 'planning_writer', 'creation-outline-glm-5-3', now, now
+      );
       expect(repository.memberPreference(ownerId, bookId, legacyWorkflowId, 'planning_writer')).toMatchObject({
         role_key: 'planning_writer', member_key: 'creation-outline-glm-5-3'
       });
+      const retired = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/creation-workflows/${legacyWorkflowId}`);
+      expect(retired.statusCode).toBe(200);
+      expect(retired.json().data).toMatchObject({ status: 'failed' });
+      expect(retired.json().data.message).toContain('已经停止的成员绑定');
+      expect(resolver.prompts).toHaveLength(0);
+      expect(context.database.prepare(`SELECT role_key,member_key FROM v7_creation_member_preferences
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).all(ownerId, bookId, legacyWorkflowId)).toEqual([
+        { role_key: 'outline_writer', member_key: 'creation-outline-glm-5-3' }
+      ]);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).get(ownerId, bookId, legacyWorkflowId)).toEqual({ count: 0 });
+
+      repository.updateWorkflow({
+        ownerId, bookId, workflowId: legacyWorkflowId,
+        stage: 'chain_tree_confirmation', status: 'awaiting_author', chainScopeId: 'chain-retired-1',
+        checkpoint: { preservedHistoricalResult: true }, errorMessage: null, now
+      });
+      const retiredOutline = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/creation-workflows/${legacyWorkflowId}/outlines`, {
+          maximumChapters: 3, candidateCount: 1
+        });
+      expect(retiredOutline.statusCode).toBe(409);
+      expect(retiredOutline.json().error.message).toContain('已经停止的成员绑定');
+
+      repository.updateWorkflow({
+        ownerId, bookId, workflowId: legacyWorkflowId,
+        stage: 'manuscript', status: 'awaiting_author', chainScopeId: 'chain-retired-1',
+        checkpoint: { preservedHistoricalResult: true }, errorMessage: null, now
+      });
+      const retiredManuscript = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/creation-workflows/${legacyWorkflowId}/manuscripts`, { chapterNumber: 1 });
+      expect(retiredManuscript.statusCode).toBe(409);
+      expect(retiredManuscript.json().error.message).toContain('已经停止的成员绑定');
+      const retiredManaged = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/creation-workflows/${legacyWorkflowId}/managed/activate`, {});
+      expect(retiredManaged.statusCode).toBe(409);
+      expect(retiredManaged.json().error.message).toContain('已经停止的成员绑定');
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_managed_creation_runs
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).get(ownerId, bookId, legacyWorkflowId)).toEqual({ count: 0 });
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).get(ownerId, bookId, legacyWorkflowId)).toEqual({ count: 0 });
+      expect(resolver.prompts).toHaveLength(0);
+
+      const mismatchedWorkflowId = 'creation-workflow-model-mismatch-0001';
+      repository.createWorkflow({
+        workflowId: mismatchedWorkflowId, ownerId, bookId, volumeScopeId: 'volume-1', firstVolume: true,
+        authorGoal: null, idempotencyKey: 'creation-model-mismatch-idempotency', requestHash: 'e'.repeat(64), now
+      });
+      repository.updateWorkflow({
+        ownerId, bookId, workflowId: mismatchedWorkflowId, stage: 'volume_decision', status: 'awaiting_author',
+        checkpoint: currentCreationRuntimeCheckpoint(), now
+      });
+      repository.beginModelCall({
+        requestId: 'creation-model-mismatch-call-0001', ownerId, bookId, workflowId: mismatchedWorkflowId,
+        runKind: 'option', nodeKey: 'volume:volume-1:option_1', memberKey: planner!.memberKey,
+        provider: 'volcengine-ark-coding-plan', modelId: 'kimi-k2-6-modelhub', plan: 'coding',
+        purpose: 'structured_planning', promptHash: 'f'.repeat(64), reservedTokens: 2_000,
+        governanceRevision: 1, temperature: 0.2, now
+      });
+      repository.failModelCall('creation-model-mismatch-call-0001', 'failed', '历史模型已停止', now);
+      const mismatched = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/creation-workflows/${mismatchedWorkflowId}/member`, {
+          roleKey: 'planning_writer', memberKey: planner!.memberKey
+        });
+      expect(mismatched.statusCode).toBe(409);
+      expect(mismatched.json().error.message).toContain('已经停止的成员绑定');
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_creation_model_calls
+        WHERE owner_id=? AND book_id=? AND workflow_id=?`).get(ownerId, bookId, mismatchedWorkflowId)).toEqual({ count: 1 });
+      expect(resolver.prompts).toHaveLength(0);
     } finally {
       await app.close();
     }
@@ -926,10 +1043,12 @@ describe('V7全链路创作总线', () => {
       });
       repository.updateWorkflow({
         ownerId, bookId, workflowId, stage: 'manuscript', status: 'working',
-        checkpoint: { completedChapters: 1, preservedResult: '第一章已完成' }, now: new FixedClock().now().toISOString()
+        checkpoint: currentCreationRuntimeCheckpoint({ completedChapters: 1, preservedResult: '第一章已完成' }),
+        now: new FixedClock().now().toISOString()
       });
       repository.saveManagedRun({
-        ownerId, bookId, workflowId, mode: 'managed', writerMemberKey: 'hongyu', reviewerMemberKey: 'zhaojun',
+        ownerId, bookId, workflowId, mode: 'managed',
+        writerMemberKey: 'writer-deepseek-v4-pro', reviewerMemberKey: 'review-kimi-k3',
         now: new FixedClock().now().toISOString()
       });
 
@@ -953,7 +1072,7 @@ describe('V7全链路创作总线', () => {
 
       const resumed = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/creation-workflows/${workflowId}/managed/activate`, {});
-      expect(resumed.statusCode).toBe(200);
+      expect(resumed.statusCode, resumed.body).toBe(200);
       expect(resumed.json().data).toMatchObject({
         status: 'working', execution: { mode: 'managed', status: 'active' }
       });
@@ -995,7 +1114,7 @@ describe('V7全链路创作总线', () => {
       });
       repository.updateWorkflow({
         ownerId, bookId, workflowId: 'creation-resume-parent-0001', stage: 'completed', status: 'completed',
-        chainScopeId: 'chain-1', checkpoint: { completedChapters: 6 }, now
+        chainScopeId: 'chain-1', checkpoint: currentCreationRuntimeCheckpoint({ completedChapters: 6 }), now
       });
       repository.createChainWorkflow({
         workflowId: 'creation-resume-cancelled-0001', ownerId, bookId, volumeScopeId: 'volume-1',
@@ -1005,14 +1124,16 @@ describe('V7全链路创作总线', () => {
       });
       repository.updateWorkflow({
         ownerId, bookId, workflowId: 'creation-resume-cancelled-0001', stage: 'chain_options', status: 'cancelled',
-        checkpoint: { parentWorkflowId: 'creation-resume-parent-0001', requestedCandidateCount: 1 }, now
+        checkpoint: currentCreationRuntimeCheckpoint({
+          parentWorkflowId: 'creation-resume-parent-0001', requestedCandidateCount: 1
+        }), now
       });
 
       const resumed = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/creation-workflows/creation-resume-cancelled-0001/continue-to-next-chain`, {
           chainScopeId: 'chain-2', candidateCount: 1, idempotencyKey: 'creation-resume-next-chain-0001'
         });
-      expect(resumed.statusCode).toBe(200);
+      expect(resumed.statusCode, resumed.body).toBe(200);
       expect(resumed.json().data.workflow).toMatchObject({
         chainScopeId: 'chain-2', status: expect.stringMatching(/working|waiting|waiting_for_you/u)
       });
@@ -1041,7 +1162,8 @@ describe('V7全链路创作总线', () => {
       });
       repository.updateWorkflow({
         ownerId, bookId, workflowId, stage: 'manuscript', status: 'unknown',
-        checkpoint: { nextChapterNumber: 7 }, errorMessage: '对不起，这次工作结果还不能确认。', now
+        checkpoint: currentCreationRuntimeCheckpoint({ nextChapterNumber: 7 }),
+        errorMessage: '对不起，这次工作结果还不能确认。', now
       });
       repository.beginModelCall({
         requestId: 'creation-unknown-writer-call-0001', ownerId, bookId, workflowId,
@@ -1324,10 +1446,18 @@ function outputFor(prompt: string, excludeOneOptionalSource = false): string {
   throw new Error(`测试没有覆盖这类成员任务：${prompt.slice(0, 80)}`);
 }
 
-function contextSelectionOutput(prompt: string, excludeOneOptionalSource: boolean): string {
+function contextPromptCandidates(prompt: string): Array<{ sourceKey: string; content: Record<string, unknown> }> {
   const candidatesText = prompt.split('候选资料：').at(-1) ?? '[]';
-  const candidates = JSON.parse(candidatesText.split('\n测试模型：')[0]!) as Array<{
+  return JSON.parse(candidatesText.split('\n测试模型：')[0]!) as Array<{
     sourceKey: string;
+    content: Record<string, unknown>;
+  }>;
+}
+
+function contextSelectionOutput(prompt: string, excludeOneOptionalSource: boolean): string {
+  const candidates = contextPromptCandidates(prompt) as Array<{
+    sourceKey: string;
+    content: Record<string, unknown>;
     required: boolean;
     exactContentCharacters?: number;
     exactPackedCharacters?: number;
@@ -1569,6 +1699,27 @@ function confirmSetting(ownerId: string, bookId: string): void {
     (owner_id,book_id,item_key,item_label,group_title,item_prompt,state,active_version_id,revision,updated_at)
     VALUES (?,?,'world-stage','世界舞台','核心设定','时代和世界规则','confirmed','creation-setting-version',1,?)`)
     .run(ownerId, bookId, now);
+}
+
+function currentCreationRuntimeCheckpoint(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...extra,
+    runtimeBindingRoster: {
+      schema: 'v7-creation-runtime-bindings-v1',
+      members: creationRosterFromGlobal()
+        .filter((member) => member.enabledByDefault)
+        .map((member) => ({
+          memberKey: member.memberKey,
+          roleKey: member.roleKey,
+          defaultForRole: member.defaultForRole,
+          fallbackPriority: member.fallbackPriority,
+          provider: member.model.provider,
+          modelId: member.model.modelId,
+          plan: member.model.plan
+        }))
+        .toSorted((left, right) => left.memberKey.localeCompare(right.memberKey))
+    }
+  };
 }
 
 async function request(

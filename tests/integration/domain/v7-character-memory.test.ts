@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS } from '@wenmi/v7-backend';
 import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import { ModelAdapterError } from '../../../apps/api/src/infrastructure/models/model-adapter.js';
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
@@ -279,6 +280,47 @@ describe('V7人物角色管理后端', () => {
     }
   });
 
+  it('人物资料任务冻结了旧模型后拒绝重试，不回退当前名册也不增加调用', async () => {
+    context = createTestContext('wenmi-v7-character-retired-context-binding-');
+    const resolver = new RetryCharacterResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'character-retired-context@example.com', '人物作者');
+      const bookId = await createBook(app, cookie, '人物旧模型测试书', 'character-retired-context-book-0001', '张三');
+      await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/characters/sync`, {});
+      const characters = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/characters`);
+      const entityId = characters.json().data[0].entityId as string;
+      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/character-context-packs`, {
+        taskKind: 'chapter_design', taskId: 'chapter-retired-binding', taskBrief: '验证旧人物模型不能恢复。',
+        candidateEntityIds: [entityId], maxTokens: 2_000, idempotencyKey: 'character-retired-context-pack-0001'
+      });
+      const packId = started.json().data.contextPackId as string;
+      expect(await pollPack(app, cookie, bookId, packId)).toMatchObject({ status: 'failed', retryCount: 0 });
+      expect(resolver.calls).toBe(3);
+
+      const frozenRow = context.database.prepare(`SELECT member_snapshot_json FROM v7_character_context_packs
+        WHERE context_pack_id=?`).get(packId) as { member_snapshot_json: string };
+      const frozen = JSON.parse(frozenRow.member_snapshot_json) as {
+        fallback: Array<{ model: { modelId: string } }>;
+      };
+      frozen.fallback[0]!.model.modelId = 'retired-character-model';
+      context.database.prepare(`UPDATE v7_character_context_packs SET member_snapshot_json=?
+        WHERE context_pack_id=?`).run(JSON.stringify(frozen), packId);
+
+      const retried = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/character-context-packs/${packId}/retry`, {});
+      expect(retried.statusCode).toBe(409);
+      expect(JSON.stringify(retried.json())).toContain('历史人物任务');
+      expect(resolver.calls).toBe(3);
+      expect(context.database.prepare(`SELECT status,retry_count,member_snapshot_json
+        FROM v7_character_context_packs WHERE context_pack_id=?`).get(packId)).toMatchObject({
+        status: 'failed', retry_count: 0, member_snapshot_json: expect.stringContaining('retired-character-model')
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('人物资料上游正式版本变化后拒绝沿用旧任务快照', async () => {
     context = createTestContext('wenmi-v7-character-retry-source-change-');
     const resolver = new RetryCharacterResolver();
@@ -343,11 +385,59 @@ describe('V7人物角色管理后端', () => {
       expect(resolver.requestIds).toEqual(expect.arrayContaining([
         `${started.runId}:maintenance:0:1`, `${started.runId}:maintenance:1:1`
       ]));
+      expect(stageTaskPayload(resolver.prompts[0]!).length)
+        .toBeLessThanOrEqual(V7_CHARACTER_MAINTENANCE_PROMPT_BUDGET_CHARS);
+      expect(stageTaskPayload(resolver.prompts[0]!)).toContain('v7-character-maintenance-input-v2');
       expect(resolver.prompts[initialAttemptCount]).toBe(resolver.prompts[0]);
       const frozenAfter = context.database.prepare(`SELECT manifest_id,compiled_prompt_hash,context_pack_id,
         task_contract_id,task_id FROM v7_prompt_manifests WHERE owner_id=? AND book_id=? AND task_id=?`)
         .get(ownerId, bookId, logicalTaskId) as Record<string, unknown>;
       expect(frozenAfter).toEqual(frozenBefore);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('人物维护拒绝恢复旧模型的已存结果，并在重置前保留失败任务和候选数据', async () => {
+    context = createTestContext('wenmi-v7-character-retired-maintenance-call-');
+    const resolver = new RetryCharacterMaintenanceResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'character-retired-maintenance@example.com', '人物作者');
+      const bookId = await createBook(app, cookie, '人物旧维护调用测试书', 'character-retired-maintenance-book-0001', '张三');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/characters/sync`, {});
+      const characters = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/characters`);
+      const entityId = characters.json().data[0].entityId as string;
+      insertSettlement(ownerId, bookId, entityId);
+      const service = new V7CharacterMemoryService(
+        context.database, resolver, new UuidGenerator(), new SystemClock()
+      );
+      const started = service.triggerMaintenance(ownerId, bookId, {
+        sourceKind: 'event_settlement', sourceVersionId: 'character-settlement-1', candidateEntityIds: [entityId]
+      }) as { runId: string };
+      expect(await pollMaintenance(service, ownerId, bookId, started.runId)).toMatchObject({
+        status: 'failed', retryCount: 0
+      });
+      const initialCalls = resolver.calls;
+      const oldOutput = JSON.stringify({
+        schema: 'v7-character-maintenance-v1', publicSummary: '这是旧模型留下的结果。',
+        affectedEntityIds: [entityId], changes: [], issues: []
+      });
+      context.database.prepare(`UPDATE v7_character_model_calls
+        SET state='succeeded',model_id='retired-character-model',output_text=?
+        WHERE request_id=(SELECT request_id FROM v7_character_model_calls
+          WHERE run_id=? ORDER BY request_id LIMIT 1)`).run(oldOutput, started.runId);
+
+      resolver.allowSuccess = true;
+      expect(() => service.retryMaintenance(ownerId, bookId, started.runId)).toThrow(/历史人物任务/u);
+      expect(resolver.calls).toBe(initialCalls);
+      expect(context.database.prepare(`SELECT status,retry_count,result_json FROM v7_character_maintenance_runs
+        WHERE maintenance_run_id=?`).get(started.runId)).toEqual({
+        status: 'failed', retry_count: 0, result_json: null
+      });
+      expect(service.pendingCandidates(ownerId, bookId)).toEqual([]);
     } finally {
       await app.close();
     }

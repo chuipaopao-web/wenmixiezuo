@@ -49,7 +49,7 @@ describe.skip('已被统一成员治理替代的旧分页面', () => {
       if (url.endsWith('/api/v1/admin/v7/visual-agent/members')) return json({
         credentials: { agentPlanConfigured: true, imageCapabilityConfigured: true },
         members: [{
-          memberKey: 'visual-huizhen', displayName: '绘真', roleName: '封面画师',
+          memberKey: 'visual-seedream', displayName: '绘真', roleName: '封面画师',
           responsibility: '交付可下载封面', modelId: 'doubao-seedream-5-0-260128', planName: 'Agent Plan · Seedream',
           credentialReady: true, status: 'on_duty'
         }]

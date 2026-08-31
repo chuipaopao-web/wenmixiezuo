@@ -74,34 +74,20 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return values.find((value) => value !== undefined && value.trim().length > 0)?.trim();
 }
 
-function compatibleAnthropicPlanEndpoint(raw: string | undefined): {
-  plan: 'coding' | 'agent';
-  baseUrl: string;
-} | undefined {
-  const configured = firstNonEmpty(raw);
-  if (configured === undefined) return undefined;
-  for (const plan of ['coding', 'agent'] as const) {
-    try {
-      return { plan, baseUrl: assertPlanBaseUrl(plan, configured) };
-    } catch {
-      // Compatibility variables are shared with unrelated applications. They
-      // are ignored unless the address is one of Wenmi's exact plan endpoints.
-    }
-  }
-  return undefined;
-}
-
-const retiredAgentPlanModelAliases = new Map<string, string>([
-  ['kimi-k3', 'kimi-k2.7-code'],
-  ['kimi-k2-6-modelhub', 'kimi-k2.7-code'],
-  ['glm-5-2-260617', 'glm-5.2'],
-  ['doubao-seed-2-0-pro-260215', 'doubao-seed-2.1-turbo']
+const retiredAgentPlanModelIds = new Set([
+  'kimi-k3',
+  'kimi-k2-6-modelhub',
+  'glm-5-2-260617',
+  'doubao-seed-2-0-pro-260215'
 ]);
 
 function currentPlanModelId(value: string | undefined, fallback: string): string {
   const configured = firstNonEmpty(value);
   if (configured === undefined) return fallback;
-  return retiredAgentPlanModelAliases.get(configured.toLowerCase()) ?? configured;
+  if (retiredAgentPlanModelIds.has(configured.toLowerCase())) {
+    throw new Error(`旧Agent Plan模型配置已退役，禁止自动重绑：${configured}`);
+  }
+  return configured;
 }
 
 export function assertPlanBaseUrl(plan: Extract<ModelPlan, 'coding' | 'agent'>, raw: string): string {
@@ -270,17 +256,8 @@ function toPublicProfiles(
 export function loadModelRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env
 ): ModelRuntimeConfig {
-  const compatibleEndpoint = compatibleAnthropicPlanEndpoint(env.ANTHROPIC_BASE_URL);
-  const compatibleToken = firstNonEmpty(env.ANTHROPIC_AUTH_TOKEN);
-  const codingKey = firstNonEmpty(
-    env.WENMI_ARK_CODING_PLAN_API_KEY,
-    compatibleEndpoint?.plan === 'coding' ? compatibleToken : undefined
-  );
-  const agentKey = firstNonEmpty(
-    env.WENMI_ARK_AGENT_PLAN_API_KEY,
-    env.ARK_AGENTPLAN_KEY,
-    compatibleEndpoint?.plan === 'agent' ? compatibleToken : undefined
-  );
+  const codingKey = firstNonEmpty(env.WENMI_ARK_CODING_PLAN_API_KEY);
+  const agentKey = firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_API_KEY);
   const rawMode = firstNonEmpty(env.WENMI_MODEL_MODE)
     ?? (codingKey === undefined && agentKey === undefined ? 'deterministic' : 'subscription-plan');
   if (rawMode !== 'deterministic' && rawMode !== 'subscription-plan') {
@@ -293,10 +270,7 @@ export function loadModelRuntimeConfig(
       provider: 'volcengine-ark-coding-plan',
       baseUrl: assertPlanBaseUrl(
         'coding',
-        firstNonEmpty(
-          env.WENMI_ARK_CODING_PLAN_BASE_URL,
-          compatibleEndpoint?.plan === 'coding' ? compatibleEndpoint.baseUrl : undefined
-        ) ?? 'https://ark.cn-beijing.volces.com/api/coding'
+        firstNonEmpty(env.WENMI_ARK_CODING_PLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/coding'
       ),
       apiKey: codingKey
     },
@@ -305,11 +279,7 @@ export function loadModelRuntimeConfig(
       provider: 'volcengine-ark-agent-plan',
       baseUrl: assertPlanBaseUrl(
         'agent',
-        firstNonEmpty(
-          env.WENMI_ARK_AGENT_PLAN_BASE_URL,
-          env.ARK_AGENTPLAN_BASE_URL,
-          compatibleEndpoint?.plan === 'agent' ? compatibleEndpoint.baseUrl : undefined
-        ) ?? 'https://ark.cn-beijing.volces.com/api/plan'
+        firstNonEmpty(env.WENMI_ARK_AGENT_PLAN_BASE_URL) ?? 'https://ark.cn-beijing.volces.com/api/plan'
       ),
       apiKey: agentKey
     }

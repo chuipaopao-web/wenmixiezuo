@@ -61,7 +61,11 @@ import {
   V7BookGenreProfileEnsureService
 } from '../agents/v7-book-genre-profile-ensure-service.js';
 import { V7PromptGovernanceRepository } from '../../infrastructure/db/repositories/v7-prompt-governance-repository.js';
-import { openingChiefTaskSnapshot, resolveSettingTaskRoster } from './v7-task-roster-snapshot.js';
+import {
+  readOpeningChiefTaskSnapshot,
+  resolveOpeningChiefTaskSnapshot,
+  resolveSettingTaskRoster
+} from './v7-task-roster-snapshot.js';
 import {
   confirmedSettingProjection,
   requireUsableSettingProjections
@@ -191,7 +195,10 @@ export class V7SettingEditorialService {
     const catalog = V7_SETTING_CATALOG.map((item) => ({ ...item }));
     const current = this.currentRecommendation(ownerId, bookId, profile, catalog);
     if (current !== undefined) {
-      if (current.status === 'queued' || current.status === 'working') this.startRecommendation(current);
+      if (current.status === 'queued' || current.status === 'working') {
+        this.executableRecommendationChief(current);
+        this.startRecommendation(current);
+      }
       return this.recommendationView(current);
     }
     const previous = this.repository.latestRecommendationForBook(ownerId, bookId);
@@ -201,6 +208,7 @@ export class V7SettingEditorialService {
     void input;
     const requestHash = recommendationRequestHash(profile, catalog);
     const task = this.insertRecommendation(ownerId, bookId, profile, catalog, `setting-recommendation-${requestHash.slice(0, 48)}`);
+    this.executableRecommendationChief(task);
     this.startRecommendation(task);
     return this.recommendationView(task);
   }
@@ -255,8 +263,7 @@ export class V7SettingEditorialService {
     if (failed === undefined) {
       throw new DomainError(errorCodes.validation, '没有找到可以继续的已知失败调用。', {}, false, 409);
     }
-    const chief = openingChiefTaskSnapshot(row.roster_json)[0];
-    if (chief === undefined) throw new DomainError(errorCodes.validation, '本轮主编资料不完整，无法继续整理。', {}, false, 409);
+    const chief = this.executableRecommendationChief(row);
     const state: RecommendationState = {
       taskKind: 'catalog_recommendation',
       phase: 'preparing',
@@ -299,12 +306,18 @@ export class V7SettingEditorialService {
         || !this.finalReviewMatchesCurrent(byKey, profile, items, requestHash)) {
         throw new DomainError(errorCodes.validation, '本次操作编号已经用于其他任务。', {}, false, 409);
       }
-      if (byKey.status === 'queued' || byKey.status === 'working') this.startFinalReview(byKey);
+      if (byKey.status === 'queued' || byKey.status === 'working') {
+        this.executableSettingRoster(byKey);
+        this.startFinalReview(byKey);
+      }
       return this.finalReviewView(byKey);
     }
     const existing = this.currentFinalReview(ownerId, bookId, profile, items, requestHash);
     if (existing !== undefined) {
-      if (existing.status === 'queued' || existing.status === 'working') this.startFinalReview(existing);
+      if (existing.status === 'queued' || existing.status === 'working') {
+        this.executableSettingRoster(existing);
+        this.startFinalReview(existing);
+      }
       return this.finalReviewView(existing);
     }
     const chief = this.availableFinalReviewChiefs()[0];
@@ -339,6 +352,7 @@ export class V7SettingEditorialService {
 
   public retryFinalReview(ownerId: string, bookId: string, taskId: string): V7SettingFinalReviewView {
     const row = this.requireFinalReview(ownerId, bookId, taskId);
+    this.executableSettingRoster(row);
     if (row.status !== 'partially_failed') throw new DomainError(errorCodes.validation, '当前统一整理任务不需要重试。', {}, false, 409);
     const state = finalReviewState(row);
     const unknown = this.repository.latestModelOutcomeForBatch(ownerId, bookId, taskId, ['unknown']);
@@ -378,7 +392,10 @@ export class V7SettingEditorialService {
     const existing = this.repository.findBatchByIdempotency(ownerId, bookId, idempotencyKey);
     if (existing !== undefined) {
       if (existing.request_hash !== requestHash) throw new DomainError(errorCodes.validation, '本次操作编号已经用于另一组设定，请重新操作。', {}, false, 409);
-      if (existing.status === 'queued' || existing.status === 'working') this.start(existing);
+      if (existing.status === 'queued' || existing.status === 'working') {
+        this.executableSettingRoster(existing);
+        this.start(existing);
+      }
       return this.toView(existing);
     }
     // 补充设计只为没有有效结果的条目建工单。已有候选或已确认版本会继续
@@ -415,6 +432,7 @@ export class V7SettingEditorialService {
 
   public retry(ownerId: string, bookId: string, batchId: string): V7SettingBatchView {
     const batch = this.requireBatch(ownerId, bookId, batchId);
+    this.executableSettingRoster(batch);
     const jobs = this.jobs(ownerId, bookId, batchId);
     const unknown = jobs.find((job) => this.repository.latestModelOutcomeForJob(
       ownerId, bookId, batchId, job.item_key, ['unknown']
@@ -468,7 +486,10 @@ export class V7SettingEditorialService {
     const existing = this.repository.findBatchByIdempotency(ownerId, bookId, idempotencyKey);
     if (existing !== undefined) {
       if (existing.request_hash !== requestHash) throw new DomainError(errorCodes.validation, '本次操作编号已经用于另一项修改，请重新操作。', {}, false, 409);
-      if (existing.status === 'queued' || existing.status === 'working') this.start(existing);
+      if (existing.status === 'queued' || existing.status === 'working') {
+        this.executableSettingRoster(existing);
+        this.start(existing);
+      }
       return this.toView(existing);
     }
     const active = this.latestBatch(ownerId, bookId);
@@ -760,9 +781,25 @@ export class V7SettingEditorialService {
     });
     if (!claimed) return;
     this.reconcileReclaimedBatch(task, started);
+    let state = recommendationState(task);
+    let chief: V7OpeningMemberDefinition;
+    try {
+      chief = this.executableRecommendationChief(task);
+    } catch (error) {
+      const failed = failedRecommendationState(
+        state,
+        '对不起，这是一轮历史设定清单，已保存的结果仍会保留，但不能再用旧成员或旧模型继续。请重新整理。'
+      );
+      this.repository.failRecommendation({
+        ownerId: task.owner_id, bookId: task.book_id, taskId: task.batch_id, token,
+        stateJson: JSON.stringify(failed),
+        message: error instanceof Error ? error.message.slice(0, 1_000) : '设定清单主编绑定无效',
+        now: this.clock.now().toISOString()
+      });
+      return;
+    }
     const profile = this.profile(task.owner_id, task.book_id);
     const catalog = V7_SETTING_CATALOG.map((item) => ({ ...item }));
-    let state = recommendationState(task);
     if (
       task.opening_version !== profile.version
       || task.opening_hash !== hash(profile.openingBlueprint)
@@ -775,8 +812,6 @@ export class V7SettingEditorialService {
       });
       return;
     }
-    const chief = openingChiefTaskSnapshot(task.roster_json)[0];
-    if (chief === undefined) throw new Error('设定清单主编快照无效');
     state = {
       ...state,
       phase: 'understanding',
@@ -878,7 +913,9 @@ export class V7SettingEditorialService {
   private recommendationView(row: BatchRow, stale = false): V7SettingCatalogRecommendationView {
     const state = recommendationState(row);
     const result = recommendationResult(row.selected_items_json);
-    const roster = openingChiefTaskSnapshot(row.roster_json);
+    let roster: V7OpeningMemberDefinition[] = [];
+    try { roster = readOpeningChiefTaskSnapshot(row.roster_json); }
+    catch { /* Historical/corrupt snapshots remain inspectable without execution. */ }
     const lookup = new Map([...V7_OPENING_MEMBERS, ...roster].map((member) => [member.memberKey, member]));
     const member = state.assignedMemberKey === null ? null : lookup.get(state.assignedMemberKey) ?? null;
     const status: V7SettingCatalogRecommendationView['status'] = stale
@@ -945,6 +982,23 @@ export class V7SettingEditorialService {
     })) return;
     this.reconcileReclaimedBatch(task, started);
     const state = finalReviewState(task);
+    let chiefs: V7SettingMemberDefinition[];
+    try {
+      chiefs = this.executableSettingRoster(task)
+        .filter((member) => member.roleKey === 'chief_editor')
+        .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
+    } catch (error) {
+      this.repository.failFinalReview({
+        ownerId: task.owner_id, bookId: task.book_id, taskId: task.batch_id, token,
+        stateJson: JSON.stringify({
+          ...state, phase: 'failed', progress: 100,
+          publicMessage: '对不起，这是一轮历史设定任务，已保存内容仍会保留，但不能再用旧成员或旧模型继续。请重新整理。'
+        }),
+        message: error instanceof Error ? error.message.slice(0, 1_000) : '设定任务冻结名册无效',
+        now: this.clock.now().toISOString()
+      });
+      return;
+    }
     const profile = this.profile(task.owner_id, task.book_id);
     const items = this.currentItems(task.owner_id, task.book_id);
     const expectedHash = finalReviewRequestHash(profile, items);
@@ -956,7 +1010,6 @@ export class V7SettingEditorialService {
       });
       return;
     }
-    const chiefs = this.availableFinalReviewChiefs();
     let lastError: unknown = new Error('没有可用主编');
     for (const chief of chiefs) {
       const attempted = [...new Set([...state.attemptedMemberKeys, chief.memberKey])];
@@ -1144,7 +1197,7 @@ export class V7SettingEditorialService {
     this.reconcileReclaimedBatch(batch, now);
     try {
       const jobs = this.jobs(batch.owner_id, batch.book_id, batch.batch_id).filter((job) => job.state === 'queued' || job.state === 'working' || job.state === 'chief_review');
-      const roster = resolveSettingTaskRoster(batch.roster_json, this.effectiveRoster());
+      const roster = this.executableSettingRoster(batch);
       const writers = roster.filter((member) => member.roleKey === 'screenwriter');
       if (writers.length === 0) throw new Error('任务冻结名册中没有可执行的编剧');
       // GLM 5.3在当前方舟结构化长输出中可能把额度全部用于思考而没有可提交正文。
@@ -1740,6 +1793,7 @@ export class V7SettingEditorialService {
     const existing = this.repository.findBatchByIdempotency(ownerId, bookId, key);
     if (existing !== undefined) {
       if (existing.request_hash !== requestHash) throw new DomainError(errorCodes.validation, '操作编号已用于其他内容。', {}, false, 409);
+      this.executableSettingRoster(existing);
       return existing;
     }
     const now = this.clock.now().toISOString();
@@ -1782,6 +1836,34 @@ export class V7SettingEditorialService {
       const row = this.repository.memberSetting(member.memberKey);
       return member.enabledByDefault && row?.enabled !== 0;
     }).map((member) => ({ ...member, model: { ...member.model } }));
+  }
+
+  private executableSettingRoster(batch: BatchRow): V7SettingMemberDefinition[] {
+    try {
+      return resolveSettingTaskRoster(batch.roster_json, this.effectiveRoster());
+    } catch {
+      throw new DomainError(
+        errorCodes.validation,
+        '这是一轮历史设定任务，已保存内容仍会保留，但不能再用旧成员或旧模型继续。请重新发起当前任务。',
+        {},
+        false,
+        409
+      );
+    }
+  }
+
+  private executableRecommendationChief(task: BatchRow): V7OpeningMemberDefinition {
+    try {
+      return resolveOpeningChiefTaskSnapshot(task.roster_json, this.openingRoster())[0]!;
+    } catch {
+      throw new DomainError(
+        errorCodes.validation,
+        '这是一轮历史设定清单，已保存结果仍会保留，但不能再用旧主编或旧模型继续。请重新整理。',
+        {},
+        false,
+        409
+      );
+    }
   }
 
   private requireRole(role: V7SettingMemberDefinition['roleKey']): V7SettingMemberDefinition {

@@ -56,20 +56,15 @@ export function creationFallbackChain(
   preferredMemberKey?: string | null,
   members: readonly V7CreationMemberDefinition[] = V7_CREATION_MEMBERS
 ): V7CreationMemberDefinition[] {
-  // outline_writer 只是旧快照/旧调用的兼容别名；新任务统一使用固定岗位 planning_writer。
-  const fixedRoleKey = roleKey === 'outline_writer' ? 'planning_writer' : roleKey;
-  const candidates = members.filter((item) => item.roleKey === fixedRoleKey && item.enabledByDefault)
+  const candidates = members.filter((item) => item.roleKey === roleKey && item.enabledByDefault)
     .toSorted((left, right) => left.fallbackPriority - right.fallbackPriority);
   // 独立审查会排除设计/写作所用的同一模型；若被排除者恰好是岗位默认成员，
   // 就按剩余交接顺序选第一位，不能误报整个岗位无人可用。
   const fallback = candidates.find((item) => item.defaultForRole) ?? candidates[0];
-  if (fallback === undefined) throw new Error(`${fixedRoleKey}没有可用成员`);
-  const compatiblePreferredKey = preferredMemberKey === undefined || preferredMemberKey === null
+  if (fallback === undefined) throw new Error(`${roleKey}没有可用成员`);
+  const preferred = preferredMemberKey === undefined || preferredMemberKey === null
     ? undefined
-    : legacyOutlineMemberKey(preferredMemberKey);
-  const preferred = compatiblePreferredKey === undefined
-    ? undefined
-    : candidates.find((item) => item.memberKey === compatiblePreferredKey);
+    : candidates.find((item) => item.memberKey === preferredMemberKey);
   if (preferredMemberKey !== undefined && preferredMemberKey !== null && preferred === undefined) {
     throw new Error('您选择的成员不属于当前岗位或正在请假');
   }
@@ -98,9 +93,19 @@ export function contextSelectionPrompt(input: {
   candidates: readonly V7CreationSourceCandidate[];
   maximumSources: number;
   maximumCharacters?: number;
+  maximumInputCharacters?: number;
+  minimalCandidateDirectory?: boolean;
 }): string {
   const compactCandidates = input.candidates.map(({ selectionContent, content, ...source }) => {
     const exactSource = { ...source, content };
+    if (input.minimalCandidateDirectory === true) {
+      return {
+        sourceKey: source.sourceKey,
+        required: source.required,
+        content: selectionContent ?? content,
+        exactPackedCharacters: Array.from(JSON.stringify(exactSource)).length
+      };
+    }
     return {
       ...source,
       content: selectionContent ?? content,
@@ -118,6 +123,9 @@ export function contextSelectionPrompt(input: {
     'required=true的正式源必须保留；不得选择其他书、过期候选或无来源推断。任务身份只属于本书本任务，不得给成员或岗位建立长期专业人设。',
     '如果资料不足，请在openQuestions说明，不得自行补事实。',
     `最多选择${input.maximumSources}项；硬事实和当前任务优先，方法参考宁少勿杂。`,
+    input.maximumInputCharacters === undefined
+      ? ''
+      : `本次资料策划完整输入硬限为${input.maximumInputCharacters}字符；系统在调用前只会按固定字段压缩来源目录，不会用关键词擅自删除候选；最小目录仍超限才真实失败。`,
     input.maximumCharacters === undefined
       ? ''
       : `入选精确资料连同任务说明不得超过${input.maximumCharacters}字符；请至少为任务说明、来源说明和结构保留3000字符。设定事实账本已经覆盖全书硬事实，只有需要核对完整措辞时才选择某项设定原文。`,
@@ -127,7 +135,7 @@ export function contextSelectionPrompt(input: {
     'methodStrategy字段：mode,publicSummary,searchRequest。mode只能是asset、combined、original、none：asset表示优先从资产中选，combined表示组合改写，original表示当前任务更适合自主设计，none只用于不需要叙事方法的纯核对或结算。',
     settlementMethodRule,
     `当前任务允许检索的层级只有：${JSON.stringify(allowedLayers)}。asset或combined必须给出searchRequest；original可以给出用于比较的searchRequest或null；none必须为null。`,
-    'searchRequest字段沿用方法检索合同：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs。只表达检索需求，不能猜测具体资产；desiredCount为8—12。relevantSettingSourceIds填写本轮确实相关的逐项设定sourceId，没有时允许空数组。',
+    'searchRequest字段沿用方法检索合同：schema="v7-planning-method-search-v1",publicGoal,searchQueries,planningLayers,dimensions,desiredCount,scaleHint,avoidNotes,relevantSettingSourceIds,missingCriticalInputs。只表达检索需求，不能猜测具体资产；desiredCount为3—8，并按当前任务取最少充分数量。relevantSettingSourceIds填写本轮确实相关的逐项设定sourceId，没有时允许空数组。',
     `当前任务：${input.taskBrief}`,
     `可检索的方法层级和维度：${JSON.stringify(planningMethodSearchContext())}`,
     '候选阶段只阅读来源的语义索引；最终资料包仍会回查入选来源的精确正式内容，索引不能冒充正史。',
@@ -726,14 +734,6 @@ function parseChapterOutline(value: Record<string, unknown>): V7ChapterOutline {
 
 function member(memberKey: string, displayName: string, roleKey: V7CreationMemberDefinition['roleKey'], fallbackPriority: number, defaultForRole: boolean, model: V7CreationMemberDefinition['model']): V7CreationMemberDefinition {
   return { memberKey, displayName, roleKey, fallbackPriority, defaultForRole, enabledByDefault: true, model, promptInstruction: '' };
-}
-
-function legacyOutlineMemberKey(memberKey: string): string {
-  return ({
-    'creation-outline-glm-5-3': 'planner-glm-5-3',
-    'creation-outline-deepseek-v4-pro': 'planner-deepseek-v4-pro',
-    'creation-outline-kimi-k3': 'planner-kimi-k3'
-  } as Record<string, string>)[memberKey] ?? memberKey;
 }
 
 function coding(modelId: string): V7CreationMemberDefinition['model'] { return { provider: 'volcengine-ark-coding-plan', modelId, plan: 'coding' }; }

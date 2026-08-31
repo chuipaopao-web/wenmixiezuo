@@ -44,6 +44,25 @@ describe('V7规划编辑部三席协作', () => {
       expect(frozenBefore).toMatchObject({ task_id: logicalTaskId });
       expect(() => maintenance.retry(ownerId, 'another-book', started.runId)).toThrow(/不存在|本书/u);
 
+      const storedRoster = context.database.prepare(`SELECT member_snapshot_json FROM v7_planning_maintenance_runs
+        WHERE owner_id=? AND book_id=? AND maintenance_run_id=?`).get(ownerId, bookId, started.runId) as {
+          member_snapshot_json: string;
+        };
+      const reboundRoster = JSON.parse(storedRoster.member_snapshot_json) as {
+        fallback: Array<{ model: { modelId: string } }>;
+      };
+      reboundRoster.fallback[0]!.model.modelId = 'retired-maintenance-model';
+      context.database.prepare(`UPDATE v7_planning_maintenance_runs SET member_snapshot_json=?
+        WHERE owner_id=? AND book_id=? AND maintenance_run_id=?`).run(
+        JSON.stringify(reboundRoster), ownerId, bookId, started.runId
+      );
+      expect(() => maintenance.retry(ownerId, bookId, started.runId)).toThrow(/已有结果均已保留/u);
+      expect(resolver.calls).toBe(initialAttemptCount);
+      context.database.prepare(`UPDATE v7_planning_maintenance_runs SET member_snapshot_json=?
+        WHERE owner_id=? AND book_id=? AND maintenance_run_id=?`).run(
+        storedRoster.member_snapshot_json, ownerId, bookId, started.runId
+      );
+
       resolver.allowSuccess = true;
       expect(maintenance.retry(ownerId, bookId, started.runId)).toMatchObject({ status: 'waiting' });
       const completed = await pollMaintenance(maintenance, ownerId, bookId, started.runId);
@@ -199,6 +218,32 @@ describe('V7规划编辑部三席协作', () => {
         WHERE request_id=?`).get(`${baseRequestId}:retry:1`) as { prompt_hash: string; state: string };
       expect(retryCall).toEqual({ prompt_hash: baseCall.prompt_hash, state: 'succeeded' });
 
+      const frozenRoster = JSON.parse(after.member_snapshot_json) as {
+        fallback: Array<{ model: { modelId: string } }>;
+        contextFallback: Array<{ model: { modelId: string } }>;
+      };
+      frozenRoster.contextFallback[0]!.model.modelId = 'retired-context-planner-model';
+      context.database.prepare(`UPDATE v7_planning_generation_runs SET member_snapshot_json=?
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(
+        JSON.stringify(frozenRoster), ownerId, bookId, runId
+      );
+      const callsBeforeRosterCheck = resolver.requestIds.length;
+      const historicalView = await request(app, cookie, 'GET',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}`);
+      expect(historicalView.json().data).toMatchObject({
+        status: 'failed', canOpenCandidate: true,
+        message: '对不起，这项规划树任务不能继续执行。已有结果保留，请按当前流程重新设计。'
+      });
+      const blockedHistoricalRetry = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-tree-generation-runs/${runId}/retry`, {});
+      expect(blockedHistoricalRetry.statusCode).toBe(409);
+      expect(JSON.stringify(blockedHistoricalRetry.json())).toContain('已有结果保留');
+      expect(resolver.requestIds).toHaveLength(callsBeforeRosterCheck);
+      context.database.prepare(`UPDATE v7_planning_generation_runs SET member_snapshot_json=?
+        WHERE owner_id=? AND book_id=? AND generation_run_id=?`).run(
+        after.member_snapshot_json, ownerId, bookId, runId
+      );
+
       resolver.treeMode = 'unknown';
       const unknownStarted = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
@@ -278,6 +323,104 @@ describe('V7规划编辑部三席协作', () => {
       expect(retryCall).toEqual({ prompt_hash: failedCall.prompt_hash, state: 'succeeded' });
       expect((context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_route_candidates
         WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId) as { count: number }).count).toBe(2);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('历史、缺失或损坏的路线名册只读保留结果，刷新和补做不再调用模型', async () => {
+    context = createTestContext('wenmi-v7-planning-route-read-only-');
+    const resolver = new PlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'planning-route-read-only@example.com', '路线历史作者');
+      const bookId = await createBook(app, cookie, '路线历史结果测试书');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      confirmSetting(ownerId, bookId);
+      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-routes/runs`, {
+        authorGoal: '先生成一套可以保留的全书路线。', candidateCount: 1,
+        idempotencyKey: 'planning-route-read-only-run-0001'
+      });
+      const runId = started.json().data.runId as string;
+      const ready = await pollRouteRun(app, cookie, bookId, runId);
+      expect(ready).toMatchObject({ status: 'waiting_for_you', canDecide: true });
+      expect(ready.routes).toHaveLength(1);
+      const preservedRouteId = ready.routes[0].routeId as string;
+      const currentRosterJson = String((context.database.prepare(`SELECT roster_json FROM v7_planning_recipe_runs
+        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId) as { roster_json: string }).roster_json);
+      const currentRoster = JSON.parse(currentRosterJson) as Record<string, Array<{
+        memberKey: string; roleKey: string; provider: string; modelId: string; plan: string;
+      }>>;
+      for (const rosterKey of ['directChiefs', 'directFallbacks', 'routeReviewers', 'routeFusionEditors', 'contextEditors']) {
+        expect(currentRoster[rosterKey]?.length).toBeGreaterThan(0);
+        expect(currentRoster[rosterKey]?.every((member) => member.memberKey.length > 0
+          && member.roleKey.length > 0 && member.provider.length > 0
+          && member.modelId.length > 0 && (member.plan === 'coding' || member.plan === 'agent'))).toBe(true);
+      }
+
+      const verifyReadOnly = async (rosterJson: string, expectLatest: boolean): Promise<void> => {
+        context!.database.prepare(`UPDATE v7_planning_recipe_runs
+          SET roster_json=?,status='queued',current_phase='route_design',error_message=NULL
+          WHERE owner_id=? AND book_id=? AND run_id=?`).run(rosterJson, ownerId, bookId, runId);
+        const callsBefore = resolver.prompts.length;
+        const refreshed = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}`);
+        expect(refreshed.statusCode).toBe(200);
+        expect(refreshed.json().data).toMatchObject({
+          runId, status: 'failed', phase: 'failed', canDecide: false,
+          message: '对不起，这项全书路线不能继续执行。已有结果保留，请按当前流程重新设计。',
+          errorMessage: '对不起，这项全书路线不能继续执行。已有结果保留，请按当前流程重新设计。',
+          routes: [expect.objectContaining({ routeId: preservedRouteId })]
+        });
+        expect(resolver.prompts).toHaveLength(callsBefore);
+        if (expectLatest) {
+          const latest = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/latest`);
+          expect(latest.statusCode).toBe(200);
+          expect(latest.json().data).toMatchObject({ runId, status: 'failed', canDecide: false });
+          expect(resolver.prompts).toHaveLength(callsBefore);
+        }
+        const retried = await request(app, cookie, 'POST',
+          `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/retry-missing`, {});
+        expect(retried.statusCode).toBe(409);
+        expect(JSON.stringify(retried.json())).toContain('已有结果保留，请按当前流程重新设计');
+        expect(resolver.prompts).toHaveLength(callsBefore);
+      };
+
+      await verifyReadOnly(JSON.stringify({
+        methodSeats: [],
+        routeWriters: [{ memberKey: 'planner-glm-5-3', displayName: '清照', roleKey: 'planning_writer' }]
+      }), true);
+      const blockedDecision = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/decision`, {
+          mode: 'select', routeIds: [preservedRouteId], authorNote: '',
+          idempotencyKey: 'planning-route-read-only-decision-0001'
+        });
+      expect(blockedDecision.statusCode).toBe(409);
+      expect(JSON.stringify(blockedDecision.json())).toContain('已有结果保留，请按当前流程重新设计');
+      const blockedCancel = await request(app, cookie, 'POST',
+        `/api/v1/v7/books/${bookId}/planning-routes/runs/${runId}/cancel`, {});
+      expect(blockedCancel.statusCode).toBe(409);
+      expect(JSON.stringify(blockedCancel.json())).toContain('已有结果保留，请按当前流程重新设计');
+
+      await verifyReadOnly(JSON.stringify({
+        workflowStyle: 'three-chief-direct-v1',
+        directChiefs: [{ memberKey: 7, displayName: '损坏主编', roleKey: 'chief_editor' }]
+      }), true);
+      await verifyReadOnly('{}', false);
+      await verifyReadOnly(JSON.stringify({
+        workflowStyle: 'three-chief-direct-v1',
+        directChiefs: [{ memberKey: 'retired-chief', displayName: '历史主编', roleKey: 'chief_editor' }]
+      }), true);
+      const retiredModelRoster = JSON.parse(currentRosterJson) as {
+        directChiefs: Array<{ modelId: string }>;
+      };
+      retiredModelRoster.directChiefs[0]!.modelId = 'kimi-k2-6-modelhub';
+      await verifyReadOnly(JSON.stringify(retiredModelRoster), true);
+      for (const rosterKey of ['directFallbacks', 'routeReviewers', 'routeFusionEditors', 'contextEditors']) {
+        const rebound = structuredClone(currentRoster);
+        rebound[rosterKey]![0]!.modelId = 'retired-model-binding';
+        await verifyReadOnly(JSON.stringify(rebound), false);
+      }
     } finally {
       await app.close();
     }
@@ -395,7 +538,7 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
-  it('三席同源独立出案，单成员失败只交接本席，作者确认后形成不可变配方', async () => {
+  it('三套路线独立出案，作者确认后形成不可变路线与规划方法版本', async () => {
     context = createTestContext('wenmi-v7-planning-editorial-');
     const resolver = new PlanningResolver();
     const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
@@ -404,46 +547,6 @@ describe('V7规划编辑部三席协作', () => {
       const bookId = await createBook(app, cookie, '张三北宋录');
       const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
       confirmSetting(ownerId, bookId);
-      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-recipes/runs`, {
-        authorGoal: '计划写三百万字，分八卷，张三必须始终是主角。',
-        candidateCount: 3,
-        idempotencyKey: 'planning-recipe-run-0001'
-      });
-      expect(started.statusCode).toBe(200);
-      const runId = started.json().data.runId as string;
-      const ready = await poll(app, cookie, bookId, runId);
-      expect(ready).toMatchObject({ status: 'waiting_for_you', completedSeats: 3, totalSeats: 3, canConfirm: true });
-      expect(ready.proposals.map((proposal: { seat: string }) => proposal.seat).sort()).toEqual(['全案主编一席', '全案主编二席', '全案主编三席'].sort());
-      expect(ready.comparison.summary).toContain('推荐');
-      expect(JSON.stringify(ready)).not.toMatch(/provider|modelId|prompt|hash|sourceFingerprint/iu);
-      expect(resolver.prompts.filter((prompt) => prompt.includes('你看不到其他席位答案'))).toHaveLength(4);
-      expect(resolver.prompts.filter((prompt) => prompt.includes('三份已经独立保存的方案比较'))).toHaveLength(1);
-
-      const structureCalls = context.database.prepare(`SELECT member_key,state FROM v7_planning_model_calls
-        WHERE owner_id=? AND book_id=? AND node_key='structure_deputy' ORDER BY started_at,request_id`)
-        .all(ownerId, bookId) as Array<{ member_key: string; state: string }>;
-      expect(structureCalls).toEqual([
-        { member_key: 'chief-glm-5-3', state: 'failed' },
-        { member_key: 'chief-kimi-k3', state: 'succeeded' }
-      ]);
-      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_planning_recipe_proposals
-        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId)).toEqual({ count: 4 });
-
-      const confirmed = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-recipes/runs/${runId}/confirm`, {
-        choice: 'comparison', authorNote: '保留张三主角地位，卷数后续允许调整。',
-        idempotencyKey: 'planning-recipe-confirm-0001'
-      });
-      expect(confirmed.statusCode).toBe(200);
-      expect(confirmed.json().data).toMatchObject({ status: 'confirmed', revision: 1, nextStep: 'book_tree' });
-      expect(context.database.prepare(`SELECT lifecycle,COUNT(*) AS count FROM v7_planning_recipe_versions
-        WHERE owner_id=? AND book_id=? GROUP BY lifecycle`).all(ownerId, bookId)).toEqual([{ lifecycle: 'confirmed', count: 1 }]);
-      const repeated = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-recipes/runs/${runId}/confirm`, {
-        choice: 'comparison', authorNote: '保留张三主角地位，卷数后续允许调整。',
-        idempotencyKey: 'planning-recipe-confirm-0001'
-      });
-      expect(repeated.statusCode).toBe(200);
-      expect(repeated.json().data.recipeVersionId).toBe(confirmed.json().data.recipeVersionId);
-
       const blockedBeforeRoute = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/planning-trees/book/${bookId}/generation-runs`, {
           idempotencyKey: 'book-tree-blocked-before-route-0001'
@@ -495,10 +598,20 @@ describe('V7规划编辑部三席协作', () => {
       historicalRoster.directChiefs[1]!.roleKey = 'structure_deputy';
       context.database.prepare(`UPDATE v7_planning_recipe_runs SET roster_json=?
         WHERE owner_id=? AND book_id=? AND run_id=?`).run(JSON.stringify(historicalRoster), ownerId, bookId, routeRunId);
+      const callsBeforeHistoricalView = resolver.prompts.length;
       const historicalView = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}`);
       expect(historicalView.statusCode).toBe(200);
+      expect(historicalView.json().data).toMatchObject({
+        status: 'failed', phase: 'failed', canDecide: false,
+        message: '对不起，这项全书路线不能继续执行。已有结果保留，请按当前流程重新设计。'
+      });
       expect(historicalView.json().data.actors.some((actor: { role: string }) => actor.role === '全案规划主编')).toBe(true);
       expect(JSON.stringify(historicalView.json().data.actors)).not.toMatch(/structure_deputy|commercial_deputy/u);
+      expect(resolver.prompts).toHaveLength(callsBeforeHistoricalView);
+      context.database.prepare(`UPDATE v7_planning_recipe_runs SET roster_json=?
+        WHERE owner_id=? AND book_id=? AND run_id=?`).run(storedRoster.roster_json, ownerId, bookId, routeRunId);
+      const restoredView = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}`);
+      expect(restoredView.json().data).toMatchObject({ status: 'waiting_for_you', canDecide: true });
 
       const invalidAdjustment = await request(app, cookie, 'POST',
         `/api/v1/v7/books/${bookId}/planning-routes/runs/${routeRunId}/decision`, {
@@ -515,6 +628,10 @@ describe('V7规划编辑部三席协作', () => {
         });
       expect(routeDecision.statusCode).toBe(200);
       expect(routeDecision.json().data).toMatchObject({ status: 'confirmed', nextStep: 'book_tree' });
+      expect(context.database.prepare(`SELECT recipe_version_id,lifecycle FROM v7_planning_recipe_versions
+        WHERE owner_id=? AND book_id=?`).all(ownerId, bookId)).toEqual([
+        { recipe_version_id: routeDecision.json().data.recipeVersionId, lifecycle: 'confirmed' }
+      ]);
       const selectedCandidate = context.database.prepare(`SELECT route_json FROM v7_planning_route_candidates
         WHERE owner_id=? AND book_id=? AND run_id=? AND route_id=?`)
         .get(ownerId, bookId, routeRunId, routesReady.routes[0].routeId) as { route_json: string };
@@ -551,7 +668,7 @@ describe('V7规划编辑部三席协作', () => {
         const ids = (JSON.parse(row.search_request_json) as { relevantSettingSourceIds: string[] }).relevantSettingSourceIds;
         return ids.length > 0 && !ids.includes(`setting-ledger:${bookId}`);
       })).toBe(true);
-      expect(searches.every((row) => (JSON.parse(row.candidate_methods_json) as unknown[]).length <= 12)).toBe(true);
+      expect(searches.every((row) => (JSON.parse(row.candidate_methods_json) as unknown[]).length <= 8)).toBe(true);
       const settingSourceTraces = context.database.prepare(`SELECT trace.owner_id AS ownerId,trace.book_id AS bookId,
         trace.source_id AS sourceId,trace.source_version AS sourceVersion,trace.decision,trace.reason
         FROM v7_context_source_traces trace
@@ -780,34 +897,6 @@ describe('V7规划编辑部三席协作', () => {
     }
   });
 
-  it('旧半失败配方任务保持终态，刷新不再伪装工作中或重复调用', async () => {
-    context = createTestContext('wenmi-v7-planning-partial-terminal-');
-    const resolver = new PartialRecipeResolver();
-    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
-    try {
-      const cookie = await register(app, 'planning-partial@example.com', '半失败作者');
-      const bookId = await createBook(app, cookie, '半失败规划测试');
-      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?').get(bookId) as { owner_id: string }).owner_id);
-      confirmSetting(ownerId, bookId);
-      const started = await request(app, cookie, 'POST', `/api/v1/v7/books/${bookId}/planning-recipes/runs`, {
-        authorGoal: '设计全书粗路线。', idempotencyKey: 'planning-partial-run-0001'
-      });
-      const runId = started.json().data.runId as string;
-      const failed = await poll(app, cookie, bookId, runId);
-      expect(failed).toMatchObject({ status: 'failed', completedSeats: 2, canConfirm: false });
-      expect(failed.message).toMatch(/^对不起/u);
-      expect(failed.message).toContain('已保留完成内容');
-      expect(failed.message).toContain('重新开始');
-      expect(context.database.prepare(`SELECT status FROM v7_planning_recipe_runs
-        WHERE owner_id=? AND book_id=? AND run_id=?`).get(ownerId, bookId, runId)).toEqual({ status: 'partially_failed' });
-      const callsAfterFailure = resolver.calls;
-      for (let index = 0; index < 2; index += 1) {
-        const refreshed = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-recipes/runs/${runId}`);
-        expect(refreshed.json().data).toMatchObject({ status: 'failed', completedSeats: 2 });
-      }
-      expect(resolver.calls).toBe(callsAfterFailure);
-    } finally { await app.close(); }
-  });
 });
 
 class BlockingPlanningResolver implements V7OpeningModelAdapterResolver {
@@ -895,7 +984,6 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
 
 class PlanningResolver implements V7OpeningModelAdapterResolver {
   public readonly prompts: string[] = [];
-  private failedStructure = false;
   private returnedMalformedBookTree = false;
   private failedVolumeWriter = false;
   private failedMaintainer = false;
@@ -905,10 +993,6 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
       if (genreProfile !== null) return genreProfile;
       const stagePrompt = stageTaskPrompt(request.prompt);
       this.prompts.push(request.prompt);
-      if (request.agentId === 'chief-glm-5-3' && !this.failedStructure) {
-        this.failedStructure = true;
-        throw new Error('模拟全案主编二席临时请假');
-      }
       if (request.agentId === 'planner-deepseek-v4-pro'
         && stagePrompt.includes('PlanningTreeDocument')
         && stagePrompt.includes('treeKind固定为volume')
@@ -947,23 +1031,6 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
         output = output.slice(0, -24);
       }
       return { provider, modelId, output, inputTokens: 200, outputTokens: 900, cashCostCny: 0, state: 'succeeded' };
-    }};
-  }
-}
-
-class PartialRecipeResolver implements V7OpeningModelAdapterResolver {
-  public calls = 0;
-  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
-      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
-      if (genreProfile !== null) return genreProfile;
-      this.calls += 1;
-      const prompt = stageTaskPrompt(request.prompt);
-      if (prompt.includes('席位：全案主编三席')) throw new Error('模拟三席本轮全部请假');
-      const output = prompt.includes('三份已经独立保存的方案比较')
-        ? comparisonOutput(prompt)
-        : proposalOutput(prompt);
-      return { provider, modelId, output, inputTokens: 100, outputTokens: 300, cashCostCny: 0, state: 'succeeded' };
     }};
   }
 }
@@ -1141,7 +1208,7 @@ function methodSearchOutput(prompt = ''): string {
     searchQueries: ['长篇跨卷递进', '历史争霸因果升级', '阶段回报避免拖沓'],
     planningLayers,
     dimensions: ['macro_architecture', 'causal_dynamics', 'serial_rhythm'],
-    desiredCount: 10,
+    desiredCount: 8,
     scaleHint: '三百万字、约八卷的历史长篇。',
     avoidNotes: ['不引入系统或超凡能力', '不能让岳飞替代张三成为行动中心'],
     relevantSettingSourceIds: ['planning-setting-version'],
@@ -1440,17 +1507,6 @@ function insertSettlement(ownerId: string, bookId: string): void {
 async function request(app: Awaited<ReturnType<typeof createServer>>, cookie: string, method: 'GET'|'POST', url: string, payload?: unknown) {
   const headers = { ...HEADERS, cookie };
   return payload === undefined ? await app.inject({ method, url, headers }) : await app.inject({ method, url, headers, payload: payload as object });
-}
-
-async function poll(app: Awaited<ReturnType<typeof createServer>>, cookie: string, bookId: string, runId: string): Promise<any> {
-  for (let index = 0; index < 160; index += 1) {
-    const response = await request(app, cookie, 'GET', `/api/v1/v7/books/${bookId}/planning-recipes/runs/${runId}`);
-    expect(response.statusCode).toBe(200);
-    const view = response.json().data;
-    if (!['waiting', 'working'].includes(view.status)) return view;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error('规划编辑部任务未按时完成');
 }
 
 async function pollRouteRun(

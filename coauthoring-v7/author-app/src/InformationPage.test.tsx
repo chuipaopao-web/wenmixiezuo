@@ -31,7 +31,7 @@ const taxonomy = {
 const cover = {
   designId: 'cover-1', status: 'succeeded' as const, statusText: '封面已经制作完成', adopted: false, chiefName: '貂蝉',
   visualMembers: [
-    { memberKey: 'visual-huizhen', displayName: '绘真', roleName: '封面画师', responsibility: '执行主编整理好的制作单并交付封面', avatarPath: '/avatars/team-collage-source.jpg' }
+    { memberKey: 'visual-seedream', displayName: '绘真', roleName: '封面画师', responsibility: '执行主编整理好的制作单并交付封面', avatarPath: '/avatars/team-collage-source.jpg' }
   ],
   workOrder: {
     platformStyle: 'mainstream' as const, visualStyle: 'vivid' as const, compositionStyle: 'character-scene' as const,

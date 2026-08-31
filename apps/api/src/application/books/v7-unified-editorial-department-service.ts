@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   V7_ROLE_CONTRACTS,
-  runtimeMemberKeysForCanonicalV7Member,
   type V7EffectiveMember,
   type V7FixedRoleKey
 } from '@wenmi/v7-backend';
@@ -60,8 +59,7 @@ export class V7UnifiedEditorialDepartmentService {
     if (contract === undefined) throw new Error(`成员岗位未登记：${member.fixedRoleKey}`);
     const available = member.enabled && (member.model.plan === 'coding' ? this.credentials.codingPlan
       : member.model.plan === 'agent' ? this.credentials.agentPlan : this.imageConfigured);
-    const runtimeKeys = runtimeMemberKeysForCanonicalV7Member(member.memberKey);
-    const works = runtimeKeys.flatMap((runtimeKey) => this.repository.currentWorks(ownerId, runtimeKey, activeSince));
+    const works = this.repository.currentWorks(ownerId, member.memberKey, activeSince);
     const currentWork = works.length === 0 ? null : works.join('；');
     const presence: Presence = currentWork !== null ? 'working' : available ? 'ready' : 'leave';
     return {
@@ -70,10 +68,8 @@ export class V7UnifiedEditorialDepartmentService {
       statusText: presence === 'working' ? `我正在处理${currentWork}，完成后马上交稿。`
         : presence === 'leave' ? '对不起，我现在请假，工作会自动交给在岗同事。'
           : '我现在待命，有任务会马上接手。',
-      currentWork, completedCount: runtimeKeys.reduce(
-        (total, runtimeKey) => total + this.repository.successCount(ownerId, runtimeKey),
-        0
-      )
+      currentWork,
+      completedCount: this.repository.successCount(ownerId, member.memberKey)
     };
   }
 }

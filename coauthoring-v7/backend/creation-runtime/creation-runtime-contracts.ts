@@ -66,6 +66,25 @@ export const V7_CREATION_CONTEXT_CHAR_BUDGETS: Readonly<Record<V7CreationTaskKin
   settlement: 6_000
 };
 
+/**
+ * The context-planning Agent first receives control instructions plus compact
+ * source indexes.  Keep that whole prompt bounded independently from the exact
+ * ContextPack sent to the executor: six thousand characters cover the fixed
+ * selection contract and catalogue wrappers, while the remaining task-specific
+ * allowance mirrors the executor's exact-pack budget.  This is a transport
+ * limit, never a relevance
+ * rule; callers must fail truthfully instead of guessing which candidate to
+ * remove when the compact catalogue itself is still too large.
+ */
+export const V7_CREATION_CONTEXT_PLANNER_CHAR_BUDGETS: Readonly<Record<V7CreationTaskKind, number>> = {
+  volume: 18_000,
+  chain: 14_000,
+  outline: 12_000,
+  manuscript: 12_000,
+  review: 12_000,
+  settlement: 12_000
+};
+
 export interface V7CreationSourceCandidate {
   sourceKey: string;
   sourceKind: 'opening' | 'setting' | 'planning_tree' | 'planning_actual' | 'chapter_settlement' | 'character' | 'story_state' | 'author_input' | 'method';
@@ -340,7 +359,6 @@ export interface V7CreationMemberDefinition {
     | 'context_editor'
     | 'chief_editor'
     | 'planning_writer'
-    | 'outline_writer'
     | 'lead_writer'
     | 'independent_reviewer'
     | 'settlement_editor';
