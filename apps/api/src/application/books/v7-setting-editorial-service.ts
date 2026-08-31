@@ -23,13 +23,8 @@ import {
   projectSettingFinalContent,
   sanitizeAuthorFacingSettingText,
   settingItemByKey,
-  validateBookGenreProfile,
-  type V7BookGenreProfile,
   type V7AgentTaskKind,
   type V7ContextSourceTrace,
-  type V7GenrePersonaContent,
-  type V7PromptAssetVersion,
-  type V7TaskContract,
   type V7TaskOperationMode,
   type V7ChiefReview,
   type V7DeputyBrief,
@@ -61,6 +56,10 @@ import { assertMembershipAllowsGeneration } from '../../infrastructure/security/
 import { BookProfileViewService, type BookProfileView } from './book-profile-view-service.js';
 import { resolveV7TaskPolicy } from '../agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../agents/v7-runtime-prompt-compiler.js';
+import {
+  V7BookGenreProfileEnsureError,
+  V7BookGenreProfileEnsureService
+} from '../agents/v7-book-genre-profile-ensure-service.js';
 import { V7PromptGovernanceRepository } from '../../infrastructure/db/repositories/v7-prompt-governance-repository.js';
 import { openingChiefTaskSnapshot, resolveSettingTaskRoster } from './v7-task-roster-snapshot.js';
 import {
@@ -134,6 +133,7 @@ class SettingModelCallError extends Error {
 
 export class V7SettingEditorialService {
   private readonly repository: V7SettingEditorialRepository;
+  private readonly genreProfiles: V7BookGenreProfileEnsureService;
 
   public constructor(
     private readonly database: DatabaseSync,
@@ -145,6 +145,7 @@ export class V7SettingEditorialService {
     private readonly settingRoster: () => readonly V7SettingMemberDefinition[] = () => settingRosterFromGlobal()
   ) {
     this.repository = new V7SettingEditorialRepository(database);
+    this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, ids, clock);
   }
 
   public department(ownerId: string, bookId: string): {
@@ -790,7 +791,7 @@ export class V7SettingEditorialService {
     });
     this.recommendationEvent(task, chief, 'start', `${chief.displayName}开始整理本书设定清单`);
     try {
-      await this.ensureBookGenreProfile(task.owner_id, task.book_id, task.batch_id);
+      await this.genreProfiles.ensure(task.owner_id, task.book_id);
       const prompt = compileSettingCatalogRecommendationPrompt({
         openingProfile: recommendationOpeningProfile(profile),
         catalog,
@@ -1596,132 +1597,6 @@ export class V7SettingEditorialService {
     return buildSettingContextPack({ ownerId, bookId, itemKey: item.key, openingVersion: profile.version, openingSummary, confirmedSettings, authorNote, itemContract: { label: item.label, prompt: item.prompt }, sources });
   }
 
-  private async ensureBookGenreProfile(
-    ownerId: string,
-    bookId: string,
-    parentTaskId: string
-  ): Promise<V7BookGenreProfile | null> {
-    const profile = this.profile(ownerId, bookId);
-    const governance = new V7PromptGovernanceRepository(this.database);
-    const now = this.clock.now().toISOString();
-    governance.ensureSourceRegistrySeeded(now);
-    const genreAssets = governance.publishedAssets().filter((asset) => asset.kind === 'genre_persona');
-    const active = governance.activeBookGenreProfile(ownerId, bookId);
-    if (active !== null && active.sourceBookVersion === profile.version
-      && active.sourceAssetVersionIds.every((assetId) => genreAssets.some((asset) => asset.assetId === assetId))) {
-      return active;
-    }
-    const suggestedPrimary = matchGenreAsset(genreAssets, [profile.category, profile.openingBlueprint.categoryKey]);
-    const suggestedPrimaryKey = suggestedPrimary === undefined
-      ? null : String((suggestedPrimary.content as V7GenrePersonaContent).genreKey);
-    const suggestedSupporting = uniqueGenreAssets(
-      profile.subjects.map((label) => matchGenreAsset(genreAssets, [label])).filter(isPromptAsset)
-    ).filter((asset) => String((asset.content as V7GenrePersonaContent).genreKey) !== suggestedPrimaryKey).slice(0, 4);
-    // 题材融合属于资料语义转译，不是主编审查。由固定副编完成一次书级
-    // 工作档案，避免同一主编既推荐设定条目又重复承担上下文整理。
-    const deputy = this.requireRole('deputy_editor');
-
-    const requestId = `${parentTaskId}-genre-profile-${profile.version}`;
-    const contract: V7TaskContract = {
-      contractId: `${requestId}-contract`,
-      version: 1,
-      ownerId,
-      bookId,
-      taskId: requestId,
-      taskKind: 'planning_context',
-      workstationKey: 'setting',
-      operationMode: active === null ? 'fresh' : 'revise',
-      objective: '把本书主体题材与融合题材整理成一份统一、简短、可执行的题材工作档案。',
-      mustPreserve: ['作者确认的作品分类', '作者选择的融合题材', '开书资料中的人物、时代与硬禁项'],
-      allowedChanges: ['只说明融合题材在本书承担的辅助功能和写作重点'],
-      forbiddenChanges: ['不得新增作者未选题材', '不得把标签拼成剧情', '不得覆盖正式开书资料'],
-      successCriteria: ['主体题材承诺明确', '融合功能不冲突', '真实性检查可执行', '内容短而具体'],
-      outputContract: { format: 'json', object: 'book_genre_profile' },
-      selectedSkillKeys: ['data-boundary', 'genre-fusion'],
-      authorInstructionVersion: null,
-      basedOnTaskId: parentTaskId,
-      createdAt: now
-    };
-    const confirmedBookBrief = {
-        category: profile.category,
-        fusionGenres: profile.subjects,
-        mainTags: profile.mainTags,
-        customTags: profile.customTags,
-        storyDirection: profile.storyDirection,
-        mustFollow: profile.mustFollow,
-        protagonists: profile.protagonists.map((item) => ({ role: item.role, name: item.name, background: item.background }))
-    };
-    const prompt = compileGenreProfileResolutionPrompt({
-      taskContract: contract,
-      confirmedBookBrief,
-      genreAssets,
-      suggestedPrimaryKey,
-      suggestedSupportingKeys: suggestedSupporting.map((asset) => String((asset.content as V7GenrePersonaContent).genreKey))
-    });
-    const failedAttempt = this.repository.latestModelOutcomeForJob(
-      ownerId,
-      bookId,
-      parentTaskId,
-      '__genre_profile__',
-      ['failed']
-    );
-    const technicalRetryTaskId = failedAttempt?.node_key === 'genre_profile'
-      && failedAttempt.member_key === deputy.memberKey
-      ? failedAttempt.logical_task_id
-      : null;
-    const raw = await this.model(
-      ownerId, bookId, parentTaskId, '__genre_profile__', 'genre_profile', deputy, prompt, 2_200, 0.25, requestId,
-      settingModelInvocation({
-        taskKind: 'planning_context', operationMode: technicalRetryTaskId === null ? contract.operationMode : 'retry',
-        lineage: {
-          operationMode: contract.operationMode,
-          basedOnTaskId: contract.basedOnTaskId,
-          authorInstructionVersion: contract.authorInstructionVersion
-        },
-        sourceTraces: [openingProfileSourceTrace(ownerId, bookId, profile), ...genreAssetSourceTraces(ownerId, bookId, genreAssets)],
-        technicalRetryTaskId
-      })
-    );
-    const parsed = parseStructuredObject(raw, '题材工作档案');
-    const primaryKey = profileText(parsed.primaryGenreKey ?? suggestedPrimaryKey, '主体题材键', 80);
-    const primary = genreAssets.find((asset) => String((asset.content as V7GenrePersonaContent).genreKey) === primaryKey);
-    if (primary === undefined) throw new Error(`题材工作档案选择了不存在的主体题材：${primaryKey}`);
-    const supportingKeys = profileList(parsed.supportingGenreKeys ?? suggestedSupporting.map((asset) => (
-      (asset.content as V7GenrePersonaContent).genreKey
-    )), '融合题材键', true).filter((key) => key !== primaryKey);
-    if (supportingKeys.length > 4) throw new Error('融合题材键最多选择4项');
-    const supporting = supportingKeys.map((key) => {
-      const asset = genreAssets.find((candidate) => String((candidate.content as V7GenrePersonaContent).genreKey) === key);
-      if (asset === undefined) throw new Error(`题材工作档案选择了不存在的融合题材：${key}`);
-      return asset;
-    });
-    const expectedSourceIds = [primary, ...supporting].map((asset) => asset.assetId).toSorted();
-    const candidate: V7BookGenreProfile = {
-      profileId: this.ids.next(),
-      ownerId,
-      bookId,
-      version: (active?.version ?? 0) + 1,
-      status: 'active',
-      primaryGenreKey: primaryKey,
-      supportingGenreKeys: supportingKeys,
-      sourceAssetVersionIds: expectedSourceIds,
-      sourceBookVersion: profile.version,
-      publicLabel: profileText(parsed.publicLabel, '题材组合名', 100),
-      workingIdentity: profileText(parsed.workingIdentity, '题材工作身份', 500),
-      primaryPromise: profileText(parsed.primaryPromise, '主要阅读承诺', 300),
-      supportingFunctions: profileSupportingFunctions(parsed.supportingFunctions),
-      writingPriorities: profileList(parsed.writingPriorities, '写作重点'),
-      authenticityChecks: profileList(parsed.authenticityChecks, '真实性检查'),
-      avoidPatterns: profileList(parsed.avoidPatterns, '避免项'),
-      conflictResolutions: profileList(parsed.conflictResolutions, '冲突取舍', true),
-      compiledByTaskId: requestId,
-      createdAt: this.clock.now().toISOString()
-    };
-    const errors = validateBookGenreProfile(candidate, [primary, ...supporting]);
-    if (errors.length > 0) throw new Error(`题材工作档案不完整：${errors.join('；')}`);
-    return governance.recordBookGenreProfile(candidate, deputy.memberKey);
-  }
-
   private async model(ownerId: string, bookId: string, batchId: string, itemKey: string, nodeKey: string, member: ModelMember, prompt: string, maxOutputTokens: number, temperature: number, logicalTaskId: string, invocation: SettingModelInvocation): Promise<string> {
     const technicalRetry = invocation.technicalRetryTaskId !== null;
     const taskId = invocation.technicalRetryTaskId ?? logicalTaskId;
@@ -2122,22 +1997,6 @@ function openingProfileSourceTrace(ownerId: string, bookId: string, profile: Boo
   };
 }
 
-function genreAssetSourceTraces(ownerId: string, bookId: string, assets: readonly V7PromptAssetVersion[]): V7ContextSourceTrace[] {
-  return assets.map((asset) => ({
-    ownerId,
-    bookId,
-    sourceKey: `genre_persona:${asset.assetKey}`,
-    sourceType: 'genre_persona',
-    sourceId: asset.assetId,
-    sourceVersion: String(asset.version),
-    authority: 'reference',
-    decision: 'included',
-    reason: '副编从已发布题材卡中理解主体与融合题材，本卡是可选专业参考。',
-    contentHash: hash(asset.content),
-    estimatedTokens: estimateSettingTokens(JSON.stringify(asset.content))
-  }));
-}
-
 function estimateSettingTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 2));
 }
@@ -2514,119 +2373,6 @@ function recommendationIsStale(
     || row.request_hash !== recommendationRequestHash(profile, catalog);
 }
 
-function compileGenreProfileResolutionPrompt(input: {
-  taskContract: V7TaskContract;
-  confirmedBookBrief: Readonly<Record<string, unknown>>;
-  genreAssets: readonly V7PromptAssetVersion[];
-  suggestedPrimaryKey: string | null;
-  suggestedSupportingKeys: readonly string[];
-}): string {
-  return JSON.stringify({
-    operation: 'v7_compile_book_genre_profile_v2',
-    compatibilityMarker: 'v7_compile_book_genre_profile_v1',
-    responsibility: '先理解作者实际选择的题材语义，再从候选卡中选出最贴切的主体与融合功能，同时生成一份短而统一的书级题材工作档案。',
-    taskContract: input.taskContract,
-    confirmedBookBrief: input.confirmedBookBrief,
-    exactMatchHints: {
-      primaryGenreKey: input.suggestedPrimaryKey,
-      supportingGenreKeys: input.suggestedSupportingKeys,
-      note: '这只是文字精确匹配提示。必须以开书资料的真实语义为准，不能因为关键词相似而误判。'
-    },
-    availableGenreCards: input.genreAssets.map((asset) => {
-      const content = asset.content as V7GenrePersonaContent;
-      return {
-        genreKey: content.genreKey,
-        publicName: content.publicName,
-        aliases: content.aliases,
-        readerPromise: content.readerPromise,
-        requiredKnowledge: content.requiredKnowledge,
-        avoidPatterns: content.avoidPatterns
-      };
-    }),
-    rules: [
-      '主体题材必须且只能选择1项；融合题材可选0至4项，不能与主体重复。',
-      '未知、新兴或口语化题材名必须按含义映射，不能静默跳过，也不能凭关键词乱贴类别。',
-      '不得新增作者没有表达的题材方向；标签只用于理解，不得拼成剧情。',
-      '工作档案只服务后续工位，不修改正式开书资料，不生成具体剧情。'
-    ],
-    outputSchema: {
-      primaryGenreKey: '必须来自availableGenreCards.genreKey',
-      supportingGenreKeys: ['0至4个availableGenreCards.genreKey'],
-      publicLabel: '作者看得懂的题材组合名',
-      workingIdentity: '这本书在实际创作中是什么作品',
-      primaryPromise: '主体题材给读者的主要体验',
-      supportingFunctions: ['每一项必须是完整字符串，例如“权谋：负责势力博弈与信息差”；不要返回对象'],
-      writingPriorities: ['后续创作最该抓住的重点'],
-      authenticityChecks: ['需要持续核对的真实性边界'],
-      avoidPatterns: ['本书最容易写偏的套路'],
-      conflictResolutions: ['题材承诺冲突时如何取舍；没有可返回空数组']
-    }
-  });
-}
-
-function matchGenreAsset(
-  assets: readonly V7PromptAssetVersion[],
-  labels: readonly (string | null | undefined)[]
-): V7PromptAssetVersion | undefined {
-  const normalizedLabels = labels
-    .map((label) => label?.trim().toLocaleLowerCase('zh-CN') ?? '')
-    .filter(Boolean);
-  if (normalizedLabels.length === 0) return undefined;
-  return assets.find((asset) => {
-    const content = asset.content as V7GenrePersonaContent;
-    const candidates = [content.genreKey, content.publicName, ...content.aliases]
-      .map((value) => value.trim().toLocaleLowerCase('zh-CN'))
-      .filter(Boolean);
-    return normalizedLabels.some((label) => candidates.some((candidate) => (
-      label === candidate || label.includes(candidate) || candidate.includes(label)
-    )));
-  });
-}
-
-function isPromptAsset(asset: V7PromptAssetVersion | undefined): asset is V7PromptAssetVersion {
-  return asset !== undefined;
-}
-
-function uniqueGenreAssets(assets: readonly V7PromptAssetVersion[]): V7PromptAssetVersion[] {
-  return [...new Map(assets.map((asset) => [asset.assetId, asset])).values()];
-}
-
-function profileText(value: unknown, label: string, max: number): string {
-  if (typeof value !== 'string') throw new Error(`${label}没有按要求返回`);
-  const text = value.trim();
-  if (text.length === 0 || Array.from(text).length > max) throw new Error(`${label}长度不符合要求`);
-  return text;
-}
-
-function profileList(value: unknown, label: string, allowEmpty = false): string[] {
-  if (!Array.isArray(value)) throw new Error(`${label}没有按要求返回`);
-  const items = value.map((item) => {
-    if (typeof item !== 'string') throw new Error(`${label}包含无效内容`);
-    const text = item.trim();
-    if (text.length === 0 || Array.from(text).length > 300) throw new Error(`${label}包含空项或过长内容`);
-    return text;
-  });
-  if ((!allowEmpty && items.length === 0) || items.length > 8) throw new Error(`${label}需要${allowEmpty ? '0至8' : '1至8'}项`);
-  return [...new Set(items)];
-}
-
-function profileSupportingFunctions(value: unknown): string[] {
-  if (!Array.isArray(value)) throw new Error('辅助功能没有按要求返回');
-  const normalized = value.flatMap((item): string[] => {
-    if (typeof item === 'string') return [item];
-    if (item === null || typeof item !== 'object' || Array.isArray(item)) throw new Error('辅助功能包含无效内容');
-    const record = item as Record<string, unknown>;
-    const label = [record.genreKey, record.genre, record.label, record.name]
-      .find((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0)?.trim() ?? '';
-    if (!Array.isArray(record.functions)) throw new Error('辅助功能包含无效内容');
-    return record.functions.map((entry) => {
-      if (typeof entry !== 'string' || entry.trim().length === 0) throw new Error('辅助功能包含无效内容');
-      return label.length > 0 ? `${label}：${entry.trim()}` : entry.trim();
-    });
-  });
-  return profileList(normalized, '辅助功能');
-}
-
 function recommendationOpeningProfile(profile: BookProfileView): unknown {
   return {
     title: profile.title,
@@ -2711,7 +2457,8 @@ function settingModelSignature(member: V7SettingMemberDefinition): string {
 }
 
 function settingOutcomeUnknown(error: unknown): boolean {
-  return (error instanceof SettingModelCallError && error.outcomeUnknown)
+  return (error instanceof V7BookGenreProfileEnsureError && error.outcomeUnknown)
+    || (error instanceof SettingModelCallError && error.outcomeUnknown)
     || (error instanceof ModelAdapterError && error.outcomeUnknown);
 }
 

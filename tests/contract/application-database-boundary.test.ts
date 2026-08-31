@@ -3,10 +3,10 @@ import { relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const CURRENT_SQL_APPLICATION_FILES = new Set([
-  'artifacts/artifact-service.ts', 'books/book-onboarding-service.ts', 'books/positioning-service.ts',
-  'budget/budget-service.ts',
-  'events/event-store.ts', 'knowledge/canon-service.ts', 'memory/context-pack-service.ts',
-  'projections/narrative-projection-service.ts', 'tasks/task-service.ts'
+  'books/book-onboarding-service.ts',
+  'books/positioning-service.ts',
+  'knowledge/canon-service.ts',
+  'projections/narrative-projection-service.ts'
 ]);
 
 describe('应用层数据库边界', () => {

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { TaskService } from '../../apps/api/src/application/tasks/task-service.js';
 import type { Clock, IdGenerator } from '../../apps/api/src/domain/ids.js';
 import { initializeRuntimeBook } from './runtime-fixture.js';
 import type { TestContext } from './test-context.js';
@@ -54,10 +53,14 @@ function seedManuscript(
 ): { manuscriptVersionId: string; taskId: string } {
   const now = clock.now().toISOString();
   const taskId = ids.next();
-  new TaskService(context.database, context.config.releaseId, clock).create(scope, {
-    taskId, taskType: 'chapter_write', assignedAgentId: agentId, chapterId,
-    idempotencyKey: `write:${chapterId}`, initialPhase: 'draft', brief: { chapterId }
-  });
+  context.database.prepare(`INSERT INTO tasks(
+    task_id,release_id,owner_id,book_id,chapter_id,task_type,assigned_agent_id,
+    task_brief_json,status,current_phase,idempotency_key,budget_id,required_editor_epoch,
+    checkpoint_json,created_at,updated_at
+  ) VALUES(?,?,?,?,?,'chapter_write',?,?,'succeeded','completed',?,NULL,0,?,?,?)`).run(
+    taskId, context.config.releaseId, scope.ownerId, scope.bookId, chapterId, agentId,
+    JSON.stringify({ chapterId }), `write:${chapterId}`, JSON.stringify({ fixture: true }), now, now
+  );
   const manuscriptVersionId = ids.next();
   const operationId = ids.next();
   const fileId = ids.next();

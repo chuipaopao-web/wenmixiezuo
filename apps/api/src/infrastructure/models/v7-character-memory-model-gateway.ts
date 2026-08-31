@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { modelProfileKeyForBinding, type V7CharacterMemberDefinition } from '@wenmi/v7-backend';
-import type { Clock } from '../../domain/ids.js';
+import { UuidGenerator, type Clock } from '../../domain/ids.js';
 import { V7CharacterMemoryRepository } from '../db/repositories/v7-character-memory-repository.js';
 import { assertMembershipAllowsGeneration } from '../security/membership-service.js';
 import type { ModelAdapter } from './model-adapter.js';
@@ -10,6 +10,10 @@ import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../../application/agents/v7-runtime-prompt-compiler.js';
 import { V7PromptGovernanceRepository } from '../db/repositories/v7-prompt-governance-repository.js';
+import {
+  V7BookGenreProfileEnsureError,
+  V7BookGenreProfileEnsureService
+} from '../../application/agents/v7-book-genre-profile-ensure-service.js';
 
 export interface V7CharacterMemoryModelAdapterResolver {
   resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter;
@@ -50,6 +54,7 @@ export class V7CharacterMemoryModelError extends Error {
 
 export class V7CharacterMemoryModelGateway {
   private readonly repository: V7CharacterMemoryRepository;
+  private readonly genreProfiles: V7BookGenreProfileEnsureService;
 
   public constructor(
     private readonly database: DatabaseSync,
@@ -57,6 +62,7 @@ export class V7CharacterMemoryModelGateway {
     private readonly clock: Clock
   ) {
     this.repository = new V7CharacterMemoryRepository(database);
+    this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, new UuidGenerator(), clock);
   }
 
   public async generate(request: V7CharacterMemoryModelRequest): Promise<V7CharacterMemoryModelResult> {
@@ -95,6 +101,17 @@ export class V7CharacterMemoryModelGateway {
     if (request.technicalRetry && retrySnapshot === null) {
       throw new V7CharacterMemoryModelError('找不到本任务首次冻结的资料快照，不能盲目重试；请重新创建人物任务。');
     }
+    let genreProfile = promptGovernance.activeBookGenreProfile(request.ownerId, request.bookId);
+    if (!request.technicalRetry) {
+      try {
+        genreProfile = await this.genreProfiles.ensure(request.ownerId, request.bookId);
+      } catch (error) {
+        throw new V7CharacterMemoryModelError(
+          error instanceof Error ? error.message : '题材工作档案没有准备完成',
+          error instanceof V7BookGenreProfileEnsureError && error.outcomeUnknown
+        );
+      }
+    }
     const compiled = compileV7RuntimePrompt({
       requestId: request.requestId,
       ownerId: request.ownerId,
@@ -108,7 +125,7 @@ export class V7CharacterMemoryModelGateway {
       operationMode: request.technicalRetry ? 'retry' : 'fresh',
       sourcePrompt: request.prompt,
       promptAssets: promptGovernance.publishedAssets(),
-      genreProfile: promptGovernance.activeBookGenreProfile(request.ownerId, request.bookId),
+      genreProfile,
       governanceRevision: promptGovernance.summary().revision,
       temperature: runtimePolicy.temperature,
       maxOutputTokens: request.maxOutputTokens,

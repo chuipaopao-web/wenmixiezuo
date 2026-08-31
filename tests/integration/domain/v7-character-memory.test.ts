@@ -7,6 +7,7 @@ import { V7CharacterMemoryService } from '../../../apps/api/src/application/char
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -357,6 +358,8 @@ class CharacterResolver implements V7CharacterMemoryModelAdapterResolver {
   private contextFailed = false;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const taskPrompt = stageTaskPayload(request.prompt);
       if (taskPrompt.includes('v7-character-context-selection-v1') && !this.contextFailed) {
         this.contextFailed = true;
@@ -392,7 +395,9 @@ class CharacterResolver implements V7CharacterMemoryModelAdapterResolver {
 class UnknownCharacterResolver implements V7CharacterMemoryModelAdapterResolver {
   public calls = 0;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       throw new ModelAdapterError('请求已经发出，但连接中断。', 'technical_failure', false, undefined, true);
     } };
@@ -405,6 +410,8 @@ class RetryCharacterResolver implements V7CharacterMemoryModelAdapterResolver {
   public readonly requestIds: string[] = [];
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       this.prompts.push(request.prompt);
       this.requestIds.push(request.requestId);
@@ -429,6 +436,8 @@ class RetryCharacterMaintenanceResolver implements V7CharacterMemoryModelAdapter
   public readonly requestIds: string[] = [];
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       this.prompts.push(request.prompt);
       this.requestIds.push(request.requestId);

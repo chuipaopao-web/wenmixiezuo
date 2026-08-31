@@ -37,9 +37,10 @@
     "typecheck": "npm run build -w @wenmi/contracts && npm run build -w @wenmi/v7-backend && npm run typecheck -w @wenmi/api && npm run typecheck -w @wenmi/worker && npm run typecheck -w @wenmi/v7-author-app && npm run typecheck -w @wenmi/v7-admin-console && tsc -p tsconfig.tests.json --noEmit",
     "typecheck:v7:web": "npm run typecheck -w @wenmi/v7-author-app && npm run typecheck -w @wenmi/v7-admin-console",
     "verify:v7:static-release": "node scripts/release/verify-v7-static.mjs",
+    "verify:runtime-closure": "tsx scripts/quality/verify-v7-runtime-source-closure.ts",
     "verify:capabilities": "tsx scripts/quality/verify-v7-capability-cutover.ts",
-    "verify": "npm run verify:capabilities && npm run typecheck && npm run test:fast && npm run build",
-    "verify:full": "npm run verify:capabilities && npm run typecheck && npm run test:full && npm run build"
+    "verify": "npm run verify:runtime-closure && npm run verify:capabilities && npm run typecheck && npm run test:fast && npm run build",
+    "verify:full": "npm run verify:runtime-closure && npm run verify:capabilities && npm run typecheck && npm run test:full && npm run build"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.9.1",
@@ -49,6 +50,7 @@
     "@types/react-dom": "19.2.3",
     "@vitest/coverage-v8": "4.1.10",
     "concurrently": "10.0.5",
+    "@babel/parser": "7.29.8",
     "jsdom": "29.1.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",

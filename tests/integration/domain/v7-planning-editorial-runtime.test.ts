@@ -7,6 +7,7 @@ import { V7PlanningMaintenanceService } from '../../../apps/api/src/application/
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { SystemClock, UuidGenerator } from '../../../apps/api/src/domain/ids.js';
 import { createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 import { parseProgressivePlanningBrief } from '@wenmi/v7-backend';
 
 const HEADERS = {
@@ -819,7 +820,9 @@ class BlockingPlanningResolver implements V7OpeningModelAdapterResolver {
   public waitUntilEntered(): Promise<void> { return this.entered; }
   public release(): void { this.releaseGate(); }
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       if (!this.announced) { this.announced = true; this.enteredGate(); }
       await this.gate;
       return {
@@ -833,7 +836,9 @@ class BlockingPlanningResolver implements V7OpeningModelAdapterResolver {
 class AlwaysFailingPlanningResolver implements V7OpeningModelAdapterResolver {
   public calls = 0;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       throw new SyntaxError("Expected ',' or '}' after property value in JSON at position 13153 (line 1 column 13154)");
     } };
@@ -843,7 +848,9 @@ class AlwaysFailingPlanningResolver implements V7OpeningModelAdapterResolver {
 class SourceIssuePlanningResolver implements V7OpeningModelAdapterResolver {
   public calls = 0;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       return {
         provider, modelId, output: JSON.stringify({
@@ -861,6 +868,8 @@ class RepairingDirectPlanningResolver implements V7OpeningModelAdapterResolver {
   private malformedReturned = false;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const prompt = stageTaskPrompt(request.prompt);
       this.prompts.push(prompt);
       let output: string;
@@ -892,8 +901,10 @@ class PlanningResolver implements V7OpeningModelAdapterResolver {
   private failedMaintainer = false;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
-      this.prompts.push(request.prompt);
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const stagePrompt = stageTaskPrompt(request.prompt);
+      this.prompts.push(request.prompt);
       if (request.agentId === 'chief-glm-5-3' && !this.failedStructure) {
         this.failedStructure = true;
         throw new Error('模拟全案主编二席临时请假');
@@ -944,6 +955,8 @@ class PartialRecipeResolver implements V7OpeningModelAdapterResolver {
   public calls = 0;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       const prompt = stageTaskPrompt(request.prompt);
       if (prompt.includes('席位：全案主编三席')) throw new Error('模拟三席本轮全部请假');
@@ -962,6 +975,8 @@ class RetryPlanningMaintenanceResolver implements V7OpeningModelAdapterResolver 
   public readonly requestIds: string[] = [];
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       this.prompts.push(request.prompt);
       this.requestIds.push(request.requestId);
@@ -979,6 +994,8 @@ class PlanningTreeRetryResolver implements V7OpeningModelAdapterResolver {
   public readonly requestIds: string[] = [];
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.requestIds.push(request.requestId);
       const prompt = stageTaskPrompt(request.prompt);
       if (prompt.includes('PlanningTreeDocument')) {
@@ -1000,6 +1017,8 @@ class PlanningRouteRetryResolver implements V7OpeningModelAdapterResolver {
   public readonly requestIds: string[] = [];
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.requestIds.push(request.requestId);
       const prompt = stageTaskPrompt(request.prompt);
       const secondRoute = prompt.includes('"seatKey":"structure_deputy"')

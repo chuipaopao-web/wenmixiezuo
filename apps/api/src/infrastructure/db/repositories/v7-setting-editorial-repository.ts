@@ -26,6 +26,15 @@ export interface V7SettingFinalReviewStateRow {
   publicMessage: string;
 }
 
+export interface V7GenreProfileBatchStateRow {
+  taskKind: 'genre_profile';
+  phase: 'queued' | 'working' | 'completed' | 'failed' | 'unknown';
+  logicalTaskId: string;
+  sourceFingerprint: string;
+  attemptedMemberKeys: string[];
+  publicMessage: string;
+}
+
 export interface V7SettingJobRow {
   job_id: string; owner_id: string; book_id: string; batch_id: string; item_key: string; item_label: string;
   group_title: string; item_prompt: string; state: V7SettingItemView['state']; assigned_member_key: string | null;
@@ -83,6 +92,145 @@ export class V7SettingEditorialRepository {
   public findBatchByIdempotency(ownerId: string, bookId: string, key: string): V7SettingBatchRow | undefined {
     return this.database.prepare('SELECT * FROM v7_setting_batches WHERE owner_id=? AND book_id=? AND idempotency_key=?')
       .get(ownerId, bookId, key) as V7SettingBatchRow | undefined;
+  }
+
+  /**
+   * 书级题材档案复用设定任务账本承载模型调用外键，但没有设定条目 job，
+   * 因此不会进入作者端的设定批次投影。唯一键保证多进程只创建一份内部任务。
+   */
+  public ensureGenreProfileBatch(input: {
+    batchId: string; ownerId: string; bookId: string; idempotencyKey: string; sourceFingerprint: string;
+    openingVersion: number; openingHash: string; rosterJson: string; stateJson: string; now: string;
+  }): V7SettingBatchRow {
+    this.database.prepare(`INSERT OR IGNORE INTO v7_setting_batches
+      (batch_id,owner_id,book_id,idempotency_key,request_hash,status,selected_items_json,custom_items_json,
+       opening_version,opening_hash,roster_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,'queued',?,?,?,?,?,?,?)`).run(
+      input.batchId, input.ownerId, input.bookId, input.idempotencyKey, input.sourceFingerprint,
+      JSON.stringify({ taskKind: 'genre_profile', profileId: null }), input.stateJson,
+      input.openingVersion, input.openingHash, input.rosterJson, input.now, input.now
+    );
+    const row = this.genreProfileBatch(input.ownerId, input.bookId, input.idempotencyKey);
+    if (row === undefined || row.request_hash !== input.sourceFingerprint) {
+      throw new Error('书级题材档案内部任务幂等键冲突');
+    }
+    return row;
+  }
+
+  public genreProfileBatch(ownerId: string, bookId: string, idempotencyKey: string): V7SettingBatchRow | undefined {
+    return this.database.prepare(`SELECT * FROM v7_setting_batches
+      WHERE owner_id=? AND book_id=? AND idempotency_key=?
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'`)
+      .get(ownerId, bookId, idempotencyKey) as V7SettingBatchRow | undefined;
+  }
+
+  public claimGenreProfileBatch(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; leaseExpiresAt: string; now: string;
+    stateJson: string;
+  }): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET status='working',custom_items_json=?,lease_token=?,lease_expires_at=?,error_message=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=?
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'
+        AND status IN ('queued','working') AND (lease_token IS NULL OR lease_expires_at<=?)`)
+      .run(input.stateJson, input.token, input.leaseExpiresAt, input.now,
+        input.ownerId, input.bookId, input.batchId, input.now);
+    return result.changes === 1;
+  }
+
+  public renewGenreProfileLease(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; leaseExpiresAt: string; now: string;
+  }): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET lease_expires_at=?,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND status='working' AND lease_token=?
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'`)
+      .run(input.leaseExpiresAt, input.now, input.ownerId, input.bookId, input.batchId, input.token);
+    return result.changes === 1;
+  }
+
+  public markReclaimedGenreProfileCallsUnknown(
+    ownerId: string,
+    bookId: string,
+    batchId: string,
+    now: string
+  ): number {
+    return Number(this.database.prepare(`UPDATE v7_setting_model_calls
+      SET state='unknown',failure_message=?,completed_at=?,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND item_key='__genre_profile__' AND state='working'
+        AND EXISTS (
+          SELECT 1 FROM v7_setting_batches batch
+          WHERE batch.owner_id=v7_setting_model_calls.owner_id
+            AND batch.book_id=v7_setting_model_calls.book_id
+            AND batch.batch_id=v7_setting_model_calls.batch_id
+            AND json_extract(batch.custom_items_json,'$.taskKind')='genre_profile'
+        )`).run(
+      '对不起，上次服务中断后无法确认题材档案结果，已停止自动重试。',
+      now, now, ownerId, bookId, batchId
+    ).changes);
+  }
+
+  public genreProfileModelAttempt(
+    ownerId: string,
+    bookId: string,
+    batchId: string,
+    logicalTaskId: string
+  ): V7SettingModelTaskAttemptRow | undefined {
+    return this.database.prepare(`SELECT call.request_id AS execution_request_id,manifest.task_id AS logical_task_id,
+        call.node_key,call.member_key,call.state,call.output_text,call.failure_message
+      FROM v7_setting_model_calls call
+      JOIN v7_prompt_manifests manifest
+        ON manifest.owner_id=call.owner_id AND manifest.book_id=call.book_id
+       AND manifest.member_key=call.member_key AND manifest.compiled_prompt_hash=call.prompt_hash
+      JOIN v7_setting_batches batch
+        ON batch.owner_id=call.owner_id AND batch.book_id=call.book_id AND batch.batch_id=call.batch_id
+      WHERE call.owner_id=? AND call.book_id=? AND call.batch_id=? AND call.item_key='__genre_profile__'
+        AND manifest.task_id=? AND json_extract(batch.custom_items_json,'$.taskKind')='genre_profile'
+      ORDER BY call.updated_at DESC,call.request_id DESC LIMIT 1`).get(
+      ownerId, bookId, batchId, logicalTaskId
+    ) as V7SettingModelTaskAttemptRow | undefined;
+  }
+
+  public completeGenreProfileBatch(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; profileId: string;
+    stateJson: string; now: string;
+  }): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET status='completed',selected_items_json=?,custom_items_json=?,lease_token=NULL,lease_expires_at=NULL,
+          error_message=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'`)
+      .run(JSON.stringify({ taskKind: 'genre_profile', profileId: input.profileId }), input.stateJson, input.now,
+        input.ownerId, input.bookId, input.batchId, input.token);
+    return result.changes === 1;
+  }
+
+  public failGenreProfileBatch(input: {
+    ownerId: string; bookId: string; batchId: string; token: string; stateJson: string; message: string; now: string;
+  }): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET status='partially_failed',custom_items_json=?,error_message=?,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND lease_token=?
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'`)
+      .run(input.stateJson, input.message, input.now, input.ownerId, input.bookId, input.batchId, input.token);
+    return result.changes === 1;
+  }
+
+  public resetKnownFailedGenreProfileBatch(input: {
+    ownerId: string; bookId: string; batchId: string; stateJson: string; now: string;
+  }): boolean {
+    const result = this.database.prepare(`UPDATE v7_setting_batches
+      SET status='queued',custom_items_json=?,error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=?
+      WHERE owner_id=? AND book_id=? AND batch_id=? AND status='partially_failed'
+        AND json_extract(custom_items_json,'$.taskKind')='genre_profile'
+        AND NOT EXISTS (
+          SELECT 1 FROM v7_setting_model_calls call
+          WHERE call.owner_id=v7_setting_batches.owner_id AND call.book_id=v7_setting_batches.book_id
+            AND call.batch_id=v7_setting_batches.batch_id AND call.item_key='__genre_profile__'
+            AND call.state IN ('working','unknown')
+        )`)
+      .run(input.stateJson, input.now, input.ownerId, input.bookId, input.batchId);
+    return result.changes === 1;
   }
 
   public createRecommendationTask(input: {

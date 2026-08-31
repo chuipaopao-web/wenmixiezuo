@@ -185,7 +185,9 @@ function PlanningTaskCard({ task, onOpen, onCancel }: {
     : task.treeKind === 'volume' ? '本卷框架' : task.treeKind === 'chain' ? '单元链框架' : '全书框架';
   const memberEmoji = task.status === 'failed' ? '🙇' : task.status === 'cancelled' ? '👌' : task.status === 'waiting_for_you' ? '🌿' : '✍️';
   const displayName = task.memberKey === null || task.memberName === null ? null : memberDisplayName(task.memberKey, task.memberName);
-  const taskCopy = publicStatusCopy(task.message, ['waiting', 'working'].includes(task.status) ? '编辑部正在处理这项工作。' : '当前进度已经保存。');
+  const taskCopy = task.status === 'failed'
+    ? publicFailureCopy(task.message)
+    : publicStatusCopy(task.message, ['waiting', 'working'].includes(task.status) ? '编辑部正在处理这项工作。' : '当前进度已经保存。');
   return <article className={`task-log-card state-${task.status}`}>
     <div className="task-log-card-main"><span className={`task-state-dot ${['waiting', 'working'].includes(task.status) ? 'working' : ''}`} /><div><small>{kind} · {formatTime(task.updatedAt)}</small><strong>{task.bookTitle}</strong><p>{displayName === null ? taskCopy : `${memberEmoji} ${displayName}：${taskCopy}`}</p></div></div>
     <div className="task-log-card-side">{task.memberKey !== null && <div className="task-member-stack"><i title={displayName ?? '编辑部成员'} style={{ backgroundPosition: memberAvatarPosition(task.memberKey) }} /></div>}<span className="task-state-label">{state}</span><button type="button" onClick={onOpen}>继续处理<ArrowRightIcon /></button>{task.canStop && onCancel !== undefined && !confirmingStop && <button className="task-abandon-button" type="button" onClick={() => setConfirmingStop(true)}>停止任务</button>}</div>

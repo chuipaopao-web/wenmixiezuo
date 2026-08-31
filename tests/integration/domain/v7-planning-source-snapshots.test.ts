@@ -10,6 +10,7 @@ import type { ModelAdapter, ModelRequest, ModelResult } from '../../../apps/api/
 import type { ModelPurpose } from '../../../apps/api/src/infrastructure/models/model-runtime-config.js';
 import { V7PlanningModelGateway } from '../../../apps/api/src/infrastructure/models/v7-planning-model-gateway.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -45,6 +46,53 @@ describe('V7规划正式资料快照', () => {
       expect(() => compiler.compile({
         ownerId, bookId, treeKind: 'book', scopeId: bookId, purpose: 'recipe_design'
       })).toThrow('补全预计总字数');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('规划网关在题材档案缺失时只懒生成一次并让后续任务复用', async () => {
+    context = createTestContext('wenmi-v7-planning-genre-profile-');
+    const resolver = new SuccessfulPlanningResolver();
+    const app = await createServer(context.config, context.database, { v7OpeningModelAdapters: resolver });
+    try {
+      const cookie = await register(app, 'snapshot-genre@example.com', '题材档案作者');
+      const bookId = await createBook(app, cookie, '北宋题材档案');
+      const ownerId = String((context.database.prepare('SELECT owner_id FROM books WHERE book_id=?')
+        .get(bookId) as { owner_id: string }).owner_id);
+      const chief = V7_PLANNING_MEMBERS.find((member) => (
+        member.roleKey === 'chief_editor' && member.enabledByDefault
+      ))!;
+      const gateway = new V7PlanningModelGateway(context.database, resolver, new FixedClock());
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_book_genre_profiles
+        WHERE owner_id=? AND book_id=?`).get(ownerId, bookId)).toEqual({ count: 0 });
+
+      for (const requestId of ['planning-genre-lazy-0001', 'planning-genre-lazy-0002']) {
+        await gateway.generate({
+          requestId, ownerId, bookId, runId: `run-${requestId}`, runKind: 'recipe', nodeKey: requestId,
+          taskKind: 'planning_review', workstationKey: 'full_book_route', operationMode: 'fresh',
+          basedOnTaskId: null, authorInstructionVersion: null, sourceTraces: [], member: chief,
+          prompt: JSON.stringify({ task: '验证题材档案只生成一次', requestId }),
+          maxOutputTokens: 200, temperature: 0.2
+        });
+      }
+
+      expect(resolver.genreProfileCalls).toBe(1);
+      expect(context.database.prepare(`SELECT COUNT(*) AS count FROM v7_setting_model_calls
+        WHERE owner_id=? AND book_id=? AND node_key='genre_profile'`).get(ownerId, bookId)).toEqual({ count: 1 });
+      const active = context.database.prepare(`SELECT profile_id,version,status FROM v7_book_genre_profiles
+        WHERE owner_id=? AND book_id=? AND status='active'`).get(ownerId, bookId) as {
+          profile_id: string;
+          version: number;
+          status: string;
+        };
+      expect(active).toMatchObject({ version: 1, status: 'active' });
+      expect(context.database.prepare(`SELECT task_id,genre_profile_id,genre_profile_version
+        FROM v7_prompt_manifests WHERE owner_id=? AND book_id=? AND task_id IN (?,?) ORDER BY task_id`)
+        .all(ownerId, bookId, 'planning-genre-lazy-0001', 'planning-genre-lazy-0002')).toEqual([
+          { task_id: 'planning-genre-lazy-0001', genre_profile_id: active.profile_id, genre_profile_version: 1 },
+          { task_id: 'planning-genre-lazy-0002', genre_profile_id: active.profile_id, genre_profile_version: 1 }
+        ]);
     } finally {
       await app.close();
     }
@@ -318,11 +366,18 @@ describe('V7规划正式资料快照', () => {
 });
 
 class SuccessfulPlanningResolver {
+  public genreProfileCalls = 0;
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
+    const resolver = this;
     return {
       provider,
       modelId,
       async generate(request: ModelRequest): Promise<ModelResult> {
+        const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+        if (genreProfile !== null) {
+          resolver.genreProfileCalls += 1;
+          return genreProfile;
+        }
         return {
           provider, modelId, output: JSON.stringify({ requestId: request.requestId, ok: true }),
           inputTokens: 10, outputTokens: 5, cashCostCny: 0, state: 'succeeded'
@@ -333,10 +388,14 @@ class SuccessfulPlanningResolver {
 }
 
 class FailingPlanningResolver {
-  public resolve(_provider: string, _modelId: string, _purpose: ModelPurpose): ModelAdapter {
+  public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return {
       provider: 'failing-provider', modelId: 'failing-model',
-      async generate(): Promise<ModelResult> { throw new Error('模拟规划失败'); }
+      async generate(request: ModelRequest): Promise<ModelResult> {
+        const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+        if (genreProfile !== null) return genreProfile;
+        throw new Error('模拟规划失败');
+      }
     };
   }
 }

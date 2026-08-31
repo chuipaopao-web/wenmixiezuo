@@ -49,6 +49,20 @@ describe('V7统一任务中心', () => {
     expect(screen.getByText(/任务已停止，已经完成的内容仍然保留/u)).toBeVisible();
   });
 
+  it('全书路线失败时先道歉，同时保留已有结果说明和恢复入口', async () => {
+    const openPlanning = vi.fn();
+    mockedOpening.fetchPlanningTasks.mockResolvedValue([{
+      ...planningTask(), status: 'failed', message: '当前进度已经保存。',
+      memberKey: 'deputy-glm-5-3', memberName: '西施', canStop: false
+    }]);
+    render(<TaskLogPage onOpenTask={vi.fn()} onOpenBook={vi.fn()} onOpenPlanning={openPlanning} />);
+
+    expect(await screen.findByText('🙇 西施：对不起，这次没有完成。当前进度已经保存。')).toBeVisible();
+    expect(screen.getByText('本轮未完成')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /继续处理/u }));
+    expect(openPlanning).toHaveBeenCalledWith('book-1');
+  });
+
   it('已完成任务不沿用成员的旧工作中快照，并按全局身份合并重复工位', async () => {
     mockedOpening.fetchPlanningTasks.mockResolvedValue([]);
     mockedCreation.fetchCreationTasks.mockResolvedValue([completedCreationTask()]);

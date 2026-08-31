@@ -197,7 +197,8 @@ export const FEATURE_CAPABILITIES: FeatureCapabilityDefinition[] = [
   ...currentModule('feature-governance', '当前功能台账', 'admin', '独立后台 → 功能台账', [
     'apps/api/src/application/admin/v7-feature-capability-registry.ts',
     'coauthoring-v7/admin-console/src/FeatureCapabilitiesPage.tsx',
-    'scripts/quality/verify-v7-capability-cutover.ts'
+    'scripts/quality/verify-v7-capability-cutover.ts',
+    'scripts/quality/verify-v7-runtime-source-closure.ts'
   ], [
     ['capability-registry', 'V7 功能台账', '只登记当前已部署且有真实证据的能力。'],
     ['capability-filter', '台账筛选', '按界面、模块、状态和关键词筛选。'],

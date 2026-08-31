@@ -74,8 +74,8 @@ V7作者规划采用三棵相互引用、但不复制下层全文的竖向综合
 
 - `volume_plans`及版本表：活动卷纲、候选、模板实例与版本/哈希快照、作者输入、上游依赖和历史切换。
 - `story_events`及版本表：卷内事件链、顺序、进入状态、因果触发、选择与代价、结果、结束钩子、下一事件接口、事件卡和事件大纲。
-- 叙事模板注册表由后端统一版本化发布；活动规划只保存不可变模板引用与节拍快照，不依赖前端硬编码，也不允许规则更新原地改变旧规划。
-- 模板推荐信号是按当前 `owner_id + book_id` 即时编译的非权威排序输入，来源限于开书资料、活动卷和最近真实卷结算，不写入正史。
+- 当前V7方法资产由后端方法库和不可变提示资产版本统一管理；规划Agent按任务检索少量候选，生成方法配方与白话责任，活动规划保存确认配方、来源快照和精确版本，不依赖前端硬编码，也不允许资产更新原地改变旧规划。
+- 方法检索与推荐是按当前 `owner_id + book_id` 编译的非权威输入，结果和采用理由记录在V7规划检索、配方与PromptManifest账本中；它不能写入正史，也不能把完整方法教材或无关上层全文塞入下游资料包。
 - `event_chapter_outlines`及版本表：当前事件章链、章节详细章纲、预计字数和上游版本引用。
 - `book_storyline_topology_versions`、`storylines`/`storyline_versions`、`storyline_relations`、`storyline_volume_participations`：全书故事线拓扑、各线不可变版本、线间关系及逐卷参与责任。
 - `character_cards`/`character_card_versions`、`character_storyline_links`、`event_role_assignments`：正式角色卡版本、角色与故事线关联及事件功能到角色的可追溯绑定。

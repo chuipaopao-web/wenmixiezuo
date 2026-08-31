@@ -4,6 +4,7 @@ import {
   validateOpeningBlueprint,
   type OpeningBlueprintInput
 } from '../../apps/api/src/contracts/opening-blueprint.js';
+import { OPENING_TAG_GROUPS } from '../../apps/api/src/contracts/opening-tag-library.js';
 
 function validBlueprint(): OpeningBlueprintInput {
   return {
@@ -39,6 +40,19 @@ function validBlueprint(): OpeningBlueprintInput {
 }
 
 describe('完整开书分类与资料合同', () => {
+  it('标签在同泳道、跨泳道都不重复，也不冒充题材', () => {
+    const lanes = ['mainTags', 'auxiliaryTags', 'storyTraits'] as const;
+    const subjectNames = new Set(OPENING_TAXONOMY.subjects.map((subject) => subject.name));
+    const allTags: string[] = [];
+    for (const lane of lanes) {
+      const laneTags = OPENING_TAG_GROUPS.flatMap((group) => group[lane]);
+      expect(new Set(laneTags).size).toBe(laneTags.length);
+      expect(laneTags.filter((tag) => subjectNames.has(tag))).toEqual([]);
+      allTags.push(...laneTags);
+    }
+    expect(new Set(allTags).size).toBe(allTags.length);
+  });
+
   it('按男频女频提供版本化番茄式分类且分类键唯一', () => {
     expect(OPENING_TAXONOMY.version).toMatch(/^wenmi-single-category-subject-library-/u);
     expect(OPENING_TAXONOMY.categories.some((item) => item.channel === 'male' && item.name === '玄幻脑洞')).toBe(true);

@@ -5,7 +5,7 @@ import {
   type V7CreationMemberDefinition,
   type V7WorkstationKey
 } from '@wenmi/v7-backend';
-import type { Clock } from '../../domain/ids.js';
+import { UuidGenerator, type Clock } from '../../domain/ids.js';
 import { V7CreationRuntimeRepository } from '../db/repositories/v7-creation-runtime-repository.js';
 import { assertMembershipAllowsGeneration } from '../security/membership-service.js';
 import type { ModelAdapter } from './model-adapter.js';
@@ -15,6 +15,10 @@ import { thinkingTokenAllowance } from './model-runtime-config.js';
 import { resolveV7TaskPolicy } from '../../application/agents/v7-agent-runtime-policy.js';
 import { compileV7RuntimePrompt } from '../../application/agents/v7-runtime-prompt-compiler.js';
 import { V7PromptGovernanceRepository } from '../db/repositories/v7-prompt-governance-repository.js';
+import {
+  V7BookGenreProfileEnsureError,
+  V7BookGenreProfileEnsureService
+} from '../../application/agents/v7-book-genre-profile-ensure-service.js';
 
 export interface V7CreationModelAdapterResolver {
   resolve(provider: string, modelId: string, purpose: ModelPurpose): ModelAdapter;
@@ -60,6 +64,7 @@ export class V7CreationModelError extends Error {
 export class V7CreationModelGateway {
   private readonly repository: V7CreationRuntimeRepository;
   private readonly activeCalls = new Map<string, Map<string, AbortController>>();
+  private readonly genreProfiles: V7BookGenreProfileEnsureService;
 
   public constructor(
     private readonly database: DatabaseSync,
@@ -67,6 +72,7 @@ export class V7CreationModelGateway {
     private readonly clock: Clock
   ) {
     this.repository = new V7CreationRuntimeRepository(database);
+    this.genreProfiles = new V7BookGenreProfileEnsureService(database, adapters, new UuidGenerator(), clock);
   }
 
   public cancelWorkflow(workflowId: string): void {
@@ -130,6 +136,15 @@ export class V7CreationModelGateway {
     const now = this.clock.now().toISOString();
     const promptGovernance = new V7PromptGovernanceRepository(this.database);
     promptGovernance.ensureSourceRegistrySeeded(now);
+    let genreProfile;
+    try {
+      genreProfile = await this.genreProfiles.ensure(request.ownerId, request.bookId);
+    } catch (error) {
+      throw new V7CreationModelError(
+        error instanceof Error ? error.message : '题材工作档案没有准备完成',
+        error instanceof V7BookGenreProfileEnsureError && error.outcomeUnknown
+      );
+    }
     const compiled = compileV7RuntimePrompt({
       requestId: request.requestId,
       ownerId: request.ownerId,
@@ -149,7 +164,7 @@ export class V7CreationModelGateway {
       // snapshot for historical creation tasks without fine-grained evidence.
       sourceTraces: request.sourceTraces,
       promptAssets: promptGovernance.publishedAssets(),
-      genreProfile: promptGovernance.activeBookGenreProfile(request.ownerId, request.bookId),
+      genreProfile,
       governanceRevision: promptGovernance.summary().revision,
       temperature: runtimePolicy.temperature,
       createdAt: now

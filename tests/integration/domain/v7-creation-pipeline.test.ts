@@ -11,6 +11,7 @@ import { V7CreationRuntimeRepository } from '../../../apps/api/src/infrastructur
 import { V7PlanningTreeService } from '../../../apps/api/src/application/planning/v7-planning-tree-service.js';
 import { createServer } from '../../../apps/api/src/http/v7-server.js';
 import { FixedClock, SequenceIds, createTestContext, type TestContext } from '../../helpers/test-context.js';
+import { v7GenreProfileFixtureResult } from '../../helpers/v7-genre-profile-model-fixture.js';
 
 const HEADERS = {
   host: '127.0.0.1:43111', origin: 'http://127.0.0.1:43110',
@@ -910,7 +911,9 @@ describe('V7全链路创作总线', () => {
 
   it('作者停止托管任务时生成幂等收据并保留已完成记录', async () => {
     context = createTestContext('wenmi-v7-creation-cancel-');
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, {
+      v7OpeningModelAdapters: new CreationResolver()
+    });
     try {
       const cookie = await register(app, 'creation-cancel@example.com', '停止任务作者');
       const bookId = await createBook(app, cookie, '停止任务测试书', 'creation-book-cancel-0001');
@@ -962,7 +965,9 @@ describe('V7全链路创作总线', () => {
 
   it('停止未完成子链后可以从已完成父链重新开始该链', async () => {
     context = createTestContext('wenmi-v7-creation-resume-cancelled-chain-');
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, {
+      v7OpeningModelAdapters: new CreationResolver()
+    });
     try {
       const cookie = await register(app, 'creation-resume-chain@example.com', '续写单元链作者');
       const bookId = await createBook(app, cookie, '停止后续写测试书', 'creation-book-resume-chain-0001');
@@ -1020,7 +1025,9 @@ describe('V7全链路创作总线', () => {
 
   it('正文结果未知时只允许作者明确换一名主笔后恢复，不自动重复原成员', async () => {
     context = createTestContext('wenmi-v7-creation-unknown-writer-recovery-');
-    const app = await createServer(context.config, context.database);
+    const app = await createServer(context.config, context.database, {
+      v7OpeningModelAdapters: new CreationResolver()
+    });
     try {
       const cookie = await register(app, 'creation-unknown-writer@example.com', '未知正文恢复作者');
       const bookId = await createBook(app, cookie, '未知正文恢复测试书', 'creation-book-unknown-writer-0001');
@@ -1117,6 +1124,8 @@ class BlockingCreationResolver implements V7OpeningModelAdapterResolver {
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest, signal?: AbortSignal): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.startedGate();
       await Promise.race([
         this.gate,
@@ -1137,6 +1146,8 @@ class BlockingCreationResolver implements V7OpeningModelAdapterResolver {
 class GlmPlanningFailureResolver implements V7OpeningModelAdapterResolver {
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const prompt = stageTaskPrompt(request.prompt);
       if (modelId === 'glm-5.3' && prompt.includes('规划编剧')) {
         throw new ModelAdapterError('GLM本轮没有形成可见方案', 'technical_failure', true);
@@ -1154,6 +1165,8 @@ class RewriteOnceReviewResolver implements V7OpeningModelAdapterResolver {
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const prompt = stageTaskPrompt(request.prompt);
       if (prompt.includes('比较已经独立保存的方案') && this.rewriteReviewsRemaining > 0) {
         this.rewriteReviewsRemaining -= 1;
@@ -1194,6 +1207,8 @@ class CreationResolver implements V7OpeningModelAdapterResolver {
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
     return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       const stagePrompt = stageTaskPrompt(request.prompt);
       this.prompts.push(stagePrompt);
       if (this.alwaysFailPromptPart !== null
@@ -1254,7 +1269,9 @@ class UnknownResolver implements V7OpeningModelAdapterResolver {
   public calls = 0;
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       throw new ModelAdapterError('连接中断，结果还不能确认', 'technical_failure', true, undefined, true);
     } };
@@ -1265,7 +1282,9 @@ class LineageResolver implements V7OpeningModelAdapterResolver {
   public calls = 0;
 
   public resolve(provider: string, modelId: string, _purpose: ModelPurpose): ModelAdapter {
-    return { provider, modelId, generate: async (): Promise<ModelResult> => {
+    return { provider, modelId, generate: async (request: ModelRequest): Promise<ModelResult> => {
+      const genreProfile = v7GenreProfileFixtureResult(provider, modelId, request);
+      if (genreProfile !== null) return genreProfile;
       this.calls += 1;
       return {
         provider, modelId, output: 'lineage-ok', inputTokens: 12, outputTokens: 3,
